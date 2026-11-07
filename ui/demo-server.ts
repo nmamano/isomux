@@ -743,6 +743,8 @@ function seedOffice() {
       sessionSwapping: false,
       turnMemberIds: [],
       subscriptionUsage: backend.subscription ? demoSubscriptionUsage() : null,
+      // Both sign-ins, so the demo shows the office tint beside the plain ring.
+      signIn: char.desk % 2 === 0 ? "individual" : "office",
       contextUsage: demoContextUsage(char.desk, char.modelFamily),
       backgroundTasks: DEMO_BACKGROUND[char.name] ?? null,
     });

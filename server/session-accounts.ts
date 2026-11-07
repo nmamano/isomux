@@ -105,6 +105,8 @@ export interface SessionAccountsDeps {
   ) => string;
   limitResumeClock: LimitResumeClock;
   providerFallback: ManagerDeps["providerFallback"];
+  // Puts the sign-in on the agent's info (server/usage-readings.ts).
+  refreshSignIn: (managed: ManagedAgent) => void;
   fallbackOfficeAccount: ManagerDeps["fallbackOfficeAccount"];
   // After the switch installs the new process: what its close carried (an
   // environment change, ended background work) reaches the agent.
@@ -589,6 +591,11 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
           ? { family: stop.family }
           : {}),
       });
+      // Her agents on this engine with no live session start their next
+      // turn on the office sign-in from now on.
+      for (const other of agents.values())
+        if (other.info.userId === userId && other.info.agentType === provider)
+          deps.refreshSignIn(other);
       managed.turnFlags.limitStopFallback = true;
       return today;
     }

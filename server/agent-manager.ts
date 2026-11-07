@@ -892,6 +892,7 @@ export function createAgentManager(deps: ManagerDeps) {
     refreshSubscriptionUsage,
     getAgentSubscriptionUsage,
     getAgentContextUsage,
+    refreshSignIn,
   } = createUsageReadings({
     agents,
     officeState,
@@ -992,6 +993,7 @@ export function createAgentManager(deps: ManagerDeps) {
     refreshLimitedClaudeFamilies,
   } = createSessionAccounts({
     agents,
+    refreshSignIn,
     officeState,
     emit,
     addLogEntry,
@@ -1086,6 +1088,10 @@ export function createAgentManager(deps: ManagerDeps) {
     requestFlush,
     getConsumerDrainTimeoutMs: () => consumerDrainTimeoutMs,
     logger: console,
+    // The next session may start on another sign-in than the closed one.
+    released: (managed) => {
+      refreshSignIn(managed);
+    },
   };
   const logCache = new Map<string, LogEntry[]>(); // agentId → entries
   // Agents mid-way through a live fixed-cwd-backend change. The old session is
@@ -1115,6 +1121,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // restore (server/agent-restore.ts). Built as early as its deps exist.
   const { restoreOrReviveAgent, restoreAgents } = createAgentRestore({
     agents,
+    refreshSignIn,
     officeState,
     getBackend,
     emit,
@@ -1169,6 +1176,9 @@ export function createAgentManager(deps: ManagerDeps) {
     // Same story for the subscription-allowance reading: in-memory only, and
     // refreshed on the same high-frequency events.
     "subscriptionUsage",
+    // Derived from the account at each launch, read and release; boot
+    // recomputes it.
+    "signIn",
     // Pure runtime field: not in the persisted shape, and restore overrides it
     // (everyone lazy-restores dormant regardless). Without this, every dormant
     // toggle - demote, wake, swap, and now every lazy spawn + /clear release -
@@ -4504,7 +4514,10 @@ export function createAgentManager(deps: ManagerDeps) {
       // The next session may run on another account; a live one moves at
       // its release.
       managed.idleUsageKey = undefined;
-      if (!managed.sessionManager.session) syncUsageKey(managed);
+      if (!managed.sessionManager.session) {
+        syncUsageKey(managed);
+        refreshSignIn(managed);
+      }
       if (managed.ptySidecar) {
         managed.ptyEnvStale = true;
         terminalStatus(agentId);
@@ -5141,6 +5154,7 @@ export function createAgentManager(deps: ManagerDeps) {
       env ?? getAgentHost().baseEnv(),
     );
     syncUsageKey(managed, managed.launchedUsageKey);
+    refreshSignIn(managed);
     // The boundary callback is bound to the session it is created with, so a
     // hook still firing in a closed or replaced session cannot claim the queue
     // of the session that replaced it.
@@ -5387,8 +5401,10 @@ export function createAgentManager(deps: ManagerDeps) {
     if (cwdError === null) info.dormant = true;
 
     for (const event of events) emit(event);
-    // A new agent shows the latest reading of its account at once.
+    // A new agent shows the latest reading of its account, and its sign-in,
+    // at once.
     syncUsageKey(managed);
+    refreshSignIn(managed);
     // Send commands immediately so autocomplete works before SDK init
     emit({
       type: "slash_commands",

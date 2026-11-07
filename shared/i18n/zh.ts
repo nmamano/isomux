@@ -2508,6 +2508,8 @@ App 的一些原则：
   "panels.editor.openFailed": "打开失败",
   "subscription.plan": "套餐：{plan}",
   "subscription.caveat": "此用量适用于整个账户，而非单个智能体。",
+  "subscription.signIn.individual": "使用其成员的个人登录。",
+  "subscription.signIn.office": "使用办公室通用登录。",
   "subscription.chooserHint": "数字所跟踪的限额：",
   "subscription.autoChoice": "自动（最受限制的限额）",
   "subscription.unknown":

@@ -2732,6 +2732,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "panels.editor.openFailed": "failed to open",
   "subscription.plan": "Plan: {plan}",
   "subscription.caveat": "This is account-wide, not per agent.",
+  "subscription.signIn.individual": "Runs on its member's individual sign-in.",
+  "subscription.signIn.office": "Runs on the office sign-in.",
   "subscription.chooserHint": "Which limit the number tracks:",
   "subscription.autoChoice": "Auto (most constrained)",
   "subscription.unknown":

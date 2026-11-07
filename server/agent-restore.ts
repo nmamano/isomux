@@ -97,6 +97,8 @@ export interface AgentRestoreDeps {
   officeState: OfficeState;
   getBackend: ManagerDeps["resolveBackend"];
   emit: (event: AgentEvent) => void;
+  // Puts the sign-in on the agent's info (server/usage-readings.ts).
+  refreshSignIn: (managed: ManagedAgent) => void;
   addLogEntry: (
     agentId: string,
     kind: LogEntry["kind"],
@@ -510,6 +512,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     // revoked when the agent leaves the map (kill, or the revive rollback). The
     // persisted privileged flag stamps the token's capability set.
     mintAgentToken(p.id, tokenUserIdFor(info), accessGrantOf(p));
+    // Worked out again, never carried over: the sign-in may have changed
+    // while the server was down.
+    deps.refreshSignIn(managed);
     if (p.lastSessionId && droppedState)
       noteUnresumableSession(p.id, agentType, p.lastSessionId, droppedState);
 

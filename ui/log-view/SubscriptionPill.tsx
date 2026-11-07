@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { SubscriptionUsageWire } from "../../shared/types.ts";
+import type { SignIn } from "../../shared/contract-shapes.ts";
 import { bandColor } from "./ContextBattery.tsx";
 import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
@@ -29,6 +30,11 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 // trap.
 // The color bands are shared with the battery on purpose (bandColor: < 50 dim,
 // 50-74 orange, >= 75 red), keyed off the used percentage.
+//
+// It also says which sign-in the agent runs on: a line in the popover and the
+// hover title, and on the office sign-in the band color tinted toward the
+// accent, so the bands keep their meaning and the two sign-ins still differ
+// at a glance.
 
 // Circle geometry for the ring gauge, in the 24x24 viewBox.
 const RING_RADIUS = 9;
@@ -148,6 +154,7 @@ export function resolveTrackedWindow(
 
 export function SubscriptionPill({
   usage,
+  signIn,
   agentId,
   provider,
   isMobile,
@@ -156,6 +163,9 @@ export function SubscriptionPill({
   // reported yet, or the server restarted). The pill still renders, in the
   // ghost-colored "?" state - see the file header.
   usage: SubscriptionUsageWire | null | undefined;
+  // The sign-in the agent runs on; undefined when the server has not said,
+  // and then the pill says nothing about it.
+  signIn?: SignIn;
   // Both are the pin's storage key - see getUsagePin. `provider` is the
   // agent's engine, so a pin never crosses from one provider's windows to
   // another's.
@@ -231,7 +241,11 @@ export function SubscriptionPill({
     ? Math.max(0, Math.min(100, headline.usedPercent))
     : 0;
   const used = Math.round(rawUsed);
-  const color = reading ? bandColor(rawUsed) : "var(--text-ghost)";
+  const band = reading ? bandColor(rawUsed) : "var(--text-ghost)";
+  const color =
+    signIn === "office"
+      ? `color-mix(in srgb, ${band} 70%, var(--accent-text))`
+      : band;
   const dash = (RING_CIRCUMFERENCE * rawUsed) / 100;
   // "?" is plain ASCII on purpose - no iOS auto-emoji risk (unlike ？/⍰), same
   // rule the battery's unknown label follows.
@@ -248,6 +262,12 @@ export function SubscriptionPill({
     ? t("subscription.plan", { plan: reading.plan })
     : null;
   const caveat = t("subscription.caveat");
+  const signInLine =
+    signIn === "office"
+      ? t("subscription.signIn.office")
+      : signIn === "individual"
+        ? t("subscription.signIn.individual")
+        : null;
   // Both lists stay in display order. What identifies the window behind the
   // number is the popover's bullet + bold on that row and the button's
   // accessible name ("5-hour plan allowance 95% used"), NOT position.
@@ -267,9 +287,13 @@ export function SubscriptionPill({
           age: formatTimeUntil(i18n, coords.atMs - reading.observedAtMs),
         })
       : null;
-  const tooltip = reading
-    ? [...(planLine ? [planLine] : []), ...hoverLines, caveat].join("\n")
-    : t("subscription.unknown");
+  const tooltip = (
+    reading
+      ? [planLine, signInLine, ...hoverLines, caveat]
+      : [t("subscription.unknown"), signInLine]
+  )
+    .filter((line): line is string => line !== null)
+    .join("\n");
 
   const toggle = () => {
     const next = !open;
@@ -310,6 +334,7 @@ export function SubscriptionPill({
         aria-expanded={popoverOpen}
         aria-controls={popoverOpen ? popoverId : undefined}
         data-testid="subscription-pill"
+        data-sign-in={signIn}
         style={{
           display: "inline-flex",
           flexDirection: "column",
@@ -417,6 +442,7 @@ export function SubscriptionPill({
           {reading && tracked ? (
             <>
               {planLine && <div>{planLine}</div>}
+              {signInLine && <div>{signInLine}</div>}
               <div style={{ marginTop: 4, color: "var(--text-dim)" }}>
                 {t("subscription.chooserHint")}
               </div>
@@ -447,7 +473,10 @@ export function SubscriptionPill({
               </div>
             </>
           ) : (
-            t("subscription.unknown")
+            <>
+              {t("subscription.unknown")}
+              {signInLine && <div style={{ marginTop: 6 }}>{signInLine}</div>}
+            </>
           )}
         </div>
       )}

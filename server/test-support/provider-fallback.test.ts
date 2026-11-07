@@ -53,6 +53,7 @@ import {
   type FakeSession,
 } from "./fake-backend.ts";
 import type { EventHandler } from "../internal-types.ts";
+import type { SignIn } from "../../shared/contract-shapes.ts";
 import {
   DEFAULT_AGENT_CAPABILITIES,
   type AgentCapabilities,
@@ -198,6 +199,8 @@ interface Harness {
   fake: FakeBackend;
   office: Office;
   logs: LogEntry[];
+  // Each agent_updated that carries signIn, in order.
+  signIns: { agentId: string; signIn: SignIn | undefined }[];
 }
 
 function makeHarness(
@@ -216,9 +219,17 @@ function makeHarness(
     ...(opts.oneShot !== undefined ? { oneShot: opts.oneShot } : {}),
   });
   const logs: LogEntry[] = [];
+  const signIns: Harness["signIns"] = [];
   const sink: EventHandler = (e) => {
-    const ev = e as { type?: string; entry?: LogEntry };
+    const ev = e as {
+      type?: string;
+      entry?: LogEntry;
+      agentId?: string;
+      changes?: Partial<AgentInfo>;
+    };
     if (ev.type === "log_entry" && ev.entry) logs.push(ev.entry);
+    if (ev.type === "agent_updated" && ev.changes && "signIn" in ev.changes)
+      signIns.push({ agentId: ev.agentId!, signIn: ev.changes.signIn });
   };
   const mgr = createAgentManager({
     resolveBackend: () => fake,
@@ -239,7 +250,7 @@ function makeHarness(
   });
   mgr.configureAgentTurnDeps();
   activeFakes.push(fake);
-  return { mgr, fake, office, logs };
+  return { mgr, fake, office, logs, signIns };
 }
 
 async function spawn(
@@ -1494,6 +1505,53 @@ describe("the sign-in an agent runs on", () => {
     return sentWith(h, id, text)!;
   }
 
+  // The continue on the office sign-in is refused by the member usage cap,
+  // so the notice armed by the move waits for the next send.
+  function refuseOffice(): void {
+    setMemberUsageCapForTests(
+      createMemberUsageCap({
+        reader: {
+          async read() {
+            return {
+              kind: "weekly",
+              usedPercent: 99,
+              resetsAtMs: Date.now() + WEEK_MS / 2,
+              observedAtMs: Date.now(),
+            };
+          },
+          invalidate() {},
+          close() {},
+        },
+        officeDir: (provider) => officeDir(provider),
+        load: () => true,
+        save: () => {},
+        loadShare: () => 80,
+        saveShare: () => {},
+      }),
+    );
+  }
+  async function movedButNotSent(h: Harness): Promise<string> {
+    refuseOffice();
+    const info = await spawn(h);
+    const s = await memberTurn(h, info.id, "work");
+    stopTurn(s, "claude", { resetsAtMs: h.office.clock.now() + HOUR });
+    await waitUntil(
+      () => lines(h, info.id, TO_OFFICE).length === 1,
+      "moved to the office",
+    );
+    await waitUntil(
+      () => h.logs.some((e) => e.agentId === info.id && e.kind === "error"),
+      "the cap refused the continue",
+    );
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest",
+    );
+    expect(continuesTo(h, info.id)).toBe(0);
+    setMemberUsageCapForTests(null);
+    return info.id;
+  }
+
   describe("the reading", () => {
     for (const engine of ["claude", "codex"] as const) {
       it(`${engine}: her own sign-in, the office's after the stop, and her own again after the reset`, async () => {
@@ -1696,53 +1754,6 @@ describe("the sign-in an agent runs on", () => {
       });
     }
 
-    // The continue on the office sign-in is refused by the member usage cap,
-    // so the notice armed by the move waits for the next send.
-    function refuseOffice(): void {
-      setMemberUsageCapForTests(
-        createMemberUsageCap({
-          reader: {
-            async read() {
-              return {
-                kind: "weekly",
-                usedPercent: 99,
-                resetsAtMs: Date.now() + WEEK_MS / 2,
-                observedAtMs: Date.now(),
-              };
-            },
-            invalidate() {},
-            close() {},
-          },
-          officeDir: (provider) => officeDir(provider),
-          load: () => true,
-          save: () => {},
-          loadShare: () => 80,
-          saveShare: () => {},
-        }),
-      );
-    }
-    async function movedButNotSent(h: Harness): Promise<string> {
-      refuseOffice();
-      const info = await spawn(h);
-      const s = await memberTurn(h, info.id, "work");
-      stopTurn(s, "claude", { resetsAtMs: h.office.clock.now() + HOUR });
-      await waitUntil(
-        () => lines(h, info.id, TO_OFFICE).length === 1,
-        "moved to the office",
-      );
-      await waitUntil(
-        () => h.logs.some((e) => e.agentId === info.id && e.kind === "error"),
-        "the cap refused the continue",
-      );
-      await waitUntil(
-        () => stateOf(h, info.id) === "waiting_for_response",
-        "at rest",
-      );
-      expect(continuesTo(h, info.id)).toBe(0);
-      setMemberUsageCapForTests(null);
-      return info.id;
-    }
-
     it("a notice not yet sent is withdrawn when the agent moves back first", async () => {
       const h = makeHarness();
       const id = await movedButNotSent(h);
@@ -1764,6 +1775,141 @@ describe("the sign-in an agent runs on", () => {
       expect(blocksIn(fresh)).toHaveLength(1);
       expect(blocksIn(fresh)[0]).toContain("office");
       expect(blocksTo(h, id)).toHaveLength(1);
+    });
+  });
+
+  // The usage pill reads the sign-in from the agent's info (task a715382d).
+  // The info follows each change without a reading asked for, and an
+  // unchanged sign-in sends no update.
+  describe("on the agent's info", () => {
+    const infoOf = (h: Harness, id: string) => h.mgr.getAgent(id)?.signIn;
+    const updatesOf = (h: Harness, id: string) =>
+      h.signIns.filter((u) => u.agentId === id).map((u) => u.signIn);
+
+    for (const engine of ["claude", "codex"] as const) {
+      it(`${engine}: follows the move to the office sign-in and back, with one update per change`, async () => {
+        const h = makeHarness();
+        const info = await spawn(h, engine);
+        expect(infoOf(h, info.id)).toBe("individual");
+        const reset = h.office.clock.now() + HOUR;
+        const { after } = await toOffice(h, info.id, engine, reset);
+        expect(infoOf(h, info.id)).toBe("office");
+        await endTurn(h, info.id, after);
+
+        // Still on the office sign-in: a turn and a reading change nothing.
+        await turn(h, info.id, "again");
+        await endTurn(
+          h,
+          info.id,
+          sessionWith(h, info.id, (t) => t.endsWith("again"))!,
+        );
+        expect(await signIn(h, info.id)).toBe("office");
+
+        await h.office.clock.advance(reset - h.office.clock.now());
+        await turn(h, info.id, "later");
+        expect(infoOf(h, info.id)).toBe("individual");
+        expect(await signIn(h, info.id)).toBe("individual");
+        expect(updatesOf(h, info.id)).toEqual([
+          "individual",
+          "office",
+          "individual",
+        ]);
+      });
+
+      it(`${engine}: another agent of hers moves at its release, before anyone reads it`, async () => {
+        const h = makeHarness();
+        const b = await spawn(h, engine, { name: "B" });
+        const s = await memberTurn(h, b.id, "first", engine);
+        await endTurn(h, b.id, s);
+        const a = await spawn(h, engine, { name: "A" });
+        await toOffice(h, a.id, engine, h.office.clock.now() + HOUR);
+
+        // B's live session is still on her own sign-in.
+        expect(infoOf(h, b.id)).toBe("individual");
+        expect(await h.mgr.demoteToLazy(b.id)).toBe(true);
+        expect(infoOf(h, b.id)).toBe("office");
+        expect(await signIn(h, b.id)).toBe("office");
+        expect(updatesOf(h, b.id)).toEqual(["individual", "office"]);
+      });
+    }
+
+    // The stop of one agent moves the next turn of every agent of hers on
+    // that engine. One with no session shows it at once.
+    it("an agent of hers with no session moves when another one stops", async () => {
+      const h = makeHarness();
+      const b = await spawn(h, "claude", { name: "B" });
+      const s = await memberTurn(h, b.id, "first");
+      await endTurn(h, b.id, s);
+      expect(await h.mgr.demoteToLazy(b.id)).toBe(true);
+      expect(infoOf(h, b.id)).toBe("individual");
+      const a = await spawn(h, "claude", { name: "A" });
+      await toOffice(h, a.id, "claude", h.office.clock.now() + HOUR);
+      expect(infoOf(h, b.id)).toBe("office");
+      expect(await signIn(h, b.id)).toBe("office");
+    });
+
+    it("another agent of hers moves when its process ends by itself", async () => {
+      const h = makeHarness();
+      const b = await spawn(h, "claude", { name: "B" });
+      const s = await memberTurn(h, b.id, "first");
+      await endTurn(h, b.id, s);
+      const a = await spawn(h, "claude", { name: "A" });
+      await toOffice(h, a.id, "claude", h.office.clock.now() + HOUR);
+      expect(infoOf(h, b.id)).toBe("individual");
+      s.endStream();
+      await waitUntil(() => infoOf(h, b.id) === "office", "B on office");
+      expect(await signIn(h, b.id)).toBe("office");
+    });
+
+    it("a sign-out of her own account moves the agent to office", async () => {
+      const h = makeHarness();
+      const info = await spawn(h);
+      expect(infoOf(h, info.id)).toBe("individual");
+      personal.claude = false;
+      h.mgr.providerAccountChanged("claude", memberDir("claude"));
+      expect(infoOf(h, info.id)).toBe("office");
+      expect(await signIn(h, info.id)).toBe("office");
+    });
+
+    it("an office key set while the agent has no session moves it to office", async () => {
+      const h = makeHarness();
+      const info = await spawn(h);
+      await turn(h, info.id, "hello");
+      await endTurn(
+        h,
+        info.id,
+        sessionWith(h, info.id, (t) => t.endsWith("hello"))!,
+      );
+      expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+      expect(infoOf(h, info.id)).toBe("individual");
+      setTestManagedOfficeEnv({
+        ...NO_CREDENTIAL,
+        ANTHROPIC_API_KEY: "office-key",
+      });
+      h.mgr.envChanged("all");
+      expect(infoOf(h, info.id)).toBe("office");
+      expect(await signIn(h, info.id)).toBe("office");
+    });
+
+    it("a move the cap stopped before the continue shows at once", async () => {
+      const h = makeHarness();
+      const id = await movedButNotSent(h);
+      expect(infoOf(h, id)).toBe("office");
+      expect(updatesOf(h, id)).toEqual(["individual", "office"]);
+      expect(await signIn(h, id)).toBe("office");
+    });
+
+    it("a restored agent has the sign-in it boots on, before anyone reads it", async () => {
+      const h1 = makeHarness();
+      const info = await spawn(h1);
+      expect(infoOf(h1, info.id)).toBe("individual");
+      // Signed out while the server was down: a value carried over from
+      // before the restart would still say individual.
+      personal.claude = false;
+      const h2 = makeHarness(h1.office, loadAgents());
+      await h2.mgr.restoreAgents();
+      expect(infoOf(h2, info.id)).toBe("office");
+      expect(await signIn(h2, info.id)).toBe("office");
     });
   });
 });

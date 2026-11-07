@@ -13,6 +13,7 @@ import type { RoomDecor } from "./room-decor.ts";
 
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
+import type { SignIn } from "./contract-shapes.ts";
 import type { RecordingWord } from "./recording-redact.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import type { WhatsAppStatus } from "./whatsapp.ts";
@@ -1000,6 +1001,11 @@ export interface AgentInfo {
   // null for the same JSON.stringify reason as contextUsage above. In-memory
   // server-side and NOT part of PersistedAgent.
   subscriptionUsage?: SubscriptionUsageWire | null;
+  // The sign-in the agent runs on: its member's own ("individual") or the
+  // office's ("office") - the same value as the subscription route's signIn
+  // (server/usage-readings.ts refreshSignIn). Absent until the server first
+  // works it out, and from an older server. In-memory, NOT in PersistedAgent.
+  signIn?: SignIn;
 }
 
 export interface Attachment {

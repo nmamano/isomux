@@ -521,6 +521,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     for (const managed of agents.values()) {
       managed.idleUsageKey = undefined;
       const key = syncUsageKey(managed);
+      refreshSignIn(managed);
       if (key === null || !usageKeyOnDirectory(key, provider, dir)) continue;
       managed.subscriptionGen++;
       clearSubscriptionUsage(managed);
@@ -586,6 +587,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     if (token.seq <= managed.subscriptionCommittedSeq) return;
     managed.subscriptionCommittedSeq = token.seq;
     const key = syncUsageKey(managed);
+    refreshSignIn(managed);
     // The agent moved to another account while the read was out.
     if (managed.subscriptionGen !== token.gen) return;
     const wire =
@@ -642,8 +644,12 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     const managed = agents.get(agentId);
     if (!managed) return { available: false, reason: "no_session" };
     const reading = await subscriptionReading(managed);
-    // Read after the refresh: the agent's sign-in as the reply leaves.
-    return { signIn: deps.signInOf(managed), ...reading };
+    // Read after the refresh: the agent's sign-in as the reply leaves. The
+    // pill gets the same value; a throw reaches the caller as before.
+    return {
+      signIn: refreshSignIn(managed) ?? deps.signInOf(managed),
+      ...reading,
+    };
   }
 
   async function subscriptionReading(
@@ -764,6 +770,31 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     };
   }
 
+  // Puts the agent's sign-in (deps.signInOf) on its AgentInfo for the usage
+  // pill, with an event only when it changed, and returns it (null when
+  // signInOf throws; the field then stays as it is). Its callers are the
+  // points where the answer can move for the agent itself: spawn, boot,
+  // launch, release, an env or account change, a reading, and the start of
+  // its member's fallback entry. Not the shared-reading fan-out: signInOf
+  // reads env files, and that runs for every agent on every sample.
+  // Known drift: a fallback entry that ends by time, or the office fallback
+  // switched off in settings, changes the answer with no call; the next
+  // launch, read or release corrects it.
+  function refreshSignIn(managed: ManagedAgent): SignIn | null {
+    let signIn: SignIn;
+    try {
+      signIn = deps.signInOf(managed);
+    } catch {
+      return null;
+    }
+    if (managed.info.signIn !== signIn)
+      for (const event of officeState.updateAgent(managed.info.id, {
+        signIn,
+      }))
+        emit(event);
+    return signIn;
+  }
+
   return {
     resetContextUsage,
     invalidateContextMeasurement,
@@ -775,5 +806,6 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     refreshSubscriptionUsage,
     getAgentSubscriptionUsage,
     getAgentContextUsage,
+    refreshSignIn,
   };
 }

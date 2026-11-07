@@ -2809,6 +2809,8 @@ Cosas que puedes hacer por él:
   "panels.editor.openFailed": "no se ha podido abrir",
   "subscription.plan": "Plan: {plan}",
   "subscription.caveat": "Esto es de toda la cuenta, no de cada agente.",
+  "subscription.signIn.individual": "Usa la sesión individual de su miembro.",
+  "subscription.signIn.office": "Usa la sesión de toda la oficina.",
   "subscription.chooserHint": "Qué límite sigue el número:",
   "subscription.autoChoice": "Automático (el más ajustado)",
   "subscription.unknown":

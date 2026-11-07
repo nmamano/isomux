@@ -241,6 +241,10 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // keeps working unchanged.
   getConsumerDrainTimeoutMs: () => number;
   logger: Pick<Console, "warn" | "error">;
+  // The slot moved to released (a close or a dead stream): what the agent's
+  // next session runs on may differ from what the closed one ran on. Must
+  // not throw.
+  released?: (host: H) => void;
 }
 
 // Upper bound on waiting for a closed session's consumer to drain. A
@@ -654,6 +658,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
           dormant: this.dormantOnWire(),
           backgroundTasks: null,
         });
+        this.deps.released?.(host);
         if (turn) {
           // Mid-turn death: settle the turn and let its OWNING caller's catch
           // (sendMessage / flushQueue) produce the normal loud error state.
@@ -821,6 +826,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     this.current = { kind: "released", reason: opts.reason };
     // The closed process takes its background work with it.
     this.emitChanges({ dormant: this.dormantOnWire(), backgroundTasks: null });
+    this.deps.released?.(host);
     if (oldConsumer) await this.drainConsumerBounded(oldConsumer);
   }
 

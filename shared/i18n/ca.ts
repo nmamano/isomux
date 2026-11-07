@@ -2816,6 +2816,9 @@ Coses que pots fer per ell:
   "panels.editor.openFailed": "no s'ha pogut obrir",
   "subscription.plan": "Pla: {plan}",
   "subscription.caveat": "Això és de tot el compte, no de cada agent.",
+  "subscription.signIn.individual":
+    "Fa servir la sessió individual del seu membre.",
+  "subscription.signIn.office": "Fa servir la sessió de tota l'oficina.",
   "subscription.chooserHint": "Quin límit segueix el número:",
   "subscription.autoChoice": "Automàtic (el més ajustat)",
   "subscription.unknown":

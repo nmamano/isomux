@@ -7,12 +7,14 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { render, within } = await import("@testing-library/react");
+const { fireEvent, render, within } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { SubscriptionPill } = await import("./SubscriptionPill.tsx");
 const { setUsagePin } = await import("../device-settings.ts");
 type SubscriptionUsageWire =
   import("../../shared/types.ts").SubscriptionUsageWire;
+type SignIn = import("../../shared/contract-shapes.ts").SignIn;
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 // Two windows whose tags are not substrings of each other, with the server's
 // pick on the second one.
@@ -96,4 +98,80 @@ describe("SubscriptionPill window tag", () => {
       missingName: taggedName,
     });
   });
+});
+
+// The pill says which sign-in the agent runs on (task a715382d): a line in
+// the popover and the hover title, and a structural hook for the office
+// shade. No line and no hook while the server has not said.
+describe("SubscriptionPill sign-in", () => {
+  const { t } = translatorFor("en");
+  const LINES = {
+    individual: t("subscription.signIn.individual"),
+    office: t("subscription.signIn.office"),
+  };
+
+  function signInPill(usage: SubscriptionUsageWire | null, signIn?: SignIn) {
+    const view = render(
+      createElement(SubscriptionPill, {
+        usage,
+        agentId: `pill-agent-${++agents}`,
+        provider: "claude",
+        ...(signIn ? { signIn } : {}),
+      }),
+    );
+    return within(view.container).getByTestId("subscription-pill");
+  }
+
+  // Which of the two lines a text holds.
+  const linesIn = (text: string) => ({
+    individual: text.includes(LINES.individual),
+    office: text.includes(LINES.office),
+  });
+
+  function popoverText(button: HTMLElement): string {
+    fireEvent.click(button);
+    const id = button.getAttribute("aria-controls");
+    expect(id).not.toBeNull();
+    return document.getElementById(id!)?.textContent ?? "";
+  }
+
+  it("has two distinct lines in the catalog", () => {
+    expect(LINES.individual).not.toBe("subscription.signIn.individual");
+    expect(LINES.office).not.toBe("subscription.signIn.office");
+    expect(LINES.individual).not.toBe(LINES.office);
+  });
+
+  for (const [state, usage] of [
+    ["with a reading", USAGE],
+    ["with no reading", null],
+  ] as const) {
+    for (const signIn of ["individual", "office"] as const) {
+      it(`${state}: names the ${signIn} sign-in in the popover and the title`, () => {
+        const button = signInPill(usage, signIn);
+        const only = {
+          individual: signIn === "individual",
+          office: signIn === "office",
+        };
+        expect({
+          hook: button.getAttribute("data-sign-in"),
+          title: linesIn(button.getAttribute("title") ?? ""),
+          popover: linesIn(popoverText(button)),
+        }).toEqual({
+          hook: signIn,
+          title: only,
+          popover: only,
+        });
+      });
+    }
+
+    it(`${state}: says nothing of the sign-in while it is not known`, () => {
+      const button = signInPill(usage);
+      const none = { individual: false, office: false };
+      expect({
+        hook: button.getAttribute("data-sign-in"),
+        title: linesIn(button.getAttribute("title") ?? ""),
+        popover: linesIn(popoverText(button)),
+      }).toEqual({ hook: null, title: none, popover: none });
+    });
+  }
 });

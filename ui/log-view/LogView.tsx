@@ -2265,6 +2265,7 @@ export function LogView({
                 // re-read for the new identity instead of being synced.
                 key={`${agent.id}:${agent.agentType}`}
                 usage={agent.subscriptionUsage}
+                signIn={agent.signIn}
                 agentId={agent.id}
                 provider={agent.agentType}
               />
@@ -2382,6 +2383,7 @@ export function LogView({
                     <SubscriptionPill
                       key={`${agent.id}:${agent.agentType}`}
                       usage={agent.subscriptionUsage}
+                      signIn={agent.signIn}
                       agentId={agent.id}
                       provider={agent.agentType}
                       isMobile
