@@ -440,7 +440,7 @@ describe("subscription usage", () => {
       session: {
         subscriptionUsage: async () => {
           calls++;
-          return reading(42, "max", [], calls === 1 ? "WK" : "WK·F");
+          return reading(42, "max", [], calls === 1 ? "WK" : "5h");
         },
         onSend: (_t, _a, s) => {
           // The first turn ends at once; the second one stays open, so only
@@ -483,13 +483,13 @@ describe("subscription usage", () => {
       calls: 2,
       state: "thinking",
     });
-    expect(tags()).toEqual(["WK", "WK·F"]);
+    expect(tags()).toEqual(["WK", "5h"]);
 
     // Same tag and number again: the mid-turn path stays quiet.
     open.session!.push(usageUpdate);
     await waitUntil(() => calls >= 3, "second mid-turn sample taken");
     await drain();
-    expect(tags()).toEqual(["WK", "WK·F"]);
+    expect(tags()).toEqual(["WK", "5h"]);
 
     open.session!.completeTurn({ text: "ok" });
     await waitUntil(

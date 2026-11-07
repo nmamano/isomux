@@ -773,8 +773,8 @@ export interface SubscriptionWindowWire {
   // Display label already resolved server-side ("Weekly", "5-hour",
   // "Weekly (Opus)"), so the UI never has to know per-backend window names.
   label: string;
-  // Short tag the pill shows beside its ring ("WK", "5h", "WK\u00b7O"), or
-  // null. Optional because a UI build goes live before the server restart that
+  // Short tag the pill shows beside its ring ("WK", "5h"), or null.
+  // Optional because a UI build goes live before the server restart that
   // sends it: a missing field shows no tag.
   shortLabel?: string | null;
   usedPercent: number;

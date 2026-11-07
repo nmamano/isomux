@@ -67,7 +67,7 @@ type SubscriptionSelfCheck = {
 | `plan` | Normalized Claude `subscription_type` or Codex `planType` | Nullable even when windows exist. Track its receipt time internally for aggregate age. |
 | `windows` | Existing provider normalization, with receipt metadata | All usable windows for the selected allowance, in adapter display order. Empty only when unavailable. No fabricated weekly row. See the scope question below. |
 | `windows[].label` | Claude fixed/model-scoped label; Codex duration-derived label | Same labels as the current adapter. Track retained duration metadata so a sparse update cannot make the label appear newly observed. |
-| `windows[].shortLabel` | Claude fixed/model-scoped tag; Codex duration-derived tag | The pill's tag (`WK`, `5h`, `WK·O`). Null for a Codex window of unknown duration; missing from a server older than the field. |
+| `windows[].shortLabel` | Claude fixed/model-scoped tag; Codex duration-derived tag | The pill's tag (`WK`, `5h`). Null for a Codex window of unknown duration; missing from a server older than the field. |
 | `windows[].usedPercent` | Provider percentage | Finite, clamped to 0–100 at the adapter and wire boundary. This is usage, not remaining allowance or a token count. |
 | `windows[].resetsAtMs` | Provider reset time converted to epoch milliseconds | Null if absent or invalid. Do not infer a reset from the window duration or polling time. |
 | `windows[].observedAtMs` | Adapter field provenance | Oldest receipt time among that window's percentage, label metadata and non-null reset. Null if any contributing field lacks provenance. |

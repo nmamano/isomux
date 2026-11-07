@@ -646,7 +646,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
       },
       {
         label: "Weekly (Opus)",
-        shortLabel: "WK·O",
+        shortLabel: "WK",
         usedPercent: 51,
         resetsAtMs: null,
       },
@@ -674,7 +674,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
       { label: "Weekly", shortLabel: "WK", usedPercent: 20, resetsAtMs: null },
       {
         label: "Weekly (Fable)",
-        shortLabel: "WK·F",
+        shortLabel: "WK",
         usedPercent: 88,
         resetsAtMs: null,
       },
@@ -744,7 +744,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
         { label: "5-hour", shortLabel: "5h", usedPercent: 8, resetsAtMs: null },
         {
           label: "Weekly (Fable)",
-          shortLabel: "WK·F",
+          shortLabel: "WK",
           usedPercent: 64,
           resetsAtMs: Date.parse("2026-09-19T19:00:00Z"),
         },
@@ -778,47 +778,44 @@ describe("normalizeClaudeSubscriptionUsage", () => {
     expect(out.windows).toEqual([
       {
         label: "Weekly (Fable)",
-        shortLabel: "WK·F",
+        shortLabel: "WK",
         usedPercent: 43,
         resetsAtMs: null,
       },
       {
         label: "Weekly (Sonnet)",
-        shortLabel: "WK·S",
+        shortLabel: "WK",
         usedPercent: 12,
         resetsAtMs: null,
       },
     ]);
   });
 
-  // The pill shows shortLabel beside its ring. A per-model weekly tag comes
-  // from the model name, the same way for a fixed row and a server-named row,
-  // so one model never reads as two limits and never as the plain weekly.
-  it("tags a per-model weekly window by the model name's first character, uppercased", () => {
+  // The pill shows shortLabel beside its ring. Nil's call at sign-off: every
+  // weekly window is tagged WK, with no model letter; the popover label
+  // still names the model.
+  it("tags a per-model weekly window WK, whatever its source", () => {
     const out = usageOf({
       rate_limits_available: true,
       rate_limits: {
         seven_day_sonnet: { utilization: 10, resets_at: null },
         model_scoped: [
-          { display_name: "Sonnet", utilization: 20, resets_at: null },
-          { display_name: "fable", utilization: 30, resets_at: null },
+          { display_name: "Fable", utilization: 30, resets_at: null },
         ],
         limits: [
           {
             kind: "weekly_scoped",
             percent: 40,
             resets_at: null,
-            // An astral first character stays one whole character.
-            scope: { model: { display_name: "\u{1D509}able" } },
+            scope: { model: { display_name: "Opus" } },
           },
         ],
       },
     });
     expect(out.windows.map((w) => [w.label, w.shortLabel])).toEqual([
-      ["Weekly (Sonnet)", "WK·S"],
-      ["Weekly (Sonnet)", "WK·S"],
-      ["Weekly (fable)", "WK·F"],
-      ["Weekly (\u{1D509}able)", "WK·\u{1D509}"],
+      ["Weekly (Sonnet)", "WK"],
+      ["Weekly (Fable)", "WK"],
+      ["Weekly (Opus)", "WK"],
     ]);
   });
 
@@ -846,7 +843,7 @@ describe("normalizeClaudeSubscriptionUsage", () => {
     expect(out.windows).toEqual([
       {
         label: "Weekly (Fable)",
-        shortLabel: "WK·F",
+        shortLabel: "WK",
         usedPercent: 64,
         resetsAtMs: null,
       },
