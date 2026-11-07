@@ -414,18 +414,19 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
   wsBySession.delete(sessionIdHash);
 }
 
-// Sign-in link acceptance window. 24h, fixed for owner-issued links
+// Sign-in link acceptance window. 3 days, fixed for owner-issued links
 // (invites.mint). Link URLs are bearer tokens; the shorter the acceptance
 // window, the smaller the exposure in browser history, the delivery channel,
-// and disk-restorable backups. 24h covers every realistic delivery-to-click
-// scenario; if a link expires, the owner mints a fresh one.
-export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+// and disk-restorable backups. Owners send links that the recipient often
+// opens a day or two later, and 24h expired too many of them; if a link
+// expires, the owner mints a fresh one.
+export const INVITE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 // Member self-invite (invites.mintSelf) is deliberately tighter than
-// the standard 24h. The use case is "I'm at my laptop, I want to add
+// the standard 3 days. The use case is "I'm at my laptop, I want to add
 // my phone right now" - both devices are physically with the member
 // and the link is intended to be clicked within seconds. A 1h window
 // is more than enough for the legitimate flow and shrinks the
-// bearer-URL exposure window by 24x compared to the standard TTL.
+// bearer-URL exposure window by 72x compared to the standard TTL.
 export const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
 
 // A sign-in link always targets a member that already exists: accepting it

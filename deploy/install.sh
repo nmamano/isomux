@@ -4862,7 +4862,7 @@ configure_public_access() {
   fi
 }
 
-# Mint the single-use owner invite link the customer signs in with (24h TTL).
+# Mint the single-use owner invite link the customer signs in with (3-day TTL).
 mint_invite() {
   step mint-invite
   if [[ -n $DRY_RUN ]]; then
@@ -5549,7 +5549,7 @@ report() {
   if output_is_watched; then
     log "  Owner invite: $INVITE_URL"
     log ""
-    log "The invite link is single-use and valid for 24 hours; opening it"
+    log "The invite link is single-use and valid for 3 days; opening it"
     log "signs you in as \"$RESOLVED_OWNER_NAME\" (changeable later). It is"
     log "also saved on this server at $INVITE_FILE, readable only by root."
   else
@@ -5560,7 +5560,7 @@ report() {
     log ""
     log "  cat $INVITE_FILE"
     log ""
-    log "The link is single-use and valid for 24 hours; opening it signs you"
+    log "The link is single-use and valid for 3 days; opening it signs you"
     log "in as \"$RESOLVED_OWNER_NAME\" (changeable later)."
   fi
   log "To mint a fresh one, re-run this installer."

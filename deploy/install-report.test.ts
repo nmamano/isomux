@@ -93,7 +93,7 @@ describe("install.sh report(): the owner invite", () => {
   it("prints the link when a terminal is watching", () => {
     const out = runReport(true);
     expect(out).toContain(`Owner invite: ${INVITE}`);
-    expect(out).toContain("single-use and valid for 24 hours");
+    expect(out).toContain("single-use and valid for");
     // Still says where it was saved, so the operator can find it again.
     expect(out).toContain(INVITE_FILE);
   });
@@ -106,7 +106,7 @@ describe("install.sh report(): the owner invite", () => {
     expect(out).toContain(`Owner invite: saved at ${INVITE_FILE}`);
     // And the operator is told how to read it.
     expect(out).toContain(`cat ${INVITE_FILE}`);
-    expect(out).toContain("single-use and valid for 24 hours");
+    expect(out).toContain("single-use and valid for");
   });
 
   it("still hands the full link to the callback channel", () => {

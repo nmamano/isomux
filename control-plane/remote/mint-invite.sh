@@ -2,7 +2,7 @@
 # Mint an owner invite on demand, and print nothing else.
 #
 # Invites are NEVER persisted by the control plane. The installer's own copy at
-# /var/lib/isomux-install/invite-url is single-use with a 24h TTL, so any stored
+# /var/lib/isomux-install/invite-url is single-use with a 3-day TTL, so any stored
 # copy is a stale credential we would also be responsible for protecting. This
 # script mints a fresh one at the moment the operator asks, exactly the way
 # install.sh does it:
@@ -13,7 +13,7 @@
 #      the installer saved, then a sole owner, then a saved name;
 #   2. mint a 15-minute owner-login URL on the admin unix socket;
 #   3. follow it against loopback to obtain an owner session;
-#   4. POST /api/invites/recovery for the standard 24h single-use link.
+#   4. POST /api/invites/recovery for the standard 3-day single-use link.
 #
 # stdout carries the invite URL and nothing else, so the caller never has to
 # parse a credential out of chatter. Diagnostics go to stderr.

@@ -3,7 +3,7 @@
 // The automated catalog for the INVITE half of server/auth.ts. It drives the
 // real mint/peek/accept functions in-process (no HTTP round-trip) against the
 // harness's temp STATE_ROOT, so every assertion runs the production code path.
-// The route-level half (mint by userId, the 24h and 1h windows, 404 for an
+// The route-level half (mint by userId, the 3-day and 1h windows, 404 for an
 // unknown member, accept over HTTP) lives in routes-invites-rest,
 // invite-onboarding and invite-consumed-ux.
 //

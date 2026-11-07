@@ -974,7 +974,7 @@ Cosas que puedes hacer por él:
   "settings.invites.intro":
     "Un enlace de inicio de sesión inicia la sesión de un dispositivo como un miembro existente. Para invitar a un miembro nuevo, créalo primero en <i>Miembros</i>.",
   "settings.invites.linkHint":
-    "Envía el enlace en privado. Caduca en 24 h, y un enlace nuevo sustituye al anterior del miembro.",
+    "Envía el enlace en privado. Caduca en 3 días, y un enlace nuevo sustituye al anterior del miembro.",
   "settings.invites.createLink": "Crear enlace de inicio de sesión",
   "settings.invites.creatingLink": "Creando…",
   "settings.invites.createLinkFailed":

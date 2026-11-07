@@ -315,10 +315,10 @@ describe("routes/invites REST: owner sign-in link (invites.mint + mintRecovery a
     ).filter((i) => i.username === "Alice");
     expect(listed.map((i) => i.tokenPrefix)).toEqual([inv2.tokenPrefix]);
 
-    // TTL POLICY LOCK: owner-issued links get the standard 24h window, never
+    // TTL POLICY LOCK: owner-issued links get the standard 3-day window, never
     // the 1h self-invite window.
     expect(inv2.expiresAt - inv2.createdAt).toBe(INVITE_TTL_MS);
-    expect(INVITE_TTL_MS).toBe(24 * 60 * 60 * 1000);
+    expect(INVITE_TTL_MS).toBe(3 * 24 * 60 * 60 * 1000);
 
     // Companion: a SELF-mint stays on the tighter 1h TTL (and replaces the
     // owner-issued link - one outstanding link per user across both paths).

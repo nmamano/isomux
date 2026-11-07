@@ -24,7 +24,7 @@ The link carries the setup key. The key is also in `~/.isomux/setup-key` on the 
 1. **Create the member.** In `Settings`, select `New member` at the end of the `Members` list. Fill in the name, owner role, room access, special instructions and avatar, and click `Create member`. The list shows "never signed in" until they accept a link.
 2. **Send a sign-in link.** On the new member's page, click `Create sign-in link for <name>`. You can also open `Settings` → `Office` → `Invites`, select the member and click `Create sign-in link`. The URL shows once. Send it privately (Signal, text, email).
 
-A sign-in link works once and expires 24 hours after you create it. A new link replaces the member's previous one. If a link expires, the member stays as they are: send a new one. The link still works after you rename the member; deleting the member revokes it.
+A sign-in link works once and expires 3 days after you create it. A new link replaces the member's previous one. If a link expires, the member stays as they are: send a new one. The link still works after you rename the member; deleting the member revokes it.
 
 The invitee opens the link and is signed in. No installs, no accounts, no passwords. On first sign-in, the page asks for their language. A browser that is already signed in as a different member cannot accept the link.
 

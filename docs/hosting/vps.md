@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.
 DOMAIN=office.example.com bash "$installer"
 ```
 
-After a few minutes the installer prints a one-use owner invite link. Open it within 24 hours to sign in at `https://office.example.com`. When the output is not a terminal (cloud-init, a log, an agent), the installer saves the link instead of printing it. Read it as root:
+After a few minutes the installer prints a one-use owner invite link. Open it within 3 days to sign in at `https://office.example.com`. When the output is not a terminal (cloud-init, a log, an agent), the installer saves the link instead of printing it. Read it as root:
 
 ```sh
 cat /var/lib/isomux-install/invite-url

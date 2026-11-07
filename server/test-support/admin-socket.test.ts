@@ -110,7 +110,7 @@ describe("admin socket peer check", () => {
       const peek = peekInvite(token);
       expect("error" in peek).toBe(false);
       expect(peek).toMatchObject({ username: "Morgan" });
-      // A root-minted owner link is short-lived, not the 24h member window.
+      // A root-minted owner link is short-lived, not the 3-day member window.
       const [row] = listInvites().filter((i) => i.username === "Morgan");
       expect(row.expiresAt - row.createdAt).toBe(15 * 60 * 1000);
     });

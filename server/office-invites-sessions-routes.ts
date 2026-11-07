@@ -109,7 +109,7 @@ export function createInvitesRoutes(
     // Sign-in link for an EXISTING member (invites.mint, and its permanent
     // alias invites.mintRecovery). userId resolves against the live record.
     // Policy: one outstanding link per member (the mint replaces the prior
-    // one) and the standard 24h owner send-and-wait delivery window.
+    // one) and the standard 3-day owner send-and-wait delivery window.
     mint: async (userId, identity) => {
       const { createdBy } = attributionFor(identity);
       const r = await mintInvite({

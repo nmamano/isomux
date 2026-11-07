@@ -1648,7 +1648,7 @@ metacharacter; payloads travel on stdin, where no quoting applies.
 Never persisted. Minted on demand by `remote/mint-invite.sh` at the moment the
 operator asks: resolve the current owner from the office's own user records,
 mint a 15-minute owner-login URL on the admin socket, follow it against loopback
-for an owner session, then `POST /api/invites/recovery` for the standard 24h
+for an owner session, then `POST /api/invites/recovery` for the standard 3-day
 single-use link. The audit log records that a mint happened, never the URL, and
 the operator transcript redacts it.
 

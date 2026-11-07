@@ -250,7 +250,7 @@ These are the support calls it makes impossible, and they are the reason to
 state it carefully rather than enthusiastically:
 
 - **A locked-out customer cannot be let back in.** Invites are single-use with
-  a 24h TTL and minting one needs shell. A customer who loses every session
+  a 3-day TTL and minting one needs shell. A customer who loses every session
   after the access window has no path back except a reinstall, which destroys
   their data.
 - **A crash-looped office cannot be repaired** through the office itself. If
@@ -304,7 +304,7 @@ avoid.
 ### Where "after setup" ends
 
 Handoff is a moment; sign-in is an event that may not happen for a day. Since
-the invite expires in 24h and re-minting needs shell, removing access the
+the invite expires in 3 days and re-minting needs shell, removing access the
 instant we display a link means a customer who opens the dashboard a day later
 is locked out of a box they just paid for.
 
@@ -380,7 +380,7 @@ installed for our own convenience outlives the access window.
 
 ### Invites are minted on demand, never stored
 
-Do not persist an invite URL. The installer's invite is single-use with a 24h
+Do not persist an invite URL. The installer's invite is single-use with a 3-day
 TTL, and `POST /admin/owner-login` on the admin socket mints a **15-minute**
 one that also revokes the previous unconsumed link for that user, so any stored
 copy is a stale credential that we are also responsible for protecting.
@@ -388,7 +388,7 @@ copy is a stale credential that we are also responsible for protecting.
 Instead, minting is a two-hop operation run at the moment the customer asks,
 exactly as `install.sh` already does it: mint the 15-minute owner-login URL on
 the admin socket, follow it against loopback to obtain an owner session, then
-`POST /api/invites/recovery` for the standard 24h single-use link, and return
+`POST /api/invites/recovery` for the standard 3-day single-use link, and return
 that. The link goes only to the authenticated session that asked for it; the
 audit log records that a mint happened, by whom and when, and never the URL.
 
