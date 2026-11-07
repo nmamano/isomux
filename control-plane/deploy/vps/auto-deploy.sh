@@ -51,7 +51,7 @@ main() {
   config || return 0
   # Read again under the lock below; this one is for the status of a tick
   # that stops before it.
-  deployed=$(deployed_commit) || deployed=""
+  deployed_commit || true
 
   exec 9>"$root/deploy.lock"
   if ! flock -n 9; then
@@ -74,7 +74,7 @@ main() {
     result=refused phase=install
     return 0
   fi
-  deployed=$(deployed_commit) || {
+  deployed_commit || {
     result=refused phase=current
     return 0
   }
@@ -83,7 +83,27 @@ main() {
   deploy_target
 }
 
-say() { printf '%s auto-deploy: %s\n' "$(date -u +%FT%TZ)" "$*"; }
+# A tick runs often and spawns little: the helpers below use shell builtins
+# where a command would only cost a process.
+
+# The UTC time, in the variable named $1.
+now() { TZ=UTC printf -v "$1" '%(%FT%TZ)T' -1; }
+
+# The first line of file $2, or "" when there is none, in the variable named $1.
+first_line() { { IFS= read -r "$1" || true; } 2>/dev/null <"$2" || printf -v "$1" ''; }
+
+# Writes the UTC time to file $1.
+stamp() {
+  local at
+  now at
+  echo "$at" >"$1"
+}
+
+say() {
+  local at
+  now at
+  printf '%s auto-deploy: %s\n' "$at" "$*"
+}
 
 # Only the two named keys, parsed as plain KEY=value lines: the file is never
 # run as shell.
@@ -153,11 +173,14 @@ converge_units() {
   units=ok
 }
 
+# Sets $deployed from the `current` link, or fails.
 deployed_commit() {
-  local commit
-  commit=$(basename "$(readlink "$root/current" 2>/dev/null)")
-  [[ $commit =~ ^[0-9a-f]{40}$ && -f $root/release.env ]] || return 1
-  echo "$commit"
+  local link
+  deployed=""
+  link=$(readlink "$root/current" 2>/dev/null) || return 1
+  link=${link%/}
+  [[ ${link##*/} =~ ^[0-9a-f]{40}$ && -f $root/release.env ]] || return 1
+  deployed=${link##*/}
 }
 
 is_input() {
@@ -179,7 +202,7 @@ inputs_changed() { # from, to
 # marked. Its start time is kept until a tick reads the API again.
 tick_error() {
   result=tick_error phase=$1
-  [[ -f $state/tick-error-since ]] || date -u +%FT%TZ >"$state/tick-error-since"
+  [[ -f $state/tick-error-since ]] || stamp "$state/tick-error-since"
   say "FAIL $2"
 }
 
@@ -204,7 +227,7 @@ select_target() {
     return 1
   fi
   waiting=true
-  [[ -f $state/waiting-since ]] || date -u +%FT%TZ >"$state/waiting-since"
+  [[ -f $state/waiting-since ]] || stamp "$state/waiting-since"
   mapfile -t candidates < <(git -C "$src" rev-list --ancestry-path "$deployed..$main")
   if ! newest=$(green "${candidates[@]}"); then
     tick_error api "the Build runs could not be read"
@@ -275,7 +298,7 @@ deploy_target() {
     return 0
   fi
   say "deploying $target over $deployed"
-  date -u +%FT%TZ >"$state/attempt-at"
+  stamp "$state/attempt-at"
   echo "$target" >"$state/attempt-target"
   ISOMUX_HOSTED_LOCK_INHERITED=1 "$src/control-plane/deploy/vps/deploy.sh" "$target" || code=$?
 
@@ -290,7 +313,7 @@ deploy_target() {
       waiting=false
       if [[ $main != "$target" ]] && inputs_changed "$target" "$main"; then
         waiting=true
-        date -u +%FT%TZ >"$state/waiting-since"
+        stamp "$state/waiting-since"
       fi
     else
       stop "deploy.sh passed but $target does not run healthy"
@@ -311,7 +334,8 @@ deploy_target() {
     fi
     # Before the swap: a build can fail for a passing reason (apt, a
     # download, a registry). Two more ticks, then the commit is marked.
-    attempts=$(($(cat "$state/attempts/$target" 2>/dev/null || echo 0) + 1))
+    first_line attempts "$state/attempts/$target"
+    attempts=$((${attempts:-0} + 1))
     echo "$attempts" >"$state/attempts/$target"
     if ((attempts >= 3)); then
       result=failed phase=build
@@ -328,33 +352,32 @@ deploy_target() {
 # Nothing unattended runs again until an operator deletes the marker.
 stop() {
   result=rollback_failed phase=check
-  date -u +%FT%TZ >"$state/stopped"
+  stamp "$state/stopped"
   say "STOPPED $1; delete $state/stopped once the host is recovered"
 }
 
 write_status() {
-  local tmp
+  local tmp at stopped=false held=false waiting_since="" since="" attempt_at="" attempt_target="" attempt_result=""
+  local deployed=$deployed target=$target
   tmp=$(mktemp "$state/.status.XXXXXX") || return 0
-  {
-    printf '{"tick_at":"%s",' "$(date -u +%FT%TZ)"
-    printf '"deployed":%s,' "$(json_or_null "$deployed")"
-    printf '"result":"%s","phase":"%s",' "$result" "$phase"
-    printf '"target":%s,' "$(json_or_null "$target")"
-    printf '"stopped":%s,' "$([[ -e $state/stopped ]] && echo true || echo false)"
-    printf '"held":%s,' "$([[ -e $env_dir/auto-deploy.hold ]] && echo true || echo false)"
-    printf '"waiting":%s,' "$waiting"
-    printf '"waiting_since":%s,' "$(json_or_null "$($waiting && cat "$state/waiting-since" 2>/dev/null)")"
-    printf '"tick_error_since":%s,' "$(json_or_null "$(cat "$state/tick-error-since" 2>/dev/null)")"
-    printf '"units":"%s",' "$units"
-    printf '"last_attempt":{"at":%s,"target":%s,"result":%s}}\n' \
-      "$(json_or_null "$(cat "$state/attempt-at" 2>/dev/null)")" \
-      "$(json_or_null "$(cat "$state/attempt-target" 2>/dev/null)")" \
-      "$(json_or_null "$(cat "$state/attempt-result" 2>/dev/null)")"
-  } >"$tmp"
+  now at
+  [[ -e $state/stopped ]] && stopped=true
+  [[ -e $env_dir/auto-deploy.hold ]] && held=true
+  $waiting && first_line waiting_since "$state/waiting-since"
+  first_line since "$state/tick-error-since"
+  first_line attempt_at "$state/attempt-at"
+  first_line attempt_target "$state/attempt-target"
+  first_line attempt_result "$state/attempt-result"
+  # Every value here is a commit, a timestamp or a fixed word: nothing to
+  # escape.
+  local var
+  for var in deployed target waiting_since since attempt_at attempt_target attempt_result; do
+    if [[ -n ${!var} ]]; then printf -v "$var" '"%s"' "${!var}"; else printf -v "$var" null; fi
+  done
+  printf '{"tick_at":"%s","deployed":%s,"result":"%s","phase":"%s","target":%s,"stopped":%s,"held":%s,"waiting":%s,"waiting_since":%s,"tick_error_since":%s,"units":"%s","last_attempt":{"at":%s,"target":%s,"result":%s}}\n' \
+    "$at" "$deployed" "$result" "$phase" "$target" "$stopped" "$held" "$waiting" \
+    "$waiting_since" "$since" "$units" "$attempt_at" "$attempt_target" "$attempt_result" >"$tmp"
   mv "$tmp" "$state/status.json"
 }
-
-# Every value here is a commit, a timestamp or a fixed word: nothing to escape.
-json_or_null() { [[ -n $1 ]] && printf '"%s"' "$1" || printf 'null'; }
 
 main "$@"

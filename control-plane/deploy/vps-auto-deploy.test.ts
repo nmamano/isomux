@@ -37,29 +37,33 @@ const GIT_ENV = {
   GIT_CONFIG_SYSTEM: "/dev/null",
 };
 
+// The stubs run in every tick: they read files with builtins, not cat.
 const STUB_DEPLOY = `#!/usr/bin/env bash
 # The fixture's deploy.sh: records its call, and acts as the test says.
 held=free
 flock -n "$ISOMUX_HOSTED_ROOT/deploy.lock" true || held=held
 echo "$1 inherited=\${ISOMUX_HOSTED_LOCK_INHERITED:-} fd9=$(readlink /proc/$$/fd/9 2>/dev/null) lock=$held" >>"$STUB_DIR/deploy-calls"
-code=$(cat "$STUB_DIR/deploy-exit" 2>/dev/null || echo 0)
+code=0
+[[ -f $STUB_DIR/deploy-exit ]] && code=$(<"$STUB_DIR/deploy-exit")
 if [[ $code == 0 ]]; then
   mkdir -p "$ISOMUX_HOSTED_ROOT/releases/$1"
   ln -sfn "$ISOMUX_HOSTED_ROOT/releases/$1" "$ISOMUX_HOSTED_ROOT/current"
   echo "$1" >"$STUB_DIR/running"
 fi
-if [[ -f $STUB_DIR/running-after ]]; then cp "$STUB_DIR/running-after" "$STUB_DIR/running"; fi
+if [[ -f $STUB_DIR/running-after ]]; then echo "$(<"$STUB_DIR/running-after")" >"$STUB_DIR/running"; fi
 exit "$code"
 `;
 
 const STUB_PROBE = `#!/usr/bin/env bash
-running=$(cat "$STUB_DIR/running")
+running=$(<"$STUB_DIR/running")
 [[ $running != none ]] && echo "$running"
 `;
 
 const STUB_SYSTEMCTL = `#!/usr/bin/env bash
 echo "$*" >>"$STUB_DIR/systemctl-calls"
-[[ $1 != "$(cat "$STUB_DIR/systemctl-fail" 2>/dev/null)" ]]
+fail=""
+[[ -f $STUB_DIR/systemctl-fail ]] && fail=$(<"$STUB_DIR/systemctl-fail")
+[[ $1 != "$fail" ]]
 `;
 
 interface RunJson {
@@ -482,9 +486,18 @@ describe("fail closed", () => {
   test("a tick error keeps its start, and clears on the next run that reads the API", async () => {
     const t = change();
     api.answer = { status: 500, body: "{}" };
-    const since = (await tick()).tick_error_since;
-    expect(since).not.toBeNull();
-    expect((await tick()).tick_error_since).toBe(since);
+    // An earlier tick failed. An old stamp shows a rewrite, which a stamp
+    // from the same second would hide.
+    const since = "2001-01-01T00:00:00Z";
+    fs.mkdirSync(path.join(root, "auto-deploy"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "auto-deploy", "tick-error-since"),
+      `${since}\n`,
+    );
+    expect(await tick()).toMatchObject({
+      result: "tick_error",
+      tick_error_since: since,
+    });
     api.answer = null;
     api.runs = [green(t)];
     expect(await tick()).toMatchObject({
@@ -729,26 +742,31 @@ describe("the installed units", () => {
 });
 
 test("the status file holds exactly the documented fields, and uninstalled units are left alone", async () => {
-  const status = await tick();
-  expect(status.units).toBe("absent");
-  expect(fs.readdirSync(units)).toEqual([]);
-  expect(Object.keys(status).sort()).toEqual(
-    [
-      "deployed",
-      "held",
-      "last_attempt",
-      "phase",
-      "result",
-      "stopped",
-      "target",
-      "tick_at",
-      "tick_error_since",
-      "units",
-      "waiting",
-      "waiting_since",
-    ].sort(),
+  // Every kept field gets its own value, so a field in the wrong place shows.
+  // A held tick stops before the fetch and keeps them all.
+  const state = path.join(root, "auto-deploy");
+  const attempted = "f".repeat(40);
+  fs.mkdirSync(state, { recursive: true });
+  fs.writeFileSync(
+    path.join(state, "tick-error-since"),
+    "2001-01-01T00:00:01Z\n",
   );
-  expect(Date.parse(status.tick_at)).not.toBeNaN();
+  fs.writeFileSync(path.join(state, "attempt-at"), "2001-01-01T00:00:02Z\n");
+  fs.writeFileSync(path.join(state, "attempt-target"), `${attempted}\n`);
+  fs.writeFileSync(path.join(state, "attempt-result"), "rolled_back\n");
+  fs.writeFileSync(path.join(envDir, "auto-deploy.hold"), "");
+  expect((await tick()).units).toBe("absent");
+  expect(fs.readdirSync(units)).toEqual([]);
+  // The bytes, not the parsed object: local-proof.sh reads the file as text.
+  const raw = fs.readFileSync(path.join(state, "status.json"), "utf8");
+  const tickAt = /^\{"tick_at":"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ",/;
+  expect(raw).toMatch(tickAt);
+  expect(raw.replace(tickAt, "{")).toBe(
+    `{"deployed":"${deployed}","result":"held","phase":"marker","target":null,` +
+      `"stopped":false,"held":true,"waiting":false,"waiting_since":null,` +
+      `"tick_error_since":"2001-01-01T00:00:01Z","units":"absent",` +
+      `"last_attempt":{"at":"2001-01-01T00:00:02Z","target":"${attempted}","result":"rolled_back"}}\n`,
+  );
 });
 
 test("a hold deploys nothing, and waiting_since is shown only while waiting", async () => {
