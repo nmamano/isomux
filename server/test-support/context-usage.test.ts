@@ -217,7 +217,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

@@ -107,7 +107,7 @@ async function spawn(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -191,7 +191,7 @@ async function cast(srv: TestServer): Promise<Cast> {
     "POST",
     "/api/apps",
     { bearer: mintAgentToken(builder.id, builder.userId) },
-    { name: "rescue-app", command: "bun run serve.ts", cwd: srv.stateRoot },
+    { name: "rescue-app", command: "bun run serve.ts", cwd: srv.workDir },
   );
   expect(reg.status).toBe(201);
   const appToken = srv.appSupervisor.tokenFiles.get("rescue-app");

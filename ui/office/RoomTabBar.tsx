@@ -1,4 +1,5 @@
 import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
+import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useRoomList } from "../store.tsx";
 import { apiFetch } from "../api.ts";
@@ -195,6 +196,9 @@ export function RoomTabBar({
     lobbyOpen,
   } = useAppState();
   const { t } = useI18n();
+  // A member with a permission pack creates no room (task 329974fe).
+  const self = useSelfUser();
+  const createsRooms = !(self?.role === "member" && self.pack);
   const mobileLobby = isMobile && lobbyOpen;
   const selfConnectionId = sessionContext?.connectionId ?? null;
   // The room list the doors and swipes read too. A drop or a tuck shows at
@@ -787,30 +791,32 @@ export function RoomTabBar({
               );
             })}
             {/* Add room button */}
-            <button
-              onClick={() => {
-                // Fire-and-forget; the room_created broadcast adds the tab (parity
-                // with the old WS create_room, which carried no name and no ack).
-                apiFetch<void>("POST", "/api/rooms", {}).catch(() => {});
-              }}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 6,
-                border: `1px dashed ${secondaryEdge}`,
-                background: secondaryFill,
-                color: "var(--text-hint)",
-                fontSize: 12,
-                cursor: "pointer",
-                fontFamily: "var(--font-ui)",
-                marginLeft: 4,
-                flexShrink: 0,
-                userSelect: "none",
-                WebkitUserSelect: "none",
-              }}
-              title={t("office.tabs.newRoom")}
-            >
-              +
-            </button>
+            {createsRooms && (
+              <button
+                onClick={() => {
+                  // Fire-and-forget; the room_created broadcast adds the tab (parity
+                  // with the old WS create_room, which carried no name and no ack).
+                  apiFetch<void>("POST", "/api/rooms", {}).catch(() => {});
+                }}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: `1px dashed ${secondaryEdge}`,
+                  background: secondaryFill,
+                  color: "var(--text-hint)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-ui)",
+                  marginLeft: 4,
+                  flexShrink: 0,
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                }}
+                title={t("office.tabs.newRoom")}
+              >
+                +
+              </button>
+            )}
 
             {/* Total online users chip - answers "who is online anywhere"
           (counts distinct userIds across the WHOLE office, including

@@ -86,7 +86,7 @@ async function spawnAt(
 ) {
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,
@@ -299,7 +299,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     desk: number,
   ) => ({
     name,
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     roomId,
     desk,
     permissionMode: "default" as const,
@@ -334,7 +334,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     const operator = await srv.agentManager.spawn(
       "Operator",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       0,
       undefined,
@@ -353,7 +353,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     const bearer = getAgentTokenRaw(operator.id);
     if (!bearer) throw new Error("operator token missing");
     const base = {
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       roomId: r1,
       modelFamily: "provider/model",
       effort: "high" as const,
@@ -435,7 +435,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const res = await req(srv, "POST", "/api/agents", {
-      body: { name: "X", cwd: srv.stateRoot, roomId: r1, desk: 0, outfit: 123 },
+      body: { name: "X", cwd: srv.workDir, roomId: r1, desk: 0, outfit: 123 },
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(422);
@@ -527,7 +527,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     const res = await req(srv, "POST", "/api/agents", {
       body: {
         name: "Default Codex",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         roomId,
         desk: 0,
         agentType: "codex",
@@ -765,7 +765,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const spawned = await req(srv, "POST", "/api/agents", {
       body: {
         name: "OpenCode flip",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         roomId,
         desk: 0,
         agentType: "opencode",
@@ -1160,7 +1160,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     ] as const) {
       const x = await srv.agentManager.spawn(
         `X${desk}`,
-        srv.stateRoot,
+        srv.workDir,
         "never",
         desk,
         undefined,
@@ -1255,7 +1255,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await srv.agentManager.spawn(
       "Codexy",
-      srv.stateRoot,
+      srv.workDir,
       "on-request",
       0,
       undefined,
@@ -1325,7 +1325,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     if (!user) throw new Error(`unknown user: ${username}`);
     const a = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       desk,
       customInstructions,
@@ -1430,7 +1430,7 @@ describe("agents.previewSystemPrompt REST", () => {
     const manager = await srv.seedMember("Original manager");
     const target = (await srv.agentManager.spawn(
       "Saved name",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       0,
       undefined,
@@ -1560,7 +1560,7 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     const operator = await srv.agentManager.spawn(
       "Operator",
-      srv.stateRoot,
+      srv.workDir,
       operatorMode,
       0,
       undefined,
@@ -1583,7 +1583,7 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
         bearer,
         body: {
           name: `Child${desk}`,
-          cwd: srv.stateRoot,
+          cwd: srv.workDir,
           roomId: r1,
           desk,
           ...extra,
@@ -1654,7 +1654,7 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     const { srv, owner, r1 } = await setup("claude", "default");
     const res = await req(srv, "POST", "/api/agents", {
       rawSessionId: owner.rawSessionId,
-      body: { name: "MemberChild", cwd: srv.stateRoot, roomId: r1, desk: 1 },
+      body: { name: "MemberChild", cwd: srv.workDir, roomId: r1, desk: 1 },
     });
     expect(res.status).toBe(201);
     expect(
@@ -1705,7 +1705,7 @@ describe("Codex default model from discovery", () => {
 
   const codexBody = (srv: TestServer, roomId: string, over = {}) => ({
     name: "Cody",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     roomId,
     desk: 0,
     agentType: "codex",
@@ -1733,7 +1733,7 @@ describe("Codex default model from discovery", () => {
     // The list is the spawner's (their env stack decides the login).
     expect(calls).toHaveLength(1);
     expect(calls[0].userId).toBe(userId);
-    expect(calls[0].cwd).toBe(srv.stateRoot);
+    expect(calls[0].cwd).toBe(srv.workDir);
   });
 
   const fallbacks: [string, () => Promise<BackendModelWire[]>][] = [
@@ -1862,7 +1862,7 @@ describe("agents.spawn REST: the room's working folder", () => {
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
-    const dir = join(srv.stateRoot, "r2-folder");
+    const dir = join(srv.workDir, "r2-folder");
     mkdirSync(dir, { recursive: true });
     // Set through the room route, on the second room only, so a default read
     // from any other room than the target misses it.
@@ -1893,7 +1893,7 @@ describe("agents.spawn REST: the room's working folder", () => {
     expect(cwdOf(atHome)).toBe(homedir());
 
     // A cwd in the body wins over the room's folder.
-    const own = join(srv.stateRoot, "own");
+    const own = join(srv.workDir, "own");
     mkdirSync(own, { recursive: true });
     const explicit = await spawn("Explicit", r2, { desk: 1, cwd: own });
     expect(explicit.status).toBe(201);
@@ -1932,8 +1932,8 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
     const ownerRecord = getUserByName(owner.username);
     if (!ownerRecord) throw new Error("seeded owner record missing");
     const r1 = srv.agentManager.getRooms()[0].id;
-    const work = join(srv.stateRoot, "work");
-    const elsewhere = join(srv.stateRoot, "elsewhere");
+    const work = join(srv.workDir, "work");
+    const elsewhere = join(srv.workDir, "elsewhere");
     mkdirSync(join(work, "sub"), { recursive: true });
     mkdirSync(elsewhere, { recursive: true });
     const spawner = await srv.agentManager.spawn(
@@ -2227,7 +2227,7 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
     expect(updateUserById(mia.id, { allowedRooms: [r1] }).ok).toBe(true);
     const spawner = await srv.agentManager.spawn(
       "Spawner",
-      srv.stateRoot,
+      srv.workDir,
       "bypassPermissions",
       0,
       undefined,
@@ -2249,7 +2249,7 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
         body: {
           name,
           roomId,
-          cwd: srv.stateRoot,
+          cwd: srv.workDir,
           // Never honoured: the manager comes from the identity, and only a
           // member sets privileged.
           privileged: true,
@@ -2291,7 +2291,7 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
     // A member's spawn records no spawner.
     const byMember = await req(srv, "POST", "/api/agents", {
       rawSessionId: owner.rawSessionId,
-      body: { name: "ByMember", roomId: r1, cwd: srv.stateRoot },
+      body: { name: "ByMember", roomId: r1, cwd: srv.workDir },
     });
     expect(byMember.status).toBe(201);
     const m = srv.agentManager.getAgent(childOf(byMember).id)!;
@@ -2325,7 +2325,7 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
     const byMember = childOf(
       await req(srv, "POST", "/api/agents", {
         rawSessionId: owner.rawSessionId,
-        body: { name: "ByMember", roomId: r1, cwd: srv.stateRoot },
+        body: { name: "ByMember", roomId: r1, cwd: srv.workDir },
       }),
     );
     const kill = (as: string, id: string) =>
@@ -2435,7 +2435,7 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
     expect((await spawn({}, getAgentTokenRaw(other.id)!)).status).toBe(201);
     const byMember = await req(srv, "POST", "/api/agents", {
       rawSessionId: owner.rawSessionId,
-      body: { name: "ByMember", roomId: r1, cwd: srv.stateRoot },
+      body: { name: "ByMember", roomId: r1, cwd: srv.workDir },
     });
     expect(byMember.status).toBe(201);
 

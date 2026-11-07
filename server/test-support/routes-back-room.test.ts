@@ -60,7 +60,7 @@ async function spawnCore(
 ) {
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,
@@ -82,13 +82,13 @@ describe("spawn into the back room", () => {
   it("no desk -> 201 at the first back seat, with the front free; desk null -> 201 at a back seat", async () => {
     const { srv, owner, r1 } = await setup();
     const res = await req(srv, "POST", "/api/agents", {
-      body: { name: "W", cwd: srv.stateRoot, roomId: r1 },
+      body: { name: "W", cwd: srv.workDir, roomId: r1 },
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(201);
     expect(deskOf(res.body)).toBe(deskOfBackSeat({ table: 0, stool: 0 }));
     const nul = await req(srv, "POST", "/api/agents", {
-      body: { name: "W2", cwd: srv.stateRoot, roomId: r1, desk: null },
+      body: { name: "W2", cwd: srv.workDir, roomId: r1, desk: null },
       rawSessionId: owner.rawSessionId,
     });
     expect(nul.status).toBe(201);
@@ -100,7 +100,7 @@ describe("spawn into the back room", () => {
     const res = await req(srv, "POST", "/api/agents", {
       body: {
         name: "W",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         roomId: r1,
         desk: deskOfBackSeat({ table: 0, stool: 0 }),
       },
@@ -177,7 +177,7 @@ describe("a full room: front and back taken", () => {
       await spawnCore(srv, `A${i}`, r2);
 
     const spawn = await req(srv, "POST", "/api/agents", {
-      body: { name: "Last", cwd: srv.stateRoot, roomId: r2, desk: 0 },
+      body: { name: "Last", cwd: srv.workDir, roomId: r2, desk: 0 },
       rawSessionId: owner.rawSessionId,
     });
     const move = await req(srv, "POST", `/api/agents/${x.id}/move`, {
@@ -271,13 +271,13 @@ describe("the lobby with no desk", () => {
   it("spawn -> 201 at desk 0; desk null -> 422", async () => {
     const { srv, rawSessionId } = await emptyLobby();
     const nul = await req(srv, "POST", "/api/agents", {
-      body: { name: "N", cwd: srv.stateRoot, roomId: "lobby", desk: null },
+      body: { name: "N", cwd: srv.workDir, roomId: "lobby", desk: null },
       rawSessionId,
     });
     expect(nul.status).toBe(422);
     expect(errOf(nul.body)?.code).toBe("invalid_desk");
     const res = await req(srv, "POST", "/api/agents", {
-      body: { name: "L", cwd: srv.stateRoot, roomId: "lobby" },
+      body: { name: "L", cwd: srv.workDir, roomId: "lobby" },
       rawSessionId,
     });
     expect(res.status).toBe(201);

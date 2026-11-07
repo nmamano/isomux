@@ -32,7 +32,7 @@ The invitee opens the link and is signed in. No installs, no accounts, no passwo
 
 ## Limit a member
 
-An owner can give a member a permission pack in `Settings` → `Members`. The pack sets what the member can see and do in each area (none, read, or read and write), and the highest level of their agents. `Read only` reads every area except logs, files and the environment, with agents at Chat. `Work with agents` adds talking to agents, managing them and writing tasks, with agents up to Office. A member with a pack has no terminal, and messages only agents whose access fits inside the pack.
+An owner can give a member a permission pack in `Settings` → `Members`. The pack sets what the member can see and do in each area (none, read, or read and write), and the highest level of their agents. `Read only` reads every area except logs, files and the environment, with agents at Chat. `Work with agents` adds talking to agents, managing them and writing tasks, with agents up to Office. A member with a pack has no terminal, and messages only agents whose access fits inside the pack. They create no rooms and set no folders: their agents work in their room's folder, so give such a member a room whose folder holds only what their agents may use.
 
 Saving a pack moves the member's agents down to its highest level, stops their apps when the pack does not give apps write, and reloads their open pages. Their schedules need a target agent. The pack is a boundary only for a member who never had an agent at Standard or Privileged: what such an agent left on the server stays.
 

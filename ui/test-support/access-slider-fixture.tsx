@@ -109,8 +109,13 @@ export function renderEdit(
 }
 
 // A spawn as the viewer `sessionContext` (the owner by default), with
-// `spawner` (a full user record) added to the users the dialog reads.
-export function renderSpawn(sessionContext = viewer([]), spawner?: UserRecord) {
+// `spawner` (a full user record) added to the users the dialog reads, into
+// `spawnRoom` (the fixture's room, with no folder, by default).
+export function renderSpawn(
+  sessionContext = viewer([]),
+  spawner?: UserRecord,
+  spawnRoom: typeof room & { cwd?: string | null } = room,
+) {
   const spawnUsers = spawner
     ? new Map([...users, [spawner.name.toLowerCase(), spawner]])
     : users;
@@ -120,12 +125,12 @@ export function renderSpawn(sessionContext = viewer([]), spawner?: UserRecord) {
       <EditAgentDialog
         onClose={() => {}}
         deskIndex={0}
-        roomId={room.id}
-        defaultCwd="/srv/new-agent"
+        roomId={spawnRoom.id}
+        defaultCwd={spawnRoom.cwd ?? "/srv/new-agent"}
         spawnAgentType="claude"
       />,
       {
-        rooms: [room],
+        rooms: [spawnRoom],
         agents: [],
         users: spawnUsers,
         hasReceivedInitialState: true,

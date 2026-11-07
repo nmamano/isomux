@@ -94,7 +94,7 @@ const errCode = (r: Res): string | undefined =>
 async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -129,7 +129,7 @@ async function seed() {
   const reg = await api(srv, "/api/apps", {
     method: "POST",
     bearer: token,
-    json: { name: "hello", command: "bun run serve.ts", cwd: srv.stateRoot },
+    json: { name: "hello", command: "bun run serve.ts", cwd: srv.workDir },
   });
   expect(reg.status).toBe(201);
   return { srv, owner, viewer, outsider, token };
@@ -296,7 +296,7 @@ describe("routes/apps REST: thumbnails", () => {
 
   it("the app's agent uploads by a path relative to its cwd", async () => {
     const { srv, owner, token } = await seed();
-    writeFileSync(join(srv.stateRoot, "shot.png"), JPEG);
+    writeFileSync(join(srv.workDir, "shot.png"), JPEG);
     const put = await api(srv, "/api/apps/hello/thumbnail", {
       method: "PUT",
       bearer: token,
@@ -319,8 +319,8 @@ describe("routes/apps REST: thumbnails", () => {
     });
     const big = new Uint8Array(MAX_APP_THUMBNAIL_BYTES + 1);
     big.set(PNG);
-    writeFileSync(join(srv.stateRoot, "big.png"), big);
-    writeFileSync(join(srv.stateRoot, "notes.txt"), "not an image");
+    writeFileSync(join(srv.workDir, "big.png"), big);
+    writeFileSync(join(srv.workDir, "notes.txt"), "not an image");
     for (const path of ["", "  \t "]) {
       const res = await api(srv, "/api/apps/hello/thumbnail", {
         method: "PUT",
@@ -338,7 +338,7 @@ describe("routes/apps REST: thumbnails", () => {
       expect(res.status).toBe(400);
       expect(errCode(res)).toBe("invalid_request");
       // The answer does not echo where the path resolved.
-      expect(JSON.stringify(res.body)).not.toContain(srv.stateRoot);
+      expect(JSON.stringify(res.body)).not.toContain(srv.workDir);
     }
     const text = await api(srv, "/api/apps/hello/thumbnail", {
       method: "PUT",
@@ -357,7 +357,7 @@ describe("routes/apps REST: thumbnails", () => {
 
   it("a member cannot upload by path, only by bytes", async () => {
     const { srv, owner } = await seed();
-    const file = join(srv.stateRoot, "shot.png");
+    const file = join(srv.workDir, "shot.png");
     writeFileSync(file, PNG);
     const byPath = await api(srv, "/api/apps/hello/thumbnail", {
       method: "PUT",
@@ -403,7 +403,7 @@ describe("routes/apps REST: thumbnails", () => {
     const again = await api(srv, "/api/apps", {
       method: "POST",
       bearer: token,
-      json: { name: "hello", command: "bun run serve.ts", cwd: srv.stateRoot },
+      json: { name: "hello", command: "bun run serve.ts", cwd: srv.workDir },
     });
     expect(again.status).toBe(201);
     expect(again.body as AppWire).not.toHaveProperty("thumbnailUpdatedAt");

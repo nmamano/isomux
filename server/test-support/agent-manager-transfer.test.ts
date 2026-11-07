@@ -166,7 +166,7 @@ async function spawn(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -495,7 +495,7 @@ describe("agents.setManager: what the agent made moves with it", () => {
       {
         name: "by agent",
         prompt: "Check the build.",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         schedule: { type: "interval", minutes: 60 },
         agentType: "claude",
         modelFamily: "opus",
@@ -532,7 +532,7 @@ describe("agents.setManager: what the agent made moves with it", () => {
       {
         name: "maker-app",
         command: "bun run serve.ts",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
       },
     );
     expect(app.status).toBe(201);
@@ -548,7 +548,7 @@ describe("agents.setManager: what the agent made moves with it", () => {
         name: "seeded",
         schedule: { type: "interval", minutes: 60 },
         prompt: "p",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         agentType: "claude",
         modelFamily: "opus",
         effort: "medium",
@@ -763,7 +763,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       {
         name: "by agent",
         prompt: "Check the build.",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         schedule: { type: "interval", minutes: 60 },
         agentType: "claude",
         modelFamily: "opus",
@@ -792,7 +792,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       {
         name: "live-app",
         command: "bun run serve.ts",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
       },
     );
     expect(app.status).toBe(201);
@@ -928,7 +928,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       {
         name: "by hand",
         prompt: "Triage the push.",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         schedule: { type: "none" },
         agentType: "claude",
         modelFamily: "opus",
@@ -964,7 +964,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
       {
         name: "by agent",
         prompt: "Check the build.",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         schedule: { type: "interval", minutes: 60 },
         agentType: "claude",
         modelFamily: "opus",
@@ -1094,7 +1094,7 @@ describe("deleting a member passes their agents to the oldest office owner", () 
         {
           name: `by ${agent.name}`,
           prompt: "Check the build.",
-          cwd: srv.stateRoot,
+          cwd: srv.workDir,
           schedule: { type: "interval", minutes: 60 },
           agentType: "claude",
           modelFamily: "opus",
@@ -1286,7 +1286,7 @@ describe("renaming the manager", () => {
       {
         name: "nightly",
         prompt: "Check the build.",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         schedule: { type: "interval", minutes: 60 },
         agentType: "claude",
         modelFamily: "opus",

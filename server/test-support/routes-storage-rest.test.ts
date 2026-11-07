@@ -80,7 +80,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -480,7 +480,7 @@ describe("routes/storage.prune REST", () => {
     const room = srv.agentManager.getRooms()[0];
     const agent = await srv.agentManager.spawn(
       "Asker",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -495,7 +495,7 @@ describe("routes/storage.prune REST", () => {
     );
     if (!agent) throw new Error("spawn failed");
     const bearer = getAgentTokenRaw(agent.id)!;
-    writeFileSync(join(srv.stateRoot, "plot.png"), "png bytes");
+    writeFileSync(join(srv.workDir, "plot.png"), "png bytes");
     const made = await api(srv, `/api/agents/${agent.id}/asks`, {
       method: "POST",
       bearer,

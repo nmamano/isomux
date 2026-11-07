@@ -111,7 +111,7 @@ async function office(
   expect(updateUserById(aliceId, { allowedRooms: [roomA] }).ok).toBe(true);
   const agent = await srv.agentManager.spawn(
     "Reviewer",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -701,7 +701,7 @@ describe("POST /hooks/:id: verified deliveries", () => {
       name: "triage",
       schedule: { type: "none" },
       prompt: "Triage the pull request.",
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",

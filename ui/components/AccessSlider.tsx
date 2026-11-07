@@ -6,6 +6,7 @@ import {
   agentPackPresetOf,
   belowStandard,
   engineRunsAccess,
+  stopHasFolder,
   stopHasPack,
   stopIncludes,
   type AgentAccess,
@@ -45,6 +46,9 @@ export interface AccessSliderProps {
   // The agent ceiling of the manager's permission pack: stops above it are
   // disabled.
   ceiling?: AgentAccess;
+  // The room has no folder, and the agent works in it (a member with a
+  // pack): the folder and web stops are disabled.
+  noFolder?: boolean;
 }
 
 export const STOP_LABEL: Record<AgentAccess, PlainMessageKey> = {
@@ -103,9 +107,11 @@ export function AccessSlider({
   model,
   note,
   ceiling,
+  noFolder = false,
 }: AccessSliderProps) {
   const aboveCeiling = (stop: AgentAccess) =>
     ceiling !== undefined && !stopIncludes(ceiling, stop);
+  const needsFolder = (stop: AgentAccess) => noFolder && stopHasFolder(stop);
   const { t } = useI18n();
   return (
     <div className="agent-access-field">
@@ -122,12 +128,15 @@ export function AccessSlider({
           attr="data-access-stop"
           stepDisabled={(stop) =>
             aboveCeiling(stop) ||
+            needsFolder(stop) ||
             !engineRunsAccess(agentType, stop, model || null)
           }
           stepTitle={(stop) =>
             aboveCeiling(stop)
               ? t("dialogs.agent.access.aboveCeiling")
-              : t("dialogs.agent.access.engineCannot")
+              : needsFolder(stop)
+                ? t("dialogs.agent.access.roomHasNoFolder")
+                : t("dialogs.agent.access.engineCannot")
           }
         />
       </div>

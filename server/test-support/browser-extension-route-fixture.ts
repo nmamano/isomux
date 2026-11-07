@@ -25,7 +25,7 @@ export async function ownedAgent(
   const user = getUserByName(member.username)!;
   const agent = await s.agentManager.spawn(
     name,
-    s.stateRoot,
+    s.workDir,
     "default",
     undefined,
     undefined,

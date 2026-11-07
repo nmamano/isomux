@@ -122,7 +122,11 @@ import type {
   EditAgentReq,
   ReviveReq,
 } from "../../../shared/contract-shapes.ts";
-import { AGENTS_CANNOT_MOVE_DOWN } from "../../identity/agent-fit.ts";
+import {
+  AGENTS_CANNOT_MOVE_DOWN,
+  PACK_SETS_NO_FOLDER,
+} from "../../identity/agent-fit.ts";
+import { resolveCwd } from "../../cwd-utils.ts";
 
 // Discriminated results for the response-driven trio: the index closures own the
 // compound logic (validateCwd / saveRecentCwd / spawn null-disambiguation) and
@@ -174,7 +178,14 @@ export type ReviveResult =
   | {
       ok: false;
       error: string;
-      field?: "name" | "desk" | "room" | "back_room" | "room_full" | "ceiling";
+      field?:
+        | "name"
+        | "desk"
+        | "room"
+        | "back_room"
+        | "room_full"
+        | "ceiling"
+        | "folder";
     };
 
 export type KillResult = { ok: true };
@@ -214,7 +225,10 @@ export interface AgentsDeps {
           | "desk_taken"
           | "room_not_found"
           | "agent_not_found";
-      };
+      }
+    // The agent shares its room's folder with an agent at the folder or web
+    // stop (server/agent-folder-rules.ts).
+    | { ok: false; reason: typeof FOLDER_NOT_ALLOWED; message: string };
   swapDesks(roomId: string, deskA: number, deskB: number): void;
   setTopic(agentId: string, topic: string): void;
   // Fire-and-forget: regenerates the topic from the conversation.
@@ -369,6 +383,9 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
   );
 }
 
+const NO_FOLDER_MESSAGE =
+  "Your permission pack does not let you set a folder. Your agents work in their room's folder.";
+
 export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
   return {
     "agents.kill": async (ctx) => {
@@ -501,6 +518,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (r.reason === "room_not_found") {
         return fail(404, "room_not_found", "Room not found");
       }
+      if (r.reason === FOLDER_NOT_ALLOWED)
+        return fail(422, FOLDER_NOT_ALLOWED, r.message);
       return fail(404, "agent_not_found", "Agent not found");
     },
 
@@ -575,7 +594,17 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       // workers without a desk choice keeps the front for the agents people
       // talk to. The lobby takes its one front desk.
       const spawnRoom = deps.roomForDesks?.(b.roomId);
-      const cwd = b.cwd ?? spawnRoom?.cwd ?? "~";
+      const roomFolder = spawnRoom?.cwd ?? "~";
+      // A member with a permission pack sets no folder: the agent works in
+      // the room's folder, as stored (task 329974fe). The room folder itself,
+      // as written, passes.
+      if (
+        ctx.identity.memberPack &&
+        b.cwd !== undefined &&
+        resolveCwd(b.cwd) !== resolveCwd(roomFolder)
+      )
+        return fail(403, PACK_SETS_NO_FOLDER, NO_FOLDER_MESSAGE);
+      const cwd = ctx.identity.memberPack ? roomFolder : (b.cwd ?? roomFolder);
       const spawnDesk = deskField(b.desk, spawnRoom);
       if (!spawnDesk.ok) return deskFieldFailure(spawnRoom);
       if (malformedAgentFields(b)) {
@@ -705,8 +734,12 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
                   ? "room_not_found"
                   : r.field === "ceiling"
                     ? AGENTS_CANNOT_MOVE_DOWN
-                    : "revive_failed";
-      return fail(r.field === "room" ? 404 : 409, code, r.error);
+                    : r.field === "folder"
+                      ? FOLDER_NOT_ALLOWED
+                      : "revive_failed";
+      const status =
+        r.field === "room" ? 404 : r.field === "folder" ? 422 : 409;
+      return fail(status, code, r.error);
     },
 
     "agents.update": async (ctx) => {
@@ -746,6 +779,12 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         ...fields
       } = b as EditAgentReq & AgentEdit;
       const changes: AgentEdit = fields;
+      // A member with a permission pack changes no agent's folder.
+      if (ctx.identity.memberPack && typeof changes.cwd === "string") {
+        const current = deps.getAgent(ctx.params.id);
+        if (current && resolveCwd(changes.cwd) !== resolveCwd(current.cwd))
+          return fail(403, PACK_SETS_NO_FOLDER, NO_FOLDER_MESSAGE);
+      }
       if (instructions !== undefined) {
         changes.customInstructions = instructions;
         changes.customInstructionsVersion = instructionsVersion;

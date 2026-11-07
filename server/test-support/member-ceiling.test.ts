@@ -312,9 +312,10 @@ describe("no request puts a member's agent above the member's ceiling", () => {
       expect(outcome(byAgent)).toEqual(refusedToCasey);
       expect(o.srv.agentManager.getAllAgents()).toHaveLength(before);
       // The enabling condition: a spawn at the ceiling passes.
+      // No folder: the member's agent works in the room's folder (task
+      // 329974fe).
       const atCeiling = await asCasey(o, "POST", "/api/agents", {
         name: "At the ceiling",
-        cwd: freshFolder(),
         roomId: o.room,
         agentType: "claude",
         access: "office",
@@ -467,8 +468,17 @@ describe("a manager change and a revive move the agent down", () => {
 describe("a pack save moves the member's agents down", () => {
   it("Standard and Privileged go to the ceiling with the member's areas; a folder the rules refuse lands at Office; the rest stays", async () => {
     const o = await office();
-    const standard = await spawn(o, "Standard", "Casey");
-    const privileged = await spawn(o, "Privileged", "Casey");
+    // Under a pack, a Folder agent keeps its files in its room's folder
+    // (task 329974fe).
+    const roomFolder = freshFolder();
+    expect(
+      (await asOwner(o, "PATCH", `/api/rooms/${o.room}`, { cwd: roomFolder }))
+        .status,
+    ).toBeLessThan(300);
+    const standard = await spawn(o, "Standard", "Casey", { cwd: roomFolder });
+    const privileged = await spawn(o, "Privileged", "Casey", {
+      cwd: roomFolder,
+    });
     expect(
       (
         await asOwner(o, "PUT", `/api/agents/${privileged.id}/privileged`, {
@@ -478,14 +488,15 @@ describe("a pack save moves the member's agents down", () => {
     ).toBe(200);
     // The office state is a folder the folder rules refuse.
     const inState = await spawn(o, "In the state", "Casey", {
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
     });
     const atOffice = await spawn(o, "At office", "Casey");
     const wide = { agents: "write", tasks: "write" } as const;
     await lower(o, atOffice, "office", wide);
     const atChat = await spawn(o, "At chat", "Casey");
     await lower(o, atChat, "chat");
-    // At the ceiling with a pack wider than the member's areas.
+    // At the ceiling with a pack wider than the member's areas, in a folder
+    // that is not the room's.
     const atFolder = await spawn(o, "At folder", "Casey");
     const wider = { agents: "write", tasks: "write", memory: "read" } as const;
     await lower(o, atFolder, "folder", wider);
@@ -504,7 +515,7 @@ describe("a pack save moves the member's agents down", () => {
     await packCasey(o, pack);
     await waitUntil(
       () =>
-        [standard, privileged, inState].every(
+        [standard, privileged, inState, atFolder].every(
           (a) => (agentOf(o, a.id).access ?? "standard") !== "standard",
         ),
       "the moves landed",
@@ -525,7 +536,12 @@ describe("a pack save moves the member's agents down", () => {
       // live by the member's pack).
       atOffice: { access: "office", privileged: false, areas: wide },
       atChat: { access: "chat", privileged: false, areas: undefined },
-      atFolder: { access: "folder", privileged: false, areas: wider },
+      // Not in its room's folder: Office, its pack cut to the member's areas.
+      atFolder: {
+        access: "office",
+        privileged: false,
+        areas: { agents: "write", tasks: "read" },
+      },
       others: { access: "standard", privileged: false, areas: undefined },
     });
     // A moved agent's token is rotated; the others keep theirs.
@@ -553,15 +569,6 @@ describe("a pack save moves the member's agents down", () => {
       "the second move landed",
     );
     expect(grantOf(o, privileged.id).access).toBe("office");
-    // An agent with a pack keeps it, cut to the member's areas.
-    await waitUntil(
-      () => agentOf(o, atFolder.id).access === "office",
-      "the agent at folder moved",
-    );
-    expect(grantOf(o, atFolder.id).areas).toEqual({
-      agents: "write",
-      tasks: "read",
-    });
   });
 
   it("a save that would leave an agent on an engine that cannot run at the ceiling is refused, naming it, and writes nothing", async () => {

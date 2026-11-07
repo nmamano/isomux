@@ -57,7 +57,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -138,7 +138,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id);
     if (!token) throw new Error("agent token not minted on spawn");
-    writeFileSync(join(srv.stateRoot, "report.txt"), "hi there");
+    writeFileSync(join(srv.workDir, "report.txt"), "hi there");
 
     const ownerSock = await srv.connectWs(owner.rawSessionId);
     const memberSock = await srv.connectWs(member.rawSessionId);
@@ -174,7 +174,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
-    writeFileSync(join(srv.stateRoot, "edit-me.txt"), "content");
+    writeFileSync(join(srv.workDir, "edit-me.txt"), "content");
     const sock = await srv.connectWs(owner.rawSessionId);
     const r = await affordance(
       srv,
@@ -232,7 +232,7 @@ describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL pro
           agent.id,
           "system",
           translatorFor("en").t("systemEntries.diffNotRepo", {
-            path: srv.stateRoot,
+            path: srv.workDir,
           }),
         ) >= 1,
       2000,
@@ -594,7 +594,7 @@ describe("routes/agent-affordances REST: open (task 043bf145)", () => {
       const agent = await spawnAgent(srv, "Worker", room.id);
       const token = getAgentTokenRaw(agent.id)!;
       for (const n of [1, 2, 3])
-        writeFileSync(join(srv.stateRoot, `open-${n}.txt`), "x");
+        writeFileSync(join(srv.workDir, `open-${n}.txt`), "x");
       const live = await srv.connectWs(owner.rawSessionId);
 
       // No open, open:false, open:true - in that order.
@@ -649,7 +649,7 @@ describe("routes/agent-affordances REST: open (task 043bf145)", () => {
       const room = srv.agentManager.getRooms()[0];
       const agent = await spawnAgent(srv, "Worker", room.id);
       const token = getAgentTokenRaw(agent.id)!;
-      writeFileSync(join(srv.stateRoot, "open-1.txt"), "x");
+      writeFileSync(join(srv.workDir, "open-1.txt"), "x");
       const sock = await srv.connectWs(owner.rawSessionId);
       for (const open of ["true", 1, null]) {
         const r = await affordance(

@@ -106,7 +106,7 @@ async function world() {
   const [room] = srv.agentManager.getRooms();
   const asker = await srv.agentManager.spawn(
     "Asker",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

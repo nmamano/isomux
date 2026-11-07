@@ -31,7 +31,7 @@ async function spawnIn(
 ) {
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

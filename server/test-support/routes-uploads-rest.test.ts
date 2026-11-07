@@ -60,7 +60,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -310,8 +310,8 @@ describe("routes/uploads REST: agent files cannot run as office content", () => 
     const html = "<script>fetch('/api/agents')</script>";
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>';
-    writeFileSync(join(srv.stateRoot, "evil.html"), html);
-    writeFileSync(join(srv.stateRoot, "pic.svg"), svg);
+    writeFileSync(join(srv.workDir, "evil.html"), html);
+    writeFileSync(join(srv.workDir, "pic.svg"), svg);
     const planted: Record<string, string> = {};
     for (const name of ["evil.html", "pic.svg"]) {
       const r = await srv.http(`/api/agents/${agent.id}/read-file`, {
@@ -430,7 +430,7 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
       name: "Nightly",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -563,7 +563,7 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
       name: "Nightly",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",

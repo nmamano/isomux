@@ -71,7 +71,7 @@ async function call(
 async function spawn(srv: TestServer, name: string, userId: string) {
   const agent = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

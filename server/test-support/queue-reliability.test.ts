@@ -115,7 +115,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -853,7 +853,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     const room = server.agentManager.getRooms()[0];
     const receiver = await server.agentManager.spawn(
       "Legacy tracer",
-      server.stateRoot,
+      server.workDir,
       "default",
       undefined,
       undefined,

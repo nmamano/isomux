@@ -83,7 +83,7 @@ describe("conversation REST", () => {
     // spawn(name, cwd, permissionMode, desk, customInstructions, roomId, ...).
     const a = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       0,
       undefined,
@@ -356,7 +356,7 @@ describe("plain-text message form", () => {
     const spawn = async (name: string) => {
       const info = await srv.agentManager.spawn(
         name,
-        srv.stateRoot,
+        srv.workDir,
         "default",
         undefined,
         undefined,
@@ -704,7 +704,7 @@ describe("plain-text message form", () => {
       const room = srv.agentManager.getRooms()[0].id;
       const sender = await srv.agentManager.spawn(
         "Worker",
-        srv.stateRoot,
+        srv.workDir,
         "default",
         0,
         undefined,
@@ -844,7 +844,7 @@ describe("handoff", () => {
   ): Promise<AgentInfo> {
     const info = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -1223,7 +1223,7 @@ describe("schedule-run senders", () => {
   ) {
     const agent = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       desk,
       undefined,
@@ -1243,7 +1243,7 @@ describe("schedule-run senders", () => {
       name,
       schedule: { type: "interval", minutes: 60 },
       prompt: "check",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",

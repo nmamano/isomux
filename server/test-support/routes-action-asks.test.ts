@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -408,7 +408,9 @@ describe("an agent-access ask at create", () => {
     ).toEqual({ status: 422, code: "engine_below_standard" });
     // A folder stop is refused for an agent whose folder holds the office
     // state.
-    const inState = await spawn(o, "InState", { cwd: o.srv.stateRoot });
+    const inState = await spawn(o, "InState", {
+      cwd: dirname(o.srv.stateRoot),
+    });
     expect(
       outcome(
         await ask(o, asker.id, accessStep(inState.id, "folder", TASKS_READ)),

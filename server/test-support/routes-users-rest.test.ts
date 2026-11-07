@@ -203,7 +203,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     const spawn = async (name: string) => {
       const info = await srv.agentManager.spawn(
         name,
-        srv.stateRoot,
+        srv.workDir,
         "default",
         undefined,
         undefined,

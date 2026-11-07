@@ -87,7 +87,7 @@ async function connect(
 async function spawnAt(srv: TestServer, name: string, roomId: string) {
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     0,
     undefined,

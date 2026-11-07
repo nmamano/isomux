@@ -165,7 +165,7 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
     hide(member.username, [r3]);
     const agent = await server.agentManager.spawn(
       "A",
-      server.stateRoot,
+      server.workDir,
       "default",
       undefined,
       undefined,
@@ -276,7 +276,7 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
     grant(member.username, [r1, r2]);
     const agent = await server.agentManager.spawn(
       "A",
-      server.stateRoot,
+      server.workDir,
       "default",
       undefined,
       undefined,

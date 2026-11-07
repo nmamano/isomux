@@ -461,7 +461,7 @@ describe("every identity of the member is capped to the pack, read live", () => 
     const reg = await asBearer(o, tokenOf(maker.id), "POST", "/api/apps", {
       name: "casey-app",
       command: "bun run serve.ts",
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
     });
     expect(reg.status).toBe(201);
     const app = appTokens.mint("casey-app", o.caseyId);
@@ -1027,7 +1027,7 @@ describe("a schedule or a webhook of a member with a pack, at the fire", () => {
       name: "Casey's nudge",
       schedule: { type: "none" },
       prompt: "nudge from the schedule",
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",

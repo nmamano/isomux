@@ -263,7 +263,7 @@ describe("/isomux-cronjob-system-prompt lists only jobs every reader may see", (
         name,
         schedule: { type: "interval", minutes: 60 },
         prompt: "p",
-        cwd: o.srv.stateRoot,
+        cwd: o.srv.workDir,
         agentType: "claude",
         modelFamily: "opus",
         effort: "medium",

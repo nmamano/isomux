@@ -65,7 +65,7 @@ it("pushes a full fresh snapshot before auth guidance without rereading Codex", 
   const uid = getUserByName("Owner")!.id;
   const info = await server.agentManager.spawn(
     "Auth",
-    STATE_ROOT,
+    server.workDir,
     "default",
     0,
     undefined,

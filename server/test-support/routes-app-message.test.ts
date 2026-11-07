@@ -104,7 +104,7 @@ const errOf = (r: Res) =>
 async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -142,7 +142,7 @@ async function seedApp(
   const reg = await post(srv, "/api/apps", agentToken, {
     name: appName,
     command: "bun run serve.ts",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
   });
   expect(reg.status).toBe(201);
   const appToken = srv.appSupervisor.tokenFiles.get(appName);
@@ -318,7 +318,7 @@ async function spawnIn(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -523,7 +523,7 @@ describe("POST /api/app/message: the rate limit", () => {
     const reg = await post(srv, "/api/apps", agentToken, {
       name: "reused-name",
       command: "bun run serve.ts",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
     });
     expect(reg.status).toBe(201);
 
@@ -558,7 +558,7 @@ describe("POST /api/app/message: nobody to message", () => {
       body: JSON.stringify({
         name: "human-app",
         command: "bun run serve.ts",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
       }),
       rawSessionId: ownerSession.rawSessionId,
     });

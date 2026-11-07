@@ -49,7 +49,7 @@ async function spawnAgent(srv: TestServer): Promise<AgentInfo> {
   const room = srv.agentManager.getRooms()[0];
   const info = await srv.agentManager.spawn(
     "X",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     0,
     undefined,
@@ -349,7 +349,7 @@ describe("USER send acceptance (task 51de8814)", () => {
     const room = srv.agentManager.getRooms()[0];
     const sender = await srv.agentManager.spawn(
       "Sender",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       1,
       undefined,

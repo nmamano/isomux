@@ -94,7 +94,7 @@ describe("OpenCode launch env", () => {
       const room = srv.agentManager.getRooms()[0];
       const info = await srv.agentManager.spawn(
         "Launch",
-        STATE_ROOT,
+        srv.workDir,
         "default",
         undefined,
         undefined,
@@ -155,7 +155,7 @@ describe("OpenCode launch env", () => {
         name: "Launch run",
         schedule: { type: "interval", minutes: 60 },
         prompt: "do the thing",
-        cwd: STATE_ROOT,
+        cwd: srv.workDir,
         agentType: "opencode",
         modelFamily: "gate/model",
         effort: "medium",
@@ -240,7 +240,7 @@ describe("OpenCode launch env", () => {
       const room = srv.agentManager.getRooms()[0];
       const info = await srv.agentManager.spawn(
         "Launch",
-        STATE_ROOT,
+        srv.workDir,
         "default",
         undefined,
         undefined,
@@ -280,7 +280,7 @@ describe("OpenCode launch env", () => {
         name: "Fallback run",
         schedule: { type: "interval", minutes: 60 },
         prompt: "do the thing",
-        cwd: STATE_ROOT,
+        cwd: srv.workDir,
         agentType: "opencode",
         modelFamily: "gate/model",
         effort: "medium",

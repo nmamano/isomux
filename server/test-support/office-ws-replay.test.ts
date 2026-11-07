@@ -109,7 +109,7 @@ async function startReader(
 async function spawnIn(srv: TestServer, name: string, roomId: string) {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

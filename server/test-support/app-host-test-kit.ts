@@ -382,7 +382,7 @@ export async function spawnAgent(
   const roomId = srv.agentManager.getRooms()[0].id;
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -420,7 +420,7 @@ export async function registerApp(
     body: JSON.stringify({
       name,
       command: "bun run serve.ts",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
     }),
   });
   if (res.status !== 201) {

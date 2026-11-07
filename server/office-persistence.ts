@@ -590,6 +590,9 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       id: agentId,
       name: entry.name,
       cwd: entry.cwd ?? homedir(),
+      // A killed agent has no room until a revive picks one; the revive
+      // judges it again in that room.
+      roomId: "",
       agentType: entry.agentType ?? "claude",
       userId: entry.userId ?? null,
       ...(entry.modelFamily ? { modelFamily: entry.modelFamily } : {}),

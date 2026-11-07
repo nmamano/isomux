@@ -60,7 +60,7 @@ async function spawn(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -85,7 +85,7 @@ async function register(
   const reg = await call(srv, "POST", "/api/apps", builderToken, {
     name: appName,
     command: "bun run serve.ts",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
   });
   expect(reg.status).toBe(201);
   const appToken = srv.appSupervisor.tokenFiles.get(appName);
@@ -106,7 +106,7 @@ function seedManagerJob(srv: TestServer, manager: string): string {
     name: "Manager's job",
     schedule: { type: "none" },
     prompt: "p",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     agentType: "claude",
     modelFamily: "opus",
     effort: "medium",
@@ -212,7 +212,7 @@ describe("app owner reach: GET /agents", () => {
     const owner = await spawn(srv, "Lister", "Morgan", room);
     const back = await srv.agentManager.spawn(
       "BackSeat",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       null,
       undefined,
@@ -324,9 +324,7 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
     expect(
       (await patch(builderToken, { command: "bun run a.ts" })).status,
     ).toBe(200);
-    expect((await patch(builderToken, { cwd: srv.stateRoot })).status).toBe(
-      200,
-    );
+    expect((await patch(builderToken, { cwd: srv.workDir })).status).toBe(200);
 
     // Pointing the app at a privileged owner: neither the ordinary agent nor
     // its own app may.
@@ -347,7 +345,7 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
     // owner, command or cwd, and may still change the description.
     for (const body of [
       { command: "bun run other.ts" },
-      { cwd: srv.stateRoot },
+      { cwd: srv.workDir },
       { createdByAgentId: ordinary.id },
     ]) {
       expect((await patch(builderToken, body)).status).toBe(403);

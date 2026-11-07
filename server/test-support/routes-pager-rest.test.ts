@@ -80,7 +80,7 @@ async function spawnAgent(
   const userId = managerName ? getUserByName(managerName)!.id : null;
   const agent = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -685,7 +685,7 @@ describe("app pages", () => {
     const reg = await api(srv, "/api/apps", {
       method: "POST",
       bearer: agentToken,
-      body: { name, command: "bun run serve.ts", cwd: srv.stateRoot },
+      body: { name, command: "bun run serve.ts", cwd: srv.workDir },
     });
     expect(reg.status).toBe(201);
     const token = srv.appSupervisor.tokenFiles.get(name);

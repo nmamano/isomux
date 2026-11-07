@@ -109,7 +109,7 @@ async function world() {
   const spawn = async (name: string, managerId: string) => {
     const info = await server!.agentManager.spawn(
       name,
-      server!.stateRoot,
+      server!.workDir,
       "default",
       undefined,
       undefined,

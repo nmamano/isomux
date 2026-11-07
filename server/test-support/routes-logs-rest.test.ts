@@ -94,7 +94,7 @@ async function spawnOwnedBy(
   if (!user) throw new Error(`unknown user: ${username}`);
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,

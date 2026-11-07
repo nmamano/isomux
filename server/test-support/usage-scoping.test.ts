@@ -274,7 +274,7 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
 
     const alpha = await srv.agentManager.spawn(
       "Alpha",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       0,
       undefined,
@@ -282,7 +282,7 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     );
     const beta = await srv.agentManager.spawn(
       "Beta",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       1,
       undefined,
@@ -336,7 +336,7 @@ describe("GET /api/usage caller scoping", () => {
     });
     await srv.agentManager.spawn(
       "Alpha",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       0,
       undefined,
@@ -344,7 +344,7 @@ describe("GET /api/usage caller scoping", () => {
     );
     await srv.agentManager.spawn(
       "Beta",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       1,
       undefined,
@@ -389,7 +389,7 @@ describe("GET /api/usage caller scoping", () => {
 
     const plain = await srv.agentManager.spawn(
       "Plain",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       2,
       undefined,
@@ -402,7 +402,7 @@ describe("GET /api/usage caller scoping", () => {
     );
     const privileged = await srv.agentManager.spawn(
       "Privileged",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       3,
       undefined,

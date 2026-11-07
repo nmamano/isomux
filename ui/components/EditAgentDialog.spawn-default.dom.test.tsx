@@ -17,9 +17,11 @@ const {
   settle,
   shim,
   stopChecked,
+  stopDisabled,
   user,
   viewer,
 } = await import("../test-support/access-slider-fixture.tsx");
+const { room } = await import("../test-support/claude-limits-fixture.tsx");
 
 // The viewer as member `id` of the fixture's users.
 function asMember(id: string, name: string) {
@@ -63,24 +65,67 @@ describe("a new agent's default stop", () => {
 
   // Every pack ceiling is below Privileged (MEMBER_CEILING_STOPS), so the
   // ceiling wins: the spawn carries it, and nothing raises the agent after.
-  it("is the pack's agent ceiling for a member with a permission pack: an untouched save sends it in the spawn, with no PUT /access", async () => {
-    const packed = {
-      ...user("packed", "Packed", "member"),
-      pack: {
-        areas: AGENT_PACK_PRESETS.asksOnly.areas!,
-        agentCeiling: "folder" as const,
-      },
-    };
+  // The agent works in the room's folder (task 329974fe): the member sets no
+  // folder, so the spawn carries none.
+  it("is the pack's agent ceiling for a member with a permission pack: an untouched save sends it in the spawn, with no PUT /access and no folder", async () => {
+    const calls = shim();
+    const view = renderSpawn(asMember("packed", "Packed"), packed, {
+      ...room,
+      cwd: ROOM_FOLDER,
+    });
+    try {
+      await settle();
+      expect(checkedStop(view.container)).toBe("web");
+      // The dialog shows the room folder.
+      expect(shownValues(view.container)).toContain(ROOM_FOLDER);
+      await save(view.container);
+      expect(calls.map(route)).toEqual(["POST /api/agents"]);
+      expect(calls[0].body).toMatchObject({ access: "web" });
+      expect(Object.keys(calls[0].body as object)).not.toContain("cwd");
+    } finally {
+      cleanup(view);
+    }
+  });
+
+  // A room with no folder is the home folder, which a Folder agent may not
+  // have: the member's agent starts at Office there.
+  it("is Office for a member with a pack in a room with no folder", async () => {
     const calls = shim();
     const view = renderSpawn(asMember("packed", "Packed"), packed);
     try {
       await settle();
-      expect(checkedStop(view.container)).toBe("folder");
+      expect({
+        checked: checkedStop(view.container),
+        folder: stopDisabled(view.container, "folder"),
+        web: stopDisabled(view.container, "web"),
+      }).toEqual({ checked: "office", folder: true, web: true });
       await save(view.container);
       expect(calls.map(route)).toEqual(["POST /api/agents"]);
-      expect(calls[0].body).toMatchObject({ access: "folder" });
+      expect(calls[0].body).toMatchObject({ access: "office" });
+      expect(Object.keys(calls[0].body as object)).not.toContain("cwd");
     } finally {
       cleanup(view);
     }
   });
 });
+
+const ROOM_FOLDER = "/srv/studio";
+
+// A member whose pack goes up to Web.
+const packed = {
+  ...user("packed", "Packed", "member"),
+  pack: {
+    areas: AGENT_PACK_PRESETS.asksOnly.areas!,
+    agentCeiling: "web" as const,
+  },
+};
+
+// What the dialog shows: the values of its inputs and its text.
+function shownValues(container: HTMLElement): string[] {
+  return [
+    ...[...container.querySelectorAll("input")].map((input) => input.value),
+    ...[...container.querySelectorAll("*")]
+      .filter((el) => el.children.length === 0)
+      .map((el) => el.textContent ?? ""),
+  ];
+}

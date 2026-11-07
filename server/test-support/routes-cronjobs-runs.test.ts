@@ -23,7 +23,7 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, renameSync, rmdirSync, statSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, relative } from "path";
 import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
@@ -106,7 +106,7 @@ function seedJob(srv: TestServer, username: string, name = "Seed"): Cronjob {
     name,
     schedule: { type: "interval", minutes: 60 },
     prompt: "p",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     agentType: "claude",
     modelFamily: "opus",
     effort: "medium",
@@ -171,7 +171,7 @@ async function startLiveRun(name = "Morgan"): Promise<LiveRun> {
 describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () => {
   it("PINNED: RUN-bearer read-file surfaces a file-view that arrives as type:log_entry, agentId cronrun-<runId>", async () => {
     const live = await startLiveRun();
-    writeFileSync(join(live.srv.stateRoot, "report.txt"), "hello run");
+    writeFileSync(join(live.srv.workDir, "report.txt"), "hello run");
     const sock = await live.srv.connectWs(live.ownerSession);
 
     // A missing path is a 400 before any transcript write. ping/pong barrier:
@@ -211,7 +211,13 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
       {
         method: "POST",
         bearer: live.token,
-        body: { path: "secrets/office.json" },
+        // Relative to the run's folder, outside the state (task 329974fe).
+        body: {
+          path: relative(
+            live.srv.workDir,
+            join(live.srv.stateRoot, "secrets/office.json"),
+          ),
+        },
       },
     );
     expect(r.status).toBe(403);
@@ -246,7 +252,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
 
   it("idempotency: same Idempotency-Key replays read-file without a second transcript entry", async () => {
     const live = await startLiveRun();
-    writeFileSync(join(live.srv.stateRoot, "idem.txt"), "x");
+    writeFileSync(join(live.srv.workDir, "idem.txt"), "x");
     const sock = await live.srv.connectWs(live.ownerSession);
     const path = `/api/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`;
 
@@ -319,7 +325,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     // Touch the existence-only leaf session file the resume precheck wants.
     const finalized = srv.cronjobManager.findRun(job.id, run.id)!;
     const leaf = finalized.currentSessionId ?? finalized.rootSessionId;
-    const projDir = claudeProjectDir(srv.stateRoot, {
+    const projDir = claudeProjectDir(srv.workDir, {
       CLAUDE_CONFIG_DIR: claudeHome,
     });
     mkdirSync(projDir, { recursive: true });
@@ -347,7 +353,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     expect(resumed.opts.env?.ISOMUX_AGENT_TOKEN).toBe(resumedToken);
 
     const sock = await srv.connectWs(owner.rawSessionId);
-    writeFileSync(join(srv.stateRoot, "resumed.txt"), "hello resumed run");
+    writeFileSync(join(srv.workDir, "resumed.txt"), "hello resumed run");
 
     const r = await httpJson(
       srv,

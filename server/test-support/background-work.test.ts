@@ -52,7 +52,7 @@ describe("background work", () => {
     const owner = await srv.seedOwner("Morgan");
     const spawned = await srv.agentManager.spawn(
       "Worker",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

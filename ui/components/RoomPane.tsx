@@ -119,6 +119,8 @@ export function RoomPane({
     }
     return null;
   }, [users, selfId]);
+  // A member with a permission pack sets no folder (task 329974fe).
+  const setsNoFolder = self?.role === "member" && !!self.pack;
   // The save reads the record through this ref after each await, so a write
   // never sends a list from before a change that landed mid-save.
   const selfRef = useRef(self);
@@ -402,6 +404,7 @@ export function RoomPane({
           {...noTranslate()}
           data-room-setting="cwd"
           value={cwd}
+          readOnly={setsNoFolder}
           onChange={(e) => setCwd(e.target.value)}
           placeholder="~"
           style={inputStyle}

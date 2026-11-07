@@ -60,7 +60,7 @@ async function setup(): Promise<World> {
   const spawn = async (name: string) => {
     const a = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

@@ -156,7 +156,7 @@ it("an owner's sign-out while their delete of the only other signed-in owner is 
   const bella = await signIn(bellaId);
   const agent = await srv.agentManager.spawn(
     "Worker",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

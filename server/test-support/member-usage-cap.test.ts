@@ -130,7 +130,7 @@ async function spawnFor(
   const room = srv.agentManager.getRooms()[0];
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -592,7 +592,7 @@ describe("member usage cap: cron runs", () => {
         name: `${username} job`,
         schedule: { type: "interval", minutes: 60 },
         prompt: `${username} prompt`,
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         agentType: "claude",
         modelFamily: "opus",
         effort: "medium",
@@ -656,7 +656,7 @@ describe("member usage cap: cron run follow-ups", () => {
       name: "Morgan job",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",

@@ -112,7 +112,7 @@ describe("routes/backends.listModels REST", () => {
     const r = await dialogPost(
       srv,
       "claude",
-      { cwd: srv.stateRoot, includeHidden: true },
+      { cwd: srv.workDir, includeHidden: true },
       owner.rawSessionId,
     );
     expect(r.status).toBe(200);
@@ -120,14 +120,14 @@ describe("routes/backends.listModels REST", () => {
     expect(models.length).toBeGreaterThan(0);
     expect(models.some((m) => m.isDefault)).toBe(true);
     expect(calls).toHaveLength(1);
-    expect(calls[0].cwd).toBe(srv.stateRoot);
+    expect(calls[0].cwd).toBe(srv.workDir);
     expect(calls[0].includeHidden).toBe(true);
 
     // includeHidden is optional and defaults to false.
     const plain = await dialogPost(
       srv,
       "claude",
-      { cwd: srv.stateRoot },
+      { cwd: srv.workDir },
       owner.rawSessionId,
     );
     expect(plain.status).toBe(200);
@@ -142,7 +142,7 @@ describe("routes/backends.listModels REST", () => {
     const calls = spyOnClaudeListModels();
     const office = new URL(buildPublicOrigin().origin);
     const appHostOrigin = `${office.protocol}//someapp.${office.host}`;
-    const body = JSON.stringify({ cwd: srv.stateRoot });
+    const body = JSON.stringify({ cwd: srv.workDir });
 
     // The finding's request: a top-level navigation to the old GET, with the
     // cookie, cross-site fetch metadata, an off-site Referer and no Origin.
@@ -195,7 +195,7 @@ describe("routes/backends.listModels REST", () => {
     const own = await dialogPost(
       srv,
       "claude",
-      { cwd: srv.stateRoot },
+      { cwd: srv.workDir },
       owner.rawSessionId,
     );
     expect(own.status).toBe(200);
@@ -238,7 +238,7 @@ describe("routes/backends.listModels REST", () => {
       {},
       { cwd: "" },
       { cwd: 42 },
-      { cwd: srv.stateRoot, includeHidden: "true" },
+      { cwd: srv.workDir, includeHidden: "true" },
     ];
     for (const body of bodies) {
       const r = await dialogPost(srv, "claude", body, owner.rawSessionId);
@@ -257,7 +257,7 @@ describe("routes/backends.listModels REST", () => {
     const r = await dialogPost(
       srv,
       "bogus",
-      { cwd: srv.stateRoot },
+      { cwd: srv.workDir },
       owner.rawSessionId,
     );
     expect(r.status).toBe(200);

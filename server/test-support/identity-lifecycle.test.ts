@@ -25,7 +25,7 @@ async function spawnAgent(srv: TestServer, name: string) {
   if (!roomId) throw new Error("harness office has no room to spawn into");
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot, // a real, existing dir (passes validateCwd)
+    srv.workDir, // a real, existing dir (passes validateCwd)
     "default",
     undefined,
     undefined,

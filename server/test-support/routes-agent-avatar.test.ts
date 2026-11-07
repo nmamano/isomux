@@ -68,7 +68,7 @@ async function spawnOwnedBy(
   if (!user) throw new Error(`unknown user: ${username}`);
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,
@@ -198,7 +198,7 @@ describe("GET /api/agents/:id/avatar.svg", () => {
       body: JSON.stringify({
         name: "chips",
         command: "bun run serve.ts",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
       }),
     });
     expect(reg.status).toBe(201);

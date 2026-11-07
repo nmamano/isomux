@@ -68,7 +68,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -96,7 +96,7 @@ describe("routes/validate.cwd REST", () => {
     const good = await api(srv, "/api/validate/cwd", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
-      body: { cwd: srv.stateRoot },
+      body: { cwd: srv.workDir },
     });
     expect(good.status).toBe(200);
     expect(good.body).toEqual({ ok: true });
@@ -123,7 +123,7 @@ describe("routes/validate.cwd REST", () => {
     const mem = await api(srv, "/api/validate/cwd", {
       method: "POST",
       rawSessionId: member.rawSessionId,
-      body: { cwd: srv.stateRoot },
+      body: { cwd: srv.workDir },
     });
     expect(mem.status).toBe(200);
     expect(mem.body).toEqual({ ok: true });
@@ -133,7 +133,7 @@ describe("routes/validate.cwd REST", () => {
         await api(srv, "/api/validate/cwd", {
           method: "POST",
           bearer: token,
-          body: { cwd: srv.stateRoot },
+          body: { cwd: srv.workDir },
         })
       ).status,
     ).toBe(403);
@@ -225,7 +225,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     // the privileged set), unlike the normal agent above.
     const agent = await srv.agentManager.spawn(
       "Ops",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

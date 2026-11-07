@@ -55,7 +55,7 @@ async function sessionAfterMessage(
 async function spawnFor(srv: TestServer, name: string, username: string) {
   const info = await srv.agentManager.spawn(
     name,
-    STATE_ROOT,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -194,7 +194,7 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
       engine: "claude",
       name: "repo-tools",
       source: "project",
-      folder: STATE_ROOT,
+      folder: srv.workDir,
       signIn: null,
       status: null,
     },

@@ -1945,6 +1945,9 @@ Coses que pots fer per ell:
     "Amb un terminal, un agent pot llegir els tokens d'oficina d'altres agents. Només Xat, Oficina, Carpeta i Web limiten el que pot abastar.",
   "dialogs.agent.access.engineCannot":
     "Encara no disponible per a aquest motor o model",
+  "dialogs.agent.access.roomHasNoFolder": "Aquesta sala no té carpeta",
+  "dialogs.agent.roomFolderOnly":
+    "Els teus agents treballen a la carpeta de la seva sala.",
   "dialogs.agent.access.aboveCeiling":
     "Per sobre del nivell d'agent més alt del paquet de permisos del responsable",
   "dialogs.agent.pack.asksOnly": "Només preguntes",
@@ -3946,6 +3949,10 @@ Coses que pots fer per ell:
     "El cwd no és vàlid: no és un directori: {path}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no és vàlid: no es pot accedir a {path}: {message}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
+  "systemEntries.folderNotAllowed":
+    "Aquest agent no es pot iniciar a la seva carpeta. {reason}",
+  "systemEntries.resumeFolderNotAllowed":
+    "la carpeta de la conversa, {path}, no està permesa. {reason}",
   "systemEntries.aboveMemberCeiling":
     "Aquest agent no es pot iniciar per sobre de {ceiling}, el nivell d'agent més alt del paquet de permisos de {member}. Un propietari de l'oficina el pot baixar, donar-li un altre responsable o eliminar-lo.",
   "systemEntries.scheduleRun.resumeSkipped":
@@ -4026,6 +4033,8 @@ Coses que pots fer per ell:
     "No es pot iniciar: la carpeta {path} no existeix.",
   "systemEntries.scheduleRun.startCwd.notDirectory":
     "No es pot iniciar: {path} no és una carpeta.",
+  "systemEntries.scheduleRun.startCwd.insideState":
+    "No es pot iniciar: la carpeta {path} és dins de l'estat de l'oficina.",
   "systemEntries.scheduleRun.startCwd.inaccessible":
     "No es pot iniciar: sense accés a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.limit.modeBypass":

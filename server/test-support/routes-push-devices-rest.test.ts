@@ -99,7 +99,7 @@ async function office() {
   const morganId = getUserByName("Morgan")!.id;
   const agent = await srv.agentManager.spawn(
     "Bot",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

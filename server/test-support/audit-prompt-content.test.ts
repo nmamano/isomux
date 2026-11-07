@@ -180,7 +180,7 @@ async function spawnTarget(o: Office): Promise<void> {
     session: o.morgan.rawSessionId,
     body: {
       name: "Target",
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
       roomId: o.roomId,
       desk: 0,
       permissionMode: "default",
@@ -296,7 +296,7 @@ describe("rows that keep no prompt text", () => {
       bearer: o.agent,
       body: {
         name: "Briefed",
-        cwd: o.srv.stateRoot,
+        cwd: o.srv.workDir,
         roomId: o.roomId,
         desk: 1,
         permissionMode: "default",

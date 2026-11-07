@@ -178,7 +178,7 @@ async function spawn(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -629,7 +629,7 @@ describe("restoring a member: schedules, webhooks and rooms", () => {
         name,
         schedule: { type: "interval", minutes: 60 },
         prompt: "p",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         agentType: "claude",
         modelFamily: "opus",
         effort: "medium",
@@ -854,7 +854,7 @@ describe("the member's own Claude and Codex sign-ins", () => {
     seedHomes(miaId);
     const info = await srv.agentManager.spawn(
       "Pinned",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

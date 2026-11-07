@@ -27,6 +27,7 @@ import {
 import {
   confinedFolderRefusal,
   folderOverlapRefusal,
+  stateFolderRefusal,
 } from "./agent-folder-rules.ts";
 import { createMemberCeiling } from "./member-ceiling.ts";
 import { AppSupervisorError } from "./app-supervisor.ts";
@@ -1035,9 +1036,13 @@ const {
   defaultCreateRoomIdForIdentity,
   emitUsersList,
   folderRuleState,
+  moveShareRefusal,
   ordinaryScheduleMaker,
   ownScheduleLimitsFor,
   projectCronjobFor,
+  roomCwdChangeRefusal,
+  roomFolderOnlyFor,
+  sessionFolderRefusal,
   snapshotAppVisibility,
   snapshotWebhookAudience,
   spawnAccessRefusal,
@@ -1090,7 +1095,9 @@ const memberCeiling = createMemberCeiling({
   engineRuns: (agent, access) =>
     engineRunsAccessHere(agent.agentType, access, agent.modelFamily || null),
   folderRefusal: (agent) =>
-    confinedFolderRefusal(agent, agent.cwd, folderRuleState()),
+    confinedFolderRefusal(agent, agent.cwd, folderRuleState(), {
+      roomFolderOnly: true,
+    }),
   setAccess: (agentId, grant) => agentManager.setAccess(agentId, grant),
 });
 
@@ -1103,14 +1110,27 @@ function appsMayRunFor(userId: string | null | undefined): boolean {
   );
 }
 
-// Refuses to run app `name` when its owner's pack has no apps write.
-function refuseAppOfPackWithoutApps(name: string): void {
+// Whether app `app` may run: its owner's pack allows apps, and its folder is
+// not inside the office state (agent-folder-rules.ts).
+function appMayRun(app: { userId?: string | null; cwd: string }): boolean {
+  return (
+    appsMayRunFor(app.userId) &&
+    stateFolderRefusal(resolveCwd(app.cwd), STATE_ROOT) === null
+  );
+}
+
+// Refuses to run app `name` when its owner's pack has no apps write, or when
+// its folder is inside the office state.
+function refuseAppThatMayNotRun(name: string): void {
   const app = appRegistry.get(name);
-  if (app && !appsMayRunFor(app.userId))
+  if (!app) return;
+  if (!appsMayRunFor(app.userId))
     throw new AppSupervisorError(
       "owner_pack_no_apps",
       "This app's owner has no apps write in their permission pack, so the app cannot run.",
     );
+  const inState = stateFolderRefusal(resolveCwd(app.cwd), STATE_ROOT);
+  if (inState) throw new AppSupervisorError("folder_not_allowed", inState);
 }
 
 // After a member's pack is saved: their agents move down to the ceiling, and
@@ -1122,8 +1142,9 @@ function afterMemberPackSaved(userId: string): void {
   stopAppsThatMayNotRun((app) => app.userId === userId);
 }
 
-// Stops each app among `which` whose owner's pack has no apps write. At boot
-// for every app: an app unit is enabled, so a reboot starts it again.
+// Stops each app among `which` whose owner's pack has no apps write, or whose
+// folder is inside the office state. At boot for every app: an app unit is
+// enabled, so a reboot starts it again.
 function stopAppsThatMayNotRun(
   which: (app: { userId?: string | null }) => boolean,
 ): void {
@@ -1135,7 +1156,7 @@ function stopAppsThatMayNotRun(
     return;
   }
   for (const app of apps) {
-    if (!which(app) || appsMayRunFor(app.userId)) continue;
+    if (!which(app) || appMayRun(app)) continue;
     try {
       appSupervisor.stop(app.name);
     } catch (err) {
@@ -3125,6 +3146,7 @@ function buildExecutorDeps(
       get: (name) => appRegistry.get(name),
       register: (input) => appRegistry.register(input),
       folderRefusal: (cwd) =>
+        stateFolderRefusal(cwd, STATE_ROOT) ??
         folderOverlapRefusal(cwd, null, folderRuleState()),
       remove: (name) => appRegistry.remove(name),
       update: (name, patch) => appRegistry.update(name, patch),
@@ -3235,19 +3257,19 @@ function buildExecutorDeps(
       // open app frame reloads after the turn (task d7ac4f73). A member's app
       // runs only while their pack has apps write.
       reinstall: (record) => {
-        refuseAppOfPackWithoutApps(record.name);
+        refuseAppThatMayNotRun(record.name);
         appSupervisor.reinstall(record);
         appProcessStarted(record.name);
       },
       teardown: (name) => appSupervisor.teardown(name),
       start: (name) => {
-        refuseAppOfPackWithoutApps(name);
+        refuseAppThatMayNotRun(name);
         appSupervisor.start(name);
         appProcessStarted(name);
       },
       stop: (name) => appSupervisor.stop(name),
       restart: (name) => {
-        refuseAppOfPackWithoutApps(name);
+        refuseAppThatMayNotRun(name);
         appSupervisor.restart(name);
         appProcessStarted(name);
       },
@@ -3560,6 +3582,7 @@ function buildExecutorDeps(
         }
       },
       folderRefusal: (cwd) =>
+        stateFolderRefusal(resolveCwd(cwd), STATE_ROOT) ??
         folderOverlapRefusal(resolveCwd(cwd), null, folderRuleState()),
       modelFamilyError: modelFamilyMismatchError,
       saveRecentCwd,
@@ -4349,7 +4372,21 @@ function buildExecutorDeps(
           return errMessage(err, "Invalid directory");
         }
       },
-      setCwd: (roomId, cwd) => agentManager.setRoomCwd(roomId, cwd),
+      cwdChangeRefusal: roomCwdChangeRefusal,
+      // The member's agents of the room at a folder stop that is no longer
+      // the room's move to Office (member-ceiling.ts).
+      setCwd: (roomId, cwd) => {
+        if (!agentManager.setRoomCwd(roomId, cwd)) return false;
+        memberCeiling
+          .moveAgentsDown((agent) => agent.roomId === roomId)
+          .catch((err) => {
+            console.error(
+              `[ceiling] the agents of room ${roomId} did not move down:`,
+              err,
+            );
+          });
+        return true;
+      },
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
         // Version over the prompt bytes ("" for a never-set/cleared prompt),
@@ -4397,7 +4434,10 @@ function buildExecutorDeps(
       attributionFor,
       cwdFolderRefusal,
       folderRuleState,
+      moveAgentsDown: (which) => memberCeiling.moveAgentsDown(which),
+      moveShareRefusal,
       resolveCodexDefaultModel,
+      roomFolderOnlyFor,
       snapshotAppVisibility,
       snapshotWebhookAudience,
       spawnAccessRefusal,
@@ -5404,6 +5444,8 @@ function runBackgroundBoot(
   // Before the boot restore: an agent above its manager's agent ceiling comes
   // back at the ceiling.
   agentManager.setMemberCeilingClamp(memberCeiling.clampedGrant);
+  agentManager.setSessionFolderRefusal(sessionFolderRefusal);
+  agentManager.setPlacementFolderRefusal(cwdFolderRefusal);
   // The apps of a member whose pack has no apps write stay stopped across a
   // reboot or a crash between a pack save and its stops.
   stopAppsThatMayNotRun(() => true);
@@ -5412,7 +5454,10 @@ function runBackgroundBoot(
     const started = restartAppsAfterLock(
       STATE_ROOT,
       lockdownApps(appSupervisor),
-      (name) => appsMayRunFor(appRegistry.get(name)?.userId),
+      (name) => {
+        const app = appRegistry.get(name);
+        return app ? appMayRun(app) : appsMayRunFor(undefined);
+      },
     );
     if (started.length > 0)
       console.log(

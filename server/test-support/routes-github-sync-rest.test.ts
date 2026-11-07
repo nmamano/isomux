@@ -64,7 +64,7 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
   const roomId = srv.agentManager.getRooms()[0].id;
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

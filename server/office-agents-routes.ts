@@ -2,12 +2,21 @@
 // manager and the system prompt reads. Moved out of buildExecutorDeps in
 // server/isomux-office.ts, which registers them and keeps their
 // reviveLastRoomAccess precondition.
-import { agentAccessOf, FOLDER_NOT_ALLOWED } from "../shared/agent-access.ts";
+import {
+  agentAccessOf,
+  FOLDER_NOT_ALLOWED,
+  stopHasFolder,
+} from "../shared/agent-access.ts";
 import { BACK_ROOM_FULL_MESSAGE, hasBackRoom } from "../shared/desks.ts";
 import { errMessage } from "../shared/errors.ts";
 import { RECEPTIONIST_PROFILE_KEY } from "../shared/receptionist-profile.ts";
 import type { AgentInfo } from "../shared/types.ts";
-import { folderOverlapRefusal } from "./agent-folder-rules.ts";
+import {
+  folderOverlapRefusal,
+  stateFolderRefusal,
+} from "./agent-folder-rules.ts";
+import { STATE_ROOT } from "./config.ts";
+import { homedir } from "os";
 import { SpawnAccessRefusedError } from "./agent-manager.ts";
 import { buildAgentSystemPrompt, managerOf } from "./agent-system-prompt.ts";
 import { hidesManagerData } from "./system-prompt.ts";
@@ -39,6 +48,8 @@ export interface AgentsRoutesDeps extends Pick<
   | "attributionFor"
   | "cwdFolderRefusal"
   | "folderRuleState"
+  | "moveShareRefusal"
+  | "roomFolderOnlyFor"
   | "snapshotAppVisibility"
   | "snapshotWebhookAudience"
   | "spawnAccessRefusal"
@@ -54,6 +65,9 @@ export interface AgentsRoutesDeps extends Pick<
     changedBy: string,
   ) => Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
   sharesRoomWithMember: (identity: Identity, userId: string) => boolean;
+  // Moves the agents among `which` that their manager's ceiling or folder
+  // rules no longer allow down (server/member-ceiling.ts).
+  moveAgentsDown: (which: (agent: AgentInfo) => boolean) => Promise<void>;
 }
 
 export function createAgentsRoutes(
@@ -67,7 +81,10 @@ export function createAgentsRoutes(
     attributionFor,
     cwdFolderRefusal,
     folderRuleState,
+    moveAgentsDown,
+    moveShareRefusal,
     resolveCodexDefaultModel,
+    roomFolderOnlyFor,
     snapshotAppVisibility,
     snapshotWebhookAudience,
     spawnAccessRefusal,
@@ -170,10 +187,25 @@ export function createAgentsRoutes(
       const current = agentManager.getAgent(agentId);
       // agentParam proved the agent existed; a miss here is a post-guard race.
       if (!current) return { ok: false, reason: "agent_not_found" };
+      // An agent that shares its room's folder stays: from another room it
+      // would break the share (agent-folder-rules.ts). Read before the move,
+      // which updates `current` in place.
+      const otherRoom = targetRoomId !== current.roomId;
+      if (otherRoom) {
+        const refusal = moveShareRefusal(current);
+        if (refusal)
+          return { ok: false, reason: FOLDER_NOT_ALLOWED, message: refusal };
+      }
       const r = agentManager.placeAgent(agentId, targetRoomId, desk);
       if (r.ok) {
         announceAppAudienceChanges(before);
         announceWebhookAudienceChanges(hooksBefore);
+        // Under a member's pack, a Folder agent outside its new room's folder
+        // moves to Office (member-ceiling.ts).
+        if (otherRoom)
+          moveAgentsDown((agent) => agent.id === agentId).catch((err) => {
+            console.error(`[ceiling] ${agentId} did not move down:`, err);
+          });
         const moved = agentManager.getAgent(agentId);
         return moved
           ? { ok: true, agent: moved }
@@ -212,9 +244,26 @@ export function createAgentsRoutes(
           message: errMessage(err, "Invalid directory"),
         };
       }
+      const inState = stateFolderRefusal(resolveCwd(input.cwd), STATE_ROOT);
+      if (inState)
+        return { ok: false, reason: FOLDER_NOT_ALLOWED, message: inState };
+      // A member with a pack spawns in the room's folder; a room with none
+      // is the home folder, which no Folder or Web agent may have, so the
+      // agent starts at Office there (task 329974fe).
+      if (
+        input.grant &&
+        stopHasFolder(input.grant.access) &&
+        roomFolderOnlyFor(input.userId) &&
+        resolveCwd(input.cwd) === homedir()
+      )
+        input = { ...input, grant: { ...input.grant, access: "office" } };
       const overlap = folderOverlapRefusal(
         resolveCwd(input.cwd),
-        null,
+        {
+          id: "",
+          roomId: input.roomId,
+          access: input.grant?.access ?? "standard",
+        },
         folderRuleState(),
       );
       if (overlap)
@@ -283,6 +332,8 @@ export function createAgentsRoutes(
                 modelFamily || null,
                 input.grant?.access ?? "standard",
                 resolvedCwd,
+                input.roomId,
+                input.userId ?? null,
               ),
           },
         );

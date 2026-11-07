@@ -1118,6 +1118,27 @@ export function createAgentManager(deps: ManagerDeps) {
   ): void {
     memberCeilingClamp = clamp;
   }
+  // The folder rules' refusal for an agent to start a session in folder
+  // `cwd`, its own by default (server/agent-folder-rules.ts), or null; the
+  // office sets it before the boot restore.
+  type SessionFolderRefusal = (agent: AgentInfo, cwd?: string) => string | null;
+  let sessionFolderRefusal: SessionFolderRefusal = () => null;
+  function setSessionFolderRefusal(refusal: SessionFolderRefusal): void {
+    sessionFolderRefusal = refusal;
+  }
+  // The folder rules' refusal for an agent, at its stop in its room, to work
+  // in folder `cwd`, or null: a revive checks the folder it comes back in.
+  // The office sets it before the boot restore.
+  type PlacementFolderRefusal = (
+    agent: Pick<AgentInfo, "id" | "name" | "roomId" | "userId"> & {
+      access: AgentAccess;
+    },
+    cwd: string,
+  ) => string | null;
+  let placementFolderRefusal: PlacementFolderRefusal = () => null;
+  function setPlacementFolderRefusal(refusal: PlacementFolderRefusal): void {
+    placementFolderRefusal = refusal;
+  }
   // The install of a persisted agent at boot and revive, and the boot
   // restore (server/agent-restore.ts). Built as early as its deps exist.
   const { restoreOrReviveAgent, restoreAgents } = createAgentRestore({
@@ -5007,6 +5028,14 @@ export function createAgentManager(deps: ManagerDeps) {
           ceiling: stopName(ceilingOf.pack.agentCeiling),
         }),
       );
+    // No session in a folder the folder rules refuse: inside the office
+    // state, or at the folder and web stops a folder the agent may not keep
+    // (task 329974fe). Covers boot, revive, resume, handoff and clear.
+    const folderRefusal = sessionFolderRefusal(managed.info);
+    if (folderRefusal)
+      throw new LocalizedError(
+        msg("systemEntries.folderNotAllowed", { reason: folderRefusal }),
+      );
     // Clear pendingPermission so a stale approvalId from the old (about-to-close)
     // session can't accidentally route a future user message into a dead approval.
     // The backend's close() resolves any in-flight SDK resolver with deny.
@@ -7883,7 +7912,9 @@ export function createAgentManager(deps: ManagerDeps) {
           | "back_room"
           | "room_full"
           // Its engine cannot run at its manager's agent ceiling.
-          | "ceiling";
+          | "ceiling"
+          // The folder rules refuse its folder in the target room.
+          | "folder";
       }
   > {
     // 1. Must be currently killed (not in live map).
@@ -8051,19 +8082,36 @@ export function createAgentManager(deps: ManagerDeps) {
     // An agent its manager's agent ceiling would hold below what its engine
     // runs: refused, so it never comes back above the ceiling.
     const userId = resolveAgentUserId(persisted);
-    if (
-      memberCeilingClamp({
-        ...persisted,
-        agentType: persisted.agentType ?? "claude",
-        userId,
-      }).kind === "cannot"
-    ) {
+    const clamp = memberCeilingClamp({
+      ...persisted,
+      roomId,
+      agentType: persisted.agentType ?? "claude",
+      userId,
+    });
+    if (clamp.kind === "cannot") {
       const manager = userId ? getUserById(userId) : undefined;
       return {
         ok: false,
         error: `${entry.name} cannot come back: its engine and model cannot run at the highest agent level of ${manager?.name ?? "its manager"}'s permission pack.`,
         field: "ceiling",
       };
+    }
+    // The folder rules, in the target room at the stop after the clamp: an
+    // agent never comes back where it breaks a share of its room's folder or
+    // meets one, nor inside the office state.
+    const folderRefusal = placementFolderRefusal(
+      {
+        id: agentId,
+        name: entry.name,
+        roomId,
+        userId,
+        access:
+          clamp.kind === "move" ? clamp.grant.access : agentAccessOf(persisted),
+      },
+      resolvedCwd,
+    );
+    if (folderRefusal) {
+      return { ok: false, error: folderRefusal, field: "folder" };
     }
 
     const installResult = restoreOrReviveAgent({
@@ -8507,13 +8555,9 @@ export function createAgentManager(deps: ManagerDeps) {
     const storedCwd = getSessionCwd(agentId, sessionId);
     if (!storedCwd || storedCwd === prevCwd)
       return { prevCwd, switched: false, storedCwdInvalid: false };
+    let resolvedStored: string;
     try {
-      const resolvedStored = validateCwd(storedCwd);
-      for (const event of officeState.updateAgent(agentId, {
-        cwd: resolvedStored,
-      }))
-        emit(event);
-      return { prevCwd, switched: true, storedCwdInvalid: false };
+      resolvedStored = validateCwd(storedCwd);
     } catch (err) {
       // Stored cwd is gone/invalid - resume in the current mirror cwd instead of
       // failing, and tell the user. createSession's own preflight still validates
@@ -8529,6 +8573,22 @@ export function createAgentManager(deps: ManagerDeps) {
       );
       return { prevCwd, switched: false, storedCwdInvalid: true };
     }
+    // A folder the folder rules refuse fails the resume, unlike a missing
+    // one above, which resumes in the current folder: the conversation ran
+    // there, and the agent may no longer work there (task 329974fe).
+    const refusal = sessionFolderRefusal(managed.info, resolvedStored);
+    if (refusal)
+      throw new LocalizedError(
+        msg("systemEntries.resumeFolderNotAllowed", {
+          path: storedCwd,
+          reason: refusal,
+        }),
+      );
+    for (const event of officeState.updateAgent(agentId, {
+      cwd: resolvedStored,
+    }))
+      emit(event);
+    return { prevCwd, switched: true, storedCwdInvalid: false };
   }
 
   // Record the cwd a session actually resumed in. Repairs a present-but-invalid
@@ -9618,6 +9678,8 @@ export function createAgentManager(deps: ManagerDeps) {
     stop: stopPersisting,
     configureAgentTurnDeps,
     setMemberCeilingClamp,
+    setSessionFolderRefusal,
+    setPlacementFolderRefusal,
     getRooms,
     globalRoomIndexOf,
     roomById,

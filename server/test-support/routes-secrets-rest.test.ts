@@ -537,7 +537,7 @@ describe("secret field rules", () => {
     // reaches no agent: allowed, and it cannot gain a host.
     const app = await call(srv, "POST", "/api/apps", {
       session,
-      body: { name: "bot", command: "true", cwd: srv.stateRoot },
+      body: { name: "bot", command: "true", cwd: srv.workDir },
     });
     expect(app.status).toBe(201);
     const appOnly = await call(srv, "POST", userBase, {

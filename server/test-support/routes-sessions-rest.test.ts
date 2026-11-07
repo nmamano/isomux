@@ -108,7 +108,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -481,7 +481,7 @@ describe("routes/sessions REST: an agent's read of a member's sessions (task 43b
     const spawnFor = async (name: string, manager: string) => {
       const info = await srv.agentManager.spawn(
         name,
-        srv.stateRoot,
+        srv.workDir,
         "default",
         undefined,
         undefined,

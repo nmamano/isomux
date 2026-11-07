@@ -112,7 +112,7 @@ describe("cronjob REST", () => {
       name: "Nightly",
       schedule: { type: "interval", minutes: 60 },
       prompt: "do the thing",
-      cwd: server!.stateRoot,
+      cwd: server!.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -126,7 +126,7 @@ describe("cronjob REST", () => {
       name,
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -706,7 +706,7 @@ describe("cronjob REST", () => {
       ).toBe("gpt-login-default");
       expect(calls).toHaveLength(1);
       expect(calls[0].userId).toBe(userId);
-      expect(calls[0].cwd).toBe(srv.stateRoot);
+      expect(calls[0].cwd).toBe(srv.workDir);
     });
 
     it("POST a Codex schedule with a model keeps it and costs no discovery", async () => {
@@ -842,7 +842,7 @@ describe("cronjob rooms", () => {
   ): Promise<AgentInfo> {
     const info = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -867,7 +867,7 @@ describe("cronjob rooms", () => {
       name: "Nightly",
       schedule: { type: "interval", minutes: 60 },
       prompt: PROMPT,
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -886,7 +886,7 @@ describe("cronjob rooms", () => {
       name,
       schedule: { type: "interval", minutes: 60 },
       prompt: PROMPT,
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -968,7 +968,7 @@ describe("cronjob rooms", () => {
         canManage: false,
         roomId: roomA,
         prompt: PROMPT,
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         modelFamily: "opus",
       });
 
@@ -1419,7 +1419,7 @@ describe("cronjob rooms", () => {
         name: "Target job",
         schedule: { type: "interval", minutes: 60 },
         prompt: PROMPT,
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
         agentType: "claude",
         username: "Morgan",
         userId: getUserByName("Morgan")?.id ?? null,
@@ -1559,7 +1559,7 @@ describe("schedules an ordinary agent makes", () => {
     expect(updateUserById(aliceId, { allowedRooms: [roomA, roomB] }).ok).toBe(
       true,
     );
-    const work = mkdtempSync(join(srv.stateRoot, "own-cron-"));
+    const work = mkdtempSync(join(srv.workDir, "own-cron-"));
     const home = join(work, "home");
     const sub = join(home, "sub");
     const outside = join(work, "outside");
@@ -2225,7 +2225,7 @@ describe("schedules that message an agent", () => {
     const spawn = async (name: string, roomId: string) => {
       const info = await srv.agentManager.spawn(
         name,
-        srv.stateRoot,
+        srv.workDir,
         "default",
         undefined,
         undefined,
@@ -2495,7 +2495,7 @@ describe("schedules that message an agent", () => {
 
     const back = await api(srv, `/api/cronjobs/${job.id}`, asAlice, {
       method: "PATCH",
-      body: { target: null, cwd: srv.stateRoot },
+      body: { target: null, cwd: srv.workDir },
     });
     expect(back.status).toBe(200);
     expect((back.body as Cronjob).target).toBeUndefined();

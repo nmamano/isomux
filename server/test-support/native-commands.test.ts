@@ -69,7 +69,7 @@ async function spawnAgent(
   const room = srv.agentManager.getRooms()[0];
   const info = await srv.agentManager.spawn(
     `${agentType} agent`,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

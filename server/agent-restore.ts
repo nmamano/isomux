@@ -200,11 +200,13 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     persisted: PersistedAgent,
     agentType: AgentBackendType,
     userId: string | null,
+    roomId: string,
   ): PersistedAgent {
     const clamp = memberCeilingClamp({
       id: persisted.id,
       name: persisted.name,
       cwd: persisted.cwd,
+      roomId,
       agentType,
       modelFamily: persisted.modelFamily,
       userId,
@@ -253,7 +255,15 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     // An agent above its manager's agent ceiling comes back at the ceiling, so
     // no session ever runs above it. One the engine cannot move keeps its stop
     // and gets no session (createSession).
-    const p = clampedToCeiling(opts.persisted, agentType, userId);
+    const p = clampedToCeiling(
+      opts.persisted,
+      agentType,
+      userId,
+      opts.roomIdOverride ??
+        officeState.rooms[opts.roomIdx]?.id ??
+        officeState.rooms[0]?.id ??
+        "",
+    );
     const restoredCwd = p.cwd;
     // Canonicalize persisted values without making one malformed agent stop the
     // boot restore. Interactive spawn/edit applies the stricter mismatch guard.

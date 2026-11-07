@@ -66,7 +66,7 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
   const roomId = srv.agentManager.getRooms()[0].id;
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -824,7 +824,7 @@ describe("routes/memory REST: READ names the resolved scope", () => {
     const beta = srv.agentManager.createRoom("Beta Lab");
     const bot = await srv.agentManager.spawn(
       "MemBot",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -984,7 +984,7 @@ describe("routes/memory REST: access follows the rooms", () => {
   ): Promise<AgentInfo> {
     const info = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

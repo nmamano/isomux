@@ -87,7 +87,7 @@ describe("API token live stream", () => {
     const roomId = srv.agentManager.getRooms()[0].id;
     const agent = await srv.agentManager.spawn(
       "Worker",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       0,
       undefined,

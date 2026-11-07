@@ -65,7 +65,7 @@ async function seedAppToken(srv: TestServer, agentToken: string) {
     body: JSON.stringify({
       name: "habits",
       command: "bun run serve.ts",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
     }),
   });
   expect(reg.status).toBe(201);
@@ -82,7 +82,7 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
     const ownerId = getUserByName("Morgan")!.id;
     const agent = await srv.agentManager.spawn(
       "AppBot",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

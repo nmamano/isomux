@@ -87,7 +87,7 @@ async function office() {
     session: morgan.rawSessionId,
     body: {
       name: "Target",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       roomId,
       desk: 0,
       permissionMode: "default",
@@ -689,7 +689,7 @@ describe("manager's instructions and memory in a system prompt", () => {
         session,
         body: {
           name,
-          cwd: srv.stateRoot,
+          cwd: srv.workDir,
           roomId,
           ...(desk === undefined ? {} : { desk }),
           permissionMode: "default",
@@ -725,7 +725,7 @@ describe("manager's instructions and memory in a system prompt", () => {
     // Pat has no instructions and no member memory, and never reaches room A.
     const patA = await srv.agentManager.spawn(
       "Pat alpha",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       1,
       undefined,
@@ -899,7 +899,7 @@ describe("manager's instructions and memory in a system prompt", () => {
       name: "Mia's job",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
       agentType: "claude",
       username: "Mia",
       userId: o.id("Mia"),
@@ -972,7 +972,7 @@ describe("agent instructions fields", () => {
       ...owner(o),
       body: {
         name: "Spawned",
-        cwd: o.srv.stateRoot,
+        cwd: o.srv.workDir,
         roomId: o.roomId,
         desk: 1,
         permissionMode: "default",
@@ -1128,7 +1128,7 @@ describe("old routes and field names", () => {
     const agents = o.srv.agentManager.getAllAgents().length;
     const spawnBody = {
       name: "Old spawn",
-      cwd: o.srv.stateRoot,
+      cwd: o.srv.workDir,
       roomId: o.roomId,
       desk: 3,
       permissionMode: "default",

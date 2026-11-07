@@ -109,7 +109,7 @@ describe("a reply draft (slice 2b)", () => {
     const spawn = async (name: string) => {
       const a = await srv.agentManager.spawn(
         name,
-        srv.stateRoot,
+        srv.workDir,
         "default",
         undefined,
         undefined,
@@ -217,7 +217,7 @@ describe("send at once (task 70fae82c)", () => {
     const room = srv.agentManager.getRooms()[0].id;
     const helper = await srv.agentManager.spawn(
       "Helper",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -320,7 +320,7 @@ describe("own messages (task 610f7756)", () => {
     const room = srv.agentManager.getRooms()[0].id;
     const helper = await srv.agentManager.spawn(
       "Helper",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

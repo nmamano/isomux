@@ -987,10 +987,10 @@ describe("receptionist profile and lobby", () => {
     const room = srv.agentManager.getOrdinaryRooms()[0].id;
     const edit = await api(srv, "PATCH", `/api/agents/${r.id}`, {
       rawSessionId: cookie,
-      body: { name: "Concierge", cwd: srv.stateRoot },
+      body: { name: "Concierge", cwd: srv.workDir },
     });
     expect(edit.status).toBe(200);
-    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.stateRoot);
+    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.workDir);
     expect(
       (
         await api(srv, "POST", `/api/agents/${r.id}/move`, {
@@ -1020,7 +1020,7 @@ describe("receptionist profile and lobby", () => {
     const revived = await srv.agentManager.revive(r.id, "lobby", 0);
     expect(revived.ok).toBe(true);
     expect(srv.agentManager.getAgent(r.id)?.name).toBe("Concierge");
-    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.stateRoot);
+    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.workDir);
   });
 
   it("seeds an upgraded office with an owner and no lobby at boot", async () => {

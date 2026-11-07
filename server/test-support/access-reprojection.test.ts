@@ -88,7 +88,7 @@ function seedJob(srv: TestServer, username: string, roomId: string) {
     name: "Job in B",
     schedule: { type: "interval", minutes: 60 },
     prompt: "p",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     agentType: "claude",
     modelFamily: "opus",
     effort: "medium",

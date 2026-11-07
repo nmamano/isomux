@@ -22,7 +22,7 @@ import type { AgentInfo, UserRecord } from "../shared/types.ts";
 // What the ceiling reads of an agent, live or killed.
 export type CeilingAgent = Pick<
   AgentInfo,
-  "id" | "name" | "cwd" | "agentType" | "userId"
+  "id" | "name" | "cwd" | "roomId" | "agentType" | "userId"
 > & {
   modelFamily?: string;
   access?: AgentAccess;
@@ -42,7 +42,8 @@ export interface MemberCeilingDeps {
   getAllAgents: () => AgentInfo[];
   // Whether the agent's engine and model run `access` on this server.
   engineRuns: (agent: CeilingAgent, access: AgentAccess) => boolean;
-  // The folder rules' refusal for the agent at a folder stop, or null.
+  // The folder rules' refusal for the agent at a folder stop under its
+  // manager's pack (in its room's folder only), or null.
   folderRefusal: (agent: CeilingAgent) => string | null;
   setAccess: (agentId: string, grant: AgentAccessGrant) => Promise<unknown>;
 }
@@ -53,20 +54,27 @@ function packOf(user: UserRecord | undefined): MemberPack | undefined {
 }
 
 export function createMemberCeiling(deps: MemberCeilingDeps) {
-  // What `pack` does to `agent`: keep at or below the ceiling; else the
-  // ceiling (Office when the folder rules refuse a folder stop) with a pack
-  // inside the member's areas.
+  // What `pack` does to `agent`: keep at or below the ceiling, unless it is
+  // at a folder stop the folder rules refuse (its folder is not its room's,
+  // task 329974fe); else the ceiling (Office when the folder rules refuse a
+  // folder stop) with a pack inside the member's areas.
   function clampFor(
     agent: CeilingAgent,
     pack: MemberPack | undefined,
   ): CeilingClamp {
     const access = agentAccessOf(agent);
-    if (!pack || stopIncludes(pack.agentCeiling, access))
+    if (!pack) return { kind: "keep" };
+    const atOrBelow = stopIncludes(pack.agentCeiling, access);
+    if (
+      atOrBelow &&
+      (!stopHasFolder(access) || deps.folderRefusal(agent) === null)
+    )
       return { kind: "keep" };
+    const target = atOrBelow ? access : pack.agentCeiling;
     const stop =
-      stopHasFolder(pack.agentCeiling) && deps.folderRefusal(agent) !== null
+      stopHasFolder(target) && deps.folderRefusal(agent) !== null
         ? "office"
-        : pack.agentCeiling;
+        : target;
     const kind = deps.engineRuns(agent, stop) ? "move" : "cannot";
     if (!stopHasPack(stop)) return { kind, grant: { access: stop } };
     // An agent with a pack keeps its rooms and gets the member's areas inside
@@ -100,37 +108,48 @@ export function createMemberCeiling(deps: MemberCeilingDeps) {
       );
   }
 
-  // Move each live agent of member `userId` above the ceiling down to it.
-  // An agent at or below the ceiling is not touched, even when its stored pack
+  // Move each live agent of member `userId` above the ceiling down to it, and
+  // one at a folder stop outside its room's folder to Office.
+  // Any other agent at or below the ceiling is not touched, even when its stored pack
   // is wider than the member's areas: its token is capped live by the member's
   // pack (server/identity/member-pack.ts), and another sender that checks the
   // stored pack as the target sees a wider pack, which only refuses more.
   // Rewriting it would rotate its token and end its turn for nothing.
   async function moveMemberAgentsDown(userId: string): Promise<void> {
-    const pack = packOf(deps.getUserById(userId));
-    if (!pack) return;
+    if (!packOf(deps.getUserById(userId))) return;
+    await moveAgentsDown((agent) => agent.userId === userId);
+  }
+
+  // Move each live agent among `which` that its manager's ceiling or folder
+  // rules no longer allow down (also after a move to another room or a room
+  // folder change). Each is judged before any move lands; the folder rules
+  // already count the manager's other agents at their stops after the clamp
+  // (office-access-policy.ts ruleStopOf).
+  async function moveAgentsDown(
+    which: (agent: AgentInfo) => boolean,
+  ): Promise<void> {
+    const clamps = deps
+      .getAllAgents()
+      .filter(which)
+      .map((agent) => ({ agent, clamp: clampedGrant(agent) }));
     await Promise.all(
-      deps
-        .getAllAgents()
-        .filter((agent) => agent.userId === userId)
-        .map(async (agent) => {
-          const clamp = clampFor(agent, pack);
-          if (clamp.kind === "keep") return;
-          if (clamp.kind === "cannot") {
-            console.error(
-              `[ceiling] ${agent.name} (${agent.id}) cannot run at the agent ceiling of its manager; it gets no session`,
-            );
-            return;
-          }
-          try {
-            await deps.setAccess(agent.id, clamp.grant);
-          } catch (err) {
-            console.error(
-              `[ceiling] ${agent.name} (${agent.id}) did not move down:`,
-              err,
-            );
-          }
-        }),
+      clamps.map(async ({ agent, clamp }) => {
+        if (clamp.kind === "keep") return;
+        if (clamp.kind === "cannot") {
+          console.error(
+            `[ceiling] ${agent.name} (${agent.id}) cannot run at the agent ceiling of its manager; it gets no session`,
+          );
+          return;
+        }
+        try {
+          await deps.setAccess(agent.id, clamp.grant);
+        } catch (err) {
+          console.error(
+            `[ceiling] ${agent.name} (${agent.id}) did not move down:`,
+            err,
+          );
+        }
+      }),
     );
   }
 
@@ -139,5 +158,6 @@ export function createMemberCeiling(deps: MemberCeilingDeps) {
     clampedGrant,
     agentsThatCannotMoveDown,
     moveMemberAgentsDown,
+    moveAgentsDown,
   };
 }

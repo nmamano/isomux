@@ -62,7 +62,7 @@ async function office() {
   const spawn = async (name: string) => {
     const agent = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

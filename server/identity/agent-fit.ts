@@ -273,6 +273,10 @@ export const ABOVE_MEMBER_CEILING = "above_member_ceiling";
 // A pack save, a manager change or a revive that would leave an agent above
 // the ceiling with an engine that cannot run below it.
 export const AGENTS_CANNOT_MOVE_DOWN = "agents_cannot_move_down";
+// A member with a permission pack creates no room and sets no folder: their
+// agents work in their room's folder (task 329974fe).
+export const PACK_CREATES_NO_ROOM = "pack_creates_no_room";
+export const PACK_SETS_NO_FOLDER = "pack_sets_no_folder";
 
 // Whether an agent at `stop` managed by `manager` sits above that member's
 // agent ceiling. Keyed on the agent's manager, whoever asks.

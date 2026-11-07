@@ -67,7 +67,7 @@ async function spawnLive(
 ): Promise<string> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

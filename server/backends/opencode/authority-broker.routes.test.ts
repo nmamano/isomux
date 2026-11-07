@@ -116,7 +116,7 @@ it("relays the server thumbnail limit refusal for a streamed upload", async () =
     body: JSON.stringify({
       name: "hello",
       command: "bun server.ts",
-      cwd: f.srv.stateRoot,
+      cwd: f.srv.workDir,
     }),
   });
   expect(registered.status, registered.body.toString()).toBe(201);

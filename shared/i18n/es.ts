@@ -1939,6 +1939,9 @@ Cosas que puedes hacer por él:
     "Con una terminal, un agente puede leer los tokens de oficina de otros agentes. Solo Chat, Oficina, Carpeta y Web limitan lo que puede alcanzar.",
   "dialogs.agent.access.engineCannot":
     "Aún no disponible para este motor o modelo",
+  "dialogs.agent.access.roomHasNoFolder": "Esta sala no tiene carpeta",
+  "dialogs.agent.roomFolderOnly":
+    "Tus agentes trabajan en la carpeta de su sala.",
   "dialogs.agent.access.aboveCeiling":
     "Por encima del nivel de agente más alto del paquete de permisos del responsable",
   "dialogs.agent.pack.asksOnly": "Solo preguntas",
@@ -3937,6 +3940,10 @@ Cosas que puedes hacer por él:
     "El cwd no es válido: no es un directorio: {path}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no es válido: no se puede acceder a {path}: {message}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
+  "systemEntries.folderNotAllowed":
+    "Este agente no puede iniciarse en su carpeta. {reason}",
+  "systemEntries.resumeFolderNotAllowed":
+    "la carpeta de la conversación, {path}, no está permitida. {reason}",
   "systemEntries.aboveMemberCeiling":
     "Este agente no puede iniciarse por encima de {ceiling}, el nivel de agente más alto del paquete de permisos de {member}. Un propietario de la oficina puede bajarlo, darle otro responsable o eliminarlo.",
   "systemEntries.scheduleRun.resumeSkipped":
@@ -4017,6 +4024,8 @@ Cosas que puedes hacer por él:
     "No se puede iniciar: la carpeta {path} no existe.",
   "systemEntries.scheduleRun.startCwd.notDirectory":
     "No se puede iniciar: {path} no es una carpeta.",
+  "systemEntries.scheduleRun.startCwd.insideState":
+    "No se puede iniciar: la carpeta {path} está dentro del estado de la oficina.",
   "systemEntries.scheduleRun.startCwd.inaccessible":
     "No se puede iniciar: sin acceso a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.limit.modeBypass":

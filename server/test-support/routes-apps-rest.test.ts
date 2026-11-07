@@ -89,7 +89,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -112,7 +112,7 @@ const body = (
 ) => ({
   name,
   command: "bun run serve.ts",
-  cwd: srv.stateRoot,
+  cwd: srv.workDir,
   ...over,
 });
 
@@ -651,7 +651,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
       (app) => app.name === "alice-app",
     )!;
     expect(foreignRow.command).toBe("bun run serve.ts");
-    expect(foreignRow.cwd).toBe(srv.stateRoot);
+    expect(foreignRow.cwd).toBe(srv.workDir);
 
     const ownerAgentControl = await api(srv, "/api/apps/alice-app", {
       method: "PATCH",
@@ -686,7 +686,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
     ).toEqual(["alice-app", "morgan-app"]);
     const ownerApiForeignRow = ownerApiRead.body as AppWire;
     expect(ownerApiForeignRow.command).toBe("bun run serve.ts");
-    expect(ownerApiForeignRow.cwd).toBe(srv.stateRoot);
+    expect(ownerApiForeignRow.cwd).toBe(srv.workDir);
     const ownerApiControl = await api(srv, "/api/apps/alice-app", {
       method: "PATCH",
       bearer: ownerApiRaw,
@@ -825,7 +825,7 @@ describe("routes/apps REST: registration validation", () => {
     expect(reserved.status).toBe(400);
     expect(errCode(reserved)).toBe("reserved_name");
 
-    const noCommand = await post({ name: "ok-name", cwd: srv.stateRoot });
+    const noCommand = await post({ name: "ok-name", cwd: srv.workDir });
     expect(noCommand.status).toBe(400);
     expect(errCode(noCommand)).toBe("invalid_command");
 
@@ -2573,7 +2573,7 @@ describe("routes/apps REST: a record with the retired inboxAccess key", () => {
     // Managed by the app's owner, so the app gets this agent's live reach.
     const builder = await srv.agentManager.spawn(
       "Builder",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

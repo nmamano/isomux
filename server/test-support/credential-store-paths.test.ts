@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, relative } from "path";
 
 import { STATE_ROOT } from "../config.ts";
 import { isCredentialStorePath } from "../credential-store-paths.ts";
@@ -225,7 +225,7 @@ describe("the safety hooks and the browser upload", () => {
 async function spawnAgent(srv: TestServer, roomId: string): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     "Worker",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -333,7 +333,12 @@ describe("routes that take a path", () => {
     const token = getAgentTokenRaw(agent.id)!;
     const paths = seedStore(srv.stateRoot);
 
-    for (const path of [...Object.values(paths), "secrets/office.json"]) {
+    // A path relative to the agent's folder, which is outside the state
+    // (task 329974fe), that climbs into the store.
+    for (const path of [
+      ...Object.values(paths),
+      relative(srv.workDir, join(srv.stateRoot, "secrets/office.json")),
+    ]) {
       const res = await call(srv, "POST", `/api/agents/${agent.id}/read-file`, {
         bearer: token,
         body: { path },

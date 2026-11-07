@@ -82,7 +82,7 @@ async function editorAgent(srv: TestServer, ownerName: string) {
   const owner = getUserByName(ownerName)!;
   const editor = await srv.agentManager.spawn(
     "Editor",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -103,7 +103,7 @@ async function editorAgent(srv: TestServer, ownerName: string) {
 // variables.
 async function liveAgent(
   srv: TestServer,
-  cwd = srv.stateRoot,
+  cwd = srv.workDir,
   opts: { effort?: AgentInfo["effort"]; env?: Record<string, string> } = {},
 ) {
   setTestManagedOfficeEnv({ ...claudeEnv(srv), ...opts.env });
@@ -166,7 +166,7 @@ function noticeSentWith(srv: TestServer, id: string, text: string) {
 }
 
 // A live Codex agent with a conversation.
-async function liveCodex(srv: TestServer, cwd = srv.stateRoot) {
+async function liveCodex(srv: TestServer, cwd = srv.workDir) {
   const info = await srv.agentManager.spawn(
     "Codex",
     cwd,
@@ -279,7 +279,7 @@ describe("settings notice", () => {
     const owner = await srv.seedOwner("Morgan");
     const info = await srv.agentManager.spawn(
       "Codex",
-      srv.stateRoot,
+      srv.workDir,
       "on-request",
       undefined,
       undefined,
@@ -323,8 +323,8 @@ describe("settings notice", () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-    const from = join(srv.stateRoot, "folder-a");
-    const to = join(srv.stateRoot, "folder-b");
+    const from = join(srv.workDir, "folder-a");
+    const to = join(srv.workDir, "folder-b");
     mkdirSync(from, { recursive: true });
     mkdirSync(to, { recursive: true });
     const id = await liveAgent(srv, from);
@@ -434,7 +434,7 @@ describe("settings notice", () => {
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     // On Vertex, Sonnet is a limited family: it has no "max" effort.
-    const id = await liveAgent(srv, srv.stateRoot, {
+    const id = await liveAgent(srv, srv.workDir, {
       effort: "max",
       env: { CLAUDE_CODE_USE_VERTEX: "1" },
     });
@@ -479,8 +479,8 @@ describe("settings notice", () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-    const from = join(srv.stateRoot, "dormant-a");
-    const to = join(srv.stateRoot, "dormant-b");
+    const from = join(srv.workDir, "dormant-a");
+    const to = join(srv.workDir, "dormant-b");
     mkdirSync(from, { recursive: true });
     mkdirSync(to, { recursive: true });
     const id = await liveAgent(srv, from);
@@ -504,7 +504,7 @@ describe("settings notice", () => {
     const srv = await startTestServer({ fakeBackend: holdingBackend() });
     server = srv;
     const owner = await srv.seedOwner("Morgan");
-    const to = join(srv.stateRoot, "codex-b");
+    const to = join(srv.workDir, "codex-b");
     mkdirSync(to, { recursive: true });
     const id = await liveCodex(srv);
     const before = session(srv, id);

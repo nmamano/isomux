@@ -1,4 +1,5 @@
 import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
+import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useEffect, useRef, useState } from "react";
 import {
   AUTO_HANDOFF_DEFAULT_TOKENS,
@@ -70,6 +71,7 @@ import {
   AGENT_PACK_PRESETS,
   agentAccessOf,
   belowStandard,
+  stopHasFolder,
   CODEX_BELOW_STANDARD_MODELS,
   engineRunsAccessOnSomeModel,
   sameAccessGrant,
@@ -366,7 +368,22 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     : -1;
   const agentRoomName = agentRoomIndex >= 0 ? rooms[agentRoomIndex].name : "";
   const [name, setName] = useState(agent?.name ?? "");
-  const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
+  // A member with a permission pack sets no folder: their agents work in
+  // their room's folder (task 329974fe). A room with no folder is the home
+  // folder, where no agent may work at Folder or Web.
+  const viewerRecord = useSelfUser();
+  const setsNoFolder = viewerRecord?.role === "member" && !!viewerRecord.pack;
+  const spawnRoomFolder = isSpawn
+    ? (rooms.find((r) => r.id === props.roomId)?.cwd ?? null)
+    : null;
+  const spawnRoomHasNoFolder =
+    isSpawn && setsNoFolder && (!spawnRoomFolder || spawnRoomFolder === "~");
+  const [cwd, setCwd] = useState(
+    agent?.cwd ??
+      (setsNoFolder ? (spawnRoomFolder ?? "~") : undefined) ??
+      props.defaultCwd ??
+      "~",
+  );
   const [outfit, setOutfit] = useState<AgentOutfit>(
     agent ? { ...agent.outfit } : randomOutfit,
   );
@@ -441,9 +458,23 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   ) as UserRecord | undefined;
   const ceiling =
     manager?.role === "member" ? manager.pack?.agentCeiling : undefined;
+  // An agent whose manager has a pack, in a room with no folder, cannot
+  // move to Folder or Web.
+  const editRoomFolder = agent
+    ? (rooms.find((r) => r.id === agent.roomId)?.cwd ?? null)
+    : null;
+  const roomHasNoFolder =
+    spawnRoomHasNoFolder ||
+    (!isSpawn &&
+      manager?.role === "member" &&
+      !!manager.pack &&
+      (!editRoomFolder || editRoomFolder === "~"));
+  const spawnStop: AgentAccess = ceiling ?? "privileged";
   const savedAccess: AgentAccess = agent
     ? agentAccessOf(agent)
-    : (ceiling ?? "privileged");
+    : spawnRoomHasNoFolder && stopHasFolder(spawnStop)
+      ? "office"
+      : spawnStop;
   const [access, setAccess] = useState<AgentAccess>(savedAccess);
   // Below Standard a Codex model that is not proven cannot be picked
   // (engineRunsAccess).
@@ -1091,7 +1122,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // user-gated route, never a spawn field - so no agent can self-confer).
       apiFetch<{ agent: AgentInfo }>("POST", "/api/agents", {
         name: name || defaultSpawnName!,
-        cwd,
+        ...(setsNoFolder ? {} : { cwd }),
         roomId: props.roomId,
         desk: props.deskIndex,
         permissionMode,
@@ -2326,6 +2357,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     <input
                       {...noTranslate()}
                       value={cwd}
+                      readOnly={setsNoFolder}
                       onChange={(e) => {
                         setCwd(e.target.value);
                         if (cwdError) setCwdError(null);
@@ -2336,7 +2368,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           : inputStyle
                       }
                     />
-                    {recentCwds.length > 0 && (
+                    {recentCwds.length > 0 && !setsNoFolder && (
                       <button
                         type="button"
                         aria-expanded={showRecentCwds}
@@ -2348,6 +2380,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       </button>
                     )}
                   </div>
+                  {setsNoFolder && (
+                    <p style={{ ...dialogHint, margin: "4px 0 0" }}>
+                      {t("dialogs.agent.roomFolderOnly")}
+                    </p>
+                  )}
                   {cwdError && (
                     <p
                       style={{
@@ -2490,6 +2527,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     agentType={targetEngine}
                     model={modelFamily}
                     {...(ceiling ? { ceiling } : {})}
+                    {...(roomHasNoFolder ? { noFolder: true } : {})}
                     note={
                       !isSpawn && accessChanged
                         ? t("dialogs.agent.privilegedRestart")

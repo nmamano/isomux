@@ -10,7 +10,14 @@
 // active; stop() releases the lock. Fine for the T1 tier, which runs serially.
 //
 // Not imported by any production path.
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+} from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import {
   startServer,
@@ -49,6 +56,9 @@ import type { UserRole } from "../../shared/types.ts";
 
 // The backup dir a harness boot reports. It is not created: no backup runs.
 const TEST_BACKUP_DIR = `${STATE_ROOT}/test-backups`;
+// The agents' work folder: a new one at each fresh boot, kept across
+// restart(), in the test process's temp folder (test preload).
+let testWorkDir = "";
 
 export interface SeededIdentity {
   username: string;
@@ -70,6 +80,9 @@ export interface TestSocket {
 
 export interface TestServer extends ServerHandle {
   stateRoot: string;
+  // A folder outside the office state for the test's agents to work in: no
+  // agent, schedule or app works inside the state (task 329974fe).
+  workDir: string;
   fakeBackend: FakeBackend;
   // The supervisor the server was booted with - so an apps test can assert what
   // was installed, script a systemd failure, or force an app's state.
@@ -205,6 +218,8 @@ async function bootTestServer(
   activeHarness = true;
   try {
     if (wipe) {
+      if (testWorkDir) removeStateDir(testWorkDir);
+      testWorkDir = mkdtempSync(join(tmpdir(), "agent-work-"));
       // Clean slate per boot: wipe + recreate STATE_ROOT so each fresh harness
       // server starts empty. restart() skips this to preserve on-disk state.
       if (emptyOfficeDatabase()) {
@@ -526,6 +541,7 @@ async function bootTestServer(
     return {
       ...handle,
       stateRoot: STATE_ROOT,
+      workDir: testWorkDir,
       fakeBackend,
       appSupervisor,
       baseUrl,

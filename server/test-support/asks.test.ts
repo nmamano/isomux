@@ -125,7 +125,7 @@ async function world() {
   const spawn = async (name: string) => {
     const info = await server!.agentManager.spawn(
       name,
-      server!.stateRoot,
+      server!.workDir,
       "default",
       undefined,
       undefined,
@@ -794,7 +794,7 @@ describe("a link to an agent", () => {
     const elsewhere = w.srv.agentManager.createRoom("Elsewhere");
     const far = await w.srv.agentManager.spawn(
       "Far",
-      w.srv.stateRoot,
+      w.srv.workDir,
       "default",
       undefined,
       undefined,
@@ -2682,7 +2682,7 @@ describe("a secret request is an ask", () => {
     // Pat manages this agent.
     const info = await w.srv.agentManager.spawn(
       "Pats",
-      w.srv.stateRoot,
+      w.srv.workDir,
       "default",
       undefined,
       undefined,
@@ -3466,7 +3466,7 @@ describe("an ask an app opens", () => {
     auth: { bearer?: string; rawSessionId?: string },
   ): Promise<{ token: string; createdAt: number }> {
     const r = await call(w.srv, "POST", "/api/apps", auth, {
-      json: { name, command: "bun run serve.ts", cwd: w.srv.stateRoot },
+      json: { name, command: "bun run serve.ts", cwd: w.srv.workDir },
     });
     expect(r.status).toBe(201);
     const token = w.srv.appSupervisor.tokenFiles.get(name);

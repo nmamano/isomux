@@ -317,6 +317,7 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
   origin_retired: 409,
   app_limit_reached: 409,
   owner_pack_no_apps: 403,
+  folder_not_allowed: 422,
   no_port_available: 409,
   registry_corrupt: 500,
   persist_failed: 500,

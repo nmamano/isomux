@@ -103,7 +103,7 @@ async function office() {
   const register = async (session: string, name: string) => {
     const res = await call(srv, "POST", "/api/apps", {
       session,
-      body: { name, command: "true", cwd: srv.stateRoot },
+      body: { name, command: "true", cwd: srv.workDir },
     });
     expect([name, res.status]).toEqual([name, 201]);
   };
@@ -339,7 +339,7 @@ describe("a secret request for an app", () => {
     const [room] = o.srv.agentManager.getRooms();
     const agent = await o.srv.agentManager.spawn(
       "Asker",
-      o.srv.stateRoot,
+      o.srv.workDir,
       "default",
       undefined,
       undefined,
@@ -417,7 +417,7 @@ describe("app delete", () => {
     expect(await listed(o, o.memberBase, session)).toEqual({ BOT_TOKEN: [] });
     const again = await call(o.srv, "POST", "/api/apps", {
       session,
-      body: { name: "bot", command: "true", cwd: o.srv.stateRoot },
+      body: { name: "bot", command: "true", cwd: o.srv.workDir },
     });
     expect(again.status).toBe(201);
     expect(appEnv("bot")).toEqual({});

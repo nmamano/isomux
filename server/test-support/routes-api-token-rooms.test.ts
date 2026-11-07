@@ -60,7 +60,7 @@ async function spawn(
 ) {
   const agent = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -379,7 +379,7 @@ describe("API token room limits: an office owner's token", () => {
       name: "Beta Report",
       schedule: { type: "none" },
       prompt: "Report.",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",

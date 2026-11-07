@@ -350,7 +350,7 @@ describe("rooms.rename REST: the working folder", () => {
 
   it("sets, trims and clears it; the settings read and a live event carry it; it survives a restart; the lobby takes one too", async () => {
     const { srv, owner, id, patch, room } = await office();
-    const dir = join(srv.stateRoot, "room-folder");
+    const dir = join(srv.workDir, "room-folder");
     mkdirSync(dir, { recursive: true });
     expect(await folderOf(srv, owner.rawSessionId, id)).toBeNull();
 

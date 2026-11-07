@@ -7,8 +7,10 @@ import { homedir } from "os";
 import {
   type AgentAccess,
   agentAccessOf,
+  belowStandard,
   FOLDER_NOT_ALLOWED,
   stopHasFolder,
+  stopIncludes,
 } from "../shared/agent-access.ts";
 import type { UserPublicWire } from "../shared/contract-shapes.ts";
 import type {
@@ -26,6 +28,8 @@ import type {
 import {
   confinedFolderRefusal,
   folderOverlapRefusal,
+  roomFolderSharers,
+  stateFolderRefusal,
   type FolderRuleState,
   providerHomesOf,
 } from "./agent-folder-rules.ts";
@@ -45,6 +49,7 @@ import { recheckOpenAppSockets } from "./app-ws-relay.ts";
 import { buildPublicOrigin, type SessionLookup } from "./auth.ts";
 import { engineRunsAccessHere } from "./backends/access-here.ts";
 import { STATE_ROOT } from "./config.ts";
+import { resolveCwd } from "./cwd-utils.ts";
 import type { ScheduleLimitAgent } from "./cron-agent-limits.ts";
 import {
   cronjobFactsFor,
@@ -339,13 +344,40 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
   // The live agent whose settings limit a schedule it made: an ordinary agent.
   // Null when it is gone or privileged (cron:manage wins), so the job is then
   // limited only as any member's job is (task c4233bfd).
+  // Whether the agents of user `userId` keep their files in their room's
+  // folder: a member with a permission pack (task 329974fe).
+  function roomFolderOnlyFor(userId: string | null | undefined): boolean {
+    const user = userId ? getUserById(userId) : undefined;
+    return user?.role === "member" && !!user.pack;
+  }
+
+  // The stop an agent counts at in the folder rules: under its manager's
+  // pack, at most the pack's agent ceiling, where the clamp puts it
+  // (member-ceiling.ts). So agents the clamp moves down at once are judged
+  // against each other after the move.
+  function ruleStopOf(agent: AgentInfo): AgentAccess {
+    const access = agentAccessOf(agent);
+    const user = agent.userId ? getUserById(agent.userId) : undefined;
+    const ceiling =
+      user?.role === "member" ? user.pack?.agentCeiling : undefined;
+    return ceiling && !stopIncludes(ceiling, access) ? ceiling : access;
+  }
+
   // What the folder rules check against (agent-folder-rules.ts).
-  function folderRuleState(): FolderRuleState {
+  function folderRuleState(): FolderRuleState & {
+    agents: (AgentInfo & { access: AgentAccess })[];
+  } {
     return {
       stateRoot: STATE_ROOT,
       home: homedir(),
       providerHomes: providerHomesOf(),
-      agents: agentManager.getAllAgents(),
+      agents: agentManager
+        .getAllAgents()
+        .map((agent) => ({ ...agent, access: ruleStopOf(agent) })),
+      roomCwd: (roomId) => {
+        const cwd = agentManager.getRooms().find((r) => r.id === roomId)?.cwd;
+        return cwd ? resolveCwd(cwd) : null;
+      },
       schedules: cronjobManager
         .listCronjobs()
         .map((job) => ({ name: job.name, cwd: job.cwd })),
@@ -368,6 +400,8 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
     model: string | null,
     access: AgentAccess,
     cwd: string,
+    roomId: string,
+    userId: string | null,
   ): SpawnAccessRefusal | null {
     if (!engineRunsAccessHere(agentType, access, model))
       return {
@@ -376,8 +410,10 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
       };
     const state = folderRuleState();
     const message = stopHasFolder(access)
-      ? confinedFolderRefusal({ id: "", name }, cwd, state)
-      : folderOverlapRefusal(cwd, null, state);
+      ? confinedFolderRefusal({ id: "", name, roomId }, cwd, state, {
+          roomFolderOnly: roomFolderOnlyFor(userId),
+        })
+      : folderOverlapRefusal(cwd, { id: "", roomId, access }, state);
     return message ? { refused: FOLDER_NOT_ALLOWED, message } : null;
   }
 
@@ -392,6 +428,16 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
       const message = confinedFolderRefusal(
         agent,
         agent.cwd,
+        folderRuleState(),
+        { roomFolderOnly: roomFolderOnlyFor(agent.userId) },
+      );
+      if (message) return { refused: FOLDER_NOT_ALLOWED, message };
+    } else if (!belowStandard(access)) {
+      // A full agent may not work where agents below Standard share their
+      // room's folder.
+      const message = folderOverlapRefusal(
+        agent.cwd,
+        { id: agent.id, roomId: agent.roomId, access },
         folderRuleState(),
       );
       if (message) return { refused: FOLDER_NOT_ALLOWED, message };
@@ -408,13 +454,82 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
         };
   }
 
-  // The refusal for `agent` to move to `cwd`: the folder rules when it keeps
-  // its files in its folder, else the overlap with such an agent's folder.
-  function cwdFolderRefusal(agent: AgentInfo, cwd: string): string | null {
+  // The refusal for `agent` to move to `cwd`, or to come back there at a
+  // revive: the folder rules when it keeps its files in its folder, else the
+  // overlap with such an agent's folder.
+  function cwdFolderRefusal(
+    agent: Pick<AgentInfo, "id" | "name" | "roomId" | "userId"> & {
+      access?: AgentAccess;
+      privileged?: boolean;
+    },
+    cwd: string,
+  ): string | null {
+    const inState = stateFolderRefusal(cwd, STATE_ROOT);
+    if (inState) return inState;
     const state = folderRuleState();
-    return stopHasFolder(agentAccessOf(agent))
-      ? confinedFolderRefusal(agent, cwd, state)
-      : folderOverlapRefusal(cwd, agent.id, state);
+    const access = agentAccessOf(agent);
+    return stopHasFolder(access)
+      ? confinedFolderRefusal(agent, cwd, state, {
+          roomFolderOnly: roomFolderOnlyFor(agent.userId),
+        })
+      : folderOverlapRefusal(
+          cwd,
+          { id: agent.id, roomId: agent.roomId, access },
+          state,
+        );
+  }
+
+  // The refusal for `agent` to start a session in folder `cwd` (its own by
+  // default): no agent works inside the office state, and one at the folder
+  // or web stop keeps the folder rules. The createSession gate and a resume
+  // (agent-manager.ts).
+  function sessionFolderRefusal(
+    agent: AgentInfo,
+    cwd: string = agent.cwd,
+  ): string | null {
+    const inState = stateFolderRefusal(cwd, STATE_ROOT);
+    if (inState) return inState;
+    if (!stopHasFolder(agentAccessOf(agent))) return null;
+    return confinedFolderRefusal(agent, cwd, folderRuleState(), {
+      roomFolderOnly: roomFolderOnlyFor(agent.userId),
+    });
+  }
+
+  // The refusal for `agent` to leave its room when it shares the room's
+  // folder with an agent at the folder or web stop: it would stay in that
+  // folder from another room, and the agents it leaves would get no session.
+  function moveShareRefusal(agent: AgentInfo): string | null {
+    const sharers = roomFolderSharers(agent.roomId, folderRuleState());
+    if (!sharers.some((a) => a.id === agent.id) || sharers.length < 2)
+      return null;
+    if (!sharers.some((a) => stopHasFolder(a.access))) return null;
+    const other = sharers.find((a) => a.id !== agent.id)!;
+    return `${agent.name} shares its room's folder with ${other.name}, so it cannot move to another room.`;
+  }
+
+  // The refusal for room `roomId` to take folder `cwd` (null: none): a folder
+  // inside the office state, or a change that would leave agents sharing the
+  // old folder with an agent at the folder or web stop that the clamp does
+  // not move (one whose manager has no pack).
+  function roomCwdChangeRefusal(
+    roomId: string,
+    cwd: string | null,
+  ): string | null {
+    if (cwd !== null) {
+      const inState = stateFolderRefusal(resolveCwd(cwd), STATE_ROOT);
+      if (inState) return inState;
+    }
+    const state = folderRuleState();
+    const old = state.roomCwd(roomId);
+    if (old === (cwd === null ? null : resolveCwd(cwd))) return null;
+    const sharers = roomFolderSharers(roomId, state);
+    if (sharers.length < 2) return null;
+    const kept = sharers.find(
+      (a) => stopHasFolder(a.access) && !roomFolderOnlyFor(a.userId),
+    );
+    return kept
+      ? `${kept.name} shares this room's folder with other agents. Give it another folder first.`
+      : null;
   }
 
   function ordinaryScheduleMaker(agentId: string): AgentInfo | null {
@@ -870,9 +985,13 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
     emitUsersList,
     folderRuleState,
     identityUserIsOfficeOwner,
+    moveShareRefusal,
     ordinaryScheduleMaker,
     ownScheduleLimitsFor,
     projectCronjobFor,
+    roomCwdChangeRefusal,
+    roomFolderOnlyFor,
+    sessionFolderRefusal,
     snapshotAppVisibility,
     snapshotWebhookAudience,
     spawnAccessRefusal,

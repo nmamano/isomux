@@ -41,7 +41,7 @@ async function setup() {
   const room = srv.agentManager.getRooms()[0].id;
   const agent = await srv.agentManager.spawn(
     "Reader",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     0,
     undefined,
@@ -120,7 +120,7 @@ describe("agent reference routes", () => {
       body: JSON.stringify({
         name: "reference-app",
         command: "bun run start",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
       }),
     });
     expect(registered.status).toBe(201);

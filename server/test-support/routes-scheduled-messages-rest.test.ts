@@ -52,7 +52,7 @@ async function spawnAgent(
   // roomId, ...) - same shape queue.test.ts uses.
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

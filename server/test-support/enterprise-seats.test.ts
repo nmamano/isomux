@@ -449,7 +449,7 @@ describe("while locked, nobody texts an agent", () => {
     const [room] = srv.agentManager.getRooms();
     const info = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

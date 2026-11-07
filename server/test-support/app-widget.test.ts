@@ -195,7 +195,7 @@ it("omits all target details when the target room is unavailable", async () => {
   const room = srv.agentManager.createRoom("Hidden target");
   const target = await srv.agentManager.spawn(
     "Hidden",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -411,7 +411,7 @@ it("checks app context at send time and derives member provenance from the app",
   const hiddenRoom = srv.agentManager.createRoom("Private");
   const hiddenAgent = await srv.agentManager.spawn(
     "Private agent",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -420,7 +420,7 @@ it("checks app context at send time and derives member provenance from the app",
   const privateApp = appRegistry.register({
     name: "private",
     command: "bun app.ts",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     userId: getUserByName("Morgan")!.id,
     username: "Morgan",
     createdBy: "Private agent",

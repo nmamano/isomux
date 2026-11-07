@@ -1985,6 +1985,8 @@ export type AppErrorCode =
   // The app's owner is a member whose permission pack has no apps write: the
   // app does not run.
   | "owner_pack_no_apps"
+  // The app's folder is inside the office state: the app does not run.
+  | "folder_not_allowed"
   | "no_port_available"
   // The three server-side failures. Where one of these is the error CODE, the
   // request genuinely failed - none of them is ever dressed up as a success.

@@ -1898,6 +1898,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "With a shell, an agent can read the office tokens of other agents. Only Chat, Office, Folder and Web limit what it can reach.",
   "dialogs.agent.access.engineCannot":
     "Not available for this engine or model yet",
+  "dialogs.agent.access.roomHasNoFolder": "This room has no folder",
+  "dialogs.agent.roomFolderOnly": "Your agents work in their room's folder.",
   "dialogs.agent.access.aboveCeiling":
     "Above the highest agent level of the manager's permission pack",
   "dialogs.agent.pack.asksOnly": "Asks only",
@@ -3863,6 +3865,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "cwd is invalid: Not a directory: {path}. Click the agent name in the log view header to fix it.",
   "systemEntries.cwdInvalid.inaccessible":
     "cwd is invalid: Cannot access {path}: {message}. Click the agent name in the log view header to fix it.",
+  "systemEntries.folderNotAllowed":
+    "This agent cannot start in its folder. {reason}",
+  "systemEntries.resumeFolderNotAllowed":
+    "the conversation's folder {path} is not allowed. {reason}",
   "systemEntries.aboveMemberCeiling":
     "This agent cannot start above {ceiling}, the highest agent level of {member}'s permission pack. An office owner can lower it, give it another manager, or kill it.",
   "systemEntries.scheduleRun.resumeSkipped":
@@ -3940,6 +3946,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Cannot start: the folder {path} does not exist.",
   "systemEntries.scheduleRun.startCwd.notDirectory":
     "Cannot start: {path} is not a folder.",
+  "systemEntries.scheduleRun.startCwd.insideState":
+    "Cannot start: the folder {path} is inside the office state.",
   "systemEntries.scheduleRun.startCwd.inaccessible":
     "Cannot start: no access to the folder {path} ({message}).",
   "systemEntries.scheduleRun.limit.modeBypass":

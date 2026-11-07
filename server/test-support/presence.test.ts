@@ -185,7 +185,7 @@ describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
     const spawnIn = async (name: string, roomId: string) =>
       (await server!.agentManager.spawn(
         name,
-        server!.stateRoot,
+        server!.workDir,
         "default",
         undefined,
         undefined,

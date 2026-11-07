@@ -1136,7 +1136,7 @@ describe("migration onto the office's write name", () => {
     const other = await server.seedMember("Ann");
     const agent = await server.agentManager.spawn(
       "Worker",
-      server.stateRoot,
+      server.workDir,
       "default",
       undefined,
       undefined,

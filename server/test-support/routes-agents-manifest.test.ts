@@ -52,7 +52,7 @@ async function spawnAt(
 ) {
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,
@@ -76,7 +76,7 @@ async function spawnOwnedBy(
   if (!user) throw new Error(`unknown user: ${username}`);
   const a = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,
@@ -243,7 +243,7 @@ describe("GET /agents (discovery manifest)", () => {
       roomName: rooms[0].name,
       roomId: r1, // stable id, usable for memory scopeIds / room routes
       topic: null,
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       modelFamily: alpha.modelFamily,
       model: alpha.model,
       effort: DEFAULT_EFFORT,
@@ -648,7 +648,7 @@ it("exposes skill deletion to agents with editor authority and refreshes the cat
     0,
     owner.username,
   );
-  const folder = join(srv.stateRoot, ".claude", "skills", "delete-fixture");
+  const folder = join(srv.workDir, ".claude", "skills", "delete-fixture");
   mkdirSync(folder, { recursive: true });
   const path = join(folder, "SKILL.md");
   writeFileSync(
@@ -677,7 +677,7 @@ it("exposes skill deletion to agents with editor authority and refreshes the cat
   await srv.agentManager.setPrivileged(agent.id, true);
   headers.Authorization = `Bearer ${bearerFor(agent.id)}`;
   expect(
-    (await remove(file.rev, join(srv.stateRoot, "not-a-skill.md"))).status,
+    (await remove(file.rev, join(srv.workDir, "not-a-skill.md"))).status,
   ).toBe(404);
   expect((await remove(file.rev - 1)).status).toBe(409);
   const socket = await srv.connectWs(owner.rawSessionId);

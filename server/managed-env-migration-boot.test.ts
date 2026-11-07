@@ -46,7 +46,7 @@ describe("managed env migration at real boot", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "Pending Import Agent",
-        cwd: server.stateRoot,
+        cwd: server.workDir,
         roomId,
         desk: 1,
         permissionMode: "default",

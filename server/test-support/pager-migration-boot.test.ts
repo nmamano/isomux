@@ -50,7 +50,7 @@ async function office(opts: { schedulers?: boolean } = {}) {
   const roomA = srv.agentManager.getRooms()[0].id;
   const bot = await srv.agentManager.spawn(
     "Bot",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

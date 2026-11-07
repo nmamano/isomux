@@ -84,7 +84,7 @@ describe("members chat", () => {
     const roomId = srv.agentManager.getRooms()[0].id;
     const info = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -566,7 +566,7 @@ describe("members chat", () => {
         body: {
           name: "lobbyapp",
           command: "bun run serve.ts",
-          cwd: server.stateRoot,
+          cwd: server.workDir,
         },
         bearer: agentToken,
       });
@@ -893,7 +893,7 @@ describe("members chat reactions", () => {
     const roomId = srv.agentManager.getRooms()[0].id;
     const bot = await srv.agentManager.spawn(
       "Helper",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,

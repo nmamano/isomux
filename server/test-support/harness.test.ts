@@ -86,7 +86,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
       const a = (server = await startTestServer());
       const old = await a.agentManager.spawn(
         "Old",
-        a.stateRoot,
+        a.workDir,
         "default",
         undefined,
         undefined,
@@ -118,7 +118,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
       const b = (server = await startTestServer());
       const kept = await b.agentManager.spawn(
         "Kept",
-        b.stateRoot,
+        b.workDir,
         "default",
         undefined,
         undefined,

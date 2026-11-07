@@ -94,7 +94,7 @@ async function office() {
 async function spawnAgent(srv: TestServer): Promise<AgentInfo> {
   const agent = await srv.agentManager.spawn(
     "Recorded",
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,

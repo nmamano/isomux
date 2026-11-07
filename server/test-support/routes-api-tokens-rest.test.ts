@@ -30,7 +30,7 @@ async function spawn(
 ) {
   const agent = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     desk,
     undefined,
@@ -534,7 +534,7 @@ describe("personal API tokens", () => {
     const validCwd = await bearer(srv, token, "/api/validate/cwd", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: srv.stateRoot }),
+      body: JSON.stringify({ cwd: srv.workDir }),
     });
     expect(validCwd.status).toBe(200);
     expect(

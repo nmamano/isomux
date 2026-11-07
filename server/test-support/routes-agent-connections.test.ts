@@ -175,7 +175,7 @@ async function seeded() {
   await expectStatus(srv, 201, "/api/apps", {
     method: "POST",
     session: m,
-    body: { name: "bot", command: "true", cwd: srv.stateRoot },
+    body: { name: "bot", command: "true", cwd: srv.workDir },
   });
   await expectStatus(srv, 201, `${mine}/secrets`, {
     method: "POST",

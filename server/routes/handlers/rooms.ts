@@ -33,6 +33,11 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { RoomWire } from "../../../shared/types.ts";
+import { FOLDER_NOT_ALLOWED } from "../../../shared/agent-access.ts";
+import {
+  PACK_CREATES_NO_ROOM,
+  PACK_SETS_NO_FOLDER,
+} from "../../identity/agent-fit.ts";
 import { parseRoomPet, type RoomPet } from "../../../shared/pets.ts";
 import { parseRoomSkin, type RoomSkin } from "../../../shared/room-skins.ts";
 import {
@@ -93,6 +98,10 @@ export interface RoomsDeps {
   // Sets the folder new agents in the room start in; null clears it. Returns
   // false if the room does not exist (-> 404).
   setCwd(roomId: string, cwd: string | null): boolean;
+  // The folder rules' refusal for room `roomId` to take folder `cwd` (null:
+  // none): a folder inside the office state, or a change that would leave
+  // agents sharing the old folder (server/agent-folder-rules.ts); else null.
+  cwdChangeRefusal(roomId: string, cwd: string | null): string | null;
   // Reads a room's prompt (null means none set) plus the prompt's
   // optimistic-concurrency version, and the room's look so an agent can read
   // it before changing it. The version covers the prompt only. Returns null if
@@ -121,6 +130,12 @@ export interface RoomsDeps {
 export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
   return {
     "rooms.create": (ctx) => {
+      if (ctx.identity.memberPack)
+        return fail(
+          403,
+          PACK_CREATES_NO_ROOM,
+          "Your permission pack does not let you create rooms.",
+        );
       const b = (ctx.body ?? {}) as { name?: unknown; skin?: unknown };
       const name = typeof b.name === "string" ? b.name : undefined;
       // Absent and null both create the room in the office look, so the new
@@ -231,6 +246,14 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       // directory: only an absolute or "~"-rooted one is taken.
       let cwd: string | null = null;
       if (hasCwd) {
+        // A member with a permission pack sets no folder: their agents work
+        // in their room's folder (task 329974fe).
+        if (ctx.identity.memberPack)
+          return fail(
+            403,
+            PACK_SETS_NO_FOLDER,
+            "Your permission pack does not let you set a folder.",
+          );
         if (b.cwd !== null && typeof b.cwd !== "string") {
           return fail(422, "invalid_cwd", "cwd must be a string or null");
         }
@@ -246,6 +269,8 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
           const problem = deps.cwdProblem(cwd);
           if (problem) return fail(400, "invalid_cwd", problem);
         }
+        const refusal = deps.cwdChangeRefusal(ctx.params.roomId, cwd);
+        if (refusal) return fail(422, FOLDER_NOT_ALLOWED, refusal);
       }
       // One 404 for the whole request: every write hits the same room, so the
       // first miss answers for all of them and none has run.

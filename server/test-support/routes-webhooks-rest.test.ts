@@ -93,7 +93,7 @@ async function spawnAgent(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -113,7 +113,7 @@ function seedJob(srv: TestServer, username: string, roomId?: string): Cronjob {
     name: "Review",
     schedule: { type: "none" },
     prompt: "Review the pull request.",
-    cwd: srv.stateRoot,
+    cwd: srv.workDir,
     agentType: "claude",
     modelFamily: "opus",
     effort: "medium",

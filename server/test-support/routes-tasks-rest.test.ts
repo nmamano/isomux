@@ -99,7 +99,7 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
   const roomId = srv.agentManager.getRooms()[0].id;
   const info = await srv.agentManager.spawn(
     name,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -285,7 +285,7 @@ describe("routes/tasks REST: attribution and lifecycle", () => {
       name: "Nightly Sweep",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -391,7 +391,7 @@ describe("routes/tasks REST: attribution and lifecycle", () => {
       name: "Nightly Report",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -519,7 +519,7 @@ describe("routes/tasks REST: attribution and lifecycle", () => {
       name: "Mia Report",
       schedule: { type: "interval", minutes: 60 },
       prompt: "p",
-      cwd: srv.stateRoot,
+      cwd: srv.workDir,
       agentType: "claude",
       modelFamily: "opus",
       effort: "medium",
@@ -1586,7 +1586,7 @@ describe("routes/tasks REST: a closed room's tasks", () => {
     const { srv, owner, member, ownerId, roomB, post } = await setup();
     const bot = await srv.agentManager.spawn(
       "OwnerBot",
-      srv.stateRoot,
+      srv.workDir,
       "default",
       undefined,
       undefined,
@@ -1605,7 +1605,7 @@ describe("routes/tasks REST: a closed room's tasks", () => {
       body: {
         name: "board-app",
         command: "bun run serve.ts",
-        cwd: srv.stateRoot,
+        cwd: srv.workDir,
       },
     });
     expect(reg.status).toBe(201);

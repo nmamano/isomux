@@ -1726,6 +1726,8 @@ App 的一些原则：
   "dialogs.agent.access.boundaryNote":
     "有终端的智能体可以读取其他智能体的办公室令牌。只有聊天、办公室、文件夹和网络会限制它能访问的范围。",
   "dialogs.agent.access.engineCannot": "此引擎或模型暂不可用",
+  "dialogs.agent.access.roomHasNoFolder": "此房间没有文件夹",
+  "dialogs.agent.roomFolderOnly": "你的智能体在其房间的文件夹中工作。",
   "dialogs.agent.access.aboveCeiling": "高于管理者权限包的最高智能体级别",
   "dialogs.agent.pack.asksOnly": "仅询问",
   "dialogs.agent.pack.tasksAndAsks": "任务和询问",
@@ -3517,6 +3519,9 @@ App 的一些原则：
     "cwd 无效：不是目录：{path}。点击日志视图标题栏中的智能体名称进行修正。",
   "systemEntries.cwdInvalid.inaccessible":
     "cwd 无效：无法访问 {path}：{message}。点击日志视图标题栏中的智能体名称进行修正。",
+  "systemEntries.folderNotAllowed": "此智能体无法在其文件夹中启动。{reason}",
+  "systemEntries.resumeFolderNotAllowed":
+    "不允许使用此对话的文件夹 {path}。{reason}",
   "systemEntries.aboveMemberCeiling":
     "此智能体无法在高于 {ceiling} 的级别启动，{ceiling} 是 {member} 的权限包允许的最高智能体级别。办公室所有者可以调低它、为它指定其他管理者或终止它。",
   "systemEntries.scheduleRun.resumeSkipped":
@@ -3590,6 +3595,8 @@ App 的一些原则：
     "无法启动：文件夹 {path} 不存在。",
   "systemEntries.scheduleRun.startCwd.notDirectory":
     "无法启动：{path} 不是文件夹。",
+  "systemEntries.scheduleRun.startCwd.insideState":
+    "无法启动：文件夹 {path} 位于办公室状态目录内。",
   "systemEntries.scheduleRun.startCwd.inaccessible":
     "无法启动：无权访问文件夹 {path}（{message}）。",
   "systemEntries.scheduleRun.limit.modeBypass":

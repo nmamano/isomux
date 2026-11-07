@@ -25,7 +25,7 @@ A token has the issuing member's operational reach: agents and their conversatio
 
 A token with a pack writes only to agents whose access fits inside it: an agent at Chat, or an agent at Office whose pack has no area or level the token lacks (and, for a room-limited token, only rooms the token has). To any other agent it can only reply, after that agent wrote to it: a send, a stop, or a queue cancel, which the agent treats as data. It can spawn or revive only an agent that fits. A refusal is `403` with code `agent_does_not_fit`. A task it creates, or a change of its that carries text, carries `limited: true`. A pack with write in an area that equals full access is outside this rule.
 
-A member's permission pack caps every token of theirs to its areas, live. Their agents spawn, revive and move only up to the pack's agent level: above it, the call returns `403` with code `above_agent_ceiling` (an owner gets `409 above_member_ceiling`).
+A member's permission pack caps every token of theirs to its areas, live. Their agents spawn, revive and move only up to the pack's agent level: above it, the call returns `403` with code `above_agent_ceiling` (an owner gets `409 above_member_ceiling`). Their agents work in their room's folder: they create no room (`403 pack_creates_no_room`), and a `cwd` at spawn other than the room's, an agent folder change or a room `cwd` returns `403 pack_sets_no_folder`. A Folder or Web spawn in a room with no folder starts at Office.
 
 The form marks the areas where write equals full access: with them a token can make an agent act with all of its member's reach, for example by changing its memory.
 
@@ -299,7 +299,9 @@ nothing in that body is written. The lobby returns 422 `skin_not_supported`.
 `cwd` is the folder new agents in the room start in: an absolute path, `~`, or
 a path under `~/`, to an existing directory. Any other value returns 400
 `invalid_cwd`, and nothing in that body is written. `null` or `""` clears it,
-and new agents start in `~`. `POST /api/agents` with no `cwd` uses it.
+and new agents start in `~`. `POST /api/agents` with no `cwd` uses it. A
+folder inside the office state, or a change that would leave agents sharing the
+old folder, returns 422 `folder_not_allowed`.
 
 `GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet`, `decor`
 and `cwd`.

@@ -112,7 +112,7 @@ async function spawn(
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     `Stamp ${agentType}`,
-    srv.stateRoot,
+    srv.workDir,
     "default",
     undefined,
     undefined,
@@ -293,7 +293,7 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
     await server.seedOwner();
     const agent = await spawn(server, "opencode", GOOD, "high");
     const sessionId = await runTurn(server, agent.id, "waiting_for_response");
-    const newCwd = mkdtempSync(join(server.stateRoot, "cwd-"));
+    const newCwd = mkdtempSync(join(server.workDir, "cwd-"));
 
     await server.agentManager.editAgent(agent.id, {
       cwd: newCwd,

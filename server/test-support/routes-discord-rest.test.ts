@@ -144,7 +144,7 @@ describe("discord routes: the member's privileged agent", () => {
     const spawn = async (name: string, username: string, userId: string) => {
       const agent = await srv.agentManager.spawn(
         name,
-        srv.stateRoot,
+        srv.workDir,
         "default",
         undefined,
         undefined,

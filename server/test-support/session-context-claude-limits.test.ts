@@ -47,7 +47,7 @@ it("sends each member and each agent the families limited in its own env, again 
   const spawn = async (name: string, username: string) => {
     const info = await srv.agentManager.spawn(
       name,
-      srv.stateRoot,
+      srv.workDir,
       "auto",
       undefined,
       undefined,
