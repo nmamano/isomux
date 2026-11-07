@@ -12,4 +12,4 @@ Safe example: `GET /api/agents/:id/context`.
 
 ## Route contract
 
-`GET /api/agents/:id/context` returns the context union above. `GET /api/agents/:id/subscription` returns the provider-window union above. User and API identities need target-room access; agent identities inherit their manager's room reach. Cron-run and app identities are refused. Inaccessible targets return 403; provider refresh failure is represented as cached/unavailable data rather than a fabricated zero.
+`GET /api/agents/:id/context` returns the context union above. `GET /api/agents/:id/subscription` returns the provider-window union above. User and API identities need target-room access; agent identities inherit their manager's room reach. An app with a live owner agent inherits that agent's room reach; other apps and cron runs are refused. Inaccessible targets return 403; provider refresh failure is represented as cached/unavailable data rather than a fabricated zero.
