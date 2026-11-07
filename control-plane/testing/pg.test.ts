@@ -131,14 +131,21 @@ describe("the schema sweep", () => {
         SCHEMA_LEASE_CLASS,
         runId,
       ]);
-      await sweepAbandonedSchemas();
-      expect(await exists(schema)).toBe(false);
+      // Another test process's sweep can hold the free id while it drops
+      // the schema, and this sweep then leaves it: sweep until it is gone.
+      await until(async () => {
+        await sweepAbandonedSchemas();
+        return !(await exists(schema));
+      }, "the free run's schema going");
       // The sweep gave the lease back after the drop.
-      expect(await leaseHolders(runId)).toEqual([]);
+      await until(
+        async () => (await leaseHolders(runId)).length === 0,
+        "the sweep giving the lease back",
+      );
     } finally {
       await holder.end().catch(() => {});
     }
-  });
+  }, 20_000);
 
   test("names it cannot read stay, and do not stop the sweep", async () => {
     // A schema from before leases, whose pid is dead: in another PID
@@ -187,8 +194,11 @@ describe("the schema sweep", () => {
         async () => (await leaseHolders(runId)).length === 0,
         "the killed run's session ending",
       );
-      await sweepAbandonedSchemas();
-      expect(await exists(schema)).toBe(false);
+      // As above, another process's sweep can hold the free id for a moment.
+      await until(async () => {
+        await sweepAbandonedSchemas();
+        return !(await exists(schema));
+      }, "the killed run's schema going");
     } finally {
       child.kill("SIGKILL");
     }
@@ -196,8 +206,7 @@ describe("the schema sweep", () => {
 });
 
 describe("the lease session", () => {
-  // Quarantined: flaky in CI, task 6032326c.
-  test.skip("a lost lease is taken again by the next acquisition, or the acquisition fails (flaky, task 6032326c)", async () => {
+  test("a lost lease is taken again by the next acquisition, or the acquisition fails", async () => {
     const schema = schemaOf(await testDsn());
     await releaseTestStores();
     const runId = runIdOf(schema);
@@ -210,16 +219,16 @@ describe("the lease session", () => {
     try {
       // The lease session ends, and another session takes the run id before
       // this run acquires again: this run's schemas are no longer its own.
+      // The thief waits: another test process's sweep holds a free run id
+      // while it drops that run's schemas, then frees it.
       await admin.query("select pg_terminate_backend($1)", [backend]);
-      await until(
-        async () => (await leaseHolders(runId)).length === 0,
-        "the lease session ending",
-      );
-      const taken = await thief.query<{ ok: boolean }>(
-        "select pg_try_advisory_lock($1::int4, $2::int4) as ok",
-        [SCHEMA_LEASE_CLASS, runId],
-      );
-      expect(taken.rows[0]?.ok).toBe(true);
+      await until(async () => {
+        const taken = await thief.query<{ ok: boolean }>(
+          "select pg_try_advisory_lock($1::int4, $2::int4) as ok",
+          [SCHEMA_LEASE_CLASS, runId],
+        );
+        return taken.rows[0]?.ok === true;
+      }, "the thief holding the lost lease");
 
       // The run sees the close on a later turn of its event loop; from then
       // on it refuses to hand out a schema.
@@ -232,12 +241,23 @@ describe("the lease session", () => {
         return outcome === "rejected";
       }, "an acquisition refusing without its lease");
 
-      // Free again: the next acquisition takes the same run id back.
+      // Free again: an acquisition takes the same run id back. Another
+      // process's sweep can take the free id first, and the acquisition
+      // refuses until that sweep frees it.
       await thief.query("select pg_advisory_unlock($1::int4, $2::int4)", [
         SCHEMA_LEASE_CLASS,
         runId,
       ]);
-      const again = schemaOf(await testDsn());
+      let again = "";
+      await until(async () => {
+        try {
+          again = schemaOf(await testDsn());
+          return true;
+        } catch {
+          await releaseTestStores();
+          return false;
+        }
+      }, "an acquisition taking the lease back");
       expect(runIdOf(again)).toBe(runId);
       const holders = await leaseHolders(runId);
       expect(holders).toHaveLength(1);
