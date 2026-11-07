@@ -1,4 +1,7 @@
-import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
+import {
+  launchRawExtensionChrome,
+  storeExtensionPairing,
+} from "./test-support/raw-extension-chrome";
 import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -44,19 +47,10 @@ async function offeredTab(
   });
   const extensionPage = await setup.newPage();
   await extensionPage.goto("chrome-extension://" + id + "/connection.html");
-  await extensionPage.evaluate(
-    async (config) => {
-      const extensionChrome = (
-        globalThis as unknown as {
-          chrome: {
-            storage: { local: { set(value: unknown): Promise<void> } };
-          };
-        }
-      ).chrome;
-      await extensionChrome.storage.local.set({ connection: config });
-    },
-    { url: fixture.extensionURL, credential: fixture.credential },
-  );
+  await storeExtensionPairing(extensionPage, {
+    url: fixture.extensionURL,
+    credential: fixture.credential,
+  });
   await until(
     "Fixture connection did not settle",
     () => !!fixture.bridge.connections("fixture-member")[0],

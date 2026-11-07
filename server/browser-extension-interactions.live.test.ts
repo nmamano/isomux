@@ -1,4 +1,7 @@
-import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
+import {
+  launchRawExtensionChrome,
+  storeExtensionPairing,
+} from "./test-support/raw-extension-chrome";
 import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { test, expect, spyOn } from "bun:test";
 import { ExtensionConnection } from "./browser-extension-bridge";
@@ -75,23 +78,11 @@ async function withOfferedTab(
     });
     const extensionPage = await setup.newPage();
     await extensionPage.goto("chrome-extension://" + id + "/connection.html");
-    await extensionPage.evaluate(
-      async (config) => {
-        const extensionChrome = (
-          globalThis as unknown as {
-            chrome: {
-              storage: { local: { set(value: unknown): Promise<void> } };
-            };
-          }
-        ).chrome;
-        await extensionChrome.storage.local.set({ connection: config });
-      },
-      {
-        url: fixture.extensionURL,
-        credential: fixture.credential,
-        nonce: crypto.randomUUID(),
-      },
-    );
+    await storeExtensionPairing(extensionPage, {
+      url: fixture.extensionURL,
+      credential: fixture.credential,
+      nonce: crypto.randomUUID(),
+    });
     const deadline = Date.now() + 5000;
     while (!fixture.bridge.connections("fixture-member")[0]) {
       if (Date.now() >= deadline)

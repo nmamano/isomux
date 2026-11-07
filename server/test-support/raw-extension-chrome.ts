@@ -1,5 +1,9 @@
 // Isolated test Chrome with no Playwright launch defaults or profile overrides.
-import { chromium, type ConnectOverCDPTransport } from "playwright-core";
+import {
+  chromium,
+  type ConnectOverCDPTransport,
+  type Page,
+} from "playwright-core";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 export async function launchRawExtensionChrome(dir: string) {
@@ -71,6 +75,34 @@ export async function launchRawExtensionChrome(dir: string) {
     if (chrome) await chrome.exited;
     throw error;
   }
+}
+
+// Pairs the extension with an office by writing its connection record from
+// an extension page. The key is the format background.ts reads since 0.10.0:
+// CONNECTION_PREFIX plus the office origin from officeOf (pinned against the
+// real worker by CONNECTION in browser-extension/background.test.ts). The
+// worker moves the pre-0.10.0 "connection" key only at its start, so a write
+// under that key after the start never connects.
+export async function storeExtensionPairing(
+  page: Page,
+  pairing: { url: string; credential: string; nonce?: string },
+): Promise<void> {
+  const url = new URL(pairing.url);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  const key = "connection:" + url.origin;
+  await page.evaluate(
+    async ({ key, pairing }) => {
+      const extensionChrome = (
+        globalThis as unknown as {
+          chrome: {
+            storage: { local: { set(value: unknown): Promise<void> } };
+          };
+        }
+      ).chrome;
+      await extensionChrome.storage.local.set({ [key]: pairing });
+    },
+    { key, pairing },
+  );
 }
 
 async function connectRaw(endpoint: string) {

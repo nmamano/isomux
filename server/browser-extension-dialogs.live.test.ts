@@ -3,7 +3,10 @@ import { chromium, type Page, type Frame } from "playwright-core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
+import {
+  launchRawExtensionChrome,
+  storeExtensionPairing,
+} from "./test-support/raw-extension-chrome";
 import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
 import { browserExtensionTransport } from "./browser-extension-transport";
@@ -67,23 +70,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
       });
       const config = context.pages()[0] ?? (await context.newPage());
       await config.goto("chrome-extension://" + id + "/connection.html");
-      await config.evaluate(
-        async (connection) => {
-          const extension = (
-            globalThis as unknown as {
-              chrome: {
-                storage: { local: { set(v: unknown): Promise<void> } };
-              };
-            }
-          ).chrome;
-          await extension.storage.local.set({ connection });
-        },
-        {
-          url: fixture.extensionURL,
-          credential: fixture.credential,
-          nonce: crypto.randomUUID(),
-        },
-      );
+      await storeExtensionPairing(config, {
+        url: fixture.extensionURL,
+        credential: fixture.credential,
+        nonce: crypto.randomUUID(),
+      });
       const deadline = Date.now() + 5000;
       while (!fixture.bridge.connections("fixture-member")[0]) {
         if (Date.now() > deadline) throw Error("Fixture connection timed out");
