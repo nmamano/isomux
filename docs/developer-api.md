@@ -64,6 +64,8 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
 
 The send response contains `messageId`, `sentAt` and `sequence`. `messageId` is also the `id` of the send entry in the token log, and `sequence` is its sequence. `sentAt` is the office's own timestamp on that message, the same instant the send's `to_agent` entry carries, so a client pairs its send with the agent's reply, and the time between them, without reading the log at all.
 
+To send files, upload them first with a multipart `POST /api/agents/$AGENT_ID/uploads` (`-F file=@report.pdf`), then put the `attachments` array it returns in the message body next to `text`.
+
 The agent sees the message with a label such as `[Nil (API token "Phone alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message.
 
 ### Receive replies from office agents

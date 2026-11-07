@@ -9,6 +9,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { enqueueApiTokenInboxMessage } from "../api-tokens.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
+import type { Attachment } from "../../shared/types.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { APP_MESSAGE_MAX_CHARS } from "../app-message-limits.ts";
@@ -684,7 +685,6 @@ describe("personal API tokens", () => {
     const valid = await mintThroughApi(srv, owner.rawSessionId);
     for (const [body, code] of [
       [{ text: "x", device: "forged" }, "api_attribution_not_supported"],
-      [{ text: "x", attachments: [] }, "api_attribution_not_supported"],
       [
         { text: "x", senderAgentId: target.id },
         "api_attribution_not_supported",
@@ -712,6 +712,68 @@ describe("personal API tokens", () => {
         code: (await response.json()).error?.code,
       }).toEqual({ body, status: 400, code });
     }
+  });
+
+  // An attachment names a file in the receiver's own store, which the same
+  // token can upload to: it is not attribution, so the token may send it.
+  it("hands a file it uploaded to the agent with the message", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { manualSend: true } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const room = srv.agentManager.getRooms()[0].id;
+    const target = await spawn(srv, "Target", room);
+    const minted = await mintThroughApi(srv, owner.rawSessionId);
+
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["line one"], "transcript.txt", { type: "text/plain" }),
+    );
+    const uploaded = await bearer(
+      srv,
+      minted.body.token,
+      `/api/agents/${target.id}/uploads`,
+      { method: "POST", body: form },
+    );
+    expect(uploaded.status).toBe(200);
+    const { attachments } = (await uploaded.json()) as {
+      attachments: Attachment[];
+    };
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].originalName).toBe("transcript.txt");
+
+    const sent = await bearer(
+      srv,
+      minted.body.token,
+      `/api/agents/${target.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "read this", attachments }),
+      },
+    );
+    expect({ status: sent.status, body: await sent.json() }).toMatchObject({
+      status: 200,
+      body: { messageId: expect.any(String) },
+    });
+    await waitFor(
+      () => (srv.fakeBackend.sessionForAgent(target.id)?.sent.length ?? 0) > 0,
+    );
+    const session = srv.fakeBackend.sessionForAgent(target.id)!;
+    expect(session.sent).toHaveLength(1);
+    expect(session.sent[0].text).toContain(
+      `(${minted.body.apiToken.id}))] read this`,
+    );
+    expect(session.sent[0].attachments).toEqual(attachments);
+    const logged = srv.agentManager
+      .getAgentLogs(target.id)
+      .filter((entry) => entry.kind === "user_message");
+    expect(logged).toHaveLength(1);
+    expect(logged[0].attachments).toEqual(attachments);
+    session.releaseSends();
+    session.completeTurn();
   });
 
   it("uses accessible rooms despite view hiding and loses access on demotion or deletion", async () => {

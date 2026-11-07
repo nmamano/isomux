@@ -152,7 +152,11 @@ export interface ConversationDeps {
     username: string | undefined,
     device: string,
     tokenId: string,
-    opts?: { refusePromptAnswer?: boolean; limits?: ApiTokenLimits },
+    opts?: {
+      refusePromptAnswer?: boolean;
+      limits?: ApiTokenLimits;
+      attachments?: Attachment[];
+    },
   ): Promise<
     | Exclude<UserSendAcceptance, { ok: true }>
     | { ok: true; messageId: string; sentAt: number; sequence: number }
@@ -454,14 +458,12 @@ export function conversationHandlers(
       }
       if (
         ctx.identity.scope === "api" &&
-        (b.device !== undefined ||
-          b.attachments !== undefined ||
-          b.senderAgentId !== undefined)
+        (b.device !== undefined || b.senderAgentId !== undefined)
       ) {
         return fail(
           400,
           "api_attribution_not_supported",
-          "device, attachments, and senderAgentId are not supported for API token senders.",
+          "device and senderAgentId are not supported for API token senders.",
         );
       }
       if (ctx.identity.scope === "api" && b.clientMessageId !== undefined) {
@@ -586,6 +588,7 @@ export function conversationHandlers(
           {
             refusePromptAnswer: ctx.via === "mcp" || repliesOnly,
             limits: ctx.identity.apiTokenLimits,
+            attachments: b.attachments,
           },
         );
         if (!r.ok) return refusal(ctx.identity, r);

@@ -4523,10 +4523,17 @@ function buildExecutorDeps(
             text,
           },
           () =>
-            sendMemberMessage(agentId, text, username, device, undefined, {
-              refusePromptAnswer: opts?.refusePromptAnswer,
-              limits: opts?.limits,
-            }),
+            sendMemberMessage(
+              agentId,
+              text,
+              username,
+              device,
+              opts?.attachments,
+              {
+                refusePromptAnswer: opts?.refusePromptAnswer,
+                limits: opts?.limits,
+              },
+            ),
         ),
       sendAsAgent: async (
         receiverId,
