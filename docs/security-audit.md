@@ -153,8 +153,6 @@ A webhook lets an outside service, such as GitHub, send a message to an agent or
 
 ### 4.8 WhatsApp
 
-A member can link their own WhatsApp as a linked device and send chosen chats to agents they manage.
-
 - **Only chosen chats.** The bridge passes on a message only from a chat on the member's list, so the text of other chats does not leave the bridge process. The member names each chat; an agent never sees a contact's own WhatsApp name.
 - **What reaches the agent.** The messages arrive in a data block, built as for webhooks (section 4.7): JSON with `<`, `>` and `&` escaped, under a line that says the text is data, not instructions. The label is `[WhatsApp "<name>"]`. Prompt injection is still possible: a contact can write text that the model follows. An agent with a shell runs commands with its manager's environment, and the chat form warns the member when they pick such an agent.
 - **Replies.** By default an agent cannot send a WhatsApp message. Its reply opens an ask in the member's Inbox, and the reply goes out only when the member answers Send from a browser session. The agent itself, the member's other agents, office owners, apps, scheduled runs and the member's API tokens cannot answer that ask. The agent cannot edit a draft after the member can see it. The member can turn the Send step off for one chat, only from a browser session, as for the other chat settings. Then that chat's agent sends as the member, to that chat only, at most 20 messages in 10 minutes.
@@ -390,7 +388,6 @@ The office setting **Record terminals** is off by default. When an owner turns i
 - **Notice.** A recorded terminal tells every member who opens it. A change of the setting applies from the next terminal start.
 - **Redaction.** Before writing, Isomux masks the output as it masks logs (section 8.3), with the secrets stored at that moment. These are not caught: a secret split by escape sequences (colour, cursor movement), a secret printed in another encoding, and a password that a program echoes as one `*` per character, which shows its length. Anything else a member shows on screen, such as `cat .env`, is in the recording.
 - **Timing.** A mark starts when a member types after a pause of 2 seconds with new output in between, so a prompt that echoes nothing gives one mark at any typing speed.
-- **Limits.** Recordings stay until an owner prunes them in the storage panel. Backups include them.
 - **Replay.** The replay terminal takes no input, ignores clipboard writes and opens no links. The route serves the file as a download.
 
 ### 8.11 Lobby floors
@@ -407,7 +404,6 @@ The lobby elevator links to other Isomux offices. Each office answers a public c
 An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Office -> Enterprise and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
 
 - **What leaves the office.** A random office id (32 hex characters, made once per office) and the office's member count. No names, emails, agents or content. The secret goes in the `Authorization` header.
-- **When.** Before each member add, after each removal, a few seconds after boot and then every hour, and once with a count of 0 when an owner turns the box off.
 - **Outbound requests.** Isomux does not follow redirects.
 - **Where the secret is.** In `secrets/enterprise-seats.key` (mode 0600) under the state root. No route returns it, and no log line or audit row holds it. Turning the box off deletes it. An agent with a shell can read the file (section 3.2).
 
