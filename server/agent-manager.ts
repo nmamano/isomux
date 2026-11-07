@@ -8,6 +8,7 @@ import {
   releaseHold,
   type FlushRun,
 } from "./queue-flush.ts";
+import { usageLimitStoppedText } from "./limit-resume.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import type { PagerEntry, PagerSource } from "../shared/types.ts";
 import type { PagerRaiseFields } from "./pager-compat.ts";
@@ -3770,14 +3771,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // In place of the engine's sentence, which the adapter drops: it
         // names the server's time zone, and each reader gets the reset in
         // their own.
-        addLogEntry(
-          agentId,
-          "system",
-          msg("systemEntries.usageLimit.stopped", {
-            at: { time: ev.resetsAtMs, shape: "weekdayDateTime" },
-            relative: { relative: ev.resetsAtMs },
-          }),
-        );
+        addLogEntry(agentId, "system", usageLimitStoppedText(ev.resetsAtMs));
         break;
       }
       case "plan_mode": {

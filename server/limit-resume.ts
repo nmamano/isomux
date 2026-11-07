@@ -14,6 +14,7 @@
 // never arms.
 
 import type { AgentInfo } from "../shared/types.ts";
+import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
 // The wait after the reported reset time, so the provider has reset the
 // window before the resumed turn calls it.
@@ -53,4 +54,14 @@ export function limitResumeWaitMs(
   minMs = 0,
 ): number {
   return Math.min(Math.max(dueAt - now, minMs), LIMIT_RESUME_MAX_WAIT_MS);
+}
+
+/** The line for a turn a usage limit stopped, in place of the engine's
+ * sentence, which names the server's time zone: each reader gets the reset
+ * in their own. Agent chats and schedule runs show it. */
+export function usageLimitStoppedText(resetsAtMs: number): LogMessage {
+  return msg("systemEntries.usageLimit.stopped", {
+    at: { time: resetsAtMs, shape: "weekdayDateTime" },
+    relative: { relative: resetsAtMs },
+  });
 }

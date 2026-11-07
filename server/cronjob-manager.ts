@@ -11,6 +11,7 @@ import {
   type LogText,
 } from "../shared/i18n/log-message.ts";
 import { LocalizedError, errorText } from "./localized-error.ts";
+import { usageLimitStoppedText } from "./limit-resume.ts";
 import {
   createMcpServerSources,
   mcpServersForUserId,
@@ -141,6 +142,8 @@ import {
   runTransitionPatch,
   type RunEnd,
   type RunTerminalFields,
+  turnRunEnd,
+  turnStoppedText,
   type RunTransition,
 } from "./cronjob-run-state.ts";
 import {
@@ -941,11 +944,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
             );
           }
         }
-        if (ev.status !== "completed") {
+        if (ev.status !== "completed" && !active.usageLimitReason) {
           // consumeUntilTurnCompleted adds the login hint before it
           // finalizes the run.
           writeLog(active, "error", ev.error ?? turnStoppedText(ev.status));
         }
+        break;
+      }
+      case "usage_limit_stop": {
+        // The run's one error line and reason (OpenCode: the turn's error).
+        if (ev.resetsAtMs === undefined) break;
+        active.usageLimitReason = usageLimitStoppedText(ev.resetsAtMs);
+        writeLog(active, "error", active.usageLimitReason);
         break;
       }
       case "usage_update": {
@@ -1195,14 +1205,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
           return;
         }
         if (ev.kind === "turn_completed") {
-          const status: RunEnd["status"] =
-            ev.status === "completed" ? "completed" : "failed";
-          const errorReason =
-            ev.status === "completed"
-              ? null
-              : (ev.error ?? turnStoppedText(ev.status));
           if (ev.status !== "completed") writeLoginHintIfAuthNeeded(active);
-          endRun(active, { status, reason: errorReason });
+          endRun(active, turnRunEnd(ev, active.usageLimitReason));
           return;
         }
         if (ev.kind === "error") {
@@ -2316,13 +2320,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     } finally {
       slots.release(runId, claim);
     }
-  }
-
-  // A turn that ended without completing and without an error of its own.
-  function turnStoppedText(status: "interrupted" | "failed"): LogMessage {
-    return status === "interrupted"
-      ? msg("systemEntries.scheduleRun.interrupted")
-      : msg("systemEntries.scheduleRun.failed");
   }
 
   function timedOutText(): LogMessage {

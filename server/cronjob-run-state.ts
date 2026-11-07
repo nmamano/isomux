@@ -1,7 +1,12 @@
 // A cron run's state as its row stores it: running, or ended with a kind, a
 // time and a reason. This module is the only producer of those fields; the
 // cron manager writes them only through runEndFields and runTransitionPatch.
-import { logTextFields, type LogText } from "../shared/i18n/log-message.ts";
+import {
+  logTextFields,
+  msg,
+  type LogMessage,
+  type LogText,
+} from "../shared/i18n/log-message.ts";
 import type { CronjobRun } from "../shared/types.ts";
 
 export type RunTerminalFields = Pick<
@@ -37,6 +42,27 @@ function reasonFields(
     return { errorReason: null, errorReasonMessage: undefined };
   const { content, message } = logTextFields(reason);
   return { errorReason: content, errorReasonMessage: message };
+}
+
+// The end a session turn gives its run. A usage-limit stop wins over the
+// turn's status: Claude reports a refused turn completed.
+export function turnRunEnd(
+  turn: { status: "completed" | "interrupted" | "failed"; error?: LogText },
+  usageLimitReason: LogText | undefined,
+): RunEnd {
+  if (usageLimitReason) return { status: "failed", reason: usageLimitReason };
+  if (turn.status === "completed") return { status: "completed", reason: null };
+  return {
+    status: "failed",
+    reason: turn.error ?? turnStoppedText(turn.status),
+  };
+}
+
+// A turn that ended without completing and without an error of its own.
+export function turnStoppedText(status: "interrupted" | "failed"): LogMessage {
+  return status === "interrupted"
+    ? msg("systemEntries.scheduleRun.interrupted")
+    : msg("systemEntries.scheduleRun.failed");
 }
 
 const RUNNING: RunTerminalFields = {

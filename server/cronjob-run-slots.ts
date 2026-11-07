@@ -7,6 +7,7 @@ import type {
   CronjobRun,
   LogEntry,
 } from "../shared/types.ts";
+import type { LogText } from "../shared/i18n/log-message.ts";
 import type { BackendSession } from "./backends/types.ts";
 
 // A session turn that holds its run (a first turn, a follow-up or an edit).
@@ -45,6 +46,10 @@ export interface SessionRun {
   // The backend sent auth_needed in this activation: its end writes the
   // login hint.
   authNeeded?: boolean;
+  // A usage limit stopped this activation's turn (usage_limit_stop with a
+  // reset time): the run ends failed with this line, whatever the turn
+  // status says.
+  usageLimitReason?: LogText;
 }
 
 // A send to a job's agent target that holds its run while it is in flight.

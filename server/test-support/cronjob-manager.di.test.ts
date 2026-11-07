@@ -2857,3 +2857,100 @@ describe("CronjobManager: a schedule that messages an agent", () => {
     expect(reader.listCronjobs()).toEqual(onDisk);
   });
 });
+
+// Task 7c6d2a39: a turn the usage limit refused. The Claude and Codex
+// adapters drop the engine's limit sentence and send usage_limit_stop with
+// the reset time instead (agent chats write their own line from it). A run
+// that a refusal ended is failed, and its reason and its one error line are
+// that same usage-limit line.
+describe("CronjobManager: a run the usage limit refused", () => {
+  const STOPPED = "systemEntries.usageLimit.stopped";
+  const RESET = FIXED_NOW + 5 * 60 * 60 * 1000;
+  const notice = (resetsAtMs: number) => [
+    {
+      key: STOPPED,
+      params: {
+        at: { time: resetsAtMs, shape: "weekdayDateTime" },
+        relative: { relative: resetsAtMs },
+      },
+    } as const,
+  ];
+  const hasNotice = (entry: { message?: unknown }) =>
+    Array.isArray(entry.message) &&
+    entry.message.some(
+      (p) => typeof p === "object" && p !== null && p.key === STOPPED,
+    );
+
+  async function refusedRun(turn: NormalizedEvent[]) {
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.pushAll(turn) },
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const job = mgr.addCronjob(intervalInput("LimitRefused"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    try {
+      await waitFor(
+        () => mgr.findRun(job.id, run.id)?.status !== "running",
+        "run ended",
+      );
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+    return {
+      ended: mgr.findRun(job.id, run.id)!,
+      // The run's log lines, as the run writes them.
+      errors: events.flatMap((event) =>
+        event.type === "log_entry" && event.entry.kind === "error"
+          ? [event.entry]
+          : [],
+      ),
+    };
+  }
+
+  // The engine reports the turn: Claude ends a refused turn as a success
+  // (the CLI's result is subtype success), Codex as failed with its own
+  // sentence, which the usage-limit line replaces.
+  for (const [engine, end] of [
+    ["Claude", { kind: "turn_completed", status: "completed" }],
+    [
+      "Codex",
+      {
+        kind: "turn_completed",
+        status: "failed",
+        error: "You've hit your usage limit. Try again at 4:00 PM.",
+      },
+    ],
+  ] as const) {
+    it(`${engine}: the run fails, with the usage-limit line as its reason and its one error line`, async () => {
+      const { ended, errors } = await refusedRun([
+        { kind: "usage_limit_stop", resetsAtMs: RESET },
+        end,
+      ]);
+      expect(ended.status).toBe("failed");
+      expect(ended.errorReasonMessage).toEqual(notice(RESET));
+      // A length, not toEqual on the messages: toEqual skips an undefined
+      // item, and a plain error line has no message.
+      expect(errors).toHaveLength(1);
+      expect(errors[0]!.message).toEqual(notice(RESET));
+      // The reason a reader without the message gets is the logged line.
+      expect(ended.errorReason).toBe(errors[0]!.content);
+    });
+  }
+
+  // A stop with no reset time (OpenCode's refusals) has no usage-limit line:
+  // the turn's own error stays the reason and the one error line.
+  it("a stop with no reset time keeps the turn's own error", async () => {
+    const OWN = "provider says no";
+    const { ended, errors } = await refusedRun([
+      { kind: "usage_limit_stop", freeLimit: { keyless: false } },
+      { kind: "turn_completed", status: "failed", error: OWN },
+    ]);
+    expect(ended.status).toBe("failed");
+    expect(ended.errorReason).toBe(OWN);
+    expect(errors.map((e) => e.content)).toEqual([OWN]);
+    expect(errors.filter(hasNotice)).toEqual([]);
+  });
+});
