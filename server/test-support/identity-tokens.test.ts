@@ -102,6 +102,7 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "cron:manage",
       "user:create",
       "user:prompt",
+      "user:rename",
       "integration:manage",
       "office:settings",
     ],

@@ -448,9 +448,11 @@ export function createUsersRoutes(
           error: `User ${username} not found`,
         };
       }
+      // Only a human owner: an agent's userId is its manager's.
       if (
         changes.role !== undefined &&
-        getUserById(identity.userId ?? "")?.role !== "owner"
+        (identity.scope !== "user" ||
+          getUserById(identity.userId ?? "")?.role !== "owner")
       ) {
         return {
           ok: false,

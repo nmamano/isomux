@@ -840,9 +840,9 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/me/provider-accounts", "apiCall.providerAccounts.check"],
   ["GET", "/api/me/opencode", "apiCall.openCode.status"],
   ["POST", "/api/users", "apiCall.users.create"],
-  // Old routes and uses, gone in task 744fa64a: cards in old transcripts.
+  ["PATCH", "/api/users/*", "apiCall.users.rename"],
+  // Old routes, gone in task 744fa64a: cards in old transcripts.
   ["GET", "/api/users/*/member-prompt", "apiCall.users.readMemberPrompt"],
-  ["PATCH", "/api/users/*", "apiCall.users.updatePrompt"],
   ["GET", "/api/office/settings", "apiCall.office.readSettings"],
   [
     "GET",
@@ -1283,6 +1283,15 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.editMessage", { who });
       }
     }
+  }
+
+  if (segs[0] === "users" && segs.length === 2 && m === "PATCH") {
+    const name = field("name");
+    if (name)
+      return t("apiCall.users.renameNamed", { name: truncateLabel(name, 24) });
+    // Before task 744fa64a this route also wrote the member's instructions:
+    // cards in old transcripts.
+    if (field("memberPrompt") !== null) return t("apiCall.users.updatePrompt");
   }
 
   if (segs[0] === "users" && segs.length === 1 && m === "POST") {

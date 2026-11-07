@@ -2291,6 +2291,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.cronjobs.saveInstructions": "Change schedule instructions",
   "apiCall.users.create": "Create a member",
   "apiCall.users.createNamed": "Create member {name}",
+  "apiCall.users.rename": "Rename a member",
+  "apiCall.users.renameNamed": "Rename member to {name}",
   "apiCall.env.readUser": "Read managed environment",
   "apiCall.env.saveUser": "Save managed environment",
   "apiCall.env.readOffice": "Read office environment",

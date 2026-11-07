@@ -63,6 +63,11 @@ export type Capability =
   // (room grants allowed), and only while its user is an office owner.
   | "user:create"
   | "user:prompt"
+  // users.update through a privileged agent: its manager's name, or any
+  // member's while the manager is an office owner. Held by the PRIVILEGED agent
+  // set only (so also by an app with a live privileged owner agent). The
+  // handler lets any caller that is not a human send only the name.
+  | "user:rename"
   | "office:admin"
   // Read and change the office prompt, the office name, the member usage cap
   // switch and the members' share of the weekly limit, and read the cap's
@@ -297,7 +302,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // capability-only owner routes - invites.mintSelf (mints a durable owner LOGIN),
 // sessions.revoke (kills the human's browser session). So invite:manage,
 // secret:show (a saved secret's value), session:manage, user:self and
-// user:admin (user records / access),
+// user:admin (user records / access; a name goes through user:rename),
 // office:admin (office access, update and storage), view:manage, terminal:use, and
 // agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
 // "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the
@@ -309,6 +314,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // session (docs/security-audit.md section 6.5).
 // user:prompt grants only member-instructions reads and writes through its
 // guards.
+// user:rename grants only a member's name, through users.update.
 // integration:manage changes its manager's variables, secrets and MCP servers
 // (and the office's and other members' while the manager is an owner), and its
 // manager's own Discord bots and routes (never by a raw token); user:env
@@ -334,6 +340,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   "cron:manage",
   "user:create",
   "user:prompt",
+  "user:rename",
   "integration:manage",
   "office:settings",
 ];

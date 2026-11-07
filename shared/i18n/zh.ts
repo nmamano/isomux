@@ -2093,6 +2093,8 @@ App 的一些原则：
   "apiCall.cronjobs.saveInstructions": "更改定时任务指令",
   "apiCall.users.create": "创建成员",
   "apiCall.users.createNamed": "创建成员 {name}",
+  "apiCall.users.rename": "重命名成员",
+  "apiCall.users.renameNamed": "将成员重命名为 {name}",
   "apiCall.env.readUser": "读取托管环境",
   "apiCall.env.saveUser": "保存托管环境",
   "apiCall.env.readOffice": "读取办公室环境",

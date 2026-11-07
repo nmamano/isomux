@@ -41,6 +41,8 @@ import {
   API_TOKEN_PRESETS,
   routeAllowedByLimits,
 } from "../../shared/api-token-limits.ts";
+import { belowStandard } from "../../shared/agent-access.ts";
+import { MEMBER_CEILING_STOPS } from "../../shared/pack-fit.ts";
 import { providerAccountsHandlers } from "../routes/handlers/provider-accounts.ts";
 import {
   appIdentityFromToken,
@@ -1693,10 +1695,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: ["user_updated", "users_list"],
   },
-  // No agent or API token edits a member record: the member's instructions
-  // are users.setInstructions.
+  // A privileged agent renames a member (user:rename, name only); no API
+  // token edits a member record. Instructions are users.setInstructions.
   "users.update": {
-    caps: ["user:self", "user:admin"],
+    caps: ["user:self", "user:admin", "user:rename"],
     emits: ["user_updated", "users_list", "full_state", "invites_list"],
   },
   "users.setAccess": {
@@ -2776,7 +2778,7 @@ describe("member prompt route authority", () => {
     cronRunVisibleTo: () => false,
     apiTokenHeardFrom: () => false,
   };
-  it("opens only the member prompt routes to a privileged member's agent", () => {
+  it("opens only the member prompt and rename routes to a privileged member's agent", () => {
     const identity: Identity = {
       scope: "agent",
       agentId: "a1",
@@ -2800,6 +2802,7 @@ describe("member prompt route authority", () => {
     expect(reachable).toEqual([
       "users.readInstructions",
       "users.setInstructions",
+      "users.update",
     ]);
     for (const opId of reachable) {
       const route = API_ROUTES.find((r) => r.opId === opId)!;
@@ -3161,6 +3164,11 @@ describe("route table: API token areas", () => {
     expect(route, opId).toBeDefined();
     return route!;
   };
+  // "always" routes a token or an agent reaches only through a capability no
+  // limited caller holds (task 259ec6b4). users.update is "always" for a
+  // member with a pack, who edits their own record; an agent reaches it only
+  // through user:rename, and the test below keeps every holder unlimited.
+  const UNLIMITED_ONLY = ["users.update"];
 
   it("every route an API token passes stage 1 on declares a known area", () => {
     // Authenticated rows pass stage 1 for every identity, so they count too.
@@ -3187,7 +3195,7 @@ describe("route table: API token areas", () => {
         route.audit?.owner !== "none" &&
         route.tokenArea !== undefined &&
         (route.tokenArea === "always"
-          ? tokenOrAgentReaches(route)
+          ? tokenOrAgentReaches(route) && !UNLIMITED_ONLY.includes(route.opId)
           : route.tokenArea.level !== "write"),
     ).map((route) => route.opId);
     expect(wrong).toEqual([]);
@@ -3195,7 +3203,10 @@ describe("route table: API token areas", () => {
 
   it("only the token's own inbox and the agent reference bypass the limits", () => {
     const always = API_ROUTES.filter(
-      (route) => route.tokenArea === "always" && tokenOrAgentReaches(route),
+      (route) =>
+        route.tokenArea === "always" &&
+        tokenOrAgentReaches(route) &&
+        !UNLIMITED_ONLY.includes(route.opId),
     )
       .map((route) => route.opId)
       .sort();
@@ -3206,6 +3217,39 @@ describe("route table: API token areas", () => {
         "apiTokenInbox.drain",
       ].sort(),
     );
+  });
+
+  it("no caller with limits reaches an unlimited-only route", () => {
+    // Limits fall on an API token, an agent below Standard (its token) and
+    // the agents of a member with a pack (withMemberPack). A pack's agent
+    // ceiling is below Standard, so every Privileged agent is unlimited, and
+    // only a Privileged agent (or its app) passes stage 1 here.
+    for (const stop of MEMBER_CEILING_STOPS)
+      expect([stop, belowStandard(stop)]).toEqual([stop, true]);
+    const agent = (capabilities: readonly Capability[]): Identity => ({
+      scope: "agent",
+      userId: "u-owner",
+      agentId: "a-1",
+      role: "member",
+      capabilities,
+    });
+    const app = (capabilities: readonly Capability[]): Identity => ({
+      scope: "app",
+      userId: "u-owner",
+      agentId: "a-1",
+      role: "member",
+      capabilities,
+    });
+    for (const opId of UNLIMITED_ONLY) {
+      const auth = byOpId(opId).auth;
+      expect([
+        opId,
+        passesRouteStageOne(auth, apiIdentity),
+        passesRouteStageOne(auth, agent(AGENT_CAPABILITIES)),
+        passesRouteStageOne(auth, app(appCapabilities(AGENT_CAPABILITIES))),
+        passesRouteStageOne(auth, agent(PRIVILEGED_AGENT_CAPABILITIES)),
+      ]).toEqual([opId, false, false, false, true]);
+    }
   });
 
   it("Read only reaches no route that shows a log, a file, a secret or an assembled prompt", () => {

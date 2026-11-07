@@ -2355,6 +2355,8 @@ Cosas que puedes hacer por él:
     "Cambiar las instrucciones de las programaciones",
   "apiCall.users.create": "Crear un miembro",
   "apiCall.users.createNamed": "Crear el miembro {name}",
+  "apiCall.users.rename": "Cambiar el nombre de un miembro",
+  "apiCall.users.renameNamed": "Cambiar el nombre del miembro a {name}",
   "apiCall.env.readUser": "Leer el entorno gestionado",
   "apiCall.env.saveUser": "Guardar el entorno gestionado",
   "apiCall.env.readOffice": "Leer el entorno de la oficina",

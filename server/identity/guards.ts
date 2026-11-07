@@ -547,6 +547,19 @@ export const proxyMemberPrompt: Guard = ({ identity, params, deps }) => {
     : FORBIDDEN;
 };
 
+// A privileged agent renames its manager, or any member while its manager is
+// an office owner, checked live on each request. Stage 1 checks user:rename.
+// No API token: the API set keeps the user record out.
+export const proxyMemberRename: Guard = ({ identity, params, deps }) => {
+  if (!actsForAgent(identity) || !identity.userId || !params.username)
+    return FORBIDDEN;
+  const target = deps.userIdForUsername(params.username);
+  return target !== null &&
+    (target === identity.userId || hasOfficeOwnerReach(identity, deps))
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 // Whether the identity may read member `userId`'s memory and instructions:
 // it is that member (or one of their agents or tokens), it has an office
 // owner's reach, or it reaches a live ordinary room the member reaches. The

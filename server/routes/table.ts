@@ -51,6 +51,7 @@ import {
   apiTokenInboxSelf,
   selfOrOwner,
   proxyMemberPrompt,
+  proxyMemberRename,
   memberSharesRoom,
   selfUserOrApi,
   userOrApi,
@@ -2715,16 +2716,22 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "write" },
     emits: ["user_updated", "users_list"],
   }),
-  // Humans only: { user: UserSelfWire | UserAdminWire } (same UserRecord
-  // shape). Agents and API tokens write a member's instructions through
-  // users.setInstructions.
+  // { user: UserSelfWire | UserAdminWire } (same UserRecord shape). A human
+  // edits the record; a privileged agent sends only the name (the handler
+  // refuses any other field from a caller that is not a human). Agents and API
+  // tokens write a member's instructions through users.setInstructions.
+  // "always" lets a member with a pack edit their own record. A user:rename
+  // holder is a Privileged agent, which carries no limits.
   defineRoute<UserUpdateReq, { user: UserSelfWire }>({
     opId: "users.update",
     tokenArea: "always",
     audit: { owner: "executor", targets: createdResource("user", "id") },
     method: "PATCH",
     path: "/api/users/:username",
-    auth: cap(["user:self", "user:admin"], selfOrOwner),
+    auth: cap(
+      ["user:self", "user:admin", "user:rename"],
+      or(selfOrOwner, proxyMemberRename),
+    ),
     // Record fields (name/role/avatar). emitUserUpdated + emitUsersList;
     // a role change also re-projects the subject's rooms (full_state) through
     // the users.ts access hook, and a rename re-sends the invites list (its

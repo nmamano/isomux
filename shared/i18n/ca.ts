@@ -2362,6 +2362,8 @@ Coses que pots fer per ell:
     "Canviar les instruccions de les programacions",
   "apiCall.users.create": "Crear un membre",
   "apiCall.users.createNamed": "Crear el membre {name}",
+  "apiCall.users.rename": "Canviar el nom d'un membre",
+  "apiCall.users.renameNamed": "Canviar el nom del membre a {name}",
   "apiCall.env.readUser": "Llegir l'entorn gestionat",
   "apiCall.env.saveUser": "Desar l'entorn gestionat",
   "apiCall.env.readOffice": "Llegir l'entorn de l'oficina",

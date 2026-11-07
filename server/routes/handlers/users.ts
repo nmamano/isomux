@@ -49,6 +49,7 @@ const INVALID_PACK_MESSAGE =
   "pack must be {areas, agentCeiling}: known areas at read or write, and a ceiling of chat, office, folder or web";
 const OWNER_HAS_NO_PACK_MESSAGE =
   "An office owner cannot have a permission pack.";
+const AGENT_NAME_ONLY_MESSAGE = "An agent can change only a member's name.";
 
 // Outcome the seam shapes for a record edit / access change: ok → the updated
 // record (UserSelfWire/UserAdminWire share the UserRecord shape; the audience
@@ -242,6 +243,18 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         memberPromptVersion: "version to PUT /api/users/:username/instructions",
       });
       if (old) return old;
+      // A caller that is not a human (a privileged agent, or an app with one
+      // as its owner) changes only the name. By key, so a null or empty
+      // field is refused too: the core's role check reads the manager's role.
+      if (ctx.identity.scope !== "user") {
+        const raw = ctx.body;
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+          return fail(422, "invalid_request", "name is required");
+        if (Object.keys(raw).some((key) => key !== "name"))
+          return fail(403, "forbidden", AGENT_NAME_ONLY_MESSAGE);
+        if (!("name" in raw))
+          return fail(422, "invalid_request", "name is required");
+      }
       const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
       const malformed = malformedUserUpdate(body);
       if (malformed) return fail(422, "invalid_request", malformed);

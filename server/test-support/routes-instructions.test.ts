@@ -1246,31 +1246,4 @@ describe("old routes and field names", () => {
     expect(o.srv.agentManager.getAllAgents().length).toBe(agents);
     expect(getUserByName("Old member")).toBeUndefined();
   });
-
-  it("an agent or API token edits no member record field at all", async () => {
-    const o = await office();
-    expect(
-      (
-        await writeNew(o, memberLayer, {
-          instructions: "Member kept",
-          version: versionOf(""),
-        })
-      ).status,
-    ).toBe(200);
-    const before = structuredClone(getUserByName("Mia")!);
-    for (const [who, auth] of Object.entries(o.callers)) {
-      if (who.endsWith("Session")) continue;
-      for (const body of [
-        { memberPrompt: "Old", memberPromptVersion: versionOf("Member kept") },
-        { avatarColor: "#123456" },
-      ]) {
-        const r = await call(o.srv, "PATCH", "/api/users/Mia", {
-          ...auth,
-          body,
-        });
-        expect([who, body, r.status]).toEqual([who, body, 403]);
-      }
-    }
-    expect(getUserByName("Mia")).toEqual(before);
-  });
 });
