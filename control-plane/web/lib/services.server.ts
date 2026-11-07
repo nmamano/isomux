@@ -1563,3 +1563,29 @@ export async function renewSecretFor(
   const { renewSecret } = await import("../../enterprise");
   return withStore((store) => renewSecret(store, accountId, authSecret));
 }
+
+/** The seat service: an office's call with the account's secret. */
+export async function recordSeatsFor(
+  secret: string,
+  body: unknown,
+): Promise<import("../../enterprise").RecordSeatsResult> {
+  const authSecret = enterpriseAuthSecret();
+  const { recordSeats } = await import("../../enterprise");
+  return withStore((store) => recordSeats(store, authSecret, secret, body));
+}
+
+export async function renameOfficeFor(
+  accountId: string,
+  change: { office: unknown; name: unknown },
+): Promise<import("../../enterprise").OfficeChangeResult> {
+  const { renameOffice } = await import("../../enterprise");
+  return withStore((store) => renameOffice(store, accountId, change));
+}
+
+export async function removeOfficeFor(
+  accountId: string,
+  change: { office: unknown },
+): Promise<import("../../enterprise").OfficeChangeResult> {
+  const { removeOffice } = await import("../../enterprise");
+  return withStore((store) => removeOffice(store, accountId, change));
+}

@@ -387,6 +387,15 @@ export const zh: Catalog = {
   "enterprise.offices.members": "成员",
   "enterprise.offices.lastSeen": "最近一次签到",
   "enterprise.offices.unnamed": "未命名办公室",
+  "enterprise.offices.rename": "重命名",
+  "enterprise.offices.remove": "移除",
+  "enterprise.offices.save": "保存",
+  "enterprise.offices.nameLabel": "办公室名称",
+  "enterprise.offices.invalidName": "请输入 1 到 {max} 个字符的名称。",
+  "enterprise.offices.removeWarning":
+    "移除此办公室？其成员将不再计入你的席位。如果它再次签到，会重新加入。",
+  "enterprise.offices.removeConfirm": "移除办公室",
+  "enterprise.offices.gone": "此办公室已不在该账户中。请刷新页面。",
   "enterprise.secret.heading": "密钥",
   "enterprise.secret.lead":
     "在你每个 Isomux 办公室的“设置 → 办公室”中粘贴此密钥。请妥善保密。",

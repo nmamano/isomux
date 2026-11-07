@@ -312,9 +312,11 @@ export const WEB_GRANTS: readonly TableGrant[] = [
   },
   {
     table: "enterprise_offices",
-    verbs: ["select"],
+    verbs: ["select", "insert", "update"],
     because:
-      "the enterprise account page lists the offices that joined and counts the seats in use",
+      "the enterprise account page lists the offices that joined and counts the seats in use; " +
+      "an office joins and reports its members through the seat service, and IT renames " +
+      "and removes an office",
   },
 ];
 
@@ -880,7 +882,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "reinstatement:prepareReinstatementCheckout, ops:acknowledgeInstance, " +
       "signup:changeAccountEmail, signup:removeGoogleSignIn, " +
       "enterprise:createEnterprise, enterprise:signAgreement, " +
-      "enterprise:changeSeats, enterprise:renewSecret",
+      "enterprise:changeSeats, enterprise:renewSecret, enterprise:recordSeats, " +
+      "enterprise:renameOffice, enterprise:removeOffice",
   },
   {
     table: "instance_liveness",
@@ -902,7 +905,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "(requests:requestInvite) and cancel:requestCancel's request key; " +
       "signup:changeAccountEmail and signup:removeGoogleSignIn audit rows; " +
       "the enterprise:createEnterprise, enterprise:signAgreement, " +
-      "enterprise:changeSeats and enterprise:renewSecret audit rows",
+      "enterprise:changeSeats, enterprise:renewSecret, enterprise:recordSeats, " +
+      "enterprise:renameOffice and enterprise:removeOffice audit rows",
   },
   {
     table: "enterprise_accounts",
@@ -910,7 +914,9 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "enterprise:enterpriseFor reads the account page; enterprise:createEnterprise's " +
       "on conflict (account_id) arbiter reads the key; enterprise:signAgreement, " +
-      "enterprise:changeSeats and enterprise:renewSecret read the row for update",
+      "enterprise:changeSeats and enterprise:renewSecret read the row for update; " +
+      "enterprise:recordSeats reads the row by id (the secret check), then for update, " +
+      "and enterprise:renameOffice and enterprise:removeOffice lock it",
   },
   {
     table: "enterprise_accounts",
@@ -921,7 +927,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     table: "enterprise_accounts",
     verb: "update",
     via:
-      "enterprise:signAgreement, enterprise:changeSeats and enterprise:renewSecret " +
+      "enterprise:signAgreement, enterprise:changeSeats, enterprise:renewSecret and " +
+      "enterprise:recordSeats (a check-in over N raises it) " +
       "update the row they lock with select ... for update",
   },
   {
@@ -929,7 +936,21 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     verb: "select",
     via:
       "enterprise:enterpriseFor lists the offices; enterprise:changeSeats counts " +
-      "the seats in use",
+      "the seats in use; enterprise:recordSeats counts the other offices and reads " +
+      "the caller's row; enterprise:renameOffice and enterprise:removeOffice find the office",
+  },
+  {
+    table: "enterprise_offices",
+    verb: "insert",
+    via: "enterprise:recordSeats (insert ... on conflict do update): an office joins",
+  },
+  {
+    table: "enterprise_offices",
+    verb: "update",
+    via:
+      "enterprise:recordSeats records the members and rejoins a removed office (the " +
+      "on conflict do update); enterprise:renameOffice sets the name; " +
+      "enterprise:removeOffice sets removed_at",
   },
   {
     table: "subscriptions",
@@ -1073,10 +1094,14 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
     ],
     enterprise: [
       "AGREEMENT",
+      "MAX_OFFICE_NAME_LENGTH",
       "MAX_SEATS",
       "changeSeats",
       "createEnterprise",
       "enterpriseFor",
+      "recordSeats",
+      "removeOffice",
+      "renameOffice",
       "renewSecret",
       "signAgreement",
     ],
@@ -1160,6 +1185,8 @@ export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
   "boot:DATABASE_IDENTITY_ENV": "the name of an environment variable",
   "enterprise:AGREEMENT":
     "the standard agreement's version, PDF path and hash, a constant",
+  "enterprise:MAX_OFFICE_NAME_LENGTH":
+    "the office name's length bound, a constant",
   "enterprise:MAX_SEATS": "the seat count's sanity bound, a constant",
   "enterprise-billing:ADDED_SEAT_MONTH_USD": "a price, a constant",
   "enterprise-billing:MONTHLY_SEAT_USD": "a price, a constant",

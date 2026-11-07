@@ -479,6 +479,16 @@ export const ca: Catalog = {
   "enterprise.offices.members": "Membres",
   "enterprise.offices.lastSeen": "Últim contacte",
   "enterprise.offices.unnamed": "Oficina sense nom",
+  "enterprise.offices.rename": "Canvia el nom",
+  "enterprise.offices.remove": "Treu",
+  "enterprise.offices.save": "Desa",
+  "enterprise.offices.nameLabel": "Nom de l'oficina",
+  "enterprise.offices.invalidName": "Escriu un nom d'1 a {max} caràcters.",
+  "enterprise.offices.removeWarning":
+    "Vols treure aquesta oficina? Els seus membres deixen de comptar a les teves places. Torna a unir-se si contacta de nou.",
+  "enterprise.offices.removeConfirm": "Treu l'oficina",
+  "enterprise.offices.gone":
+    "Aquesta oficina ja no és al compte. Torna a carregar la pàgina.",
   "enterprise.secret.heading": "Secret",
   "enterprise.secret.lead":
     "Enganxa aquest secret a Configuració → Oficina de cadascuna de les teves oficines d'Isomux. Mantén-lo en privat.",

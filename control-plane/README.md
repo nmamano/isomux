@@ -1895,6 +1895,28 @@ its contract calendar and prices, and the tables are in `enterprise-ddl.ts`
   row in the same transaction (`enterprise.created`, `.signed`,
   `.seats_changed` with `50 -> 60`, `.secret_renewed`); there is no page for
   them.
+- **The seat service.** `POST /api/enterprise/v1/seats` is how an office
+  takes a seat (S3 is its caller). The office sends `Authorization: Bearer
+<secret>` and `{office, members, add}`: its own random id (32 lowercase hex),
+  its active members after the change (0..100000), and whether it is about to
+  add one. No session and no origin check: the secret is the only credential,
+  and it is checked before the body, so a caller without it learns nothing about
+  the body rules. `add: true` is refused with 409 `{error:"seats_full", seats,
+inUse}` when the other offices' members plus `members` pass N; `add: false` (a
+  check-in, a release, a first join) is never refused, and raises N to the
+  seats in use when it is over (`enterprise.seats_raised`, `50 -> 55`; S4
+  decides whether a raise is charged). Other refusals: 400 `bad_request` (also
+  a new office past 1000 active ones), 401 `bad_secret`, 403 `not_signed`, 429
+  `rate_limited` with `Retry-After` (600 calls per 10 minutes per secret, keyed
+  on a hash of the whole bearer, and per client address). Every count is read
+  under the account row lock. A new office, or one IT removed, joins on its
+  call (`enterprise.office_joined`, actor `office:<id>`); a check-in is not
+  audited.
+- **Offices.** IT renames an office (`POST /api/enterprise/offices/rename`,
+  `{office, name}`, 1-100 characters) or removes a shut-down one
+  (`/offices/remove`, `{office}`): its members leave the count, and it rejoins,
+  with its name and first join time, if it calls again. Audited as
+  `enterprise.office_renamed` and `.office_removed`.
 - **A negotiated account.** An operator records it:
   `bun control-plane/cli.ts enterprise-negotiated --email <sign-in email>
 --company <name> --plan monthly|yearly --seats <N> --price-note <text>

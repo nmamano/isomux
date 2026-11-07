@@ -122,6 +122,25 @@ export const enterpriseLimiter = createLimiter({
   maxKeys: MAX_KEYS,
 });
 
+/** The seat service (/api/enterprise/v1/seats), per client address. A 429
+ * refuses an office's add, and a company's offices may share one address,
+ * so it is as wide as the per-secret quota: it only bounds the database load
+ * of calls with made-up secrets. */
+export const enterpriseSeatIpLimiter = createLimiter({
+  limit: 600,
+  windowMs: TEN_MINUTES,
+  maxKeys: MAX_KEYS,
+});
+
+/** The seat service, per secret. Keyed on a hash of the whole bearer, never
+ * on the enterprise id in it: an id key would let anyone who knows the id
+ * use up a customer's quota and refuse its offices' adds. */
+export const enterpriseSeatSecretLimiter = createLimiter({
+  limit: 600,
+  windowMs: TEN_MINUTES,
+  maxKeys: MAX_KEYS,
+});
+
 export const UNKNOWN_CLIENT = "unknown";
 
 export function clientKey(headers: Headers): string {

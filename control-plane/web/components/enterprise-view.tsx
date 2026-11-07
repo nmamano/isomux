@@ -4,7 +4,7 @@
 // the one account page. The routes they post to are app/api/enterprise/*; the
 // contract calendar and every price come from control-plane/enterprise-billing.ts.
 
-import { useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ADDED_SEAT_MONTH_USD,
   MONTHLY_SEAT_USD,
@@ -14,7 +14,7 @@ import {
   renewalDate,
   type EnterprisePlan,
 } from "../../enterprise-billing";
-import type { EnterpriseView } from "../../enterprise";
+import type { EnterpriseOfficeView, EnterpriseView } from "../../enterprise";
 import { AGREEMENT_HTML } from "../lib/enterprise-agreement-text";
 import type { SupportedLanguageCode } from "../lib/i18n/languages";
 import { translatorFor, type Translator } from "../lib/i18n/translate";
@@ -357,15 +357,20 @@ export function EnterpriseAccount({
   now,
   pdfPath,
   maxSeats,
+  maxOfficeName,
 }: {
   language: SupportedLanguageCode;
   view: EnterpriseView;
   now: number;
   pdfPath: string;
   maxSeats: number;
+  /** enterprise.ts MAX_OFFICE_NAME_LENGTH, from the server page. */
+  maxOfficeName: number;
 }) {
   const { t, tn } = translatorFor(language);
   const start = view.contractStart ?? now;
+  // Here, not in Seats: a removed office's members leave the Seats count.
+  const [inUse, setInUse] = useState(view.inUse);
   return (
     <main lang={language}>
       <h1>{t("enterprise.heading")}</h1>
@@ -378,8 +383,16 @@ export function EnterpriseAccount({
         start={start}
         now={now}
         maxSeats={maxSeats}
+        inUse={inUse}
+        setInUse={setInUse}
       />
-      <Offices t={t} language={language} view={view} />
+      <Offices
+        t={t}
+        language={language}
+        initial={view.offices}
+        maxName={maxOfficeName}
+        onRemoved={(members) => setInUse((n) => Math.max(0, n - members))}
+      />
       {view.secret && <Secret t={t} initial={view.secret} />}
       <div className="card">
         <h2>{t("enterprise.billing.heading")}</h2>
@@ -447,6 +460,8 @@ function Seats({
   start,
   now,
   maxSeats,
+  inUse,
+  setInUse,
 }: {
   t: T;
   tn: Tn;
@@ -455,9 +470,10 @@ function Seats({
   start: number;
   now: number;
   maxSeats: number;
+  inUse: number;
+  setInUse: (inUse: number) => void;
 }) {
   const [seats, setSeats] = useState(view.seats);
-  const [inUse, setInUse] = useState(view.inUse);
   const [draft, setDraft] = useState(String(view.seats));
   const [quote, setQuote] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -576,19 +592,101 @@ function Seats({
   );
 }
 
+/** The refusal for an office change. */
+function officeRefusal(t: T, reason: unknown, maxName: number): string {
+  switch (reason) {
+    case "invalid":
+      return t("enterprise.offices.invalidName", { max: maxName });
+    case "not_found":
+      return t("enterprise.offices.gone");
+    default:
+      return t("enterprise.failed");
+  }
+}
+
+/** The offices, with Rename in place and Remove after a confirm in the row.
+ * One of the two is open at a time. */
 function Offices({
   t,
   language,
-  view,
+  initial,
+  maxName,
+  onRemoved,
 }: {
   t: T;
   language: SupportedLanguageCode;
-  view: EnterpriseView;
+  initial: EnterpriseOfficeView[];
+  maxName: number;
+  onRemoved: (members: number) => void;
 }) {
+  const [offices, setOffices] = useState(initial);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const nameField = useRef<HTMLInputElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+
+  // The open control takes the focus: Chrome drops it from a button that is
+  // disabled during the post, and Safari does not focus a clicked button.
+  useEffect(() => {
+    if (renaming) nameField.current?.focus();
+  }, [renaming]);
+  useEffect(() => {
+    if (removing) confirmButton.current?.focus();
+  }, [removing]);
+
+  function close() {
+    setRenaming(null);
+    setRemoving(null);
+    setRefusal(null);
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    const office = renaming;
+    if (!office) return;
+    setBusy(true);
+    setRefusal(null);
+    const answer = await post("/api/enterprise/offices/rename", {
+      office,
+      name: draft,
+    });
+    setBusy(false);
+    if (answer?.ok) {
+      const name = draft.trim();
+      setOffices((list) =>
+        list.map((o) => (o.id === office ? { ...o, name } : o)),
+      );
+      close();
+      return;
+    }
+    setRefusal(officeRefusal(t, answer?.reason, maxName));
+  }
+
+  async function remove() {
+    const office = offices.find((o) => o.id === removing);
+    if (!office) return;
+    setBusy(true);
+    setRefusal(null);
+    const answer = await post("/api/enterprise/offices/remove", {
+      office: office.id,
+    });
+    setBusy(false);
+    if (answer?.ok) {
+      setOffices((list) => list.filter((o) => o.id !== office.id));
+      onRemoved(office.members);
+      close();
+      return;
+    }
+    setRefusal(officeRefusal(t, answer?.reason, maxName));
+  }
+
   return (
     <div className="card" data-testid="enterprise-offices">
       <h2>{t("enterprise.offices.heading")}</h2>
-      {view.offices.length === 0 ? (
+      {offices.length === 0 ? (
         <p className="note">{t("enterprise.offices.empty")}</p>
       ) : (
         <div className="table-scroll">
@@ -598,20 +696,110 @@ function Offices({
                 <th>{t("enterprise.offices.name")}</th>
                 <th>{t("enterprise.offices.members")}</th>
                 <th>{t("enterprise.offices.lastSeen")}</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              {view.offices.map((office) => (
-                <tr key={office.id}>
-                  <td>{office.name ?? t("enterprise.offices.unnamed")}</td>
-                  <td>{office.members}</td>
-                  <td>{day(language, office.lastSeenAt)}</td>
-                </tr>
+              {offices.map((office) => (
+                <Fragment key={office.id}>
+                  <tr data-office={office.id}>
+                    <td>
+                      {renaming === office.id ? (
+                        <form
+                          className="form enterprise-inline"
+                          onSubmit={(event) => void save(event)}
+                        >
+                          <input
+                            ref={nameField}
+                            name="officeName"
+                            className="enterprise-office-name"
+                            aria-label={t("enterprise.offices.nameLabel")}
+                            maxLength={maxName}
+                            value={draft}
+                            onChange={(event) => setDraft(event.target.value)}
+                          />{" "}
+                          <button
+                            className="btn-primary"
+                            type="submit"
+                            data-action="save"
+                            disabled={busy}
+                          >
+                            {t("enterprise.offices.save")}
+                          </button>{" "}
+                          <button
+                            type="button"
+                            data-action="cancel"
+                            onClick={close}
+                          >
+                            {t("enterprise.seats.cancel")}
+                          </button>
+                        </form>
+                      ) : (
+                        (office.name ?? t("enterprise.offices.unnamed"))
+                      )}
+                    </td>
+                    <td>{office.members}</td>
+                    <td>{day(language, office.lastSeenAt)}</td>
+                    <td>
+                      {removing !== office.id && renaming !== office.id && (
+                        <>
+                          <button
+                            type="button"
+                            data-action="rename"
+                            onClick={() => {
+                              close();
+                              setDraft(office.name ?? "");
+                              setRenaming(office.id);
+                            }}
+                          >
+                            {t("enterprise.offices.rename")}
+                          </button>{" "}
+                          <button
+                            type="button"
+                            data-action="remove"
+                            onClick={() => {
+                              close();
+                              setRemoving(office.id);
+                            }}
+                          >
+                            {t("enterprise.offices.remove")}
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                  {removing === office.id && (
+                    <tr data-office-confirm={office.id}>
+                      <td colSpan={4}>
+                        <div className="callout callout-danger">
+                          <p>{t("enterprise.offices.removeWarning")}</p>
+                          <button
+                            ref={confirmButton}
+                            type="button"
+                            data-action="confirm-remove"
+                            disabled={busy}
+                            onClick={() => void remove()}
+                          >
+                            {t("enterprise.offices.removeConfirm")}
+                          </button>{" "}
+                          <button
+                            type="button"
+                            data-action="cancel"
+                            onClick={close}
+                          >
+                            {t("enterprise.seats.cancel")}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      <Refusal text={refusal} />
     </div>
   );
 }

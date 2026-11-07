@@ -430,7 +430,15 @@ export async function changeSeats(
   accountId: string,
   change: { from: number; to: number },
 ): Promise<ChangeSeatsResult> {
-  if (!validSeats(change.to) || !validSeats(change.from))
+  // `from` is the N IT saw, compared with the current one, not a new count:
+  // a check-in can raise N past MAX_SEATS, and IT must still change it then.
+  const from: unknown = change.from;
+  if (
+    !validSeats(change.to) ||
+    typeof from !== "number" ||
+    !Number.isInteger(from) ||
+    from < 1
+  )
     return { ok: false, reason: "invalid" };
   return store.tx(async () => {
     const row = await lockedAccountFor(store, accountId);
@@ -495,6 +503,246 @@ export async function renewSecret(
       secret: enterpriseSecret(authSecret, row.id, generation),
     };
   });
+}
+
+/** Most offices an account keeps active at once; a new or returning office
+ * past it is refused (bad_request). A sanity bound: it keeps the raised seat
+ * count inside int4 and the offices list a page. */
+export const MAX_OFFICES = 1000;
+/** Most members one office may report. */
+export const MAX_OFFICE_MEMBERS = 100_000;
+export const MAX_OFFICE_NAME_LENGTH = 100;
+
+export type RecordSeatsResult =
+  | {
+      ok: true;
+      company: string;
+      kind: EnterpriseKind;
+      seats: number;
+      inUse: number;
+      /** Offices not removed. */
+      offices: number;
+    }
+  | { ok: false; reason: "bad_secret" | "not_signed" | "bad_request" }
+  | { ok: false; reason: "seats_full"; seats: number; inUse: number };
+
+const OFFICE_ID = /^[0-9a-f]{32}$/;
+
+interface SeatCall {
+  office: string;
+  members: number;
+  add: boolean;
+}
+
+function seatCall(body: unknown): SeatCall | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return null;
+  const { office, members, add } = body as Record<string, unknown>;
+  if (typeof office !== "string" || !OFFICE_ID.test(office)) return null;
+  if (
+    typeof members !== "number" ||
+    !Number.isInteger(members) ||
+    members < 0 ||
+    members > MAX_OFFICE_MEMBERS
+  )
+    return null;
+  if (typeof add !== "boolean") return null;
+  return { office, members, add };
+}
+
+/**
+ * The seat service (POST /api/enterprise/v1/seats). `body` is the parsed
+ * JSON, or undefined when it did not parse.
+ *
+ * The secret is checked first, so a caller without it learns nothing about
+ * the body rules: once on a plain read, so a bad one never takes the row lock,
+ * and again under the lock, so a new secret that commits first wins. Every
+ * count is read under the account row lock, so two adds on the last seat
+ * cannot both pass.
+ *
+ * add=true takes a seat before the office adds a member: refused (seats_full)
+ * when the other offices' members plus `members` pass N, and then nothing is
+ * written. add=false (a check-in, a release, a first join) is never refused:
+ * it records the count, and raises N to the count in use when it is over.
+ * A new office, or one IT removed, joins on its call (audited) and keeps its
+ * name and first join time; past MAX_OFFICES active offices it is
+ * bad_request. A plain check-in is not audited.
+ */
+export async function recordSeats(
+  store: Store,
+  authSecret: string,
+  secret: string,
+  body: unknown,
+): Promise<RecordSeatsResult> {
+  const known = await enterpriseForSecret(store, authSecret, secret);
+  if (!known) return { ok: false, reason: "bad_secret" };
+  const input = seatCall(body);
+  if (!input) return { ok: false, reason: "bad_request" };
+  return store.tx(async (): Promise<RecordSeatsResult> => {
+    const row = await store.sqlGet<AccountRow>(
+      `select ${ACCOUNT_COLUMNS} from enterprise_accounts where id = $1 for update`,
+      [known.enterpriseId],
+    );
+    const parsed = parseSecret(secret);
+    if (
+      !row ||
+      !parsed ||
+      !sameText(
+        parsed.mac,
+        secretMac(authSecret, row.id, row.secret_generation),
+      )
+    )
+      return { ok: false, reason: "bad_secret" };
+    if (!isSigned(row)) return { ok: false, reason: "not_signed" };
+    const others = await store.sqlGet<{
+      members: string | number;
+      offices: string | number;
+    }>(
+      "select coalesce(sum(members), 0) as members, count(*) as offices " +
+        "from enterprise_offices " +
+        "where enterprise_id = $1 and removed_at is null and id <> $2",
+      [row.id, input.office],
+    );
+    const otherMembers = Number(others?.members ?? 0);
+    const otherOffices = Number(others?.offices ?? 0);
+    const own = await store.sqlGet<{
+      members: number;
+      removed_at: string | number | null;
+    }>(
+      "select members, removed_at from enterprise_offices " +
+        "where enterprise_id = $1 and id = $2",
+      [row.id, input.office],
+    );
+    const active = own !== null && own.removed_at === null;
+    if (!active && otherOffices >= MAX_OFFICES)
+      return { ok: false, reason: "bad_request" };
+    const seats = Number(row.seats);
+    const inUse = otherMembers + input.members;
+    if (input.add && inUse > seats) {
+      return {
+        ok: false,
+        reason: "seats_full",
+        seats,
+        inUse: otherMembers + (active ? Number(own.members) : 0),
+      };
+    }
+    const now = store.now();
+    const actor = `office:${input.office}`;
+    await store.sqlRun(
+      "insert into enterprise_offices " +
+        "(enterprise_id, id, members, joined_at, last_seen_at) " +
+        "values ($1, $2, $3, $4, $4) " +
+        "on conflict (enterprise_id, id) do update set members = $3, " +
+        "last_seen_at = $4, removed_at = null",
+      [row.id, input.office, input.members, now],
+    );
+    if (!active)
+      await audit(
+        store,
+        actor,
+        row.id,
+        "enterprise.office_joined",
+        input.office,
+      );
+    let newSeats = seats;
+    if (inUse > seats) {
+      newSeats = inUse;
+      await store.sqlRun(
+        "update enterprise_accounts set seats = $2, version = version + 1, " +
+          "updated_at = $3 where id = $1",
+        [row.id, newSeats, now],
+      );
+      await audit(
+        store,
+        actor,
+        row.id,
+        "enterprise.seats_raised",
+        `${seats} -> ${newSeats}`,
+      );
+    }
+    return {
+      ok: true,
+      company: row.company,
+      kind: row.kind,
+      seats: newSeats,
+      inUse,
+      offices: otherOffices + 1,
+    };
+  });
+}
+
+export type OfficeChangeResult =
+  | { ok: true }
+  | { ok: false; reason: "no_account" | "not_found" | "invalid" };
+
+/** Lock the caller's account and change one of its offices not removed.
+ * `write` gets the enterprise id and the office id. */
+async function changeOffice(
+  store: Store,
+  accountId: string,
+  office: unknown,
+  action: string,
+  write: (enterpriseId: string, office: string) => Promise<unknown>,
+): Promise<OfficeChangeResult> {
+  if (typeof office !== "string" || !OFFICE_ID.test(office))
+    return { ok: false, reason: "invalid" };
+  return store.tx(async (): Promise<OfficeChangeResult> => {
+    const row = await lockedAccountFor(store, accountId);
+    if (!row) return { ok: false, reason: "no_account" };
+    const found = await store.sqlGet<{ id: string }>(
+      "select id from enterprise_offices " +
+        "where enterprise_id = $1 and id = $2 and removed_at is null",
+      [row.id, office],
+    );
+    if (!found) return { ok: false, reason: "not_found" };
+    await write(row.id, office);
+    await audit(store, `account:${accountId}`, row.id, action, office);
+    return { ok: true };
+  });
+}
+
+/** IT names an office on the account page (1..MAX_OFFICE_NAME_LENGTH
+ * characters, trimmed). Audits enterprise.office_renamed. */
+export async function renameOffice(
+  store: Store,
+  accountId: string,
+  change: { office: unknown; name: unknown },
+): Promise<OfficeChangeResult> {
+  const name = text(change.name, MAX_OFFICE_NAME_LENGTH);
+  if (name === null) return { ok: false, reason: "invalid" };
+  return changeOffice(
+    store,
+    accountId,
+    change.office,
+    "enterprise.office_renamed",
+    (enterpriseId, office) =>
+      store.sqlRun(
+        "update enterprise_offices set name = $3 " +
+          "where enterprise_id = $1 and id = $2",
+        [enterpriseId, office, name],
+      ),
+  );
+}
+
+/** IT removes a shut-down office: its members leave the count, and it
+ * rejoins on its next call. Audits enterprise.office_removed. */
+export async function removeOffice(
+  store: Store,
+  accountId: string,
+  change: { office: unknown },
+): Promise<OfficeChangeResult> {
+  return changeOffice(
+    store,
+    accountId,
+    change.office,
+    "enterprise.office_removed",
+    (enterpriseId, office) =>
+      store.sqlRun(
+        "update enterprise_offices set removed_at = $3 " +
+          "where enterprise_id = $1 and id = $2",
+        [enterpriseId, office, store.now()],
+      ),
+  );
 }
 
 export interface NegotiatedInput {

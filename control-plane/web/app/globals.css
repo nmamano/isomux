@@ -1387,3 +1387,7 @@ main .auth-or {
 .form.enterprise-inline input {
   width: 8rem;
 }
+/* An office's name, renamed in place in its row. */
+.form.enterprise-inline input.enterprise-office-name {
+  width: min(16rem, 100%);
+}

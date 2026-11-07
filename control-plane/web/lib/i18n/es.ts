@@ -480,6 +480,17 @@ export const es: Catalog = {
   "enterprise.offices.members": "Miembros",
   "enterprise.offices.lastSeen": "Último contacto",
   "enterprise.offices.unnamed": "Oficina sin nombre",
+  "enterprise.offices.rename": "Cambiar nombre",
+  "enterprise.offices.remove": "Quitar",
+  "enterprise.offices.save": "Guardar",
+  "enterprise.offices.nameLabel": "Nombre de la oficina",
+  "enterprise.offices.invalidName":
+    "Escribe un nombre de 1 a {max} caracteres.",
+  "enterprise.offices.removeWarning":
+    "¿Quitar esta oficina? Sus miembros dejan de contar en tus puestos. Vuelve a unirse si contacta de nuevo.",
+  "enterprise.offices.removeConfirm": "Quitar oficina",
+  "enterprise.offices.gone":
+    "Esta oficina ya no está en la cuenta. Recarga la página.",
   "enterprise.secret.heading": "Secreto",
   "enterprise.secret.lead":
     "Pega este secreto en Ajustes → Oficina de cada una de tus oficinas de Isomux. Mantenlo en privado.",

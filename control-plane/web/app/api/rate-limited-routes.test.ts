@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { RATE_LIMITED_SIGNIN_URL } from "../../lib/rate-limit-marker";
 import {
   authLimiter,
+  enterpriseSeatIpLimiter,
   incidentLimiter,
   signupLimiter,
 } from "../../lib/rate-limit.server";
@@ -16,6 +17,9 @@ import * as enterpriseRoute from "./enterprise/route";
 import * as enterpriseAgreementRoute from "./enterprise/agreement/route";
 import * as enterpriseSeatsRoute from "./enterprise/seats/route";
 import * as enterpriseSecretRoute from "./enterprise/secret/route";
+import * as enterpriseOfficeRenameRoute from "./enterprise/offices/rename/route";
+import * as enterpriseOfficeRemoveRoute from "./enterprise/offices/remove/route";
+import * as enterpriseSeatApiRoute from "./enterprise/v1/seats/route";
 import * as signupRoute from "./signup/route";
 
 const ORIGIN = "https://storefront.example.com";
@@ -117,6 +121,8 @@ describe("the enterprise account routes", () => {
       "/api/enterprise/agreement": enterpriseAgreementRoute,
       "/api/enterprise/seats": enterpriseSeatsRoute,
       "/api/enterprise/secret": enterpriseSecretRoute,
+      "/api/enterprise/offices/rename": enterpriseOfficeRenameRoute,
+      "/api/enterprise/offices/remove": enterpriseOfficeRemoveRoute,
     };
     let n = 40;
     for (const [pathname, route] of Object.entries(routes)) {
@@ -159,5 +165,32 @@ describe("the enterprise account routes", () => {
         status: "reached the session",
       });
     }
+  });
+});
+
+describe("the seat API", () => {
+  test("a spent address is refused before the secret and the body", async () => {
+    const address = "192.0.2.80";
+    for (let i = 0; i < 600; i++) enterpriseSeatIpLimiter.take(address);
+    // No Authorization: past the quota it is 429, not 401.
+    const response = await enterpriseSeatApiRoute.POST(
+      new Request(`${ORIGIN}/api/enterprise/v1/seats`, {
+        method: "POST",
+        headers: { "x-forwarded-for": address },
+        body: unreadableBody(),
+      }),
+    );
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+    // Another address gets the secret's answer.
+    const other = await enterpriseSeatApiRoute.POST(
+      new Request(`${ORIGIN}/api/enterprise/v1/seats`, {
+        method: "POST",
+        headers: { "x-forwarded-for": "192.0.2.81" },
+        body: unreadableBody(),
+      }),
+    );
+    expect(other.status).toBe(401);
   });
 });

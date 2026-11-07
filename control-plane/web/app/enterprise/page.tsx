@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { AGREEMENT, MAX_SEATS } from "../../../enterprise";
+import {
+  AGREEMENT,
+  MAX_OFFICE_NAME_LENGTH,
+  MAX_SEATS,
+} from "../../../enterprise";
 import { auth } from "../../auth";
 import {
   EnterpriseAccount,
@@ -55,6 +59,7 @@ export default async function Enterprise() {
         now={now}
         pdfPath={AGREEMENT.publicPath}
         maxSeats={MAX_SEATS}
+        maxOfficeName={MAX_OFFICE_NAME_LENGTH}
       />
     </>
   );

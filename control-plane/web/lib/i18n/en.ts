@@ -495,6 +495,16 @@ export const en = {
   "enterprise.offices.members": "Members",
   "enterprise.offices.lastSeen": "Last check-in",
   "enterprise.offices.unnamed": "Unnamed office",
+  "enterprise.offices.rename": "Rename",
+  "enterprise.offices.remove": "Remove",
+  "enterprise.offices.save": "Save",
+  "enterprise.offices.nameLabel": "Office name",
+  "enterprise.offices.invalidName": "Enter a name of 1 to {max} characters.",
+  "enterprise.offices.removeWarning":
+    "Remove this office? Its members stop counting toward your seats. It rejoins if it checks in again.",
+  "enterprise.offices.removeConfirm": "Remove office",
+  "enterprise.offices.gone":
+    "This office is no longer on the account. Reload the page.",
 
   "enterprise.secret.heading": "Secret",
   "enterprise.secret.lead":

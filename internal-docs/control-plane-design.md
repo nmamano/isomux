@@ -838,8 +838,9 @@ append-only hourly updates, and the hash of the one write key;
 `control-plane/README.md`, "Critical-issue status pages") -
 `enterprise_accounts`, `enterprise_offices` (one enterprise account per
 storefront sign-in: company, plan, seat count, signer, secret generation; the
-offices that joined it, keyed by account and the office's own id, with their
-member counts; `control-plane/README.md`, "Enterprise accounts").
+offices that joined it through the seat service, keyed by account and the
+office's own id, with their member counts, last check-in and the name IT gives
+them; `control-plane/README.md`, "Enterprise accounts").
 
 Attention is persisted, not derived: `attention_state`, `attention_reason`,
 `attention_severity`, `attention_raised_at`, `acknowledged_at`,
