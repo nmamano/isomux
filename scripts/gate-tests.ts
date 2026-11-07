@@ -40,8 +40,8 @@ export type GateTests = {
  * changed file directly: a change to shared/i18n/en.ts runs the tests of
  * translate.ts, but not the 147 tests of server/test-support/harness.ts that
  * a longer path reaches. Without a stop, any copy edit selected 687 of 1149
- * test files. Over the last 150 commits on main (2026-11-04), the tests this
- * selects per commit: median 116, p90 584, max 752.
+ * test files. Over the last 150 commits on main (2026-11-07), of 1258 test
+ * files, the tests this selects per commit: median 64, p90 544, max 750.
  */
 export const HUB_IMPORTERS = 20;
 
@@ -114,7 +114,37 @@ const SUFFIXES = [
   "/index.tsx",
   "/index.js",
 ];
-const LITERAL = /(["'`])([\w@.\-/]+)\1/g;
+// A string literal on one line.
+const STRING = /(["'`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
+// One inside an import, require() or mock.module(): an import edge, which the
+// import walk follows with its hub stop.
+const IMPORT_STRING =
+  /(\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|\bmodule\s*\(\s*)(["'`])(?:(?!\2)[^\\\n]|\\.)*\2/g;
+
+/** The path pieces a test's string literals hold, outside its imports. */
+function pathPieces(text: string): Set<string> {
+  const pieces = new Set<string>();
+  for (const [, , body] of text.replace(IMPORT_STRING, "").matchAll(STRING))
+    // A piece keeps [ and ]: Next.js names a dynamic route directory [id].
+    for (const piece of body.split(/[^\w@.[\]-]+/))
+      if (piece) pieces.add(piece);
+  return pieces;
+}
+
+/**
+ * A test names a path when its pieces hold the file name and each directory
+ * below the deepest one the test and the file share, in any order: a whole
+ * literal, a path relative to the test, or join(import.meta.dir, "web",
+ * "route.ts").
+ */
+function namesPath(test: string, pieces: Set<string>, path: string): boolean {
+  const dirs = path.split("/");
+  if (!pieces.has(dirs.pop()!)) return false;
+  const own = test.split("/").slice(0, -1);
+  let shared = 0;
+  while (shared < dirs.length && dirs[shared] === own[shared]) shared++;
+  return dirs.slice(shared).every((d) => pieces.has(d));
+}
 
 function isTest(path: string): boolean {
   // Bun skips node_modules and dot directories.
@@ -170,13 +200,9 @@ export function selectGateTests(input: GateTestsInput): GateTests {
     if (text === undefined) continue;
     if (isTest(file)) {
       if (changed.has(file)) selected.add(file);
-      for (const [, , literal] of text.matchAll(LITERAL)) {
-        const named = [
-          literal.replace(/^\.\//, ""),
-          posix.normalize(posix.join(posix.dirname(file), literal)),
-        ];
-        if (named.some((p) => changed.has(p))) selected.add(file);
-      }
+      const pieces = pathPieces(text);
+      if (input.changed.some((f) => namesPath(file, pieces, f)))
+        selected.add(file);
     }
     const loader = /x$/.test(file) ? "tsx" : /ts$/.test(file) ? "ts" : "js";
     let transpiler = transpilers.get(loader);

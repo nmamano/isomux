@@ -272,6 +272,87 @@ describe("selectGateTests, path literals", () => {
     );
     expect(result.tests).toEqual(tests);
   });
+
+  // Task b4e5a3a0: control-plane/signin-return.test.ts read
+  // web/app/api/session/route.ts through join() with one piece per argument,
+  // so no single literal named the path and the gate did not select it.
+  const route = "control-plane/web/app/api/session/route.ts";
+  const reader = "control-plane/signin-return.test.ts";
+  const joined = (...pieces: string[]) =>
+    `const p = path.join(import.meta.dir, ${pieces.map((p) => `"${p}"`).join(", ")});\n`;
+  const rows: [string, Tree, string, string[]][] = [
+    [
+      "selects a path joined from one piece per argument",
+      { [reader]: joined("web", "app", "api", "session", "route.ts") },
+      route,
+      [reader],
+    ],
+    [
+      "selects a path in a template literal with a placeholder",
+      { "server/docs.test.ts": "const p = `${root}/docs/features.md`;\n" },
+      "docs/features.md",
+      ["server/docs.test.ts"],
+    ],
+    [
+      "selects the pieces of a path in two literals of the file",
+      {
+        "server/docs.test.ts":
+          'const DOCS = join(ROOT, "docs");\nconst text = readFileSync(join(DOCS, "features.md"), "utf8");\n',
+      },
+      "docs/features.md",
+      ["server/docs.test.ts"],
+    ],
+    [
+      "selects the file name alone, in the test's own directory",
+      { "server/a/x.test.ts": 'const p = join(import.meta.dir, "f.ts");\n' },
+      "server/a/f.ts",
+      ["server/a/x.test.ts"],
+    ],
+    [
+      // Next.js names a dynamic route directory in brackets.
+      "selects a path through a dynamic route directory",
+      {
+        [reader]: joined("web", "app", "api", "progress", "[id]", "route.ts"),
+      },
+      "control-plane/web/app/api/progress/[id]/route.ts",
+      [reader],
+    ],
+    [
+      "does not select a path with one directory piece missing",
+      { [reader]: joined("web", "app", "api", "route.ts") },
+      route,
+      [],
+    ],
+    [
+      // server/ab and server/a share the directory server, not server/a.
+      "does not select the file name alone from a directory whose name starts the same",
+      { "server/ab/x.test.ts": 'const p = join(import.meta.dir, "f.ts");\n' },
+      "server/a/f.ts",
+      [],
+    ],
+    [
+      "does not select a piece that only contains the file name",
+      { [reader]: joined("web", "app", "api", "session", "old-route.ts") },
+      route,
+      [],
+    ],
+    [
+      // An import is an edge, not a path the test reads; a type-only one
+      // selects nothing (see "no import that names types only").
+      "does not select a type-only import with an explicit extension",
+      { "server/a.test.ts": 'import type { T } from "./types.ts";\n' },
+      "server/types.ts",
+      [],
+    ],
+  ];
+  it.each(rows)("%s", (_, tests, changed, expected) => {
+    const result = select({ ...tests, [changed]: "export const x = 1;\n" }, [
+      changed,
+    ]);
+    expect([...result.tests, ...result.controlPlaneTests].sort()).toEqual(
+      expected,
+    );
+  });
 });
 
 describe("selectGateTests, whole-tree tests", () => {
