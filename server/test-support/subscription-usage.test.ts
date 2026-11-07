@@ -26,7 +26,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { OfficeState } from "../../shared/office-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
-import { FakeBackend } from "./fake-backend.ts";
+import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import {
@@ -73,15 +73,24 @@ function diRooms(...ids: string[]): RoomWire[] {
 function reading(
   usedPercent: number,
   plan = "max",
-  extraWindows: { label: string; usedPercent: number }[] = [],
+  extraWindows: {
+    label: string;
+    shortLabel?: string | null;
+    usedPercent: number;
+  }[] = [],
+  shortLabel: string | null = "WK",
 ): SubscriptionUsageResult {
   return {
     kind: "usage",
     usage: {
       plan,
       windows: [
-        { label: "Weekly", usedPercent, resetsAtMs: 1785000000000 },
-        ...extraWindows.map((w) => ({ ...w, resetsAtMs: null })),
+        { label: "Weekly", shortLabel, usedPercent, resetsAtMs: 1785000000000 },
+        ...extraWindows.map((w) => ({
+          shortLabel: null,
+          ...w,
+          resetsAtMs: null,
+        })),
       ],
     },
   };
@@ -222,7 +231,12 @@ describe("subscription usage", () => {
     const usage = mgr.getAgent(info.id)!.subscriptionUsage!;
     expect(usage.plan).toBe("max");
     expect(usage.windows).toEqual([
-      { label: "Weekly", usedPercent: 100, resetsAtMs: 1785000000000 },
+      {
+        label: "Weekly",
+        shortLabel: "WK",
+        usedPercent: 100,
+        resetsAtMs: 1785000000000,
+      },
     ]);
     expect(usage.primaryIndex).toBe(0);
     expect(usage.sampledAtMs).toBeGreaterThan(0);
@@ -403,6 +417,85 @@ describe("subscription usage", () => {
     expect(
       mgr.getAgent(info.id)?.subscriptionUsage?.windows[0].usedPercent,
     ).toBe(42);
+  });
+
+  // The mid-turn path dedupes on what the pill shows, and the tag beside the
+  // ring is shown: a reading that changes only the tag must still reach the
+  // browser, and an identical one must not.
+  it("broadcasts a mid-turn reading that changes only the window tag", async () => {
+    const events: { type: string; changes?: unknown }[] = [];
+    let calls = 0;
+    const open: { session: FakeSession | null } = { session: null };
+    const usageUpdate = {
+      kind: "usage_update",
+      tokenUsage: {
+        inputTokens: 10,
+        outputTokens: 1,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+      },
+    } as const;
+    let turns = 0;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: async () => {
+          calls++;
+          return reading(42, "max", [], calls === 1 ? "WK" : "WK·F");
+        },
+        onSend: (_t, _a, s) => {
+          // The first turn ends at once; the second one stays open, so only
+          // the usage_update path samples while it runs.
+          if (++turns === 1) s.completeTurn({ text: "ok" });
+          else {
+            open.session = s;
+            s.push(usageUpdate);
+          }
+        },
+      },
+    });
+    const mgr = makeManager(fake, (e) => events.push(e));
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "one");
+    await waitUntil(() => calls >= 1, "first reading");
+    await drain();
+    const tags = () =>
+      events
+        .map(
+          (e) =>
+            (
+              e.changes as {
+                subscriptionUsage?: { windows: { shortLabel?: unknown }[] };
+              }
+            )?.subscriptionUsage?.windows[0]?.shortLabel,
+        )
+        .filter((t) => t !== undefined);
+    expect(tags()).toEqual(["WK"]);
+
+    const r = mgr.enqueueMessage(info.id, {
+      sender: { kind: "user", username: "Morgan" },
+      text: "two",
+    });
+    if (!r.ok) throw new Error(`enqueue failed: ${r.error}`);
+    await waitUntil(() => calls >= 2, "mid-turn sample taken");
+    await drain();
+    // Enabling condition: the turn is still open, so no turn-end sample ran.
+    expect({ calls, state: mgr.getAgent(info.id)?.state }).toEqual({
+      calls: 2,
+      state: "thinking",
+    });
+    expect(tags()).toEqual(["WK", "WK·F"]);
+
+    // Same tag and number again: the mid-turn path stays quiet.
+    open.session!.push(usageUpdate);
+    await waitUntil(() => calls >= 3, "second mid-turn sample taken");
+    await drain();
+    expect(tags()).toEqual(["WK", "WK·F"]);
+
+    open.session!.completeTurn({ text: "ok" });
+    await waitUntil(
+      () => mgr.getAgent(info.id)?.state !== "thinking",
+      "second turn ended",
+    );
   });
 
   it("survives a same-engine model change - the account is unchanged", async () => {

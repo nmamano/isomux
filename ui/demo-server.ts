@@ -642,8 +642,18 @@ function demoSubscriptionUsage(): AgentInfo["subscriptionUsage"] {
   return {
     plan: "max",
     windows: [
-      { label: "5-hour", usedPercent: 41, resetsAtMs: now + 2.25 * 3600_000 },
-      { label: "Weekly", usedPercent: 27, resetsAtMs: now + 4.1 * 86400_000 },
+      {
+        label: "5-hour",
+        shortLabel: "5h",
+        usedPercent: 41,
+        resetsAtMs: now + 2.25 * 3600_000,
+      },
+      {
+        label: "Weekly",
+        shortLabel: "WK",
+        usedPercent: 27,
+        resetsAtMs: now + 4.1 * 86400_000,
+      },
     ],
     // The 5-hour window is the closest to its limit, so it drives the number.
     primaryIndex: 0,

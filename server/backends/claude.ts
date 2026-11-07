@@ -448,12 +448,33 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
 // number. seven_day_oauth_apps is one such window; it meters third-party OAuth
 // apps rather than this session.
 // extra_usage (overage credits) is a different currency and stays out too.
-const CLAUDE_RATE_LIMIT_WINDOWS: { key: string; label: string }[] = [
-  { key: "seven_day", label: "Weekly" },
-  { key: "five_hour", label: "5-hour" },
-  { key: "seven_day_opus", label: "Weekly (Opus)" },
-  { key: "seven_day_sonnet", label: "Weekly (Sonnet)" },
+// `short` is the tag the pill shows beside its ring.
+const CLAUDE_RATE_LIMIT_WINDOWS: {
+  key: string;
+  label: string;
+  short: string;
+}[] = [
+  { key: "seven_day", label: "Weekly", short: "WK" },
+  { key: "five_hour", label: "5-hour", short: "5h" },
+  {
+    key: "seven_day_opus",
+    label: "Weekly (Opus)",
+    short: modelWeeklyShortLabel("Opus"),
+  },
+  {
+    key: "seven_day_sonnet",
+    label: "Weekly (Sonnet)",
+    short: modelWeeklyShortLabel("Sonnet"),
+  },
 ];
+
+// Pill tag of a per-model weekly window: "WK" and the model's first letter
+// ("WK·O"), so it never reads as the plain weekly window. The fixed rows above
+// use it too, so a fixed row and a server-sent row for one model match. Two
+// models with the same first letter share a tag; the popover names both.
+function modelWeeklyShortLabel(model: string): string {
+  return `WK\u00b7${(Array.from(model)[0] ?? "").toUpperCase()}`;
+}
 
 // Minimum gap between actual /usage control RPCs per conversation. The
 // orchestrator refreshes on every cumulative-usage event (many per turn) so a
@@ -478,6 +499,7 @@ function parseResetsAt(value: unknown): number | null {
 function claudeWindow(
   raw: unknown,
   label: string,
+  shortLabel: string,
 ): SubscriptionUsageWindow | null {
   if (!raw || typeof raw !== "object") return null;
   const { utilization, resets_at } = raw as {
@@ -488,6 +510,7 @@ function claudeWindow(
     return null;
   return {
     label,
+    shortLabel,
     usedPercent: Math.max(0, Math.min(100, utilization)),
     resetsAtMs: parseResetsAt(resets_at),
   };
@@ -518,8 +541,8 @@ export function normalizeClaudeSubscriptionUsage(
   if (!limits || typeof limits !== "object") return { kind: "unavailable" };
   const byKey = limits as Record<string, unknown>;
   const windows: SubscriptionUsageWindow[] = [];
-  for (const { key, label } of CLAUDE_RATE_LIMIT_WINDOWS) {
-    const win = claudeWindow(byKey[key], label);
+  for (const { key, label, short } of CLAUDE_RATE_LIMIT_WINDOWS) {
+    const win = claudeWindow(byKey[key], label, short);
     if (win) windows.push(win);
   }
   // Per-model weekly windows the server sends as a list. Additive and
@@ -531,7 +554,11 @@ export function normalizeClaudeSubscriptionUsage(
     for (const entry of byKey.model_scoped) {
       const name = (entry as { display_name?: unknown } | null)?.display_name;
       if (typeof name !== "string" || name.length === 0) continue;
-      const win = claudeWindow(entry, `Weekly (${name})`);
+      const win = claudeWindow(
+        entry,
+        `Weekly (${name})`,
+        modelWeeklyShortLabel(name),
+      );
       if (!win) continue;
       windows.push(win);
       modelScopedNames.add(name);
@@ -566,6 +593,7 @@ export function normalizeClaudeSubscriptionUsage(
       const win = claudeWindow(
         { utilization: row.percent, resets_at: row.resets_at },
         `Weekly (${name})`,
+        modelWeeklyShortLabel(name),
       );
       if (!win) continue;
       windows.push(win);

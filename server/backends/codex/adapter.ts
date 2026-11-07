@@ -664,6 +664,17 @@ function codexWindowLabel(minutes: number | null): string {
   return `${minutes}-minute`;
 }
 
+// The pill's tag for the same window ("WK", "1d", "5h", "90m"), from the same
+// duration as codexWindowLabel. null when the duration is unknown.
+function codexWindowShortLabel(minutes: number | null): string | null {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes <= 0)
+    return null;
+  if (minutes === MINUTES_PER_WEEK) return "WK";
+  if (minutes % MINUTES_PER_DAY === 0) return `${minutes / MINUTES_PER_DAY}d`;
+  if (minutes % MINUTES_PER_HOUR === 0) return `${minutes / MINUTES_PER_HOUR}h`;
+  return `${minutes}m`;
+}
+
 // Codex reports `resetsAt` as a bare epoch number - SECONDS in the payload
 // isomux has seen (Pau's reference script feeds it straight to
 // datetime.fromtimestamp). The generated schema only says "number", so rather
@@ -833,6 +844,7 @@ export function normalizeCodexSubscriptionUsage(
     scored.push({
       window: {
         label: codexWindowLabel(minutes || null),
+        shortLabel: codexWindowShortLabel(minutes || null),
         usedPercent: Math.max(0, Math.min(100, w.usedPercent)),
         resetsAtMs: codexResetsAtMs(w.resetsAt),
       },

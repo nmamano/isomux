@@ -457,6 +457,9 @@ export interface ContextUsage {
 // getSubscriptionUsage - the UI then hides the pill.
 export interface SubscriptionUsageWindow {
   label: string;
+  // Short tag for the pill ("WK", "5h"), or null when the backend cannot name
+  // the window's length. Data, like label.
+  shortLabel: string | null;
   usedPercent: number;
   resetsAtMs: number | null;
 }

@@ -12,7 +12,9 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 // the PLAN the backend account is signed in to has been burned". The number
 // comes from whichever window is closest to its limit (the server picks it and
 // says so in `primaryIndex`); every window the backend reports is a popover
-// row, and the leading one is marked there so the number is never ambiguous.
+// row, and the leading one is marked there. The pill itself carries that
+// window's short tag ("5h", "WK") beside the ring, so the number is never
+// ambiguous at a glance.
 //
 // It shares the battery's LIFECYCLE: the pill always
 // renders, and with no reading it shows an empty ring and "?" in a ghost color
@@ -234,6 +236,13 @@ export function SubscriptionPill({
   // "?" is plain ASCII on purpose - no iOS auto-emoji risk (unlike ？/⍰), same
   // rule the battery's unknown label follows.
   const label = reading ? `${used}%` : "?";
+  // Which window the number is from ("5h", "WK"), beside the ring: backend
+  // data, shown as delivered. A server from before the field sends none, and a
+  // window of unknown length has none; the pill then shows no tag.
+  const tag =
+    typeof headline?.shortLabel === "string" && headline.shortLabel.length > 0
+      ? headline.shortLabel
+      : null;
 
   const planLine = reading?.plan
     ? t("subscription.plan", { plan: reading.plan })
@@ -315,27 +324,17 @@ export function SubscriptionPill({
           lineHeight: 1,
         }}
       >
-        <svg
-          width={11}
-          height={11}
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          style={{ display: "block", flexShrink: 0 }}
-        >
-          {/* track. With no reading the ring is the only mark left, so it
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+          <svg
+            width={11}
+            height={11}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            style={{ display: "block", flexShrink: 0 }}
+          >
+            {/* track. With no reading the ring is the only mark left, so it
               carries a bit more weight than the track behind a real arc -
               matching how the battery's empty shell stays legible. */}
-          <circle
-            cx={12}
-            cy={12}
-            r={RING_RADIUS}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={5}
-            opacity={reading ? 0.3 : 0.55}
-          />
-          {/* used arc, starting at 12 o'clock and filling clockwise */}
-          {rawUsed > 0 && (
             <circle
               cx={12}
               cy={12}
@@ -343,11 +342,36 @@ export function SubscriptionPill({
               fill="none"
               stroke="currentColor"
               strokeWidth={5}
-              strokeDasharray={`${dash} ${RING_CIRCUMFERENCE - dash}`}
-              transform="rotate(-90 12 12)"
+              opacity={reading ? 0.3 : 0.55}
             />
+            {/* used arc, starting at 12 o'clock and filling clockwise */}
+            {rawUsed > 0 && (
+              <circle
+                cx={12}
+                cy={12}
+                r={RING_RADIUS}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={5}
+                strokeDasharray={`${dash} ${RING_CIRCUMFERENCE - dash}`}
+                transform="rotate(-90 12 12)"
+              />
+            )}
+          </svg>
+          {tag && (
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 9,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                lineHeight: 1,
+              }}
+            >
+              {tag}
+            </span>
           )}
-        </svg>
+        </span>
         <span
           className="context-battery-pct"
           style={{

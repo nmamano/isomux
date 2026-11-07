@@ -4824,7 +4824,9 @@ describe("codex subscription usage", () => {
     return r.usage;
   }
 
-  it("labels a window by its duration and reads resetsAt in either epoch unit", () => {
+  // shortLabel is the pill's tag, from the same duration: only an exact week
+  // is "WK", and an unknown duration has no tag.
+  it("labels and tags a window by its duration and reads resetsAt in either epoch unit", () => {
     const windowOf = (win: Record<string, unknown>) => {
       const out = normalizeCodexSubscriptionUsage(
         snapshot({ primary: { ...week, ...win } }),
@@ -4832,18 +4834,21 @@ describe("codex subscription usage", () => {
       if (out.kind !== "usage") throw new Error(out.kind);
       return out.usage.windows[0];
     };
-    for (const [minutes, label] of [
-      [10080, "Weekly"],
-      [1440, "Daily"],
-      [300, "5-hour"],
-      [43200, "30-day"],
-      [90, "90-minute"],
-      [null, "Plan allowance"],
+    for (const [minutes, label, shortLabel] of [
+      [10080, "Weekly", "WK"],
+      [20160, "14-day", "14d"],
+      [1440, "Daily", "1d"],
+      [300, "5-hour", "5h"],
+      [43200, "30-day", "30d"],
+      [90, "90-minute", "90m"],
+      [null, "Plan allowance", null],
     ] as const) {
-      expect({
+      const w = windowOf({ windowDurationMins: minutes });
+      expect({ minutes, label: w.label, shortLabel: w.shortLabel }).toEqual({
         minutes,
-        label: windowOf({ windowDurationMins: minutes }).label,
-      }).toEqual({ minutes, label });
+        label,
+        shortLabel,
+      });
     }
     // Codex sends seconds today (the reference script feeds it straight to
     // datetime.fromtimestamp) but the generated schema only promises a number.
@@ -4872,8 +4877,18 @@ describe("codex subscription usage", () => {
       usage: {
         plan: "Plus",
         windows: [
-          { label: "Weekly", usedPercent: 34.5, resetsAtMs: null },
-          { label: "5-hour", usedPercent: 80, resetsAtMs: null },
+          {
+            label: "Weekly",
+            shortLabel: "WK",
+            usedPercent: 34.5,
+            resetsAtMs: null,
+          },
+          {
+            label: "5-hour",
+            shortLabel: "5h",
+            usedPercent: 80,
+            resetsAtMs: null,
+          },
         ],
       },
     });
@@ -4891,8 +4906,18 @@ describe("codex subscription usage", () => {
       usage: {
         plan: "Plus",
         windows: [
-          { label: "Weekly", usedPercent: 100, resetsAtMs: null },
-          { label: "5-hour", usedPercent: 0, resetsAtMs: null },
+          {
+            label: "Weekly",
+            shortLabel: "WK",
+            usedPercent: 100,
+            resetsAtMs: null,
+          },
+          {
+            label: "5-hour",
+            shortLabel: "5h",
+            usedPercent: 0,
+            resetsAtMs: null,
+          },
         ],
       },
     });
@@ -4944,6 +4969,7 @@ describe("codex subscription usage", () => {
     expect(usage.plan).toBe("Plus");
     expect(usage.windows[0]).toEqual({
       label: "Weekly",
+      shortLabel: "WK",
       usedPercent: 34.5,
       resetsAtMs: null,
     });
@@ -5033,6 +5059,7 @@ describe("codex subscription usage", () => {
     const usage = await usageOf(session);
     expect(usage.windows[0]).toEqual({
       label: "Weekly",
+      shortLabel: "WK",
       usedPercent: 41,
       resetsAtMs: 1785000000000,
     });
@@ -5178,6 +5205,7 @@ describe("codex subscription usage", () => {
     expect(usage.windows[0]).toEqual({
       // Fresher number from the push, metadata from the older read.
       label: "Weekly",
+      shortLabel: "WK",
       usedPercent: 55,
       resetsAtMs: 1785000000000,
     });
@@ -5237,6 +5265,7 @@ describe("codex subscription usage", () => {
     expect(usage.plan).toBe("Plus");
     expect(usage.windows[0]).toEqual({
       label: "Weekly",
+      shortLabel: "WK",
       usedPercent: 47,
       resetsAtMs: 1785000000000,
     });

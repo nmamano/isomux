@@ -387,6 +387,7 @@ export type AgentSubscriptionUsageResp =
       plan: string | null;
       windows: Array<{
         label: string;
+        shortLabel?: string | null;
         usedPercent: number;
         resetsAtMs: number | null;
       }>;
@@ -401,6 +402,7 @@ export type AgentSubscriptionUsageResp =
       plan: string | null;
       windows: Array<{
         label: string;
+        shortLabel?: string | null;
         usedPercent: number;
         resetsAtMs: number | null;
       }>;

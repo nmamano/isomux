@@ -366,7 +366,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   }
 
   // Whether two readings differ in anything the pill or its popover DISPLAY
-  // (plan, which window leads, labels, rounded percentages, reset times). Used
+  // (plan, which window leads, labels and tags, rounded percentages, reset times). Used
   // to skip dead agent_updated events on the high-frequency usage_update path.
   function displayedSubscriptionChanged(
     prev: SubscriptionUsageWire | null | undefined,
@@ -380,6 +380,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
       const n = next.windows[i];
       return (
         w.label !== n.label ||
+        w.shortLabel !== n.shortLabel ||
         Math.round(w.usedPercent) !== Math.round(n.usedPercent) ||
         w.resetsAtMs !== n.resetsAtMs
       );
@@ -616,6 +617,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   ): SubscriptionUsageWire {
     const windows: SubscriptionWindowWire[] = usage.windows.map((w) => ({
       label: w.label,
+      shortLabel: w.shortLabel,
       // Clamp again at the wire boundary: the adapters clamp too, but a
       // malformed reading must never paint a negative or overflowing gauge.
       usedPercent: Math.max(0, Math.min(100, w.usedPercent)),
