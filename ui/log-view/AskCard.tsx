@@ -887,88 +887,146 @@ function ReplyAskCard({
     </div>
   );
 
-  return (
-    <div data-ask={entry.id} style={cardBox}>
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {entry.office && (
-            <div
-              data-ask-office=""
-              style={{
-                color: "var(--text-ghost)",
-                fontSize: isMobile ? 12 : 11,
-                lineHeight: 1.5,
-                overflowWrap: "break-word",
-              }}
-            >
-              {t("asks.fromOffice", { name: entry.office.name })}
-            </div>
-          )}
-          {entry.app && (
-            <div
-              data-ask-app=""
-              style={{
-                color: "var(--text-ghost)",
-                fontSize: isMobile ? 12 : 11,
-                lineHeight: 1.5,
-                overflowWrap: "break-word",
-              }}
-            >
-              {t("asks.fromApp", { app: entry.app.name })}
-            </div>
-          )}
-          {entry.member && (
-            <div
-              data-ask-for=""
-              style={{
-                color: "var(--text-ghost)",
-                fontSize: isMobile ? 12 : 11,
-                lineHeight: 1.5,
-                overflowWrap: "break-word",
-              }}
-            >
-              {rich("asks.forMember", {
-                member:
-                  (entry.members?.length ?? 0) > 1 ? (
-                    names(entry.members ?? [])
-                  ) : (
-                    <span {...noTranslate()}>{entry.member}</span>
-                  ),
-              })}
-            </div>
-          )}
-          {sharedLine && (
-            <div
-              data-ask-members=""
-              style={{
-                color: "var(--text-ghost)",
-                fontSize: isMobile ? 12 : 11,
-                lineHeight: 1.5,
-                overflowWrap: "break-word",
-              }}
-            >
-              {sharedLine}
-            </div>
-          )}
-          <div
-            ref={promptRef}
-            data-ask-prompt=""
-            {...noTranslate()}
+  // Id, priority and age float at the right of the first line, and the text
+  // flows under them. Above the office and member lines when the card has
+  // them, else in the prompt. On mobile the id goes under priority and age.
+  const metaAtTop = !!(entry.office || entry.app || entry.member || sharedLine);
+  const meta = (
+    <div
+      data-ask-meta=""
+      style={{
+        float: "right",
+        marginLeft: 8,
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        alignItems: isMobile ? "flex-end" : "flex-start",
+        gap: isMobile ? 0 : 8,
+      }}
+    >
+      {!isMobile && (
+        <AskIdChip
+          id={entry.id}
+          isMobile={isMobile}
+          lineHeight={`${fontSize * 1.5}px`}
+        />
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        {entry.priority && (
+          <span
+            data-ask-priority={entry.priority}
             style={{
-              color: "var(--text-primary)",
-              fontSize,
-              lineHeight: 1.5,
-              overflowWrap: "break-word",
-              ...(expanded
-                ? {}
-                : {
-                    display: "-webkit-box",
-                    WebkitLineClamp: promptLines,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }),
+              color: PRIORITY_COLORS[entry.priority],
+              fontSize: isMobile ? 11 : 10,
+              fontWeight: 700,
+              lineHeight: `${fontSize * 1.5}px`,
             }}
           >
+            {entry.priority}
+          </span>
+        )}
+        <span
+          style={{
+            color: "var(--text-ghost)",
+            fontSize: isMobile ? 12 : 11,
+            lineHeight: `${fontSize * 1.5}px`,
+          }}
+        >
+          {age}
+        </span>
+      </div>
+      {isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
+    </div>
+  );
+
+  return (
+    <div data-ask={entry.id} style={cardBox}>
+      <div>
+        {metaAtTop && meta}
+        {entry.office && (
+          <div
+            data-ask-office=""
+            style={{
+              color: "var(--text-ghost)",
+              fontSize: isMobile ? 12 : 11,
+              lineHeight: 1.5,
+              overflowWrap: "break-word",
+            }}
+          >
+            {t("asks.fromOffice", { name: entry.office.name })}
+          </div>
+        )}
+        {entry.app && (
+          <div
+            data-ask-app=""
+            style={{
+              color: "var(--text-ghost)",
+              fontSize: isMobile ? 12 : 11,
+              lineHeight: 1.5,
+              overflowWrap: "break-word",
+            }}
+          >
+            {t("asks.fromApp", { app: entry.app.name })}
+          </div>
+        )}
+        {entry.member && (
+          <div
+            data-ask-for=""
+            style={{
+              color: "var(--text-ghost)",
+              fontSize: isMobile ? 12 : 11,
+              lineHeight: 1.5,
+              overflowWrap: "break-word",
+            }}
+          >
+            {rich("asks.forMember", {
+              member:
+                (entry.members?.length ?? 0) > 1 ? (
+                  names(entry.members ?? [])
+                ) : (
+                  <span {...noTranslate()}>{entry.member}</span>
+                ),
+            })}
+          </div>
+        )}
+        {sharedLine && (
+          <div
+            data-ask-members=""
+            style={{
+              color: "var(--text-ghost)",
+              fontSize: isMobile ? 12 : 11,
+              lineHeight: 1.5,
+              overflowWrap: "break-word",
+            }}
+          >
+            {sharedLine}
+          </div>
+        )}
+        <div
+          ref={promptRef}
+          data-ask-prompt=""
+          {...noTranslate()}
+          style={{
+            color: "var(--text-primary)",
+            fontSize,
+            lineHeight: 1.5,
+            overflowWrap: "break-word",
+            // Starts under the meta when it floats above, over the office
+            // and member lines, so the prompt keeps its full width.
+            clear: "right",
+            ...(expanded
+              ? {}
+              : {
+                  display: "-webkit-box",
+                  WebkitLineClamp: promptLines,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }),
+          }}
+        >
+          {/* One block, so the meta floats in the text and the clamp still
+                counts its lines. */}
+          <div>
+            {!metaAtTop && meta}
             <AskPrompt
               content={entry.prompt}
               files={entry.readFiles}
@@ -976,140 +1034,95 @@ function ReplyAskCard({
               isMobile={isMobile}
             />
           </div>
-          {(clamped || expanded) && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                marginTop: 2,
-                color: "var(--accent-text)",
-                fontSize: isMobile ? 12 : 11,
-                cursor: "pointer",
-              }}
-            >
-              {expanded
-                ? t("cards.toolResult.showLess")
-                : t("cards.toolResult.showMore")}
-            </button>
-          )}
-          {((link && linkLabel !== null && openLink) ||
-            outside ||
-            entry.originalPrompt !== undefined) && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "baseline",
-                columnGap: 14,
-                marginTop: 2,
-              }}
-            >
-              {link && linkLabel !== null && openLink && (
-                <button
-                  type="button"
-                  data-ask-office-link={entry.link}
-                  onClick={() => openLink(link)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: "var(--accent-text)",
-                    fontSize: isMobile ? 13 : 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {"askId" in link && link.askId
-                    ? t("asks.openAsk", { id: link.askId })
-                    : t("asks.openLink", { page: linkLabel })}
-                </button>
-              )}
-              {outside && (
-                <OutsideLinkButton link={entry.link} isMobile={isMobile} />
-              )}
-              {entry.originalPrompt !== undefined && (
-                <button
-                  type="button"
-                  data-ask-show-original=""
-                  onClick={() => setShowOriginal((v) => !v)}
-                  style={linkButton}
-                >
-                  {showOriginal
-                    ? t("asks.hideOriginal")
-                    : t("asks.showOriginal")}
-                </button>
-              )}
-            </div>
-          )}
-          {showOriginal && entry.originalPrompt !== undefined && (
-            <div
-              data-ask-original=""
-              {...noTranslate()}
-              style={{
-                marginTop: 4,
-                paddingLeft: 8,
-                borderLeft: "2px solid var(--border-light)",
-                color: "var(--text-dim)",
-                fontSize,
-                lineHeight: 1.5,
-                overflowWrap: "break-word",
-              }}
-            >
-              <AskPrompt
-                content={entry.originalPrompt}
-                files={entry.readFiles}
-                srcFor={askFileSrc(entry)}
-                isMobile={isMobile}
-              />
-            </div>
-          )}
         </div>
-        {!isMobile && (
-          <AskIdChip
-            id={entry.id}
-            isMobile={isMobile}
-            lineHeight={`${fontSize * 1.5}px`}
-          />
+        {(clamped || expanded) && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              marginTop: 2,
+              color: "var(--accent-text)",
+              fontSize: isMobile ? 12 : 11,
+              cursor: "pointer",
+            }}
+          >
+            {expanded
+              ? t("cards.toolResult.showLess")
+              : t("cards.toolResult.showMore")}
+          </button>
         )}
-        {/* On mobile the id goes under priority and age, so the prompt keeps
-            its width. */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", gap: 8 }}>
-            {entry.priority && (
-              <span
-                data-ask-priority={entry.priority}
+        {((link && linkLabel !== null && openLink) ||
+          outside ||
+          entry.originalPrompt !== undefined) && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "baseline",
+              columnGap: 14,
+              marginTop: 2,
+            }}
+          >
+            {link && linkLabel !== null && openLink && (
+              <button
+                type="button"
+                data-ask-office-link={entry.link}
+                onClick={() => openLink(link)}
                 style={{
-                  color: PRIORITY_COLORS[entry.priority],
-                  fontSize: isMobile ? 11 : 10,
-                  fontWeight: 700,
-                  lineHeight: `${fontSize * 1.5}px`,
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--accent-text)",
+                  fontSize: isMobile ? 13 : 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
                 }}
               >
-                {entry.priority}
-              </span>
+                {"askId" in link && link.askId
+                  ? t("asks.openAsk", { id: link.askId })
+                  : t("asks.openLink", { page: linkLabel })}
+              </button>
             )}
-            <span
-              style={{
-                color: "var(--text-ghost)",
-                fontSize: isMobile ? 12 : 11,
-                lineHeight: `${fontSize * 1.5}px`,
-              }}
-            >
-              {age}
-            </span>
+            {outside && (
+              <OutsideLinkButton link={entry.link} isMobile={isMobile} />
+            )}
+            {entry.originalPrompt !== undefined && (
+              <button
+                type="button"
+                data-ask-show-original=""
+                onClick={() => setShowOriginal((v) => !v)}
+                style={linkButton}
+              >
+                {showOriginal ? t("asks.hideOriginal") : t("asks.showOriginal")}
+              </button>
+            )}
           </div>
-          {isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
-        </div>
+        )}
+        {showOriginal && entry.originalPrompt !== undefined && (
+          <div
+            data-ask-original=""
+            {...noTranslate()}
+            style={{
+              marginTop: 4,
+              paddingLeft: 8,
+              borderLeft: "2px solid var(--border-light)",
+              color: "var(--text-dim)",
+              fontSize,
+              lineHeight: 1.5,
+              overflowWrap: "break-word",
+            }}
+          >
+            <AskPrompt
+              content={entry.originalPrompt}
+              files={entry.readFiles}
+              srcFor={askFileSrc(entry)}
+              isMobile={isMobile}
+            />
+          </div>
+        )}
       </div>
       {stepView && (
         <AskStepBlock askId={entry.id} view={stepView} isMobile={isMobile} />
