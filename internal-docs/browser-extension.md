@@ -320,7 +320,7 @@ acceptance is inferred from Linux fixtures. No account mutation is a test step.
 Build: `bun run build:extension`; output: `browser-extension/dist/` and
 `browser-extension/dist.zip` (ignored). `scripts/build.sh` invokes the builder,
 so normal install/update builds produce the package. The builder removes its
-staging directory, bundles the background and popup scripts, copies a fixed
+staging directory, bundles the background and popup scripts, writes a fixed
 allowlist, writes a deterministic stored-entry ZIP and atomically replaces the
 archive. No customer-side archive tool or new dependency is needed. The route
 fails closed when the archive is missing. It uses existing self authentication,
@@ -328,12 +328,18 @@ app-host diversion and the ordinary safe-GET/no-CORS boundary.
 
 The bundles carry only the `browser.*` catalog keys, so other copy changes do
 not change the build; `browser-extension/i18n.ts` types the extension's keys
-to match. A different build needs a new manifest version, because the popup
+to match. The bundles have no whitespace, and the builder writes the copied
+files as prettier formats them, so the prettier pass at the merge does not
+change the build (Bun keeps some source layout in its output). A prettier
+upgrade in `bun.lock` can change the copied files, like a Bun upgrade can
+change the bundles, and then needs a new version. A different build needs a new manifest version, because the popup
 and the office compare only the version. `browser-extension/dist-fingerprint.json`
 records the version and the sha256 of `dist.zip`, and
 `scripts/build-browser-extension.test.ts` fails when a fresh build differs from
 it. After a change, raise the version and run `bun run build:extension --record`,
-which refuses a version that is not higher. A reviewer refuses a diff that
+which refuses a version lower than the branch's record, and a new build under
+a version that is not higher than the record on `main`. So a second review
+round can re-record the branch's new version. A reviewer refuses a diff that
 changes the recorded hash but not the version.
 
 `connection.html` is both the options page and actual toolbar action popup.

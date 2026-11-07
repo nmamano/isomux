@@ -14,6 +14,7 @@ import {
   distFingerprint,
   extensionCatalogs,
   recordFingerprint,
+  releasedRecord,
   EXTENSION_ENTRIES,
 } from "./build-browser-extension";
 import { CATALOGS, type Catalog } from "../shared/i18n/translate";
@@ -280,5 +281,168 @@ describe("recordFingerprint", () => {
     // apart from a crash.
     expect(() => recordFingerprint(outdir, path)).toThrow(version);
     expect(readFileSync(path).equals(before)).toBe(true);
+  });
+
+  // `released` is main's record. A version main does not have yet can be
+  // recorded again with a new build (round 2 of an extension task).
+  test("records the branch's version again with a new build when main has a lower version", () => {
+    const path = record({ version: "0.7.3", sha256: sha("old") });
+    expect(
+      recordFingerprint(build("0.7.3", "new"), path, { version: "0.7.2" }),
+    ).toBe("written");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      version: "0.7.3",
+      sha256: sha("new"),
+    });
+  });
+
+  test("leaves the record as it is for the same build when main has that version", () => {
+    const path = record({ version: "0.7.3", sha256: sha("same") });
+    const before = readFileSync(path);
+    expect(
+      recordFingerprint(build("0.7.3", "same"), path, { version: "0.7.3" }),
+    ).toBe("unchanged");
+    expect(readFileSync(path).equals(before)).toBe(true);
+  });
+
+  test.each([
+    ["main already has the version", "0.7.3", "0.7.3", "0.7.3"],
+    ["main has a higher version", "0.7.3", "0.7.3", "0.7.4"],
+    ["the version is lower than the branch record", "0.7.3", "0.7.2", "0.7.1"],
+    ["main's version is not x.y.z", "0.7.3", "0.7.3", "0.7"],
+  ])(
+    "refuses a new build when %s, and keeps the record",
+    (_, recorded, version, released) => {
+      const path = record({ version: recorded, sha256: sha("old") });
+      const before = readFileSync(path);
+      const outdir = build(version, "new");
+      expect(() =>
+        recordFingerprint(outdir, path, { version: released }),
+      ).toThrow(version);
+      expect(readFileSync(path).equals(before)).toBe(true);
+    },
+  );
+});
+
+describe("releasedRecord", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "extension-released-"));
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  function git(repo: string, ...args: string[]) {
+    const result = Bun.spawnSync([
+      "git",
+      "-C",
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "-c",
+      "commit.gpgsign=false",
+      ...args,
+    ]);
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  }
+  function repo(name: string, branch: string) {
+    const path = join(dir, name);
+    mkdirSync(join(path, "browser-extension"), { recursive: true });
+    git(path, "init", "-q", "-b", branch);
+    return path;
+  }
+  function writeRecord(repo: string, contents: object) {
+    writeFileSync(
+      join(repo, "browser-extension/dist-fingerprint.json"),
+      `${JSON.stringify(contents, null, 2)}\n`,
+    );
+  }
+  function commitAll(repo: string) {
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "commit");
+  }
+
+  test("reads main's committed record, not the checked-out branch or the working tree", () => {
+    const path = repo("lane", "main");
+    const released = { version: "0.9.2", sha256: "a".repeat(64) };
+    writeRecord(path, released);
+    commitAll(path);
+    git(path, "checkout", "-qb", "t-lane");
+    writeRecord(path, { version: "0.10.0", sha256: "b".repeat(64) });
+    commitAll(path);
+    writeRecord(path, { version: "0.10.1", sha256: "c".repeat(64) });
+    expect(releasedRecord(path)).toEqual(released);
+  });
+
+  test("is undefined when there is no main", () => {
+    const path = repo("no-main", "other");
+    writeRecord(path, { version: "0.9.2", sha256: "a".repeat(64) });
+    commitAll(path);
+    expect(releasedRecord(path)).toBeUndefined();
+  });
+
+  test("is undefined when main has no record", () => {
+    const path = repo("no-record", "main");
+    writeFileSync(join(path, "README"), "x\n");
+    commitAll(path);
+    expect(releasedRecord(path)).toBeUndefined();
+  });
+});
+
+// Isomux Main runs prettier --write on the touched files at the merge, so the
+// build of a source tree must not change when prettier formats it.
+describe("formatted sources", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "extension-formatted-"));
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  // Each file is one that prettier changes. The object literals are too long
+  // for one line: prettier breaks them over several lines, and Bun keeps that
+  // layout in the bundle (the cause of the red merge of 811ed3de).
+  const sources: Record<string, string> = {
+    "background.ts": `import { reply } from "./helper";\nconst state = { count: 1 };\nreply({ ...state, generation: "a-value-long-enough-to-wrap", other: "another-long-value" });\n`,
+    "helper.ts": `export const options = { indentation: 2, separator: "-----", label: "a-label-long-enough-to-wrap" };\nexport function reply(value: object) { console.log(JSON.stringify(value), options) }\n`,
+    "connection.ts": `import { options } from "./helper";\nconsole.log(options)\n`,
+    "manifest.json": `{"manifest_version":3,"name":"Fixture","version":"1.2.3"}\n`,
+    "connection.html": `<!doctype html><html><head><link rel="stylesheet" href="connection.css"></head><body><script src="connection.js"></script></body></html>\n`,
+    "connection.css": `body{margin:0;color:red}\n`,
+  };
+  test("an unformatted source tree builds to the same zip as its prettier --write form", async () => {
+    // One tree at one path: Bun writes each module's path into the bundle.
+    const source = join(dir, "source");
+    mkdirSync(source);
+    for (const [file, text] of Object.entries(sources))
+      writeFileSync(join(source, file), text);
+    const plain = async () => {
+      const result = await Bun.build({
+        entrypoints: [join(source, "background.ts")],
+        target: "browser",
+      });
+      expect(result.success).toBe(true);
+      return result.outputs[0].text();
+    };
+    const plainRaw = await plain();
+    await buildBrowserExtension(join(dir, "raw-out"), source);
+
+    const cli = Bun.spawnSync([
+      join(root, "node_modules/.bin/prettier"),
+      "--write",
+      ...Object.keys(sources).map((file) => join(source, file)),
+    ]);
+    expect(cli.exitCode).toBe(0);
+    for (const file of Object.keys(sources))
+      expect(readFileSync(join(source, file), "utf8")).not.toBe(sources[file]);
+    // Without formatting, the two forms bundle differently.
+    expect(await plain()).not.toBe(plainRaw);
+
+    await buildBrowserExtension(join(dir, "formatted-out"), source);
+    expect(
+      readFileSync(join(dir, "raw-out.zip")).equals(
+        readFileSync(join(dir, "formatted-out.zip")),
+      ),
+    ).toBe(true);
   });
 });
