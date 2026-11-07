@@ -380,8 +380,14 @@ export type AgentContextUsageResp =
     }
   | { available: false; reason: "no_session" | "not_yet_measured" };
 
-/** GET /api/agents/:id/subscription - the agent's account allowance. */
-export type AgentSubscriptionUsageResp =
+/** The sign-in an agent's session runs on: its member's own ("individual")
+ *  or the office's ("office"). */
+export type SignIn = "individual" | "office";
+
+/** GET /api/agents/:id/subscription - the agent's account allowance, and the
+ *  sign-in it runs on. `signIn` is absent only for an agent with no record
+ *  (a killed agent). */
+export type AgentSubscriptionUsageResp = { signIn?: SignIn } & (
   | {
       available: true;
       plan: string | null;
@@ -416,7 +422,8 @@ export type AgentSubscriptionUsageResp =
   | {
       available: false;
       reason: "no_session" | "not_yet_measured" | "provider_unavailable";
-    };
+    }
+);
 
 /**
  * POST /api/agents/:id/browser - use a Chrome tab offered to the agent: by its

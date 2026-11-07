@@ -447,6 +447,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       memoryNotice: null,
       memoryNoticeFired: false,
       wakeNotice: null,
+      signInNotice: null,
       stopNotice: null,
       settingsNotice: null,
       autoHandoffPhase: null,

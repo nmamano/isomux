@@ -1462,3 +1462,308 @@ describe("OpenCode free usage limit", () => {
     });
   });
 });
+
+// Which sign-in the agent runs on (task 0ae91893): its member's own
+// ("individual") or the office's ("office"). The subscription reading says
+// it, and the agent's next turn says when it changes.
+describe("the sign-in an agent runs on", () => {
+  // Credentials in the run's env would decide the sign-in for every case.
+  const NO_CREDENTIAL = {
+    ANTHROPIC_API_KEY: "",
+    ANTHROPIC_AUTH_TOKEN: "",
+    CLAUDE_CODE_OAUTH_TOKEN: "",
+    CODEX_API_KEY: "",
+    OPENAI_API_KEY: "",
+  };
+  beforeEach(() => setTestManagedOfficeEnv(NO_CREDENTIAL));
+
+  const signIn = async (h: Harness, id: string) =>
+    (await h.mgr.getAgentSubscriptionUsage(id)).signIn;
+
+  // The bodies of the sign-in blocks in a sent text.
+  const BLOCK =
+    /--- begin isomux: sign-in ---\n([\s\S]*?)\n--- end isomux: sign-in ---/g;
+  const blocksIn = (t: string) => [...t.matchAll(BLOCK)].map((m) => m[1]);
+  const blocksTo = (h: Harness, id: string) => sentTo(h, id).flatMap(blocksIn);
+  const sentWith = (h: Harness, id: string, text: string) =>
+    sentTo(h, id).find((t) => t.endsWith(text));
+
+  async function turn(h: Harness, id: string, text: string): Promise<string> {
+    void h.mgr.sendMessage(id, text, "Alice");
+    await waitUntil(() => !!sentWith(h, id, text), `"${text}" sent`);
+    return sentWith(h, id, text)!;
+  }
+
+  describe("the reading", () => {
+    for (const engine of ["claude", "codex"] as const) {
+      it(`${engine}: her own sign-in, the office's after the stop, and her own again after the reset`, async () => {
+        const h = makeHarness();
+        const info = await spawn(h, engine);
+        expect(await signIn(h, info.id)).toBe("individual");
+        const reset = h.office.clock.now() + HOUR;
+        const { after } = await toOffice(h, info.id, engine, reset);
+        expect(await signIn(h, info.id)).toBe("office");
+        await endTurn(h, info.id, after);
+
+        // No live session: the sign-in its next turn starts on.
+        expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+        expect(await signIn(h, info.id)).toBe("office");
+        await h.office.clock.advance(reset - h.office.clock.now());
+        expect(await signIn(h, info.id)).toBe("individual");
+        await turn(h, info.id, "later");
+        expect(await signIn(h, info.id)).toBe("individual");
+      });
+
+      it(`${engine}: another agent of hers reads the session it runs, then the sign-in its next turn starts on`, async () => {
+        const h = makeHarness();
+        const b = await spawn(h, engine, { name: "B" });
+        const s = await memberTurn(h, b.id, "first", engine);
+        await endTurn(h, b.id, s);
+        const a = await spawn(h, engine, { name: "A" });
+        await toOffice(h, a.id, engine, h.office.clock.now() + HOUR);
+
+        // B's live session is still on her own sign-in.
+        expect(accountOf(s, engine)).toBe(memberDir(engine));
+        expect(await signIn(h, b.id)).toBe("individual");
+        expect(await h.mgr.demoteToLazy(b.id)).toBe(true);
+        expect(await signIn(h, b.id)).toBe("office");
+      });
+    }
+
+    it("an agent whose member has no own sign-in, or that has no member, reads office", async () => {
+      personal.claude = false;
+      setTestManagedOfficeEnv({
+        ...NO_CREDENTIAL,
+        CLAUDE_CONFIG_DIR: officeDir("claude"),
+      });
+      const h = makeHarness();
+      for (const owner of ["alice", null] as const) {
+        const info = await spawn(h, "claude", {
+          name: `Owner ${owner}`,
+          owner,
+        });
+        expect({ owner, before: await signIn(h, info.id) }).toEqual({
+          owner,
+          before: "office",
+        });
+        await turn(h, info.id, `hello ${owner}`);
+        expect({ owner, live: await signIn(h, info.id) }).toEqual({
+          owner,
+          live: "office",
+        });
+      }
+    });
+
+    // A key or token in the env picks the account whatever the folder: the
+    // one who set it pays.
+    const credentials = {
+      claude: {
+        member: "CLAUDE_CODE_OAUTH_TOKEN",
+        office: "ANTHROPIC_API_KEY",
+      },
+      codex: { member: "OPENAI_API_KEY", office: "CODEX_API_KEY" },
+    } as const;
+    for (const engine of ["claude", "codex"] as const) {
+      it(`${engine}: a key she set reads individual without her own sign-in`, async () => {
+        personal[engine] = false;
+        writeManagedUserEnv(aliceId(), {
+          [credentials[engine].member]: "alice-key",
+        });
+        const h = makeHarness();
+        const info = await spawn(h, engine);
+        expect(await signIn(h, info.id)).toBe("individual");
+        await turn(h, info.id, "hello");
+        expect(await signIn(h, info.id)).toBe("individual");
+      });
+
+      it(`${engine}: a key the office set reads office beside her own sign-in`, async () => {
+        setTestManagedOfficeEnv({
+          ...NO_CREDENTIAL,
+          [credentials[engine].office]: "office-key",
+        });
+        const h = makeHarness();
+        const info = await spawn(h, engine);
+        expect(await signIn(h, info.id)).toBe("office");
+        await turn(h, info.id, "hello");
+        // The session runs in her own folder, but on the office's key.
+        expect(
+          accountOf(
+            sessionWith(h, info.id, (t) => t.endsWith("hello")),
+            engine,
+          ),
+        ).toBe(memberDir(engine));
+        expect(await signIn(h, info.id)).toBe("office");
+      });
+    }
+
+    it("opencode: her key reads individual, and the office key office", async () => {
+      writeManagedUserEnv(aliceId(), { OPENCODE_API_KEY: MEMBER_KEY });
+      const h = makeHarness(makeOffice(), [], {
+        capabilities: { limitResume: false },
+      });
+      const info = await spawn(h, "opencode");
+      expect(await signIn(h, info.id)).toBe("individual");
+      const s = await memberTurn(h, info.id, "work", "claude", false);
+      expect(accountOf(s, "opencode")).toBe(MEMBER_KEY);
+      expect(await signIn(h, info.id)).toBe("individual");
+      s.push({ kind: "usage_limit_stop" });
+      s.push({
+        kind: "turn_completed",
+        status: "failed",
+        error: "Quota exceeded for this plan.",
+      });
+      await waitUntil(() => continuesTo(h, info.id) === 1, "continue sent");
+      expect(accountOf(sessionWith(h, info.id, isContinue), "opencode")).toBe(
+        OFFICE_KEY,
+      );
+      expect(await signIn(h, info.id)).toBe("office");
+
+      // Without a key of hers, the office key.
+      removeManagedUserEnv(aliceId());
+      setTestManagedOfficeEnv({
+        ...NO_CREDENTIAL,
+        OPENCODE_API_KEY: OFFICE_KEY,
+      });
+      const other = await spawn(h, "opencode", { name: "Other" });
+      expect(await signIn(h, other.id)).toBe("office");
+    });
+  });
+
+  describe("the notice", () => {
+    for (const engine of ["claude", "codex"] as const) {
+      it(`${engine}: the agent that stopped is told once on the continue, and once when it moves back`, async () => {
+        const h = makeHarness();
+        const info = await spawn(h, engine);
+        const reset = h.office.clock.now() + HOUR;
+        const { after } = await toOffice(h, info.id, engine, reset);
+        const continued = texts(after).find(isContinue)!;
+        // One account note on the continue: the block, not a second one in
+        // the continue text.
+        expect(blocksIn(continued)).toHaveLength(1);
+        const out = blocksIn(continued)[0];
+        expect(out).toContain("office");
+        await endTurn(h, info.id, after);
+
+        // Still on the office sign-in: no new block.
+        expect(blocksIn(await turn(h, info.id, "again"))).toEqual([]);
+        await endTurn(
+          h,
+          info.id,
+          sessionWith(h, info.id, (t) => t.endsWith("again"))!,
+        );
+
+        await h.office.clock.advance(reset - h.office.clock.now());
+        const later = await turn(h, info.id, "later");
+        expect(lines(h, info.id, BACK)).toHaveLength(1);
+        expect(blocksIn(later)).toHaveLength(1);
+        const back = blocksIn(later)[0];
+        expect(back).not.toContain("office");
+        await endTurn(
+          h,
+          info.id,
+          sessionWith(h, info.id, (t) => t.endsWith("later"))!,
+        );
+
+        expect(blocksIn(await turn(h, info.id, "after"))).toEqual([]);
+        expect(blocksTo(h, info.id)).toEqual([out, back]);
+      });
+
+      it(`${engine}: another agent of hers is told at the turn that moves it`, async () => {
+        const h = makeHarness();
+        const b = await spawn(h, engine, { name: "B" });
+        const s = await memberTurn(h, b.id, "first", engine);
+        await endTurn(h, b.id, s);
+        const a = await spawn(h, engine, { name: "A" });
+        const { after } = await toOffice(
+          h,
+          a.id,
+          engine,
+          h.office.clock.now() + HOUR,
+        );
+        const out = blocksIn(texts(after).find(isContinue)!);
+        expect(out).toHaveLength(1);
+
+        expect(blocksTo(h, b.id)).toEqual([]);
+        const moved = await turn(h, b.id, "from Alice");
+        expect(lines(h, b.id, TO_OFFICE)).toHaveLength(1);
+        expect(blocksIn(moved)).toEqual(out);
+        await endTurn(
+          h,
+          b.id,
+          sessionWith(h, b.id, (t) => t.endsWith("from Alice"))!,
+        );
+        expect(blocksIn(await turn(h, b.id, "again"))).toEqual([]);
+      });
+    }
+
+    // The continue on the office sign-in is refused by the member usage cap,
+    // so the notice armed by the move waits for the next send.
+    function refuseOffice(): void {
+      setMemberUsageCapForTests(
+        createMemberUsageCap({
+          reader: {
+            async read() {
+              return {
+                kind: "weekly",
+                usedPercent: 99,
+                resetsAtMs: Date.now() + WEEK_MS / 2,
+                observedAtMs: Date.now(),
+              };
+            },
+            invalidate() {},
+            close() {},
+          },
+          officeDir: (provider) => officeDir(provider),
+          load: () => true,
+          save: () => {},
+          loadShare: () => 80,
+          saveShare: () => {},
+        }),
+      );
+    }
+    async function movedButNotSent(h: Harness): Promise<string> {
+      refuseOffice();
+      const info = await spawn(h);
+      const s = await memberTurn(h, info.id, "work");
+      stopTurn(s, "claude", { resetsAtMs: h.office.clock.now() + HOUR });
+      await waitUntil(
+        () => lines(h, info.id, TO_OFFICE).length === 1,
+        "moved to the office",
+      );
+      await waitUntil(
+        () => h.logs.some((e) => e.agentId === info.id && e.kind === "error"),
+        "the cap refused the continue",
+      );
+      await waitUntil(
+        () => stateOf(h, info.id) === "waiting_for_response",
+        "at rest",
+      );
+      expect(continuesTo(h, info.id)).toBe(0);
+      setMemberUsageCapForTests(null);
+      return info.id;
+    }
+
+    it("a notice not yet sent is withdrawn when the agent moves back first", async () => {
+      const h = makeHarness();
+      const id = await movedButNotSent(h);
+      await h.office.clock.advance(HOUR);
+      const later = await turn(h, id, "later");
+      expect(lines(h, id, BACK)).toHaveLength(1);
+      expect(blocksIn(later)).toEqual([]);
+      expect(blocksTo(h, id)).toEqual([]);
+    });
+
+    it("a notice not yet sent survives a new conversation", async () => {
+      const h = makeHarness();
+      const id = await movedButNotSent(h);
+      await h.mgr.newConversation(id);
+      const fresh = await turn(h, id, "fresh");
+      expect(sessionWith(h, id, (t) => t.endsWith("fresh"))?.isResume).toBe(
+        false,
+      );
+      expect(blocksIn(fresh)).toHaveLength(1);
+      expect(blocksIn(fresh)[0]).toContain("office");
+      expect(blocksTo(h, id)).toHaveLength(1);
+    });
+  });
+});

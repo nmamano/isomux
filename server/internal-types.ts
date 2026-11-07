@@ -10,6 +10,7 @@ import type {
   SkillInfo,
   SubscriptionUsageWire,
 } from "../shared/types.ts";
+import type { SignIn } from "../shared/contract-shapes.ts";
 import type { SettingsNoticeArm } from "./settings-notice.ts";
 import type {
   BackendSession,
@@ -251,6 +252,14 @@ export interface ManagedAgent {
   // No companion "fired" flag: every wake re-arms it, and there is nothing to
   // suppress across a conversation.
   wakeNotice: string | null;
+  // Set while a move to or from the office sign-in waits to be told on the
+  // next turn, else null (server/session-accounts.ts alignAccountNow).
+  // Consumed when a send that carried it is accepted and the slot still holds
+  // the value sent. Kept across a conversation boundary: it describes the
+  // account, not the transcript. A sign-in change outside the fallback (a
+  // personal sign-in or sign-out, a key set or removed) is not announced;
+  // GET /api/agents/:id/subscription still gives the right answer.
+  signInNotice: SignIn | null;
   // Set while an agent's abort waits to be explained on the next turn, else
   // null. Armed by abortByAgent with a fresh object each time, so runAgentTurn
   // can tell the arm it sent from a later one; consumed on the same

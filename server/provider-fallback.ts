@@ -22,6 +22,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { SignIn } from "../shared/contract-shapes.ts";
 import type { AgentBackendType } from "../shared/types.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -56,9 +57,17 @@ export type FallbackAccount = { dir: string } | { apiKey: string };
 export const OPENCODE_FALLBACK_RETRY_MS = 60 * 60 * 1000;
 
 /** The agent-facing message of the turn that continues a stopped turn on
- *  the office sign-in. The flush sends it as it is, with no prefix. */
-export const FALLBACK_CONTINUE_TEXT =
-  "[Isomux: your member's own sign-in reached its usage limit, so this conversation now runs on the office sign-in. Continue where you stopped.]";
+ *  the office sign-in. The flush sends it as it is, with no prefix. The
+ *  move's sign-in notice in the same send says where it runs. */
+export const FALLBACK_CONTINUE_TEXT = "[Isomux: Continue where you stopped.]";
+
+/** The agent-facing notice of the turn after a move between the member's
+ *  own sign-in and the office's (managed.signInNotice). */
+export const SIGN_IN_NOTICE_TEXT: Record<SignIn, string> = {
+  office:
+    "This conversation now runs on the office sign-in: your member's own sign-in reached its usage limit.",
+  individual: "This conversation runs on your member's own sign-in again.",
+};
 
 export interface ProviderFallback {
   isEnabled(): boolean;

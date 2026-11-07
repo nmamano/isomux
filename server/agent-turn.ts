@@ -29,6 +29,7 @@ import {
 } from "./internal-types.ts";
 import { memberUsageCap, UsageCapError } from "./member-usage-cap.ts";
 import { autoHandoffPossible } from "./auto-handoff.ts";
+import { SIGN_IN_NOTICE_TEXT } from "./provider-fallback.ts";
 import type { SettingsNoticeArm } from "./settings-notice.ts";
 
 export interface RunAgentTurnOpts {
@@ -191,6 +192,10 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     !native && managed.autoHandoffNotice
       ? { block: managed.autoHandoffNotice, gen: managed.contextGen }
       : null;
+  // Armed by a move between sign-ins (server/session-accounts.ts); read here
+  // for the same reason. No generation: it describes the account, not the
+  // transcript.
+  const signInNotice = !native ? managed.signInNotice : null;
   // Armed by an agent's abort; read here for the same reason.
   const stopNotice =
     !native && managed.stopNotice
@@ -223,6 +228,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   if (stopNotice) {
     envelopeBlocks.push(
       `--- begin isomux: stop-notice ---\n${stopNotice.arm.text}\n--- end isomux: stop-notice ---`,
+    );
+  }
+  if (signInNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: sign-in ---\n${SIGN_IN_NOTICE_TEXT[signInNotice]}\n--- end isomux: sign-in ---`,
     );
   }
   if (contextNotice) {
@@ -318,6 +328,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       managed.stopNotice === stopNotice.arm
     ) {
       managed.stopNotice = null;
+    }
+    // By value: only alignAccountNow writes the slot, and it does not run
+    // while this turn is pending. A /clear during the send leaves it true.
+    if (signInNotice && managed.signInNotice === signInNotice) {
+      managed.signInNotice = null;
     }
     if (onSendAccepted) {
       try {

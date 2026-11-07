@@ -745,6 +745,7 @@ describe("subscription usage", () => {
       available: true,
       observedAtMs,
       freshness: "fresh",
+      signIn: "office",
     });
     if (result.available) expect(result.ageMs).toBeGreaterThanOrEqual(5_000);
   });
@@ -800,6 +801,7 @@ describe("subscription usage", () => {
       observedAtMs,
       freshness: "cached",
       staleReason: "refresh_failed",
+      signIn: "office",
     });
   });
 
@@ -825,13 +827,22 @@ describe("subscription usage", () => {
       observedAtMs,
       freshness: "cached",
       staleReason: "no_session",
+      signIn: "office",
     });
   });
 
   it("self-check distinguishes no sample from provider unavailability", async () => {
     const blankMgr = makeManager(new FakeBackend());
     const blank = await spawn(blankMgr);
+    // An agent with no member runs on the office sign-in, and every reply
+    // says so (task 0ae91893).
     expect(await blankMgr.getAgentSubscriptionUsage(blank.id)).toEqual({
+      available: false,
+      reason: "no_session",
+      signIn: "office",
+    });
+    // An agent with no record has no sign-in.
+    expect(await blankMgr.getAgentSubscriptionUsage("agent-gone")).toEqual({
       available: false,
       reason: "no_session",
     });
@@ -858,6 +869,7 @@ describe("subscription usage", () => {
     expect(await unknownMgr.getAgentSubscriptionUsage(unknown.id)).toEqual({
       available: false,
       reason: "not_yet_measured",
+      signIn: "office",
     });
 
     const unavailableMgr = makeManager(
@@ -881,7 +893,11 @@ describe("subscription usage", () => {
     );
     expect(
       await unavailableMgr.getAgentSubscriptionUsage(unavailable.id),
-    ).toEqual({ available: false, reason: "provider_unavailable" });
+    ).toEqual({
+      available: false,
+      reason: "provider_unavailable",
+      signIn: "office",
+    });
   });
 });
 

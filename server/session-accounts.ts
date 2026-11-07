@@ -9,6 +9,7 @@ import type {
   LogEntry,
   QueuedMessage,
 } from "../shared/types.ts";
+import type { SignIn } from "../shared/contract-shapes.ts";
 import type { OfficeState } from "../shared/office-state.ts";
 import { errMessage } from "../shared/errors.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
@@ -61,6 +62,7 @@ import {
   removeSessionSourceInAgentSpace,
   type SessionMove,
 } from "./session-account-move.ts";
+import { CREDENTIAL_VARIABLES } from "./usage-account.ts";
 
 export interface SessionAccountsDeps {
   agents: Map<string, ManagedAgent>;
@@ -463,6 +465,11 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     }
     if (managed.officeFallback !== toOffice) {
       managed.officeFallback = toOffice;
+      // The next send tells the agent. A move back before that send
+      // withdraws the notice: the agent never learned it had moved.
+      const signIn: SignIn = toOffice ? "office" : "individual";
+      managed.signInNotice =
+        managed.signInNotice && managed.signInNotice !== signIn ? null : signIn;
       if (agents.get(agentId) === managed) persistAll();
       const providerName = providerDisplayName(provider);
       addLogEntry(
@@ -526,6 +533,36 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
         errMessage(err),
       );
     }
+  }
+
+  // The sign-in the agent runs on: its member's own ("individual") or the
+  // office's ("office"). Read by GET /api/agents/:id/subscription. A key or
+  // token in the env decides first: the CLI uses it over the account folder,
+  // and whoever set it pays. Else the live session's account, and with no
+  // live account the one the next turn starts on (alignAccount).
+  function signInOf(managed: ManagedAgent): SignIn {
+    const { userId, agentType: provider, modelFamily } = managed.info;
+    if (provider !== "opencode") {
+      for (const name of CREDENTIAL_VARIABLES[provider]) {
+        let source: ReturnType<typeof envSourceForUserId> = null;
+        try {
+          source = envSourceForUserId(userId, name);
+        } catch {
+          source = null;
+        }
+        if (!source) continue;
+        return source === "member_variable" || source === "member_secret"
+          ? "individual"
+          : "office";
+      }
+    }
+    const own = ownAccount(userId, provider);
+    if (!own?.own) return "office";
+    const live = liveAccount(managed);
+    if (live) return sameAccount(live, own.account) ? "individual" : "office";
+    return officeWanted(userId, provider, modelFamily)
+      ? "office"
+      : "individual";
   }
 
   // A usage limit stopped the running turn. On the member's own sign-in,
@@ -614,6 +651,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     fallbackState,
     officeWanted,
     alignAccount,
+    signInOf,
     fallbackStop,
     queueFallbackContinue,
     refreshLimitedClaudeFamilies,

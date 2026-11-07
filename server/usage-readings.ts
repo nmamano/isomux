@@ -11,6 +11,7 @@ import type {
 import type {
   AgentContextUsageResp,
   AgentSubscriptionUsageResp,
+  SignIn,
 } from "../shared/contract-shapes.ts";
 import type { OfficeState } from "../shared/office-state.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
@@ -38,6 +39,8 @@ export interface UsageReadingsDeps {
   officeState: OfficeState;
   emit: (event: AgentEvent) => void;
   armMemoryNotice: (managed: ManagedAgent) => void;
+  // The sign-in the agent runs on (server/session-accounts.ts signInOf).
+  signInOf: (managed: ManagedAgent) => SignIn;
   dropLimitResume: (agentId: string, managed: ManagedAgent) => void;
   evaluateAutoHandoff: (
     managed: ManagedAgent,
@@ -638,6 +641,14 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   ): Promise<AgentSubscriptionUsageResp> {
     const managed = agents.get(agentId);
     if (!managed) return { available: false, reason: "no_session" };
+    const reading = await subscriptionReading(managed);
+    // Read after the refresh: the agent's sign-in as the reply leaves.
+    return { signIn: deps.signInOf(managed), ...reading };
+  }
+
+  async function subscriptionReading(
+    managed: ManagedAgent,
+  ): Promise<AgentSubscriptionUsageResp> {
     syncUsageKey(managed);
     const session = managed.sessionManager.session;
     if (!session) {

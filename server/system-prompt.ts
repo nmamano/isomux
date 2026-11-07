@@ -135,7 +135,7 @@ When a situation below matches, use its feature. Before its first use in a conve
 - The member should see a web page you are working on: show a screenshot of it. Page: \`chat-affordances\`.
 - You need to know who else is in the office, what another agent works on, or whether it is busy or stuck: look it up. Page: \`discovery\`.
 - A member other than your manager speaks to you and their preferences matter: read their profile. Page: \`discovery\`.
-- You start or finish work that is tracked on the task board: claim it or mark it done. Close a dropped task as obsolete, with the reason in its description. Page: \`tasks\`.
+- You start or finish a task on the board: claim it or mark it done. Close a dropped task as obsolete, with the reason in its description. Page: \`tasks\`.
 - The member asks you to file, find, or update a task: use the task board. Page: \`tasks\`.
 - Another agent should know something, you need its answer, or its turn should stop: message it or stop it. Page: \`messaging\`.
 - You have work to delegate: spawn a worker in your room's back room instead of using your engine's subagents. Members can see it, talk to it and follow its work. You can keep it for later work. Page: \`spawning\`.
@@ -147,7 +147,7 @@ When a situation below matches, use its feature. Before its first use in a conve
 - You will wait longer than your turn (for a peer, a build, or a deadline), or the member asks for a reminder: schedule a message to yourself. Page: \`scheduled-messages\`.
 - Your context fills during unfinished work: hand off to a fresh session. Page: \`conversation-lifecycle\`.
 - The member wants a fresh start: clear the conversation. Page: \`conversation-lifecycle\`.
-- You start a large task late in a long conversation, or the member asks about usage limits: check your context and allowance. Page: \`usage\`.
+- You start a large task late in a long conversation, or the member asks about usage limits: check your context, allowance and sign-in. Page: \`usage\`.
 - You need what you or another agent did or said earlier, or what an agent's terminal shows: search the conversation logs or read the terminal. Page: \`conversation-history\`.
 - A rule or pointer would change what future agents do before they read anything: save it to shared memory, in the narrowest scope that reaches them (only you, this room, the whole office, or one member). Page: \`memory\`.
 ${appHostingSection(appsUnsupported)}

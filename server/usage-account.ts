@@ -7,20 +7,29 @@ import { resolve } from "node:path";
 import type { AgentBackendType } from "../shared/types.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 
-// The variables that select an account without the config directory: a key or
-// token that bypasses its sign-in, a cloud, or another endpoint. Anything else
-// in the env (the agent token, PATH, a proxy) is the same account.
-const AUTH_VARIABLES = {
+// The keys and tokens that bypass the config directory's sign-in. Whoever set
+// one pays for the agent's work (session-accounts.ts signInOf).
+export const CREDENTIAL_VARIABLES = {
   claude: [
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
+  ],
+  codex: ["CODEX_API_KEY", "OPENAI_API_KEY"],
+} as const;
+
+// The variables that select an account without the config directory: a
+// credential, a cloud, or another endpoint. Anything else in the env (the
+// agent token, PATH, a proxy) is the same account.
+const AUTH_VARIABLES = {
+  claude: [
+    ...CREDENTIAL_VARIABLES.claude,
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
     "ANTHROPIC_BASE_URL",
   ],
-  codex: ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"],
+  codex: [...CREDENTIAL_VARIABLES.codex, "OPENAI_BASE_URL"],
 } as const;
 
 // The key for a session that runs with `env` (the full env its process gets;

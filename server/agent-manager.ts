@@ -892,6 +892,8 @@ export function createAgentManager(deps: ManagerDeps) {
     officeState,
     emit,
     armMemoryNotice,
+    // Arrow: createSessionAccounts, built below, returns it.
+    signInOf: (managed) => signInOf(managed),
     // Arrows, not shorthand: createHandoffAndWake, built below, returns
     // both, and a shorthand would read them before they exist.
     dropLimitResume: (agentId, managed) => dropLimitResume(agentId, managed),
@@ -979,6 +981,7 @@ export function createAgentManager(deps: ManagerDeps) {
     fallbackState,
     officeWanted,
     alignAccount,
+    signInOf,
     fallbackStop,
     queueFallbackContinue,
     refreshLimitedClaudeFamilies,
@@ -5317,6 +5320,7 @@ export function createAgentManager(deps: ManagerDeps) {
       memoryNotice: null,
       memoryNoticeFired: false,
       wakeNotice: null,
+      signInNotice: null,
       stopNotice: null,
       settingsNotice: null,
       autoHandoffPhase: null,
