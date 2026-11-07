@@ -52,7 +52,10 @@ public details live-mode (test mode cannot set them - classic test mode
 hollowed, task 71075e7d), Managed Payments Ready with all products eligible,
 tax txcd_10103000 + exclusive, Products prod_V7a8efG8IaOI81 (Entry) /
 prod_V7a8an3gsAIoTv (Poweruser), Prices price_1U7L7tAU22RWBcwcuwYAsQ1I (EUR
-800 monthly) / price_1U7L7uAU22RWBcwcezI9QY3W (EUR 1700 monthly), portal
+800 monthly) / price_1U7L7uAU22RWBcwcezI9QY3W (EUR 1700 monthly; since
+2026-11-07 these are the legacy euro Prices that keep billing the euro
+subscribers, and the storefront ids are USD-only Prices created at the deploy
+of task d833bd68), portal
 config bpc_1U7LiaAU22RWBcwcbIWEqFdY (card-change + invoice history, cancel
 off), provisioner key isomux-provisioner-live minted. Step 2 secrets file
 verified (3 lines, 0600). Step 3 staging ran and held: 9 before, 4 written,

@@ -176,7 +176,7 @@ Render charges for compute and persistent storage; do not claim full Render depl
 Each selected guide includes prerequisites, owner creation, provider connection, and later operations. Advanced settings and deployment boundaries are at /docs/hosting-reference. The page context identifies the guide the visitor is reading. Follow that guide's steps and availability notice.
 
 ## Hosted Isomux
-Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for $9/month (8 EUR in the euro area). Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for $19/month (17 EUR in the euro area). Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.
+Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for $9/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for $19/month. Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.
 Hosted customers sign in at the Hosted Isomux dashboard and open their office from there. Hosted customers cannot change the URL or disable external access through access settings.
 
 ## Full Feature List

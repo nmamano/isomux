@@ -34,8 +34,8 @@ describe("hosted plans", () => {
     });
   });
 
-  // Nil, 2026-11-06: dollars in the US, euros in the euro area. Stripe picks
-  // which at Checkout; the subscription's currency is what we read back.
+  // Nil, 2026-11-07: dollars for new customers; a euro subscriber keeps the
+  // euro price. The subscription's currency is what we read back.
   test("the display carries the currency the subscription pays in", () => {
     for (const currency of ["USD", "EUR", null] as const) {
       expect([

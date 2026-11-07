@@ -863,7 +863,10 @@ describe("comped means an ACTIVE full discount", () => {
 });
 
 describe("the price the office shows", () => {
-  async function tierWith(currency: string | null | "no subscription") {
+  async function tierWith(
+    currency: string | null | "no subscription",
+    endedAt: number | null = null,
+  ) {
     const store = await tempStore();
     const { reservation, account } = await signedUp(store);
     if (currency !== "no subscription") {
@@ -878,6 +881,11 @@ describe("the price the office shows", () => {
         await store.sqlRun("update subscriptions set currency = $1", [
           currency,
         ]);
+      if (endedAt !== null)
+        await store.sqlRun(
+          "update subscriptions set status = 'canceled', ended_at = $1",
+          [endedAt],
+        );
     }
     const view = (await projectionFor(store, {
       accountId: account.id,
@@ -895,6 +903,18 @@ describe("the price the office shows", () => {
     const tier = await tierWith(null);
     expect(tier.currency).toBe("EUR");
     expect(tier.customerPrice?.amounts.EUR).toBe(8);
+  });
+
+  // Nil, 2026-11-07: a euro subscriber keeps the euro price while the
+  // subscription lasts. One that has ended pays nothing; coming back
+  // (reinstatement) sells the dollar price, so the card shows that.
+  test("an ended subscription shows the dollar list price", async () => {
+    for (const currency of ["eur", null, "usd"]) {
+      const tier = await tierWith(currency, 1_700_000_000_000);
+      // The enabling condition: the plan itself is known and priced.
+      expect([currency, tier.label]).toEqual([currency, "Entry"]);
+      expect([currency, tier.currency]).toEqual([currency, null]);
+    }
   });
 
   test("before Checkout is done, no currency is claimed", async () => {

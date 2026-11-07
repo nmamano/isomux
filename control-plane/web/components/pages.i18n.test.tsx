@@ -178,9 +178,9 @@ describe("the sign-up page", () => {
       ]);
   });
 
-  // Nil, 2026-11-06: dollars in the US, euros in the euro area. A customer
-  // who pays reads the one amount they pay; before Checkout (this form) a
-  // reader sees the dollar price and the euro-area one.
+  // Nil, 2026-11-07: dollars everywhere. A customer who pays reads the one
+  // amount they pay (a euro subscriber keeps the euro price); before Checkout
+  // (this form) a reader sees the dollar price alone.
   test("formats the price for the reader, in the currency they pay", () => {
     const price = plans[0].customerPrice;
     for (const language of ["en", "es", "ca", "zh"] as const) {
@@ -206,7 +206,12 @@ describe("the sign-up page", () => {
       expect(shows(customerPriceLine(language, price, null))).toEqual([
         language,
         true,
-        true,
+        false,
+      ]);
+      // The list price is the dollar line itself, with nothing added.
+      expect([language, customerPriceLine(language, price, null)]).toEqual([
+        language,
+        customerPriceLine(language, price, "USD"),
       ]);
       if (language !== "en")
         for (const currency of ["USD", "EUR", null] as const)

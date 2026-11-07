@@ -1,9 +1,9 @@
 export type PriceCurrency = "USD" | "EUR";
 
 /**
- * Customer-visible recurring price copy, one amount per currency we sell in.
- * Stripe price ids are separate: one Price per plan, USD by default, with a EUR
- * currency option that Checkout shows to a euro-area buyer.
+ * Customer-visible recurring price copy. USD is the price we sell at; EUR is
+ * the price that subscriptions made on the old euro Prices keep paying.
+ * Stripe price ids are separate: one USD-only Price per plan.
  */
 export interface CustomerPrice {
   amounts: Record<PriceCurrency, number>;
@@ -28,7 +28,7 @@ export const ENTRY_PLAN: Plan = {
   specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
   // Nil, 2026-08-20: supplier cost times 1.4, rounded up to the next whole unit.
   // EUR 5.50 x 1.4 = 7.70 -> EUR 8; at EUR/USD 1.115 (2026-11-06) -> USD 9
-  // (Nil, 2026-11-06).
+  // (Nil, 2026-11-06). Dollars only for new customers (Nil, 2026-11-07).
   customerPrice: { amounts: { USD: 9, EUR: 8 }, billingPeriod: "month" },
 };
 
@@ -57,7 +57,9 @@ export function planByProviderProduct(product: string): Plan | null {
 /**
  * The currency a subscription pays in, from subscriptions.currency (Stripe's
  * lower-case code). Null is a row reconciled before the column existed, and
- * every such subscription paid in euros. Any other code is null: no price.
+ * every such subscription paid in euros. No new subscription is in euros: the
+ * Prices are USD-only, and Adaptive Pricing keeps the subscription in USD.
+ * Any other code is null: no price.
  */
 export function chargedCurrency(stored: string | null): PriceCurrency | null {
   if (stored === null) return "EUR";

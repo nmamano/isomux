@@ -134,8 +134,6 @@ export const ca: Catalog = {
     "Abans de pagar, revisa <terms>Terms of Service</terms>, <privacy>Privacy Policy</privacy> i <refund>Refund Policy</refund>.",
 
   "plan.priceLine": "{amount} per {period}",
-  "plan.priceLineEuroArea":
-    "{amount} per {period} ({euroAmount} a la zona euro)",
   "plan.period.month": "mes",
 
   "steps.labelWaitingForPayment": "Esperant el pagament",

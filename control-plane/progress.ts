@@ -713,10 +713,14 @@ export async function projectionFor(
         ? `${instance.ssh_login_user}@${instance.name}`
         : null,
     plan: reservation.plan,
-    // Before Checkout is done there is no subscription, and no currency yet.
+    // No currency before Checkout is done, and none once the subscription has
+    // ended: reinstatement goes through Checkout on the USD Price, so a euro
+    // customer who lapsed sees the dollar list price.
     tier: planDisplayForProviderProduct(
       instance.plan,
-      subscriptionRow ? chargedCurrency(subscriptionRow.currency) : null,
+      subscriptionRow && subscriptionRow.ended_at === null
+        ? chargedCurrency(subscriptionRow.currency)
+        : null,
     ),
     serviceState: instance.service_state,
     goal,

@@ -139,8 +139,6 @@ export const en = {
 
   // ------------------------------------------------------------- plan price
   "plan.priceLine": "{amount} per {period}",
-  "plan.priceLineEuroArea":
-    "{amount} per {period} ({euroAmount} in the euro area)",
   "plan.period.month": "month",
 
   // ------------------------------------------------------------- progress steps

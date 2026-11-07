@@ -136,8 +136,6 @@ export const es: Catalog = {
     "Antes de pagar, revisa <terms>Terms of Service</terms>, <privacy>Privacy Policy</privacy> y <refund>Refund Policy</refund>.",
 
   "plan.priceLine": "{amount} por {period}",
-  "plan.priceLineEuroArea":
-    "{amount} por {period} ({euroAmount} en la zona euro)",
   "plan.period.month": "mes",
 
   "steps.labelWaitingForPayment": "Esperando el pago",

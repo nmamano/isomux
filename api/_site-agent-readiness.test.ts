@@ -288,29 +288,52 @@ describe("isomux.com agent readiness", () => {
 
   it("offers the software, the Hosted plans and the commercial license at the published prices", async () => {
     const hosted = await Bun.file("site/hosted.html").text();
-    // Nil, 2026-11-06: dollars, with the euro price for the euro area.
+    // Nil, 2026-11-07: dollars everywhere on the site; no euro price.
     const plans = [
       ...hosted.matchAll(
         // Whitespace as prettier leaves it: it may break the heading anywhere.
-        /<h3>\s*(\w+)\s+<span class="price">\$(\d+)\/month\s+\((\d+)\s+EUR\s[^<]*\)<\/span>\s*<\/h3>/g,
+        /<h3>\s*(\w+)\s+<span class="price">\$(\d+)\/month<\/span>\s*<\/h3>/g,
       ),
-    ].map(([, name, usd, eur]) => ({
-      name,
-      prices: { USD: Number(usd), EUR: Number(eur) },
-    }));
+    ].map(([, name, usd]) => ({ name, usd: Number(usd) }));
     expect(plans.length).toBeGreaterThan(0);
     // Every plan price on the page was read, so none escapes the checks below.
     expect(plans.length).toBe(hosted.match(/<span class="price">/g)!.length);
     expect(hosted).toContain('id="plans"');
+
+    // A translated page states the same dollar amounts and no other amount.
+    for (const language of ["es", "ca", "zh"]) {
+      const page = await Bun.file(`site/${language}/hosted.html`).text();
+      const amounts = [
+        ...page.matchAll(/<span class="price">([\s\S]*?)<\/span>/g),
+      ].map(([, text]) => [...text.matchAll(/\d+/g)].map(Number));
+      expect([language, amounts]).toEqual([
+        language,
+        plans.map((plan) => [plan.usd]),
+      ]);
+    }
 
     const about = (await Bun.file("site/about.html").text()).replace(
       /\s+/g,
       " ",
     );
     for (const plan of plans) {
-      expect(about).toContain(`${plan.name} $${plan.prices.USD}/month`);
-      expect(about).toMatch(new RegExp(`\\b${plan.prices.EUR}\\b[^.]*EUR`));
+      expect(about).toContain(`${plan.name} $${plan.usd}/month`);
     }
+
+    // No surface that quotes the Hosted price quotes a euro amount.
+    const euroAmount = /\d\s*(?:EUR|€)|(?:EUR|€)\s*\d/;
+    const hostedSurfaces: [string, string][] = [
+      ["site/hosted.html", hosted],
+      ["site/about.html", about],
+      ["ISOMUX_KNOWLEDGE", ISOMUX_KNOWLEDGE],
+    ];
+    for (const language of ["es", "ca", "zh"])
+      hostedSurfaces.push([
+        `site/${language}/hosted.html`,
+        await Bun.file(`site/${language}/hosted.html`).text(),
+      ]);
+    for (const [name, text] of hostedSurfaces)
+      expect([name, text.match(euroAmount)?.[0] ?? null]).toEqual([name, null]);
 
     // The software is free only up to the size the license grants.
     const license = await Bun.file("LICENSE").text();
@@ -322,28 +345,27 @@ describe("isomux.com agent readiness", () => {
       )!;
       const offers: Record<string, any>[] = app.offers;
       expect(Array.isArray(offers), file).toBe(true);
-      // One offer per plan and currency, and the free software.
-      expect(offers.length, file).toBe(plans.length * 2 + 1);
+      // One offer per plan, and the free software.
+      expect(offers.length, file).toBe(plans.length + 1);
+      // Every offer is in dollars, the free one too.
+      expect([file, offers.map((o) => o.priceCurrency)]).toEqual([
+        file,
+        offers.map(() => "USD"),
+      ]);
 
       for (const plan of plans) {
-        for (const currency of ["USD", "EUR"] as const) {
-          const offer = offers.find(
-            (o) => o.name?.includes(plan.name) && o.priceCurrency === currency,
-          );
-          const label = `${file} ${plan.name} ${currency}`;
-          expect(offer, label).toBeDefined();
-          expect(offer!["@type"]).toBe("Offer");
-          expect(Number(offer!.price), label).toBe(plan.prices[currency]);
-          expect(offer!.url).toBe("https://isomux.com/hosted#plans");
-          expect(offer!.priceSpecification, label).toMatchObject({
-            "@type": "UnitPriceSpecification",
-            priceCurrency: currency,
-            unitCode: "MON",
-          });
-          expect(Number(offer!.priceSpecification.price), label).toBe(
-            plan.prices[currency],
-          );
-        }
+        const offer = offers.find((o) => o.name?.includes(plan.name));
+        const label = `${file} ${plan.name}`;
+        expect(offer, label).toBeDefined();
+        expect(offer!["@type"]).toBe("Offer");
+        expect(Number(offer!.price), label).toBe(plan.usd);
+        expect(offer!.url).toBe("https://isomux.com/hosted#plans");
+        expect(offer!.priceSpecification, label).toMatchObject({
+          "@type": "UnitPriceSpecification",
+          priceCurrency: "USD",
+          unitCode: "MON",
+        });
+        expect(Number(offer!.priceSpecification.price), label).toBe(plan.usd);
       }
 
       const free = offers.filter((o) => Number(o.price) === 0);

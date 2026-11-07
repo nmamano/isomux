@@ -95,8 +95,8 @@ function expectPolicyBefore(html: string, marker: string) {
 
 const PAYMENT_SUBMIT = '<button class="btn-primary" type="submit"';
 
-// Nil, 2026-11-06: the plan card shows what this subscription pays, in its
-// currency alone; with no currency yet, the dollar and the euro-area price.
+// Nil, 2026-11-07: the plan card shows what this subscription pays, in its
+// currency alone; with no currency yet, the dollar price alone.
 test("the plan card shows the price in the currency the office pays", () => {
   const tierText = (currency: "USD" | "EUR" | null) => {
     const html = renderToStaticMarkup(
@@ -122,7 +122,7 @@ test("the plan card shows the price in the currency the office pays", () => {
   };
   expect(shows("USD")).toEqual(["USD", true, false]);
   expect(shows("EUR")).toEqual(["EUR", false, true]);
-  expect(shows(null)).toEqual([null, true, true]);
+  expect(shows(null)).toEqual([null, true, false]);
 });
 
 test("durations use one compact format at every scale", () => {

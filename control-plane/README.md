@@ -2574,11 +2574,12 @@ Signup offers Entry (`office`, Contabo V153, 4 vCPU / 8 GB / 100 GB SSD) and
 Poweruser (`poweruser`, Contabo V155, 8 vCPU / 24 GB / 300 GB SSD). V155 was
 confirmed by a Contabo account read on 2026-08-20. The customer-visible prices
 are nullable constants in `plans.ts`; an unset value renders no price line. A
-set value carries a USD and a EUR amount and the monthly billing period. Stripe
-picks the currency at Checkout from where the buyer is, and reconciliation
-stores it in `subscriptions.currency` (owner migration
-`migrate-subscription-currency`; a null reads as EUR). The office view shows the
-stored currency's amount; signup shows the dollar price with the euro-area one
+set value carries the USD list price, the EUR price that subscriptions made on
+the old euro Prices keep paying, and the monthly billing period. Reconciliation
+stores the subscription's currency in `subscriptions.currency` (owner migration
+`migrate-subscription-currency`; a null reads as EUR). The office view shows
+the stored currency's amount while the subscription runs; signup, an office
+before Checkout and an ended subscription show the dollar price
 (`internal-docs/billing-poll-design.md`, "Currencies").
 Stripe price ids are separate deployment configuration. The explicit Entry
 variable wins over the legacy single-price variable, which applies only to

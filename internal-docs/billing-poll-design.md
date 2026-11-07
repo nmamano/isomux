@@ -164,19 +164,22 @@ every other customer.
 
 ## Currencies
 
-Built 2026-11-06 (task 8d87eb96; Nil, 2026-11-06: "$9 and $19 in the US,
-what we currently have in EUR countries, dollars as fallback"):
+Built 2026-11-06 (task 8d87eb96), made dollars-only 2026-11-07 (task
+d833bd68; Nil at sign-off: "Dollars everywhere: the site, signup, the office
+page and Stripe checkout. Remove the euro prices and the euro currency option.
+Customers who pay in euros now keep their price."):
 
-- Each plan sells through one Stripe Price in USD (9, 19) with a EUR currency
-  option (8, 17), tax-exclusive in both. `plans.ts` holds both amounts.
-- Checkout gets no `currency`: Stripe shows EUR to a buyer in the euro area and
-  USD to everyone else. Managed payments refuses `adaptive_pricing[enabled]=false`
-  (test mode, 2026-11-06), so a USD buyer outside the US converts to a local
-  amount at Checkout; the subscription stays in USD.
-- A session reads USD at create and settles its currency only when the buyer
-  opens the page. Reconciliation reads `subscription.currency` into
-  `subscriptions.currency`; an object without one never clears it.
-- A null `subscriptions.currency` (a row from before the column) reads as EUR.
-- The office view shows the amount in the stored currency. Signup, and an office
-  whose Checkout is not done, show the dollar price with the euro-area one.
-- The old EUR-only Prices keep billing the subscriptions made on them.
+- Each plan sells through one USD-only Stripe Price (9, 19), tax-exclusive.
+- The old EUR-only Prices (8, 17) keep billing the subscriptions made on them.
+  `plans.ts` holds both amounts: USD to sell, EUR to show those subscribers.
+- Checkout gets no `currency` and no `adaptive_pricing`. Managed payments always
+  enables Adaptive Pricing and refuses `adaptive_pricing[enabled]=false` (test
+  mode, 2026-11-06), so a buyer outside the US may see a converted local amount
+  at Checkout; the subscription stays in USD.
+- Reconciliation reads `subscription.currency` into `subscriptions.currency`;
+  an object without one never clears it. A null (a row from before the column)
+  reads as EUR.
+- The office view shows the amount in the stored currency while the
+  subscription runs. Signup, an office whose Checkout is not done, and an ended
+  subscription show the dollar price: reinstatement goes through Checkout on
+  the USD Price, so a euro customer who lapses and reinstates pays USD.

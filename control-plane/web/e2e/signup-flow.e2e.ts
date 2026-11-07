@@ -717,7 +717,7 @@ async function main(): Promise<void> {
         );
         say(
           `hosted page total: ${
-            (bodyText.match(/€\s?[\d.,]+[^|]{0,70}/) ?? ["not found"])[0]
+            (bodyText.match(/[$€]\s?[\d.,]+[^|]{0,70}/) ?? ["not found"])[0]
           }`,
         );
         const subscribe =

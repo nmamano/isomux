@@ -12,11 +12,9 @@ import { keyFrom, translatorFor } from "../lib/i18n/translate";
 const PERIOD_KEYS = { month: "plan.period.month" } as const;
 
 /**
- * One plan's price for a customer. A known currency (the one the subscription
- * pays in) shows that amount alone. No currency (signup, or an office whose
- * Checkout is not done) shows the list price: dollars, with the euro amount
- * for the euro area, because Stripe picks the currency at Checkout from where
- * the buyer is.
+ * One plan's price for a customer: the amount in the currency the
+ * subscription pays in, or with no currency (signup, an office whose Checkout
+ * is not done, an ended subscription) the dollar list price.
  */
 export function customerPriceLine(
   language: SupportedLanguageCode,
@@ -34,11 +32,5 @@ export function customerPriceLine(
   // An unknown period is data we have no word for: show it as it arrived
   // rather than print a key at a customer.
   const period = periodKey ? t(periodKey) : price.billingPeriod;
-  return currency
-    ? t("plan.priceLine", { amount: format(currency), period })
-    : t("plan.priceLineEuroArea", {
-        amount: format("USD"),
-        euroAmount: format("EUR"),
-        period,
-      });
+  return t("plan.priceLine", { amount: format(currency ?? "USD"), period });
 }
