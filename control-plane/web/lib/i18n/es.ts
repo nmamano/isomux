@@ -491,7 +491,7 @@ export const es: Catalog = {
     "Esta oficina ya no está en la cuenta. Recarga la página.",
   "enterprise.secret.heading": "Secreto",
   "enterprise.secret.lead":
-    "Pega este secreto en Ajustes → Oficina de cada una de tus oficinas de Isomux. Mantenlo en privado.",
+    "Pega este secreto en Ajustes → Enterprise de cada una de tus oficinas de Isomux. Mantenlo en privado.",
   "enterprise.secret.show": "Mostrar",
   "enterprise.secret.hide": "Ocultar",
   "enterprise.secret.copy": "Copiar",

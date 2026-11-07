@@ -31,6 +31,7 @@ import {
 } from "./enterprise.ts";
 import { migrateEnterpriseTables } from "./bootstrap.ts";
 import { accountForDevSignIn } from "./signup.ts";
+import { AGREEMENT_HTML } from "./web/lib/enterprise-agreement-text.ts";
 import type { Store } from "./store.ts";
 import {
   openTestStoreOn,
@@ -358,6 +359,21 @@ describe("signing the standard agreement", () => {
       .digest("hex");
     expect(sha).toBe(AGREEMENT.sha256);
     expect(AGREEMENT.pdfPath).toBe(`web/public${AGREEMENT.publicPath}`);
+  });
+
+  test("IT signs the published sample: the same PDF, and the page's text is its draft", () => {
+    // Nil, 2026-11-07: the page shows the sample's current draft. The sample
+    // is site/isomux-sample-agreement.pdf; a new draft there moves the PDF,
+    // AGREEMENT and AGREEMENT_HTML here too.
+    const sample = fs.readFileSync(
+      path.join(import.meta.dir, "..", "site", "isomux-sample-agreement.pdf"),
+    );
+    expect(createHash("sha256").update(sample).digest("hex")).toBe(
+      AGREEMENT.sha256,
+    );
+    const draft = /draft-(\d+)$/.exec(AGREEMENT.version)?.[1];
+    expect(draft).toBeDefined();
+    expect(/draft (\d+)/.exec(AGREEMENT_HTML)?.[1]).toBe(draft);
   });
 });
 

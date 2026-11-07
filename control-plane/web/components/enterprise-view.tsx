@@ -666,8 +666,9 @@ function officeRefusal(t: T, reason: unknown, maxName: number): string {
   }
 }
 
-/** The offices, with Rename in place and Remove after a confirm in the row.
- * One of the two is open at a time. */
+/** The offices, with Rename and Remove each opening in a row under the
+ * office. One of the two is open at a time. The office row keeps its cells and
+ * its hidden buttons, so the columns do not move. */
 function Offices({
   t,
   language,
@@ -765,10 +766,44 @@ function Offices({
               {offices.map((office) => (
                 <Fragment key={office.id}>
                   <tr data-office={office.id}>
-                    <td>
-                      {renaming === office.id ? (
+                    <td>{office.name ?? t("enterprise.offices.unnamed")}</td>
+                    <td>{office.members}</td>
+                    <td>{day(language, office.lastSeenAt)}</td>
+                    <td
+                      className={
+                        removing === office.id || renaming === office.id
+                          ? "enterprise-row-actions-hidden"
+                          : undefined
+                      }
+                    >
+                      <button
+                        type="button"
+                        data-action="rename"
+                        onClick={() => {
+                          close();
+                          setDraft(office.name ?? "");
+                          setRenaming(office.id);
+                        }}
+                      >
+                        {t("enterprise.offices.rename")}
+                      </button>{" "}
+                      <button
+                        type="button"
+                        data-action="remove"
+                        onClick={() => {
+                          close();
+                          setRemoving(office.id);
+                        }}
+                      >
+                        {t("enterprise.offices.remove")}
+                      </button>
+                    </td>
+                  </tr>
+                  {renaming === office.id && (
+                    <tr data-office-rename={office.id}>
+                      <td colSpan={4}>
                         <form
-                          className="form enterprise-inline"
+                          className="form enterprise-inline enterprise-under-row"
                           onSubmit={(event) => void save(event)}
                         >
                           <input
@@ -796,44 +831,13 @@ function Offices({
                             {t("enterprise.seats.cancel")}
                           </button>
                         </form>
-                      ) : (
-                        (office.name ?? t("enterprise.offices.unnamed"))
-                      )}
-                    </td>
-                    <td>{office.members}</td>
-                    <td>{day(language, office.lastSeenAt)}</td>
-                    <td>
-                      {removing !== office.id && renaming !== office.id && (
-                        <>
-                          <button
-                            type="button"
-                            data-action="rename"
-                            onClick={() => {
-                              close();
-                              setDraft(office.name ?? "");
-                              setRenaming(office.id);
-                            }}
-                          >
-                            {t("enterprise.offices.rename")}
-                          </button>{" "}
-                          <button
-                            type="button"
-                            data-action="remove"
-                            onClick={() => {
-                              close();
-                              setRemoving(office.id);
-                            }}
-                          >
-                            {t("enterprise.offices.remove")}
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                  )}
                   {removing === office.id && (
                     <tr data-office-confirm={office.id}>
                       <td colSpan={4}>
-                        <div className="callout callout-danger">
+                        <div className="callout callout-danger enterprise-under-row">
                           <p>{t("enterprise.offices.removeWarning")}</p>
                           <button
                             ref={confirmButton}

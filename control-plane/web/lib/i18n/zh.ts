@@ -397,7 +397,7 @@ export const zh: Catalog = {
   "enterprise.offices.gone": "此办公室已不在该账户中。请刷新页面。",
   "enterprise.secret.heading": "密钥",
   "enterprise.secret.lead":
-    "在你每个 Isomux 办公室的“设置 → 办公室”中粘贴此密钥。请妥善保密。",
+    "在你每个 Isomux 办公室的“设置 → 企业”中粘贴此密钥。请妥善保密。",
   "enterprise.secret.show": "显示",
   "enterprise.secret.hide": "隐藏",
   "enterprise.secret.copy": "复制",

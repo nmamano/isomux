@@ -1387,7 +1387,19 @@ main .auth-or {
 .form.enterprise-inline input {
   width: 8rem;
 }
-/* An office's name, renamed in place in its row. */
+/* The buttons of an office whose Rename or Remove is open: they keep the
+   column's width. */
+.enterprise-row-actions-hidden {
+  visibility: hidden;
+}
+/* The rename form and the remove confirm, in a row under the office: they
+   take the row's width and do not size the columns. */
+.enterprise-under-row {
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+/* An office's name field, in the row under the office. */
 .form.enterprise-inline input.enterprise-office-name {
   width: min(16rem, 100%);
 }

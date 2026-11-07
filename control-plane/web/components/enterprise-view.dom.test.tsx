@@ -206,6 +206,39 @@ test("a refused rename keeps the field open and says why; Cancel closes it and p
   expect(row(B)?.textContent).not.toContain("x");
 });
 
+/** The text of each cell of the office's own row. */
+function cells(office: string): string[] {
+  return [...(row(office)?.children ?? [])].map(
+    (cell) => cell.textContent ?? "",
+  );
+}
+
+test("an open rename or remove leaves the office row as it was: the control opens in a row of its own under it", async () => {
+  await render();
+  const columns = offices().querySelectorAll("thead th").length;
+  const before = cells(A);
+  // The enabling condition: the row has a cell per column, with the name.
+  expect(before).toHaveLength(columns);
+  expect(before[0]).toBe("Berlin");
+
+  await click(action(row(A), "rename"));
+  const input = nameInput();
+  if (!input) throw new Error("no name field");
+  expect(cells(A)).toEqual(before);
+  expect(row(A)?.contains(input)).toBe(false);
+  const renameRow = row(A)?.nextElementSibling;
+  expect(renameRow?.contains(input)).toBe(true);
+  expect(renameRow?.children).toHaveLength(1);
+  expect(renameRow?.children[0]?.getAttribute("colspan")).toBe(String(columns));
+
+  await click(action(offices(), "cancel"));
+  await click(action(row(A), "remove"));
+  const confirm = action(offices(), "confirm-remove");
+  expect(cells(A)).toEqual(before);
+  expect(row(A)?.contains(confirm)).toBe(false);
+  expect(row(A)?.nextElementSibling?.contains(confirm)).toBe(true);
+});
+
 test("remove asks first, in the card, with the focus on the confirm; the office then leaves the list and its members the count", async () => {
   await render();
   // The enabling condition: the Seats card counts the office's 20 members.

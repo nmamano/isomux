@@ -506,7 +506,7 @@ export const en = {
 
   "enterprise.secret.heading": "Secret",
   "enterprise.secret.lead":
-    "Paste this secret in Settings → Office of each of your Isomux offices. Keep it private.",
+    "Paste this secret in Settings → Enterprise of each of your Isomux offices. Keep it private.",
   "enterprise.secret.show": "Show",
   "enterprise.secret.hide": "Hide",
   "enterprise.secret.copy": "Copy",
