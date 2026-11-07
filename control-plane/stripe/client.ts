@@ -265,15 +265,23 @@ export class StripeClient {
   }
 }
 
-/** The classified reason from a Stripe error body. Never the key: the key is a
- * header, so it cannot appear here, and nothing in this file interpolates it. */
+/** A Stripe key in any form: whole, or masked as Stripe writes it in its own
+ * error text ("rk_live_...abcd", "sk_test_****abcd"). */
+const STRIPE_KEY_TEXT = /\b(?:sk|rk|pk)_(?:test|live)_[^\s'"]*/g;
+
+/** The classified reason from a Stripe error body. Never the key: Stripe's
+ * message names the key it refused (masked, with its last characters, on
+ * 2026-11-07), and the reason goes to logs and audit rows, so every key form
+ * is replaced. */
 function errorOf(body: unknown): { reason: string; code?: string } {
   const e = (body as { error?: Record<string, unknown> } | null)?.error;
   if (!e) return { reason: "Stripe refused the request" };
   const type = typeof e.type === "string" ? e.type : "error";
   const code = typeof e.code === "string" ? e.code : undefined;
   const message =
-    typeof e.message === "string" ? e.message : "no message given";
+    typeof e.message === "string"
+      ? e.message.replace(STRIPE_KEY_TEXT, "<key>")
+      : "no message given";
   return {
     reason: `${type}${code ? ` (${code})` : ""}: ${message}`,
     ...(code ? { code } : {}),

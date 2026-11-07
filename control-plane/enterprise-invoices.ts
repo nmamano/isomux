@@ -31,6 +31,8 @@ const DAYS_UNTIL_DUE = 30;
 const DESCRIPTION_LINES = 3;
 /** Our customer portal configuration, found by this metadata. */
 const PORTAL_TAG = "enterprise-portal";
+/** The default configuration we make on an account that has none. */
+const PORTAL_BASE_TAG = "portal-base";
 /** A failed Stripe step is tried again after this long. */
 const RETRY_MS = 15 * 60_000;
 
@@ -673,22 +675,85 @@ export async function heldEnterpriseInvoices(
   }));
 }
 
-/** Our portal configuration: found by its tag, else made once. Never the
- * default configuration, which the Hosted portal uses. */
-async function portalConfiguration(
+interface PortalConfigurationItem {
+  id?: unknown;
+  active?: unknown;
+  is_default?: unknown;
+  metadata?: Record<string, string>;
+}
+
+async function portalConfigurations(
   stripe: StripeClient,
-): Promise<Step<string>> {
+): Promise<Step<PortalConfigurationItem[]>> {
   const list = await stripe.get("/v1/billing_portal/configurations", {
-    active: true,
     limit: 100,
   });
   if (list.kind !== "ok") return failed(list);
   const data = Array.isArray(list.body.data) ? list.body.data : [];
-  for (const item of data) {
-    const c = item as { id?: unknown; metadata?: Record<string, string> };
-    if (typeof c.id === "string" && c.metadata?.isx === PORTAL_TAG)
-      return { ok: true, value: c.id };
+  return { ok: true, value: data as PortalConfigurationItem[] };
+}
+
+/** A default configuration on the account: the existing one, or a base we
+ * make. Stripe makes the first configuration of an account its default, and
+ * the Dashboard's portal settings edit the default, so ours must never be the
+ * first one. The base has conservative features and its own tag. */
+async function ensureDefaultConfiguration(
+  stripe: StripeClient,
+  data: readonly PortalConfigurationItem[],
+): Promise<Step<null>> {
+  if (data.some((c) => c.is_default === true)) return { ok: true, value: null };
+  const made = await stripe.post(
+    "/v1/billing_portal/configurations",
+    {
+      features: {
+        invoice_history: { enabled: true },
+        payment_method_update: { enabled: true },
+        customer_update: { enabled: false },
+        subscription_cancel: { enabled: false },
+        subscription_update: { enabled: false },
+      },
+      metadata: { isx: PORTAL_BASE_TAG },
+    },
+    "isx-ent-portal-configuration-base",
+  );
+  if (made.kind !== "ok") return failed(made);
+  if (made.body.is_default === true) return { ok: true, value: null };
+  // Another configuration became the default first: confirm one exists.
+  const again = await portalConfigurations(stripe);
+  if (!again.ok) return again;
+  return again.value.some((c) => c.is_default === true)
+    ? { ok: true, value: null }
+    : { ok: false, detail: "no default portal configuration", refused: false };
+}
+
+/** Our portal configuration: found by its tag (an active one first, else an
+ * inactive one, made active again), else made once, after the account has a
+ * default (ensureDefaultConfiguration). Never a default: we do not edit or
+ * deactivate one. An inactive one is never left to the create: for 24 hours
+ * its fixed key replays the inactive id. */
+async function portalConfiguration(
+  stripe: StripeClient,
+): Promise<Step<string>> {
+  const list = await portalConfigurations(stripe);
+  if (!list.ok) return list;
+  const data = list.value;
+  let inactive: string | null = null;
+  for (const c of data) {
+    if (typeof c.id !== "string" || c.metadata?.isx !== PORTAL_TAG) continue;
+    if (c.active === true) return { ok: true, value: c.id };
+    inactive ??= c.id;
   }
+  if (inactive) {
+    const on = await stripe.post(
+      `/v1/billing_portal/configurations/${inactive}`,
+      { active: true },
+      `isx-ent-portal-configuration-on-${inactive}-${randomUUID()}`,
+    );
+    if (on.kind !== "ok") return failed(on);
+    return { ok: true, value: inactive };
+  }
+  const base = await ensureDefaultConfiguration(stripe, data);
+  if (!base.ok) return base;
   const made = await stripe.post(
     "/v1/billing_portal/configurations",
     {

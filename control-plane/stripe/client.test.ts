@@ -194,6 +194,45 @@ describe("classification", () => {
       retryable: false,
     });
   });
+  test("a rejection's reason keeps none of a key Stripe names, masked or whole, and keeps the rest of Stripe's words", async () => {
+    // The 403 shape Stripe answered on 2026-11-07 (2026-07-29.dahlia), its
+    // invalid-key mask, and a whole key.
+    const tail = "Zq7W";
+    const named = [
+      `Permission denied. The provided key 'rk_test_...${tail}' does not have the required permissions for this endpoint on account 'acct_x'. Enabling Invoices Write ('invoice_write') permissions on this key would allow this request to continue.`,
+      `Invalid API Key provided: sk_test_****${tail} (invoice_write)`,
+      `The provided key "${LIVE_SHAPE}" lacks invoice_write.`,
+    ];
+    for (const message of named) {
+      const { fetchImpl } = recorder([
+        {
+          status: 403,
+          body: {
+            error: {
+              type: "invalid_request_error",
+              code: "more_permissions_required",
+              message,
+            },
+          },
+        },
+      ]);
+      const client = new StripeClient({
+        key: TEST_KEY,
+        mode: "test",
+        fetchImpl,
+      });
+      const res = await client.post("/v1/invoices", {}, "k1");
+      if (res.kind !== "rejected") throw new Error(`not rejected: ${res.kind}`);
+      const leaks = {
+        keyClass: /(?:sk|rk|pk)_(?:test|live)_/.test(res.reason),
+        tail: res.reason.includes(tail),
+        body: res.reason.includes("NOT_A_REAL_KEY"),
+      };
+      expect(leaks).toEqual({ keyClass: false, tail: false, body: false });
+      expect(res.reason).toContain("invoice_write");
+      expect(res.code).toBe("more_permissions_required");
+    }
+  });
 });
 
 describe("retrying a write", () => {

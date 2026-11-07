@@ -159,7 +159,9 @@ details with live):
    our pages (Checkout's consent checkbox links the Dashboard value, not our
    page). The live value also covers test mode.
 6. Enable a customer portal configuration (the intended card-change path;
-   none exists today - measured 2026-08-21).
+   none existed on 2026-08-21). The first enterprise Billing click makes a
+   default one if none exists (metadata `isx=portal-base`); the Dashboard's
+   portal settings edit that default, never the enterprise configuration.
 
 Step 2, Nil -> secrets files: the web key and the two live price IDs into
 the web staging env file; the provisioner key (with the webhook secret and

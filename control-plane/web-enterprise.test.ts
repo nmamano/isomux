@@ -564,13 +564,14 @@ describe("the billing portal route as the web role", () => {
     const { id } = await signedAccount(s);
     process.env.CONTROL_PLANE_STRIPE_MODE = "test";
     process.env.STRIPE_TEST_SECRET_KEY = "sk_test_web_enterprise";
-    // Stripe, as far as this route goes: one customer, our configuration, a
-    // session.
+    // Stripe, as far as this route goes: one customer, a default and our
+    // configuration, a session.
     const stripeCalls: {
       method: string;
       path: string;
       params: URLSearchParams;
     }[] = [];
+    let configsMade = 0;
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async (
       input: RequestInfo | URL,
@@ -599,14 +600,19 @@ describe("the billing portal route as the web role", () => {
         url.pathname === "/v1/billing_portal/configurations"
       )
         return Response.json({ object: "list", has_more: false, data: [] });
+      // Stripe makes an account's first configuration its default: the base
+      // the code makes first, then ours.
       if (
         method === "POST" &&
         url.pathname === "/v1/billing_portal/configurations"
-      )
+      ) {
+        configsMade += 1;
         return Response.json({
-          id: "bpc_web",
+          id: configsMade === 1 ? "bpc_base" : "bpc_web",
           object: "billing_portal.configuration",
+          is_default: configsMade === 1,
         });
+      }
       if (method === "POST" && url.pathname === "/v1/billing_portal/sessions")
         return Response.json({
           id: "bps_web",

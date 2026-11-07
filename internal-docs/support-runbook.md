@@ -200,7 +200,10 @@ otherwise unsupported subscription. If the action is unavailable, stop and
 report that constraint. Do not collect card data or improvise an API write.
 
 Enabling and configuring the Stripe customer portal is a pending Nil Dashboard
-action. Until that action is complete and the product exposes the portal path,
+action. A default configuration may already exist: the first enterprise Billing
+click makes one (metadata `isx=portal-base`) on an account without one. The
+Dashboard's portal settings edit that default, never the enterprise
+configuration. Until that action is complete and the product exposes the portal path,
 the single-use Stripe payment-update link above is the manual card-change path.
 
 

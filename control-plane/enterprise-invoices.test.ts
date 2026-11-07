@@ -107,6 +107,8 @@ interface Fault {
   method: string;
   path: RegExp;
   mode: FaultMode;
+  /** Stripe's error message, when the test needs its words. */
+  message?: string;
 }
 
 class FakeStripe {
@@ -133,7 +135,10 @@ class FakeStripe {
   private faults: Fault[] = [];
   private n = 0;
 
-  constructor() {
+  /** `noConfigurations`: an account with no portal configuration yet, where
+   * Stripe makes the first one created the default (seen 2026-11-07). */
+  constructor(opts: { noConfigurations?: boolean } = {}) {
+    if (opts.noConfigurations) return;
     // The Hosted portal's default configuration: never ours to change.
     this.configs.set("bpc_default", {
       id: "bpc_default",
@@ -154,8 +159,8 @@ class FakeStripe {
   }
 
   /** The next matching request fails once. */
-  fail(method: string, path: RegExp, mode: FaultMode): void {
-    this.faults.push({ method, path, mode });
+  fail(method: string, path: RegExp, mode: FaultMode, message?: string): void {
+    this.faults.push({ method, path, mode, ...(message ? { message } : {}) });
   }
 
   /** Stripe drops idempotency keys after 24 hours. */
@@ -343,12 +348,21 @@ class FakeStripe {
     }
     if (c.method === "POST" && c.path === "/v1/billing_portal/configurations") {
       const id = this.id("bpc");
-      this.configs.set(id, { id, is_default: false, active: true, params: p });
+      // Stripe makes the first configuration of an account its default.
+      const isDefault = ![...this.configs.values()].some((x) => x.is_default);
+      this.configs.set(id, {
+        id,
+        is_default: isDefault,
+        active: true,
+        params: p,
+      });
       return {
         status: 200,
         body: {
           id,
           object: "billing_portal.configuration",
+          is_default: isDefault,
+          active: true,
           metadata: metadataOf(p),
         },
       };
@@ -358,9 +372,41 @@ class FakeStripe {
       c.method === "POST"
     ) {
       this.configUpdates.push(m[1]);
-      return { status: 200, body: { id: m[1] } };
+      const config = this.configs.get(m[1]);
+      if (!config) return notFound;
+      if (p.active === "false" && config.is_default)
+        return {
+          status: 400,
+          body: {
+            error: {
+              type: "invalid_request_error",
+              message:
+                "You cannot set `active: false` on your default PortalConfiguration.",
+            },
+          },
+        };
+      if (p.active !== undefined) config.active = p.active === "true";
+      return {
+        status: 200,
+        body: {
+          id: m[1],
+          active: config.active,
+          metadata: metadataOf(config.params),
+        },
+      };
     }
     if (c.method === "POST" && c.path === "/v1/billing_portal/sessions") {
+      // Stripe refuses a session on a configuration that is not active.
+      if (p.configuration && this.configs.get(p.configuration)?.active !== true)
+        return {
+          status: 400,
+          body: {
+            error: {
+              type: "invalid_request_error",
+              message: "The configuration is not active.",
+            },
+          },
+        };
       const id = this.id("bps");
       const session = {
         ...p,
@@ -408,19 +454,22 @@ class FakeStripe {
       });
     }
     if (fault >= 0 && this.faults[fault].mode === "refused") {
-      this.faults.splice(fault, 1);
+      const [f] = this.faults.splice(fault, 1);
       return answer(400, {
-        error: { type: "api_error", message: "refused by the test" },
+        error: {
+          type: "api_error",
+          message: f.message ?? "refused by the test",
+        },
       });
     }
     const passing = { conflict: 409, dependency: 424, forbidden: 403 } as const;
     const mode = fault >= 0 ? this.faults[fault].mode : null;
     if (mode && mode in passing) {
-      this.faults.splice(fault, 1);
+      const [f] = this.faults.splice(fault, 1);
       return answer(passing[mode as keyof typeof passing], {
         error: {
           type: "invalid_request_error",
-          message: "passing by the test",
+          message: f.message ?? "passing by the test",
         },
       });
     }
@@ -1047,6 +1096,58 @@ describe("what Stripe refuses for good, and what throws", () => {
     expect(await heldEnterpriseInvoices(s.store)).toEqual([]);
   });
 
+  test("Stripe's error text names the key: neither the pass's log lines nor a held period's audit row keep any of it", async () => {
+    // Stripe's 403, as it answered on 2026-11-07 (2026-07-29.dahlia): the key
+    // masked to its class and its last characters.
+    const tail = "Zq7W";
+    const forbidden =
+      `Permission denied. The provided key 'rk_test_...${tail}' does not have ` +
+      "the required permissions for this endpoint on account 'acct_x'. " +
+      "Enabling Invoices Write ('invoice_write') permissions on this key would " +
+      "allow this request to continue.";
+    const refused = `Invalid request with key sk_live_****${tail}: no such customer.`;
+    const s = await setup();
+    const fake = new FakeStripe();
+    const log: string[] = [];
+    const a = await account(s, "monthly", 50);
+    fake.fail("POST", /^\/v1\/invoices$/, "forbidden", forbidden);
+    expect(
+      await invoiceEnterprises(s.store, fake.client(), due(2), (l) =>
+        log.push(l),
+      ),
+    ).toMatchObject({ failed: 1, held: 0 });
+    // The next pass sends a's period, so the refusal below is b's alone.
+    await invoiceEnterprises(s.store, fake.client(), due(2) + HOUR);
+    expect((await ledger(s, a.id))[0].state).toBe("sent");
+    const b = await account(s, "monthly", 20);
+    fake.fail("POST", /^\/v1\/invoiceitems$/, "refused", refused);
+    await invoiceEnterprises(s.store, fake.client(), due(2) + 2 * HOUR, (l) =>
+      log.push(l),
+    );
+    expect((await ledger(s, b.id))[0].state).toBe("held");
+
+    const audit = (await auditActions(s, b.id)).map((r) => r.detail ?? "");
+    // Each surface carries Stripe's reason, so the redaction must leave it.
+    const written = [
+      { where: "log", text: log.join("\n") },
+      { where: "audit", text: audit.join("\n") },
+    ];
+    for (const w of written) {
+      expect({
+        where: w.where,
+        keyClass: /(?:sk|rk|pk)_(?:test|live)_/.test(w.text),
+      }).toEqual({ where: w.where, keyClass: false });
+      expect({ where: w.where, tail: w.text.includes(tail) }).toEqual({
+        where: w.where,
+        tail: false,
+      });
+    }
+    expect(
+      log.some((l) => l.includes(a.id) && l.includes("invoice_write")),
+    ).toBe(true);
+    expect(audit.some((d) => d.includes("no such customer"))).toBe(true);
+  });
+
   test("an account whose period throws is retried soon; the accounts after it are still invoiced", async () => {
     const s = await setup();
     const broken = await account(s, "monthly", 50);
@@ -1168,6 +1269,152 @@ describe("the customer portal", () => {
         .filter((c) => c.path === "/v1/billing_portal/configurations"),
     ).toEqual([]);
     expect(fake.sessions[0]?.configuration).toBe("bpc_ours");
+  });
+
+  test("our configuration deactivated within the 24 hours Stripe keeps the create key: reactivated, not replayed", async () => {
+    const s = await setup();
+    const { it } = await account(s, "monthly", 50);
+    const fake = new FakeStripe();
+    const back = "https://cloud.example/enterprise";
+    expect(
+      await enterprisePortalUrl(s.store, fake.client(), it, back),
+    ).toMatchObject({ ok: true });
+    const ours = [...fake.configs.values()].filter((c) => !c.is_default);
+    expect(ours).toHaveLength(1);
+    // Someone deactivates it in the dashboard; the create key is still kept.
+    ours[0].active = false;
+
+    expect(await enterprisePortalUrl(s.store, fake.client(), it, back)).toEqual(
+      { ok: true, url: fake.sessions[1]?.url },
+    );
+    expect(fake.sessions[1]?.configuration).toBe(ours[0].id);
+    expect(fake.configs.get(ours[0].id)?.active).toBe(true);
+    expect(
+      [...fake.configs.values()].filter((c) => !c.is_default),
+    ).toHaveLength(1);
+    expect(fake.configs.get("bpc_default")?.active).toBe(true);
+    expect(fake.configUpdates).not.toContain("bpc_default");
+  });
+
+  test("an active configuration of ours wins over an inactive one, which stays as it is", async () => {
+    const s = await setup();
+    const { it } = await account(s, "monthly", 50);
+    const fake = new FakeStripe();
+    const tag = { "metadata[isx]": "enterprise-portal" };
+    fake.configs.set("bpc_old", {
+      id: "bpc_old",
+      is_default: false,
+      active: false,
+      params: tag,
+    });
+    fake.configs.set("bpc_new", {
+      id: "bpc_new",
+      is_default: false,
+      active: true,
+      params: tag,
+    });
+    expect(
+      await enterprisePortalUrl(
+        s.store,
+        fake.client(),
+        it,
+        "https://cloud.example/enterprise",
+      ),
+    ).toMatchObject({ ok: true });
+    expect(fake.sessions[0]?.configuration).toBe("bpc_new");
+    expect(fake.configs.get("bpc_old")?.active).toBe(false);
+    expect(
+      fake
+        .posts()
+        .filter((c) => c.path.startsWith("/v1/billing_portal/configurations")),
+    ).toEqual([]);
+  });
+
+  describe("on a Stripe account with no portal configuration yet", () => {
+    const back = "https://cloud.example/enterprise";
+    const tagOf = (c: { params: Record<string, string> }) =>
+      c.params["metadata[isx]"];
+    const ours = (fake: FakeStripe) =>
+      [...fake.configs.values()].filter(
+        (c) => tagOf(c) === "enterprise-portal",
+      );
+    const others = (fake: FakeStripe) =>
+      [...fake.configs.values()].filter(
+        (c) => tagOf(c) !== "enterprise-portal",
+      );
+    /** One default that is not ours (and says where it came from), and ours,
+     * which is not the default; the sessions use ours. */
+    function expectBaseAndOurs(fake: FakeStripe): void {
+      const base = others(fake);
+      const mine = ours(fake);
+      expect(
+        base.map((c) => ({
+          isDefault: c.is_default,
+          tagged: Boolean(tagOf(c)),
+        })),
+      ).toEqual([{ isDefault: true, tagged: true }]);
+      expect(mine.map((c) => c.is_default)).toEqual([false]);
+      expect(fake.sessions.length).toBeGreaterThan(0);
+      for (const session of fake.sessions)
+        expect(session.configuration).toBe(mine[0].id);
+    }
+
+    test("a default that is not ours is made first, so ours never becomes the default", async () => {
+      const s = await setup();
+      const { it } = await account(s, "monthly", 50);
+      const fake = new FakeStripe({ noConfigurations: true });
+      expect(
+        await enterprisePortalUrl(s.store, fake.client(), it, back),
+      ).toEqual({ ok: true, url: fake.sessions[0]?.url });
+      expectBaseAndOurs(fake);
+
+      const creates = () =>
+        fake
+          .posts()
+          .filter((c) => c.path === "/v1/billing_portal/configurations").length;
+      const before = creates();
+      expect(
+        await enterprisePortalUrl(s.store, fake.client(), it, back),
+      ).toMatchObject({ ok: true });
+      expect(creates()).toBe(before);
+      expectBaseAndOurs(fake);
+    });
+
+    for (const mode of ["refused", "down"] as const) {
+      test(`the default's create ${mode}: ours is not made on that call, and the next call recovers`, async () => {
+        const s = await setup();
+        const { it } = await account(s, "monthly", 50);
+        const fake = new FakeStripe({ noConfigurations: true });
+        fake.fail("POST", /^\/v1\/billing_portal\/configurations$/, mode);
+        expect(
+          await enterprisePortalUrl(s.store, fake.client(), it, back),
+        ).toEqual({ ok: false, reason: "stripe" });
+        expect(ours(fake)).toEqual([]);
+        expect(fake.sessions).toEqual([]);
+
+        expect(
+          await enterprisePortalUrl(s.store, fake.client(), it, back),
+        ).toMatchObject({ ok: true });
+        expectBaseAndOurs(fake);
+      });
+    }
+
+    test("the default's create applied with its answer lost: ours waits for the next call, which makes no second default", async () => {
+      const s = await setup();
+      const { it } = await account(s, "monthly", 50);
+      const fake = new FakeStripe({ noConfigurations: true });
+      fake.fail("POST", /^\/v1\/billing_portal\/configurations$/, "lost");
+      expect(
+        await enterprisePortalUrl(s.store, fake.client(), it, back),
+      ).toEqual({ ok: false, reason: "stripe" });
+      expect(others(fake).map((c) => c.is_default)).toEqual([true]);
+      expect(ours(fake)).toEqual([]);
+
+      expect(
+        await enterprisePortalUrl(s.store, fake.client(), it, back),
+      ).toMatchObject({ ok: true });
+      expectBaseAndOurs(fake);
+    });
   });
 
   test("refused for a negotiated, an unsigned or a missing account, with no Stripe call", async () => {

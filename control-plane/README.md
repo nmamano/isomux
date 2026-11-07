@@ -1940,7 +1940,10 @@ inUse}` when the other offices' members plus `members` pass N; `add: false` (a
   Stripe's customer portal from the Billing card (`POST
 /api/enterprise/billing/portal`), with our own portal configuration
   (metadata `isx=enterprise-portal`: invoices, payment method, address, tax id;
-  no email change, no subscription features).
+  no email change, no subscription features). Stripe makes an account's first
+  configuration its default, and the Dashboard edits the default, so on an
+  account without a default a base one (`isx=portal-base`: invoices and payment
+  method only) is made first; ours is never the default.
 - **A negotiated account.** An operator records it:
   `bun control-plane/cli.ts enterprise-negotiated --email <sign-in email>
 --company <name> --plan monthly|yearly --seats <N> --price-note <text>
@@ -3418,7 +3421,8 @@ portal write for the enterprise Billing card (a portal configuration and its
 sessions). The provisioner has a broader call
 graph: it also expires Checkout Sessions, reads subscriptions and invoices
 during reconciliation, and runs dunning and suspension. For the enterprise
-invoices it needs Customers write, Invoices write and Invoice items write. Separate values keep a
+invoices it needs Customers write and Invoices write, which also covers invoice
+items (Stripe, 2026-11-07). Separate values keep a
 public web deployment from inheriting that broader reach. Code cannot detect a
 shared value, so this separation is an activation rule.
 
