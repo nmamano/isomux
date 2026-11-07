@@ -1691,8 +1691,10 @@ export const SHARED_HOST_COOKIE_NAME = "__Host-isomux_session";
 // shadowing before app hostnames exist.
 //
 // Because the prefix requires `Secure`, the name is only WRITABLE on an HTTPS
-// deployment. Both names are READ everywhere (readSessionCookies), so an
-// office that moves between HTTPS and loopback signs nobody out.
+// deployment. On HTTPS only the `__Host-` name is read: a page on a subdomain
+// can write the plain name. On plain HTTP both names are read
+// (readSessionCookies), so an office that moves from HTTPS to loopback signs
+// nobody out.
 let officeId: string | undefined;
 
 // Called once at boot (bootPrelude), so a failure to read or write the id file
@@ -1839,6 +1841,13 @@ function writeSlot(isHttps: boolean): "host" | "plain" {
   return isHttps ? "host" : "plain";
 }
 
+// The office's other name, read when the write name is absent. Only on plain
+// HTTP: a `__Host-` cookie left from an HTTPS past. On HTTPS the plain name is
+// never read, because a page on a subdomain can write it.
+function fallbackSlot(isHttps: boolean): "host" | null {
+  return isHttps ? null : "host";
+}
+
 // The name this boot writes. Tests use it to present a session the way a
 // browser that signed in here would.
 export function sessionCookieName(): string {
@@ -1920,14 +1929,14 @@ export function clearCookieHeaders(): string[] {
 export interface SessionCookies {
   values: Record<SessionCookieSlot, string | null>;
   // Name precedence is decided by PRESENCE, never by validity: this office's
-  // write name, then its other name. On HTTPS that
-  // puts `__Host-` first, so an injected or stale plain cookie cannot displace
-  // the authoritative one, in either header order. On plain HTTP the plain
-  // name goes first: there the office cannot reliably clear a `__Host-` cookie
+  // write name, then (on plain HTTP only) its other name. On HTTPS only the
+  // `__Host-` name is read, so a plain cookie, injected from a subdomain or
+  // stale, cannot authenticate or be promoted. On plain HTTP the plain name
+  // goes first: there the office cannot reliably clear a `__Host-` cookie
   // (Safari refuses Secure cookies from http://localhost), and a stale one
   // left from an HTTPS past would otherwise hide every new sign-in.
   //
-  // Only when neither of this office's names is present, the bare names are
+  // Only when no name of this office that it reads is present, the bare names are
   // read in the same order, and one is selected only when its value is a live
   // session of this office. Another office on the same host wrote the same
   // names, and a bare cookie left after a sign-out stays in the browser, so a
@@ -1981,8 +1990,8 @@ export function readSessionCookies(req: Request): SessionCookies {
   const { isHttps } = buildPublicOrigin();
   const write = writeSlot(isHttps);
   if (values[write] !== null) return pick(write);
-  const other = write === "host" ? "plain" : "host";
-  if (values[other] !== null) return pick(other);
+  const fallback = fallbackSlot(isHttps);
+  if (fallback !== null && values[fallback] !== null) return pick(fallback);
   const bare: SessionCookieSlot[] = isHttps
     ? ["bareHost"]
     : ["barePlain", "bareHost"];
@@ -2026,6 +2035,21 @@ export type BrowserSessionDiagnostic =
       sessionPrefix: string;
     };
 
+// The write name was selected while the fallback name, which the office would
+// otherwise have read, was present too.
+function othersOverridden(
+  cookies: SessionCookies,
+  selected: SessionCookieSlot,
+): boolean {
+  const { isHttps } = buildPublicOrigin();
+  const fallback = fallbackSlot(isHttps);
+  return (
+    selected === writeSlot(isHttps) &&
+    fallback !== null &&
+    cookies.values[fallback] !== null
+  );
+}
+
 // Browser-lockout diagnostics deliberately cover only the two auth gates:
 // authenticate() and the /ws upgrade. handleLogout and
 // redirectConsumedVisitorIfSignedIn also read cookies, but a rejection there
@@ -2046,11 +2070,10 @@ export function browserSessionDiagnostic(
       outcome: "cookie_rejected",
       gate,
       selected,
-      // Only this office's names: a bare cookie is selected only when its
-      // session is live, so it never overrides anything.
-      othersPresent: OWN_SLOTS.some(
-        (slot) => slot !== selected && cookies.values[slot] !== null,
-      ),
+      // Only the office's fallback name, and only when the write name
+      // hid it: a bare cookie is selected only when its session is live, so
+      // it never overrides anything, and on HTTPS no other own name is read.
+      othersPresent: othersOverridden(cookies, selected),
       // Non-reversible: distinguishes a recurring stale cookie from changing
       // ones; never the cookie value itself.
       marker: cookies.selected
@@ -2179,8 +2202,8 @@ export function _testResetBrowserSessionDiagnostics(): void {
 // authorized.
 //
 //   1. UPGRADE - the request authenticated through a name other than the
-//      write name: this office's other name (after a move between loopback
-//      and HTTPS) or a bare name. Write precedence puts the write name first,
+//      write name: this office's other name (on loopback, after a move from
+//      HTTPS) or a bare name. Write precedence puts the write name first,
 //      so it is absent. Re-issue the SAME raw session id under the write name
 //      and clear nothing.
 //   2. RETIRE - the write name came back from the browser (so it accepted the

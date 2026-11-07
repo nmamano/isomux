@@ -50,7 +50,7 @@ import {
   type RawResponse,
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { officeSessionCookieNames } from "../auth.ts";
+import { SHARED_HOST_COOKIE_NAME, officeSessionCookieNames } from "../auth.ts";
 import { createHash } from "crypto";
 import { runInNewContext } from "node:vm";
 import { readFileSync, statSync, writeFileSync } from "fs";
@@ -957,17 +957,24 @@ describe("app-host handshake: the office mint endpoint", () => {
     // The two-step migration must ride THIS response too. It is the door into
     // the app origins, and the whole reason `__Host-` had to land before slice
     // 5 is that an app page on a sibling subdomain can shadow a plain office
-    // cookie. Reaching an app while still holding only the shadowable name
-    // would be exactly the case the prerequisite exists for.
+    // cookie. So on this HTTPS office the plain name is not read at all: it
+    // reaches no app and is copied into no `__Host-` cookie.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     const { host, plain } = officeSessionCookieNames();
     const old = `${plain}=${rawSessionId}`;
-    // Step 1, UPGRADE: the request authenticated through the office's plain
-    // name (left from a loopback past), so the same session id is re-issued
-    // under the office's `__Host-` name - and the handshake response is
-    // otherwise untouched.
-    const upgrade = await mint(srv, `?app=${label}&r=%2F`, {
+    const shadowable = await mint(srv, `?app=${label}&r=%2F`, {
       headers: { Cookie: old },
+    });
+    expect(shadowable.headers.get("location") ?? "").not.toContain(
+      appHost(label),
+    );
+    expect(shadowable.headers.getSetCookie()).toEqual([]);
+    // Step 1, UPGRADE: the request authenticated through the bare `__Host-`
+    // name every office wrote before it had its own, so the same session id
+    // is re-issued under the office's `__Host-` name - and the handshake
+    // response is otherwise untouched.
+    const upgrade = await mint(srv, `?app=${label}&r=%2F`, {
+      headers: { Cookie: `${SHARED_HOST_COOKIE_NAME}=${rawSessionId}` },
     });
     expect(upgrade.status).toBe(302);
     expect(upgrade.headers.get("location")).toStartWith(
@@ -977,8 +984,9 @@ describe("app-host handshake: the office mint endpoint", () => {
     expect(issued.length).toBe(1);
     expect(issued[0]).toStartWith(`${host}=${rawSessionId};`);
     expect(issued[0]).toContain("Secure");
-    // Step 2, RETIRE: the browser came back with both, so the plain name is
-    // cleared - and nothing about the handshake changes.
+    // Step 2, RETIRE: the browser came back with the `__Host-` name and a
+    // plain one of the same value, so the plain name is cleared - and nothing
+    // about the handshake changes.
     const retire = await srv.http(`/auth/app?app=${label}&r=%2F`, {
       redirect: "manual",
       headers: { Cookie: `${host}=${rawSessionId}; ${old}` },
