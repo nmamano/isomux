@@ -36,12 +36,17 @@ export type GateTests = {
 
 /**
  * A hub: a module, not changed, with more importers than this, tests
- * included. The walk stops at a hub. Its own tests run only when it imports a
- * changed file directly: a change to shared/i18n/en.ts runs the tests of
- * translate.ts, but not the 147 tests of server/test-support/harness.ts that
- * a longer path reaches. Without a stop, any copy edit selected 687 of 1149
- * test files. Over the last 150 commits on main (2026-11-07), of 1258 test
- * files, the tests this selects per commit: median 64, p90 544, max 750.
+ * included (load edges do not count, so a load edge never makes a hub that
+ * stops a walk without it), and more test files than this behind them (the
+ * tests a walk from it with no stop would select). The walk stops at a hub.
+ * Its own tests run only when it imports a changed file directly: a change
+ * to shared/i18n/en.ts runs the tests of translate.ts, but not the 147 tests
+ * of server/test-support/harness.ts that a longer path reaches. Without a stop,
+ * any copy edit selected 687 of 1149 test files. A facade that many modules
+ * import with few tests behind them, such as
+ * control-plane/web/lib/services.server.ts, is no hub. Over the last 150
+ * commits on main, on the tree of 2026-11-07 (1258 test files), the tests
+ * this selects per commit: median 62, p90 549, max 755.
  */
 export const HUB_IMPORTERS = 20;
 
@@ -120,11 +125,14 @@ const STRING = /(["'`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
 // import walk follows with its hub stop.
 const IMPORT_STRING =
   /(\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|\bmodule\s*\(\s*)(["'`])(?:(?!\2)[^\\\n]|\\.)*\2/g;
+// A load by a computed path: import(), require() or a require function of
+// createRequire (nodeRequire, webRequire) on anything but a string literal.
+const COMPUTED_LOAD = /(?:\bimport|require)\s*\(\s*[^"'`\s)]/i;
 
 /** The path pieces a test's string literals hold, outside its imports. */
-function pathPieces(text: string): Set<string> {
+function pathPieces(unimported: string): Set<string> {
   const pieces = new Set<string>();
-  for (const [, , body] of text.replace(IMPORT_STRING, "").matchAll(STRING))
+  for (const [, , body] of unimported.matchAll(STRING))
     // A piece keeps [ and ]: Next.js names a dynamic route directory [id].
     for (const piece of body.split(/[^\w@.[\]-]+/))
       if (piece) pieces.add(piece);
@@ -193,6 +201,22 @@ export function selectGateTests(input: GateTestsInput): GateTests {
   // Reverse runtime import edges: module -> the files that import it.
   const resolve = resolver(files);
   const importers = new Map<string, string[]>();
+  // Load edges per module, left out of its importer count.
+  const loads = new Map<string, number>();
+  const addImporter = (target: string, file: string) => {
+    const list = importers.get(target);
+    if (list) list.push(file);
+    else importers.set(target, [file]);
+  };
+  // Source files by file name, for the load edges.
+  const byName = new Map<string, string[]>();
+  for (const file of input.files)
+    if (SOURCE.test(file)) {
+      const name = file.slice(file.lastIndexOf("/") + 1);
+      const list = byName.get(name);
+      if (list) list.push(file);
+      else byName.set(name, [file]);
+    }
   const transpilers = new Map<string, Bun.Transpiler>();
   for (const file of input.files) {
     if (!SOURCE.test(file)) continue;
@@ -200,9 +224,19 @@ export function selectGateTests(input: GateTestsInput): GateTests {
     if (text === undefined) continue;
     if (isTest(file)) {
       if (changed.has(file)) selected.add(file);
-      const pieces = pathPieces(text);
+      const unimported = text.replace(IMPORT_STRING, "");
+      const pieces = pathPieces(unimported);
       if (input.changed.some((f) => namesPath(file, pieces, f)))
         selected.add(file);
+      // A test that loads a module by a computed path imports each source
+      // file it names. One that only reads files as text imports none.
+      if (COMPUTED_LOAD.test(unimported))
+        for (const piece of pieces)
+          for (const target of byName.get(piece) ?? [])
+            if (target !== file && namesPath(file, pieces, target)) {
+              addImporter(target, file);
+              loads.set(target, (loads.get(target) ?? 0) + 1);
+            }
     }
     const loader = /x$/.test(file) ? "tsx" : /ts$/.test(file) ? "ts" : "js";
     let transpiler = transpilers.get(loader);
@@ -218,11 +252,30 @@ export function selectGateTests(input: GateTestsInput): GateTests {
     for (const { path } of imports) {
       const target = resolve(file, path);
       if (target === undefined || target === file) continue;
-      const list = importers.get(target);
-      if (list) list.push(file);
-      else importers.set(target, [file]);
+      addImporter(target, file);
     }
   }
+
+  // More than HUB_IMPORTERS test files behind a module: the distinct tests
+  // that import it or a module that reaches it, at any depth.
+  const crowded = new Map<string, boolean>();
+  const manyTestsBehind = (module: string): boolean => {
+    let many = crowded.get(module);
+    if (many !== undefined) return many;
+    const tests = new Set<string>();
+    const seen = new Set([module]);
+    const queue = [module];
+    while (queue.length > 0 && tests.size <= HUB_IMPORTERS)
+      for (const f of importers.get(queue.pop()!) ?? [])
+        if (!seen.has(f)) {
+          seen.add(f);
+          if (isTest(f)) tests.add(f);
+          else queue.push(f);
+        }
+    many = tests.size > HUB_IMPORTERS;
+    crowded.set(module, many);
+    return many;
+  };
 
   // The files that import a changed file directly.
   const direct = new Set([...changed].flatMap((f) => importers.get(f) ?? []));
@@ -231,7 +284,10 @@ export function selectGateTests(input: GateTestsInput): GateTests {
   while (queue.length > 0) {
     const module = queue.pop()!;
     const from = importers.get(module) ?? [];
-    const hub = !changed.has(module) && from.length > HUB_IMPORTERS;
+    const hub =
+      !changed.has(module) &&
+      from.length - (loads.get(module) ?? 0) > HUB_IMPORTERS &&
+      manyTestsBehind(module);
     if (!hub || direct.has(module))
       for (const f of from) if (isTest(f)) selected.add(f);
     if (hub) continue;

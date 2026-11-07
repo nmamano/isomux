@@ -238,6 +238,106 @@ describe("selectGateTests, hubs", () => {
       [...moduleTests(HUB_IMPORTERS), "shared/i18n/translate.test.ts"].sort(),
     );
   });
+
+  // control-plane/web/lib/services.server.ts (task 3924f913): many routes
+  // import it, but few tests stand behind them, so it is no hub.
+  // m0..m{n-1} import server/facade.ts, which imports the changed
+  // server/dep.ts; `tests` adds the test files behind them.
+  const facade = (n: number, tests: Tree = {}): Tree => {
+    const tree: Tree = {
+      "server/dep.ts": "export const dep = 1;\n",
+      "server/facade.ts":
+        'import { dep } from "./dep";\nexport const facade = dep;\n',
+      ...tests,
+    };
+    for (let i = 0; i < n; i++)
+      tree[`server/m${i}.ts`] =
+        `import { facade } from "./facade";\nexport const m = facade;\n`;
+    return tree;
+  };
+  const ownTests = (n: number): Tree =>
+    Object.fromEntries(
+      Array.from({ length: n }, (_, i) => [
+        `server/m${i}.test.ts`,
+        `import { m } from "./m${i}";\n`,
+      ]),
+    );
+  const ownTestNames = (n: number) => Object.keys(ownTests(n)).sort();
+
+  it(`walks through a module with ${HUB_IMPORTERS + 1} importers and ${HUB_IMPORTERS} tests behind them`, () => {
+    expect(
+      select(facade(HUB_IMPORTERS + 1, ownTests(HUB_IMPORTERS)), [
+        "server/dep.ts",
+      ]).tests,
+    ).toEqual(ownTestNames(HUB_IMPORTERS));
+  });
+
+  it("stops at that module with one test more behind it", () => {
+    expect(
+      select(facade(HUB_IMPORTERS + 1, ownTests(HUB_IMPORTERS + 1)), [
+        "server/dep.ts",
+      ]).tests,
+    ).toEqual([]);
+  });
+
+  it("counts a test behind several of its importers once", () => {
+    const all = Array.from(
+      { length: HUB_IMPORTERS + 1 },
+      (_, i) => `import { m as m${i} } from "./m${i}";\n`,
+    ).join("");
+    expect(
+      select(facade(HUB_IMPORTERS + 1, { "server/all.test.ts": all }), [
+        "server/dep.ts",
+      ]).tests,
+    ).toEqual(["server/all.test.ts"]);
+  });
+
+  it("counts the tests behind it at any depth", () => {
+    // Each m{i} has no test of its own; n{i} imports it, and n{i}'s test
+    // imports n{i}: the tests stand two modules away.
+    const far: Tree = {};
+    for (let i = 0; i <= HUB_IMPORTERS; i++) {
+      far[`server/n${i}.ts`] =
+        `import { m } from "./m${i}";\nexport const n = m;\n`;
+      far[`server/n${i}.test.ts`] = `import { n } from "./n${i}";\n`;
+    }
+    expect(
+      select(facade(HUB_IMPORTERS + 1, far), ["server/dep.ts"]).tests,
+    ).toEqual([]);
+  });
+
+  it(`walks through a module that ${HUB_IMPORTERS} files import, with more tests behind them`, () => {
+    // Two tests per module: 2 * (HUB_IMPORTERS - 1) + 1 tests behind
+    // translate.ts, but only HUB_IMPORTERS importers.
+    const twice: Tree = {};
+    for (let i = 0; i < HUB_IMPORTERS - 1; i++)
+      twice[`ui/m${i}.more.test.ts`] = `import { m } from "./m${i}";\n`;
+    expect(
+      select(hub(HUB_IMPORTERS - 1, twice), ["shared/i18n/en.ts"]).tests,
+    ).toEqual(
+      [
+        ...moduleTests(HUB_IMPORTERS - 1),
+        ...Object.keys(twice),
+        "shared/i18n/translate.test.ts",
+      ].sort(),
+    );
+  });
+
+  // A load edge must not make a hub that stops a walk the import edges let
+  // through: translate.ts has HUB_IMPORTERS import edges and one load edge.
+  it("does not count a test that loads the module by a computed path as an importer", () => {
+    const tree = hub(HUB_IMPORTERS - 1, {
+      "shared/i18n/load.test.ts":
+        'const t = await import(join(import.meta.dir, "translate.ts"));\n',
+    });
+    expect(select(tree, ["shared/i18n/en.ts"]).tests).toEqual(
+      [
+        ...moduleTests(HUB_IMPORTERS - 1),
+        "shared/i18n/load.test.ts",
+        "shared/i18n/translate.test.ts",
+      ].sort(),
+    );
+  });
 });
 
 describe("selectGateTests, path literals", () => {
@@ -352,6 +452,105 @@ describe("selectGateTests, path literals", () => {
     expect([...result.tests, ...result.controlPlaneTests].sort()).toEqual(
       expected,
     );
+  });
+});
+
+// Task 3924f913: control-plane/web-enterprise.test.ts loads each route by
+// `await import(path.join(WEB, "app/api/enterprise", rel, "route.ts"))`. A
+// test that loads a module by a computed path imports each source file it
+// names; a test that only reads files as text imports none of them.
+describe("selectGateTests, load edges", () => {
+  const tree: Tree = {
+    "server/lib.ts": "export const lib = 1;\n",
+    "server/web/route.ts":
+      'import { lib } from "../lib";\nexport const route = lib;\n',
+    "server/other.ts": "export const other = 1;\n",
+    "server/web2/route.ts":
+      'import { other } from "../other";\nexport const route = other;\n',
+  };
+  const at = 'join(import.meta.dir, "web", "route.ts")';
+  const rows: [string, string, string, string[]][] = [
+    [
+      "selects a test that loads the module by import()",
+      `const m = await import(${at});\n`,
+      "server/lib.ts",
+      ["server/t.test.ts"],
+    ],
+    [
+      "selects a test that loads the module by require()",
+      `const m = require(${at});\n`,
+      "server/lib.ts",
+      ["server/t.test.ts"],
+    ],
+    [
+      "selects a test that loads the module by a require function of createRequire",
+      `const nodeRequire = createRequire(import.meta.url);\nconst m = nodeRequire(${at});\n`,
+      "server/lib.ts",
+      ["server/t.test.ts"],
+    ],
+    [
+      "selects a test that loads the module through a variable",
+      `const ROUTE = ${at};\nconst m = await import(ROUTE);\n`,
+      "server/lib.ts",
+      ["server/t.test.ts"],
+    ],
+    [
+      "does not select a test that only reads the module as text",
+      `const text = readFileSync(${at}, "utf8");\n`,
+      "server/lib.ts",
+      [],
+    ],
+    [
+      // A literal import is an edge of its own, not a load by a computed
+      // path, so the path the test reads stays text.
+      "does not select a test whose only import() takes a literal",
+      `const m = await import("./x.ts");\nconst text = readFileSync(${at}, "utf8");\n`,
+      "server/lib.ts",
+      [],
+    ],
+    [
+      "does not select a test for a module it loads no importer of",
+      `const m = await import(${at});\n`,
+      "server/other.ts",
+      [],
+    ],
+  ];
+  it.each(rows)("%s", (_, test, changed, expected) => {
+    const result = select(
+      {
+        ...tree,
+        "server/x.ts": "export const x = 1;\n",
+        "server/t.test.ts": test,
+      },
+      [changed],
+    );
+    expect(result.tests).toEqual(expected);
+  });
+
+  // The 8cc2862f path: enterprise-invoices.ts -> services.server.ts (a
+  // dynamic import) -> the portal route -> web-enterprise.test.ts.
+  it("selects a test that loads a route for a change two modules behind it", () => {
+    const test = [
+      'const WEB = path.join(import.meta.dir, "web");',
+      "const route = async (rel: string) =>",
+      '  await import(path.join(WEB, "app/api/enterprise", rel, "route.ts"));',
+      'const portal = await route("billing/portal");',
+      "",
+    ].join("\n");
+    const result = select(
+      {
+        "control-plane/enterprise-invoices.ts": "export const inv = 1;\n",
+        "control-plane/web/lib/services.server.ts":
+          'export const load = () => import("../../enterprise-invoices");\n',
+        "control-plane/web/app/api/enterprise/billing/portal/route.ts":
+          'import { load } from "../../../../../lib/services.server";\nexport const POST = load;\n',
+        "control-plane/web-enterprise.test.ts": test,
+      },
+      ["control-plane/enterprise-invoices.ts"],
+    );
+    expect(result.controlPlaneTests).toEqual([
+      "control-plane/web-enterprise.test.ts",
+    ]);
   });
 });
 
