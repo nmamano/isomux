@@ -1412,3 +1412,77 @@ test("with no office paired, the popup shows the pair form and no office picker"
     window.dispatchEvent(new Event("pagehide"));
   }
 });
+
+// Task cfbf6ba5: the picker already names the office and its state, so the
+// popup does not show them a second time.
+test("with the office picker shown, the status line shows only for the steps the picker shortens, and the office shows once", async () => {
+  const statusLine = () => document.getElementById("status")!;
+  const away = { url: "https://page.test/post" };
+  const visibleText = () => shownText(document.querySelector("main")!);
+  // Connected: the picker option says it all.
+  await openPopup(bothOffices("connected"), undefined, away);
+  try {
+    expect(shown(officePicker())).toBe(true);
+    expect(statusLine().dataset.state).toBe("connected");
+    expect(shown(statusLine())).toBe(false);
+    expect(visibleText().split("example.com")).toHaveLength(2);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+  // Blocked and unknown: the option is the short form, the line the step.
+  for (const state of ["blocked", "unknown"]) {
+    await openPopup(
+      {
+        ...connected,
+        state,
+        offices: [
+          { office: ONE_OFFICE, state },
+          { office: TWO_OFFICE, state: "connected" },
+        ],
+      },
+      undefined,
+      away,
+    );
+    try {
+      expect(shown(officePicker())).toBe(true);
+      expect(statusLine().dataset.state).toBe(state);
+      expect(shown(statusLine())).toBe(true);
+      // Add an office: the step names the office picked before.
+      const add = [...officePicker()!.options].find(
+        (o) => o.value !== ONE_OFFICE && o.value !== TWO_OFFICE,
+      )!.value;
+      await choose(officePicker()!, add);
+      expect(shown(document.getElementById("pair-form"))).toBe(true);
+      expect(shown(statusLine())).toBe(false);
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
+  }
+  // No office paired: no picker, so the line says so.
+  await openPopup({ ...UNPAIRED, offices: [] });
+  try {
+    expect(shown(officePicker())).toBe(false);
+    expect(statusLine().dataset.state).toBe("unpaired");
+    expect(shown(statusLine())).toBe(true);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("Share and Use this tab come before the member list, and the browser owner line comes after the tab controls", async () => {
+  await openPopup(connected);
+  try {
+    const at = (id: string) => document.getElementById(id)!;
+    const before = (a: string, b: string) =>
+      (at(a).compareDocumentPosition(at(b)) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
+      0;
+    expect(before("share", "allow")).toBe(true);
+    expect(before("allow", "agents")).toBe(true);
+    expect(before("allow", "members-list")).toBe(true);
+    expect(before("tab-control", "member")).toBe(true);
+    expect(at("tab-control").contains(at("member"))).toBe(false);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});

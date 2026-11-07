@@ -139,8 +139,12 @@ button:focus-visible {
   color: #ffb8b8;
 }
 #retained,
-#offline-help {
+#offline-help,
+#member {
   color: #bbc3d4;
+}
+#member:empty {
+  display: none;
 }
 #update {
   margin: 14px 0 0;

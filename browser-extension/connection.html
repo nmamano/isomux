@@ -19,8 +19,6 @@
           hidden
         ></select>
         <p id="status" role="status"></p>
-        <p id="member"></p>
-        <p id="office-display"></p>
         <form id="pair-form">
           <label id="office-label" for="office"></label>
           <input
@@ -83,6 +81,14 @@
         <p id="share-status" role="status"></p>
       </section>
       <section id="tab-control">
+        <label class="control-switch"
+          ><span id="allow-label"></span
+          ><input type="checkbox" id="allow" role="switch" disabled /><span
+            class="switch-track"
+            aria-hidden="true"
+          ></span
+        ></label>
+        <p id="tab-state" role="status"></p>
         <label id="agents-label" for="agents"></label>
         <select id="agents" disabled>
           <option id="agents-mine" value="mine"></option>
@@ -93,14 +99,6 @@
           <ul id="members-list"></ul>
           <p id="members-none"></p>
         </div>
-        <label class="control-switch"
-          ><span id="allow-label"></span
-          ><input type="checkbox" id="allow" role="switch" disabled /><span
-            class="switch-track"
-            aria-hidden="true"
-          ></span
-        ></label>
-        <p id="tab-state" role="status"></p>
         <div id="agent-tabs" hidden>
           <label class="control-switch"
             ><span id="open-tabs-label"></span
@@ -112,6 +110,7 @@
           <ul id="agent-tabs-list"></ul>
         </div>
       </section>
+      <p id="member"></p>
       <p id="retained"></p>
       <p id="error" role="alert"></p>
     </main>

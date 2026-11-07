@@ -188,12 +188,17 @@ function render(next: typeof state) {
   // to another.
   if (state.office) picked = state.office;
   renderOffices();
-  element("status").dataset.state = state.state;
-  element("status").textContent = t(`browser.${state.state}`);
+  const status = element("status");
+  status.dataset.state = state.state;
+  status.textContent = t(`browser.${state.state}`);
+  // The picker names the office and its state; the line stays only for the
+  // steps the picker shortens.
+  status.hidden =
+    adding ||
+    (!officePicker.hidden && !["blocked", "unknown"].includes(state.state));
   element("member").textContent = state.member
     ? t("browser.owner", { name: state.member.name })
     : "";
-  element("office-display").textContent = state.office;
   if (!office.value && !adding) office.value = state.office;
   const pairForm = element("pair-form");
   const pairHidden =
