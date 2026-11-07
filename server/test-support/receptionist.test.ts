@@ -385,9 +385,10 @@ describe("receptionist profile and lobby", () => {
     });
 
     // The retry is only for a seed that fell back. Here discovery succeeds and
-    // lists the fallback, and a later request lists another free model; one
-    // test per seed call site.
-    async function startWithListedFallback(fallbackCalls: number) {
+    // lists the fallback, and a later request would list another free model.
+    // The Receptionist and the Free Welcome Agent share the seed's one
+    // discovery (task 459936c8), so one case covers both call sites.
+    it("leaves agents seeded by a successful discovery alone", async () => {
       const discovery = { calls: 0 };
       const listed: BackendModelWire[] = [
         {
@@ -400,8 +401,10 @@ describe("receptionist profile and lobby", () => {
       const srv = (server = await startTestServer({
         startServer: {
           discoverWelcomeOpenCodeModels: async () => {
-            discovery.calls++;
-            return discovery.calls <= fallbackCalls ? listed : liveModels;
+            const call = ++discovery.calls;
+            // In flight long enough for the second seed call site to join it.
+            await sleep(20);
+            return call === 1 ? listed : liveModels;
           },
           welcomeModelTiming: {
             discoveryTimeoutMs: 1_000,
@@ -411,22 +414,11 @@ describe("receptionist profile and lobby", () => {
         },
       }));
       await claimOwner(srv, "Morgan");
+      // Many retry delays: a retry would have run by now.
       await sleep(100);
-      return { srv, discovery };
-    }
-
-    it("leaves a Receptionist seeded by a successful discovery alone", async () => {
-      const { srv, discovery } = await startWithListedFallback(1);
-      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
-      expect(freeWelcomeOf(srv).modelFamily).toBe(LIVE_FREE);
-      expect(discovery.calls).toBe(2);
-    });
-
-    it("leaves a Free Welcome Agent seeded by a successful discovery alone", async () => {
-      const { srv, discovery } = await startWithListedFallback(2);
       expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
       expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
-      expect(discovery.calls).toBe(2);
+      expect(discovery.calls).toBe(1);
     });
   });
 

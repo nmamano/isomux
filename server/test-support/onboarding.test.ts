@@ -270,6 +270,80 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(calls).toEqual([getUserByName("Morgan")!.id]);
   });
 
+  // The claim redirect waits for the whole seed: the model discoveries do not
+  // wait for the agents spawned before them (task 459936c8).
+  it("starts the Codex model discovery before any agent spawns, and keeps the seed order", async () => {
+    let agentsAtDiscovery = null as string[] | null;
+    server = await startTestServer({
+      startServer: {
+        listCodexModels: async () => {
+          const srv = server!;
+          agentsAtDiscovery = srv.agentManager
+            .getAllAgents()
+            .map((a) => a.name);
+          // Answer only once the agents before the Codex one exist: the
+          // discovery runs while they spawn.
+          await waitUntil(
+            () =>
+              srv.agentManager
+                .getAllAgents()
+                .some((a) => a.name === CLAUDE_WELCOME),
+            "the Claude welcome agent spawns while the discovery runs",
+          );
+          return [
+            {
+              id: "gpt-login-default",
+              label: "Login default",
+              isDefault: true,
+              supportedEfforts: [],
+            },
+          ];
+        },
+      },
+    });
+    await claimOwner(server, "Morgan");
+    expect(agentsAtDiscovery).toEqual([]);
+    expect(requireAgentByName(server, CODEX_WELCOME).modelFamily).toBe(
+      "gpt-login-default",
+    );
+    const welcome = server.agentManager
+      .getAllAgents()
+      .filter((a) => a.roomId !== "lobby")
+      .sort((a, b) => a.desk - b.desk)
+      .map((a) => a.name);
+    expect(welcome).toEqual([CLAUDE_WELCOME, CODEX_WELCOME, OPENCODE_WELCOME]);
+  });
+
+  // The Receptionist and the Free Welcome Agent pick their free model the same
+  // way: one OpenCode model discovery serves both.
+  it("discovers the OpenCode models once for the Receptionist and the Free Welcome Agent", async () => {
+    let calls = 0;
+    let secondCall!: () => void;
+    const second = new Promise<void>((res) => (secondCall = res));
+    server = await startTestServer({
+      startServer: {
+        discoverWelcomeOpenCodeModels: async () => {
+          if (++calls === 2) secondCall();
+          // Held long enough for a second caller to find this one in flight.
+          await Promise.race([second, sleep(200)]);
+          return [
+            {
+              id: "opencode/muse-spark-1.2-contributor-free",
+              label: "Muse Spark",
+              isFree: true,
+              supportedEfforts: [],
+            },
+          ];
+        },
+      },
+    });
+    await claimOwner(server, "Morgan");
+    expect(requireAgentByName(server, OPENCODE_WELCOME).modelFamily).toBe(
+      "opencode/muse-spark-1.2-contributor-free",
+    );
+    expect(calls).toBe(1);
+  });
+
   it("leaves an office that already has an agent unchanged on first-owner claim", async () => {
     server = await startTestServer();
     const existing = await server.agentManager.spawn(

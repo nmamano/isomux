@@ -5753,6 +5753,9 @@ export function createAgentManager(deps: ManagerDeps) {
         ? items.filter((m) => queuedItemCapped(managed, m))
         : [];
       let usageHeadsUp: { dayStartMs: number } | undefined;
+      // Taken before the admission, so the turn's wait for an in-flight
+      // context sample runs during it (RunAgentTurnOpts.contextSampleDeadline).
+      const contextSampleDeadline = Date.now() + sampleWaitMs;
       if (capped.length > 0) {
         const tokenAtGate = managed.sessionManager.turnCancelToken;
         const sessionAtGate = managed.sessionManager.session;
@@ -5834,6 +5837,7 @@ export function createAgentManager(deps: ManagerDeps) {
       try {
         await runAgentTurn({
           managed,
+          contextSampleDeadline,
           sdkText: prompt,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
           // The batch belongs to every member in it. Agents, apps, cron jobs

@@ -987,3 +987,85 @@ describe("log search: compressed transcripts read the same", () => {
     }
   });
 });
+
+// The two reads every index and search starts with do not depend on each
+// other, and a retrieval reads sessions.json once (task 459936c8).
+describe("log reads: no needless waits", () => {
+  // The real source, with its session list and sessions.json held until the
+  // test lets them answer, and every read counted.
+  function heldSource() {
+    const started: string[] = [];
+    const counts = { listSessions: 0, readSessionsMeta: 0 };
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    const held: typeof source = {
+      ...source,
+      async listSessions(agentId) {
+        counts.listSessions++;
+        started.push("listSessions");
+        await gate;
+        return source.listSessions(agentId);
+      },
+      async readSessionsMeta(agentId) {
+        counts.readSessionsMeta++;
+        started.push("readSessionsMeta");
+        await gate;
+        return source.readSessionsMeta(agentId);
+      },
+    };
+    return { held, started, counts, release };
+  }
+  const settle = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+
+  it("an index starts both reads before either answers", async () => {
+    const { held, started, release } = heldSource();
+    const pending = buildSessionIndex(held, AGENT);
+    await settle();
+    expect([...started].sort()).toEqual(["listSessions", "readSessionsMeta"]);
+    release();
+    expect(await pending).toEqual(await buildSessionIndex(source, AGENT));
+  });
+
+  it("a search starts both reads before either answers", async () => {
+    const { held, started, release } = heldSource();
+    const query = q("q=permission");
+    const pending = searchLogs(held, AGENT, query, scan);
+    await settle();
+    expect([...started].sort()).toEqual(["listSessions", "readSessionsMeta"]);
+    release();
+    expect(await pending).toEqual(await searchLogs(source, AGENT, query, scan));
+  });
+
+  it("a retrieval of a forked session reads sessions.json once", async () => {
+    const { held, counts, release } = heldSource();
+    release();
+    const query = q(`session=${S2}&tier=full`);
+    const res = await retrieveSession(held, AGENT, S2, query);
+    expect(counts.readSessionsMeta).toBe(1);
+    // Still the whole timeline: the ancestor's entries up to the fork, then
+    // the branch's own.
+    expect(res.entries.map((e) => e.entryId)).toEqual([
+      "e1",
+      "e2",
+      "e6",
+      "e7",
+      "e8",
+      "e9",
+      "e10",
+    ]);
+    expect(res).toMatchObject({ topic: "Follow-up branch" });
+  });
+
+  it("a search in one forked session reads sessions.json once", async () => {
+    const { held, counts, release } = heldSource();
+    release();
+    const query = q(`q=permission&session=${S2}`);
+    const res = await searchLogs(held, AGENT, query, scan);
+    expect(counts.readSessionsMeta).toBe(1);
+    // The ancestor's entry before the fork is still found.
+    expect(res).toEqual(await searchLogs(source, AGENT, query, scan));
+    expect(res.results.map((h) => h.entryId)).toContain("e1");
+  });
+});

@@ -56,6 +56,10 @@ export interface RunAgentTurnOpts {
    *  only when the command starts the message. No notice goes ahead of it;
    *  every armed notice waits for the next turn. */
   nativeCommand?: boolean;
+  /** Epoch ms until which the context notice waits for an in-flight context
+   *  sample. flushQueue takes it before its usage-cap admission, so the wait
+   *  runs during the admission. Unset: now + the sample wait. */
+  contextSampleDeadline?: number;
   /** The input as queue items, to send again on another free model if the
    *  provider refuses an office-seeded free model (ManagedAgent.
    *  freeModelResend). Unset: the turn is not sent again. */
@@ -139,6 +143,10 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // the token above, before the await, so a Stop or swap during the provider
   // read fails the recheck instead of passing on the replacement session.
   const sessionAtEntry = managed.sessionManager.session;
+  // The context notice waits for an in-flight sample until this deadline,
+  // taken before the admission so the wait runs during it.
+  const sampleDeadline =
+    opts.contextSampleDeadline ?? Date.now() + deps.contextNoticeSampleWaitMs;
   let usageHeadsUp: { dayStartMs: number } | undefined;
   if (opts.usageCapped && sessionAtEntry && memberUsageCap().isEnabled()) {
     const admission = await memberUsageCap().admit(
@@ -155,9 +163,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   }
 
   // The bounded await inside buildContextNoticeBlock caps the added latency
-  // (~500ms worst case, and only when a sample is still in flight).
+  // (sampleDeadline, and only when a sample is still in flight).
   const native = opts.nativeCommand === true;
-  const contextNotice = native ? null : await buildContextNoticeBlock(managed);
+  const contextNotice = native
+    ? null
+    : await buildContextNoticeBlock(managed, sampleDeadline);
   // The await above can straddle a Stop / session swap.
   checkCancelled();
   // Read AFTER that await for the same reason: a session swap in the window
@@ -560,6 +570,7 @@ export function pickContextThreshold(managed: ManagedAgent): number | null {
  *  (and replaces the fired-set), and the guard then skips the stale mark. */
 async function buildContextNoticeBlock(
   managed: ManagedAgent,
+  sampleDeadline: number,
 ): Promise<{ threshold: number; block: string; gen: number } | null> {
   // Codex compacts its own thread, so /clear or /handoff advice is wrong.
   // OpenCode is also opted out by default: its six connected models measured
@@ -574,14 +585,16 @@ async function buildContextNoticeBlock(
   // The automatic handoff stands in for the wrap-up advice while it can still
   // run; nothing is marked fired, so a failed or paused attempt brings it back.
   if (autoHandoffPossible(managed)) return null;
+  // The sample in flight now, which may have started during the admission.
   const inFlight = managed.contextSampleInFlight;
-  if (inFlight) {
+  const waitMs = sampleDeadline - Date.now();
+  if (inFlight && waitMs > 0) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
       inFlight,
-      new Promise<void>((res) =>
-        setTimeout(res, deps!.contextNoticeSampleWaitMs),
-      ),
+      new Promise<void>((res) => (timer = setTimeout(res, waitMs))),
     ]);
+    clearTimeout(timer);
   }
   const threshold = pickContextThreshold(managed);
   // pickContextThreshold returns non-null only when contextUsage is present.

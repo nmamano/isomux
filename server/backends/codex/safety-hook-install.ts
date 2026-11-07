@@ -137,12 +137,27 @@ function assertTrustPin(): void {
 
 async function prepareArtifact(): Promise<PreparedArtifact> {
   assertTrustPin();
+  // The trust measurement names only the hook's installed path, never the
+  // golden file, so it runs while the artifact is checked and built. Its
+  // failure is awaited below; the no-op catch keeps an earlier throw from
+  // leaving it unhandled.
+  const trustedHash = measuredTrustedHash();
+  trustedHash.catch(() => {});
   mkdirSync(dirname(GOLDEN_HOOK_PATH), { recursive: true, mode: 0o700 });
-  const source = await hashCodexSafetyHookSources();
-  let rebuild = !existsSync(GOLDEN_HOOK_PATH);
+  const hadArtifact = existsSync(GOLDEN_HOOK_PATH);
+  // The source hash and the stamp of the artifact on disk together. A source
+  // hash failure throws first; a stamp failure means a rebuild.
+  const [sourceRead, stampRead] = await Promise.allSettled([
+    hashCodexSafetyHookSources(),
+    hadArtifact ? executableStamp(GOLDEN_HOOK_PATH) : Promise.resolve(""),
+  ]);
+  if (sourceRead.status === "rejected") throw sourceRead.reason;
+  const source = sourceRead.value;
+  let rebuild = !hadArtifact;
   if (!rebuild) {
     try {
-      const stamp = await executableStamp(GOLDEN_HOOK_PATH);
+      if (stampRead.status === "rejected") throw stampRead.reason;
+      const stamp = stampRead.value;
       rebuild = stamp !== source.sha256;
       if (rebuild) {
         console.error(
@@ -165,17 +180,25 @@ async function prepareArtifact(): Promise<PreparedArtifact> {
       rmSync(temporary, { force: true });
     }
   }
-  const stamp = await executableStamp(GOLDEN_HOOK_PATH);
+  // The final stamp and the file hash both only read the artifact. The stamp
+  // error or mismatch still wins over a hash failure.
+  const [finalStamp, fileHash] = await Promise.allSettled([
+    executableStamp(GOLDEN_HOOK_PATH),
+    sha256File(GOLDEN_HOOK_PATH),
+  ]);
+  if (finalStamp.status === "rejected") throw finalStamp.reason;
+  const stamp = finalStamp.value;
   if (stamp !== source.sha256) {
     throw new Error(
       `rebuilt artifact stamp mismatch: expected ${source.sha256}, received ${stamp || "<empty>"}`,
     );
   }
+  if (fileHash.status === "rejected") throw fileHash.reason;
   return {
     path: GOLDEN_HOOK_PATH,
-    sha256: await sha256File(GOLDEN_HOOK_PATH),
+    sha256: fileHash.value,
     sourceSha256: source.sha256,
-    trustedHash: await measuredTrustedHash(),
+    trustedHash: await trustedHash,
   };
 }
 

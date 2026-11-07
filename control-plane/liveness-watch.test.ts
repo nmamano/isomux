@@ -551,3 +551,119 @@ describe("a recent prober outage holds the office's strikes", () => {
     expect(counted[0]).not.toBe(counted[1]);
   });
 });
+
+// Each office has its own claim row and version, so a pass probes up to four
+// offices at a time instead of one after another (task 459936c8): one slow
+// office no longer holds every other office's reading.
+describe("offices are probed four at a time", () => {
+  const IPV4 = "169.58.97.2";
+
+  async function offices(n: number) {
+    const now = { value: 1_000_000 };
+    const store = await openTestStore(() => now.value);
+    for (let i = 1; i <= n; i++) {
+      await store.createInstance({
+        id: `inst-${i}`,
+        run_id: null,
+        name: `cp${i}.test.isomux.app`,
+        plan: "V153",
+        region: "EU",
+        service_state: "live",
+        goal: "live",
+        access_window_expires_at: now.value + 1_000_000,
+      });
+      await store.createAsset({
+        id: `asset-${i}`,
+        instance_id: `inst-${i}`,
+        provider: "contabo",
+        provider_id: `20347483${i}`,
+        intent_id: null,
+        asset_state: "active",
+        ipv4: IPV4,
+        service_ends_at: null,
+        host_key_fingerprint: null,
+        next_reconcile_at: now.value,
+      });
+    }
+    // Every DNS lookup is held until the test answers it.
+    const held: Array<() => void> = [];
+    let ensures = 0;
+    const ensureLiveness = store.ensureLiveness.bind(store);
+    store.ensureLiveness = async (...args) => {
+      ensures++;
+      return ensureLiveness(...args);
+    };
+    const pass = () =>
+      watchLiveness(store, {
+        holder: "prober-a",
+        network: { lastOutageAt: null },
+        control: CONTROL_UP,
+        lookup: () => new Promise<string>((res) => held.push(() => res(IPV4))),
+        connect: async () => {},
+        fetchImpl: async () => new Response("", { status: 200 }),
+      });
+    const answerAll = () => {
+      for (const answer of held.splice(0)) answer();
+    };
+    return { store, held, ensures: () => ensures, pass, answerAll };
+  }
+
+  const until = async (cond: () => boolean) => {
+    const deadline = Date.now() + 1_500;
+    while (!cond() && Date.now() < deadline) await Bun.sleep(5);
+  };
+
+  test("four probes run at once, never a fifth, and every office is read", async () => {
+    const o = await offices(6);
+    const pass = o.pass();
+    await until(() => o.held.length >= 4);
+    // Room for a fifth to start, if the pass would start one.
+    await Bun.sleep(50);
+    expect(o.held.length).toBe(4);
+    expect(o.ensures()).toBe(4);
+    const answerer = setInterval(o.answerAll, 5);
+    try {
+      expect(await pass).toBe(6);
+    } finally {
+      clearInterval(answerer);
+    }
+    for (let i = 1; i <= 6; i++)
+      expect((await o.store.getLiveness(`inst-${i}`))!.rung).toBe("ok");
+  });
+
+  test("a store error starts no further office and fails the pass once the started probes end", async () => {
+    const o = await offices(6);
+    const claimLiveness = o.store.claimLiveness.bind(o.store);
+    let claims = 0;
+    const failure = new Error("store went away");
+    o.store.claimLiveness = async (...args) => {
+      if (++claims === 2) throw failure;
+      return claimLiveness(...args);
+    };
+    let settled = false;
+    const pass = o.pass().then(
+      (count) => {
+        settled = true;
+        return count;
+      },
+      (err: unknown) => {
+        settled = true;
+        throw err;
+      },
+    );
+    // The three other started offices reach their probe.
+    await until(() => o.held.length >= 3 || settled);
+    await Bun.sleep(50);
+    expect(o.held.length).toBe(3);
+    expect(settled).toBe(false);
+    o.answerAll();
+    expect(
+      await pass.then(
+        () => null,
+        (err: unknown) => err,
+      ),
+    ).toBe(failure);
+    // The two offices past the first four never started.
+    expect(o.ensures()).toBe(4);
+  });
+});

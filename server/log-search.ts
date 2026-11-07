@@ -424,12 +424,13 @@ function forkChain(
 // reconstructing is the only way `session=<id>` can see the conversation the
 // agent actually experienced. An all-session scan instead reads each PHYSICAL
 // entry exactly once, so a shared ancestor is not reported N times over.
+// `meta` is the caller's read of sessions.json.
 async function reconstructTimeline(
   source: LogSource,
   agentId: string,
   sessionId: string,
+  meta: Record<string, SessionMeta>,
 ): Promise<LogEntry[]> {
-  const meta = await source.readSessionsMeta(agentId);
   const chain = forkChain(sessionId, meta);
   const out: LogEntry[] = [];
   for (let i = 0; i < chain.length; i++) {
@@ -551,8 +552,10 @@ export async function buildSessionIndex(
   agentId: string,
   opts: SessionIndexOptions = {},
 ): Promise<SessionIndexResult> {
-  const listed = await source.listSessions(agentId);
-  const meta = await source.readSessionsMeta(agentId);
+  const [listed, meta] = await Promise.all([
+    source.listSessions(agentId),
+    source.readSessionsMeta(agentId),
+  ]);
   const branchedFrom = new Set<string>();
   for (const m of Object.values(meta)) {
     if (m.forkedFrom) branchedFrom.add(m.forkedFrom);
@@ -663,10 +666,10 @@ export async function retrieveSession(
   // Normalize the whole timeline up front, through the same seam the scan uses,
   // so retrieval cannot emit a non-string `content` or a kind outside the union
   // its wire type declares.
-  const timeline = (await reconstructTimeline(source, agentId, sessionId))
+  const meta = await source.readSessionsMeta(agentId);
+  const timeline = (await reconstructTimeline(source, agentId, sessionId, meta))
     .map(normalizeEntry)
     .filter((e): e is NormalizedEntry => e !== null);
-  const meta = await source.readSessionsMeta(agentId);
   const topic = meta[sessionId]?.topic ?? null;
   const summary = summaryOf(meta[sessionId]);
 
@@ -784,9 +787,11 @@ export async function searchLogs(
 ): Promise<SearchResult> {
   const q = query.q ?? "";
   const re = query.regex ? compileRegex(q) : null;
-  const meta = await source.readSessionsMeta(agentId);
+  const [meta, sessions] = await Promise.all([
+    source.readSessionsMeta(agentId),
+    source.listSessions(agentId),
+  ]);
   const deadline = Date.now() + opts.budgetMs;
-  const sessions = await source.listSessions(agentId);
   const summaryHits = matchSummaries(
     query.session === undefined
       ? sessions
@@ -848,7 +853,12 @@ export async function searchLogs(
     // check below bounds the MATCHING, not the reading. Acceptable because the
     // scan is process-isolated and hard-bounded either way; a streaming
     // reconstructed iterator is the fix if this ever bites.
-    const timeline = await reconstructTimeline(source, agentId, query.session);
+    const timeline = await reconstructTimeline(
+      source,
+      agentId,
+      query.session,
+      meta,
+    );
     for (const entry of timeline) {
       if (Date.now() > deadline) {
         timedOut = true;

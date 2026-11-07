@@ -16,6 +16,8 @@ import type { SessionView } from "../../../lib/session-view";
 let session: Session | null = null;
 // Each stand-in service records its name when the route calls it.
 let calls: string[] = [];
+// While set, each stand-in service waits for it before it answers.
+let gate: Promise<void> | null = null;
 
 const SESSION_EMAIL = "old@example.com";
 const ACCOUNT_EMAIL = "new@example.com";
@@ -51,10 +53,12 @@ await mock.module("../../../lib/services.server", () => ({
   ...realServices,
   officesForAccount: async () => {
     calls.push("officesForAccount");
+    if (gate) await gate;
     return [office];
   },
   accountSettings: async () => {
     calls.push("accountSettings");
+    if (gate) await gate;
     return { email: ACCOUNT_EMAIL, google: false };
   },
 }));
@@ -81,6 +85,7 @@ beforeEach(() => {
     expires: new Date(Date.now() + 3_600_000).toISOString(),
   };
   calls = [];
+  gate = null;
 });
 
 describe("GET /api/session", () => {
@@ -127,5 +132,16 @@ describe("GET /api/session", () => {
       ],
     });
     expect(calls.sort()).toEqual(["accountSettings", "officesForAccount"]);
+  });
+
+  // The two reads do not depend on each other (task 459936c8).
+  test("?offices=1 starts both reads before either answers", async () => {
+    let open!: () => void;
+    gate = new Promise<void>((res) => (open = res));
+    const view = ask("?offices=1");
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect([...calls].sort()).toEqual(["accountSettings", "officesForAccount"]);
+    open();
+    expect(await view).toMatchObject({ signedIn: true, email: ACCOUNT_EMAIL });
   });
 });

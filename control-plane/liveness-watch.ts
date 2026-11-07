@@ -30,7 +30,7 @@ import {
   isServing,
   strikesAfter,
 } from "./liveness.ts";
-import type { Store } from "./store.ts";
+import type { InstanceRow, Store } from "./store.ts";
 
 /** The reason text carried by a liveness attention row. Matched on to find our
  * own row again, so it is a constant rather than an interpolated sentence. */
@@ -43,6 +43,9 @@ export const LIVENESS_REASON = "the office failed its liveness checks";
  * other. Using a fake operation id here would be a lie in a durable row.
  */
 const NO_OPERATION = "";
+
+/** Offices one pass probes at the same time. */
+const LIVENESS_CONCURRENCY = 4;
 
 /** One prober's memory of its own network, kept across its passes. Per
  * prober, because the network under test is the prober's own. */
@@ -74,10 +77,9 @@ export async function watchLiveness(
   store: Store,
   deps: WatchDeps,
 ): Promise<number> {
-  let probed = 0;
   const control = deps.control ?? (() => probeControl());
-  for (const instance of await store.listInstances()) {
-    if (instance.service_state !== "live") continue;
+  // One office, start to end. True when it was probed: claimed and read.
+  const watchOffice = async (instance: InstanceRow): Promise<boolean> => {
     const now = store.now();
     await store.ensureLiveness(instance.id, now);
     const claimed = await store.claimLiveness(
@@ -88,7 +90,7 @@ export async function watchLiveness(
     );
     // Not due, or somebody else is probing it. Either way this pass does not
     // touch it: the claim is the arbiter, so a loser never counts a strike.
-    if (!claimed) continue;
+    if (!claimed) return false;
 
     const asset = await store.assetForInstance(instance.id);
     let rung: Rung;
@@ -106,7 +108,6 @@ export async function watchLiveness(
       rung = "tcp";
       detail = `the probe threw: ${messageOf(err)}`;
     }
-    probed++;
 
     if (!isServing(rung)) {
       // Checked right after each failing reading, not once per pass: one slow
@@ -148,7 +149,7 @@ export async function watchLiveness(
             : `liveness for ${instance.name} was written by another prober; ` +
                 `discarding this reading rather than replaying it`,
         );
-        continue;
+        return true;
       }
     }
 
@@ -172,7 +173,7 @@ export async function watchLiveness(
         `liveness for ${instance.name} was written by another prober; ` +
           `discarding this reading rather than replaying it`,
       );
-      continue;
+      return true;
     }
 
     if (!isServing(rung)) {
@@ -185,7 +186,33 @@ export async function watchLiveness(
     // The reading is durable before attention moves, so a crash here leaves a
     // recorded strike rather than an alert with nothing behind it.
     await applyAttention(store, instance.id, strikes, rung, deps);
-  }
+    return true;
+  };
+
+  // Each office has its own claim row and version, so several are probed at
+  // once. A store error rejects the pass as before: after the first one no
+  // office starts, and the pass throws once the started ones end, so no
+  // probe outlives it.
+  const live = (await store.listInstances()).filter(
+    (instance) => instance.service_state === "live",
+  );
+  let probed = 0;
+  let next = 0;
+  let failure: { error: unknown } | null = null;
+  const worker = async () => {
+    while (failure === null && next < live.length) {
+      const instance = live[next++];
+      try {
+        if (await watchOffice(instance)) probed++;
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(LIVENESS_CONCURRENCY, live.length) }, worker),
+  );
+  if (failure) throw (failure as { error: unknown }).error;
   return probed;
 }
 

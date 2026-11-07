@@ -63,9 +63,9 @@ export type { ProgressView, OpsFloor, OpsInstanceView };
  * A number rather than a default, because the platform decides how many of
  * these processes exist: a serverless deployment scales instances out, and each
  * one holding `pg`'s default ten idle connections is how a small managed
- * Postgres runs out of them without a single slow query. Four is above the
- * concurrency a page render needs (each request issues its statements in
- * sequence) and low enough that a large fan-out of warm instances stays inside
+ * Postgres runs out of them without a single slow query. Four is about the
+ * concurrency a page render needs (a request runs a few independent reads
+ * at once; more wait for a connection) and low enough that a large fan-out of warm instances stays inside
  * an ordinary connection limit. The idle timeout is what makes that true over
  * time: an instance that stops serving gives its connections back rather than
  * holding them until the platform freezes it.

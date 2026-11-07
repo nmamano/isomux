@@ -48,7 +48,8 @@ cp ui/icon.svg "$stage"/icons/icon.svg
 # state from this specific deployment leaks.
 cp site/screenshot.png "$stage"/login-bg.png
 
-# The build id, a hash of the bundle, into the staged index.html and index.js.
+# Module preloads for the chunks index.js imports statically, then the build
+# id, a hash of the bundle, into the staged index.html and index.js.
 # The server reads it from ui/dist/index.html, each tab from the index.js it
 # runs, and a tab that runs an older build is told to reload
 # (server/ui-build.ts).

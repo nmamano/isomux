@@ -2662,6 +2662,11 @@ export class OpenCodeTransport {
     const listed = new Set<string>();
     const path = (name: string) =>
       folderPath(`/api/experimental/mcp/${encodeURIComponent(name)}`, this.cwd);
+    // Every request names its own server, and OpenCode 2.2.5 applies each
+    // under its reconcile lock (core/src/mcp/index.ts), so they all go out
+    // together. allSettled: none outlives the sync, and the first failure in
+    // the old order (removals in list order, then adds) is the one thrown.
+    const requests: Promise<void>[] = [];
     for (const row of listData(body).map(asRecord)) {
       const name = stringField(row, "name");
       if (!name) continue;
@@ -2673,12 +2678,15 @@ export class OpenCodeTransport {
         (this.limited !== undefined && name === OPENCODE_OFFICE_MCP_SERVER);
       if (!isomuxs || wanted.has(name)) continue;
       sent.delete(key(name));
-      try {
-        await this.request(path(name), { method: "DELETE", signal });
-      } catch (error) {
-        // Another turn in the folder removed it first.
-        if (asRecord(error).statusCode !== 404) throw error;
-      }
+      requests.push(
+        this.request(path(name), { method: "DELETE", signal }).then(
+          () => {},
+          (error: unknown) => {
+            // Another turn in the folder removed it first.
+            if (asRecord(error).statusCode !== 404) throw error;
+          },
+        ),
+      );
     }
     for (const server of servers) {
       const hash = mcpServerHash(server);
@@ -2688,13 +2696,20 @@ export class OpenCodeTransport {
       if (listed.has(server.name) && sent.get(key(server.name)) === hash)
         continue;
       sent.delete(key(server.name));
-      await this.request(path(server.name), {
-        method: "PUT",
-        signal,
-        body: JSON.stringify({ config: openCodeMcpServerConfig(server) }),
-      });
-      sent.set(key(server.name), hash);
+      requests.push(
+        this.request(path(server.name), {
+          method: "PUT",
+          signal,
+          body: JSON.stringify({ config: openCodeMcpServerConfig(server) }),
+        }).then(() => {
+          sent.set(key(server.name), hash);
+        }),
+      );
     }
+    const failed = (await Promise.allSettled(requests)).find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed) throw failed.reason;
   }
 
   // C3: 2.1.4 drops a malformed OPENCODE_CONFIG_CONTENT with only a

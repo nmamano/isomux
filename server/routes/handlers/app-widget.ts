@@ -36,6 +36,11 @@ export function appWidgetHandlers(
         return fail(404, "not_found");
       const appUrl = deps.appUrl(app);
       if (!appUrl) return fail(404, "not_found");
+      // The folder walk and the port probe do not wait for each other.
+      const [revision, serving] = await Promise.all([
+        deps.revision(app),
+        deps.serving(app),
+      ]);
       const status: AppWidgetStatus = {
         registration,
         appUrl,
@@ -44,8 +49,8 @@ export function appWidgetHandlers(
           ctx.callerSessionIdHash ?? null,
         ),
         chat: deps.chat(app, ctx.identity),
-        revision: await deps.revision(app),
-        serving: await deps.serving(app),
+        revision,
+        serving,
         reloadRequestedAt: appReloadRequestedAt(app.name),
       };
       return ok(status);

@@ -718,6 +718,106 @@ describe("OpenCode 2 session settings", () => {
     ]);
   });
 
+  // Each request names its own server, and a PUT can take OpenCode up to
+  // 0.94 s: the removals and the adds go out together (task 459936c8).
+  const named = (name: string) => ({
+    ...docs,
+    name,
+    url: `https://${name}.example.com/mcp`,
+  });
+
+  it("sends the folder's MCP removals and adds together, not one after another", async () => {
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning")],
+        mcpServers: () => ["isomux-old-1", "isomux-old-2"],
+        hold: { "mcp.add": "always", "mcp.remove": "always" },
+      },
+      lease: {
+        mcpServers: () => ["isomux-a", "isomux-b", "isomux-c"].map(named),
+      },
+    });
+    const turn = h.turn();
+    await until(
+      () => h.fake.heldCount("mcp.remove") + h.fake.heldCount("mcp.add") === 5,
+      1_000,
+    );
+    // Every request is out before the first one is answered.
+    expect(h.fake.heldCount("mcp.remove")).toBe(2);
+    expect(h.fake.heldCount("mcp.add")).toBe(3);
+    expect(h.fake.prompts()).toBe(0);
+    // Answer them all, now and as they come.
+    const releaser = setInterval(() => {
+      h.fake.release("mcp.remove");
+      h.fake.release("mcp.add");
+    }, 2);
+    try {
+      expect((await turn).end?.status).toBe("completed");
+    } finally {
+      clearInterval(releaser);
+    }
+    expect(
+      mcpCalls(h, "PUT")
+        .map((call) => call.name)
+        .sort(),
+    ).toEqual(["isomux-a", "isomux-b", "isomux-c"]);
+  });
+
+  it("on a refused add, waits for the other requests, keeps the adds that took, and fails before the prompt", async () => {
+    let refuse = true;
+    const h = setup({
+      fake: {
+        turns: [fixtureTurn("text-reasoning")],
+        // The other adds stay out until the test answers them.
+        hold: { "mcp.add": "always" },
+        override: (route, { url }) => {
+          if (route !== "mcp.add" || !refuse) return undefined;
+          const name = decodeURIComponent(url.pathname.split("/").at(-1)!);
+          if (name !== "isomux-b") return undefined;
+          return new Response(JSON.stringify({ message: "failed" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+      lease: {
+        mcpServers: () => ["isomux-a", "isomux-b", "isomux-c"].map(named),
+      },
+    });
+    let ended = false;
+    const first = h.turn().then((result) => {
+      ended = true;
+      return result;
+    });
+    await until(
+      () =>
+        mcpCalls(h, "PUT").length === 3 && h.fake.heldCount("mcp.add") === 2,
+      1_000,
+    );
+    // The refused add has answered; the other two are still out, and the turn
+    // does not end before them.
+    await Bun.sleep(50);
+    expect(h.fake.heldCount("mcp.add")).toBe(2);
+    expect(ended).toBe(false);
+    h.fake.release("mcp.add");
+    expect((await first).end?.status).toBe("failed");
+    expect(h.fake.prompts()).toBe(0);
+    // The adds that took are kept: the next turn sends only the refused one.
+    refuse = false;
+    const before = mcpCalls(h, "PUT").length;
+    const releaser = setInterval(() => h.fake.release("mcp.add"), 2);
+    try {
+      expect((await h.turn()).end?.status).toBe("completed");
+    } finally {
+      clearInterval(releaser);
+    }
+    expect(
+      mcpCalls(h, "PUT")
+        .slice(before)
+        .map((call) => call.name),
+    ).toEqual(["isomux-b"]);
+  });
+
   for (const route of ["mcp.add", "mcp.remove"] as const)
     it(`fails a turn whose MCP servers OpenCode does not take (${route}), before the prompt`, async () => {
       const h = setup({

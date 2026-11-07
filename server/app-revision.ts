@@ -49,10 +49,14 @@ export function appReloadRequestedAt(name: string): number | null {
 export async function appFilesRevision(app: AppRecord): Promise<string | null> {
   let count = 0;
   let latest = 0;
+  // One folder: its entries are counted in order, stamped together, then its
+  // subfolders are walked one at a time in entry order, so the entries
+  // counted at the cap stay the same from one read to the next.
   const walk = async (dir: string, depth: number): Promise<void> => {
     const entries = await readdir(dir, { withFileTypes: true });
+    const kept: { path: string; isDirectory: boolean }[] = [];
     for (const entry of entries) {
-      if (count >= MAX_ENTRIES) return;
+      if (count >= MAX_ENTRIES) break;
       if (entry.name.startsWith(".") || SKIPPED.has(entry.name)) continue;
       // Dirent never follows a symlink, so a link is neither walked nor
       // stamped: what it points at is not the app's own folder.
@@ -61,27 +65,37 @@ export async function appFilesRevision(app: AppRecord): Promise<string | null> {
       if (path === app.dataDir) continue;
       if (!entry.isFile() && !entry.isDirectory()) continue;
       count++;
-      try {
-        latest = Math.max(latest, (await lstat(path)).mtimeMs);
-      } catch {
-        // Removed during the walk: the next read sees the change.
-        continue;
-      }
-      if (entry.isDirectory() && depth < MAX_DEPTH) {
+      kept.push({ path, isDirectory: entry.isDirectory() });
+    }
+    const stamped = await Promise.all(
+      kept.map(({ path }) =>
+        lstat(path).then(
+          (stat) => stat.mtimeMs,
+          // Removed during the walk: the next read sees the change.
+          () => null,
+        ),
+      ),
+    );
+    for (let i = 0; i < kept.length; i++) {
+      const mtime = stamped[i];
+      if (mtime === null) continue;
+      latest = Math.max(latest, mtime);
+      if (kept[i].isDirectory && depth < MAX_DEPTH) {
         try {
-          await walk(path, depth + 1);
+          await walk(kept[i].path, depth + 1);
         } catch {
           // An unreadable subfolder: stamp what can be read.
         }
       }
     }
   };
-  try {
-    latest = (await lstat(app.cwd)).mtimeMs;
-    await walk(app.cwd, 1);
-  } catch {
-    return null;
-  }
+  // The folder's own stamp and its walk together; either failure is null.
+  const [root, walked] = await Promise.allSettled([
+    lstat(app.cwd),
+    walk(app.cwd, 1),
+  ]);
+  if (root.status === "rejected" || walked.status === "rejected") return null;
+  latest = Math.max(latest, root.value.mtimeMs);
   return `${restartSeq.get(app.name) ?? 0}:${count}:${latest}`;
 }
 

@@ -11,7 +11,7 @@
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type { ServerMessage } from "../shared/types.ts";
 
 const PLACEHOLDER = "__ISOMUX_UI_BUILD__";
@@ -29,6 +29,42 @@ function readUiBuild(distDir: string): string | null {
   }
   const id = META_RE.exec(html)?.[1] ?? "";
   return ID_RE.test(id) ? id : null;
+}
+
+// Called by scripts/stamp-ui-build.ts on the stage dir before stampUiBuild,
+// so the build id covers the links. Adds a modulepreload link to the staged
+// index.html for each chunk index.js reaches through static imports: the
+// browser otherwise finds a chunk only after it parsed the file that imports
+// it, and the downloads run one after another. A dynamic import() stays lazy.
+export function addModulePreloads(stageDir: string): void {
+  const transpiler = new Bun.Transpiler({ loader: "js" });
+  const seen = new Set<string>(["index.js"]);
+  const queue = ["index.js"];
+  const chunks: string[] = [];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    const code = readFileSync(join(stageDir, file), "utf8");
+    for (const { path, kind } of transpiler.scanImports(code)) {
+      if (kind !== "import-statement" || !path.startsWith("./")) continue;
+      const chunk = posix.normalize(posix.join(posix.dirname(file), path));
+      if (seen.has(chunk)) continue;
+      seen.add(chunk);
+      chunks.push(chunk);
+      queue.push(chunk);
+    }
+  }
+  if (chunks.length === 0) return;
+  const htmlPath = join(stageDir, "index.html");
+  const html = readFileSync(htmlPath, "utf8");
+  if (!html.includes("</head>"))
+    throw new Error(`${htmlPath} has no </head> for the module preloads`);
+  const links = chunks
+    .map((chunk) => `    <link rel="modulepreload" href="/${chunk}" />\n`)
+    .join("");
+  writeFileSync(
+    htmlPath,
+    html.replace(/([ \t]*)<\/head>/, (end) => `${links}${end}`),
+  );
 }
 
 // Called by scripts/build.sh on the stage dir, before scripts/publish-ui-dist.ts

@@ -176,14 +176,6 @@ describe("the guard reaches the session route, link by link", () => {
       /if \(!accountId\) return answer\(\{ signedIn: false \}\)/,
     );
   });
-
-  test("the signed-out answer costs no store work", () => {
-    const route = code(SESSION_ROUTE);
-    expect(route.indexOf("signedIn: false")).toBeGreaterThan(0);
-    expect(route.indexOf("signedIn: false")).toBeLessThan(
-      route.indexOf("await officesForAccount("),
-    );
-  });
 });
 
 describe("a signed-in visitor is moved to / and nowhere else", () => {

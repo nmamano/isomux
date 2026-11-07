@@ -608,9 +608,24 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
   };
   const seedWelcomeAgents = async (username: string) => {
     const hadAgents = agentManager.getAllAgents().length > 0;
+    // The model discoveries read only the owner, so they run while the
+    // Receptionist is seeded: an OpenCode discovery in flight serves the
+    // Receptionist's call too (discoverWelcomeModels). Each promise is
+    // awaited at its old place; the no-op catch keeps a rejection there.
+    const owner = hadAgents ? undefined : getUserByName(username);
+    const codexModel = hadAgents
+      ? null
+      : owner
+        ? resolveCodexDefaultModel(owner.id, "~")
+        : Promise.resolve(CODEX_MODELS[0].value);
+    const openCodeModel =
+      !hadAgents && openCodeRunsOnHost()
+        ? welcomeOpenCodeModel(username)
+        : null;
+    openCodeModel?.catch(() => {});
     await ensureReceptionist(username);
     // Branch on the pre-spawn snapshot so the lobby does not suppress welcome agents.
-    if (hadAgents) {
+    if (hadAgents || !codexModel) {
       return;
     }
     await spawnWelcomeAgent(
@@ -621,31 +636,28 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
       CLAUDE_WELCOME_OUTFIT,
       username,
     );
-    const owner = getUserByName(username);
     await spawnWelcomeAgent(
       "Codex Welcome Agent",
       "codex",
-      owner
-        ? await resolveCodexDefaultModel(owner.id, "~")
-        : CODEX_MODELS[0].value,
+      await codexModel,
       undefined,
       CODEX_WELCOME_OUTFIT,
       username,
     );
-    if (!openCodeRunsOnHost()) return;
-    const openCodeModel = await welcomeOpenCodeModel(username);
-    if (openCodeModel) {
+    if (!openCodeModel) return;
+    const openCodeChoice = await openCodeModel;
+    if (openCodeChoice) {
       const created = await spawnWelcomeAgent(
         FREE_WELCOME_AGENT_NAME,
         "opencode",
-        openCodeModel.model,
+        openCodeChoice.model,
         "bypassPermissions",
         OPENCODE_WELCOME_OUTFIT,
         username,
       );
       if (created)
-        agentManager.setOfficeFreeModel(created.id, openCodeModel.model);
-      if (openCodeModel.fromFallback && created?.userId)
+        agentManager.setOfficeFreeModel(created.id, openCodeChoice.model);
+      if (openCodeChoice.fromFallback && created?.userId)
         repickFallbackSeeds(created.userId, created.id);
     }
   };

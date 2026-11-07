@@ -51,8 +51,10 @@ export async function GET(request: Request): Promise<Response> {
       offices: null,
     });
   }
-  const offices = await officesForAccount(accountId);
-  const account = await accountSettings(accountId);
+  const [offices, account] = await Promise.all([
+    officesForAccount(accountId),
+    accountSettings(accountId),
+  ]);
   return answer({
     signedIn: true,
     email: account?.email ?? email,
