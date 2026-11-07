@@ -35,6 +35,21 @@ export interface CronjobVisibilityFacts {
   makerAgentId?: string | null;
 }
 
+// The facts of `job`. Its room counts only while `isOrdinaryRoom` says it is a
+// live ordinary room (not the lobby), so a closed room leaves the job to its
+// maker and office owners.
+export function cronjobFactsFor(
+  job: Pick<Cronjob, "userId" | "roomId" | "createdByAgentId">,
+  isOrdinaryRoom: (roomId: string) => boolean,
+): CronjobVisibilityFacts {
+  const roomId = job.roomId;
+  return {
+    makerUserId: job.userId ?? null,
+    makerAgentId: job.createdByAgentId ?? null,
+    liveRoomId: roomId && isOrdinaryRoom(roomId) ? roomId : null,
+  };
+}
+
 export interface CronjobViewer {
   userId: string | null;
   // USER-scope office owner (the officeOwner guard's rule).

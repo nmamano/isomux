@@ -3521,6 +3521,8 @@ Cosas que puedes hacer por él:
   "commands.isomuxAllHands.desk": "escritorio {number}",
   "commands.isomuxAllHands.topic": "Tema: {topic}",
   "commands.isomuxAllHands.backRoom": "{count} en la trastienda",
+  "commands.isomuxAllHands.hidden":
+    "No se muestran las salas que tú o un miembro de esta sala no podéis abrir.",
   "commands.isomuxAllHands.footer":
     "Pregunta a tu agente si quieres saber más sobre cualquier agente o conversación.",
   "commands.isomuxSystemPrompt.header":

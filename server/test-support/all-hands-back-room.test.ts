@@ -1,5 +1,7 @@
 // /isomux-all-hands with a back room (task 5b503e32): front agents are listed
-// one by one, and each room's back room is one line with its count.
+// one by one, and each room's back room is one line with its count. One room:
+// with no known sender, the list holds only the target agent's room (task
+// a37baee5).
 
 import { describe, it, expect } from "bun:test";
 import { createCommandHandling } from "../command-handlers.ts";
@@ -35,7 +37,7 @@ describe("/isomux-all-hands", () => {
         agent("a1", "Lead", "r1", 0),
         agent("a2", "Worker 1", "r1", deskOfBackSeat({ table: 0, stool: 0 })),
         agent("a3", "Worker 2", "r1", deskOfBackSeat({ table: 0, stool: 1 })),
-        agent("a4", "Solo", "r2", 1),
+        agent("a4", "Solo", "r1", 1),
       ].map((a) => [a.info.id, a]),
     );
     const deps = {

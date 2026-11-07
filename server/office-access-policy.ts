@@ -47,6 +47,7 @@ import { engineRunsAccessHere } from "./backends/access-here.ts";
 import { STATE_ROOT } from "./config.ts";
 import type { ScheduleLimitAgent } from "./cron-agent-limits.ts";
 import {
+  cronjobFactsFor,
   type CronjobViewer,
   cronjobViewerForIdentity,
   type CronjobVisibilityFacts,
@@ -513,15 +514,9 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
   function cronjobFacts(
     job: Pick<Cronjob, "userId" | "roomId" | "createdByAgentId">,
   ): CronjobVisibilityFacts {
-    const roomId = job.roomId;
-    return {
-      makerUserId: job.userId ?? null,
-      makerAgentId: job.createdByAgentId ?? null,
-      liveRoomId:
-        roomId && agentManager.getOrdinaryRooms().some((r) => r.id === roomId)
-          ? roomId
-          : null,
-    };
+    return cronjobFactsFor(job, (roomId) =>
+      agentManager.getOrdinaryRooms().some((r) => r.id === roomId),
+    );
   }
 
   // A job that is gone has no maker record left: office owners only.

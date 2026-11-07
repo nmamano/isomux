@@ -3526,6 +3526,8 @@ Coses que pots fer per ell:
   "commands.isomuxAllHands.desk": "escriptori {number}",
   "commands.isomuxAllHands.topic": "Tema: {topic}",
   "commands.isomuxAllHands.backRoom": "{count} a la rebotiga",
+  "commands.isomuxAllHands.hidden":
+    "No es mostren les sales que tu o un membre d'aquesta sala no podeu obrir.",
   "commands.isomuxAllHands.footer":
     "Pregunta-ho al teu agent si vols saber més sobre qualsevol agent o conversa.",
   "commands.isomuxSystemPrompt.header":

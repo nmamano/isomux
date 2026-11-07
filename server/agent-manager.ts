@@ -42,6 +42,7 @@ import type {
   QueuedMessageView,
   AskRef,
   RoomWire,
+  UserRecord,
   SkillInfo,
   TaskItem,
   UserRole,
@@ -409,6 +410,10 @@ export interface ManagerDeps {
   // An access stop or pack changed, by any path: an action ask may be done.
   // Never throws (the office's listener catches).
   onAccessChanged?: () => void;
+  // The office's room access rule and lobby test (isomux-office.ts). Without
+  // them no user reaches any room.
+  canAccess?: (user: UserRecord, roomId: string) => boolean;
+  isLobbyRoom?: (roomId: string) => boolean;
   claudeAuthCheckTimeoutMs?: number;
   // Wait before an MCP status read that saw "pending" reads again.
   connectorRereadMs?: number;
@@ -5427,6 +5432,8 @@ export function createAgentManager(deps: ManagerDeps) {
     getRooms: () => officeState.rooms,
     globalRoomIndexOf,
     roomById,
+    canAccessRoom: deps.canAccess ?? (() => false),
+    isLobbyRoom: deps.isLobbyRoom ?? (() => false),
     getOfficeConfig: () => officeState.office,
     logCache,
     emit,
@@ -7062,6 +7069,8 @@ export function createAgentManager(deps: ManagerDeps) {
           text,
           username,
           device,
+          undefined,
+          opts.limits,
         );
         return;
       }
@@ -7088,6 +7097,7 @@ export function createAgentManager(deps: ManagerDeps) {
         username,
         device,
         attachments,
+        opts.limits,
       );
       if (handled === "native") nativeCommand = true;
       else if (handled) return;
@@ -9778,6 +9788,8 @@ export function createProductionAgentManager(overrides?: {
   ) => EffectiveProviderAccountTarget;
   storageRoots?: ManagerDeps["storageRoots"];
   onAccessChanged?: ManagerDeps["onAccessChanged"];
+  canAccess?: ManagerDeps["canAccess"];
+  isLobbyRoom?: ManagerDeps["isLobbyRoom"];
 }): AgentManager {
   const initialOfficeConfig = loadOfficeConfig();
   const initialLoadedAgents = loadAgents();
@@ -9810,6 +9822,8 @@ export function createProductionAgentManager(overrides?: {
     effectiveProviderAccountTarget: overrides?.effectiveProviderAccountTarget,
     storageRoots: overrides?.storageRoots ?? (() => productionStorageRoots()),
     onAccessChanged: overrides?.onAccessChanged,
+    canAccess: overrides?.canAccess,
+    isLobbyRoom: overrides?.isLobbyRoom,
     providerSkillSourceRoots: {
       // A getter, so an office env edit reaches discovery, linking and new
       // skills without a restart.

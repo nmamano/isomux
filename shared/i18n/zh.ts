@@ -3164,6 +3164,7 @@ App 的一些原则：
   "commands.isomuxAllHands.desk": "工位 {number}",
   "commands.isomuxAllHands.topic": "话题：{topic}",
   "commands.isomuxAllHands.backRoom": "后屋有 {count} 位",
+  "commands.isomuxAllHands.hidden": "未列出你或本房间某位成员无法打开的房间。",
   "commands.isomuxAllHands.footer":
     "如需了解某个智能体或对话的更多信息，请询问你的智能体。",
   "commands.isomuxSystemPrompt.header":

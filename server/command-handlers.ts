@@ -8,13 +8,16 @@ import type {
   QueuedMessage,
   RoomWire,
   SessionInfo,
+  UserRecord,
 } from "../shared/types.ts";
-import { ENGINE_NAMES } from "../shared/types.ts";
+import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
+import { ENGINE_NAMES, ordinaryRooms } from "../shared/types.ts";
 import { isTopicSource, sessionResumeLabel } from "../shared/session-label.ts";
 import { isBackSeat } from "../shared/desks.ts";
 import { english } from "./i18n.ts";
 import { errorText } from "./localized-error.ts";
-import { getUserByName } from "./users.ts";
+import { getUserByName, listUsers } from "./users.ts";
+import { allHandsRoomIds } from "./all-hands-rooms.ts";
 import {
   joinLogText,
   logParts,
@@ -44,7 +47,11 @@ import {
   type CommandConfig,
 } from "./commands.ts";
 import { listCronjobs } from "./cronjob-manager.ts";
-import { cronjobVisibleTo } from "./cronjob-visibility.ts";
+import {
+  cronjobFactsFor,
+  cronjobVisibleTo,
+  type CronjobViewer,
+} from "./cronjob-visibility.ts";
 import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
 import { rewriteOpenCodeOfficeCommands } from "./system-prompt.ts";
 import { recordSkillUse } from "./skill-usage.ts";
@@ -85,6 +92,9 @@ type HandlerFn = (
   // The files sent with the command. Only a command whose CommandConfig has
   // `attachments: true` gets any.
   attachments?: Attachment[],
+  // The sender's limits (a member pack or a limited API token); undefined =
+  // full access.
+  limits?: ApiTokenLimits,
 ) => Promise<boolean>;
 
 // The leading newline is layout, so it stays in code; only the sentence is
@@ -188,6 +198,9 @@ interface HandlerDeps {
   // room index).
   globalRoomIndexOf: (roomId: string) => number;
   roomById: (roomId: string) => RoomWire | undefined;
+  // The office's room access rule (isomux-office.ts canAccess) and lobby test.
+  canAccessRoom: (user: UserRecord, roomId: string) => boolean;
+  isLobbyRoom: (roomId: string) => boolean;
   getOfficeConfig: () => OfficeSettings;
   logCache: Map<string, LogEntry[]>;
 
@@ -971,15 +984,37 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async isomuxAllHands(agentId, _managed, _args, rawText, username, device) {
+    async isomuxAllHands(
+      agentId,
+      _managed,
+      _args,
+      rawText,
+      username,
+      device,
+      _attachments,
+      limits,
+    ) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
+      // The answer stays in this chat: only rooms the sender and every reader
+      // of this room may open.
+      const shown = allHandsRoomIds({
+        targetRoomId: deps.agents.get(agentId)!.info.roomId,
+        roomIds: deps.getRooms().map((r) => r.id),
+        sender: username ? getUserByName(username) : undefined,
+        senderRooms: limits?.rooms,
+        users: listUsers(),
+        canAccess: deps.canAccessRoom,
+        isLobby: deps.isLobbyRoom,
+      });
+      const allAgents = [...deps.agents.values()];
+      const leftOut = allAgents.some((a) => !shown.has(a.info.roomId));
+
       // Group, sort, and label by the roomId-derived global room index;
       // AgentInfo no longer carries a dense room field.
-      const allAgents = [...deps.agents.values()];
       const roomMap = new Map<number, ManagedAgent[]>();
-      for (const a of allAgents) {
+      for (const a of allAgents.filter((a) => shown.has(a.info.roomId))) {
         const roomIdx = deps.globalRoomIndexOf(a.info.roomId);
         if (!roomMap.has(roomIdx)) roomMap.set(roomIdx, []);
         roomMap.get(roomIdx)!.push(a);
@@ -1041,6 +1076,10 @@ export function createCommandHandling(deps: HandlerDeps) {
         }
       }
 
+      if (leftOut) {
+        lines.push(msg("commands.isomuxAllHands.hidden"));
+        lines.push("");
+      }
       lines.push(msg("commands.isomuxAllHands.footer"));
 
       deps.addLogEntry(agentId, "system", joinLogText(lines, "\n"));
@@ -1070,42 +1109,56 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     async isomuxCronjobSystemPrompt(
       agentId,
-      _managed,
+      managed,
       args,
       rawText,
       username,
       device,
+      _attachments,
+      limits,
     ) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const query = args.join(" ").trim();
-      // Only jobs the typing user may see, and only jobs that run a session:
-      // a job that messages an agent has no system prompt. The chat carries
-      // the job's name; each reader's prompt button fetches the prompt with
-      // that reader's own authority.
+      // Only jobs that run a session (a job that messages an agent has no
+      // system prompt) and that the typing user, within the rooms of their
+      // token, and every reader of this room may see: the chat carries the
+      // job's name. Each reader's prompt button fetches the prompt with that
+      // reader's own authority.
       const typer = username ? getUserByName(username) : undefined;
-      const all = listCronjobs().filter(
-        (cronjob) =>
-          !cronjob.target &&
-          cronjobVisibleTo(
-            {
-              makerUserId: cronjob.userId ?? null,
-              liveRoomId:
-                cronjob.roomId && deps.roomById(cronjob.roomId)
-                  ? cronjob.roomId
-                  : null,
-            },
-            {
-              userId: typer?.id ?? null,
-              isOfficeOwner: typer?.role === "owner",
-              canRead: typer !== undefined,
-              canManage: typer !== undefined,
-              hasRoomAccess: (roomId) =>
-                typer?.allowedRooms.includes(roomId) ?? false,
-            },
-          ),
-      );
+      const senderRooms = limits?.rooms;
+      const viewerOf = (
+        user: UserRecord,
+        rooms?: readonly string[],
+      ): CronjobViewer => ({
+        userId: user.id,
+        // A token limited to rooms is never the office owner's arm, as
+        // cronjobViewerForIdentity does for a token limited to rooms.
+        isOfficeOwner: !rooms && user.role === "owner",
+        canRead: true,
+        canManage: true,
+        hasRoomAccess: (roomId) =>
+          deps.canAccessRoom(user, roomId) &&
+          (!rooms || rooms.includes(roomId)),
+        ...(rooms ? { ownNeedsRoom: true } : {}),
+      });
+      const roomId = managed.info.roomId;
+      const viewers = typer
+        ? [
+            viewerOf(typer, senderRooms),
+            ...listUsers()
+              .filter((u) => deps.canAccessRoom(u, roomId))
+              .map((u) => viewerOf(u)),
+          ]
+        : [];
+      const all = listCronjobs().filter((cronjob) => {
+        if (cronjob.target || viewers.length === 0) return false;
+        const facts = cronjobFactsFor(cronjob, (id) =>
+          ordinaryRooms(deps.getRooms()).some((r) => r.id === id),
+        );
+        return viewers.every((viewer) => cronjobVisibleTo(facts, viewer));
+      });
 
       if (!query) {
         if (all.length === 0) {
@@ -1581,6 +1634,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     username?: string,
     device?: string,
     attachments?: Attachment[],
+    limits?: ApiTokenLimits,
   ): Promise<SlashCommandResult> {
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
@@ -1626,6 +1680,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           username,
           device,
           files,
+          limits,
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);

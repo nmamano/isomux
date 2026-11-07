@@ -3442,6 +3442,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.isomuxAllHands.desk": "desk {number}",
   "commands.isomuxAllHands.topic": "Topic: {topic}",
   "commands.isomuxAllHands.backRoom": "{count} in the back room",
+  "commands.isomuxAllHands.hidden":
+    "Rooms that you or a member of this room cannot open are not listed.",
   "commands.isomuxAllHands.footer":
     "Ask your agent if you'd like to know more about any agent or conversation.",
 

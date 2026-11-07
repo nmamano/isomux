@@ -367,6 +367,8 @@ export function createManagers(
       }
     },
     resolveBackend: startOpts.resolveBackend,
+    canAccess,
+    isLobbyRoom,
     storageRoots: () => storageRoots(),
     listProviderAccounts: async (userId, options) => {
       const accounts = await providerAccountManager.list(
