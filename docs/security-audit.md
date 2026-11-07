@@ -5,7 +5,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-11-02. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-11-07. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -95,7 +95,7 @@ Isomux compares hashes in constant time. Isomux does not write the credentials t
 - **Origin.** The operator sets the public origin in the office configuration. The server never takes it from the `Host` or `X-Forwarded-Host` header. This stops DNS rebinding and Host-header attacks.
 - **WebSocket.** A browser connection needs a valid cookie and an exact Origin match. A WebSocket request with an `Authorization` header never falls back to the cookie. It opens only with an API token, and that socket only receives (section 5.4).
 - **Cross-site requests.** On the office host, the server rejects a POST, PUT, PATCH or DELETE with a wrong Origin. `SameSite=Lax` also keeps the cookie off cross-site subrequests.
-- **Sign-in forms.** The accept and sign-out forms need the office Origin. When the browser sends no Origin or `null`, they need `Sec-Fetch-Site: same-origin`, which page script cannot set. The first-owner form needs the setup key instead (section 4.3). The server reads at most 4 KiB of the accept and first-owner forms, before it checks the token or key.
+- **Sign-in forms.** The accept and sign-out forms need the office Origin. When the browser sends no Origin or `null`, they need `Sec-Fetch-Site: same-origin`, which page script cannot set. The first-owner form needs the setup key instead (section 4.3).
 - **Headers.** Each office page has a Content Security Policy with `frame-ancestors 'none'` that loads images only from the office itself, and `X-Content-Type-Options: nosniff`. An app's page also loads the app's icon from the app's host. Pages that can have a token in the URL send `Referrer-Policy: no-referrer`. On HTTPS, the server sends HSTS for one year, without `includeSubDomains`.
 - **Files that agents and members show.** Each file route sends a `sandbox` Content Security Policy. A file opened in the browser, such as HTML or SVG, runs in an opaque origin. It gets no session cookie, the office WebSocket refuses it, and it loads no image from an outside site. The file routes check room access, and they send `Cache-Control: private, no-cache`.
 
@@ -117,13 +117,11 @@ The limit: a same-host proxy that sends no forwarding header (for example `socat
 
 ### 4.5 Rate limits
 
-Rate limits use the client address: the rightmost `X-Forwarded-For` entry from the declared proxy, or else the peer address:
+A limit that counts per client takes the client address from the rightmost `X-Forwarded-For` entry of the declared proxy, or else from the peer address. The limits:
 
-- `/readyz`: 30 requests per minute for each client. On-box requests have no limit.
-- The office card (`/.well-known/isomux-office`): the same limit as `/readyz`, with its own count, so card requests do not use the `/readyz` budget.
 - App sign-in: a limit for each app and client.
 - The container setup form: a limit for each client.
-- Webhook deliveries (`POST /hooks/:id`, which needs only a valid signature): for each hook, 300 requests per minute with a burst of 60, before the body read and the signature check. An unknown hook id gets 404 before this limit. A delivery rejected before the signature check only raises a counter; it writes no log row. Signed deliveries start at most 10 dispatches per minute and 500 accepted dispatches per day for each hook.
+- Webhook deliveries (`POST /hooks/:id`, which needs only a valid signature): signed deliveries start at most 10 dispatches per minute and 500 accepted dispatches per day for each hook.
 
 Limits of this design:
 
@@ -143,7 +141,7 @@ Every app-host response permits framing only by the app itself and the configure
 A webhook lets an outside service, such as GitHub, send a message to an agent or start a schedule run. Each hook has a public URL, `<office origin>/hooks/<id>`, with 64 random bits in the id.
 
 - **The signature is the only check.** A delivery needs no session or token, and Isomux reads no forwarding header for it. Isomux computes the HMAC-SHA256 of the raw body with the hook's secret, and compares it with the signature header in constant time. A header with a wrong form fails before any decode. The route answers only on the office host, not on an app host.
-- **Before the signature check**, Isomux finds the hook, checks the method and the rate limit (section 4.5), and reads at most 5 MiB of body. A disabled hook gets the same 404 as an unknown id.
+- **Before the signature check**, Isomux finds the hook and checks the method. A disabled hook gets the same 404 as an unknown id.
 - **Replays.** The signature covers the body only. It has no time stamp, and it does not cover the event, delivery-id and `Content-Type` headers. A body has only one reading: a JSON object, or a form body whose only field is `payload`. A copy sent with the other `Content-Type` gets 400. While the body's SHA-256 hash is in the hook's delivery log of the last 24 hours (500 rows at most), a copy of the body is a duplicate, and Isomux does not dispatch it. One exception: when the earlier delivery hit the dispatch limit or found no target, the copy is a retry with the stored event, and it can dispatch. After that window, a person who has a signed body can send it again with any event header, and Isomux can dispatch it again. The secret, the rules, the limits and the target checks still apply.
 - **What reaches the target.** Isomux does not send the payload. It sends only the args that the hook's rule takes from the payload, in a data block. Isomux writes each line outside the JSON. In the JSON line, `<`, `>` and `&` are `\u` escapes and there is no newline, so a value cannot close the block. The block tells the model that the JSON comes from an outside sender and is data, not instructions. An agent message starts with `[Webhook "<name>"]`, and a hook name has only lowercase letters, digits and hyphens. The system prompt of a run that a webhook starts has the same statement.
 - **Prompt injection.** The block keeps the layout. It does not stop a model from following text in a value as an instruction. The signature proves the sender, not the author of the content: a GitHub hook on a public repository carries issue and comment text from any GitHub user. The target agent runs shell commands with its manager's environment, and a schedule run uses the environment of its maker (section 7).
@@ -155,12 +153,11 @@ A webhook lets an outside service, such as GitHub, send a message to an agent or
 
 ### 4.8 WhatsApp
 
-A member can link their own WhatsApp as a linked device and send chosen chats to agents they manage. The link is unofficial: it uses the Baileys library, not a WhatsApp API.
+A member can link their own WhatsApp as a linked device and send chosen chats to agents they manage.
 
 - **Only chosen chats.** The bridge passes on a message only from a chat on the member's list, so the text of other chats does not leave the bridge process. The member names each chat; an agent never sees a contact's own WhatsApp name.
 - **What reaches the agent.** The messages arrive in a data block, built as for webhooks (section 4.7): JSON with `<`, `>` and `&` escaped, under a line that says the text is data, not instructions. The label is `[WhatsApp "<name>"]`. Prompt injection is still possible: a contact can write text that the model follows. An agent with a shell runs commands with its manager's environment, and the chat form warns the member when they pick such an agent.
-- **Replies.** By default an agent cannot send a WhatsApp message. Its reply opens an ask in the member's Inbox, and the reply goes out only when the member answers Send from a browser session. The agent itself, the member's other agents, office owners, apps, scheduled runs and the member's API tokens cannot answer that ask. The agent cannot edit a draft after the member can see it. The member can turn the Send step off for one chat, only from a browser session, as for the other chat settings. Then that chat's agent sends as the member, to that chat only, at most 20 messages in 10 minutes. The reply route uses the asks area of a pack; there is no separate WhatsApp area.
-- **Retries.** The ask id goes with each send, so a retry of a send that went out does not send it twice, also after a restart of the server. A bridge that stops in the middle of a send can still send that reply twice. A reply in a chat without the Send step has no ask: an agent that tries again after a timeout sends it again.
+- **Replies.** By default an agent cannot send a WhatsApp message. Its reply opens an ask in the member's Inbox, and the reply goes out only when the member answers Send from a browser session. The agent itself, the member's other agents, office owners, apps, scheduled runs and the member's API tokens cannot answer that ask. The agent cannot edit a draft after the member can see it. The member can turn the Send step off for one chat, only from a browser session, as for the other chat settings. Then that chat's agent sends as the member, to that chat only, at most 20 messages in 10 minutes.
 - **Member packs.** Linking and the chat rows need the environment area of a member pack; a reply needs asks.
 
 ### 4.9 Discord
@@ -170,9 +167,7 @@ A member can connect their own Discord bot by its token and send a channel, a ca
 - **The token.** Isomux checks the token with Discord, then keeps it in `discord/<user>/bots.json` (0600, a credential store left out of backups). It never goes back to a browser. Each bot has its own gateway child, with only `PATH`, `HOME`, `TZ` and `LANG` from the server's environment. Isomux removes each token, raw, URL-encoded and base64, from every text of a child, of Discord and of an error before it reaches a log. As for every file in the state directory, an agent with a shell can read the token (section 3.2).
 - **Only routed places.** The gateway child sends the server every message the bot sees. The server drops a message that no live route covers, the bot's own posts, and posts by bots and webhooks unless the route lets them in.
 - **What reaches the agent.** The messages arrive in a data block, built as for webhooks (section 4.7), with the label `[Discord "<name>"]`. Anyone who can post in a routed channel can write text that the model follows; on a public server that is anyone. An agent with a shell runs commands with its manager's environment, and the route form warns the member when they pick such an agent.
-- **Replies.** The member picks one of three modes per route. By default a reply opens an ask, as for WhatsApp (section 4.8), and Send checks the route, the agent and the channel again before it posts. "Read and reply as the bot" posts at once, at most 20 posts per route in 10 minutes. A post goes only to a text channel or a thread that the route covers when it goes out, and it mentions nobody (`allowed_mentions` with no parse). "Read only" gives the agent no reply. The reply route uses the asks area of a pack.
-- **Retries.** A Send posts with a nonce made from the ask id, and Isomux records each ask whose reply went out, so a second Send posts nothing, also after a restart. A post at once has a new nonce each time: an agent that tries again after a timeout can post twice.
-- **A refused token.** When Discord refuses the token on a post, Isomux stops the bot until the member connects it again, and pages the member once.
+- **Replies.** The member picks one of three modes per route. By default a reply opens an ask, as for WhatsApp (section 4.8), and Send checks the route, the agent and the channel again before it posts. "Read and reply as the bot" posts at once, at most 20 posts per route in 10 minutes. A post goes only to a text channel or a thread that the route covers when it goes out, and it mentions nobody (`allowed_mentions` with no parse). "Read only" gives the agent no reply.
 - **Member packs.** Connecting a bot and the routes need the environment area of a member pack; a reply needs asks.
 
 ## 5. Personal API tokens
@@ -215,9 +210,9 @@ Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the d
 
 ### 5.4 Remote inbox
 
-An agent can send a reply to a token holder (`POST /api/api-token-inboxes/<token-id>/messages`). The token must belong to the member who manages that agent. A reply has 4000 characters at most.
+An agent can send a reply to a token holder (`POST /api/api-token-inboxes/<token-id>/messages`). The token must belong to the member who manages that agent.
 
-The token holder reads replies over HTTP (`POST /api/me/api-token-inbox/drain`) or over a WebSocket that only receives. Reading does not delete entries. The messages to and from a token are stored in `token-logs/<token-id>.jsonl`, with secrets masked as in agent logs (section 8.3). Entries that older versions wrote stay as plain text. The inbox has no size limit. An owner can remove old entries with storage pruning. Revocation does not delete the log.
+The token holder reads replies over HTTP (`POST /api/me/api-token-inbox/drain`) or over a WebSocket that only receives. The messages to and from a token are stored in `token-logs/<token-id>.jsonl`, with secrets masked as in agent logs (section 8.3). Entries that older versions wrote stay as plain text. Revocation does not delete the log.
 
 ---
 
@@ -229,7 +224,7 @@ Isomux puts a new token in the environment of each Claude and Codex agent and ea
 
 A terminal panel does not get an agent token.
 
-Any agent can spawn agents in the rooms its manager can access. The new agent has the same manager and is never privileged. An agent that is not privileged, and that asks for approval or runs in a sandbox, cannot spawn an agent with more permissions than its own, or one that works outside its folder. One spawn tree, an agent and all the agents spawned under it, holds at most 50 live agents. An agent can kill the agents that it spawned, and no others.
+Any agent can spawn agents in the rooms its manager can access. The new agent has the same manager and is never privileged. An agent that is not privileged, and that asks for approval or runs in a sandbox, cannot spawn an agent with more permissions than its own, or one that works outside its folder. An agent can kill the agents that it spawned, and no others.
 
 ### 6.2 Privileged agents
 
@@ -243,7 +238,7 @@ A privileged agent has the destructive reach of its member. For example, it can 
 
 ### 6.2a Agents below Standard
 
-An agent's access is one stop on a slider: Chat, Office, Folder, Web, Standard and Privileged. The member who manages the agent, or an owner, sets it; no agent can. Below Standard the agent has no shell, so the limits of section 3.1 do not reach it: it cannot read another agent's token or the office files. Claude and OpenCode agents can be at every stop below Standard, Codex agents only on gpt-5.5.
+An agent's access is one stop on a slider: Chat, Office, Folder, Web, Standard and Privileged. The member who manages the agent, or an owner, sets it; no agent can. Below Standard the agent has no shell, so the limits of section 3.1 do not reach it: it cannot read another agent's token or the office files.
 
 - **Office.** The agent reaches the office only through the office MCP server, with its own token. Its permission pack limits that token as a limited API token is limited (section 5.1), so a pack decides which tools it has. It changes only the tasks it created, and those tasks carry `limited: true`. It opens and edits only its own asks. Its messages to other agents carry the `limited` marker and never the same-manager marker. Unless its pack has write in an area that equals full access, it writes only to agents whose access fits inside its own (Chat, or a stop and pack inside its stop and pack, and no other agent at Folder or Web), and to any other agent only as a reply, after that agent's message reached it. It spawns only an agent that fits. A scheduled message is checked again when it is delivered, with the live packs. One from an agent that was killed in the meantime has no pack left to check: it is delivered, without the same-manager marker, so the receiver reads it as data. Its member's and the office's MCP servers and skills are off. Chat has no office access at all.
 - **Tools.** Isomux gives Claude the exact built-in tools of the stop and loads no settings, CLAUDE.md, skills or plugins from disk. A hook denies every other tool, whatever lets it through. Office has no file tools; Folder adds read, write, edit and search inside the agent's folder; Web adds web search and fetch.
@@ -286,10 +281,10 @@ This closes the one-call route. It does not close the class in section 3.2: a pr
 
 ### 6.5 Agent affordances that reach outside the chat
 
-- **Show a file** (`read-file`) copies any file that the server's OS user can read, up to 20 MiB, into the chat. It does not check for secrets. The members of the room can then open the file. The agent does not read the content, so this is also a way to give a member a secret without passing it through the model.
+- **Show a file** (`read-file`) copies any file that the server's OS user can read into the chat. It does not check for secrets. The members of the room can then open the file. The agent does not read the content, so this is also a way to give a member a secret without passing it through the model.
 - **Preview a page** (`preview-url`) opens any HTTP or HTTPS URL in a browser on the server. This includes loopback and internal addresses. The only control is the agent system prompt.
 - **Read a terminal** (`GET /api/agents/:id/terminal`) returns the output of the agent's own terminal, or of the terminal of an agent in a room that its manager can access. Secrets in it are masked as in logs (section 8.3). The server keeps only the last 100,000 characters of each open terminal, in memory.
-- **Browser control** acts only on a tab that a member offers in their paired Chrome extension, to the agents they choose for that browser: My agents (every agent they manage), My agents and members I pick (also the agents of the members they pick, in a room they can access) or All agents (every agent in a room they can access, also the agents of other members). The same choice decides which agents may open their own tabs there. Extensions older than 0.6 could also offer a tab to one agent. The tab is signed in as that member, so the offer is their consent: the agent acts as the member on that tab's sites. In a tab offered on the office, the agent can use the office as the member, also the pages that agent tokens cannot reach: API tokens, secrets and sign-in links. If an office owner offers an office tab to All agents or to picked members, those agents, also the agents of other members, can use the office as the owner.
+- **Browser control** acts only on a tab that a member offers in their paired Chrome extension, to the agents they choose for that browser: My agents (every agent they manage), My agents and members I pick (also the agents of the members they pick, in a room they can access) or All agents (every agent in a room they can access, also the agents of other members). The same choice decides which agents may open their own tabs there. The tab is signed in as that member, so the offer is their consent: the agent acts as the member on that tab's sites. In a tab offered on the office, the agent can use the office as the member, also the pages that agent tokens cannot reach: API tokens, secrets and sign-in links. If an office owner offers an office tab to All agents or to picked members, those agents, also the agents of other members, can use the office as the owner.
   - Browser control refuses an office page that the member did not offer. Each office response carries the `X-Isomux-Office` header. The server learns office origins from it, and it refuses every command on a page that loads from an office origin other than the offered one. A `goto` to a known office is refused before Chrome sends a request. One office request passes: an app host's sign-in hop to the office's `/auth/app`, which gives the app only its own cookie. A page that `/auth/app` answers with, such as the office login, is refused.
   - The load of such a page still happens. It is a top-level GET, which any site that the member visits can also start, because the session cookie is `SameSite=Lax`.
   - A command that is already on its way when Chrome shows the office page can still reach it, within one round trip and before the office page can show a control.
@@ -301,7 +296,7 @@ An agent, terminal or scheduled run with a secret in scope gets a placeholder in
 
 An agent can ask for a secret (`POST /api/agents/:id/secret-requests`). The request waits as an ask (`~/.isomux/asks.json`, which holds the request and never a value); the value goes from the member's browser to the store, never into the transcript. A reply, dismiss or filed task on that ask is refused, so a value typed there cannot reach the chat. Only the member it names (by default the manager) can save it, and only into secrets they own, or as an office owner. With an app, the value goes to that app's environment and the agent gets no placeholder. The same request can ask for a variable or an MCP server; the value or URL takes the same path, into the variables or the MCP servers.
 
-A member can give a personal secret to the apps they own, and an owner can give an office secret to any app. The app gets the value in its environment, from a file in `secrets/apps/` (mode 0600), and restarts when the secret changes. A secret with no host gives agents no placeholder. The app's process holds the value, so an agent that reads that process's environment can read it (section 3.2), and an office owner can change a member's app command to print a member's secret. The app logs route removes every secret value, as a backstop.
+A member can give a personal secret to the apps they own, and an owner can give an office secret to any app. The app gets the value in its environment, from a file in `secrets/apps/` (mode 0600). A secret with no host gives agents no placeholder. The app's process holds the value, so an agent that reads that process's environment can read it (section 3.2), and an office owner can change a member's app command to print a member's secret. The app logs route removes every secret value, as a backstop.
 
 ---
 
@@ -345,28 +340,28 @@ Model requests, sign-in, updates and operator-configured OpenTelemetry still go 
 
 ### 8.5 Pager
 
-An agent can page its manager, and an app can page its owner. Isomux takes the source and the target from the token, not from the request body. A member, an API token and a scheduled run cannot raise a page. A source has at most 50 open or acknowledged pages. A title has 200 characters at most, and a body 2000.
+An agent can page its manager, and an app can page its owner. Isomux takes the source and the target from the token, not from the request body. A member, an API token and a scheduled run cannot raise a page.
 
 - **Who sees a page.** A page follows the room of its source, as tasks do. The members with access to that room, and their agents, can read, acknowledge and resolve it. An app page is also open to the app owner and office owners. Thus a member or an agent in the room can acknowledge or resolve a page to another member, and that stops its Discord repeats.
 - **The Discord webhook URL.** Each member can save one Discord webhook URL. Anyone who has the URL can post to that channel. Isomux keeps it in `pager-settings.json` (mode 0600), not in the managed environment, so agents do not get it in their environment. The settings routes take the gate of the member's secrets: the member, or an office owner for any member, by browser session, API token or privileged agent. The responses show only the host and the last 4 characters of the URL. An agent with a shell can read the file (section 3.2).
-- **Outbound requests.** Isomux accepts only an `https` URL on `discord.com` or `discordapp.com` with a Discord webhook path, and with no port, user, query or fragment. It does not follow redirects, and it stops a request after 10 seconds. It reads the response body only to get the wait of a 429 answer. Its log lines do not include the URL.
+- **Outbound requests.** Isomux accepts only an `https` URL on `discord.com` or `discordapp.com` with a Discord webhook path, and with no port, user, query or fragment. It does not follow redirects. Its log lines do not include the URL.
 - **Mentions.** Each message sets `allowed_mentions` with no `parse` types. Thus `@everyone`, `@here` and role mentions in a title or body ping nobody. Only the Discord user ID saved in the member's settings, if there is one, gets a ping. The "resolved" message pings nobody.
 - **What leaves the office.** The title, the body, the source name, the room name and a link to the page go to Discord. The source writes the title and the body, so they can hold text that an agent read in a file or in a webhook delivery.
-- **Device notifications (Web Push).** A member turns on notifications on a device, and the browser gives Isomux an endpoint at its push service. Isomux keeps the endpoints and its own VAPID key pair in `web-push.json` (mode 0600). It makes the key pair on first use. Only the member's browser session and the member's API tokens reach the device routes, and the responses do not include an endpoint. Isomux accepts only an `https` endpoint on the push service of Chrome, Firefox, Safari or Edge, with no port or user. It does not follow redirects, and it stops a request after 10 seconds. It encrypts each message for the device (RFC 8291), so the push service cannot read it. The same text as for Discord goes out, for every page aimed at the member. When the push service answers 401, 403, 404 or 410, Isomux removes the device. When a member is deleted, Isomux removes their devices. When a member signs out, the browser removes its own device and unsubscribes before the session ends; a session revoked from another device does not reach it, so the member removes that device from the list. A member also gets the agent's name and the room name when an agent ends a turn that a person started, in a room where they ticked Push. The lobby sends none.
+- **Device notifications (Web Push).** A member turns on notifications on a device, and the browser gives Isomux an endpoint at its push service. Isomux keeps the endpoints and its own VAPID key pair in `web-push.json` (mode 0600). Only the member's browser session and the member's API tokens reach the device routes, and the responses do not include an endpoint. Isomux accepts only an `https` endpoint on the push service of Chrome, Firefox, Safari or Edge, with no port or user. It does not follow redirects. It encrypts each message for the device (RFC 8291), so the push service cannot read it. The same text as for Discord goes out, for every page aimed at the member. When a member is deleted, Isomux removes their devices. When a member signs out, the browser removes its own device and unsubscribes before the session ends; a session revoked from another device does not reach it, so the member removes that device from the list. A member also gets the agent's name and the room name when an agent ends a turn that a person started, in a room where they ticked Push. The lobby sends none.
 
 ### 8.6 Connection tests
 
 The Test button of the Integrations page makes the server itself send a secret. A member's browser session or API token can start a test of their own connections, and an owner's can start a test of any member's. Only an owner can test an office secret or an office MCP server. Each test writes an audit row.
 
 - **Where the secret goes.** For a secret of the GitHub, Stripe or Fly preset, the server sends it to one fixed identity endpoint (`api.github.com/user`, `api.stripe.com/v1/account`, or Fly's GraphQL `viewer` query). For a registered MCP server, it sends the server's secret to the registered URL. The secret goes only to a host that it lists. A secret on any other host gets no test.
-- **Outbound requests.** Isomux does not follow redirects. A test stops after 10 seconds, and Isomux reads at most 1 MiB of each answer. The request goes out from the server process, not through the agents' secret proxy.
+- **Outbound requests.** Isomux does not follow redirects. The request goes out from the server process, not through the agents' secret proxy.
 - **What comes back.** The answer holds only the host, a reason code, and an account or server name. Isomux drops a name that contains the secret or a part of the URL path or query. No log line holds the URL or the secret.
 
 ### 8.7 OAuth MCP servers
 
 For a registered MCP server that needs the MCP authorization flow, Isomux is the OAuth client. The member, or an owner for an office server or a member's server, starts the sign-in; the authorization server sends the browser back to `/api/mcp-oauth/callback` on the office's public origin.
 
-- **Checks.** Every endpoint is `https`. The protected-resource metadata must name the registered URL, and the authorization-server metadata must name the issuer it was fetched for. The flow uses PKCE (S256) and a random state that expires after 10 minutes. Only the person who started the flow can finish it, with a browser session, and only while they still have access to the server: their own, or any as an owner. Isomux does not follow redirects, stops each step after 10 seconds, and reads at most 1 MiB of each answer.
+- **Checks.** Every endpoint is `https`. The protected-resource metadata must name the registered URL, and the authorization-server metadata must name the issuer it was fetched for. The flow uses PKCE (S256) and a random state that expires after 10 minutes. Only the person who started the flow can finish it, with a browser session, and only while they still have access to the server: their own, or any as an owner. Isomux does not follow redirects.
 - **Where the tokens are.** The refresh token, and a client secret if there is one, are secrets of the server's scope (`MCP_<NAME>_OAUTH` and `MCP_<NAME>_OAUTH_CLIENT`). They go only to the authorization server's token endpoint: agents get no placeholder for them, and the secret proxy does not hold them. The access token is in the server's memory only. Agents get it as the value of the server's header, through the same channels as a static credential's placeholder (never argv or the environment). A change of the server's URL, a switch away from OAuth, or a delete removes the tokens.
 - **What is recorded.** A finished sign-in writes an audit row with the server's name and its scope: the office, or the member. No log line, response or audit row holds a token, a code or the state.
 
@@ -395,27 +390,26 @@ The office setting **Record terminals** is off by default. When an owner turns i
 - **Notice.** A recorded terminal tells every member who opens it. A change of the setting applies from the next terminal start.
 - **Redaction.** Before writing, Isomux masks the output as it masks logs (section 8.3), with the secrets stored at that moment. These are not caught: a secret split by escape sequences (colour, cursor movement), a secret printed in another encoding, and a password that a program echoes as one `*` per character, which shows its length. Anything else a member shows on screen, such as `cat .env`, is in the recording.
 - **Timing.** A mark starts when a member types after a pause of 2 seconds with new output in between, so a prompt that echoes nothing gives one mark at any typing speed.
-- **Limits.** A recording stops at 100 MB. Recordings stay until an owner prunes them in the storage panel. Backups include them.
+- **Limits.** Recordings stay until an owner prunes them in the storage panel. Backups include them.
 - **Replay.** The replay terminal takes no input, ignores clipboard writes and opens no links. The route serves the file as a download.
 
 ### 8.11 Lobby floors
 
 The lobby elevator links to other Isomux offices. Each office answers a public card at `/.well-known/isomux-office` with its name only, which its sign-in page title already shows. To add a floor, a member, a privileged agent or an API token gives an address, and the server reads the card there.
 
-- **Outbound requests.** One `GET` of that fixed path, with no cookie or credential. Isomux does not follow redirects, stops after 8 seconds, and reads at most 4 KB. Only the name comes back. An office from before the card, whose sign-in wall answers instead, gets its own answer; every other failure gets the same one.
+- **Outbound requests.** One `GET` of that fixed path, with no cookie or credential. Isomux does not follow redirects. Only the name comes back. An office from before the card, whose sign-in wall answers instead, gets its own answer; every other failure gets the same one.
 - **Reach.** The request goes out from the server process, so it reaches addresses on the office's own network. The caller learns which of three answers one fixed path gives at that address: a card, an older office's sign-in wall, or neither.
 - **What is stored.** The address (its origin only) and the name, in `floors.json`. No token or secret goes to the other office.
-- **The panel a member carries.** Each ride from the elevator carries the member's panel in the address fragment, which the browser never sends to a server: the addresses of the offices that browser rode through and of their floors, with no name. The office keeps it in that browser's local storage and checks every address in it. It shows no name that a ride carried: a signed-in member or a privileged agent asks the office server for the name at an address (`GET /api/floors/name`), and the server reads the card as above. The server keeps each answer for an hour, for all callers, and answers at most four of these reads at a time for one caller. So every office a member rides to learns every address on the member's panel. A crafted link can add addresses to the panel in that browser, or hide entries that only the panel holds, never the office's own floors.
+- **The panel a member carries.** Each ride from the elevator carries the member's panel in the address fragment, which the browser never sends to a server: the addresses of the offices that browser rode through and of their floors, with no name. The office keeps it in that browser's local storage and checks every address in it. It shows no name that a ride carried: a signed-in member or a privileged agent asks the office server for the name at an address (`GET /api/floors/name`), and the server reads the card as above. The server keeps each answer for an hour, for all callers. So every office a member rides to learns every address on the member's panel. A crafted link can add addresses to the panel in that browser, or hide entries that only the panel holds, never the office's own floors.
 
 ### 8.12 Enterprise seats
 
 An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Office -> Enterprise and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
 
 - **What leaves the office.** A random office id (32 hex characters, made once per office) and the office's member count. No names, emails, agents or content. The secret goes in the `Authorization` header.
-- **When.** Before each member add (a created member, a restore from Removed members, a legacy new-member invite), after each removal, a few seconds after boot and then every hour, and once with a count of 0 when an owner turns the box off.
-- **Outbound requests.** Isomux does not follow redirects and stops a request after 10 seconds. A refusal stops the add. No answer, a 5xx or a redirect lets the add go on, and the next check-in corrects the count. Existing members are never locked out.
+- **When.** Before each member add, after each removal, a few seconds after boot and then every hour, and once with a count of 0 when an owner turns the box off.
+- **Outbound requests.** Isomux does not follow redirects.
 - **Where the secret is.** In `secrets/enterprise-seats.key` (mode 0600) under the state root. No route returns it, and no log line or audit row holds it. Turning the box off deletes it. An agent with a shell can read the file (section 3.2).
-- **The lock.** While the box is on and no secret was accepted, the office refuses every message to an agent (from a member, an API token or another agent, and ask replies) and adds no members. Turns that already run, webhooks and schedules keep running. Hosted offices have no box.
 
 ---
 
@@ -454,7 +448,7 @@ In `~/.isomux/`:
 - `invites.json` - outstanding invites, keyed by sha256(token). Raw tokens never persist; only the hash and an 8-char display prefix.
 - `sessions.json` - active sessions, keyed by sha256(session-id). Raw IDs never persist.
 
-All three files are written atomically (temp + rename) and serialized under a single in-process mutex, so invite acceptance (which touches all three) can't race. Access pane saves go through the same mutex. Sessions persist to disk, so a restart keeps them.
+All three files are written atomically (temp + rename) and serialized under a single in-process mutex, so invite acceptance (which touches all three) can't race.
 
 `office-id` holds 12 random hex characters, made at the first start. It names this office's session cookies. It is not a secret.
 
@@ -501,7 +495,7 @@ A same-host reverse proxy or tunnel configured **before** an owner claims forwar
 
 - **Revoking a live session.** The corresponding WebSocket force-closes within about 1 second (the per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
 - **A member tries to create a member or mint a link for someone else.** Rejected at the wire level. The account panes are scoped per role; the server-side check is the actual gate.
-- **Scripts and the API.** `POST /api/users` creates a member (owner only); `POST /api/invites` with `{"userId": "..."}` mints their sign-in link. A privileged agent can create new office members, but not mint invite links for them. That always requires a human. The old one-step body (`username`, `label`, `role`, ...) returns 400. `POST /api/invites/recovery` is a permanent alias of `POST /api/invites`.
+- **Scripts and the API.** `POST /api/users` creates a member (owner only); `POST /api/invites` with `{"userId": "..."}` mints their sign-in link. A privileged agent can create new office members, but not mint invite links for them. That always requires a human.
 - **CSRF / CSWSH.** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Everything an agent calls is bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); there is no loopback bypass left.
 
 ## Appendix: files reviewed
@@ -527,7 +521,7 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 3.2 and section 8.1: `createWebhookRegistry` in `webhooks/registry.ts`; `createPagerSettingsFilePersistence` in `pager-settings.ts`.
 - Section 4.7, URL and id: `WEBHOOK_ID_PATTERN` and `create` in `webhooks/registry.ts`; `toWire` in `routes/handlers/webhooks.ts`.
 - Section 4.7, signature: `verifyWebhookSignature` in `webhooks/verify.ts`; `createWebhookIngress` (`handle`) in `webhooks/ingress.ts`; the `/hooks/:id` branch of `buildServer` in `office-front-door.ts`.
-- Section 4.7, before the signature check: `handle`, `readCapped` and `WEBHOOK_BODY_MAX_BYTES` in `webhooks/ingress.ts`.
+- Section 4.7, before the signature check: `handle` in `webhooks/ingress.ts`.
 - Section 4.7, replays, and finding 11: `claim` and `WEBHOOK_DEDUP_WINDOW_MS` in `webhooks/deliveries.ts`; `WEBHOOK_DELIVERY_LOG_MAX` in `webhooks/registry.ts`; `handle`, `dispatch` and `parsePayload` in `webhooks/ingress.ts`.
 - Section 4.7, what reaches the target: `planWebhookDelivery` in `webhooks/ingress.ts`; `buildWebhookBlock` and `escapeArgsJson` in `webhooks/block.ts`; `renderArgs` in `webhooks/match.ts`; `formatWebhookSenderPrefix` in `shared/identity.ts`; the webhook branch of the run system prompt in `cronjob-manager.ts`.
 - Section 4.7, prompt injection, and finding 10: as above, and `runCronjobFromWebhook` in `cronjob-manager.ts`.
@@ -537,16 +531,16 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 5.1: `API_CAPABILITIES` in `identity/index.ts`; `selfUserOrApi`, `selfOrEnvOwner` and `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `toPagerSettingsRes` in `pager-settings.ts`.
 - Section 7, integrations: `selfOrEnvOwner`, `officeEnvReader` and `officeEnvOwner` in `identity/guards.ts`; `secret:show` in `identity/index.ts`; the `secrets.*`, `officeSecrets.*`, `userEnv.*`, `officeEnv.names`, `mcpServers.*` and `officeMcpServers.list` routes in `routes/table.ts`; `memberSubject` in `routes/handlers/member-subject.ts`; `officeSecretSummary` in `routes/handlers/secrets.ts`; `officeServerSummary` in `routes/handlers/mcp-servers.ts`.
 - Section 8.2: `BACKUP_EXCLUSIONS` in `backup.ts`.
-- Section 8.5, raise: `pager.raise` and `pager.appRaise` in `routes/handlers/pager.ts`; `parseRaiseFields`, `PAGER_TITLE_MAX`, `PAGER_BODY_MAX` and `PAGER_MAX_ACTIVE_PER_SOURCE` in `pager-store.ts`.
+- Section 8.5, raise: `pager.raise` and `pager.appRaise` in `routes/handlers/pager.ts`; `parseRaiseFields` in `pager-store.ts`.
 - Section 8.5, who sees a page: `pagerEntryVisible` in `pager-store.ts`; `pager.ack` and `pager.resolve` in `routes/handlers/pager.ts`; `onTransitioned` in `pager-delivery.ts`.
 - Section 8.5, the Discord webhook URL: `createPagerSettingsFilePersistence` and `maskWebhookUrl` in `pager-settings.ts`; `pagerSettingsHandlers` in `routes/handlers/pager-settings.ts`; the `pagerSettings.*` routes in `routes/table.ts`.
-- Section 8.5, outbound requests: `parseDiscordWebhookUrl` in `pager-settings.ts`; `post`, `retryAfterMs` and `PAGER_SEND_TIMEOUT_MS` in `pager-delivery.ts`.
+- Section 8.5, outbound requests: `parseDiscordWebhookUrl` in `pager-settings.ts`; `post` in `pager-delivery.ts`.
 - Section 8.5, mentions and what leaves the office: `buildPageMessage` and `mentions` in `pager-delivery.ts`; `parsePagerSettingsPatch` in `pager-settings.ts`.
 - Section 8.5, device notifications: `isPushEndpoint`, `parsePushDeviceInput` and `createWebPushFilePersistence` in `web-push-store.ts`; `sendTo`, `sendPage` and `buildPagePayload` in `web-push-delivery.ts`; `encryptPushPayload` in `web-push-crypto.ts`; `pushDevicesHandlers` in `routes/handlers/push-devices.ts`; the `pushDevices.*` routes in `routes/table.ts`.
 - Section 8.6, who can test and where the secret goes: the `secrets.test`, `officeSecrets.test`, `mcpServers.test` and `officeMcpServers.test` routes in `routes/table.ts`; `IDENTITY_CHECKS` and `secretTestKind` in `connection-tests.ts`; `mcpServerSecret` in `mcp-servers.ts`.
-- Section 8.6, outbound requests and what comes back: `send`, `readBody`, `cleanName` and `CONNECTION_TEST_TIMEOUT_MS` in `connection-tests.ts`.
+- Section 8.6, outbound requests and what comes back: `send` and `cleanName` in `connection-tests.ts`.
 - Section 8.7, the flow and its checks: `discover`, `send`, `startSignIn` and `finishSignIn` in `mcp-oauth.ts`; the `mcpServers.signIn`, `officeMcpServers.signIn` and `mcpOAuth.callback` routes in `routes/table.ts`.
 - Section 8.7, where the tokens are: `writeOwnedSecret` in `mcp-oauth.ts`; `mcp-oauth-tokens.ts`; `mcpServerSecret` in `mcp-servers.ts`.
 - Section 8.8, what an agent reads: the `agentConnections.list` route in `routes/table.ts`; `buildAgentConnections` in `agent-connections.ts`; `server/agent-reference/connections.md`.
-- Section 8.12: `seatCall`, `headerSafeSecret` and `createEnterpriseSeats` in `enterprise-seats.ts`; `enterpriseSeatsHandlers` in `enterprise-seats-routes.ts`; the `office.enterprise.*` routes in `routes/table.ts`; the `takeSeat` calls in `office-users-routes.ts` and `auth-middleware.ts`; the `officeNotEnterpriseLocked` and `officeNotEnterpriseLockedOrPermissionAnswer` preconditions in `isomux-office.ts` and the routes that list them in `routes/table.ts`.
-- Section 8.11, and the office card in section 4.5: `allowOfficeCardRequest` in `ready-limiter.ts`; `officeCardResponse`, `probeOffice` and `OFFICE_CARD_MAX_BYTES` in `office-card.ts`; `floorsHandlers` in `routes/handlers/floors.ts`; `createFloorsStore` in `floors-store.ts`; `createOfficeNameCache` in `office-name-cache.ts`; the panel rules in `shared/elevator-panel.ts`; the `floors.*` routes in `routes/table.ts`.
+- Section 8.12: `seatCall`, `headerSafeSecret` and `createEnterpriseSeats` in `enterprise-seats.ts`; `enterpriseSeatsHandlers` in `enterprise-seats-routes.ts`; the `office.enterprise.*` routes in `routes/table.ts`; the `takeSeat` calls in `office-users-routes.ts` and `auth-middleware.ts`.
+- Section 8.11: `officeCardResponse` and `probeOffice` in `office-card.ts`; `floorsHandlers` in `routes/handlers/floors.ts`; `createFloorsStore` in `floors-store.ts`; `createOfficeNameCache` in `office-name-cache.ts`; the panel rules in `shared/elevator-panel.ts`; the `floors.*` routes in `routes/table.ts`.
