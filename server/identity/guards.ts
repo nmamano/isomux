@@ -947,11 +947,13 @@ export const taskDelete: Guard = ({ identity }) =>
 // messageSend:
 //   USER     → room access to the sender agent's room (a member who can reach
 //              the agent can inspect/cancel its outbox - same authority shape
-//              as cancelling its queued messages).
+//              as cancelling its queued messages). A cancel also needs the
+//              sender to fit the caller's pack (AGENT_WRITE_FIT_TABLE).
 //   AGENT    → `:id` must equal the token agent: an agent manages ONLY its own
 //              outbox. Deliberately NOT room-based - room-mates must not read
 //              or cancel each other's pending scheduled messages.
-//   API      → the issuing user manages reachable agent outboxes.
+//   API      → the issuing user manages reachable agent outboxes, with the
+//              same pack fit on a cancel.
 //   CRON-RUN → deny (a run has no outbox).
 export const scheduledMessagesOwner: Guard = (ctx) => {
   switch (ctx.identity.scope) {

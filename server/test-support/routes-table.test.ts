@@ -3341,11 +3341,12 @@ describe("route table: API token areas", () => {
       }).toEqual({ opId: route.opId, well: true });
     }
     // A reply route checks the agent it answers; a spawn or a revive checks
-    // the agent it makes; a scheduled message's :id is its sender.
+    // the agent it makes.
     for (const opId of [
       "agents.sendMessage",
       "agents.abort",
       "agents.cancelQueued",
+      "agents.cancelScheduledMessage",
     ]) {
       expect({ opId, fit: AGENT_WRITE_FIT_TABLE[opId] }).toEqual({
         opId,
@@ -3358,9 +3359,6 @@ describe("route table: API token areas", () => {
         kind: "result",
       });
     }
-    expect(AGENT_WRITE_FIT_TABLE["agents.cancelScheduledMessage"]?.kind).toBe(
-      "exempt",
-    );
   });
 
   it("a room's GitHub link is an environment write", () => {

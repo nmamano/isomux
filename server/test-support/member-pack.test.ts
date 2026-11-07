@@ -35,7 +35,7 @@ import { appTokens } from "../app-tokens.ts";
 import { mayReachExtension } from "../isomux-office.ts";
 import { STATE_ROOT } from "../config.ts";
 import { API_TOKEN_REPLIES_ONLY } from "../../shared/identity.ts";
-import type { MemberPack } from "../../shared/pack-fit.ts";
+import { MEMBER_PACK_PRESETS, type MemberPack } from "../../shared/pack-fit.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 
@@ -710,6 +710,54 @@ describe("the messaging rule for a member with a pack", () => {
       code: "above_agent_ceiling",
     });
     expect(o.srv.agentManager.getAgent(mine.id)?.access).toBe("office");
+  });
+});
+
+describe("the outbox of scheduled messages for a member with a pack", () => {
+  it("the member cancels scheduled messages only in the outbox of an agent that fits", async () => {
+    const o = await office();
+    const receiver = await spawn(o, "Receiver");
+    await lower(o, receiver, "chat");
+    const standard = await spawn(o, "Standard");
+    const fitting = await spawn(o, "Fitting");
+    await lower(o, fitting, "office", { agents: "write" }, [o.room]);
+    const deliverAt = new Date(Date.now() + 3_600_000).toISOString();
+    const schedule = async (from: AgentInfo): Promise<string> => {
+      const res = await asBearer(
+        o,
+        tokenOf(from.id),
+        "POST",
+        `/api/agents/${receiver.id}/messages`,
+        { text: `later from ${from.name}`, deliverAt },
+      );
+      expect({ from: from.name, status: res.status }).toEqual({
+        from: from.name,
+        status: 200,
+      });
+      return (res.body as { scheduledId: string }).scheduledId;
+    };
+    const outbox = async (agent: AgentInfo): Promise<string[]> => {
+      const res = await asBearer(
+        o,
+        tokenOf(agent.id),
+        "GET",
+        `/api/agents/${agent.id}/scheduled-messages`,
+      );
+      expect(res.status).toBe(200);
+      return (res.body as { scheduled: Array<{ id: string }> }).scheduled.map(
+        (e) => e.id,
+      );
+    };
+    const cancel = (agent: AgentInfo, id: string) =>
+      asCasey(o, "DELETE", `/api/agents/${agent.id}/scheduled-messages/${id}`);
+    const fromStandard = await schedule(standard);
+    const fromFitting = await schedule(fitting);
+
+    await packCasey(o, MEMBER_PACK_PRESETS.workWithAgents);
+    expect(outcome(await cancel(standard, fromStandard))).toEqual(REFUSED);
+    expect(await outbox(standard)).toEqual([fromStandard]);
+    expect((await cancel(fitting, fromFitting)).status).toBe(204);
+    expect(await outbox(fitting)).toEqual([]);
   });
 });
 

@@ -60,6 +60,8 @@ export const AGENT_WRITE_FIT_TABLE: Readonly<Record<string, AgentWriteFit>> = {
   "agents.respondInteraction": ID,
   "agents.editMessage": ID,
   "agents.cancelQueued": ID,
+  // :id is the sender; an agent cancels only its own (scheduledMessagesOwner).
+  "agents.cancelScheduledMessage": ID,
   "agents.sendNow": ID,
   "agents.newConversation": ID,
   "agents.handoff": ID,
@@ -70,10 +72,6 @@ export const AGENT_WRITE_FIT_TABLE: Readonly<Record<string, AgentWriteFit>> = {
     kind: "exempt",
     reason:
       "swaps two desks in one room: no agent's access, chat or work changes",
-  },
-  "agents.cancelScheduledMessage": {
-    kind: "exempt",
-    reason: ":id is the sender, which cancels its own scheduled message",
   },
   ...Object.fromEntries(
     [
