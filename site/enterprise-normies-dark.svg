@@ -9,10 +9,10 @@
     <rect x="220" y="14" width="760" height="390" rx="14" fill="#1b1c24" stroke="#a39cc4" stroke-width="2"/>
   <text x="244" y="48" font-size="21" font-weight="700" fill="#a39cc4" text-anchor="start">Isomux</text>
   <text x="244" y="74" font-size="16" font-weight="500" fill="#a39cc4" text-anchor="start" opacity="0.78">Runs in your infra, with the harnesses you choose</text>
-  <rect x="20" y="110" width="160" height="84" rx="14" fill="#1c2128" stroke="#a0aec0" stroke-width="2"/>
-  <text x="100" y="159" font-size="19" font-weight="700" fill="#a0aec0" text-anchor="middle">Engineers</text>
-  <rect x="20" y="270" width="160" height="84" rx="14" fill="#1c2128" stroke="#a0aec0" stroke-width="2"/>
-  <text x="100" y="319" font-size="19" font-weight="700" fill="#a0aec0" text-anchor="middle">Normies</text>
+  <rect x="20" y="96" width="160" height="84" rx="14" fill="#1c2128" stroke="#a0aec0" stroke-width="2"/>
+  <text x="100" y="145" font-size="19" font-weight="700" fill="#a0aec0" text-anchor="middle">Engineers</text>
+  <rect x="20" y="250" width="160" height="84" rx="14" fill="#1c2128" stroke="#a0aec0" stroke-width="2"/>
+  <text x="100" y="299" font-size="19" font-weight="700" fill="#a0aec0" text-anchor="middle">Normies</text>
   <rect x="440" y="96" width="260" height="234" rx="14" fill="#14243a" stroke="#63a4e8" stroke-width="2"/>
   <text x="462" y="130" font-size="19" font-weight="700" fill="#63a4e8" text-anchor="start">Agents</text>
   <text x="462" y="152" font-size="14" font-weight="500" fill="#63a4e8" text-anchor="start" opacity="0.78">shared conversations</text>
@@ -26,28 +26,29 @@
   <text x="520" y="297" font-size="13" font-weight="500" fill="#63a4e8" text-anchor="start" opacity="0.85">Codex</text>
   <rect x="760" y="96" width="200" height="234" rx="14" fill="#13291d" stroke="#4fc27a" stroke-width="2"/>
   <text x="780" y="130" font-size="19" font-weight="700" fill="#4fc27a" text-anchor="start">Apps</text>
-  <text x="780" y="152" font-size="14" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.78">links, not ports</text>
+  <text x="780" y="152" font-size="14" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.78">clean links</text>
   <rect x="776" y="166" width="168" height="70" rx="10" fill="#1c2128" stroke="#4fc27a" stroke-width="1.5"/>
   <text x="790" y="197" font-size="15" font-weight="700" fill="#c6f0d5" text-anchor="start">churn-dashboard</text>
-  <text x="790" y="217" font-size="11.5" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.9">churn.acme.isomux.app</text>
+  <text x="790" y="217" font-size="11.5" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.9">exampleoffice.com/churn</text>
   <rect x="776" y="246" width="168" height="70" rx="10" fill="#1c2128" stroke="#4fc27a" stroke-width="1.5"/>
   <text x="790" y="277" font-size="15" font-weight="700" fill="#c6f0d5" text-anchor="start">weekly-report</text>
-  <text x="790" y="297" font-size="11.5" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.9">report.acme.isomux.app</text>
-  <path d="M 180 134 L 436 134" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
-  <circle cx="250" cy="134" r="12" fill="#5a4f8a"/>
-  <text x="250" y="139" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
-  <text x="270" y="124" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">set up the agents</text>
-  <path d="M 180 172 L 436 172" fill="none" stroke="#a0aec0" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
-  <circle cx="250" cy="172" r="12" fill="#5a4f8a"/>
-  <text x="250" y="177" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
-  <text x="270" y="162" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">step in when stuck</text>
-  <path d="M 180 300 L 436 300" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
-  <circle cx="250" cy="300" r="12" fill="#5a4f8a"/>
-  <text x="250" y="305" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
-  <text x="270" y="290" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">chat with the agents</text>
+  <text x="790" y="297" font-size="11.5" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.9">exampleoffice.com/report</text>
+  <path d="M 180 120 L 436 120" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
+  <circle cx="250" cy="120" r="12" fill="#5a4f8a"/>
+  <text x="250" y="125" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="270" y="110" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">set up the agents</text>
+  <path d="M 180 166 L 204 166 L 204 316 L 436 316" fill="none" stroke="#a0aec0" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+  <circle cx="250" cy="316" r="12" fill="#5a4f8a"/>
+  <text x="250" y="321" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+  <text x="270" y="306" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">step in when stuck</text>
+  <path d="M 196 266 L 212 266" fill="none" stroke="#161b22" stroke-width="10"/>
+  <path d="M 180 266 L 436 266" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
+  <circle cx="250" cy="266" r="12" fill="#5a4f8a"/>
+  <text x="250" y="271" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="270" y="256" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">chat with the agents</text>
   <path d="M 700 213 L 756 213" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
   <text x="730" y="192" font-size="13" font-weight="500" fill="#a0aec0" text-anchor="middle">register</text>
-  <path d="M 100 354 L 100 376 L 860 376 L 860 334" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M 100 334 L 100 376 L 860 376 L 860 334" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
   <text x="270" y="366" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">open the app link, same login</text>
 </svg>
   
