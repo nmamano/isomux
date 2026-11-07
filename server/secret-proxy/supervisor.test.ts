@@ -73,6 +73,8 @@ function supervise(
   extra: Partial<ProxySupervisorOptions> & { seams?: object } = {},
 ) {
   const ports: [number, number | null][] = [];
+  const listened: number[] = [];
+  const waiters: (() => void)[] = [];
   const logs: string[] = [];
   const supervisor = createProxySupervisor({
     entry: TEST_CHILD,
@@ -88,12 +90,35 @@ function supervise(
     snapshot: () => snapshot(),
     savedPort: null,
     onPort: (port, previous) => ports.push([port, previous]),
+    onListening: (port) => {
+      listened.push(port);
+      for (const wake of waiters.splice(0)) wake();
+    },
     onUse: () => {},
-    log: (code) => logs.push(code),
+    log: (code) => {
+      logs.push(code);
+      for (const wake of waiters.splice(0)) wake();
+    },
     ...extra,
   });
-  return { supervisor, ports, logs };
+  // A restart is waited for by event, not by a clock: the backoff plus a
+  // cold start of the child has no upper bound on a loaded host (task
+  // 212ef878). The test resumes before the supervisor's next timer fires.
+  const settled = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((wake) => waiters.push(wake));
+  };
+  // The port of the `count`th child that listened.
+  const listens = async (count: number) => {
+    await settled(() => listened.length >= count);
+    return listened[count - 1]!;
+  };
+  const logged = (code: string) => settled(() => logs.includes(code));
+  return { supervisor, ports, logs, listens, logged };
 }
+
+// The restart tests wait for a respawn with no clock of their own: 0.5 s
+// backoff (1.5 s for the snapshot retry) and a cold child start.
+const RESTART_TIMEOUT_MS = 10_000;
 
 async function tunnelWorks(port: number): Promise<boolean> {
   try {
@@ -137,30 +162,29 @@ function portOpen(port: number): Promise<boolean> {
 }
 
 describe("the supervisor", () => {
-  // Quarantined: flaky in merge CI (task 212ef878).
-  test.skip("a killed child comes back on the same port", async () => {
-    const { supervisor, ports } = supervise();
-    try {
-      const port = await supervisor.start();
-      expect(ports).toEqual([[port, null]]);
-      expect(await tunnelWorks(port)).toBe(true);
-      const first = supervisor.pid!;
-      process.kill(first, "SIGKILL");
-      expect(
-        await until(
-          async () =>
-            supervisor.pid !== null &&
-            supervisor.pid !== first &&
-            (await tunnelWorks(port)),
-        ),
-      ).toBe(true);
-      expect(supervisor.port).toBe(port);
-      // Same port: no port change for agents.
-      expect(ports).toHaveLength(1);
-    } finally {
-      await supervisor.stop();
-    }
-  });
+  test(
+    "a killed child comes back on the same port",
+    async () => {
+      const { supervisor, ports, listens } = supervise();
+      try {
+        const port = await supervisor.start();
+        expect(ports).toEqual([[port, null]]);
+        expect(await tunnelWorks(port)).toBe(true);
+        const first = supervisor.pid!;
+        process.kill(first, "SIGKILL");
+        expect(await listens(2)).toBe(port);
+        expect(supervisor.pid).not.toBeNull();
+        expect(supervisor.pid).not.toBe(first);
+        expect(await tunnelWorks(port)).toBe(true);
+        expect(supervisor.port).toBe(port);
+        // Same port: no port change for agents.
+        expect(ports).toHaveLength(1);
+      } finally {
+        await supervisor.stop();
+      }
+    },
+    RESTART_TIMEOUT_MS,
+  );
 
   test("a saved port that is taken is replaced once, through onPort", async () => {
     const squatter: Server = createServer(() => {});
@@ -309,7 +333,7 @@ describe("the production entry", () => {
 
 test("no output or log code of the child holds a value or a placeholder: snapshots, refusals and a crash", async () => {
   const output: string[] = [];
-  const { supervisor, logs } = supervise({
+  const { supervisor, logs, logged } = supervise({
     onOutput: (text) => output.push(text),
     seams: {
       standIns: { "api.stub.test:443": https.port },
@@ -335,7 +359,7 @@ test("no output or log code of the child holds a value or a placeholder: snapsho
     socket.destroy();
     plain.destroy();
     process.kill(supervisor.pid!, "SIGKILL");
-    await until(() => logs.includes("child_exited"));
+    await logged("child_exited");
   } finally {
     await supervisor.stop();
   }
@@ -345,73 +369,72 @@ test("no output or log code of the child holds a value or a placeholder: snapsho
   expect(all).not.toContain(PLACEHOLDER);
 });
 
-test("a change made while the child is down reaches it after its restart", async () => {
-  const ROTATED = "ghp_FAKEwhiledownFAKEwhiledownFAKEwhi01";
-  let current = snapshot();
-  const { supervisor } = supervise({
-    snapshot: () => current,
-    seams: {
-      standIns: { "api.stub.test:443": https.port },
-      upstreamRoots: https.ca.certPem,
-    },
-  });
-  try {
-    const port = await supervisor.start();
-    const first = supervisor.pid!;
-    process.kill(first, "SIGKILL");
-    expect(await until(() => supervisor.pid === null)).toBe(true);
-    current = snapshot({
-      secrets: snapshot().secrets.map((s) => ({ ...s, value: ROTATED })),
+test(
+  "a change made while the child is down reaches it after its restart",
+  async () => {
+    const ROTATED = "ghp_FAKEwhiledownFAKEwhiledownFAKEwhi01";
+    let current = snapshot();
+    const { supervisor, listens, logged } = supervise({
+      snapshot: () => current,
+      seams: {
+        standIns: { "api.stub.test:443": https.port },
+        upstreamRoots: https.ca.certPem,
+      },
     });
-    // No child: the push goes nowhere.
-    supervisor.push();
-    expect(
-      await until(() => supervisor.pid !== null && supervisor.pid !== first),
-    ).toBe(true);
-    const sent = async () => {
+    try {
+      const port = await supervisor.start();
+      const first = supervisor.pid!;
+      process.kill(first, "SIGKILL");
+      await logged("child_exited");
+      expect(supervisor.pid).toBeNull();
+      current = snapshot({
+        secrets: snapshot().secrets.map((s) => ({ ...s, value: ROTATED })),
+      });
+      // No child: the push goes nowhere.
+      supervisor.push();
+      expect(await listens(2)).toBe(port);
+      expect(supervisor.pid).not.toBe(first);
       https.seen.length = 0;
-      const socket = await tlsThrough(port, "api.stub.test", officeCa).catch(
-        () => null,
-      );
-      if (!socket) return undefined;
+      const socket = await tlsThrough(port, "api.stub.test", officeCa);
       await exchange(
         socket,
         new ByteReader(socket),
         `GET /headers HTTP/1.1\r\nHost: api.stub.test\r\nAuthorization: Bearer ${PLACEHOLDER}\r\n\r\n`,
       );
       socket.destroy();
-      return https.seen[0]?.headers.find(([n]) => n === "Authorization")?.[1];
-    };
-    expect(
-      await until(async () => (await sent()) === `Bearer ${ROTATED}`),
-    ).toBe(true);
-  } finally {
-    await supervisor.stop();
-  }
-});
+      expect(
+        https.seen[0]?.headers.find(([n]) => n === "Authorization")?.[1],
+      ).toBe(`Bearer ${ROTATED}`);
+    } finally {
+      await supervisor.stop();
+    }
+  },
+  RESTART_TIMEOUT_MS,
+);
 
-test("a snapshot that cannot be built at a restart is retried until it can", async () => {
-  let broken = false;
-  const { supervisor, logs } = supervise({
-    snapshot: () => {
-      if (broken) throw new Error("the store could not be read");
-      return snapshot();
-    },
-  });
-  try {
-    const port = await supervisor.start();
-    const first = supervisor.pid!;
-    broken = true;
-    process.kill(first, "SIGKILL");
-    expect(await until(() => logs.includes("snapshot_failed"))).toBe(true);
-    expect(supervisor.pid).toBeNull();
-    broken = false;
-    expect(
-      await until(
-        async () => supervisor.pid !== null && (await tunnelWorks(port)),
-      ),
-    ).toBe(true);
-  } finally {
-    await supervisor.stop();
-  }
-});
+test(
+  "a snapshot that cannot be built at a restart is retried until it can",
+  async () => {
+    let broken = false;
+    const { supervisor, listens, logged } = supervise({
+      snapshot: () => {
+        if (broken) throw new Error("the store could not be read");
+        return snapshot();
+      },
+    });
+    try {
+      const port = await supervisor.start();
+      const first = supervisor.pid!;
+      broken = true;
+      process.kill(first, "SIGKILL");
+      await logged("snapshot_failed");
+      expect(supervisor.pid).toBeNull();
+      broken = false;
+      expect(await listens(2)).toBe(port);
+      expect(await tunnelWorks(port)).toBe(true);
+    } finally {
+      await supervisor.stop();
+    }
+  },
+  RESTART_TIMEOUT_MS,
+);
