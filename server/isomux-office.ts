@@ -530,6 +530,7 @@ import {
   cronOwnOnly,
   type Identity,
 } from "./identity/index.ts";
+import { hidesManagerData } from "./system-prompt.ts";
 import { scheduleExceedsAgent } from "./cron-agent-limits.ts";
 import { appVisibleTo } from "./app-visibility.ts";
 
@@ -3450,8 +3451,20 @@ function buildExecutorDeps(
         webhookAgentReachable(ownerUserId, agentId) === "ok" &&
         callerReachesAgent(identity, agentId),
       ownScheduleLimits: ownScheduleLimitsFor,
-      buildCronjobSystemPrompt: (cronjob) =>
-        cronjobManager.buildCronjobSystemPrompt(cronjob),
+      // The job runs for its maker: their special instructions follow the
+      // member read rule, not the job's audience (hidesManagerData).
+      buildCronjobSystemPrompt: (cronjob, caller) =>
+        cronjobManager.buildCronjobSystemPrompt(
+          cronjob,
+          undefined,
+          undefined,
+          undefined,
+          hidesManagerData(
+            cronjob.userId ?? getUserByName(cronjob.username)?.id,
+            (userId) =>
+              sharesRoomWithMember(caller, userId, buildLiveGuardDeps()),
+          ),
+        ),
       // A Codex job with no model, made or switched to Codex, takes its
       // owner's login default, as a new Codex agent does.
       createCronjob: async (input) =>
@@ -4388,6 +4401,8 @@ function buildExecutorDeps(
       spawnAccessRefusal,
       spawnRefusal,
       transferAgentManager,
+      sharesRoomWithMember: (identity, userId) =>
+        sharesRoomWithMember(identity, userId, buildLiveGuardDeps()),
       webhookTargetsAgent,
     }),
   );

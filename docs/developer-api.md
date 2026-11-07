@@ -189,7 +189,7 @@ App hosting needs Linux with systemd. On any other host, such as a macOS local o
 
 `PUT /api/agents/:id/access` moves an agent on the access slider. The body is `{access}`, one of `chat`, `office`, `folder`, `web`, `standard` and `privileged`. At `office`, `folder` and `web` it also takes `pack`: token limits (see Limit a token) with `areas` and without `repliesOnly`. Below `standard` the agent has no shell, and its token carries the pack as its limits (`chat` opens no area). A Codex agent can be below `standard` only on `gpt-5.5`. Other cases return 422 `engine_below_standard`, also for a switch to another engine or model. A move rotates the agent's token and restarts its session; a move down stops its turn first. Only the agent's manager or an office owner can call it, signed in. Below `standard`, `PUT /api/agents/:id/privileged` returns 409 `below_standard`. `POST /api/agents` also takes `access` and `pack`, so a new agent starts below `standard` with no step at `standard`. It accepts `chat`, `office`, `folder`, `web` and `standard`; `privileged` returns 400. A refusal (422 `folder_not_allowed` or `engine_below_standard`) creates no agent.
 
-`GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
+`GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`. Here and in the preview below, a caller who shares no room with the manager besides the lobby gets a one-line marker in place of the manager's special instructions and member memory. The manager, the manager's agents and tokens, and office owners always see them.
 
 `POST /api/agents/system-prompt-preview` returns the same envelope without saving. The body contains `roomId`, `name`, `agentType`, `instructions`, and `privileged`, with optional `agentId`, `memory` and `access` (a slider stop; it wins over `privileged`). The caller must have access to `roomId`; an existing agent must belong to that room. Edit previews use the agent's manager and draft memory (an empty string clears it in the preview; omission uses saved memory). Spawn previews use the caller's member context, empty agent memory, and `new-agent` as a placeholder ID.
 
@@ -201,7 +201,7 @@ App responses add `shortUrl`, a short office address that shows the app with its
 
 ### Schedules
 
-`GET /api/cronjobs/:id/system-prompt` returns `{ "systemPrompt": "...", "firstUserMessage": "..." }` for a schedule. The first field is assembled from the current office and schedule settings, and the second field is the schedule's configured prompt. A caller who cannot see the schedule gets `404`.
+`GET /api/cronjobs/:id/system-prompt` returns `{ "systemPrompt": "...", "firstUserMessage": "..." }` for a schedule. The first field is assembled from the current office and schedule settings, and the second field is the schedule's configured prompt. A caller who cannot see the schedule gets `404`. The maker's special instructions follow the same rule as in the agent system prompt.
 
 ### Read and write memory
 

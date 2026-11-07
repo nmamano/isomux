@@ -107,7 +107,8 @@ export interface CronDeps {
   ownScheduleLimits(
     identity: Identity,
   ): (ScheduleLimitAgent & { roomId: string }) | null;
-  buildCronjobSystemPrompt(cronjob: Cronjob): string;
+  // The caller decides whether the maker's special instructions show.
+  buildCronjobSystemPrompt(cronjob: Cronjob, caller: Identity): string;
   createCronjob(input: {
     name: string;
     schedule: Cronjob["schedule"];
@@ -333,7 +334,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         return fail(404, "not_found");
       if (job.target) return fail(409, "agent_target", TARGET_HAS_NO_SESSION);
       return ok({
-        systemPrompt: deps.buildCronjobSystemPrompt(job),
+        systemPrompt: deps.buildCronjobSystemPrompt(job, ctx.identity),
         firstUserMessage: job.prompt,
       });
     },

@@ -297,6 +297,21 @@ export function rewriteOpenCodeOfficeCommands(prompt: string): string {
     .join("\n");
 }
 
+// A member's special instructions and member memory follow their own read rule
+// (sharesRoomWithMember), not the audience of the agent or schedule whose
+// prompt carries them. A prompt inspection route hides them from a caller that
+// fails the rule, and this line stands in their place.
+export function hidesManagerData(
+  managerUserId: string | null | undefined,
+  sharesRoomWithMember: (userId: string) => boolean,
+): boolean {
+  return !!managerUserId && !sharesRoomWithMember(managerUserId);
+}
+
+export function managerHiddenLine(managerName: string): string {
+  return `(Hidden: you share no room with "${managerName}" besides the lobby.)`;
+}
+
 export function memorySection(
   autoLoadedMemory: string | null | undefined,
 ): string {

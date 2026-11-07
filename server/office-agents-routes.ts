@@ -9,7 +9,9 @@ import { RECEPTIONIST_PROFILE_KEY } from "../shared/receptionist-profile.ts";
 import type { AgentInfo } from "../shared/types.ts";
 import { folderOverlapRefusal } from "./agent-folder-rules.ts";
 import { SpawnAccessRefusedError } from "./agent-manager.ts";
-import { buildAgentSystemPrompt } from "./agent-system-prompt.ts";
+import { buildAgentSystemPrompt, managerOf } from "./agent-system-prompt.ts";
+import { hidesManagerData } from "./system-prompt.ts";
+import type { Identity } from "./identity/index.ts";
 import {
   resolveInteractiveModelSelection,
   validatePermissionMode,
@@ -51,6 +53,7 @@ export interface AgentsRoutesDeps extends Pick<
     toUserId: string,
     changedBy: string,
   ) => Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
+  sharesRoomWithMember: (identity: Identity, userId: string) => boolean;
 }
 
 export function createAgentsRoutes(
@@ -70,8 +73,18 @@ export function createAgentsRoutes(
     spawnAccessRefusal,
     spawnRefusal,
     transferAgentManager,
+    sharesRoomWithMember,
     webhookTargetsAgent,
   } = deps;
+  // A manager's private parts of a prompt, for this caller (hidesManagerData).
+  // agent.userId first: the prompt keys member memory on it.
+  const hidesManagerFrom = (
+    caller: Identity,
+    agent: Pick<AgentInfo, "userId" | "manager">,
+  ) =>
+    hidesManagerData(agent.userId ?? managerOf(agent).record?.id, (userId) =>
+      sharesRoomWithMember(caller, userId),
+    );
   // Agent lifecycle cores own the token lifecycle (spawn/revive mint,
   // kill/rollback revoke) + the agent_*/killed_* broadcasts, so these closures
   // just delegate (handlers stay contract-shaped). move returns a DISCRIMINATED
@@ -96,17 +109,23 @@ export function createAgentsRoutes(
         ? agentManager.abortByAgent(agentId)
         : agentManager.abort(agentId),
     getAgent: (agentId) => agentManager.getAgent(agentId),
-    systemPrompt: (agentId) => {
+    systemPrompt: (agentId, caller) => {
       const agent = agentManager.getAgent(agentId);
       if (!agent) return undefined;
       const room = agentManager
         .getRooms()
         .find((candidate) => candidate.id === agent.roomId);
       return room
-        ? buildAgentSystemPrompt(agent, room, agentManager.getOfficeSettings())
+        ? buildAgentSystemPrompt(
+            agent,
+            room,
+            agentManager.getOfficeSettings(),
+            undefined,
+            hidesManagerFrom(caller, agent),
+          )
         : undefined;
     },
-    previewSystemPrompt: (input, identity) => {
+    previewSystemPrompt: (input, identity, caller) => {
       const existing = input.agentId
         ? agentManager.getAgent(input.agentId)
         : undefined;
@@ -140,6 +159,7 @@ export function createAgentsRoutes(
         room,
         agentManager.getOfficeSettings(),
         existing ? input.memory : "",
+        !!existing && hidesManagerFrom(caller, existing),
       );
     },
     move: (agentId, targetRoomId, desk) => {

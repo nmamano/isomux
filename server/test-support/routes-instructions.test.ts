@@ -622,6 +622,309 @@ describe("member instructions read", () => {
   });
 });
 
+// A system prompt carries its manager's special instructions and member memory.
+// A caller that may read the prompt but shares no room with the manager
+// (sharesRoomWithMember: the users/:name/instructions rule) gets the prompt
+// with a marker in place of those two parts (task 1f2bfac6).
+describe("manager's instructions and memory in a system prompt", () => {
+  const MIA_INSTR = "mia-instructions-sentinel";
+  const MIA_MEMORY = "mia-member-memory-sentinel";
+  const MORGAN_INSTR = "morgan-instructions-sentinel";
+  const MORGAN_MEMORY = "morgan-member-memory-sentinel";
+  const NORA_INSTR = "nora-instructions-sentinel";
+  const OFFICE_MEMORY = "office-memory-sentinel";
+  const AGENT_INSTR = "agent-instructions-sentinel";
+  const AGENT_MEMORY = "agent-memory-sentinel";
+
+  async function rooms() {
+    server = await startTestServer();
+    const srv = server;
+    const morgan = await srv.seedOwner("Morgan");
+    const mia = await srv.seedMember("Mia");
+    const nora = await srv.seedMember("Nora");
+    const pat = await srv.seedMember("Pat");
+    const quinn = await srv.seedMember("Quinn");
+    const id = (name: string) => getUserByName(name)!.id;
+    const roomA = srv.agentManager.createRoom("Alpha");
+    const roomB = srv.agentManager.createRoom("Beta");
+    const lobby = srv.agentManager.ensureLobby().id;
+    for (const [name, allowedRooms] of [
+      ["Mia", [roomA]],
+      ["Nora", [roomA]],
+      ["Pat", [roomB]],
+      ["Quinn", []],
+    ] as const)
+      expect(
+        updateUserById(id(name), { allowedRooms: [...allowedRooms] }).ok,
+      ).toBe(true);
+    const setInstructions = async (
+      name: string,
+      session: string,
+      text: string,
+    ) => {
+      const path = `/api/users/${name}/instructions`;
+      const { version } = (await call(srv, "GET", path, { session })).body as {
+        version: string;
+      };
+      expect(
+        (
+          await call(srv, "PUT", path, {
+            session,
+            body: { instructions: text, version },
+          })
+        ).status,
+      ).toBe(200);
+    };
+    const remember = async (session: string, body: unknown) =>
+      expect(
+        (await call(srv, "POST", "/api/memory", { session, body })).status,
+      ).toBe(201);
+    const spawn = async (
+      session: string,
+      name: string,
+      roomId: string,
+      desk?: number,
+    ) => {
+      const r = await call(srv, "POST", "/api/agents", {
+        session,
+        body: {
+          name,
+          cwd: srv.stateRoot,
+          roomId,
+          ...(desk === undefined ? {} : { desk }),
+          permissionMode: "default",
+          instructions: AGENT_INSTR,
+        },
+      });
+      expect([name, r.status]).toEqual([name, 201]);
+      const agentId = (r.body as { agent: { id: string } }).agent.id;
+      await remember(session, {
+        scope: "agent",
+        scopeId: agentId,
+        text: AGENT_MEMORY,
+      });
+      return agentId;
+    };
+    await setInstructions("Mia", mia.rawSessionId, MIA_INSTR);
+    await setInstructions("Morgan", morgan.rawSessionId, MORGAN_INSTR);
+    await setInstructions("Nora", nora.rawSessionId, NORA_INSTR);
+    await remember(mia.rawSessionId, {
+      scope: "member",
+      scopeId: id("Mia"),
+      text: MIA_MEMORY,
+    });
+    await remember(morgan.rawSessionId, {
+      scope: "member",
+      scopeId: id("Morgan"),
+      text: MORGAN_MEMORY,
+    });
+    await remember(morgan.rawSessionId, {
+      scope: "office",
+      text: OFFICE_MEMORY,
+    });
+    // Pat has no instructions and no member memory, and never reaches room A.
+    const patA = await srv.agentManager.spawn(
+      "Pat alpha",
+      srv.stateRoot,
+      "default",
+      1,
+      undefined,
+      roomA,
+      undefined,
+      undefined,
+      undefined,
+      "Pat",
+      "claude",
+      undefined,
+      id("Pat"),
+    );
+    const agents = {
+      // The lobby holds one agent: the owner's, like the default lobby agent.
+      morganLobby: await spawn(morgan.rawSessionId, "Morgan lobby", lobby, 0),
+      miaA: await spawn(mia.rawSessionId, "Mia alpha", roomA, 0),
+      patA: patA!.id,
+    };
+    // Mia's agent stays in room A after she loses it.
+    expect(updateUserById(id("Mia"), { allowedRooms: [roomB] }).ok).toBe(true);
+    const callers = {
+      mia: { session: mia.rawSessionId },
+      morgan: { session: morgan.rawSessionId },
+      morganLobbyItself: {
+        bearer: mintAgentToken(agents.morganLobby, id("Morgan")),
+      },
+      // Nora reaches room A and the lobby; Mia now reaches only room B.
+      nora: { session: nora.rawSessionId },
+      noraPlainAgent: { bearer: mintAgentToken("nora-plain", id("Nora")) },
+      pat: { session: pat.rawSessionId },
+      quinn: { session: quinn.rawSessionId },
+    } satisfies Record<string, Auth>;
+    const prompt = async (agentId: string, auth: Auth) => {
+      const r = await call(
+        srv,
+        "GET",
+        `/api/agents/${agentId}/system-prompt`,
+        auth,
+      );
+      return r.status === 200
+        ? (r.body as { prompt: string }).prompt
+        : r.status;
+    };
+    return { srv, id, roomA, roomB, lobby, agents, callers, prompt };
+  }
+
+  // `hidden` is `shown` with a marker line in place of the instructions body,
+  // and the same marker in the memory block, between the office memory and
+  // the agent memory. Everything else of the prompt stays.
+  function expectRedacted(
+    shown: string,
+    hidden: string,
+    instr: string,
+    memory: string | null,
+  ) {
+    expect(shown).toContain(instr);
+    if (memory) expect(shown).toContain(memory);
+    expect(hidden).not.toContain(instr);
+    if (memory) expect(hidden).not.toContain(memory);
+    const prefix = shown.slice(0, shown.indexOf(instr));
+    expect(hidden.startsWith(prefix)).toBe(true);
+    const marker = hidden.slice(prefix.length).split("\n")[0]!;
+    expect(marker.trim()).not.toBe("");
+    if (memory === null) return;
+    for (const kept of [OFFICE_MEMORY, AGENT_INSTR, AGENT_MEMORY])
+      expect(hidden).toContain(kept);
+    const office = hidden.indexOf(OFFICE_MEMORY);
+    const inMemory = hidden.indexOf(marker, office);
+    expect(inMemory).toBeGreaterThan(office);
+    expect(inMemory).toBeLessThan(hidden.indexOf(AGENT_MEMORY));
+  }
+
+  it("hides them from a caller that shares no room with the manager, on the owner's lobby agent and on an agent in a room the manager lost", async () => {
+    const o = await rooms();
+    const shown = {
+      morganLobby: (await o.prompt(
+        o.agents.morganLobby,
+        o.callers.morgan,
+      )) as string,
+      miaA: (await o.prompt(o.agents.miaA, o.callers.morgan)) as string,
+    };
+    const out: Record<string, string> = {};
+    for (const [agent, instr, memory] of [
+      ["morganLobby", MORGAN_INSTR, MORGAN_MEMORY],
+      ["miaA", MIA_INSTR, MIA_MEMORY],
+    ] as const)
+      for (const [who, auth] of Object.entries(o.callers)) {
+        const r = await o.prompt(o.agents[agent], auth);
+        if (typeof r === "number") out[`${agent} ${who}`] = `${r}`;
+        else if (r.includes(instr)) {
+          out[`${agent} ${who}`] = "shown";
+          expect(r).toBe(shown[agent]);
+        } else {
+          out[`${agent} ${who}`] = "hidden";
+          expectRedacted(shown[agent], r, instr, memory);
+        }
+      }
+    expect(out).toEqual({
+      "morganLobby mia": "shown",
+      "morganLobby morgan": "shown",
+      // The agent itself acts for its manager.
+      "morganLobby morganLobbyItself": "shown",
+      "morganLobby nora": "shown",
+      "morganLobby noraPlainAgent": "shown",
+      "morganLobby pat": "shown",
+      // Quinn reaches only the lobby, which is no shared room.
+      "morganLobby quinn": "hidden",
+      // Mia lost room A, so the route guard refuses her.
+      "miaA mia": "403",
+      "miaA morgan": "shown",
+      "miaA morganLobbyItself": "shown",
+      "miaA nora": "hidden",
+      "miaA noraPlainAgent": "hidden",
+      // No access to room A: the route guard, as before.
+      "miaA pat": "403",
+      "miaA quinn": "403",
+    });
+  });
+
+  it("the rule is checked live on each read, and a manager with nothing private gives the same prompt to every reader", async () => {
+    const o = await rooms();
+    expect(await o.prompt(o.agents.miaA, o.callers.nora)).not.toContain(
+      MIA_INSTR,
+    );
+    expect(
+      updateUserById(o.id("Nora"), { allowedRooms: [o.roomA, o.roomB] }).ok,
+    ).toBe(true);
+    expect(await o.prompt(o.agents.miaA, o.callers.nora)).toBe(
+      await o.prompt(o.agents.miaA, o.callers.morgan),
+    );
+    // Nora shares no room with Pat, and reads what an owner reads.
+    expect(updateUserById(o.id("Nora"), { allowedRooms: [o.roomA] }).ok).toBe(
+      true,
+    );
+    const full = await o.prompt(o.agents.patA, o.callers.morgan);
+    expect(typeof full).toBe("string");
+    expect(await o.prompt(o.agents.patA, o.callers.nora)).toBe(full);
+  });
+
+  it("the preview of an existing agent follows the same rule; a new agent's preview shows the caller's own", async () => {
+    const o = await rooms();
+    const preview = async (auth: Auth, agentId?: string) => {
+      const r = await call(o.srv, "POST", "/api/agents/system-prompt-preview", {
+        ...auth,
+        body: {
+          roomId: o.roomA,
+          ...(agentId ? { agentId } : {}),
+          name: "Draft",
+          agentType: "claude",
+          instructions: AGENT_INSTR,
+          privileged: false,
+          memory: AGENT_MEMORY,
+        },
+      });
+      expect(r.status).toBe(200);
+      return (r.body as { prompt: string }).prompt;
+    };
+    const shown = await preview(o.callers.morgan, o.agents.miaA);
+    expectRedacted(
+      shown,
+      await preview(o.callers.nora, o.agents.miaA),
+      MIA_INSTR,
+      MIA_MEMORY,
+    );
+    expect(await preview(o.callers.nora)).toContain(NORA_INSTR);
+  });
+
+  it("a room schedule's system prompt hides its maker's instructions from a room member that shares no room with the maker; the run keeps them", async () => {
+    const o = await rooms();
+    const job = o.srv.cronjobManager.addCronjob({
+      name: "Mia's job",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "p",
+      cwd: o.srv.stateRoot,
+      agentType: "claude",
+      username: "Mia",
+      userId: o.id("Mia"),
+      roomId: o.roomA,
+    });
+    const read = async (auth: Auth) => {
+      const r = await call(
+        o.srv,
+        "GET",
+        `/api/cronjobs/${job.id}/system-prompt`,
+        auth,
+      );
+      expect(r.status).toBe(200);
+      return (r.body as { systemPrompt: string }).systemPrompt;
+    };
+    const shown = await read(o.callers.mia);
+    expect(await read(o.callers.morgan)).toBe(shown);
+    expectRedacted(shown, await read(o.callers.nora), MIA_INSTR, null);
+    // The run's session prompt is built for the maker, not for a reader.
+    expect(o.srv.cronjobManager.buildCronjobSystemPrompt(job)).toContain(
+      MIA_INSTR,
+    );
+  });
+});
+
 describe("schedule instructions", () => {
   it("stay with the office owner's own session", async () => {
     const o = await office();

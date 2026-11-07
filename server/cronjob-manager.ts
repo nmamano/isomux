@@ -93,7 +93,11 @@ import {
   type EditLogUser,
 } from "./edit-target.ts";
 import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
-import { memorySection, processIsolationPromptLine } from "./system-prompt.ts";
+import {
+  managerHiddenLine,
+  memorySection,
+  processIsolationPromptLine,
+} from "./system-prompt.ts";
 import type { IsolationForm } from "./process-isolation.ts";
 import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
@@ -662,6 +666,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       agentType: cronjob.agentType,
       codexSandbox: cronjob.codexSandbox,
     }),
+    // Inspection by a caller that may not read the maker's special
+    // instructions (hidesManagerData). A run always gets them.
+    hideOwner = false,
   ): string {
     const officeConfig = loadOfficeConfig();
     // humanizeSchedule produces sentence-case ("Daily at 09:00"); lowercase the
@@ -746,7 +753,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ? getUserById(cronjob.userId)
       : getUserByName(cronjob.username);
     if (ownerRecord?.memberPrompt) {
-      prompt += `\n\n## Special instructions for "${ownerRecord.name}"\n\n${ownerRecord.memberPrompt}`;
+      prompt += `\n\n## Special instructions for "${ownerRecord.name}"\n\n${hideOwner ? managerHiddenLine(ownerRecord.name) : ownerRecord.memberPrompt}`;
     }
     prompt += processIsolationPromptLine(isolation);
     // Auto-loaded OFFICE memory (a cron job has no room or agent identity of its

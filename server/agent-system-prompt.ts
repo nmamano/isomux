@@ -7,7 +7,7 @@ import type {
 import { memoryStore } from "./memory-store.ts";
 import { agentAccessOf } from "../shared/agent-access.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
-import { buildSystemPrompt } from "./system-prompt.ts";
+import { buildSystemPrompt, managerHiddenLine } from "./system-prompt.ts";
 import { getUserById, getUserByName } from "./users.ts";
 
 // The agent's manager, for the system prompt. Found by userId, so a member's
@@ -23,7 +23,11 @@ export function managerOf(agent: Pick<AgentInfo, "userId" | "manager">): {
   return { record, name: record?.name ?? agent.manager };
 }
 
-/** Build the exact system prompt used the next time the agent's session starts. */
+/**
+ * Build the exact system prompt used the next time the agent's session starts.
+ * hideManager puts managerHiddenLine in place of the manager's special
+ * instructions and member memory, for a caller that may not read them.
+ */
 export function buildAgentSystemPrompt(
   agent: Pick<
     AgentInfo,
@@ -42,8 +46,18 @@ export function buildAgentSystemPrompt(
   room: RoomWire,
   officeConfig: OfficeSettings,
   agentMemory?: string,
+  hideManager = false,
 ): string {
   const manager = managerOf(agent);
+  const managerLabel = `Member "${manager.name ?? "member"}"`;
+  const hiddenLine = managerHiddenLine(manager.name ?? "member");
+  const memberPrompt = manager.record?.memberPrompt ?? null;
+  const memberMemory =
+    hideManager &&
+    agent.userId &&
+    memoryStore.renderForPrompt("member", agent.userId)
+      ? `${managerLabel}:\n${hiddenLine}`
+      : null;
   return buildSystemPrompt(
     agent.name,
     agent.id,
@@ -53,7 +67,7 @@ export function buildAgentSystemPrompt(
     room.prompt,
     agent.customInstructions,
     manager.name,
-    manager.record?.memberPrompt ?? null,
+    memberPrompt && hideManager ? hiddenLine : memberPrompt,
     agentAccessOf(agent),
     [
       memoryStore.renderForPromptMulti([
@@ -67,16 +81,17 @@ export function buildAgentSystemPrompt(
                 label: `Room "${room.name}"`,
               },
             ]),
-        ...(agent.userId
+        ...(agent.userId && !hideManager
           ? [
               {
                 scope: "member" as const,
                 scopeId: agent.userId,
-                label: `Member "${manager.name ?? "member"}"`,
+                label: managerLabel,
               },
             ]
           : []),
       ]),
+      memberMemory,
       (() => {
         const body =
           agentMemory === undefined
