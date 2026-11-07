@@ -54,6 +54,27 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+// The relative .sh paths a source spells as plain literals. The parse is the
+// cost, so a source is parsed only when it has ".sh" before a closing quote,
+// as such a literal must; few files do. A literal escaped so that its source
+// lacks ".sh" evades on purpose.
+function relativeShellPaths(text: string): string[] {
+  if (!/\.sh["'`]/.test(text)) return [];
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      node.text.endsWith(".sh") &&
+      !path.isAbsolute(node.text)
+    ) {
+      found.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ts.createSourceFile("scan.ts", text, ts.ScriptTarget.Latest));
+  return found;
+}
+
 const included = shipsToImage;
 
 describe("the deploy manifest", () => {
@@ -243,26 +264,21 @@ describe("the build context", () => {
   });
 
   test("runtime payload paths cannot bypass the inventory", () => {
+    // A scan that cannot see the inventory's own payload paths, or a literal
+    // in any quote, cannot see a bypass either.
+    const inventory = path.join(REPO, "control-plane", "runtime-files.ts");
+    const read = (file: string) => fs.readFileSync(file, "utf8");
+    expect(relativeShellPaths(read(inventory)).length).toBeGreaterThan(0);
+    for (const literal of ['"a.sh"', "'a.sh'", "`a.sh`"]) {
+      expect(relativeShellPaths(`run(${literal});`)).toEqual(["a.sh"]);
+    }
+
     const bypasses: string[] = [];
     for (const file of sourceFiles(path.join(REPO, "control-plane"))) {
-      if (file.endsWith("/runtime-files.ts")) continue;
-      const source = ts.createSourceFile(
-        file,
-        fs.readFileSync(file, "utf8"),
-        ts.ScriptTarget.Latest,
-      );
-      const visit = (node: ts.Node): void => {
-        if (
-          (ts.isStringLiteral(node) ||
-            ts.isNoSubstitutionTemplateLiteral(node)) &&
-          node.text.endsWith(".sh") &&
-          !path.isAbsolute(node.text)
-        ) {
-          bypasses.push(`${path.relative(REPO, file)}: ${node.text}`);
-        }
-        ts.forEachChild(node, visit);
-      };
-      visit(source);
+      if (file === inventory) continue;
+      for (const literal of relativeShellPaths(read(file))) {
+        bypasses.push(`${path.relative(REPO, file)}: ${literal}`);
+      }
     }
     expect(bypasses).toEqual([]);
   });
