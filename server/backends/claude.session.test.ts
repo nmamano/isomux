@@ -24,6 +24,7 @@ import {
 } from "../test-support/mcp-placeholder-fixture.ts";
 import type {
   SDKMessage,
+  SDKResultMessage,
   SDKUserMessage,
   SessionMessage,
   CanUseTool,
@@ -34,6 +35,7 @@ import {
   ClaudeSession,
   createClaudeBackend,
   oneShotQueryOptions,
+  oneShotResultText,
   sessionOptsToV1,
   type SdkClient,
   type SdkConversation,
@@ -1069,6 +1071,71 @@ describe("createClaudeBackend.oneShotPrompt", () => {
       thinking: { type: "disabled" },
       cwd: "/tmp",
     });
+  });
+});
+
+// Task b9de1554: a turn that ends on an API error (a usage limit, a
+// sign-out) is a "success" result with is_error true whose text is the
+// provider's notice. A one-shot must fail on it, or the notice is stored as
+// the topic or the conversation summary.
+describe("oneShotResultText", () => {
+  function result(fields: Record<string, unknown>): SDKResultMessage {
+    // RESULT: the limit turn's result message (the limit fixtures below).
+    return { ...RESULT, ...fields } as unknown as SDKResultMessage;
+  }
+  function thrownMessage(run: () => unknown): string {
+    try {
+      run();
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    throw new Error("expected a throw");
+  }
+
+  it("returns the text of a result that is not an error", () => {
+    const text = "  Fix the session list topic \n";
+    expect(oneShotResultText(result({ is_error: false, result: text }))).toBe(
+      text,
+    );
+  });
+
+  // The callers' sign-in check reads the thrown message, so the provider's
+  // notice must be in it.
+  it("throws on an is_error result, with the provider's notice in the message", () => {
+    for (const notice of [LIMIT_TEXT, "Not logged in · Please run /login"]) {
+      expect(
+        thrownMessage(() =>
+          oneShotResultText(result({ is_error: true, result: notice })),
+        ),
+      ).toContain(notice);
+    }
+  });
+
+  it("throws on an is_error result with no text, and says why", () => {
+    expect(
+      thrownMessage(() =>
+        oneShotResultText(result({ is_error: true, result: "" })),
+      ),
+    ).toMatch(/success|is_error/);
+  });
+
+  it("throws on an error subtype, naming it", () => {
+    expect(
+      thrownMessage(() =>
+        oneShotResultText(
+          result({
+            subtype: "error_during_execution",
+            is_error: true,
+            errors: [],
+            result: undefined,
+          }),
+        ),
+      ),
+    ).toContain("error_during_execution");
+  });
+
+  it("throws when the stream ended without a result", () => {
+    expect(() => oneShotResultText(null)).toThrow();
   });
 });
 

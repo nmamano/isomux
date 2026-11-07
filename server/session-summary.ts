@@ -147,8 +147,8 @@ export interface SessionSummarizerDeps {
   // The backoff key (engine and model) for the agent, or null when it cannot
   // summarize now (agent gone, no topicGen capability). Read before the call.
   backoffKey(agentId: string): string | null;
-  // One model call. Null means skip (signed out, or an auth notice returned as
-  // a successful result): nothing is stored and the backoff does not change.
+  // One model call. Null means skip (signed out): nothing is stored and the
+  // backoff does not change.
   summarize(agentId: string, prompt: SummaryPrompt): Promise<string | null>;
   // Whether a thrown error is an auth error. Such an error does not advance
   // the backoff.

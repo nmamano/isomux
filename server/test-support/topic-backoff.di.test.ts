@@ -321,10 +321,11 @@ describe("topic generation backoff", () => {
           [
             "Earlier label",
             () => {
-              // Signed out while the call ran: the reply is the auth notice.
+              // Signed out while the call ran: the call fails with the auth
+              // notice, as the engines report it.
               assertTestStatePath(authFile);
               rmSync(authFile);
-              return notice;
+              throw new Error(notice);
             },
             "Fresh label",
           ],

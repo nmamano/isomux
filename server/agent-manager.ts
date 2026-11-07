@@ -2911,18 +2911,6 @@ export function createAgentManager(deps: ManagerDeps) {
 
       const text = await runOneShot(managed, prompt, topicSystemPrompt);
       if (!current()) return;
-      // A signed-out backend can return its auth notice as a successful
-      // one-shot result. Treat it like the quiet auth-error catch below
-      // rather than publishing provider copy as the topic. With no earlier
-      // label, a null topic retries this cheap subprocess on each message
-      // until sign-in; keep that self-resolving cost (no backoff) instead of
-      // blocking the recovered account.
-      if (
-        detectAgentAuthError(managed, text) &&
-        (await agentIsKnownUnauthenticated(managed))
-      )
-        return;
-      if (!current()) return;
       managed.topicBackoff = null;
       const topic = text.trim().slice(0, 80);
       if (topic === "") return;
@@ -2941,7 +2929,9 @@ export function createAgentManager(deps: ManagerDeps) {
       // Auth-error topic-gen failures are expected when the agent is in the
       // not-yet-signed-in state - the user already sees the auth card in
       // chat, so the server-side log is just noise. Suppress those
-      // specifically; keep other failures visible for debugging.
+      // specifically; keep other failures visible for debugging. They start
+      // no wait either: with no earlier label, the cheap subprocess retries
+      // on each message until sign-in, and a recovered account labels at once.
       if (!detectAgentAuthError(managed, text)) {
         const failures =
           managed.topicBackoff?.key === backoffKey
@@ -3046,18 +3036,7 @@ export function createAgentManager(deps: ManagerDeps) {
       const managed = agents.get(agentId);
       // A signed-out engine cannot summarize: skip instead of failing.
       if (!managed || (await agentIsKnownUnauthenticated(managed))) return null;
-      const text = await runOneShot(
-        managed,
-        prompt.prompt,
-        prompt.systemPrompt,
-      );
-      // An auth notice returned as a successful result is not a paragraph.
-      if (
-        detectAgentAuthError(managed, text) &&
-        (await agentIsKnownUnauthenticated(managed))
-      )
-        return null;
-      return text;
+      return runOneShot(managed, prompt.prompt, prompt.systemPrompt);
     },
     isAuthError: (agentId, message) => {
       const managed = agents.get(agentId);
