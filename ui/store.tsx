@@ -86,6 +86,7 @@ import type {
   RemovedMemberWire,
 } from "../shared/contract-shapes.ts";
 import { connect, socketGeneration } from "./ws.ts";
+import { acknowledgeAttempts, acknowledgedSendIds } from "./log-view/outbox.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
@@ -2491,6 +2492,9 @@ export function StoreProvider({
         // Before the dispatch: a held answer flushed as its card unmounts
         // must see that the ask closed.
         if (msg.type === "ask_removed") closedAsks.add(msg.id);
+        // In the same task as the dispatch, so React renders both in one
+        // commit: the Sending row goes as the message shows.
+        acknowledgeAttempts(acknowledgedSendIds(msg));
         // A full_state carries the socket it came on (W1, task 9ebe887d).
         dispatch(
           msg.type === "full_state"

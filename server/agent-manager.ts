@@ -6365,6 +6365,7 @@ export function createAgentManager(deps: ManagerDeps) {
         ask: opts?.ask,
         refusePromptAnswer: opts?.refusePromptAnswer,
         limits: opts?.limits,
+        clientMessageId: opts?.clientMessageId,
         accept: () => settle({ ok: true }),
         refuse: settle,
       });
@@ -6391,14 +6392,22 @@ export function createAgentManager(deps: ManagerDeps) {
       ask?: AskRef;
       refusePromptAnswer?: boolean;
       limits?: ApiTokenLimits;
+      clientMessageId?: string;
       accept: () => void;
       refuse: (result: Exclude<UserSendAcceptance, { ok: true }>) => void;
     },
   ) {
-    const { accept, refuse, ask } = opts;
-    const userMeta = ask
-      ? { ...(buildUserMeta(username, device) ?? {}), ask }
-      : buildUserMeta(username, device);
+    const { accept, refuse, ask, clientMessageId } = opts;
+    // The chat entries of this send name its outbox attempt, so the client
+    // drops the Sending row in the same render that shows the message.
+    const extraMeta = {
+      ...(ask ? { ask } : {}),
+      ...(clientMessageId ? { clientMessageId } : {}),
+    };
+    const userMeta =
+      Object.keys(extraMeta).length > 0
+        ? { ...(buildUserMeta(username, device) ?? {}), ...extraMeta }
+        : buildUserMeta(username, device);
     const promptGone = {
       ok: false,
       status: 409,
@@ -6504,6 +6513,7 @@ export function createAgentManager(deps: ManagerDeps) {
         text,
         attachments,
         ...(ask ? { ask } : {}),
+        ...(clientMessageId ? { memberAttemptId: clientMessageId } : {}),
       });
       if (!result.ok) {
         addLogEntry(
@@ -6843,7 +6853,6 @@ export function createAgentManager(deps: ManagerDeps) {
         (session) => session.sessionId === claimedChoice.value,
       );
       if (picked) {
-        const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
         accept();
         managed.pendingResumeSessions = [];
@@ -6977,7 +6986,6 @@ export function createAgentManager(deps: ManagerDeps) {
         (modelFamily) => modelFamily === claimedChoice.value,
       );
       if (picked) {
-        const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
         accept();
         const label = familyDisplayLabel(
@@ -7068,7 +7076,6 @@ export function createAgentManager(deps: ManagerDeps) {
         (effort) => effort.level === claimedChoice.value,
       );
       if (selectedEffort) {
-        const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
         accept();
         const picked = {

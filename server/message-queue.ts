@@ -346,6 +346,9 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
       // The chat's link back to the ask this message answers.
       if (m.ask) meta = { ...(meta ?? {}), ask: m.ask };
+      // The member's outbox attempt this entry delivers.
+      if (m.clientMessageId)
+        meta = { ...(meta ?? {}), clientMessageId: m.clientMessageId };
       if (extraMeta) meta = { ...(meta ?? {}), ...extraMeta };
       // The chat already shows a direct send that a swap cut and that was
       // queued again.
@@ -851,6 +854,11 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       native?: boolean;
       attachments?: Attachment[];
       clientMessageId?: string;
+      // A member send's outbox attempt id, copied onto the item
+      // (QueuedMessage.clientMessageId). Not a dedupe key: member sends are
+      // deduped per sender in user-send-dedupe.ts, and the item's id reaches
+      // every viewer of the agent.
+      memberAttemptId?: string;
       // Set by the scheduled-message scheduler at fire time (see
       // scheduled-messages.ts). Copied onto the queued item below - dropping
       // the copy would silently lose the scheduled marker in the flush prefix.
@@ -962,6 +970,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
         ? { limitResumeMemberIds: msg.limitResumeMemberIds }
         : {}),
       ...(msg.ask ? { ask: msg.ask } : {}),
+      ...(msg.memberAttemptId ? { clientMessageId: msg.memberAttemptId } : {}),
       ...(msg.resend?.echoed ? { echoed: true } : {}),
       ...(boundarySteer ? { steer: true } : {}),
       attachments: msg.attachments,

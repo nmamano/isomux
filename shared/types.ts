@@ -667,6 +667,9 @@ export interface QueuedMessage {
   // receiver's asks. The flush prefix names it and the chat entry links
   // to it.
   ask?: AskRef;
+  // A member send's outbox attempt id (the clientMessageId of the member
+  // message route). The client drops its Sending row when a frame names it.
+  clientMessageId?: string;
   // Accepted through an agent's "steer":true while the receiver was running a
   // turn. On a backend with tool-boundary delivery it lets the next main-thread
   // tool batch deliver the queue inside that turn. Lives and dies with the item.

@@ -13,7 +13,11 @@
 
 import { useSyncExternalStore } from "react";
 import { apiFetch, ApiError } from "../api.ts";
-import type { Attachment } from "../../shared/types.ts";
+import type {
+  Attachment,
+  QueuedMessage,
+  ServerMessage,
+} from "../../shared/types.ts";
 
 export type OutboxError =
   // The request did not get an answer (network down, connection reset).
@@ -263,6 +267,42 @@ export function takeAttempt(id: string): OutboxAttempt | null {
   const attempt = attempts.find((a) => a.id === id) ?? null;
   if (attempt) remove(id);
   return attempt;
+}
+
+// The attempt ids a server frame shows as landed: a queued item or a chat
+// entry of a member send names its attempt (task 1ea5abb4).
+export function acknowledgedSendIds(msg: ServerMessage): string[] {
+  const fromQueue = (queue: readonly QueuedMessage[] | undefined) =>
+    (queue ?? []).flatMap((m) =>
+      m.clientMessageId ? [m.clientMessageId] : [],
+    );
+  switch (msg.type) {
+    case "agent_updated":
+      return fromQueue(msg.changes.queue);
+    case "full_state":
+      return msg.agents.flatMap((a) => fromQueue(a.queue));
+    case "log_entry": {
+      const id = msg.entry.metadata?.clientMessageId;
+      return msg.entry.kind === "user_message" && typeof id === "string"
+        ? [id]
+        : [];
+    }
+    default:
+      return [];
+  }
+}
+
+// Drop the attempts the server shows as landed, pending or failed. The frame
+// usually comes before the HTTP answer; dropping here keeps the Sending row
+// and the message from showing together, and a lost answer from marking a
+// landed message as failed. The later answer finds no attempt and does
+// nothing.
+export function acknowledgeAttempts(ids: readonly string[]): void {
+  if (ids.length === 0) return;
+  const landed = new Set(ids);
+  if (!attempts.some((a) => landed.has(a.id))) return;
+  for (const a of attempts) if (landed.has(a.id)) unpersist(a.id);
+  commit(attempts.filter((a) => !landed.has(a.id)));
 }
 
 function subscribe(listener: () => void) {
