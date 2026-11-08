@@ -28,6 +28,12 @@ import {
   openCodeAuthoritySocketPath,
 } from "../backends/opencode/office-proxy-shared.ts";
 import type { IsolationForm } from "../process-isolation.ts";
+import {
+  sessionIsolationForm,
+  setProcessIsolationProbe,
+  setProcessIsolationSwitch,
+} from "../process-isolation-state.ts";
+import type { CodexSandboxMode } from "../../shared/types.ts";
 
 function build(
   agentType: "claude" | "codex" | "opencode" = "codex",
@@ -262,16 +268,54 @@ describe("system prompt pointer contract", () => {
   });
 
   // Task 215ae677 (Nil, 2026-11-02): the prompt costs every user tokens on
-  // every turn. Each engine's largest form, over every isolation line and
-  // both schedule lines, stays under its cap, and the privileged section
-  // under its own. A new line pays for itself with a cut; raising a cap
-  // needs Nil.
+  // every turn. Each engine's largest form, over every isolation line it can
+  // run with and both schedule lines, stays under its cap, and the
+  // privileged section under its own. A new line pays for itself with a cut;
+  // raising a cap needs Nil. The isolation forms come from the decision the
+  // spawn and the prompt share (sessionIsolationForm, task 03c8baed), so an
+  // engine that gains a form is capped with it.
   it("renders every engine's largest prompt within the approved byte caps", () => {
     const caps = { claude: 8_750, codex: 8_250, opencode: 8_750 };
     const privilegedCap = 1_750;
     const over: object[] = [];
+    setProcessIsolationProbe({ available: true });
+    setProcessIsolationSwitch(() => true);
+    // Every Codex sandbox mode (the type check fails when one is added),
+    // and none stored.
+    const sandboxes = [
+      undefined,
+      ...Object.keys({
+        "read-only": true,
+        "workspace-write": true,
+        "danger-full-access": true,
+      } satisfies Record<CodexSandboxMode, true>),
+    ];
+    const formsOf = (agentType: "claude" | "codex" | "opencode") => [
+      ...new Set([
+        null,
+        ...sandboxes.map((codexSandbox) =>
+          sessionIsolationForm({ agentType, codexSandbox }),
+        ),
+      ]),
+    ];
+    const forms = (() => {
+      try {
+        return {
+          claude: formsOf("claude"),
+          codex: formsOf("codex"),
+          opencode: formsOf("opencode"),
+        };
+      } finally {
+        setProcessIsolationProbe(null);
+      }
+    })();
     for (const engine of ["claude", "codex", "opencode"] as const) {
-      for (const isolation of [null, "session", "shared_server"] as const) {
+      // Fail closed: with isolation on, every engine has a wrapped form.
+      expect([engine, forms[engine].some((f) => f !== null)]).toEqual([
+        engine,
+        true,
+      ]);
+      for (const isolation of forms[engine]) {
         for (const makesSchedules of [false, true]) {
           const bytes = (privileged: boolean) =>
             Buffer.byteLength(
