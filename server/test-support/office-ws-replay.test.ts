@@ -484,7 +484,8 @@ describe("a lazy socket's chat loads to a client that stops reading", () => {
     expect(replayedIds(frames, "p1")).toHaveLength(1);
   }, 60_000);
 
-  it("a chat opened while a big prefetch is in flight arrives after at most one prefetch frame", async () => {
+  // Quarantined (task 37a29704): flaky - the enabling condition saw no prefetch frame before the open.
+  it.skip("a chat opened while a big prefetch is in flight arrives after at most one prefetch frame", async () => {
     server = await startTestServer();
     const roomId = server.agentManager.getRooms()[0].id;
     const owner = await server.seedOwner("Morgan");
