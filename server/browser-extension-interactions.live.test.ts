@@ -8,6 +8,7 @@ import { ExtensionConnection } from "./browser-extension-bridge";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { inflateSync } from "node:zlib";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
 import {
@@ -1674,4 +1675,166 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     );
   },
   90_000,
+);
+
+// The pixels of a Chrome screenshot: 8-bit RGB or RGBA, not interlaced.
+function decodePng(png: Buffer) {
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  const channels = { 2: 3, 6: 4 }[png[25]];
+  if (png[24] !== 8 || png[28] !== 0 || !channels)
+    throw new Error("Unexpected PNG format");
+  const data: Buffer[] = [];
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at);
+    if (png.toString("ascii", at + 4, at + 8) === "IDAT")
+      data.push(png.subarray(at + 8, at + 8 + length));
+    at += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(data));
+  const stride = width * channels;
+  const out = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const at = y * stride + x;
+      const a = x >= channels ? out[at - channels] : 0;
+      const b = y > 0 ? out[at - stride] : 0;
+      const c = x >= channels && y > 0 ? out[at - stride - channels] : 0;
+      let v = raw[y * (stride + 1) + 1 + x];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      } else if (filter !== 0) throw new Error("Unexpected PNG filter");
+      out[at] = v & 255;
+    }
+  }
+  return {
+    width,
+    height,
+    pixel: (x: number, y: number) => {
+      const at = (y * width + x) * channels;
+      return [out[at], out[at + 1], out[at + 2]];
+    },
+  };
+}
+
+// Task 03cc142c: Playwright sends the clip in CSS px and Chrome reads it in
+// DIPs, so in a tab with page zoom (Cmd +) a screenshot showed only the
+// top-left part of the view.
+const BANDS = 30;
+const BAND_PX = 100;
+const bandColor = (i: number) => [
+  (i * 83 + 20) % 256,
+  (i * 47 + 90) % 256,
+  (i * 151 + 40) % 256,
+];
+const MARK = [255, 0, 255];
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "an agent's screenshots of a zoomed, scrolled tab show the whole view and the whole page",
+  async () => {
+    const colours = new Set(
+      [...Array.from({ length: BANDS }, (_, i) => bandColor(i)), MARK].map(
+        packed,
+      ),
+    );
+    expect(colours.size).toBe(BANDS + 1);
+    await withOfferedTab(
+      () =>
+        html(
+          `<!doctype html><title>Zoom</title><style>html{scrollbar-width:none}body{margin:0}</style><body>${Array.from(
+            { length: BANDS },
+            (_, i) =>
+              `<div style="height:${BAND_PX}px;background:rgb(${bandColor(i).join(",")})"></div>`,
+          ).join(
+            "",
+          )}<div style="position:fixed;right:0;bottom:0;width:40px;height:40px;background:rgb(${MARK.join(",")})"></div></body>`,
+        ),
+      async ({ act, origin, setupPage }) => {
+        const { ok } = expectations(act);
+        const worker = setupPage
+          .context()
+          .serviceWorkers()
+          .find((w) => w.url().endsWith("/background.js"))!;
+        expect(worker).toBeDefined();
+        const ratio = () => setupPage.evaluate(() => devicePixelRatio);
+        const unzoomed = await ratio();
+        // Chrome's page zoom, as the member's Cmd + sets it.
+        await worker.evaluate(async (site) => {
+          const tabs = (
+            globalThis as unknown as {
+              chrome: {
+                tabs: {
+                  query(q: object): Promise<{ id: number }[]>;
+                  setZoom(tabId: number, factor: number): Promise<void>;
+                };
+              };
+            }
+          ).chrome.tabs;
+          const [tab] = await tabs.query({ url: site + "/" });
+          await tabs.setZoom(tab.id, 1.5);
+        }, origin);
+        const deadline = Date.now() + 5000;
+        while ((await ratio()) === unzoomed && Date.now() < deadline)
+          await Bun.sleep(50);
+        await setupPage.evaluate(() => scrollTo(0, 1050));
+        const view = await setupPage.evaluate(() => ({
+          y: scrollY,
+          width: innerWidth,
+          height: innerHeight,
+          ratio: devicePixelRatio,
+        }));
+        // The enabling conditions: the tab draws at 150% and is scrolled.
+        expect(view.ratio).toBeCloseTo(unzoomed * 1.5, 5);
+        expect(view.y).toBeCloseTo(1050, 0);
+
+        const shot = decodePng(ok(await act({ action: "screenshot" })).png!);
+        const full = decodePng(
+          ok(await act({ action: "screenshot", fullPage: true })).png!,
+        );
+        console.log(
+          "Zoomed shots:",
+          JSON.stringify({
+            view,
+            shot: [shot.width, shot.height],
+            full: [full.width, full.height],
+          }),
+        );
+        const near = (got: number, want: number) =>
+          Math.abs(got - want) <= 1 ? want : got;
+        const band = (cssY: number) => bandColor(Math.floor(cssY / BAND_PX));
+        expect({
+          // The view in device pixels.
+          width: near(shot.width, view.width * view.ratio),
+          height: near(shot.height, view.height * view.ratio),
+          // Its top edge is the scrolled-to band; the corner mark is in.
+          topLeft: shot.pixel(5, 5),
+          bottomRight: shot.pixel(shot.width - 5, shot.height - 5),
+        }).toEqual({
+          width: view.width * view.ratio,
+          height: view.height * view.ratio,
+          topLeft: band(view.y + 5 / view.ratio),
+          bottomRight: MARK,
+        });
+        expect({
+          height: near(full.height, BANDS * BAND_PX * view.ratio),
+          top: full.pixel(5, 5),
+          bottom: full.pixel(5, full.height - 5),
+        }).toEqual({
+          height: BANDS * BAND_PX * view.ratio,
+          top: bandColor(0),
+          bottom: bandColor(BANDS - 1),
+        });
+      },
+      DEADLINE_MS,
+    );
+  },
+  60_000,
 );

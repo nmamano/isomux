@@ -1865,6 +1865,8 @@ describe("screenshot kicks", () => {
       await time.advanceTo(120_000);
       expect(h.connection.pendingCount(assignment)).toBe(0);
       expect(sent(h, "Page.captureScreenshot")).toHaveLength(1);
+      // A capture with no clip goes out as it came.
+      expect(sent(h, "Page.getLayoutMetrics")).toHaveLength(0);
       expect(sent(h, "Page.startScreencast")).toHaveLength(0);
       expect(sent(h, "Page.stopScreencast")).toHaveLength(0);
     } finally {
@@ -1913,6 +1915,123 @@ describe("screenshot kicks", () => {
         expect(sent(h, method)).toHaveLength(0);
       }
     } finally {
+      h.connection.close();
+    }
+  });
+
+  // Task 03cc142c. Playwright sends the clip in CSS px and Chrome reads it in
+  // DIPs, so in a tab with page zoom (Cmd +) a shot showed only part of the
+  // view. The bridge scales the clip by the zoom of the capture's session.
+  const CLIP = { x: 10, y: 400, width: 800, height: 600, scale: 2 };
+  for (const shape of [
+    {
+      name: "zoom 1.5",
+      zoom: 1.5,
+      popup: false,
+      clip: { x: 15, y: 600, width: 1200, height: 900, scale: 2 },
+    },
+    {
+      name: "zoom 0.75 in a popup",
+      zoom: 0.75,
+      popup: true,
+      clip: { x: 7.5, y: 300, width: 600, height: 450, scale: 2 },
+    },
+    { name: "zoom 1", zoom: 1, popup: false, clip: CLIP },
+    { name: "no zoom", zoom: undefined, popup: false, clip: CLIP },
+  ])
+    test(`a clipped capture at ${shape.name} goes out after its session's layout metrics, with the clip in DIPs, and gets the kick`, async () => {
+      const time = fakeTimeline();
+      const h = await harness(false, time.clock);
+      try {
+        const { assignment, sessionId: main } = await create(h);
+        if (shape.popup) popup(h, assignment);
+        const sessionId = shape.popup ? "popup-session" : main;
+        const params = {
+          format: "png",
+          captureBeyondViewport: true,
+          clip: CLIP,
+        };
+        const shot = h.agent.receive({
+          id: 8,
+          sessionId,
+          method: "Page.captureScreenshot",
+          params,
+        });
+        await time.flush();
+        expect(sent(h, "Page.captureScreenshot")).toHaveLength(0);
+        const metrics = sent(h, "Page.getLayoutMetrics");
+        expect(metrics).toHaveLength(1);
+        // On the capture's own session: a popup has its own zoom.
+        expect(fields(metrics[0].params).sessionId).toBe(
+          shape.popup ? "popup-session" : undefined,
+        );
+        answer(h, metrics[0], {
+          result: {
+            cssVisualViewport: {
+              pageX: 10,
+              pageY: 400,
+              clientWidth: 800,
+              clientHeight: 600,
+              scale: 1,
+              ...(shape.zoom === undefined ? {} : { zoom: shape.zoom }),
+            },
+          },
+        });
+        await time.flush();
+        const captures = sent(h, "Page.captureScreenshot");
+        expect(captures).toHaveLength(1);
+        expect(fields(captures[0].params).sessionId).toBe(
+          fields(metrics[0].params).sessionId,
+        );
+        expect(fields(captures[0].params).params).toEqual({
+          ...params,
+          clip: shape.clip,
+        });
+        // The kick follows the capture.
+        await time.advanceTo(1_000);
+        const starts = sent(h, "Page.startScreencast");
+        expect(starts).toHaveLength(1);
+        expect(fields(starts[0].params).sessionId).toBe(
+          fields(captures[0].params).sessionId,
+        );
+        answer(h, captures[0], { result: { data: "capture" } });
+        await shot;
+        expect(reply(h, 8)?.result).toEqual({ data: "capture" });
+        expect(sent(h, "Page.stopScreencast")).toHaveLength(1);
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+      } finally {
+        time.restore();
+        h.connection.close();
+      }
+    });
+
+  // An unscaled capture would return the wrong picture with no error.
+  test("a clipped capture fails, and no capture goes out, when its layout metrics fail", async () => {
+    const time = fakeTimeline();
+    const h = await harness(false, time.clock);
+    try {
+      const { assignment, sessionId } = await create(h);
+      const shot = h.agent.receive({
+        id: 9,
+        sessionId,
+        method: "Page.captureScreenshot",
+        params: { format: "png", clip: CLIP },
+      });
+      await time.flush();
+      const metrics = sent(h, "Page.getLayoutMetrics");
+      expect(metrics).toHaveLength(1);
+      answer(h, metrics[0], { error: { message: "metrics failed" } });
+      await time.flush();
+      expect(sent(h, "Page.captureScreenshot")).toHaveLength(0);
+      await shot;
+      expect(reply(h, 9)?.error).toBeDefined();
+      expect(reply(h, 9)?.result).toBeUndefined();
+      await time.advanceTo(120_000);
+      expect(sent(h, "Page.captureScreenshot")).toHaveLength(0);
+      expect(sent(h, "Page.startScreencast")).toHaveLength(0);
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+    } finally {
+      time.restore();
       h.connection.close();
     }
   });

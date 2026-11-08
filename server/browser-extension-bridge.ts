@@ -607,6 +607,30 @@ class CommandFailedError extends Error {
   }
 }
 
+// Playwright sends a screenshot clip in CSS px, but Chrome reads the clip in
+// DIPs (CDP Page.Viewport), which are CSS px times the page zoom (Cmd +).
+// Unscaled, a shot of a zoomed tab showed only part of the view, or the view
+// with a blank band. Scale the clip by the zoom of the capture's own page.
+function clipInDips(params: Fields, metrics: Fields): Fields {
+  const zoom = (metrics.cssVisualViewport as Fields | undefined)?.zoom;
+  const clip = params.clip as Fields;
+  if (
+    typeof zoom !== "number" ||
+    !Number.isFinite(zoom) ||
+    zoom <= 0 ||
+    zoom === 1 ||
+    typeof clip !== "object" ||
+    clip === null
+  )
+    return params;
+  const scaled: Fields = { ...clip };
+  for (const key of ["x", "y", "width", "height"]) {
+    const value = clip[key];
+    if (typeof value === "number") scaled[key] = value * zoom;
+  }
+  return { ...params, clip: scaled };
+}
+
 // The extension's cause in a "detached" event, when it is one from the list.
 function extensionCause(params: unknown): Fields {
   const cause =
@@ -2567,6 +2591,14 @@ export class ExtensionConnection {
     }
     if (method !== "Page.captureScreenshot")
       return this.request(a, "cdp", { method, params, sessionId: target });
+    if (params.clip !== undefined) {
+      const metrics = await this.request(a, "cdp", {
+        method: "Page.getLayoutMetrics",
+        params: {},
+        sessionId: target,
+      });
+      params = clipInDips(params, metrics);
+    }
     let capture: number | undefined;
     const result = this.request(
       a,
