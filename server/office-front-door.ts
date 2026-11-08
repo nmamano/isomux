@@ -92,6 +92,10 @@ import {
   TASKS_SUMMARY_WS_PARAM,
   TASKS_SUMMARY_WS_VALUE,
 } from "../shared/task-board.ts";
+import {
+  LOGS_ON_OPEN_WS_PARAM,
+  LOGS_ON_OPEN_WS_VALUE,
+} from "../shared/log-stream.ts";
 import { productionAppProxySecret } from "./app-proxy-secret.ts";
 import { loadApiTokens } from "./api-tokens.ts";
 import {
@@ -444,6 +448,10 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                   TASKS_SUMMARY_WS_PARAM,
                 ) === TASKS_SUMMARY_WS_VALUE
                   ? { tasksSummary: true as const }
+                  : {}),
+                ...(new URL(req.url).searchParams.get(LOGS_ON_OPEN_WS_PARAM) ===
+                LOGS_ON_OPEN_WS_VALUE
+                  ? { logsOnOpen: true as const }
                   : {}),
               },
               ...(wsMigration.length > 0 ? { headers: wsHeaders } : {}),
@@ -1071,14 +1079,20 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           // transcript in at once instead of guessing when the frames stopped.
           // The fence goes out even when nothing was replayed - "the replay is
           // empty" is exactly the case a client cannot infer.
+          // A socket that loads chats when they open (task 9ebe887d) gets
+          // the fence alone and asks for each chat with open_log.
           const session = ws.data.session;
           officeSendLazy(
             ws,
             replayFrames(
-              agentManager
-                .getAllAgents()
-                .filter((agent) => agentVisibleForSession(session, agent.id))
-                .map((agent) => agent.id),
+              ws.data.logsOnOpen
+                ? []
+                : agentManager
+                    .getAllAgents()
+                    .filter((agent) =>
+                      agentVisibleForSession(session, agent.id),
+                    )
+                    .map((agent) => agent.id),
             ),
           );
           // Live-avatars: send the current presence snapshot (filtered to

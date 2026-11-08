@@ -1,4 +1,5 @@
 import { ordinaryRooms } from "../shared/types.ts";
+import { LogPrefetcher } from "./log-prefetch.ts";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRecordingRules } from "./hooks/useRecordingRules.ts";
 import {
@@ -1085,6 +1086,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           {/* Before AskRefsProvider, so its snapshot of the store is fresh
               before the chips' layout effects of the same commit. */}
           <TaskLookupBridge />
+          <LogPrefetcher backOpen={backRoomOpen} />
           <AskRefsProvider open={openAsk}>
             <style>{CSS}</style>
             <ConnectionBanner />

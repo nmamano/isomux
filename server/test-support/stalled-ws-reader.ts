@@ -14,8 +14,22 @@
 //
 // A raw TCP client because Bun's WebSocket and node:net clients keep reading
 // into memory while the script is paused, which never backs the server up.
+//
+// Chats that load when they open (task 9ebe887d slice 2) add three optional
+// environment variables: READER_QUERY (the /ws query string), READER_SEND (a
+// JSON array of client messages, sent as soon as the upgrade answers, before
+// the stall) and READER_UNTIL (a request id: once its log_open_done has
+// arrived, read a short tail and stop). Frames also carry requestId and
+// refused when the message has them.
+//
+// Flow control of the background lane adds two more: READER_ACK=1 acks the
+// lane frames as the office client does (log_ack per LOG_ACK_BYTES of raw
+// frame length and at each lane log_open_done), but only after the stall;
+// without it the reader never acks. READER_SEND_AFTER (a JSON array of client
+// messages) goes out as the stall ends, before any ack.
 
 import { existsSync, readFileSync, writeSync } from "node:fs";
+import { LOG_ACK_BYTES } from "../../shared/log-stream.ts";
 
 const [portArg, cookie, origin, releaseFile] = process.argv.slice(2);
 const port = Number(portArg);
@@ -32,7 +46,38 @@ interface Frame {
   id?: string;
   agentId?: string;
   agentIds?: string[];
+  requestId?: string;
+  refused?: boolean;
 }
+
+const QUERY = process.env.READER_QUERY ?? "";
+const SEND = JSON.parse(process.env.READER_SEND ?? "[]") as unknown[];
+const UNTIL = process.env.READER_UNTIL ?? "";
+const ACK = process.env.READER_ACK === "1";
+const SEND_AFTER = JSON.parse(
+  process.env.READER_SEND_AFTER ?? "[]",
+) as unknown[];
+
+// One masked client text frame (RFC 6455 5.3). The all-zero key leaves the
+// payload as is, which every server must accept.
+function clientFrame(text: string): Buffer {
+  const payload = Buffer.from(text);
+  const len = payload.length;
+  const head =
+    len < 126
+      ? Buffer.from([0x81, 0x80 | len])
+      : len < 65536
+        ? Buffer.from([0x81, 0x80 | 126, len >> 8, len & 0xff])
+        : (() => {
+            const b = Buffer.alloc(10);
+            b[0] = 0x81;
+            b[1] = 0x80 | 127;
+            b.writeBigUInt64BE(BigInt(len), 2);
+            return b;
+          })();
+  return Buffer.concat([head, Buffer.alloc(4), payload]);
+}
+let onUpgraded: () => void = () => {};
 
 const frames: Frame[] = [];
 let closed = false;
@@ -41,6 +86,16 @@ let upgraded = false;
 let lastData = Date.now();
 let stalled = false;
 let awaitedId = "";
+// Lane bytes received and not acked yet; acks start once the stall ends.
+let unacked = 0;
+let released = false;
+function ack(): void {
+  if (!ACK || !released || unacked === 0) return;
+  socket.write(
+    clientFrame(JSON.stringify({ type: "log_ack", bytes: unacked })),
+  );
+  unacked = 0;
+}
 
 function parse(): void {
   if (!upgraded) {
@@ -51,6 +106,7 @@ function parse(): void {
     }
     buf = buf.subarray(end + 4);
     upgraded = true;
+    onUpgraded();
   }
   for (;;) {
     if (buf.length < 2) return;
@@ -78,8 +134,25 @@ function parse(): void {
       type: string;
       entry?: { id: string; agentId: string };
       agents?: { id: string }[];
+      agentId?: string;
+      requestId?: string;
+      refused?: boolean;
     };
+    // A lane frame: a replay frame with its request id, or a log_open_done
+    // that is not a refusal (a refusal is a live frame).
+    const lane =
+      msg.requestId !== undefined &&
+      (msg.type === "log_entry" ||
+        msg.type === "slash_commands" ||
+        (msg.type === "log_open_done" && !msg.refused));
+    if (lane) {
+      unacked += payload.toString().length;
+      if (unacked >= LOG_ACK_BYTES || msg.type === "log_open_done") ack();
+    }
     const frame: Frame = { type: msg.type };
+    if (msg.agentId) frame.agentId = msg.agentId;
+    if (msg.requestId) frame.requestId = msg.requestId;
+    if (msg.refused) frame.refused = true;
     if (msg.entry) {
       frame.id = msg.entry.id;
       frame.agentId = msg.entry.agentId;
@@ -108,6 +181,10 @@ const socket = await Bun.connect({
           Bun.sleepSync(5);
         if (existsSync(releaseFile))
           awaitedId = readFileSync(releaseFile, "utf8").trim();
+        released = true;
+        for (const message of SEND_AFTER)
+          socket.write(clientFrame(JSON.stringify(message)));
+        ack();
         lastData = Date.now();
       }
     },
@@ -119,9 +196,13 @@ const socket = await Bun.connect({
     },
   },
 });
+onUpgraded = () => {
+  for (const message of SEND)
+    socket.write(clientFrame(JSON.stringify(message)));
+};
 socket.write(
   [
-    "GET /ws HTTP/1.1",
+    `GET /ws${QUERY ? `?${QUERY}` : ""} HTTP/1.1`,
     `Host: 127.0.0.1:${port}`,
     "Upgrade: websocket",
     "Connection: Upgrade",
@@ -135,6 +216,10 @@ socket.write(
 );
 // The awaited entry has arrived after the fence.
 function awaitedSeen(): boolean {
+  if (UNTIL)
+    return frames.some(
+      (f) => f.type === "log_open_done" && f.requestId === UNTIL,
+    );
   if (!awaitedId) return false;
   const fence = frames.findIndex((f) => f.type === "log_replay_complete");
   return fence >= 0 && frames.slice(fence).some((f) => f.id === awaitedId);

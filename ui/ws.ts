@@ -2,6 +2,11 @@ import {
   TASKS_SUMMARY_WS_PARAM,
   TASKS_SUMMARY_WS_VALUE,
 } from "../shared/task-board.ts";
+import {
+  LOGS_ON_OPEN_WS_PARAM,
+  LOGS_ON_OPEN_WS_VALUE,
+  LOG_ACK_BYTES,
+} from "../shared/log-stream.ts";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import { ACCESS_CHANGED_CLOSE_CODE } from "../shared/pack-fit.ts";
 
@@ -54,6 +59,12 @@ export function shimEmit(msg: ServerMessage) {
     listener(data);
   }
   handler?.(msg);
+}
+
+// The generation of the current socket (task 9ebe887d): the store tells a
+// full_state on a new socket (a reconnect) from one on the same socket.
+export function socketGeneration(): number {
+  return socketGen;
 }
 
 function clearPongTimer() {
@@ -181,12 +192,14 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   // The summary task board (task 9ebe887d): the tasks frame holds the open
   // and in-progress tasks without descriptions; ui/task-lookup.ts reads the
-  // rest.
+  // rest. Chats load when they open (ui/agent-log.ts): no connect replay.
   const ws = new WebSocket(
-    `${protocol}//${location.host}/ws?${TASKS_SUMMARY_WS_PARAM}=${TASKS_SUMMARY_WS_VALUE}`,
+    `${protocol}//${location.host}/ws?${TASKS_SUMMARY_WS_PARAM}=${TASKS_SUMMARY_WS_VALUE}&${LOGS_ON_OPEN_WS_PARAM}=${LOGS_ON_OPEN_WS_VALUE}`,
   );
   ws.binaryType = "arraybuffer";
   socket = ws;
+  // Lane frames of this socket not acked yet (see laneFrame).
+  let unacked = 0;
   connectTimer = setTimeout(() => {
     connectTimer = null;
     if (myGen !== socketGen || ws.readyState !== WebSocket.CONNECTING) return;
@@ -222,6 +235,18 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
       msg = JSON.parse(data) as ServerMessage;
     } catch {}
     if (msg?.type === "pong") return;
+    // Flow control of the server's background lane: ack every lane frame,
+    // before the store sees it, so a frame the store drops as stale is
+    // acked too.
+    if (msg && laneFrame(msg)) {
+      unacked += data.length;
+      if (unacked >= LOG_ACK_BYTES || msg.type === "log_open_done") {
+        try {
+          ws.send(JSON.stringify({ type: "log_ack", bytes: unacked }));
+        } catch {}
+        unacked = 0;
+      }
+    }
     for (const listener of rawListeners) {
       listener(data);
     }
@@ -246,6 +271,21 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
       connect(onMessage, connHandler ?? undefined);
     }, 2000);
   };
+}
+
+// A frame of an open_log replay, sent in the server's background lane (task
+// 9ebe887d): a log_entry or slash_commands with its request id, or a
+// log_open_done that is not a refusal (a refusal is a live frame).
+function laneFrame(msg: ServerMessage): boolean {
+  switch (msg.type) {
+    case "log_entry":
+    case "slash_commands":
+      return msg.requestId !== undefined;
+    case "log_open_done":
+      return !msg.refused;
+    default:
+      return false;
+  }
 }
 
 export function send(cmd: ClientCommand): boolean {

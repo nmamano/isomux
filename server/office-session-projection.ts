@@ -91,6 +91,14 @@ export interface SessionProjectionDeps {
     ws: ServerWebSocket<OfficeWsData>,
     frames: Iterator<WsFrame>,
   ) => void;
+  // An open_log replay in the outbox's background lane, each frame through
+  // the push filter.
+  officeSendBackground: (
+    ws: ServerWebSocket<OfficeWsData>,
+    key: string,
+    frames: Iterator<WsFrame>,
+    opts?: { front?: boolean },
+  ) => void;
   outboxFor: (ws: ServerWebSocket<OfficeWsData>) => OfficeOutbox;
   roomAllowedForSession: (session: SessionLookup, roomId: string) => boolean;
   sendPresenceListTo: (ws: ServerWebSocket<OfficeWsData>) => void;
@@ -98,6 +106,8 @@ export interface SessionProjectionDeps {
   sessionHasFullRoomAccess: (session: SessionLookup) => boolean;
   taskViewerForUser: AccessPolicy["taskViewerForUser"];
   webhookViewerForSession: AccessPolicy["webhookViewerForSession"];
+  // Whether the member of `session` gets a push of `kind` (the pack rule).
+  wsPushAllowed: (session: SessionLookup, kind: WsPushKind) => boolean;
 }
 
 export function createSessionProjection(deps: SessionProjectionDeps) {
@@ -114,6 +124,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     emitUsersList,
     identityFitsAgent,
     officeSend,
+    officeSendBackground,
     officeSendLazy,
     outboxFor,
     roomAllowedForSession,
@@ -122,6 +133,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     sessionHasFullRoomAccess,
     taskViewerForUser,
     webhookViewerForSession,
+    wsPushAllowed,
   } = deps;
 
   interface VisibleRoomProjection {
@@ -282,7 +294,14 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     // outbox: those frames may cover rooms this session just lost. Close the
     // socket instead of sending them; the client reconnects to a fresh
     // projection.
-    if (options?.replayLogsForVisible && outboxFor(ws).backlogged) {
+    // A socket that loads chats when they open (task 9ebe887d) has its
+    // open_log replays in the outbox's background lane most of the time on a
+    // slow link: only queued LIVE frames are the stale projection.
+    const lazy = ws.data.logsOnOpen === true;
+    if (
+      options?.replayLogsForVisible &&
+      (lazy ? outboxFor(ws).liveBacklogged : outboxFor(ws).backlogged)
+    ) {
       outboxFor(ws).dispose();
       ws.terminate();
       return;
@@ -292,7 +311,19 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     const agents: AgentInfo[] = [];
     for (const a of agentManager.getAllAgents()) {
       const projected = projectAgentForSession(session, a, proj);
-      if (projected) agents.push(projected);
+      if (!projected) continue;
+      // The order of a client's background chat loads.
+      const lastEntryAt = agentManager.getAgentLogs(a.id).at(-1)?.timestamp;
+      agents.push(
+        lastEntryAt === undefined ? projected : { ...projected, lastEntryAt },
+      );
+    }
+    // A lazy socket keeps the chats it loads across a re-projection, except
+    // the agents it no longer sees.
+    if (lazy) {
+      const visible = new Set(agents.map((agent) => agent.id));
+      for (const agentId of [...(ws.data.logSubscriptions ?? [])])
+        if (!visible.has(agentId)) dropLogSubscription(ws, agentId);
     }
     const visibleAgentIds = new Set(agents.map((agent) => agent.id));
     const interactions = agentManager
@@ -336,14 +367,179 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           : {}),
         ...(can("office") ? { floors: floors.list() } : {}),
         uiBuild: uiBuildTracker?.current() ?? undefined,
+        ...(lazy ? { logsOnOpen: true as const } : {}),
       } satisfies ServerMessage),
     );
     // Fence the replay so the client knows the replayed transcript is complete
     // and can swap it in atomically. Only with replayLogsForVisible: without it
-    // there is no replay to terminate.
+    // there is no replay to terminate. A lazy socket gets the fence alone.
     if (options?.replayLogsForVisible) {
-      officeSendLazy(ws, replayFrames(agents.map((a) => a.id)));
+      officeSendLazy(ws, replayFrames(lazy ? [] : agents.map((a) => a.id)));
     }
+  }
+
+  // --- Chats that load when they open (task 9ebe887d slice 2) ---------------
+  // A lazy socket subscribes to an agent with open_log: the server replays the
+  // agent's log in the outbox's background lane (live frames go first) and
+  // from then on sends that agent's live entries. The open replays, per socket
+  // and agent: their request, so a clear can restart one (R2).
+  const pendingLogOpens = new WeakMap<
+    ServerWebSocket<OfficeWsData>,
+    Map<string, { requestId: string; tail?: number; token: object }>
+  >();
+
+  function sendLogOpenDone(
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+    requestId: string,
+    extra: { tail?: number; refused?: true } = {},
+  ) {
+    officeSend(
+      ws,
+      "log_open_done",
+      JSON.stringify({
+        type: "log_open_done",
+        agentId,
+        requestId,
+        ...extra,
+      } satisfies ServerMessage),
+    );
+  }
+
+  // The replay of one open_log: the last `tail` entries pinned NOW (as
+  // replayFrames pins them), the agent's commands, then log_open_done. The
+  // pack filter is officeSendBackground's.
+  function startLogReplay(
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+    requestId: string,
+    tail: number | undefined,
+  ) {
+    const logs = agentManager.getAgentLogs(agentId);
+    const length = logs.length;
+    const from = tail === undefined ? 0 : Math.max(0, length - tail);
+    const cmds = agentManager.getAgentCommands(agentId);
+    const token = {};
+    let pending = pendingLogOpens.get(ws);
+    if (!pending) {
+      pending = new Map();
+      pendingLogOpens.set(ws, pending);
+    }
+    pending.set(agentId, { requestId, tail, token });
+    const mine = pending;
+    const release = () => {
+      if (mine.get(agentId)?.token === token) mine.delete(agentId);
+    };
+    const frames = (function* (): Generator<WsFrame> {
+      try {
+        for (let i = from; i < length; i++)
+          yield {
+            kind: "log_entry",
+            data: JSON.stringify({
+              type: "log_entry",
+              entry: logs[i],
+              requestId,
+            } satisfies ServerMessage),
+          };
+        if (cmds.commands.length > 0 || cmds.skills.length > 0)
+          yield {
+            kind: "slash_commands",
+            data: JSON.stringify({
+              type: "slash_commands",
+              agentId,
+              commands: cmds.commands,
+              skills: cmds.skills,
+              requestId,
+            } satisfies ServerMessage),
+          };
+        // Every entry is out: a clear from here on needs no restart.
+        release();
+        yield {
+          kind: "log_open_done",
+          data: JSON.stringify({
+            type: "log_open_done",
+            agentId,
+            requestId,
+            ...(tail === undefined ? {} : { tail }),
+          } satisfies ServerMessage),
+        };
+      } finally {
+        release();
+      }
+    })();
+    officeSendBackground(ws, agentId, frames, { front: tail === undefined });
+  }
+
+  function openLog(
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+    requestId: string,
+    tail: number | undefined,
+  ) {
+    const session = ws.data.session;
+    const known = agentManager.getAllAgents().some((a) => a.id === agentId);
+    if (
+      !ws.data.logsOnOpen ||
+      !known ||
+      !agentVisibleForSession(session, agentId) ||
+      !wsPushAllowed(session, "log_entry")
+    ) {
+      // A live frame, in order behind every frame queued before it.
+      sendLogOpenDone(ws, agentId, requestId, { refused: true });
+      return;
+    }
+    (ws.data.logSubscriptions ??= new Set()).add(agentId);
+    startLogReplay(ws, agentId, requestId, tail);
+  }
+
+  function dropLogSubscription(
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+  ) {
+    ws.data.logSubscriptions?.delete(agentId);
+    pendingLogOpens.get(ws)?.delete(agentId);
+    outboxFor(ws).cancelBackground(agentId);
+  }
+
+  // close_log: a stale request id (an older open of the same agent) leaves
+  // the newer one alone.
+  function closeLog(
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+    requestId: string,
+  ) {
+    const pending = pendingLogOpens.get(ws)?.get(agentId);
+    if (pending && pending.requestId !== requestId) return;
+    dropLogSubscription(ws, agentId);
+  }
+
+  // Whether a lazy socket gets this agent's live stream frame.
+  function liveLogAllowed(
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+  ): boolean {
+    return !ws.data.logsOnOpen || !!ws.data.logSubscriptions?.has(agentId);
+  }
+
+  // The agent's log was cleared (R2): a replay in flight still holds the old
+  // array, so it restarts from the new one with the same request. Called
+  // after the clear_logs frame is queued.
+  function restartLogReplays(agentId: string) {
+    for (const ws of browsers) {
+      const pending = pendingLogOpens.get(ws)?.get(agentId);
+      if (!pending) continue;
+      startLogReplay(ws, agentId, pending.requestId, pending.tail);
+    }
+  }
+
+  // An agent killed or deleted (R4) leaves every subscription.
+  function forgetAgentLogs(agentId: string) {
+    for (const ws of browsers)
+      if (
+        ws.data.logSubscriptions?.has(agentId) ||
+        pendingLogOpens.get(ws)?.has(agentId)
+      )
+        dropLogSubscription(ws, agentId);
   }
 
   // The connect replay as a lazy run of frames: each agent's cached log entries,
@@ -1074,6 +1270,11 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     pushTasksToEachWs,
     pushWebhookDeltaToEachWs,
     replayFrames,
+    openLog,
+    closeLog,
+    liveLogAllowed,
+    restartLogReplays,
+    forgetAgentLogs,
     sendCronjobsTo,
     sendMemberMessage,
     sendProjectedFullState,

@@ -7,6 +7,10 @@ import {
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
+import {
+  LOGS_ON_OPEN_WS_PARAM,
+  LOGS_ON_OPEN_WS_VALUE,
+} from "../../shared/log-stream.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import {
   saveRuns,
@@ -1358,7 +1362,11 @@ describe("cronjob rooms", () => {
     it("run rows and live run entries reach the maker and room members; a non-member hears none", async () => {
       const { srv, alice, bob, maker, roomA } = await office();
       const job = seedJob(srv, "Maker", roomA, "Runner");
-      const aliceWs = await srv.connectWs(alice.rawSessionId);
+      // Alice's socket loads chats when they open (task 9ebe887d slice 2): a
+      // run stream is no agent's chat, so it reaches her with no open_log.
+      const aliceWs = await srv.connectWs(alice.rawSessionId, {
+        query: `${LOGS_ON_OPEN_WS_PARAM}=${LOGS_ON_OPEN_WS_VALUE}`,
+      });
       const bobWs = await srv.connectWs(bob.rawSessionId);
       const makerWs = await srv.connectWs(maker.rawSessionId);
       await aliceWs.waitFor("cronjobs_state");

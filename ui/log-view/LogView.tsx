@@ -1,4 +1,5 @@
 import { isBackSeat } from "../../shared/desks.ts";
+import { useAgentLog } from "../agent-log.ts";
 import { HeaderBackgroundPill } from "../components/BackgroundWork.tsx";
 import { BackRoomStrip } from "./BackRoomStrip.tsx";
 import {
@@ -787,6 +788,8 @@ export function LogView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
+  // Loads this chat when the server loads chats on open (task 9ebe887d).
+  useAgentLog(agent.id);
   const logs = useMemo(
     () => chatVisibleEntries(coalesceCodexDiagnostics(rawLogs)),
     [rawLogs],

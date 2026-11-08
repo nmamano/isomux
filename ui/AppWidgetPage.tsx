@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { useAgentLog } from "./agent-log.ts";
 import type { AppView, AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
@@ -496,6 +497,8 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   }, [recover, appUrl]);
 
   const target = liveStatus?.chat;
+  // Loads this chat when the server loads chats on open (task 9ebe887d).
+  useAgentLog(target?.agentId ?? null);
   const agent = state.agents.find((item) => item.id === target?.agentId);
   const agentLogs = target ? state.logs.get(target.agentId) : undefined;
   const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);

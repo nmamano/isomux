@@ -114,7 +114,15 @@ export interface RegistryEvent {
 // deltas note in the file header.
 export interface EventPayloads {
   api_token_log_entry: { tokenId: string; entry: ApiTokenLogEntry };
-  log_entry: { entry: LogEntry; open?: true };
+  log_entry: { entry: LogEntry; open?: true; requestId?: string };
+  // End of one open_log replay (task 9ebe887d). Recipient-scoped like the
+  // connect fence: it ends ONE socket's replay of one agent.
+  log_open_done: {
+    agentId: string;
+    requestId: string;
+    tail?: number;
+    refused?: true;
+  };
   // Fence at the end of the connect-time transcript replay. Recipient-scoped
   // rather than room-ACL despite following room-ACL'd log_entry frames: it
   // terminates ONE socket's replay and carries nothing to project.
@@ -290,6 +298,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },
   },
   log_replay_complete: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  log_open_done: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

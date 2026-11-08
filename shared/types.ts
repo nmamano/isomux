@@ -853,6 +853,9 @@ export interface AgentInfo {
   // The topic generation: running, or why the last one gave no label.
   // Runtime only, never persisted.
   topicState: TopicState;
+  // Timestamp of the agent's last cached log entry, in full_state only (task
+  // 9ebe887d): the order of background chat loads. Stale between full_states.
+  lastEntryAt?: number;
   customInstructions: string | null;
   // Optimistic-concurrency token over the customInstructions blob (task
   // 44a2c98d): versionOf(customInstructions ?? "") from shared/blob-version.ts,
@@ -2867,6 +2870,9 @@ export type ServerMessage =
       // The UI build the server serves now (server/ui-build.ts). Absent when
       // unknown and on older servers.
       uiBuild?: string;
+      // The socket loads chats when they open (task 9ebe887d): the server
+      // honored LOGS_ON_OPEN_WS_PARAM. Absent: the connect replay follows.
+      logsOnOpen?: true;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions
@@ -2886,7 +2892,19 @@ export type ServerMessage =
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   // `open` is on a live frame only, never on a replayed one (AgentEvent log_entry).
-  | { type: "log_entry"; entry: LogEntry; open?: true }
+  // requestId: a frame of the open_log replay with that id (task 9ebe887d);
+  // absent on live frames and on the connect replay.
+  | { type: "log_entry"; entry: LogEntry; open?: true; requestId?: string }
+  // End of one open_log replay (task 9ebe887d): the agent's replayed entries
+  // are all sent. tail echoes the request's; refused: the socket may not read
+  // this agent's log, and nothing was replayed.
+  | {
+      type: "log_open_done";
+      agentId: string;
+      requestId: string;
+      tail?: number;
+      refused?: true;
+    }
   // End of the transcript replay that follows full_state on every (re)connect.
   // Without it the replay is an unterminated burst of log_entry frames, and a
   // client that wants to swap the whole transcript in at once has to guess when
@@ -2904,6 +2922,8 @@ export type ServerMessage =
   | {
       type: "slash_commands";
       agentId: string;
+      // A frame of the open_log replay with that id (task 9ebe887d).
+      requestId?: string;
       commands: {
         name: string;
         description?: string;
@@ -3073,6 +3093,16 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
+  // Load one chat (task 9ebe887d): subscribe this socket to the agent's live
+  // entries and replay its log (the last `tail` entries, or all), then
+  // log_open_done. A new open_log for the agent replaces a pending replay.
+  | { type: "open_log"; agentId: string; requestId: string; tail?: number }
+  // Cancel a pending open_log replay and drop the subscription.
+  | { type: "close_log"; agentId: string; requestId: string }
+  // Flow control of the open_log replays: the length of the replay frames
+  // this socket received since its last log_ack (every frame with a
+  // requestId, and each log_open_done that is not a refusal).
+  | { type: "log_ack"; bytes: number }
   | { type: "terminal_open"; agentId: string }
   | { type: "terminal_status_request"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }

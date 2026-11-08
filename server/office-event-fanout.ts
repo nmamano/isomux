@@ -68,6 +68,15 @@ export interface EventFanoutDeps {
   ) => void;
   sessionHasFullRoomAccess: (session: SessionLookup) => boolean;
   wakeTokenLogWaiters: (tokenId: string) => void;
+  // Chats that load when they open (task 9ebe887d): a lazy socket gets an
+  // agent's stream frames only after open_log; a clear restarts a replay in
+  // flight; a removed agent leaves every subscription.
+  liveLogAllowed: (
+    ws: ServerWebSocket<OfficeWsData>,
+    agentId: string,
+  ) => boolean;
+  restartLogReplays: (agentId: string) => void;
+  forgetAgentLogs: (agentId: string) => void;
 }
 
 export function createEventFanout(deps: EventFanoutDeps) {
@@ -90,6 +99,9 @@ export function createEventFanout(deps: EventFanoutDeps) {
     sendProjectedFullState,
     sessionHasFullRoomAccess,
     wakeTokenLogWaiters,
+    liveLogAllowed,
+    restartLogReplays,
+    forgetAgentLogs,
   } = deps;
 
   // Per-WS dispatch for events that touch a specific room or agent.
@@ -142,6 +154,8 @@ export function createEventFanout(deps: EventFanoutDeps) {
             ? { agentId: event.agentId, rollback: true }
             : { agentId: event.agentId },
         );
+        // After the clear frame: a replay in flight restarts from the new log.
+        restartLogReplays(event.agentId);
         break;
       case "slash_commands":
         liveEmit("slash_commands", {
@@ -192,6 +206,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
         });
         break;
       case "agent_removed":
+        forgetAgentLogs(event.agentId);
         // The agent's open asks go with it.
         try {
           askStore?.removeAgent(event.agentId);
@@ -282,6 +297,13 @@ export function createEventFanout(deps: EventFanoutDeps) {
     event: AgentEvent,
   ) {
     const session = ws.data.session;
+    const streamAgent =
+      event.type === "log_entry"
+        ? event.entry.agentId
+        : event.type === "clear_logs" || event.type === "slash_commands"
+          ? event.agentId
+          : null;
+    if (streamAgent !== null && !liveLogAllowed(ws, streamAgent)) return;
 
     if (sessionHasFullRoomAccess(session)) {
       officeSend(ws, event.type, JSON.stringify(event));

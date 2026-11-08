@@ -85,7 +85,7 @@ import type {
   PruneTarget,
   RemovedMemberWire,
 } from "../shared/contract-shapes.ts";
-import { connect } from "./ws.ts";
+import { connect, socketGeneration } from "./ws.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
@@ -271,6 +271,15 @@ export interface AppState {
   // member sees the lobby door), and a full_state (reconnect) keeps it.
   membersChatShown: boolean;
   tasksLoaded: boolean;
+  // Chats that load when they open (task 9ebe887d slice 2), per agent: a
+  // stream the store asked for, its request, and the entries of a load in
+  // flight. The rendered entries stay in `logs`.
+  logStreams: ReadonlyMap<string, LogStream>;
+  // The socket generation of the last full_state (W1).
+  logSocketGen: number;
+  // The last full_state said the server loads chats when they open (W2):
+  // only then does the client send open_log.
+  logsOnOpen: boolean;
   // The summary task board (task 9ebe887d). +1 on each tasks frame: a fetch
   // started in an older epoch is dropped, and closed rows go.
   tasksEpoch: number;
@@ -437,6 +446,18 @@ export interface AppState {
   unavailableFeatures: UnavailableFeatures;
 }
 
+// One chat's load (task 9ebe887d slice 2). loading: a replay is in flight,
+// its entries in `replay` and the live entries that came meanwhile in `live`;
+// at log_open_done they replace the agent's rendered entries. recent: the last
+// `tail` entries are in (a prefetch); complete: the whole log is in.
+export interface LogStream {
+  state: "loading" | "recent" | "complete";
+  requestId: string;
+  tail?: number;
+  replay: LogEntry[];
+  live: LogEntry[];
+}
+
 export type Action =
   | {
       type: "full_state";
@@ -451,6 +472,11 @@ export type Action =
       membersChat?: MembersChatSummary;
       floors?: Floor[];
       uiBuild?: string;
+      logsOnOpen?: true;
+      // CLIENT-LOCAL: the ws.ts socket generation the frame came on (task
+      // 9ebe887d): a full_state on a new socket is a reconnect, one on the
+      // same socket is a re-projection.
+      socketGen?: number;
     }
   | { type: "floors_updated"; floors: Floor[] }
   | { type: "agent_added"; agent: AgentInfo }
@@ -460,7 +486,18 @@ export type Action =
   | { type: "interaction_removed"; interactionId: string; agentId: string }
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
-  | { type: "log_entry"; entry: LogEntry; open?: true }
+  | { type: "log_entry"; entry: LogEntry; open?: true; requestId?: string }
+  | {
+      type: "log_open_done";
+      agentId: string;
+      requestId: string;
+      tail?: number;
+      refused?: true;
+    }
+  // CLIENT-LOCAL (task 9ebe887d): this tab sent open_log / close_log for an
+  // agent (ui/agent-log.ts, ui/log-prefetch.ts).
+  | { type: "log_open_sent"; agentId: string; requestId: string; tail?: number }
+  | { type: "log_close_sent"; agentId: string; requestId: string }
   // CLIENT-LOCAL (not a ServerMessage): CronjobRunView dispatches this after the
   // REST cron.getRun fetch to merge the historical run transcript into the same
   // logs stream that live `log_entry` events feed during an active run. Reuses
@@ -821,6 +858,41 @@ function autoOpenFor(
   };
 }
 
+// A full_state on a lazy socket (task 9ebe887d). On the SAME socket it is a
+// re-projection: the server kept its subscriptions, so the streams, chats and
+// commands of the agents still listed stay, and the others go. On a NEW
+// socket nothing is subscribed: every stream goes (the chats on screen open
+// again through useAgentLog), and the listed agents' entries stay on screen
+// until their new load replaces them.
+function lazyFullStateLogs(
+  state: AppState,
+  action: Extract<Action, { type: "full_state" }>,
+): Pick<
+  AppState,
+  | "logs"
+  | "logEntryIds"
+  | "logsReplay"
+  | "logStreams"
+  | "slashCommands"
+  | "logsOnOpen"
+  | "logSocketGen"
+> {
+  const listed = new Set(action.agents.map((agent) => agent.id));
+  const socketGen = action.socketGen ?? state.logSocketGen;
+  const sameSocket = state.logsOnOpen && socketGen === state.logSocketGen;
+  const keep = <V,>(map: ReadonlyMap<string, V>, when = true) =>
+    new Map([...map].filter(([agentId]) => when && listed.has(agentId)));
+  return {
+    logs: keep(state.logs),
+    logEntryIds: keep(state.logEntryIds),
+    logsReplay: null,
+    logStreams: keep(state.logStreams, sameSocket),
+    slashCommands: keep(state.slashCommands, sameSocket),
+    logsOnOpen: true,
+    logSocketGen: socketGen,
+  };
+}
+
 // The delta seq after one task delta (task 9ebe887d): the task's row is full
 // now, and a read that started before this delta loses to it.
 function afterTaskDelta(
@@ -879,7 +951,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const focusedId = state.focusedAgentId;
       const heldLogs = focusedId ? state.logs.get(focusedId) : undefined;
       const holding = focusedId != null && (heldLogs?.length ?? 0) > 0;
-      return {
+      const next: AppState = {
         ...state,
         agents: action.agents,
         recentCwds: action.recentCwds,
@@ -946,6 +1018,16 @@ export function reducer(state: AppState, action: Action): AppState {
         ),
         hasReceivedInitialState: true,
         serverUiBuild: action.uiBuild ?? null,
+      };
+      // A socket that loads chats when they open (task 9ebe887d): no
+      // connect replay, so no global window; the streams follow W1.
+      if (action.logsOnOpen)
+        return { ...next, ...lazyFullStateLogs(state, action) };
+      return {
+        ...next,
+        logStreams: new Map(),
+        logsOnOpen: false,
+        logSocketGen: action.socketGen ?? state.logSocketGen,
       };
     }
     case "agent_added":
@@ -1093,12 +1175,42 @@ export function reducer(state: AppState, action: Action): AppState {
       // works for the new-Set case.
       // Inside a reconnect replay window the entry goes to the buffer instead
       // of the rendered logs, and stays invisible until the fence commits it.
+      const streamId = action.entry.agentId;
+      // A frame of an open_log replay (task 9ebe887d): into its load's
+      // buffer, when it is the agent's current request; else stale.
+      const stream = state.logStreams.get(streamId);
+      if (action.requestId !== undefined) {
+        if (
+          stream?.state !== "loading" ||
+          stream.requestId !== action.requestId
+        )
+          return state;
+        return {
+          ...state,
+          logStreams: new Map(state.logStreams).set(streamId, {
+            ...stream,
+            replay: [...stream.replay, action.entry],
+          }),
+        };
+      }
+      // A live entry of a chat that is loading shows at once, and is kept
+      // for the swap at log_open_done.
+      const logStreams =
+        stream?.state === "loading" &&
+        !stream.live.some((e) => e.id === action.entry.id)
+          ? new Map(state.logStreams).set(streamId, {
+              ...stream,
+              live: [...stream.live, action.entry],
+            })
+          : state.logStreams;
       const replay = state.logsReplay;
       const srcLogs = replay ? replay.logs : state.logs;
       const srcIds = replay ? replay.logEntryIds : state.logEntryIds;
-      const streamId = action.entry.agentId;
       const seen = srcIds.get(streamId);
-      if (seen?.has(action.entry.id)) return state;
+      if (seen?.has(action.entry.id))
+        return logStreams === state.logStreams
+          ? state
+          : { ...state, logStreams };
       const logs = new Map(srcLogs);
       const logEntryIds = new Map(srcIds);
       logEntryIds.set(streamId, new Set(seen).add(action.entry.id));
@@ -1112,9 +1224,10 @@ export function reducer(state: AppState, action: Action): AppState {
           ...state,
           logsReplay: { ...replay, logs, logEntryIds },
           autoOpen,
+          logStreams,
         };
       }
-      return { ...state, logs, logEntryIds, autoOpen };
+      return { ...state, logs, logEntryIds, autoOpen, logStreams };
     }
     case "log_entries_batch": {
       // Merge a fetched historical batch into the per-stream logs, reusing the
@@ -1303,6 +1416,17 @@ export function reducer(state: AppState, action: Action): AppState {
       // Mirror into a replay buffer in flight, or the commit would put the
       // just-cleared conversation back a moment later.
       const logsReplay = clearStreamInReplay(state.logsReplay, action.agentId);
+      // A load in flight goes on (the server restarts it from the new log):
+      // what it buffered belongs to the old conversation.
+      const loading = state.logStreams.get(action.agentId);
+      const logStreams =
+        loading?.state === "loading"
+          ? new Map(state.logStreams).set(action.agentId, {
+              ...loading,
+              replay: [],
+              live: [],
+            })
+          : state.logStreams;
       // A conversation boundary (new-conversation/clear, resume, edit-fork)
       // retires the unread dot everywhere: the dot points at a turn that just
       // got wiped/replaced. Server-broadcast, so ALL connected clients clear
@@ -1310,7 +1434,8 @@ export function reducer(state: AppState, action: Action): AppState {
       // (via its own focus), and everyone else kept a stale dot. A rollback
       // clear (failed edit-fork restoring the PRIOR timeline) is not a
       // boundary - the old unseen result comes back, so the dot stays.
-      if (action.rollback) return { ...state, logs, logEntryIds, logsReplay };
+      if (action.rollback)
+        return { ...state, logs, logEntryIds, logsReplay, logStreams };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
       return {
@@ -1318,6 +1443,7 @@ export function reducer(state: AppState, action: Action): AppState {
         logs,
         logEntryIds,
         logsReplay,
+        logStreams,
         needsAttention,
       };
     }
@@ -1535,6 +1661,59 @@ export function reducer(state: AppState, action: Action): AppState {
     // came since the request; a row loses to a delta (or a delete) that landed
     // after the request started. version is a hash, not an order, so the
     // delta seq decides.
+    // Chats that load when they open (task 9ebe887d slice 2).
+    case "log_open_sent":
+      return {
+        ...state,
+        logStreams: new Map(state.logStreams).set(action.agentId, {
+          state: "loading",
+          requestId: action.requestId,
+          ...(action.tail === undefined ? {} : { tail: action.tail }),
+          replay: [],
+          live: [],
+        }),
+      };
+    case "log_close_sent": {
+      if (state.logStreams.get(action.agentId)?.requestId !== action.requestId)
+        return state;
+      const logStreams = new Map(state.logStreams);
+      logStreams.delete(action.agentId);
+      return { ...state, logStreams };
+    }
+    // The load's replay ++ the live entries that came meanwhile, once each,
+    // REPLACE what the chat showed: a clear missed across a disconnect must
+    // not join two conversations.
+    case "log_open_done": {
+      const stream = state.logStreams.get(action.agentId);
+      if (stream?.state !== "loading" || stream.requestId !== action.requestId)
+        return state;
+      const logStreams = new Map(state.logStreams);
+      const logs = new Map(state.logs);
+      const logEntryIds = new Map(state.logEntryIds);
+      if (action.refused) {
+        logStreams.delete(action.agentId);
+        logs.delete(action.agentId);
+        logEntryIds.delete(action.agentId);
+        return { ...state, logStreams, logs, logEntryIds };
+      }
+      const seen = new Set<string>();
+      const entries: LogEntry[] = [];
+      for (const entry of [...stream.replay, ...stream.live]) {
+        if (seen.has(entry.id)) continue;
+        seen.add(entry.id);
+        entries.push(entry);
+      }
+      logs.set(action.agentId, entries);
+      logEntryIds.set(action.agentId, seen);
+      logStreams.set(action.agentId, {
+        state: stream.tail === undefined ? "complete" : "recent",
+        requestId: stream.requestId,
+        ...(stream.tail === undefined ? {} : { tail: stream.tail }),
+        replay: [],
+        live: [],
+      });
+      return { ...state, logStreams, logs, logEntryIds };
+    }
     case "tasks_fetched": {
       if (action.epoch !== state.tasksEpoch) return state;
       const index = new Map(state.tasks.map((t, i) => [t.id, i]));
@@ -2143,6 +2322,9 @@ export const initialState: AppState = {
   rooms: [],
   tasks: [],
   tasksLoaded: false,
+  logStreams: new Map(),
+  logSocketGen: 0,
+  logsOnOpen: false,
   tasksEpoch: 0,
   summaryTaskIds: new Set(),
   // Only a summary frame says the store lacks the closed tasks; a state with
@@ -2263,7 +2445,12 @@ export function StoreProvider({
         // Before the dispatch: a held answer flushed as its card unmounts
         // must see that the ask closed.
         if (msg.type === "ask_removed") closedAsks.add(msg.id);
-        dispatch(msg as Action);
+        // A full_state carries the socket it came on (W1, task 9ebe887d).
+        dispatch(
+          msg.type === "full_state"
+            ? { ...msg, socketGen: socketGeneration() }
+            : (msg as Action),
+        );
         if (msg.type === "full_state") dispatch({ type: "connected" });
         if (msg.type === "full_state" || msg.type === "floors_updated")
           syncPanel(msg.floors ?? []);

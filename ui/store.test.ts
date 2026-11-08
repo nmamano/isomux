@@ -700,6 +700,160 @@ describe("reducer: the summary board", () => {
   });
 });
 
+// --- Chats that load when they open (task 9ebe887d slice 2) -----------------
+// A lazy socket loads one chat per open_log. The replay frames carry the
+// request id and land in the stream's buffer; live entries that come meanwhile
+// show at once and are kept apart; log_open_done swaps replay ++ live in,
+// replacing what the chat showed (a clear missed across a disconnect must not
+// join two conversations). A full_state on the same socket is a
+// re-projection: the streams stay.
+describe("reducer: chats that load when they open", () => {
+  const A = "agent-a";
+  const B = "agent-b";
+  type FullState = Extract<
+    Parameters<typeof reducer>[1],
+    { type: "full_state" }
+  >;
+  const lazyFullState = (agentIds: string[], socketGen: number): FullState =>
+    ({
+      type: "full_state",
+      agents: agentIds.map((id) => ({ id, name: id, roomId: "r1" })),
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [{ id: "r1", name: "Room" }],
+      killedAgents: [],
+      interactions: [],
+      logsOnOpen: true,
+      socketGen,
+    }) as unknown as FullState;
+  const ids = (state: AppState, agentId: string) =>
+    (state.logs.get(agentId) ?? []).map((e) => e.id);
+  const replayed = (id: string, agentId: string, requestId: string) =>
+    ({
+      type: "log_entry",
+      entry: entry(id, agentId, 1),
+      requestId,
+    }) as const;
+  const live = (id: string, agentId: string) =>
+    ({ type: "log_entry", entry: entry(id, agentId, 2) }) as const;
+  const run = (state: AppState, actions: Parameters<typeof reducer>[1][]) =>
+    actions.reduce(reducer, state);
+
+  // A lazy store that shows `held` for agent A, on socket 1.
+  function shown(held: string[] = []): AppState {
+    return run(reducer(initialState, lazyFullState([A, B], 1)), [
+      ...held.map((id) => live(id, A)),
+    ]);
+  }
+
+  it("a load keeps the chat on screen and buffers its replay; a frame of another request is ignored", () => {
+    let s = shown(["h1"]);
+    s = reducer(s, { type: "log_open_sent", agentId: A, requestId: "r1" });
+    expect(s.logStreams.get(A)?.state).toBe("loading");
+    s = run(s, [replayed("e1", A, "r1"), replayed("x1", A, "r0")]);
+    expect(ids(s, A)).toEqual(["h1"]);
+    expect(s.logStreams.get(A)?.replay.map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("a live entry during the load shows at once, and log_open_done swaps in replay then live, once each, replacing what was shown", () => {
+    let s = shown(["h1"]);
+    s = run(s, [
+      { type: "log_open_sent", agentId: A, requestId: "r1" },
+      replayed("e1", A, "r1"),
+      live("e3", A),
+      replayed("e2", A, "r1"),
+      // The same entry as a live frame and in the replay (a rollback re-sends
+      // the old log live): one copy, at its replay place.
+      live("e2", A),
+    ]);
+    expect(ids(s, A)).toEqual(["h1", "e3", "e2"]);
+    s = reducer(s, { type: "log_open_done", agentId: A, requestId: "r1" });
+    // h1 is not in the server's log any more: replaced, not merged.
+    expect(ids(s, A)).toEqual(["e1", "e2", "e3"]);
+    const stream = s.logStreams.get(A)!;
+    expect(stream.state).toBe("complete");
+    expect(stream.replay).toEqual([]);
+    expect(stream.live).toEqual([]);
+    // After the load, a live entry appends as before.
+    s = reducer(s, live("e4", A));
+    expect(ids(s, A)).toEqual(["e1", "e2", "e3", "e4"]);
+  });
+
+  it("a load with a tail ends recent; a done of another request is ignored", () => {
+    let s = run(shown(), [
+      { type: "log_open_sent", agentId: A, requestId: "r1", tail: 100 },
+      replayed("e9", A, "r1"),
+      { type: "log_open_done", agentId: A, requestId: "r0" },
+    ]);
+    expect(s.logStreams.get(A)?.state).toBe("loading");
+    s = reducer(s, {
+      type: "log_open_done",
+      agentId: A,
+      requestId: "r1",
+      tail: 100,
+    });
+    expect(s.logStreams.get(A)?.state).toBe("recent");
+    expect(ids(s, A)).toEqual(["e9"]);
+  });
+
+  it("a clear during the load empties both buffers and the chat, and the load goes on", () => {
+    let s = run(shown(["h1"]), [
+      { type: "log_open_sent", agentId: A, requestId: "r1" },
+      replayed("old1", A, "r1"),
+      live("old2", A),
+      { type: "clear_logs", agentId: A },
+    ]);
+    const stream = s.logStreams.get(A)!;
+    expect(stream.state).toBe("loading");
+    expect(stream.replay).toEqual([]);
+    expect(stream.live).toEqual([]);
+    expect(ids(s, A)).toEqual([]);
+    s = run(s, [
+      replayed("new1", A, "r1"),
+      { type: "log_open_done", agentId: A, requestId: "r1" },
+    ]);
+    expect(ids(s, A)).toEqual(["new1"]);
+  });
+
+  it("a refused load drops the stream and the chat's entries; a close drops the stream", () => {
+    let s = run(shown(["h1"]), [
+      { type: "log_open_sent", agentId: A, requestId: "r1" },
+      {
+        type: "log_open_done",
+        agentId: A,
+        requestId: "r1",
+        refused: true,
+      },
+    ]);
+    expect(s.logStreams.has(A)).toBe(false);
+    expect(ids(s, A)).toEqual([]);
+
+    s = run(s, [
+      { type: "log_open_sent", agentId: B, requestId: "r2" },
+      { type: "log_close_sent", agentId: B, requestId: "r2" },
+    ]);
+    expect(s.logStreams.has(B)).toBe(false);
+  });
+
+  it("a full_state on the same socket keeps every stream and chat of an agent still listed, and drops the others", () => {
+    let s = run(shown(), [
+      { type: "log_open_sent", agentId: A, requestId: "r1" },
+      replayed("a1", A, "r1"),
+      { type: "log_open_done", agentId: A, requestId: "r1" },
+      { type: "log_open_sent", agentId: B, requestId: "r2", tail: 100 },
+      replayed("b1", B, "r2"),
+      { type: "log_open_done", agentId: B, requestId: "r2", tail: 100 },
+    ]);
+    // Neither chat is focused: a reconnect would keep at most the focused one.
+    expect(s.focusedAgentId).toBeNull();
+    s = reducer(s, lazyFullState([A], 1));
+    expect(s.logStreams.get(A)?.state).toBe("complete");
+    expect(ids(s, A)).toEqual(["a1"]);
+    expect(s.logStreams.has(B)).toBe(false);
+    expect(ids(s, B)).toEqual([]);
+  });
+});
+
 describe("reducer: reconnect replay window (full_state → log_replay_complete)", () => {
   const A = "agent-1";
   const B = "agent-2";

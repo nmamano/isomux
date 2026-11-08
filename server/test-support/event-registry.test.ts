@@ -27,6 +27,8 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // even though it follows room-ACL'd log_entry frames, because it terminates a
   // per-socket burst and carries nothing to project.
   log_replay_complete: "recipient-scoped",
+  // The end of one open_log replay: ONE socket's load of one agent.
+  log_open_done: "recipient-scoped",
   clear_logs: "room-ACL",
   slash_commands: "room-ACL",
   agent_added: "room-ACL",

@@ -19,6 +19,15 @@
 // so the client sees the same order as before: the whole replay, its fence,
 // then the live frames.
 //
+// A socket that loads chats when they open (task 9ebe887d) has no connect
+// replay; each open_log replay runs in a background lane instead. The lane
+// sends only while no live frame waits and Bun holds nothing, so live frames
+// (and the chat the member just opened, which goes to the lane's front)
+// never wait behind a background load in Bun's buffer. Bytes that left Bun
+// can still wait in the kernel, a proxy or the network, so the lane also has
+// a window: the client acks the lane frames it received (log_ack), and the
+// lane keeps at most the window sent and not acked (BACKGROUND_MIN_WINDOW).
+//
 // LEAF: no office imports, so the queue is unit-testable with a fake socket.
 
 // What Bun may hold for this socket before the pump waits for a drain. Low,
@@ -31,6 +40,14 @@ export const OUTBOX_PUMP_BUDGET_BYTES = 4 * 1024 * 1024;
 // Sanity bound on queued live frames: past it the client is not reading, and
 // the socket closes so the client reconnects to a fresh replay.
 export const OUTBOX_MAX_QUEUED_BYTES = 64 * 1024 * 1024;
+// Flow control of the background lane (task 9ebe887d): the lane keeps in
+// flight (sent, not acked by the client's log_ack) at most the larger of
+// BACKGROUND_MIN_WINDOW and the bytes the client acked in the last
+// BACKGROUND_TARGET_MS. So a live frame or a chat the member opens waits at
+// most about BACKGROUND_TARGET_MS behind background bytes in the kernel and
+// the network, and a fast link is not capped. Live frames ignore the window.
+export const BACKGROUND_MIN_WINDOW = 64 * 1024;
+export const BACKGROUND_TARGET_MS = 500;
 
 export interface OutboxSocket {
   send(data: string): number;
@@ -41,6 +58,8 @@ export interface OutboxSocket {
 export interface OutboxOptions {
   // Runs the pump on a later tick. Tests pass a manual scheduler.
   schedule?: (run: () => void) => void;
+  // The clock of the lane's window. Tests pass a manual clock.
+  now?: () => number;
   // Called once when the queue closes the socket, with the reason.
   onFail?: (reason: "dropped" | "threw" | "overflow") => void;
 }
@@ -51,6 +70,19 @@ type Item =
 
 export class OfficeOutbox {
   private readonly items: Item[] = [];
+  // The background lane: open_log replays, keyed by agent, in send order.
+  // held: a frame pulled from the producer that did not fit the window. It
+  // goes first when the window opens, and is dropped with its producer.
+  private readonly background: {
+    key: string;
+    next: Iterator<string>;
+    held?: string;
+  }[] = [];
+  // Lane bytes sent and not acked, and the recent acks (time, bytes) that
+  // size the window.
+  private inFlight = 0;
+  private readonly acks: { at: number; bytes: number }[] = [];
+  private readonly now: () => number;
   private queuedBytes = 0;
   private scheduled = false;
   private disposed = false;
@@ -61,11 +93,12 @@ export class OfficeOutbox {
     private readonly options: OutboxOptions = {},
   ) {
     this.schedule = options.schedule ?? ((run) => void setTimeout(run, 0));
+    this.now = options.now ?? Date.now;
   }
 
   // True while frames wait here for the socket.
   get backlogged(): boolean {
-    return this.items.length > 0;
+    return this.items.length > 0 || this.background.length > 0;
   }
 
   send(data: string): void {
@@ -92,6 +125,50 @@ export class OfficeOutbox {
     else this.later();
   }
 
+  // The background lane (task 9ebe887d slice 2): an open_log replay, keyed by
+  // agent id. It sends only while no live frame waits and Bun holds nothing,
+  // so a live frame never waits behind it. front: ahead of the lane's other
+  // producers (a chat the member opened, ahead of prefetches). A producer
+  // with the same key is cancelled first.
+  sendBackground(
+    key: string,
+    frames: Iterator<string>,
+    opts: { front?: boolean } = {},
+  ): void {
+    if (this.disposed) {
+      frames.return?.();
+      return;
+    }
+    this.cancelBackground(key);
+    const item = { key, next: frames };
+    if (opts.front) this.background.unshift(item);
+    else this.background.push(item);
+    this.later();
+  }
+
+  // The client's log_ack: `bytes` of lane frames arrived. In flight clamps at
+  // 0. A frame bigger than the window goes only when nothing is in flight.
+  ackBackground(bytes: number): void {
+    if (this.disposed || !Number.isSafeInteger(bytes) || bytes < 0) return;
+    const freed = Math.min(bytes, this.inFlight);
+    this.inFlight -= freed;
+    this.acks.push({ at: this.now(), bytes: freed });
+    this.later();
+  }
+
+  // Cancel the background producer with this key, if any.
+  cancelBackground(key: string): void {
+    const at = this.background.findIndex((item) => item.key === key);
+    if (at === -1) return;
+    const [item] = this.background.splice(at, 1);
+    item.next.return?.();
+  }
+
+  // True while LIVE frames (not the background lane) wait here.
+  get liveBacklogged(): boolean {
+    return this.items.length > 0;
+  }
+
   // Bun's drain callback. Never sends from inside it (see the file header).
   drain(): void {
     this.later();
@@ -103,8 +180,11 @@ export class OfficeOutbox {
     for (const item of this.items) {
       if (item.kind === "replay") item.next.return?.();
     }
+    for (const item of this.background) item.next.return?.();
     this.items.length = 0;
+    this.background.length = 0;
     this.queuedBytes = 0;
+    this.acks.length = 0;
   }
 
   private room(): boolean {
@@ -122,24 +202,67 @@ export class OfficeOutbox {
 
   private pump(): void {
     let budget = OUTBOX_PUMP_BUDGET_BYTES;
-    while (!this.disposed && this.items.length > 0) {
-      // Bun's buffer is full: its drain callback resumes the pump.
-      if (!this.room()) return;
+    while (
+      !this.disposed &&
+      (this.items.length > 0 || this.background.length > 0)
+    ) {
+      // A background frame goes only while no live frame waits and Bun holds
+      // nothing: what Bun holds goes out before the next live frame.
+      const live = this.items.length > 0;
+      // Bun's buffer is full (or not empty, for the lane): its drain
+      // callback resumes the pump.
+      if (live ? !this.room() : this.ws.getBufferedAmount() > 0) return;
       if (budget <= 0) {
         this.later();
         return;
       }
       let data: string | null;
       try {
-        data = this.take();
+        data = live ? this.take() : this.takeBackground();
       } catch {
         this.fail("threw");
         return;
       }
       if (data === null) continue;
+      if (!live) {
+        // The window is full: an ack resumes the pump.
+        if (!this.fits(data.length)) {
+          this.background[0].held = data;
+          return;
+        }
+        this.inFlight += data.length;
+      }
       budget -= data.length;
       this.write(data);
     }
+  }
+
+  // Whether a lane frame of `bytes` fits the window: in flight stays at most
+  // the window, or nothing is in flight (a frame bigger than the window).
+  private fits(bytes: number): boolean {
+    const since = this.now() - BACKGROUND_TARGET_MS;
+    while (this.acks.length > 0 && this.acks[0].at <= since) this.acks.shift();
+    if (this.inFlight === 0) return true;
+    let acked = 0;
+    for (const ack of this.acks) acked += ack.bytes;
+    return this.inFlight + bytes <= Math.max(BACKGROUND_MIN_WINDOW, acked);
+  }
+
+  // The lane's next frame (a held one first), or null when its head
+  // producer finished.
+  private takeBackground(): string | null {
+    const head = this.background[0];
+    if (head.held !== undefined) {
+      const held = head.held;
+      head.held = undefined;
+      return held;
+    }
+    const step = head.next.next();
+    if (step.done) {
+      this.background.shift();
+      return null;
+    }
+    return step.value;
   }
 
   // The next frame in order, or null when a finished producer was removed.

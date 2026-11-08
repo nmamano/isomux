@@ -6,6 +6,7 @@
 // message is an ordinary member message. App closes the panel when the member
 // leaves the Inbox or its agent goes.
 
+import { useAgentLog } from "../agent-log.ts";
 import { useCallback, useMemo } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -55,6 +56,8 @@ export function AgentChatPanel({
   const dispatch = useDispatch();
   const { t, rich } = useI18n();
   const agent = state.agents.find((item) => item.id === agentId);
+  // Loads this chat when the server loads chats on open (task 9ebe887d).
+  useAgentLog(agentId);
   const agentLogs = state.logs.get(agentId);
   const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);
   const phoneBox = usePhonePanelBox(

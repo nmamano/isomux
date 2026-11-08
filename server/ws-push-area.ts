@@ -56,6 +56,7 @@ export const WS_PUSH_AREA = {
   killed_agent_removed: "agentManagement",
   log_entry: "logs",
   log_replay_complete: "always",
+  log_open_done: "logs",
   members_chat_deleted: "membersChat",
   members_chat_message: "membersChat",
   members_chat_read: "membersChat",

@@ -190,6 +190,7 @@ import {
 } from "./ws-push-area.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { BROWSER_SHARE_DEVICE } from "../shared/browser-share.ts";
+import { MAX_LOG_REQUEST_ID_LENGTH } from "../shared/log-stream.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import {
@@ -913,6 +914,10 @@ export interface OfficeWsData {
   connectionId: string;
   // The socket asked for the summary task board (TASKS_SUMMARY_WS_PARAM).
   tasksSummary?: true;
+  // The socket loads chats when they open (LOGS_ON_OPEN_WS_PARAM, task
+  // 9ebe887d slice 2), and the agents whose live entries it subscribed to.
+  logsOnOpen?: true;
+  logSubscriptions?: Set<string>;
 }
 
 // One `Bun.serve` serves the office AND every app hostname, and a Bun server has
@@ -1000,6 +1005,28 @@ function officeSendLazy(
         frames.return?.();
       }
     })(),
+  );
+}
+
+// An open_log replay in the outbox's background lane, through the same filter.
+function officeSendBackground(
+  ws: ServerWebSocket<OfficeWsData>,
+  key: string,
+  frames: Iterator<WsFrame>,
+  opts: { front?: boolean } = {},
+): void {
+  const session = ws.data.session;
+  outboxFor(ws).sendBackground(
+    key,
+    (function* () {
+      try {
+        for (let r = frames.next(); !r.done; r = frames.next())
+          if (wsPushAllowed(session, r.value.kind)) yield r.value.data;
+      } finally {
+        frames.return?.();
+      }
+    })(),
+    opts,
   );
 }
 
@@ -1186,6 +1213,11 @@ const {
   pushTasksToEachWs,
   pushWebhookDeltaToEachWs,
   replayFrames,
+  openLog,
+  closeLog,
+  liveLogAllowed,
+  restartLogReplays,
+  forgetAgentLogs,
   sendCronjobsTo,
   sendMemberMessage,
   sendProjectedFullState,
@@ -1205,6 +1237,7 @@ const {
   identityFitsAgent: (identity, agentId) =>
     identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
   officeSend,
+  officeSendBackground,
   officeSendLazy,
   outboxFor,
   roomAllowedForSession,
@@ -1213,6 +1246,7 @@ const {
   sessionHasFullRoomAccess,
   taskViewerForUser,
   webhookViewerForSession,
+  wsPushAllowed,
 });
 
 // The agent and cronjob event fan-out (server/office-event-fanout.ts). Created
@@ -1236,6 +1270,9 @@ const { wireEventSinks } = createEventFanout({
   sendProjectedFullState,
   sessionHasFullRoomAccess,
   wakeTokenLogWaiters,
+  liveLogAllowed,
+  restartLogReplays,
+  forgetAgentLogs,
 });
 // The session context carries the Claude families limited in the member's own
 // env and the models they run, so it goes out again when office or personal
@@ -2465,10 +2502,24 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
       return;
     }
     const data = JSON.stringify({ type: id, ...(payload as object) });
+    // An agent's stream frames reach a lazy socket only after its open_log
+    // (task 9ebe887d).
+    const streamAgent =
+      id === "log_entry"
+        ? (payload as { entry: { agentId: string } }).entry.agentId
+        : id === "clear_logs" || id === "slash_commands"
+          ? (payload as { agentId: string }).agentId
+          : null;
     for (const ws of recipients) {
       if (
         ws.data.kind === "api" &&
         !liveTokenSocket(ws as ServerWebSocket<ApiTokenWsData>)
+      )
+        continue;
+      if (
+        streamAgent !== null &&
+        ws.data.kind === "office" &&
+        !liveLogAllowed(ws as ServerWebSocket<OfficeWsData>, streamAgent)
       )
         continue;
       if (ws.data.kind === "office")
@@ -5257,6 +5308,38 @@ async function handleInboundMessage(
         if (changed) {
           pushPresenceListToEachWs();
         }
+        break;
+      }
+      // Chats that load when they open (task 9ebe887d slice 2).
+      case "open_log": {
+        if (
+          typeof cmd.agentId !== "string" ||
+          typeof cmd.requestId !== "string" ||
+          cmd.requestId.length > MAX_LOG_REQUEST_ID_LENGTH
+        )
+          break;
+        const tail =
+          typeof cmd.tail === "number" &&
+          Number.isSafeInteger(cmd.tail) &&
+          cmd.tail > 0
+            ? cmd.tail
+            : undefined;
+        openLog(ws, cmd.agentId, cmd.requestId, tail);
+        break;
+      }
+      case "close_log": {
+        if (
+          typeof cmd.agentId !== "string" ||
+          typeof cmd.requestId !== "string"
+        )
+          break;
+        closeLog(ws, cmd.agentId, cmd.requestId);
+        break;
+      }
+      // Flow control of the background lane: the outbox ignores a bad count.
+      case "log_ack": {
+        if (!ws.data.logsOnOpen || typeof cmd.bytes !== "number") break;
+        outboxFor(ws).ackBackground(cmd.bytes);
         break;
       }
       case "terminal_open": {
