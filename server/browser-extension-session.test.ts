@@ -1693,6 +1693,18 @@ async function timeoutSessionFixture(
     stop: () => {
       sessions.stop();
       service.stop();
+      // service.stop() closes only sockets, and this connection has none. Its
+      // pending commands would otherwise time out 30 s later and log into
+      // whatever test file runs then. close() logs one line of its own; keep
+      // it out of the output. Not spyOn: a nested spy on a spied console.info
+      // is the same mock, and its restore drops the outer spy's calls.
+      const info = console.info;
+      console.info = () => {};
+      try {
+        connection.close();
+      } finally {
+        console.info = info;
+      }
       connect.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     },
@@ -1976,6 +1988,30 @@ test("a read whose title wait has a command in flight keeps the deadline", async
     h.stop();
   }
 }, 10_000);
+
+// Task cc123f5e: a command left in flight keeps its 30 s timer. If stop()
+// leaves it, the timer fires in a later test file of the same run and logs
+// command_timed_out into that file's console capture.
+test("the fixture's stop ends every command still in flight", async () => {
+  const h = await timeoutSessionFixture(false, false, 0, {
+    hangTitle: true,
+    titlePending: true,
+    pageAnswer: 50,
+    deadline: 100,
+  });
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: false,
+      code: "action_timeout",
+    });
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+  expect(h.connection.pendingCount(h.grant)).toBe(0);
+});
 
 test("a goto that fails with a network error names the error code and not the URL", async () => {
   const h = await timeoutSessionFixture(false, false, 0, {
