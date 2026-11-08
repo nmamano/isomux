@@ -119,12 +119,51 @@ step() {
 }
 
 # A bare repository holding only $sha, as branch `smoke`, for the installs to
-# clone in place of the GitHub repository.
+# clone in place of the GitHub repository. The fetch is local, but it once got
+# a corrupt pack while the stored objects were intact (task cc5c205b). A
+# failed first try gets one more, into a fresh repository; index-pack still
+# verifies every object it keeps. Before the second try, fsck checks the
+# source and the load is recorded, and a pass leaves a note for
+# serve_revision_step. step runs this with errexit off: each command is
+# checked.
 serve_revision() {
-  git init --quiet --bare "$work/isomux.git"
-  git -C "$work/isomux.git" fetch --quiet --depth 1 \
-    --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' \
-    "file://$PWD" "$sha:refs/heads/smoke"
+  local repo=$work/isomux.git try rc first_error fsck_rc verdict load
+  rm -f "$work/serve-revision.note" || return
+  for try in 1 2; do
+    rm -rf "$repo" || return
+    git init --quiet --bare "$repo" || return
+    rc=0
+    git -C "$repo" fetch --quiet --depth 1 \
+      --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' \
+      "file://$PWD" "$sha:refs/heads/smoke" 2>"$work/fetch.err" || rc=$?
+    cat "$work/fetch.err" >&2
+    if ((rc == 0)); then
+      if ((try == 2)); then
+        printf 'serve-revision passed on the second try; first try: %s; fsck: %s; load1 %s\n' \
+          "$first_error" "$verdict" "${load%% *}" >"$work/serve-revision.note" || return
+      fi
+      return 0
+    fi
+    ((try == 1)) || return "$rc"
+    first_error=$(grep -m1 . "$work/fetch.err") || first_error="exit $rc, no output"
+    # The verdict is evidence only: it never changes the result.
+    fsck_rc=0
+    timeout 60 git fsck --no-dangling --no-progress >&2 || fsck_rc=$?
+    case $fsck_rc in
+      0) verdict=ok ;;
+      124) verdict=timeout ;;
+      *) verdict=failed ;;
+    esac
+    load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null) || load=unknown
+    echo "serve-revision: try 1 failed (exit $rc); source fsck: $verdict; loadavg: $load; $(grep -s MemAvailable /proc/meminfo)" >&2
+  done
+}
+
+# The serve-revision step. A pass on the second try is printed in run.sh's
+# own output: CI keeps that output, and the step log goes with $work.
+serve_revision_step() {
+  step serve-revision serve_revision
+  [[ ! -s $work/serve-revision.note ]] || log "$(cat "$work/serve-revision.note")"
 }
 
 check_node_free() {
@@ -165,7 +204,7 @@ manual() {
     useradd -m -s /bin/bash smoke &&
     echo "smoke ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/smoke'
   docker cp scripts/install-smoke/manual-steps.sh "$name:/usr/local/bin/manual-steps"
-  step serve-revision serve_revision
+  serve_revision_step
   docker cp "$work/isomux.git" "$name:/srv/isomux.git"
   docker exec "$name" chown -R smoke:smoke /srv/isomux.git
   step packages as_user manual-steps packages
@@ -246,7 +285,7 @@ installer() {
     exit 1'
   # The guide's admin is connected over SSH when the installer runs.
   step ssh docker exec "$name" systemctl start ssh.service
-  step serve-revision serve_revision
+  serve_revision_step
   # A root-owned repository served over git://, so that root and the service
   # account can both fetch it.
   docker cp "$work/isomux.git" "$name:/srv/isomux.git"

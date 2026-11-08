@@ -50,9 +50,23 @@ esac
 exit 0`,
   );
   // The CSI driver clone gets a no-op deploy script.
+  // serve_revision's fetch and init fail as STUB_GIT asks. A failed fetch
+  // leaves a file in the bare repo, as a half-written pack would, and each
+  // fetch records whether it found one. fsck exits with STUB_FSCK (0 by
+  // default; 124 is what timeout returns when it stops the command).
   stub(
     "git",
-    `[[ $1 == clone ]] || exec "${GIT}" "$@"
+    `if [[ $1 == init && $STUB_GIT == init-fails ]]; then echo "fatal: stub-init-failed" >&2; exit 1; fi
+if [[ $1 == fsck ]]; then exit "\${STUB_FSCK:-0}"; fi
+if [[ $1 == -C && $3 == fetch ]]; then
+  n=$(( $(cat "${base}/fetches" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${base}/fetches"
+  [[ -e $2/objects/pack/tmp_pack_stub ]] && echo "fetch $n found a leftover" >> "${base}/calls.log"
+  if [[ $STUB_GIT == fetch-fails-twice || ( $STUB_GIT == fetch-fails-once && $n == 1 ) ]]; then
+    mkdir -p "$2/objects/pack"; : > "$2/objects/pack/tmp_pack_stub"
+    echo "fatal: stub-try-$n inflate: data stream error" >&2; exit 128
+  fi
+fi
+[[ $1 == clone ]] || exec "${GIT}" "$@"
 d="\${@: -1}/deploy/kubernetes-latest"; mkdir -p "$d"; printf '#!/bin/sh\\n' > "$d/deploy.sh"; chmod +x "$d/deploy.sh"`,
   );
   // deploy/container/build.sh exports the source with python3 first.
@@ -232,4 +246,94 @@ describe("run.sh step progress", () => {
       await child.exited;
     }
   }, 30_000);
+});
+
+// Task cc5c205b: serve_revision's local fetch once failed with a corrupt
+// pack while the stored objects were intact. It tries twice, each time into
+// a fresh bare repo, checks the source with fsck after a failed first try,
+// and a pass on the second try leaves one line in run.sh's own output, the
+// only place a green CI run keeps it.
+describe("run.sh serve-revision retry", () => {
+  const lines = (out: string, marker: string) =>
+    out.split("\n").filter((l) => l.includes(marker));
+  const stepLog = () =>
+    readFileSync(join(base, "logs", "serve-revision.log"), "utf8");
+  const gitCalls = (calls: string, sub: string) =>
+    calls
+      .split("\n")
+      .filter((l) => new RegExp(`^git (-C \\S+ )?${sub}( |$)`).test(l));
+
+  it("passes on a second try into an empty repo, and says so once", async () => {
+    const r = await run("passes", "installer-gate", {
+      STUB_GIT: "fetch-fails-once",
+    });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/PASS serve-revision/);
+    // The enabling condition: the first try failed and a second one ran.
+    expect(gitCalls(r.calls, "fetch")).toHaveLength(2);
+    expect(r.calls).not.toMatch(/fetch \d+ found a leftover/);
+    // One line in run.sh's output carries the first error, the fsck verdict
+    // and the 1-minute load.
+    const notes = lines(r.out, "stub-try-1");
+    expect(notes, r.out).toHaveLength(1);
+    expect(notes[0]).toMatch(/serve-revision/);
+    expect(notes[0]).toMatch(/fsck\W+ok\b/);
+    expect(notes[0]).toMatch(/\d+\.\d\d/);
+    // fsck ran between the two tries.
+    const order = r.calls
+      .split("\n")
+      .filter((l) => /^git (fsck|-C \S+ fetch)( |$)/.test(l))
+      .map((l) => (l.startsWith("git fsck") ? "fsck" : "fetch"));
+    expect(order).toEqual(["fetch", "fsck", "fetch"]);
+    // The step log keeps the diagnostics: the load triple and free memory.
+    const log = stepLog();
+    expect(log).toMatch(/\d+\.\d\d \d+\.\d\d \d+\.\d\d/);
+    expect(log).toMatch(/MemAvailable/);
+  }, 60_000);
+
+  it("reports a failed or stopped fsck without failing the step", async () => {
+    for (const [exit, verdict] of [
+      ["1", /fsck\W+failed\b/],
+      ["124", /fsck\W+timeout\b/],
+    ] as const) {
+      rmSync(join(base, "fetches"), { force: true });
+      const r = await run("passes", "installer-gate", {
+        STUB_GIT: "fetch-fails-once",
+        STUB_FSCK: exit,
+      });
+      expect(r.code, r.out).toBe(0);
+      expect(gitCalls(r.calls, "fsck").length).toBeGreaterThan(0);
+      const notes = lines(r.out, "stub-try-1");
+      expect(notes, r.out).toHaveLength(1);
+      expect(notes[0]).toMatch(verdict);
+    }
+  }, 120_000);
+
+  it("fails the step after two failed tries, with both errors", async () => {
+    const r = await run("passes", "installer-gate", {
+      STUB_GIT: "fetch-fails-twice",
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/FAIL at step serve-revision/);
+    expect(gitCalls(r.calls, "fetch")).toHaveLength(2);
+    expect(r.calls).not.toMatch(/fetch \d+ found a leftover/);
+    expect(r.out).toContain("stub-try-1");
+    expect(r.out).toContain("stub-try-2");
+  }, 60_000);
+
+  it("runs no fsck and prints no retry line when the first try passes", async () => {
+    const r = await run("passes", "installer-gate");
+    expect(r.code, r.out).toBe(0);
+    expect(gitCalls(r.calls, "fetch")).toHaveLength(1);
+    expect(gitCalls(r.calls, "fsck")).toEqual([]);
+    expect(r.out).not.toMatch(/second try/i);
+  }, 60_000);
+
+  it("does not fetch when the bare repo cannot be made", async () => {
+    const r = await run("passes", "installer-gate", { STUB_GIT: "init-fails" });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/FAIL at step serve-revision/);
+    expect(gitCalls(r.calls, "init").length).toBeGreaterThan(0);
+    expect(gitCalls(r.calls, "fetch")).toEqual([]);
+  }, 60_000);
 });
