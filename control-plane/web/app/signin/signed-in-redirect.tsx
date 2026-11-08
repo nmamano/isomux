@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useSessionProbe } from "../../lib/use-session";
+import { SIGNIN_PRODUCTS, type SignInProduct } from "../../lib/signin-product";
 
 /**
  * The guard that keeps a signed-in visitor off the sign-in page.
@@ -20,19 +21,27 @@ import { useSessionProbe } from "../../lib/use-session";
  * server before the page renders. The way out is automatic, which is the property
  * that was missing.
  *
+ * On the enterprise sign-in page the product's home is `/enterprise`
+ * (lib/signin-product.ts).
+ *
  * `replace`, not `push`: Back must not restore the page the visitor was just
  * moved off.
  *
  * The account-id test lives in `/api/session`, which answers `signedIn` only for
  * a session bound to an account.
  */
-export function SignedInRedirect(): null {
+export function SignedInRedirect({
+  product = "hosted",
+}: {
+  product?: SignInProduct;
+}): null {
   const router = useRouter();
   const probe = useSessionProbe();
 
   useEffect(() => {
-    if (probe.state === "signed-in") router.replace("/");
-  }, [probe.state, router]);
+    if (probe.state === "signed-in")
+      router.replace(SIGNIN_PRODUCTS[product].home);
+  }, [probe.state, router, product]);
 
   return null;
 }

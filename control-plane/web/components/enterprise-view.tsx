@@ -52,7 +52,7 @@ async function post(
       body: JSON.stringify(body),
     });
     if (response.status === 401) {
-      window.location.assign("/signin");
+      window.location.assign("/enterprise/signin");
       return null;
     }
     return (await response.json()) as { ok: boolean; reason?: string };

@@ -8,11 +8,17 @@ import { webTranslatorFor } from "../../../lib/i18n/rich";
 import { useLanguage } from "../../../lib/i18n/use-language";
 import { addressInSignInToken } from "../../../lib/signin-link-payload";
 import { PolicyLinks } from "../../../components/policy-notice";
+import {
+  SIGNIN_PRODUCTS,
+  recordSignInStart,
+  signInProductOf,
+  type SignInProduct,
+} from "../../../lib/signin-product";
 
 type LinkState =
   | { state: "reading" }
-  | { state: "none" }
-  | { state: "found"; token: string; email: string };
+  | { state: "none"; product: SignInProduct }
+  | { state: "found"; token: string; email: string; product: SignInProduct };
 
 /**
  * The page an emailed sign-in link opens: one button, never an auto-submit.
@@ -28,11 +34,17 @@ export function EmailLinkForm() {
   const i18n = webTranslatorFor(language);
   const [link, setLink] = useState<LinkState>({ state: "reading" });
   useEffect(() => {
-    const token =
-      new URLSearchParams(window.location.hash.slice(1)).get("token") ?? "";
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragment.get("token") ?? "";
+    // A link the enterprise sign-in page asked for returns to /enterprise.
+    const product = signInProductOf(fragment.get("product"));
     const email = token ? addressInSignInToken(token) : null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLink(email ? { state: "found", token, email } : { state: "none" });
+    setLink(
+      email
+        ? { state: "found", token, email, product }
+        : { state: "none", product },
+    );
   }, []);
 
   return (
@@ -44,7 +56,11 @@ export function EmailLinkForm() {
         {link.state === "none" && (
           <p className="callout callout-danger" role="alert">
             {i18n.rich("signIn.linkInvalid", {
-              signin: (chunk) => <Link href="/signin">{chunk}</Link>,
+              signin: (chunk) => (
+                <Link href={SIGNIN_PRODUCTS[link.product].signInPath}>
+                  {chunk}
+                </Link>
+              ),
             })}
           </p>
         )}
@@ -53,15 +69,21 @@ export function EmailLinkForm() {
             className="btn-primary btn-block"
             type="button"
             data-testid="email-link-signin"
-            onClick={() =>
-              void signIn("email-link", { token: link.token, callbackUrl: "/" })
-            }
+            onClick={() => {
+              recordSignInStart(link.product);
+              void signIn("email-link", {
+                token: link.token,
+                callbackUrl: SIGNIN_PRODUCTS[link.product].home,
+              });
+            }}
           >
             {i18n.t("signIn.linkSignInAs", { email: link.email })}
           </button>
         )}
       </div>
-      <PolicyLinks />
+      {/* Not before the fragment is read: an enterprise link's first paint
+          would show Hosted's documents. */}
+      {link.state !== "reading" && <PolicyLinks product={link.product} />}
     </main>
   );
 }

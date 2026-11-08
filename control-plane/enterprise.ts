@@ -267,6 +267,18 @@ export async function enterpriseForSecret(
   return { enterpriseId: row.id, signed: isSigned(row) };
 }
 
+/** Whether the account has an enterprise account. */
+export async function hasEnterprise(
+  store: Store,
+  accountId: string,
+): Promise<boolean> {
+  const row = await store.sqlGet<{ id: string }>(
+    "select id from enterprise_accounts where account_id = $1",
+    [accountId],
+  );
+  return row !== undefined && row !== null;
+}
+
 /** The signed-in account's enterprise account, or null when it has none. */
 export async function enterpriseFor(
   store: Store,

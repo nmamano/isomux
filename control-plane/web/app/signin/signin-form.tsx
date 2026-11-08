@@ -9,6 +9,12 @@ import { SIGNIN_LINK_TTL_MS } from "../../lib/signin-link-payload";
 import { RATE_LIMITED_MARKER } from "../../lib/rate-limit-marker";
 import { GOOGLE_REMOVED_MARKER } from "../../lib/google-removed-marker";
 import { PolicyLinks } from "../../components/policy-notice";
+import {
+  SIGNIN_PRODUCTS,
+  recordSignInStart,
+  startedSignInProduct,
+  type SignInProduct,
+} from "../../lib/signin-product";
 
 const EMAIL_LINK_PROVIDER = "email-link";
 /** The error Auth.js puts on the sign-in page when a Credentials sign-in is
@@ -41,10 +47,19 @@ const LINK_FAILED_ERROR = "CredentialsSignin";
  * IS NOT TRANSLATED: it is a developer tool behind a build flag, not something a
  * customer reads.
  *
+ * `product` picks the page: Hosted's /signin or the enterprise one
+ * (app/enterprise/signin). Each returns to its own home after sign-in, and
+ * the enterprise one names its product and shows nothing of Hosted.
+ *
  * This page is prerendered too, so its language is resolved in the browser and
  * the first paint is English. See `home-view.tsx` for why.
  */
-export function SignInForm() {
+export function SignInForm({
+  product = "hosted",
+}: {
+  product?: SignInProduct;
+}) {
+  const home = SIGNIN_PRODUCTS[product].home;
   const [email, setEmail] = useState("");
   const devAuth = process.env.NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH === "1";
   const language = useLanguage();
@@ -60,7 +75,18 @@ export function SignInForm() {
     setRateLimited(error === RATE_LIMITED_MARKER);
     setLinkFailed(error === LINK_FAILED_ERROR);
     setGoogleRefused(error === GOOGLE_REMOVED_MARKER);
-  }, []);
+    // Auth.js sends every failed sign-in here. One this tab started on the
+    // enterprise page goes on to that page, with the same query.
+    if (
+      product === "hosted" &&
+      error !== null &&
+      startedSignInProduct() === "enterprise"
+    ) {
+      window.location.replace(
+        `${SIGNIN_PRODUCTS.enterprise.signInPath}${window.location.search}`,
+      );
+    }
+  }, [product]);
   const [emailLink, setEmailLink] = useState(false);
   useEffect(() => {
     let live = true;
@@ -83,7 +109,18 @@ export function SignInForm() {
       <div className="auth-card">
         <span className="brand-mark" />
         <h1>{t("signIn.heading")}</h1>
-        <p className="auth-sub">{t("signIn.subheading")}</p>
+        {product === "enterprise" ? (
+          <>
+            <p className="auth-sub">{t("signIn.enterpriseSubheading")}</p>
+            <ol className="auth-steps" data-testid="enterprise-steps">
+              <li>{t("signIn.enterpriseStepSignIn")}</li>
+              <li>{t("signIn.enterpriseStepAgreement")}</li>
+              <li>{t("signIn.enterpriseStepOffices")}</li>
+            </ol>
+          </>
+        ) : (
+          <p className="auth-sub">{t("signIn.subheading")}</p>
+        )}
         {rateLimited && (
           <p
             className="callout callout-danger"
@@ -105,7 +142,7 @@ export function SignInForm() {
         )}
         {emailLink && (
           <>
-            <EmailLinkRequest t={t} />
+            <EmailLinkRequest t={t} product={product} />
             <p className="auth-or" data-testid="signin-or">
               {t("signIn.or")}
             </p>
@@ -115,7 +152,10 @@ export function SignInForm() {
           className="btn-block"
           type="button"
           data-testid="signin-google"
-          onClick={() => void signIn("google", { callbackUrl: "/" })}
+          onClick={() => {
+            recordSignInStart(product);
+            void signIn("google", { callbackUrl: home });
+          }}
         >
           <GoogleLogo />
           {t("signIn.google")}
@@ -126,7 +166,8 @@ export function SignInForm() {
           className="form auth-card"
           onSubmit={(event) => {
             event.preventDefault();
-            void signIn("dev", { email, callbackUrl: "/" });
+            recordSignInStart(product);
+            void signIn("dev", { email, callbackUrl: home });
           }}
         >
           <h2>Developer sign-in</h2>
@@ -151,7 +192,7 @@ export function SignInForm() {
           </button>
         </form>
       )}
-      <PolicyLinks />
+      <PolicyLinks product={product} />
     </main>
   );
 }
@@ -181,7 +222,13 @@ function GoogleLogo() {
 }
 
 /** The address field, and then the sentence that says where the link went. */
-function EmailLinkRequest({ t }: { t: Translator["t"] }) {
+function EmailLinkRequest({
+  t,
+  product,
+}: {
+  t: Translator["t"];
+  product: SignInProduct;
+}) {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -194,7 +241,10 @@ function EmailLinkRequest({ t }: { t: Translator["t"] }) {
       const response = await fetch("/api/signin/email", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email }),
+        // Hosted's body stays the address alone.
+        body: JSON.stringify(
+          product === "hosted" ? { email } : { email, product },
+        ),
       });
       if (response.ok) setSentTo(email.trim());
       // The server words its refusals in the visitor's language.

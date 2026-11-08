@@ -112,6 +112,55 @@ describe("a request that gets a link", () => {
   });
 });
 
+describe("the product a link signs in to", () => {
+  // The enterprise sign-in page asks for a link that returns to /enterprise.
+  // The product rides in the fragment beside the token, which it does not
+  // change: it only picks a path from a fixed table, so any other value is
+  // Hosted.
+  async function linkFor(body: Record<string, unknown>) {
+    const { deps, mails, tokens } = harness();
+    const response = await handleSignInLinkRequest(
+      post({ email: "it@acme.example", ...body }),
+      deps,
+    );
+    expect(response.status).toBe(200);
+    expect(mails).toHaveLength(1);
+    const [mail] = mails;
+    const link = new URL(mail.link);
+    expect(link.origin).toBe(ORIGIN);
+    expect(link.pathname).toBe("/signin/email");
+    expect(link.search).toBe("");
+    const fragment = new URLSearchParams(link.hash.slice(1));
+    expect(tokens.redeem(fragment.get("token") ?? "")).toEqual({
+      ok: true,
+      email: "it@acme.example",
+    });
+    return { fragment, mail };
+  }
+
+  test("enterprise: the link and the mail name it", async () => {
+    const { fragment, mail } = await linkFor({ product: "enterprise" });
+    expect(fragment.get("product")).toBe("enterprise");
+    expect(mail.product).toBe("enterprise");
+  });
+
+  test.each([
+    ["absent", {}],
+    ["hosted", { product: "hosted" }],
+    ["another case", { product: "Enterprise" }],
+    ["a path", { product: "/enterprise" }],
+    ["a list", { product: ["enterprise"] }],
+    ["a number", { product: 1 }],
+  ] as [string, Record<string, unknown>][])(
+    "%s: the Hosted link, token alone, and the Hosted mail",
+    async (_name, body) => {
+      const { fragment, mail } = await linkFor(body);
+      expect([...fragment.keys()]).toEqual(["token"]);
+      expect(mail.product).toBe("hosted");
+    },
+  );
+});
+
 describe("a request that is refused", () => {
   test("a post from another site, or with no origin, sends nothing", async () => {
     const { deps, mails } = harness();

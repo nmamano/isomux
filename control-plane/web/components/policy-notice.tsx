@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { SupportedLanguageCode } from "../lib/i18n/languages";
 import { webTranslatorFor } from "../lib/i18n/rich";
+import type { SignInProduct } from "../lib/signin-product";
 
 /**
  * One sentence, one catalog key, three links inside it (ruling 16).
@@ -24,8 +25,22 @@ const REFUND_URL = "https://isomux.com/hosted-refund";
 
 /** The same three documents as a row of links under the sign-in card, with
  * the product site after them. Their names are the documents' English titles,
- * as above, and the site is a hostname: none of it is copy. */
-export function PolicyLinks() {
+ * as above, and the site is a hostname: none of it is copy.
+ *
+ * The three documents are Hosted's. Under the enterprise sign-in card the
+ * agreement governs (the buyer signs it next), so only the product page shows. */
+export function PolicyLinks({
+  product = "hosted",
+}: {
+  product?: SignInProduct;
+}) {
+  if (product === "enterprise") {
+    return (
+      <footer className="policy-links">
+        <a href="https://isomux.com/enterprise">isomux.com/enterprise</a>
+      </footer>
+    );
+  }
   return (
     <footer className="policy-links">
       <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">

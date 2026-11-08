@@ -73,6 +73,7 @@ describe("only one file reaches the store", () => {
     // Adding an entry here is a deliberate act, which is the point: a new way
     // into the control plane cannot appear as a side effect of writing a page.
     expect(exported).toEqual([
+      "accountHasEnterprise",
       "accountSettings",
       "acknowledgeOpsInstance",
       "changeAccountEmailFor",

@@ -18,6 +18,7 @@ import { checkTrustedOrigin } from "./services.server";
 import { normalizeEmail, type SignInTokens } from "./signin-link.server";
 import type { SendResult } from "./signin-mail.server";
 import { SUPPORT_EMAIL } from "./support-email";
+import { signInProductOf, type SignInProduct } from "./signin-product";
 
 export interface SignInLinkDeps {
   /** AUTH_RESEND_KEY; absent means the route answers 503. */
@@ -27,7 +28,12 @@ export interface SignInLinkDeps {
   ipLimiter: Limiter;
   addressLimiter: Limiter;
   sendMail: (
-    mail: { to: string; link: string; language: SupportedLanguageCode },
+    mail: {
+      to: string;
+      link: string;
+      language: SupportedLanguageCode;
+      product: SignInProduct;
+    },
     deps: { apiKey: string },
   ) => Promise<SendResult>;
   now?: () => number;
@@ -73,11 +79,13 @@ export async function handleSignInLinkRequest(
   if (limited) return limited;
 
   const body: unknown = await request.json().catch(() => null);
-  const email = normalizeEmail(
+  const fields =
     typeof body === "object" && body !== null
-      ? (body as Record<string, unknown>).email
-      : null,
-  );
+      ? (body as Record<string, unknown>)
+      : {};
+  const email = normalizeEmail(fields.email ?? null);
+  // The enterprise sign-in page asks for a link that returns to /enterprise.
+  const product = signInProductOf(fields.product);
   if (!email) return text(t("signIn.emailInvalid"), 400);
   const perAddress = deps.addressLimiter.take(email, now);
   if (!perAddress.allowed) {
@@ -87,9 +95,11 @@ export async function handleSignInLinkRequest(
   const token = tokens.create(email, now);
   // The token rides in the fragment: a query would reach the proxy log, the
   // server log and a Referer, and a fragment reaches none of them.
-  const link = `${trusted.origin}/signin/email#${new URLSearchParams({ token })}`;
+  const fragment = new URLSearchParams({ token });
+  if (product !== "hosted") fragment.set("product", product);
+  const link = `${trusted.origin}/signin/email#${fragment}`;
   const sent = await deps
-    .sendMail({ to: email, link, language }, { apiKey })
+    .sendMail({ to: email, link, language, product }, { apiKey })
     .catch((): SendResult => ({ ok: false, reason: "the sender threw" }));
   if (!sent.ok) return text(t("signIn.emailFailed"), 502);
   return new Response(null, { status: 200 });

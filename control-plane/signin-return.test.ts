@@ -80,15 +80,18 @@ function navigationTargets(source: string): string[] {
 }
 
 describe("both providers name where a sign-in returns to", () => {
-  test('EVERY signIn CALL PASSES callbackUrl "/"', () => {
+  test("EVERY signIn CALL PASSES A callbackUrl", () => {
     // The regression itself: Google had no callbackUrl and dev did. A call
-    // with no options returns to the current page, /signin - the loop.
+    // with no options returns to the current page, /signin - the loop. The
+    // target is the product's home (lib/signin-product.ts): / for Hosted,
+    // /enterprise for the enterprise sign-in page. Which one each page passes
+    // is clicked in web/app/signin/email-link.dom.test.tsx.
     const calls = signInCalls(read(SIGNIN_FORM));
     expect(calls.map((c) => c.provider).sort()).toEqual(["dev", "google"]);
     for (const { provider, options } of calls) {
       expect({
         provider,
-        hasCallback: /callbackUrl:\s*"\/"/.test(options),
+        hasCallback: /callbackUrl:/.test(options),
       }).toEqual({ provider, hasCallback: true });
     }
   });
@@ -178,7 +181,7 @@ describe("the guard reaches the session route, link by link", () => {
   });
 });
 
-describe("a signed-in visitor is moved to / and nowhere else", () => {
+describe("a signed-in visitor is moved to the product's home and nowhere else", () => {
   test("the guard replaces rather than pushes", () => {
     // Back must not restore the page the visitor was just moved off.
     const guard = code(SIGNIN_GUARD);
@@ -186,8 +189,16 @@ describe("a signed-in visitor is moved to / and nowhere else", () => {
     expect(guard).not.toMatch(/router\.push\(/);
   });
 
-  test("every navigation target in the guard is /", () => {
-    expect(navigationTargets(code(SIGNIN_GUARD))).toEqual(["/"]);
+  test("the guard's one navigation is to the product's home", () => {
+    // No literal target: the guard reads SIGNIN_PRODUCTS (/ for Hosted,
+    // /enterprise for the enterprise page). The DOM test in
+    // web/app/signin/email-link.dom.test.tsx renders both and pins each.
+    const guard = code(SIGNIN_GUARD);
+    expect(navigationTargets(guard)).toEqual([]);
+    expect([...guard.matchAll(/router\.(?:replace|push)\(/g)]).toHaveLength(1);
+    expect(guard).toMatch(
+      /router\.replace\(\s*SIGNIN_PRODUCTS\[product\]\.home\s*\)/,
+    );
   });
 
   test("the unauthenticated render is unchanged: Google always, dev gated", () => {

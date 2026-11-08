@@ -12,6 +12,8 @@ import {
   sendEmailChangedNotice,
   sendSignInMail,
 } from "./signin-mail.server";
+import { SUPPORTED_LANGUAGES } from "./i18n/languages";
+import { translatorFor } from "./i18n/translate";
 
 const KEY = "re_test_key_7f3a9c1e5b2d4086";
 const LINK = "https://hosted.example.com/signin/email#token=abc.def";
@@ -111,6 +113,36 @@ describe("the request to Resend", () => {
     expect(sent[0].body.subject).not.toBe(sent[1].body.subject);
     expect(sent[0].body.text).not.toBe(sent[1].body.text);
   });
+});
+
+describe("the enterprise sign-in mail", () => {
+  // The buyer of Isomux for Enterprise never reads about Hosted: the mail
+  // the enterprise sign-in page asks for does not carry Hosted's sentence.
+  test.each(SUPPORTED_LANGUAGES.map((language) => language.code))(
+    "%s: the Hosted sentence only in the Hosted mail, the link in both",
+    async (language) => {
+      const hostedIntro = translatorFor(language).t("signIn.mailIntro");
+      const { sent, fetch } = recorder(() => Response.json({ id: "x" }));
+      await sendSignInMail(
+        { to: "a@example.com", link: LINK, language },
+        { apiKey: KEY, fetch },
+      );
+      await sendSignInMail(
+        { to: "a@example.com", link: LINK, language, product: "enterprise" },
+        { apiKey: KEY, fetch },
+      );
+      expect(sent).toHaveLength(2);
+      const [hosted, enterprise] = sent.map(
+        (request) =>
+          `${String(request.body.text)}\n${String(request.body.html)}`,
+      );
+      // The enabling condition: the Hosted mail carries the sentence.
+      expect(hosted).toContain(hostedIntro);
+      expect(enterprise).not.toContain(hostedIntro);
+      expect(enterprise).toContain(LINK);
+      expect(sent[1].body.subject).toBeTruthy();
+    },
+  );
 });
 
 describe("the email change mails", () => {

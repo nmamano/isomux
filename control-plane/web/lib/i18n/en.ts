@@ -38,6 +38,12 @@ export const en = {
   "signIn.heading": "Sign in",
   "signIn.google": "Continue with Google",
   "signIn.subheading": "to set up or manage your office",
+  "signIn.enterpriseSubheading":
+    "to get or manage your Isomux for Enterprise license",
+  "signIn.enterpriseStepSignIn": "Sign in",
+  "signIn.enterpriseStepAgreement": "Choose your seats and sign the agreement",
+  "signIn.enterpriseStepOffices":
+    "Paste the secret from your account page in each office",
   "signIn.or": "or",
   "signIn.emailLabel": "Email",
   "signIn.emailSubmit": "Email me a sign-in link",
@@ -57,6 +63,8 @@ export const en = {
     "This sign-in link is not valid. <signin>Ask for a new one</signin>.",
   "signIn.mailSubject": "Your Isomux sign-in link",
   "signIn.mailIntro": "Open this link to sign in to Hosted Isomux:",
+  "signIn.mailIntroEnterprise":
+    "Open this link to sign in to Isomux for Enterprise:",
   "signIn.mailNote":
     "It works once, for {minutes} minutes. If you did not ask for it, ignore this email.",
 

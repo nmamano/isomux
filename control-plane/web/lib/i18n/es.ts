@@ -36,6 +36,12 @@ export const es: Catalog = {
   "signIn.heading": "Iniciar sesión",
   "signIn.google": "Continuar con Google",
   "signIn.subheading": "para configurar o gestionar tu oficina",
+  "signIn.enterpriseSubheading":
+    "para obtener o gestionar tu licencia de Isomux for Enterprise",
+  "signIn.enterpriseStepSignIn": "Inicia sesión",
+  "signIn.enterpriseStepAgreement": "Elige tus puestos y firma el acuerdo",
+  "signIn.enterpriseStepOffices":
+    "Pega el secreto de tu página de cuenta en cada oficina",
   "signIn.or": "o",
   "signIn.emailLabel": "Correo electrónico",
   "signIn.emailSubmit": "Enviarme un enlace de inicio de sesión",
@@ -56,6 +62,8 @@ export const es: Catalog = {
     "Este enlace de inicio de sesión no es válido. <signin>Pide uno nuevo</signin>.",
   "signIn.mailSubject": "Tu enlace de inicio de sesión de Isomux",
   "signIn.mailIntro": "Abre este enlace para iniciar sesión en Hosted Isomux:",
+  "signIn.mailIntroEnterprise":
+    "Abre este enlace para iniciar sesión en Isomux for Enterprise:",
   "signIn.mailNote":
     "Funciona una vez, durante {minutes} minutos. Si no lo has pedido, ignora este correo.",
 

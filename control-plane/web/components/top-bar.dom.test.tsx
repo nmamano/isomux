@@ -6,6 +6,8 @@
 // open menu must close when the page changes under it. The operator pages get
 // the brand alone: they are English and have no customer nav.
 //
+// Sign out on an enterprise page lands on the enterprise sign-in page.
+//
 // happy-dom is registered in this file's body and removed when it ends: the
 // rest of the suite shares this process and needs Bun's own globals. Every
 // module that touches the DOM is loaded after registration.
@@ -45,6 +47,7 @@ const SIGNED_IN: SessionProbe = {
   state: "signed-in",
   email: EMAIL,
   offices: null,
+  enterprise: null,
 };
 
 // Element presence is asserted on its tag name, never on the node: a failing
@@ -300,5 +303,34 @@ describe("the menu", () => {
     await realClick(menuButton());
     await render(SIGNED_IN, "/account");
     expect(openPanel()?.tagName ?? null).not.toBeNull();
+  });
+});
+
+describe("the enterprise pages", () => {
+  test.each(["/enterprise", "/enterprise/agreement"])(
+    "Sign out on %s signs out to the enterprise sign-in page, from the bar and the menu",
+    async (pathname) => {
+      await render(SIGNED_IN, pathname);
+      const button = find("sign-out");
+      expect(button?.tagName ?? null).toBe("BUTTON");
+      await realClick(button!);
+      await realClick(menuButton());
+      const panel = openPanel();
+      const inMenu = [...(panel?.querySelectorAll("button") ?? [])].find(
+        (b) => b.getAttribute("data-testid") !== "menu-button",
+      );
+      expect(inMenu?.tagName ?? null).toBe("BUTTON");
+      await realClick(inMenu!);
+      expect(signOutCalls).toEqual([
+        [{ redirectTo: "/enterprise/signin" }],
+        [{ redirectTo: "/enterprise/signin" }],
+      ]);
+    },
+  );
+
+  test("a page whose path only starts with the same letters is not one", async () => {
+    await render(SIGNED_IN, "/enterprises");
+    await realClick(find("sign-out")!);
+    expect(signOutCalls).toEqual([[{ redirectTo: "/" }]]);
   });
 });

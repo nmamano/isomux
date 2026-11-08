@@ -1403,3 +1403,17 @@ main .auth-or {
 .form.enterprise-inline input.enterprise-office-name {
   width: min(16rem, 100%);
 }
+
+/* The enterprise sign-in card's three steps (app/enterprise/signin). */
+main .auth-steps {
+  margin: 0 auto 22px;
+  padding-left: 1.4em;
+  font-size: 0.9rem;
+  max-width: 22rem;
+}
+main .auth-steps li {
+  margin-bottom: 4px;
+}
+main .auth-sub:has(+ .auth-steps) {
+  margin-bottom: 12px;
+}

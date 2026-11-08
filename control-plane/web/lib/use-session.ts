@@ -23,7 +23,12 @@ export type SessionProbe =
   | { state: "loading" }
   | { state: "unavailable" }
   | { state: "signed-out" }
-  | { state: "signed-in"; email: string | null; offices: OfficeCard[] | null };
+  | {
+      state: "signed-in";
+      email: string | null;
+      offices: OfficeCard[] | null;
+      enterprise: boolean | null;
+    };
 
 /** Long enough for a dropped request or a route cold start, short enough that a
  * signed-in visitor does not read the marketing copy first. */
@@ -61,6 +66,7 @@ export function useSessionProbe(options?: {
                   state: "signed-in",
                   email: view.email,
                   offices: view.offices,
+                  enterprise: view.enterprise,
                 }
               : { state: "signed-out" },
           );

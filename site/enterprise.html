@@ -253,6 +253,25 @@
       li {
         margin-bottom: 6px;
       }
+      /* The way to the storefront. The fill is site/index.html's .btn-primary:
+         white on #16803f is 5.01:1 in both modes. */
+      .cta {
+        margin: 20px 0 8px;
+      }
+      .btn-license {
+        display: inline-flex;
+        align-items: center;
+        height: 40px;
+        padding: 0 22px;
+        border-radius: 8px;
+        background: #16803f;
+        color: #fff;
+        font-weight: 600;
+      }
+      .btn-license:hover {
+        background: #116932;
+        text-decoration: none;
+      }
 
       @media (max-width: 640px) {
         main {
@@ -282,6 +301,11 @@
         on a private server we set up for them. Isomux for Enterprise is for
         whole companies: the company runs Isomux on its own infrastructure,
         under a commercial license.
+      </p>
+      <p class="cta">
+        <a class="btn-license" href="https://cloud.isomux.com/enterprise"
+          >Get a license</a
+        >
       </p>
 
       <section id="why">
@@ -408,6 +432,11 @@
         <p>
           <strong>Agreement.</strong> Read the
           <a href="/isomux-sample-agreement.pdf">sample agreement</a> (PDF).
+        </p>
+        <p class="cta">
+          <a class="btn-license" href="https://cloud.isomux.com/enterprise"
+            >Get a license</a
+          >
         </p>
       </section>
 

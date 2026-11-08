@@ -8,11 +8,24 @@
 // scanners open links before the person does, and a page that submitted by
 // itself would spend the single-use token on the scanner's visit.
 //
+// Isomux for Enterprise has its own sign-in page on the same form: every way in
+// returns the buyer to /enterprise, and every way a sign-in fails lands on the
+// enterprise sign-in page, never on Hosted's.
+//
 // happy-dom is registered in this file's body and removed when it ends: the
 // rest of the suite shares this process and needs Bun's own globals. Every
 // module that touches the DOM is loaded after registration.
 
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { ReactElement } from "react";
 
@@ -32,10 +45,29 @@ await mock.module("next-auth/react", () => ({
   },
 }));
 
+const routed: string[] = [];
+const nextNavigation = await import("next/navigation");
+const realNextNavigation = { ...nextNavigation };
+const router = {
+  replace: (href: string) => void routed.push(href),
+  push: (href: string) => void routed.push(href),
+  prefetch: () => undefined,
+  refresh: () => undefined,
+  back: () => undefined,
+  forward: () => undefined,
+};
+await mock.module("next/navigation", () => ({
+  ...realNextNavigation,
+  useRouter: () => router,
+}));
+
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { renderToStaticMarkup } = await import("react-dom/server");
 const { SignInForm } = await import("./signin-form");
 const { EmailLinkForm } = await import("./email/email-link-form");
+const { SignedInRedirect } = await import("./signed-in-redirect");
+const { translatorFor } = await import("../../lib/i18n/translate");
 const { createSignInTokens } = await import("../../lib/signin-link.server");
 const { GOOGLE_REMOVED_MARKER } =
   await import("../../lib/google-removed-marker");
@@ -44,6 +76,7 @@ const realFetch = globalThis.fetch;
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await mock.module("next-auth/react", () => realNextAuthReact);
+  await mock.module("next/navigation", () => realNextNavigation);
   await GlobalRegistrator.unregister();
 });
 
@@ -122,6 +155,7 @@ afterEach(async () => {
   container?.remove();
   calls = [];
   signInCalls.length = 0;
+  routed.length = 0;
   window.location.hash = "";
 });
 
@@ -277,5 +311,264 @@ describe("the page a mailed link opens", () => {
       container.querySelector('a[href="/signin"]')?.tagName ?? null,
     ).not.toBeNull();
     expect(signInCalls).toEqual([]);
+  });
+});
+
+describe("the enterprise sign-in page", () => {
+  test("Google and the email link both return to /enterprise", async () => {
+    serve({
+      [PROVIDERS]: providers("google", "email-link"),
+      [REQUEST]: () => new Response("", { status: 200 }),
+    });
+    await render(createElement(SignInForm, { product: "enterprise" }));
+    await click(find("signin-google")!);
+    expect(signInCalls).toEqual([["google", { callbackUrl: "/enterprise" }]]);
+    const form = find("email-link-form");
+    expect(form?.tagName ?? null).not.toBeNull();
+    await type(
+      find("email-link-address") as HTMLInputElement,
+      "it@acme.example",
+    );
+    await click(form!.querySelector('button[type="submit"]') as HTMLElement);
+    const posts = calls.filter((c) => c.url === REQUEST);
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0].body ?? "null")).toEqual({
+      email: "it@acme.example",
+      product: "enterprise",
+    });
+  });
+
+  test("nothing of Hosted: not its sub-heading, its domain or its policies", async () => {
+    const { t } = translatorFor("en");
+    const policyHrefs = () =>
+      [...container.querySelectorAll("a")]
+        .map((a) => a.getAttribute("href") ?? "")
+        .filter((href) => href.includes("isomux.com"));
+
+    // The enabling conditions: the Hosted page has all three.
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm));
+    expect(container.textContent).toContain(t("signIn.subheading"));
+    expect(policyHrefs().some((href) => href.includes("/hosted-"))).toBe(true);
+    await act(async () => root?.unmount());
+    container.remove();
+
+    await render(createElement(SignInForm, { product: "enterprise" }));
+    const text = container.textContent ?? "";
+    expect(text).not.toContain(t("signIn.subheading"));
+    expect(text).not.toContain("isomux.app");
+    const hrefs = policyHrefs();
+    expect(hrefs.filter((href) => href.includes("/hosted-"))).toEqual([]);
+    // The way out goes to the product page the buyer came from.
+    expect(hrefs).toContain("https://isomux.com/enterprise");
+  });
+
+  test("a signed-in visitor is sent to /enterprise, and on Hosted's page to /", async () => {
+    serve({
+      "/api/session": () =>
+        Response.json({
+          signedIn: true,
+          email: "it@acme.example",
+          offices: null,
+          enterprise: null,
+        }),
+    });
+    await render(createElement(SignedInRedirect, { product: "enterprise" }));
+    expect(routed).toEqual(["/enterprise"]);
+    await act(async () => root?.unmount());
+    container.remove();
+    routed.length = 0;
+    await render(createElement(SignedInRedirect));
+    expect(routed).toEqual(["/"]);
+  });
+});
+
+describe("the page a mailed enterprise link opens", () => {
+  const token = () =>
+    createSignInTokens({
+      secret: "dom-test-secret-0123456789abcdef",
+    }).create("it@acme.example");
+
+  test("returns to /enterprise", async () => {
+    const link = token();
+    serve({});
+    window.location.hash = `#token=${link}&product=enterprise`;
+    await render(createElement(EmailLinkForm));
+    await click(find("email-link-signin")!);
+    expect(signInCalls).toEqual([
+      ["email-link", { token: link, callbackUrl: "/enterprise" }],
+    ]);
+  });
+
+  test("any other product value is Hosted", async () => {
+    const link = token();
+    serve({});
+    window.location.hash = `#token=${link}&product=%2Fevil`;
+    await render(createElement(EmailLinkForm));
+    await click(find("email-link-signin")!);
+    expect(signInCalls).toEqual([
+      ["email-link", { token: link, callbackUrl: "/" }],
+    ]);
+  });
+
+  test("no Hosted policy link, not even before the fragment is read", async () => {
+    const hostedLinks = (root: ParentNode) =>
+      [...root.querySelectorAll("a")]
+        .map((a) => a.getAttribute("href") ?? "")
+        .filter((href) => href.includes("/hosted-"));
+    // The prerendered first paint, before any effect reads the fragment.
+    const shell = document.createElement("div");
+    shell.innerHTML = renderToStaticMarkup(createElement(EmailLinkForm));
+    expect(hostedLinks(shell)).toEqual([]);
+
+    // The enabling condition: a Hosted link shows them once it is read.
+    serve({});
+    window.location.hash = `#token=${token()}`;
+    await render(createElement(EmailLinkForm));
+    expect(hostedLinks(container).length).toBeGreaterThan(0);
+    await act(async () => root?.unmount());
+    container.remove();
+
+    window.location.hash = `#token=${token()}&product=enterprise`;
+    await render(createElement(EmailLinkForm));
+    expect(find("email-link-signin")?.tagName ?? null).toBe("BUTTON");
+    expect(hostedLinks(container)).toEqual([]);
+  });
+
+  test("without a token the way back is the enterprise sign-in page", async () => {
+    serve({});
+    window.location.hash = "#product=enterprise";
+    await render(createElement(EmailLinkForm));
+    expect(find("email-link-signin")?.tagName ?? null).toBeNull();
+    const hrefs = [...container.querySelectorAll("a")].map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(hrefs).toContain("/enterprise/signin");
+    expect(hrefs).not.toContain("/signin");
+  });
+});
+
+describe("a failed sign-in that started on the enterprise page", () => {
+  // Auth.js sends every failed sign-in to /signin (auth.ts, pages.signIn). A
+  // sign-in that started from the enterprise page, or from an enterprise
+  // link, in this tab is moved on to the enterprise sign-in page with the same
+  // error. A Hosted sign-in started later in the same tab is not.
+  const ERROR = "?error=CredentialsSignin&code=credentials";
+  let replaced: string[] = [];
+  let replaceSpy: { mockRestore: () => void } | null = null;
+
+  beforeEach(() => {
+    // Earlier tests in this file start sign-ins in this tab too.
+    sessionStorage.clear();
+    replaced = [];
+    replaceSpy = spyOn(window.location, "replace").mockImplementation(
+      (url: string | URL) => void replaced.push(String(url)),
+    );
+  });
+
+  afterEach(() => {
+    replaceSpy?.mockRestore();
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/signin");
+  });
+
+  async function unmount(): Promise<void> {
+    await act(async () => root?.unmount());
+    root = null;
+    container.remove();
+  }
+
+  async function startFromEnterprisePage(): Promise<void> {
+    window.history.replaceState(null, "", "/enterprise/signin");
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm, { product: "enterprise" }));
+    await click(find("signin-google")!);
+    await unmount();
+  }
+
+  async function startFromLink(product: string | null): Promise<void> {
+    const link = createSignInTokens({
+      secret: "dom-test-secret-0123456789abcdef",
+    }).create("it@acme.example");
+    window.history.replaceState(null, "", "/signin/email");
+    window.location.hash =
+      product === null ? `#token=${link}` : `#token=${link}&product=${product}`;
+    serve({});
+    await render(createElement(EmailLinkForm));
+    await click(find("email-link-signin")!);
+    await unmount();
+    window.location.hash = "";
+  }
+
+  /** Where Hosted's page, opened with this query, moves the visitor. */
+  async function landOnHostedPage(query: string): Promise<string[]> {
+    window.history.replaceState(null, "", `/signin${query}`);
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm));
+    return [...replaced, ...routed];
+  }
+
+  function expectMovedOn(moves: string[], query: string): void {
+    expect(moves).toHaveLength(1);
+    const target = new URL(moves[0], "http://localhost:3999");
+    expect(target.pathname).toBe("/enterprise/signin");
+    expect(target.search).toBe(query);
+  }
+
+  test.each([
+    ERROR,
+    "?error=rate_limited",
+    "?error=GoogleRemoved",
+    "?error=OAuthCallbackError",
+  ])(
+    "from the enterprise page: %s lands on the enterprise page",
+    async (query) => {
+      await startFromEnterprisePage();
+      expectMovedOn(await landOnHostedPage(query), query);
+    },
+  );
+
+  test("from an enterprise link: a used or expired link lands on the enterprise page", async () => {
+    await startFromLink("enterprise");
+    expectMovedOn(await landOnHostedPage(ERROR), ERROR);
+  });
+
+  test("a Hosted sign-in after an enterprise one stays on Hosted's page", async () => {
+    // From Hosted's own page...
+    await startFromEnterprisePage();
+    window.history.replaceState(null, "", "/signin");
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm));
+    await click(find("signin-google")!);
+    await unmount();
+    expect(await landOnHostedPage(ERROR)).toEqual([]);
+    // The page shows the error itself.
+    expect(
+      container.querySelector('[role="alert"]')?.tagName ?? null,
+    ).not.toBeNull();
+    await unmount();
+
+    // ...and from a Hosted link opened in the same tab.
+    await startFromEnterprisePage();
+    await startFromLink(null);
+    expect(await landOnHostedPage(ERROR)).toEqual([]);
+  });
+
+  test("with no sign-in started in this tab, or no error, Hosted's page stays", async () => {
+    expect(await landOnHostedPage(ERROR)).toEqual([]);
+    await unmount();
+    await startFromEnterprisePage();
+    expect(await landOnHostedPage("")).toEqual([]);
+  });
+
+  test("the enterprise page shows the error itself and moves nowhere", async () => {
+    await startFromEnterprisePage();
+    window.history.replaceState(null, "", `/enterprise/signin${ERROR}`);
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm, { product: "enterprise" }));
+    expect([...replaced, ...routed]).toEqual([]);
+    expect(
+      container.querySelector('[role="alert"]')?.textContent?.trim(),
+    ).toBeTruthy();
   });
 });

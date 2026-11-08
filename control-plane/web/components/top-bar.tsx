@@ -40,6 +40,9 @@ export function TopBarView({
   const operator = hidesLanguageSwitch(pathname);
   const signedIn = probe.state === "signed-in" && !operator;
   const email = probe.state === "signed-in" ? (probe.email ?? "") : "";
+  // Signing out on an enterprise page lands on the enterprise sign-in page.
+  const enterprisePage =
+    pathname === "/enterprise" || !!pathname?.startsWith("/enterprise/");
   const [menuOpen, setMenuOpen] = useState(false);
   const [openedAt, setOpenedAt] = useState(pathname);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -107,7 +110,11 @@ export function TopBarView({
       type="button"
       className={testid ? "topbar-signout" : undefined}
       data-testid={testid}
-      onClick={() => void signOut({ redirectTo: "/" })}
+      onClick={() =>
+        void signOut({
+          redirectTo: enterprisePage ? "/enterprise/signin" : "/",
+        })
+      }
     >
       {i18n.t("common.signOut")}
     </button>

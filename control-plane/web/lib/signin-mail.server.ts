@@ -9,6 +9,7 @@
 import { inspect } from "node:util";
 import { credentialValues, redactLogText } from "../../report";
 import type { SupportedLanguageCode } from "./i18n/languages";
+import type { SignInProduct } from "./signin-product";
 import { translatorFor } from "./i18n/translate";
 import { SUPPORT_EMAIL } from "./support-email";
 import { SIGNIN_LINK_TTL_MS } from "./signin-link.server";
@@ -28,7 +29,12 @@ function escapeHtml(text: string): string {
 }
 
 export async function sendSignInMail(
-  mail: { to: string; link: string; language: SupportedLanguageCode },
+  mail: {
+    to: string;
+    link: string;
+    language: SupportedLanguageCode;
+    product?: SignInProduct;
+  },
   deps: { apiKey: string; fetch?: typeof fetch },
 ): Promise<SendResult> {
   const { t } = translatorFor(mail.language);
@@ -36,7 +42,11 @@ export async function sendSignInMail(
     {
       to: mail.to,
       subject: t("signIn.mailSubject"),
-      intro: t("signIn.mailIntro"),
+      intro: t(
+        mail.product === "enterprise"
+          ? "signIn.mailIntroEnterprise"
+          : "signIn.mailIntro",
+      ),
       link: mail.link,
       note: t("signIn.mailNote", { minutes: SIGNIN_LINK_TTL_MS / 60_000 }),
     },

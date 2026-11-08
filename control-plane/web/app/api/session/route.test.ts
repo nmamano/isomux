@@ -4,7 +4,8 @@
 // wait on the store. The top bar asks `?account=1`: it shows the account's
 // address, which an email change moves after the session was issued, so it
 // reads the account and nothing else. The landing asks `?offices=1` for its
-// cards, and each card carries the office's plan.
+// cards, and each card carries the office's plan, and whether the account has
+// an enterprise account: one with that and no office is sent to /enterprise.
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Session } from "next-auth";
@@ -18,6 +19,8 @@ let session: Session | null = null;
 let calls: string[] = [];
 // While set, each stand-in service waits for it before it answers.
 let gate: Promise<void> | null = null;
+// What the stand-in enterprise read answers.
+let enterprise = false;
 
 const SESSION_EMAIL = "old@example.com";
 const ACCOUNT_EMAIL = "new@example.com";
@@ -61,6 +64,11 @@ await mock.module("../../../lib/services.server", () => ({
     if (gate) await gate;
     return { email: ACCOUNT_EMAIL, google: false };
   },
+  accountHasEnterprise: async (accountId: string) => {
+    calls.push(`accountHasEnterprise:${accountId}`);
+    if (gate) await gate;
+    return enterprise;
+  },
 }));
 afterAll(async () => {
   await mock.module("../../../auth", () => realAuth);
@@ -86,6 +94,7 @@ beforeEach(() => {
   };
   calls = [];
   gate = null;
+  enterprise = false;
 });
 
 describe("GET /api/session", () => {
@@ -102,6 +111,7 @@ describe("GET /api/session", () => {
       signedIn: true,
       email: SESSION_EMAIL,
       offices: null,
+      enterprise: null,
     });
     expect(calls).toEqual([]);
   });
@@ -111,6 +121,7 @@ describe("GET /api/session", () => {
       signedIn: true,
       email: ACCOUNT_EMAIL,
       offices: null,
+      enterprise: null,
     });
     expect(calls).toEqual(["accountSettings"]);
   });
@@ -130,8 +141,19 @@ describe("GET /api/session", () => {
           plan: tier,
         },
       ],
+      enterprise: false,
     });
-    expect(calls.sort()).toEqual(["accountSettings", "officesForAccount"]);
+    expect(calls.sort()).toEqual([
+      "accountHasEnterprise:account-1",
+      "accountSettings",
+      "officesForAccount",
+    ]);
+  });
+
+  test("?offices=1 says whether the signed-in account has an enterprise account", async () => {
+    enterprise = true;
+    expect(await ask("?offices=1")).toMatchObject({ enterprise: true });
+    expect(calls).toContain("accountHasEnterprise:account-1");
   });
 
   // The two reads do not depend on each other (task 459936c8).
@@ -140,7 +162,11 @@ describe("GET /api/session", () => {
     gate = new Promise<void>((res) => (open = res));
     const view = ask("?offices=1");
     for (let i = 0; i < 10; i++) await Promise.resolve();
-    expect([...calls].sort()).toEqual(["accountSettings", "officesForAccount"]);
+    expect([...calls].sort()).toEqual([
+      "accountHasEnterprise:account-1",
+      "accountSettings",
+      "officesForAccount",
+    ]);
     open();
     expect(await view).toMatchObject({ signedIn: true, email: ACCOUNT_EMAIL });
   });

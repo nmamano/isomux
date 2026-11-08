@@ -15,7 +15,8 @@ import { SignInForm } from "./signin-form";
  * The redirect target is unchanged and so is the reason for it: see the loop
  * measured on 2026-08-11, written up in `signed-in-redirect.tsx`. Both providers
  * name `/`, and a signed-in visitor who reaches `/signin` by any route still ends
- * up on `/`.
+ * up on `/`. The enterprise sign-in page (app/enterprise/signin) is the same
+ * shell for /enterprise.
  *
  * `dynamic = "error"`: an `auth()` call added back to this file must fail the
  * build rather than silently make the page uncacheable again.

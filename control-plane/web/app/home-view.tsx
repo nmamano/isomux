@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { useSessionProbe } from "../lib/use-session";
 import type { OfficeCard } from "../lib/session-view";
 import { DocumentLanguage } from "../lib/i18n/document-language";
@@ -32,6 +33,16 @@ export function HomeView() {
   const probe = useSessionProbe({ offices: true });
   const language = useLanguage();
   const i18n = webTranslatorFor(language);
+  // An account with an enterprise account and no Hosted office has nothing
+  // here: the buyer of Isomux for Enterprise lands on its account page.
+  const enterpriseOnly =
+    probe.state === "signed-in" &&
+    probe.enterprise === true &&
+    probe.offices?.length === 0;
+  useEffect(() => {
+    if (enterpriseOnly) window.location.replace("/enterprise");
+  }, [enterpriseOnly]);
+  if (enterpriseOnly) return <DocumentLanguage language={language} />;
   return (
     <>
       <DocumentLanguage language={language} />

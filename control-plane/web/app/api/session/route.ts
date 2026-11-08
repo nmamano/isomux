@@ -1,5 +1,6 @@
 import { auth } from "../../../auth";
 import {
+  accountHasEnterprise,
   accountSettings,
   officesForAccount,
 } from "../../../lib/services.server";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
  * relaxed.
  *
  * The store reads are OPT-IN. The landing page needs the offices and asks with
- * `?offices=1`; the top bar needs only the account's address and asks with
+ * `?offices=1` (and whether the account has an enterprise account); the top bar needs only the account's address and asks with
  * `?account=1`; the sign-in page's redirect guard needs only the boolean, and
  * charging it a store read it never uses would put a database round trip in
  * front of a redirect. The signed-out branch returns before any store work at
@@ -37,7 +38,7 @@ export async function GET(request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams;
   const wantsOffices = query.get("offices") === "1";
   if (!wantsOffices && query.get("account") !== "1") {
-    return answer({ signedIn: true, email, offices: null });
+    return answer({ signedIn: true, email, offices: null, enterprise: null });
   }
 
   // The top bar and the dashboard show the account's address, which an email
@@ -49,11 +50,15 @@ export async function GET(request: Request): Promise<Response> {
       signedIn: true,
       email: account?.email ?? email,
       offices: null,
+      enterprise: null,
     });
   }
-  const [offices, account] = await Promise.all([
+  // The landing sends an account with an enterprise account and no Hosted
+  // office to /enterprise.
+  const [offices, account, enterprise] = await Promise.all([
     officesForAccount(accountId),
     accountSettings(accountId),
+    accountHasEnterprise(accountId),
   ]);
   return answer({
     signedIn: true,
@@ -66,6 +71,7 @@ export async function GET(request: Request): Promise<Response> {
       ended: office.ended,
       plan: office.tier,
     })),
+    enterprise,
   });
 }
 

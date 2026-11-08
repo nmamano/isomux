@@ -978,7 +978,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     table: "enterprise_accounts",
     verb: "select",
     via:
-      "enterprise:enterpriseFor reads the account page; enterprise:createEnterprise's " +
+      "enterprise:enterpriseFor reads the account page; enterprise:hasEnterprise " +
+      "reads whether the account has one (the landing); enterprise:createEnterprise's " +
       "on conflict (account_id) arbiter reads the key; enterprise:signAgreement, " +
       "enterprise:changeSeats and enterprise:renewSecret read the row for update; " +
       "enterprise:recordSeats reads the row by id (the secret check), then for update, " +
@@ -1184,6 +1185,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "changeSeats",
       "createEnterprise",
       "enterpriseFor",
+      "hasEnterprise",
       "recordSeats",
       "removeOffice",
       "renameOffice",

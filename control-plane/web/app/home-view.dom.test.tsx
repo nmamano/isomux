@@ -6,11 +6,22 @@
 // because nothing is charged for it. The head offers another office only to an
 // account that has one.
 //
+// An account with an enterprise account and no Hosted office has nothing on
+// this page: it is sent to /enterprise, and the empty office list is not drawn.
+//
 // happy-dom is registered in this file's body and removed when it ends: the
 // rest of the suite shares this process and needs Bun's own globals. Every
 // module that touches the DOM is loaded after registration.
 
-import { afterAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -18,14 +29,39 @@ import type { OfficeCard } from "../lib/session-view";
 import type { SupportedLanguageCode } from "../lib/i18n/languages";
 
 GlobalRegistrator.register({ url: "http://localhost:3999/" });
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Where the page sends the visitor, by the router or by the location.
+const moves: string[] = [];
+const nextNavigation = await import("next/navigation");
+const realNextNavigation = { ...nextNavigation };
+const router = {
+  replace: (href: string) => void moves.push(href),
+  push: (href: string) => void moves.push(href),
+  prefetch: () => undefined,
+  refresh: () => undefined,
+  back: () => undefined,
+  forward: () => undefined,
+};
+await mock.module("next/navigation", () => ({
+  ...realNextNavigation,
+  useRouter: () => router,
+}));
 
 const { createElement } = await import("react");
 const { renderToStaticMarkup } = await import("react-dom/server");
-const { Dashboard, SignedOut } = await import("./home-view");
+const { act } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { Dashboard, HomeView, SignedOut } = await import("./home-view");
 const { webTranslatorFor } = await import("../lib/i18n/rich");
 const { customerPriceLine } = await import("../components/plan-copy");
 
+const realFetch = globalThis.fetch;
 afterAll(async () => {
+  globalThis.fetch = realFetch;
+  await mock.module("next/navigation", () => realNextNavigation);
   await GlobalRegistrator.unregister();
 });
 
@@ -196,4 +232,84 @@ describe("the signed-out hero", () => {
     const file = path.join(import.meta.dir, "..", "public", src);
     expect(fs.statSync(file).size).toBeLessThan(40 * 1024);
   });
+});
+
+describe("an account with an enterprise account", () => {
+  let root: ReturnType<typeof createRoot> | null = null;
+  let box: HTMLElement | null = null;
+
+  afterEach(async () => {
+    await act(async () => root?.unmount());
+    root = null;
+    box?.remove();
+    moves.length = 0;
+    globalThis.fetch = realFetch;
+  });
+
+  /** The landing once the probe has answered with this account. */
+  async function landing(
+    offices: OfficeCard[],
+    enterprise: boolean,
+  ): Promise<{ moves: string[]; dashboard: boolean }> {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(
+        input instanceof Request ? input.url : String(input),
+        window.location.href,
+      );
+      if (
+        url.pathname !== "/api/session" ||
+        url.searchParams.get("offices") !== "1"
+      )
+        return new Response("{}", { status: 404 });
+      return Response.json({
+        signedIn: true,
+        email: "it@acme.example",
+        offices,
+        enterprise,
+      });
+    }) as typeof fetch;
+    const replace = spyOn(window.location, "replace").mockImplementation(
+      (url: string | URL) => void moves.push(String(url)),
+    );
+    try {
+      box = document.createElement("div");
+      document.body.append(box);
+      root = createRoot(box);
+      await act(async () => {
+        root!.render(createElement(HomeView));
+      });
+      for (let i = 0; i < 5; i++) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+    } finally {
+      replace.mockRestore();
+    }
+    return {
+      moves: [...moves],
+      dashboard: box.querySelector('[data-testid="dashboard"]') !== null,
+    };
+  }
+
+  test("and no office: sent to /enterprise, no office list drawn", async () => {
+    const seen = await landing([], true);
+    expect(
+      seen.moves.map((href) => new URL(href, "http://x").pathname),
+    ).toEqual(["/enterprise"]);
+    expect(seen.dashboard).toBe(false);
+  });
+
+  test.each([
+    ["an office and an enterprise account", [office], true],
+    ["no office and no enterprise account", [], false],
+    ["an office and no enterprise account", [office], false],
+  ] as [string, OfficeCard[], boolean][])(
+    "%s: the office list, and no move",
+    async (_name, offices, enterprise) => {
+      const seen = await landing(offices, enterprise);
+      expect(seen.moves).toEqual([]);
+      expect(seen.dashboard).toBe(true);
+    },
+  );
 });

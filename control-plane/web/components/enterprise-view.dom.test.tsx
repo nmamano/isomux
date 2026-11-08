@@ -315,3 +315,25 @@ test("a negotiated account has no portal button and no next invoice: an operator
     billing().querySelector('[data-testid="enterprise-next-invoice"]'),
   ).toBeNull();
 });
+
+// ------------------------------------------- a session that ended on the page
+
+test("a post refused for no session goes to the enterprise sign-in page", async () => {
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    await render();
+    reply = () => new Response("", { status: 401 });
+    await click(action(billing(), "billing-portal"));
+    // The enabling condition: the page did post.
+    expect(posts).toEqual([
+      { url: "/api/enterprise/billing/portal", body: {} },
+    ]);
+    expect(
+      assign.mock.calls.map(
+        ([url]) => new URL(String(url), location.href).pathname,
+      ),
+    ).toEqual(["/enterprise/signin"]);
+  } finally {
+    assign.mockRestore();
+  }
+});

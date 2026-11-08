@@ -34,6 +34,12 @@ export const ca: Catalog = {
   "signIn.heading": "Inicia la sessió",
   "signIn.google": "Continua amb Google",
   "signIn.subheading": "per configurar o gestionar la teva oficina",
+  "signIn.enterpriseSubheading":
+    "per obtenir o gestionar la teva llicència d'Isomux for Enterprise",
+  "signIn.enterpriseStepSignIn": "Inicia la sessió",
+  "signIn.enterpriseStepAgreement": "Tria les places i signa l'acord",
+  "signIn.enterpriseStepOffices":
+    "Enganxa el secret de la pàgina del teu compte a cada oficina",
   "signIn.or": "o",
   "signIn.emailLabel": "Correu electrònic",
   "signIn.emailSubmit": "Envia'm un enllaç d'inici de sessió",
@@ -55,6 +61,8 @@ export const ca: Catalog = {
   "signIn.mailSubject": "El teu enllaç d'inici de sessió d'Isomux",
   "signIn.mailIntro":
     "Obre aquest enllaç per iniciar la sessió a Hosted Isomux:",
+  "signIn.mailIntroEnterprise":
+    "Obre aquest enllaç per iniciar la sessió a Isomux for Enterprise:",
   "signIn.mailNote":
     "Funciona una vegada, durant {minutes} minuts. Si no l'has demanat, ignora aquest correu.",
 

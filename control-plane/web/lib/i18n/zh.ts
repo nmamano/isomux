@@ -22,6 +22,11 @@ export const zh: Catalog = {
   "signIn.heading": "登录",
   "signIn.google": "使用 Google 继续",
   "signIn.subheading": "以设置或管理你的办公室",
+  "signIn.enterpriseSubheading":
+    "以获取或管理你的 Isomux for Enterprise 许可证",
+  "signIn.enterpriseStepSignIn": "登录",
+  "signIn.enterpriseStepAgreement": "选择席位并签署协议",
+  "signIn.enterpriseStepOffices": "将账户页面上的密钥粘贴到每个办公室",
   "signIn.or": "或",
   "signIn.emailLabel": "电子邮箱",
   "signIn.emailSubmit": "通过邮件发送登录链接",
@@ -39,6 +44,7 @@ export const zh: Catalog = {
   "signIn.linkInvalid": "此登录链接无效。<signin>重新获取</signin>。",
   "signIn.mailSubject": "你的 Isomux 登录链接",
   "signIn.mailIntro": "打开此链接登录 Hosted Isomux：",
+  "signIn.mailIntroEnterprise": "打开此链接登录 Isomux for Enterprise：",
   "signIn.mailNote":
     "该链接只能使用一次，{minutes} 分钟内有效。如果不是你本人请求的，请忽略此邮件。",
   "home.account": "账户",

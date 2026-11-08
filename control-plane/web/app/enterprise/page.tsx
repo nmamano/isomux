@@ -6,6 +6,7 @@ import {
   MAX_SEATS,
 } from "../../../enterprise";
 import { auth } from "../../auth";
+import { ENTERPRISE_TITLE } from "../../lib/signin-product";
 import {
   EnterpriseAccount,
   EnterpriseSetup,
@@ -21,7 +22,10 @@ export const dynamic = "force-dynamic";
 
 /** Private: next.config.ts also sends noindex, no-referrer and no-store for
  * every /enterprise path, because the page shows the account's secret. */
-export const metadata: Metadata = { robots: { index: false, follow: false } };
+export const metadata: Metadata = {
+  title: ENTERPRISE_TITLE,
+  robots: { index: false, follow: false },
+};
 
 /**
  * A company's enterprise account (control-plane/enterprise.ts): the set-up
@@ -31,11 +35,13 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default async function Enterprise() {
   const session = await auth();
   const accountId = session?.accountId;
-  if (!accountId) redirect("/signin");
+  if (!accountId) redirect("/enterprise/signin");
   const { view, now } = await enterpriseAccountFor(accountId);
   const language = await languageForRequest();
   if (!view) {
     const settings = await accountSettings(accountId);
+    // Not the enterprise sign-in page: its guard sees the session and sends
+    // it back here, a loop. Hosted's guard sends it to /.
     if (!settings) redirect("/signin");
     return (
       <>

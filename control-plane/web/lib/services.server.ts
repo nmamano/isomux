@@ -1518,6 +1518,15 @@ function enterpriseAuthSecret(): string {
   return secret;
 }
 
+/** Whether the account has an enterprise account (the landing page sends an
+ * account with one and no Hosted office to /enterprise). */
+export async function accountHasEnterprise(
+  accountId: string,
+): Promise<boolean> {
+  const { hasEnterprise } = await import("../../enterprise");
+  return withStore((store) => hasEnterprise(store, accountId));
+}
+
 /** The signed-in account's enterprise account (null when it has none), and
  * the store's clock, which the page's contract dates are computed from. */
 export async function enterpriseAccountFor(accountId: string): Promise<{

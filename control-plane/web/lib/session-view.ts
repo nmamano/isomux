@@ -35,4 +35,11 @@ export interface OfficeCard {
  */
 export type SessionView =
   | { signedIn: false }
-  | { signedIn: true; email: string | null; offices: OfficeCard[] | null };
+  | {
+      signedIn: true;
+      email: string | null;
+      offices: OfficeCard[] | null;
+      /** Whether the account has an enterprise account; null when the caller
+       * did not ask for the offices. */
+      enterprise: boolean | null;
+    };

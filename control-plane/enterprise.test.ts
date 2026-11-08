@@ -21,6 +21,7 @@ import {
   enterpriseFor,
   enterpriseForSecret,
   enterpriseSecret,
+  hasEnterprise,
   MAX_OFFICES,
   recordSeats,
   removeOffice,
@@ -236,6 +237,30 @@ describe("setting up an account", () => {
     // The bounds themselves are accepted.
     await created(s, { company: "x".repeat(200), seats: 10_000 });
     expect((await enterpriseFor(s.store, s.it, SECRET))?.seats).toBe(10_000);
+  });
+});
+
+describe("whether a sign-in has an enterprise account", () => {
+  // The landing sends a sign-in with one and no Hosted office to /enterprise:
+  // an unsigned standard account counts, so a buyer who stopped before the
+  // agreement is brought back to it.
+  test("from the set-up on, standard or negotiated, and only for that sign-in", async () => {
+    const s = await setup();
+    expect(await hasEnterprise(s.store, s.it)).toBe(false);
+    await created(s);
+    expect(await hasEnterprise(s.store, s.it)).toBe(true);
+    expect(await hasEnterprise(s.store, s.other)).toBe(false);
+    const negotiated = await createNegotiatedEnterprise(s.store, {
+      email: "it@globex.example",
+      company: "Globex",
+      plan: "yearly",
+      seats: 30,
+      priceNote: "$18 per seat per month, paid yearly",
+      start: T0,
+    });
+    if (!negotiated.ok)
+      throw new Error(`negotiated refused: ${JSON.stringify(negotiated)}`);
+    expect(await hasEnterprise(s.store, s.other)).toBe(true);
   });
 });
 
