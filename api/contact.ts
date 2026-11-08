@@ -22,8 +22,6 @@ export const CONTACT_LIMITS = {
   upstreamTimeoutMs: 10_000,
 };
 
-export const TEAM_SIZES = ["1-10", "11-50", "51-200", "201-1000", "1000+"];
-
 /** Personal mail providers: allowed, and marked in the subject for triage. */
 export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
   "gmail.com",
@@ -187,7 +185,7 @@ async function send(req: Request, ip: string): Promise<Response> {
   )
     return ok();
 
-  const { email, company, size, message, turnstileToken } = fields;
+  const { email, company, message, turnstileToken } = fields;
   if (
     typeof email !== "string" ||
     email.length > CONTACT_LIMITS.maxEmailChars ||
@@ -200,8 +198,6 @@ async function send(req: Request, ip: string): Promise<Response> {
       "company",
       `Enter the company name, up to ${CONTACT_LIMITS.maxCompanyChars} characters.`,
     );
-  if (typeof size !== "string" || !TEAM_SIZES.includes(size))
-    return invalid("size", `Choose a team size: ${TEAM_SIZES.join(", ")}.`);
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > CONTACT_LIMITS.maxMessageChars)
     return invalid(
@@ -247,7 +243,7 @@ async function send(req: Request, ip: string): Promise<Response> {
   const subject =
     SUBJECT_PREFIX +
     (FREE_MAIL_DOMAINS.has(domain) ? "[free mail] " : "") +
-    `${oneLine(companyName)} (${size} people)`;
+    oneLine(companyName);
   try {
     const res = await globalThis.fetch(RESEND, {
       method: "POST",
@@ -260,7 +256,7 @@ async function send(req: Request, ip: string): Promise<Response> {
         to: [TO],
         reply_to: email,
         subject,
-        text: `From the contact form on isomux.com/enterprise.\n\nEmail: ${email}\nCompany: ${companyName}\nTeam size: ${size}\n\n${text}\n`,
+        text: `From the contact form on isomux.com/enterprise.\n\nEmail: ${email}\nCompany: ${companyName}\n\n${text}\n`,
       }),
       signal: AbortSignal.timeout(CONTACT_LIMITS.upstreamTimeoutMs),
     });

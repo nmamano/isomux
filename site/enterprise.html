@@ -573,17 +573,6 @@
             /></label>
           </div>
           <label
-            >Team size
-            <select name="size" required>
-              <option value="">Choose one</option>
-              <option value="1-10">1-10</option>
-              <option value="11-50">11-50</option>
-              <option value="51-200">51-200</option>
-              <option value="201-1000">201-1,000</option>
-              <option value="1000+">More than 1,000</option>
-            </select>
-          </label>
-          <label
             >Message
             <textarea name="message" maxlength="5000" required></textarea>
           </label>
@@ -731,7 +720,6 @@
           var body = {
             email: String(data.get("email") || "").trim(),
             company: String(data.get("company") || ""),
-            size: String(data.get("size") || ""),
             message: String(data.get("message") || ""),
             website: String(data.get("website") || ""),
             startedAt: startedAt,

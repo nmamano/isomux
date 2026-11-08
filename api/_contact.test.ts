@@ -16,11 +16,7 @@ import {
 import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import chat from "./chat.ts";
-import handler, {
-  CONTACT_LIMITS,
-  FREE_MAIL_DOMAINS,
-  TEAM_SIZES,
-} from "./contact.ts";
+import handler, { CONTACT_LIMITS, FREE_MAIL_DOMAINS } from "./contact.ts";
 
 const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const RESEND = "https://api.resend.com/emails";
@@ -81,7 +77,6 @@ function valid(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     email: "buyer@acme.example",
     company: "Acme Corp",
-    size: "51-200",
     message: "We want agents for our support team.",
     website: "",
     startedAt: Date.now() - 10_000,
@@ -176,12 +171,10 @@ describe("POST /api/contact sends one mail", () => {
     expect(list(mail.reply_to)).toEqual(["buyer@acme.example"]);
     expect(mail.subject.startsWith("[Enterprise form] ")).toBe(true);
     expect(mail.subject).toContain("Acme Corp");
-    expect(mail.subject).toContain("51-200");
     expect(mail.subject).not.toContain("[free mail]");
     for (const value of [
       "buyer@acme.example",
       "Acme Corp",
-      "51-200",
       "We want agents for our support team.",
     ])
       expect(mail.text).toContain(value);
@@ -231,13 +224,23 @@ describe("POST /api/contact sends one mail", () => {
       valid({
         email: `${local}@acme.co`,
         company: `  ${"c".repeat(CONTACT_LIMITS.maxCompanyChars)}  `,
-        size: "1000+",
         message: "m".repeat(CONTACT_LIMITS.maxMessageChars),
         startedAt: Date.now() - CONTACT_LIMITS.minFillMs - 500,
       }),
     );
     expect(res.status).toBe(200);
     expect(urls()).toEqual([SITEVERIFY, RESEND]);
+  });
+
+  it("accepts a team size from a page cached before the field went, and mails nothing of it", async () => {
+    const size = "201-1000";
+    const res = noStore(await post(valid({ size })));
+    expect(res.status).toBe(200);
+    expect(urls()).toEqual([SITEVERIFY, RESEND]);
+    const mail = resendBody();
+    expect(mail.text).toContain("Acme Corp");
+    expect(mail.subject).not.toContain(size);
+    expect(mail.text).not.toContain(size);
   });
 
   it("sends without the site key: only the GET needs it", async () => {
@@ -296,10 +299,6 @@ describe("POST /api/contact rejects a bad request", () => {
     ["company", { company: "   " }],
     ["company", { company: 7 }],
     ["company", { company: "c".repeat(CONTACT_LIMITS.maxCompanyChars + 1) }],
-    ["size", { size: undefined }],
-    ["size", { size: "12" }],
-    ["size", { size: "1-10 " }],
-    ["size", { size: 10 }],
     ["message", { message: undefined }],
     ["message", { message: " \n " }],
     ["message", { message: ["hi"] }],
@@ -549,22 +548,22 @@ describe("the enterprise page form", () => {
   const control = (name: string) =>
     section()?.querySelector(`form [name="${name}"]`) ?? null;
 
-  it("has a control for each field the API reads", () => {
+  it("has a control for each field the API reads, and no other", () => {
     expect(section()).not.toBeNull();
     expect(control("email")?.getAttribute("type")).toBe("email");
     expect(control("company")?.tagName).toBe("INPUT");
     expect(control("message")?.tagName).toBe("TEXTAREA");
-    for (const name of ["email", "company", "size", "message"])
+    for (const name of ["email", "company", "message"])
       expect({
         name,
         required: control(name)?.hasAttribute("required"),
       }).toEqual({ name, required: true });
-    const size = control("size");
-    expect(size?.tagName).toBe("SELECT");
-    const values = Array.from(size!.querySelectorAll("option"))
-      .map((option) => option.getAttribute("value"))
-      .filter((value) => value);
-    expect(values).toEqual(TEAM_SIZES);
+    // The fields the API reads, plus the honeypot; Turnstile adds its own
+    // input only when its script runs, which this document does not do.
+    const names = Array.from(section()!.querySelectorAll("form [name]"), (el) =>
+      el.getAttribute("name"),
+    ).sort();
+    expect(names).toEqual(["company", "email", "message", "website"]);
   });
 
   it("hides the honeypot from people and assistive tech", () => {
