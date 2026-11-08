@@ -12,27 +12,28 @@ main {
   width: 350px;
   box-sizing: border-box;
   margin: 0 auto;
-  padding: 20px;
+  padding: 14px 16px;
 }
 h1 {
-  font-size: 20px;
-  margin: 0 0 16px;
+  font-size: 17px;
+  margin: 0 0 10px;
 }
 p {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.4;
+  margin: 10px 0;
   overflow-wrap: anywhere;
 }
 label {
   display: block;
   font-size: 13px;
-  margin: 14px 0 5px;
+  margin: 10px 0 4px;
 }
 input,
 select {
   width: 100%;
   box-sizing: border-box;
-  padding: 9px;
+  padding: 6px 8px;
   border: 1px solid #687286;
   border-radius: 6px;
   background: #232a37;
@@ -41,8 +42,8 @@ select {
 button {
   font: inherit;
   font-size: 13px;
-  padding: 8px 10px;
-  margin: 10px 6px 0 0;
+  padding: 6px 10px;
+  margin: 8px 6px 0 0;
   border: 1px solid #687286;
   border-radius: 6px;
   background: #2c3547;
@@ -64,8 +65,8 @@ button:focus-visible {
 }
 #tab-control,
 #share-section {
-  margin: 14px 0;
-  padding: 12px;
+  margin: 10px 0;
+  padding: 10px 12px;
   background: #242b38;
   border-radius: 8px;
 }
@@ -76,7 +77,28 @@ button:focus-visible {
   margin-top: 0;
 }
 #share-status {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
+}
+/* A picker with its label or its button on the same row. */
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.field-row select {
+  flex: 1;
+  min-width: 0;
+}
+.field-row label {
+  margin: 0;
+  flex: none;
+}
+.field-row button {
+  margin: 0;
+  flex: none;
+}
+#tab-control .field-row {
+  margin-top: 8px;
 }
 #share-status:empty {
   display: none;
@@ -84,14 +106,14 @@ button:focus-visible {
 #tab-control > label:first-child {
   margin-top: 0;
 }
-/* A long member list scrolls in place, so it never pushes the popup down. */
+/* Two columns of members; the popup is the only scroll. */
 #members-list {
   list-style: none;
-  margin: 8px 0 0;
-  padding: 0 4px 0 0;
-  max-height: 158px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 8px;
 }
 #members-list:empty,
 #members-none:empty {
@@ -100,8 +122,14 @@ button:focus-visible {
 #members-list label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 6px 0 0;
+  gap: 6px;
+  margin: 4px 0 0;
+  min-width: 0;
+}
+#members-list label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #members-list input {
   width: auto;
@@ -165,21 +193,18 @@ button:focus-visible {
 }
 
 h2 {
-  font-size: 15px;
-  margin: 0 0 10px;
-}
-#office-control {
-  padding-bottom: 10px;
+  font-size: 14px;
+  margin: 0 0 6px;
 }
 #unmute-tab {
-  margin: 0 0 16px;
+  margin: 0 0 10px;
 }
 .control-switch {
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: relative;
-  min-height: 32px;
+  min-height: 28px;
   gap: 12px;
 }
 #allow,

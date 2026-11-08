@@ -76,8 +76,10 @@
       </section>
       <section id="share-section" hidden>
         <label id="share-label" for="share-agent"></label>
-        <select id="share-agent"></select>
-        <button id="share" type="button" disabled></button>
+        <div class="field-row">
+          <select id="share-agent"></select>
+          <button id="share" type="button" disabled></button>
+        </div>
         <p id="share-status" role="status"></p>
       </section>
       <section id="tab-control">
@@ -89,12 +91,14 @@
           ></span
         ></label>
         <p id="tab-state" role="status"></p>
-        <label id="agents-label" for="agents"></label>
-        <select id="agents" disabled>
-          <option id="agents-mine" value="mine"></option>
-          <option id="agents-members" value="members"></option>
-          <option id="agents-office" value="office"></option>
-        </select>
+        <div class="field-row">
+          <label id="agents-label" for="agents"></label>
+          <select id="agents" disabled>
+            <option id="agents-mine" value="mine"></option>
+            <option id="agents-members" value="members"></option>
+            <option id="agents-office" value="office"></option>
+          </select>
+        </div>
         <div id="members" role="group" aria-labelledby="agents-members" hidden>
           <ul id="members-list"></ul>
           <p id="members-none"></p>

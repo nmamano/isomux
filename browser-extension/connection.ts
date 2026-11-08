@@ -358,7 +358,11 @@ function renderAccess() {
               : storedAccess().members.filter((id) => id !== member.id),
           }),
         );
-        label.append(box, member.name);
+        // A span, so a long name ends in an ellipsis in its column.
+        const name = document.createElement("span");
+        name.textContent = member.name;
+        name.title = member.name;
+        label.append(box, name);
         row.append(label);
         return row;
       }),

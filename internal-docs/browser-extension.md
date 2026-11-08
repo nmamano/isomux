@@ -859,7 +859,10 @@ office with its state, and Add an office shows an empty pair form. The
 status line under it shows only for blocked and unknown, which the picker
 shortens. Use this tab comes before the Agents picker and its member list, and
 the Browser owner line is at the bottom, so Share and Use this tab fit in the
-600 px popup with the member list open (task cfbf6ba5). Every
+600 px popup with the member list open (task cfbf6ba5). The Share button and
+the Agents label share a row with their pickers, and the member list has two
+columns and no scroll of its own, so the popup is the only scroll (task
+258b85f8). Every
 command carries the picked office; a command that names an office that is not
 paired fails, except the state poll, which answers for another. With no office
 named, the background answers for the office that holds the popup's tab, else
