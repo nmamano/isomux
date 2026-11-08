@@ -438,14 +438,14 @@ export const es: Catalog = {
   "enterprise.failed": "No ha funcionado. Inténtalo de nuevo.",
   "enterprise.agreement.heading": "Firmar el acuerdo",
   "enterprise.agreement.lead":
-    "El Isomux Commercial License Agreement para {company}. El acuerdo está en inglés.",
+    "El Isomux Commercial License Agreement para {company} está en inglés.",
   "enterprise.agreement.download": "Descargar el acuerdo (PDF)",
   "enterprise.agreement.name": "Tu nombre",
   "enterprise.agreement.title": "Tu cargo",
   "enterprise.agreement.company": "Empresa",
   "enterprise.agreement.date": "Fecha",
   "enterprise.agreement.authority":
-    "Tengo autorización para firmar en nombre de {company}.",
+    "Tengo autorización para firmar en nombre de {company}",
   "enterprise.agreement.sign": "Firmar",
   "enterprise.invalid.name": "Escribe tu nombre.",
   "enterprise.invalid.title": "Escribe tu cargo.",

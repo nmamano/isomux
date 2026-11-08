@@ -24,8 +24,10 @@ GlobalRegistrator.register({
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { EnterpriseAccount } = await import("./enterprise-view");
+const { EnterpriseAccount, EnterpriseAgreement } =
+  await import("./enterprise-view");
 const { translatorFor } = await import("../lib/i18n/translate");
+const { SUPPORTED_LANGUAGES } = await import("../lib/i18n/languages");
 type View = import("../../enterprise").EnterpriseView;
 
 const realFetch = globalThis.fetch;
@@ -335,5 +337,46 @@ test("a post refused for no session goes to the enterprise sign-in page", async 
     ).toEqual(["/enterprise/signin"]);
   } finally {
     assign.mockRestore();
+  }
+});
+
+// ----------------------------------------------- the agreement page's company
+
+// Task de6e92c6: most legal names end in a period (Inc., LLC.), so a sentence
+// that puts the name before its own period showed "Acme Inc..". In every
+// language the page shows the name whole, and no period follows it.
+test("the agreement page never puts a period after a company name that ends in one", async () => {
+  const company = "Acme Inc.";
+  const doubled = /Acme Inc\.\s*[.。]/;
+  for (const { code } of SUPPORTED_LANGUAGES) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        createElement(EnterpriseAgreement, {
+          language: code,
+          company,
+          now: T0,
+          pdfPath: "/enterprise/agreement.pdf",
+        }),
+      );
+    });
+    const lead = container.querySelector("p.lead")?.textContent ?? "";
+    const authority =
+      container.querySelector('input[name="authority"]')?.closest("label")
+        ?.textContent ?? "";
+    for (const [where, text] of [
+      ["lead", lead],
+      ["authority", authority],
+    ]) {
+      // The enabling condition: the line names the company, whole.
+      const label = `${code} ${where}: ${text}`;
+      expect([label, text.includes(company)]).toEqual([label, true]);
+      expect([label, doubled.test(text)]).toEqual([label, false]);
+    }
+    await act(async () => root?.unmount());
+    root = null;
+    container.remove();
   }
 });

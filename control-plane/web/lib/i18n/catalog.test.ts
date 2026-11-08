@@ -91,6 +91,24 @@ describe.each(Object.entries(OTHERS))("%s", (name, catalog) => {
   });
 });
 
+// Task de6e92c6: a placeholder a person types (a company, a name, a job
+// title) often ends in a period itself ("Acme Inc."), so no value puts one
+// directly before a period of its own.
+test("no free-text placeholder sits directly before a period", () => {
+  const beforePeriod = /\{(company|name|title)\}\s*[.。]/;
+  for (const language of SUPPORTED_LANGUAGES) {
+    for (const key of KEYS) {
+      const label = `${language.code} ${key}`;
+      const value = CATALOGS[language.code][key];
+      expect([label, beforePeriod.test(value)]).toEqual([label, false]);
+    }
+  }
+  // The enabling condition: some value carries one of those placeholders.
+  expect(KEYS.some((key) => /\{(company|name|title)\}/.test(en[key]))).toBe(
+    true,
+  );
+});
+
 test("key segments are camelCase (ruling 15)", () => {
   for (const key of KEYS) {
     for (const segment of key.split(".")) {

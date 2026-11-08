@@ -437,14 +437,14 @@ export const ca: Catalog = {
   "enterprise.failed": "No ha funcionat. Torna-ho a provar.",
   "enterprise.agreement.heading": "Signar l'acord",
   "enterprise.agreement.lead":
-    "L'Isomux Commercial License Agreement per a {company}. L'acord és en anglès.",
+    "L'Isomux Commercial License Agreement per a {company} és en anglès.",
   "enterprise.agreement.download": "Baixa l'acord (PDF)",
   "enterprise.agreement.name": "El teu nom",
   "enterprise.agreement.title": "El teu càrrec",
   "enterprise.agreement.company": "Empresa",
   "enterprise.agreement.date": "Data",
   "enterprise.agreement.authority":
-    "Tinc autorització per signar en nom de {company}.",
+    "Tinc autorització per signar en nom de {company}",
   "enterprise.agreement.sign": "Signa",
   "enterprise.invalid.name": "Escriu el teu nom.",
   "enterprise.invalid.title": "Escriu el teu càrrec.",

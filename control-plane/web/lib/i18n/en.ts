@@ -453,13 +453,13 @@ export const en = {
 
   "enterprise.agreement.heading": "Sign the agreement",
   "enterprise.agreement.lead":
-    "The Isomux Commercial License Agreement for {company}. The agreement is in English.",
+    "The Isomux Commercial License Agreement for {company} is in English.",
   "enterprise.agreement.download": "Download the agreement (PDF)",
   "enterprise.agreement.name": "Your name",
   "enterprise.agreement.title": "Your title",
   "enterprise.agreement.company": "Company",
   "enterprise.agreement.date": "Date",
-  "enterprise.agreement.authority": "I am authorized to sign for {company}.",
+  "enterprise.agreement.authority": "I am authorized to sign for {company}",
   "enterprise.agreement.sign": "Sign",
   "enterprise.invalid.name": "Enter your name.",
   "enterprise.invalid.title": "Enter your title.",
