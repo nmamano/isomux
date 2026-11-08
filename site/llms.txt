@@ -43,7 +43,7 @@
 ## Hosted Isomux policies
 
 - [Terms of Service](https://isomux.com/hosted-terms): Terms for Hosted Isomux
-- [Privacy Policy](https://isomux.com/hosted-privacy): Data collection, access, and retention for Hosted Isomux
+- [Privacy Policy](https://isomux.com/hosted-privacy): Data collection, access, and retention for Hosted Isomux and Isomux for Enterprise accounts
 - [Refund Policy](https://isomux.com/hosted-refund): Refund eligibility and requests for Hosted Isomux
 
 ## Browser extension

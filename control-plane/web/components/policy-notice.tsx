@@ -28,7 +28,8 @@ const REFUND_URL = "https://isomux.com/hosted-refund";
  * as above, and the site is a hostname: none of it is copy.
  *
  * The three documents are Hosted's. Under the enterprise sign-in card the
- * agreement governs (the buyer signs it next), so only the product page shows. */
+ * agreement governs (the buyer signs it next), so only the Privacy Policy,
+ * which covers enterprise accounts too, and the product page show. */
 export function PolicyLinks({
   product = "hosted",
 }: {
@@ -37,6 +38,9 @@ export function PolicyLinks({
   if (product === "enterprise") {
     return (
       <footer className="policy-links">
+        <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
+          Privacy Policy
+        </a>
         <a href="https://isomux.com/enterprise">isomux.com/enterprise</a>
       </footer>
     );

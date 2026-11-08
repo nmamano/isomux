@@ -49,7 +49,8 @@ const LINK_FAILED_ERROR = "CredentialsSignin";
  *
  * `product` picks the page: Hosted's /signin or the enterprise one
  * (app/enterprise/signin). Each returns to its own home after sign-in, and
- * the enterprise one names its product and shows nothing of Hosted.
+ * the enterprise one names its product and shows nothing of Hosted but the
+ * privacy policy, which covers both products.
  *
  * This page is prerendered too, so its language is resolved in the browser and
  * the first paint is English. See `home-view.tsx` for why.

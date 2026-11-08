@@ -338,18 +338,27 @@ describe("the enterprise sign-in page", () => {
     });
   });
 
-  test("nothing of Hosted: not its sub-heading, its domain or its policies", async () => {
+  test("nothing of Hosted but the privacy policy, which covers both products", async () => {
     const { t } = translatorFor("en");
-    const policyHrefs = () =>
-      [...container.querySelectorAll("a")]
-        .map((a) => a.getAttribute("href") ?? "")
-        .filter((href) => href.includes("isomux.com"));
+    const href = (a: Element) => a.getAttribute("href") ?? "";
+    const hostedPolicies = () =>
+      [...container.querySelectorAll("a")].filter((a) =>
+        href(a).includes("isomux.com/hosted-"),
+      );
+    // How a link opens, not only where it goes: the buyer keeps the form.
+    const opens = (a: Element) =>
+      [href(a), a.getAttribute("target"), a.getAttribute("rel")].join(" ");
 
-    // The enabling conditions: the Hosted page has all three.
+    // The enabling conditions: the Hosted page has its three policies, one of
+    // them the privacy policy.
     serve({ [PROVIDERS]: providers("google", "email-link") });
     await render(createElement(SignInForm));
     expect(container.textContent).toContain(t("signIn.subheading"));
-    expect(policyHrefs().some((href) => href.includes("/hosted-"))).toBe(true);
+    expect(hostedPolicies()).toHaveLength(3);
+    const privacy = hostedPolicies()
+      .filter((a) => href(a).includes("privacy"))
+      .map(opens);
+    expect(privacy).toHaveLength(1);
     await act(async () => root?.unmount());
     container.remove();
 
@@ -357,10 +366,14 @@ describe("the enterprise sign-in page", () => {
     const text = container.textContent ?? "";
     expect(text).not.toContain(t("signIn.subheading"));
     expect(text).not.toContain("isomux.app");
-    const hrefs = policyHrefs();
-    expect(hrefs.filter((href) => href.includes("/hosted-"))).toEqual([]);
+    // The buyer gives an email here, so the policy that covers it is linked,
+    // as on Hosted. The terms and refund policy are Hosted's: the enterprise
+    // agreement governs.
+    expect(hostedPolicies().map(opens)).toEqual(privacy);
     // The way out goes to the product page the buyer came from.
-    expect(hrefs).toContain("https://isomux.com/enterprise");
+    expect([...container.querySelectorAll("a")].map(href)).toContain(
+      "https://isomux.com/enterprise",
+    );
   });
 
   test("a signed-in visitor is sent to /enterprise, and on Hosted's page to /", async () => {
@@ -411,7 +424,7 @@ describe("the page a mailed enterprise link opens", () => {
     ]);
   });
 
-  test("no Hosted policy link, not even before the fragment is read", async () => {
+  test("of Hosted's policies only the privacy policy, and none before the fragment is read", async () => {
     const hostedLinks = (root: ParentNode) =>
       [...root.querySelectorAll("a")]
         .map((a) => a.getAttribute("href") ?? "")
@@ -421,18 +434,22 @@ describe("the page a mailed enterprise link opens", () => {
     shell.innerHTML = renderToStaticMarkup(createElement(EmailLinkForm));
     expect(hostedLinks(shell)).toEqual([]);
 
-    // The enabling condition: a Hosted link shows them once it is read.
+    // The enabling condition: a Hosted link shows all three once it is read.
     serve({});
     window.location.hash = `#token=${token()}`;
     await render(createElement(EmailLinkForm));
-    expect(hostedLinks(container).length).toBeGreaterThan(0);
+    expect(hostedLinks(container)).toHaveLength(3);
+    const privacy = hostedLinks(container).filter((href) =>
+      href.includes("privacy"),
+    );
+    expect(privacy).toHaveLength(1);
     await act(async () => root?.unmount());
     container.remove();
 
     window.location.hash = `#token=${token()}&product=enterprise`;
     await render(createElement(EmailLinkForm));
     expect(find("email-link-signin")?.tagName ?? null).toBe("BUTTON");
-    expect(hostedLinks(container)).toEqual([]);
+    expect(hostedLinks(container)).toEqual(privacy);
   });
 
   test("without a token the way back is the enterprise sign-in page", async () => {
