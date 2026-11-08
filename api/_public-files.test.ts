@@ -61,6 +61,10 @@ describe("api/ public files", () => {
   it("deploys only the intended functions", () => {
     // A helper or test added here needs a "_" prefix; a new endpoint goes in
     // this list.
-    expect(publicFiles(import.meta.dir)).toEqual(["chat.ts", "not-found.ts"]);
+    expect(publicFiles(import.meta.dir)).toEqual([
+      "chat.ts",
+      "contact.ts",
+      "not-found.ts",
+    ]);
   });
 });

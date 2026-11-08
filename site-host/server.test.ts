@@ -62,6 +62,17 @@ const FILE = "public, max-age=3600, s-maxage=86400";
 // A script or style asked for with ?v=<its version>.
 const IMMUTABLE = "public, max-age=31536000, immutable";
 const ANALYTICS_CSP = " https://va.vercel-scripts.com";
+// vercel.json changed after the recording: the main rule (not /demo, which
+// alone frames nilmamano.com) admits Cloudflare Turnstile for the enterprise
+// contact form.
+const TURNSTILE = " https://challenges.cloudflare.com";
+function cspSinceRecording(value: string): string {
+  const csp = value.replace(ANALYTICS_CSP, "");
+  if (!csp.includes("frame-ancestors 'self';")) return csp;
+  return csp
+    .replace("frame-src 'self';", `frame-src 'self'${TURNSTILE};`)
+    .replace(/(script-src [^;]*)/, `$1${TURNSTILE}`);
+}
 // Vercel platform headers the site host does not send.
 const IGNORED = new Set([
   "server",
@@ -318,9 +329,7 @@ describe("parity with isomux.com on Vercel", () => {
         if (redirect && name === "content-type") continue;
         if (diverges && name === "content-type") continue;
         expected[name] =
-          name === "content-security-policy"
-            ? value.replace(ANALYTICS_CSP, "")
-            : value;
+          name === "content-security-policy" ? cspSinceRecording(value) : value;
       }
       const actual: Record<string, string> = {};
       for (const [name, value] of res.headers) {

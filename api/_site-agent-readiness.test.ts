@@ -223,6 +223,7 @@ describe("isomux.com agent readiness", () => {
       "https://github.com/nmamano/isomux/issues",
       "/.well-known/security.txt",
       "https://github.com/nmamano/isomux/blob/main/COMMERCIAL-LICENSE.md",
+      "/enterprise#contact",
     ]) {
       expect(page).toContain(`href="${href}"`);
     }

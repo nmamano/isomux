@@ -273,6 +273,74 @@
         text-decoration: none;
       }
 
+      /* The contact form. */
+      .contact-form {
+        display: grid;
+        gap: 14px;
+        margin: 16px 0 12px;
+      }
+      .contact-form label {
+        display: grid;
+        gap: 4px;
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      .contact-form input,
+      .contact-form select,
+      .contact-form textarea {
+        font: inherit;
+        font-weight: 400;
+        color: var(--text);
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        width: 100%;
+      }
+      .contact-form textarea {
+        min-height: 140px;
+        resize: vertical;
+      }
+      .contact-form input:focus,
+      .contact-form select:focus,
+      .contact-form textarea:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      .contact-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .contact-form button {
+        justify-self: start;
+        border: 0;
+        font: inherit;
+        cursor: pointer;
+      }
+      .contact-form button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      /* The honeypot: off screen, for bots that fill every field. */
+      .contact-hp {
+        position: absolute;
+        left: -10000px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+      #contact-turnstile:empty {
+        display: none;
+      }
+      /* Rendered while empty, so a screen reader announces its first text. */
+      .contact-status:empty {
+        margin: 0;
+      }
+      .contact-note {
+        font-size: 0.9rem;
+      }
+
       @media (max-width: 640px) {
         main {
           padding: 20px 16px 8px;
@@ -285,6 +353,9 @@
         }
         .diagram-narrow {
           width: 100%;
+        }
+        .contact-row {
+          grid-template-columns: 1fr;
         }
       }
     </style>
@@ -408,7 +479,7 @@
           Unlimited agents and devices per seat; model usage is on your own
           account. The first month is free, and setup help is included. For
           volume pricing or dedicated support,
-          <a href="mailto:llc@isomux.com">contact us</a>.
+          <a href="#contact">contact us</a>.
         </p>
         <p>
           <strong>Seats.</strong> You pay for one seat per member across all
@@ -449,7 +520,8 @@
             <a href="/docs/hosting">setup guide</a>.
           </li>
           <li>
-            <strong>Reach out.</strong> Write to
+            <strong>Reach out.</strong> Use the
+            <a href="#contact">contact form</a>, write to
             <a href="mailto:llc@isomux.com">llc@isomux.com</a>, or to Nil on
             <a href="https://x.com/Nil053" target="_blank" rel="noopener">X</a>
             and
@@ -468,6 +540,78 @@
             healthcare company.
           </li>
         </ol>
+      </section>
+
+      <section id="contact">
+        <h2>Contact us</h2>
+        <p>Ask about pricing, a pilot or setup.</p>
+        <form
+          class="contact-form"
+          id="contact-form"
+          action="/api/contact"
+          method="post"
+          novalidate
+        >
+          <div class="contact-row">
+            <label
+              >Work email
+              <input
+                type="email"
+                name="email"
+                autocomplete="email"
+                maxlength="254"
+                required
+            /></label>
+            <label
+              >Company
+              <input
+                type="text"
+                name="company"
+                autocomplete="organization"
+                maxlength="200"
+                required
+            /></label>
+          </div>
+          <label
+            >Team size
+            <select name="size" required>
+              <option value="">Choose one</option>
+              <option value="1-10">1-10</option>
+              <option value="11-50">11-50</option>
+              <option value="51-200">51-200</option>
+              <option value="201-1000">201-1,000</option>
+              <option value="1000+">More than 1,000</option>
+            </select>
+          </label>
+          <label
+            >Message
+            <textarea name="message" maxlength="5000" required></textarea>
+          </label>
+          <div class="contact-hp" aria-hidden="true">
+            <label
+              >Leave this empty
+              <input
+                type="text"
+                name="website"
+                tabindex="-1"
+                autocomplete="off"
+            /></label>
+          </div>
+          <div id="contact-turnstile"></div>
+          <button type="submit" class="btn-license" disabled>Send</button>
+          <p
+            class="contact-status"
+            id="contact-status"
+            role="status"
+            aria-live="polite"
+          ></p>
+        </form>
+        <p class="contact-note">
+          We use these details only to answer you (<a href="/hosted-privacy"
+            >privacy policy</a
+          >). You can also write to
+          <a href="mailto:llc@isomux.com">llc@isomux.com</a>.
+        </p>
       </section>
     </main>
 
@@ -526,6 +670,132 @@
       </div>
     </footer>
 
+    <script>
+      // The contact form: GET /api/contact gives the Turnstile site key, the
+      // invisible widget gets a token on Send, and the form posts as JSON. If
+      // either is missing, the form gives way to the mail address.
+      (function () {
+        var form = document.getElementById("contact-form");
+        var status = document.getElementById("contact-status");
+        var button = form.querySelector("button");
+        var startedAt = null;
+        var widget = null;
+        var siteKey = null;
+        var turnstileReady = false;
+        var MAIL = "Write to llc@isomux.com instead.";
+
+        function unavailable() {
+          button.disabled = true;
+          status.textContent = "The form is not available right now. " + MAIL;
+        }
+        function render() {
+          if (!siteKey || !turnstileReady || widget !== null) return;
+          try {
+            widget = window.turnstile.render("#contact-turnstile", {
+              sitekey: siteKey,
+              action: "enterprise-contact",
+              execution: "execute",
+              callback: post,
+              "error-callback": function () {
+                status.textContent = "The bot check failed. " + MAIL;
+                button.disabled = false;
+                return true;
+              },
+            });
+            button.disabled = false;
+          } catch (e) {
+            unavailable();
+          }
+        }
+        window.onContactTurnstile = function () {
+          turnstileReady = true;
+          render();
+        };
+        window.onContactTurnstileError = unavailable;
+        fetch("/api/contact")
+          .then(function (res) {
+            if (!res.ok) throw new Error(String(res.status));
+            return res.json();
+          })
+          .then(function (config) {
+            siteKey = config.turnstileSiteKey;
+            // The server's time: it measures the fill time on its own clock.
+            startedAt = config.startedAt;
+            if (!siteKey) throw new Error("no site key");
+            render();
+          })
+          .catch(unavailable);
+
+        function post(token) {
+          var data = new FormData(form);
+          var body = {
+            email: String(data.get("email") || "").trim(),
+            company: String(data.get("company") || ""),
+            size: String(data.get("size") || ""),
+            message: String(data.get("message") || ""),
+            website: String(data.get("website") || ""),
+            startedAt: startedAt,
+            turnstileToken: token,
+          };
+          fetch("/api/contact", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          })
+            .then(function (res) {
+              return res.json().then(
+                function (json) {
+                  return { ok: res.ok, json: json };
+                },
+                function () {
+                  return { ok: false, json: null };
+                },
+              );
+            })
+            .then(function (result) {
+              if (result.ok) {
+                form.replaceChildren(status);
+                status.textContent =
+                  "Thanks, we got your message. We reply to " +
+                  body.email +
+                  ".";
+                return;
+              }
+              var error = (result.json && result.json.error) || {};
+              var field = error.field && form.elements[error.field];
+              if (field) field.focus();
+              status.textContent =
+                (error.message ? error.message + " " : "Could not send. ") +
+                (field ? "" : MAIL);
+              button.disabled = false;
+              window.turnstile.reset(widget);
+            })
+            .catch(function () {
+              status.textContent = "Could not send. " + MAIL;
+              button.disabled = false;
+              window.turnstile.reset(widget);
+            });
+        }
+
+        form.addEventListener("submit", function (event) {
+          event.preventDefault();
+          if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+          }
+          if (widget === null) return;
+          button.disabled = true;
+          status.textContent = "Sending...";
+          window.turnstile.execute(widget);
+        });
+      })();
+    </script>
+    <script
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&amp;onload=onContactTurnstile"
+      onerror="onContactTurnstileError()"
+      async
+      defer
+    ></script>
     <script defer src="/analytics.js"></script>
     <script defer src="/theme-toggle.js"></script>
   </body>

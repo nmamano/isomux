@@ -1,3 +1,10 @@
+import {
+  clientIp,
+  createRateLimiter,
+  retryAfterSeconds,
+  setRateLimitFields,
+} from "./_rate-limit.ts";
+
 function jsonError(
   status: number,
   code: string,
@@ -29,99 +36,19 @@ export const CHAT_LIMITS = {
   maxBodyBytes: 1_000_000,
 };
 
-// --- Rate limiting (in-memory, per server process) ---
-// Sliding windows per IP. Every response reports them in the RateLimit-Policy
-// and RateLimit fields of the IETF draft draft-ietf-httpapi-ratelimit-headers.
-const POLICIES = [
+// --- Rate limiting (in-memory, per server process; api/_rate-limit.ts) ---
+const limiter = createRateLimiter([
   { name: "minute", quota: 5, windowMs: 60_000 },
   { name: "hour", quota: 20, windowMs: 60 * 60 * 1000 },
-];
-const LONGEST_WINDOW_MS = Math.max(...POLICIES.map((p) => p.windowMs));
-const hits = new Map<string, number[]>();
-
-let lastSweep = 0;
+]);
 
 /** How many IPs the limiter holds. */
 export function trackedIpCount(): number {
-  return hits.size;
-}
-
-/**
- * Forgets each IP whose newest hit no window counts any more, at most once a
- * minute, so that one long-running process does not keep every visitor.
- */
-function forgetStale(now: number): void {
-  if (now >= lastSweep && now - lastSweep < 60_000) return;
-  lastSweep = now;
-  for (const [ip, timestamps] of hits)
-    if (!timestamps.length || now - timestamps.at(-1)! >= LONGEST_WINDOW_MS)
-      hits.delete(ip);
+  return limiter.trackedIpCount();
 }
 
 /** How long a reply may take from the request to Anthropic to its last byte. */
 export const CHAT_UPSTREAM = { timeoutMs: 45_000 };
-
-type Quota = {
-  name: string;
-  quota: number;
-  windowMs: number;
-  remaining: number;
-  /** Seconds until the oldest counted request leaves the window; 0 if none. */
-  resetSeconds: number;
-};
-
-/** Where an IP stands in each window, without counting a request. */
-function quotaState(ip: string, now: number): Quota[] {
-  const timestamps = hits.get(ip) ?? [];
-  return POLICIES.map((policy) => {
-    const inWindow = timestamps.filter((t) => now - t < policy.windowMs);
-    return {
-      ...policy,
-      remaining: Math.max(0, policy.quota - inWindow.length),
-      resetSeconds: inWindow.length
-        ? Math.ceil((inWindow[0] + policy.windowMs - now) / 1000)
-        : 0,
-    };
-  });
-}
-
-/** Count a request if every window has room. Quotas are the state after it. */
-function rateLimit(ip: string): { allowed: boolean; quotas: Quota[] } {
-  const now = Date.now();
-  forgetStale(now);
-  const timestamps = (hits.get(ip) ?? []).filter(
-    (t) => now - t < LONGEST_WINDOW_MS,
-  );
-  hits.set(ip, timestamps);
-  if (quotaState(ip, now).some((q) => q.remaining === 0)) {
-    return { allowed: false, quotas: quotaState(ip, now) };
-  }
-  timestamps.push(now);
-  return { allowed: true, quotas: quotaState(ip, now) };
-}
-
-/** Seconds until a request is allowed: the latest reset of a spent window. */
-function retryAfterSeconds(quotas: Quota[]): number {
-  return Math.max(
-    0,
-    ...quotas.filter((q) => q.remaining === 0).map((q) => q.resetSeconds),
-  );
-}
-
-function setRateLimitFields(headers: Headers, quotas: Quota[]): void {
-  headers.set(
-    "RateLimit-Policy",
-    quotas
-      .map((q) => `"${q.name}";q=${q.quota};w=${q.windowMs / 1000}`)
-      .join(", "),
-  );
-  headers.set(
-    "RateLimit",
-    quotas
-      .map((q) => `"${q.name}";r=${q.remaining};t=${q.resetSeconds}`)
-      .join(", "),
-  );
-}
 
 // --- System prompt ---
 // The site voice (this widget's identity and tone) and the shared Isomux
@@ -468,13 +395,12 @@ async function* parseAnthropicStream(
 
 // --- Handler ---
 export default async function handler(req: Request) {
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = clientIp(req);
   // A request that is not a POST is refused before it is counted.
   const { allowed, quotas } =
     req.method === "POST"
-      ? rateLimit(ip)
-      : { allowed: true, quotas: quotaState(ip, Date.now()) };
+      ? limiter.check(ip)
+      : { allowed: true, quotas: limiter.state(ip) };
   let response: Response;
   if (allowed) {
     response = await answer(req, ip);

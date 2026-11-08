@@ -32,8 +32,10 @@ services:
     image: ${ISOMUX_SITE_IMAGE:?set in release.env}
     command:
       ["bun", "site-host/server.ts", "--socket", "/run/isomux-site/site.sock"]
-    # ANTHROPIC_API_KEY, DISCORD_WEBHOOK_URL (root-only, 0600). Without the key the
-    # chat's call to the Anthropic API fails; the pages do not need either.
+    # ANTHROPIC_API_KEY, DISCORD_WEBHOOK_URL, RESEND_API_KEY, TURNSTILE_SITE_KEY,
+    # TURNSTILE_SECRET_KEY (root-only, 0600). Without the Anthropic key the chat's
+    # call fails; without the other three the contact form answers 503 and the page
+    # shows the mail address. The pages need none of them.
     env_file: /etc/isomux-site/site.env
     environment:
       HTTPS_PROXY: http://egress:3128
@@ -59,8 +61,9 @@ services:
     image: ${ISOMUX_SITE_IMAGE:?set in release.env}
     command: ["bun", "site-host/deploy/egress-proxy.ts"]
     environment:
-      # The chat calls the Anthropic API and posts to a Discord webhook.
-      EGRESS_ALLOW: api.anthropic.com:443,discord.com:443
+      # The chat calls the Anthropic API and posts to a Discord webhook; the contact
+      # form checks Turnstile tokens with Cloudflare and sends mail through Resend.
+      EGRESS_ALLOW: api.anthropic.com:443,discord.com:443,api.resend.com:443,challenges.cloudflare.com:443
       EGRESS_PORT: "3128"
     networks: [egress, outbound]
     cpus: 0.25

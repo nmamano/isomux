@@ -9,6 +9,7 @@
 !browser-extension/**
 !skills/**
 !api/chat.ts
+!api/_rate-limit.ts
 !site/screenshot.png
 !scripts/build.sh
 !scripts/publish-ui-dist.ts

@@ -114,14 +114,19 @@ describe("compose.yaml", () => {
     expect(shared.length).toBeGreaterThan(0);
   });
 
-  it("lets the egress proxy reach only the two hosts the chat calls", () => {
+  it("lets the egress proxy reach only the hosts the chat and the contact form call", () => {
     const allow = env(services.egress).EGRESS_ALLOW ?? "";
     expect(
       allow
         .split(",")
         .map((entry) => entry.trim())
         .sort(),
-    ).toEqual(["api.anthropic.com:443", "discord.com:443"]);
+    ).toEqual([
+      "api.anthropic.com:443",
+      "api.resend.com:443",
+      "challenges.cloudflare.com:443",
+      "discord.com:443",
+    ]);
   });
 });
 

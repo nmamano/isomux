@@ -100,17 +100,29 @@ test("legacy Render build has the same image and context contract", () => {
 // server/office-export-main.ts (task cdd7883d). Each, and every file it
 // imports, must be in the image by both build paths: the production context
 // (context.py's allowed()) and the Dockerfile's own rules.
-test("the image holds the rescue command and the export child, with every file they import", () => {
+test("the image holds every file its entries import: the office, the health probe, the rescue command and the export child", () => {
   const repo = new URL("../..", import.meta.url).pathname;
-  // The relative-import closure of the two entries.
-  const transpiler = new Bun.Transpiler({ loader: "ts" });
+  // The relative-import closure of the entries the image runs
+  // (entrypoint.sh, the Dockerfile HEALTHCHECK, rescue, the export child).
+  const transpilers = {
+    ts: new Bun.Transpiler({ loader: "ts" }),
+    tsx: new Bun.Transpiler({ loader: "tsx" }),
+  };
   const seen = new Set<string>();
-  const queue = ["scripts/rescue.ts", "server/office-export-main.ts"];
+  const queue = [
+    "deploy/container/office.ts",
+    "deploy/container/probe.ts",
+    "scripts/rescue.ts",
+    "server/office-export-main.ts",
+  ];
   while (queue.length > 0) {
     const file = queue.pop()!;
     if (seen.has(file)) continue;
     seen.add(file);
+    // A JSON import (the extension manifest) ships but imports nothing.
+    if (!/\.tsx?$/.test(file)) continue;
     const source = readFileSync(join(repo, file), "utf8");
+    const transpiler = file.endsWith(".tsx") ? transpilers.tsx : transpilers.ts;
     for (const { path } of transpiler.scanImports(source)) {
       if (!path.startsWith(".")) continue;
       const target = relative(repo, resolve(repo, dirname(file), path));
@@ -118,7 +130,8 @@ test("the image holds the rescue command and the export child, with every file t
     }
   }
   const files = [...seen].sort();
-  expect(files.length).toBeGreaterThan(2);
+  // The walk reached the office server, not only the entry files.
+  expect(files).toContain("server/isomux-office.ts");
 
   const refused = spawnSync(
     "python3",

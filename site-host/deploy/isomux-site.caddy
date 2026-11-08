@@ -25,13 +25,13 @@ isomux.com, www.isomux.com {
 		}
 	}
 	encode zstd gzip
-	# The chat accepts at most 1,000,000 bytes and answers a larger body itself;
-	# nothing else takes a body.
+	# The chat (at most 1,000,000 bytes) and the contact form (at most 20,000)
+	# answer a larger body themselves; nothing else takes a body.
 	request_body {
 		max_size 1MiB
 	}
 	reverse_proxy unix//run/isomux-site/site.sock {
-		# The chat rate limit keys on the first X-Forwarded-For address: replace whatever
+		# The chat and contact form rate limits key on the first X-Forwarded-For address: replace whatever
 		# the client or Cloudflare sent with the one address Caddy resolved.
 		header_up X-Forwarded-For {client_ip}
 		header_up X-Forwarded-Proto https
