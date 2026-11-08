@@ -204,6 +204,13 @@ happy-dom's unregister restores Bun's. Without them, a React update outside
 `act()` never committed in any DOM file after the first in its process
 (measured 2026-10-07).
 
+App modules keep state across files for the same reason. A module whose state
+one file can leave behind registers its reset with `ui/test-file-resets.ts`, and
+the harness runs every registered reset before each DOM file's tests.
+`ui/task-lookup.ts` does: a file that renders a task chip with no
+`TaskLookupBridge` left its ids queued, and the next file's bridge sent them to
+its own API shim (task 5062bbe5).
+
 Anything a page fetches on mount needs `setApiShim` from `ui/api.ts`, reset to
 null when the file ends because it is a module singleton that outlives the DOM.
 The cronjobs, apps and settings pages all fetch, and without the shim happy-dom

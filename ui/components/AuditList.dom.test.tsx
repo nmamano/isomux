@@ -7,13 +7,8 @@ const { setApiShim } = await import("../api.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { t } = translatorFor("en");
 const { RECORDING_PRIVATE_ATTR } = await import("../recording-mode.ts");
-const { resetTaskLookupForTests } = await import("../task-lookup.ts");
-// AuditPane asks task-lookup for task titles with no TaskLookupBridge
-// mounted, so the ids stay queued in module state; the next file in the
-// process that mounts the bridge would send them to its own API shim.
 afterAll(() => {
   setApiShim(null);
-  resetTaskLookupForTests();
 });
 it("names a deleted task by its snapshot and restores it", async () => {
   const calls: string[] = [];

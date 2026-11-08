@@ -22,6 +22,7 @@ import type { TaskItem } from "../shared/types.ts";
 import { apiFetch } from "./api.ts";
 import { useCan } from "./hooks/useCan.ts";
 import { useAppState, useDispatch, type Action } from "./store.tsx";
+import { resetBetweenTestFiles } from "./test-file-resets.ts";
 
 export type TaskFetchKind = "open" | "closed";
 
@@ -337,3 +338,7 @@ export function resetTaskLookupForTests(): void {
   missWaiters.length = 0;
   flushQueued = false;
 }
+
+// A DOM test file that renders a lookUpTaskIds caller with no bridge leaves
+// its ids queued; the next file's bridge would send them (task 5062bbe5).
+resetBetweenTestFiles(resetTaskLookupForTests);

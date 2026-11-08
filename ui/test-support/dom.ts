@@ -31,6 +31,12 @@
 //
 //     const { act, render } = await import("@testing-library/react");
 //     const { App } = await import("./App.tsx");
+//
+// Module state outlives a file too: a module is evaluated once per process.
+// A module whose state one file can leave behind registers a reset with
+// ui/test-file-resets.ts, and the harness runs every registered reset at the
+// start of each DOM file, so the state an earlier file left (DOM or not) never
+// reaches this one's tests.
 
 import { afterAll, afterEach, beforeAll, expect } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
@@ -39,6 +45,7 @@ import {
   snapshotGlobals,
   startGlobals,
 } from "./start-globals.ts";
+import { runTestFileResets } from "../test-file-resets.ts";
 
 type MatcherUtils = {
   printExpected(value: unknown): string;
@@ -379,8 +386,9 @@ function restoreStubGlobals(file: DomFile): void {
  * Registers happy-dom for one test file and wires its lifecycle: React cleanup
  * after every test, unregistration after the file, and the wall-clock cap.
  *
- * At the end of the file the harness puts back every global the file changed,
- * and fails the file, naming each one, and each request it sent through
+ * At the start of the file the harness runs the module resets registered with
+ * ui/test-file-resets.ts. At the end of the file it puts back every global the
+ * file changed, and fails the file, naming each one, and each request it sent through
  * happy-dom. It also repairs, and fails on, what an earlier file left behind
  * when this file starts. It cannot see a global that a file's own afterAll
  * writes after the harness's afterAll; the next DOM file reports that one.
@@ -425,6 +433,8 @@ export function setUpDomTestFile({
   // afterAll would have unregistered in between.
   beforeAll(() => {
     if (register()) file.window = snapshotGlobals();
+    // Module state an earlier file left behind, DOM or not (task 5062bbe5).
+    runTestFileResets();
   });
   afterEach(cleanup);
   afterAll(async () => {

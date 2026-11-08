@@ -499,3 +499,84 @@ it("has no stubbed key", () => {
     }
   }, 30_000);
 });
+
+// Module state that a file leaves behind (task 5062bbe5): ui/task-lookup.ts
+// keeps the ids it was asked about in a queue, and the first bridge that
+// mounts sends them. Each DOM file starts with that queue empty, whether a
+// DOM file or a plain file filled it.
+describe("module state between files", () => {
+  const ui = (path: string) => JSON.stringify(join(REPO, "ui", path));
+  // The fixtures live outside the repo, so a package resolves from it.
+  const pkg = (name: string) => JSON.stringify(Bun.resolveSync(name, REPO));
+  /** A file that asks for `id` with no bridge mounted, so the id stays queued. */
+  const leaveQueued = (id: string) =>
+    `it("leaves an id queued", () => { lookUpTaskIds([${JSON.stringify(id)}]); });`;
+  /** A DOM file that mounts a bridge, asks for `own` and records the ids its
+   *  API shim is asked for, then leaves `leave` queued. */
+  const bridgeFixture = (name: string, own: string, leave: string) =>
+    domFixture(
+      name,
+      `const { act, render } = await import(${pkg("@testing-library/react")});
+const { createElement } = await import(${pkg("react")});
+const { FeaturesProvider, StoreProvider } = await import(${ui("store.tsx")});
+const { PRODUCTION_FEATURES } = await import(${JSON.stringify(join(REPO, "shared/features.ts"))});
+const { setApiShim } = await import(${ui("api.ts")});
+const { setShim } = await import(${ui("ws.ts")});
+const { TaskLookupBridge, lookUpTaskIds } = await import(${ui("task-lookup.ts")});
+it("sends only its own ids", async () => {
+  const asked: string[] = [];
+  setShim(() => {});
+  setApiShim(async (_method, path) => {
+    const url = new URL(path, "http://office.test");
+    if (url.pathname === "/api/tasks")
+      asked.push(...(url.searchParams.get("ids") ?? "").split(",").filter(Boolean));
+    return [];
+  });
+  try {
+    render(createElement(FeaturesProvider, { features: PRODUCTION_FEATURES,
+      children: createElement(StoreProvider, null, createElement(TaskLookupBridge)) }));
+    await act(async () => {
+      lookUpTaskIds([${JSON.stringify(own)}]);
+      await new Promise((done) => setTimeout(done, 0));
+    });
+  } finally {
+    setApiShim(null);
+    setShim(null);
+  }
+  expect(asked).toEqual([${JSON.stringify(own)}]);
+});
+${leaveQueued(leave)}`,
+    );
+
+  it("starts each DOM file with no task id queued by an earlier file", async () => {
+    const run = await runInOneProcess("task-lookup", [
+      [
+        "plain.test.ts",
+        `import { it } from "bun:test";
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.ORDER_FILE!, "plain\\n");
+const { lookUpTaskIds } = await import(${ui("task-lookup.ts")});
+${leaveQueued("a1a1a1a1")}`,
+      ],
+      bridgeFixture("first", "b1b1b1b1", "b2b2b2b2"),
+      bridgeFixture("second", "c1c1c1c1", "c2c2c2c2"),
+    ]);
+    expect(run.order).toEqual(["plain", "first", "second"]);
+    expect(run.file("plain.test.ts"), run.output).toEqual({
+      passed: ["leaves an id queued"],
+      failures: [],
+    });
+    // first: the plain file's id; second: first's late id.
+    const clean = {
+      passed: ["sends only its own ids", "leaves an id queued"],
+      failures: [],
+    };
+    expect(
+      {
+        first: run.file("first.dom.test.ts"),
+        second: run.file("second.dom.test.ts"),
+      },
+      run.output,
+    ).toEqual({ first: clean, second: clean });
+  }, 30_000);
+});
