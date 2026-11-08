@@ -614,7 +614,8 @@ install_github_cli() {
   keyring_tmp=$(mktemp /usr/share/keyrings/.githubcli-keyring.XXXXXXXXXX) || true
   source_tmp=$(mktemp /etc/apt/sources.list.d/.github-cli.XXXXXXXXXX) || true
   if [[ -z $keyring_tmp || -z $source_tmp ]] ||
-    ! curl -fsSL 'https://cli.github.com/packages/githubcli-archive-keyring.gpg' >"$keyring_tmp" ||
+    ! curl -fsSL "${GITHUB_RETRY[@]}" -o "$keyring_tmp" \
+      'https://cli.github.com/packages/githubcli-archive-keyring.gpg' ||
     ! chmod go+r "$keyring_tmp" ||
     ! mv -f "$keyring_tmp" "$keyring" ||
     ! arch=$(dpkg --print-architecture) ||
@@ -635,6 +636,22 @@ install_github_cli() {
     return 0
   fi
   log "installed GitHub CLI"
+}
+
+# GitHub can fail every release download with a 5xx for an hour while its
+# status page shows nothing (2026-11-08: HTTP 504 after about 11 s). Every
+# GitHub download retries for about 3 minutes. --retry-all-errors also
+# retries a dropped connection, and with -f any HTTP error; without -f only
+# 408, 429, 500, 502, 503 and 504 count, so a 404 answers at once.
+GITHUB_RETRY=(--retry 5 --retry-delay 20 --retry-all-errors --connect-timeout 30)
+GITHUB_DOWN="GitHub did not answer after 6 tries. Try again in a few minutes."
+
+# github_download <url> <file>: on failure, logs why and returns 1, so the
+# caller cleans up and stops.
+github_download() {
+  curl -fsSL "${GITHUB_RETRY[@]}" -o "$2" "$1" && return 0
+  log "could not download $1. $GITHUB_DOWN"
+  return 1
 }
 
 # Caddy releases carry Debian packages and SHA512 checksums for both supported
@@ -663,8 +680,9 @@ install_caddy_release() (
   stage=$(mktemp -d) || exit $?
   trap 'rm -rf "$stage"' EXIT
   chmod 755 "$stage" || exit $?
-  curl -fsSL "$base/$asset" -o "$stage/$asset" || exit $?
-  curl -fsSL "$base/caddy_${CADDY_VERSION}_checksums.txt" -o "$stage/checksums.txt" || exit $?
+  log "downloading caddy $CADDY_VERSION ($arch)"
+  github_download "$base/$asset" "$stage/$asset" || exit 1
+  github_download "$base/caddy_${CADDY_VERSION}_checksums.txt" "$stage/checksums.txt" || exit 1
   # Explicit exits also fail closed inside drop_output_lines, whose status
   # capture disables errexit. Reject missing, duplicate, or malformed entries.
   awk -v asset="$asset" '
@@ -3487,9 +3505,9 @@ converge_bun() {
     tmp=$(mktemp -d "$dir/.tmp.XXXXXXXX") || die "could not create a temp directory in $dir"
     local url=$BUN_DOWNLOAD_BASE/bun-v$version/bun-linux-$arch.zip got
     log "downloading bun $version ($arch)"
-    if ! curl -fsSL -o "$tmp/bun.zip" "$url"; then
+    if ! github_download "$url" "$tmp/bun.zip"; then
       rm -rf "$tmp"
-      die "could not download $url"
+      die "could not install bun $version"
     fi
     got=$(sha256sum "$tmp/bun.zip" | cut -d ' ' -f 1) || got=""
     if [[ $got != "$sha" ]]; then
@@ -4419,11 +4437,14 @@ resolve_default_ref() {
     log "DRY-RUN: jq not installed yet; would resolve the latest release, assuming main"
     return 0
   fi
-  local resp code body latest
-  resp=$(curl -sS --max-time 15 -w '\n%{http_code}' \
-    "https://api.github.com/repos/$owner_repo/releases/latest" 2>/dev/null) || resp=$'\n000'
-  code=${resp##*$'\n'}
-  body=${resp%$'\n'*}
+  local code body latest out
+  # No -f: a 404 or 403 is then no curl error and answers at once.
+  # The body goes to a file: a retry to stdout would keep each try's body.
+  out=$(mktemp) || die "could not create a temp file"
+  code=$(curl -sS "${GITHUB_RETRY[@]}" --max-time 15 -o "$out" -w '%{http_code}' \
+    "https://api.github.com/repos/$owner_repo/releases/latest" 2>/dev/null) || code=000
+  body=$(cat "$out")
+  rm -f "$out"
   if [[ $code == 200 ]]; then
     latest=$(jq -r '.tag_name // empty' <<<"$body" 2>/dev/null) || latest=""
     if [[ -z $latest ]]; then
@@ -4439,8 +4460,11 @@ resolve_default_ref() {
     ISOMUX_REF=main
     log "no ISOMUX_REF given and $owner_repo has no releases yet; installing main"
   else
+    # The codes curl retried: 000 (no answer), 408, 429, 500, 502, 503, 504.
+    local hint=""
+    case $code in 000 | 408 | 429 | 500 | 502 | 503 | 504) hint=" $GITHUB_DOWN" ;; esac
     is_official_repo &&
-      die "could not determine the latest release of $owner_repo (HTTP $code); set ISOMUX_REF explicitly to proceed"
+      die "could not determine the latest release of $owner_repo (HTTP $code).$hint To skip this lookup, set ISOMUX_REF to a release tag."
     ISOMUX_REF=main
     log "warning: latest-release lookup for $owner_repo failed (HTTP $code); installing main"
   fi
@@ -5873,10 +5897,13 @@ container_main() (
   container_render_caddy "$CONTAINER_STAGE/Caddyfile"
   # Resolve the release once. Compare the standalone installer to that source
   # commit, then require the image's OCI revision label to agree after pull.
-  CONTAINER_REVISION=$(curl -fsSL "https://api.github.com/repos/nmamano/isomux/commits/$ISOMUX_REF" |
-    jq -er '.sha')
+  # To a file: a retried transfer to stdout would hand jq both bodies.
+  github_download "https://api.github.com/repos/nmamano/isomux/commits/$ISOMUX_REF" "$CONTAINER_STAGE/release-commit.json" ||
+    die "could not look up release $ISOMUX_REF on GitHub"
+  CONTAINER_REVISION=$(jq -er '.sha' "$CONTAINER_STAGE/release-commit.json")
   [[ $CONTAINER_REVISION =~ ^[a-f0-9]{40}$ ]] || die "Cannot resolve the release source revision"
-  curl -fsSL "https://raw.githubusercontent.com/nmamano/isomux/$CONTAINER_REVISION/deploy/install.sh" -o "$CONTAINER_STAGE/release-installer.sh"
+  github_download "https://raw.githubusercontent.com/nmamano/isomux/$CONTAINER_REVISION/deploy/install.sh" "$CONTAINER_STAGE/release-installer.sh" ||
+    die "could not download the release's install.sh"
   cmp -s "$CONTAINER_INSTALLER" "$CONTAINER_STAGE/release-installer.sh" || die "Download install.sh from the selected release tag"
   rm "$CONTAINER_STAGE/release-installer.sh"
   if [[ -e $CONTAINER_DIR || -L $CONTAINER_DIR ]]; then container_check_saved; fi

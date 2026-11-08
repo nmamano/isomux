@@ -586,7 +586,12 @@ ${topLevelHelpers()}
 DRY_RUN=""
 apt_install() { echo "APT_INSTALL: $*"; [[ ${JSON.stringify(fail)} != install ]]; }
 apt_get() { apt-get "$@"; }
-curl() { [[ ${JSON.stringify(fail)} != curl ]] || return 1; printf key; }
+curl() {
+  [[ ${JSON.stringify(fail)} != curl ]] || return 1
+  local out=""
+  while (($#)); do [[ $1 == -o ]] && out=$2; shift; done
+  if [[ -n $out ]]; then printf key > "$out"; else printf key; fi
+}
 dpkg() { printf amd64; }
 apt-get() { printf '%s\\n' "$@" >> ${JSON.stringify(aptLog)}; [[ ${JSON.stringify(fail)} != update ]]; }
 install_github_cli

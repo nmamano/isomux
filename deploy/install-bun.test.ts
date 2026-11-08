@@ -9,7 +9,15 @@
 // (the path the service runs) stays a REGULAR file with the bytes of one of
 // them.
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+} from "bun:test";
 import {
   mkdtempSync,
   rmSync,
@@ -29,12 +37,25 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { execFileSync, spawnSync } from "child_process";
 import { createHash } from "crypto";
+import {
+  callsFor,
+  retryWaitSeconds,
+  startGithubStub,
+  type GithubStub,
+} from "./github-stub.ts";
 
 const INSTALL_SH = new URL("./install.sh", import.meta.url).pathname;
 const PACKAGE_JSON = new URL("../package.json", import.meta.url).pathname;
 const SRC = readFileSync(INSTALL_SH, "utf8");
 // The installer's own Bun pin; empty (and every test using it red) if absent.
 const PINNED = SRC.match(/^BUN_VERSION=(\S+)$/m)?.[1] ?? "";
+// The GitHub retry flags, message and github_download (task 6f9db7cd), which
+// sit outside the bun-pin range.
+const RETRY = SRC.slice(
+  SRC.indexOf("GITHUB_RETRY="),
+  SRC.indexOf("\n# Caddy releases"),
+);
+const RELEASES = SRC.match(/^BUN_DOWNLOAD_BASE=(\S+)$/m)?.[1] ?? "";
 
 let base: string;
 let dl: string; // file:// download root: <dl>/bun-v<version>/bun-linux-<arch>.zip
@@ -157,21 +178,30 @@ function pathWithout(without: string): string {
   return shadow;
 }
 
-// The extracted range with the real bun_sha256 and bun_arch replaced by the
-// fixture's table and a fixed arch, unless `realTable` keeps the real ones.
-function runConverge(opts: {
+type ConvergeOpts = {
   version: string;
   path?: string;
   realTable?: boolean;
   tail?: string;
-}): { code: number; out: string } {
-  const script = `
+};
+
+// The extracted range with the real bun_sha256 and bun_arch replaced by the
+// fixture's table and a fixed arch, unless `realTable` keeps the real ones.
+// `releases` keeps the real download base (for deploy/github-stub.ts) instead
+// of the file:// directory.
+function convergeScript(opts: ConvergeOpts, releases = false): string {
+  return `
 set -Eeuo pipefail
 log() { echo "LOG: $*"; }
 die() { echo "DIE: $*" >&2; exit 1; }
 step() { :; }
-eval "$(sed -n '/^# --- BEGIN bun-pin/,/^# --- END bun-pin/p' "$INSTALL_SH" |
-  sed "s#^BUN_DOWNLOAD_BASE=.*#BUN_DOWNLOAD_BASE=file://$DL#")"
+${RETRY}
+eval "$(sed -n '/^# --- BEGIN bun-pin/,/^# --- END bun-pin/p' "$INSTALL_SH"${
+    releases
+      ? ""
+      : ` |
+  sed "s#^BUN_DOWNLOAD_BASE=.*#BUN_DOWNLOAD_BASE=file://$DL#"`
+  })"
 ${
   opts.realTable
     ? ""
@@ -180,21 +210,60 @@ bun_arch() { echo x64; }`
 }
 ${opts.tail ?? `converge_bun "$VERSION" "$LINK" "$DIR"`}
 `;
-  const r = spawnSync("bash", ["-c", script], {
-    env: {
-      PATH: opts.path ?? process.env.PATH ?? "",
-      HOME: base,
-      INSTALL_SH,
-      DL: dl,
-      TABLE: table,
-      LINK: link,
-      DIR: dir,
-      VERSION: opts.version,
-    },
+}
+
+function convergeEnv(opts: ConvergeOpts): Record<string, string> {
+  return {
+    PATH: opts.path ?? process.env.PATH ?? "",
+    HOME: base,
+    INSTALL_SH,
+    DL: dl,
+    TABLE: table,
+    LINK: link,
+    DIR: dir,
+    VERSION: opts.version,
+  };
+}
+
+// A real curl that waits 1 s between tries instead of the installer's 20 s
+// (curl takes the last --retry-delay), so a failing download fails in seconds.
+function fastRetryPath(): string {
+  const bin = join(base, "fast-retry");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "curl"),
+    `#!/bin/sh\nexec ${JSON.stringify(Bun.which("curl"))} "$@" --retry-delay 1\n`,
+  );
+  chmodSync(join(bin, "curl"), 0o755);
+  return `${bin}:${process.env.PATH ?? ""}`;
+}
+
+function runConverge(opts: ConvergeOpts): { code: number; out: string } {
+  const r = spawnSync("bash", ["-c", convergeScript(opts)], {
+    env: convergeEnv({ ...opts, path: opts.path ?? fastRetryPath() }),
     encoding: "utf8",
     timeout: 30_000,
   });
   return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+}
+
+// converge_bun against deploy/github-stub.ts, which answers in this process:
+// async, so the stub can reply while the shell waits.
+async function runConvergeFromStub(
+  opts: ConvergeOpts,
+  env: Record<string, string>,
+): Promise<{ code: number; out: string }> {
+  const child = Bun.spawn(["bash", "-c", convergeScript(opts, true)], {
+    env: { ...convergeEnv(opts), ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { code, out: out + err };
 }
 
 function versionOf(path: string): string {
@@ -358,12 +427,13 @@ describe("install.sh converge_bun: a failed install changes nothing the service 
     expectUntouched(before, "9.9.0", "9.9.1");
   });
 
+  // The download is retried first (task 6f9db7cd): five 1 s waits here.
   it("fails when the download is missing", () => {
     const before = ino(link);
     const r = runConverge({ version: "9.9.1" });
     expect(r.code).not.toBe(0);
     expectUntouched(before, "9.9.0", "9.9.1");
-  });
+  }, 20_000);
 
   for (const tool of ["curl", "unzip", "sha256sum"]) {
     it(`checks for ${tool} before it changes anything`, () => {
@@ -380,6 +450,73 @@ describe("install.sh converge_bun: a failed install changes nothing the service 
       expectRegularLinkAt("9.9.1");
     });
   }
+});
+
+// Task 6f9db7cd: on 2026-11-08 GitHub answered every release download with
+// HTTP 504 for an hour. The real curl, against deploy/github-stub.ts.
+describe("install.sh converge_bun: GitHub does not answer", () => {
+  let stubDir: string;
+  let stub: GithubStub;
+  let cases = 0;
+  const zipUrl = `${RELEASES}/bun-v9.9.1/bun-linux-x64.zip`;
+  const githubDown = spawnSync(
+    "bash",
+    ["-c", `log() { :; }\n${RETRY}\nprintf %s "$GITHUB_DOWN"`],
+    { encoding: "utf8" },
+  ).stdout;
+
+  beforeAll(async () => {
+    stubDir = mkdtempSync(join(tmpdir(), "isomux-install-bun-stub-"));
+    stub = await startGithubStub(stubDir);
+  });
+
+  afterAll(() => {
+    stub.stop();
+    rmSync(stubDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    writeFakeBun(link, "9.9.0");
+    publishZip({ version: "9.9.1" });
+  });
+
+  it("switches to the new Bun after five 504s on its download", async () => {
+    const id = `c${++cases}`;
+    const calls = join(base, "calls");
+    stub.plan(id, zipUrl, {
+      failures: 5,
+      body: readFileSync(join(dl, "bun-v9.9.1", "bun-linux-x64.zip")),
+    });
+    const r = await runConvergeFromStub(
+      { version: "9.9.1" },
+      stub.env(id, calls),
+    );
+    expect({ code: r.code, out: r.out }).toEqual({
+      code: 0,
+      out: expect.any(String),
+    });
+    expectRegularLinkAt("9.9.1");
+    expect(stub.hits(id, zipUrl)).toBe(6);
+    const made = callsFor(readFileSync(calls, "utf8"), zipUrl);
+    expect(made).toHaveLength(1);
+    // Minutes of retries, not seconds.
+    expect(retryWaitSeconds(made[0]!)).toBeGreaterThanOrEqual(90);
+  }, 20_000);
+
+  it("after six tries changes nothing and says GitHub did not answer", async () => {
+    const id = `c${++cases}`;
+    stub.plan(id, zipUrl, { failures: 1_000 });
+    const before = ino(link);
+    const r = await runConvergeFromStub(
+      { version: "9.9.1" },
+      stub.env(id, join(base, "calls")),
+    );
+    expect(r.code).not.toBe(0);
+    expectUntouched(before, "9.9.0", "9.9.1");
+    expect(githubDown.length).toBeGreaterThan(0);
+    expect(r.out).toContain(githubDown);
+    expect(stub.hits(id, zipUrl)).toBe(6);
+  }, 20_000);
 });
 
 describe("install.sh Bun pin", () => {

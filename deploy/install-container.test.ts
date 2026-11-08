@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   mkdtempSync,
   readFileSync,
@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UserRecord } from "../shared/types.ts";
+import { startGithubStub, type GithubStub } from "./github-stub.ts";
 
 const source = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
 const definitions = source.slice(0, source.lastIndexOf('\nmain "$@"'));
@@ -67,7 +68,12 @@ esac
 
 let harnesses = 0;
 
-async function run(dir: string, script: string, alternate = definitions) {
+async function run(
+  dir: string,
+  script: string,
+  alternate = definitions,
+  env: Record<string, string> = {},
+) {
   const prefix = `
 CONTAINER_DIR="$FIXTURE/config"
 CONTAINER_DATA="$FIXTURE/data"
@@ -94,8 +100,11 @@ systemctl() {
   esac
 }
 curl() {
-  if [[ "$*" == *api.github.com* ]]; then echo "curl api.github.com" >> "$FIXTURE/events"; printf '{"sha":"%040d"}\\n' 1;
-  elif [[ "$*" == *raw.githubusercontent.com* ]]; then echo "curl raw.githubusercontent.com" >> "$FIXTURE/events"; cp "$FIXTURE/installer" "\${@: -1}";
+  # The -o file when there is one, as curl writes.
+  local out=/dev/stdout a prev=""
+  for a in "$@"; do [[ $prev == -o ]] && out=$a; prev=$a; done
+  if [[ "$*" == *api.github.com* ]]; then echo "curl api.github.com" >> "$FIXTURE/events"; printf '{"sha":"%040d"}\\n' 1 > "$out";
+  elif [[ "$*" == *raw.githubusercontent.com* ]]; then echo "curl raw.githubusercontent.com" >> "$FIXTURE/events"; cp "$FIXTURE/installer" "$out";
   else printf 200; fi
 }
 dpkg-query() { echo dpkg-query >> "$FIXTURE/events"; [[ ! -e "$FIXTURE/default-caddy" ]] || printf '/etc/caddy/Caddyfile %s\\n' "$(md5sum "$FIXTURE/default-caddy" | cut -d ' ' -f 1)"; }
@@ -130,6 +139,7 @@ install_caddyfile_transaction() { cp "$1" "$CADDYFILE"; }
       FIXTURE: dir,
       HOME: dir,
       TMPDIR: dir,
+      ...env,
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -863,6 +873,51 @@ it.concurrent(
     expect(existsSync(join(dir, "update.conf"))).toBe(true);
     expect(existsSync(join(dir, "config"))).toBe(false);
     expect((await run(dir, "container_main")).code).toBe(0);
+  },
+  INSTALL_CASE_TIMEOUT_MS,
+);
+
+// Task 6f9db7cd: on 2026-11-08 GitHub answered HTTP 504 for an hour. The
+// release lookup and the installer download run through the real curl against
+// deploy/github-stub.ts; one 504 each must not stop the install.
+let stub: GithubStub;
+let stubDir: string;
+beforeAll(async () => {
+  stubDir = mkdtempSync(join(tmpdir(), "isomux-container-github-"));
+  stub = await startGithubStub(stubDir);
+});
+afterAll(() => {
+  stub.stop();
+  rmSync(stubDir, { recursive: true, force: true });
+});
+
+it.concurrent(
+  "rides out a 504 on the release lookup and on the installer download",
+  async () => {
+    const dir = fixture();
+    const sha = "0".repeat(39) + "1";
+    const lookup =
+      "https://api.github.com/repos/nmamano/isomux/commits/v2026.9.21";
+    const installer = `https://raw.githubusercontent.com/nmamano/isomux/${sha}/deploy/install.sh`;
+    stub.plan("container", lookup, {
+      failures: 1,
+      body: JSON.stringify({ sha }),
+    });
+    stub.plan("container", installer, { failures: 1, body: source });
+    const env = stub.env("container", join(dir, "calls"));
+    const result = await run(
+      dir,
+      `curl() { if [[ "$*" == *github* ]]; then command curl "$@"; else printf 200; fi; }
+container_main`,
+      definitions,
+      { ...env, PATH: `${stub.bin}:${dir}/bin:${process.env.PATH}` },
+    );
+    expect({ code: result.code, err: result.err }).toEqual({
+      code: 0,
+      err: expect.any(String),
+    });
+    expect(stub.hits("container", lookup)).toBe(2);
+    expect(stub.hits("container", installer)).toBe(2);
   },
   INSTALL_CASE_TIMEOUT_MS,
 );

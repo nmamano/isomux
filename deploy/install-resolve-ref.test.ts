@@ -18,14 +18,23 @@ beforeAll(() => {
   base = mkdtempSync(join(tmpdir(), "isomux-resolve-ref-test-"));
   const bin = join(base, "bin");
   mkdirSync(bin);
-  // Mimics `curl -sS -w '\n%{http_code}' URL`: body, newline, status code.
-  // CURL_STUB_CODE=fail simulates a transport error (non-zero exit, no
-  // output), which the resolver maps to the synthetic 000.
+  // Mimics curl with -w '%{http_code}': the body goes to the -o file, or
+  // before the code on stdout when there is no -o. CURL_STUB_CODE=fail
+  // simulates a transport error (non-zero exit, no output), which the
+  // resolver maps to the synthetic 000. The retries are covered against a
+  // real curl in install-github-retry.test.ts.
   writeFileSync(
     join(bin, "curl"),
     `#!/usr/bin/env bash
 [[ \${CURL_STUB_CODE:-} == fail ]] && exit 7
-printf '%s\\n%s' "\${CURL_STUB_BODY:-}" "\${CURL_STUB_CODE:-200}"
+out=""
+while (($#)); do [[ $1 == -o ]] && out=$2; shift; done
+if [[ -n $out ]]; then
+  printf '%s' "\${CURL_STUB_BODY:-}" > "$out"
+  printf '%s' "\${CURL_STUB_CODE:-200}"
+else
+  printf '%s\\n%s' "\${CURL_STUB_BODY:-}" "\${CURL_STUB_CODE:-200}"
+fi
 `,
   );
   chmodSync(join(bin, "curl"), 0o755);

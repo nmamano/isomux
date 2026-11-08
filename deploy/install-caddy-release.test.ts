@@ -9,8 +9,10 @@ const filter = source.slice(
   filterStart,
   source.indexOf("\n}\n", filterStart) + 3,
 );
+// From the GitHub retry flags and github_download down to the Caddy pin and
+// its installer.
 const helpers = source.slice(
-  source.indexOf("CADDY_VERSION="),
+  source.indexOf("GITHUB_RETRY="),
   source.indexOf("install_packages() {"),
 );
 
@@ -22,13 +24,22 @@ set -Eeuo pipefail
 ${helpers}
 ${filter}
 die() { echo "$*" >&2; exit 1; }
+log() { echo "$*"; }
 dpkg-query() { printf '%s' "$INSTALLED"; }
 dpkg() {
   if [[ $1 == --print-architecture ]]; then echo "$ARCH"; else command dpkg "$@"; fi
 }
+# The URL is the https:// argument and the file follows -o, whatever flags
+# the installer adds around them.
 curl() {
-  echo "$2" >> "$FIXTURE/downloads"
-  if [[ $2 == *.deb ]]; then printf package > "$4"; return; fi
+  local url="" out=""
+  while (($#)); do
+    [[ $1 == https://* ]] && url=$1
+    [[ $1 == -o ]] && out=$2
+    shift
+  done
+  echo "$url" >> "$FIXTURE/downloads"
+  if [[ $url == *.deb ]]; then printf package > "$out"; return; fi
   asset="caddy_\${CADDY_VERSION}_linux_\${ARCH}.deb"
   hash=$(printf package | sha512sum | cut -d ' ' -f 1)
   case $CHECKSUM in
@@ -38,7 +49,7 @@ curl() {
     duplicate) printf '%s  %s\\n%s  %s\\n' "$hash" "$asset" "$hash" "$asset" ;;
     malformed) printf 'bad  %s\\n' "$asset" ;;
     download-fails) return 22 ;;
-  esac > "$4"
+  esac > "$out"
 }
 apt_install() { test -f "$1"; cat "$1" > "$FIXTURE/installed"; }
 drop_output_lines "^ignored$" install_caddy_release
