@@ -997,8 +997,9 @@ function RetentionBlock() {
         onClick={() => void save()}
         disabled={!valid || saving}
         style={{
-          ...dialogSaveBtn,
-          marginTop: 12,
+          ...dialogCancelBtn,
+          marginTop: 14,
+          width: "100%",
           ...(valid && !saving ? null : disabledLook),
         }}
       >
