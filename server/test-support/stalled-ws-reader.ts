@@ -26,7 +26,9 @@
 // lane frames as the office client does (log_ack per LOG_ACK_BYTES of raw
 // frame length and at each lane log_open_done), but only after the stall;
 // without it the reader never acks. READER_SEND_AFTER (a JSON array of client
-// messages) goes out as the stall ends, before any ack.
+// messages) goes out once the stall has ended and the first lane frame has
+// arrived, before that frame's ack: the lane is under way, and its next frame
+// waits for the ack.
 
 import { existsSync, readFileSync, writeSync } from "node:fs";
 import { LOG_ACK_BYTES } from "../../shared/log-stream.ts";
@@ -89,6 +91,15 @@ let awaitedId = "";
 // Lane bytes received and not acked yet; acks start once the stall ends.
 let unacked = 0;
 let released = false;
+// A lane frame has arrived, and SEND_AFTER went out.
+let laneSeen = false;
+let sentAfter = false;
+function sendAfter(): void {
+  if (sentAfter || !released || !laneSeen) return;
+  sentAfter = true;
+  for (const message of SEND_AFTER)
+    socket.write(clientFrame(JSON.stringify(message)));
+}
 function ack(): void {
   if (!ACK || !released || unacked === 0) return;
   socket.write(
@@ -146,6 +157,8 @@ function parse(): void {
         msg.type === "slash_commands" ||
         (msg.type === "log_open_done" && !msg.refused));
     if (lane) {
+      laneSeen = true;
+      sendAfter();
       unacked += payload.toString().length;
       if (unacked >= LOG_ACK_BYTES || msg.type === "log_open_done") ack();
     }
@@ -182,8 +195,7 @@ const socket = await Bun.connect({
         if (existsSync(releaseFile))
           awaitedId = readFileSync(releaseFile, "utf8").trim();
         released = true;
-        for (const message of SEND_AFTER)
-          socket.write(clientFrame(JSON.stringify(message)));
+        sendAfter();
         ack();
         lastData = Date.now();
       }

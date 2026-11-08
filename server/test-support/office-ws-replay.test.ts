@@ -79,7 +79,8 @@ async function startReader(
   // A lazy socket (task 9ebe887d slice 2): its query, the messages it sends
   // before the stall, and the request id whose log_open_done ends the read.
   // It acks the lane after the stall as the office client does, unless ack
-  // is false; sendAfter goes out as the stall ends, before any ack.
+  // is false; sendAfter goes out after the stall, once the first lane frame
+  // has arrived and before its ack.
   lazy?: {
     query: string;
     send: unknown[];
@@ -484,8 +485,7 @@ describe("a lazy socket's chat loads to a client that stops reading", () => {
     expect(replayedIds(frames, "p1")).toHaveLength(1);
   }, 60_000);
 
-  // Quarantined (task 37a29704): flaky - the enabling condition saw no prefetch frame before the open.
-  it.skip("a chat opened while a big prefetch is in flight arrives after at most one prefetch frame", async () => {
+  it("a chat opened while a big prefetch is in flight arrives after at most one prefetch frame", async () => {
     server = await startTestServer();
     const roomId = server.agentManager.getRooms()[0].id;
     const owner = await server.seedOwner("Morgan");
@@ -493,7 +493,9 @@ describe("a lazy socket's chat loads to a client that stops reading", () => {
     const small = await spawnIn(server, "Small", roomId);
     server = await seedTranscripts(server, [big.id]);
 
-    // The prefetch starts before the stall; the member opens Small as it ends.
+    // The prefetch starts before the stall; the member opens Small once its
+    // first frame has arrived (task 37a29704: opened at the stall's end, the
+    // open could reach the server before the lane sent anything).
     const reader = await startReader(server, owner.rawSessionId, {
       query: LAZY,
       send: [open(big.id, "p1", ENTRIES)],
