@@ -1,6 +1,7 @@
 // Recording mode's DOM layer (task 6e08239a), on happy-dom: attachRedactor
 // rewrites what the page draws and gives it back, installClickReveal keeps
-// pictures blurred until one gesture, and the switch (setRecording) turns
+// pictures blurred until one gesture (memories and instructions too, task
+// 1a5c9478), the options are per browser, and the switch (setRecording) turns
 // both on and off with the tab title and favicon as the on-indicator. The
 // elevator ride carries "on" to the next office.
 //
@@ -11,19 +12,23 @@
 // Not here: layout (happy-dom has none). The iframe hit test, the blur
 // itself and a real mouse are checked in a browser at review.
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 
 const {
+  RECORDING_OPTIONS_KEY,
+  RECORDING_PRIVATE_ATTR,
   RECORDING_STORAGE_KEY,
   attachRedactor,
   currentRedactor,
+  getRecordingOptions,
   installClickReveal,
   isRecording,
   onRecordingChange,
   setRecording,
+  setRecordingOptions,
   setRecordingRules,
   startRecordingMode,
 } = await import("./recording-mode.ts");
@@ -361,6 +366,174 @@ describe("installClickReveal", () => {
     expect(seen).toContain("click:img");
   });
 });
+
+// Memories and instructions (task 1a5c9478): an element marked with
+// RECORDING_PRIVATE_ATTR is blurred while recording whatever its text holds,
+// and a click reveals it like a picture. The attribute's value names the
+// scope it shows; a new scope blurs it again, typing does not.
+describe("memories and instructions", () => {
+  function setup() {
+    setRecordingRules({ officeHosts: [], otherOffices: [], words: [] });
+    setRecording(true);
+    const host = mount(
+      `<textarea id="ta" ${RECORDING_PRIVATE_ATTR}="room:r1:instructions">Plain prose</textarea>` +
+        `<div id="view" ${RECORDING_PRIVATE_ATTR}="prompt:a1"><p id="inner">Plain prose</p></div>` +
+        `<textarea id="plain">Plain prose</textarea>`,
+    );
+    const seen: string[] = [];
+    host.addEventListener("click", (e) => seen.push((e.target as Element).id));
+    const $ = (id: string) => host.querySelector<HTMLElement>(`#${id}`)!;
+    return { host, seen, $ };
+  }
+  const blur = (el: Element) => getComputedStyle(el).filter;
+
+  it("blurs a marked element with no match in its text, and leaves an unmarked one clear", () => {
+    const { $ } = setup();
+    expect(blur($("ta"))).toContain("blur");
+    expect(blur($("view"))).toContain("blur");
+    expect(blur($("plain"))).toBe("");
+    setRecording(false);
+    expect(blur($("ta"))).toBe("");
+  });
+
+  it("the first gesture on a marked element only reveals it; the next one acts", () => {
+    const { $, seen } = setup();
+    expect(gesture($("ta"))).toBe(false);
+    expect(seen).toEqual([]);
+    expect(blur($("ta"))).toBe("");
+    expect(gesture($("ta"))).toBe(true);
+    expect(seen).toEqual(["ta"]);
+
+    // A gesture on text inside a marked view reveals the view.
+    expect(gesture($("inner"))).toBe(false);
+    expect(blur($("view"))).toBe("");
+    expect(seen).toEqual(["ta"]);
+  });
+
+  // The field blur of a value with a match has no reveal of its own: a
+  // revealed memory must not stay blurred by it.
+  it("a reveal also clears the blur of a value with a match; an unmarked field keeps it", async () => {
+    setRecordingRules({
+      officeHosts: [],
+      otherOffices: [],
+      words: [{ word: "Acme", standIn: "Client" }],
+    });
+    setRecording(true);
+    const host = mount(
+      `<textarea id="ta" ${RECORDING_PRIVATE_ATTR}="memory:office">Acme note</textarea>` +
+        `<textarea id="plain">Acme note</textarea>`,
+    );
+    await flush();
+    const ta = host.querySelector("#ta")!;
+    const plain = host.querySelector("#plain")!;
+    expect(ta.hasAttribute("data-recording-blur")).toBe(true);
+    expect(blur(ta)).toContain("blur");
+    gesture(ta);
+    expect(blur(ta)).toBe("");
+    expect(gesture(plain)).toBe(true);
+    expect(blur(plain)).toContain("blur");
+  });
+
+  it("blurs again when the scope under it changes, and not when its text does", async () => {
+    const { $ } = setup();
+    const ta = $("ta") as HTMLTextAreaElement;
+    gesture(ta);
+    ta.value = "typed more";
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    ta.textContent = "saved text";
+    await flush();
+    expect(blur(ta)).toBe("");
+    ta.setAttribute(RECORDING_PRIVATE_ATTR, "room:r2:instructions");
+    await flush();
+    expect(blur(ta)).toContain("blur");
+  });
+
+  it("off drops every reveal", () => {
+    const { $ } = setup();
+    gesture($("ta"));
+    setRecording(false);
+    setRecording(true);
+    expect(blur($("ta"))).toContain("blur");
+  });
+});
+
+// The options (task 1a5c9478) are per browser, like the switch.
+describe("the options", () => {
+  // The boot listens for other tabs.
+  beforeEach(() => startRecordingMode());
+  afterEach(() => {
+    try {
+      setRecordingOptions({ members: true, paths: true });
+    } catch {
+      // The stub throws; nothing to reset.
+    }
+    localStorage.removeItem(RECORDING_OPTIONS_KEY);
+  });
+
+  it("hide member names and file paths unless this browser saved otherwise", () => {
+    localStorage.removeItem(RECORDING_OPTIONS_KEY);
+    expect(getRecordingOptions()).toEqual({ members: true, paths: true });
+    for (const garbled of ["{", "null", "[]", '"x"', '{"members":"no"}'])
+      expect({ garbled, options: readStored(garbled) }).toEqual({
+        garbled,
+        options: { members: true, paths: true },
+      });
+    expect(readStored('{"members":false}')).toEqual({
+      members: false,
+      paths: true,
+    });
+  });
+
+  it("a change is saved, keeps the other option, and tells the listeners", () => {
+    let changes = 0;
+    const unsubscribe = onRecordingChange(() => changes++);
+    setRecordingOptions({ members: false });
+    expect(getRecordingOptions()).toEqual({ members: false, paths: true });
+    expect(changes).toBeGreaterThan(0);
+    const before = changes;
+    setRecordingOptions({ paths: false });
+    expect(getRecordingOptions()).toEqual({ members: false, paths: false });
+    expect(changes).toBeGreaterThan(before);
+    unsubscribe();
+    // Saved: a fresh read of storage gives the same.
+    expect(
+      readStored(localStorage.getItem(RECORDING_OPTIONS_KEY) ?? ""),
+    ).toEqual({ members: false, paths: false });
+  });
+
+  it("follows another tab's change", () => {
+    let changes = 0;
+    const unsubscribe = onRecordingChange(() => changes++);
+    const value = JSON.stringify({ members: true, paths: false });
+    localStorage.setItem(RECORDING_OPTIONS_KEY, value);
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: RECORDING_OPTIONS_KEY,
+        oldValue: null,
+        newValue: value,
+        storageArea: localStorage,
+      }),
+    );
+    unsubscribe();
+    expect(changes).toBeGreaterThan(0);
+    expect(getRecordingOptions()).toEqual({ members: true, paths: false });
+  });
+});
+
+// The options as a fresh page reads them: the stored text, then another
+// tab's storage event for it.
+function readStored(text: string) {
+  localStorage.setItem(RECORDING_OPTIONS_KEY, text);
+  window.dispatchEvent(
+    new StorageEvent("storage", {
+      key: RECORDING_OPTIONS_KEY,
+      oldValue: null,
+      newValue: text,
+      storageArea: localStorage,
+    }),
+  );
+  return getRecordingOptions();
+}
 
 describe("the switch", () => {
   const RULES = {

@@ -29,6 +29,7 @@ import {
 } from "react";
 import { Portal } from "./Portal.tsx";
 import { useI18n } from "../i18n.tsx";
+import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
 
 // How many expanded editors are currently mounted (0 or 1 in practice; a
 // counter rather than a boolean so an unmount can never zero out a newer one).
@@ -76,6 +77,7 @@ export function ExpandableTextarea({
   placeholder,
   style,
   textareaRef,
+  recordingPrivate,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -92,7 +94,14 @@ export function ExpandableTextarea({
   placeholder?: string;
   style?: CSSProperties;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  /** Memory or instructions text: the scope it shows, for example
+   *  "room:<id>:instructions". Recording mode blurs both textareas until a
+   *  click (RECORDING_PRIVATE_ATTR in ui/recording-mode.ts). */
+  recordingPrivate?: string;
 }) {
+  const privateMark: Record<string, string> = recordingPrivate
+    ? { [RECORDING_PRIVATE_ATTR]: recordingPrivate }
+    : {};
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const labelId = useId();
@@ -108,6 +117,7 @@ export function ExpandableTextarea({
         rows={rows}
         readOnly={readOnly}
         style={{ ...style, display: "block", width: "100%" }}
+        {...privateMark}
       />
       <button
         ref={expandBtnRef}
@@ -129,6 +139,7 @@ export function ExpandableTextarea({
           status={status}
           readOnly={readOnly}
           placeholder={placeholder}
+          privateMark={privateMark}
           onClose={() => {
             setExpanded(false);
             // Put the caret back where the user left it. Without this, closing
@@ -151,6 +162,7 @@ function ExpandedEditor({
   status,
   readOnly,
   placeholder,
+  privateMark,
   onClose,
 }: {
   value: string;
@@ -161,6 +173,7 @@ function ExpandedEditor({
   status?: ReactNode;
   readOnly?: boolean;
   placeholder?: string;
+  privateMark: Record<string, string>;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -296,6 +309,7 @@ function ExpandedEditor({
           placeholder={placeholder}
           readOnly={readOnly}
           spellCheck={false}
+          {...privateMark}
           style={{
             flex: 1,
             margin: 16,

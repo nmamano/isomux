@@ -9,7 +9,12 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useAppState } from "../store.tsx";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useI18n } from "../i18n.tsx";
-import { setRecording, useRecording } from "../recording-mode.ts";
+import {
+  setRecording,
+  setRecordingOptions,
+  useRecording,
+  useRecordingOptions,
+} from "../recording-mode.ts";
 import {
   MAX_RECORDING_WORD_CHARS,
   MAX_RECORDING_WORDS,
@@ -30,6 +35,7 @@ import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 export function RecordingPane() {
   const { t } = useI18n();
   const on = useRecording();
+  const options = useRecordingOptions();
   const self = useSelfUser();
   const { office } = useAppState();
   const savedList =
@@ -82,15 +88,7 @@ export function RecordingPane() {
       <p style={{ ...hint, marginTop: 4 }}>{t("recording.intro")}</p>
 
       <div style={cardStyle}>
-        <label
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            fontSize: 12,
-            color: "var(--text-primary)",
-          }}
-        >
+        <label style={checkLabel}>
           <input
             type="checkbox"
             checked={on}
@@ -101,6 +99,26 @@ export function RecordingPane() {
         <p style={{ ...dialogHint, margin: "6px 0 0" }}>
           {t("recording.switchHint")}
         </p>
+        {(
+          [
+            ["members", "recording.hideMembers", "recording.hideMembersHint"],
+            ["paths", "recording.hidePaths", "recording.hidePathsHint"],
+          ] as const
+        ).map(([key, label, optionHint]) => (
+          <div key={key} style={{ marginTop: 12 }}>
+            <label style={checkLabel}>
+              <input
+                type="checkbox"
+                checked={options[key]}
+                onChange={(e) =>
+                  setRecordingOptions({ [key]: e.target.checked })
+                }
+              />
+              {t(label)}
+            </label>
+            <p style={{ ...dialogHint, margin: "6px 0 0" }}>{t(optionHint)}</p>
+          </div>
+        ))}
       </div>
 
       <h4 style={{ ...sectionHeader, marginTop: 20 }}>
@@ -233,3 +251,11 @@ function problemText(
       return t("recording.problem.tooLong", { max: MAX_RECORDING_WORD_CHARS });
   }
 }
+
+const checkLabel = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  fontSize: 12,
+  color: "var(--text-primary)",
+} as const;

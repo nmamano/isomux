@@ -6,7 +6,15 @@ const { AuditPane, TaskHistoryList } = await import("./AuditList.tsx");
 const { setApiShim } = await import("../api.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { t } = translatorFor("en");
-afterAll(() => setApiShim(null));
+const { RECORDING_PRIVATE_ATTR } = await import("../recording-mode.ts");
+const { resetTaskLookupForTests } = await import("../task-lookup.ts");
+// AuditPane asks task-lookup for task titles with no TaskLookupBridge
+// mounted, so the ids stay queued in module state; the next file in the
+// process that mounts the bridge would send them to its own API shim.
+afterAll(() => {
+  setApiShim(null);
+  resetTaskLookupForTests();
+});
 it("names a deleted task by its snapshot and restores it", async () => {
   const calls: string[] = [];
   setApiShim(async (method, path) => {
@@ -239,6 +247,12 @@ it("shows each row's payload, and survives a wrong-shaped secret use", async () 
   expect(rows[1].textContent).not.toContain("/wrong");
   expect(rows[2].querySelector("pre")?.textContent).toBe("Line one\nLine two");
   expect(rows[3].querySelector("pre")?.textContent).toBe("- note\n");
+  // Instructions and memory text: recording mode blurs it until a click
+  // (task 1a5c9478).
+  for (const row of [rows[2], rows[3]])
+    expect(
+      !!row.querySelector("pre")?.getAttribute(RECORDING_PRIVATE_ATTR),
+    ).toBe(true);
 });
 // The updater's row: each phase's time, so a slow phase stands out. Phase names are the updater's protocol ids.
 it("shows a finished update's phases with their seconds", async () => {

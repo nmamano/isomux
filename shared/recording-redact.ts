@@ -19,6 +19,29 @@ export interface RecordingRules {
   // Other offices in elevator panel order; numbered from 2.
   otherOffices: { url: string; name: string | null }[];
   words: RecordingWord[];
+  // Member display names in office order (createdAt, then id): each shows
+  // as "Member N", N its 1-based index. Matched whole word and
+  // case-sensitive, so a member named "Nil" leaves code's "nil" alone.
+  // Known limit: a member named like a UI word ("Admin") turns that word
+  // into "Member N" too; hidden is the safe side. Absent or [] = off.
+  members?: string[];
+  // Hide file paths (task 1a5c9478). A path shows as "…/" plus its last
+  // segment, and that segment goes through the other rules (a host, an
+  // email or a member name in it gets its own stand-in). Matched forms:
+  //  - Unix absolute with 2+ segments ("/a/b"), not preceded by a word
+  //    character, ".", ":", "~", "/" or "-" (so "host/a/b", ":4000/api/x"
+  //    and relative "ui/App.tsx" do not match), or right after "file://".
+  //  - Home-relative "~/a"; "~" alone stays.
+  //  - Windows "C:\a" or "C:/a".
+  // A segment is a run of characters other than whitespace, / \ quotes
+  // ' " ` < > | ( ) [ ] { }. Trailing sentence punctuation (. , : ; ! ?)
+  // stays outside the stand-in; "x.ts:12:5" keeps its line suffix. A
+  // trailing slash stays ("/srv/app/" -> "…/app/"). A path that ends at a
+  // home folder (/home/<u>, /Users/<u>, /root, C:\Users\<u>, with or
+  // without a trailing slash) shows "~". A single segment ("/tmp") stays.
+  // Known limit: a path with a space ("/Users/John Smith/x") is cut at the
+  // space, so "Smith/x" stays. Absent or false = off.
+  paths?: boolean;
 }
 
 export interface RedactOptions {
@@ -85,6 +108,23 @@ const PHONE =
   "|(?<![\\w+.-])\\d{3}-\\d{3}-\\d{4}(?![\\w-])";
 const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
 const IPV4 = `(?<![\\w.])(?:${OCTET}\\.){3}${OCTET}(?![\\w])(?!\\.\\d)`;
+
+// File paths (RecordingRules.paths). SEG is a run of segment characters;
+// LAST is a segment that does not end on sentence punctuation. Every
+// segment and the segment count are bounded (see the header above).
+const SEG_CHAR = "[^\\s/\\\\'\"`<>|()\\[\\]{}]";
+const SEG_END = "[^\\s/\\\\'\"`<>|()\\[\\]{}.,:;!?]";
+const SEG = `${SEG_CHAR}{1,255}`;
+const LAST = `${SEG_CHAR}{0,254}${SEG_END}`;
+// A Unix path starts where no word, ".", ":", "~", "/" or "-" is before it
+// (a URL path, "../x" and "a/b" stay), or right after "file://".
+const PATH_START = "(?:(?<![A-Za-z0-9_.:~/-])|(?<=[fF][iI][lL][eE]://))";
+const UNIX_PATH = `${PATH_START}(?:/${SEG}){1,63}/${LAST}/?`;
+const HOME_PATH = `(?<![A-Za-z0-9_.:~/-])~(?:/${SEG}){0,63}/${LAST}/?`;
+const WINDOWS_PATH = `(?<![A-Za-z0-9_])[A-Za-z]:(?:[\\\\/]${SEG}){0,63}[\\\\/]${LAST}[\\\\/]?`;
+const PATH = `${UNIX_PATH}|${HOME_PATH}|${WINDOWS_PATH}`;
+const HOME_STAND_IN = "~";
+const PATH_PREFIX = "…";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
@@ -178,6 +218,14 @@ function wordSource(word: string): string {
   return `${before}${caseless(word)}${after}`;
 }
 
+// Like wordSource, but the case as written: a member named "Nil" leaves
+// code's "nil" alone.
+function memberSource(name: string): string {
+  const before = isWordChar(name[0]) ? `(?<![${WORD_CHAR}])` : "";
+  const after = isWordChar(name[name.length - 1]) ? `(?![${WORD_CHAR}])` : "";
+  return `${before}${escapeRegex(name)}${after}`;
+}
+
 interface Rule {
   source: string;
   // The match and its rule's own capture groups; returns the stand-in.
@@ -188,6 +236,32 @@ const fixed = (standIn: string) => (): string => standIn;
 
 function groupCount(source: string): number {
   return new RegExp(`(?:${source})|`).exec("")!.length - 1;
+}
+
+// A home folder alone: /home/<u>, /Users/<u>, C:\Users\<u>. "Users" in
+// any case: Windows and macOS paths are caseless, and tools print them
+// either way.
+function isHomeFolder(parts: string[]): boolean {
+  const [first, second, third] = parts;
+  const isUsers = (part: string) => part.toLowerCase() === "users";
+  if (parts.length === 2) return first === "home" || isUsers(first);
+  return (
+    parts.length === 3 &&
+    /^[A-Za-z]:$/.test(first) &&
+    isUsers(second) &&
+    !!third
+  );
+}
+
+// "…/" and the last segment, which `redact` runs through the other rules;
+// "~" for a home folder. A trailing separator stays.
+function pathStandIn(match: string, redact: (text: string) => string): string {
+  const sep = match.includes("\\") ? "\\" : "/";
+  const trailing = /[\\/]$/.test(match) ? sep : "";
+  const parts = match.replace(/[\\/]$/, "").split(/[\\/]/);
+  if (parts[0] === "") parts.shift();
+  if (isHomeFolder(parts)) return HOME_STAND_IN;
+  return PATH_PREFIX + sep + redact(parts[parts.length - 1]) + trailing;
 }
 
 function fit(standIn: string, length: number): string {
@@ -258,6 +332,25 @@ export function compileRedactor(rules: RecordingRules): Redactor {
     standIn: (match) =>
       match.startsWith("127.") || match === "0.0.0.0" ? match : IPV4_STAND_IN,
   });
+
+  // Paths: the kept segment holds no separator, so the path rule cannot
+  // match it again.
+  if (rules.paths)
+    list.push({
+      source: PATH,
+      standIn: (match) => pathStandIn(match, (text) => redact(text)),
+    });
+
+  // Members: numbered by their place in the list, longest name first.
+  const members = (rules.members ?? [])
+    .map((name, i) => ({ name: name.trim(), n: i + 1 }))
+    .filter((m) => m.name.length > 0)
+    .sort((a, b) => b.name.length - a.name.length);
+  for (const m of members)
+    list.push({
+      source: memberSource(m.name),
+      standIn: fixed(`Member ${m.n}`),
+    });
 
   const words = rules.words
     .map((w) => ({ word: w.word.trim(), standIn: w.standIn }))

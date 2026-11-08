@@ -12,6 +12,7 @@ import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
 import { Portal } from "./Portal.tsx";
 import { Markdown } from "../log-view/Markdown.tsx";
+import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
 
 export function SystemPromptButton({
   agentId,
@@ -83,6 +84,11 @@ export function SystemPromptButton({
         <SystemPromptModal
           prompt={prompt}
           isSpawnPreview={!!preview && !preview.agentId}
+          scope={
+            cronjobId
+              ? `prompt:cronjob:${cronjobId}`
+              : `prompt:agent:${agentId ?? preview?.agentId ?? "new"}`
+          }
           source={
             helpContent !== undefined ? "help" : cronjobId ? "cronjob" : "agent"
           }
@@ -99,6 +105,7 @@ export function SystemPromptButton({
 function SystemPromptModal({
   prompt,
   isSpawnPreview,
+  scope,
   source,
   error,
   copied,
@@ -107,6 +114,9 @@ function SystemPromptModal({
 }: {
   prompt: string | null;
   isSpawnPreview: boolean;
+  // The prompt holds every instructions and memory scope: recording mode
+  // blurs it until a click. Not the help text.
+  scope: string;
   source: "agent" | "cronjob" | "help";
   error: boolean;
   copied: boolean;
@@ -204,6 +214,11 @@ function SystemPromptModal({
           ) : (
             <pre
               aria-readonly="true"
+              // A reveal of "Loading" is not a reveal of the prompt.
+              {...{
+                [RECORDING_PRIVATE_ATTR]:
+                  prompt === null ? `${scope}:loading` : scope,
+              }}
               style={{
                 minHeight: 220,
                 margin: 0,

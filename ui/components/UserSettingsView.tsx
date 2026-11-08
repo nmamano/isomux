@@ -25,6 +25,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
+import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
 import {
   setUsername as saveLocalUsername,
   getUsername,
@@ -2033,6 +2034,7 @@ function UserEditPanel({
           onChange={setMemberPrompt}
           placeholder={t("settings.profile.profilePromptPlaceholder")}
           rows={5}
+          recordingPrivate={`member:${creating ? "new" : user.id}:instructions`}
           style={{
             ...inputStyle,
             minHeight: 90,
@@ -2047,6 +2049,9 @@ function UserEditPanel({
             {t("settings.profile.currentPrompt")}
             <textarea
               readOnly
+              {...{
+                [RECORDING_PRIVATE_ATTR]: `member:${user.id}:instructions-current`,
+              }}
               value={promptConflict.instructions ?? ""}
               style={{ ...inputStyle, minHeight: 90, width: "100%" }}
             />
@@ -2078,6 +2083,7 @@ function UserEditPanel({
                   ? t("settings.profile.memoryPlaceholder")
                   : t("common.loadingMemory")
               }
+              recordingPrivate={`member:${user.id}:memory`}
               rows={8}
               readOnly={!mem.loaded}
               style={{

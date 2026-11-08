@@ -16,6 +16,69 @@ import {
 } from "../shared/recording-redact.ts";
 
 export const RECORDING_STORAGE_KEY = "isomux-recording-mode";
+// The options (task 1a5c9478), per browser like the switch: JSON
+// {members, paths}; a missing or garbled value reads as both true.
+export const RECORDING_OPTIONS_KEY = "isomux-recording-options";
+
+export interface RecordingOptions {
+  // Members show as "Member N".
+  members: boolean;
+  // File paths show as "…/<last segment>".
+  paths: boolean;
+}
+
+// Marks an element that shows memory or instructions text: blurred while
+// recording until a click, whatever its text holds. The value names the
+// scope under the element ("room:<id>:instructions"); a new value drops a
+// reveal, typing does not.
+export const RECORDING_PRIVATE_ATTR = "data-recording-private";
+
+const DEFAULT_OPTIONS: RecordingOptions = { members: true, paths: true };
+
+function readOptions(): RecordingOptions {
+  let stored: unknown = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(RECORDING_OPTIONS_KEY) ?? "null");
+  } catch {
+    // Garbled or blocked: the defaults.
+  }
+  const read = (key: keyof RecordingOptions): boolean => {
+    const value =
+      stored && typeof stored === "object" && !Array.isArray(stored)
+        ? (stored as Record<string, unknown>)[key]
+        : undefined;
+    return typeof value === "boolean" ? value : DEFAULT_OPTIONS[key];
+  };
+  return { members: read("members"), paths: read("paths") };
+}
+
+// Read once, then kept: useSyncExternalStore needs the same object until a
+// change.
+let options: RecordingOptions | null = null;
+
+export function getRecordingOptions(): RecordingOptions {
+  return (options ??= readOptions());
+}
+
+// Saves the given options in this browser. The store's rules hook
+// (ui/hooks/useRecordingRules.ts) re-runs the page with them.
+export function setRecordingOptions(next: Partial<RecordingOptions>): void {
+  options = { ...getRecordingOptions(), ...next };
+  try {
+    localStorage.setItem(RECORDING_OPTIONS_KEY, JSON.stringify(options));
+  } catch {
+    // Blocked storage: the options last until this page is closed.
+  }
+  notify();
+}
+
+export function useRecordingOptions(): RecordingOptions {
+  return useSyncExternalStore(
+    onRecordingChange,
+    getRecordingOptions,
+    () => DEFAULT_OPTIONS,
+  );
+}
 
 // --- The DOM layer ---------------------------------------------------------
 
@@ -246,9 +309,17 @@ function attachWith(
 // --- Blur until a click ----------------------------------------------------
 
 const SHOWN = "data-recording-shown";
-const BLURRED = "img, video, iframe, image";
-// The attributes that change the picture an element shows.
-const PICTURE_ATTRS = ["src", "srcset", "srcdoc", "poster", "href"];
+const BLURRED = `img, video, iframe, image, [${RECORDING_PRIVATE_ATTR}]`;
+// The attributes that change the picture an element shows, or the scope a
+// memory or instructions view shows.
+const PICTURE_ATTRS = [
+  "src",
+  "srcset",
+  "srcdoc",
+  "poster",
+  "href",
+  RECORDING_PRIVATE_ATTR,
+];
 const GESTURE = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
 
 const BLUR_CSS = `
@@ -258,7 +329,10 @@ html[data-recording] :is(img, video, iframe, svg image):not([${SHOWN}]) {
 html[data-recording] iframe:not([${SHOWN}]) {
   pointer-events: none;
 }
-html[data-recording] [${FIELD_BLUR}] {
+html[data-recording] [${RECORDING_PRIVATE_ATTR}]:not([${SHOWN}]) {
+  filter: blur(6px);
+}
+html[data-recording] [${FIELD_BLUR}]:not([${SHOWN}]) {
   filter: blur(6px);
 }
 `;
@@ -292,8 +366,8 @@ function blurredTarget(doc: Document, e: Event): Element | null {
   return null;
 }
 
-// Blur until a click: the first pointer gesture on a blurred image, video or
-// iframe only reveals it. Returns the uninstaller, which also drops every
+// Blur until a click: the first pointer gesture on a blurred image, video,
+// iframe or memory or instructions view only reveals it. Returns the uninstaller, which also drops every
 // reveal.
 export function installClickReveal(doc: Document): () => void {
   const win = doc.defaultView ?? window;
@@ -326,7 +400,8 @@ export function installClickReveal(doc: Document): () => void {
   for (const type of GESTURE) win.addEventListener(type, onGesture, true);
 
   // A reveal is for the picture that was clicked: a new picture in the same
-  // element (the lightbox's next, a preview's re-render) is blurred again.
+  // element (the lightbox's next, a preview's re-render), or a new scope in
+  // the same field (the next room's instructions), is blurred again.
   const observer = new MutationObserver((records) => {
     for (const r of records) {
       const el = r.target as Element;
@@ -385,7 +460,14 @@ let uninstallReveal: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 function rulesNow(): RecordingRules {
-  return rules ?? { officeHosts: [location.host], otherOffices: [], words: [] };
+  return (
+    rules ?? {
+      officeHosts: [location.host],
+      otherOffices: [],
+      words: [],
+      paths: getRecordingOptions().paths,
+    }
+  );
 }
 
 function notify(): void {
@@ -488,6 +570,10 @@ export function startRecordingMode(): void {
   booted = true;
   // Another tab's switch.
   window.addEventListener("storage", (e) => {
+    if (e.key === RECORDING_OPTIONS_KEY || e.key === null) {
+      options = null;
+      notify();
+    }
     if (e.key !== RECORDING_STORAGE_KEY && e.key !== null) return;
     const now = readFlag();
     apply(now);

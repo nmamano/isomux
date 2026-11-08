@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
 import type {
   InstructionsReq,
   InstructionsRes,
@@ -144,6 +145,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
         </label>
         <textarea
           ref={textareaRef}
+          {...{ [RECORDING_PRIVATE_ATTR]: "cronjobs:instructions" }}
           value={text}
           onChange={(e) => setText(e.target.value)}
           readOnly={version == null}

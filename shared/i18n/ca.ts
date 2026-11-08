@@ -484,10 +484,16 @@ Coses que pots fer per ell:
   "preferences.saveFailed": "No s'ha pogut desar",
 
   "recording.intro":
-    "Mentre enregistres o emets, l'oficina mostra substituts de les adreces de l'oficina, els noms d'altres oficines, correus, telèfons, adreces IP, claus i les teves paraules, i difumina les imatges i les pàgines incrustades fins que hi fas clic. La barra d'adreces del navegador continua mostrant l'adreça real.",
+    "Mentre enregistres o emets, l'oficina mostra substituts de les adreces de l'oficina, els noms d'altres oficines, els noms dels membres, les rutes de fitxers, correus, telèfons, adreces IP, claus i les teves paraules. Difumina les imatges, les pàgines incrustades, les memòries i les instruccions fins que hi fas clic. La barra d'adreces del navegador continua mostrant l'adreça real.",
   "recording.switch": "Activat en aquest navegador",
   "recording.switchHint":
     "La pestanya mostra ● REC i un punt vermell mentre està activat.",
+  "recording.hideMembers": "Amaga els noms dels membres",
+  "recording.hideMembersHint":
+    "Els membres es mostren com a Member 1, Member 2, etc.",
+  "recording.hidePaths": "Amaga les rutes de fitxers",
+  "recording.hidePathsHint":
+    "Una ruta només mostra la darrera part, com ara …/App.tsx.",
   "recording.words": "Les teves paraules",
   "recording.wordsHint":
     "Noms de clients, persones o projectes, i què cal mostrar en lloc seu. La llista et segueix a tots els dispositius.",

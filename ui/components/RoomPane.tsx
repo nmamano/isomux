@@ -439,6 +439,7 @@ export function RoomPane({
           rows={8}
           readOnly={!settingsLoaded}
           style={{ ...inputStyle, resize: "vertical" }}
+          recordingPrivate={`room:${roomId}:instructions`}
         />
         <p
           style={{
@@ -484,6 +485,7 @@ export function RoomPane({
                   ? t("settings.room.memoryPlaceholder")
                   : t("common.loadingMemory")
               }
+              recordingPrivate={`room:${roomId}:memory`}
               rows={6}
               readOnly={!mem.loaded}
               style={{ ...inputStyle, resize: "vertical" }}

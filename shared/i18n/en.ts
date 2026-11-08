@@ -490,9 +490,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preferences.saveFailed": "Could not save",
 
   "recording.intro":
-    "While you record or stream, the office shows stand-ins for office addresses, other office names, emails, phone numbers, IP addresses, keys and your words, and blurs pictures and embedded pages until you click them. The browser's address bar still shows the real address.",
+    "While you record or stream, the office shows stand-ins for office addresses, other office names, member names, file paths, emails, phone numbers, IP addresses, keys and your words. It blurs pictures, embedded pages, memories and instructions until you click them. The browser's address bar still shows the real address.",
   "recording.switch": "On in this browser",
   "recording.switchHint": "The tab shows ● REC and a red dot while it is on.",
+  "recording.hideMembers": "Hide member names",
+  "recording.hideMembersHint": "Members show as Member 1, Member 2 and so on.",
+  "recording.hidePaths": "Hide file paths",
+  "recording.hidePathsHint":
+    "A path shows only its last part, such as …/App.tsx.",
   "recording.words": "Your words",
   "recording.wordsHint":
     "Names of customers, people or projects, and what to show instead. The list follows you to every device.",

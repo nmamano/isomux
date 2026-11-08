@@ -1771,6 +1771,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         rows={3}
         readOnly={!mem.loaded}
         style={{ ...inputStyle, resize: "vertical" }}
+        recordingPrivate={`agent:${agent?.id ?? "new"}:memory`}
       />
       <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
         {t("dialogs.agent.memoryHint", {
@@ -2318,6 +2319,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     )}
                     rows={3}
                     style={{ ...inputStyle, resize: "vertical" }}
+                    recordingPrivate={`agent:${agent?.id ?? "new"}:instructions`}
                   />
                   <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
                     {t("dialogs.agent.customInstructionsHint")}

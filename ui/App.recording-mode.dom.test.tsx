@@ -3,6 +3,9 @@
 // name row by default, the floors as other offices). The setup is in
 // ui/test-support/inbox-fixture.tsx (member "member", office "Test Office",
 // room "First room").
+//
+// Task 1a5c9478 adds the members (numbered in office order) and the two
+// options.
 
 import { afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -14,12 +17,20 @@ const { shimEmit } = await import("./ws.ts");
 const { boot, setUpInboxTests } =
   await import("./test-support/inbox-fixture.tsx");
 const { selfUserRecord } = await import("./test-support/language-fixture.tsx");
-const { currentRedactor, setRecording } = await import("./recording-mode.ts");
+const { currentRedactor, setRecording, setRecordingOptions } =
+  await import("./recording-mode.ts");
 
 type RecordingWord = import("../shared/recording-redact.ts").RecordingWord;
 
 setUpInboxTests();
-afterEach(() => setRecording(false));
+afterEach(() => {
+  setRecording(false);
+  try {
+    setRecordingOptions({ members: true, paths: true });
+  } catch {
+    // The stub throws; nothing to reset.
+  }
+});
 
 // The text the page draws, without style sheets.
 function drawnText(): string {
@@ -100,4 +111,46 @@ it("takes the office's floors as other offices", async () => {
   const redact = currentRedactor()!;
   expect(redact("Acme HQ")).not.toContain("Acme");
   expect(redact("https://hq.acmeoffice.org/x")).not.toContain("acmeoffice");
+});
+
+// Task 1a5c9478: the members are numbered in the order they joined the office
+// (createdAt, then id), so "Member 2" is the same person on every surface,
+// device and viewer. The two options switch members and paths.
+it("numbers the office's members in the order they joined, and follows the options", async () => {
+  await boot();
+  const member = (id: string, name: string, createdAt: number) => ({
+    id,
+    name,
+    role: "member",
+    avatarColor: "#888888",
+    avatarVariant: "sleepy",
+    createdAt,
+  });
+  await act(async () =>
+    shimEmit({
+      type: "users_list",
+      users: [
+        member("c3", "Bo Chen", 2),
+        member("a1", "Ana Lee", 1),
+        member("b2", "Zoe Park", 2),
+      ],
+    } as never),
+  );
+  await act(async () => setRecording(true));
+  await flush();
+  const redact = () => currentRedactor()!;
+  expect(redact()("Ana Lee, Zoe Park and Bo Chen")).toBe(
+    "Member 1, Member 2 and Member 3",
+  );
+  expect(redact()("/home/ana/proj/App.tsx")).toBe("…/App.tsx");
+
+  await act(async () => setRecordingOptions({ members: false }));
+  await flush();
+  expect(redact()("Ana Lee")).toBe("Ana Lee");
+  expect(redact()("/home/ana/proj/App.tsx")).toBe("…/App.tsx");
+
+  await act(async () => setRecordingOptions({ members: true, paths: false }));
+  await flush();
+  expect(redact()("Ana Lee")).toBe("Member 1");
+  expect(redact()("/home/ana/proj/App.tsx")).toBe("/home/ana/proj/App.tsx");
 });

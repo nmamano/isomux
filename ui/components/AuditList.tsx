@@ -2,6 +2,7 @@ import { dialogInput, dialogLabel, dialogCancelBtn } from "./dialog-styles.ts";
 import { useEffect, useId, useMemo, useState } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
 import { useAppState } from "../store.tsx";
 import { lookUpTaskIds } from "../task-lookup.ts";
 import { AUDIT_OPERATIONS } from "../audit-operations.ts";
@@ -181,13 +182,25 @@ function AuditRows({
                   .join(", ")}
               </div>
             )}
+            {/* Memory and instructions text: recording mode blurs it
+                until a click. */}
             {entry.memoryContent !== undefined && (
-              <pre style={{ whiteSpace: "pre-wrap" }}>
+              <pre
+                style={{ whiteSpace: "pre-wrap" }}
+                {...{
+                  [RECORDING_PRIVATE_ATTR]: `audit:${entry.sequence}:memory`,
+                }}
+              >
                 {entry.memoryContent}
               </pre>
             )}
             {entry.promptContent !== undefined && (
-              <pre style={{ whiteSpace: "pre-wrap" }}>
+              <pre
+                style={{ whiteSpace: "pre-wrap" }}
+                {...{
+                  [RECORDING_PRIVATE_ATTR]: `audit:${entry.sequence}:instructions`,
+                }}
+              >
                 {entry.promptContent}
               </pre>
             )}

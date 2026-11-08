@@ -328,6 +328,7 @@ export function OfficePane({
             ...(readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle),
             resize: "vertical",
           }}
+          recordingPrivate="office:instructions"
         />
         <p
           style={{
@@ -373,6 +374,7 @@ export function OfficePane({
                   ? t("settings.office.memoryPlaceholder")
                   : t("common.loadingMemory")
               }
+              recordingPrivate="office:memory"
               rows={6}
               readOnly={!mem.loaded}
               style={{

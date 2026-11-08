@@ -9,6 +9,14 @@ const { SystemPromptButton } = await import("./SystemPromptButton.tsx");
 const { isExpandedEditorOpen } = await import("./ExpandableTextarea.tsx");
 const { LogEntryCard } = await import("../log-view/LogEntryCard.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
+const { RECORDING_PRIVATE_ATTR } = await import("../recording-mode.ts");
+
+// The prompt holds every instructions and memory scope: recording mode blurs
+// it until a click (task 1a5c9478).
+const isPrivate = (el: Element) =>
+  !!el
+    .closest(`[${RECORDING_PRIVATE_ATTR}]`)
+    ?.getAttribute(RECORDING_PRIVATE_ATTR);
 
 describe("SystemPromptButton", () => {
   it("opens the fetched prompt in a read-only modal and copies it", async () => {
@@ -37,6 +45,9 @@ describe("SystemPromptButton", () => {
     expect(calls).toEqual(["GET /api/agents/agent-1/system-prompt"]);
     expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(
       en["dialogs.agent.systemPromptTitle"],
+    );
+    expect(isPrivate(view.getByText("Prompt body", { exact: false }))).toBe(
+      true,
     );
     expect(
       view
@@ -95,6 +106,9 @@ describe("SystemPromptButton", () => {
       ).toBeTruthy(),
     );
     expect(calls).toEqual(["GET /api/cronjobs/cron-1/system-prompt"]);
+    expect(
+      isPrivate(view.getByText("Configured request", { exact: false })),
+    ).toBe(true);
     expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(
       en["dialogs.agent.cronjobPromptTitle"],
     );

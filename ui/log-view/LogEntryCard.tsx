@@ -1472,9 +1472,9 @@ export function UserMessage({
           }}
         >
           {avatar}
-          {compact
-            ? (username ?? t("common.you"))
-            : (username ?? t("common.you")).toUpperCase()}
+          {/* The style uppercases it: the text stays the name as written,
+              so recording mode's member rule finds it. */}
+          {username ?? t("common.you")}
           <SenderDevice device={device} />
         </div>
       )}
@@ -1816,7 +1816,7 @@ export function EditableUserMessage({
           letterSpacing: "0.05em",
         }}
       >
-        {(username ?? t("common.you")).toUpperCase()}
+        {username ?? t("common.you")}
         <SenderDevice device={device} />
       </div>
       <textarea

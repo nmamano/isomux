@@ -484,10 +484,16 @@ Cosas que puedes hacer por él:
   "preferences.saveFailed": "No se pudo guardar",
 
   "recording.intro":
-    "Mientras grabas o retransmites, la oficina muestra sustitutos de las direcciones de la oficina, los nombres de otras oficinas, correos, teléfonos, direcciones IP, claves y tus palabras, y difumina las imágenes y las páginas incrustadas hasta que haces clic en ellas. La barra de direcciones del navegador sigue mostrando la dirección real.",
+    "Mientras grabas o retransmites, la oficina muestra sustitutos de las direcciones de la oficina, los nombres de otras oficinas, los nombres de los miembros, las rutas de archivos, correos, teléfonos, direcciones IP, claves y tus palabras. Difumina las imágenes, las páginas incrustadas, las memorias y las instrucciones hasta que haces clic en ellas. La barra de direcciones del navegador sigue mostrando la dirección real.",
   "recording.switch": "Activado en este navegador",
   "recording.switchHint":
     "La pestaña muestra ● REC y un punto rojo mientras está activado.",
+  "recording.hideMembers": "Ocultar los nombres de los miembros",
+  "recording.hideMembersHint":
+    "Los miembros se muestran como Member 1, Member 2, etc.",
+  "recording.hidePaths": "Ocultar las rutas de archivos",
+  "recording.hidePathsHint":
+    "Una ruta solo muestra su última parte, como …/App.tsx.",
   "recording.words": "Tus palabras",
   "recording.wordsHint":
     "Nombres de clientes, personas o proyectos, y qué mostrar en su lugar. La lista te sigue a todos tus dispositivos.",

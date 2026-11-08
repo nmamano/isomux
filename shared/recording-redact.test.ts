@@ -8,6 +8,10 @@
 // at the same text; one pass, so a stand-in is never scanned again;
 // keepLength keeps the text's length; built-in stand-ins are a fixed point.
 //
+// Task 1a5c9478 adds member names ("Member N") and file paths ("…/" and the
+// last segment, "~" for a home folder), both pinned as the agreed design
+// writes them.
+//
 // The built-in stand-ins are the reserved names (RFC 2606, RFC 5737) the
 // agreed design names, not product copy. The phone and secret stand-ins are
 // not pinned: only that the original is gone.
@@ -268,6 +272,175 @@ describe("recording mode: keepLength and the fixed point", () => {
   });
 });
 
+// Members (task 1a5c9478): each name is "Member N", N its place in the
+// list the store gives (office order). Case-sensitive, so a member named
+// "Nil" leaves code's "nil" alone; whole word like a member word.
+describe("recording mode: member names", () => {
+  const m = (members: string[] | undefined, text: string) =>
+    redactWith({ members })(text);
+  const THREE = ["Nil", "Ana Lee", "Bo"];
+
+  it("numbers each member by their place in the list, the same in every text", () => {
+    expect(m(THREE, "Nil and Ana Lee met Bo")).toBe(
+      "Member 1 and Member 2 met Member 3",
+    );
+    expect(m(THREE, "Bo asked Nil")).toBe("Member 3 asked Member 1");
+    expect(m(THREE, "Nil's room (Bo)")).toBe("Member 1's room (Member 3)");
+  });
+
+  it("matches whole words only, with the case as written", () => {
+    for (const text of [
+      "if x == nil return",
+      "NIL",
+      "ana lee",
+      "Nilson and Bob and Bolt",
+      "AnaLee",
+    ])
+      expect({ text, out: m(THREE, text) }).toEqual({ text, out: text });
+  });
+
+  it("takes the longer name where two start at the same place", () => {
+    expect(m(["Ana", "Ana Lee"], "Ana Lee and Ana")).toBe(
+      "Member 2 and Member 1",
+    );
+  });
+
+  it("is off with no list or an empty one", () => {
+    expect(m(undefined, "Nil and Bo")).toBe("Nil and Bo");
+    expect(m([], "Nil and Bo")).toBe("Nil and Bo");
+  });
+
+  it("lets a pattern win over a member name inside it", () => {
+    expect(m(THREE, "mail Nil@corp-mail.io")).toBe("mail name@example.com");
+  });
+
+  it("is a fixed point", () => {
+    const once = m(THREE, "Nil, Ana Lee and Bo");
+    expect(m(THREE, once)).toBe(once);
+  });
+});
+
+// Paths (task 1a5c9478): "…/" and the last segment; a path that ends at a
+// home folder is "~". URL paths and relative paths stay.
+describe("recording mode: file paths", () => {
+  const p = (text: string, opts?: { keepLength?: boolean }) =>
+    redactWith({ paths: true, members: ["Nil"] })(text, opts);
+
+  it("keeps only the last segment of an absolute, home or Windows path", () => {
+    const cases: [string, string][] = [
+      ["open /home/nil/nil/isomux/ui/App.tsx now", "open …/App.tsx now"],
+      ["cwd: /home/nil/nil/isomux", "cwd: …/isomux"],
+      ["/var/log/syslog", "…/syslog"],
+      ["cd ~/nil/isomux", "cd …/isomux"],
+      ["C:\\work\\proj\\App.tsx", "…\\App.tsx"],
+      ["C:/work/proj/x.ts", "…/x.ts"],
+      ["GET /api/tasks", "GET …/tasks"],
+      ["file:///home/nil/docs/a.pdf", "file://…/a.pdf"],
+      ["/srv/app/", "…/app/"],
+    ];
+    for (const [text, want] of cases)
+      expect({ text, out: p(text) }).toEqual({ text, out: want });
+  });
+
+  it("shows a path that ends at a home folder as ~", () => {
+    for (const text of [
+      "/home/nil",
+      "/home/nil/",
+      "/Users/ana",
+      "/Users/ana/",
+      "C:\\Users\\ana",
+      // Windows paths are caseless, and tools print them either way.
+      "c:\\users\\ana",
+      "C:\\USERS\\ana\\",
+    ])
+      expect({ text, out: p(text) }).toEqual({ text, out: "~" });
+    expect(p("cwd /home/nil, ok")).toBe("cwd ~, ok");
+  });
+
+  it("finds a path wherever prose or a command puts it, and leaves the punctuation around it", () => {
+    const cases: [string, string][] = [
+      ['"/srv/a/b"', '"…/b"'],
+      ["'/srv/a/b'", "'…/b'"],
+      ["`/srv/a/b`", "`…/b`"],
+      ["[x](/srv/a/b.md)", "[x](…/b.md)"],
+      ["--cwd=/home/nil/proj", "--cwd=…/proj"],
+      ["see /srv/a/x.ts.", "see …/x.ts."],
+      ["/srv/a/b, /srv/c/d; done", "…/b, …/d; done"],
+      ["in /srv/a/b: yes", "in …/b: yes"],
+      ["is it /srv/a/b?", "is it …/b?"],
+      ["at /srv/a/x.ts:12:5", "at …/x.ts:12:5"],
+      ["at /srv/a/x.ts:12:5.", "at …/x.ts:12:5."],
+    ];
+    for (const [text, want] of cases)
+      expect({ text, out: p(text) }).toEqual({ text, out: want });
+  });
+
+  // The path match starts before what it holds, so the kept segment must go
+  // through the other rules or the stand-in itself shows the secret.
+  it("hides a host, an email, an address or a member name in the kept segment", () => {
+    expect(p("/etc/nginx/office.nilmamano.com")).toBe("…/office.example.com");
+    expect(p("/srv/mail/bob@corp-mail.io")).toBe("…/name@example.com");
+    expect(p("/srv/ips/10.0.0.5")).toBe("…/192.0.2.1");
+    expect(p("/home/x/notes/Nil-notes.md")).toBe("…/Member 1-notes.md");
+  });
+
+  // A false hit garbles the recording: URL paths, relative paths, dates,
+  // fractions and a single segment are not file paths to hide.
+  it("leaves URL paths, relative paths and other slashes alone", () => {
+    for (const text of [
+      "http://localhost:4000/api/x",
+      "localhost:4000/api/tasks",
+      "ui/App.tsx",
+      "../shared/x.ts",
+      "./a/b",
+      "a/b/c",
+      "and/or",
+      "2026/11/08",
+      "x / y / z",
+      "/tmp",
+      "cd ~ now",
+      "</div>",
+      "// a comment",
+    ])
+      expect({ text, out: p(text) }).toEqual({ text, out: text });
+    // The host gets its stand-in; the path after it stays.
+    expect(p("https://hq.acmeoffice.org/a/b")).toBe(
+      "https://office-2.example.com/a/b",
+    );
+  });
+
+  it("is off unless asked for", () => {
+    const text = "/home/nil/nil/isomux and ~/x/y";
+    expect(redactWith({})(text)).toBe(text);
+    expect(redactWith({ paths: false })(text)).toBe(text);
+  });
+
+  it("keeps the text's length, and gives the editor the same spans", () => {
+    const text = "a /home/nil/nil/App.tsx b /home/nil c Nil d";
+    const out = p(text, { keepLength: true });
+    expect(out.length).toBe(text.length);
+    expect(out).not.toContain("home");
+    expect(out).not.toContain("nil");
+    expect(out).not.toContain("Nil");
+    expect(out).toContain("App.tsx");
+
+    const spans = redactWith({ paths: true }).spans!(
+      "x /srv/a/b.ts. and /etc/h/office.nilmamano.com",
+    );
+    expect(spans).toEqual([
+      { from: 2, to: 13, standIn: "…/b.ts" },
+      { from: 19, to: 46, standIn: "…/office.example.com" },
+    ]);
+  });
+
+  it("is a fixed point", () => {
+    const text =
+      "/home/nil/nil/App.tsx, ~/a/b, C:\\Users\\ana, file:///srv/x/y and /home/nil";
+    const once = p(text);
+    expect(p(once)).toBe(once);
+  });
+});
+
 describe("recording mode: the word list check", () => {
   const row = (word: string, standIn: string): RecordingWord => ({
     word,
@@ -343,7 +516,9 @@ describe("recording mode: cost", () => {
       word: `Customer${i} Name`,
       standIn: `C${i}`,
     }));
-    const redact = redactWith({ words });
+    // Paths and member names on too (task 1a5c9478).
+    const members = Array.from({ length: 200 }, (_, i) => `Person ${i}`);
+    const redact = redactWith({ words, members, paths: true });
     const N = 20_000;
     const inputs = {
       letters: "a".repeat(N),
@@ -352,10 +527,23 @@ describe("recording mode: cost", () => {
       dottedDigits: "1.".repeat(N / 2),
       dots: ".".repeat(N),
     };
+    // Path-shaped runs: some of them are paths, so only the time counts.
+    const pathy = {
+      slashes: "/".repeat(N),
+      segments: "/a".repeat(N / 2),
+      relative: "a/".repeat(N / 2),
+      tildes: "~/".repeat(N / 2),
+      backslashes: "C:\\a".repeat(N / 4),
+    };
     const took: Record<string, number> = {};
     for (const [name, text] of Object.entries(inputs)) {
       const start = performance.now();
       expect(redact(text)).toBe(text);
+      took[name] = Math.round(performance.now() - start);
+    }
+    for (const [name, text] of Object.entries(pathy)) {
+      const start = performance.now();
+      redact(text);
       took[name] = Math.round(performance.now() - start);
     }
     for (const [name, ms] of Object.entries(took))

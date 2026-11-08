@@ -8,6 +8,7 @@ setUpDomTestFile();
 const { setApiShim } = await import("../api.ts");
 const { agentAt, cleanup, renderEdit, settle, viewer } =
   await import("../test-support/access-slider-fixture.tsx");
+const { RECORDING_PRIVATE_ATTR } = await import("../recording-mode.ts");
 
 const NOTE = "- Peer, 2026-11-04: the agent's note";
 
@@ -64,5 +65,46 @@ describe("the agent dialog's memory box", () => {
       manager: { value: NOTE, readOnly: false },
       peer: { value: NOTE, readOnly: false },
     });
+  });
+
+  // Task 1a5c9478: recording mode blurs memory and instructions until a
+  // click, whatever they hold. Each field names its own scope, with the
+  // agent's id, so a reveal does not carry over to another agent or field.
+  it("marks the memory and the instructions as private, each with its own scope", async () => {
+    setApiShim(async (_method, path) => {
+      if (path.startsWith("/api/memory"))
+        return { text: NOTE, version: "v1", size: NOTE.length, cap: 5000 };
+      if (path === "/api/me/rooms") return { rooms: [] };
+      if (path === "/api/validate/cwd") return { ok: true };
+      if (path.includes("/sessions"))
+        return { sessions: [], currentSessionId: null };
+      if (path.startsWith("/api/backends/")) return { models: [] };
+      return {};
+    });
+    const agent = agentAt("standard");
+    const view = renderEdit(agent, () => {}, viewer([]));
+    try {
+      await settle();
+      await settle();
+      const memory = memoryBox(view.container).getAttribute(
+        RECORDING_PRIVATE_ATTR,
+      );
+      const instructions = [
+        ...view.container.querySelectorAll<HTMLTextAreaElement>(
+          ".agent-instructions-section textarea",
+        ),
+      ]
+        .filter((ta) => !ta.closest(".agent-memory-field"))
+        .map((ta) => ta.getAttribute(RECORDING_PRIVATE_ATTR));
+      expect(instructions).toHaveLength(1);
+      for (const scope of [memory, instructions[0]])
+        expect({ scope, hasAgent: !!scope?.includes(agent.id) }).toEqual({
+          scope,
+          hasAgent: true,
+        });
+      expect(memory).not.toBe(instructions[0]);
+    } finally {
+      cleanup(view);
+    }
   });
 });
