@@ -7,7 +7,7 @@ navTitle: Data retention
 
 **This page is about the data on your own Isomux server, not data that we keep for you. We keep no copy of your office data, and the Isomux software collects no analytics or metrics.**
 
-Isomux does not delete office data on a schedule. Most deletes in the office remove an item from view and keep its data on the server's disk. To erase data, use the full erase below.
+Isomux deletes office data on a schedule only when an office owner sets an age for the automatic cleanup (below). Most deletes in the office remove an item from view and keep its data on the server's disk. To erase data, use the full erase below.
 
 This page makes no compliance claim (HIPAA, GDPR or other). For Hosted Isomux, the [Terms](https://isomux.com/hosted-terms) and the [Privacy Policy](https://isomux.com/hosted-privacy) say what happens to the server at cancellation.
 
@@ -45,7 +45,9 @@ In the container, the persistent disk at `/var/data` holds the state directory, 
 
 ## Storage pruning
 
-An office owner can delete old conversation transcripts, API token conversations, terminal recordings, and the attachments that no remaining transcript uses, in Settings → Housekeeping → Storage. It never runs by itself, and it keeps live conversations and each live agent's newest ones. It does not delete conversation summaries, schedule runs or other data.
+An office owner can delete old conversation transcripts, API token conversations, terminal recordings, and the attachments that no remaining transcript uses, in Settings → Housekeeping → Storage. It keeps live conversations and each live agent's newest ones. It does not delete conversation summaries, schedule runs or other data.
+
+Once a day, Isomux compresses agent conversations older than 7 days. Compression loses nothing. An office owner can change that age, and can set an age after which the same daily run deletes old conversations and then the attachments that no remaining conversation uses. Automatic deletes are off until an owner sets that age. Deleted files stay in the backups until those backups rotate out.
 
 ## Where office data is
 

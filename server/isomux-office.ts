@@ -103,6 +103,17 @@ import {
   onUpdateChange,
 } from "./update-checker.ts";
 import {
+  createLogRetention,
+  loadLogRetentionSettings,
+  readLogRetentionState,
+  RETENTION_KEEP_PER_AGENT,
+  saveLogRetentionSettings,
+  writeLogRetentionState,
+} from "./storage-retention.ts";
+import type { LogRetentionWire } from "../shared/contract-shapes.ts";
+import {
+  requestBackupTick,
+  setBackupPreTick,
   startBackupScheduler,
   currentBackupDir,
   getBackupStatus,
@@ -2752,6 +2763,30 @@ function buildExecutorDeps(
   // The storage planners and appliers, shared by the storage routes and the
   // action asks. An apply may be the change a step ask waits for.
   const storage = createStorageOps(stepsChanged);
+  // The daily automatic cleanup of logs/, run by the backup scheduler's tick
+  // before each backup check (server/storage-retention.ts).
+  const retention = createLogRetention({
+    ops: storage,
+    logsDir: join(STATE_ROOT, "logs"),
+    now: Date.now,
+    loadSettings: loadLogRetentionSettings,
+    readState: readLogRetentionState,
+    writeState: writeLogRetentionState,
+    isRestored: () => agentsRestored,
+  });
+  setBackupPreTick(async () => {
+    await retention.runIfDue();
+  });
+  const retentionWire = (): LogRetentionWire => {
+    const settings = loadLogRetentionSettings();
+    const state = readLogRetentionState();
+    return {
+      ...settings,
+      keepPerAgent: RETENTION_KEEP_PER_AGENT,
+      ...state,
+      running: retention.isRunning(),
+    };
+  };
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
   const register = (hs: Record<string, RouteHandler>): void => {
     for (const [opId, handler] of Object.entries(hs)) {
@@ -5071,7 +5106,15 @@ function buildExecutorDeps(
       getVersion: () => getVersionInfo(),
     }),
   );
-  register(createStorageRoutes(storage));
+  register(
+    createStorageRoutes(storage, {
+      getRetention: retentionWire,
+      setRetention: (input) => {
+        const saved = saveLogRetentionSettings(input);
+        return saved.ok ? { ok: true, res: retentionWire() } : saved;
+      },
+    }),
+  );
   register(
     usageHandlers({
       getUserById,
@@ -5521,6 +5564,9 @@ function logBootBanners(): void {
 // with no timers / no network / no LLM. Returns the restore promise
 // so the harness can await a fully-restored office; production fires and forgets
 // (listener already up). Body left at prior indentation; prettier normalizes.
+// Set once restoreAgents resolved; the automatic log cleanup waits for it.
+let agentsRestored = false;
+
 function runBackgroundBoot(
   startOpts: StartServerOpts,
   server: Server<WsData>,
@@ -5559,8 +5605,15 @@ function runBackgroundBoot(
     console.error("[lockdown] could not start the apps the lock stopped:", err);
   }
 
+  agentsRestored = false;
   const restorePromise = (async () => {
     const restored = await agentManager.restoreAgents();
+    // The automatic log cleanup waits for this (the pruner's keep-newest
+    // floor and active sessions need the live agents); ask for a check now.
+    // A tick still running (a due backup) ignores it, and the next hourly
+    // tick runs the cleanup.
+    agentsRestored = true;
+    requestBackupTick();
     if (restored.length > 0) {
       console.log(
         `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,

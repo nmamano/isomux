@@ -1018,6 +1018,8 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/usage", "apiCall.usage.tokens"],
   ["POST", "/api/storage/prune", "apiCall.storage.prune"],
   ["POST", "/api/storage/compress", "apiCall.storage.compress"],
+  ["GET", "/api/storage/retention", "apiCall.storage.retention"],
+  ["PUT", "/api/storage/retention", "apiCall.storage.setRetention"],
   ["PUT", "/api/backup/settings", "apiCall.backup.settings"],
 ];
 

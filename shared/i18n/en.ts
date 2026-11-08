@@ -866,8 +866,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.deleteSection": "Delete old files",
   "settings.storage.deleteWarningLead":
     "This permanently deletes files from this machine.",
-  "settings.storage.deleteWarningBody":
-    "There is no undo and no trash. Old conversations and attachments are only ever deleted when you run this cleanup.",
+  "settings.storage.deleteWarningBody": "There is no undo and no trash.",
   "settings.storage.whatToDelete": "What to delete",
   "settings.storage.olderThan": "Older than",
   "settings.storage.daysHint": "days. Anything touched more recently is kept.",
@@ -904,6 +903,22 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.backupFolderFromEnv": "ISOMUX_BACKUP_DIR sets the folder.",
   "settings.storage.changeBackupSettings": "Change backup settings",
   "settings.storage.backupSaveFailed": "Could not save the backup settings.",
+  "settings.storage.days": "days",
+  "settings.storage.autoSection": "Automatic cleanup",
+  "settings.storage.autoHint":
+    "Runs once a day on agent conversations and their files.",
+  "settings.storage.autoCompressAfter": "Compress conversations after",
+  "settings.storage.autoDeleteAfter":
+    "Delete conversations and unused files after",
+  "settings.storage.autoDeleteOff": "Off",
+  "settings.storage.autoDeleteHint":
+    "Cannot be undone. Keeps each agent's {count} newest conversations.",
+  "settings.storage.autoLastRun":
+    "Last run {when}: compression saved {saved}, deletes freed {freed}.",
+  "settings.storage.autoRunning": "Running now.",
+  "settings.storage.autoLastError": "The last run stopped: {error}",
+  "settings.storage.autoSaveFailed": "Could not save the cleanup settings.",
+  "settings.storage.autoUnavailable": "Could not load the cleanup settings.",
   "settings.storage.compressSection": "Compress old conversations",
   "settings.storage.compressHint":
     "Old conversations take less space and read the same.",
@@ -2434,6 +2449,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.storage.usage": "Check office disk usage",
   "apiCall.storage.prune": "Prune stored history",
   "apiCall.storage.compress": "Compress old conversations",
+  "apiCall.storage.retention": "Read the automatic cleanup settings",
+  "apiCall.storage.setRetention": "Change the automatic cleanup settings",
   "apiCall.backup.settings": "Change backup settings",
   "apiCall.usage.tokens": "Check office token usage",
   "apiCall.body.jq": "body built with jq",

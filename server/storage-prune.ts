@@ -1,11 +1,11 @@
 // Pruning of the office's unbounded on-disk history.
 //
-// NOTHING IN HERE RUNS ON A TIMER. There is no scheduler, no startup hook, no
-// default policy that deletes anything. A plan is computed on request and only
-// ever applied when a caller explicitly asks for it. That is deliberate: an
-// office's transcripts are the user's memory of their own work, and the cost of
-// deleting too much is unrecoverable while the cost of deleting too little is a
-// larger disk.
+// No default policy deletes anything. A plan is computed on request and only
+// applied when a caller asks for it: the owner's prune route, or the daily
+// automatic cleanup (server/storage-retention.ts), which deletes only after an
+// owner set an age. That is deliberate: an office's transcripts are the user's
+// memory of their own work, and the cost of deleting too much is unrecoverable
+// while the cost of deleting too little is a larger disk.
 //
 // Two phases, always:
 //   planPrune(...)   read-only; returns exactly what WOULD be deleted and why
@@ -68,6 +68,13 @@
 
 import { join, resolve, sep, dirname } from "path";
 import { readdirSync, lstatSync, realpathSync, unlinkSync } from "fs";
+import {
+  lstat as lstatAsync,
+  readdir as readdirAsync,
+  readFile as readFileAsync,
+} from "fs/promises";
+import { promisify } from "util";
+import { gunzip } from "zlib";
 import type {
   PruneTarget,
   PrunePolicy,
@@ -138,9 +145,132 @@ export interface PruneDeps {
   // "nothing is owed" on a path that deletes files - the same fail-closed rule
   // the unreadable-transcript branch follows.
   queuedAttachments(agentId: string): ReadonlySet<string> | null;
+  // The attachment filenames the transcripts in `agentDir` reference. Throws
+  // when a transcript cannot be read. Default: read every transcript now,
+  // synchronously. The automatic cleanup passes a ReferenceIndex lookup.
+  referencedAttachments?: ReferencedAttachments;
+}
+
+export type ReferencedAttachments = (agentDir: string) => Set<string>;
+
+// The attachment references of every transcript in logs/, read by an async
+// scan that yields between files. `lookup` checks the agent directory in one
+// synchronous block and reads again, synchronously, only the transcripts that
+// are new or changed (size or mtime) since the scan, so a plan sees live state.
+export interface ReferenceIndex {
+  lookup: ReferencedAttachments;
+}
+
+// One transcript as the scan saw it: its size and mtime BEFORE the read, so a
+// write during the read shows as a change at lookup (never the other way
+// round, which would pair old references with the new size and mtime).
+interface IndexedTranscript {
+  size: number;
+  mtimeMs: number;
+  refs: Set<string> | Error;
+}
+
+export async function scanReferencedAttachments(
+  logsDir: string,
+): Promise<ReferenceIndex> {
+  const byAgent = new Map<string, Map<string, IndexedTranscript>>();
+  for (const agentId of listAgentDirs(logsDir)) {
+    const agentDir = resolve(logsDir, agentId);
+    const files = new Map<string, IndexedTranscript>();
+    byAgent.set(agentDir, files);
+    let entries;
+    try {
+      entries = await readdirAsync(agentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const transcript = entry.isFile()
+        ? sessionIdOfTranscript(entry.name)
+        : null;
+      if (!transcript) continue;
+      const path = join(agentDir, entry.name);
+      let stat;
+      try {
+        stat = await lstatAsync(path);
+      } catch {
+        continue;
+      }
+      let refs: Set<string> | Error;
+      try {
+        const raw = await readFileAsync(path);
+        const text = transcript.compressed ? await gunzipAsync(raw) : raw;
+        refs = new Set<string>();
+        addReferences(text.toString("utf8"), refs);
+      } catch (err) {
+        refs = err instanceof Error ? err : new Error(String(err));
+      }
+      files.set(entry.name, { size: stat.size, mtimeMs: stat.mtimeMs, refs });
+      // The regex pass above is synchronous: give the event loop a turn
+      // between files.
+      await new Promise<void>((r) => setImmediate(r));
+    }
+  }
+
+  // One synchronous block: list the directory, answer each unchanged
+  // transcript from the scan, read the new or changed ones now. A transcript
+  // gone since the scan drops out. Throws, like referencedAttachments, when a
+  // transcript cannot be read.
+  const lookup = (agentDirArg: string): Set<string> => {
+    const agentDir = resolve(agentDirArg);
+    const cached =
+      byAgent.get(agentDir) ?? new Map<string, IndexedTranscript>();
+    byAgent.set(agentDir, cached);
+    const referenced = new Set<string>();
+    let entries;
+    try {
+      entries = readdirSync(agentDir, { withFileTypes: true });
+    } catch {
+      return referenced;
+    }
+    const present = new Set<string>();
+    for (const entry of entries) {
+      const transcript = entry.isFile()
+        ? sessionIdOfTranscript(entry.name)
+        : null;
+      if (!transcript) continue;
+      const path = join(agentDir, entry.name);
+      let stat;
+      try {
+        stat = lstatSync(path);
+      } catch {
+        continue;
+      }
+      present.add(entry.name);
+      let seen = cached.get(entry.name);
+      if (!seen || seen.size !== stat.size || seen.mtimeMs !== stat.mtimeMs) {
+        let refs: Set<string> | Error;
+        try {
+          refs = new Set<string>();
+          addReferences(
+            readTranscriptSync({ path, compressed: transcript.compressed }),
+            refs,
+          );
+        } catch (err) {
+          refs = err instanceof Error ? err : new Error(String(err));
+        }
+        seen = { size: stat.size, mtimeMs: stat.mtimeMs, refs };
+        cached.set(entry.name, seen);
+      }
+      if (seen.refs instanceof Error)
+        throw new Error(`unreadable transcript in ${agentDir}`);
+      for (const name of seen.refs) referenced.add(name);
+    }
+    for (const name of [...cached.keys()])
+      if (!present.has(name)) cached.delete(name);
+    return referenced;
+  };
+  return { lookup };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const gunzipAsync = promisify(gunzip);
 
 // Resolve a candidate's RELATIVE path against the logs root, or null if it
 // escapes. Lexical containment alone would not be enough if we followed
@@ -362,6 +492,19 @@ function planTranscripts(
 // orphan. Cheap insurance on a regex whose failure mode is deletion.
 const FILENAME_REF = /"filename"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
 
+// Adds every attachment filename `raw` (transcript text) references.
+function addReferences(raw: string, referenced: Set<string>): void {
+  for (const match of raw.matchAll(FILENAME_REF)) {
+    referenced.add(match[1]);
+    // JSON escapes are rare in hash filenames but cost nothing to cover.
+    try {
+      referenced.add(JSON.parse(`"${match[1]}"`) as string);
+    } catch {
+      // Not a decodable escape sequence; the raw form is already added.
+    }
+  }
+}
+
 function referencedAttachments(agentDir: string): Set<string> {
   const referenced = new Set<string>();
   let entries;
@@ -387,15 +530,7 @@ function referencedAttachments(agentDir: string): Set<string> {
       // entirely rather than under-protect.
       throw new Error(`unreadable transcript in ${agentDir}`);
     }
-    for (const match of raw.matchAll(FILENAME_REF)) {
-      referenced.add(match[1]);
-      // JSON escapes are rare in hash filenames but cost nothing to cover.
-      try {
-        referenced.add(JSON.parse(`"${match[1]}"`) as string);
-      } catch {
-        // Not a decodable escape sequence; the raw form is already added.
-      }
-    }
+    addReferences(raw, referenced);
   }
   return referenced;
 }
@@ -438,7 +573,9 @@ function planAttachments(
       unknownReason = "queue-state-unknown";
     } else {
       try {
-        referenced = referencedAttachments(agentDir);
+        referenced = (deps.referencedAttachments ?? referencedAttachments)(
+          agentDir,
+        );
         // Union in what the queue still owes: delivered history is not the only
         // live reference, undelivered messages are too.
         for (const name of queued) referenced.add(name);

@@ -285,6 +285,8 @@ import type {
   StoragePruneReq,
   StorageCompressReq,
   StorageCompressRes,
+  LogRetentionReq,
+  LogRetentionWire,
   BackupSettingsReq,
   BackupSettingsRes,
   StoragePruneRes,
@@ -3953,8 +3955,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
-  // Manual prune. Owner-only and DRY RUN unless the body says apply:true; no
-  // scheduler ever calls it (server/storage-prune.ts).
+  // Manual prune. Owner-only and DRY RUN unless the body says apply:true. The
+  // daily cleanup calls the planners directly (server/storage-retention.ts).
   defineRoute<StoragePruneReq, StoragePruneRes>({
     opId: "storage.prune",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
@@ -3970,6 +3972,25 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/storage/compress",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  // The automatic log cleanup (server/storage-retention.ts): its two ages and
+  // its last run. Read like backupStatus; set by the owner only, like
+  // setBackupSettings.
+  defineRoute<void, LogRetentionWire>({
+    opId: "storage.retention",
+    method: "GET",
+    path: "/api/storage/retention",
+    auth: cap("office:read", operationalAuthenticated),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  defineRoute<LogRetentionReq, LogRetentionWire>({
+    opId: "storage.setRetention",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "PUT",
+    path: "/api/storage/retention",
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),

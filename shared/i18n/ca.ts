@@ -871,8 +871,7 @@ Coses que pots fer per ell:
   "settings.storage.deleteSection": "Esborra fitxers antics",
   "settings.storage.deleteWarningLead":
     "Això esborra fitxers d'aquesta màquina de manera permanent.",
-  "settings.storage.deleteWarningBody":
-    "No hi ha desfer ni paperera. Les converses i els adjunts antics només s'esborren quan executes aquesta neteja.",
+  "settings.storage.deleteWarningBody": "No hi ha desfer ni paperera.",
   "settings.storage.whatToDelete": "Què esborrar",
   "settings.storage.olderThan": "Més antics que",
   "settings.storage.daysHint":
@@ -917,6 +916,24 @@ Coses que pots fer per ell:
     "Canvia la configuració de les còpies de seguretat",
   "settings.storage.backupSaveFailed":
     "No s'ha pogut desar la configuració de les còpies de seguretat.",
+  "settings.storage.days": "dies",
+  "settings.storage.autoSection": "Neteja automàtica",
+  "settings.storage.autoHint":
+    "S'executa un cop al dia sobre les converses dels agents i els seus fitxers.",
+  "settings.storage.autoCompressAfter": "Comprimir converses després de",
+  "settings.storage.autoDeleteAfter":
+    "Eliminar converses i fitxers sense ús després de",
+  "settings.storage.autoDeleteOff": "Desactivat",
+  "settings.storage.autoDeleteHint":
+    "No es pot desfer. Conserva les {count} converses més recents de cada agent.",
+  "settings.storage.autoLastRun":
+    "Darrera execució {when}: la compressió ha estalviat {saved}, les eliminacions han alliberat {freed}.",
+  "settings.storage.autoRunning": "En execució.",
+  "settings.storage.autoLastError": "La darrera execució s'ha aturat: {error}",
+  "settings.storage.autoSaveFailed":
+    "No s'ha pogut desar la configuració de la neteja.",
+  "settings.storage.autoUnavailable":
+    "No s'ha pogut carregar la configuració de la neteja.",
   "settings.storage.compressSection": "Comprimir converses antigues",
   "settings.storage.compressHint":
     "Les converses antigues ocupen menys espai i es llegeixen igual.",
@@ -2508,6 +2525,9 @@ Coses que pots fer per ell:
   "apiCall.storage.usage": "Consultar l'ús de disc de l'oficina",
   "apiCall.storage.prune": "Purgar l'historial emmagatzemat",
   "apiCall.storage.compress": "Comprimir converses antigues",
+  "apiCall.storage.retention": "Llegir la configuració de la neteja automàtica",
+  "apiCall.storage.setRetention":
+    "Canviar la configuració de la neteja automàtica",
   "apiCall.backup.settings":
     "Canviar la configuració de les còpies de seguretat",
   "apiCall.usage.tokens": "Consultar l'ús de tokens de l'oficina",

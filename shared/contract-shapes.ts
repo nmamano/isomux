@@ -2347,6 +2347,38 @@ export interface StorageCompressRes {
   applied: CompressResultWire | null;
 }
 
+// What one automatic log cleanup did (server/storage-retention.ts). A run
+// that failed part way keeps what it did before the error.
+export interface LogRetentionRunWire {
+  compressed: number;
+  // bytesBefore - bytesAfter of the compressed transcripts.
+  compressBytesSaved: number;
+  transcriptsDeleted: number;
+  filesDeleted: number;
+  // Bytes of the deleted transcripts and files.
+  bytesDeleted: number;
+}
+
+// GET /api/storage/retention: the automatic cleanup of logs/ and its last run.
+export interface LogRetentionWire {
+  compressAfterDays: number;
+  // null: automatic deletes are off.
+  deleteAfterDays: number | null;
+  // The newest sessions of each live agent an automatic delete keeps.
+  keepPerAgent: number;
+  lastRunAt: number | null;
+  lastRun: LogRetentionRunWire | null;
+  lastError: string | null;
+  running: boolean;
+}
+
+// PUT /api/storage/retention. An omitted field keeps its value;
+// deleteAfterDays null turns automatic deletes off.
+export interface LogRetentionReq {
+  compressAfterDays?: number;
+  deleteAfterDays?: number | null;
+}
+
 // Office app wrapper readiness. A null chat hides all target metadata.
 export interface AppWidgetStatus {
   registration: number;

@@ -1,4 +1,5 @@
-// Lossless compression of old session transcripts in logs/, on request only.
+// Lossless compression of old session transcripts in logs/, on request and
+// from the daily automatic cleanup (server/storage-retention.ts).
 //
 // Like storage-prune.ts, two phases: planCompress is read-only and says what
 // WOULD be compressed and why the rest was spared; applyCompress plans again

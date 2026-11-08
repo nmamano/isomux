@@ -10,8 +10,13 @@
 //
 // POST /api/storage/prune - office:admin + officeOwner, and DRY RUN BY DEFAULT.
 // The response always carries the full plan; files are removed only when the
-// body says `"apply": true`. Nothing in the server ever calls this on a timer -
-// there is no retention scheduler (see server/storage-prune.ts).
+// body says `"apply": true`. The daily automatic cleanup
+// (server/storage-retention.ts) calls the same planners and appliers, not
+// this route. An apply while the storage lock is held is a 409 storage_busy.
+//
+// GET /api/storage/retention - the automatic cleanup's ages and last run, with
+// the usage route's gate. PUT /api/storage/retention - owner-only, like
+// PUT /api/backup/settings.
 //
 // POST /api/storage/compress - the same gate and the same dry-run default. It
 // gzips old transcripts in place (server/storage-compress.ts); nothing is lost.
@@ -28,15 +33,36 @@ import {
   type PruneTarget,
 } from "../../storage-prune.ts";
 import type { CompressPlan, CompressResult } from "../../storage-compress.ts";
+import type {
+  LogRetentionReq,
+  LogRetentionWire,
+} from "../../../shared/contract-shapes.ts";
 
 export interface StorageDeps {
   // Full breakdown including per-agent detail; the handler strips the detail
   // for non-owners.
   getUsage(): StorageUsage;
   planPrune(target: PruneTarget, policy: PrunePolicy): PrunePlan;
-  applyPrune(plan: PrunePlan): PruneResult;
+  // Both appliers reject with StorageBusyError while the storage lock is
+  // held (the automatic cleanup or another apply).
+  applyPrune(plan: PrunePlan): PruneResult | Promise<PruneResult>;
   planCompress(olderThanDays: number): CompressPlan;
   applyCompress(plan: CompressPlan): Promise<CompressResult>;
+  // The automatic log cleanup (server/storage-retention.ts).
+  getRetention(): LogRetentionWire;
+  // Validates, then saves. { ok: false } is a 400 with the error.
+  setRetention(
+    input: LogRetentionReq,
+  ): { ok: true; res: LogRetentionWire } | { ok: false; error: string };
+}
+
+// Thrown by an apply while another apply or the automatic cleanup holds the
+// storage lock; the handler answers 409 storage_busy.
+export class StorageBusyError extends Error {
+  constructor() {
+    super("storage busy");
+    this.name = "StorageBusyError";
+  }
 }
 
 const TARGETS: readonly PruneTarget[] = [
@@ -49,6 +75,14 @@ const TARGETS: readonly PruneTarget[] = [
 // A prune that could reach today's files is not a retention policy, it is a
 // wipe. The floor is a guard rail, not a recommendation.
 export const MIN_OLDER_THAN_DAYS = 1;
+
+function storageBusy() {
+  return fail(
+    409,
+    "storage_busy",
+    "an automatic cleanup or another cleanup is running; try again when it ends",
+  );
+}
 
 function isPositiveInt(value: unknown, min: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min;
@@ -145,7 +179,7 @@ export function storageHandlers(
       return ok(isOwner ? usage : aggregateOnly(usage));
     },
 
-    "storage.prune": (ctx) => {
+    "storage.prune": async (ctx) => {
       const parsed = parsePruneRequest(ctx.body);
       if (!parsed.ok) return fail(400, parsed.code, parsed.message);
       const { target, apply } = parsed.req;
@@ -171,8 +205,13 @@ export function storageHandlers(
       // Dry run unless the caller explicitly opted in. `applied: null` is the
       // signal that nothing was touched - never an empty result object, which
       // would read like a prune that found nothing to do.
-      const applied = apply === true ? deps.applyPrune(plan) : null;
-      return ok({ plan, applied });
+      try {
+        const applied = apply === true ? await deps.applyPrune(plan) : null;
+        return ok({ plan, applied });
+      } catch (err) {
+        if (err instanceof StorageBusyError) return storageBusy();
+        throw err;
+      }
     },
 
     // Lossless, so no keepPerAgent and no fork-ancestor rule; the same age
@@ -193,8 +232,29 @@ export function storageHandlers(
         return fail(400, "invalid_apply", "apply must be a boolean");
       }
       const plan = deps.planCompress(b.olderThanDays);
-      const applied = b.apply === true ? await deps.applyCompress(plan) : null;
-      return ok({ plan, applied });
+      try {
+        const applied =
+          b.apply === true ? await deps.applyCompress(plan) : null;
+        return ok({ plan, applied });
+      } catch (err) {
+        if (err instanceof StorageBusyError) return storageBusy();
+        throw err;
+      }
+    },
+
+    // office:read + authenticated, like system.backupStatus.
+    "storage.retention": () => ok(deps.getRetention()),
+
+    // Owner-only (route table), like system.setBackupSettings. Every field is
+    // checked before any is saved, so a 400 leaves the settings as they were.
+    "storage.setRetention": (ctx) => {
+      const b = ctx.body;
+      if (!b || typeof b !== "object" || Array.isArray(b))
+        return fail(400, "invalid_body", "the body must be a JSON object");
+      const result = deps.setRetention(b);
+      return result.ok
+        ? ok(result.res)
+        : fail(400, "invalid_retention_settings", result.error);
     },
   };
 }

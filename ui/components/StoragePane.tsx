@@ -3,10 +3,10 @@
 // /api/storage/prune. Opened from Office Settings; the office owner is the only
 // caller who ever sees the entry point.
 //
-// The panel is a ONE-OFF operation, deliberately: no schedules,
-// no automation, no hint of either - Isomux has no retention scheduler and the
-// copy must not imply one. Everything here happens because someone pressed a
-// button, once.
+// The manual compress and delete below are one-off operations: they happen
+// because someone pressed a button, once. The automatic cleanup block above
+// them sets the two ages of the daily cleanup (server/storage-retention.ts):
+// compress on by default, deletes off until the owner sets an age.
 //
 // The delete flow is gated on purpose: a dry-run preview is mandatory before
 // the delete button exists at all, editing any field throws the preview away,
@@ -64,6 +64,8 @@ import type {
   BackupStatusWire,
   StorageCompressRes,
   CompressResultWire,
+  LogRetentionReq,
+  LogRetentionWire,
 } from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
@@ -349,6 +351,7 @@ export function StoragePane({
 
       <UsageBlock usage={usage} error={loadError} />
       <BackupBlock backup={backup} onSaved={setBackup} />
+      <RetentionBlock />
       <CompressBlock onCompressed={loadUsage} />
 
       {leavePrompt.open && (
@@ -805,6 +808,203 @@ function BackupSettingsForm({
         </button>
       </div>
     </div>
+  );
+}
+
+// The server's range for both ages (server/storage-retention.ts).
+const RETENTION_DAYS_MAX = 3650;
+
+function validRetentionDays(text: string): boolean {
+  const n = Number(text);
+  return (
+    text.trim() !== "" &&
+    Number.isInteger(n) &&
+    n >= 1 &&
+    n <= RETENTION_DAYS_MAX
+  );
+}
+
+// The daily automatic cleanup: its two ages and its last run. Save sends both
+// ages, the delete age as null while Off is checked.
+function RetentionBlock() {
+  const { t, language } = useI18n();
+  const size = (bytes: number) => sizeText(language, t, bytes);
+  const [retention, setRetention] = useState<
+    LogRetentionWire | "unavailable" | null
+  >(null);
+  const [compressDays, setCompressDays] = useState("");
+  const [deleteOff, setDeleteOff] = useState(true);
+  const [deleteDays, setDeleteDays] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const show = useCallback((r: LogRetentionWire) => {
+    setRetention(r);
+    setCompressDays(String(r.compressAfterDays));
+    setDeleteOff(r.deleteAfterDays === null);
+    setDeleteDays(r.deleteAfterDays === null ? "" : String(r.deleteAfterDays));
+  }, []);
+
+  useEffect(() => {
+    apiFetch<LogRetentionWire>("GET", "/api/storage/retention")
+      .then(show)
+      .catch(() => setRetention("unavailable"));
+  }, [show]);
+
+  if (retention === null) return null;
+  if (retention === "unavailable") {
+    return (
+      <>
+        <SectionLabel>{t("settings.storage.autoSection")}</SectionLabel>
+        <p style={backupText}>{t("settings.storage.autoUnavailable")}</p>
+      </>
+    );
+  }
+
+  const valid =
+    validRetentionDays(compressDays) &&
+    (deleteOff || validRetentionDays(deleteDays));
+
+  async function save() {
+    if (!valid) return;
+    const body: LogRetentionReq = {
+      compressAfterDays: Number(compressDays),
+      deleteAfterDays: deleteOff ? null : Number(deleteDays),
+    };
+    setSaving(true);
+    setError(null);
+    try {
+      show(
+        await apiFetch<LogRetentionWire>("PUT", "/api/storage/retention", body),
+      );
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : t("settings.storage.autoSaveFailed"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const daysInput = (
+    testId: string,
+    value: string,
+    onChange: (v: string) => void,
+    disabled: boolean,
+  ) => (
+    <input
+      data-testid={testId}
+      type="number"
+      min={1}
+      max={RETENTION_DAYS_MAX}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        ...dialogInput,
+        width: 90,
+        ...(disabled ? disabledLook : null),
+      }}
+    />
+  );
+  const daysWord = (
+    <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+      {t("settings.storage.days")}
+    </span>
+  );
+
+  return (
+    <>
+      <SectionLabel>{t("settings.storage.autoSection")}</SectionLabel>
+      <p style={backupText}>{t("settings.storage.autoHint")}</p>
+      {retention.running ? (
+        <p style={{ ...backupText, marginTop: 4 }}>
+          {t("settings.storage.autoRunning")}
+        </p>
+      ) : (
+        retention.lastRunAt !== null &&
+        retention.lastRun && (
+          <p
+            data-testid="retention-last-run"
+            style={{ ...backupText, marginTop: 4 }}
+          >
+            {t("settings.storage.autoLastRun", {
+              when: ageText(language, t, retention.lastRunAt),
+              saved: size(retention.lastRun.compressBytesSaved),
+              freed: size(retention.lastRun.bytesDeleted),
+            })}
+          </p>
+        )
+      )}
+      {!retention.running && retention.lastError && (
+        <p
+          data-testid="retention-error"
+          style={{ ...backupText, marginTop: 4, color: "var(--red-text)" }}
+        >
+          {t("settings.storage.autoLastError", { error: retention.lastError })}
+        </p>
+      )}
+      <FieldLabel>{t("settings.storage.autoCompressAfter")}</FieldLabel>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {daysInput(
+          "retention-compress-days",
+          compressDays,
+          setCompressDays,
+          saving,
+        )}
+        {daysWord}
+      </div>
+      <FieldLabel>{t("settings.storage.autoDeleteAfter")}</FieldLabel>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {daysInput(
+          "retention-delete-days",
+          deleteDays,
+          setDeleteDays,
+          saving || deleteOff,
+        )}
+        {daysWord}
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 12,
+            color: "var(--text-secondary)",
+          }}
+        >
+          <input
+            data-testid="retention-delete-off"
+            type="checkbox"
+            checked={deleteOff}
+            disabled={saving}
+            onChange={(e) => setDeleteOff(e.target.checked)}
+          />
+          {t("settings.storage.autoDeleteOff")}
+        </label>
+      </div>
+      <p
+        style={{ fontSize: 11, color: "var(--text-ghost)", margin: "5px 0 0" }}
+      >
+        {t("settings.storage.autoDeleteHint", {
+          count: retention.keepPerAgent,
+        })}
+      </p>
+      {error && <ErrorLine>{error}</ErrorLine>}
+      <button
+        data-testid="retention-save"
+        onClick={() => void save()}
+        disabled={!valid || saving}
+        style={{
+          ...dialogSaveBtn,
+          marginTop: 12,
+          ...(valid && !saving ? null : disabledLook),
+        }}
+      >
+        {saving ? t("common.saving") : t("common.save")}
+      </button>
+    </>
   );
 }
 

@@ -180,6 +180,7 @@ export const AUDIT_OPERATIONS = [
   "skills.saveFile",
   "storage.compress",
   "storage.prune",
+  "storage.setRetention",
   "sudoRequests.decline",
   "sudoRequests.run",
   "system.setBackupSettings",

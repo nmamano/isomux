@@ -8,12 +8,21 @@ import { agentManager, askStore, storageRoots } from "./office-managers.ts";
 import { loadSessionsMap, peekMessageQueuesRaw } from "./persistence.ts";
 import type { RouteHandler } from "./routes/executor.ts";
 import {
+  StorageBusyError,
   storageHandlers,
   type StorageDeps,
 } from "./routes/handlers/storage.ts";
 import type { PruneTarget } from "../shared/contract-shapes.ts";
 import { applyCompress, planCompress } from "./storage-compress.ts";
-import { applyPrune, planPrune, type PruneDeps } from "./storage-prune.ts";
+import {
+  applyPrune,
+  planPrune,
+  type PruneDeps,
+  type PrunePlan,
+  type PrunePolicy,
+  type PruneResult,
+  type ReferencedAttachments,
+} from "./storage-prune.ts";
 import { measureStorageCached } from "./storage-usage.ts";
 import {
   liveTerminalRecordingIds,
@@ -31,21 +40,34 @@ export interface StorageApplied {
   keepPerAgent: number;
 }
 
-export type StorageOps = Pick<
-  StorageDeps,
-  "planPrune" | "applyPrune" | "planCompress" | "applyCompress"
-> & {
+// Options of a plan or apply the automatic cleanup makes: its ReferenceIndex
+// lookup, for the plan and for the apply (which plans again).
+export interface PruneOpts {
+  referencedAttachments?: ReferencedAttachments;
+}
+
+export type StorageOps = Pick<StorageDeps, "planCompress" | "applyCompress"> & {
+  planPrune(
+    target: PruneTarget,
+    policy: PrunePolicy,
+    opts?: PruneOpts,
+  ): PrunePlan;
+  applyPrune(plan: PrunePlan, opts?: PruneOpts): PruneResult;
   // The last prune applied to the target, and the last compress.
   lastPrune(target: PruneTarget): StorageApplied | null;
   lastCompress(): StorageApplied | null;
+  // The storage lock. Runs fn while holding it; rejects with
+  // StorageBusyError, without running fn, while another holder has it.
+  exclusive<T>(fn: () => Promise<T>): Promise<T>;
+  isBusy(): boolean;
 };
 
 // The planners and appliers over the live office, shared by the routes and
 // the action asks. `applied` runs after each apply that returned a result.
 export function createStorageOps(applied: () => void): StorageOps {
-  // Storage visibility + the MANUAL pruner. Nothing here is
-  // scheduled: the only way anything gets deleted is an owner POSTing
-  // apply:true. The three locations are resolved fresh per call by
+  // Storage visibility + the pruner. Something gets deleted only when an
+  // owner POSTs apply:true, or when the automatic cleanup
+  // (server/storage-retention.ts) runs with an age an owner set. The three locations are resolved fresh per call by
   // storageRoots(), which the /isomux-storage slash command shares so the two
   // surfaces cannot disagree about what counts as isomux storage.
   //
@@ -129,12 +151,20 @@ export function createStorageOps(applied: () => void): StorageOps {
   };
   const prunes = new Map<PruneTarget, StorageApplied>();
   let compress: StorageApplied | null = null;
+  let busy = false;
+  const withOpts = (opts: PruneOpts | undefined): PruneDeps => ({
+    ...pruneDeps(),
+    ...(opts?.referencedAttachments
+      ? { referencedAttachments: opts.referencedAttachments }
+      : {}),
+  });
   return {
-    planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
+    planPrune: (target, policy, opts) =>
+      planPrune(target, policy, withOpts(opts)),
     // The stamp only after the apply returned, and not for one abandoned
     // before it deleted anything: a throw or an abort sets none.
-    applyPrune: (plan) => {
-      const result = applyPrune(plan, pruneDeps());
+    applyPrune: (plan, opts) => {
+      const result = applyPrune(plan, withOpts(opts));
       if (!result.aborted) {
         prunes.set(plan.target, { at: Date.now(), ...plan.policy });
         applied();
@@ -162,17 +192,34 @@ export function createStorageOps(applied: () => void): StorageOps {
     },
     lastPrune: (target) => prunes.get(target) ?? null,
     lastCompress: () => compress,
+    // In-process: the server is the only writer of logs/. The check and the
+    // set happen in one synchronous block, so two callers cannot both pass.
+    exclusive: async (fn) => {
+      if (busy) throw new StorageBusyError();
+      busy = true;
+      try {
+        return await fn();
+      } finally {
+        busy = false;
+      }
+    },
+    isBusy: () => busy,
   };
 }
 
+// The manual applies take the storage lock (StorageBusyError while it is
+// held); dry runs do not.
 export function createStorageRoutes(
   ops: StorageOps,
+  retention: Pick<StorageDeps, "getRetention" | "setRetention">,
 ): Record<string, RouteHandler> {
   return storageHandlers({
     getUsage: () => measureStorageCached(storageRoots()),
-    planPrune: ops.planPrune,
-    applyPrune: ops.applyPrune,
+    planPrune: (target, policy) => ops.planPrune(target, policy),
+    applyPrune: (plan) => ops.exclusive(async () => ops.applyPrune(plan)),
     planCompress: ops.planCompress,
-    applyCompress: ops.applyCompress,
+    applyCompress: (plan) => ops.exclusive(() => ops.applyCompress(plan)),
+    getRetention: retention.getRetention,
+    setRetention: retention.setRetention,
   });
 }

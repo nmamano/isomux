@@ -969,10 +969,21 @@ async function runBackup(
   }
 }
 
+let preTick: (() => Promise<void>) | null = null;
+
 async function tick() {
   if (running) return;
   running = true;
   try {
+    // Before the folder is prepared, so a folder problem does not stop it,
+    // and before the archive, so the archive holds its result.
+    if (preTick) {
+      try {
+        await preTick();
+      } catch (err) {
+        console.error("[backup] the step before the backup failed:", err);
+      }
+    }
     // One snapshot of the settings for the whole check and run.
     const config = currentBackupConfig();
     if (!preparedDirs.has(config.backupDir)) {
@@ -996,6 +1007,18 @@ async function tick() {
   } finally {
     running = false;
   }
+}
+
+// A step each tick runs first, before it prepares the backup folder: the
+// automatic log cleanup (server/storage-retention.ts). Its failure is logged
+// and does not stop the backup. null removes it.
+export function setBackupPreTick(hook: (() => Promise<void>) | null): void {
+  preTick = hook;
+}
+
+/** Test-only: one scheduler tick, as the hourly check runs it. */
+export async function tickOnceForTest(): Promise<void> {
+  await tick();
 }
 
 export function startBackupScheduler() {

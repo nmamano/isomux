@@ -15,6 +15,8 @@ import {
   resolveBackupDir,
   runBackupOnceForTest,
   saveBackupSettings,
+  setBackupPreTick,
+  tickOnceForTest,
 } from "./backup.ts";
 import { STATE_ROOT } from "./config.ts";
 
@@ -968,5 +970,70 @@ describe("a backup folder two offices share", () => {
     expect(finals(shared)).toEqual([fromB, fromA].sort());
     expect(backupStatusForTest(cfgA, at + 180_000).lastBackupFile).toBe(fromA);
     expect(backupStatusForTest(cfgB, at + 180_000).lastBackupFile).toBe(fromB);
+  });
+});
+
+// The automatic log cleanup runs as the first step of each scheduler tick
+// (task 3f8db20b): before the backup folder is prepared, so a folder problem
+// does not stop it, and before the archive, so the archive holds the
+// compressed transcripts. Its failure does not stop the backup.
+describe("the step before each backup tick", () => {
+  let savedEnv: string | undefined;
+  beforeEach(() => {
+    savedEnv = process.env.ISOMUX_BACKUP_DIR;
+    delete process.env.ISOMUX_BACKUP_DIR;
+  });
+  afterEach(() => {
+    setBackupPreTick(null);
+    saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
+    if (savedEnv === undefined) delete process.env.ISOMUX_BACKUP_DIR;
+    else process.env.ISOMUX_BACKUP_DIR = savedEnv;
+  });
+
+  test("runs before the folder is prepared and before the archive, and a throw does not stop the backup", async () => {
+    const f = fixture();
+    fs.mkdirSync(f.backupDir);
+    // A leftover partial: preparing the folder removes it.
+    const partial = path.join(f.backupDir, ".isomux-backup-left.partial");
+    expect(isBackupPartialForTest(path.basename(partial))).toBe(true);
+    fs.writeFileSync(partial, "left");
+    const saved = saveBackupSettings(
+      { intervalHours: 24, retention: 1, dir: f.backupDir },
+      { envDir: undefined },
+    );
+    expect(saved.ok).toBe(true);
+
+    const seen: { partial: boolean; archives: number }[] = [];
+    setBackupPreTick(async () => {
+      seen.push({
+        partial: fs.existsSync(partial),
+        archives: finals(f.backupDir).length,
+      });
+      throw new Error("cleanup failed");
+    });
+    await tickOnceForTest();
+
+    expect(seen).toEqual([{ partial: true, archives: 0 }]);
+    expect(fs.existsSync(partial)).toBe(false);
+    expect(finals(f.backupDir)).toHaveLength(1);
+    const status = getBackupStatus();
+    expect(status.lastBackupOk).toBe(true);
+    expect(status.lastBackupError).toBeNull();
+  }, 20_000);
+
+  test("runs when the backup folder cannot be made", async () => {
+    const f = fixture();
+    const blocker = path.join(f.root, "a-file");
+    fs.writeFileSync(blocker, "x");
+    const dir = path.join(blocker, "backups");
+    process.env.ISOMUX_BACKUP_DIR = dir;
+    let calls = 0;
+    setBackupPreTick(async () => {
+      calls++;
+    });
+    await tickOnceForTest();
+    expect(calls).toBe(1);
+    // Enabling condition: the folder really could not be made.
+    expect(fs.existsSync(dir)).toBe(false);
   });
 });

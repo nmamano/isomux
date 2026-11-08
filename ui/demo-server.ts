@@ -40,6 +40,8 @@ import type {
   StoragePruneReq,
   StorageCompressReq,
   StorageCompressRes,
+  LogRetentionReq,
+  LogRetentionWire,
   BackupSettingsReq,
   BackupSettingsRes,
   StoragePruneRes,
@@ -159,6 +161,17 @@ function demoInstructionsPut(
 }
 
 const state = new OfficeState();
+
+// The automatic log cleanup's settings (GET/PUT /api/storage/retention).
+let demoLogRetention: LogRetentionWire = {
+  compressAfterDays: 7,
+  deleteAfterDays: null,
+  keepPerAgent: 2,
+  lastRunAt: null,
+  lastRun: null,
+  lastError: null,
+  running: false,
+};
 const demoAudit: AuditEntry[] = [];
 let restoringDemoTask = false;
 state.beforeTaskChange = (change) => {
@@ -3057,6 +3070,23 @@ export async function demoApi(
             },
           }
         : { plan, applied: null };
+    }
+    // The demo's automatic cleanup never runs: the defaults, and a save that
+    // keeps what it was sent.
+    case "GET /api/storage/retention":
+      return demoLogRetention;
+    case "PUT /api/storage/retention": {
+      const b = (body ?? {}) as LogRetentionReq;
+      demoLogRetention = {
+        ...demoLogRetention,
+        ...(b.compressAfterDays !== undefined
+          ? { compressAfterDays: b.compressAfterDays }
+          : {}),
+        ...(b.deleteAfterDays !== undefined
+          ? { deleteAfterDays: b.deleteAfterDays }
+          : {}),
+      };
+      return demoLogRetention;
     }
     // office.setSettings - set + broadcast office_settings_updated; no body
     // (204-like). Mirrors the retired update_office_settings handleCommand:

@@ -1922,6 +1922,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "usage.read": { caps: ["office:read"], emits: [] },
   "storage.prune": { caps: ["office:admin"], emits: [] },
   "storage.compress": { caps: ["office:admin"], emits: [] },
+  "storage.retention": { caps: ["office:read"], emits: [] },
+  "storage.setRetention": { caps: ["office:admin"], emits: [] },
   // Memory (isomux-memory)
   "memory.read": { caps: ["memory:read"], emits: [] },
   "memory.append": { caps: ["memory:write"], emits: [] },
@@ -2649,6 +2651,7 @@ const API_REACHABLE_OPIDS = [
   "system.version",
   "storage.usage",
   "usage.read",
+  "storage.retention",
 ];
 
 describe("route table: usage checks use log-read scope", () => {

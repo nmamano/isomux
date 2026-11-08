@@ -1436,6 +1436,39 @@ export function saveBackupSettingsRaw(settings: {
   );
 }
 
+// The automatic log cleanup settings (server/storage-retention.ts), beside
+// the backup settings in office-config.json. Raw values: storage-retention.ts
+// validates them and fills defaults.
+export function loadLogRetentionRaw(): {
+  compressAfterDays: unknown;
+  deleteAfterDays: unknown;
+} {
+  const raw = readOfficeConfigRaw();
+  return {
+    compressAfterDays: raw.logsCompressAfterDays,
+    deleteAfterDays: raw.logsDeleteAfterDays,
+  };
+}
+
+// Both in one write. Throws when the write fails.
+export function saveLogRetentionRaw(settings: {
+  compressAfterDays: number;
+  deleteAfterDays: number | null;
+}): void {
+  atomicWriteFileSync(
+    OFFICE_CONFIG_FILE,
+    JSON.stringify(
+      {
+        ...readOfficeConfigRaw(),
+        logsCompressAfterDays: settings.compressAfterDays,
+        logsDeleteAfterDays: settings.deleteAfterDays,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 // Server/deployment config that shares office-config.json but isn't part of
 // the UI-mutated OfficeSettings. Server reads at boot only; writes are
 // operator-authored (direct file edit, or future tooling that runs outside

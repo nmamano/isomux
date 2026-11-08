@@ -875,8 +875,7 @@ Cosas que puedes hacer por él:
   "settings.storage.deleteSection": "Borrar archivos antiguos",
   "settings.storage.deleteWarningLead":
     "Esto borra archivos de esta máquina de forma permanente.",
-  "settings.storage.deleteWarningBody":
-    "No hay deshacer ni papelera. Las conversaciones y los adjuntos antiguos solo se borran cuando ejecutas esta limpieza.",
+  "settings.storage.deleteWarningBody": "No hay deshacer ni papelera.",
   "settings.storage.whatToDelete": "Qué borrar",
   "settings.storage.olderThan": "Más antiguos que",
   "settings.storage.daysHint":
@@ -922,6 +921,24 @@ Cosas que puedes hacer por él:
     "Cambiar la configuración de las copias de seguridad",
   "settings.storage.backupSaveFailed":
     "No se pudo guardar la configuración de las copias de seguridad.",
+  "settings.storage.days": "días",
+  "settings.storage.autoSection": "Limpieza automática",
+  "settings.storage.autoHint":
+    "Se ejecuta una vez al día sobre las conversaciones de los agentes y sus archivos.",
+  "settings.storage.autoCompressAfter": "Comprimir conversaciones después de",
+  "settings.storage.autoDeleteAfter":
+    "Eliminar conversaciones y archivos sin uso después de",
+  "settings.storage.autoDeleteOff": "Desactivado",
+  "settings.storage.autoDeleteHint":
+    "No se puede deshacer. Conserva las {count} conversaciones más recientes de cada agente.",
+  "settings.storage.autoLastRun":
+    "Última ejecución {when}: la compresión ahorró {saved}, las eliminaciones liberaron {freed}.",
+  "settings.storage.autoRunning": "En ejecución.",
+  "settings.storage.autoLastError": "La última ejecución se detuvo: {error}",
+  "settings.storage.autoSaveFailed":
+    "No se pudo guardar la configuración de la limpieza.",
+  "settings.storage.autoUnavailable":
+    "No se pudo cargar la configuración de la limpieza.",
   "settings.storage.compressSection": "Comprimir conversaciones antiguas",
   "settings.storage.compressHint":
     "Las conversaciones antiguas ocupan menos espacio y se leen igual.",
@@ -2502,6 +2519,10 @@ Cosas que puedes hacer por él:
   "apiCall.storage.usage": "Consultar el uso de disco de la oficina",
   "apiCall.storage.prune": "Purgar el historial almacenado",
   "apiCall.storage.compress": "Comprimir conversaciones antiguas",
+  "apiCall.storage.retention":
+    "Leer la configuración de la limpieza automática",
+  "apiCall.storage.setRetention":
+    "Cambiar la configuración de la limpieza automática",
   "apiCall.backup.settings":
     "Cambiar la configuración de las copias de seguridad",
   "apiCall.usage.tokens": "Consultar el uso de tokens de la oficina",
