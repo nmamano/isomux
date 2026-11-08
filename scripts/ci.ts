@@ -20,13 +20,15 @@ type StageName =
   | "opencode live"
   | "ci:web"
   | "container"
-  | "install smoke";
+  | "install smoke"
+  | "audit";
 
 type StageResult = {
   name: StageName;
   log: string;
   seconds: number;
-  status: "passed" | "failed" | "skipped";
+  /** warned: a warnOnly stage that did not pass. It does not fail CI. */
+  status: "passed" | "failed" | "warned" | "skipped";
   exitCode?: number;
   reason?: string;
   /** The largest RSS of the stage's processes, in bytes. */
@@ -40,6 +42,8 @@ type Stage = {
   heap?: boolean;
   /** The summary reports the stage's peak RSS against this budget, in bytes. */
   peakRss?: number;
+  /** A stage that does not pass warns: it never fails CI. */
+  warnOnly?: boolean;
 };
 
 export const stages: Stage[] = [
@@ -81,6 +85,10 @@ export const stages: Stage[] = [
     name: "install smoke",
     command: ["bash", "scripts/install-smoke/run.sh", "installer-gate", "HEAD"],
   },
+  // Critical and high advisories in the runtime dependencies of both
+  // lockfiles. It reads the registry's advisory list, which changes with no
+  // commit here, so it warns and never fails CI (task c33cb42f).
+  { name: "audit", command: ["bun", "run", "audit:runtime"], warnOnly: true },
 ];
 
 // Twice the latest completed bun test STEP (not the whole battery):
@@ -96,10 +104,15 @@ const OPENCODE_LIVE_CEILING_MS = 2 * 132_020;
 // cached, the stage took 96.70s in a full ci:remote run on 2026-11-07,
 // /tmp/t-d5249443/ci.log (load average 6.68 at the end).
 const INSTALL_SMOKE_CEILING_MS = 2 * 174_000;
+// The audit stage asks the npm registry twice: under a second each on
+// 2026-11-08 (/tmp/t-c33cb42f/ar.log). The limit only stops a registry that
+// does not answer from holding CI open.
+const AUDIT_CEILING_MS = 120_000;
 export function ceilingFor(name: StageName): number | undefined {
   if (name === "bun test") return BUN_TEST_CEILING_MS;
   if (name === "opencode live") return OPENCODE_LIVE_CEILING_MS;
   if (name === "install smoke") return INSTALL_SMOKE_CEILING_MS;
+  if (name === "audit") return AUDIT_CEILING_MS;
   return undefined;
 }
 
@@ -166,6 +179,7 @@ export async function runStage(
     child,
   ) => child.exited,
   env?: Record<string, string>,
+  warnOnly: boolean = definition(name).warnOnly ?? false,
 ): Promise<StageResult> {
   const fd = openSync(log, "w");
   const started = performance.now();
@@ -214,19 +228,22 @@ export async function runStage(
     ? `wall-clock limit ${timeoutMs}ms exceeded; last test line: ${lastTestLine(log)}`
     : undefined;
   const seconds = (performance.now() - started) / 1_000;
+  const passed = !timedOut && exitCode === 0;
+  const mark = warnOnly ? "!" : "✗";
+  const verb = warnOnly ? "warned" : "failed";
   console.log(
-    timedOut
-      ? `✗ ${name} failed (${reason})`
-      : exitCode === 0
-        ? `✓ ${name} ${seconds.toFixed(2)}s`
-        : `✗ ${name} failed (exit ${exitCode}) ${seconds.toFixed(2)}s`,
+    passed
+      ? `✓ ${name} ${seconds.toFixed(2)}s`
+      : timedOut
+        ? `${mark} ${name} ${verb} (${reason})`
+        : `${mark} ${name} ${verb} (exit ${exitCode}) ${seconds.toFixed(2)}s`,
   );
 
   return {
     name,
     log,
     seconds,
-    status: !timedOut && exitCode === 0 ? "passed" : "failed",
+    status: passed ? "passed" : warnOnly ? "warned" : "failed",
     exitCode,
     reason,
     peakRssBytes,
@@ -290,6 +307,23 @@ export function printSummary(
   }
 }
 
+/**
+ * The verdict of one CI run: `failed` decides the exit code and the
+ * "CI failed" line; `shown` lists, in result order, the stages whose logs
+ * print after the summary (the failed and the warned ones).
+ */
+export function ciVerdict(results: StageResult[]): {
+  failed: StageResult[];
+  shown: StageResult[];
+} {
+  return {
+    failed: results.filter((result) => result.status === "failed"),
+    shown: results.filter(
+      (result) => result.status === "failed" || result.status === "warned",
+    ),
+  };
+}
+
 // A usable Docker is a CLI that reaches its daemon.
 export function hasDocker(PATH = process.env.PATH ?? ""): boolean {
   const docker = Bun.which("docker", { PATH });
@@ -322,6 +356,8 @@ export async function runPipeline(
   const installSmoke = docker
     ? stage("install smoke")
     : skipped("install smoke", "no Docker");
+  // Needs neither the UI build nor Docker, and gates nothing: it only warns.
+  const audit = stage("audit");
   const tests = build.then((result): Promise<StageResult> | StageResult =>
     result.status === "passed"
       ? stage("bun test")
@@ -342,6 +378,7 @@ export async function runPipeline(
     web,
     container,
     installSmoke,
+    audit,
   ]);
 }
 
@@ -366,13 +403,13 @@ async function main(): Promise<void> {
   try {
     const results = await runPipeline(stage, logFor, hasDocker());
     const seconds = (performance.now() - started) / 1_000;
-    const failed = results.filter((result) => result.status === "failed");
+    const { failed, shown } = ciVerdict(results);
 
     for (const result of results) {
       if (result.status === "passed") printLog(result);
     }
     printSummary(results, seconds, heapFor);
-    for (const result of failed) printLog(result);
+    for (const result of shown) printLog(result);
 
     if (failed.length > 0 || interruptedSignal) {
       const names = failed.map((result) => result.name).join(", ");

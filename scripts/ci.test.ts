@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   BUN_TEST_CEILING_MS,
   ceilingFor,
+  ciVerdict,
   hasDocker,
   killStage,
   runPipeline,
@@ -54,6 +55,7 @@ async function fakeStep(
   ceiling?: number,
   missingExit = false,
   fastTimers = false,
+  stage = "bun test",
 ) {
   const root = mkdtempSync(join(tmpdir(), "isomux-ci-test-"));
   roots.push(root);
@@ -64,7 +66,7 @@ async function fakeStep(
       const realSetTimeout = globalThis.setTimeout;
       globalThis.setTimeout = (callback, delay, ...args) => realSetTimeout(callback, Math.min(delay, 600), ...args);
     }
-    const result = await runStage("bun test", ${JSON.stringify(command)}, ${JSON.stringify(log)}, ${ceiling}${missingExit ? ", () => new Promise(() => {})" : ""});
+    const result = await runStage(${JSON.stringify(stage)}, ${JSON.stringify(command)}, ${JSON.stringify(log)}, ${ceiling}${missingExit ? ", () => new Promise(() => {})" : ""});
     console.log("RESULT=" + JSON.stringify(result));
   `;
   const proc = Bun.spawn([process.execPath, "-e", source], {
@@ -173,6 +175,8 @@ it("selects real ceilings only for the test stages and applies them by default",
   // A stalled download in the installer must fail the stage, not hold the
   // whole run to the remote's limit.
   expect(ceilingFor("install smoke")).toBeGreaterThan(0);
+  // The audit asks the npm registry: no answer must not hold CI open.
+  expect(ceilingFor("audit")).toBeGreaterThan(0);
   expect(ceilingFor("lint")).toBeUndefined();
   const root = mkdtempSync(join(tmpdir(), "isomux-ci-default-"));
   roots.push(root);
@@ -224,9 +228,12 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
     true,
   );
 
-  // The install smoke starts with the independent stages (no stage had
-  // completed when it started); its place among them is not pinned.
-  expect(calls.filter((name) => name !== "install smoke")).toEqual([
+  // The install smoke and the audit start with the independent stages (no
+  // stage had completed when they started); their place among them is not
+  // pinned.
+  expect(
+    calls.filter((name) => name !== "install smoke" && name !== "audit"),
+  ).toEqual([
     "format:check",
     "lint",
     "tsc",
@@ -237,6 +244,7 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
     "opencode live",
   ]);
   expect(calls).toContain("install smoke");
+  expect(calls).toContain("audit");
   expect(concurrent).toBe(true);
   expect(results.find((result) => result.name === "lint")?.status).toBe(
     "failed",
@@ -260,7 +268,15 @@ it("skips tests only when the UI build fails", async () => {
     false,
   );
 
-  expect(calls).toEqual(["format:check", "lint", "tsc", "build:ui", "ci:web"]);
+  // The audit needs neither the UI build nor Docker.
+  expect(calls.filter((name) => name !== "audit")).toEqual([
+    "format:check",
+    "lint",
+    "tsc",
+    "build:ui",
+    "ci:web",
+  ]);
+  expect(calls).toContain("audit");
   expect(results.find((result) => result.name === "bun test")).toEqual({
     name: "bun test",
     log: "bun test.skipped.log",
@@ -415,4 +431,115 @@ it("counts Docker as present only when its CLI reaches the daemon", () => {
   expect(hasDocker(empty)).toBe(false);
   expect(hasDocker(stub(1))).toBe(false);
   expect(hasDocker(stub(0))).toBe(true);
+});
+
+// The audit stage (task c33cb42f) reads an advisory list that changes with no
+// commit here, so a stage marked warnOnly in the stage table never fails CI.
+it("warns, and does not fail, when the audit stage exits non-zero", async () => {
+  const { result, out } = await fakeStep(
+    ["sh", "-c", "exit 1"],
+    60_000,
+    false,
+    false,
+    "audit",
+  );
+  expect(result.status).toBe("warned");
+  expect(result.exitCode).toBe(1);
+  expect(result.reason).toBeUndefined();
+  const printed = out.split("\n").filter((line) => !line.startsWith("RESULT="));
+  expect(printed.some((line) => line.includes("audit"))).toBe(true);
+  // ✗ marks a failed stage in the run's output.
+  expect(printed.filter((line) => line.startsWith("✗"))).toEqual([]);
+
+  const passed = await fakeStep(
+    ["sh", "-c", "exit 0"],
+    60_000,
+    false,
+    false,
+    "audit",
+  );
+  expect(passed.result.status).toBe("passed");
+}, 15_000);
+
+it("warns when the audit stage outlives its default ceiling", async () => {
+  const root = mkdtempSync(join(tmpdir(), "isomux-ci-audit-"));
+  roots.push(root);
+  const pidFile = join(root, "pid");
+  descendants.push(pidFile);
+  // Compress the clock in the isolated runner, keeping the real default
+  // ceiling and the real default warnOnly argument.
+  const { result, out } = await fakeStep(
+    ["sh", "-c", 'echo $$ > "$1"; exec sleep 60', "sh", pidFile],
+    undefined,
+    false,
+    true,
+    "audit",
+  );
+  expect(result.exitCode).toBe(124);
+  expect(result.status).toBe("warned");
+  expect(result.reason).toBe(
+    `wall-clock limit ${ceilingFor("audit")}ms exceeded; last test line: (no output)`,
+  );
+  const printed = out.split("\n").filter((line) => !line.startsWith("RESULT="));
+  expect(printed.some((line) => line.includes(result.reason))).toBe(true);
+  expect(printed.filter((line) => line.startsWith("✗"))).toEqual([]);
+}, 15_000);
+
+it("runs the audit without Docker and returns its warning", async () => {
+  const calls: string[] = [];
+  const results = await runPipeline(
+    async (name) => {
+      calls.push(name);
+      const warned = name === "audit";
+      return {
+        name,
+        log: `${name}.log`,
+        seconds: 0,
+        status: warned ? "warned" : "passed",
+        exitCode: warned ? 1 : 0,
+      };
+    },
+    (name) => `${name}.skipped.log`,
+    false,
+  );
+  expect(calls.filter((name) => name === "audit")).toHaveLength(1);
+  expect(results.find((result) => result.name === "audit")).toEqual({
+    name: "audit",
+    log: "audit.log",
+    seconds: 0,
+    status: "warned",
+    exitCode: 1,
+  });
+  // A warned audit gates nothing: the dependent stages still ran.
+  expect(calls).toContain("bun test");
+  expect(calls).toContain("opencode live");
+});
+
+it("fails CI only on failed stages and shows the failed and warned logs", () => {
+  type Results = Parameters<typeof ciVerdict>[0];
+  const result = (
+    name: Results[number]["name"],
+    status: Results[number]["status"],
+  ): Results[number] => ({ name, log: `${name}.log`, seconds: 0, status });
+  const results: Results = [
+    result("format:check", "passed"),
+    result("audit", "warned"),
+    result("lint", "failed"),
+    result("container", "skipped"),
+    result("tsc", "failed"),
+  ];
+  const names = (list: Results) => list.map((entry) => entry.name);
+
+  const verdict = ciVerdict(results);
+  expect(names(verdict.failed)).toEqual(["lint", "tsc"]);
+  expect(names(verdict.shown)).toEqual(["audit", "lint", "tsc"]);
+
+  // A run whose only problem is a warning passes.
+  const warnedOnly = ciVerdict([
+    result("format:check", "passed"),
+    result("audit", "warned"),
+    result("container", "skipped"),
+  ]);
+  expect(warnedOnly.failed).toHaveLength(0);
+  expect(names(warnedOnly.shown)).toEqual(["audit"]);
 });

@@ -67,6 +67,13 @@ jobs:
       - name: Check formatting
         run: bun run format:check
 
+      # The "audit" stage of `bun run ci`: critical and high advisories in the
+      # runtime dependencies. New advisories appear with no commit here, so it
+      # warns and does not fail the build.
+      - name: Audit runtime dependencies
+        continue-on-error: true
+        run: bun run audit:runtime
+
       - name: Lint
         run: bun run lint
 
