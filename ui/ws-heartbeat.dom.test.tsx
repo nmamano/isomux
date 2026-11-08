@@ -6,6 +6,8 @@ const { act, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { StoreProvider, useAppState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
+const { TASKS_SUMMARY_WS_PARAM, TASKS_SUMMARY_WS_VALUE } =
+  await import("../shared/task-board.ts");
 
 // The heartbeat pings every 25 s and gives the pong 5 s. On a slow link the
 // pong can wait behind megabytes of replay, so any frame that arrives in the
@@ -27,7 +29,9 @@ function withFakeSocket(run: (sockets: FakeSocket[]) => void) {
     onopen?: () => void;
     onmessage?: (e: { data: unknown }) => void;
     onclose?: () => void;
-    constructor() {
+    url: string;
+    constructor(url: string) {
+      this.url = url;
       sockets.push(this);
     }
     send(data: string) {
@@ -48,6 +52,7 @@ function withFakeSocket(run: (sockets: FakeSocket[]) => void) {
   }
 }
 type FakeSocket = {
+  url: string;
   readyState: number;
   sent: string[];
   failSend: boolean;
@@ -67,6 +72,19 @@ function open(s: FakeSocket) {
 function goOnline() {
   window.dispatchEvent(new Event("online"));
 }
+
+// The office socket asks for the summary task board (task 9ebe887d); a
+// socket without the flag gets the whole board, as a tab from before it did.
+it("opens the office socket with the summary task board flag", () => {
+  withFakeSocket((sockets) => {
+    ws.connect(() => {});
+    const url = new URL(sockets[0].url);
+    expect(url.pathname).toBe("/ws");
+    expect(url.searchParams.get(TASKS_SUMMARY_WS_PARAM)).toBe(
+      TASKS_SUMMARY_WS_VALUE,
+    );
+  });
+});
 
 it("a frame that arrives during the pong grace keeps the socket", () => {
   withFakeSocket((sockets) => {

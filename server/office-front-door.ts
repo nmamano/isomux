@@ -88,6 +88,10 @@ import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
 import { type AppRelayWsData } from "./app-ws-relay.ts";
 import { officeCardResponse } from "./office-card.ts";
 import { OFFICE_CARD_PATH } from "../shared/floors.ts";
+import {
+  TASKS_SUMMARY_WS_PARAM,
+  TASKS_SUMMARY_WS_VALUE,
+} from "../shared/task-board.ts";
 import { productionAppProxySecret } from "./app-proxy-secret.ts";
 import { loadApiTokens } from "./api-tokens.ts";
 import {
@@ -436,6 +440,11 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                 kind: "office" as const,
                 session: wsSession,
                 connectionId: nextConnectionId(),
+                ...(new URL(req.url).searchParams.get(
+                  TASKS_SUMMARY_WS_PARAM,
+                ) === TASKS_SUMMARY_WS_VALUE
+                  ? { tasksSummary: true as const }
+                  : {}),
               },
               ...(wsMigration.length > 0 ? { headers: wsHeaders } : {}),
             });

@@ -85,6 +85,7 @@ import { OfficeLinkOpener } from "./office-link.tsx";
 import { AskSignInResult, type AskSignIn } from "./log-view/ask-sign-in.ts";
 import { TaskOpener } from "./log-view/task-links.tsx";
 import { AskRefsProvider } from "./log-view/ask-refs.tsx";
+import { TaskLookupBridge } from "./task-lookup.ts";
 import type { OfficeLink } from "../shared/office-links.ts";
 import { useCan } from "./hooks/useCan.ts";
 
@@ -1081,6 +1082,9 @@ export function App({ routing = true }: { routing?: boolean }) {
     <OfficeLinkOpener.Provider value={openOfficeLink}>
       <AskSignInResult.Provider value={askSignInResult}>
         <TaskOpener.Provider value={openTask}>
+          {/* Before AskRefsProvider, so its snapshot of the store is fresh
+              before the chips' layout effects of the same commit. */}
+          <TaskLookupBridge />
           <AskRefsProvider open={openAsk}>
             <style>{CSS}</style>
             <ConnectionBanner />

@@ -1,8 +1,9 @@
 import { dialogInput, dialogLabel, dialogCancelBtn } from "./dialog-styles.ts";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
+import { lookUpTaskIds } from "../task-lookup.ts";
 import { AUDIT_OPERATIONS } from "../audit-operations.ts";
 import { lazyComponent } from "../lazy-component.tsx";
 import { AUDIT_ACTOR_KINDS } from "../../shared/audit.ts";
@@ -104,6 +105,24 @@ function AuditRows({
   onError: (message: string) => void;
 }) {
   const { t } = useI18n();
+  // A closed task is not on the summary board (task 9ebe887d): read the
+  // titles of the task targets the store lacks.
+  const missingTaskIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          items.flatMap((entry) =>
+            entry.operation.startsWith("tasks.")
+              ? entry.targets.filter((id) => !names.has(id))
+              : [],
+          ),
+        ),
+      ].join(","),
+    [items, names],
+  );
+  useEffect(() => {
+    if (missingTaskIds) lookUpTaskIds(missingTaskIds.split(","));
+  }, [missingTaskIds]);
   const [restored, setRestored] = useState<number[]>([]);
   const [replay, setReplay] = useState<{ id: string; title: string } | null>(
     null,

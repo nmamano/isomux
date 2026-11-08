@@ -525,10 +525,22 @@ describe("reducer: task deltas", () => {
     expect(after.tasks.map((t) => t.id)).toEqual(["t2"]);
   });
 
-  it("task_deleted for an id we don't hold is a no-op, same state object", () => {
+  // Not a no-op since the summary board (task 9ebe887d): a closed task the
+  // store does not hold yet can be in a fetch that is in flight, and the
+  // delete must still win over it.
+  it("task_deleted for an id we don't hold keeps the rows and still wins over a fetch in flight", () => {
     const before = hydrated();
+    const seqAtRequest = before.taskDeltaSeq;
     const after = reducer(before, { type: "task_deleted", taskId: "nope" });
-    expect(after).toBe(before);
+    expect(after.tasks).toEqual(before.tasks);
+    const fetched = reducer(after, {
+      type: "tasks_fetched",
+      tasks: [boardTask("nope", "deleted meanwhile")],
+      epoch: after.tasksEpoch,
+      seqAtRequest,
+      closed: true,
+    });
+    expect(fetched.tasks.map((t) => t.id)).toEqual(["t1", "t2"]);
   });
 
   it("a whole-board `tasks` push still replaces everything (hydration/reconnect)", () => {
@@ -542,6 +554,149 @@ describe("reducer: task deltas", () => {
     });
     expect(rehydrated.tasks.map((t) => t.id)).toEqual(["t9"]);
     expect(rehydrated.tasksLoaded).toBe(true);
+  });
+});
+
+// --- The summary board (task 9ebe887d) ---------------------------------------
+// A summary `tasks` frame holds the open and in-progress rows without their
+// descriptions. GET /api/tasks results (tasks_fetched) fill them in and add
+// closed rows. A result loses to a delta that landed after its request
+// started, and a result from before the last frame is dropped: `version` is a
+// hash, not an order, so the delta seq decides.
+describe("reducer: the summary board", () => {
+  const full = (id: string, extra: Partial<TaskItem> = {}): TaskItem => ({
+    ...boardTask(id, `title ${id}`),
+    description: `about ${id}`,
+    ...extra,
+  });
+  const stripped = (t: TaskItem): TaskItem => {
+    const { description: _description, ...rest } = t;
+    return rest;
+  };
+  const summaryFrame = (state: AppState, rows: TaskItem[]) =>
+    reducer(state, { type: "tasks", tasks: rows.map(stripped), summary: true });
+  const fetched = (
+    state: AppState,
+    tasks: TaskItem[],
+    at: { epoch?: number; seq?: number; closed?: true } = {},
+  ) =>
+    reducer(state, {
+      type: "tasks_fetched",
+      tasks,
+      epoch: at.epoch ?? state.tasksEpoch,
+      seqAtRequest: at.seq ?? state.taskDeltaSeq,
+      ...(at.closed ? { closed: true as const } : {}),
+    });
+  const row = (state: AppState, id: string) =>
+    state.tasks.find((t) => t.id === id);
+  const summaryIds = (state: AppState) => [...state.summaryTaskIds].sort();
+
+  it("a summary frame marks every row as a summary and the closed tasks as not loaded; a full frame is complete", () => {
+    const summary = summaryFrame(initialState, [full("t1"), full("t2")]);
+    expect(summary.tasksLoaded).toBe(true);
+    expect(summary.tasksEpoch).toBe(initialState.tasksEpoch + 1);
+    expect(summaryIds(summary)).toEqual(["t1", "t2"]);
+    expect(summary.closedTasksLoaded).toBe(false);
+
+    // The demo shim and a server without the flag send the whole board.
+    const whole = reducer(summary, {
+      type: "tasks",
+      tasks: [full("t1"), full("t9", { status: "done" })],
+    });
+    expect(whole.tasksEpoch).toBe(summary.tasksEpoch + 1);
+    expect(summaryIds(whole)).toEqual([]);
+    expect(whole.closedTasksLoaded).toBe(true);
+  });
+
+  it("a fetch fills in the descriptions and adds closed rows; closed: true marks the closed tasks loaded", () => {
+    let state = summaryFrame(initialState, [full("t1"), full("t2")]);
+    state = fetched(state, [full("t1"), full("t2")]);
+    expect(row(state, "t1")?.description).toBe("about t1");
+    expect(summaryIds(state)).toEqual([]);
+    expect(state.closedTasksLoaded).toBe(false);
+
+    // A chip lookup adds a closed row without claiming every closed task.
+    state = fetched(state, [full("d1", { status: "done" })]);
+    expect(row(state, "d1")?.status).toBe("done");
+    expect(state.closedTasksLoaded).toBe(false);
+
+    state = fetched(state, [full("d2", { status: "obsolete" })], {
+      closed: true,
+    });
+    expect(row(state, "d2")?.status).toBe("obsolete");
+    expect(state.closedTasksLoaded).toBe(true);
+  });
+
+  it("a delta that lands during the fetch wins over the fetched row; a delta from before the request does not", () => {
+    let state = summaryFrame(initialState, [full("t1"), full("t2")]);
+    // Before the request: t2 is renamed. The fetch started after it, so its
+    // row is the newer one.
+    state = reducer(state, {
+      type: "task_upserted",
+      task: full("t2", { title: "renamed before", version: "v2" }),
+    });
+    const seqAtRequest = state.taskDeltaSeq;
+    // During the request: t1 is renamed.
+    state = reducer(state, {
+      type: "task_upserted",
+      task: full("t1", { title: "renamed during", version: "v2" }),
+    });
+    // A delta is a full row: t1 is no summary any more.
+    expect(summaryIds(state)).toEqual([]);
+    state = fetched(
+      state,
+      [
+        full("t1", { title: "stale", version: "v1" }),
+        full("t2", { title: "fetched", version: "v3" }),
+      ],
+      { seq: seqAtRequest },
+    );
+    expect(row(state, "t1")?.title).toBe("renamed during");
+    expect(row(state, "t2")?.title).toBe("fetched");
+  });
+
+  it("a task deleted during the fetch stays deleted", () => {
+    let state = summaryFrame(initialState, [full("t1"), full("t2")]);
+    const seqAtRequest = state.taskDeltaSeq;
+    state = reducer(state, { type: "task_deleted", taskId: "t2" });
+    state = fetched(state, [full("t1"), full("t2")], { seq: seqAtRequest });
+    expect(state.tasks.map((t) => t.id)).toEqual(["t1"]);
+    expect(summaryIds(state)).toEqual([]);
+  });
+
+  it("a fetch from before the last frame is dropped", () => {
+    let state = summaryFrame(initialState, [full("t1")]);
+    const oldEpoch = state.tasksEpoch;
+    state = summaryFrame(state, [full("t1", { version: "v2" })]);
+    const before = state;
+    state = fetched(state, [full("t1"), full("d1", { status: "done" })], {
+      epoch: oldEpoch,
+      closed: true,
+    });
+    expect(state.tasks).toEqual(before.tasks);
+    expect(summaryIds(state)).toEqual(["t1"]);
+    expect(state.closedTasksLoaded).toBe(false);
+  });
+
+  // A reconnect sends a new summary frame. A row whose version did not
+  // change keeps the description the store has, so a lossy link does not
+  // fetch every description again at each reconnect.
+  it("a new summary frame keeps the stored row of an unchanged version and drops the closed rows", () => {
+    let state = summaryFrame(initialState, [full("t1"), full("t2")]);
+    state = fetched(state, [full("t1"), full("t2")]);
+    state = fetched(state, [full("d1", { status: "done" })], { closed: true });
+    expect(state.closedTasksLoaded).toBe(true);
+
+    state = summaryFrame(state, [
+      full("t1"),
+      full("t2", { title: "changed", description: "new", version: "v2" }),
+    ]);
+    expect(row(state, "t1")?.description).toBe("about t1");
+    expect(row(state, "t2")?.title).toBe("changed");
+    expect(row(state, "t2")?.description).toBeUndefined();
+    expect(summaryIds(state)).toEqual(["t2"]);
+    expect(row(state, "d1")).toBeUndefined();
+    expect(state.closedTasksLoaded).toBe(false);
   });
 });
 

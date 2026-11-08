@@ -103,7 +103,12 @@ export interface TestServer extends ServerHandle {
   // Open a real authenticated WebSocket (cookie + matching Origin).
   connectWs(
     rawSessionId: string,
-    opts?: { cookieHeader?: string; headers?: Record<string, string> },
+    opts?: {
+      cookieHeader?: string;
+      headers?: Record<string, string>;
+      // The /ws query string, without the "?" (the summary task board flag).
+      query?: string;
+    },
   ): Promise<TestSocket>;
   // COLD-RELOAD this server WITHOUT wiping STATE_ROOT: stops the current
   // instance and re-runs the real boot path against the on-disk state this run
@@ -413,7 +418,11 @@ async function bootTestServer(
 
     async function connectWs(
       rawSessionId: string,
-      opts?: { cookieHeader?: string; headers?: Record<string, string> },
+      opts?: {
+        cookieHeader?: string;
+        headers?: Record<string, string>;
+        query?: string;
+      },
     ): Promise<TestSocket> {
       // Bun's WebSocket client accepts a { headers } options object so the
       // upgrade carries the auth cookie + matching Origin. The DOM lib types
@@ -422,7 +431,8 @@ async function bootTestServer(
       //
       // cookieHeader replaces the whole Cookie header, for tests that need to
       // send several session cookies at once (the __Host- dual-read matrix).
-      const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/ws`, {
+      const query = opts?.query ? `?${opts.query}` : "";
+      const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/ws${query}`, {
         headers: {
           Cookie:
             opts?.cookieHeader ?? `${sessionCookieName()}=${rawSessionId}`,

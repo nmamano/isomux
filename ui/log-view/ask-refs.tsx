@@ -1,5 +1,6 @@
 // Ask ids in chat text (task 84aadfab). An 8-hex id that is not one of the
-// reader's tasks is tried as an ask: first the store's open asks (asks and
+// reader's tasks (the store's, then GET /api/tasks?ids= through
+// ui/task-lookup.ts) is tried as an ask: first the store's open asks (asks and
 // othersAsks), then one GET /api/asks/:askId per id per page load, open or
 // closed, with the reach of the ask agent's logs. A resolved id is a chip with
 // the task chip's look (task-links.tsx) that opens the ask in the Inbox, pinned
@@ -20,6 +21,11 @@ import { useI18n } from "../i18n.tsx";
 import { askSubject } from "../members-chat/one-line-text.ts";
 import { noTranslate } from "../no-translate.ts";
 import { useAppState } from "../store.tsx";
+import {
+  lookUpTaskIds,
+  subscribeTaskLookup,
+  taskLookupResult,
+} from "../task-lookup.ts";
 
 /** An ask an id in chat text names, as far as the chip needs it. */
 export interface ResolvedAsk {
@@ -107,8 +113,10 @@ export function AskRefsProvider({
   useEffect(() => {
     const listener = () => setVersion((v) => v + 1);
     listeners.add(listener);
+    const unsubscribe = subscribeTaskLookup(listener);
     return () => {
       listeners.delete(listener);
+      unsubscribe();
     };
   }, []);
   const local = useMemo(
@@ -120,8 +128,25 @@ export function AskRefsProvider({
   );
   const value = useMemo<AskRefsValue>(
     () => ({
-      resolve: (id) => local.get(id) ?? looked.get(id),
-      request: (ids) => lookUp(ids.filter((id) => !local.has(id))),
+      // A task wins (task 9ebe887d): an id goes to the task lookup first,
+      // and only a miss there is tried as an ask. The summary board holds no
+      // closed task, so without this every closed task's id in a chat would
+      // cost a GET /api/asks/<id>.
+      resolve: (id) => {
+        const own = local.get(id);
+        if (own) return own;
+        const task = taskLookupResult(id);
+        if (task === "miss") return looked.get(id);
+        return task === "task" ? null : undefined;
+      },
+      request: (ids) => {
+        const fresh = ids.filter((id) => !local.has(id));
+        lookUpTaskIds(
+          fresh.filter((id) => taskLookupResult(id) === undefined),
+          lookUp,
+        );
+        lookUp(fresh.filter((id) => taskLookupResult(id) === "miss"));
+      },
       open,
       version,
     }),

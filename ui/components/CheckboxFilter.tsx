@@ -54,7 +54,8 @@ export function toggled<T>(list: readonly T[], value: T): T[] {
 type FilterOption<T extends string> = {
   value: T;
   label: string;
-  count: number;
+  // null: not known yet (the Tasks view's closed tasks before they load).
+  count: number | null;
   noTranslate?: boolean;
   group?: { id: string; label: string } | null;
 };

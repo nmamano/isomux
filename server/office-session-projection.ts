@@ -56,6 +56,7 @@ import {
 import type { OfficeOutbox } from "./office-ws-outbox.ts";
 import { loadRecentCwds } from "./persistence.ts";
 import { taskVisibleTo } from "./task-visibility.ts";
+import { isClosedTask } from "../shared/task-board.ts";
 import { getUserById, updateUserById, type UserAccessChange } from "./users.ts";
 import { type WsFrame, type WsPushKind } from "./ws-push-area.ts";
 import { ACCESS_CHANGED_CLOSE_CODE } from "../shared/pack-fit.ts";
@@ -442,14 +443,26 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       .filter((t) => taskVisibleTo(t.roomId, viewer));
   }
 
+  // A socket that asked for the summary board (task 9ebe887d) gets only the
+  // open and in-progress tasks, each without its description, which the
+  // client reads over GET /api/tasks when it needs them. The version stays the
+  // full row's, so a save from a fetched row is checked as before.
   function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
+    const tasks = projectTasksForSession(ws.data.session);
     officeSend(
       ws,
       "tasks",
-      JSON.stringify({
-        type: "tasks",
-        tasks: projectTasksForSession(ws.data.session),
-      }),
+      JSON.stringify(
+        ws.data.tasksSummary
+          ? {
+              type: "tasks",
+              tasks: tasks
+                .filter((t) => !isClosedTask(t))
+                .map(({ description: _description, ...row }) => row),
+              summary: true,
+            }
+          : { type: "tasks", tasks },
+      ),
     );
   }
 

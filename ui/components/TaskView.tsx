@@ -2,6 +2,7 @@ import { TaskHistoryList } from "./AuditList.tsx";
 import { TaskGithubBlock, TaskGithubChip } from "./TaskGithubBlock.tsx";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
+import { lookUpTaskIds, useTaskFetch } from "../task-lookup.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   TaskItem,
@@ -16,6 +17,7 @@ import type {
 import {
   dialogInput,
   dialogLabel,
+  filledSecondaryBtn,
   secondaryBorder,
   secondaryEdge,
   secondaryFill,
@@ -153,8 +155,12 @@ function TaskDetailPanel({
   createRoomId = "",
   initialTitle = "",
   onCancelClose,
+  descriptionPending = null,
 }: {
   task?: TaskItem;
+  // The task is a summary row whose description has not loaded yet (task
+  // 9ebe887d): no description field, so a save never starts from a blank.
+  descriptionPending?: { failed: boolean; onRetry: () => void } | null;
   onClose: () => void;
   mode?: "edit" | "create";
   agents?: { name: string; id: string; roomId: string; desk: number }[];
@@ -579,16 +585,39 @@ function TaskDetailPanel({
           {/* Expandable like the memory and prompt editors: the corner button
               reopens this same field near-fullscreen, bound to the same state,
               so a long task description can be read and written in comfort. */}
-          <div onKeyDown={(e) => e.stopPropagation()}>
-            <ExpandableTextarea
-              textareaRef={descriptionRef}
-              title={t("tasks.field.description")}
-              value={description}
-              onChange={setDescription}
-              rows={3}
-              style={{ ...inputStyle, resize: "vertical" }}
-            />
-          </div>
+          {descriptionPending ? (
+            <div style={{ color: "var(--text-hint)", fontSize: 13 }}>
+              {descriptionPending.failed ? (
+                <>
+                  {t("tasks.descriptionLoadFailed")}{" "}
+                  <button
+                    type="button"
+                    onClick={descriptionPending.onRetry}
+                    style={{
+                      ...filledSecondaryBtn,
+                      padding: "2px 8px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {t("tasks.descriptionRetry")}
+                  </button>
+                </>
+              ) : (
+                t("common.loading")
+              )}
+            </div>
+          ) : (
+            <div onKeyDown={(e) => e.stopPropagation()}>
+              <ExpandableTextarea
+                textareaRef={descriptionRef}
+                title={t("tasks.field.description")}
+                value={description}
+                onChange={setDescription}
+                rows={3}
+                style={{ ...inputStyle, resize: "vertical" }}
+              />
+            </div>
+          )}
         </div>
 
         {mode === "edit" && task?.limited && (
@@ -884,6 +913,8 @@ export function TaskView({
   const {
     tasks,
     tasksLoaded,
+    summaryTaskIds,
+    closedTasksLoaded,
     agents,
     killedAgents,
     isMobile,
@@ -949,9 +980,29 @@ export function TaskView({
   // requested transition wins and exactly one ever drains.
   const pendingNavRef = useRef<PendingNav | null>(null);
 
+  // The summary board (task 9ebe887d): the socket's tasks frame holds the
+  // open and in-progress rows without descriptions. The view reads the
+  // descriptions once it opens, and the closed tasks once a closed status is
+  // checked or a search is typed. Until the closed tasks load, a closed row the
+  // store holds from a chip lookup does not stand in for them.
+  const openRead = useTaskFetch("open", summaryTaskIds.size > 0);
+  useTaskFetch(
+    "closed",
+    !closedTasksLoaded &&
+      (search !== "" ||
+        filterStatuses.some((s) => isClosedTask({ status: s }))),
+  );
+  const boardTasks = useMemo(
+    () => (closedTasksLoaded ? tasks : tasks.filter((t) => !isClosedTask(t))),
+    [tasks, closedTasksLoaded],
+  );
   const selectedTask = selectedId
     ? tasks.find((t) => t.id === selectedId)
     : null;
+  const descriptionPending =
+    selectedTask && summaryTaskIds.has(selectedTask.id)
+      ? { failed: openRead.state === "failed", onRetry: openRead.retry }
+      : null;
   const panelOpen = !!(selectedTask || creating);
 
   function tryClosePanel() {
@@ -963,7 +1014,12 @@ export function TaskView({
   useEffect(() => {
     if (!openTaskRequest) return;
     const requestedTask = tasks.find((task) => task.id === openTaskRequest.id);
-    if (!requestedTask) return;
+    // A closed task is not on the summary board: read it, and this effect
+    // runs again when it lands.
+    if (!requestedTask) {
+      lookUpTaskIds([openTaskRequest.id]);
+      return;
+    }
     onTaskOpenRequestHandled?.();
     // An external navigation request intentionally reconfigures this view.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1110,7 +1166,7 @@ export function TaskView({
   // Room, search and assignee narrow the list first. Each checkbox count is the
   // number of those tasks it would show, given the other checkbox filter.
   const base = useMemo(() => {
-    let list = tasks;
+    let list = boardTasks;
     // Room view filter (client-side, on top of the server's access scoping):
     // "all" shows everything visible, "global" only office-global tasks, a room
     // id only that room's tasks.
@@ -1133,7 +1189,7 @@ export function TaskView({
       list = list.filter((t) => t.assignee?.toLowerCase().includes(q));
     }
     return list;
-  }, [tasks, roomScope, search, filterAssignee]);
+  }, [boardTasks, roomScope, search, filterAssignee]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<TaskStatus, number>();
@@ -1518,7 +1574,10 @@ export function TaskView({
                 options={FILTER_STATUSES.map((s) => ({
                   value: s,
                   label: t(STATUS_LABELS[s]),
-                  count: statusCounts.get(s) ?? 0,
+                  count:
+                    closedTasksLoaded || !isClosedTask({ status: s })
+                      ? (statusCounts.get(s) ?? 0)
+                      : null,
                 }))}
                 checked={filterStatuses}
                 onToggle={(s) => setFilterStatuses((prev) => toggled(prev, s))}
@@ -1882,6 +1941,7 @@ export function TaskView({
             <TaskDetailPanel
               closeRef={closeRef}
               task={selectedTask}
+              descriptionPending={descriptionPending}
               onClose={() => setSelectedId(null)}
               agents={agents}
               rooms={rooms}
@@ -1909,6 +1969,7 @@ export function TaskView({
           <TaskDetailPanel
             closeRef={closeRef}
             task={selectedTask}
+            descriptionPending={descriptionPending}
             onClose={() => setSelectedId(null)}
             agents={agents}
             rooms={rooms}

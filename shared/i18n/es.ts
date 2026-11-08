@@ -2255,6 +2255,7 @@ Cosas que puedes hacer por él:
   "asks.closedSudoRefused": "Cerrada: sudo rechazó todos los intentos",
   "asks.closedAgentRemoved": "Cerrada: se eliminó el agente",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
+  "apiCall.tasks.listByIds": "Listar tareas por id",
   "apiCall.tasks.listOpenGlobal":
     "Listar tareas abiertas (solo las globales de la oficina)",
   "apiCall.tasks.listOpenInRoom": "Listar tareas abiertas de una sala",
@@ -3296,6 +3297,8 @@ Cosas que puedes hacer por él:
   "tasks.col.by": "POR",
   "tasks.col.age": "EDAD",
   "tasks.empty": "No hay tareas",
+  "tasks.descriptionLoadFailed": "No se cargó.",
+  "tasks.descriptionRetry": "Reintentar",
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.github.chipTitle": "Abrir la incidencia en GitHub",
   "tasks.github.heading": "Obtenida de GitHub",

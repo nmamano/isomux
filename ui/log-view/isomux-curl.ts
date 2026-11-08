@@ -1113,7 +1113,8 @@ export function humanizeIsomuxRequest(
   if (segs[0] === "tasks") {
     if (segs.length === 1) {
       if (m === "GET") {
-        const status = query.get("status");
+        if (query.get("ids") !== null) return t("apiCall.tasks.listByIds");
+        const status = query.get("status")?.split(",").join(", ");
         // ?roomId= narrows the board to one room ("" = office-global only). It
         // composes with ?status=, so it qualifies the same phrase rather than
         // replacing it - as a whole sentence per combination, because a

@@ -20,6 +20,11 @@ import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
+import {
+  MAX_TASK_IDS_PER_LOOKUP,
+  TASKS_SUMMARY_WS_PARAM,
+  TASKS_SUMMARY_WS_VALUE,
+} from "../../shared/task-board.ts";
 
 let server: TestServer | null = null;
 
@@ -2028,5 +2033,284 @@ describe("routes/tasks REST: the assignee's agent id", () => {
     expect(srv.agentManager.getAgent(worker.id)?.name).toBe("Worker");
     expect(stored(t.id).assignee).toBe("Worker");
     expect(stored(t.id).version).toBe(versionBefore);
+  });
+});
+
+// --- The summary board and lookups (task 9ebe887d) --------------------------
+// A socket that asks with the summary flag gets the open and in-progress tasks
+// only, each without its description; a client reads the rest over GET
+// /api/tasks (a status list, or ids). A socket without the flag (a tab loaded
+// before the change) still gets the whole board, so it never shows a stripped
+// row as an empty description and saves over the real one.
+describe("routes/tasks REST: the summary board and lookups", () => {
+  const SUMMARY_QUERY = `${TASKS_SUMMARY_WS_PARAM}=${TASKS_SUMMARY_WS_VALUE}`;
+
+  // Mia can reach room B only. Room B holds one task per status (and an open
+  // P4), room A one open task she cannot see, and one task is global.
+  async function seedBoard(srv: TestServer) {
+    const owner = await srv.seedOwner("Morgan");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
+    const post = async (body: Record<string, unknown>) => {
+      const r = await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { description: `about ${String(body.title)}`, ...body },
+      });
+      expect(r.status).toBe(201);
+      return r.body as TaskItem;
+    };
+    const open = await post({ title: "open B", roomId: roomB });
+    const p4 = await post({ title: "p4 B", roomId: roomB, priority: "P4" });
+    const busy = await post({ title: "busy B", roomId: roomB });
+    const done = await post({ title: "done B", roomId: roomB });
+    const obsolete = await post({ title: "obsolete B", roomId: roomB });
+    const hidden = await post({ title: "open A", roomId: roomA });
+    const global = await post({ title: "global", roomId: "" });
+    for (const [t, status] of [
+      [busy, "in_progress"],
+      [done, "done"],
+      [obsolete, "obsolete"],
+    ] as const) {
+      const r = await api(srv, `/api/tasks/${t.id}`, {
+        method: "PATCH",
+        rawSessionId: owner.rawSessionId,
+        body: { version: currentVersion(srv, t.id), status },
+      });
+      expect(r.status).toBe(200);
+    }
+    // Enabling condition: one task per status, as the cases below read them.
+    const statusOf = (id: string) =>
+      srv.agentManager.getTasks().find((t) => t.id === id)?.status;
+    expect(
+      [open, p4, busy, done, obsolete, hidden, global].map((t) =>
+        statusOf(t.id),
+      ),
+    ).toEqual([
+      "open",
+      "open",
+      "in_progress",
+      "done",
+      "obsolete",
+      "open",
+      "open",
+    ]);
+    return {
+      owner,
+      member,
+      roomA,
+      roomB,
+      open,
+      p4,
+      busy,
+      done,
+      obsolete,
+      hidden,
+      global,
+    };
+  }
+
+  const boardsOf = (s: TestSocket) =>
+    s.messages.filter((m) => (m as { type?: string }).type === "tasks") as {
+      tasks: TaskItem[];
+      summary?: unknown;
+    }[];
+  const lastBoardOf = (s: TestSocket) => {
+    const boards = boardsOf(s);
+    return boards[boards.length - 1] ?? null;
+  };
+  const idSet = (rows: TaskItem[]) => new Set(rows.map((t) => t.id));
+
+  // The frame a summary socket gets: open and in-progress only, the room scope
+  // of today, no description, and the version of the FULL row, so a save from
+  // a fetched row is version-checked as before.
+  function expectSummaryBoard(
+    frame: { tasks: TaskItem[]; summary?: unknown },
+    srv: TestServer,
+    want: TaskItem[],
+  ) {
+    expect(frame.summary).toBe(true);
+    expect(idSet(frame.tasks)).toEqual(idSet(want));
+    expect(frame.tasks).toHaveLength(want.length);
+    for (const row of frame.tasks) {
+      expect(Object.hasOwn(row, "description")).toBe(false);
+      expect(row.version).toBe(currentVersion(srv, row.id));
+    }
+  }
+
+  it("a summary socket's connect frame holds the open and in-progress tasks it can see, with no description and the full row's version", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const b = await seedBoard(srv);
+    const sock = await srv.connectWs(b.member.rawSessionId, {
+      query: SUMMARY_QUERY,
+    });
+    await sock.waitFor("tasks");
+    expectSummaryBoard(lastBoardOf(sock)!, srv, [
+      b.open,
+      b.p4,
+      b.busy,
+      b.global,
+    ]);
+    // The version is the one a member's read hands back, the row a save
+    // starts from.
+    const read = await api(srv, `/api/tasks/${b.open.id}`, {
+      rawSessionId: b.member.rawSessionId,
+    });
+    expect((read.body as TaskItem).description).toBe("about open B");
+    expect(
+      lastBoardOf(sock)!.tasks.find((t) => t.id === b.open.id)!.version,
+    ).toBe((read.body as TaskItem).version);
+  });
+
+  it("a socket without the flag still gets the whole board with descriptions", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const b = await seedBoard(srv);
+    const sock = await srv.connectWs(b.member.rawSessionId);
+    await sock.waitFor("tasks");
+    const frame = lastBoardOf(sock)!;
+    expect(frame.summary).toBeUndefined();
+    expect(idSet(frame.tasks)).toEqual(
+      idSet([b.open, b.p4, b.busy, b.done, b.obsolete, b.global]),
+    );
+    expect(frame.tasks.find((t) => t.id === b.done.id)!.description).toBe(
+      "about done B",
+    );
+  });
+
+  it("the room-close and access-change re-projections keep the summary shape for a summary socket", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const b = await seedBoard(srv);
+    const sock = await srv.connectWs(b.member.rawSessionId, {
+      query: SUMMARY_QUERY,
+    });
+    await sock.waitFor("tasks");
+    const before = boardsOf(sock).length;
+
+    // Access change: Mia gains room A, and her board is projected again.
+    updateUserById(getUserByName("Mia")!.id, {
+      allowedRooms: [b.roomA, b.roomB],
+    });
+    await waitUntil(
+      () => boardsOf(sock).length > before,
+      2000,
+      "board after the access change",
+    );
+    expectSummaryBoard(lastBoardOf(sock)!, srv, [
+      b.open,
+      b.p4,
+      b.busy,
+      b.hidden,
+      b.global,
+    ]);
+
+    // Room close: room B goes, and its tasks leave a member's board.
+    const afterAccess = boardsOf(sock).length;
+    expect(
+      (
+        await api(srv, `/api/rooms/${b.roomB}`, {
+          method: "DELETE",
+          rawSessionId: b.owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    await waitUntil(
+      () => boardsOf(sock).length > afterAccess,
+      2000,
+      "board after the room close",
+    );
+    expectSummaryBoard(lastBoardOf(sock)!, srv, [b.hidden, b.global]);
+  });
+
+  it("GET ?status= takes a list of statuses; an unknown value, or all inside a list, is a 400", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const b = await seedBoard(srv);
+    const get = (query: string) =>
+      api(srv, `/api/tasks?${query}`, { rawSessionId: b.member.rawSessionId });
+
+    const closed = await get("status=done,obsolete");
+    expect(closed.status).toBe(200);
+    expect(idSet(closed.body as TaskItem[])).toEqual(
+      idSet([b.done, b.obsolete]),
+    );
+    expect(
+      (closed.body as TaskItem[]).find((t) => t.id === b.done.id)!.description,
+    ).toBe("about done B");
+    // The list form keeps the open P4 a literal status filter keeps.
+    const live = await get("status=open,in_progress");
+    expect(idSet(live.body as TaskItem[])).toEqual(
+      idSet([b.open, b.p4, b.busy, b.global]),
+    );
+    // One value works as before.
+    expect(idSet((await get("status=done")).body as TaskItem[])).toEqual(
+      idSet([b.done]),
+    );
+
+    for (const query of [
+      "status=done,bogus",
+      "status=bogus",
+      "status=all,done",
+    ]) {
+      const r = await get(query);
+      expect({ query, status: r.status }).toEqual({ query, status: 400 });
+      expect((r.body as { error: { code: string } }).error.code).toBe(
+        "invalid_request",
+      );
+    }
+  });
+
+  it("GET ?ids= gives the visible tasks with those ids, of any status, and leaves out the rest", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const b = await seedBoard(srv);
+    const get = (query: string) =>
+      api(srv, `/api/tasks?${query}`, { rawSessionId: b.member.rawSessionId });
+
+    // A done task, an open P4 (both outside the default list), a task in a
+    // room Mia cannot reach, and an id that is no task.
+    const r = await get(
+      `ids=${b.done.id},${b.p4.id},${b.hidden.id},ffffffff,${b.done.id}`,
+    );
+    expect(r.status).toBe(200);
+    const rows = r.body as TaskItem[];
+    expect(rows).toHaveLength(2);
+    expect(idSet(rows)).toEqual(idSet([b.done, b.p4]));
+    // Full rows: a lookup is where a closed task's description comes from.
+    expect(rows.find((t) => t.id === b.done.id)!.description).toBe(
+      "about done B",
+    );
+    // The hidden task answers the same as an unknown id: left out, no error.
+    expect(((await get(`ids=${b.hidden.id}`)).body as TaskItem[]).length).toBe(
+      0,
+    );
+    // Other filters still narrow.
+    expect(
+      (await get(`ids=${b.done.id},${b.open.id}&status=open`)).body,
+    ).toEqual([expect.objectContaining({ id: b.open.id })]);
+  });
+
+  it("GET ?ids= takes at most 100 distinct ids", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => i.toString(16).padStart(8, "0"));
+    const get = (list: string[]) =>
+      api(srv, `/api/tasks?ids=${list.join(",")}`, {
+        rawSessionId: owner.rawSessionId,
+      });
+
+    const hundred = ids(MAX_TASK_IDS_PER_LOOKUP);
+    expect((await get([...hundred, ...hundred.slice(0, 10)])).status).toBe(200);
+    const over = await get(ids(MAX_TASK_IDS_PER_LOOKUP + 1));
+    expect(over.status).toBe(400);
+    expect((over.body as { error: { code: string } }).error.code).toBe(
+      "invalid_request",
+    );
   });
 });

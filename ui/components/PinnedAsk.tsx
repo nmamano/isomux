@@ -13,6 +13,7 @@ import { AskCard } from "../log-view/AskCard.tsx";
 import { AskPrompt } from "../log-view/AskPrompt.tsx";
 import { RecommendedStar } from "../log-view/recommended-star.tsx";
 import { TaskChip, TaskOpener } from "../log-view/task-links.tsx";
+import { lookUpTaskIds } from "../task-lookup.ts";
 import type {
   AskAgentWire,
   AskClosedWire,
@@ -71,6 +72,14 @@ function ReadOnlyAsk({ ask, isMobile }: { ask: ReadAsk; isMobile: boolean }) {
   const { t, rich } = i18n;
   const { agents, tasks } = useAppState();
   const openTask = useContext(TaskOpener);
+  // A filed ask's task can be closed, so not on the summary board (task
+  // 9ebe887d): read it.
+  const filedTaskId =
+    "closed" in ask && ask.closed.outcome === "filed" ? ask.closed.taskId : "";
+  const filedTaskHeld = tasks.some((x) => x.id === filedTaskId);
+  useEffect(() => {
+    if (filedTaskId && !filedTaskHeld) lookUpTaskIds([filedTaskId]);
+  }, [filedTaskId, filedTaskHeld]);
   // The task a filed ask became: its chip when the member sees the task.
   const taskChip = (id: string): ReactNode => {
     const task = tasks.find((x) => x.id === id);

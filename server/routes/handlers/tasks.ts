@@ -37,6 +37,7 @@ import {
   agentIdForName,
   inDefaultTaskList,
   isClosedTask,
+  MAX_TASK_IDS_PER_LOOKUP,
 } from "../../../shared/task-board.ts";
 import type {
   TaskCreateReq,
@@ -189,11 +190,33 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       const titleFilter = ctx.query.get("title");
       const roomFilter = ctx.query.get("roomId");
       const priorityFilter = ctx.query.get("priority");
+      const idsFilter = ctx.query.get("ids");
       if (status === "backlog") {
         return fail(400, "invalid_request", BACKLOG_GONE);
       }
       if (priorityFilter !== null && !isValidPriority(priorityFilter)) {
         return fail(400, "invalid_request", "invalid priority, must be P0-P4");
+      }
+      // status: one value, `all`, or a comma list of statuses (task
+      // 9ebe887d). An unknown value is a 400, not an empty list.
+      const statuses =
+        status && status !== "all" ? new Set(status.split(",")) : null;
+      if (statuses && ![...statuses].every(isValidStatus)) {
+        return fail(
+          400,
+          "invalid_request",
+          "invalid status, must be all or a comma list of open, in_progress, done, obsolete",
+        );
+      }
+      // ids: the listed tasks of any status, unless status narrows them.
+      const ids = idsFilter === null ? null : new Set(idsFilter.split(","));
+      ids?.delete("");
+      if (ids && ids.size > MAX_TASK_IDS_PER_LOOKUP) {
+        return fail(
+          400,
+          "invalid_request",
+          `too many ids, at most ${MAX_TASK_IDS_PER_LOOKUP}`,
+        );
       }
       // Room scope FIRST: a caller only ever sees their accessible rooms UNION
       // office-global tasks (UNION closed rooms' tasks for an office owner); the
@@ -220,12 +243,15 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       }
       // A named priority lifts the P4 exclusion: ?priority=P4 lists the
       // open and in-progress P4 tasks. Explicit status filters are literal.
-      if (!status) {
+      if (ids) {
+        filtered = filtered.filter((t) => ids.has(t.id));
+      }
+      if (statuses) {
+        filtered = filtered.filter((t) => statuses.has(t.status));
+      } else if (!status && !ids) {
         filtered = filtered.filter((t) =>
           priorityFilter ? !isClosedTask(t) : inDefaultTaskList(t),
         );
-      } else if (status !== "all") {
-        filtered = filtered.filter((t) => t.status === status);
       }
       if (priorityFilter) {
         filtered = filtered.filter((t) => t.priority === priorityFilter);

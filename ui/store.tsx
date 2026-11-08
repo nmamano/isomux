@@ -89,6 +89,7 @@ import { connect } from "./ws.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
+import { isClosedTask } from "../shared/task-board.ts";
 import { createNotificationSound } from "./notification-sound.ts";
 import { syncPanel } from "./elevator-panel-store.ts";
 import { loadLastSavedView } from "./view-persistence.ts";
@@ -270,6 +271,17 @@ export interface AppState {
   // member sees the lobby door), and a full_state (reconnect) keeps it.
   membersChatShown: boolean;
   tasksLoaded: boolean;
+  // The summary task board (task 9ebe887d). +1 on each tasks frame: a fetch
+  // started in an older epoch is dropped, and closed rows go.
+  tasksEpoch: number;
+  // Rows the store holds without their description (from a summary frame).
+  summaryTaskIds: ReadonlySet<string>;
+  // The done and obsolete tasks of this epoch are all in the store.
+  closedTasksLoaded: boolean;
+  // +1 per task delta, and the last seq per task id (a deleted id keeps its
+  // entry). A fetch result loses to a delta that landed after it started.
+  taskDeltaSeq: number;
+  taskDeltaSeqById: ReadonlyMap<string, number>;
   // Agent-built apps. Fetched by AppsView when the tab opens (an app list costs
   // a systemd read on the server, so no session pays for a tab it never opens)
   // and kept fresh by the app_upserted / app_deleted deltas. full_state does
@@ -425,7 +437,7 @@ export interface AppState {
   unavailableFeatures: UnavailableFeatures;
 }
 
-type Action =
+export type Action =
   | {
       type: "full_state";
       agents: AgentInfo[];
@@ -553,8 +565,18 @@ type Action =
     }
   | { type: "members_chat_deleted"; id: string }
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
-  | { type: "tasks"; tasks: TaskItem[] }
+  | { type: "tasks"; tasks: TaskItem[]; summary?: true }
   | { type: "task_upserted"; task: TaskItem }
+  // A GET /api/tasks result (ui/task-lookup.ts). epoch and seqAtRequest are
+  // tasksEpoch and taskDeltaSeq when the request started; closed: the result
+  // is every done and obsolete task.
+  | {
+      type: "tasks_fetched";
+      tasks: TaskItem[];
+      epoch: number;
+      seqAtRequest: number;
+      closed?: true;
+    }
   | { type: "task_deleted"; taskId: string }
   // CLIENT-LOCAL (not a ServerMessage): AppsView dispatches this after its REST
   // apps.list fetch. The fetch REPLACES the slice, which is what converges the
@@ -797,6 +819,24 @@ function autoOpenFor(
     entryId: entry.id,
     target,
   };
+}
+
+// The delta seq after one task delta (task 9ebe887d): the task's row is full
+// now, and a read that started before this delta loses to it.
+function afterTaskDelta(
+  state: AppState,
+  taskId: string,
+): Pick<AppState, "taskDeltaSeq" | "taskDeltaSeqById" | "summaryTaskIds"> {
+  const taskDeltaSeq = state.taskDeltaSeq + 1;
+  const taskDeltaSeqById = new Map(state.taskDeltaSeqById);
+  taskDeltaSeqById.set(taskId, taskDeltaSeq);
+  let summaryTaskIds = state.summaryTaskIds;
+  if (summaryTaskIds.has(taskId)) {
+    const next = new Set(summaryTaskIds);
+    next.delete(taskId);
+    summaryTaskIds = next;
+  }
+  return { taskDeltaSeq, taskDeltaSeqById, summaryTaskIds };
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -1431,30 +1471,105 @@ export function reducer(state: AppState, action: Action): AppState {
           unread: action.unread,
         },
       };
-    case "tasks":
-      return { ...state, tasks: action.tasks, tasksLoaded: true };
+    // A whole board (no summary: the demo shim, a fixture) is complete. A
+    // summary frame (task 9ebe887d) holds the open and in-progress rows with
+    // no description; a row the store holds in full at the same version keeps
+    // its description, so a reconnect does not read them all again. Closed
+    // rows go: the next read of them belongs to the new epoch.
+    case "tasks": {
+      const tasksEpoch = state.tasksEpoch + 1;
+      if (!action.summary)
+        return {
+          ...state,
+          tasks: action.tasks,
+          tasksLoaded: true,
+          tasksEpoch,
+          summaryTaskIds: new Set(),
+          closedTasksLoaded: true,
+        };
+      const held = new Map(state.tasks.map((t) => [t.id, t]));
+      const summaryTaskIds = new Set<string>();
+      const tasks = action.tasks.map((row) => {
+        const old = held.get(row.id);
+        if (
+          old &&
+          old.version === row.version &&
+          !state.summaryTaskIds.has(row.id)
+        )
+          return old;
+        summaryTaskIds.add(row.id);
+        return row;
+      });
+      // Before the first frame, the store holds only what chip lookups read
+      // (ui/task-lookup.ts carries their answers into this epoch): keep it.
+      const looked = state.tasksLoaded
+        ? []
+        : state.tasks.filter((t) => isClosedTask(t));
+      return {
+        ...state,
+        tasks: looked.length > 0 ? [...tasks, ...looked] : tasks,
+        tasksLoaded: true,
+        tasksEpoch,
+        summaryTaskIds,
+        closedTasksLoaded: false,
+      };
+    }
     // One task arrived: replace it in place if we already hold it, otherwise
     // append. Both cases are real - an update to a task we know, and a task
     // becoming visible for the first time (a re-file into a room we can access,
     // or a fresh create). Row order doesn't matter: the board sorts client-side.
+    // A delta is a full row, and it wins over a read that started before it.
     case "task_upserted": {
       const idx = state.tasks.findIndex((t) => t.id === action.task.id);
       const tasks =
         idx === -1
           ? [...state.tasks, action.task]
           : state.tasks.map((t) => (t.id === action.task.id ? action.task : t));
-      return { ...state, tasks };
+      return {
+        ...state,
+        tasks,
+        ...afterTaskDelta(state, action.task.id),
+      };
+    }
+    // A GET /api/tasks result (ui/task-lookup.ts). Dropped when a tasks frame
+    // came since the request; a row loses to a delta (or a delete) that landed
+    // after the request started. version is a hash, not an order, so the
+    // delta seq decides.
+    case "tasks_fetched": {
+      if (action.epoch !== state.tasksEpoch) return state;
+      const index = new Map(state.tasks.map((t, i) => [t.id, i]));
+      const tasks = [...state.tasks];
+      const summaryTaskIds = new Set(state.summaryTaskIds);
+      for (const row of action.tasks) {
+        const last = state.taskDeltaSeqById.get(row.id);
+        if (last !== undefined && last > action.seqAtRequest) continue;
+        const at = index.get(row.id);
+        if (at === undefined) {
+          index.set(row.id, tasks.length);
+          tasks.push(row);
+        } else tasks[at] = row;
+        summaryTaskIds.delete(row.id);
+      }
+      return {
+        ...state,
+        tasks,
+        summaryTaskIds,
+        closedTasksLoaded: action.closed ? true : state.closedTasksLoaded,
+      };
     }
     // Drop a task: deleted, or re-filed out of our reach. Unknown ids are a
     // no-op rather than an error - the server only sends this to recipients who
     // could see the task, but a race against hydration shouldn't break the board.
-    case "task_deleted": {
-      if (!state.tasks.some((t) => t.id === action.taskId)) return state;
+    // An id the store does not hold still records its seq: a read in flight
+    // can hold it, and the delete must win over it.
+    case "task_deleted":
       return {
         ...state,
-        tasks: state.tasks.filter((t) => t.id !== action.taskId),
+        tasks: state.tasks.some((t) => t.id === action.taskId)
+          ? state.tasks.filter((t) => t.id !== action.taskId)
+          : state.tasks,
+        ...afterTaskDelta(state, action.taskId),
       };
-    }
     // Whole-list replace, not a merge: this is the poll/refetch result, so an
     // app that has gone from it is gone, and stale rows must not survive.
     //
@@ -2028,6 +2143,13 @@ export const initialState: AppState = {
   rooms: [],
   tasks: [],
   tasksLoaded: false,
+  tasksEpoch: 0,
+  summaryTaskIds: new Set(),
+  // Only a summary frame says the store lacks the closed tasks; a state with
+  // its tasks set whole (a fixed-state fixture) has them all.
+  closedTasksLoaded: true,
+  taskDeltaSeq: 0,
+  taskDeltaSeqById: new Map(),
   membersChat: {
     messages: [],
     hasMore: false,

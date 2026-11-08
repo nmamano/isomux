@@ -1,3 +1,7 @@
+import {
+  TASKS_SUMMARY_WS_PARAM,
+  TASKS_SUMMARY_WS_VALUE,
+} from "../shared/task-board.ts";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import { ACCESS_CHANGED_CLOSE_CODE } from "../shared/pack-fit.ts";
 
@@ -175,7 +179,12 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   }
 
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  // The summary task board (task 9ebe887d): the tasks frame holds the open
+  // and in-progress tasks without descriptions; ui/task-lookup.ts reads the
+  // rest.
+  const ws = new WebSocket(
+    `${protocol}//${location.host}/ws?${TASKS_SUMMARY_WS_PARAM}=${TASKS_SUMMARY_WS_VALUE}`,
+  );
   ws.binaryType = "arraybuffer";
   socket = ws;
   connectTimer = setTimeout(() => {

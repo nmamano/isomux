@@ -215,7 +215,9 @@ export interface EventPayloads {
   members_chat_message: { message: MembersChatMessage; updateOnly?: boolean };
   members_chat_deleted: { id: string };
   members_chat_read: { readPointer: string | null; unread: number };
-  tasks: { tasks: TaskItem[] };
+  // summary: open and in-progress tasks without descriptions (a socket that
+  // asked for the summary board, task 9ebe887d).
+  tasks: { tasks: TaskItem[]; summary?: true };
   // One task created/changed and visible to this recipient; one task gone from
   // this recipient's board (deleted, or re-filed out of their rooms). Both are
   // per-recipient decisions - see server/events/task-delta.ts.

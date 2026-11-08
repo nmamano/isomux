@@ -2968,7 +2968,9 @@ export type ServerMessage =
   | { type: "floors_updated"; floors: Floor[] }
   // The recipient's own read pointer moved (from any of their devices).
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
-  | { type: "tasks"; tasks: TaskItem[] }
+  // summary: open and in-progress tasks only, each without its description
+  // (a socket that asked with TASKS_SUMMARY_WS_PARAM). Absent: the whole board.
+  | { type: "tasks"; tasks: TaskItem[]; summary?: true }
   // One task was created or changed, and the recipient can see it. Upsert, not
   // separate created/updated: per recipient an update can be the FIRST time the
   // task is visible (they just gained access to its room), so the client

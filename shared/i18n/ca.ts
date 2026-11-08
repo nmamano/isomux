@@ -2263,6 +2263,7 @@ Coses que pots fer per ell:
   "asks.closedSudoRefused": "Tancada: sudo ha rebutjat tots els intents",
   "asks.closedAgentRemoved": "Tancada: s'ha eliminat l'agent",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",
+  "apiCall.tasks.listByIds": "Llistar tasques per id",
   "apiCall.tasks.listOpenGlobal":
     "Llistar tasques obertes (només les globals de l'oficina)",
   "apiCall.tasks.listOpenInRoom": "Llistar tasques obertes d'una sala",
@@ -3306,6 +3307,8 @@ Coses que pots fer per ell:
   "tasks.col.by": "PER",
   "tasks.col.age": "EDAT",
   "tasks.empty": "No hi ha tasques",
+  "tasks.descriptionLoadFailed": "No s'ha carregat.",
+  "tasks.descriptionRetry": "Torna-ho a provar",
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.github.chipTitle": "Obrir la incidència a GitHub",
   "tasks.github.heading": "Obtinguda de GitHub",

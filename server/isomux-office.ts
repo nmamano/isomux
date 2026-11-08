@@ -911,6 +911,8 @@ export interface OfficeWsData {
   kind: "office";
   session: SessionLookup;
   connectionId: string;
+  // The socket asked for the summary task board (TASKS_SUMMARY_WS_PARAM).
+  tasksSummary?: true;
 }
 
 // One `Bun.serve` serves the office AND every app hostname, and a Bun server has

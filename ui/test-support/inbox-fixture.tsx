@@ -15,6 +15,7 @@ const { FeaturesProvider, StoreProvider } = await import("../store.tsx");
 const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim, shimEmit } = await import("../ws.ts");
+const { resetTaskLookupForTests } = await import("../task-lookup.ts");
 const { en } = await import("../../shared/i18n/en.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type AskEntry = import("../../shared/types.ts").AskEntry;
@@ -151,6 +152,30 @@ let askRead: (id: string) => Promise<unknown> = askNotFound;
 export function setAskRead(next: (id: string) => Promise<unknown>) {
   askRead = next;
 }
+// GET /api/tasks (task 9ebe887d): the server's board, filtered by ids and
+// status as the server filters it, and each read's ids and statuses in
+// order. An empty board unless a test sets its own.
+type TaskItem = import("../../shared/types.ts").TaskItem;
+let taskBoard: TaskItem[] = [];
+export const taskGets: { ids: string[] | null; statuses: string[] | null }[] =
+  [];
+export function setTaskBoard(next: TaskItem[]) {
+  taskBoard = next;
+}
+function readTasks(path: string): TaskItem[] {
+  const url = new URL(path, "http://office.test");
+  const list = (name: string) => {
+    const value = url.searchParams.get(name);
+    return value === null ? null : value.split(",").filter(Boolean);
+  };
+  const get = { ids: list("ids"), statuses: list("status") };
+  taskGets.push(get);
+  return taskBoard.filter(
+    (row) =>
+      (get.ids === null || get.ids.includes(row.id)) &&
+      (get.statuses === null || get.statuses.includes(row.status)),
+  );
+}
 // Answers for the routes of a page this fixture does not serve (the Skills
 // page's reads, task 3484f6c9); undefined passes the request on below. None
 // unless a test sets one.
@@ -200,6 +225,8 @@ export function setUpInboxTests() {
     if (path.startsWith("/api/pager"))
       throw new Error("no client reads the page list (task 74e8fc07)");
     if (path === "/api/apps") return [];
+    if (method === "GET" && /^\/api\/tasks(\?|$)/.test(path))
+      return readTasks(path);
     // The pages an ask links to read their own lists; with no fixture they
     // show their error state rather than read a shape they do not expect.
     if (path.startsWith("/api/me/") || path === "/api/sessions")
@@ -231,6 +258,9 @@ export function setUpInboxTests() {
     answerPost = async () => ({});
     askReads.length = 0;
     askRead = askNotFound;
+    taskBoard = [];
+    taskGets.length = 0;
+    resetTaskLookupForTests();
     sentMessages.length = 0;
     messagePost = async () => ({ messageId: "m", queued: false });
     window.localStorage.clear();
