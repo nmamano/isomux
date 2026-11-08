@@ -2422,9 +2422,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       ))}
                     </div>
                   )}
-                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-                    {t("dialogs.agent.cwdHint")}
-                  </p>
+                  {!setsNoFolder && (
+                    <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+                      {t("dialogs.agent.cwdHint")}
+                    </p>
+                  )}
                   {!isSpawn && (
                     <p
                       style={{
