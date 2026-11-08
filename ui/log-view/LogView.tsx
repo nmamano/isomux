@@ -864,12 +864,13 @@ export function LogView({
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
   // The header has one topic slot once the chat has a kept user message (the only
-  // input the topic generator reads): the label, or a "No topic" placeholder,
+  // input the topic generator reads): the label, or a "No topic" placeholder
+  // that says why when the last generation failed,
   // then the ↻ button, which spins while a generation runs. The label stays
   // during a generation; with no label the spinner stands alone. A blank chat
   // shows nothing.
   const hasTopicableHistory = useMemo(() => logs.some(isTopicSource), [logs]);
-  const topicGenerating = agent.topicGenerating;
+  const topicGenerating = agent.topicState === "generating";
   const showTopicRefresh = hasTopicableHistory && agent.capabilities.topicGen;
   const showTopicPlaceholder = hasTopicableHistory && !topicGenerating;
   // Side panel state (terminal vs editor vs none) lives in the store keyed
@@ -2153,7 +2154,14 @@ export function LogView({
                     }}
                     title={agent.topic ?? i18n.t("logView.editTopic")}
                   >
-                    {agent.topic ?? i18n.t("logView.noTopic")}
+                    {agent.topic ??
+                      i18n.t(
+                        agent.topicState === "usage_limit"
+                          ? "logView.noTopicUsageLimit"
+                          : agent.topicState === "failed"
+                            ? "logView.noTopicFailed"
+                            : "logView.noTopic",
+                      )}
                   </span>
                 )}
                 {!editingTopic && showTopicRefresh && (

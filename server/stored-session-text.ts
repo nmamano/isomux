@@ -21,15 +21,21 @@
 // Each rule is anchored at the start or the end, so a label about a limit
 // ("Usage limit reset time shows server timezone") or one that quotes a notice
 // stays.
-const PROVIDER_NOTICES: readonly RegExp[] = [
+// The usage-limit notices: a limit that resets or usage that runs out. A
+// plan or seat with no usage at all is not one.
+const USAGE_LIMIT_NOTICES: readonly RegExp[] = [
   /^You['’]ve (?:hit|reached) your /,
   /^You['’]re out of (?:usage credits|extra usage)\b/,
   /^Your org is out of usage ·/,
+  /^Claude AI usage limit reached\b/,
+];
+
+const PROVIDER_NOTICES: readonly RegExp[] = [
+  ...USAGE_LIMIT_NOTICES,
   /^Your seat type doesn['’]t include (?:usage|extra usage)\b/,
   /^Your usage allocation has been disabled by your admin\b/,
   /^Your group['’]s usage limit is set to \$0\b/,
   /^(?:Fable|Haiku|Mythos|Opus|Sonnet)(?: [^·\n]{1,40})? requires usage credits\b/,
-  /^Claude AI usage limit reached\b/,
   /· Please run \/login$/,
   /^Please run \/login ·/,
   /^Failed to authenticate[.:]/,
@@ -41,6 +47,13 @@ const PROVIDER_NOTICES: readonly RegExp[] = [
   /^API Error: \d{3}\b/,
   /^API Error: .*\b(?:server-side issue|at capacity)\b/,
 ];
+
+// A one-shot's answer that is a usage-limit notice
+// (server/backends/claude.ts oneShotResultText).
+export function isUsageLimitNotice(text: string): boolean {
+  const trimmed = text.trim();
+  return USAGE_LIMIT_NOTICES.some((rule) => rule.test(trimmed));
+}
 
 export function isProviderNotice(text: string): boolean {
   const trimmed = text.trim();

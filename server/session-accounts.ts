@@ -194,6 +194,28 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
   }
 
+  // The env of a Claude or Codex one-shot prompt (topic, conversation
+  // summary) on `modelFamily`: the office sign-in while the agent's turns
+  // run there or the member's fallback covers that family, else the
+  // member's own. No agent token: a one-shot has no tools. No session pin:
+  // it resumes no conversation. OpenCode one-shots use the member's server,
+  // which follows the fallback by itself.
+  function oneShotEnv(
+    managed: ManagedAgent,
+    modelFamily: string,
+  ): { [key: string]: string | undefined } | undefined {
+    const { userId, agentType: provider } = managed.info;
+    const base = buildEnvForUserId(userId);
+    if (provider === "opencode") return base;
+    const office =
+      managed.officeFallback || officeWanted(userId, provider, modelFamily)
+        ? officeAccountDir(provider)
+        : null;
+    if (!office) return base;
+    const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    return { ...(base ?? getAgentHost().baseEnv()), [name]: office };
+  }
+
   // Fallback to the office sign-in (server/provider-fallback.ts). The state
   // is per member and provider. Each agent follows it at its next turn start
   // (alignAccount), which moves the conversation to the account it wants.
@@ -655,6 +677,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   return {
     buildSessionEnv,
+    oneShotEnv,
     fallbackState,
     officeWanted,
     alignAccount,

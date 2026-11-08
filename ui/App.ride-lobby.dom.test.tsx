@@ -60,7 +60,7 @@ const AGENT = {
   modelFamily: "opus",
   effort: "medium",
   topic: null,
-  topicGenerating: false,
+  topicState: null,
   customInstructions: null,
   customInstructionsVersion: "0",
   permissionMode: "default",

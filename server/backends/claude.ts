@@ -165,6 +165,8 @@ import {
 import { authSignal } from "./auth-signal.ts";
 import { claudeStopFamily } from "../provider-fallback.ts";
 import { sanitizeTaskLabel } from "./task-label.ts";
+import { OneShotUsageLimitError } from "./one-shot-errors.ts";
+import { isUsageLimitNotice } from "../stored-session-text.ts";
 
 // The terminal sign-in and sign-out run `claude` when the member has it on
 // PATH, and otherwise the binary bundled with the Agent SDK, so they never
@@ -918,7 +920,8 @@ export function oneShotQueryOptions({
 // The answer of a one-shot. A turn that ended on an API error (a usage limit,
 // "Not logged in") is a "success" result with is_error true and the error
 // text as its result: that throws, with the text, so the callers' auth
-// detector still sees a sign-in notice.
+// detector still sees a sign-in notice. A usage-limit notice throws
+// OneShotUsageLimitError.
 export function oneShotResultText(result: SDKResultMessage | null): string {
   if (!result) {
     throw new Error("oneShotPrompt: stream ended without a result message");
@@ -927,9 +930,10 @@ export function oneShotResultText(result: SDKResultMessage | null): string {
     throw new Error(`oneShotPrompt failed: ${result.subtype}`);
   }
   if (result.is_error) {
-    throw new Error(
-      `oneShotPrompt failed: ${result.result || "success with is_error"}`,
-    );
+    const message = `oneShotPrompt failed: ${result.result || "success with is_error"}`;
+    if (result.result && isUsageLimitNotice(result.result))
+      throw new OneShotUsageLimitError(message);
+    throw new Error(message);
   }
   return result.result;
 }

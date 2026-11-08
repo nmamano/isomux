@@ -100,13 +100,21 @@ export function createAgentAuth(deps: AgentAuthDeps) {
   // Auth-error check for a one-shot result (topic generation), which runs
   // outside the session stream. Session events never need it: the backend
   // sends auth_needed (server/backends/auth-signal.ts).
-  function detectAgentAuthError(managed: ManagedAgent, text: string): boolean {
+  // `oneShot.env`: the env the one-shot ran in, for a one-shot on another
+  // account than the member's own.
+  function detectAgentAuthError(
+    managed: ManagedAgent,
+    text: string,
+    oneShot?: { env: { [key: string]: string | undefined } | undefined },
+  ): boolean {
     let env: Record<string, string | undefined> | undefined;
-    try {
-      env = buildEnvForUserId(managed.info.userId);
-    } catch {
-      env = undefined;
-    }
+    if (oneShot) env = oneShot.env;
+    else
+      try {
+        env = buildEnvForUserId(managed.info.userId);
+      } catch {
+        env = undefined;
+      }
     const backend = getBackend(managed.info.agentType);
     return detectAuthErrorForEnvironment(
       managed.info.agentType,
@@ -131,18 +139,23 @@ export function createAgentAuth(deps: AgentAuthDeps) {
       ? providerDisplayName(managed.info.agentType)
       : null;
   }
+  // `oneShot.env`: check the account a one-shot runs on instead of the
+  // member's own.
   async function agentIsKnownUnauthenticated(
     managed: ManagedAgent,
+    oneShot?: { env: { [key: string]: string | undefined } | undefined },
   ): Promise<boolean> {
     // Credential state must gate topic-output sniffing. The per-turn auth
     // notice cannot: topic generation starts at send time, before the backend
     // can emit that notice, so the first-run ordering is racy.
     let env: { [key: string]: string | undefined } | undefined;
-    try {
-      env = buildEnvForUserId(managed.info.userId);
-    } catch {
-      return false;
-    }
+    if (oneShot) env = oneShot.env;
+    else
+      try {
+        env = buildEnvForUserId(managed.info.userId);
+      } catch {
+        return false;
+      }
     // An "unknown" Claude answer is not known-unauthenticated.
     if (managed.info.agentType === "claude")
       return (await claudeSignInState(env)) === "signed_out";

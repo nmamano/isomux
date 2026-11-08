@@ -18,7 +18,9 @@
 // This module keeps the switch and the state. server/session-accounts.ts
 // does the rest: it starts an entry at a stop, and at each turn start it
 // moves the agent's conversation to the account the state wants
-// (alignAccount; design in task 2008c993).
+// (alignAccount; design in task 2008c993). The topic and summary one-shots
+// follow it too (oneShotEnv): they run where the agent's turns run, or on
+// the office sign-in when the entry covers the one-shot's model.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

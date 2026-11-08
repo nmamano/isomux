@@ -155,6 +155,7 @@ import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
 import type { PlanType } from "./_generated/PlanType.ts";
 import type { IsolationForm } from "../../process-isolation.ts";
+import { OneShotUsageLimitError } from "../one-shot-errors.ts";
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
@@ -4296,6 +4297,20 @@ export const codexBackend: Backend = {
       // We keep awaiting the same `done` to collect any final state, but throw
       // after archive so the caller sees the real failure.
       let failure: Error | null = null;
+      // A usage limit (codexErrorInfo "usageLimitExceeded", as the streaming
+      // turn reads it) fails with OneShotUsageLimitError. The app-server may
+      // report one failure twice (error, then turn/completed): a later
+      // report does not hide a usage limit.
+      const fail = (
+        message: string,
+        error: { codexErrorInfo?: unknown } | null | undefined,
+      ) => {
+        if (failure instanceof OneShotUsageLimitError) return;
+        failure =
+          error?.codexErrorInfo === "usageLimitExceeded"
+            ? new OneShotUsageLimitError(message)
+            : new Error(message);
+      };
       const done = new Promise<void>((resolve) => {
         client.onNotification((n) => {
           const params = n.params as Record<string, unknown> | null | undefined;
@@ -4312,11 +4327,12 @@ export const codexBackend: Backend = {
             }
           } else if (n.method === "turn/completed") {
             const turn = params?.turn as
-              | { status?: string; error?: { message?: string } | null }
+              | { status?: string; error?: TurnErrorLike | null }
               | undefined;
             if (turn?.status && turn.status !== "completed") {
-              failure = new Error(
+              fail(
                 `Codex one-shot turn ${turn.status}: ${turn.error?.message ?? "no detail"}`,
+                turn.error,
               );
             }
             if (!resolved) {
@@ -4326,10 +4342,11 @@ export const codexBackend: Backend = {
           } else if (n.method === "error") {
             // ErrorNotification text is at params.error.message (TurnError), not
             // params.message (mirrors the streaming error arm in handleNotification).
-            const err = params?.error as { message?: string } | undefined;
+            const err = params?.error as TurnErrorLike | undefined;
             const msg = err?.message;
-            failure = new Error(
+            fail(
               `Codex one-shot error: ${typeof msg === "string" ? msg : "unknown"}`,
+              err,
             );
             if (!resolved) {
               resolved = true;

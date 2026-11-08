@@ -45,7 +45,7 @@ function agentOn(agentType: AgentInfo["agentType"]): AgentInfo {
     effort: "high",
     state: "idle",
     topic: null,
-    topicGenerating: false,
+    topicState: null,
     customInstructions: "",
     customInstructionsVersion: "v1",
     agentType,

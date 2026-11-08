@@ -2723,6 +2723,8 @@ Coses que pots fer per ell:
   "logView.backRoomStrip":
     "A la rebotiga de {room}. La gent parla amb el davant:",
   "logView.noTopic": "Sense tema",
+  "logView.noTopicUsageLimit": "Sense tema: límit d'ús assolit",
+  "logView.noTopicFailed": "Sense tema: no s'ha pogut generar",
   "logView.editTopic": "Fes clic per editar el tema",
   "logView.regenerateTopic": "Regenera el tema a partir de la conversa",
   "logView.lastMessagePrefix": "↑ Tu:",

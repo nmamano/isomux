@@ -362,7 +362,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       // "waiting_for_response" agent edits fine (the fork wakes it).
       state: resumeSessionId ? "waiting_for_response" : "idle",
       topic: storedTopic(p.topic),
-      topicGenerating: false,
+      topicState: null,
       customInstructions: p.customInstructions ?? null,
       // Derived from the blob (never persisted separately), so legacy records
       // that predate the field backfill correctly on load.

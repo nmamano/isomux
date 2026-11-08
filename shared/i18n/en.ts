@@ -2641,6 +2641,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.backRoomStrip":
     "In the back room of {room}. People talk to the front:",
   "logView.noTopic": "No topic",
+  "logView.noTopicUsageLimit": "No topic: usage limit reached",
+  "logView.noTopicFailed": "No topic: generation failed",
   "logView.editTopic": "Click to edit topic",
   "logView.regenerateTopic": "Regenerate topic from conversation",
   "logView.lastMessagePrefix": "↑ You:",

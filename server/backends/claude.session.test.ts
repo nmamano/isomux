@@ -52,6 +52,7 @@ import type {
 import { msg } from "../../shared/i18n/log-message.ts";
 import { FAMILY_TO_MODEL } from "../../shared/types.ts";
 import { removeStateDir } from "../test-support/temp-state.ts";
+import { OneShotUsageLimitError } from "./one-shot-errors.ts";
 
 // ---------------------------------------------------------------------------
 // FakeSdkConversation - test double for SdkConversation
@@ -1136,6 +1137,59 @@ describe("oneShotResultText", () => {
 
   it("throws when the stream ended without a result", () => {
     expect(() => oneShotResultText(null)).toThrow();
+  });
+
+  // Task a034e4cc: the topic tells a usage limit from other failures by the
+  // error class, never by the text. Only the limit notices are usage limits.
+  it("throws OneShotUsageLimitError for a usage-limit notice, a plain error for others", () => {
+    const thrown = (fields: Record<string, unknown>): unknown => {
+      try {
+        oneShotResultText(result(fields));
+      } catch (err) {
+        return err;
+      }
+      throw new Error("expected a throw");
+    };
+    const limits = [
+      LIMIT_TEXT,
+      "You've hit your weekly limit · resets Nov 9, 4pm (Europe/Berlin)",
+      "You've reached your usage limit · resets 3pm (Europe/Berlin)",
+      "You're out of extra usage · resets 3pm (Europe/Berlin)",
+      "Your org is out of usage · ask your admin",
+      "Claude AI usage limit reached|1762700000",
+    ];
+    for (const notice of limits) {
+      const err = thrown({ is_error: true, result: notice });
+      expect([notice, err instanceof OneShotUsageLimitError]).toEqual([
+        notice,
+        true,
+      ]);
+      expect((err as Error).message).toContain(notice);
+    }
+    const others: Record<string, unknown>[] = [
+      { is_error: true, result: "Not logged in · Please run /login" },
+      { is_error: true, result: "API Error: 500 Internal server error" },
+      // No usage on the plan at all: not a limit that resets.
+      { is_error: true, result: "Your seat type doesn't include usage" },
+      { is_error: true, result: "" },
+      {
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: [],
+        result: undefined,
+      },
+    ];
+    for (const fields of others) {
+      const err = thrown(fields);
+      expect([fields.result, err instanceof Error]).toEqual([
+        fields.result,
+        true,
+      ]);
+      expect([fields.result, err instanceof OneShotUsageLimitError]).toEqual([
+        fields.result,
+        false,
+      ]);
+    }
   });
 });
 

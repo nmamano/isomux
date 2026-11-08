@@ -821,6 +821,10 @@ export interface BackgroundTask {
 // A backend's report of one task; the office stamps startedAt.
 export type ReportedBackgroundTask = Omit<BackgroundTask, "startedAt">;
 
+// An agent's topic generation: "generating" while it runs; "usage_limit" or
+// "failed" when the last one gave no label; null otherwise.
+export type TopicState = "generating" | "usage_limit" | "failed" | null;
+
 export interface AgentInfo {
   id: string;
   name: string;
@@ -844,10 +848,11 @@ export interface AgentInfo {
   effort: EffortLevel;
   state: AgentState;
   // A label or null, never a placeholder: a generation in progress shows in
-  // topicGenerating instead.
+  // topicState instead.
   topic: string | null;
-  // True while a topic generation runs. Runtime only, never persisted.
-  topicGenerating: boolean;
+  // The topic generation: running, or why the last one gave no label.
+  // Runtime only, never persisted.
+  topicState: TopicState;
   customInstructions: string | null;
   // Optimistic-concurrency token over the customInstructions blob (task
   // 44a2c98d): versionOf(customInstructions ?? "") from shared/blob-version.ts,

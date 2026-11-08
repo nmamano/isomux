@@ -1,5 +1,6 @@
 import { msg, type LogText } from "../../../shared/i18n/log-message.ts";
 import { redactLogEntry } from "../../log-redaction.ts";
+import { OneShotUsageLimitError } from "../one-shot-errors.ts";
 import {
   inertMarkdown,
   providerRefusal,
@@ -63,7 +64,7 @@ export function openCodeModelUnavailableRefusal(
 // A one-shot prompt that OpenCode refused with provider.free-limit: the
 // free usage limit, which every free model shares. A check of the free
 // models stops at it (server/welcome-opencode-model.ts).
-export class OpenCodeFreeLimitError extends Error {
+export class OpenCodeFreeLimitError extends OneShotUsageLimitError {
   constructor() {
     super("OpenCode free usage limit reached.");
     this.name = "OpenCodeFreeLimitError";

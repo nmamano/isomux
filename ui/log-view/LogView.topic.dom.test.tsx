@@ -23,10 +23,11 @@ afterAll(() => {
 });
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type LogEntry = import("../../shared/types.ts").LogEntry;
+type TopicState = import("../../shared/types.ts").TopicState;
 
 function agentWith(fields: {
   topic: string | null;
-  topicGenerating?: boolean;
+  topicState?: TopicState;
   topicGen?: boolean;
 }): AgentInfo {
   return {
@@ -39,7 +40,7 @@ function agentWith(fields: {
     agentType: "codex",
     modelFamily: "gpt-6-astra",
     topic: fields.topic,
-    topicGenerating: fields.topicGenerating ?? false,
+    topicState: fields.topicState ?? null,
     capabilities: { edit: true, topicGen: fields.topicGen ?? true },
     outfit: {
       color: "#4A90D9",
@@ -132,7 +133,7 @@ it("shows no topic slot on a blank chat", async () => {
 
 it("keeps the label and disables the refresh while a generation runs", async () => {
   const labelled = await show(
-    agentWith({ topic: "Earlier label", topicGenerating: true }),
+    agentWith({ topic: "Earlier label", topicState: "generating" }),
     [userMessage],
   );
   expect(labelled.text()?.dataset.topicText).toBe("label");
@@ -141,9 +142,10 @@ it("keeps the label and disables the refresh while a generation runs", async () 
   await labelled.done();
 
   // With no label, the spinning refresh takes the placeholder's place.
-  const empty = await show(agentWith({ topic: null, topicGenerating: true }), [
-    userMessage,
-  ]);
+  const empty = await show(
+    agentWith({ topic: null, topicState: "generating" }),
+    [userMessage],
+  );
   expect(empty.text()).toBe(null);
   expect(empty.refresh()?.disabled).toBe(true);
   await empty.done();
@@ -177,4 +179,34 @@ it("sends an emptied label as a blank topic, and nothing for an untouched placeh
   });
   expect(topicCalls()).toEqual([]);
   await empty.done();
+});
+
+// Task a034e4cc: with no label, the placeholder says why the last generation
+// gave none (a usage limit, another failure), and the refresh stays usable.
+// A label hides the reason.
+it("says why a chat has no topic", async () => {
+  const shown: string[] = [];
+  for (const topicState of [null, "usage_limit", "failed"] as const) {
+    const view = await show(agentWith({ topic: null, topicState }), [
+      userMessage,
+    ]);
+    expect([topicState, view.text()?.dataset.topicText]).toEqual([
+      topicState,
+      "placeholder",
+    ]);
+    expect([topicState, view.refresh()?.disabled]).toEqual([topicState, false]);
+    shown.push(view.text()?.textContent ?? "");
+    await view.done();
+  }
+  // Three different texts, none of them empty.
+  expect(new Set(shown).size).toBe(3);
+  expect(shown.every((t) => t.trim() !== "")).toBe(true);
+
+  const labelled = await show(
+    agentWith({ topic: "Earlier label", topicState: "usage_limit" }),
+    [userMessage],
+  );
+  expect(labelled.text()?.dataset.topicText).toBe("label");
+  expect(labelled.text()?.textContent).toBe("Earlier label");
+  await labelled.done();
 });

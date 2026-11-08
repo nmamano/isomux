@@ -731,7 +731,7 @@ function seedOffice() {
       effort: DEFAULT_EFFORT,
       state: char.state,
       topic: char.topic,
-      topicGenerating: false,
+      topicState: null,
       customInstructions: char.customInstructions,
       customInstructionsVersion: versionOf(char.customInstructions ?? ""),
       agentType: char.agentType,
@@ -775,7 +775,7 @@ function seedOffice() {
       effort: DEFAULT_EFFORT,
       state: "idle",
       topic: null,
-      topicGenerating: false,
+      topicState: null,
       customInstructions: null,
       customInstructionsVersion: versionOf(""),
       agentType: "opencode",
@@ -3927,9 +3927,9 @@ export async function demoApi(
     } else {
       // The old label stays while a simulated generation runs, then the new
       // one replaces it.
-      emitEvents(state.updateAgent(id, { topicGenerating: true }));
+      emitEvents(state.updateAgent(id, { topicState: "generating" }));
       setTimeout(() => {
-        emitEvents(state.updateAgent(id, { topicGenerating: false }));
+        emitEvents(state.updateAgent(id, { topicState: null }));
         emitEvents(state.setTopic(id, "Planning the team offsite agenda"));
       }, 4000);
     }

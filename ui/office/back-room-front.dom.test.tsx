@@ -29,7 +29,7 @@ function agent(id: string, desk: number, state: string) {
     modelFamily: "opus",
     effort: "medium",
     topic: null,
-    topicGenerating: false,
+    topicState: null,
     customInstructions: null,
     customInstructionsVersion: "0",
     permissionMode: "default",

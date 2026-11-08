@@ -124,7 +124,7 @@ describe("personal API tokens", () => {
     });
     expect(srv.agentManager.getAgent(sender.id)).toMatchObject({
       state: stateBeforeReply,
-      topicGenerating: false,
+      topicState: null,
       turnMemberIds: [],
     });
 

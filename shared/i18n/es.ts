@@ -2715,6 +2715,8 @@ Cosas que puedes hacer por él:
   "logView.backRoomStrip":
     "En la trastienda de {room}. La gente habla con el frente:",
   "logView.noTopic": "Sin tema",
+  "logView.noTopicUsageLimit": "Sin tema: límite de uso alcanzado",
+  "logView.noTopicFailed": "Sin tema: no se pudo generar",
   "logView.editTopic": "Haz clic para editar el tema",
   "logView.regenerateTopic": "Regenerar el tema a partir de la conversación",
   "logView.lastMessagePrefix": "↑ Tú:",

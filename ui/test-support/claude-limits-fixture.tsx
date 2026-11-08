@@ -45,7 +45,7 @@ export function claudeAgent(
     effort: "high",
     state: "idle",
     topic: null,
-    topicGenerating: false,
+    topicState: null,
     customInstructions: "",
     customInstructionsVersion: "v1",
     agentType: "claude",

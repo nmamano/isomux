@@ -26,6 +26,8 @@ import {
   type PersistedAgent,
 } from "../persistence.ts";
 import { buildSummaryPrompt } from "../session-summary.ts";
+import { OneShotUsageLimitError } from "../backends/one-shot-errors.ts";
+import { OpenCodeFreeLimitError } from "../backends/opencode/errors.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import {
   clearTestManagedOfficeEnv,
@@ -136,7 +138,8 @@ async function harness(
   const agentId = info!.id;
   const topic = () => mgr.getAgent(agentId)?.topic;
   // The flag as the office snapshot carries it to a client that connects now.
-  const generating = () => officeState.getAgent(agentId)?.topicGenerating;
+  const generating = () =>
+    officeState.getAgent(agentId)?.topicState === "generating";
   // Waits until every topic call so far has its reply and the flag is down.
   const idle = () => waitFor(() => answered === calls && generating() !== true);
   // Sends one message and waits until any topic call it started has settled.
@@ -146,7 +149,9 @@ async function harness(
   const send = async (text: string) => {
     const from = events.length;
     await mgr.sendMessage(agentId, text, "tester");
-    const started = changesSince(from).some((c) => c.topicGenerating === true);
+    const started = changesSince(from).some(
+      (c) => c.topicState === "generating",
+    );
     await idle();
     return started;
   };
@@ -342,6 +347,8 @@ describe("topic generation backoff", () => {
       expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(false);
       expect(topic()).toBe("Earlier label");
       expect(generating()).toBe(false);
+      // The sign-in card says why: the topic gives no reason of its own.
+      expect(mgr.getAgent(agentId)?.topicState).toBeNull();
 
       // Signed in again, a new conversation labels at once: no wait.
       writeFileSync(authFile, "{}");
@@ -355,6 +362,89 @@ describe("topic generation backoff", () => {
           call.some((arg) => String(arg).includes(agentId)),
         ),
       ).toHaveLength(0);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
+
+// Task a034e4cc: with no label, the chat says why the last generation gave
+// none. The reason is part of topicState, which clients get in the office
+// snapshot and in agent_updated.
+describe("the reason for a missing topic (task a034e4cc)", () => {
+  const limited = () =>
+    new OneShotUsageLimitError(
+      "oneShotPrompt failed: You've hit your weekly limit · resets Nov 9, 4pm",
+    );
+
+  it("says usage_limit for a usage limit and failed for another error; a label clears it", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const h = await harness([limited(), timedOut(), "Label"]);
+      const state = () => h.mgr.getAgent(h.agentId)?.topicState;
+      await h.send("first");
+      expect(h.topicCalls()).toBe(1);
+      expect(h.topic()).toBeNull();
+      expect(state()).toBe("usage_limit");
+
+      // A message during the wait starts no call and keeps the reason.
+      expect(await h.send("second, same minute")).toBe(false);
+      expect(state()).toBe("usage_limit");
+
+      await h.refresh();
+      expect(h.topicCalls()).toBe(2);
+      expect(state()).toBe("failed");
+
+      const from = h.events.length;
+      await h.refresh();
+      expect(h.topic()).toBe("Label");
+      expect(state()).toBeNull();
+      // A client merges agent_updated after JSON: the clear must be a null,
+      // not a dropped undefined.
+      const sent = h
+        .changesSince(from)
+        .map((c) => JSON.parse(JSON.stringify(c)) as Record<string, unknown>)
+        .filter((c) => "topicState" in c)
+        .map((c) => c.topicState);
+      expect(sent).toEqual(["generating", null]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("counts OpenCode's free usage limit as a usage limit", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const h = await harness([new OpenCodeFreeLimitError()]);
+      await h.send("first");
+      expect(h.topicCalls()).toBe(1);
+      expect(h.mgr.getAgent(h.agentId)?.topicState).toBe("usage_limit");
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("clears the reason on a typed topic and on a new conversation", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const h = await harness([timedOut(), timedOut()]);
+      const state = () => h.mgr.getAgent(h.agentId)?.topicState;
+      await h.send("first");
+      expect(state()).toBe("failed");
+      h.mgr.setTopic(h.agentId, "Typed label");
+      expect(state()).toBeNull();
+
+      // A blank edit empties the topic again; a failed refresh gives the
+      // reason back.
+      h.mgr.setTopic(h.agentId, "   ");
+      expect(h.topic()).toBeNull();
+      await h.refresh();
+      expect(h.topicCalls()).toBe(2);
+      expect(state()).toBe("failed");
+
+      await h.mgr.newConversation(h.agentId);
+      expect(h.topic()).toBeNull();
+      expect(state()).toBeNull();
     } finally {
       errors.mockRestore();
     }
@@ -392,7 +482,13 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     // Clients saw the flag go up and down, and no topic but the new label.
     const changes = changesSince(from);
     expect(
-      changes.map((c) => c.topicGenerating).filter((g) => g !== undefined),
+      changes
+        .map((c) =>
+          c.topicState === undefined
+            ? undefined
+            : c.topicState === "generating",
+        )
+        .filter((g) => g !== undefined),
     ).toEqual([true, false]);
     expect(changes.flatMap((c) => ("topic" in c ? [c.topic] : []))).toEqual([
       "Later label",
@@ -522,7 +618,11 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     // The refresh ran and ended without a one-shot call.
     const flags = () =>
       changesSince(from)
-        .map((c) => c.topicGenerating)
+        .map((c) =>
+          c.topicState === undefined
+            ? undefined
+            : c.topicState === "generating",
+        )
         .filter((g) => g !== undefined);
     await waitFor(() => flags().length === 2);
     expect(flags()).toEqual([true, false]);
@@ -605,8 +705,7 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     expect(mgr.getAgent(`dots-${tag}`)?.topic).toBeNull();
     expect(mgr.getAgent(`blank-${tag}`)?.topic).toBeNull();
     expect(mgr.getAgent(`kept-${tag}`)?.topic).toBe("Real label");
-    for (const a of restored)
-      expect(mgr.getAgent(a.id)?.topicGenerating).toBe(false);
+    for (const a of restored) expect(mgr.getAgent(a.id)?.topicState).toBeNull();
 
     const killed = mgr.getKilledAgentSummaries().find((k) => k.id === killedId);
     expect(killed).toBeDefined();

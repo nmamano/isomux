@@ -97,7 +97,8 @@ async function setup(replies: (() => string | Promise<string>)[]) {
   if (!agent) throw new Error("spawn returned null");
   const agentId = agent.id;
   const topic = () => mgr.getAgent(agentId)?.topic;
-  const generating = () => officeState.getAgent(agentId)?.topicGenerating;
+  const generating = () =>
+    officeState.getAgent(agentId)?.topicState === "generating";
   // Every topic call so far has its reply, and the flag is down.
   const idle = () =>
     waitFor(
@@ -117,7 +118,7 @@ async function setup(replies: (() => string | Promise<string>)[]) {
       .flatMap((e) =>
         (e.message ?? []).flatMap((p) => (typeof p === "string" ? [] : p.key)),
       );
-  // Whether a generation raised the topicGenerating flag after event `from`.
+  // Whether a generation set the topic state to "generating" after event `from`.
   const generationStartedSince = (from: number) =>
     events
       .slice(from)
@@ -125,7 +126,7 @@ async function setup(replies: (() => string | Promise<string>)[]) {
         (e) =>
           e.type === "agent_updated" &&
           e.agentId === agentId &&
-          e.changes.topicGenerating === true,
+          e.changes.topicState === "generating",
       );
   const send = (text: string) => mgr.sendMessage(agentId, text, USER);
   return {

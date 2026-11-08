@@ -78,6 +78,7 @@ import { SAFETY_WARNING } from "./safety-hook.ts";
 import { removeStateDir } from "../../test-support/temp-state.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 import { CODEX_EMPTY_CWD_ROOT } from "./access.ts";
+import { OneShotUsageLimitError } from "../one-shot-errors.ts";
 import {
   FOLDER_FILES_MCP_PATH,
   FOLDER_FILES_MCP_SERVER,
@@ -1832,6 +1833,82 @@ describe("Codex one-shot prompt", () => {
       expect(
         (f.requests[3].params as Record<string, unknown>).sandboxPolicy,
       ).toEqual({ type: "readOnly", networkAccess: false });
+    });
+  }
+
+  // Task a034e4cc: a one-shot that a usage limit refused fails with
+  // OneShotUsageLimitError, read from codexErrorInfo as the streaming turn
+  // reads it, not from the text. The app-server reports a failed turn with
+  // an error notification, turn/completed, or both.
+  class FailingTurnFake extends FakeCodexTransport {
+    // "both, plain last": the error notification names the usage limit and
+    // the turn/completed after it carries no codexErrorInfo.
+    constructor(
+      private readonly codexErrorInfo: string,
+      private readonly via:
+        | "error"
+        | "turn/completed"
+        | "both"
+        | "both, plain last",
+    ) {
+      super();
+    }
+    override request<T = unknown>(
+      method: string,
+      params?: unknown,
+    ): Promise<T> {
+      const res = super.request<T>(method, params);
+      if (method === "turn/start") {
+        const threadId = (params as { threadId: string }).threadId;
+        const error = {
+          message: "You've hit your usage limit. Try again at 4:00 PM.",
+          codexErrorInfo: this.codexErrorInfo,
+        };
+        setTimeout(() => {
+          if (this.via !== "turn/completed")
+            this.fireNotification("error", {
+              threadId,
+              turnId: "turn-1",
+              willRetry: false,
+              error,
+            });
+          if (this.via !== "error")
+            this.fireNotification("turn/completed", {
+              threadId,
+              turn: {
+                id: "turn-1",
+                status: "failed",
+                error:
+                  this.via === "both, plain last"
+                    ? { message: error.message }
+                    : error,
+              },
+            });
+        }, 0);
+      }
+      return res;
+    }
+  }
+  for (const via of [
+    "error",
+    "turn/completed",
+    "both",
+    "both, plain last",
+  ] as const) {
+    it(`a usage limit reported by ${via} rejects with OneShotUsageLimitError; another error does not`, async () => {
+      const rejection = async (info: string) => {
+        useFake(new FailingTurnFake(info, via) as unknown as OneShotFake);
+        return codexBackend.oneShotPrompt("hi", opts()).then(
+          () => null,
+          (e: unknown) => e,
+        );
+      };
+      const limited = await rejection("usageLimitExceeded");
+      expect(limited instanceof OneShotUsageLimitError).toBe(true);
+      // The same words with another error kind: a plain failure.
+      const other = await rejection("internalServerError");
+      expect(other instanceof Error).toBe(true);
+      expect(other instanceof OneShotUsageLimitError).toBe(false);
     });
   }
 

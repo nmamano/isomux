@@ -41,7 +41,7 @@ function agent(id: string, roomId: string, desk: number) {
     modelFamily: "opus",
     effort: "medium",
     topic: null,
-    topicGenerating: false,
+    topicState: null,
     customInstructions: null,
     customInstructionsVersion: "0",
     permissionMode: "default",

@@ -307,7 +307,7 @@ export class OfficeState {
       effort: opts.effort ?? DEFAULT_EFFORT,
       state: "idle",
       topic: null,
-      topicGenerating: false,
+      topicState: null,
       customInstructions: opts.customInstructions || null,
       // Maintained in lockstep with customInstructions (see AgentInfo docs):
       // the optimistic-concurrency token an edit must echo back.

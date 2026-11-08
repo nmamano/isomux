@@ -2421,6 +2421,8 @@ App 的一些原则：
   "logView.backToBackRoomTitle": "返回后屋（Esc）",
   "logView.backRoomStrip": "在 {room} 的后屋。大家通常找前台：",
   "logView.noTopic": "无话题",
+  "logView.noTopicUsageLimit": "无话题：已达用量限制",
+  "logView.noTopicFailed": "无话题：生成失败",
   "logView.editTopic": "点击编辑话题",
   "logView.regenerateTopic": "根据对话重新生成话题",
   "logView.lastMessagePrefix": "↑ 你：",

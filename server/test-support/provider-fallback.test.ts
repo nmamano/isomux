@@ -9,8 +9,8 @@
 // rules are in server/provider-fallback.test.ts and the file move in
 // server/session-account-move.test.ts.
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
@@ -41,6 +41,9 @@ import {
   type ProviderFallback,
 } from "../provider-fallback.ts";
 import { LIMIT_RESUME_DELAY_MS, LIMIT_RESUME_TEXT } from "../limit-resume.ts";
+import { buildSummaryPrompt } from "../session-summary.ts";
+import { isClaudeCodeAuthenticated } from "../backends/claude-install-check.ts";
+import { isCodexAuthenticated } from "../backends/codex/native-bin.ts";
 import { OpenCodeFreeLimitError } from "../backends/opencode/errors.ts";
 import {
   clearTestManagedOfficeEnv,
@@ -1912,4 +1915,298 @@ describe("the sign-in an agent runs on", () => {
       expect(await signIn(h2, info.id)).toBe("office");
     });
   });
+});
+
+// Task a034e4cc: the topic and the conversation summary are one-shot prompts
+// (sonnet for Claude, the agent's model for Codex). They run on the account
+// the agent's turns run on, or on the office's when the member's fallback
+// covers the one-shot's model, so they label wherever the agent can run.
+describe("the topic and summary one-shots", () => {
+  const SUMMARY_SYSTEM = buildSummaryPrompt(null, []).systemPrompt;
+  type OneShotCall = {
+    kind: "topic" | "summary";
+    account: string | undefined;
+    family: string;
+  };
+
+  // Records each one-shot and answers it: the next reply of its kind, or a
+  // label / a paragraph when the list is used up.
+  function recorder(
+    engine: Engine,
+    replies: { topic?: (string | Error)[]; summary?: (string | Error)[] } = {},
+  ) {
+    const calls: OneShotCall[] = [];
+    const oneShot: FakeBackendConfig["oneShot"] = async (_prompt, opts) => {
+      const kind = opts.systemPrompt === SUMMARY_SYSTEM ? "summary" : "topic";
+      calls.push({
+        kind,
+        account:
+          engine === "codex"
+            ? opts.env?.CODEX_HOME
+            : opts.env?.CLAUDE_CONFIG_DIR,
+        family: opts.modelFamily ?? "",
+      });
+      const reply = replies[kind]?.shift();
+      if (reply instanceof Error) throw reply;
+      return reply ?? (kind === "summary" ? "A paragraph" : "A label");
+    };
+    const of = (kind: OneShotCall["kind"]) =>
+      calls.filter((c) => c.kind === kind);
+    return {
+      oneShot,
+      topics: () => of("topic"),
+      summaries: () => of("summary"),
+    };
+  }
+
+  // A signed-in account folder, as each engine's sign-in check reads it.
+  const credentials = (engine: Engine, dir: string) =>
+    join(dir, engine === "claude" ? ".credentials.json" : "auth.json");
+  function signedIn(engine: Engine, dir: string) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(credentials(engine, dir), "{}");
+  }
+
+  // Both of Alice's accounts signed in, with no API key from the box's own
+  // environment to stand in for a sign-in.
+  function office(engines: Engine[] = ["claude", "codex"]) {
+    setTestManagedOfficeEnv({
+      ANTHROPIC_API_KEY: "",
+      ANTHROPIC_AUTH_TOKEN: "",
+      CLAUDE_CODE_OAUTH_TOKEN: "",
+      OPENAI_API_KEY: "",
+    });
+    for (const engine of engines) {
+      signedIn(engine, memberDir(engine));
+      signedIn(engine, officeDir(engine));
+    }
+  }
+
+  // A one-shot that should NOT start gets this long to show up.
+  const quiet = () => sleep(150);
+
+  // One member turn that runs to its end.
+  async function turn(h: Harness, id: string, text: string, engine: Engine) {
+    const s = await memberTurn(h, id, text, engine);
+    await endTurn(h, id, s);
+    return s;
+  }
+
+  for (const engine of ["claude", "codex"] as const) {
+    it(`${engine}: after a stop moves the agent, its topic and summary run on the office sign-in`, async () => {
+      office();
+      const rec = recorder(engine);
+      const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+      const info = await spawn(h, engine);
+
+      // Before the stop, the first message's topic runs on her own sign-in.
+      const before = await memberTurn(h, info.id, "work", engine);
+      await waitUntil(() => rec.topics().length === 1, "first topic");
+      expect(rec.topics()[0].account).toBe(memberDir(engine));
+      stopTurn(before, engine, { resetsAtMs: h.office.clock.now() + 5 * HOUR });
+      await waitUntil(() => continuesTo(h, info.id) === 1, "continue sent");
+      const after = sessionWith(h, info.id, isContinue)!;
+      expect(accountOf(after, engine)).toBe(officeDir(engine));
+      await endTurn(h, info.id, after);
+
+      h.mgr.resetTopic(info.id);
+      await waitUntil(() => rec.topics().length === 2, "refreshed topic");
+      expect(rec.topics()[1].account).toBe(officeDir(engine));
+
+      // The summary of the session a new conversation ends.
+      await turn(h, info.id, "more", engine);
+      expect(rec.summaries()).toHaveLength(0);
+      await h.mgr.newConversation(info.id);
+      await waitUntil(() => rec.summaries().length === 1, "summary");
+      expect(rec.summaries()[0].account).toBe(officeDir(engine));
+    });
+  }
+
+  // The one-shot's model is sonnet, whatever the agent runs. An entry of one
+  // family covers the one-shot by the one-shot's model, not the agent's.
+  for (const [family, where] of [
+    ["sonnet", "office"],
+    ["opus", "own"],
+  ] as const) {
+    it(`claude: a ${family}-only entry, with a haiku agent on her own sign-in: the topic runs on the ${where} sign-in`, async () => {
+      office(["claude"]);
+      const rec = recorder("claude");
+      const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+      h.office.store.start(aliceId(), "claude", {
+        until: h.office.clock.now() + 5 * HOUR,
+        family,
+      });
+      const info = await spawn(h, "claude", { modelFamily: "haiku" });
+      const s = await memberTurn(h, info.id, "work");
+      // The entry covers no haiku session: the turn runs on her own.
+      expect(accountOf(s)).toBe(memberDir("claude"));
+      await waitUntil(() => rec.topics().length === 1, "topic");
+      expect(rec.topics()[0]).toEqual({
+        kind: "topic",
+        account: where === "office" ? officeDir("claude") : memberDir("claude"),
+        family: "sonnet",
+      });
+      await endTurn(h, info.id, s);
+    });
+  }
+
+  it("claude: an opus agent moved by an opus-only stop labels on the office sign-in, where it runs", async () => {
+    office(["claude"]);
+    const rec = recorder("claude");
+    const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+    const info = await spawn(h, "claude", { modelFamily: "opus" });
+    const before = await memberTurn(h, info.id, "work");
+    await waitUntil(() => rec.topics().length === 1, "first topic");
+    stopTurn(before, "claude", {
+      resetsAtMs: h.office.clock.now() + 5 * HOUR,
+      family: "opus",
+    });
+    await waitUntil(() => continuesTo(h, info.id) === 1, "continue sent");
+    await endTurn(h, info.id, sessionWith(h, info.id, isContinue)!);
+    // The entry does not cover the sonnet one-shot; the agent's turns are
+    // on the office sign-in.
+    expect(h.office.store.entry(aliceId(), "claude")?.family).toBe("opus");
+    expect(persisted(info.id)?.officeFallback).toBe(true);
+
+    h.mgr.resetTopic(info.id);
+    await waitUntil(() => rec.topics().length === 2, "refreshed topic");
+    expect(rec.topics()[1]).toEqual({
+      kind: "topic",
+      account: officeDir("claude"),
+      family: "sonnet",
+    });
+  });
+
+  it("claude: with the switch off, an entry moves no one-shot", async () => {
+    office(["claude"]);
+    const rec = recorder("claude");
+    const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+    h.office.store.start(aliceId(), "claude", {
+      until: h.office.clock.now() + 5 * HOUR,
+    });
+    h.office.store.setEnabled(false);
+    const info = await spawn(h, "claude");
+    const s = await memberTurn(h, info.id, "work");
+    expect(accountOf(s)).toBe(memberDir("claude"));
+    await waitUntil(() => rec.topics().length === 1, "topic");
+    expect(rec.topics()[0].account).toBe(memberDir("claude"));
+    await endTurn(h, info.id, s);
+
+    // Switched on, the same entry moves the next one-shot.
+    h.office.store.setEnabled(true);
+    h.mgr.resetTopic(info.id);
+    await waitUntil(() => rec.topics().length === 2, "refreshed topic");
+    expect(rec.topics()[1].account).toBe(officeDir("claude"));
+  });
+
+  // The wait after a failed one-shot belongs to the account it failed on:
+  // once the fallback starts, the next message labels at once.
+  it("claude: a topic that failed on her own sign-in is tried on the office's at once", async () => {
+    office(["claude"]);
+    const rec = recorder("claude", {
+      topic: [new Error("one-shot timed out"), "Office label"],
+    });
+    const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+    const info = await spawn(h, "claude");
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await turn(h, info.id, "first", "claude");
+      await waitUntil(() => rec.topics().length === 1, "first topic");
+      expect(rec.topics()[0].account).toBe(memberDir("claude"));
+      await waitUntil(
+        () => h.mgr.getAgent(info.id)?.topicState !== "generating",
+        "first topic settled",
+      );
+      expect(h.mgr.getAgent(info.id)?.topic).toBeNull();
+
+      // Still on her own sign-in, the wait holds.
+      await turn(h, info.id, "second", "claude");
+      await quiet();
+      expect(rec.topics()).toHaveLength(1);
+
+      h.office.store.start(aliceId(), "claude", {
+        until: h.office.clock.now() + 5 * HOUR,
+      });
+      await turn(h, info.id, "third", "claude");
+      await waitUntil(() => rec.topics().length === 2, "topic on the office");
+      expect(rec.topics()[1].account).toBe(officeDir("claude"));
+      await waitUntil(
+        () => h.mgr.getAgent(info.id)?.topic === "Office label",
+        "office label",
+      );
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("claude: a summary that failed on her own sign-in is tried on the office's at once", async () => {
+    office(["claude"]);
+    const rec = recorder("claude", {
+      summary: [new Error("one-shot timed out")],
+    });
+    const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+    const info = await spawn(h, "claude");
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const session = async (tag: string) => {
+        await turn(h, info.id, `${tag} one`, "claude");
+        await turn(h, info.id, `${tag} two`, "claude");
+        await h.mgr.newConversation(info.id);
+      };
+      await session("first");
+      await waitUntil(() => rec.summaries().length === 1, "first summary");
+      expect(rec.summaries()[0].account).toBe(memberDir("claude"));
+
+      // Still on her own sign-in, the wait holds.
+      await session("second");
+      await quiet();
+      expect(rec.summaries()).toHaveLength(1);
+
+      h.office.store.start(aliceId(), "claude", {
+        until: h.office.clock.now() + 5 * HOUR,
+      });
+      await session("third");
+      await waitUntil(() => rec.summaries().length === 2, "office summary");
+      expect(rec.summaries()[1].account).toBe(officeDir("claude"));
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  // The sign-in check before a one-shot reads the account the one-shot
+  // runs on.
+  for (const engine of ["claude", "codex"] as const) {
+    it(`${engine}: on the office sign-in, a signed-out own account does not stop the topic`, async () => {
+      office([engine]);
+      const rec = recorder(engine);
+      const h = makeHarness(undefined, [], { oneShot: rec.oneShot });
+      const info = await spawn(h, engine);
+      const before = await memberTurn(h, info.id, "work", engine);
+      await waitUntil(() => rec.topics().length === 1, "first topic");
+      stopTurn(before, engine, { resetsAtMs: h.office.clock.now() + 5 * HOUR });
+      await waitUntil(() => continuesTo(h, info.id) === 1, "continue sent");
+      await endTurn(h, info.id, sessionWith(h, info.id, isContinue)!);
+
+      // Her own sign-in lapses; the office's holds.
+      rmSync(credentials(engine, memberDir(engine)));
+      const authed = (
+        env: { [key: string]: string | undefined } | undefined,
+      ) =>
+        engine === "claude"
+          ? isClaudeCodeAuthenticated(env)
+          : isCodexAuthenticated(env);
+      expect(authed(h.mgr.buildEnvForUserId(aliceId()))).toBe(false);
+      expect(
+        authed({
+          ...h.mgr.buildEnvForUserId(aliceId()),
+          [engine === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"]:
+            officeDir(engine),
+        }),
+      ).toBe(true);
+
+      h.mgr.resetTopic(info.id);
+      await waitUntil(() => rec.topics().length === 2, "refreshed topic");
+      expect(rec.topics()[1].account).toBe(officeDir(engine));
+    });
+  }
 });

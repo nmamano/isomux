@@ -46,6 +46,7 @@ import type {
   UserRecord,
   SkillInfo,
   TaskItem,
+  TopicState,
   UserRole,
 } from "../shared/types.ts";
 import {
@@ -244,6 +245,8 @@ import {
   type OpenCodeFreeLimit,
 } from "./opencode-free-limit.ts";
 import { OpenCodeFreeLimitError } from "./backends/opencode/errors.ts";
+import { OneShotUsageLimitError } from "./backends/one-shot-errors.ts";
+import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
   BackendNotConfiguredError,
   BackendSignedOutError,
@@ -986,6 +989,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // (server/session-accounts.ts). Built as early as its deps exist.
   const {
     buildSessionEnv,
+    oneShotEnv,
     fallbackState,
     officeWanted,
     alignAccount,
@@ -1187,7 +1191,7 @@ export function createAgentManager(deps: ManagerDeps) {
     "state",
     "sessionSwapping",
     // Flips twice per topic generation; a restart starts with no generation.
-    "topicGenerating",
+    "topicState",
     "turnMemberIds",
     // In-memory context-fullness snapshot (not in PersistedAgent). Broadcast at
     // every turn boundary + Codex usage_update, so persisting on each would
@@ -2828,12 +2832,12 @@ export function createAgentManager(deps: ManagerDeps) {
     emit({ type: "log_entry", entry });
   }
 
-  // The one writer of the topicGenerating flag. It goes through officeState so
-  // a client that connects during a generation gets it in its snapshot.
-  function setTopicGenerating(agentId: string, generating: boolean) {
-    if (officeState.getAgent(agentId)?.topicGenerating === generating) return;
+  // The one writer of the topic state. It goes through officeState so a
+  // client that connects during a generation gets it in its snapshot.
+  function setTopicState(agentId: string, state: TopicState) {
+    if (officeState.getAgent(agentId)?.topicState === state) return;
     for (const event of officeState.updateAgent(agentId, {
-      topicGenerating: generating,
+      topicState: state,
     }))
       emit(event);
   }
@@ -2841,7 +2845,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // Only an empty topic fills by itself. A label changes only by the ↻ button
   // (resetTopic), an edit (setTopic) or a new conversation.
   function maybeFillTopic(agentId: string, managed: ManagedAgent) {
-    if (managed.info.topic === null && !managed.info.topicGenerating)
+    if (managed.info.topic === null && managed.info.topicState !== "generating")
       void generateTopic(agentId); // fire-and-forget
   }
 
@@ -2861,14 +2865,21 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (
       !managed ||
-      managed.info.topicGenerating ||
+      managed.info.topicState === "generating" ||
       !managed.info.capabilities.topicGen
     )
       return;
-    const topicModel = oneShotModel(managed);
-    // The backoff follows the model that answers the one-shot. A /clear keeps
+    // Null when the env does not build: the run below fails and reports it.
+    let target: OneShotTarget | null;
+    try {
+      target = oneShotTarget(managed);
+    } catch {
+      target = null;
+    }
+    // The backoff follows the model and the account that answer the
+    // one-shot: a move to the office sign-in labels at once. A /clear keeps
     // it: the model is still slow.
-    const backoffKey = `${managed.info.agentType}:${topicModel}`;
+    const backoffKey = oneShotBackoffKey(managed, target);
     const backoff = managed.topicBackoff;
     if (
       !opts.manual &&
@@ -2893,10 +2904,13 @@ export function createAgentManager(deps: ManagerDeps) {
     const startToken = managed.topicGenToken;
     const current = () =>
       agents.has(agentId) && managed.topicGenToken === startToken;
-    setTopicGenerating(agentId, true);
+    setTopicState(agentId, "generating");
+    // What the run ends with: null, or why it gave no label.
+    let outcome: TopicState = null;
     try {
+      target ??= oneShotTarget(managed);
       // A signed-out engine cannot label: skip it instead of failing the call.
-      if (await agentIsKnownUnauthenticated(managed)) return;
+      if (await agentIsKnownUnauthenticated(managed, target)) return;
       if (!current()) return;
 
       // Build context: first user message + last 5 user messages. The
@@ -2932,7 +2946,7 @@ export function createAgentManager(deps: ManagerDeps) {
       const topicSystemPrompt = `You are a labelling tool. You receive a snippet of a conversation between a user and an AI assistant and you output a short topic label that summarizes what the conversation is about. You are NOT the assistant in the conversation, you do NOT have access to any files or systems mentioned, and you must NOT attempt to do the task. You only label.`;
       const prompt = `<conversation>\n${context}\n</conversation>\n\nOutput ONLY a topic label, max 8 words. No quotes, no trailing punctuation.`;
 
-      const text = await runOneShot(managed, prompt, topicSystemPrompt);
+      const text = await runOneShot(managed, prompt, topicSystemPrompt, target);
       if (!current()) return;
       managed.topicBackoff = null;
       const topic = text.trim().slice(0, 80);
@@ -2955,7 +2969,9 @@ export function createAgentManager(deps: ManagerDeps) {
       // specifically; keep other failures visible for debugging. They start
       // no wait either: with no earlier label, the cheap subprocess retries
       // on each message until sign-in, and a recovered account labels at once.
-      if (!detectAgentAuthError(managed, text)) {
+      if (!detectAgentAuthError(managed, text, target ?? undefined)) {
+        outcome =
+          err instanceof OneShotUsageLimitError ? "usage_limit" : "failed";
         const failures =
           managed.topicBackoff?.key === backoffKey
             ? managed.topicBackoff.failures + 1
@@ -2976,7 +2992,7 @@ export function createAgentManager(deps: ManagerDeps) {
         );
       }
     } finally {
-      if (current()) setTopicGenerating(agentId, false);
+      if (current()) setTopicState(agentId, outcome);
     }
   }
 
@@ -2990,10 +3006,41 @@ export function createAgentManager(deps: ManagerDeps) {
       : managed.info.modelFamily;
   }
 
+  // The env a one-shot runs in, and the account folder it bills (Claude,
+  // Codex; "" for OpenCode). Throws when the env does not build.
+  type OneShotTarget = {
+    env: { [key: string]: string | undefined } | undefined;
+    account: string;
+  };
+  function oneShotTarget(managed: ManagedAgent): OneShotTarget {
+    const provider = managed.info.agentType;
+    if (provider === "opencode")
+      return {
+        env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
+        account: "",
+      };
+    const env = oneShotEnv(managed, oneShotModel(managed));
+    return {
+      env,
+      account: effectiveProviderDirectory(
+        provider,
+        env ?? getAgentHost().baseEnv(),
+      ),
+    };
+  }
+
+  function oneShotBackoffKey(
+    managed: ManagedAgent,
+    target: OneShotTarget | null,
+  ): string {
+    return `${managed.info.agentType}:${oneShotModel(managed)}:${target?.account ?? ""}`;
+  }
+
   function runOneShot(
     managed: ManagedAgent,
     prompt: string,
     systemPrompt: string,
+    target: OneShotTarget,
   ): Promise<string> {
     return getBackend(managed.info.agentType).oneShotPrompt(prompt, {
       isolation: sessionIsolationForm({
@@ -3004,11 +3051,10 @@ export function createAgentManager(deps: ManagerDeps) {
       cwd: managed.info.cwd,
       modelFamily: oneShotModel(managed),
       systemPrompt,
-      env: buildEnvForUserId(managed.info.userId),
+      env: target.env,
       access: agentAccessOf(managed.info),
       ...(managed.info.agentType === "opencode"
         ? {
-            env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
             environmentKey: environmentSourceKeyForUserId(managed.info.userId),
             environmentRevision: openCodeEnvironmentRevisionForUserId(
               managed.info.userId,
@@ -3053,17 +3099,32 @@ export function createAgentManager(deps: ManagerDeps) {
     backoffKey: (agentId) => {
       const managed = agents.get(agentId);
       if (!managed?.info.capabilities.topicGen) return null;
-      return `${managed.info.agentType}:${oneShotModel(managed)}`;
+      let target: OneShotTarget | null;
+      try {
+        target = oneShotTarget(managed);
+      } catch {
+        target = null;
+      }
+      return oneShotBackoffKey(managed, target);
     },
     summarize: async (agentId, prompt) => {
       const managed = agents.get(agentId);
+      if (!managed) return null;
+      const target = oneShotTarget(managed);
       // A signed-out engine cannot summarize: skip instead of failing.
-      if (!managed || (await agentIsKnownUnauthenticated(managed))) return null;
-      return runOneShot(managed, prompt.prompt, prompt.systemPrompt);
+      if (await agentIsKnownUnauthenticated(managed, target)) return null;
+      return runOneShot(managed, prompt.prompt, prompt.systemPrompt, target);
     },
     isAuthError: (agentId, message) => {
       const managed = agents.get(agentId);
-      return !!managed && detectAgentAuthError(managed, message);
+      if (!managed) return false;
+      let target: OneShotTarget | undefined;
+      try {
+        target = oneShotTarget(managed);
+      } catch {
+        target = undefined;
+      }
+      return detectAgentAuthError(managed, message, target);
     },
     now: Date.now,
   });
@@ -6827,7 +6888,7 @@ export function createAgentManager(deps: ManagerDeps) {
               storedCwdInvalid,
             );
             managed.topicGenToken++;
-            setTopicGenerating(agentId, false);
+            setTopicState(agentId, null);
             // Clear and replay resumed session's logs (walks fork ancestry)
             const history = loadLogWithAncestors(agentId, picked.sessionId);
             logCache.set(agentId, []);
@@ -8273,7 +8334,7 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.sessionManager.adoptSessionId(null);
       managed.releasedBackgroundTasks = null;
       managed.topicGenToken++;
-      setTopicGenerating(agentId, false);
+      setTopicState(agentId, null);
       // /clear and engine switches both land here: a blank conversation has no
       // fullness measurement. Runs before the drain await per the order contract
       // above, so a late sample from the old session self-discards on gen.
@@ -8814,7 +8875,7 @@ export function createAgentManager(deps: ManagerDeps) {
           storedCwdInvalid,
         );
         managed.topicGenToken++;
-        setTopicGenerating(agentId, false);
+        setTopicState(agentId, null);
 
         // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
         const history = loadLogWithAncestors(agentId, sessionId);
@@ -9233,7 +9294,7 @@ export function createAgentManager(deps: ManagerDeps) {
           parentEntries.push(entry);
         }
         managed.topicGenToken++;
-        setTopicGenerating(agentId, false);
+        setTopicState(agentId, null);
         // A fork truncates the transcript, so the parent's fullness measurement
         // overstates the child's context. Reset; the first turn on the fork
         // repopulates it.
@@ -9432,7 +9493,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // overwrite the user's manual choice. The flag goes with it: the dropped
     // call leaves it alone.
     managed.topicGenToken++;
-    setTopicGenerating(agentId, false);
+    setTopicState(agentId, null);
     // One line: the header editor has no line breaks.
     const trimmed = topic.replace(/\s+/g, " ").trim();
     const events =
