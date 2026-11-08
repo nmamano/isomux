@@ -182,8 +182,10 @@ Approved by the Lead, 2026-10-15.
   2026-10-15, 100 static figures draw at the front view's frame time, 100
   animated ones 3 to 4 times slower.
 - Zoom and pan as on the front (wheel, drag, pinch, +, - and 0, and the zoom
-  buttons), with the front's useViewport and rest view and a saved view of
-  its own. One finger pans at any scale (no room swipe here).
+  buttons), with the front's useViewport, rest view and frame, and the
+  front's one saved view, so going down or up keeps the zoom and pan. One
+  finger pans at any scale (no room swipe here). The embed does not zoom it,
+  as on the front.
 - A bar over the top of the room: "← {room}", "Back room", "+ New agent". It
   takes no height, so the room's view is the front's size. Figure menu: "Move to front"
   (first free desk; disabled with "Front is full").

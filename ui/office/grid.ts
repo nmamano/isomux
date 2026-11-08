@@ -18,6 +18,25 @@ export function mobileSceneScale(): number {
   );
 }
 
+/**
+ * Where the scene box sits in its container: the top of its centre and its
+ * static scale. The front room and its back room both use it, so the
+ * building keeps its place and size when the member goes down or up. The
+ * embed (the site demo) shows the scene a little smaller and lower.
+ */
+export function sceneFrame(
+  embed: boolean,
+  isMobile: boolean,
+): { top: string; scale: number } {
+  const phone = isMobile ? mobileSceneScale() : 1;
+  if (embed) {
+    return isMobile
+      ? { top: "55%", scale: phone * 0.85 }
+      : { top: "64%", scale: 0.9 };
+  }
+  return { top: isMobile ? "45%" : "50%", scale: phone };
+}
+
 // The floor tile grid: N x N tiles from the back corner, where the two walls
 // meet the floor. A row step goes down-left and a column step down-right, both
 // at the 2:1 isometric slope.

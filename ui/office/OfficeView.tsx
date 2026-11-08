@@ -60,7 +60,7 @@ import {
   LEFT_DOOR_COORD,
   RIGHT_DOOR_COORD,
 } from "./useGhostTransitions.ts";
-import { SCENE_W, SCENE_H, mobileSceneScale } from "./grid.ts";
+import { SCENE_W, SCENE_H, sceneFrame } from "./grid.ts";
 import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
 import { crownHolder, employeeOfTheMinute } from "./lobby/employee.ts";
@@ -406,11 +406,12 @@ export function OfficeView({
           label: t("office.newRoom.door"),
           onClick: () => setNewRoomOpen(true),
         };
-  const mobileScale = isMobile ? mobileSceneScale() : 1;
+  // The scene box's place and static scale, shared with the back room.
+  const frame = sceneFrame(embed, isMobile);
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
   // transform-only updates).
-  const layoutKey = `${embed ? 1 : 0}|${isMobile ? 1 : 0}|${mobileScale}`;
+  const layoutKey = `${frame.top}|${frame.scale}`;
   const viewport = useViewport(layoutKey, !embed);
   // Cede one-finger swipes to pan once the user zooms in (iOS-gallery pattern).
   const swipeRef = useSwipeLeftRight(
@@ -783,7 +784,6 @@ export function OfficeView({
                 desk: firstFreeFrontDesk,
               } satisfies MoveAgentReq).catch(() => {});
             }}
-            vignette={!embed}
             viewportControlsRef={viewportControlsRef}
           />
         ) : (
@@ -834,18 +834,8 @@ export function OfficeView({
                   ...(skinVars as React.CSSProperties),
                   position: "absolute",
                   left: "50%",
-                  top: embed
-                    ? isMobile
-                      ? "55%"
-                      : "64%"
-                    : isMobile
-                      ? "45%"
-                      : "50%",
-                  transform: embed
-                    ? `translate(-50%, -50%) scale(${isMobile ? mobileScale * 0.85 : 0.9})`
-                    : isMobile
-                      ? `translate(-50%, -50%) scale(${mobileScale})`
-                      : "translate(-50%, -50%)",
+                  top: frame.top,
+                  transform: `translate(-50%, -50%) scale(${frame.scale})`,
                   transformOrigin: "center center",
                   width: SCENE_W,
                   height: SCENE_H,

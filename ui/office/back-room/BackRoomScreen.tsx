@@ -26,7 +26,8 @@ import { ZoomControls } from "../ZoomControls.tsx";
 import { getDraggedDesk, setDraggedDesk } from "../drag-state.ts";
 import { Vignette } from "../Vignette.tsx";
 import { Cloud } from "../Floor.tsx";
-import { MOBILE_CROP_X, mobileSceneScale } from "../grid.ts";
+import { MOBILE_CROP_X, sceneFrame } from "../grid.ts";
+import { useFeatures } from "../../store.tsx";
 import type { ViewportControls } from "../OfficeView.tsx";
 import {
   FIGURE_SCALE,
@@ -450,7 +451,6 @@ export function BackRoomScreen({
   onContextMenu,
   frontFull,
   onDropToFront,
-  vignette = true,
   viewportControlsRef,
 }: {
   roomName: string;
@@ -470,7 +470,6 @@ export function BackRoomScreen({
   frontFull: boolean;
   /** Moves the agent to a free front desk. */
   onDropToFront: (agent: AgentInfo) => void;
-  vignette?: boolean;
   /** Where the 0, + and - keys find the view. */
   viewportControlsRef?: React.RefObject<ViewportControls | null>;
 }) {
@@ -480,12 +479,13 @@ export function BackRoomScreen({
   const roomRef = useRef<HTMLDivElement | null>(null);
   // The figure being dragged: the ladder shows itself as the drop target.
   const [dragged, setDragged] = useState<AgentInfo | null>(null);
-  // The front's zoom and pan (task f0af4677), with its own saved view. The
-  // building is the front's, so the rest view fits it as the front's does
-  // (task dc9786a8); one finger always pans (there is no room swipe here).
-  const sceneScale = isMobile ? mobileSceneScale() : 1;
-  const viewport = useViewport(`${isMobile ? 1 : 0}|${sceneScale}`, true, {
-    kind: "back",
+  // The front's zoom and pan (task f0af4677), and the same saved view: the
+  // building is the front's, in the front's frame (task dc9786a8), so going
+  // down or up keeps the view. One finger always pans (there is no room
+  // swipe here). The embed does not zoom, as on the front.
+  const { embed } = useFeatures();
+  const frame = sceneFrame(embed, isMobile);
+  const viewport = useViewport(`${frame.top}|${frame.scale}`, !embed, {
     touchPanAtRest: true,
   });
   const { setContent } = viewport;
@@ -496,9 +496,9 @@ export function BackRoomScreen({
     },
     [setContent],
   );
-  // The 0, + and - keys reach this view while it shows.
+  // The 0, + and - keys reach this view while it shows, except in the embed.
   useEffect(() => {
-    if (!viewportControlsRef) return;
+    if (!viewportControlsRef || embed) return;
     const controls = {
       resetView: viewport.resetView,
       zoomIn: viewport.zoomIn,
@@ -511,6 +511,7 @@ export function BackRoomScreen({
     };
   }, [
     viewportControlsRef,
+    embed,
     viewport.resetView,
     viewport.zoomIn,
     viewport.zoomOut,
@@ -1100,14 +1101,14 @@ export function BackRoomScreen({
             ref={attachRoom}
             data-floor-scene
             className="back-room-still"
-            // The front scene's centring and phone scale (OfficeView).
+            // The front scene's frame (sceneFrame).
             style={{
               position: "absolute",
               left: "50%",
-              top: isMobile ? "45%" : "50%",
+              top: frame.top,
               width: layout.width,
               height: layout.height,
-              transform: `translate(-50%, -50%) scale(${sceneScale})`,
+              transform: `translate(-50%, -50%) scale(${frame.scale})`,
               transformOrigin: "center center",
             }}
           >
@@ -1418,12 +1419,14 @@ export function BackRoomScreen({
             </svg>
           </div>
         </div>
-        <ZoomControls
-          onZoomIn={viewport.zoomIn}
-          onZoomOut={viewport.zoomOut}
-          onReset={viewport.resetView}
-        />
-        {vignette && <Vignette strong />}
+        {!embed && (
+          <ZoomControls
+            onZoomIn={viewport.zoomIn}
+            onZoomOut={viewport.zoomOut}
+            onReset={viewport.resetView}
+          />
+        )}
+        {!embed && <Vignette strong />}
       </div>
     </div>
   );

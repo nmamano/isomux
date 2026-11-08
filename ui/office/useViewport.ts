@@ -66,31 +66,25 @@ const FIT_AXES: "height" | "both" = "height";
 
 const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 
-/** The front office, or the back room screen (task f0af4677). */
-export type ViewportKind = "front" | "back";
-
-// One saved view per kind. `state` is module-scoped so the user's zoom/pan
-// survives OfficeView unmounts (entering a chat, tasks, cronjobs, mobile
-// list). The hook's design treats viewport as global across rooms - module
-// scope extends that to "global across views" without round-tripping through
-// React state. Mutated in place via state.current.
+// The one saved view, for every room and every back room: they draw the
+// same building in the same frame, so going to another room or down to a
+// back room keeps the zoom and pan. `state` is module-scoped so the user's
+// zoom/pan survives OfficeView unmounts (entering a chat, tasks, cronjobs,
+// mobile list) and is shared by the front's hook and the back room screen's
+// hook, without round-tripping through React state. Mutated in place via
+// state.current.
 //
 // `rest` is the rest view the scene was last fitted to, module-scoped for the
 // same reason: a remount must be able to tell "the user has not touched the
 // view" from "the user panned or zoomed". Starts equal to DEFAULT_STATE, so
 // the very first mount counts as untouched and fits.
-const savedViews: Record<
-  ViewportKind,
-  { state: ViewportState; rest: ViewportState }
-> = {
-  front: { state: { ...DEFAULT_STATE }, rest: { ...DEFAULT_STATE } },
-  back: { state: { ...DEFAULT_STATE }, rest: { ...DEFAULT_STATE } },
+const savedView: { state: ViewportState; rest: ViewportState } = {
+  state: { ...DEFAULT_STATE },
+  rest: { ...DEFAULT_STATE },
 };
 
 /** What differs between the front and the back room. Every field defaults to the front. */
 export interface ViewportOptions {
-  /** Which saved view the hook keeps across unmounts. */
-  kind?: ViewportKind;
   /** One finger pans at the rest scale too. The front cedes it to the room
    *  swipe until the user zooms in. */
   touchPanAtRest?: boolean;
@@ -289,8 +283,8 @@ type Gesture =
  * and touch listeners to the container, and mutates the scene transform
  * directly to avoid React re-renders during gestures.
  *
- * View state is global (one viewport for all rooms). Rooms share an
- * identical isometric layout, so a zoom/pan set in one is the right one in
+ * View state is global (one viewport for all rooms and back rooms). They
+ * share an identical isometric layout, so a zoom/pan set in one is the right one in
  * any other - preserving it across room switches matches user intent more
  * often than resetting would.
  *
@@ -313,11 +307,10 @@ export function useViewport(
 ) {
   // A call site's options never change; handlers set up once read them too.
   const touchPanAtRest = options.touchPanAtRest ?? false;
-  const kind = options.kind ?? "front";
-  // The saved view of this kind. Both refs point at the module's objects,
-  // which the handlers update in place.
-  const state = useRef<ViewportState>(savedViews[kind].state);
-  const restView = useRef<ViewportState>(savedViews[kind].rest);
+  // The saved view. Both refs point at the module's objects, which the
+  // handlers update in place.
+  const state = useRef<ViewportState>(savedView.state);
+  const restView = useRef<ViewportState>(savedView.rest);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<HTMLDivElement | null>(null);
   /** The scene-content element inside the zoom/pan layer - measured for pan-clamp bounds. */
