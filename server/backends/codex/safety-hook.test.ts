@@ -30,6 +30,7 @@ import {
   codexHookMcpToolName,
 } from "./confine-env.ts";
 import { FOLDER_FILES_MCP_SERVER } from "../../folder-mcp-endpoint.ts";
+import { INTEL_MAC } from "../../test-support/platform.ts";
 
 type Envelope = {
   hook_event_name: "PreToolUse";
@@ -117,10 +118,8 @@ const corpus: Array<{ name: string; input: Envelope }> = [
   { name: "large valid apply_patch envelope", input: largePatch },
 ];
 
-const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
-
 describe("standalone Codex safety hook", () => {
-  // Quarantined on Intel macOS (task b0976a10): the two concurrent builds took 1.3-3.0 s
+  // Intel macOS gap (Nil, 2026-11-08; task b0976a10): the two concurrent builds took 1.3-3.0 s
   // of the 5 s budget there when green, then timed out on 9d968d99 (read 2026-10-19).
   it.skipIf(INTEL_MAC)(
     "isolates concurrent compiler scratch files from the shared checkout",

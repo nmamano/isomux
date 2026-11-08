@@ -22,6 +22,7 @@ import {
   openCodeLiveLaunchEnv,
   openCodeMockProvider,
 } from "../../test-support/opencode-live-config.ts";
+import { INTEL_MAC } from "../../test-support/platform.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
@@ -38,9 +39,7 @@ function officeCall(socketPath: string, handle: string): string {
   return `curl -s -w ' status=%{http_code}' --unix-socket ${quote(socketPath)} -H ${quote(`X-Isomux-Turn: ${handle}`)} http://isomux/agents`;
 }
 
-// Quarantined on Intel macOS (task 98b167aa): flaky there, green on rerun.
-const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
-
+// Intel macOS gap (Nil, 2026-11-08; task 98b167aa): flaky there, green on rerun.
 it.skipIf(!LIVE || INTEL_MAC)(
   "runs an office call from a real OpenCode shell tool and refuses a process outside its server",
   async () => {

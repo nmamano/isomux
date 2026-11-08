@@ -28,8 +28,7 @@ import { SAFETY_WARNING } from "./safety-hook.ts";
 import { JsonRpcLiteClient } from "./client.ts";
 import { _test as trustProbeTest } from "./safety-hook-trust-probe.ts";
 import { assertTestStatePath } from "../../test-support/temp-state.ts";
-
-const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
+import { INTEL_MAC } from "../../test-support/platform.ts";
 
 const defaultHome = join(STATE_ROOT, "codex-home");
 
@@ -265,7 +264,7 @@ describe("Codex safety hook installation", () => {
     expectRepairedFromGolden(inoBefore, offset);
   }, 30_000);
 
-  // Quarantined on Intel macOS (task 7cf318ac): the rebuild timed out at 5 s there.
+  // Intel macOS gap (Nil, 2026-11-08; task 7cf318ac): the rebuild timed out at 5 s there.
   it.skipIf(INTEL_MAC)(
     "repairs a stale boot artifact by rebuilding it",
     async () => {
@@ -291,6 +290,8 @@ describe("Codex safety hook installation", () => {
   // The golden artifact lives in STATE_ROOT, which an operator or a test
   // server can empty while the process runs (task 99e20870). A cached
   // preparation must not point at a file that is gone.
+  // Intel macOS gap (Nil, 2026-11-08; task 99e20870): it rebuilds the golden
+  // the same way as the stale-artifact case.
   it.skipIf(INTEL_MAC)(
     "re-prepares a deleted golden once for concurrent preflights and installs the hook from it",
     async () => {
