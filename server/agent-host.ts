@@ -204,7 +204,13 @@ function spawnIsolatedLocalChild(
       return signalIsolated(child.pid, signal, "command");
     },
     signalGroup(signal: NodeJS.Signals) {
-      if (child.pid !== undefined)
+      // Once the outer bwrap has exited, the namespace died with it
+      // (--die-with-parent), and its pid may already be another process's.
+      if (
+        child.pid !== undefined &&
+        child.exitCode === null &&
+        child.signalCode === null
+      )
         signalIsolated(child.pid, signal, "namespace");
     },
   }) as unknown as AgentChild;

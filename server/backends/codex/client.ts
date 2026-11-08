@@ -139,8 +139,6 @@ export class JsonRpcLiteClient {
   // Guards the OS-process kill in close(), tracked separately from `closed`
   // (which the error/exit handlers set while the process may still be alive).
   private killed = false;
-  // Pending SIGTERM->SIGKILL escalation timer; cleared when the child exits.
-  private killTimer: ReturnType<typeof setTimeout> | null = null;
   private exitInfo: {
     code: number | null;
     signal: NodeJS.Signals | null;
@@ -283,12 +281,6 @@ export class JsonRpcLiteClient {
       this.closedReason = new Error(
         `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
       );
-      // The process is gone; cancel any pending SIGKILL escalation so a dangling
-      // timer can't fire against a recycled pid.
-      if (this.killTimer) {
-        clearTimeout(this.killTimer);
-        this.killTimer = null;
-      }
       this.failAllPending(this.closedReason);
       for (const h of this.exitHandlers) {
         try {
@@ -370,8 +362,14 @@ export class JsonRpcLiteClient {
           () => child.signalGroup("SIGKILL"),
           CODEX_KILL_GRACE_MS,
         );
-        // Don't let the escalation timer keep the event loop alive on its own;
-        // the exit handler clears it once the process is reaped.
+        // The SIGKILL goes out even when the launcher has exited by then: its
+        // exit says nothing about the native, which can still be in (or stuck
+        // in) its own SIGTERM shutdown. The group number stays in use while
+        // any member lives; once the group is empty, a new group taking the
+        // same number within the grace is the residual risk the agent runner
+        // accepts too (agent-runner/runner.ts stopGroup).
+        //
+        // Don't let the escalation timer keep the event loop alive on its own.
         //
         // Edge: because it's unref'd, a graceful IN-PROCESS server shutdown that
         // exits within the grace window would skip the SIGKILL for a child that
@@ -381,7 +379,6 @@ export class JsonRpcLiteClient {
         // the right tradeoff (don't pin the loop for 2s on every close); the
         // cgroup is the backstop for the in-process-exit corner.
         timer.unref?.();
-        this.killTimer = timer;
       }
     }
     this.closed = true;

@@ -1,6 +1,25 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import {
+  getAgentHost,
+  localAgentHost,
+  setAgentHost,
+  type AgentHost,
+} from "./agent-host.ts";
+import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
+import {
+  fakeCodexGroupEnv,
+  groupAlive,
+  killGroup,
+  waitFor,
+  waitForFakeGroup,
+  writeFakeCodexGroup,
+} from "./test-support/fake-codex-group.ts";
 import {
   claudeOfficeProbe,
+  codexOfficeProbe,
   createOfficeUsageReader,
   FALLBACK_MS,
   FRESH_MS,
@@ -312,6 +331,87 @@ describe("claudeOfficeProbe", () => {
   });
 });
 
+// Task 14e12aa8: the reader ends a Codex probe with close(), also while the
+// probe is still starting (a probe timeout). No app-server group may outlive
+// that close. The host runs a fake app-server group in place of the bundled
+// launcher; it never answers, so a read waits until close() ends it.
+describe("codexOfficeProbe", () => {
+  async function closeProbe(when: "before the spawn" | "after the spawn") {
+    await prepareCodexSafetyHookArtifact();
+    const dir = mkdtempSync(join(tmpdir(), "codex-office-probe-"));
+    const pidFile = join(dir, "pids");
+    const fake = writeFakeCodexGroup(dir);
+    const argvs: string[][] = [];
+    const leaders: number[] = [];
+    const host: AgentHost = {
+      ...localAgentHost,
+      spawnChild: (argv, options) => {
+        argvs.push(argv);
+        const child = localAgentHost.spawnChild([fake], options);
+        if (child.pid !== undefined) leaders.push(child.pid);
+        return child;
+      },
+    };
+    const previous = getAgentHost();
+    setAgentHost(host);
+    try {
+      const probe = codexOfficeProbe({
+        ...process.env,
+        CODEX_HOME: join(dir, "codex-home"),
+        ...fakeCodexGroupEnv(pidFile, join(dir, "writes")),
+      });
+      const read = probe.read().then(
+        () => "answered",
+        () => "rejected",
+      );
+      // The group has its second process (the writer) before close().
+      if (when === "after the spawn")
+        await waitForFakeGroup(pidFile, join(dir, "writes"));
+      const spawnedAtClose = argvs.length;
+      probe.close();
+      const outcome = await Promise.race([
+        read,
+        Bun.sleep(3000).then(() => "still waiting"),
+      ]);
+      const allDead = await waitFor(
+        () => leaders.every((pgid) => !groupAlive(pgid)),
+        3000,
+      );
+      return {
+        spawnedAtClose,
+        launchedAppServer: argvs.every((argv) => argv.includes("app-server")),
+        outcome,
+        spawned: argvs.length,
+        allDead,
+      };
+    } finally {
+      for (const pgid of leaders) killGroup(pgid);
+      setAgentHost(previous);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("starts no app-server when close() comes before the spawn", async () => {
+    expect(await closeProbe("before the spawn")).toEqual({
+      spawnedAtClose: 0,
+      launchedAppServer: true,
+      outcome: "rejected",
+      spawned: 0,
+      allDead: true,
+    });
+  }, 15_000);
+
+  it("ends the app-server's whole process group when close() comes after the spawn", async () => {
+    expect(await closeProbe("after the spawn")).toEqual({
+      spawnedAtClose: 1,
+      launchedAppServer: true,
+      outcome: "rejected",
+      spawned: 1,
+      allDead: true,
+    });
+  }, 15_000);
+});
+
 // Lets a probe that is not held land, so the reader stores its answer.
 const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -572,5 +672,117 @@ describe("createOfficeUsageReader", () => {
       },
     });
     expect(await noTarget.read("codex")).toEqual({ kind: "failed" });
+  });
+
+  // Task 14e12aa8: a probe is a process (a Codex app-server pair is ~120 MB),
+  // so each one the reader starts must be closed, once, whatever path takes
+  // it out of the slot. The warm one stays open until then.
+  it("closes each probe once, when a timeout, a failed read, an invalidation, an office change, the idle timer or close() drops it", async () => {
+    let now = NOW;
+    let dir = "/office/codex";
+    const probes: {
+      closes: number;
+      answers: ((result: ProbeResult) => void)[];
+    }[] = [];
+    const timers: { fn: () => void; ms: number; live: boolean }[] = [];
+    const reader = createOfficeUsageReader({
+      officeTarget: () => ({ dir, env: {} }),
+      now: () => now,
+      setTimer: (fn, ms) => {
+        const timer = { fn, ms, live: true };
+        timers.push(timer);
+        return () => (timer.live = false);
+      },
+      createProbe: () => {
+        const probe = {
+          closes: 0,
+          answers: [] as ((result: ProbeResult) => void)[],
+        };
+        probes.push(probe);
+        return {
+          read: () =>
+            new Promise<ProbeResult>((resolve) => probe.answers.push(resolve)),
+          close: () => probe.closes++,
+        };
+      },
+    });
+    // The probe timeout is the shorter of the two timers the reader arms,
+    // the idle close the longer.
+    const fire = (which: "timeout" | "idle") => {
+      const live = timers.filter((t) => t.live).sort((a, b) => a.ms - b.ms);
+      const timer = which === "timeout" ? live[0] : live[live.length - 1];
+      if (!timer) throw new Error(`no live timer for ${which}`);
+      timer.live = false;
+      timer.fn();
+    };
+    // Answer the newest probe's pending read, and let the reader take it.
+    const answer = async (result: ProbeResult) => {
+      const pending = probes[probes.length - 1]?.answers.shift();
+      if (!pending) throw new Error("no probe read is pending");
+      pending(result);
+      await settled();
+    };
+    const state = (step: string) => ({
+      step,
+      created: probes.length,
+      closes: probes.map((p) => p.closes),
+    });
+    const steps: ReturnType<typeof state>[] = [];
+
+    // A good read leaves the probe warm; the idle timer closes it.
+    let read = reader.read("codex");
+    await answer(weekly(10));
+    await read;
+    steps.push(state("good read"));
+    fire("idle");
+    steps.push(state("idle timer"));
+
+    // A read that times out: the caller gets the kept reading at once, the
+    // probe is closed, and its late answer does not bring it back.
+    now += FRESH_MS + 1;
+    await reader.read("codex");
+    fire("timeout");
+    await settled();
+    await answer(weekly(11));
+    steps.push(state("timeout"));
+
+    // An invalidation during a read.
+    now += FRESH_MS + 1;
+    await reader.read("codex");
+    reader.invalidate("codex");
+    await answer(weekly(12));
+    steps.push(state("invalidated mid-read"));
+
+    // A warm probe, then the office account moves.
+    read = reader.read("codex");
+    await answer(weekly(13));
+    await read;
+    dir = "/office/other";
+    read = reader.read("codex");
+    await answer(weekly(14));
+    await read;
+    steps.push(state("office change"));
+
+    // A failed read, then a warm probe that close() ends.
+    now += FRESH_MS + 1;
+    await reader.read("codex");
+    await answer({ kind: "failed" });
+    steps.push(state("failed read"));
+    now += FRESH_MS + 1;
+    read = reader.read("codex");
+    await answer(weekly(15));
+    await read;
+    reader.close();
+    steps.push(state("close()"));
+
+    expect(steps).toEqual([
+      { step: "good read", created: 1, closes: [0] },
+      { step: "idle timer", created: 1, closes: [1] },
+      { step: "timeout", created: 2, closes: [1, 1] },
+      { step: "invalidated mid-read", created: 3, closes: [1, 1, 1] },
+      { step: "office change", created: 5, closes: [1, 1, 1, 1, 0] },
+      { step: "failed read", created: 5, closes: [1, 1, 1, 1, 1] },
+      { step: "close()", created: 6, closes: [1, 1, 1, 1, 1, 1] },
+    ]);
   });
 });

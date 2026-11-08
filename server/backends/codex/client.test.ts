@@ -16,7 +16,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { JsonRpcLiteClient } from "./client.ts";
+import { CODEX_KILL_GRACE_MS, JsonRpcLiteClient } from "./client.ts";
 import {
   getAgentHost,
   localAgentHost,
@@ -67,8 +67,9 @@ async function waitFor(
 // Write a fake "codex" launcher: a bash script that forks a grandchild sleeper
 // (modeling the native codex process the real launcher spawns), reports the
 // grandchild pid to a file, then parks. `trapMode==="ignore"` makes it ignore
-// SIGTERM, forcing the SIGKILL escalation; otherwise SIGTERM (the default
-// disposition) takes it down promptly.
+// SIGTERM, forcing the SIGKILL escalation; "ignore-native" makes only the
+// grandchild ignore it, so the launcher exits first; otherwise SIGTERM (the
+// default disposition) takes it down promptly.
 function writeFakeLauncher(dir: string): string {
   const script = join(dir, "fake-codex.sh");
   writeFileSync(
@@ -76,8 +77,13 @@ function writeFakeLauncher(dir: string): string {
     [
       "#!/usr/bin/env bash",
       'if [ "$1" = "ignore" ]; then trap "" TERM INT; fi',
-      "sleep 600 &",
-      'echo "$!" > "$GC_PIDFILE"',
+      'if [ "$1" = "ignore-native" ]; then',
+      // The grandchild reports its pid only once its trap is set.
+      '  (trap "" TERM; echo "$BASHPID" > "$GC_PIDFILE"; exec sleep 600) &',
+      "else",
+      "  sleep 600 &",
+      '  echo "$!" > "$GC_PIDFILE"',
+      "fi",
       "wait",
       "",
     ].join("\n"),
@@ -183,6 +189,38 @@ describe("JsonRpcLiteClient.close - real process reaping", () => {
     const grandchildGone = await waitFor(() => !isAlive(grandchildPid), 6000);
     expect(launcherGone).toBe(true);
     expect(grandchildGone).toBe(true);
+  }, 10000);
+
+  // Task 14e12aa8: the launcher dies on SIGTERM at once, and its exit must
+  // not cancel the SIGKILL that ends a native still shutting down (or hung).
+  it("SIGKILLs the native grandchild after the grace when only the launcher dies on SIGTERM", async () => {
+    const { client, pidFile } = makeClient(["ignore-native"]);
+    await client.start();
+    const launcherPid = client.pid()!;
+    const grandchildPid = await readGrandchildPid(pidFile);
+    try {
+      await client.close();
+      const launcherGone = await waitFor(() => !isAlive(launcherPid), 1000);
+      // The enabling condition: SIGTERM did not end the grandchild.
+      const grandchildOutlivedLauncher = isAlive(grandchildPid);
+      const grandchildGone = await waitFor(
+        () => !isAlive(grandchildPid),
+        CODEX_KILL_GRACE_MS + 2000,
+      );
+      expect({
+        launcherGone,
+        grandchildOutlivedLauncher,
+        grandchildGone,
+      }).toEqual({
+        launcherGone: true,
+        grandchildOutlivedLauncher: true,
+        grandchildGone: true,
+      });
+    } finally {
+      try {
+        process.kill(grandchildPid, "SIGKILL");
+      } catch {}
+    }
   }, 10000);
 
   it("reaps a well-behaved child (and grandchild) on SIGTERM, before the SIGKILL grace elapses", async () => {

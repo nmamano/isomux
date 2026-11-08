@@ -2,7 +2,7 @@
 // host and the agent runner (split mode), with a real bwrap. The child is the
 // outer bwrap; the command runs inside a new PID namespace. Skips where this
 // host cannot make one (checked directly, never through the office's probe).
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -342,6 +342,36 @@ describe.skipIf(!pidNamespaces)(
       expect(
         await waitFor(() => pidsWith(`${marker}-lost-bg`).length === 0, 1000),
       ).toBe(true);
+    });
+  },
+);
+
+// Task 14e12aa8: the Codex client's SIGKILL escalation fires after its grace
+// even when the child has exited. By then an isolated child's namespace is
+// gone (--die-with-parent), and the outer pid may be another process's, so
+// signalGroup must signal nothing. Runs wherever bwrap exists: where it
+// cannot make a namespace, its failed setup is an exited child too.
+describe.skipIf(Bun.which("bwrap") === null)(
+  "isolated child on the local host, after it exited",
+  () => {
+    it("signals nothing on signalGroup", async () => {
+      const child = localAgentHost.spawnChild(["true"], { isolate: true });
+      const { done } = record(child);
+      await done;
+      // Recorded, never sent: a wrong signal must not reach a real process.
+      const kill = spyOn(process, "kill").mockImplementation(() => true);
+      try {
+        child.signalGroup("SIGKILL");
+        child.signalGroup("SIGTERM");
+        // The enabling condition: an outer bwrap that started and exited.
+        expect({
+          started: child.pid !== undefined,
+          exited: child.exitCode !== null || child.signalCode !== null,
+          signals: kill.mock.calls.length,
+        }).toEqual({ started: true, exited: true, signals: 0 });
+      } finally {
+        kill.mockRestore();
+      }
     });
   },
 );
