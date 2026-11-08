@@ -9,6 +9,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "fs";
 import { join } from "path";
@@ -38,9 +39,16 @@ import { setSessionClaudeConfigDir } from "../persistence.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 
 let server: TestServer | null = null;
+// Undo what a case broke in the shared state root, after the server stops:
+// later files in the same bun process reuse that root without a wipe.
+const restores: (() => void)[] = [];
 afterEach(async () => {
-  await server?.stop();
-  server = null;
+  try {
+    await server?.stop();
+  } finally {
+    server = null;
+    for (const restore of restores.splice(0)) restore();
+  }
 });
 
 const SECRET_VALUE = "fake-linear-value-removal-0001";
@@ -1016,18 +1024,18 @@ describe("provider homes at boot", () => {
 
   // The expired member's purge does not depend on the sweep: it runs
   // whenever removed-members.json reads.
-  for (const [name, purges, breakStore] of [
+  for (const [name, purges, file, breakStore] of [
     [
       "a users.json that does not parse",
       true,
-      (srv: TestServer) =>
-        writeFileSync(join(srv.stateRoot, "users.json"), "{ not json"),
+      "users.json",
+      (path: string) => writeFileSync(path, "{ not json"),
     ],
     [
       "a users.json with no owner",
       true,
-      (srv: TestServer) => {
-        const path = join(srv.stateRoot, "users.json");
+      "users.json",
+      (path: string) => {
         const users = JSON.parse(readFileSync(path, "utf8")) as Record<
           string,
           { role?: string }
@@ -1039,13 +1047,19 @@ describe("provider homes at boot", () => {
     [
       "a removed-members.json that does not read",
       false,
-      (srv: TestServer) =>
-        writeFileSync(join(srv.stateRoot, "removed-members.json"), "[]"),
+      "removed-members.json",
+      (path: string) => writeFileSync(path, "[]"),
     ],
   ] as const) {
     it(`with ${name}, deletes no home of an id it cannot place`, async () => {
       const { srv, miaId } = await office();
-      breakStore(srv);
+      const path = join(srv.stateRoot, file);
+      const before = existsSync(path) ? readFileSync(path) : null;
+      restores.push(() => {
+        if (before) writeFileSync(path, before);
+        else rmSync(path, { force: true });
+      });
+      breakStore(path);
 
       const again = (server = await srv.restart());
       expect(existsSync(homesOf(again, ORPHAN))).toBe(true);
