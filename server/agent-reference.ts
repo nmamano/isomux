@@ -46,6 +46,12 @@ export const AGENT_REFERENCE_TOPICS = {
     "Replies to the member's contacts in messaging apps, or you set up Discord for your manager",
   rescue:
     "The office may be under attack, or a member needs its content out: export or lock it",
+  "browser-reads":
+    "You read or act in a child frame, read one element of a long page, or a snapshot leaves out text you expect",
+  "ask-replies":
+    "A member dismisses your ask, asks a question about it, or asks you to simplify it",
+  "ask-steps":
+    "A member must sign in to Claude, Codex or an MCP server, pair Chrome, or set the room's GitHub issue link",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -65,6 +71,9 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "ask-commands": "asks",
   "messaging-apps": "messaging",
   rescue: "pager",
+  "browser-reads": "browser",
+  "ask-replies": "asks",
+  "ask-steps": "asks",
 };
 
 // Pages only a privileged agent sees.
