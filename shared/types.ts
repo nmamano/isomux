@@ -2903,6 +2903,9 @@ export type ServerMessage =
       agentId: string;
       requestId: string;
       tail?: number;
+      // A load with a tail whose replay started at the first entry: it
+      // holds the whole log (task 9ebe887d slice 3).
+      whole?: true;
       refused?: true;
     }
   // End of the transcript replay that follows full_state on every (re)connect.
@@ -3096,7 +3099,15 @@ export type ClientCommand =
   // Load one chat (task 9ebe887d): subscribe this socket to the agent's live
   // entries and replay its log (the last `tail` entries, or all), then
   // log_open_done. A new open_log for the agent replaces a pending replay.
-  | { type: "open_log"; agentId: string; requestId: string; tail?: number }
+  // prefetch: a background prefetch, behind every other load in the lane
+  // (task 9ebe887d slice 3); any other open goes to the lane's front.
+  | {
+      type: "open_log";
+      agentId: string;
+      requestId: string;
+      tail?: number;
+      prefetch?: true;
+    }
   // Cancel a pending open_log replay and drop the subscription.
   | { type: "close_log"; agentId: string; requestId: string }
   // Flow control of the open_log replays: the length of the replay frames

@@ -347,6 +347,7 @@ export function MenuItem({
       role={role}
       aria-checked={ariaChecked}
       data-nav-menu-item={dataNavMenuItem}
+      disabled={disabled}
       aria-disabled={disabled || undefined}
       onClick={disabled ? undefined : onClick}
       onMouseEnter={(e) => {

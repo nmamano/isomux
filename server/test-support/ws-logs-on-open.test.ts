@@ -204,6 +204,36 @@ describe("chats load when they open", () => {
     expect(tail.map((m) => m.entry.id)).toEqual(cached.slice(-3));
     expect(tail.every((m) => m.requestId === "r2")).toBe(true);
     expect(doneFrames(sock, agent.id).at(-1)!.tail).toBe(3);
+    // The tail cut the log: not whole. A whole open never says it.
+    expect(doneFrames(sock, agent.id).at(-1)!.whole).toBeUndefined();
+    expect(done[0].whole).toBeUndefined();
+  }, 30_000);
+
+  // Slice 3: a tail that reaches the log's first entry says so, and the
+  // client takes the chat as whole.
+  it("a load with a tail that reaches the first entry says it holds the whole log", async () => {
+    server = await startTestServer();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const owner = await server.seedOwner("Morgan");
+    const agent = await spawnIn(server, "Short", roomId);
+    server = await seedTranscripts(server, [agent.id]);
+    const cached = cachedIds(server, agent.id);
+    const sock = await connected(server, owner.rawSessionId, LAZY);
+    for (const [rid, tail] of [
+      ["exact", cached.length],
+      ["more", cached.length + 10],
+    ] as const) {
+      const before = entryFrames(sock, agent.id).length;
+      await opened(sock, agent.id, rid, tail);
+      expect(
+        entryFrames(sock, agent.id)
+          .slice(before)
+          .map((m) => m.entry.id),
+      ).toEqual(cached);
+      const done = doneFrames(sock, agent.id).find((m) => m.requestId === rid)!;
+      expect(done.tail).toBe(tail);
+      expect(done.whole).toBe(true);
+    }
   }, 30_000);
 
   it("refuses an agent the member cannot see, and sends a pack without logs no entry", async () => {

@@ -17,6 +17,7 @@ import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { describeIsomuxRoute } from "./isomux-curl.ts";
 import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
+import { ChatJump, ChatLevelContext } from "./load-rest.ts";
 import { jumpToLogEntry } from "./jump-to-entry.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { AskPrompt } from "./AskPrompt.tsx";
@@ -181,8 +182,20 @@ export function AskLink({
     return () => observer.disconnect();
   }, [oneLineEl, oneLine]);
 
-  const jump = () => {
-    if (origin) jumpToLogEntry(origin);
+  // In a transcript, its jump (task 9ebe887d slice 3): in a chat that is not
+  // whole, a card older than the loaded entries loads the rest first.
+  const chatJump = useContext(ChatJump);
+  const level = useContext(ChatLevelContext);
+  const linked =
+    origin !== undefined ||
+    (chatJump !== null && (level === "recent" || level === "loadingRest"));
+  const jump = (event: { currentTarget: Element }) => {
+    if (chatJump)
+      chatJump(
+        origin ? { entryId: origin } : { askId: ask.id },
+        event.currentTarget,
+      );
+    else if (origin) jumpToLogEntry(origin);
   };
   const label = (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -222,7 +235,7 @@ export function AskLink({
           minWidth: 0,
         }}
       >
-        {origin ? (
+        {linked ? (
           <button
             type="button"
             onClick={jump}

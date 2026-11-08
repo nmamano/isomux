@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from "react";
 import { useAgentLog } from "./agent-log.ts";
+import { useLoadRest } from "./log-view/load-rest.ts";
 import type { AppView, AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
@@ -1089,6 +1090,9 @@ export function WidgetChat({
   // LogView does. Opening the panel and a sent message return to the bottom.
   const follow = useRef(true);
   const lastScrollTop = useRef(0);
+  // Recent then complete (task 9ebe887d slice 3).
+  const logRef = useRef<HTMLDivElement>(null);
+  const rest = useLoadRest(logRef, agent.id, logs);
   const wasOpen = useRef(false);
   const scrollToEnd = () => end.current?.scrollIntoView?.({ block: "end" });
   // On a touch screen, focus would raise the keyboard over the app at each
@@ -1438,6 +1442,7 @@ export function WidgetChat({
       {installSteps}
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
       <div
+        ref={logRef}
         className="app-widget-log"
         role="log"
         onScroll={(event) => {
@@ -1456,6 +1461,7 @@ export function WidgetChat({
           view={transcript}
           isMobile={false}
           activity={{ state: agent.state, stateChangedAt }}
+          rest={rest}
         />
         <div ref={end} />
       </div>

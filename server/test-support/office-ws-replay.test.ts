@@ -251,6 +251,11 @@ describe("a lazy socket's chat loads to a client that stops reading", () => {
     requestId,
     ...(tail !== undefined ? { tail } : {}),
   });
+  // A background prefetch (task 9ebe887d slice 3): behind every other load.
+  const prefetch = (agentId: string, requestId: string, tail: number) => ({
+    ...open(agentId, requestId, tail),
+    prefetch: true,
+  });
   const indexOf = (frames: ReaderFrame[], pred: (f: ReaderFrame) => boolean) =>
     frames.findIndex(pred);
   const doneAt = (frames: ReaderFrame[], requestId: string) =>
@@ -325,7 +330,7 @@ describe("a lazy socket's chat loads to a client that stops reading", () => {
     // end long before it.
     const reader = await startReader(server, owner.rawSessionId, {
       query: LAZY,
-      send: [open(other.id, "p1", ENTRIES / 8), open(big.id, "f1")],
+      send: [prefetch(other.id, "p1", ENTRIES / 8), open(big.id, "f1")],
       until: "p1",
     });
     reader.release();
@@ -505,5 +510,34 @@ describe("a lazy socket's chat loads to a client that stops reading", () => {
     // Enabling condition: the prefetch was under way before the open.
     expect(prefetchedFirst.length).toBeGreaterThan(0);
     expect(prefetchedFirst.length).toBeLessThanOrEqual(1);
+  }, 60_000);
+
+  // The chat the member opens loads its recent entries (a tail) and goes to
+  // the lane's front all the same; prefetches keep their send order behind it.
+  it("an open with a tail goes ahead of the prefetches sent before it, and the prefetches keep their order", async () => {
+    server = await startTestServer();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const owner = await server.seedOwner("Morgan");
+    const first = await spawnIn(server, "First", roomId);
+    const second = await spawnIn(server, "Second", roomId);
+    const opened = await spawnIn(server, "Opened", roomId);
+    server = await seedTranscripts(server, [first.id, second.id, opened.id]);
+
+    const reader = await startReader(server, owner.rawSessionId, {
+      query: LAZY,
+      send: [
+        prefetch(first.id, "p1", ENTRIES / 4),
+        prefetch(second.id, "p2", ENTRIES / 4),
+        open(opened.id, "o1", ENTRIES / 4),
+      ],
+      until: "p2",
+    });
+    reader.release();
+    const { closed, frames } = await reader.done;
+    expect(closed).toBe(false);
+    const order = ["o1", "p1", "p2"].map((rid) => doneAt(frames, rid));
+    // Enabling condition: all three loads ended.
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
   }, 60_000);
 });

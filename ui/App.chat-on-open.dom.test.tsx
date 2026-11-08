@@ -39,10 +39,12 @@ const A = agentIn("a1", 0);
 const B = agentIn("a2", 1);
 const panelText = (view: { container: HTMLElement }) =>
   view.container.querySelector("[data-agent-chat-panel]")?.textContent ?? "";
-// Whole opens only: a background prefetch (with a tail) may run meanwhile.
-const wholeOpens = (socket: FakeSocket, agentId: string) =>
+// The chat's own opens: a background prefetch (prefetch: true) may run
+// meanwhile. Since slice 3 an own open carries a tail too (the recent
+// entries); ui/App.chat-recent.dom.test.tsx pins the levels.
+const ownOpens = (socket: FakeSocket, agentId: string) =>
   commands(socket, "open_log").filter(
-    (c) => c.agentId === agentId && c.tail === undefined,
+    (c) => c.agentId === agentId && c.prefetch === undefined,
   );
 
 it("asks the server for chats on open, opens the chat on screen once, shows it at log_open_done, and sends nothing when it comes back", async () => {
@@ -57,7 +59,7 @@ it("asks the server for chats on open, opens the chat on screen once, shows it a
   );
 
   await openPanel(view, A.id);
-  const opens = wholeOpens(socket, A.id);
+  const opens = ownOpens(socket, A.id);
   expect(opens).toHaveLength(1);
   const { requestId } = opens[0];
   expect(typeof requestId).toBe("string");
@@ -77,7 +79,7 @@ it("asks the server for chats on open, opens the chat on screen once, shows it a
 
   await switchPanel(view, B.id);
   await switchPanel(view, A.id);
-  expect(wholeOpens(socket, A.id)).toHaveLength(1);
+  expect(ownOpens(socket, A.id)).toHaveLength(1);
   expect(panelText(view)).toContain("content-e2");
 });
 
@@ -85,8 +87,8 @@ it("leaving a chat while it loads cancels its load", async () => {
   setAskAgents([A.id, B.id]);
   const { view, socket } = await boot("/inbox/asks", [A, B]);
   await openPanel(view, A.id);
-  expect(wholeOpens(socket, A.id)).toHaveLength(1);
-  const [open] = wholeOpens(socket, A.id);
+  expect(ownOpens(socket, A.id)).toHaveLength(1);
+  const [open] = ownOpens(socket, A.id);
   await switchPanel(view, B.id);
   const closes = commands(socket, "close_log").filter(
     (c) => c.agentId === A.id,
@@ -94,15 +96,15 @@ it("leaving a chat while it loads cancels its load", async () => {
   expect(closes).toHaveLength(1);
   expect(closes[0].requestId).toBe(open.requestId);
   // The chat now on screen loads at once.
-  expect(wholeOpens(socket, B.id)).toHaveLength(1);
+  expect(ownOpens(socket, B.id)).toHaveLength(1);
 });
 
 it("a new socket re-opens the chat on screen and shows its entries until the new load ends", async () => {
   setAskAgents([A.id]);
   const { view, socket } = await boot("/inbox/asks", [A]);
   await openPanel(view, A.id);
-  expect(wholeOpens(socket, A.id)).toHaveLength(1);
-  const [first] = wholeOpens(socket, A.id);
+  expect(ownOpens(socket, A.id)).toHaveLength(1);
+  const [first] = ownOpens(socket, A.id);
   await deliver(socket, {
     type: "log_entry",
     entry: entry("e1", A.id),
@@ -128,7 +130,7 @@ it("a new socket re-opens the chat on screen and shows its entries until the new
   // Enabling condition: a second socket.
   expect(next).not.toBe(socket);
   await hydrate(next, [A]);
-  const reopen = wholeOpens(next, A.id);
+  const reopen = ownOpens(next, A.id);
   expect(reopen).toHaveLength(1);
   expect(reopen[0].requestId).not.toBe(first.requestId);
   expect(panelText(view)).toContain("content-e1");

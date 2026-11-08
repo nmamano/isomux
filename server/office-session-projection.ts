@@ -385,7 +385,10 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   // and agent: their request, so a clear can restart one (R2).
   const pendingLogOpens = new WeakMap<
     ServerWebSocket<OfficeWsData>,
-    Map<string, { requestId: string; tail?: number; token: object }>
+    Map<
+      string,
+      { requestId: string; tail?: number; front: boolean; token: object }
+    >
   >();
 
   function sendLogOpenDone(
@@ -414,6 +417,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     agentId: string,
     requestId: string,
     tail: number | undefined,
+    front: boolean,
   ) {
     const logs = agentManager.getAgentLogs(agentId);
     const length = logs.length;
@@ -425,7 +429,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       pending = new Map();
       pendingLogOpens.set(ws, pending);
     }
-    pending.set(agentId, { requestId, tail, token });
+    pending.set(agentId, { requestId, tail, front, token });
     const mine = pending;
     const release = () => {
       if (mine.get(agentId)?.token === token) mine.delete(agentId);
@@ -461,13 +465,15 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
             agentId,
             requestId,
             ...(tail === undefined ? {} : { tail }),
+            // The tail reached the first entry: the whole log is in.
+            ...(tail !== undefined && from === 0 ? { whole: true } : {}),
           } satisfies ServerMessage),
         };
       } finally {
         release();
       }
     })();
-    officeSendBackground(ws, agentId, frames, { front: tail === undefined });
+    officeSendBackground(ws, agentId, frames, { front });
   }
 
   function openLog(
@@ -475,6 +481,9 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     agentId: string,
     requestId: string,
     tail: number | undefined,
+    // A background prefetch goes behind the lane's other loads; any other
+    // open (the chat on screen) goes to its front (task 9ebe887d slice 3).
+    prefetch = false,
   ) {
     const session = ws.data.session;
     const known = agentManager.getAllAgents().some((a) => a.id === agentId);
@@ -489,7 +498,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       return;
     }
     (ws.data.logSubscriptions ??= new Set()).add(agentId);
-    startLogReplay(ws, agentId, requestId, tail);
+    startLogReplay(ws, agentId, requestId, tail, !prefetch);
   }
 
   function dropLogSubscription(
@@ -528,7 +537,13 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     for (const ws of browsers) {
       const pending = pendingLogOpens.get(ws)?.get(agentId);
       if (!pending) continue;
-      startLogReplay(ws, agentId, pending.requestId, pending.tail);
+      startLogReplay(
+        ws,
+        agentId,
+        pending.requestId,
+        pending.tail,
+        pending.front,
+      );
     }
   }
 

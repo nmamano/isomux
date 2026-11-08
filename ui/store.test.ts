@@ -854,6 +854,122 @@ describe("reducer: chats that load when they open", () => {
   });
 });
 
+// --- Recent then complete (task 9ebe887d slice 3) ----------------------------
+// logsComplete names the agents whose rendered entries are the whole log, so a
+// chat on screen reopens whole after a reconnect. Only a whole log_open_done
+// sets it; anything that replaces or drops the entries drops it.
+describe("reducer: which chats show their whole log", () => {
+  const A = "agent-a";
+  const B = "agent-b";
+  type FullState = Extract<
+    Parameters<typeof reducer>[1],
+    { type: "full_state" }
+  >;
+  const lazyFullState = (agentIds: string[], socketGen: number): FullState =>
+    ({
+      type: "full_state",
+      agents: agentIds.map((id) => ({ id, name: id, roomId: "r1" })),
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [{ id: "r1", name: "Room" }],
+      killedAgents: [],
+      interactions: [],
+      logsOnOpen: true,
+      socketGen,
+    }) as unknown as FullState;
+  const run = (state: AppState, actions: Parameters<typeof reducer>[1][]) =>
+    actions.reduce(reducer, state);
+  // A whole load of `agentId` (request `rid`), or one with a tail.
+  const load = (agentId: string, rid: string, tail?: number) =>
+    [
+      {
+        type: "log_open_sent",
+        agentId,
+        requestId: rid,
+        ...(tail !== undefined ? { tail } : {}),
+      },
+      {
+        type: "log_entry",
+        entry: entry(`${rid}-e`, agentId, 1),
+        requestId: rid,
+      },
+      {
+        type: "log_open_done",
+        agentId,
+        requestId: rid,
+        ...(tail !== undefined ? { tail } : {}),
+      },
+    ] as Parameters<typeof reducer>[1][];
+  const start = () => reducer(initialState, lazyFullState([A, B], 1));
+
+  it("a whole load marks the chat whole; a load with a tail does not, and drops the mark", () => {
+    let s = run(start(), load(A, "r1", 100));
+    expect(s.logsComplete.has(A)).toBe(false);
+    s = run(s, load(A, "r2"));
+    expect(s.logsComplete.has(A)).toBe(true);
+    // A prefetch after a reconnect replaces the whole log with its tail.
+    s = run(s, load(A, "r3", 100));
+    expect(s.logsComplete.has(A)).toBe(false);
+  });
+
+  it("a load with a tail that the server says holds the whole log ends complete and marks the chat", () => {
+    let s = run(start(), [
+      { type: "log_open_sent", agentId: A, requestId: "r1", tail: 100 },
+      {
+        type: "log_open_done",
+        agentId: A,
+        requestId: "r1",
+        tail: 100,
+        whole: true,
+      } as Parameters<typeof reducer>[1],
+    ]);
+    expect(s.logStreams.get(A)?.state).toBe("complete");
+    expect(s.logsComplete.has(A)).toBe(true);
+    // Without the flag, the same load ends recent.
+    s = run(s, load(A, "r2", 100));
+    expect(s.logStreams.get(A)?.state).toBe("recent");
+    expect(s.logsComplete.has(A)).toBe(false);
+  });
+
+  it("a load in flight does not drop the mark; its whole end keeps it", () => {
+    let s = run(start(), load(A, "r1"));
+    s = reducer(s, { type: "log_open_sent", agentId: A, requestId: "r2" });
+    expect(s.logsComplete.has(A)).toBe(true);
+    s = reducer(s, { type: "log_open_done", agentId: A, requestId: "r2" });
+    expect(s.logsComplete.has(A)).toBe(true);
+  });
+
+  it("a refusal, a clear and a removed agent drop the mark, and leave the other agents' marks", () => {
+    const both = () => run(start(), [...load(A, "r1"), ...load(B, "r2")]);
+    // Enabling condition: both chats are whole.
+    expect([...both().logsComplete].sort()).toEqual([A, B].sort());
+
+    let s = run(both(), [
+      { type: "log_open_sent", agentId: A, requestId: "r3" },
+      { type: "log_open_done", agentId: A, requestId: "r3", refused: true },
+    ]);
+    expect([...s.logsComplete]).toEqual([B]);
+
+    s = reducer(both(), { type: "clear_logs", agentId: A });
+    expect([...s.logsComplete]).toEqual([B]);
+
+    s = reducer(both(), {
+      type: "agent_removed",
+      agentId: A,
+      roomId: "r1",
+    } as Parameters<typeof reducer>[1]);
+    expect([...s.logsComplete]).toEqual([B]);
+  });
+
+  it("a new socket keeps the marks of the agents it lists, and drops the others", () => {
+    let s = run(start(), [...load(A, "r1"), ...load(B, "r2")]);
+    s = reducer(s, lazyFullState([A], 2));
+    // The streams go with the old socket; the mark stays for A.
+    expect(s.logStreams.has(A)).toBe(false);
+    expect([...s.logsComplete]).toEqual([A]);
+  });
+});
+
 describe("reducer: reconnect replay window (full_state → log_replay_complete)", () => {
   const A = "agent-1";
   const B = "agent-2";

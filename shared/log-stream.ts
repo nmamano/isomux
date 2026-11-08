@@ -6,8 +6,10 @@
 export const LOGS_ON_OPEN_WS_PARAM = "logs";
 export const LOGS_ON_OPEN_WS_VALUE = "open";
 
-// The entries a background prefetch loads per chat: the most recent ones.
-export const PREFETCH_TAIL = 100;
+// The entries a chat loads first, and a background prefetch loads per chat:
+// the most recent ones (task 9ebe887d slice 3). The rest loads at once when
+// the member asks for it (ui/agent-log.ts loadRestOfLog).
+export const RECENT_TAIL = 100;
 
 // The client sends log_ack when it has received this many bytes of replay
 // frames since its last ack, and at each log_open_done.

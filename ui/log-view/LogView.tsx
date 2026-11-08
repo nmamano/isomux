@@ -1,5 +1,6 @@
 import { isBackSeat } from "../../shared/desks.ts";
 import { useAgentLog } from "../agent-log.ts";
+import { useLoadRest } from "./load-rest.ts";
 import { HeaderBackgroundPill } from "../components/BackgroundWork.tsx";
 import { BackRoomStrip } from "./BackRoomStrip.tsx";
 import {
@@ -1314,6 +1315,13 @@ export function LogView({
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
   const transcript = useChatTranscript(logs, isBusy);
+  // Recent then complete (task 9ebe887d slice 3): the whole-chat Copy
+  // choices wait for the whole chat; last exchange needs only a member
+  // message in the loaded entries.
+  const rest = useLoadRest(scrollRef, agent.id, logs);
+  const chatWhole = rest.level === null || rest.level === "complete";
+  const lastExchangeReady =
+    chatWhole || logs.some((entry) => entry.kind === "user_message");
 
   // Pin a user message to the top of the chat when none are visible in the
   // viewport, so the user always has context for what they asked. The pinned
@@ -1511,25 +1519,42 @@ export function LogView({
             icon: copied ? CheckIcon : CopyIcon,
             label: i18n.t(copied ? "common.copied" : "common.copy"),
             title: i18n.t("logView.nav.copyTitle"),
+            onMenuOpen: rest.loadRest,
+            menuNote: chatWhole ? undefined : (
+              <div
+                data-chat-rest-note
+                style={{
+                  padding: "6px 10px",
+                  fontSize: 12,
+                  color: "var(--text-faint)",
+                }}
+              >
+                {i18n.t("logView.rest.copyWaits")}
+              </div>
+            ),
             menu: [
               {
                 id: "messages",
                 label: i18n.t("logView.nav.copyMessages"),
+                disabled: !chatWhole,
                 onClick: () => void handleCopy("messages"),
               },
               {
                 id: "myMessages",
                 label: i18n.t("logView.nav.copyMyMessages"),
+                disabled: !chatWhole,
                 onClick: () => void handleCopy("myMessages"),
               },
               {
                 id: "everything",
                 label: i18n.t("logView.nav.copyEverything"),
+                disabled: !chatWhole,
                 onClick: () => void handleCopy("everything"),
               },
               {
                 id: "lastExchange",
                 label: i18n.t("logView.nav.copyLastExchange"),
+                disabled: !lastExchangeReady,
                 onClick: () => void handleCopy("lastExchange"),
               },
               {
@@ -2619,6 +2644,7 @@ export function LogView({
               <ChatTranscript
                 logs={logs}
                 view={transcript}
+                rest={rest}
                 isMobile={isMobile}
                 getUserMessageRef={getUserMsgRefCb}
                 entryProps={(entry) => ({

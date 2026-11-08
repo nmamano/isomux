@@ -17,6 +17,8 @@ export type NavMenuItem = {
   label: string;
   onClick: () => void;
   checked?: boolean;
+  // Shown but inert (Copy: a choice that waits for the whole chat).
+  disabled?: boolean;
 };
 
 type NavActionBase = {
@@ -41,8 +43,20 @@ type NavActionBase = {
 // An action runs on click, or opens a menu of choices (Copy: what to copy).
 export type NavAction = NavActionBase &
   (
-    | { onClick: () => void; menu?: never }
-    | { menu: NavMenuItem[]; onClick?: never }
+    | {
+        onClick: () => void;
+        menu?: never;
+        onMenuOpen?: never;
+        menuNote?: never;
+      }
+    | {
+        menu: NavMenuItem[];
+        onClick?: never;
+        // Runs when the menu opens (Copy: load the rest of a recent chat).
+        onMenuOpen?: () => void;
+        // Shown above the choices (Copy: why some choices wait).
+        menuNote?: ReactNode;
+      }
   );
 
 // A divider where the rows change kind: the radio rows (a setting) stand
@@ -245,6 +259,7 @@ function DesktopMenuAction({
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
     setAt({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    a.onMenuOpen?.();
   }
 
   return (
@@ -281,6 +296,7 @@ function DesktopMenuAction({
               animation: "hudIn 0.12s ease-out",
             }}
           >
+            {a.menuNote}
             {menu.map((item, i) => (
               <Fragment key={item.id}>
                 {startsGroup(menu, i) && (
@@ -299,6 +315,7 @@ function DesktopMenuAction({
                   }
                   ariaChecked={item.checked}
                   dataNavMenuItem={item.id}
+                  disabled={item.disabled}
                   label={<MenuRowLabel item={item} />}
                   onClick={() => {
                     // A radio row changes a setting; the menu stays for the
@@ -428,6 +445,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                     onClick={() => {
                       if (menu) {
                         setExpanded(isExpanded ? null : a.id);
+                        if (!isExpanded) a.onMenuOpen?.();
                         return;
                       }
                       setOpen(false);
@@ -467,6 +485,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                   </button>
                   {menu && isExpanded && (
                     <div role="group" data-nav-menu={a.id}>
+                      {a.menuNote}
                       {menu.map((item, i) => (
                         <Fragment key={item.id}>
                           {startsGroup(menu, i) && (
@@ -487,6 +506,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                             }
                             aria-checked={item.checked}
                             data-nav-menu-item={item.id}
+                            disabled={item.disabled}
                             onClick={() => {
                               if (item.checked === undefined) setOpen(false);
                               item.onClick();
@@ -501,8 +521,9 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                               background: "transparent",
                               border: "none",
                               color: "var(--text-primary)",
+                              opacity: item.disabled ? 0.45 : 1,
                               fontSize: 14,
-                              cursor: "pointer",
+                              cursor: item.disabled ? "default" : "pointer",
                               textAlign: "left",
                             }}
                           >

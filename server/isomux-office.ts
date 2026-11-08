@@ -5324,7 +5324,7 @@ async function handleInboundMessage(
           cmd.tail > 0
             ? cmd.tail
             : undefined;
-        openLog(ws, cmd.agentId, cmd.requestId, tail);
+        openLog(ws, cmd.agentId, cmd.requestId, tail, cmd.prefetch === true);
         break;
       }
       case "close_log": {

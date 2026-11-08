@@ -20,7 +20,7 @@ const {
   setUpLazyChatTests,
   settle,
 } = await import("./test-support/lazy-chat-fixture.tsx");
-const { PREFETCH_TAIL } = await import("../shared/log-stream.ts");
+const { RECENT_TAIL } = await import("../shared/log-stream.ts");
 const { en } = await import("../shared/i18n/en.ts");
 const { saveView } = await import("./view-persistence.ts");
 type FakeSocket = import("./test-support/lazy-chat-fixture.tsx").FakeSocket;
@@ -37,8 +37,10 @@ const MIDDLE = agentIn("a3", 2, 200);
 const AGENTS = [OLD, NEWEST, MIDDLE];
 
 const opens = (socket: FakeSocket) => commands(socket, "open_log");
+// The background prefetch says so (task 9ebe887d slice 3): the chat the
+// member opens sends a tail too, and goes ahead of it in the server's lane.
 const prefetches = (socket: FakeSocket) =>
-  opens(socket).filter((c) => c.tail !== undefined);
+  opens(socket).filter((c) => c.prefetch === true);
 
 async function finish(
   socket: FakeSocket,
@@ -59,7 +61,8 @@ it("prefetches the room's chats one at a time, newest last entry first, with the
   for (const next of [NEWEST, MIDDLE, OLD]) {
     const sent = prefetches(socket);
     expect(sent.map((c) => c.agentId).at(-1)).toBe(next.id);
-    expect(sent.at(-1)!.tail).toBe(PREFETCH_TAIL);
+    expect(sent.at(-1)!.tail).toBe(RECENT_TAIL);
+    expect(sent.at(-1)!.prefetch).toBe(true);
     // One at a time: nothing else until this one ends.
     await settle();
     expect(opens(socket).at(-1)).toBe(sent.at(-1));
@@ -74,7 +77,7 @@ it("waits for the chat on screen to load before it prefetches", async () => {
   expect(opens(socket)).toHaveLength(1);
   const [own] = opens(socket);
   expect(own.agentId).toBe(OLD.id);
-  expect(own.tail).toBeUndefined();
+  expect(own.prefetch).toBeUndefined();
   await settle();
   expect(opens(socket)).toHaveLength(1);
 
@@ -82,7 +85,7 @@ it("waits for the chat on screen to load before it prefetches", async () => {
   expect(prefetches(socket).map((c) => c.agentId)).toEqual([NEWEST.id]);
 });
 
-it("a chat opened during a prefetch sends its whole load at once", async () => {
+it("a chat opened during a prefetch sends its own load at once, not as a prefetch", async () => {
   setAskAgents([MIDDLE.id]);
   onFloor();
   const { view, socket } = await boot("/", AGENTS);
@@ -97,10 +100,9 @@ it("a chat opened during a prefetch sends its whole load at once", async () => {
   await act(async () => fireEvent.click(inbox!));
   await settle();
   await openPanel(view, MIDDLE.id);
-  const whole = opens(socket).filter(
-    (c) => c.agentId === MIDDLE.id && c.tail === undefined,
-  );
-  expect(whole).toHaveLength(1);
+  const own = opens(socket).filter((c) => c.agentId === MIDDLE.id);
+  expect(own).toHaveLength(1);
+  expect(own[0].prefetch).toBeUndefined();
   // The prefetch was not answered: the open did not wait for it.
   expect(prefetches(socket)).toHaveLength(1);
 });

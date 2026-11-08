@@ -121,6 +121,7 @@ export interface EventPayloads {
     agentId: string;
     requestId: string;
     tail?: number;
+    whole?: true;
     refused?: true;
   };
   // Fence at the end of the connect-time transcript replay. Recipient-scoped

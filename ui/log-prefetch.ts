@@ -1,12 +1,12 @@
 // Background chat loads (task 9ebe887d slice 2). While no chat load is in
-// flight, LogPrefetcher sends open_log with tail PREFETCH_TAIL for the next
+// flight, LogPrefetcher sends open_log with tail RECENT_TAIL for the next
 // agent of the room on screen that has no stream, newest lastEntryAt first,
 // one at a time. A chat the member opens sends its own whole load at once;
 // the server's background lane puts it ahead of any prefetch.
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { isBackSeat } from "../shared/desks.ts";
-import { PREFETCH_TAIL } from "../shared/log-stream.ts";
+import { RECENT_TAIL } from "../shared/log-stream.ts";
 import type { AgentInfo } from "../shared/types.ts";
 import {
   mountedLoadPending,
@@ -78,7 +78,7 @@ export function LogPrefetcher({ backOpen }: { backOpen: boolean }): ReactNode {
         now.lobbyOpen ? null : now.currentRoomId,
         back,
       );
-      if (next) sendOpenLog(dispatch, next, PREFETCH_TAIL);
+      if (next) sendOpenLog(dispatch, next, RECENT_TAIL, { prefetch: true });
     }, 0);
     return () => clearTimeout(timer);
   }, [

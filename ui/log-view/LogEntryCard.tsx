@@ -39,6 +39,7 @@ import { SecretRequestCard } from "./SecretRequestCard.tsx";
 import { BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
 import { IsomuxCurlHeader, IsomuxCurlFields } from "./IsomuxCurlSummary.tsx";
 import { AgentAvatar, AgentLink, MemberAvatar } from "./chat-avatars.tsx";
+import { ChatJump } from "./load-rest.ts";
 import { jumpToLogEntry } from "./jump-to-entry.ts";
 import {
   commandForPermissionDenial,
@@ -128,6 +129,7 @@ function SubagentPill({
   ownLine?: boolean;
 }) {
   const { t } = useI18n();
+  const chatJump = useContext(ChatJump);
   const { type, description } = origin;
   const background = detached?.background === true;
   // Both fields are model-authored, so the pill is bounded and ellipsized
@@ -192,7 +194,11 @@ function SubagentPill({
       title={`${title}\n${t("cards.subagent.jumpHint")}`}
       data-subagent-pill={background ? "background" : "detached"}
       data-jump-target={detached.target}
-      onClick={() => jumpToLogEntry(detached.target)}
+      onClick={(event) => {
+        if (chatJump)
+          chatJump({ entryId: detached.target }, event.currentTarget);
+        else jumpToLogEntry(detached.target);
+      }}
       style={{
         ...style,
         // Its text is the job's name, so it gets more room than the plain

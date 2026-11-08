@@ -5,7 +5,7 @@
 // client opens is recorded with its URL and every command it sent. Import it
 // with `await import(...)` after setUpDomTestFile(), like every DOM module.
 
-import { afterAll, beforeEach } from "bun:test";
+import { afterAll, beforeEach, expect } from "bun:test";
 import { stubGlobal } from "./dom.ts";
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
@@ -211,6 +211,7 @@ export const commands = (socket: FakeSocket, type: string) =>
     agentId: string;
     requestId: string;
     tail?: number;
+    prefetch?: true;
   })[];
 
 // The Inbox's chat panel: an ask's agent name opens it, its select moves it
@@ -237,5 +238,76 @@ export async function switchPanel(
   await act(async () =>
     fireEvent.change(select, { target: { value: agentId } }),
   );
+  await settle();
+}
+
+// --- Recent then complete (task 9ebe887d slice 3) ---------------------------
+// Shared by ui/App.chat-recent.dom.test.tsx and
+// ui/App.chat-recent-actions.dom.test.tsx. The row above a chat that is not
+// whole is [data-chat-rest], its value the level ("recent" with a button,
+// "loadingRest" without one); a whole chat has none.
+
+type Open = ReturnType<typeof commands>[number];
+
+// The chat's own opens (the member's surfaces), and the background ones.
+export const ownOpens = (socket: FakeSocket, agentId: string) =>
+  commands(socket, "open_log").filter(
+    (c) => c.agentId === agentId && c.prefetch === undefined,
+  );
+export const prefetchOpens = (socket: FakeSocket) =>
+  commands(socket, "open_log").filter((c) => c.prefetch === true);
+
+// Answer one open_log with these entries (the replay) and its done.
+export async function finishOpen(
+  socket: FakeSocket,
+  open: Open,
+  entries: (string | LogEntry)[],
+) {
+  for (const e of entries)
+    await deliver(socket, {
+      type: "log_entry",
+      entry: typeof e === "string" ? entry(e, open.agentId) : e,
+      requestId: open.requestId,
+    });
+  await deliver(socket, {
+    type: "log_open_done",
+    agentId: open.agentId,
+    requestId: open.requestId,
+    ...(open.tail !== undefined ? { tail: open.tail } : {}),
+  });
+  await settle();
+}
+
+export const chatPanel = (view: { container: HTMLElement }) =>
+  view.container.querySelector<HTMLElement>("[data-agent-chat-panel]")!;
+export const restLevel = (root: Element) =>
+  root.querySelector("[data-chat-rest]")?.getAttribute("data-chat-rest") ??
+  null;
+export async function clickRestRow(root: Element) {
+  const button = root.querySelector<HTMLElement>("[data-chat-rest] button");
+  expect(button).not.toBeNull();
+  await act(async () => fireEvent.click(button!));
+  await settle();
+}
+// The link drops and the network comes back: the store opens a new socket.
+export async function reconnect(socket: FakeSocket, agents: AgentInfo[]) {
+  await act(async () => {
+    socket.readyState = 3;
+    socket.onclose?.();
+  });
+  await act(async () => {
+    window.dispatchEvent(new Event("online"));
+  });
+  const next = sockets.at(-1)!;
+  // Enabling condition: a second socket.
+  expect(next).not.toBe(socket);
+  await hydrate(next, agents);
+  return next;
+}
+export async function scrollTo(el: HTMLElement, top: number) {
+  await act(async () => {
+    el.scrollTop = top;
+    el.dispatchEvent(new Event("scroll"));
+  });
   await settle();
 }

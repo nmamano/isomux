@@ -275,6 +275,11 @@ export interface AppState {
   // stream the store asked for, its request, and the entries of a load in
   // flight. The rendered entries stay in `logs`.
   logStreams: ReadonlyMap<string, LogStream>;
+  // The agents whose rendered entries are the whole log (a whole
+  // log_open_done), kept across sockets, so a mounted chat reopens whole
+  // after a reconnect (task 9ebe887d slice 3). A recent done, a refusal or a
+  // clear drops the agent.
+  logsComplete: ReadonlySet<string>;
   // The socket generation of the last full_state (W1).
   logSocketGen: number;
   // The last full_state said the server loads chats when they open (W2):
@@ -492,6 +497,7 @@ export type Action =
       agentId: string;
       requestId: string;
       tail?: number;
+      whole?: true;
       refused?: true;
     }
   // CLIENT-LOCAL (task 9ebe887d): this tab sent open_log / close_log for an
@@ -858,6 +864,18 @@ function autoOpenFor(
   };
 }
 
+// The marks without this agent's (logsComplete), the same set when it has
+// none.
+function withoutMark(
+  marks: ReadonlySet<string>,
+  agentId: string,
+): ReadonlySet<string> {
+  if (!marks.has(agentId)) return marks;
+  const next = new Set(marks);
+  next.delete(agentId);
+  return next;
+}
+
 // A full_state on a lazy socket (task 9ebe887d). On the SAME socket it is a
 // re-projection: the server kept its subscriptions, so the streams, chats and
 // commands of the agents still listed stay, and the others go. On a NEW
@@ -873,6 +891,7 @@ function lazyFullStateLogs(
   | "logEntryIds"
   | "logsReplay"
   | "logStreams"
+  | "logsComplete"
   | "slashCommands"
   | "logsOnOpen"
   | "logSocketGen"
@@ -887,6 +906,10 @@ function lazyFullStateLogs(
     logEntryIds: keep(state.logEntryIds),
     logsReplay: null,
     logStreams: keep(state.logStreams, sameSocket),
+    // The marks stay across sockets: a mounted whole chat reopens whole (D3).
+    logsComplete: new Set(
+      [...state.logsComplete].filter((id) => listed.has(id)),
+    ),
     slashCommands: keep(state.slashCommands, sameSocket),
     logsOnOpen: true,
     logSocketGen: socketGen,
@@ -1026,6 +1049,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...next,
         logStreams: new Map(),
+        logsComplete: new Set(),
         logsOnOpen: false,
         logSocketGen: action.socketGen ?? state.logSocketGen,
       };
@@ -1083,6 +1107,7 @@ export function reducer(state: AppState, action: Action): AppState {
       );
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
+      const logsComplete = withoutMark(state.logsComplete, action.agentId);
       const sidePanels = new Map(state.sidePanels);
       sidePanels.delete(action.agentId);
       const pendingEditorPaths = new Map(state.pendingEditorPaths);
@@ -1095,6 +1120,7 @@ export function reducer(state: AppState, action: Action): AppState {
       pendingComposerFocus.delete(action.agentId);
       return {
         ...state,
+        logsComplete,
         agents: state.agents.filter((a) => a.id !== action.agentId),
         logs,
         logEntryIds,
@@ -1434,8 +1460,18 @@ export function reducer(state: AppState, action: Action): AppState {
       // (via its own focus), and everyone else kept a stale dot. A rollback
       // clear (failed edit-fork restoring the PRIOR timeline) is not a
       // boundary - the old unseen result comes back, so the dot stays.
+      // A clear (or a rollback) replaces the entries: they are no longer the
+      // whole log the mark named (task 9ebe887d slice 3).
+      const logsComplete = withoutMark(state.logsComplete, action.agentId);
       if (action.rollback)
-        return { ...state, logs, logEntryIds, logsReplay, logStreams };
+        return {
+          ...state,
+          logs,
+          logEntryIds,
+          logsReplay,
+          logStreams,
+          logsComplete,
+        };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
       return {
@@ -1444,6 +1480,7 @@ export function reducer(state: AppState, action: Action): AppState {
         logEntryIds,
         logsReplay,
         logStreams,
+        logsComplete,
         needsAttention,
       };
     }
@@ -1694,7 +1731,8 @@ export function reducer(state: AppState, action: Action): AppState {
         logStreams.delete(action.agentId);
         logs.delete(action.agentId);
         logEntryIds.delete(action.agentId);
-        return { ...state, logStreams, logs, logEntryIds };
+        const logsComplete = withoutMark(state.logsComplete, action.agentId);
+        return { ...state, logStreams, logs, logEntryIds, logsComplete };
       }
       const seen = new Set<string>();
       const entries: LogEntry[] = [];
@@ -1705,14 +1743,21 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       logs.set(action.agentId, entries);
       logEntryIds.set(action.agentId, seen);
+      // A tail that the server says reached the first entry is the whole log.
+      const whole = stream.tail === undefined || action.whole === true;
       logStreams.set(action.agentId, {
-        state: stream.tail === undefined ? "complete" : "recent",
+        state: whole ? "complete" : "recent",
         requestId: stream.requestId,
         ...(stream.tail === undefined ? {} : { tail: stream.tail }),
         replay: [],
         live: [],
       });
-      return { ...state, logStreams, logs, logEntryIds };
+      // The mark follows what the chat now shows: a tail replaced a whole
+      // chat (a prefetch after a reconnect) with its last entries.
+      const logsComplete = new Set(state.logsComplete);
+      if (whole) logsComplete.add(action.agentId);
+      else logsComplete.delete(action.agentId);
+      return { ...state, logStreams, logs, logEntryIds, logsComplete };
     }
     case "tasks_fetched": {
       if (action.epoch !== state.tasksEpoch) return state;
@@ -2323,6 +2368,7 @@ export const initialState: AppState = {
   tasks: [],
   tasksLoaded: false,
   logStreams: new Map(),
+  logsComplete: new Set(),
   logSocketGen: 0,
   logsOnOpen: false,
   tasksEpoch: 0,
