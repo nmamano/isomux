@@ -225,46 +225,47 @@ describe("the attachments plan and apply with the lookup", () => {
   });
 });
 
-// The scan yields between files. Two gauges: the interval ticks at least
-// once per two files (a scan that blocks throughout ticks never, one that
-// yields only per agent ticks about 4 times), and no single gap covers most
-// of the run. The gap gauge counts the gap from the last tick to the end of
-// the work too, so a blocking scan reads as one long gap rather than as zero.
-// The gap bound is loose (3/4) because a GC pause over the 38 MB read can
-// take a large share of a short run.
+// The scan yields between files. The gauge is a turn probe: a setImmediate
+// callback that schedules itself again runs once per event-loop turn, so its
+// count is the number of turns the scan gave away, whatever the machine's
+// speed. A timer is no gauge here: it fires only when 1 ms has passed, so a
+// faster machine counts fewer ticks for the same yields (task 84f1182f).
+// The bar is one turn per two files: a scan that yields per file gives at
+// least one per file, one that yields only per agent gives about 4, and one
+// that blocks throughout gives none.
 const STALL_FILES = 48;
-// Quarantined: flaky by one tick on the CI desktop (task 84f1182f).
-it.skip("the scan does not hold the event loop for most of its run", async () => {
+it("the scan gives the event loop a turn at least once per two files", async () => {
   const logs = logsDir();
-  const filler = "x".repeat(200_000);
   for (let agent = 0; agent < 4; agent++) {
     for (let i = 0; i < STALL_FILES / 4; i++) {
       writeAt(
         join(logs, `agent-${agent}`, `s${i}.jsonl`),
-        `${line(`f${agent}-${i}.png`)}{"text":"${filler}"}\n`.repeat(4),
+        line(`f${agent}-${i}.png`),
         OLD,
       );
     }
   }
-  let last = performance.now();
-  let maxGap = 0;
-  let ticks = 0;
-  const timer = setInterval(() => {
-    const t = performance.now();
-    maxGap = Math.max(maxGap, t - last);
-    last = t;
-    ticks++;
-  }, 1);
-  const start = performance.now();
-  const index = await scanReferencedAttachments(logs);
-  const end = performance.now();
-  clearInterval(timer);
-  maxGap = Math.max(maxGap, end - last);
-  const total = end - start;
+  let turns = 0;
+  let stop = false;
+  const probe = () => {
+    if (stop) return;
+    turns++;
+    setImmediate(probe);
+  };
+  setImmediate(probe);
+  let index;
+  let scanTurns = 0;
+  // finally: a scan that throws must not leave the probe running.
+  try {
+    index = await scanReferencedAttachments(logs);
+    scanTurns = turns;
+    // Enabling condition: the probe is alive, so a low count is the scan's.
+    await new Promise<void>((r) => setImmediate(r));
+  } finally {
+    stop = true;
+  }
+  expect(turns).toBeGreaterThan(scanTurns);
 
   expect(index.lookup(join(logs, "agent-3")).has("f3-11.png")).toBe(true);
-  // Enabling condition: the work is long enough that a blocking scan shows.
-  expect(total).toBeGreaterThan(20);
-  expect(ticks).toBeGreaterThanOrEqual(STALL_FILES / 2);
-  expect(maxGap).toBeLessThan(total * 0.75);
+  expect(scanTurns).toBeGreaterThanOrEqual(STALL_FILES / 2);
 });
