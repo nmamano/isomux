@@ -15,9 +15,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { stages } from "./ci";
-import { PARTITIONS, partitions } from "./typecheck";
+import { PARTITIONS, type Program, partitions } from "./typecheck";
 
 const ROOT = join(import.meta.dir, "..");
 const tsc = stages.find((s) => s.name === "tsc")!;
@@ -28,22 +28,42 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true });
 });
 
-const CLEAN = {
-  "server/a.ts": 'import { s } from "../lib/shared";\nexport const n = s;\n',
-  "ui/a.ts": 'import { s } from "../lib/shared";\nexport const n = s;\n',
-  "lib/a.ts": 'import { s } from "./shared";\nexport const n = s;\n',
+/** Every area that has its own program, and lib, which has none. */
+const AREAS = [...PARTITIONS.flat(), "lib"];
+
+/** A file in each area that imports lib/shared.ts: no program is empty. */
+const CLEAN: Record<string, string> = {
+  ...Object.fromEntries(
+    AREAS.map((area) => [
+      `${area}/a.ts`,
+      `import { s } from "${relative(area, "lib") || "."}/shared";\nexport const n = s;\n`,
+    ]),
+  ),
   "lib/shared.ts": "export const s: number = 1;\n",
 };
 
 /**
  * A package with the repository's typecheck script (or `script`), a
  * tsconfig.json with a comment (as the repository's has), the include entries
- * server, ui and lib (the last one in no partition), and lib/skip excluded.
+ * server, ui and lib (the last one in no partition), lib/skip excluded, and
+ * no ambient types and the ES5 standard library (or `compilerOptions`).
  */
 function fixture(
   files: Record<string, string> = {},
   script?: string,
   include: string[] | null = ["server", "ui", "lib"],
+  compilerOptions: Record<string, unknown> = {
+    target: "ESNext",
+    module: "ESNext",
+    moduleResolution: "bundler",
+    strict: true,
+    skipLibCheck: true,
+    types: [],
+    // The smallest standard library: tsc reads lib.esnext and lib.dom in
+    // about a second per program, and a run case runs one program per
+    // partition.
+    lib: ["ES5"],
+  },
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "typecheck-test-"));
   roots.push(dir);
@@ -62,14 +82,7 @@ function fixture(
   );
   symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"));
   const config = {
-    compilerOptions: {
-      target: "ESNext",
-      module: "ESNext",
-      moduleResolution: "bundler",
-      strict: true,
-      skipLibCheck: true,
-      types: [],
-    },
+    compilerOptions,
     ...(include ? { include } : {}),
     exclude: ["lib/skip"],
   };
@@ -109,38 +122,99 @@ async function run(
   return { code, out: out + err };
 }
 
+/** The nested entries (a/b) of a partition table, not the top-level ones. */
+const nested = (table: string[][]) =>
+  table.flat().filter((entry) => entry.includes("/"));
+
+/**
+ * The indexes of the programs that have `file` as a root: an include entry
+ * holds it (the path or a folder above it) and no exclude entry does. A glob
+ * include entry adds only declaration files, so it never holds a .ts file.
+ */
+function rootsOf(programs: Program[], file: string): number[] {
+  const holds = (entry: string) =>
+    file === entry || file.startsWith(`${entry}/`);
+  return programs.flatMap((program, index) =>
+    program.include.some((entry) => !entry.includes("*") && holds(entry)) &&
+    !program.exclude.some(holds)
+      ? [index]
+      : [],
+  );
+}
+
 describe("partitions", () => {
-  it("gives each partition its own program and every other entry one more, last", () => {
-    expect(PARTITIONS.length).toBeGreaterThan(0);
-    const include = ["shared", ...PARTITIONS.flat(), "api", "middleware.ts"];
-    const programs = partitions(include);
-    expect(programs.slice(0, -1)).toEqual(PARTITIONS);
-    expect(programs.at(-1)).toEqual(["shared", "api", "middleware.ts"]);
+  it("gives each partition its own program, every other entry one more, last, and no empty program", () => {
+    const programs = partitions(["c", "a", "b", "d"], [["a"], ["b"]]);
+    expect(programs.map((program) => program.include[0])).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(programs.at(-1)!.include).toEqual(["c", "d"]);
+    expect(partitions(["c"], [["a"], ["b"]])).toEqual([
+      { include: ["c"], exclude: [] },
+    ]);
+    expect(partitions(["a"], [["a"], ["b"]])).toHaveLength(1);
   });
 
-  it("covers every include entry of the repository's tsconfig.json exactly once, a new entry too", () => {
+  it("makes each file a root of exactly one program, also with nested partitions, in any partition order", () => {
+    const include = ["a", "s", "lib"];
+    const files = ["a/x.ts", "a/n/x.ts", "a/m/x.ts", "a/nn/x.ts"];
+    files.push("s/x.ts", "s/p/x.ts", "lib/x.ts");
+    const tables = [
+      [["a/n", "a/m"], ["a"], ["s/p"]],
+      [["s/p"], ["a"], ["a/n", "a/m"]],
+    ];
+    for (const table of tables) {
+      const programs = partitions(include, table);
+      const owner = (file: string) => {
+        const roots = rootsOf(programs, file);
+        expect(roots, `${file} in ${JSON.stringify(programs)}`).toHaveLength(1);
+        return programs[roots[0]].include.filter((e) => !e.includes("*"));
+      };
+      // A nested partition takes its paths from the partition above it and
+      // from the program of the entries no partition takes.
+      expect(owner("a/n/x.ts")).toEqual(["a/n", "a/m"]);
+      expect(owner("a/m/x.ts")).toEqual(["a/n", "a/m"]);
+      expect(owner("a/x.ts")).toEqual(["a"]);
+      expect(owner("a/nn/x.ts")).toEqual(["a"]);
+      expect(owner("s/p/x.ts")).toEqual(["s/p"]);
+      expect(owner("s/x.ts")).toEqual(["s", "lib"]);
+      expect(owner("lib/x.ts")).toEqual(["s", "lib"]);
+      // The entries no partition takes stay last.
+      expect(programs.at(-1)!.include).toEqual(["s", "lib"]);
+    }
+  });
+
+  it("skips a nested partition whose top-level entry is not in include", () => {
+    const programs = partitions(["b", "c"], [["a/n"], ["b"]]);
+    expect(programs.map((program) => program.include)).toEqual([["b"], ["c"]]);
+    expect(programs.flatMap((program) => program.exclude)).toEqual([]);
+  });
+
+  it("splits the repository's tsconfig.json with a nested partition and makes each file a root once, a new entry too", () => {
     const config = Bun.JSONC.parse(
       readFileSync(join(ROOT, "tsconfig.json"), "utf8"),
     ) as { include: string[] };
-    // The condition the check rests on: the real config has the partitions.
+    // The condition the check rests on: the real config has the partitions,
+    // and at least one of them is nested in another include entry.
+    expect(nested(PARTITIONS).length).toBeGreaterThan(0);
     for (const entry of PARTITIONS.flat())
-      expect(config.include).toContain(entry);
+      expect(config.include).toContain(entry.split("/")[0]);
     for (const include of [config.include, [...config.include, "newarea"]]) {
       const programs = partitions(include);
-      expect(programs.flat().sort()).toEqual([...include].sort());
-      expect(programs.every((program) => program.length > 0)).toBe(true);
+      expect(programs.every((program) => program.include.length > 0)).toBe(
+        true,
+      );
+      const files = [...include, ...PARTITIONS.flat()].map((entry) =>
+        entry.endsWith(".ts") ? entry : `${entry}/x.ts`,
+      );
+      for (const file of files)
+        expect(rootsOf(programs, file), file).toHaveLength(1);
     }
-    expect(partitions([...config.include, "newarea"]).at(-1)).toContain(
-      "newarea",
-    );
-  });
-
-  it("skips a partition that is not in include, and gives no empty program", () => {
-    const [first] = PARTITIONS;
-    expect(partitions(["lib"])).toEqual([["lib"]]);
-    expect(partitions([...first, "lib"])).toEqual([first, ["lib"]]);
-    expect(partitions(first)).toEqual([first]);
-    expect(partitions(PARTITIONS.flat())).toEqual(PARTITIONS);
+    expect(
+      partitions([...config.include, "newarea"]).at(-1)!.include,
+    ).toContain("newarea");
   });
 });
 
@@ -158,36 +232,14 @@ describe("bun run typecheck", () => {
     expect(tree(dir)).toEqual(before);
   });
 
-  // One fixture per case: each run is three tsc runs.
-  it.each(["server", "ui", "lib"])(
-    "fails on a type error in %s and names it",
-    async (area) => {
-      const dir = fixture({
-        [`${area}/bad.ts`]: 'export const n: number = "one";\n',
-      });
-      const res = await run(dir);
-      expect(res.code).not.toBe(0);
-      expect(res.out).toContain("TS2322");
-      expect(res.out).toContain(`${area}/bad.ts`);
-    },
-  );
-
-  it("runs every program after one fails", async () => {
-    const dir = fixture({
-      "server/bad.ts": 'export const n: number = "one";\n',
-      "lib/bad.ts": 'export const m: number = "two";\n',
-    });
-    const res = await run(dir);
-    expect(res.code).not.toBe(0);
-    expect(res.out).toContain("server/bad.ts");
-    expect(res.out).toContain("lib/bad.ts");
-  });
-
   it("keeps tsconfig.json's exclude", async () => {
-    // The same file fails in lib/ (the type error case above).
-    const dir = fixture({
-      "lib/skip/bad.ts": 'export const n: number = "one";\n',
-    });
+    // The same file fails in lib/ (the type error case below). One program:
+    // the exclude goes to each program alike.
+    const dir = fixture(
+      { "lib/skip/bad.ts": 'export const n: number = "one";\n' },
+      undefined,
+      ["lib"],
+    );
     const res = await run(dir);
     expect(res.code, res.out).toBe(0);
   });
@@ -204,23 +256,90 @@ describe("bun run typecheck", () => {
     expect(res.out).toContain("server/bad.ts");
   });
 
-  it("checks each area in its own program, every area once", async () => {
+  it("checks each area in its own program, every area once, nested partitions too", async () => {
     // Extra arguments go to every tsc run. With --listFilesOnly each program
-    // lists its files: the shared file is in all three programs, each
-    // area's own file in exactly one.
-    expect(PARTITIONS).toContainEqual(["server"]);
-    expect(PARTITIONS).toContainEqual(["ui"]);
+    // lists its files: the shared file is in every program, each area's own
+    // file in exactly one.
+    expect(nested(PARTITIONS).length).toBeGreaterThan(0);
+    for (const area of AREAS)
+      expect(["server", "ui", "lib"]).toContain(area.split("/")[0]);
     const dir = fixture();
     const res = await run(dir, ["--listFilesOnly"]);
     expect(res.code, res.out).toBe(0);
     const listed = (path: string) =>
-      res.out.split("\n").filter((line) => line.trim().endsWith(path)).length;
-    expect({
-      shared: listed("lib/shared.ts"),
-      server: listed("server/a.ts"),
-      ui: listed("ui/a.ts"),
-      lib: listed("lib/a.ts"),
-    }).toEqual({ shared: 3, server: 1, ui: 1, lib: 1 });
+      res.out.split("\n").filter((line) => line.trim() === join(dir, path))
+        .length;
+    const programs = res.out
+      .split("\n")
+      .filter((line) => line.startsWith("typecheck: ")).length;
+    expect(programs).toBe(partitions(["server", "ui", "lib"]).length);
+    expect(listed("lib/shared.ts")).toBe(programs);
+    for (const area of AREAS) expect(listed(`${area}/a.ts`), area).toBe(1);
+  });
+
+  // One run for every area: each program runs, also after one failed.
+  it("names a type error in every area in one run, nested partitions and their parents too", async () => {
+    expect(nested(PARTITIONS).length).toBeGreaterThan(0);
+    const dir = fixture(
+      Object.fromEntries(
+        AREAS.map((area) => [
+          `${area}/bad.ts`,
+          'export const n: number = "one";\n',
+        ]),
+      ),
+    );
+    const res = await run(dir);
+    expect(res.code).not.toBe(0);
+    expect(res.out).toContain("TS2322");
+    for (const area of AREAS)
+      expect(res.out, area).toContain(join(area, "bad.ts"));
+  });
+
+  it("gives a nested partition the globals its top-level area declares in a .d.ts", async () => {
+    // A .d.ts with no import or export declares globals, and no import pulls
+    // it into a program (ui/speech-recognition.d.ts in the repository).
+    const inner = nested(PARTITIONS);
+    expect(inner.length).toBeGreaterThan(0);
+    const files: Record<string, string> = {};
+    for (const area of inner) {
+      const top = area.split("/")[0];
+      files[`${top}/fixture-globals.d.ts`] =
+        "declare var fixtureGlobal: number;\n";
+      files[`${top}/uses.ts`] = "export const g: number = fixtureGlobal;\n";
+      files[`${area}/uses.ts`] = "export const g: number = fixtureGlobal;\n";
+    }
+    const dir = fixture(files);
+    const res = await run(dir);
+    expect(res.code, res.out).toBe(0);
+    // The same use with no .d.ts fails: the case checks the global.
+    const bare = fixture(
+      { "lib/uses.ts": files[`${inner[0]}/uses.ts`] },
+      undefined,
+      ["lib"],
+    );
+    expect((await run(bare)).out).toContain("TS2304");
+  });
+
+  it("gives a program the Bun globals with the repository's compiler options, with no import of bun", async () => {
+    // TS 7 adds no ambient types by default, and tsc reads each program's
+    // config from a temporary folder outside the package.
+    const { compilerOptions } = Bun.JSONC.parse(
+      readFileSync(join(ROOT, "tsconfig.json"), "utf8"),
+    ) as { compilerOptions: Record<string, unknown> };
+    const use = "export const v: string = Bun.version + import.meta.dir;\n";
+    // One program: the types load into each program alike, and they make
+    // each tsc run about a second slower.
+    const dir = fixture(
+      { "lib/bun.ts": use },
+      undefined,
+      ["lib"],
+      compilerOptions,
+    );
+    const res = await run(dir);
+    expect(res.code, res.out).toBe(0);
+    // The same file fails with no ambient types: the case checks the globals.
+    const bare = fixture({ "lib/bun.ts": use }, undefined, ["lib"]);
+    expect((await run(bare)).out).toContain("TS2868");
   });
 
   it("is the native compiler, TypeScript 7", async () => {

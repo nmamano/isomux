@@ -9,6 +9,12 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    // TS 7 adds no ambient types by default. Without this, a program gets the
+    // Bun globals only when one of its files imports "bun". typeRoots is
+    // relative to this file: scripts/typecheck.ts runs each program from a
+    // config in a temporary folder that extends this one.
+    "types": ["bun"],
+    "typeRoots": ["./node_modules/@types"],
     "paths": {
       "@shared/*": ["./shared/*"]
     }
