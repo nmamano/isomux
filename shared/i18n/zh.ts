@@ -516,7 +516,6 @@ App 的一些原则：
   "settings.removedMembers.restore": "恢复",
   "settings.removedMembers.deleteNow": "立即删除",
   "settings.removedMembers.restoreFailed": "恢复失败",
-  "settings.role.officeOwner": "办公室所有者",
   "settings.role.officeOwnerExplanation":
     "可以访问所有房间、邀请成员，并管理成员的访问权限和会话。",
   "settings.role.owner": "办公室所有者",
@@ -950,9 +949,29 @@ App 的一些原则：
   "settings.apiTokens.repliesOnlyHint": "仅向先给它发消息的智能体发送",
   "settings.apiTokens.access.custom": "自定义",
   "settings.memberPack.workWithAgents": "与智能体协作",
-  "settings.memberPack.ceiling": "最高智能体级别",
   "settings.memberPack.hint":
     "权限包仅对从未拥有标准或特权级别智能体的成员是严格限制。",
+  "settings.memberAccess.title": "访问权限",
+  "settings.memberAccess.owner": "所有者",
+  "settings.memberAccess.legendLine": "<strong>{level}。</strong>{text}",
+  "settings.memberAccess.legend.readOnly":
+    "可读取除日志、文件和环境外的所有区域。",
+  "settings.memberAccess.legend.workWithAgents":
+    "还可以与智能体对话、管理智能体并编写任务。",
+  "settings.memberAccess.legend.full":
+    "所有区域，其智能体不受级别限制。标准级别的智能体会在服务器上运行 shell 命令。",
+  "settings.memberAccess.legend.owner":
+    "在所有房间拥有完全访问，并可管理成员、登录链接、会话和办公室设置。",
+  "settings.memberAccess.legend.custom": "逐项设置的区域和智能体级别。",
+  "settings.memberAccess.legend.customFrom":
+    "从{level}开始。选择一个级别即可恢复。",
+  "settings.memberAccess.demote": "保存后此人将成为成员，不再是办公室所有者。",
+  "settings.memberAccess.ceiling": "其智能体：最高{level}",
+  "settings.memberAccess.ceilingAny": "其智能体：任意级别",
+  "settings.memberAccess.ceilingName": "其智能体的最高级别",
+  "settings.memberAccess.ceilingHint":
+    "每个智能体的级别在其设置中设定，不超过此上限。",
+  "settings.memberAccess.areas": "此成员可以做什么",
   "settings.apiTokens.level.none": "无",
   "settings.apiTokens.level.read": "读取",
   "settings.apiTokens.level.write": "读写",

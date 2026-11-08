@@ -556,7 +556,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.removedMembers.restore": "Restore",
   "settings.removedMembers.deleteNow": "Delete now",
   "settings.removedMembers.restoreFailed": "Restore failed",
-  "settings.role.officeOwner": "Office owner",
   "settings.role.officeOwnerExplanation":
     "Can access all rooms, invite members, and manage member access and sessions.",
   "settings.role.owner": "office owner",
@@ -1042,9 +1041,31 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Sends only to agents that wrote to it first",
   "settings.apiTokens.access.custom": "Custom",
   "settings.memberPack.workWithAgents": "Work with agents",
-  "settings.memberPack.ceiling": "Highest agent level",
   "settings.memberPack.hint":
     "A pack is a firm limit only for a member who never had an agent at Standard or Privileged.",
+  "settings.memberAccess.title": "Access",
+  "settings.memberAccess.owner": "Owner",
+  "settings.memberAccess.legendLine": "<strong>{level}.</strong> {text}",
+  "settings.memberAccess.legend.readOnly":
+    "Reads every area except logs, files and the environment.",
+  "settings.memberAccess.legend.workWithAgents":
+    "Also talks to agents, manages them and writes tasks.",
+  "settings.memberAccess.legend.full":
+    "Every area, with no limit on their agents. Agents at Standard run shell commands on the server.",
+  "settings.memberAccess.legend.owner":
+    "Full access in every room, plus managing members, sign-in links, sessions and office settings.",
+  "settings.memberAccess.legend.custom":
+    "Areas and agent level set one by one.",
+  "settings.memberAccess.legend.customFrom":
+    "Started from {level}. Pick a level to go back to it.",
+  "settings.memberAccess.demote":
+    "Saving makes them a member, not an office owner.",
+  "settings.memberAccess.ceiling": "Their agents: up to {level}",
+  "settings.memberAccess.ceilingAny": "Their agents: any level",
+  "settings.memberAccess.ceilingName": "Their agents' highest level",
+  "settings.memberAccess.ceilingHint":
+    "Set each agent's own level in its settings, up to this cap.",
+  "settings.memberAccess.areas": "What this member can do",
   "settings.apiTokens.level.none": "None",
   "settings.apiTokens.level.read": "Read",
   "settings.apiTokens.level.write": "Read and write",

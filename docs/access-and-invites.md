@@ -21,7 +21,7 @@ The link carries the setup key. The key is also in `~/.isomux/setup-key` on the 
 
 ## Invite a member
 
-1. **Create the member.** In `Settings`, select `New member` at the end of the `Members` list. Fill in the name, owner role, room access, special instructions and avatar, and click `Create member`. The list shows "never signed in" until they accept a link.
+1. **Create the member.** In `Settings`, select `New member` at the end of the `Members` list. Fill in the name, access level, room access, special instructions and avatar, and click `Create member`. The list shows "never signed in" until they accept a link.
 2. **Send a sign-in link.** On the new member's page, click `Create sign-in link for <name>`. You can also open `Settings` → `Office` → `Invites`, select the member and click `Create sign-in link`. The URL shows once. Send it privately (Signal, text, email).
 
 A sign-in link works once and expires 3 days after you create it. A new link replaces the member's previous one. If a link expires, the member stays as they are: send a new one. The link still works after you rename the member; deleting the member revokes it.
@@ -32,7 +32,7 @@ The invitee opens the link and is signed in. No installs, no accounts, no passwo
 
 ## Limit a member
 
-An owner can give a member a permission pack in `Settings` → `Members`. The pack sets what the member can see and do in each area (none, read, or read and write), and the highest level of their agents. `Read only` reads every area except logs, files and the environment, with agents at Chat. `Work with agents` adds talking to agents, managing them and writing tasks, with agents up to Office. A member with a pack has no terminal, and messages only agents whose access fits inside the pack. They create no rooms and set no folders: their agents work in their room's folder, so give such a member a room whose folder holds only what their agents may use.
+An owner sets each member's level in `Settings` → `Members` → `Access`: `Read only`, `Work with agents`, `Full access` or `Owner`. Under each level, the control shows what the member can see and do in each area (none, read, or read and write) and the highest level of their agents. Change any of these values to make a `Custom` permission pack. `Read only` reads every area except logs, files and the environment, with agents at Chat. `Work with agents` adds talking to agents, managing them and writing tasks, with agents up to Office. A member with a pack has no terminal, and messages only agents whose access fits inside the pack. They create no rooms and set no folders: their agents work in their room's folder, so give such a member a room whose folder holds only what their agents may use.
 
 Saving a pack moves the member's agents down to its highest level, stops their apps when the pack does not give apps write, and reloads their open pages. Their schedules need a target agent. The pack is a boundary only for a member who never had an agent at Standard or Privileged: what such an agent left on the server stays.
 

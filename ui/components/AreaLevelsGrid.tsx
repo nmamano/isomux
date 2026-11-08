@@ -42,9 +42,14 @@ export const LEVEL_LABEL: Record<ApiTokenAccess | "none", PlainMessageKey> = {
 export function AreaLevelsGrid({
   areas,
   onArea,
+  quiet = false,
+  disabled = false,
 }: {
   areas: ApiTokenAreaLevels;
   onArea: (area: ApiTokenArea, level: ApiTokenAccess | "none") => void;
+  // Muted names, for values a preset fills in; the selects stay controls.
+  quiet?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -55,6 +60,7 @@ export function AreaLevelsGrid({
         gap: "6px 10px",
         marginTop: 10,
         fontSize: 12,
+        color: quiet ? "var(--text-muted)" : undefined,
       }}
     >
       {API_TOKEN_AREAS.map((area) => (
@@ -63,6 +69,8 @@ export function AreaLevelsGrid({
           area={area}
           level={areas[area] ?? "none"}
           onChange={(level) => onArea(area, level)}
+          disabled={disabled}
+          warn={!quiet}
         />
       ))}
     </div>
@@ -75,13 +83,18 @@ function AreaRow({
   area,
   level,
   onChange,
+  disabled,
+  warn,
 }: {
   area: ApiTokenArea;
   level: ApiTokenAccess | "none";
   onChange: (level: ApiTokenAccess | "none") => void;
+  disabled: boolean;
+  // The equals-full-access mark; a preset's own values carry none.
+  warn: boolean;
 }) {
   const { t } = useI18n();
-  const fullAccess = level === "write" && writesEqualFullAccess(area);
+  const fullAccess = warn && level === "write" && writesEqualFullAccess(area);
   return (
     <>
       <span>
@@ -99,6 +112,7 @@ function AreaRow({
         data-area={area}
         aria-label={t(AREA_LABEL[area])}
         value={level}
+        disabled={disabled}
         onChange={(event) =>
           onChange(event.target.value as ApiTokenAccess | "none")
         }

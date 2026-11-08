@@ -549,7 +549,6 @@ Cosas que puedes hacer por él:
   "settings.removedMembers.restore": "Restaurar",
   "settings.removedMembers.deleteNow": "Borrar ahora",
   "settings.removedMembers.restoreFailed": "No se pudo restaurar",
-  "settings.role.officeOwner": "Propietario de la oficina",
   "settings.role.officeOwnerExplanation":
     "Puede acceder a todas las salas, invitar a miembros y gestionar el acceso y las sesiones de los miembros.",
   "settings.role.owner": "propietario de la oficina",
@@ -1057,9 +1056,31 @@ Cosas que puedes hacer por él:
     "Solo envía a los agentes que le escribieron primero",
   "settings.apiTokens.access.custom": "Personalizado",
   "settings.memberPack.workWithAgents": "Trabajar con agentes",
-  "settings.memberPack.ceiling": "Nivel de agente más alto",
   "settings.memberPack.hint":
     "Un paquete solo es un límite firme para un miembro que nunca tuvo un agente en Estándar o Privilegiado.",
+  "settings.memberAccess.title": "Acceso",
+  "settings.memberAccess.owner": "Propietario",
+  "settings.memberAccess.legendLine": "<strong>{level}.</strong> {text}",
+  "settings.memberAccess.legend.readOnly":
+    "Lee todas las áreas excepto los registros, los archivos y el entorno.",
+  "settings.memberAccess.legend.workWithAgents":
+    "Además habla con agentes, los gestiona y escribe tareas.",
+  "settings.memberAccess.legend.full":
+    "Todas las áreas, sin límite para sus agentes. Los agentes en Estándar ejecutan comandos de shell en el servidor.",
+  "settings.memberAccess.legend.owner":
+    "Acceso completo en todas las salas, además de gestionar miembros, enlaces de inicio de sesión, sesiones y ajustes de la oficina.",
+  "settings.memberAccess.legend.custom":
+    "Áreas y nivel de agente elegidos uno a uno.",
+  "settings.memberAccess.legend.customFrom":
+    "Empezó desde {level}. Elige un nivel para volver a él.",
+  "settings.memberAccess.demote":
+    "Al guardar pasa a ser miembro, no propietario de la oficina.",
+  "settings.memberAccess.ceiling": "Sus agentes: hasta {level}",
+  "settings.memberAccess.ceilingAny": "Sus agentes: cualquier nivel",
+  "settings.memberAccess.ceilingName": "Nivel más alto de sus agentes",
+  "settings.memberAccess.ceilingHint":
+    "El nivel de cada agente se elige en sus ajustes, hasta este límite.",
+  "settings.memberAccess.areas": "Qué puede hacer este miembro",
   "settings.apiTokens.level.none": "Ninguno",
   "settings.apiTokens.level.read": "Lectura",
   "settings.apiTokens.level.write": "Lectura y escritura",

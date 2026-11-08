@@ -1,6 +1,5 @@
 import { versionOf } from "../../shared/blob-version.ts";
 import { AuditPane } from "./AuditList.tsx";
-import { OfficeOwnerCheckbox } from "./OfficeOwnerCheckbox.tsx";
 import { ordinaryRooms } from "../../shared/types.ts";
 // The full-page Settings surface (master-detail), replacing the old crowded modal
 // (UserManagementModal). Entered and exited like the Tasks page: rendered in
@@ -110,7 +109,9 @@ import {
   getSettingsGroupsOpen,
   setSettingsGroupOpen,
 } from "../device-settings.ts";
-import { MemberPackEditor, samePack } from "./MemberPackEditor.tsx";
+import { MemberAccessControl } from "./MemberAccessControl.tsx";
+import type { MemberLevel } from "../member-access.ts";
+import { samePack } from "../../shared/pack-fit.ts";
 import type { MemberPack } from "../../shared/pack-fit.ts";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
@@ -1315,11 +1316,9 @@ function UserEditPanel({
   // rendering (Notifications) and whether a save writes grants.
   const targetIsOwner = user.role === "owner";
   const [officeOwner, setOfficeOwner] = useState(targetIsOwner);
-  // Whose access the Rooms table edits: a new member's role follows the
-  // checkbox at once, an existing member's the saved record.
-  const ownerTarget = creating ? officeOwner : targetIsOwner;
-  // An owner edits the pack of a member who stays a member.
-  const packEditable = isOwner && !ownerTarget && !officeOwner;
+  // Whose access the Rooms table edits: the drafted role (task 2c57281c), so
+  // a demote picks the member's rooms in the same save.
+  const ownerTarget = officeOwner;
   // Use the unfiltered global rooms list when available so the owner
   // can manage other users' access to rooms they've hidden from their
   // own view, and so the Notifications list reflects every room the
@@ -1347,6 +1346,8 @@ function UserEditPanel({
   const [packSetting, setPackSetting] = useState<MemberPack | null>(
     user.pack ?? null,
   );
+  // The level the draft left when an edit made it Custom; feeds the legend.
+  const [startedFrom, setStartedFrom] = useState<MemberLevel | null>(null);
   // Per-user DISPLAY preference: room ids the user has hidden
   // from their own view. SELF-only, like notifications - an owner editing a
   // member manages access, not their view. Saved as the complement (the
@@ -1536,8 +1537,11 @@ function UserEditPanel({
     if (avatarColor !== user.avatarColor) return true;
     if (avatarVariant !== user.avatarVariant) return true;
     if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
-    if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
-    if (packEditable && !samePack(packSetting, user.pack)) return true;
+    // A drafted owner has no room grants and no pack.
+    if (!officeOwner && !sameRoomSet(allowedSetting, user.allowedRooms))
+      return true;
+    if (isOwner && !officeOwner && !samePack(packSetting, user.pack))
+      return true;
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
     if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
@@ -1593,12 +1597,19 @@ function UserEditPanel({
       // guarantees and dodge the rename->404. (1) Owner access change FIRST,
       // against the ORIGINAL username, so a combined rename + grant doesn't 404
       // the access PUT after the record renames; setAccess prune-clamps the
-      // target's notif/default server-side in one write.
-      const packChanged = packEditable && !samePack(packSetting, user.pack);
+      // target's notif/default server-side in one write. A role change
+      // carries the pack and rooms in its PATCH instead (task 2c57281c): a
+      // demote is one write, and a promotion writes no grants.
+      const roleChanged = isOwner && officeOwner !== targetIsOwner;
+      const packChanged =
+        isOwner && !officeOwner && !samePack(packSetting, user.pack);
+      const roomsChanged =
+        !officeOwner && !sameRoomSet(allowedSetting, user.allowedRooms);
       if (
         isOwner &&
         !targetIsOwner &&
-        (packChanged || !sameRoomSet(allowedSetting, user.allowedRooms))
+        !roleChanged &&
+        (packChanged || roomsChanged)
       ) {
         // Owners are rule-based (no materialized grants), so an owner target
         // never writes allowedRooms - only a member's access is editable here.
@@ -1630,15 +1641,17 @@ function UserEditPanel({
       // (2) Record fields (name/avatar), against the original name.
       if (recordChanged) {
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
-          role:
-            isOwner && officeOwner !== targetIsOwner
-              ? officeOwner
-                ? "owner"
-                : "member"
-              : undefined,
+          role: roleChanged ? (officeOwner ? "owner" : "member") : undefined,
           name: renamed ? trimmed : undefined,
           avatarColor: normalizedColor,
           avatarVariant,
+          // A demote: the pack (none is Full access) and the rooms.
+          ...(roleChanged && !officeOwner && packSetting
+            ? { pack: packSetting }
+            : {}),
+          ...(roleChanged && roomsChanged
+            ? { allowedRooms: allowedSetting }
+            : {}),
         });
       }
       // (2b) Member memory is a separate version-guarded REPLACE keyed by the stable
@@ -1827,9 +1840,18 @@ function UserEditPanel({
         />
 
         {isOwner && (
-          <OfficeOwnerCheckbox
-            checked={officeOwner}
-            onChange={setOfficeOwner}
+          <MemberAccessControl
+            owner={officeOwner}
+            pack={packSetting}
+            startedFrom={startedFrom}
+            savedOwner={!creating && targetIsOwner}
+            onChange={(next) => {
+              setOfficeOwner(next.owner);
+              setPackSetting(next.pack);
+              setStartedFrom(next.startedFrom);
+            }}
+            headingStyle={sectionTitleStyle}
+            disabled={saving}
           />
         )}
 
@@ -1993,17 +2015,6 @@ function UserEditPanel({
             </div>
           </>
         ) : null}
-
-        {packEditable && (
-          <>
-            <h5 style={sectionTitleStyle}>{t("settings.apiTokens.access")}</h5>
-            <MemberPackEditor
-              pack={packSetting}
-              onPack={setPackSetting}
-              disabled={saving}
-            />
-          </>
-        )}
 
         <h5 style={sectionTitleStyle}>{t("common.instructionsAndMemory")}</h5>
 

@@ -325,7 +325,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 });
 
 describe("routes/users REST - update (record split, Option A)", () => {
-  it("an owner edits a member's record but never its grants; a member edits only their own and cannot escalate; a bad name is 422, a taken one 409, envFile is ignored", async () => {
+  it("an owner edits a member's record, and an unknown room grant refuses the whole write; a member edits only their own record and cannot send grants; a bad name is 422, a taken one 409, envFile is ignored", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
     const mia = await server.seedMember("Mia");
@@ -337,14 +337,20 @@ describe("routes/users REST - update (record split, Option A)", () => {
         body,
       });
 
-    const r = await patch("Mia", owner.rawSessionId, {
+    // An owner may send room grants with the record (task 2c57281c), and an
+    // unknown room id refuses the whole write, as create does.
+    const sneaky = await patch("Mia", owner.rawSessionId, {
       avatarColor: "#123456",
       allowedRooms: ["sneaky"],
     });
+    expect([sneaky.status, errCode(sneaky)]).toEqual([400, "invalid_rooms"]);
+    expect(getUserByName("Mia")!.allowedRooms).toEqual([]);
+    expect(getUserByName("Mia")!.avatarColor).not.toBe("#123456");
+    const r = await patch("Mia", owner.rawSessionId, {
+      avatarColor: "#123456",
+    });
     expect(r.status).toBe(200);
     expect(userOf(r).avatarColor).toBe("#123456");
-    // allowedRooms is not in UserUpdateReq; the handler ignores a body field.
-    expect(getUserByName("Mia")!.allowedRooms).toEqual([]);
 
     // selfOrOwner: another member's record is a 403.
     expect(
@@ -366,12 +372,17 @@ describe("routes/users REST - update (record split, Option A)", () => {
     expect(staleEnv.status).toBe(200);
     expect(getUserByName("Mia")).not.toHaveProperty("envFile");
 
-    // A member's own record edit succeeds, and the grants in the body do not.
+    // A member cannot send grants, even on their own record: the whole
+    // write is refused. The same edit without them succeeds.
     const own = await patch("Mia", mia.rawSessionId, {
       allowedRooms: ["r1", "r2"],
       name: "Mia2",
     });
-    expect(own.status).toBe(200);
+    expect([own.status, errCode(own)]).toEqual([403, "forbidden"]);
+    expect(getUserByName("Mia2")).toBeFalsy();
+    expect(getUserByName("Mia")!.allowedRooms).toEqual([]);
+    const renamed = await patch("Mia", mia.rawSessionId, { name: "Mia2" });
+    expect(renamed.status).toBe(200);
     expect(getUserByName("Mia2")!.allowedRooms).toEqual([]);
   });
 });

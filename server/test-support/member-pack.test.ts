@@ -158,6 +158,7 @@ async function spawn(
   o: Office,
   name: string,
   manager: "Morgan" | "Casey" = "Morgan",
+  opts: { agentType?: AgentInfo["agentType"] } = {},
 ): Promise<AgentInfo> {
   const agent = await o.srv.agentManager.spawn(
     name,
@@ -170,13 +171,19 @@ async function spawn(
     undefined,
     undefined,
     manager === "Morgan" ? o.ownerName : o.caseyName,
-    "claude",
+    opts.agentType ?? "claude",
     undefined,
     manager === "Morgan" ? o.ownerId : o.caseyId,
   );
   if (!agent) throw new Error(`spawn failed: ${name}`);
   return agent;
 }
+
+const agentOf = (o: Office, id: string): AgentInfo => {
+  const agent = o.srv.agentManager.getAgent(id);
+  if (!agent) throw new Error(`no live agent ${id}`);
+  return agent;
+};
 
 // Moves an agent with the owner's slider.
 async function lower(
@@ -1127,5 +1134,208 @@ describe("a schedule or a webhook of a member with a pack, at the fire", () => {
     await deliver("second-push");
     expect(await settled(2)).toEqual(["dispatched", "target_unavailable"]);
     expect(sentTexts(o, standard.id)).toHaveLength(delivered);
+  });
+});
+
+// Task 2c57281c: the member panel's one Access control demotes an owner to a
+// member with a pack in ONE PATCH /api/users/:username (role, pack and room
+// grants together), so a refusal leaves the owner as they were and no second
+// write can leave them at full access.
+describe("the pack and room grants on PATCH /api/users/:username", () => {
+  const WITH_AGENTS = MEMBER_PACK_PRESETS.workWithAgents;
+
+  async function promoteCasey(o: Office): Promise<void> {
+    const res = await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+      role: "owner",
+    });
+    expect({
+      status: res.status,
+      role: getUserByName(o.caseyName)?.role,
+    }).toEqual({ status: 200, role: "owner" });
+  }
+
+  // The parts of Casey's record a refused PATCH must leave as they were.
+  const caseyRecord = (o: Office) => {
+    const user = getUserByName(o.caseyName);
+    return {
+      role: user?.role,
+      pack: user?.pack,
+      allowedRooms: user?.allowedRooms,
+    };
+  };
+
+  it("demotes an owner to a member with a pack and rooms in one write, and moves their agents to its ceiling", async () => {
+    const o = await office();
+    await promoteCasey(o);
+    const agent = await spawn(o, "Claude", "Casey");
+    // The enabling condition: the agent sits above the pack's ceiling.
+    expect(agentOf(o, agent.id).access ?? "standard").toBe("standard");
+
+    const res = await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+      role: "member",
+      pack: WITH_AGENTS,
+      allowedRooms: [o.room],
+    });
+    expect(res.status).toBe(200);
+    // One answer carries the role and the pack together.
+    const answered = (res.body as { user: { role: string; pack?: unknown } })
+      .user;
+    expect({ role: answered.role, pack: answered.pack }).toEqual({
+      role: "member",
+      pack: WITH_AGENTS,
+    });
+    expect(caseyRecord(o)).toEqual({
+      role: "member",
+      pack: WITH_AGENTS,
+      allowedRooms: [o.room],
+    });
+    await waitUntil(
+      () => agentOf(o, agent.id).access === WITH_AGENTS.agentCeiling,
+      "the agent moved down to the pack's ceiling",
+    );
+    // The pack holds: Casey's session reads memory and cannot write it.
+    expect((await asCasey(o, "GET", "/api/memory?scope=office")).status).toBe(
+      200,
+    );
+    const write = await asCasey(o, "PUT", "/api/memory?scope=office", {
+      text: "x",
+    });
+    expect({ status: write.status, area: errorOf(write).area }).toEqual({
+      status: 403,
+      area: "memory",
+    });
+  });
+
+  it("refuses a pack or rooms on a final owner and a pack that does not parse, writing nothing", async () => {
+    const o = await office();
+    // A member promoted with a pack in the same PATCH.
+    const promote = await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+      role: "owner",
+      pack: WITH_AGENTS,
+    });
+    expect(outcome(promote)).toEqual({
+      status: 400,
+      code: "owner_has_no_pack",
+    });
+    expect(caseyRecord(o)).toEqual({
+      role: "member",
+      pack: undefined,
+      allowedRooms: [o.room],
+    });
+
+    await promoteCasey(o);
+    const before = caseyRecord(o);
+    // A pack on an owner who stays an owner.
+    expect(
+      outcome(
+        await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+          pack: WITH_AGENTS,
+        }),
+      ),
+    ).toEqual({ status: 400, code: "owner_has_no_pack" });
+    // Room grants on an owner who stays an owner.
+    expect(
+      outcome(
+        await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+          allowedRooms: [o.room],
+        }),
+      ),
+    ).toEqual({ status: 400, code: "invalid_rooms" });
+    // A demote with a pack that does not parse.
+    expect(
+      outcome(
+        await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+          role: "member",
+          pack: { areas: { tasks: "admin" }, agentCeiling: "chat" },
+        }),
+      ),
+    ).toEqual({ status: 422, code: "invalid_pack" });
+    // A demote with rooms that are not a list of ids.
+    expect(
+      (
+        await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+          role: "member",
+          allowedRooms: "all",
+        })
+      ).status,
+    ).toBe(422);
+    expect(caseyRecord(o)).toEqual(before);
+  });
+
+  it("refuses a pack or rooms from a caller that is not a human owner, writing nothing", async () => {
+    const o = await office();
+    const before = caseyRecord(o);
+    // The member on their own record.
+    for (const body of [{ pack: WITH_AGENTS }, { allowedRooms: [] }])
+      expect({
+        body,
+        ...outcome(
+          await asCasey(o, "PATCH", `/api/users/${o.caseyName}`, body),
+        ),
+      }).toEqual({
+        body,
+        status: 403,
+        code: "forbidden",
+      });
+    // The owner's API token and the owner's agent.
+    const minted = await asOwner(o, "POST", "/api/me/api-tokens", {
+      name: "Script",
+      expiresInDays: 30,
+    });
+    expect(minted.status).toBe(201);
+    const bearer = (minted.body as ApiTokenCreateRes).token;
+    const agent = await spawn(o, "Helper");
+    for (const [who, token] of [
+      ["token", bearer],
+      ["agent", tokenOf(agent.id)],
+    ] as const)
+      expect({
+        who,
+        status: (
+          await asBearer(o, token, "PATCH", `/api/users/${o.caseyName}`, {
+            pack: WITH_AGENTS,
+          })
+        ).status,
+      }).toEqual({ who, status: 403 });
+    expect(caseyRecord(o)).toEqual(before);
+    // The enabling condition: the owner's own session may send the same body.
+    const allowed = await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+      pack: WITH_AGENTS,
+    });
+    expect(allowed.status).toBe(200);
+    expect(getUserByName(o.caseyName)?.pack).toEqual(WITH_AGENTS);
+  });
+
+  it("a demote with a pack is refused, writing nothing, for the last owner and while an agent cannot move down to its ceiling", async () => {
+    const o = await office();
+    // Morgan is the only owner.
+    const last = await asOwner(o, "PATCH", `/api/users/${o.ownerName}`, {
+      role: "member",
+      pack: WITH_AGENTS,
+      allowedRooms: [o.room],
+    });
+    expect(outcome(last)).toEqual({ status: 409, code: "last_owner" });
+    expect({
+      role: getUserByName(o.ownerName)?.role,
+      pack: getUserByName(o.ownerName)?.pack,
+    }).toEqual({ role: "owner", pack: undefined });
+
+    await promoteCasey(o);
+    // Codex on its default model runs only at Standard.
+    const codex = await spawn(o, "Codex-Unmovable", "Casey", {
+      agentType: "codex",
+    });
+    const before = caseyRecord(o);
+    const stuck = await asOwner(o, "PATCH", `/api/users/${o.caseyName}`, {
+      role: "member",
+      pack: WITH_AGENTS,
+      allowedRooms: [o.room],
+    });
+    expect(outcome(stuck)).toEqual({
+      status: 409,
+      code: "agents_cannot_move_down",
+    });
+    expect(caseyRecord(o)).toEqual(before);
+    expect(agentOf(o, codex.id).access ?? "standard").toBe("standard");
   });
 });

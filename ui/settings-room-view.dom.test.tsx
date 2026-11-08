@@ -92,7 +92,12 @@ async function mount(
 
 type View = ReturnType<typeof render>;
 // Each row's control is a radio group named after its room.
-const groups = (view: View) => view.queryAllByRole("radiogroup");
+// The Rooms table's view-level groups (the Access section above it has
+// radio groups of its own).
+const groups = (view: View) =>
+  view
+    .queryAllByRole("radiogroup")
+    .filter((g) => g.querySelector('[role="radio"][data-view-level]'));
 const groupFor = (view: View, id: string) =>
   groups(view).find((g) =>
     (g.getAttribute("aria-label") ?? "").includes(`Room ${id}`),

@@ -1699,7 +1699,14 @@ const SPEC_ROUTE_CONTRACT: Record<
   // token edits a member record. Instructions are users.setInstructions.
   "users.update": {
     caps: ["user:self", "user:admin", "user:rename"],
-    emits: ["user_updated", "users_list", "full_state", "invites_list"],
+    emits: [
+      "user_updated",
+      "users_list",
+      "user_admin_updated",
+      "user_self_updated",
+      "full_state",
+      "invites_list",
+    ],
   },
   "users.setAccess": {
     caps: ["user:admin"],

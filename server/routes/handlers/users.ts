@@ -2,11 +2,13 @@
 // user-management surface on the unified REST surface (opIds users.{create,
 // update,setAccess,delete}).
 //
-// users.update carries ONLY the
-// record fields (name/role/avatar) via UserUpdateReq, and users.setInstructions
-// the member's instructions; users.setAccess
-// carries allowedRooms and PRUNE-clamps the target's existing notif/default
-// against the new accessible set in ONE write. View prefs (notif/default) are
+// users.update carries the record fields (name/role/avatar) via
+// UserUpdateReq, and for a human owner caller also a member's pack and
+// allowedRooms with the role, in ONE write (task 2c57281c: a demote to a pack
+// is one save); users.setInstructions the member's instructions;
+// users.setAccess carries allowedRooms and the pack of a member who stays a
+// member. Both PRUNE-clamp the target's existing notif/default against the
+// new accessible set in the same write. View prefs (notif/default) are
 // SELF-only via view.* - owners do not set a member's personal prefs. That
 // capability was removed rather than preserved through a wider SetAccessReq.
 // claim_user's first-login pref migration becomes view.* PUTs.
@@ -255,9 +257,30 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         if (!("name" in raw))
           return fail(422, "invalid_request", "name is required");
       }
-      const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
+      const body = (ctx.body ?? {}) as Partial<UserUpdateReq> & {
+        pack?: unknown;
+        allowedRooms?: unknown;
+      };
       const malformed = malformedUserUpdate(body);
       if (malformed) return fail(422, "invalid_request", malformed);
+      // A member's pack and room grants, with the role in one write (task
+      // 2c57281c). null clears the pack, absent keeps it.
+      const pack =
+        body.pack === undefined || body.pack === null
+          ? body.pack
+          : parseMemberPack(body.pack);
+      if (pack === null && body.pack !== null)
+        return fail(422, "invalid_pack", INVALID_PACK_MESSAGE);
+      if (
+        body.allowedRooms !== undefined &&
+        (!Array.isArray(body.allowedRooms) ||
+          !body.allowedRooms.every((x) => typeof x === "string"))
+      )
+        return fail(
+          422,
+          "invalid_request",
+          "allowedRooms must be an array of room ids",
+        );
       const r = await deps.update({
         username: ctx.params.username,
         changes: {
@@ -265,6 +288,10 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           name: body.name,
           avatarColor: body.avatarColor,
           avatarVariant: body.avatarVariant,
+          ...(pack !== undefined ? { pack } : {}),
+          ...(body.allowedRooms !== undefined
+            ? { allowedRooms: body.allowedRooms }
+            : {}),
         },
         identity: ctx.identity,
       });

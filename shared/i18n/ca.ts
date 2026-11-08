@@ -549,7 +549,6 @@ Coses que pots fer per ell:
   "settings.removedMembers.restore": "Restaurar",
   "settings.removedMembers.deleteNow": "Esborrar ara",
   "settings.removedMembers.restoreFailed": "No s'ha pogut restaurar",
-  "settings.role.officeOwner": "Propietari de l’oficina",
   "settings.role.officeOwnerExplanation":
     "Pot accedir a totes les sales, convidar membres i gestionar l’accés i les sessions dels membres.",
   "settings.role.owner": "propietari de l'oficina",
@@ -1053,9 +1052,31 @@ Coses que pots fer per ell:
     "Només envia als agents que li han escrit primer",
   "settings.apiTokens.access.custom": "Personalitzat",
   "settings.memberPack.workWithAgents": "Treballar amb agents",
-  "settings.memberPack.ceiling": "Nivell d'agent més alt",
   "settings.memberPack.hint":
     "Un paquet només és un límit ferm per a un membre que mai no ha tingut un agent a Estàndard o Privilegiat.",
+  "settings.memberAccess.title": "Accés",
+  "settings.memberAccess.owner": "Propietari",
+  "settings.memberAccess.legendLine": "<strong>{level}.</strong> {text}",
+  "settings.memberAccess.legend.readOnly":
+    "Llegeix totes les àrees excepte els registres, els fitxers i l'entorn.",
+  "settings.memberAccess.legend.workWithAgents":
+    "A més parla amb agents, els gestiona i escriu tasques.",
+  "settings.memberAccess.legend.full":
+    "Totes les àrees, sense límit per als seus agents. Els agents a Estàndard executen ordres de shell al servidor.",
+  "settings.memberAccess.legend.owner":
+    "Accés complet a totes les sales, a més de gestionar membres, enllaços d'inici de sessió, sessions i configuració de l'oficina.",
+  "settings.memberAccess.legend.custom":
+    "Àrees i nivell d'agent triats un a un.",
+  "settings.memberAccess.legend.customFrom":
+    "Ha començat des de {level}. Tria un nivell per tornar-hi.",
+  "settings.memberAccess.demote":
+    "En desar passa a ser membre, no propietari de l'oficina.",
+  "settings.memberAccess.ceiling": "Els seus agents: fins a {level}",
+  "settings.memberAccess.ceilingAny": "Els seus agents: qualsevol nivell",
+  "settings.memberAccess.ceilingName": "Nivell més alt dels seus agents",
+  "settings.memberAccess.ceilingHint":
+    "El nivell de cada agent es tria a la seva configuració, fins a aquest límit.",
+  "settings.memberAccess.areas": "Què pot fer aquest membre",
   "settings.apiTokens.level.none": "Cap",
   "settings.apiTokens.level.read": "Lectura",
   "settings.apiTokens.level.write": "Lectura i escriptura",

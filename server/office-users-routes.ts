@@ -354,9 +354,11 @@ export function createUsersRoutes(
     return { movedBack, stayed };
   }
 
-  // The update_user split makes users.update responsible for record fields
-  // only; users.setAccess = allowedRooms + a prune-clamp of the target's
-  // existing notif/default; view prefs stay self-only via view.*. EMIT-IN-DEP
+  // The update_user split makes users.update responsible for record fields,
+  // and for an owner caller a member's pack and allowedRooms with the role in
+  // one write (task 2c57281c); users.setAccess = allowedRooms and the pack +
+  // a prune-clamp of the target's existing notif/default; view prefs stay
+  // self-only via view.*. EMIT-IN-DEP
   // (no user event sink): the seam runs updateUserById/deleteUser + the fanout,
   // mirroring the retired WS arms. Role/self authz is the route guard's
   // (selfOrOwner / officeOwner); the two delete preconditions add owner!=self +
@@ -461,6 +463,22 @@ export function createUsersRoutes(
           error: "Only an office owner can change roles.",
         };
       }
+      // A member's pack and room grants, in the same write as the role
+      // (task 2c57281c): a human owner only, as for the role.
+      const accessChange =
+        changes.pack !== undefined || changes.allowedRooms !== undefined;
+      if (
+        accessChange &&
+        (identity.scope !== "user" ||
+          getUserById(identity.userId ?? "")?.role !== "owner")
+      ) {
+        return {
+          ok: false,
+          status: 403,
+          code: "forbidden",
+          error: "Only an office owner can change a member's access.",
+        };
+      }
       // Before the session lockout check, so a sole owner gets this answer.
       if (changes.role === "member" && wouldDeleteLeaveNoOwner(target.id)) {
         return {
@@ -505,26 +523,77 @@ export function createUsersRoutes(
             error: "The office must have at least one office owner.",
           };
         }
+        const role = changes.role ?? pre.role;
+        if (changes.pack && role === "owner") {
+          return {
+            ok: false as const,
+            status: 400 as const,
+            code: "owner_has_no_pack",
+            error: "An office owner cannot have a permission pack.",
+          };
+        }
+        // Owners reach every room by rule: materialized owner grants are the
+        // demotion bomb (see create).
+        if ((changes.allowedRooms?.length ?? 0) > 0 && role === "owner") {
+          return {
+            ok: false as const,
+            status: 400 as const,
+            code: "invalid_rooms",
+            error:
+              "Room grants only apply to members (owners can reach every room).",
+          };
+        }
+        // Live rooms only, as create: an unknown id is refused, not pruned.
+        const liveRooms = agentManager.getOrdinaryRooms().map((r) => r.id);
+        const unknownRoom = changes.allowedRooms?.find(
+          (id) => !liveRooms.includes(id),
+        );
+        if (unknownRoom !== undefined) {
+          return {
+            ok: false as const,
+            status: 400 as const,
+            code: "invalid_rooms",
+            error: `Unknown room id: ${unknownRoom}`,
+          };
+        }
+        // Nothing is written while an agent of the member could not move
+        // down to the new ceiling.
+        const stuck = changes.pack
+          ? agentsThatCannotMoveDown(pre.id, changes.pack)
+          : [];
+        if (stuck.length > 0) {
+          return {
+            ok: false as const,
+            status: 409 as const,
+            code: AGENTS_CANNOT_MOVE_DOWN,
+            error: `These agents cannot run at this pack's highest agent level with their engine and model: ${stuck.map((agent) => agent.name).join(", ")}. Change their engine or model, give them another manager, or kill them first.`,
+          };
+        }
         const roleChanged =
           changes.role !== undefined && changes.role !== pre.role;
-        const appAudienceBefore = roleChanged
+        const audienceMayChange = roleChanged || accessChange;
+        const appAudienceBefore = audienceMayChange
           ? snapshotAppVisibility(() => true)
           : null;
-        const webhookAudienceBefore = roleChanged
+        const webhookAudienceBefore = audienceMayChange
           ? snapshotWebhookAudience(() => true)
           : null;
-        const accessible = accessibleRoomIdsFor({
-          ...pre,
-          role: changes.role ?? pre.role,
-        });
-        // Record fields ONLY - allowedRooms/notif/default are NOT in
-        // UserUpdateReq (access → users.setAccess; view prefs → view.*).
-        // Resolve by id so a rename can't strand the write.
-        const reclamped = roleChanged
+        const accessible = accessibleRoomIdsFor(
+          { ...pre, role },
+          changes.allowedRooms,
+        );
+        // Record fields, and a member's pack and room grants with the
+        // atomic notif/push clamp over the new accessible set. View prefs
+        // stay on view.*. Resolve by id so a rename can't strand the write.
+        const reclamped = audienceMayChange
           ? clampViewFields(accessible, pre, {})
           : null;
         const result = updateUserById(pre.id, {
           role: changes.role,
+          ...(changes.allowedRooms !== undefined
+            ? { allowedRooms: changes.allowedRooms }
+            : {}),
+          ...(changes.pack !== undefined ? { pack: changes.pack } : {}),
           ...(reclamped
             ? {
                 notifRooms: reclamped.notifRooms,
@@ -550,6 +619,7 @@ export function createUsersRoutes(
           user: result.user,
           pre,
           roleChanged,
+          audienceMayChange,
           accessible,
           appAudienceBefore,
           webhookAudienceBefore,
@@ -572,6 +642,7 @@ export function createUsersRoutes(
         user,
         pre,
         roleChanged,
+        audienceMayChange,
         accessible,
         appAudienceBefore,
         webhookAudienceBefore,
@@ -637,15 +708,18 @@ export function createUsersRoutes(
           avatarColor: user.avatarColor,
           avatarVariant: user.avatarVariant,
         },
-        roleChanged ? accessible : undefined,
+        audienceMayChange ? accessible : undefined,
       );
-      if (roleChanged) {
+      if (audienceMayChange) {
         if (appAudienceBefore) announceAppAudienceChanges(appAudienceBefore);
         if (webhookAudienceBefore) {
           announceWebhookAudienceChanges(webhookAudienceBefore);
         }
       }
-      if (presenceTouched || roleChanged) pushPresenceListToEachWs();
+      if (presenceTouched || audienceMayChange) pushPresenceListToEachWs();
+      // As setAccess: the member's agents move down, their apps stop and
+      // their pages reload.
+      if (changes.pack !== undefined) afterMemberPackSaved(user.id);
       return { ok: true, user };
     },
     setAccess: async ({ username, allowedRooms, pack }) => {

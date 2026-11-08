@@ -1068,6 +1068,10 @@ export type UserUpdateReq = Partial<{
   name: string;
   avatarColor: string;
   avatarVariant: UserRecord["avatarVariant"];
+  // Owner callers only, in the same write as role (task 2c57281c): null
+  // clears the pack.
+  pack: MemberPack | null;
+  allowedRooms: string[];
 }>;
 
 export interface SetAccessReq {

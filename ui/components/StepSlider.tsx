@@ -5,7 +5,10 @@ import { useRef } from "react";
 // move between the steps that are not disabled.
 export interface StepSliderProps<T extends string> {
   steps: readonly T[];
-  value: T;
+  // null: no step is checked or filled (for example a custom value off the
+  // line); the anchor step is then the tabbable one.
+  value: T | null;
+  anchor?: T;
   onChange: (step: T) => void;
   stepLabel: (step: T) => string;
   ariaLabel: string;
@@ -33,9 +36,14 @@ export function StepSlider<T extends string>({
   disabled = false,
   stepDisabled,
   stepTitle,
+  anchor,
 }: StepSliderProps<T>): React.ReactElement {
   const groupRef = useRef<HTMLDivElement>(null);
-  const rank = steps.indexOf(value);
+  // The step focus and the arrows start from: the checked one, else the
+  // anchor, else the first.
+  const focusStep = value ?? anchor ?? steps[0];
+  const rank = steps.indexOf(focusStep);
+  const filledTo = value === null ? -1 : rank;
   const off = (step: T) => stepDisabled?.(step) ?? false;
 
   function pick(next: T) {
@@ -73,7 +81,7 @@ export function StepSlider<T extends string>({
       role="radiogroup"
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
-      {...{ [attr]: value }}
+      {...{ [attr]: value ?? undefined }}
       onKeyDown={onKeyDown}
       style={{
         display: "flex",
@@ -86,7 +94,7 @@ export function StepSlider<T extends string>({
     >
       {steps.map((step, i) => {
         const checked = step === value;
-        const filled = i <= rank;
+        const filled = i <= filledTo;
         const stepOff = off(step);
         return (
           <button
@@ -100,7 +108,7 @@ export function StepSlider<T extends string>({
             {...{ [attr]: step }}
             data-filled={filled ? "true" : "false"}
             data-disabled={stepOff || undefined}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={step === focusStep ? 0 : -1}
             disabled={disabled}
             onClick={() => pick(step)}
             style={{

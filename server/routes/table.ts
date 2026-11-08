@@ -2749,12 +2749,21 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["user:self", "user:admin", "user:rename"],
       or(selfOrOwner, proxyMemberRename),
     ),
-    // Record fields (name/role/avatar). emitUserUpdated + emitUsersList;
-    // a role change also re-projects the subject's rooms (full_state) through
-    // the users.ts access hook, and a rename re-sends the invites list (its
-    // rows carry the member's current name). Access grants and view prefs are
-    // not editable here.
-    emits: ["user_updated", "users_list", "full_state", "invites_list"],
+    // Record fields (name/role/avatar), and for an owner caller a member's
+    // pack and room grants in the same write as the role (task 2c57281c).
+    // emitUserUpdated + emitUsersList on a public change, the private record
+    // events otherwise; a role, room or pack change also re-projects the
+    // subject's rooms (full_state) through the users.ts access hook, and a
+    // rename re-sends the invites list (its rows carry the member's current
+    // name). View prefs are not editable here.
+    emits: [
+      "user_updated",
+      "users_list",
+      "user_admin_updated",
+      "user_self_updated",
+      "full_state",
+      "invites_list",
+    ],
   }),
   defineRoute<SetAccessReq, { user: UserAdminWire }>({
     opId: "users.setAccess",
