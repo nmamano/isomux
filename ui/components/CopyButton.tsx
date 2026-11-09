@@ -65,7 +65,9 @@ function legacyCopy(text: string): boolean {
   }
 }
 
-async function writeText(text: string): Promise<boolean> {
+// Writes text to the clipboard. True only when the browser accepted a write;
+// never rejects.
+export async function writeClipboardText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -104,7 +106,7 @@ async function writePending(text: Promise<string>): Promise<boolean> {
   } catch {
     return false;
   }
-  return writeText(resolved);
+  return writeClipboardText(resolved);
 }
 
 // Copy-to-clipboard with the modern API plus a textarea/execCommand fallback
@@ -140,7 +142,7 @@ export function useClipboardCopy(resetMs = 1500) {
     async (text: string | Promise<string>): Promise<boolean> => {
       const ok =
         typeof text === "string"
-          ? await writeText(text)
+          ? await writeClipboardText(text)
           : await writePending(text);
       show(ok ? "copied" : "failed");
       return ok;

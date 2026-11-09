@@ -360,6 +360,8 @@ ${emitThemesCss()}
     cursor: pointer; padding: 0;
     transition: color 0.15s, background 0.15s, border-color 0.15s;
   }
+  .code-copy-btn[data-copy-outcome="copied"] { color: var(--green-text); background: var(--green-bg); }
+  .code-copy-btn[data-copy-outcome="failed"] { color: var(--red-text); background: var(--red-bg); }
 
   /* diff2html - chat-context tweaks: tighter density, no per-file double-border. */
   .d2h-isomux-host .d2h-file-wrapper {

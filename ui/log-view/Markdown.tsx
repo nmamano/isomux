@@ -40,6 +40,7 @@ import {
 } from "./html-sanitize.ts";
 import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
 import { AskRefs, askChipSuffix, askChipTitle } from "./ask-refs.tsx";
+import { writeClipboardText } from "../components/CopyButton.tsx";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -428,6 +429,10 @@ function ensureKatexStylesheet() {
 
 const COPY_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>`;
 const CHECK_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>`;
+const CROSS_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>`;
+// The pending reset of each code-block copy button: a new click replaces it,
+// so the newest outcome shows for the full time.
+const copyResetTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
 // data-chat-export: not in the chat's HTML file (chat-export.ts).
 const copyButtonHtml = (title: string) =>
   `<button class="copy-btn code-copy-btn" title="${title}" data-chat-export="omit">${COPY_SVG}</button>`;
@@ -552,28 +557,27 @@ export function Markdown({
       if (!pre) return;
       const code = pre.querySelector("code");
       const text = code ? (code.textContent ?? "") : (pre.textContent ?? "");
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      btn.innerHTML = CHECK_SVG;
-      (btn as HTMLElement).style.color = "var(--green-text)";
-      (btn as HTMLElement).style.background = "var(--green-bg)";
-      setTimeout(() => {
-        btn.innerHTML = COPY_SVG;
-        (btn as HTMLElement).style.color = "";
-        (btn as HTMLElement).style.background = "";
-      }, 1500);
+      const ok = await writeClipboardText(text);
+      // The stylesheet colors the button from data-copy-outcome, also under
+      // the pointer (ui/styles.ts).
+      btn.setAttribute("data-copy-outcome", ok ? "copied" : "failed");
+      btn.setAttribute(
+        "title",
+        i18n.t(ok ? "common.copiedNotice" : "common.copyFailed"),
+      );
+      btn.innerHTML = ok ? CHECK_SVG : CROSS_SVG;
+      clearTimeout(copyResetTimers.get(btn));
+      copyResetTimers.set(
+        btn,
+        setTimeout(() => {
+          copyResetTimers.delete(btn);
+          btn.removeAttribute("data-copy-outcome");
+          btn.setAttribute("title", i18n.t("common.copy"));
+          btn.innerHTML = COPY_SVG;
+        }, 1500),
+      );
     },
-    [onOpenTask, askRefs],
+    [onOpenTask, askRefs, i18n],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
