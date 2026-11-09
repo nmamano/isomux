@@ -265,7 +265,6 @@ async function makeHealthOnlyBinary(
     binary,
     `#!/usr/bin/env bun
 import { appendFileSync } from "node:fs";
-appendFileSync(${JSON.stringify(launchMarker)}, process.pid + "\\n");
 ${preamble}
 // 2.1.4 serves the port it is given (T8) and prints no address to parse.
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
@@ -289,6 +288,10 @@ Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   appendFileSync(${JSON.stringify(healthMarker)}, "hit\\n");
   return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
 }});
+// A launch is a server that bound its port: start-server.ts retries a port
+// another process took (R5), and that attempt is not a server (task 19522806).
+// Written before the first health answer, so before the start returns.
+appendFileSync(${JSON.stringify(launchMarker)}, process.pid + "\\n");
 await new Promise(() => {});
 `,
   );
@@ -2663,8 +2666,7 @@ describe("OpenCode shared server supervisor", () => {
 
   // Task 935e795e: an acquire that must replace an unresponsive server and
   // joins a start that adopted that server still replaces it.
-  // Quarantined: flaky in CI (launch count 3, expected 2), task 19522806.
-  it.skip("replaces an unresponsive server for an acquire that joined a start which adopted it", async () => {
+  it("replaces an unresponsive server for an acquire that joined a start which adopted it", async () => {
     const path = await root();
     const { binary, launchMarker } = await makeHealthOnlyBinary(path);
     let ensures = 0;
