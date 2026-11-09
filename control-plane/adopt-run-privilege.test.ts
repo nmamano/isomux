@@ -143,6 +143,15 @@ function run(b: Bed, mode: string) {
   };
 }
 
+/**
+ * Both streams, with the instance id taken out. The id is random
+ * (`inst-<uuid>`), so it can hold any digits, 42501 among them: a SQLSTATE
+ * check on the raw text would then pass or fail on the id, not on the error.
+ */
+function said(r: ReturnType<typeof run>, b: Bed): string {
+  return `${r.err}${r.out}`.replaceAll(b.instanceId, "<instance>");
+}
+
 /** A succeeded verify_https, written by the OWNER: revoking is only allowed
  * against a box we proved was live, and staging that is not what is under
  * test here. */
@@ -205,9 +214,7 @@ suite("adopt-run under the provisioner's exact grant matrix", () => {
     await store.close();
   });
 
-  // Quarantined (task dafe7c39, P1): fails when the random instance id in the
-  // refusal message contains 42501.
-  test.skip("a REFUSAL is still the command's own refusal, not a privilege error", async () => {
+  test("a REFUSAL is still the command's own refusal, not a privilege error", async () => {
     // The preconditions have to be reachable from this role too. A revoke
     // before anything is linked must fail on the rule, which means the reads
     // the rule depends on all succeeded.
@@ -215,9 +222,12 @@ suite("adopt-run under the provisioner's exact grant matrix", () => {
     const r = run(b, "--revoke");
     expect(r.code).toBe(1);
     expect(r.err).toContain("not to run");
+    // The refusal names the instance, so `said` has an id to take out; without
+    // this, a message that dropped the id would make the strip a no-op.
+    expect(r.err).toContain(b.instanceId);
     // Not an authorization failure wearing a rule's clothes: 42501 is what the
     // narrowed case below produces, and it must be absent here.
-    expect(r.err).not.toContain("42501");
+    expect(said(r, b)).not.toContain("42501");
   });
 
   test("A NARROWED MATRIX FAILS HERE, which is what makes the case above evidence", async () => {
@@ -238,12 +248,12 @@ suite("adopt-run under the provisioner's exact grant matrix", () => {
     // store's seam scrubs the text - "the database refused a statement
     // (SQLSTATE 42501)" is the whole of what a caller sees - so the code is
     // what there is to assert on, and that is the right thing to assert on.
-    const said = `${r.err}${r.out}`;
-    expect(said).toContain("42501");
+    const text = said(r, b);
+    expect(text).toContain("42501");
     // The scrubbing itself, checked here because this is one of the few tests
     // that sees a real driver error: no host, no role, no password.
-    expect(said).not.toContain("cp_lp_");
-    expect(said).not.toContain("postgres://");
+    expect(text).not.toContain("cp_lp_");
+    expect(text).not.toContain("postgres://");
 
     // AND NOTHING WAS HALF-WRITTEN: one transaction, so the link the command
     // made before the refused insert is gone with it.
