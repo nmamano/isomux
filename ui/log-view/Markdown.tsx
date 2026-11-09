@@ -396,6 +396,10 @@ function getMermaid() {
         theme: mode,
         securityLevel: "strict",
         fontFamily: "var(--font-ui)",
+        // On a failed render, draw no error graphic of mermaid's own and
+        // remove the temporary element render() adds to document.body; our
+        // in-chat error card is the only error shown.
+        suppressErrorRendering: true,
       });
       return m;
     });
@@ -696,12 +700,16 @@ export function Markdown({
         for (let i = 0; i < nodes.length; i++) {
           if (cancelled) return;
           const node = nodes[i];
+          const id = `mmd-${++mermaidIdCounter}`;
           try {
-            const id = `mmd-${++mermaidIdCounter}`;
             const { svg } = await m.render(id, sources[i]);
             node.innerHTML = svg;
             node.setAttribute("data-processed", "true");
           } catch (e) {
+            // render() draws into a temporary element on document.body
+            // (id "d" + id). Some of its failure paths throw without
+            // removing it, which leaves it on the page outside the chat.
+            document.getElementById(`d${id}`)?.remove();
             const msg = e instanceof Error ? e.message : String(e);
             markError(
               node,
