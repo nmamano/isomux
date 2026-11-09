@@ -122,10 +122,12 @@ export function confinedFolderRefusal(
   opts: { roomFolderOnly: boolean } = { roomFolderOnly: false },
 ): string | null {
   const dir = real(folder);
-  if (overlaps(dir, real(state.stateRoot)))
-    return `The folder of ${agent.name} may not hold the office state or sit inside it.`;
+  // The home folder first: it usually holds the office state too, and the
+  // home folder is what the member picked.
   if (dir === real(state.home))
     return `The folder of ${agent.name} may not be the home folder.`;
+  if (overlaps(dir, real(state.stateRoot)))
+    return `The folder of ${agent.name} may not hold the office state or sit inside it.`;
   if (state.providerHomes.some((home) => overlaps(dir, real(home))))
     return `The folder of ${agent.name} may not hold a Claude, Codex or OpenCode home or sit inside one.`;
   if (opts.roomFolderOnly) {

@@ -2009,6 +2009,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.reviveFailed": "Revive failed",
   "dialogs.agent.moveToRoom": "Move to Room",
   "dialogs.agent.invalidDirectory": "Invalid directory",
+  "dialogs.agent.chooseAnotherFolder": "Choose another working directory.",
   "dialogs.agent.staleInstructions":
     "Custom instructions changed since you opened this - reopen the dialog to edit the latest.",
   "dialogs.agent.spawn": "Spawn",

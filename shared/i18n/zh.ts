@@ -1824,6 +1824,7 @@ App 的一些原则：
   "dialogs.agent.reviveFailed": "恢复失败",
   "dialogs.agent.moveToRoom": "移至房间",
   "dialogs.agent.invalidDirectory": "目录无效",
+  "dialogs.agent.chooseAnotherFolder": "请选择其他工作目录。",
   "dialogs.agent.staleInstructions":
     "自定义指令在打开后发生了变化。请重新打开对话框以编辑最新版本。",
   "dialogs.agent.spawn": "创建",

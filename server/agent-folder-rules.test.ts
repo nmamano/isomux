@@ -248,3 +248,29 @@ describe("no agent, schedule or app works inside the office state", () => {
       }).toEqual({ label, refused });
   });
 });
+
+// Task 6f802809: the office state lives in the home folder by default
+// (~/.isomux), so a Folder or Web agent at the home folder breaks both rules.
+// The refusal names the one the member chose, the home folder.
+describe("a Folder or Web agent at the home folder that holds the office state", () => {
+  it("is refused for the home folder, not for the state", () => {
+    const homeWithState = dir("home-with-state");
+    const stateInHome = dir("home-with-state", ".isomux");
+    const me = { id: "me", name: "Me", roomId: "r1" };
+    const refusal = (home: string, state: string) =>
+      confinedFolderRefusal(me, homeWithState, {
+        ...stateWith([], {}),
+        home,
+        stateRoot: state,
+      });
+    // Each rule alone, to tell the two reasons apart without their copy.
+    const homeOnly = refusal(homeWithState, stateRoot);
+    const stateOnly = refusal(home, stateInHome);
+    expect({
+      homeOnly: homeOnly !== null,
+      stateOnly: stateOnly !== null,
+      distinct: homeOnly !== stateOnly,
+    }).toEqual({ homeOnly: true, stateOnly: true, distinct: true });
+    expect(refusal(homeWithState, stateInHome)).toBe(homeOnly);
+  });
+});

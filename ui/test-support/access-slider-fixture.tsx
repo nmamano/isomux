@@ -37,8 +37,14 @@ export interface Call {
 
 // Records every write a save makes. rooms: how GET /api/me/rooms answers
 // (never: it stays pending). refuseAccess: PUT /access answers 422.
+// refuse: the write whose route (see `route`) is `route` answers 422 with
+// `code` and REFUSAL; read at each call, so a test can lift it mid-way.
 export function shim(
-  opts: { rooms?: "ok" | "never" | "fail"; refuseAccess?: boolean } = {},
+  opts: {
+    rooms?: "ok" | "never" | "fail";
+    refuseAccess?: boolean;
+    refuse?: { route: string; code: string };
+  } = {},
 ): Call[] {
   const calls: Call[] = [];
   setApiShim(async (method, path, body) => {
@@ -59,6 +65,8 @@ export function shim(
     calls.push({ method, path, body });
     if (opts.refuseAccess && path.endsWith("/access"))
       throw new ApiError(422, "folder_not_allowed", REFUSAL);
+    if (opts.refuse && route({ method, path, body }) === opts.refuse.route)
+      throw new ApiError(422, opts.refuse.code, REFUSAL);
     if (method === "POST" && path === "/api/agents")
       return { agent: { ...claudeAgent("opus", "default", []), id: "new" } };
     return {};

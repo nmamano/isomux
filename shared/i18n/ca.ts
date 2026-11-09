@@ -2064,6 +2064,7 @@ Coses que pots fer per ell:
   "dialogs.agent.reviveFailed": "No s'ha pogut reactivar",
   "dialogs.agent.moveToRoom": "Moure a la sala",
   "dialogs.agent.invalidDirectory": "Directori no vàlid",
+  "dialogs.agent.chooseAnotherFolder": "Tria un altre directori de treball.",
   "dialogs.agent.staleInstructions":
     "Les instruccions personalitzades han canviat des que vas obrir això - torna a obrir el diàleg per editar la versió més recent.",
   "dialogs.agent.spawn": "Crea",

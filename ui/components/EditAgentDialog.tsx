@@ -74,6 +74,7 @@ import {
   stopHasFolder,
   CODEX_BELOW_STANDARD_MODELS,
   engineRunsAccessOnSomeModel,
+  FOLDER_NOT_ALLOWED,
   sameAccessGrant,
   stopHasPack,
   type AgentAccess,
@@ -528,12 +529,34 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [saving, setSaving] = useState(false);
   const [reviving, setReviving] = useState<string | null>(null);
   const [reviveError, setReviveError] = useState<string | null>(null);
-  // Save-time errors route to either the Name input or the Cwd input based on
-  // the REST error code (name_taken -> Name). Errors that don't map to a specific
-  // field (the common case, e.g. cwd validation) fall back to cwdError, where the
-  // inline render lives.
-  const [nameError, setNameError] = useState<string | null>(null);
+  // A failed save shows its message once, in the footer next to Save, where
+  // the member clicked (task 6f802809: under the field it was scrolled out of
+  // view, so Save seemed to do nothing). The field the failure is about, if
+  // any, is marked and scrolled into view; focus stays on Save.
+  const [saveError, setSaveError] = useState<{
+    message: string;
+    field: "name" | "cwd" | null;
+  } | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const cwdInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const field =
+      saveError?.field === "name"
+        ? nameInputRef.current
+        : saveError?.field === "cwd"
+          ? cwdInputRef.current
+          : null;
+    field?.scrollIntoView({ block: "nearest" });
+  }, [saveError]);
+  // The stored working directory failed validation at open (not a save
+  // failure): shown under the field.
   const [cwdError, setCwdError] = useState<string | null>(null);
+  const cwdMarked = !!cwdError || saveError?.field === "cwd";
+  // An edit of the working directory answers both.
+  function clearCwdErrors() {
+    if (cwdError) setCwdError(null);
+    if (saveError?.field === "cwd") setSaveError(null);
+  }
   const [showRecentCwds, setShowRecentCwds] = useState(false);
   // Suggestion chips: allRecentCwds is server-maintained newest-first (capped at
   // 20). Drop the current cwd, then show only the most recent few so the chip
@@ -748,6 +771,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   }
 
   function commitDiscard() {
+    setSaveError(null);
     const revive = pendingReviveRef.current;
     pendingReviveRef.current = null;
     if (revive) {
@@ -1078,7 +1102,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
   function handleSave() {
     if (!openCodeModelReady) {
-      setCwdError(t("common.model.selectConnected"));
+      setSaveError({
+        message: t("common.model.selectConnected"),
+        field: null,
+      });
       return;
     }
     // The threshold counts only while it shows; an invalid one blocks Save.
@@ -1090,9 +1117,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       setAutoHandoffTokensError(true);
       return;
     }
-    // name_taken routes under the Name input; everything else under cwd (the
-    // prior agent_save_response.field === "name" routing, now keyed on the REST
-    // ApiError.code).
+    // The REST ApiError.code names the field a failure is about: name_taken
+    // the Name input, a folder refusal the working directory when the member
+    // may change it.
     const showError = (e: unknown) => {
       // ApiError carries the server message; anything else (network failure, demo
       // shim throw, apiFetch guard) falls back to a generic message so the dialog
@@ -1103,18 +1130,22 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           : e instanceof ApiError
             ? e.message || t("common.saveFailed")
             : t("common.saveFailed");
-      if (e instanceof ApiError && e.code === "name_taken") {
-        setNameError(msg);
-        setCwdError(null);
-      } else {
-        setCwdError(msg);
-        setNameError(null);
-      }
+      const code = e instanceof ApiError ? e.code : null;
+      setSaveError({
+        message: msg,
+        field:
+          code === "name_taken"
+            ? "name"
+            : !setsNoFolder &&
+                (code === "invalid_cwd" || code === FOLDER_NOT_ALLOWED)
+              ? "cwd"
+              : null,
+      });
     };
 
     if (isSpawn) {
       setCwdError(null);
-      setNameError(null);
+      setSaveError(null);
       setSaving(true);
       // username is server-derived (attributionFor) - not sent. The created
       // agent rides the agent_added broadcast. We read the { agent } body only
@@ -1243,7 +1274,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         return;
       }
       setCwdError(null);
-      setNameError(null);
+      setSaveError(null);
       // Thunks, run SEQUENTIALLY (not Promise.all): a cwd/engine PATCH and a
       // privilege PUT each trigger a server-side session-swap, and two
       // overlapping swaps on one agent would race replaceSession. Ordering them
@@ -1294,8 +1325,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           .then(async () => {
             const m = await mem.save();
             if (!m.ok) {
-              setCwdError(m.message);
-              setNameError(null);
+              setSaveError({ message: m.message, field: null });
               return;
             }
             closeAfterSave();
@@ -2054,29 +2084,20 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               <label style={labelStyle}>{t("common.name")}</label>
               <input
                 {...noTranslate()}
+                ref={nameInputRef}
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
-                  if (nameError) setNameError(null);
+                  if (saveError?.field === "name") setSaveError(null);
                 }}
                 placeholder={defaultSpawnName}
+                aria-invalid={saveError?.field === "name" || undefined}
                 style={
-                  nameError
+                  saveError?.field === "name"
                     ? { ...inputStyle, borderColor: "#ff6b6b" }
                     : inputStyle
                 }
               />
-              {nameError && (
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: "var(--red-text)",
-                    margin: "4px 0 0",
-                  }}
-                >
-                  {nameError}
-                </p>
-              )}
             </section>
             <section className="agent-settings-group agent-engine-section">
               <h4 className="agent-settings-group-title">
@@ -2358,14 +2379,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <div style={{ display: "flex", gap: 6 }}>
                     <input
                       {...noTranslate()}
+                      ref={cwdInputRef}
                       value={cwd}
                       readOnly={setsNoFolder}
                       onChange={(e) => {
                         setCwd(e.target.value);
-                        if (cwdError) setCwdError(null);
+                        clearCwdErrors();
                       }}
+                      aria-invalid={cwdMarked || undefined}
                       style={
-                        cwdError
+                        cwdMarked
                           ? { ...inputStyle, borderColor: "#ff6b6b" }
                           : inputStyle
                       }
@@ -2415,7 +2438,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           onClick={() => {
                             setCwd(c);
                             setShowRecentCwds(false);
-                            if (cwdError) setCwdError(null);
+                            clearCwdErrors();
                           }}
                           style={chipStyle}
                         >
@@ -2651,6 +2674,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             flexShrink: 0,
           }}
         >
+          {saveError && (
+            <p
+              role="alert"
+              style={{
+                fontSize: 12,
+                color: "var(--red-text)",
+                margin: "0 0 10px",
+                lineHeight: 1.4,
+              }}
+            >
+              {saveError.message}
+              {saveError.field === "cwd" &&
+                ` ${t("dialogs.agent.chooseAnotherFolder")}`}
+            </p>
+          )}
           {confirmDiscard && (
             <div
               style={{

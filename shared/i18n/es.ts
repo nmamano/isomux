@@ -2057,6 +2057,7 @@ Cosas que puedes hacer por él:
   "dialogs.agent.reviveFailed": "No se pudo reactivar",
   "dialogs.agent.moveToRoom": "Mover a la sala",
   "dialogs.agent.invalidDirectory": "Directorio no válido",
+  "dialogs.agent.chooseAnotherFolder": "Elige otro directorio de trabajo.",
   "dialogs.agent.staleInstructions":
     "Las instrucciones personalizadas han cambiado desde que abriste esto - vuelve a abrir el diálogo para editar la versión más reciente.",
   "dialogs.agent.spawn": "Crear",
