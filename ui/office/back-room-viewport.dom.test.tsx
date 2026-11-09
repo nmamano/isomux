@@ -60,16 +60,19 @@ function frameOf(view: View, back: boolean) {
 }
 
 function zoomIn(view: View, back: boolean) {
-  // The wheel bubbles from the scene to the viewport's container.
+  // A pinch (a ctrlKey wheel) bubbles from the scene to the viewport's
+  // container. A plain wheel does not zoom.
   const wheel = new WheelEvent("wheel", {
     deltaY: -200,
     bubbles: true,
     cancelable: true,
   });
-  // happy-dom's WheelEvent drops the pointer position from its init.
+  // happy-dom's WheelEvent drops the pointer position and the modifier keys
+  // from its init.
   Object.defineProperties(wheel, {
     clientX: { value: 300 },
     clientY: { value: 200 },
+    ctrlKey: { value: true },
   });
   floorScene(view, back).dispatchEvent(wheel);
 }

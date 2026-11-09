@@ -2692,7 +2692,7 @@ App 的一些原则：
   "office.hints.dragDeskTrapDoor": "拖动工位 → 交换，或移到门口或活板门",
   "office.hints.dragDesk": "拖动工位 → 交换，或移到门口",
   "office.hints.dragAgent": "拖动智能体 → 移到前台（梯子）",
-  "office.hints.wheel": "滚轮 / +- → 缩放",
+  "office.hints.wheel": "双指缩放 / CTRL+滚轮 / +- → 缩放",
   "office.hints.dragFloor": "拖动地面 → 平移",
   "office.hints.rightClick": "右键点击 → 操作",
   "office.hints.resetView": "0 → 重置视图",

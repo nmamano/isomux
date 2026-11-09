@@ -3011,7 +3011,7 @@ Cosas que puedes hacer por él:
   "office.hints.dragDesk":
     "ARRASTRAR EL ESCRITORIO → intercambiar, o mover a una puerta",
   "office.hints.dragAgent": "ARRASTRAR EL AGENTE → mover al frente (escalera)",
-  "office.hints.wheel": "RUEDA / +- → zoom",
+  "office.hints.wheel": "PELLIZCAR / CTRL+RUEDA / +- → zoom",
   "office.hints.dragFloor": "ARRASTRAR EL SUELO → desplazar",
   "office.hints.rightClick": "CLIC DERECHO → acciones",
   "office.hints.resetView": "0 → restablecer la vista",

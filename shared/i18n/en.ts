@@ -2926,7 +2926,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "DRAG DESK → swap, or move to a door or the trap door",
   "office.hints.dragDesk": "DRAG DESK → swap, or move to a door",
   "office.hints.dragAgent": "DRAG AGENT → move to the front (ladder)",
-  "office.hints.wheel": "WHEEL / +- → zoom",
+  "office.hints.wheel": "PINCH / CTRL+WHEEL / +- → zoom",
   "office.hints.dragFloor": "DRAG FLOOR → pan",
   "office.hints.rightClick": "RIGHT-CLICK → actions",
   "office.hints.resetView": "0 → reset view",

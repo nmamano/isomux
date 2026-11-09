@@ -16,12 +16,16 @@ export interface ViewportState {
 const VIEWPORT = {
   MIN_SCALE: 0.5,
   MAX_SCALE: 2.5,
-  /** Epsilon above 1.0 used to decide "zoomed in". Avoids floating-point drift from wheel scrolls just above rest. */
+  /** Epsilon above 1.0 used to decide "zoomed in". Avoids floating-point drift from zooms that end just above rest. */
   ZOOM_EPSILON: 1.01,
   /** Pixels of pointer movement before a mousedown becomes a pan. */
   PAN_THRESHOLD: 5,
-  /** Scale factor applied per wheel-pixel delta. */
-  WHEEL_ZOOM_SPEED: 0.001,
+  /**
+   * A pinch or Ctrl/Cmd+wheel multiplies the scale by exp(-deltaY * this) per
+   * event, so zooming out is as fast as zooming in. Each event is clamped to
+   * one ZOOM_STEP, so a mouse-wheel notch is one +/- step.
+   */
+  WHEEL_ZOOM_SPEED: 0.01,
   /** Zoom multiplier for +/- button or keyboard shortcuts. */
   ZOOM_STEP: 1.25,
   /** Fraction of the container that must remain occupied by the scene at the edge. */
@@ -236,6 +240,13 @@ export function artBounds(b: Bounds): Bounds {
     top: b.top + ART_BOX.top * h,
     bottom: b.top + ART_BOX.bottom * h,
   };
+}
+
+/** Safari's GestureEvent (not in lib.dom): the scale since gesturestart. */
+interface SafariGestureEvent extends Event {
+  scale: number;
+  clientX: number;
+  clientY: number;
 }
 
 /**
@@ -711,17 +722,95 @@ export function useViewport(
       };
     }
 
+    // Fingers on the screen, from the last touch event. iOS sends gesture
+    // events during a two-finger touch pinch, which handleTouchMove zooms.
+    let touchesDown = 0;
+    // Safari's pinch (gesture events): the scale when it started, or null.
+    let safariPinchStart: number | null = null;
+
+    // The page is pinch-zoomed by the browser (for example on a page that
+    // has no zoom of its own). The browser must undo that zoom first, so the
+    // room leaves the pinch to it.
+    function browserZoomed() {
+      return (window.visualViewport?.scale ?? 1) > 1;
+    }
+
+    // A plain wheel or two-finger trackpad scroll does not zoom: on a Mac
+    // trackpad it is a stream of events with an inertia tail, and it zoomed
+    // the room when the pointer was over it (task 7dfe3044). It pans a
+    // zoomed-in view. Only a pinch (a ctrlKey wheel in Chrome and Firefox) or
+    // Ctrl/Cmd+wheel zooms. Every wheel is prevented so the page does not
+    // scroll, zoom or go back in history from the room.
     function handleWheel(e: WheelEvent) {
+      const zoom = e.ctrlKey || e.metaKey;
+      if (zoom && browserZoomed()) {
+        return;
+      }
       e.preventDefault();
       const rect = container!.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      // Normalize deltaY to pixels so Firefox line-mode and page-mode wheels zoom at the same rate as pixel-mode.
+      // Normalize deltas to pixels so line-mode and page-mode wheels move at the same rate as pixel-mode.
       const lineHeight = 16;
       const unit =
         e.deltaMode === 1 ? lineHeight : e.deltaMode === 2 ? rect.height : 1;
-      const delta = -e.deltaY * unit * VIEWPORT.WHEEL_ZOOM_SPEED;
-      zoomAt(cx, cy, state.current.scale * (1 + delta));
+      if (!zoom) {
+        if (!isZoomedIn()) {
+          return;
+        }
+        state.current.x -= e.deltaX * unit;
+        state.current.y -= e.deltaY * unit;
+        clampPan();
+        applyTransform();
+        return;
+      }
+      if (safariPinchStart !== null) {
+        return;
+      }
+      const maxStep = Math.log(VIEWPORT.ZOOM_STEP);
+      const exponent = Math.max(
+        -maxStep,
+        Math.min(maxStep, -e.deltaY * unit * VIEWPORT.WHEEL_ZOOM_SPEED),
+      );
+      zoomAt(
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        state.current.scale * Math.exp(exponent),
+      );
+    }
+
+    function handleGestureStart(e: Event) {
+      if (browserZoomed()) {
+        return;
+      }
+      e.preventDefault();
+      if (touchesDown > 0) {
+        return;
+      }
+      safariPinchStart = state.current.scale;
+    }
+
+    function handleGestureChange(e: Event) {
+      if (browserZoomed()) {
+        return;
+      }
+      e.preventDefault();
+      if (touchesDown > 0) {
+        return;
+      }
+      const g = e as SafariGestureEvent;
+      safariPinchStart ??= state.current.scale;
+      const rect = container!.getBoundingClientRect();
+      zoomAt(
+        g.clientX - rect.left,
+        g.clientY - rect.top,
+        safariPinchStart * g.scale,
+      );
+    }
+
+    function handleGestureEnd(e: Event) {
+      if (!browserZoomed()) {
+        e.preventDefault();
+      }
+      safariPinchStart = null;
     }
 
     function handlePointerDown(e: PointerEvent) {
@@ -829,6 +918,7 @@ export function useViewport(
     }
 
     function handleTouchStart(e: TouchEvent) {
+      touchesDown = e.touches.length;
       if (e.touches.length >= 2) {
         enterPinch(e.touches[0], e.touches[1]);
         return;
@@ -917,6 +1007,7 @@ export function useViewport(
     }
 
     function handleTouchEnd(e: TouchEvent) {
+      touchesDown = e.touches.length;
       const g = gesture.current;
       if (g.kind === "pinching") {
         if (e.touches.length < 2) {
@@ -943,7 +1034,8 @@ export function useViewport(
       }
     }
 
-    function handleTouchCancel() {
+    function handleTouchCancel(e: TouchEvent) {
+      touchesDown = e.touches.length;
       const g = gesture.current;
       // iOS palm rejection / system gesture can cancel mid-pan. Reset any
       // touch-driven gesture state unconditionally so the next fresh touch
@@ -971,6 +1063,9 @@ export function useViewport(
     ro.observe(container);
 
     container.addEventListener("wheel", handleWheel, { passive: false });
+    container.addEventListener("gesturestart", handleGestureStart);
+    container.addEventListener("gesturechange", handleGestureChange);
+    container.addEventListener("gestureend", handleGestureEnd);
     container.addEventListener("pointerdown", handlePointerDown);
     container.addEventListener("pointermove", handlePointerMove);
     container.addEventListener("pointerup", handlePointerUp);
@@ -992,6 +1087,9 @@ export function useViewport(
       ro.disconnect();
       clearResetTransition();
       container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("gesturestart", handleGestureStart);
+      container.removeEventListener("gesturechange", handleGestureChange);
+      container.removeEventListener("gestureend", handleGestureEnd);
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMove);
       container.removeEventListener("pointerup", handlePointerUp);
