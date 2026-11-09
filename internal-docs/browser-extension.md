@@ -625,6 +625,19 @@ members' connections (see "All agents offers"):
 - `browser_not_paired`: no browser is paired. `browser_offline`: no paired
   browser is connected; its message becomes "No paired Chrome browser is
   online". An offline browser contributes no tabs.
+- A connection loss (not an office restart) leaves the bridge a record, in
+  memory, of each offer it took: target, browser, member, scope and deadline
+  (task 79c264b7). While the offer can come back (the browser is offline, its
+  new connection is attaching the resume, or that connection is younger than
+  `RESUME_GRACE_MS`), a target of it, or an agent's own tab without a target,
+  answers `browser_offline` naming that browser, whoever manages the agent.
+  Without a target, while the agent has such a tab, no other tab takes the
+  action: a live own tab makes it `browser_target_required`.
+  Any other end of the offer, its deadline, or an unpair drops the record. A
+  target never answers `browser_not_paired`: with no record and no paired
+  manager browser it is `browser_control_ended`. Untargeted `shared`,
+  `office` and `all` offers are left out: their routing needs the live
+  connection's access.
 
 **Prompt copy (server/system-prompt.ts).** The pairing sentence stays. "Use
 {"action":"tabs"} to list accessible offered tabs as {target,scope,title,url};

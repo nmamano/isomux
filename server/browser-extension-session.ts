@@ -31,6 +31,7 @@ import { browserExtensionTransport } from "./browser-extension-transport";
 import {
   FENCE_CEILING_MS,
   type ExtensionConnection,
+  type OfflineOffer,
 } from "./browser-extension-bridge";
 import { officePageRefused } from "./browser-office-gate";
 import {
@@ -179,6 +180,23 @@ const OPEN_ELSEWHERE =
   'Another member\'s browser lets you open a tab: pass its id as "browser" (see agentTabBrowsers in action "tabs").';
 const withOpenElsewhere = (error: string, elsewhere: boolean) =>
   elsewhere ? `${error} ${OPEN_ELSEWHERE}` : error;
+// Tabs that a connection loss took: their browser offers them again with the
+// same targets when it reconnects (task 79c264b7).
+const heldOffline = (offers: OfflineOffer[], whose: "This" | "Your") => {
+  const names = [...new Set(offers.map((o) => `${o.browser} (${o.member})`))];
+  const browsers =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const one = offers.length === 1;
+  const oneBrowser = names.length === 1;
+  return failure(
+    "browser_offline",
+    `${whose} ${one ? "tab is" : "tabs are"} in the ${oneBrowser ? "browser" : "browsers"} ${browsers}, which ${oneBrowser ? "is" : "are"} offline. When ${oneBrowser ? "it reconnects" : "they reconnect"}, ${one ? "the tab comes back with the same target" : "the tabs come back with the same targets"}: try again in a minute.`,
+  );
+};
+const NOT_OFFERED =
+  'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.';
 const NO_TAB_OPEN_OWN =
   'You have no tab. Open your own: {"action":"open","url":"https://..."}.';
 const OFFER_A_TAB =
@@ -308,6 +326,8 @@ export class ExtensionBrowserSessions {
       const outdated = member ? this.service.outdatedBrowsers(member) : [];
       const openable = bridge.agentTabBrowsers(member, agent);
       if (!tabs.length && !openable.length) {
+        const lost = bridge.offlineOwn(agent);
+        if (lost.length) return Promise.resolve(heldOffline(lost, "Your"));
         if (!member || !this.service.store.paired(member))
           return Promise.resolve(
             failure("browser_not_paired", "No Chrome browser is paired"),
@@ -328,13 +348,32 @@ export class ExtensionBrowserSessions {
         canOpenTabs: bridge.mayOpen(member, agent),
       });
     }
-    if (!params.target && bridge.ambiguous(member, agent))
-      return Promise.resolve(
+    const targetRequired = () =>
+      Promise.resolve(
         failure(
           "browser_target_required",
           'Several tabs are offered. Use action "tabs", then pass the chosen target with the browser action.',
         ),
       );
+    if (!params.target) {
+      // While a browser of the agent's own tabs is offline, an action
+      // without a target picks only what it could pick with it online: the
+      // own tab tier comes first, so no other tab takes it.
+      const lost = bridge.offlineOwn(agent);
+      if (lost.length) {
+        const own = bridge
+          .targets(member, agent)
+          .some(
+            ({ scope }) =>
+              (scope.kind === "agent" || scope.kind === "opened") &&
+              scope.agentId === agent,
+          );
+        return own
+          ? targetRequired()
+          : Promise.resolve(heldOffline(lost, "Your"));
+      }
+      if (bridge.ambiguous(member, agent)) return targetRequired();
+    }
     // The connection and grant are bound here. A queued action never moves to
     // another browser when an offer disappears or a new one takes precedence.
     const queued = bridge.resolve(member, agent, params.target);
@@ -347,10 +386,16 @@ export class ExtensionBrowserSessions {
       .then(async (): Promise<BrowserResult> => {
         if (this.owner(agent) !== member) return ended();
         if (!queued) {
+          // A target that a connection loss took: the answer is about that
+          // browser, whoever manages the agent.
+          const lost = this.lostTab(agent, params.target);
+          if (lost) return lost;
           if (!member)
             return params.action === "close"
               ? { ok: true, url: "", title: "", closed: true }
-              : failure("browser_not_paired", "No Chrome browser is paired");
+              : params.target
+                ? failure("browser_control_ended", NOT_OFFERED)
+                : failure("browser_not_paired", "No Chrome browser is paired");
           if (!this.mayUse(member, agent)) return ended();
         }
         if (!same(bridge.resolve(member, agent, params.target), queued))
@@ -364,6 +409,13 @@ export class ExtensionBrowserSessions {
       })
       .catch(() => {});
     return work;
+  }
+  // When no offer resolves: the tab of the target in a browser that a
+  // connection loss took. Without a target, run() answered before the queue.
+  private lostTab(agent: string, target?: string): BrowserResult | undefined {
+    if (target === undefined) return undefined;
+    const offer = this.service.bridge.offline(target, agent);
+    return offer ? heldOffline([offer], "This") : undefined;
   }
   // A new tab in a browser that lets agents open tabs, then a goto on it. A
   // goto that fails closes the tab again.
@@ -471,6 +523,9 @@ export class ExtensionBrowserSessions {
       // No tab to act on: point the agent to a tab it may open itself
       // before the member is asked to offer one.
       const elsewhere = bridge.agentTabBrowsers(member, agent).length > 0;
+      // A target came from a paired browser, so the answer is about it.
+      if (params.target && (!member || !this.service.store.paired(member)))
+        return failure("browser_control_ended", NOT_OFFERED);
       if (!member || !this.service.store.paired(member))
         return failure(
           "browser_not_paired",
@@ -485,7 +540,7 @@ export class ExtensionBrowserSessions {
       return failure(
         "browser_control_ended",
         (params.target
-          ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
+          ? NOT_OFFERED
           : bridge.mayOpen(member, agent)
             ? NO_TAB_OPEN_OWN
             : withOpenElsewhere(OFFER_A_TAB, elsewhere)) +

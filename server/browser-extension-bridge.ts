@@ -39,6 +39,23 @@ import {
 
 const COMMAND_TIMED_OUT = "Browser command timed out";
 
+// How long a new connection of a browser may take to offer again the tabs
+// it held before a connection loss, before their targets read as gone.
+export const RESUME_GRACE_MS = 10_000;
+
+/** The browser and member of an offer whose browser is offline. */
+export type OfflineOffer = { browser: string; member: string };
+
+// An offer that a connection loss took: the extension offers it again with
+// the same target when it reconnects. Only in memory: after an office
+// restart, a target of a browser that has not reconnected yet is unknown.
+type LostOffer = {
+  credentialHash: string;
+  memberId: string;
+  scope: BrowserGrantScope;
+  expiresAt: number | null;
+};
+
 export const browserCredentialHash = (credential: string): string =>
   createHash("sha256").update(credential).digest("hex");
 
@@ -254,6 +271,8 @@ type BrowserTab = {
 // agent also sees the "office" offers of other members who can reach it.
 export class BrowserExtensionBridge {
   private live = new Map<string, ExtensionConnection>();
+  // Offers lost to a connection loss, by target, until they come back or end.
+  private lost = new Map<string, LostOffer>();
   readonly offices: OfficeOrigins;
   constructor(
     private readonly access: {
@@ -298,6 +317,15 @@ export class BrowserExtensionBridge {
         this.access.mayUse(member, agent),
       () => {
         if (this.live.get(hash) === connection) this.live.delete(hash);
+        for (const offer of connection.lostOffers)
+          this.lost.set(offer.handle, {
+            credentialHash: hash,
+            memberId: member,
+            scope: offer.scope,
+            expiresAt: offer.expiresAt,
+          });
+        // Bounds the record without a timer.
+        this.pruneLost();
       },
       this.access.memberDisplay
         ? () => this.access.memberDisplay!(member)
@@ -327,6 +355,7 @@ export class BrowserExtensionBridge {
           }
         : undefined,
     );
+    connection.onOfferEnded = (handle) => this.lost.delete(handle);
     this.live.set(hash, connection);
     try {
       peer.send({
@@ -445,6 +474,74 @@ export class BrowserExtensionBridge {
 
   ambiguous(manager: string | undefined, agent: string): boolean {
     return this.choose(manager, agent).offers.length > 1;
+  }
+
+  /** The browser of the offer with this target when a connection loss took
+   * it and it may come back with the same target, and the agent may use it. */
+  offline(handle: string, agent: string): OfflineOffer | undefined {
+    this.pruneLost();
+    const offer = this.lost.get(handle);
+    return offer && this.lostFor(offer, agent)
+      ? this.lostDisplay(offer)
+      : undefined;
+  }
+
+  /** The offers of the agent's own tabs (opened or offered to it alone)
+   * whose browser is offline, as offline() reports them. */
+  offlineOwn(agent: string): OfflineOffer[] {
+    this.pruneLost();
+    return [...this.lost.values()]
+      .filter(
+        ({ scope }) =>
+          (scope.kind === "agent" || scope.kind === "opened") &&
+          scope.agentId === agent,
+      )
+      .map((offer) => this.lostDisplay(offer));
+  }
+
+  // A lost offer stays while its browser is paired, its deadline has not
+  // passed, and it can still come back: the browser is offline, its new
+  // connection is offering it again, or that connection is younger than
+  // RESUME_GRACE_MS. Any other end of the offer removes it at once
+  // (onOfferEnded).
+  private pruneLost(): void {
+    const now = this.clock.now();
+    for (const [handle, offer] of this.lost) {
+      const live = this.live.get(offer.credentialHash);
+      const state = live?.offerState(handle);
+      const kept =
+        this.access.memberForCredentialHash(offer.credentialHash) ===
+          offer.memberId &&
+        (offer.expiresAt === null || now < offer.expiresAt) &&
+        (!live ||
+          state === "attaching" ||
+          (state === undefined && now - live.openedAt < RESUME_GRACE_MS));
+      if (!kept) this.lost.delete(handle);
+    }
+  }
+
+  // Who learns of a lost offer: the agents its scope gave it to, by the
+  // member's reach now, since the browser's access left with it.
+  private lostFor({ scope, memberId }: LostOffer, agent: string): boolean {
+    switch (scope.kind) {
+      case "agent":
+      case "opened":
+        return scope.agentId === agent;
+      case "all":
+        return this.access.mayUse(memberId, agent);
+      default:
+        return (
+          this.access.mayUse(memberId, agent) ||
+          !!this.access.mayReach?.(memberId, agent)
+        );
+    }
+  }
+
+  private lostDisplay(offer: LostOffer): OfflineOffer {
+    return {
+      browser: this.access.browserName?.(offer.credentialHash) ?? "",
+      member: this.access.memberDisplay?.(offer.memberId).name ?? "",
+    };
   }
 
   /** The connected browsers where the agent may open a tab: the manager's
@@ -668,6 +765,17 @@ export class ExtensionConnection {
   extensionPackage?: string | null;
   // Its hello said it is a store install.
   storeInstall = false;
+  // When the connection opened, on the grant clock.
+  readonly openedAt: number;
+  // The offers that its close took, for the bridge to remember; set before
+  // onClose runs.
+  lostOffers: {
+    handle: string;
+    scope: BrowserGrantScope;
+    expiresAt: number | null;
+  }[] = [];
+  // An offer ended for another reason than the connection loss.
+  onOfferEnded?: (handle: string) => void;
   private active = true;
   private sequence = 0;
   private pending = new Map<number, Pending>();
@@ -713,6 +821,7 @@ export class ExtensionConnection {
       ): Promise<{ ok: true } | { ok: false; code: string }>;
     },
   ) {
+    this.openedAt = clock.now();
     // A new office origin can refuse a page that committed before it was known.
     this.stopLearning = offices.onLearn(() => {
       for (const a of this.assignments.values())
@@ -1495,6 +1604,15 @@ export class ExtensionConnection {
         () => true,
       ).length > 1
     );
+  }
+
+  /** The state of the offer with this target: still attaching, offered,
+   * or undefined when the connection holds none. */
+  offerState(handle: string): "attaching" | "offered" | undefined {
+    for (const a of this.assignments.values())
+      if (a.handle === handle && a.state.kind !== "released")
+        return a.state.kind === "creating" ? "attaching" : "offered";
+    return undefined;
   }
 
   revoke(agentId: string, target?: string): void {
@@ -2790,6 +2908,7 @@ export class ExtensionConnection {
     detail: Fields = {},
   ): void {
     if (a.state.kind === "released") return;
+    if (cause !== "connection_closed") this.onOfferEnded?.(a.handle);
     console.info(
       "[browser-extension] " +
         JSON.stringify({
@@ -2857,6 +2976,11 @@ export class ExtensionConnection {
       );
     }
     this.pending.clear();
+    // An offer still creating has no deadline yet. A lost resume keeps the
+    // record of the loss before it.
+    this.lostOffers = [...this.assignments.values()]
+      .filter((a) => a.state.kind !== "creating")
+      .map(({ handle, scope, expiresAt }) => ({ handle, scope, expiresAt }));
     for (const a of this.assignments.values())
       this.release(a, "connection_closed");
     this.stopLearning();
