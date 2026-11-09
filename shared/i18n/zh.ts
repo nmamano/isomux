@@ -2263,6 +2263,7 @@ App 的一些原则：
   "apiCall.body.outputAppended": "输出已追加到 {file}",
   "apiCall.body.more": "另有 {count} 项",
   "common.copiedNotice": "已复制！",
+  "common.copyFailed": "复制失败",
   "common.tasks": "任务",
   "common.avatar": "头像",
   "common.agent": "智能体",

@@ -39,7 +39,7 @@ function formatDate(language: SupportedLanguageCode, iso: string): string {
 type CommitStatus = Extract<UpdateStatusWire, { mode: "commit" }>;
 type ReleaseStatus = Extract<UpdateStatusWire, { mode: "release" }>;
 
-// The two plain-text builders below compose what the copy button puts on the
+// The plain-text builders below compose what the copy button puts on the
 // clipboard, which the pane's own tip says to hand to an agent. Agents keep
 // seeing English (internal-docs/i18n-loop.md, north star), so this text is
 // not a UI string and stays out of the catalog on purpose; the visible pane
@@ -68,16 +68,31 @@ const imageCommit = (s: ReleaseStatus): string | null =>
     ? s.current.version.slice(0, 7)
     : null;
 
-function buildReleasePlainText(s: ReleaseStatus): string {
+// The two lines the release text and the up-to-date text share, so the two
+// cannot drift apart. Commit mode names an untagged box by its short commit,
+// as an untagged image does.
+function runningLine(s: UpdateStatusWire): string {
   const running =
-    s.current.release ??
-    (imageCommit(s) ? `commit ${imageCommit(s)}` : s.current.version) ??
-    "an unknown version";
-  const lines = ["New Release Available", "", `- You are on ${running}`];
+    s.mode === "commit"
+      ? (s.current.release ?? `commit ${s.current.sha.slice(0, 7)}`)
+      : (s.current.release ??
+        (imageCommit(s) ? `commit ${imageCommit(s)}` : s.current.version) ??
+        "an unknown version");
+  return `- You are on ${running}`;
+}
+
+function latestLine(latest: {
+  tag: string;
+  publishedAt?: string | null;
+  url: string | null;
+}): string {
+  return `- Latest release: ${latest.tag}${latest.publishedAt ? ` (${formatDate(DEFAULT_LANGUAGE, latest.publishedAt)})` : ""}${latest.url ? `: ${latest.url}` : ""}`;
+}
+
+function buildReleasePlainText(s: ReleaseStatus): string {
+  const lines = ["New Release Available", "", runningLine(s)];
   if (s.latest) {
-    lines.push(
-      `- Latest release: ${s.latest.tag}${s.latest.publishedAt ? ` (${formatDate(DEFAULT_LANGUAGE, s.latest.publishedAt)})` : ""}${s.latest.url ? `: ${s.latest.url}` : ""}`,
-    );
+    lines.push(latestLine(s.latest));
     if (s.apply.kind === "image") {
       lines.push(
         "",
@@ -95,6 +110,27 @@ function buildReleasePlainText(s: ReleaseStatus): string {
         `To update: use the update button in the office (owner-only), or as root on the server: isomux-update ${s.latest.tag}`,
       );
     }
+  }
+  return lines.join("\n");
+}
+
+// The up-to-date state: what runs, and the last update's notes when the pane
+// shows them.
+function buildUpToDatePlainText(
+  s: UpdateStatusWire | null,
+  outcome: { at: string; messages: string[] } | undefined,
+): string {
+  const lines = ["Up to date"];
+  if (s) {
+    lines.push("", runningLine(s));
+    if (s.latest) lines.push(latestLine(s.latest));
+  }
+  if (outcome) {
+    lines.push(
+      "",
+      `Last update, ${formatDate(DEFAULT_LANGUAGE, outcome.at)}:`,
+      ...outcome.messages.map((m) => `- ${m}`),
+    );
   }
   return lines.join("\n");
 }
@@ -463,8 +499,8 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
         ? buildReleasePlainText(release)
         : notice
           ? buildCommitPlainText(notice)
-          : "",
-    [release, notice],
+          : buildUpToDatePlainText(updateInfo, quietOutcome),
+    [release, notice, updateInfo, quietOutcome],
   );
 
   return (

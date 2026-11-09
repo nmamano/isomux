@@ -2546,6 +2546,7 @@ Coses que pots fer per ell:
   "apiCall.body.outputAppended": "sortida afegida a {file}",
   "apiCall.body.more": "+{count} més",
   "common.copiedNotice": "Copiat!",
+  "common.copyFailed": "No s'ha pogut copiar",
   "common.tasks": "Tasques",
   "common.avatar": "Avatar",
   "common.agent": "Agent",

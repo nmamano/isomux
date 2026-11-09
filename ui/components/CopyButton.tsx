@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useI18n } from "../i18n.tsx";
 
 export const COPY_ICON = (
@@ -29,6 +29,21 @@ export const CHECK_ICON = (
     strokeLinejoin="round"
   >
     <polyline points="3.5 8.5 6.5 11.5 12.5 4.5" />
+  </svg>
+);
+
+export const CROSS_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
   </svg>
 );
 
@@ -93,27 +108,51 @@ async function writePending(text: Promise<string>): Promise<boolean> {
 }
 
 // Copy-to-clipboard with the modern API plus a textarea/execCommand fallback
-// for older / insecure contexts, and a transient "copied" flag. Shared by the
+// for older / insecure contexts, and a transient outcome flag. Shared by the
 // icon-only CopyButton and any labeled copy control (e.g. the task-id header),
 // so both get the same proven behavior. `copied` flips only after a write the
-// browser accepted; copy() resolves to whether it did, and never rejects.
+// browser accepted, `failed` after a refused one or a fail() call; the newest
+// outcome replaces the other at once, and one timer clears it. copy()
+// resolves to whether the write happened, and never rejects.
 export function useClipboardCopy(resetMs = 1500) {
-  const [copied, setCopied] = useState(false);
+  const [outcome, setOutcome] = useState<"copied" | "failed" | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const show = useCallback(
+    (next: "copied" | "failed") => {
+      if (timer.current) clearTimeout(timer.current);
+      setOutcome(next);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        setOutcome(null);
+      }, resetMs);
+    },
+    [resetMs],
+  );
+  // For a copy that fails before any write, e.g. when there is no text.
+  const fail = useCallback(() => show("failed"), [show]);
   const copy = useCallback(
     async (text: string | Promise<string>): Promise<boolean> => {
       const ok =
         typeof text === "string"
           ? await writeText(text)
           : await writePending(text);
-      if (ok) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), resetMs);
-      }
+      show(ok ? "copied" : "failed");
       return ok;
     },
-    [resetMs],
+    [show],
   );
-  return { copied, copy };
+  return {
+    copied: outcome === "copied",
+    failed: outcome === "failed",
+    copy,
+    fail,
+  };
 }
 
 export function CopyButton({
@@ -126,13 +165,19 @@ export function CopyButton({
   onCopyFailed?: () => void;
   size?: number;
 }) {
-  const { copied, copy } = useClipboardCopy();
+  const { copied, failed, copy, fail } = useClipboardCopy();
   const { t } = useI18n();
   const onClick = async () => {
     let text: string | Promise<string>;
     try {
       text = getText();
     } catch {
+      text = "";
+    }
+    // An empty text is nothing to copy: no write, and not shown as copied.
+    // (Text still being fetched is written before it is known.)
+    if (text === "") {
+      fail();
       onCopyFailed?.();
       return;
     }
@@ -145,7 +190,14 @@ export function CopyButton({
       className="copy-btn"
       // Not in the chat's HTML file (chat-export.ts).
       data-chat-export="omit"
-      title={copied ? t("common.copiedNotice") : t("common.copy")}
+      data-copy-outcome={copied ? "copied" : failed ? "failed" : undefined}
+      title={
+        copied
+          ? t("common.copiedNotice")
+          : failed
+            ? t("common.copyFailed")
+            : t("common.copy")
+      }
       style={{
         width: size,
         height: size,
@@ -154,15 +206,23 @@ export function CopyButton({
         justifyContent: "center",
         border: "1px solid var(--border-medium)",
         borderRadius: 6,
-        background: copied ? "var(--green-bg)" : "var(--btn-surface)",
-        color: copied ? "var(--green-text)" : "var(--text-dim)",
+        background: copied
+          ? "var(--green-bg)"
+          : failed
+            ? "var(--red-bg)"
+            : "var(--btn-surface)",
+        color: copied
+          ? "var(--green-text)"
+          : failed
+            ? "var(--red-text)"
+            : "var(--text-dim)",
         cursor: "pointer",
         padding: 0,
         flexShrink: 0,
         transition: "color 0.15s, background 0.15s, border-color 0.15s",
       }}
     >
-      {copied ? CHECK_ICON : COPY_ICON}
+      {copied ? CHECK_ICON : failed ? CROSS_ICON : COPY_ICON}
     </button>
   );
 }

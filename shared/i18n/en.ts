@@ -2466,6 +2466,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.body.outputAppended": "output appended to {file}",
   "apiCall.body.more": "+{count} more",
   "common.copiedNotice": "Copied!",
+  "common.copyFailed": "Could not copy",
   "common.tasks": "Tasks",
   "common.avatar": "Avatar",
   "common.agent": "Agent",

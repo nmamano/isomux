@@ -348,8 +348,9 @@ ${emitThemesCss()}
     .agent-settings-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   }
 
-  /* Copy buttons */
-  .copy-btn:hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }
+  /* Copy buttons. A button that shows a copy outcome keeps its colors under
+     the pointer, which is still on it right after the click. */
+  .copy-btn:not([data-copy-outcome]):hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }
   .code-copy-btn {
     position: absolute; top: 6px; right: 6px; z-index: 1;
     width: 24px; height: 24px;

@@ -85,9 +85,10 @@ function fixture(
   };
 }
 
-// The pane in a quiet state: the up-to-date branch, with no release body, no
-// guide link, and nothing to copy.
-async function expectQuiet(view: ReturnType<typeof render>) {
+// The pane in a quiet state: the up-to-date branch, with no release body and
+// no guide link. The copy button still copies (task acddc30f); returns what it
+// put on the clipboard.
+async function expectQuiet(view: ReturnType<typeof render>): Promise<string> {
   expect(
     view.queryByRole("heading", {
       name: t("settings.update.upToDateTitle"),
@@ -108,7 +109,9 @@ async function expectQuiet(view: ReturnType<typeof render>) {
   await act(async () => {
     fireEvent.click(view.getByRole("button", { name: t("common.copy") }));
   });
-  expect(copied).toBe("");
+  expect(copied).not.toBe("unset");
+  expect(copied.trim()).not.toBe("");
+  return copied;
 }
 
 describe("update trigger", () => {
@@ -408,15 +411,26 @@ describe("an office with no update to offer", () => {
   // The UI reads only `updateAvailable`: the server decides whether a box on
   // or past Latest has an update, so host and image boxes take one branch.
   it("reads as up to date and offers no update, on a host or an image", async () => {
-    for (const status of [
-      onLatest,
-      image("render"),
-      { ...image("kubernetes"), latest: null },
-      image("container", "v2026.9.8"),
-    ] as Status[]) {
+    // Each status with what the copy names: the running release or the short
+    // commit, and the latest tag when one is known.
+    for (const [status, names] of [
+      [onLatest, ["v2026.9.8"]],
+      [image("render"), [sha.slice(0, 7), "v2026.9.8"]],
+      [{ ...image("kubernetes"), latest: null }, [sha.slice(0, 7)]],
+      [image("container", "v2026.9.8"), ["v2026.9.8"]],
+      [
+        {
+          ...onLatest,
+          current: { release: "v2026.9.9", version: "v2026.9.9" },
+        },
+        ["v2026.9.9", "v2026.9.8"],
+      ],
+    ] as [Status, string[]][]) {
       const { view } = fixture(status);
       await act(async () => {});
-      await expectQuiet(view);
+      const copied = await expectQuiet(view);
+      for (const name of names) expect(copied).toContain(name);
+      expect(copied.includes(sha)).toBe(false);
       expect(
         view.queryByRole("button", {
           name: en.t("settings.update.updateNow"),
@@ -428,7 +442,7 @@ describe("an office with no update to offer", () => {
     }
   });
 
-  it("keeps the owner's last update note", () => {
+  it("keeps the owner's last update note, in the pane and on the clipboard", async () => {
     const NOTE = "Restored installer-managed firewall rule: 443/tcp.";
     const status: Status = {
       ...onLatest,
@@ -440,8 +454,39 @@ describe("an office with no update to offer", () => {
     };
     const owner = fixture(status);
     expect(owner.view.queryByText(NOTE)).not.toBeNull();
+    expect(await expectQuiet(owner.view)).toContain(NOTE);
     owner.view.unmount();
     const member = fixture(status, "member");
     expect(member.view.queryByText(NOTE)).toBeNull();
+    expect(await expectQuiet(member.view)).not.toContain(NOTE);
+  });
+
+  it("a source checkout with nothing new copies what it runs", async () => {
+    const commitSha = "d".repeat(40);
+    const quiet: Status = {
+      mode: "commit",
+      updateAvailable: false,
+      current: { release: null, sha: commitSha },
+      latest: { tag: "v2026.9.8", url: null },
+      releaseStanding: "ahead",
+      mainAhead: 0,
+    };
+    const { view } = fixture(quiet);
+    const copied = await expectQuiet(view);
+    expect(copied).toContain(commitSha.slice(0, 7));
+    expect(copied.includes(commitSha)).toBe(false);
+    expect(copied).toContain("v2026.9.8");
+    view.unmount();
+
+    // A box on a tag names the tag, not the commit.
+    const tagged = fixture({
+      ...quiet,
+      current: { release: "v2026.9.8", sha: commitSha },
+      latest: null,
+      releaseStanding: "current",
+    });
+    const taggedCopy = await expectQuiet(tagged.view);
+    expect(taggedCopy).toContain("v2026.9.8");
+    expect(taggedCopy.includes(commitSha.slice(0, 7))).toBe(false);
   });
 });
