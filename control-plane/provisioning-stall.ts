@@ -1,9 +1,11 @@
-// A signup that never opened any operation has no repair path of its own. Turn
-// that silent state into durable operator attention after three times the
-// measured end-to-end provisioning duration.
+// A paid office that never opened any operation has no repair path of its own.
+// Turn that silent state into durable operator attention after three times the
+// measured end-to-end provisioning duration, counted from the payment. An
+// unpaid reservation is 'provisioning' too, and never counts.
 
 import { clearAttentionIn, raiseAttentionIn } from "./attention.ts";
 import type { Store } from "./store.ts";
+import { stalledSql } from "./provisioning-stall-sql.ts";
 
 export const PROVISIONING_STALL_MS = 30 * 60_000;
 export const PROVISIONING_STALL_REASON =
@@ -22,36 +24,25 @@ export async function sweepProvisioningStalls(store: Store): Promise<number> {
     "select i.id, r.id as reason_id from instances i " +
       "left join attention_reasons r on r.instance_id = i.id and r.cleared_at is null " +
       "and r.source_op_id = '' and r.reason = $1 where " +
-      "(i.service_state = 'provisioning' and i.created_at <= $2 " +
-      "and not exists (select 1 from operations o where o.instance_id = i.id)) " +
-      "or r.id is not null order by i.created_at",
+      `${stalledSql("i", "$2")} or r.id is not null order by i.created_at`,
     [PROVISIONING_STALL_REASON, cutoff],
   );
   let changed = 0;
   for (const candidate of candidates) {
     changed += await store.tx(async () => {
-      const instance = await store.getInstance(candidate.id);
-      if (!instance) return 0;
-      const hasOperation =
-        (
-          await store.sqlGet<{ present: number }>(
-            "select case when exists (select 1 from operations where instance_id = $1) " +
-              "then 1 else 0 end as present",
-            [instance.id],
-          )
-        )?.present === 1;
-      const active =
-        instance.service_state === "provisioning" &&
-        instance.created_at <= cutoff &&
-        !hasOperation;
-      const open = (await store.openReasons(instance.id)).find(
+      const row = await store.sqlGet<{ stalled: boolean }>(
+        `select ${stalledSql("i", "$2")} as stalled from instances i where i.id = $1`,
+        [candidate.id, cutoff],
+      );
+      if (!row) return 0;
+      const open = (await store.openReasons(candidate.id)).find(
         (reason) =>
           reason.source_op_id === "" &&
           reason.reason === PROVISIONING_STALL_REASON,
       );
-      if (active) {
+      if (row.stalled) {
         return (await raiseAttentionIn(store, {
-          instanceId: instance.id,
+          instanceId: candidate.id,
           reasonClass: "operation_condition",
           reason: PROVISIONING_STALL_REASON,
           severity: "critical",
@@ -61,7 +52,7 @@ export async function sweepProvisioningStalls(store: Store): Promise<number> {
           : 0;
       }
       if (!open) return 0;
-      await clearAttentionIn(store, instance.id, open.id, ACTOR);
+      await clearAttentionIn(store, candidate.id, open.id, ACTOR);
       return 1;
     });
   }

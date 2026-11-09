@@ -742,8 +742,10 @@ async function runLifecycleCadence(
       );
     }
   }
-  await sweepProvisioningStalls(store);
+  // Starts first: a payment that landed late gets its create before the stall
+  // check sees it.
   await sweepProvisioningStarts(store, (kind) => running.handles(kind));
+  await sweepProvisioningStalls(store);
   await sweepCustomerKeyRetention(store, (line) => reporter.line(line));
   const summary = await lifecycleTick(store, store.now(), (line) =>
     reporter.line(line),

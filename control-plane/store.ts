@@ -50,6 +50,7 @@ import {
   PROVIDER_CANCEL_REASON_PARTS,
 } from "./lifecycle.ts";
 import { deadSql, UNPAID_OPENING_HOLD_MS } from "./reservation-hold.ts";
+import { stalledSql, stallDueSql } from "./provisioning-stall-sql.ts";
 
 export type Clock = () => number;
 
@@ -2309,14 +2310,14 @@ export class Store {
         "or exists (select 1 from reinstatement_attempts r where r.state = 'opening' " +
         "and r.fence_expires_at <= $1 and not exists (select 1 from operations o where o.id = " +
         "'op-checkout_expire-' || r.id)) " +
-        "or exists (select 1 from instances i where i.service_state = 'provisioning' " +
-        "and i.created_at <= $7 and not exists (select 1 from operations o where o.instance_id = i.id) " +
+        // The provisioning stall: exactly sweepProvisioningStalls' raise and
+        // clear rule, through the one predicate.
+        `or exists (select 1 from instances i where ${stalledSql("i", "$7")} ` +
         "and not exists (select 1 from attention_reasons r where r.instance_id = i.id " +
         "and r.cleared_at is null and r.source_op_id = '' and r.reason = $8)) " +
         "or exists (select 1 from attention_reasons r join instances i on i.id = r.instance_id " +
         "where r.cleared_at is null and r.source_op_id = '' and r.reason = $8 " +
-        "and (i.service_state != 'provisioning' or exists " +
-        "(select 1 from operations o where o.instance_id = i.id))))) as cadence_due, " +
+        `and not ${stalledSql("i", "$7")}))) as cadence_due, ` +
         "($11 = 1 and (exists (select 1 from instances i left join instance_liveness l on l.instance_id = i.id " +
         "where i.service_state = 'live' and ((l.instance_id is null or (l.next_check_at <= $1 " +
         "and (l.claim_until is null or l.claim_until <= $1))) or " +
@@ -2350,7 +2351,7 @@ export class Store {
         "(select 1 from operations o where o.id = 'op-cancel_asset-cancel-' || s.id || '-' || s.ended_at::text) " +
         "union all select fence_expires_at from reinstatement_attempts r where $10 = 1 and state = 'opening' " +
         "and not exists (select 1 from operations o where o.id = 'op-checkout_expire-' || r.id) " +
-        "union all select created_at + $9 from instances i where $10 = 1 and i.service_state = 'provisioning' " +
+        `union all select ${stallDueSql("i", "$9")} from instances i where $10 = 1 and i.service_state = 'provisioning' ` +
         "and not exists (select 1 from operations o where o.instance_id = i.id) " +
         "and not exists (select 1 from attention_reasons r where r.instance_id = i.id " +
         "and r.cleared_at is null and r.source_op_id = '' and r.reason = $8) " +
