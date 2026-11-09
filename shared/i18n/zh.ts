@@ -740,7 +740,6 @@ App 的一些原则：
   "update.screen.restart": "正在重启",
   "update.screen.requested": "正在等待更新程序。",
   "update.screen.hint": "更新通常需要几分钟。",
-  "update.screen.keepsWorking": "重启前办公室仍可正常使用。",
   "update.screen.done": "此办公室现在运行 {version}。",
   "update.screen.failed": "更新未完成。此办公室运行 {version}。",
   "update.screen.reload": "重新加载",

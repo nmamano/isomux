@@ -802,7 +802,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "update.screen.restart": "Restarting",
   "update.screen.requested": "Waiting for the updater.",
   "update.screen.hint": "Updates usually take a few minutes.",
-  "update.screen.keepsWorking": "The office keeps working until the restart.",
   "update.screen.done": "This office now runs {version}.",
   "update.screen.failed":
     "The update did not finish. This office runs {version}.",

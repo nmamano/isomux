@@ -33,13 +33,6 @@ const buttonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const hintStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--text-dim)",
-  lineHeight: 1.6,
-  margin: "4px 0 0",
-};
-
 const quietButtonStyle: React.CSSProperties = {
   ...buttonStyle,
   background: "var(--bg-code)",
@@ -195,7 +188,14 @@ export function UpdateOverlay() {
                   })}
         </p>
         {busy && (
-          <p style={hintStyle}>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--text-dim)",
+              lineHeight: 1.6,
+              margin: "4px 0 0",
+            }}
+          >
             {started !== null && (
               <>
                 <Elapsed started={started} />
@@ -204,9 +204,6 @@ export function UpdateOverlay() {
             )}
             {t("update.screen.hint")}
           </p>
-        )}
-        {shown.kind === "running" && shown.step !== "restart" && (
-          <p style={hintStyle}>{t("update.screen.keepsWorking")}</p>
         )}
         {shown.kind === "done" && notes && (
           <UpdateOutcomeNotes

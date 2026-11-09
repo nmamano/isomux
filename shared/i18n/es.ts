@@ -809,8 +809,6 @@ Cosas que puedes hacer por él:
   "update.screen.restart": "Reiniciando",
   "update.screen.requested": "Esperando al actualizador.",
   "update.screen.hint": "Las actualizaciones suelen tardar unos minutos.",
-  "update.screen.keepsWorking":
-    "La oficina sigue funcionando hasta el reinicio.",
   "update.screen.done": "Esta oficina ahora ejecuta {version}.",
   "update.screen.failed":
     "La actualización no terminó. Esta oficina ejecuta {version}.",
