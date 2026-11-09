@@ -1,9 +1,12 @@
-import { MAX_BROWSER_UPLOAD_BYTES } from "./browser-upload";
+import { BROWSER_UPLOAD_CHUNK_BYTES } from "./browser-upload";
 import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
 import { BROWSER_ACTION_DEADLINE_MS } from "./browser-actions";
 import { test, expect, spyOn } from "bun:test";
 import { ExtensionConnection } from "./browser-extension-bridge";
-import { fields } from "../shared/browser-extension-protocol";
+import {
+  EXTENSION_MAX_BYTES,
+  fields,
+} from "../shared/browser-extension-protocol";
 import { type BrowserContext } from "playwright-core";
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -459,8 +462,10 @@ async function runOfficeScenario(
       return;
     }
     const uploadPath = join(dir, "fixture-upload.png");
-    const uploadBytes = Buffer.alloc(MAX_BROWSER_UPLOAD_BYTES);
-    for (let i = 0; i < uploadBytes.length; i++) uploadBytes[i] = i % 256;
+    // Over the old one-frame cap of 4 MiB, and not a multiple of a chunk.
+    const uploadBytes = Buffer.alloc(10 * 1024 * 1024);
+    for (let i = 0; i < uploadBytes.length; i++)
+      uploadBytes[i] = (i + (i >> 12)) % 256;
     const uploadRealPath = join(dir, "server-payload.bin");
     writeFileSync(uploadRealPath, uploadBytes);
     symlinkSync(uploadRealPath, uploadPath);
@@ -503,6 +508,7 @@ async function runOfficeScenario(
             pathSeen: boolean;
             pathCommand: boolean;
             calls: number;
+            chunkCalls: number;
             maxBytes: number;
             hold: boolean;
             blocked: boolean;
@@ -516,6 +522,7 @@ async function runOfficeScenario(
           pathSeen: false,
           pathCommand: false,
           calls: 0,
+          chunkCalls: 0,
           maxBytes: 0,
           hold: false,
           blocked: false,
@@ -524,14 +531,17 @@ async function runOfficeScenario(
           const encoded = JSON.stringify(args);
           probe.pathSeen ||= paths.some((path) => encoded.includes(path));
           probe.pathCommand ||= args[1] === "DOM.setFileInputFiles";
-          probe.maxBytes = Math.max(
-            probe.maxBytes,
-            new TextEncoder().encode(encoded).length,
-          );
+          const bytes = new TextEncoder().encode(encoded).length;
+          probe.maxBytes = Math.max(probe.maxBytes, bytes);
+          // The call that sets the file names it; a chunk call carries file
+          // bytes (over 1 MiB of base64) and no name.
           const payload = encoded.includes(name);
           if (payload) probe.calls++;
+          const chunk = !payload && bytes > 1024 * 1024;
+          if (chunk) probe.chunkCalls++;
           const result = await original(...args);
-          if (payload && probe.hold) {
+          // Hold one chunk after Chrome ran it: the transfer is cut midway.
+          if (chunk && probe.hold && !probe.blocked) {
             probe.blocked = true;
             await new Promise<void>((resolve) => {
               probe.release = resolve;
@@ -591,14 +601,19 @@ async function runOfficeScenario(
               pathCommand: boolean;
               maxBytes: number;
               calls: number;
+              chunkCalls: number;
             };
           }
         ).uploadProbe,
     );
     expect(probe.pathSeen).toBe(false);
     expect(probe.pathCommand).toBe(false);
-    expect(probe.maxBytes).toBeLessThan(8 * 1024 * 1024);
-    expect(probe.maxBytes).toBeGreaterThan(MAX_BROWSER_UPLOAD_BYTES);
+    // The bytes went in several commands, each well inside one frame.
+    expect(probe.maxBytes).toBeLessThan(EXTENSION_MAX_BYTES);
+    expect(probe.chunkCalls).toBeGreaterThan(1);
+    expect(probe.chunkCalls).toBeGreaterThanOrEqual(
+      Math.ceil(uploadBytes.length / BROWSER_UPLOAD_CHUNK_BYTES),
+    );
     expect(probe.calls).toBe(1);
     expect(await activeState()).toEqual(activeBefore);
     expect(
@@ -609,7 +624,7 @@ async function runOfficeScenario(
         )
       ).status,
     ).toBe(403);
-    // Two file inputs match: the strictness failure uploads nothing.
+    // Two file inputs match: the strictness failure sends no file bytes.
     const ambiguousUpload = await onFirst({
       action: "upload",
       selector: "input[type=file]",
@@ -617,6 +632,16 @@ async function runOfficeScenario(
     });
     expect(ambiguousUpload.status).toBe(400);
     expect(ambiguousUpload.body.error.code).toBe("invalid_request");
+    expect(
+      await worker.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              uploadProbe: { calls: number; chunkCalls: number };
+            }
+          ).uploadProbe,
+      ),
+    ).toMatchObject({ calls: 1, chunkCalls: probe.chunkCalls });
     expect(
       await firstPage
         .locator("#other-attachment")
@@ -699,6 +724,12 @@ async function runOfficeScenario(
       console.log("Fixture popup close error:", popupClose.body.error);
     expect(popupClose.status).toBe(200);
     expect((await onFirst({ action: "text" })).body.title).toBe("Main");
+    // The file the first upload set: a cut transfer must leave it in place.
+    await firstPage.locator("#attachment").evaluate((element) => {
+      (window as unknown as { firstFile?: File }).firstFile = (
+        element as HTMLInputElement
+      ).files![0];
+    });
     await worker.evaluate(() => {
       (
         globalThis as unknown as { uploadProbe: { hold: boolean } }
@@ -763,13 +794,14 @@ async function runOfficeScenario(
         })
       ).body.error.code,
     ).toBe("browser_control_ended");
+    // The cut transfer never set a file.
     expect(
       await worker.evaluate(
         () =>
           (globalThis as unknown as { uploadProbe: { calls: number } })
             .uploadProbe.calls,
       ),
-    ).toBe(2);
+    ).toBe(1);
     expect(firstPage.isClosed()).toBe(false);
     expect(await targetOf(firstPage)).toBe(firstTarget);
     await screenshotBackgroundTab(firstPage, join(dir, "retained-page.png"));
@@ -794,10 +826,21 @@ async function runOfficeScenario(
           (globalThis as unknown as { uploadProbe: { calls: number } })
             .uploadProbe.calls,
       ),
-    ).toBe(2);
+    ).toBe(1);
+    // The input still holds the first upload's file and saw no new event.
     expect(
-      await firstPage.locator("#attachment").getAttribute("data-change"),
-    ).toBe("2");
+      await firstPage.locator("#attachment").evaluate((element) => {
+        const input = element as HTMLInputElement;
+        return {
+          same:
+            input.files!.length === 1 &&
+            input.files![0] ===
+              (window as unknown as { firstFile?: File }).firstFile,
+          input: input.dataset.input,
+          change: input.dataset.change,
+        };
+      }),
+    ).toEqual({ same: true, input: "1", change: "1" });
     popup = await openPopup(firstTarget);
     await popup.click("#disconnect");
     await popup.waitFor(

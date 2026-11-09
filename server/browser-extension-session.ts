@@ -1,7 +1,12 @@
 import { selectorSyntaxFailure } from "./browser-selector-errors";
 import {
+  addFileChunk,
   BrowserUploadError,
-  readBrowserUpload,
+  browserUploadExtraMs,
+  fileInputSink,
+  setSinkFile,
+  openBrowserUpload,
+  type BrowserUpload,
   type UploadedFile,
 } from "./browser-upload";
 import type { Browser, Dialog, Page } from "playwright-core";
@@ -120,6 +125,9 @@ export const PAGE_ANSWER_MS = 5000;
 const PAGE_UNANSWERED_ERROR = `The page did not answer within ${PAGE_ANSWER_MS / 1000} s. Control remains on. It may still be loading: try once more. If it fails again, use another tab.`;
 class PageUnansweredError extends Error {}
 // A scoped read whose selector matches no element (task f63edd81).
+// The upload's chunks did not make the whole file in the page.
+const UPLOAD_INCOMPLETE_ERROR =
+  "The file did not arrive whole in the browser. The input did not change.";
 export const MISSING_SELECTOR_ERROR = `The page was not read: ${CLICK_REASON.missing}.`;
 // A command whose answer from Chrome was over EXTENSION_MAX_BYTES.
 export const ANSWER_TOO_LARGE_ERROR = `The page's answer was over ${EXTENSION_MAX_BYTES / 1024 / 1024} MiB, too large to send. Control remains on. Read a smaller part of the page.`;
@@ -633,8 +641,27 @@ export class ExtensionBrowserSessions {
       );
       session = undefined;
     }
+    // The file opens before the deadline is set: its size extends it. The
+    // operation closes it when it settles.
+    let upload: BrowserUpload | undefined;
+    if (params.action === "upload") {
+      try {
+        upload = await openBrowserUpload(params.path!);
+      } catch (error) {
+        if (!(error instanceof BrowserUploadError)) throw error;
+        return {
+          ok: false,
+          status: 400,
+          code: "invalid_request",
+          error: error.message,
+        };
+      }
+    }
     const started = performance.now();
-    const deadline = actionStarted + actionMs;
+    const deadline =
+      actionStarted +
+      actionMs +
+      (upload ? browserUploadExtraMs(upload.size) : 0);
     let operationSettled = false;
     let phase = "start";
     let inputsAtClick: number | undefined;
@@ -1054,17 +1081,38 @@ export class ExtensionBrowserSessions {
           else await page.fill(params.selector!, params.text!, { timeout });
           break;
         case "upload": {
-          const file = await readBrowserUpload(params.path!);
-          if (!valid()) return ended();
-          if (timedOut) return timedOutResult();
-          await (element ?? page.locator(params.selector!)).setInputFiles(
-            file,
-            { timeout },
-          );
+          const file = upload!;
+          // The element check keeps the base budget: a missing selector
+          // fails as in any other action.
+          const sink = await (
+            element ?? page.locator(params.selector!)
+          ).evaluateHandle(fileInputSink, undefined, {
+            timeout: Math.max(1, actionStarted + actionMs - performance.now()),
+          });
+          try {
+            // One command per chunk, each inside one extension frame. The
+            // input does not change until every byte is in the page.
+            for await (const chunk of file.chunks()) {
+              if (!valid()) return ended();
+              if (timedOut) return timedOutResult();
+              await sink.evaluate(addFileChunk, chunk);
+            }
+            if (!valid()) return ended();
+            if (timedOut) return timedOutResult();
+            const whole = await sink.evaluate(setSinkFile, {
+              name: file.name,
+              mimeType: file.mimeType,
+              size: file.size,
+            });
+            if (!whole)
+              return failure("action_failed", UPLOAD_INCOMPLETE_ERROR);
+          } finally {
+            void sink.dispose().catch(() => {});
+          }
           uploaded = {
             name: file.name,
             mimeType: file.mimeType,
-            size: file.buffer.length,
+            size: file.size,
           };
           break;
         }
@@ -1226,6 +1274,7 @@ export class ExtensionBrowserSessions {
     });
     const operation = task().finally(() => {
       operationSettled = true;
+      void upload?.close().catch(() => {});
     });
     // retire: why the client is stuck (a wait outlived its own timeout or had
     // none), so that it goes once the timed-out work settles.

@@ -201,7 +201,7 @@ export const PORT = parseInt(process.env.PORT || "4000");
 // OpenCode discovery can spend about 56 seconds in its bounded cold-start poll.
 // This also covers the app proxy and the preview route, which can exceed Bun's
 // 10-second default while legitimately waiting on an upstream process.
-const OFFICE_IDLE_TIMEOUT_SECONDS = 120;
+export const OFFICE_IDLE_TIMEOUT_SECONDS = 120;
 
 function securityTxt(): string {
   return `Contact: mailto:llc@isomux.com

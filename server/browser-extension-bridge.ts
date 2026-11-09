@@ -164,6 +164,13 @@ type Assignment = {
   dialogs: Map<string, { type: string; message: string }>;
   // The script contexts the current client got for the tab's main frame.
   world: ScriptWorld;
+  // Chrome reports the existing script contexts only at the first
+  // Runtime.enable on a debugger session. By CDP session (the tab's, a
+  // child frame's or a popup's): the live default contexts, as Chrome sent
+  // them, and the context ids the current client got. A client's
+  // Runtime.enable gets the live default contexts it did not get.
+  contexts: Map<string, Map<number, Fields>>;
+  announced: Map<string, Set<number>>;
 };
 
 // The grant's phase. Every change goes through enter(), which allows only
@@ -1141,6 +1148,7 @@ export class ExtensionConnection {
     assignment.autoAttached = new Set();
     assignment.unset = new Set();
     assignment.world = { isolated: "none" };
+    assignment.announced = new Map();
     return {
       receive: (message) =>
         assignment.peer === peer && assignment.state.kind === "attached"
@@ -1225,6 +1233,7 @@ export class ExtensionConnection {
       a.dialogs.delete(key);
       return;
     }
+    this.contextEvent(a, method, params, key);
     if (key !== a.session) return;
     const world = a.world;
     if (method === "Runtime.executionContextsCleared") {
@@ -1246,6 +1255,57 @@ export class ExtensionConnection {
     if (aux?.isDefault === true) world.main = context.id;
     else if (world.name !== undefined && context.name === world.name)
       world.utility = context.id;
+  }
+
+  // Keeps the session's live default script contexts from Chrome's events,
+  // with or without a client.
+  private contextEvent(
+    a: Assignment,
+    method: string,
+    params: Fields,
+    key: string,
+  ): void {
+    if (method === "Runtime.executionContextsCleared") {
+      a.contexts.delete(key);
+      return;
+    }
+    if (method === "Runtime.executionContextDestroyed") {
+      const id = params.executionContextId;
+      if (typeof id === "number") a.contexts.get(key)?.delete(id);
+      return;
+    }
+    if (method !== "Runtime.executionContextCreated") return;
+    const context = params.context as Fields | undefined;
+    const aux = context?.auxData as Fields | undefined;
+    if (typeof context?.id !== "number" || aux?.isDefault !== true) return;
+    let live = a.contexts.get(key);
+    if (!live) a.contexts.set(key, (live = new Map<number, Fields>()));
+    live.set(context.id, params);
+  }
+
+  // Forgets a CDP session that ended: its contexts went with it.
+  private forgetSession(a: Assignment, key: string): void {
+    a.contexts.delete(key);
+    a.announced.delete(key);
+  }
+
+  // Sends the client the session's live default contexts that it did not
+  // get, after Chrome answered its Runtime.enable. Chrome sends no Runtime
+  // event before the first enable on a debugger session, so its first client
+  // already got every stored context live.
+  private replayContexts(a: Assignment, key: string): void {
+    for (const [id, params] of a.contexts.get(key) ?? []) {
+      if (a.announced.get(key)?.has(id)) continue;
+      if (key === a.session) {
+        const aux = (params.context as Fields).auxData as Fields;
+        if (aux.frameId === this.pageId(a)) a.world.main = id;
+      }
+      this.deliver(a, {
+        method: "Runtime.executionContextCreated",
+        params,
+        sessionId: key,
+      });
+    }
   }
 
   /** Fences the grant's attached client while a timed-out action's work
@@ -1517,6 +1577,8 @@ export class ExtensionConnection {
       unset: new Set(),
       dialogs: new Map(),
       world: { isolated: "none" },
+      contexts: new Map(),
+      announced: new Map(),
     };
   }
 
@@ -2205,8 +2267,10 @@ export class ExtensionConnection {
         a.children.clear();
         a.childPages.clear();
         // The reattached debugger is a new session, which cannot answer a
-        // dialog the old one saw.
+        // dialog the old one saw, and reports its own script contexts.
         a.dialogs.clear();
+        a.contexts.clear();
+        a.announced.clear();
         for (const [id, pending] of this.pending) {
           if (pending.assignment !== a.id) continue;
           clearTimeout(pending.timer);
@@ -2276,6 +2340,7 @@ export class ExtensionConnection {
         a.pages.delete(params.sessionId);
         a.unset.delete(params.sessionId);
         a.dialogs.delete(params.sessionId);
+        this.forgetSession(a, params.sessionId);
         this.endLeaves(a, params.sessionId);
         for (const [child, page] of a.childPages)
           if (page === params.sessionId) a.childPages.delete(child);
@@ -2352,6 +2417,7 @@ export class ExtensionConnection {
         a.children.delete(params.sessionId);
         a.childPages.delete(params.sessionId);
         a.dialogs.delete(params.sessionId);
+        this.forgetSession(a, params.sessionId);
         if (frame.deliveredTo !== a.peer) return;
       } else if (msg.method.startsWith("Target.")) return;
       this.deliver(a, {
@@ -2373,6 +2439,18 @@ export class ExtensionConnection {
   // Hands an event to the grant's agent client. A client that throws on it
   // retires; the grant and the connection stay.
   private deliver(a: Assignment, message: Fields): void {
+    if (
+      a.state.kind === "attached" &&
+      message.method === "Runtime.executionContextCreated" &&
+      typeof message.sessionId === "string"
+    ) {
+      const id = (fields(message.params).context as Fields | undefined)?.id;
+      if (typeof id === "number") {
+        let got = a.announced.get(message.sessionId);
+        if (!got) a.announced.set(message.sessionId, (got = new Set<number>()));
+        got.add(id);
+      }
+    }
     try {
       a.peer.send(message);
     } catch {
@@ -2430,6 +2508,10 @@ export class ExtensionConnection {
       this.check(a);
       if (a.peer !== peer || !this.accessible(a, actor))
         throw new Error("Browser control ended");
+      const enable =
+        method === "Runtime.enable" && typeof sessionId === "string"
+          ? sessionId
+          : undefined;
       const result = await this.command(
         a,
         method,
@@ -2438,7 +2520,10 @@ export class ExtensionConnection {
       );
       this.check(a);
       if (!this.accessible(a, actor)) throw new Error("Browser control ended");
-      if (a.peer === peer) peer.send({ id, sessionId, result });
+      if (a.peer === peer) {
+        peer.send({ id, sessionId, result });
+        if (enable !== undefined) this.replayContexts(a, enable);
+      }
     } catch {
       // A refusal can come before the first await, inside the client's own
       // send: its callback for this id exists only once that send returns.

@@ -452,7 +452,7 @@ export interface AffordanceBrowserReq {
   url?: string;
   /** `click`, `fill`, `select`, `check`, and optionally `press`: a Playwright selector. */
   selector?: string;
-  /** `upload`: one absolute office-server file path, up to 4 MiB. */
+  /** `upload`: one absolute office-server file path, up to 100 MiB. */
   path?: string;
   /** `fill`: the value to type into the field. */
   text?: string;

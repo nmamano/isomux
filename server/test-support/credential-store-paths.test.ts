@@ -22,7 +22,7 @@ import { STATE_ROOT } from "../config.ts";
 import { isCredentialStorePath } from "../credential-store-paths.ts";
 import { appProxyKeyPath } from "../app-proxy-secret.ts";
 import { evaluateProposedAction } from "../safety-policy.ts";
-import { BrowserUploadError, readBrowserUpload } from "../browser-upload.ts";
+import { BrowserUploadError, openBrowserUpload } from "../browser-upload.ts";
 import { createCronjobManager } from "../cronjob-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -148,8 +148,11 @@ describe("the safety hooks and the browser upload", () => {
           { cwd: "/tmp" },
         ).decision,
       ).toBe("deny");
-      const upload = await readBrowserUpload(path).then(
-        () => null,
+      const upload = await openBrowserUpload(path).then(
+        async (opened) => {
+          await opened.close();
+          return null;
+        },
         (error: unknown) => error,
       );
       expect(upload).toBeInstanceOf(BrowserUploadError);

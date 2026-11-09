@@ -4813,6 +4813,243 @@ describe("script contexts on the retire line", () => {
   });
 });
 
+// Chrome reports the existing script contexts only to the first Runtime.enable
+// of a debugger session. A later client of the same grant gets the live
+// default contexts from the bridge, so its main-world evaluations do not wait
+// forever (task 62effb76).
+describe("default script contexts for a later client", () => {
+  type H = Awaited<ReturnType<typeof harness>>;
+  type Client = ReturnType<typeof peer>;
+  const WORLD = "__playwright_utility_world_fixture";
+  const contextParams = (id: number, frameId: string, name = "") => ({
+    context: {
+      id,
+      origin: "https://example.com",
+      name,
+      uniqueId: `u${id}`,
+      auxData: {
+        isDefault: name === "",
+        type: name ? "isolated" : "default",
+        frameId,
+      },
+    },
+  });
+  const chromeEvent = (
+    h: H,
+    method: string,
+    params: Fields,
+    sessionId?: string,
+  ) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.connection.offered("agent"),
+      method,
+      params,
+      ...(sessionId ? { sessionId } : {}),
+    });
+  const created = (
+    h: H,
+    id: number,
+    frameId: string,
+    name = "",
+    sessionId?: string,
+  ) =>
+    chromeEvent(
+      h,
+      "Runtime.executionContextCreated",
+      contextParams(id, frameId, name),
+      sessionId,
+    );
+  // A client's Runtime.enable: Chrome runs during() before it answers.
+  const enable = async (
+    h: H,
+    agent: H["agent"],
+    sessionId: unknown,
+    answer: { result: Fields } | { error: Fields },
+    during: () => void = () => {},
+    id = 70,
+  ) => {
+    const from = h.extension.messages.length;
+    const work = agent.receive({
+      id,
+      sessionId,
+      method: "Runtime.enable",
+      params: {},
+    });
+    let sent: Fields | undefined;
+    for (let i = 0; i < 50 && !sent; i++) {
+      sent = h.extension.messages
+        .slice(from)
+        .find(
+          (m) =>
+            m.method === "cdp" && fields(m.params).method === "Runtime.enable",
+        );
+      if (!sent) await Promise.resolve();
+    }
+    expect(sent).toBeDefined();
+    during();
+    h.connection.receive({
+      kind: "result",
+      generation: h.connection.generation,
+      id: sent!.id,
+      ...answer,
+    });
+    await work;
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  };
+  // The executionContextCreated events a client got: [sessionId, params].
+  const announced = (client: Client) =>
+    client.messages
+      .filter((m) => m.method === "Runtime.executionContextCreated")
+      .map((m) => [m.sessionId, m.params] as const);
+  const ids = (client: Client) =>
+    announced(client)
+      .map(([, params]) => fields(fields(params).context).id as number)
+      .sort((x, y) => x - y);
+  const nextClient = async (h: H) => {
+    const client = peer();
+    const agent = h.connection.assign("agent", client, true);
+    await autoAttachBrowser(h.connection, h.extension.messages, agent, "owned");
+    const attached = client.messages.find(
+      (msg) => msg.method === "Target.attachedToTarget",
+    )!;
+    return { client, agent, sessionId: fields(attached.params).sessionId };
+  };
+
+  test("a later client gets each live default context once, exactly as Chrome sent it", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h);
+      // The first client: Chrome itself reports the contexts during enable.
+      await enable(h, h.agent, sessionId, { result: {} }, () => {
+        created(h, 1, "owned");
+        created(h, 2, "owned", WORLD);
+        created(h, 3, "same-process-child");
+      });
+      expect(ids(h.client)).toEqual([1, 2, 3]);
+      h.connection.retireClient(assignment, "page_unanswered");
+      // With no client: the main frame navigates.
+      chromeEvent(h, "Runtime.executionContextDestroyed", {
+        executionContextId: 1,
+      });
+      created(h, 4, "owned");
+      const second = await nextClient(h);
+      expect(ids(second.client)).toEqual([]);
+      // Chrome reports nothing again; one frame gets a context during enable.
+      await enable(h, second.agent, second.sessionId, { result: {} }, () =>
+        created(h, 5, "late-child"),
+      );
+      // 3 and 4 from the bridge, 5 live from Chrome; not the destroyed 1, not
+      // the first client's utility world 2, and each once.
+      expect(ids(second.client)).toEqual([3, 4, 5]);
+      const byId = new Map(
+        announced(second.client).map(([session, params]) => [
+          fields(fields(params).context).id,
+          { session, params },
+        ]),
+      );
+      for (const [id, frame] of [
+        [3, "same-process-child"],
+        [4, "owned"],
+      ] as const)
+        expect(byId.get(id)).toEqual({
+          session: second.sessionId,
+          params: contextParams(id, frame),
+        });
+      // The answer to the enable still reaches the client.
+      expect(second.client.messages.some((m) => m.id === 70 && m.result)).toBe(
+        true,
+      );
+      // A third client after the page cleared its contexts gets none.
+      h.connection.retireClient(assignment, "page_unanswered");
+      chromeEvent(h, "Runtime.executionContextsCleared", {});
+      const third = await nextClient(h);
+      await enable(h, third.agent, third.sessionId, { result: {} });
+      expect(ids(third.client)).toEqual([]);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a failed enable gets no contexts, and a reattached debugger leaves the reports to Chrome", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h);
+      await enable(h, h.agent, sessionId, { result: {} }, () =>
+        created(h, 1, "owned"),
+      );
+      h.connection.retireClient(assignment, "page_unanswered");
+      const second = await nextClient(h);
+      await enable(h, second.agent, second.sessionId, {
+        error: { code: -32000, message: "Enable failed" },
+      });
+      expect(ids(second.client)).toEqual([]);
+      // The control: the same client's next successful enable gets context 1.
+      await enable(
+        h,
+        second.agent,
+        second.sessionId,
+        { result: {} },
+        () => {},
+        71,
+      );
+      expect(ids(second.client)).toEqual([1]);
+      // Debugger recovery: Chrome's new debugger session reports its own
+      // contexts at the first enable, and nothing is replayed on top.
+      chromeEvent(h, "recovering", {});
+      chromeEvent(h, "recovered", {});
+      const third = await nextClient(h);
+      await enable(h, third.agent, third.sessionId, { result: {} }, () =>
+        created(h, 9, "owned"),
+      );
+      expect(ids(third.client)).toEqual([9]);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("an iframe session's default context reaches a later client on that session", async () => {
+    const h = await harness(true);
+    try {
+      const { sessionId, assignment } = await create(h);
+      chromeEvent(h, "Target.attachedToTarget", {
+        sessionId: "child-session",
+        targetInfo: { targetId: "child-target", type: "iframe" },
+        waitingForDebugger: false,
+      });
+      await enable(h, h.agent, sessionId, { result: {} }, () =>
+        created(h, 1, "owned"),
+      );
+      await enable(
+        h,
+        h.agent,
+        "child-session",
+        { result: {} },
+        () => created(h, 11, "child-target", "", "child-session"),
+        72,
+      );
+      // The setup: the first client got both from Chrome.
+      expect(ids(h.client)).toEqual([1, 11]);
+      h.connection.retireClient(assignment, "page_unanswered");
+      const second = await nextClient(h);
+      await enable(
+        h,
+        second.agent,
+        "child-session",
+        { result: {} },
+        () => {},
+        73,
+      );
+      expect(announced(second.client)).toEqual([
+        ["child-session", contextParams(11, "child-target")],
+      ]);
+    } finally {
+      h.connection.close();
+    }
+  });
+});
+
 // After Chrome activates a prerendered page in a tab, the tab's main frame id
 // is no longer its target id. Playwright keys the page by the target id the
 // bridge announces and looks its main frame up by that id, so the bridge
