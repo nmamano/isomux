@@ -286,12 +286,14 @@ async function closeOpenStores(): Promise<void> {
 }
 
 /**
- * The same, for the ONE command a deployed provisioner runs.
+ * The same, for the commands that run in the deployed provisioner container:
+ * the tick loop, and the operator's `attention` and `ops`.
  *
  * `Store.open` runs the schema statements, and the deployed machine holds a
  * role that is granted rows rather than the schema - measured 2026-08-11, an
  * engine refuses `create table if not exists` from such a role even when the
- * table already exists. So the tick loop opens a runtime store: same bounds
+ * table already exists (42501, the `attention --ack` refusal of 2026-11-09).
+ * So these open a runtime store: same bounds
  * proof, same catalog check, no DDL and no writes. Bringing a database up stays
  * `bootstrap`, run by an operator's own role.
  *
@@ -1211,7 +1213,7 @@ async function cmdMigrateAll(): Promise<void> {
 }
 
 async function cmdOps(args: Map<string, string>): Promise<void> {
-  const store = await openStore();
+  const { store } = await openStoreForRuntime();
   const run = args.get("run");
   await printOperations(
     store,
@@ -1314,7 +1316,7 @@ async function cmdEnterpriseInvoiced(args: Map<string, string>): Promise<void> {
 }
 
 async function cmdAttention(args: Map<string, string>): Promise<void> {
-  const store = await openStore();
+  const { store } = await openStoreForRuntime();
   const ack = args.get("ack");
   if (ack && ack !== "true") {
     const n = await acknowledgeAttention(

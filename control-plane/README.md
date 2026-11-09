@@ -299,7 +299,9 @@ transaction - so an installer deadline cannot clear or overwrite an open
 revocation failure. Acknowledging is **not** clearing: `attention --ack` records
 that a human saw it, and the instance keeps reporting `needs_operator` until the
 condition itself goes away. `attention --resolve` clears only a broken promise,
-the one condition that never goes away by itself.
+the one condition that never goes away by itself. `attention` and `ops` run no
+schema statements, so they work in the provisioner container as its role; with
+`CONTROL_PLANE_DB_IDENTITY` set they refuse a role that can write the identity.
 
 ## Where the state lives
 
