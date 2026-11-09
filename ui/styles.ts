@@ -411,3 +411,17 @@ ${emitThemesCss()}
     color: var(--d2h-dark-color);
   }
 `;
+
+// The office page only (App.tsx mounts it): on desktop the page itself never
+// scrolls; each view scrolls in its own box. An element added to body outside
+// the app, in flow or absolutely positioned, is cut at the window's edge, so
+// nothing shows below the chat input. clip, unlike hidden, also stops
+// scrollIntoView and focus from scrolling the page; position: relative makes
+// body, which fills the window, the box that cuts absolute elements. The
+// breakpoint is the store's isMobile; phones keep their keyboard handling.
+export const OFFICE_PAGE_CSS = `
+  @media (min-width: 768px) {
+    html, body { height: 100%; overflow: hidden; overflow: clip; }
+    body { position: relative; }
+  }
+`;

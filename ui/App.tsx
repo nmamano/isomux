@@ -49,7 +49,7 @@ import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
-import { CSS } from "./styles.ts";
+import { CSS, OFFICE_PAGE_CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
 import { languageSeed } from "./preference-form.ts";
 import { useSelfUser } from "./hooks/useSelfUser.ts";
@@ -1088,7 +1088,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           <TaskLookupBridge />
           <LogPrefetcher backOpen={backRoomOpen} />
           <AskRefsProvider open={openAsk}>
-            <style>{CSS}</style>
+            <style>{CSS + OFFICE_PAGE_CSS}</style>
             <ConnectionBanner />
             <UpdateOverlay />
             <UiBuildNotice />
