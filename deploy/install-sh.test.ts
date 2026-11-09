@@ -10,9 +10,14 @@
 
 import { describe, it, expect } from "bun:test";
 import {
+  chmodSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   mkdtempSync,
+  readdirSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
   rmSync,
 } from "fs";
@@ -188,7 +193,11 @@ describe("install.sh escalation: template unit + placement", () => {
       ["polkitd", "the in-UI update trigger is a polkit rule"],
       ["openssh-client", "the root-reachability gate probes over ssh"],
     ]) {
-      const listed = new RegExp(`apt_install[^\\n]*\\b${pkg}\\b`).test(SRC);
+      // The one package list (install-deps-skip.test.ts runs it).
+      const listed = new RegExp(
+        `^APT_PACKAGES=\\([^)\\n]*\\b${pkg}\\b`,
+        "m",
+      ).test(SRC);
       expect({ pkg, why, listed }).toEqual({ pkg, why, listed: true });
     }
   });
@@ -545,6 +554,114 @@ describe("install.sh: the managed Caddyfile", () => {
   });
 });
 
+describe("install.sh: the SSH hardening tool", () => {
+  // install_harden_tool runs in a full install (harden_ssh) and in every
+  // dependency sync on an installer-managed box, where the hardening check
+  // runs it. The real write_file and install_harden_tool, on a fixture path.
+  const writeFileFn = SRC.match(/^write_file\(\) \{[\s\S]*?^\}/m)?.[0] ?? "";
+  const installTool = SRC.slice(
+    SRC.indexOf("\ninstall_harden_tool() {"),
+    SRC.indexOf("\nharden_ssh() {"),
+  );
+  const hardenSsh = SRC.match(/^harden_ssh\(\) \{[\s\S]*?^\}/m)?.[0] ?? "";
+  const RELEASE = readFileSync(
+    new URL("./harden-ssh.sh", import.meta.url),
+    "utf8",
+  );
+
+  // Runs install_harden_tool over an old copy; failing names a command that
+  // exits 1 on PATH.
+  function refresh(failing?: "mv" | "cat") {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-harden-tool-"));
+    try {
+      const sbin = join(dir, "sbin");
+      const bin = join(dir, "bin");
+      mkdirSync(sbin);
+      mkdirSync(bin);
+      if (failing) {
+        writeFileSync(join(bin, failing), "#!/bin/sh\nexit 1\n");
+        chmodSync(join(bin, failing), 0o755);
+      }
+      const tool = join(sbin, "isomux-harden-ssh");
+      writeFileSync(tool, "#!/bin/sh\necho old\n");
+      chmodSync(tool, 0o755);
+      const inode = statSync(tool).ino;
+      const script = `${writeFileFn}
+${installTool}
+log() { echo "LOG: $*"; }
+DRY_RUN=""
+HARDEN_TOOL=${tool}
+rc=0
+install_harden_tool || rc=$?
+echo "RC=$rc"
+`;
+      const result = Bun.spawnSync(["bash", "-c", script], {
+        env: { PATH: `${bin}:${process.env.PATH}` },
+      });
+      return {
+        out: result.stdout.toString(),
+        body: readFileSync(tool, "utf8"),
+        mode: statSync(tool).mode & 0o777,
+        newInode: statSync(tool).ino !== inode,
+        files: readdirSync(sbin),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("puts the release's copy in place under a new inode, nothing left beside it", () => {
+    expect(installTool).toContain("ISOMUX_HARDEN_SSH_SH");
+    const r = refresh();
+    expect(r.out).toContain("RC=0");
+    expect(r.body).toBe(RELEASE);
+    expect(r.mode).toBe(0o755);
+    // A rename, not a rewrite in place: a check running the old file keeps
+    // reading the old bytes.
+    expect(r.newInode).toBe(true);
+    expect(r.files).toEqual(["isomux-harden-ssh"]);
+  });
+
+  for (const failing of ["cat", "mv"] as const) {
+    it(`fails and keeps the old copy when ${failing === "cat" ? "the write" : "the rename"} fails`, () => {
+      const r = refresh(failing);
+      expect(r.out).toContain("RC=1");
+      expect(r.body).toBe("#!/bin/sh\necho old\n");
+      expect(r.newInode).toBe(false);
+      expect(r.files).toEqual(["isomux-harden-ssh"]);
+    });
+  }
+
+  it("a full install writes the tool before it applies, and stops when it cannot", () => {
+    for (const fails of [false, true]) {
+      const dir = mkdtempSync(join(tmpdir(), "isomux-harden-apply-"));
+      try {
+        const events = join(dir, "events");
+        const tool = join(dir, "tool");
+        writeFileSync(tool, `#!/bin/sh\necho "tool $*" >>${events}\n`);
+        chmodSync(tool, 0o755);
+        const script = `${hardenSsh}
+step() { :; }
+log() { :; }
+die() { echo die >>${events}; exit 1; }
+install_harden_tool() { echo install >>${events}; ${fails ? "return 1" : ":"}; }
+DRY_RUN=""
+HARDEN_TOOL=${tool}
+harden_ssh
+`;
+        Bun.spawnSync(["bash", "-c", script]);
+        const lines = readFileSync(events, "utf8").split("\n").filter(Boolean);
+        expect({ fails, lines }).toEqual({
+          fails,
+          lines: fails ? ["install", "die"] : ["install", "tool --apply"],
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+});
+
 describe("install.sh: out-of-memory protection", () => {
   it("does not run old helper bytes when staging the target helper fails", () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-oom-skew-"));
@@ -571,6 +688,59 @@ configure_oom_protection update
       expect(result.stdout.toString()).toContain("could not be staged");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes apt's lists before the helper installs a missing earlyoom, once per run", () => {
+    // The helper apt-installs earlyoom when the box lacks it. A dependency
+    // sync that skipped the package run has old lists, and an install from
+    // them can fail. PATH holds only the tools the step needs, so whether
+    // earlyoom is "on the box" is the stub directory's choice.
+    const fn = SRC.slice(
+      SRC.indexOf("configure_oom_protection() {"),
+      SRC.indexOf("\nenable_auto_updates() {"),
+    );
+    const cases = [
+      { earlyoom: false, fresh: false, refresh: true },
+      { earlyoom: true, fresh: false, refresh: false },
+      { earlyoom: false, fresh: true, refresh: false },
+    ];
+    for (const c of cases) {
+      const dir = mkdtempSync(join(tmpdir(), "isomux-oom-lists-"));
+      try {
+        const bin = join(dir, "bin");
+        mkdirSync(bin);
+        for (const tool of ["mv", "rm", "cat", "chmod"])
+          symlinkSync(`/usr/bin/${tool}`, join(bin, tool));
+        if (c.earlyoom) {
+          writeFileSync(join(bin, "earlyoom"), "#!/usr/bin/bash\n");
+          chmodSync(join(bin, "earlyoom"), 0o755);
+        }
+        const events = join(dir, "events");
+        const script = `${fn}
+OOM_TOOL=${join(dir, "helper")}
+DRY_RUN=""
+APT_LISTS_FRESH=${c.fresh ? "1" : '""'}
+step() { :; }
+log() { echo "LOG: $*"; }
+outcome_add() { echo "OUTCOME: $*"; }
+refresh_apt_lists() { echo refresh >>${events}; APT_LISTS_FRESH=1; }
+write_file() { cat >/dev/null; printf '#!/usr/bin/bash\\necho helper >>${events}\\n' >"$1"; chmod "$2" "$1"; }
+configure_oom_protection update
+`;
+        const result = Bun.spawnSync(
+          ["/usr/bin/bash", "-Eeuo", "pipefail", "-c", script],
+          { env: { PATH: bin } },
+        );
+        expect(result.exitCode).toBe(0);
+        const lines = readFileSync(events, "utf8").split("\n").filter(Boolean);
+        expect({ ...c, lines }).toEqual({
+          ...c,
+          lines: c.refresh ? ["refresh", "helper"] : ["helper"],
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 

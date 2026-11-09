@@ -120,6 +120,8 @@ eval "$(sed -n '/^report_kept_conffiles()/,/^}/p' "$INSTALL_SH")"
 log() { printf 'LOG: %s\\n' "$*"; }
 run() { "$@"; }
 DRY_RUN="${opts.dryRun ? "1" : ""}"
+# The lists are fresh: the refresh is install-deps-skip.test.ts's subject.
+APT_LISTS_FRESH=1
 CONFFILE_ROOT="${etc}"
 rc=0
 apt_install ${(opts.packages ?? ["caddy"]).join(" ")} || rc=$?

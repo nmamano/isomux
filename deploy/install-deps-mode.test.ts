@@ -90,6 +90,7 @@ const STAGES = [
   "install_rescue_command",
   "backfill_firewall_record",
   "restore_recorded_firewall_rules",
+  "install_harden_tool",
   "install_hardening_verifier",
   "verify-hardening",
   "install_browser",
@@ -151,6 +152,8 @@ function runDepsMode(opts: {
   rescueUnwritable?: boolean;
   // An older installer's /usr/local/bin/claude link into this install's SDK.
   claudeLink?: boolean;
+  // The release's SSH hardening tool cannot be written.
+  hardenFails?: boolean;
 }): Run {
   const stubLog = join(base, "stub.log");
   const activeFile = join(base, "caddy-active");
@@ -228,6 +231,7 @@ configure_user_manager() { echo "configure_user_manager"; }
 backfill_firewall_record() { echo "backfill_firewall_record"; }
 restore_recorded_firewall_rules() { echo "restore_recorded_firewall_rules"; }
 install_hardening_verifier() { echo "install_hardening_verifier"; }
+install_harden_tool() { ${opts.hardenFails ? "return 1" : 'echo "install_harden_tool"'}; }
 verify-hardening() { echo "verify-hardening $*"; return ${opts.markerVerifyRc ?? 0}; }
 refresh_hosted_tls_renewal() { echo "refresh_hosted_tls_renewal"; }
 migrate_managed_caddyfile() { echo "migrate_managed_caddyfile"; ${opts.migrationFails ? "return 1" : ":"}; }
@@ -330,6 +334,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "install_rescue_command",
       "backfill_firewall_record",
       "restore_recorded_firewall_rules",
+      "install_harden_tool",
       "install_hardening_verifier",
       "verify-hardening",
       "install_browser",
@@ -349,6 +354,24 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     expect(r.out.slice(r.out.indexOf("install_packages"))).not.toContain(
       "DIE:",
     );
+  });
+
+  // Only harden_ssh wrote the tool before, so a box ran its install-time
+  // check forever. A failed refresh leaves the old tool, and the check runs.
+  it("checks with the box's own SSH tool when the release's cannot be written", () => {
+    const r = runDepsMode({
+      active: true,
+      enabled: true,
+      markerVerifyRc: 0,
+      hardenFails: true,
+    });
+    expect(r.code).toBe(0);
+    expect(r.stages).not.toContain("install_harden_tool");
+    expect(r.out).toContain("verify-hardening --check");
+    expect(r.out).toMatch(/^LOG: warning: \S/m);
+    // The check still ran, so the update reports nothing.
+    expect(r.out).not.toMatch(/^LOG: ISOMUX_UPDATE_WARNING=/m);
+    expect(r.out).not.toMatch(/^OUTCOME: /m);
   });
 
   // The installed updater that runs the first update carrying the rescue

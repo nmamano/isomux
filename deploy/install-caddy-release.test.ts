@@ -162,7 +162,7 @@ remove_caddy_apt_source
       const body = source.slice(start, source.indexOf("\n}\n", start));
       expect(body.indexOf("remove_caddy_apt_source")).toBeGreaterThan(-1);
       expect(body.indexOf("remove_caddy_apt_source")).toBeLessThan(
-        body.indexOf("apt_get update"),
+        body.indexOf("refresh_apt_lists"),
       );
       expect(body).toContain("install_caddy_release");
     }

@@ -243,16 +243,17 @@ run_hosted_install() {
   [[ $marker == hosted ]]
 }
 
-# The base apt packages that install_packages in the revision's installer
-# installs: its one apt_install line of plain package names (the installer's
-# other apt_install calls take variables or run in other functions). A package
-# missed here costs time only: install.sh runs unchanged and installs it.
+# The base apt packages that every install puts on the box: the one
+# top-level APT_PACKAGES=(...) line of plain package names in the revision's
+# installer (its other apt_install calls take variables or run in other
+# functions). A package missed here costs time only: install.sh runs unchanged
+# and installs it.
 installer_packages() {
   local list
-  list=$(git show "$sha:deploy/install.sh" | awk '/^install_packages\(\) \{/,/^}/' |
-    sed -n 's/^ *apt_install \([a-z0-9][a-z0-9 .+-]*\)$/\1/p')
+  list=$(git show "$sha:deploy/install.sh" |
+    sed -n 's/^APT_PACKAGES=(\([a-z0-9][a-z0-9 .+-]*\))$/\1/p')
   if [[ -z $list || $list == *$'\n'* ]]; then
-    echo "expected one apt_install line of package names in install_packages of deploy/install.sh, found: ${list:-none}" >&2
+    echo "expected one APT_PACKAGES=(...) line of package names in deploy/install.sh, found: ${list:-none}" >&2
     return 1
   fi
   printf '%s\n' "$list"

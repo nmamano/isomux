@@ -655,6 +655,82 @@ describe.concurrent("harden-ssh.sh --check", () => {
   });
 });
 
+describe("harden-ssh.sh listening-port sniff", () => {
+  // A quiet port costs the sniff its whole read deadline, so the deadline must
+  // be paid once for a box's ports, not once per batch: an office with 60
+  // listening ports (agents' servers) dials them all at once. The real
+  // add_sniffed_endpoints runs with a probe that records how many probes had
+  // started, and waits (up to 1 s) for all of them.
+  it("dials 60 listening ports at once and judges each one", async () => {
+    const fix = mkdtempSync(join(dir, "sniff-"));
+    mkdirSync(join(fix, "started"));
+    const batch = SRC.match(/^SNIFF_BATCH=.*$/m)?.[0];
+    const fn = SRC.match(/^add_sniffed_endpoints\(\) \{[\s\S]*?^\}/m)?.[0];
+    expect(batch).toBeDefined();
+    expect(fn).toBeDefined();
+    const ports = Array.from({ length: 60 }, (_, i) =>
+      i === 0 ? 22 : i === 1 ? 2222 : 40000 + i,
+    );
+    const owner = (p: number) => (p === 2222 ? "dropbear" : "mystery");
+    writeFileSync(
+      join(fix, "ss"),
+      ports
+        .map(
+          (p, i) =>
+            `LISTEN 0 4096 127.0.0.1:${p} 0.0.0.0:* users:(("${owner(p)}",pid=${i + 2},fd=3))\n`,
+        )
+        .join(""),
+    );
+    const script = `${batch}
+${fn}
+ENDPOINTS="" UNIDENTIFIED="" COVERAGE_GAP=""
+dev_tcp_supported() { return 0; }
+ss() { cat "$FIX/ss"; }
+speaks_ssh() {
+  : >"$FIX/started/$2"
+  shopt -s nullglob
+  local k f
+  for ((k = 0; k < 40; k++)); do
+    f=("$FIX"/started/*)
+    ((\${#f[@]} >= ${ports.length})) && break
+    sleep 0.025
+  done
+  echo "\${#f[@]}" >>"$FIX/seen"
+  [[ $2 == 22 ]]
+}
+add_sniffed_endpoints
+printf 'ENDPOINTS\\n%sUNIDENTIFIED\\n%s' "$ENDPOINTS" "$UNIDENTIFIED"
+`;
+    const proc = Bun.spawn(["bash", "-c", script], {
+      env: { PATH: process.env.PATH ?? "", FIX: fix },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, , code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(code).toBe(0);
+    const seen = readFileSync(join(fix, "seen"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map(Number);
+    expect(seen).toHaveLength(ports.length);
+    // Every probe was running while all the others had started.
+    expect(Math.min(...seen)).toBe(ports.length);
+    const [, endpoints = "", unidentified = ""] =
+      out.match(/^ENDPOINTS\n([\s\S]*)UNIDENTIFIED\n([\s\S]*)$/) ?? [];
+    expect(endpoints.split("\n").filter(Boolean).sort()).toEqual([
+      "127.0.0.1 22",
+      "127.0.0.1 2222",
+    ]);
+    expect(unidentified.split("\n").filter(Boolean)).toHaveLength(
+      ports.length - 2,
+    );
+  }, 15_000);
+});
+
 describe("harden-ssh.sh source", () => {
   it("refuses to run as anyone but root", () => {
     expect(SRC).toMatch(/\[\[ \$EUID -eq 0 \]\] \|\| die /);

@@ -173,6 +173,40 @@ describe("update screen", () => {
   });
 });
 
+// Until the restart the updater only prepares, and the office still runs, so
+// the screen says so; from the restart on, and before the updater starts, it
+// does not.
+describe("update screen: the office keeps working until the restart", () => {
+  const keepsWorking = t("update.screen.keepsWorking");
+  const says = (view: ReturnType<typeof show>) =>
+    (view.container.textContent ?? "").includes(keepsWorking);
+
+  for (const phase of ["fetch", "deps", "build", "image"]) {
+    it(`says so in the ${phase} phase`, () => {
+      const view = show(watching(false), status(OLD, running(phase)));
+      expect(view.queryByRole("dialog")).not.toBeNull();
+      expect(says(view)).toBe(true);
+    });
+  }
+
+  for (const phase of ["stop", "readiness", "publish"]) {
+    it(`does not say so in the ${phase} phase`, () => {
+      const view = show(watching(false), status(OLD, running(phase)));
+      expect(view.queryByText(t("update.screen.restart"))).not.toBeNull();
+      expect(says(view)).toBe(false);
+    });
+  }
+
+  it("does not say so while the update waits for the updater", () => {
+    const view = show(
+      watching(false),
+      status(OLD, { attempt: null, phase: null, result: "requested" }),
+    );
+    expect(view.queryByText(t("update.screen.requested"))).not.toBeNull();
+    expect(says(view)).toBe(false);
+  });
+});
+
 // The busy screen counts the time since the updater started, from the
 // attempt's own start (the server sends it), so a member can see an update
 // that takes long.

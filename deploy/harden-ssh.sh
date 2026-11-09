@@ -272,6 +272,8 @@ UNIDENTIFIED=""
 # Set when the endpoint list cannot be trusted to be complete; a partial answer
 # is not an answer.
 COVERAGE_GAP=""
+# How many listening ports add_sniffed_endpoints dials at once.
+SNIFF_BATCH=64
 # A key file the service account can read whose public half root accepts. A
 # positive finding on its own, independent of whether the login attempt got in.
 KEY_HIT=""
@@ -372,8 +374,9 @@ add_sniffed_endpoints() {
     return 0
   }
   # Concurrently, in bounded batches: a port that stays quiet costs the whole
-  # deadline, and an ordinary box has a dozen of them. Serially that is minutes
-  # of install time for a check that should take seconds.
+  # deadline, and an office box has one for each server its agents run, often
+  # dozens. Each batch costs one deadline, so the batch is wide enough that the
+  # check does not grow with the agents' servers.
   for line in "${socks[@]}"; do
     sock=$(awk '{ print $4 }' <<<"$line")
     if [[ $sock =~ ^\[(.+)\]:([0-9]+)$ ]]; then
@@ -396,7 +399,7 @@ add_sniffed_endpoints() {
     owners[i]=$line
     (speaks_ssh "$addr" "$port" && : >"$tmp/$i") &
     i=$((i + 1))
-    ((i % 16 != 0)) || wait || true
+    ((i % SNIFF_BATCH != 0)) || wait || true
   done
   wait || true
   for idx in "${!eps[@]}"; do

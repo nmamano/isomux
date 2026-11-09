@@ -167,6 +167,16 @@ CONFFILE_ROOT=/etc
 # inherit apt's binary-scoped default. Match that upstream bound explicitly.
 APT_LOCK_TIMEOUT_SECONDS=120
 APT_LOCK_POLL_SECONDS=2
+# The packages every install and every dependency sync puts on the box.
+# polkitd: authorizes the in-UI update trigger (see install_updater); present
+# on most Ubuntu images but not guaranteed on minimal ones.
+# openssh-client: the root-reachability check logs in to this box to find out
+# whether the service account can; server images ship sshd without the client.
+# python3, build-essential, ffmpeg, ripgrep, tmux: tools for agent workloads, not
+# isomux runtime dependencies.
+APT_PACKAGES=(curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd openssh-client python3 build-essential ffmpeg ripgrep tmux)
+# Set once this run has refreshed apt's package lists.
+APT_LISTS_FRESH=""
 
 CURRENT_STEP=preflight
 UPDATE_OUTCOME_MESSAGES=()
@@ -358,6 +368,13 @@ outcome_add() {
   UPDATE_OUTCOME_MESSAGES+=("$*")
 }
 
+# Refresh apt's package lists from every source, once per run: apt_install
+# calls this first when nothing has refreshed them yet.
+refresh_apt_lists() {
+  apt_get update -y || return $?
+  APT_LISTS_FRESH=1
+}
+
 # deps_only runs from the target installer during the first update that carries
 # it. The installed updater has already put the exact target tag in its
 # root-only status, so this producer can publish the identity without trusting
@@ -420,6 +437,10 @@ apt_install() {
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: apt-get install -y -o Dpkg::Options::=--force-confold $*"
     return 0
+  fi
+  # A local .deb resolves its dependencies from the lists too.
+  if [[ -z ${APT_LISTS_FRESH:-} ]]; then
+    refresh_apt_lists || return $?
   fi
   local before rc=0
   before=$(mktemp /tmp/isomux-conffile.XXXXXXXXXX) || before=""
@@ -617,9 +638,21 @@ install_github_cli() {
     ! curl -fsSL "${GITHUB_RETRY[@]}" -o "$keyring_tmp" \
       'https://cli.github.com/packages/githubcli-archive-keyring.gpg' ||
     ! chmod go+r "$keyring_tmp" ||
-    ! mv -f "$keyring_tmp" "$keyring" ||
     ! arch=$(dpkg --print-architecture) ||
-    ! printf 'deb [arch=%s signed-by=%s] https://cli.github.com/packages stable main\n' "$arch" "$keyring" >"$source_tmp" ||
+    ! printf 'deb [arch=%s signed-by=%s] https://cli.github.com/packages stable main\n' "$arch" "$keyring" >"$source_tmp"; then
+    rm -f "$source" "$keyring_tmp" "$source_tmp"
+    log "warning: could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later by following the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
+    return 0
+  fi
+  # A dependency sync on a box that has gh from this same key and source has
+  # nothing to do here. A full install still updates gh.
+  if [[ ${ISOMUX_DEPS_ONLY:-} == 1 ]] && package_installed gh &&
+    cmp -s "$keyring_tmp" "$keyring" && cmp -s "$source_tmp" "$source"; then
+    rm -f "$keyring_tmp" "$source_tmp"
+    log "GitHub CLI is already installed"
+    return 0
+  fi
+  if ! mv -f "$keyring_tmp" "$keyring" ||
     ! mv -f "$source_tmp" "$source" ||
     # A one-source update otherwise deletes every other repository's cached
     # package list, which breaks the package installs that follow this step.
@@ -631,7 +664,8 @@ install_github_cli() {
     log "warning: could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later by following the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
     return 0
   fi
-  if ! apt_install gh; then
+  # The one-source update above is the refresh gh needs.
+  if ! APT_LISTS_FRESH=1 apt_install gh; then
     log "warning: could not install GitHub CLI. The office will continue without it. Install it later with: apt-get install gh"
     return 0
   fi
@@ -665,12 +699,36 @@ remove_caddy_apt_source() {
     /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 }
 
+# True when the installed Caddy package is at least the pinned release.
+caddy_at_pin() {
+  local installed
+  installed=$(dpkg-query -W -f='${Status} ${Version}' caddy 2>/dev/null || true)
+  [[ $installed == "install ok installed "* ]] &&
+    dpkg --compare-versions "${installed#install ok installed }" ge "$CADDY_VERSION"
+}
+
+# True when dpkg has the package fully installed.
+package_installed() {
+  local status
+  status=$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null) || return 1
+  [[ $status == "install ok installed" ]]
+}
+
+# True when every package in APT_PACKAGES is fully installed. One dpkg-query
+# for the list: it fails when a name is unknown, and prints one line per
+# installed architecture, in its own order.
+apt_packages_present() {
+  local out want have
+  out=$(dpkg-query -W -f='${Package} ${Status}\n' "${APT_PACKAGES[@]}" 2>/dev/null) || return 1
+  want=$(printf '%s\n' "${APT_PACKAGES[@]}" | sort -u)
+  have=$(awk '$2 == "install" && $3 == "ok" && $4 == "installed" && NF == 4 { print $1 }' <<<"$out" | sort -u)
+  [[ $have == "$want" ]]
+}
+
 install_caddy_release() (
   set -Eeuo pipefail
-  local installed arch asset base stage
-  installed=$(dpkg-query -W -f='${Status} ${Version}' caddy 2>/dev/null || true)
-  if [[ $installed == "install ok installed "* ]] &&
-    dpkg --compare-versions "${installed#install ok installed }" ge "$CADDY_VERSION"; then
+  local arch asset base stage
+  if caddy_at_pin; then
     return 0
   fi
   arch=$(dpkg --print-architecture) || exit $?
@@ -701,6 +759,15 @@ install_caddy_release() (
 install_packages() {
   step install-packages
   export DEBIAN_FRONTEND=noninteractive
+  # A dependency sync on a box that already has every package and the pinned
+  # Caddy runs no apt here: a later step that installs a package refreshes
+  # the lists first (apt_install). A full install still updates them all.
+  if [[ ${ISOMUX_DEPS_ONLY:-} == 1 ]] && apt_packages_present && caddy_at_pin; then
+    log "the system packages are already installed"
+    remove_caddy_apt_source
+    install_github_cli
+    return 0
+  fi
   # Caddy safety is decided BEFORE any package mutation: apt can start (fresh
   # install) or restart (upgrade) the caddy service, and on a box whose
   # office is not claimed, a leftover reverse proxy would expose the
@@ -720,14 +787,8 @@ install_packages() {
     CADDY_MASKED=1
   fi
   remove_caddy_apt_source
-  apt_get update -y
-  # polkitd: authorizes the in-UI update trigger (see install_updater); present
-  # on most Ubuntu images but not guaranteed on minimal ones.
-  # openssh-client: the root-reachability check logs in to this box to find out
-  # whether the service account can; server images ship sshd without the client.
-  # python3, build-essential, ffmpeg, ripgrep, tmux: tools for agent workloads, not
-  # isomux runtime dependencies.
-  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd openssh-client python3 build-essential ffmpeg ripgrep tmux
+  refresh_apt_lists
+  apt_install "${APT_PACKAGES[@]}"
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would install the pinned Caddy release"
   else
@@ -1482,9 +1543,14 @@ backfill_firewall_record() {
 # so it cannot read repo files, and SSH hardening must not wait
 # on a network round trip. deploy/install-sh.test.ts pins the copy equal to
 # deploy/harden-ssh.sh.
-harden_ssh() {
-  step harden-ssh
-  write_file "$HARDEN_TOOL" 755 <<'ISOMUX_HARDEN_SSH_SH'
+#
+# Staged beside the tool and renamed into place: bash reads a script while it
+# runs, so a check running at that moment keeps the old file instead of
+# reading a half-written one. deps_only runs this too, so an update brings the
+# release's check to a box installed with an older one.
+install_harden_tool() {
+  local staged="$HARDEN_TOOL.new.$$"
+  if ! write_file "$staged" 755 <<'ISOMUX_HARDEN_SSH_SH'
 #!/usr/bin/env bash
 # isomux-harden-ssh - SSH hardening for an isomux box, and the check that says
 # whether it holds.
@@ -1759,6 +1825,8 @@ UNIDENTIFIED=""
 # Set when the endpoint list cannot be trusted to be complete; a partial answer
 # is not an answer.
 COVERAGE_GAP=""
+# How many listening ports add_sniffed_endpoints dials at once.
+SNIFF_BATCH=64
 # A key file the service account can read whose public half root accepts. A
 # positive finding on its own, independent of whether the login attempt got in.
 KEY_HIT=""
@@ -1859,8 +1927,9 @@ add_sniffed_endpoints() {
     return 0
   }
   # Concurrently, in bounded batches: a port that stays quiet costs the whole
-  # deadline, and an ordinary box has a dozen of them. Serially that is minutes
-  # of install time for a check that should take seconds.
+  # deadline, and an office box has one for each server its agents run, often
+  # dozens. Each batch costs one deadline, so the batch is wide enough that the
+  # check does not grow with the agents' servers.
   for line in "${socks[@]}"; do
     sock=$(awk '{ print $4 }' <<<"$line")
     if [[ $sock =~ ^\[(.+)\]:([0-9]+)$ ]]; then
@@ -1883,7 +1952,7 @@ add_sniffed_endpoints() {
     owners[i]=$line
     (speaks_ssh "$addr" "$port" && : >"$tmp/$i") &
     i=$((i + 1))
-    ((i % 16 != 0)) || wait || true
+    ((i % SNIFF_BATCH != 0)) || wait || true
   done
   wait || true
   for idx in "${!eps[@]}"; do
@@ -2429,6 +2498,20 @@ main() {
 
 main "$@"
 ISOMUX_HARDEN_SSH_SH
+  then
+    rm -f "$staged"
+    return 1
+  fi
+  [[ -z $DRY_RUN ]] || return 0
+  if ! mv -f "$staged" "$HARDEN_TOOL"; then
+    rm -f "$staged"
+    return 1
+  fi
+}
+
+harden_ssh() {
+  step harden-ssh
+  install_harden_tool || die "could not install $HARDEN_TOOL"
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would run $HARDEN_TOOL --apply (key-only SSH auth)"
     return 0
@@ -3556,6 +3639,10 @@ ISOMUX_OOM_PROTECT_SH
     log "warning: the out-of-memory protection helper could not be installed; the install or update will continue"
     outcome_add "The updated memory-pressure protection helper could not be installed."
     return 0
+  fi
+  # The tool installs earlyoom when it is missing, from apt's lists.
+  if ! command -v earlyoom >/dev/null && [[ -z ${APT_LISTS_FRESH:-} ]]; then
+    refresh_apt_lists || log "warning: could not refresh apt's package lists before installing earlyoom"
   fi
   if [[ $mode == update ]]; then
     if ! "$OOM_TOOL" --update-converge; then
@@ -5964,7 +6051,7 @@ container_install_packages() {
   # door stopped, or start a proxy which the operator had stopped.
   snapshot_caddy_state
   remove_caddy_apt_source
-  apt_get update -y
+  refresh_apt_lists
   apt_install ca-certificates curl gnupg git python3 jq openssl ufw unattended-upgrades
   if ! command -v docker >/dev/null; then
     apt_install docker.io docker-compose-v2
@@ -7914,6 +8001,14 @@ deps_only() {
   if grep -qs "$CADDY_MARKER" "$CADDYFILE"; then
     backfill_firewall_record
     restore_recorded_firewall_rules
+    # The release's SSH check, for the verifier to run. Only --check runs here.
+    local harden_install_rc=0
+    set +e
+    (set -Ee; install_harden_tool)
+    harden_install_rc=$?
+    set -e
+    ((harden_install_rc == 0)) ||
+      log "warning: could not refresh $HARDEN_TOOL; the hardening check runs the copy already on this box"
     local verifier_install_rc=0
     set +e
     (set -Ee; install_hardening_verifier)

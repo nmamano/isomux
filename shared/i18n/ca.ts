@@ -805,6 +805,8 @@ Coses que pots fer per ell:
   "update.screen.restart": "Reiniciant",
   "update.screen.requested": "Esperant l'actualitzador.",
   "update.screen.hint": "Les actualitzacions solen trigar uns minuts.",
+  "update.screen.keepsWorking":
+    "L'oficina continua funcionant fins al reinici.",
   "update.screen.done": "Aquesta oficina ara executa {version}.",
   "update.screen.failed":
     "L'actualització no ha acabat. Aquesta oficina executa {version}.",

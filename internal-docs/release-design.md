@@ -274,7 +274,15 @@ or a commit and was never updated has no record and no release tag in
    agents' apps run on, the installed memory-pressure policy, the release's
    pinned Bun (see the Bun invariant), and on a
    hosted office the certificate renewal helper and its units - not SSH
-   mutation, unattended upgrades, or anything that decides the box's identity). It refreshes and runs a
+   mutation, unattended upgrades, or anything that decides the box's identity).
+   On an installer-managed VPS it also installs the release's SSH hardening
+   tool, which the update runs only as a check. When
+   the box already has every listed package and the pinned Caddy, it runs no
+   apt: the first later step that installs a package refreshes the lists
+   first. It also leaves gh alone when gh is installed from the same key and
+   source. Installed packages then upgrade only through unattended upgrades
+   or a full installer run, and gh only through a full installer run,
+   because unattended upgrades do not take GitHub's apt source. It refreshes and runs a
    hardening verifier on installer-managed VPSes. The installer records the
    firewall rules it opens. During updates it restores only missing recorded
    rules while ufw is active; it never enables ufw or changes its defaults.
