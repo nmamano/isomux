@@ -111,11 +111,26 @@ export interface HandlerDeps {
   };
 }
 
-// ------------------------------------------------------------------- set_dns
+// ------------------------------------------------------- set_dns, repoint_dns
 
 export function setDnsHandler(deps: HandlerDeps): Handler {
+  return officeDnsHandler("set_dns", deps);
+}
+
+/**
+ * The same write as set_dns, for an office whose provider address moved (a
+ * plan change can move it). The asset reconcile opens it; nothing follows it.
+ */
+export function repointDnsHandler(deps: HandlerDeps): Handler {
+  return officeDnsHandler("repoint_dns", deps);
+}
+
+function officeDnsHandler(
+  kind: "set_dns" | "repoint_dns",
+  deps: HandlerDeps,
+): Handler {
   return {
-    kind: "set_dns",
+    kind,
     timeoutIsRetryable: false,
     async run(ctx): Promise<HandlerResult> {
       const ipv4 = ctx.asset?.ipv4;
@@ -155,9 +170,24 @@ export function setDnsHandler(deps: HandlerDeps): Handler {
           reason: `could not set office DNS: ${messageOf(err)}`,
         };
       }
-      await ctx.store.tx(async () => {
+      // The records now point at the address read above. If it is still the
+      // asset's address, that also resolves an address move the reconcile
+      // raised (tick.ts addressMoved). If another holder's poll moved it
+      // during the write, nothing is resolved: the retry writes the newest.
+      const assetId = ctx.asset?.id;
+      const moved = assetId ? `ipv4:${assetId}` : null;
+      const current = await ctx.store.tx(async () => {
+        // FOR UPDATE: a poll that holds the row commits first and this reads
+        // its address; a poll that comes later waits, then raises afresh.
+        const now = assetId
+          ? await ctx.store.sqlGet<{ ipv4: string | null }>(
+              "select ipv4 from provider_assets where id = $1 for update",
+              [assetId],
+            )
+          : null;
+        if (now?.ipv4 !== ipv4) return false;
         for (const open of await ctx.store.openReasons(ctx.instance.id)) {
-          if (open.source_op_id === ctx.op.id) {
+          if (open.source_op_id === ctx.op.id || open.source_op_id === moved) {
             await clearAttentionIn(
               ctx.store,
               ctx.instance.id,
@@ -166,7 +196,14 @@ export function setDnsHandler(deps: HandlerDeps): Handler {
             );
           }
         }
+        return true;
       });
+      if (!current) {
+        return {
+          kind: "retry",
+          reason: "the address moved while the office DNS was written",
+        };
+      }
       return {
         kind: "done",
         evidence: {
@@ -1547,6 +1584,7 @@ export function boxHandlers(deps: HandlerDeps): Handler[] {
     installCustomerKeyHandler(deps),
     armRevocationHandler(deps),
     setDnsHandler(deps),
+    repointDnsHandler(deps),
     runInstallerHandler(deps),
     verifyHttpsHandler(deps),
     mintInviteHandler(deps),

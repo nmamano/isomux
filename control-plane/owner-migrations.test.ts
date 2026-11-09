@@ -137,6 +137,8 @@ const PRE_MIGRATION = [
   "drop table first_paid_checkouts",
   "drop table status_customers, incidents, incident_updates, incident_keys",
   "alter table subscriptions drop column currency",
+  "alter table subscriptions drop column item_price_state, drop column item_price_amount, " +
+    "drop column item_price_currency, drop column plan_mismatch_since",
   "drop table enterprise_accounts, enterprise_offices",
 ];
 
@@ -157,6 +159,17 @@ suite("migrate-all", () => {
         const first = migrateAll(ownerDsn);
         expect(first.code).toBe(0);
         expect(await hasColumn(owner, "subscriptions", "currency")).toBe(true);
+        for (const column of [
+          "item_price_state",
+          "item_price_amount",
+          "item_price_currency",
+          "plan_mismatch_since",
+        ]) {
+          expect([
+            column,
+            await hasColumn(owner, "subscriptions", column),
+          ]).toEqual([column, true]);
+        }
         // Every migration reported, in the roster's order.
         const reported = first.out
           .split("\n")

@@ -165,6 +165,7 @@ export const ca: Catalog = {
     "Tancant un pagament de reactivació sense acabar",
   "steps.labelCancelAsset": "Cancel·lant el teu servidor amb el proveïdor",
   "steps.labelRemoveDns": "Retirant l'adreça de la teva oficina",
+  "steps.labelRepointDns": "Actualitzant l'adreça de la teva oficina",
 
   "stepState.waiting": "sense començar",
   "stepState.active": "en curs",

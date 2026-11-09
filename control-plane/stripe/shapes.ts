@@ -50,9 +50,18 @@ export interface SubscriptionSnapshot {
    * item price's currency, which is the price's DEFAULT currency for a price
    * with currency options. Optional keeps recorded legacy fixtures valid. */
   currency?: string | null;
+  /** The subscription's item price, for the price-against-plan check.
+   * Optional keeps recorded legacy fixtures valid. */
+  itemPrice?: ItemPrice;
   metadata: Record<string, string>;
   livemode: boolean;
 }
+
+/** Exactly one item whose price has a unit amount (in the price's own
+ * currency, Stripe's lower-case code), or any other shape. */
+export type ItemPrice =
+  | { kind: "single"; unitAmount: number; currency: string }
+  | { kind: "other" };
 
 export interface InvoiceSnapshot {
   id: string;
@@ -102,9 +111,30 @@ export function normalizeSubscription(raw: unknown): SubscriptionSnapshot {
     discount: discountOf(o),
     latestInvoiceId: optionalId(o.latest_invoice),
     currency: typeof o.currency === "string" && o.currency ? o.currency : null,
+    ...(o.items === undefined ? {} : { itemPrice: itemPriceOf(o.items) }),
     metadata: metadataOf(o.metadata),
     livemode: booleanField(o, "livemode", `subscription ${id}`),
   };
+}
+
+/**
+ * The item price, as the price states it: its own unit_amount and default
+ * currency identify the Price, whatever currency option the customer pays in.
+ * Exactly one item with an integer unit amount and a currency is "single";
+ * every other shape is "other", never a guess.
+ */
+function itemPriceOf(items: unknown): ItemPrice {
+  const data = (items as Raw | null)?.data;
+  if (!Array.isArray(data) || data.length !== 1) return { kind: "other" };
+  const price = (data[0] as Raw | null)?.price as Raw | null | undefined;
+  const unitAmount = price?.unit_amount;
+  const currency = price?.currency;
+  return typeof unitAmount === "number" &&
+    Number.isInteger(unitAmount) &&
+    typeof currency === "string" &&
+    currency
+    ? { kind: "single", unitAmount, currency }
+    : { kind: "other" };
 }
 
 export function normalizeInvoice(raw: unknown): InvoiceSnapshot {

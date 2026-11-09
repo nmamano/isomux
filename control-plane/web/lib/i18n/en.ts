@@ -170,6 +170,7 @@ export const en = {
   "steps.labelExpireCheckout": "Closing an unfinished reinstatement payment",
   "steps.labelCancelAsset": "Cancelling your server with the provider",
   "steps.labelRemoveDns": "Removing your office's address",
+  "steps.labelRepointDns": "Updating your office's address",
 
   "stepState.waiting": "not started",
   "stepState.active": "in progress",

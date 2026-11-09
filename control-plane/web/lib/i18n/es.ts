@@ -166,6 +166,7 @@ export const es: Catalog = {
   "steps.labelExpireCheckout": "Cerrando un pago de reactivación sin terminar",
   "steps.labelCancelAsset": "Cancelando tu servidor con el proveedor",
   "steps.labelRemoveDns": "Retirando la dirección de tu oficina",
+  "steps.labelRepointDns": "Actualizando la dirección de tu oficina",
 
   "stepState.waiting": "sin empezar",
   "stepState.active": "en curso",

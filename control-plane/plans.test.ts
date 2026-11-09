@@ -6,6 +6,7 @@ import {
   planById,
   planByProviderProduct,
   planDisplayForProviderProduct,
+  planForItemPrice,
   resolveStripePrice,
 } from "./plans";
 
@@ -111,5 +112,33 @@ describe("hosted plans", () => {
       reason:
         "This deployment has no Stripe price configured for the Poweruser plan",
     });
+  });
+});
+
+// Task 644649b3. The price-against-plan check identifies the plan a
+// subscription pays for by its item price: the amount in the price's own
+// currency, in cents, against the customer prices in this file.
+describe("planForItemPrice", () => {
+  test("names the plan whose customer price this is, in either currency", () => {
+    const cases: [number, string, string | null][] = [
+      [900, "usd", ENTRY_PLAN.id],
+      [1900, "usd", POWERUSER_PLAN.id],
+      [800, "eur", ENTRY_PLAN.id],
+      [1700, "eur", POWERUSER_PLAN.id],
+      [900, "USD", ENTRY_PLAN.id],
+      // An amount of the other currency, an unknown amount, an unknown currency.
+      [900, "eur", null],
+      [800, "usd", null],
+      [1000, "usd", null],
+      [900, "gbp", null],
+      [9, "usd", null],
+    ];
+    for (const [unitAmount, currency, want] of cases) {
+      expect([
+        unitAmount,
+        currency,
+        planForItemPrice({ unitAmount, currency })?.id ?? null,
+      ]).toEqual([unitAmount, currency, want]);
+    }
   });
 });

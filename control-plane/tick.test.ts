@@ -28,6 +28,7 @@ import {
   type HandlerResult,
 } from "./tick.ts";
 import { raiseAttention } from "./attention.ts";
+import { repointDnsHandler, type HandlerDeps } from "./handlers.ts";
 
 async function tempStore(now: () => number): Promise<Store> {
   return await openTestStore(now);
@@ -1617,5 +1618,339 @@ describe("a real faulted provider seam reaches the audit trail as ambiguous", ()
     expect(rows.map((r) => [r.instance_id, r.outcome, r.detail])).toEqual([
       [inst, "ambiguous", null],
     ]);
+  });
+});
+
+// Task 644649b3. An Entry box becomes a Poweruser box by a plan change in the
+// provider's panel. The reconcile poll is where the control plane learns of it:
+// the product code moves instances.plan (which the dashboard tier and the
+// reinstatement price read), and a new IPv4 moves the office DNS.
+describe("a plan change in the provider's panel", () => {
+  const ASSET = "asset-plan";
+  const PROVIDER_ID = "203474835";
+
+  async function bedFor(opts: {
+    serviceState?: string;
+    ipv4?: string | null;
+    truth: () => {
+      assetState: string;
+      ipv4?: string;
+      product?: string;
+      providerId?: string;
+    };
+  }) {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    if (opts.serviceState && opts.serviceState !== "provisioning") {
+      const row = (await store.getInstance(inst))!;
+      await store.casInstance(inst, row.version, {
+        service_state: opts.serviceState,
+      } as never);
+    }
+    await store.createAsset({
+      id: ASSET,
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: PROVIDER_ID,
+      intent_id: null,
+      asset_state: "active",
+      ipv4: opts.ipv4 === undefined ? "192.0.2.10" : opts.ipv4,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
+    // once() reconciles and then dispatches due work, so a repoint_dns the
+    // poll opens is leased in the same tick. A stand-in that keeps waiting
+    // holds it open, so "one open re-point" stays observable.
+    const ticker = new Ticker({
+      store,
+      handlers: [fakeHandler("repoint_dns", async () => ({ kind: "waiting" }))],
+      holder: "a",
+      now: c.now,
+      reconcile: async () => opts.truth(),
+    });
+    /** One poll, due now. */
+    const poll = async () => {
+      await store.sqlRun(
+        "update provider_assets set next_reconcile_at = $1 where id = $2",
+        [c.now(), ASSET],
+      );
+      await ticker.once();
+    };
+    const audits = async (action: string) =>
+      (await store.auditEvents()).filter((e) => e.action === action);
+    const reasons = async (source: string) =>
+      (await store.openReasons(inst)).filter((r) => r.source_op_id === source);
+    const repoints = async () =>
+      (await store.operationsFor(inst)).filter((o) => o.kind === "repoint_dns");
+    /** The repoint_dns rows, each as open (not terminal) or its status. */
+    const repointStates = async () =>
+      (await repoints()).map((o) =>
+        ["pending", "running", "ambiguous"].includes(o.status)
+          ? "open"
+          : o.status,
+      );
+    return {
+      c,
+      store,
+      inst,
+      ticker,
+      poll,
+      audits,
+      reasons,
+      repoints,
+      repointStates,
+    };
+  }
+
+  describe("the product code moves instances.plan", () => {
+    test("a known product the instance is not on yet is written once and audited in our catalogue's codes", async () => {
+      const b = await bedFor({
+        serviceState: "live",
+        truth: () => ({
+          assetState: "active",
+          ipv4: "192.0.2.10",
+          product: "V155",
+          providerId: PROVIDER_ID,
+        }),
+      });
+      await b.poll();
+      expect((await b.store.getInstance(b.inst))?.plan).toBe("V155");
+      const rows = await b.audits("plan_sync");
+      expect(rows).toHaveLength(1);
+      expect(rows[0].instance_id).toBe(b.inst);
+      expect(rows[0].detail ?? "").toContain("V153");
+      expect(rows[0].detail ?? "").toContain("V155");
+      expect(await b.reasons(`plan:${ASSET}`)).toEqual([]);
+      // Level-triggered: the next poll sees the plan already right.
+      await b.poll();
+      expect(await b.audits("plan_sync")).toHaveLength(1);
+      expect((await b.store.getInstance(b.inst))?.plan).toBe("V155");
+    });
+
+    test("a product equal to the plan, or no product at all, changes nothing", async () => {
+      for (const product of ["V153", undefined]) {
+        const b = await bedFor({
+          serviceState: "live",
+          truth: () => ({
+            assetState: "active",
+            ipv4: "192.0.2.10",
+            product,
+            providerId: PROVIDER_ID,
+          }),
+        });
+        await b.poll();
+        // The poll ran: the asset row moved on.
+        expect(
+          (await b.store.getAsset(ASSET))!.next_reconcile_at,
+        ).toBeGreaterThan(b.c.now());
+        expect([product, (await b.store.getInstance(b.inst))?.plan]).toEqual([
+          product,
+          "V153",
+        ]);
+        expect(await b.audits("plan_sync")).toEqual([]);
+        expect(await b.reasons(`plan:${ASSET}`)).toEqual([]);
+      }
+    });
+
+    test("an unknown product is not written: it raises attention once, and a known product later writes the plan and clears it", async () => {
+      let product = "V999";
+      const b = await bedFor({
+        serviceState: "live",
+        truth: () => ({
+          assetState: "active",
+          ipv4: "192.0.2.10",
+          product,
+          providerId: PROVIDER_ID,
+        }),
+      });
+      await b.poll();
+      await b.poll();
+      expect((await b.store.getInstance(b.inst))?.plan).toBe("V153");
+      const open = await b.reasons(`plan:${ASSET}`);
+      expect(open).toHaveLength(1);
+      expect(open[0].severity).toBe("warning");
+      // The provider's code is not in the attention reason; the audit trail
+      // may name it.
+      expect(open[0].reason).not.toContain("V999");
+
+      product = "V155";
+      await b.poll();
+      expect((await b.store.getInstance(b.inst))?.plan).toBe("V155");
+      expect(await b.reasons(`plan:${ASSET}`)).toEqual([]);
+    });
+  });
+
+  describe("a new IPv4 re-points the office DNS", () => {
+    /** The box moved to a new address. null: the answer names no instance. */
+    const moved =
+      (providerId: string | null = PROVIDER_ID) =>
+      () => ({
+        assetState: "active",
+        ipv4: "192.0.2.20",
+        product: "V155",
+        ...(providerId === null ? {} : { providerId }),
+      });
+
+    test.each(["live", "suspended"])(
+      "a %s office gets one repoint_dns, an audit row and an attention item, none carrying the address",
+      async (serviceState) => {
+        const b = await bedFor({ serviceState, truth: moved() });
+        await b.poll();
+        expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.20");
+        expect(await b.repointStates()).toEqual(["open"]);
+        const rows = await b.audits("ipv4_changed");
+        expect(rows).toHaveLength(1);
+        const open = await b.reasons(`ipv4:${ASSET}`);
+        expect(open).toHaveLength(1);
+        expect(open[0].severity).toBe("warning");
+        for (const text of [rows[0].detail ?? "", open[0].reason]) {
+          expect(text).not.toContain("192.0.2.10");
+          expect(text).not.toContain("192.0.2.20");
+        }
+        // The service state is not the re-point's to change.
+        expect((await b.store.getInstance(b.inst))?.service_state).toBe(
+          serviceState,
+        );
+      },
+    );
+
+    test.each([
+      ["a provisioning office", "provisioning", PROVIDER_ID],
+      ["an answer about another instance", "live", "999999999"],
+      ["an answer that names no instance", "live", null],
+    ])(
+      "%s is reported but not re-pointed",
+      async (_label, serviceState, providerId) => {
+        const b = await bedFor({ serviceState, truth: moved(providerId) });
+        await b.poll();
+        expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.20");
+        expect(await b.repoints()).toEqual([]);
+        expect(await b.audits("ipv4_changed")).toHaveLength(1);
+        expect(await b.reasons(`ipv4:${ASSET}`)).toHaveLength(1);
+      },
+    );
+
+    test("the first address of a new box is not a change: set_dns owns it", async () => {
+      const b = await bedFor({
+        serviceState: "live",
+        ipv4: null,
+        truth: moved(),
+      });
+      await b.poll();
+      expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.20");
+      expect(await b.repoints()).toEqual([]);
+      expect(await b.audits("ipv4_changed")).toEqual([]);
+      expect(await b.reasons(`ipv4:${ASSET}`)).toEqual([]);
+    });
+
+    test("a second move while a re-point is still open adds none: the open one reads the newest address", async () => {
+      let ipv4 = "192.0.2.20";
+      const b = await bedFor({
+        serviceState: "live",
+        truth: () => ({
+          assetState: "active",
+          ipv4,
+          product: "V155",
+          providerId: PROVIDER_ID,
+        }),
+      });
+      await b.poll();
+      ipv4 = "192.0.2.30";
+      await b.poll();
+      expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.30");
+      expect(await b.repointStates()).toEqual(["open"]);
+      expect(await b.audits("ipv4_changed")).toHaveLength(2);
+    });
+
+    test("the asset write and the re-point commit together: a failed enqueue leaves the old address for the next poll", async () => {
+      const b = await bedFor({ serviceState: "live", truth: moved() });
+      const realEnqueue = b.store.enqueue.bind(b.store);
+      let refuse = true;
+      b.store.enqueue = async (row) => {
+        if (refuse && row.kind === "repoint_dns") {
+          throw new Error("injected enqueue failure");
+        }
+        return realEnqueue(row);
+      };
+      await b.poll().catch(() => {});
+      // The enabling condition: the refusal really fired on a repoint_dns.
+      expect(await b.repoints()).toEqual([]);
+      // Rolled back whole: if the new address had committed alone, the next
+      // poll would see no drift and the DNS would stay on the old address.
+      expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.10");
+      expect(await b.audits("ipv4_changed")).toEqual([]);
+
+      refuse = false;
+      await b.poll();
+      expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.20");
+      expect(await b.repointStates()).toEqual(["open"]);
+    });
+
+    test("the re-point writes the new address, and its success clears the move's attention", async () => {
+      // An acknowledgement never clears a reason (attention-ack.ts): only the
+      // condition does. The condition here is office DNS on the old address,
+      // so the re-point that fixes it is what clears it. Left open, the office
+      // would stay needs_operator for good, and a later move would raise
+      // nothing new.
+      const b = await bedFor({ serviceState: "live", truth: moved() });
+      const writes: string[][] = [];
+      const ticker = new Ticker({
+        store: b.store,
+        handlers: [
+          repointDnsHandler({
+            officeDns: {
+              officeARecords: async () => [],
+              removeOfficeARecords: async () => true,
+              replaceOfficeARecords: async (host: string, ipv4: string) => {
+                writes.push([host, ipv4]);
+              },
+            },
+          } as unknown as HandlerDeps),
+        ],
+        holder: "dns",
+        now: b.c.now,
+        reconcile: async () => moved()(),
+      });
+      await b.store.sqlRun(
+        "update provider_assets set next_reconcile_at = $1 where id = $2",
+        [b.c.now(), ASSET],
+      );
+      await ticker.once();
+      expect(writes).toEqual([["cp1.test.isomux.app", "192.0.2.20"]]);
+      expect((await b.repoints()).map((o) => o.status)).toEqual(["succeeded"]);
+      // The move was raised and audited first, then cleared by the fix.
+      expect(await b.audits("ipv4_changed")).toHaveLength(1);
+      expect(
+        (await b.store.auditEvents()).some(
+          (e) => e.action === "raise_attention" && e.target === `ipv4:${ASSET}`,
+        ),
+      ).toBe(true);
+      expect(await b.reasons(`ipv4:${ASSET}`)).toEqual([]);
+    });
+
+    test("a poll that loses the asset CAS opens nothing: the winner owns the change", async () => {
+      const b = await bedFor({ serviceState: "live", truth: moved() });
+      // The loser shape from "reconcile losers re-read": another holder
+      // writes the row while this poll's answer is in flight.
+      const ticker = new Ticker({
+        store: b.store,
+        handlers: [],
+        holder: "loser",
+        now: b.c.now,
+        reconcile: async (asset) => {
+          await b.store.casAsset(asset.id, asset.version, {
+            next_reconcile_at: b.c.now() + 60_000,
+          });
+          return moved()();
+        },
+      });
+      await ticker.once();
+      expect((await b.store.getAsset(ASSET))?.ipv4).toBe("192.0.2.10");
+      expect(await b.repoints()).toEqual([]);
+      expect(await b.audits("ipv4_changed")).toEqual([]);
+      expect(await b.reasons(`ipv4:${ASSET}`)).toEqual([]);
+    });
   });
 });

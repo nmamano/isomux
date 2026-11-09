@@ -129,6 +129,7 @@ describe("the subscription insert", () => {
       "certificate-credentials.test.ts",
       "exercises/cancel-live.ts",
       "lifecycle-tick.test.ts",
+      "plan-price-check.test.ts",
       "provisioning-start.test.ts",
       "reboot.test.ts",
       "reinstatement.test.ts",

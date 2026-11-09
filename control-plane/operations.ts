@@ -42,7 +42,13 @@ export type OperationKind =
    * if one succeeds and our write fails the next reconcile adopts the truth.
    */
   | "cancel_asset"
-  | "remove_dns";
+  | "remove_dns"
+  /**
+   * Re-points the office DNS records at a new provider address. Opened by the
+   * asset reconcile when the provider reports a different IPv4 for a live or
+   * suspended office (a plan change can move it), never by the chain.
+   */
+  | "repoint_dns";
 
 /**
  * Kinds the design names that this slice does not drive. They are listed rather
@@ -208,6 +214,12 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 60 * MINUTE,
     maxRemoteMs: 60_000,
   },
+  // The same Cloudflare mutation as set_dns, with its retry shape.
+  repoint_dns: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 60_000,
+  },
 };
 
 export function deadlinesFor(kind: string): Deadlines {
@@ -282,6 +294,7 @@ export function nextKind(
     case "expire_checkout":
     case "cancel_asset":
     case "remove_dns":
+    case "repoint_dns":
       return null;
   }
 }

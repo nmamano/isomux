@@ -486,10 +486,16 @@ What an upgrade means for a running office:
   it gains none of the added RAM as office capacity, silently. The host and the
   other daemons do get the headroom; the office does not.
 
-  The shipped code does not yet meet the activation-time requirement: it
-  computes the limits when the installer or `isomux-oom-protect` runs, and an
-  ordinary `isomux-update` does not refresh them. After a resize the operator
-  must run `sudo isomux-oom-protect`. Self-serve resize is not shipped.
+  Shipped (task 644649b3): the `isomux-fit-box` oneshot unit runs
+  `isomux-oom-protect --fit-box` at each boot, ordered before `isomux.service`
+  and `systemd-user-sessions.service`. It rewrites a memory drop-in the tool
+  wrote (marker line) when its text differs from what an install on the current
+  RAM writes, reloads the managers and reads the cgroup back. On a Hosted box
+  (enrollment file present) it also grows the root partition and its ext4
+  filesystem (growpart, resize2fs). Installs and updates enable the unit; nobody
+  runs anything on the box after a resize. Self-serve resize is not shipped.
+  On the boot after a resize, SSH logins wait for this unit (it runs before
+  `systemd-user-sessions.service`), up to its 5-minute start timeout.
 
   Recomputing the limits on activation still needs care rather than a
   one-liner: systemd establishes a unit's resource properties around activation,
@@ -617,7 +623,8 @@ reachability), per f057617f. Order:
 4. Graceful degradation, once decision 2 is settled.
 5. Recompute `MemoryHigh`/`MemoryMax` on activation rather than writing them
    once at install, so a resized box picks up its new size, via a oneshot unit
-   ordered before the office (not `ExecStartPre=`). `MemorySwapMax` is applied
+   ordered before the office (not `ExecStartPre=`). Shipped at boot, not at each
+   office start, by task 644649b3 (see the upgrade path). `MemorySwapMax` is applied
    or recomputed as decision 4 dictates: unlike the other two it may end up a
    fixed policy rather than RAM-derived. Swapfile sizing is separate again and
    only in scope if decision 4 chooses scaled swap. See the upgrade path.

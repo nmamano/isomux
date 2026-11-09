@@ -47,6 +47,10 @@ export interface InstanceView {
   assetState: AssetState;
   powerState: PowerState;
   ipv4?: string;
+  /** The provider's product code for the instance (Contabo: V153, V155). */
+  product?: string;
+  /** The instance id the provider's answer is about. */
+  providerId?: string;
   /** The provider's own payload, kept for evidence. Never logged wholesale. */
   raw: unknown;
 }

@@ -92,6 +92,13 @@ export interface SubscriptionRow {
    * a row reconciled before this column existed: read it as EUR
    * (plans.ts chargedCurrency). */
   currency: string | null;
+  /** Stripe-owned: the subscription's item price, as reconciliation recorded
+   * it (subscription-plan-price-ddl.ts). Null state = not recorded yet. */
+  item_price_state: "single" | "other" | null;
+  item_price_amount: number | null;
+  item_price_currency: string | null;
+  /** Ours: when the price-against-plan check first saw a mismatch. */
+  plan_mismatch_since: number | null;
   payment_failures: number;
   /** When Stripe was authoritatively observed to have given up retrying. Set
    * per episode; cleared with the episode. */
@@ -124,6 +131,9 @@ export type StripeOwnedPatch = Partial<
     | "ever_full_discount"
     | "latest_invoice_id"
     | "currency"
+    | "item_price_state"
+    | "item_price_amount"
+    | "item_price_currency"
     | "instance_id"
     | "last_event_id"
     | "last_event_created"
@@ -274,10 +284,16 @@ export async function insertSubscription(
     | "episode_state"
     | "cancellation_policy"
     | "currency"
+    | "item_price_state"
+    | "item_price_amount"
+    | "item_price_currency"
+    | "plan_mismatch_since"
   > & {
     episode_state?: EpisodeState;
     cancellation_policy?: CancellationPolicy;
     currency?: string | null;
+    // The item price columns start null (not recorded yet): the Stripe-owned
+    // setter writes them from the fetched subscription.
   },
 ): Promise<SubscriptionRow> {
   assertInTx(store, "insertSubscription");

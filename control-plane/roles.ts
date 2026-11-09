@@ -538,7 +538,9 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "subscriptions",
     verb: "update",
-    via: "stripe/reconcile.ts applies fetched Stripe truth through the subscription CAS setters",
+    via:
+      "stripe/reconcile.ts applies fetched Stripe truth through the subscription CAS setters; " +
+      "plan-price-check.ts sweepPlanPrices writes plan_mismatch_since, from cli.ts runLifecycleCadence",
   },
   {
     table: "accounts",
@@ -603,7 +605,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "instances",
     verb: "update",
-    via: "store.ts Store.casInstance, from tick.ts Ticker.finish",
+    via: "store.ts Store.casInstance, from tick.ts Ticker.finish and Ticker.syncPlan",
   },
   {
     table: "provider_assets",
@@ -1355,6 +1357,7 @@ export const AUDITED_HANDLER_KINDS = [
   "install_customer_key",
   "arm_revocation",
   "set_dns",
+  "repoint_dns",
   "run_installer",
   "verify_https",
   "mint_invite",
@@ -1472,6 +1475,10 @@ export const AUDITED_CMDRUN_SURFACES = [
  * `for update`), and read provider_assets and name_reservations; the poll is
  * cited in the matrix; `healthReport` runs `select 1`; `exitCodeFor` reads
  * instances. `makeTicker`'s handlers are pinned by the roster test.
+ *
+ * `sweepPlanPrices` added 2026-11-09 (task 644649b3): it reads subscriptions
+ * and instances, writes subscriptions.plan_mismatch_since, and raises and
+ * clears attention, all within the grants above.
  */
 export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
   Record<string, readonly string[]>
@@ -1536,6 +1543,7 @@ export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
     "sweepCustomerKeyRetention",
     "sweepProvisioningStalls",
     "sweepProvisioningStarts",
+    "sweepPlanPrices",
   ],
   scheduleCapabilities: ["PROVIDER_DEPENDENT_KINDS.every", "ticker.handles"],
 };

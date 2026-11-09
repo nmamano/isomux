@@ -20,6 +20,11 @@ export interface Plan {
 }
 
 // Nil decides every customer-visible specification and price in this block.
+//
+// The amounts also identify a subscription's plan (planForItemPrice, read by
+// plan-price-check.ts). A price change for new customers must keep the old
+// amount as a legacy amount, or every older subscription is reported as on the
+// wrong plan after the grace period.
 export const ENTRY_PLAN: Plan = {
   id: "office",
   label: "Entry",
@@ -52,6 +57,26 @@ export function planById(id: string): Plan | null {
 
 export function planByProviderProduct(product: string): Plan | null {
   return PLANS.find((plan) => plan.providerProduct === product) ?? null;
+}
+
+/**
+ * The plan a subscription item's price pays for: the plan whose customerPrice
+ * amount in the price's own currency, in cents, is the price's unit amount.
+ * Null for any other price.
+ */
+export function planForItemPrice(price: {
+  unitAmount: number;
+  currency: string;
+}): Plan | null {
+  const currency = price.currency.toUpperCase();
+  if (currency !== "USD" && currency !== "EUR") return null;
+  return (
+    PLANS.find(
+      (plan) =>
+        plan.customerPrice !== null &&
+        plan.customerPrice.amounts[currency] * 100 === price.unitAmount,
+    ) ?? null
+  );
 }
 
 /**

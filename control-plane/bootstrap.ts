@@ -31,6 +31,7 @@ import {
 } from "./store.ts";
 import { INCIDENTS_DDL } from "./incidents-ddl.ts";
 import { ENTERPRISE_DDL } from "./enterprise-ddl.ts";
+import { SUBSCRIPTION_PLAN_PRICE_DDL } from "./subscription-plan-price-ddl.ts";
 import type { SqlArgs } from "./store.ts";
 import {
   ALL_VERBS,
@@ -259,6 +260,20 @@ export async function migrateSubscriptionCurrencyColumn(
     await inTransaction(pool, dsn, [
       "alter table if exists subscriptions add column if not exists currency text",
     ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+/** Owner-role migration for the price-against-plan check's subscriptions
+ * columns (task 644649b3). The same text SCHEMA runs. */
+export async function migrateSubscriptionItemPriceColumns(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [SUBSCRIPTION_PLAN_PRICE_DDL]);
   } finally {
     await pool.end().catch(() => {});
   }
@@ -514,6 +529,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-subscription-currency",
     run: migrateSubscriptionCurrencyColumn,
     ready: "subscription currency column",
+  },
+  {
+    command: "migrate-subscription-item-price",
+    run: migrateSubscriptionItemPriceColumns,
+    ready: "subscription item price columns",
   },
   {
     command: "migrate-enterprise",
@@ -1104,6 +1124,7 @@ export async function bootstrapDatabase(
   await migrateSessionEpochColumn(dsn);
   await migrateRemovedGoogleColumn(dsn);
   await migrateSubscriptionCurrencyColumn(dsn);
+  await migrateSubscriptionItemPriceColumns(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
@@ -1116,6 +1137,7 @@ export async function bootstrapDatabase(
     await migrateSessionEpochColumn(dsn);
     await migrateRemovedGoogleColumn(dsn);
     await migrateSubscriptionCurrencyColumn(dsn);
+    await migrateSubscriptionItemPriceColumns(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

@@ -804,6 +804,108 @@ describe("the currency a subscription pays in", () => {
   });
 });
 
+// Task 644649b3. The price-against-plan check reads the item price the
+// reconciliation caches. Unlike the currency, the price CAN change (an
+// operator moves a subscription from Entry to Poweruser), so every applied
+// object writes all three columns, and an object that is not one priced item
+// clears the amount and the currency rather than leaving the old ones.
+describe("the item price a subscription pays", () => {
+  test("each applied object writes its item price, and a later shape replaces it whole", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader("test");
+    const processor = processorFor(store, reader);
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({
+        itemPrice: { kind: "single", unitAmount: 800, currency: "eur" },
+      }),
+    );
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_price_1",
+          type: "customer.subscription.created",
+          object: { id: "sub_1" },
+          created: Math.floor(NOW / 1000) - 20,
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
+      item_price_state: "single",
+      item_price_amount: 800,
+      item_price_currency: "eur",
+    });
+
+    // The operator moved it to Poweruser.
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({
+        itemPrice: { kind: "single", unitAmount: 1700, currency: "eur" },
+      }),
+    );
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_price_2",
+          type: "customer.subscription.updated",
+          object: { id: "sub_1" },
+          created: Math.floor(NOW / 1000) - 10,
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
+      item_price_state: "single",
+      item_price_amount: 1700,
+      item_price_currency: "eur",
+    });
+
+    // The Poweruser item added beside the Entry one, instead of swapped in.
+    reader.subscriptions.set(
+      "sub_1",
+      subscription({ status: "past_due", itemPrice: { kind: "other" } }),
+    );
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_price_3",
+          type: "customer.subscription.updated",
+          object: { id: "sub_1" },
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    // The enabling condition: this delivery did write the row.
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
+      status: "past_due",
+      item_price_state: "other",
+      item_price_amount: null,
+      item_price_currency: null,
+    });
+
+    // An object with no items list says nothing about the price: "not
+    // recorded" (the check skips it), never "other" (which it would report).
+    reader.subscriptions.set("sub_1", subscription({ status: "active" }));
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_price_4",
+          type: "customer.subscription.updated",
+          object: { id: "sub_1" },
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
+      status: "active",
+      item_price_state: null,
+      item_price_amount: null,
+      item_price_currency: null,
+    });
+  });
+});
+
 describe("dedupe and replay", () => {
   test("a throw mid-apply leaves the event UNCLAIMED, so the replay works", async () => {
     const store = await tempStore();

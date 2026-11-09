@@ -37,6 +37,10 @@ import pg from "pg";
 import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
 import { INCIDENTS_DDL, INCIDENT_TABLES } from "./incidents-ddl.ts";
 import { ENTERPRISE_DDL, ENTERPRISE_TABLES } from "./enterprise-ddl.ts";
+import {
+  SUBSCRIPTION_PLAN_PRICE_DDL,
+  SUBSCRIPTION_REQUIRED_COLUMNS,
+} from "./subscription-plan-price-ddl.ts";
 import { invoiceDue } from "./enterprise-ddl.ts";
 import {
   ASSET_GONE_REASON,
@@ -685,7 +689,8 @@ create table if not exists name_reservations (
 ${WELCOME_MAILS_DDL}
 ${FIRST_PAID_CHECKOUTS_DDL}
 ${INCIDENTS_DDL}
-${ENTERPRISE_DDL}`;
+${ENTERPRISE_DDL}
+${SUBSCRIPTION_PLAN_PRICE_DDL}`;
 
 /**
  * Indexes over columns THIS build added, created after the column check rather
@@ -1575,13 +1580,7 @@ export class Store {
       ["accounts", "is_operator"],
       ["accounts", "session_epoch"],
       ["accounts", "removed_google_subject_hash"],
-      ["subscriptions", "episode_state"],
-      ["subscriptions", "exhaustion_observed_at"],
-      ["subscriptions", "ended_at"],
-      ["subscriptions", "canceled_at"],
-      ["subscriptions", "cancellation_reason"],
-      ["subscriptions", "cancellation_policy"],
-      ["subscriptions", "currency"],
+      ...SUBSCRIPTION_REQUIRED_COLUMNS,
       ["stripe_events", "type"],
       ["instances", "customer_ssh_key"],
       ["instances", "customer_ssh_key_fingerprint"],
@@ -1970,6 +1969,7 @@ export class Store {
       Pick<
         InstanceRow,
         | "run_id"
+        | "plan"
         | "service_state"
         | "goal"
         | "subscription_state"
@@ -2192,7 +2192,6 @@ export class Store {
     );
   }
 
-  /** Every non-terminal operation, for deadline evaluation. */
   /**
    * Operations that crossed their ABSOLUTE ceiling and have not succeeded.
    *

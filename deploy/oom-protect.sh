@@ -36,6 +36,8 @@
 #   isomux-oom-protect             apply
 #   isomux-oom-protect --dry-run   print what it would do, change nothing
 #   isomux-oom-protect --restamp   re-apply a user-level office's kill order
+#   isomux-oom-protect --fit-box   fit the office memory cap and the root disk
+#                                  to this box's current RAM and disk
 #   isomux-oom-protect --help
 
 set -Eeuo pipefail
@@ -43,6 +45,7 @@ set -Eeuo pipefail
 TAG=isomux-oom-protect
 DRY_RUN=""
 RESTAMP=""
+FIT_BOX=""
 UPDATE_CONVERGE=""
 APT_LOCK_TIMEOUT_SECONDS=120
 APT_LOCK_POLL_SECONDS=2
@@ -61,6 +64,13 @@ OFFICE_SWAP_MAX_MIB=6144
 # Where deploy/install.sh puts this tool, and what the re-stamp timer runs.
 OOM_TOOL_PATH=/usr/local/sbin/isomux-oom-protect
 RESTAMP_UNIT=isomux-oom-restamp
+# The boot unit that runs --fit-box.
+FIT_BOX_UNIT=isomux-fit-box
+# Present only on a Hosted box (the same test as the installer's
+# sync_install_kind). The root disk is grown only there.
+HOSTED_ENROLLMENT=/etc/isomux/renewal/enrollment.json
+# Where the kernel lists block devices. A seam for deploy/oom-protect.test.ts.
+SYS_CLASS_BLOCK=/sys/class/block
 # How long a restarted office can go unprotected. Short, because the window is
 # the whole point of the timer; the run itself is a scan of /proc.
 RESTAMP_INTERVAL=1min
@@ -117,21 +127,30 @@ write_file() {
     log "DRY-RUN: would write $path (mode $mode) with:"
     sed 's/^/    /'
   else
+    # Into a sibling, then renamed: a power loss mid-write must not leave an
+    # empty file in place of a working one. This matters most for the boot
+    # unit (--fit-box), which rewrites the office memory drop-in at boot.
+    local staged="$path.new.$$"
     install -d -m 755 "$(dirname "$path")"
-    install -m "$mode" /dev/null "$path"
-    cat >"$path"
+    if ! { install -m "$mode" /dev/null "$staged" && cat >"$staged" && mv -f "$staged" "$path"; }; then
+      rm -f "$staged"
+      return 1
+    fi
   fi
 }
 
 usage() {
   cat <<EOF
-Usage: isomux-oom-protect [--dry-run] [--restamp] [--update-converge]
+Usage: isomux-oom-protect [--dry-run] [--restamp] [--fit-box] [--update-converge]
 
   (no option)  install and configure earlyoom, tier the OOM kill order, set
                swap and swappiness
   --restamp    only re-apply the kill order to a running user-level office,
                and stay quiet when it is already right. This is what the
                $RESTAMP_UNIT timer runs every $RESTAMP_INTERVAL.
+  --fit-box    fit the office memory cap this tool wrote to this box's RAM,
+               and on a Hosted box grow the root partition to fill the disk.
+               This is what the $FIT_BOX_UNIT unit runs at each boot.
   --update-converge
                repair the installed memory policy without creating swap or
                adding an office memory cap
@@ -256,27 +275,23 @@ configure_office_memory_cap() {
   memory_max_mib=$((mem_total_mib - OFFICE_MEMORY_RESERVE_MIB))
   memory_high_mib=$((memory_max_mib * 85 / 100))
 
-  local dropin
-  dropin="# Written by isomux-oom-protect from this box's RAM at the time the tool ran.
-[Service]
-MemoryMax=${memory_max_mib}M
-MemoryHigh=${memory_high_mib}M
-MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
-  printf '%s\n' "$dropin" | write_file "$OFFICE_MEMORY_DROPIN" 644
-  printf '%s\n' "$dropin" | write_file "$OFFICE_USER_MEMORY_DROPIN" 644
+  office_memory_dropin_text "$memory_max_mib" "$memory_high_mib" | write_file "$OFFICE_MEMORY_DROPIN" 644
+  office_memory_dropin_text "$memory_max_mib" "$memory_high_mib" | write_file "$OFFICE_USER_MEMORY_DROPIN" 644
   run systemctl daemon-reload
 
   local cgroup user_pid running=""
   user_pid=$(find_user_isomux_pid) || user_pid=""
   if [[ -n $user_pid ]]; then
     running=1
-    apply_user_office_memory_cap "$user_pid" "$memory_max_mib" "$memory_high_mib"
+    # An unconfirmed readback is a warning here, not a failed install: only
+    # --fit-box, which systemd watches, turns it into a failed run.
+    apply_user_office_memory_cap "$user_pid" "$memory_max_mib" "$memory_high_mib" || true
   fi
   [[ -n $DRY_RUN ]] && return 0
   cgroup=$(systemctl show isomux.service --property=ControlGroup --value 2>/dev/null || true)
   if [[ -n $cgroup && -d $CGROUP_ROOT$cgroup ]]; then
     running=1
-    confirm_office_memory_cap "office" "$cgroup" "$memory_max_mib" "$memory_high_mib"
+    confirm_office_memory_cap "office" "$cgroup" "$memory_max_mib" "$memory_high_mib" || true
   fi
   [[ -n $running ]] || log "office memory cap written; it takes effect when the office starts"
 }
@@ -301,6 +316,7 @@ apply_user_office_memory_cap() {
 }
 
 # Read the cap back from the kernel: what systemd reports is what was asked for.
+# Returns 1 when the kernel holds something else.
 confirm_office_memory_cap() {
   local what=$1 cgroup=$2 memory_max_mib=$3 memory_high_mib=$4
   local expected_max expected_high expected_swap actual_max actual_high actual_swap
@@ -314,6 +330,182 @@ confirm_office_memory_cap() {
     log "$what memory cap confirmed in the running cgroup: MemoryMax=${memory_max_mib}M, MemoryHigh=${memory_high_mib}M, MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
   else
     warn "$what memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
+    return 1
+  fi
+}
+
+# --- fitting a resized box -------------------------------------------------
+
+# A provider plan change (Hosted: Entry to Poweruser) gives a box more RAM and
+# a bigger disk, and nobody is meant to log in to it afterwards. The cap above
+# is written in absolute values from the RAM at install time, so without this
+# the office would gain none of the new RAM, silently. And the root partition
+# keeps its old size unless something grows it.
+#
+# The $FIT_BOX_UNIT unit runs --fit-box at each boot, before the office and
+# before any user manager starts, so both pick up the new cap at their start.
+# When nothing changed it writes nothing and prints nothing.
+
+# The text of the office memory drop-in for the given limits, in MiB. The one
+# source of that text, for an install and for --fit-box.
+office_memory_dropin_text() {
+  local memory_max_mib=$1 memory_high_mib=$2
+  printf '%s\n' \
+    "# Written by isomux-oom-protect from this box's RAM at the time the tool ran." \
+    "[Service]" \
+    "MemoryMax=${memory_max_mib}M" \
+    "MemoryHigh=${memory_high_mib}M" \
+    "MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
+}
+
+# Bring each office memory drop-in THIS tool wrote (it carries the marker) to
+# the text an install on this RAM writes. The comparison is the whole text,
+# byte for byte, so a drop-in in an older wording is also brought to today's.
+# A drop-in without the marker is the operator's, and a box without one was
+# installed uncapped: both are left as they are, as an update leaves them.
+fit_office_memory_cap() {
+  local mem_total_kib mem_total_mib memory_max_mib memory_high_mib
+  mem_total_kib=$(awk '$1 == "MemTotal:" { print $2; exit }' "$MEMINFO_PATH" 2>/dev/null || true)
+  if [[ ! $mem_total_kib =~ ^[0-9]+$ ]]; then
+    warn "could not read MemTotal from $MEMINFO_PATH, so the office memory cap was not fitted"
+    return 1
+  fi
+  mem_total_mib=$((mem_total_kib / 1024))
+  memory_max_mib=$((mem_total_mib - OFFICE_MEMORY_RESERVE_MIB))
+  memory_high_mib=$((memory_max_mib * 85 / 100))
+
+  local rc=0 file system_changed="" user_changed=""
+  for file in "$OFFICE_MEMORY_DROPIN" "$OFFICE_USER_MEMORY_DROPIN"; do
+    [[ -f $file ]] || continue
+    grep -qs '^# Written by isomux-oom-protect' "$file" || continue
+    office_memory_dropin_text "$memory_max_mib" "$memory_high_mib" | cmp -s - "$file" && continue
+    if ((mem_total_mib < OFFICE_MEMORY_MIN_MIB)); then
+      warn "this box has ${mem_total_mib} MiB RAM, under ${OFFICE_MEMORY_MIN_MIB} MiB; leaving the office memory cap in $file as it is"
+      continue
+    fi
+    if ! office_memory_dropin_text "$memory_max_mib" "$memory_high_mib" | write_file "$file" 644; then
+      warn "could not rewrite $file; the office keeps its old memory cap"
+      rc=1
+      continue
+    fi
+    log "office memory cap in $file fitted to this box's RAM: MemoryMax=${memory_max_mib}M, MemoryHigh=${memory_high_mib}M"
+    if [[ $file == "$OFFICE_MEMORY_DROPIN" ]]; then system_changed=1; else user_changed=1; fi
+  done
+  [[ -n $system_changed || -n $user_changed ]] || return "$rc"
+
+  if ! run systemctl daemon-reload; then
+    warn "could not reload systemd; the new office memory cap applies after the next reboot"
+    return 1
+  fi
+  local user_pid cgroup running=""
+  if [[ -n $user_changed ]]; then
+    user_pid=$(find_user_isomux_pid) || user_pid=""
+    if [[ -n $user_pid ]]; then
+      running=1
+      apply_user_office_memory_cap "$user_pid" "$memory_max_mib" "$memory_high_mib" || rc=1
+    fi
+  fi
+  [[ -n $DRY_RUN ]] && return "$rc"
+  if [[ -n $system_changed ]]; then
+    cgroup=$(systemctl show isomux.service --property=ControlGroup --value 2>/dev/null || true)
+    if [[ -n $cgroup && -d $CGROUP_ROOT$cgroup ]]; then
+      running=1
+      confirm_office_memory_cap "office" "$cgroup" "$memory_max_mib" "$memory_high_mib" || rc=1
+    fi
+  fi
+  [[ -n $running ]] || log "the new office memory cap takes effect when the office starts"
+  return "$rc"
+}
+
+# Grow the root partition and its ext4 filesystem to the size of the disk.
+# Hosted boxes only: on a self-hosted box the operator owns the partition
+# table, and space past the root partition may be theirs on purpose.
+#
+# Both steps are idempotent. growpart answers NOCHANGE when the partition
+# already fills the disk, and resize2fs then has nothing to do. resize2fs runs
+# after a NOCHANGE too: a boot can end between the two steps. Only a plain
+# partition with ext4 is grown; anything else (LVM, xfs) is left alone.
+grow_root_filesystem() {
+  if [[ ! -f $HOSTED_ENROLLMENT ]]; then
+    log "root disk: skipped: not a Hosted box"
+    return 0
+  fi
+  if ! command -v growpart >/dev/null; then
+    log "root disk: skipped: growpart is not installed"
+    return 0
+  fi
+  local source fstype name number disk out rc
+  read -r source fstype < <(findmnt -n -o SOURCE,FSTYPE / 2>/dev/null) || true
+  if [[ -z ${source:-} ]]; then
+    warn "root disk: could not read the root mount"
+    return 1
+  fi
+  if [[ ${fstype:-} != ext4 ]]; then
+    log "root disk: skipped: the root filesystem is ${fstype:-unknown}, not ext4"
+    return 0
+  fi
+  name=${source#/dev/}
+  if [[ $source != /dev/* || ! -r $SYS_CLASS_BLOCK/$name/partition ]]; then
+    log "root disk: skipped: $source is not a plain disk partition"
+    return 0
+  fi
+  number=$(<"$SYS_CLASS_BLOCK/$name/partition")
+  # The partition's sysfs entry sits below its disk's entry: sda1 below sda,
+  # nvme0n1p2 below nvme0n1. Not derived from the name, which differs by driver.
+  disk=$(basename "$(dirname "$(readlink -f "$SYS_CLASS_BLOCK/$name")")")
+  if [[ ! $number =~ ^[0-9]+$ || -z $disk || ! -e $SYS_CLASS_BLOCK/$disk ]]; then
+    warn "root disk: could not find the disk of $source"
+    return 1
+  fi
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would run growpart /dev/$disk $number, then resize2fs $source"
+    return 0
+  fi
+  rc=0
+  out=$(growpart "/dev/$disk" "$number" 2>&1) || rc=$?
+  if ((rc == 0)); then
+    log "root disk: partition $source grown to the size of /dev/$disk"
+  elif ((rc == 1)) && [[ $out == *NOCHANGE* ]]; then
+    :
+  else
+    warn "root disk: growpart /dev/$disk $number failed: $out"
+    return 1
+  fi
+  if ! out=$(resize2fs "$source" 2>&1); then
+    warn "root disk: resize2fs $source failed: $out"
+    return 1
+  fi
+  ((rc != 0)) || log "root disk: filesystem on $source grown"
+  return 0
+}
+
+# Written and enabled by an install and by an update, never started by them:
+# a start would grow the disk in the middle of an update. It runs at the next
+# boot, which is what a provider plan change ends with.
+install_fit_box_unit() {
+  write_file "/etc/systemd/system/$FIT_BOX_UNIT.service" 644 <<EOF || return 1
+# Written by isomux-oom-protect.
+[Unit]
+Description=Fit the Isomux office memory cap and root disk to this box
+After=local-fs.target
+# Before any user manager too: user@.service runs after
+# systemd-user-sessions.service, and a manager that loads the user drop-in
+# before this rewrites it would start a user-level office with the old cap.
+Before=isomux.service systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=$OOM_TOOL_PATH --fit-box
+# A oneshot has no start timeout by default, and the office waits for it.
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  run systemctl daemon-reload || return 1
+  if ! run systemctl enable "$FIT_BOX_UNIT.service"; then
+    warn "could not enable $FIT_BOX_UNIT.service, so a resized box keeps its old office memory cap"
+    return 1
   fi
 }
 
@@ -800,6 +992,7 @@ main() {
     case $1 in
       --dry-run) DRY_RUN=1 ;;
       --restamp) RESTAMP=1 ;;
+      --fit-box) FIT_BOX=1 ;;
       --update-converge) UPDATE_CONVERGE=1 ;;
       -h | --help)
         usage
@@ -823,6 +1016,12 @@ main() {
     configure_user_level_office || exit 1
     exit 0
   fi
+  if [[ -n $FIT_BOX ]]; then
+    local fit_rc=0
+    fit_office_memory_cap || fit_rc=1
+    grow_root_filesystem || fit_rc=1
+    exit "$fit_rc"
+  fi
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom
@@ -830,6 +1029,7 @@ main() {
   # a cap to a box installed without one (Nil, 2026-09-03).
   [[ -n $UPDATE_CONVERGE ]] || configure_office_memory_cap
   configure_kill_order
+  install_fit_box_unit || true
   configure_swappiness
   [[ -n $UPDATE_CONVERGE ]] || configure_swap
   log ""

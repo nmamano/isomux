@@ -2615,6 +2615,19 @@ plan has no Stripe price. Continuation uses the reservation's stored plan, and
 reinstatement resolves the instance's stored provider product, so neither path
 can silently charge the other tier's price.
 
+A plan change (Entry to Poweruser) is an operator step in two places for now:
+the Stripe price, then the box in Contabo's panel. The provider poll
+(`tick.ts`) writes the box's Contabo product to `instances.plan` when it is a
+plan in `plans.ts`, and raises attention for any other product. When the poll
+sees a new IPv4 for a box that had one, it raises attention in the same
+transaction, and for a live or suspended office opens `repoint_dns`, which
+rewrites the office A records; the write of the newest address clears it. On
+each boot the box runs `isomux-fit-box`, which fits the office memory cap to the
+new RAM and grows the root disk. Reconciliation records the subscription's item
+price (`item_price_state`/`_amount`/`_currency`, owner migration
+`migrate-subscription-item-price`), and `plan-price-check.ts` raises attention
+when that price and `instances.plan` disagree for 72 hours.
+
 Signup writes four rows in one transaction - account, reservation, instance,
 placeholder provider asset - and it writes the access-window ceiling with the
 instance, because nothing else can. `createInstance` is the only statement that

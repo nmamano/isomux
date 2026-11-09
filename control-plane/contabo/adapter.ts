@@ -84,6 +84,8 @@ interface ContaboInstanceRow {
   status?: string;
   cancelDate?: string | null;
   ipConfig?: { v4?: { ip?: string } };
+  /** Unknown until read: a non-empty string is the only product we report. */
+  productId?: unknown;
 }
 
 interface ContaboListBody {
@@ -176,6 +178,12 @@ export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
       assetState: assetStateOf(row),
       powerState: powerStateOf(row.status),
       ipv4: row.ipConfig?.v4?.ip,
+      ...(typeof row.productId === "string" && row.productId
+        ? { product: row.productId }
+        : {}),
+      ...(row.instanceId === undefined || row.instanceId === null
+        ? {}
+        : { providerId: String(row.instanceId) }),
       raw: row,
     };
   }

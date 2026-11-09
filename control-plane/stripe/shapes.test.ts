@@ -92,6 +92,49 @@ describe("a subscription's currency", () => {
   });
 });
 
+// Task 644649b3: the price-against-plan check reads the item price as Stripe
+// states it - the price's own unit_amount and default currency, which is what
+// identifies the Price, whatever currency option the customer pays in.
+describe("a subscription's item price", () => {
+  const sub = (items: unknown) =>
+    normalizeSubscription({
+      id: "sub_1",
+      customer: "cus_1",
+      status: "active",
+      livemode: false,
+      currency: "eur",
+      ...(items === undefined ? {} : { items }),
+    }).itemPrice;
+
+  test("one item with a unit amount is that amount in the price's own currency", () => {
+    expect(
+      sub({
+        data: [{ price: { id: "price_1", currency: "usd", unit_amount: 900 } }],
+      }),
+    ).toEqual({ kind: "single", unitAmount: 900, currency: "usd" });
+  });
+
+  test("any other shape is recorded as other, never as a guess", () => {
+    const price = (unit_amount: unknown) => ({
+      price: { id: "price_1", currency: "eur", unit_amount },
+    });
+    for (const items of [
+      { data: [] },
+      { data: [price(800), price(1700)] },
+      { data: [price(null)] },
+      { data: [{ price: { id: "price_1", currency: "eur" } }] },
+      { data: [price(800.5)] },
+      { data: [{ price: { id: "price_1", unit_amount: 800 } }] },
+    ]) {
+      expect([items, sub(items)]).toEqual([items, { kind: "other" }]);
+    }
+  });
+
+  test("an object without an items list records nothing", () => {
+    expect(sub(undefined)).toBeUndefined();
+  });
+});
+
 describe("a subscription's discount", () => {
   test("comes through discount.source.coupon, the shape the pinned version returns", async () => {
     // OBSERVED 2026-08-09 on 2026-07-29.dahlia: this is the real shape of a coupon

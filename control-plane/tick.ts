@@ -27,6 +27,7 @@ import {
   type Goal,
   type OperationKind,
 } from "./operations.ts";
+import { planByProviderProduct } from "./plans.ts";
 import { IndeterminateProviderError } from "./provider.ts";
 import { AmbiguousRemoteError, RemoteTimeoutError } from "./ssh.ts";
 import type {
@@ -168,6 +169,10 @@ export interface TickerOptions {
     assetState: string;
     ipv4?: string;
     serviceEndsAt?: string;
+    /** The provider's product code: what plan the box is on now. */
+    product?: string;
+    /** The instance id the answer is about; compared with the asset row. */
+    providerId?: string;
   } | null>;
   report?: (line: string) => void;
   now?: () => number;
@@ -310,15 +315,45 @@ export class Ticker {
       // Measured against the row this loop read, so it is the change only when
       // the CAS below wins on that same version.
       const drift = driftOf(asset, truth);
-      if (await this.store.casAsset(asset.id, asset.version, patch)) {
-        if (drift) {
-          await this.auditRow(
-            asset.instance_id,
-            "provider_get",
-            "succeeded",
-            drift,
-          );
-        }
+      // The asset write and what a moved address requires commit together. If
+      // the new address committed alone, the next poll would see no drift and
+      // the office DNS would stay on the old address with nothing reporting it.
+      let won: boolean;
+      try {
+        won = await this.store.tx(async () => {
+          if (!(await this.store.casAsset(asset.id, asset.version, patch))) {
+            return false;
+          }
+          if (drift) {
+            await this.store.appendAudit({
+              actor: "control-plane",
+              instance_id: asset.instance_id,
+              action: "provider_get",
+              target: asset.instance_id,
+              outcome: "succeeded",
+              detail: drift,
+            });
+          }
+          if (
+            truth.ipv4 !== undefined &&
+            asset.ipv4 !== null &&
+            truth.ipv4 !== asset.ipv4
+          ) {
+            await this.addressMoved(asset, truth.providerId);
+          }
+          return true;
+        });
+      } catch (err) {
+        // Rolled back whole, so the old address stays and the next poll sees
+        // the same move again.
+        this.report(
+          `reconcile ${asset.provider_id} could not be applied: ${messageOf(err)}`,
+        );
+        await this.rescheduleReconcile(asset.id, asset.version);
+        continue;
+      }
+      if (won) {
+        await this.syncPlan(asset, truth.product);
       } else {
         // A losing writer re-reads and DECIDES - and the decision here is to
         // DROP this response. Re-applying it on the winner's version would put
@@ -336,6 +371,129 @@ export class Ticker {
             `response rather than replaying it over theirs`,
         );
       }
+    }
+  }
+
+  /**
+   * The provider reports a new IPv4 for a box that already had one (a plan
+   * change can move it). Runs inside the asset CAS's transaction.
+   *
+   * Every move is audited and raised, whatever the instance state, so an
+   * operator sees it. The condition is "office DNS on the old address": the
+   * set_dns or repoint_dns that writes the newest address clears it. A move
+   * whose answer names another instance gets no re-point, so it stays open
+   * for a person. The office DNS is re-pointed only for a live or
+   * suspended office, and only when the answer is about the instance this row
+   * names: a provisioning office gets its records from set_dns, which reads
+   * the new address anyway. An open re-point already reads the newest address
+   * when it runs, so a second move adds none. Neither address goes into the
+   * audit detail or the reason.
+   */
+  private async addressMoved(
+    asset: AssetRow,
+    answeredFor: string | undefined,
+  ): Promise<void> {
+    const instance = await this.store.getInstance(asset.instance_id);
+    if (!instance) return;
+    let outcome: string;
+    if (
+      instance.service_state !== "live" &&
+      instance.service_state !== "suspended"
+    ) {
+      outcome = `instance is ${instance.service_state}; office DNS not re-pointed`;
+    } else if (answeredFor === undefined || answeredFor !== asset.provider_id) {
+      outcome =
+        "the provider answer is not about this asset's instance; office DNS not re-pointed";
+    } else {
+      outcome = "re-pointing office DNS";
+      if (!(await this.store.activeOperation(instance.id, "repoint_dns"))) {
+        const d = deadlinesFor("repoint_dns");
+        const now = this.now();
+        await this.store.enqueue({
+          id: newOperationId("repoint_dns", await this.store.nextSeq("audit")),
+          instance_id: instance.id,
+          kind: "repoint_dns",
+          inactivity_deadline_at: now + d.inactivityMs,
+          absolute_deadline_at: now + d.absoluteMs,
+        });
+      }
+    }
+    await this.store.appendAudit({
+      actor: "control-plane",
+      instance_id: instance.id,
+      action: "ipv4_changed",
+      target: instance.id,
+      outcome: "succeeded",
+      detail: outcome,
+    });
+    await raiseAttentionIn(this.store, {
+      instanceId: instance.id,
+      reasonClass: "operation_condition",
+      sourceOpId: `ipv4:${asset.id}`,
+      reason:
+        "the provider changed this office's IPv4 address, and its office DNS still points at the old one",
+      severity: "warning",
+    });
+  }
+
+  /**
+   * Move instances.plan to the plan the provider reports the box is on (a
+   * plan change in the provider's panel). Level-triggered: every poll compares
+   * again, so a lost write heals at the next one. A product that is no plan we
+   * sell is not written; it raises attention until a known product clears it.
+   */
+  private async syncPlan(
+    asset: AssetRow,
+    product: string | undefined,
+  ): Promise<void> {
+    if (product === undefined) return;
+    const instanceId = asset.instance_id;
+    const sourceOpId = `plan:${asset.id}`;
+    try {
+      await this.store.tx(async () => {
+        const instance = await this.store.getInstance(instanceId);
+        if (!instance) return;
+        if (!planByProviderProduct(product)) {
+          await raiseAttentionIn(this.store, {
+            instanceId,
+            reasonClass: "operation_condition",
+            sourceOpId,
+            reason: "the provider reports a product that is no plan we sell",
+            severity: "warning",
+            detail: `product ${product}`,
+          });
+          return;
+        }
+        // The plan first: clearing attention CASes the instance summary,
+        // which would make this read stale.
+        if (instance.plan !== product) {
+          if (
+            !(await this.store.casInstance(instanceId, instance.version, {
+              plan: product,
+            }))
+          ) {
+            throw new Error("the instance row moved");
+          }
+          await this.store.appendAudit({
+            actor: "control-plane",
+            instance_id: instanceId,
+            action: "plan_sync",
+            target: instanceId,
+            outcome: "succeeded",
+            detail: `plan ${instance.plan} -> ${product}`,
+          });
+        }
+        for (const open of await this.store.openReasons(instanceId)) {
+          if (open.source_op_id === sourceOpId) {
+            await clearAttentionIn(this.store, instanceId, open.id);
+          }
+        }
+      });
+    } catch (err) {
+      // The next poll compares again.
+      this.report(
+        `could not sync the plan of instance ${instanceId}: ${messageOf(err)}`,
+      );
     }
   }
 

@@ -23,6 +23,8 @@ import {
   rmSync,
   chmodSync,
   existsSync,
+  readdirSync,
+  symlinkSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -637,6 +639,9 @@ configure_office_memory_cap
     });
     expect(bad.out).toContain("office memory cap NOT confirmed");
     expect(bad.out).toContain("kernel reports 1/");
+    // Task 644649b3: only --fit-box turns an unconfirmed readback into a
+    // failed run. The install keeps going, under the script's own set -e.
+    expect(bad.exit).toBe(0);
   });
 });
 
@@ -1060,6 +1065,7 @@ describe("the command line", () => {
         "install_earlyoom",
         "configure_earlyoom",
         "configure_kill_order",
+        "install_fit_box_unit",
         "configure_swappiness",
       ],
     ],
@@ -1070,19 +1076,28 @@ describe("the command line", () => {
         "configure_earlyoom",
         "configure_office_memory_cap",
         "configure_kill_order",
+        "install_fit_box_unit",
         "configure_swappiness",
         "configure_swap",
       ],
     ],
+    // What the boot unit runs: the two fit steps and nothing of the install.
+    ["--fit-box", ["fit_office_memory_cap", "grow_root_filesystem"]],
   ])("runs these steps for %p", (flag, steps) => {
     const STEPS = [
       "install_earlyoom",
       "configure_earlyoom",
       "configure_office_memory_cap",
       "configure_kill_order",
+      "install_fit_box_unit",
       "configure_swappiness",
       "configure_swap",
+      "fit_office_memory_cap",
+      "grow_root_filesystem",
     ];
+    // Task 644649b3: a boot unit that cannot be written must not fail an
+    // install or an update, so its stand-in fails here.
+    const FAILS = new Set(["install_fit_box_unit"]);
     const sourceable = readFileSync(mainable, "utf8").replace(
       /\nmain "\$@"\n$/,
       "\n",
@@ -1093,7 +1108,7 @@ describe("the command line", () => {
     const result = Bun.spawnSync([
       "bash",
       "-c",
-      `source "$1"; ${STEPS.map((s) => `${s}() { echo "STEP ${s}"; };`).join(" ")} main ${flag}`,
+      `source "$1"; ${STEPS.map((s) => `${s}() { echo "STEP ${s}"; return ${FAILS.has(s) ? 1 : 0}; };`).join(" ")} main ${flag}`,
       "_",
       script,
     ]);
@@ -1106,6 +1121,41 @@ describe("the command line", () => {
         .map((l) => l.slice(5)),
     ).toEqual(steps);
   });
+
+  // The boot unit's verdict is this exit status: systemd records a failed unit
+  // only when one of the two fit steps failed, and one failing step does not
+  // keep the other from running.
+  it.each([
+    [0, 0, 0],
+    [1, 0, 1],
+    [0, 1, 1],
+    [1, 1, 1],
+  ])(
+    "--fit-box with memory step rc=%p and disk step rc=%p exits %p",
+    (memRc, diskRc, want) => {
+      const sourceable = readFileSync(mainable, "utf8").replace(
+        /\nmain "\$@"\n$/,
+        "\n",
+      );
+      const script = join(dir, "fit-main.sh");
+      writeFileSync(script, sourceable);
+      const result = Bun.spawnSync([
+        "bash",
+        "-c",
+        `source "$1"; fit_office_memory_cap() { echo "STEP fit"; return ${memRc}; }; ` +
+          `grow_root_filesystem() { echo "STEP grow"; return ${diskRc}; }; main --fit-box`,
+        "_",
+        script,
+      ]);
+      expect(
+        result.stdout
+          .toString()
+          .split("\n")
+          .filter((l) => l.startsWith("STEP ")),
+      ).toEqual(["STEP fit", "STEP grow"]);
+      expect(result.exitCode).toBe(want);
+    },
+  );
 
   it("never restarts Caddy", () => {
     expect(
@@ -1207,5 +1257,652 @@ describe("the earlyoom drop-in", () => {
         avoided: false,
       });
     }
+  });
+});
+
+// Task 644649b3. A Hosted box moves from Entry to Poweruser by a live
+// migration in the provider's panel, and comes back from one reboot with more
+// RAM and a bigger disk. Nobody may log in to a customer box after setup, so
+// the isomux-fit-box unit runs `isomux-oom-protect --fit-box` at each boot:
+// it brings a memory cap THIS tool wrote to the new RAM, and on a Hosted box
+// grows the root partition and its ext4 filesystem to the disk.
+//
+// Each case runs main --fit-box, as the unit does, against a fake box: fake
+// meminfo, drop-ins, cgroups, /proc and /sys/class/block, and stand-in
+// commands on PATH that record their calls. A stand-in reload writes the
+// drop-in's values into the fake cgroup, as systemd does, so a confirmed
+// readback is only possible after a reload of the right file.
+describe("--fit-box: a resized box at boot", () => {
+  // The drop-in configure_office_memory_cap wrote on an Entry box (7941 MiB,
+  // the values pinned in "office memory cap" above).
+  const ENTRY_DROPIN = [
+    "# Written by isomux-oom-protect from this box's RAM at the time the tool ran.",
+    "[Service]",
+    "MemoryMax=6917M",
+    "MemoryHigh=5879M",
+    "MemorySwapMax=6144M",
+    "",
+  ].join("\n");
+  // The box after the move: MemoryMax = 24000 - 1024, MemoryHigh = 85% of it.
+  const POWER_MIB = 24000;
+  const POWER_VALUES = {
+    MemoryMax: "22976M",
+    MemoryHigh: "19529M",
+    MemorySwapMax: "6144M",
+  };
+  const SYSTEM_CGROUP = "/system.slice/isomux.service";
+  const UID = 1001;
+  const USER_CGROUP = `/user.slice/user-${UID}.slice/user@${UID}.service/app.slice/isomux.service`;
+
+  let fitable = "";
+  let noGrowpartBin = "";
+
+  beforeAll(() => {
+    // The root guard and the entry call removed, so a case can set the seams
+    // and then call main itself.
+    fitable = join(dir, "fitable.sh");
+    const body = readFileSync(mainable, "utf8").replace(
+      /\nmain "\$@"\n$/,
+      "\n",
+    );
+    expect(body).not.toContain('\nmain "$@"');
+    writeFileSync(fitable, body);
+    // A PATH with every system command except growpart, for the box whose
+    // image has no cloud-guest-utils.
+    noGrowpartBin = join(dir, "no-growpart-bin");
+    mkdirSync(noGrowpartBin);
+    for (const sys of ["/usr/sbin", "/usr/bin"]) {
+      for (const name of readdirSync(sys)) {
+        if (name === "growpart") continue;
+        const link = join(noGrowpartBin, name);
+        if (!existsSync(link)) symlinkSync(join(sys, name), link);
+      }
+    }
+  });
+
+  interface Box {
+    memMib: number;
+    systemDropin?: string;
+    userDropin?: string;
+    /** A system-unit office runs; its cgroup holds these byte values. */
+    systemOffice?: boolean;
+    /** A user-level office runs as uid 1001 (pid 4242). */
+    userOffice?: boolean;
+    /** Whether a manager reload writes the drop-in into the cgroup. */
+    reload?: "applies" | "ignored";
+    hosted?: boolean;
+    /** The root mount, as findmnt reports it. Defaults to /dev/sda1 ext4. */
+    root?: {
+      source: string;
+      fstype: string;
+      /** The sysfs view: parent disk and partition number, or none (LVM). */
+      partition?: { disk: string; number: number };
+    };
+    growpart?: "changed" | "nochange" | "fail" | "absent";
+    resize2fs?: "ok" | "fail";
+    /** The script's own writer (write_file) fails, as on a full or
+     * read-only /etc. A directory mode cannot model it: write_file runs
+     * install -d, which restores the mode of a directory its caller owns. */
+    failWrite?: boolean;
+  }
+
+  const SDA1 = {
+    source: "/dev/sda1",
+    fstype: "ext4",
+    partition: { disk: "sda", number: 1 },
+  };
+
+  function stub(bin: string, name: string, body: string) {
+    const p = join(bin, name);
+    writeFileSync(p, `#!/usr/bin/env bash\nsource "$FAKE_LIB"\n${body}\n`);
+    chmodSync(p, 0o755);
+  }
+
+  async function fitBox(box: Box) {
+    const root = mkdtempSync(join(dir, "fit-box-"));
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    const calls = join(root, "calls");
+    writeFileSync(calls, "");
+    const meminfo = join(root, "meminfo");
+    writeFileSync(meminfo, `MemTotal:       ${box.memMib * 1024} kB\n`);
+    const systemDir = join(root, "system", "isomux.service.d");
+    const userDir = join(root, "user", "isomux.service.d");
+    const systemDropin = join(systemDir, "20-memory.conf");
+    const userDropin = join(userDir, "20-memory.conf");
+    mkdirSync(systemDir, { recursive: true });
+    mkdirSync(userDir, { recursive: true });
+    if (box.systemDropin !== undefined)
+      writeFileSync(systemDropin, box.systemDropin);
+    if (box.userDropin !== undefined) writeFileSync(userDropin, box.userDropin);
+    const cgroupRoot = join(root, "cgroup");
+    const writeCgroup = (cg: string) => {
+      const d = join(cgroupRoot, cg);
+      mkdirSync(d, { recursive: true });
+      // What the kernel held before the reload: the Entry cap.
+      writeFileSync(join(d, "memory.max"), `${6917 * 1024 * 1024}\n`);
+      writeFileSync(join(d, "memory.high"), `${5879 * 1024 * 1024}\n`);
+      writeFileSync(join(d, "memory.swap.max"), `${6144 * 1024 * 1024}\n`);
+    };
+    if (box.systemOffice) writeCgroup(SYSTEM_CGROUP);
+    const procRoot = join(root, "proc");
+    mkdirSync(procRoot);
+    if (box.userOffice) {
+      writeCgroup(USER_CGROUP);
+      fakeProc(procRoot, 4242, { cgroup: `0::${USER_CGROUP}`, ppid: 1 });
+    }
+    const enrollment = join(root, "renewal", "enrollment.json");
+    if (box.hosted) {
+      mkdirSync(join(root, "renewal"));
+      writeFileSync(enrollment, "{}\n");
+    }
+    // /sys/class/block as the kernel lays it out: each entry a link into the
+    // device tree, a partition below its disk, with a `partition` file.
+    const sysClassBlock = join(root, "sys", "class", "block");
+    mkdirSync(sysClassBlock, { recursive: true });
+    const rootMount = box.root ?? SDA1;
+    if (rootMount.partition) {
+      const name = rootMount.source.replace(/^\/dev\//, "");
+      const { disk, number } = rootMount.partition;
+      const diskDir = join(root, "sys", "devices", disk);
+      const partDir = join(diskDir, name);
+      mkdirSync(partDir, { recursive: true });
+      writeFileSync(join(partDir, "partition"), `${number}\n`);
+      symlinkSync(diskDir, join(sysClassBlock, disk));
+      symlinkSync(partDir, join(sysClassBlock, name));
+    }
+
+    // Shared by the stand-ins: record the call, and apply a drop-in to a
+    // cgroup the way a manager reload does.
+    const lib = join(root, "fake-lib.sh");
+    writeFileSync(
+      lib,
+      `echo "$(basename "$0") $*" >>"${calls}"
+apply_dropin() {
+  local file=$1 cg=$2 key value
+  [[ -f $file && -d $cg ]] || return 0
+  while IFS='=' read -r key value; do
+    case $key in
+      MemoryMax) echo $(( \${value%M} * 1024 * 1024 )) >"$cg/memory.max" ;;
+      MemoryHigh) echo $(( \${value%M} * 1024 * 1024 )) >"$cg/memory.high" ;;
+      MemorySwapMax) echo $(( \${value%M} * 1024 * 1024 )) >"$cg/memory.swap.max" ;;
+    esac
+  done <"$file"
+}
+`,
+    );
+    const applies = (box.reload ?? "applies") === "applies";
+    stub(
+      bin,
+      "systemctl",
+      `case $1 in
+  daemon-reload)
+    ${applies && box.systemOffice ? `apply_dropin "${systemDropin}" "${join(cgroupRoot, SYSTEM_CGROUP)}"` : ":"} ;;
+  show) echo "${box.systemOffice ? SYSTEM_CGROUP : ""}" ;;
+esac
+exit 0`,
+    );
+    stub(
+      bin,
+      "runuser",
+      `if [[ "$*" == *"systemctl --user daemon-reload"* ]]; then
+  ${applies && box.userOffice ? `apply_dropin "${userDropin}" "${join(cgroupRoot, USER_CGROUP)}"` : ":"}
+fi
+exit 0`,
+    );
+    stub(
+      bin,
+      "id",
+      `[[ $1 == -nu && $2 == ${UID} ]] && { echo operator; exit 0; }
+exec /usr/bin/id "$@"`,
+    );
+    stub(
+      bin,
+      "findmnt",
+      // Answers the columns asked for, in order, for the root mount only.
+      `cols=""
+for a in "$@"; do
+  case $a in
+    --output=*) cols=\${a#--output=} ;;
+  esac
+done
+prev=""
+for a in "$@"; do
+  case $prev in -o | --output | -no | -rno | -nro | -ro | -nlo) cols=$a ;; esac
+  prev=$a
+done
+out=()
+IFS=, read -ra want <<<"\${cols:-SOURCE,FSTYPE}"
+for c in "\${want[@]}"; do
+  case \${c^^} in
+    SOURCE) out+=("${rootMount.source}") ;;
+    FSTYPE) out+=("${rootMount.fstype}") ;;
+    TARGET) out+=("/") ;;
+  esac
+done
+echo "\${out[*]}"`,
+    );
+    stub(
+      bin,
+      "lsblk",
+      `cols=""
+prev=""
+for a in "$@"; do
+  case $a in --output=*) cols=\${a#--output=} ;; esac
+  case $prev in -o | --output | -no | -ndo | -nro | -rno | -ro) cols=$a ;; esac
+  prev=$a
+done
+out=()
+IFS=, read -ra want <<<"$cols"
+for c in "\${want[@]}"; do
+  case \${c^^} in
+    PKNAME) out+=("${rootMount.partition?.disk ?? ""}") ;;
+    PARTN) out+=("${rootMount.partition?.number ?? ""}") ;;
+    FSTYPE) out+=("${rootMount.fstype}") ;;
+    TYPE) out+=("${rootMount.partition ? "part" : "lvm"}") ;;
+    NAME|KNAME) out+=("\${prev##*/}") ;;
+  esac
+done
+echo "\${out[*]}"`,
+    );
+    const growpart = box.growpart ?? "changed";
+    if (growpart !== "absent") {
+      stub(
+        bin,
+        "growpart",
+        growpart === "changed"
+          ? `echo "CHANGED: partition=$2 start=2048 old: size=209711104 end=209713152 new: size=629143519 end=629145567"; exit 0`
+          : growpart === "nochange"
+            ? `echo "NOCHANGE: partition $2 is size 629143519. it cannot be grown"; exit 1`
+            : `echo "FAILED: failed to resize" >&2; exit 2`,
+      );
+    }
+    stub(
+      bin,
+      "resize2fs",
+      (box.resize2fs ?? "ok") === "ok"
+        ? `echo "The filesystem on $1 is now 78642939 (4k) blocks long."; exit 0`
+        : `echo "resize2fs: Permission denied while trying to open $1" >&2; exit 1`,
+    );
+
+    const path =
+      growpart === "absent"
+        ? `${bin}:${noGrowpartBin}`
+        : `${bin}:${process.env.PATH}`;
+    const script = `
+source ${fitable}
+MEMINFO_PATH=${meminfo}
+OFFICE_MEMORY_DROPIN=${systemDropin}
+OFFICE_USER_MEMORY_DROPIN=${userDropin}
+CGROUP_ROOT=${cgroupRoot}
+PROC_ROOT=${procRoot}
+HOSTED_ENROLLMENT=${enrollment}
+SYS_CLASS_BLOCK=${sysClassBlock}
+export FAKE_LIB=${lib}
+PATH=${path}
+hash -r
+if command -v growpart >/dev/null; then echo "PROBE growpart=present"; else echo "PROBE growpart=absent"; fi
+${box.failWrite ? "write_file() { cat >/dev/null; return 1; }" : ""}
+main --fit-box
+`;
+    const proc = Bun.spawn(["bash", "-c", script], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exit = await proc.exited;
+    const out = stdout + stderr;
+    const callLines = readFileSync(calls, "utf8").split("\n").filter(Boolean);
+    const read = (f: string) =>
+      existsSync(f) ? readFileSync(f, "utf8") : null;
+    const cg = (c: string) => {
+      const d = join(cgroupRoot, c);
+      return existsSync(d)
+        ? readFileSync(join(d, "memory.max"), "utf8").trim()
+        : null;
+    };
+    return {
+      out,
+      exit,
+      probe: out.match(/PROBE growpart=(\w+)/)?.[1],
+      calls: callLines,
+      reloads: callLines.filter(
+        (l) =>
+          l === "systemctl daemon-reload" ||
+          l.includes("systemctl --user daemon-reload"),
+      ),
+      disk: callLines.filter(
+        (l) => l.startsWith("growpart ") || l.startsWith("resize2fs "),
+      ),
+      systemDropin: read(systemDropin),
+      userDropin: read(userDropin),
+      systemCgroupMax: cg(SYSTEM_CGROUP),
+      userCgroupMax: cg(USER_CGROUP),
+    };
+  }
+
+  /** The [Service] settings of a drop-in, and whether it carries our marker. */
+  function parseDropin(text: string | null) {
+    expect(text).not.toBeNull();
+    const lines = (text as string).split("\n");
+    const values: Record<string, string> = {};
+    for (const l of lines) {
+      const m = l.match(/^(Memory\w+)=(\S+)$/);
+      if (m) values[m[1]] = m[2];
+    }
+    return {
+      marked: lines.some((l) => l.includes("Written by isomux-oom-protect")),
+      values,
+    };
+  }
+
+  /** What an install writes on a box with this RAM: the converged text. */
+  async function installText(memMib: number): Promise<string> {
+    const root = mkdtempSync(join(dir, "fit-install-"));
+    const meminfo = join(root, "meminfo");
+    writeFileSync(meminfo, `MemTotal:       ${memMib * 1024} kB\n`);
+    const file = join(root, "20-memory.conf");
+    const procRoot = join(root, "proc");
+    mkdirSync(procRoot);
+    const proc = Bun.spawnSync([
+      "bash",
+      "-c",
+      `source ${testable}
+MEMINFO_PATH=${meminfo}
+OFFICE_MEMORY_DROPIN=${file}
+OFFICE_USER_MEMORY_DROPIN=${join(root, "user.conf")}
+CGROUP_ROOT=${join(root, "cgroup")}
+PROC_ROOT=${procRoot}
+DRY_RUN=""
+systemctl() { return 0; }
+configure_office_memory_cap`,
+    ]);
+    expect(proc.exitCode).toBe(0);
+    return readFileSync(file, "utf8");
+  }
+
+  // ---- the memory cap ----------------------------------------------------
+
+  it("brings both of its own drop-ins to the new RAM at boot, before any office runs", async () => {
+    const first = await fitBox({
+      memMib: POWER_MIB,
+      systemDropin: ENTRY_DROPIN,
+      userDropin: ENTRY_DROPIN,
+    });
+    // At boot no office runs yet, so there is no cgroup to read back, and
+    // that is not a failure: the cap takes effect when the office starts.
+    expect(first.systemCgroupMax).toBeNull();
+    expect(first.userCgroupMax).toBeNull();
+    expect(first.exit).toBe(0);
+    const sys = parseDropin(first.systemDropin);
+    expect(sys.marked).toBe(true);
+    expect(sys.values).toEqual(POWER_VALUES);
+    expect(first.userDropin).toBe(first.systemDropin);
+    // The system manager re-reads the file before isomux.service starts.
+    expect(first.reloads).toContain("systemctl daemon-reload");
+    // The text is what an install on this RAM writes, so the fit converges
+    // on the install's own output rather than on a second format.
+    expect(first.systemDropin).toBe(await installText(POWER_MIB));
+  });
+
+  it("leaves a drop-in that already fits alone: no write, no reload", async () => {
+    const fitted = await installText(POWER_MIB);
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      systemDropin: fitted,
+      userDropin: fitted,
+    });
+    expect(r.exit).toBe(0);
+    expect(r.reloads).toEqual([]);
+    expect(r.systemDropin).toBe(fitted);
+    expect(r.userDropin).toBe(fitted);
+  });
+
+  it("rewrites an older wording of its own drop-in, even with today's values", async () => {
+    const fitted = await installText(POWER_MIB);
+    const older = fitted.replace(
+      /^# Written by isomux-oom-protect[^\n]*\n/,
+      "# Written by isomux-oom-protect.\n# An older comment line.\n",
+    );
+    expect(older).not.toBe(fitted);
+    expect(parseDropin(older).values).toEqual(POWER_VALUES);
+    const r = await fitBox({ memMib: POWER_MIB, systemDropin: older });
+    expect(r.exit).toBe(0);
+    expect(r.systemDropin).toBe(fitted);
+    expect(r.reloads).toContain("systemctl daemon-reload");
+  });
+
+  it("never touches a drop-in without its marker, nor adds one where there is none", async () => {
+    const operators = "[Service]\nMemoryMax=4000M\nMemoryHigh=3000M\n";
+    const mine = await fitBox({ memMib: POWER_MIB, systemDropin: operators });
+    expect(mine.exit).toBe(0);
+    expect(mine.systemDropin).toBe(operators);
+    // The user drop-in did not exist, and an update or a boot never adds a cap.
+    expect(mine.userDropin).toBeNull();
+    expect(mine.reloads).toEqual([]);
+
+    const none = await fitBox({ memMib: POWER_MIB });
+    expect(none.exit).toBe(0);
+    expect(none.systemDropin).toBeNull();
+    expect(none.userDropin).toBeNull();
+    expect(none.reloads).toEqual([]);
+  });
+
+  it("rewrites only the user drop-in on a box whose office is a user unit", async () => {
+    const r = await fitBox({ memMib: POWER_MIB, userDropin: ENTRY_DROPIN });
+    expect(r.exit).toBe(0);
+    expect(parseDropin(r.userDropin).values).toEqual(POWER_VALUES);
+    expect(r.systemDropin).toBeNull();
+  });
+
+  it("leaves its drop-in alone on a box below 4 GiB", async () => {
+    const r = await fitBox({ memMib: 2048, systemDropin: ENTRY_DROPIN });
+    expect(r.exit).toBe(0);
+    expect(r.systemDropin).toBe(ENTRY_DROPIN);
+    expect(r.reloads).toEqual([]);
+  });
+
+  it("fails the unit when it cannot write the drop-in", async () => {
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      systemDropin: ENTRY_DROPIN,
+      failWrite: true,
+    });
+    expect(r.systemDropin).toBe(ENTRY_DROPIN);
+    expect(r.exit).toBe(1);
+  });
+
+  it("confirms the new cap in a running system office's cgroup, and fails the unit when the kernel did not take it", async () => {
+    const ok = await fitBox({
+      memMib: POWER_MIB,
+      systemDropin: ENTRY_DROPIN,
+      systemOffice: true,
+    });
+    expect(ok.systemCgroupMax).toBe(`${22976 * 1024 * 1024}`);
+    expect(ok.exit).toBe(0);
+
+    const ignored = await fitBox({
+      memMib: POWER_MIB,
+      systemDropin: ENTRY_DROPIN,
+      systemOffice: true,
+      reload: "ignored",
+    });
+    // The enabling condition: the office runs and the kernel kept the old cap.
+    expect(ignored.systemCgroupMax).toBe(`${6917 * 1024 * 1024}`);
+    expect(ignored.reloads).toContain("systemctl daemon-reload");
+    expect(ignored.exit).toBe(1);
+  });
+
+  it("reloads a running user-level office's manager and fails the unit when the kernel did not take it", async () => {
+    const ok = await fitBox({
+      memMib: POWER_MIB,
+      userDropin: ENTRY_DROPIN,
+      userOffice: true,
+    });
+    expect(
+      ok.reloads.filter((l) => l.includes("systemctl --user daemon-reload")),
+    ).toHaveLength(1);
+    expect(ok.userCgroupMax).toBe(`${22976 * 1024 * 1024}`);
+    expect(ok.exit).toBe(0);
+
+    const ignored = await fitBox({
+      memMib: POWER_MIB,
+      userDropin: ENTRY_DROPIN,
+      userOffice: true,
+      reload: "ignored",
+    });
+    expect(ignored.userCgroupMax).toBe(`${6917 * 1024 * 1024}`);
+    expect(
+      ignored.reloads.filter((l) =>
+        l.includes("systemctl --user daemon-reload"),
+      ),
+    ).toHaveLength(1);
+    expect(ignored.exit).toBe(1);
+  });
+
+  // ---- the root disk -----------------------------------------------------
+
+  it("grows the root partition, then its filesystem, on a Hosted box", async () => {
+    const r = await fitBox({ memMib: POWER_MIB, hosted: true });
+    expect(r.probe).toBe("present");
+    expect(r.disk).toEqual(["growpart /dev/sda 1", "resize2fs /dev/sda1"]);
+    expect(r.exit).toBe(0);
+  });
+
+  it("finds the disk and partition number of an NVMe root from sysfs", async () => {
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      hosted: true,
+      root: {
+        source: "/dev/nvme0n1p2",
+        fstype: "ext4",
+        partition: { disk: "nvme0n1", number: 2 },
+      },
+    });
+    expect(r.disk).toEqual([
+      "growpart /dev/nvme0n1 2",
+      "resize2fs /dev/nvme0n1p2",
+    ]);
+    expect(r.exit).toBe(0);
+  });
+
+  it("still grows the filesystem when the partition already fills the disk", async () => {
+    // A boot that ended between the two steps: the partition is grown and the
+    // filesystem is not. NOCHANGE is growpart's answer, not a failure.
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      hosted: true,
+      growpart: "nochange",
+    });
+    expect(r.disk).toEqual(["growpart /dev/sda 1", "resize2fs /dev/sda1"]);
+    expect(r.exit).toBe(0);
+  });
+
+  it.each([
+    ["growpart", { growpart: "fail" as const }],
+    ["resize2fs", { resize2fs: "fail" as const }],
+  ])("fails the unit when %s fails", async (step, opts) => {
+    const r = await fitBox({ memMib: POWER_MIB, hosted: true, ...opts });
+    expect(r.disk.some((l) => l.startsWith(`${step} `))).toBe(true);
+    expect(r.exit).toBe(1);
+  });
+
+  it("never touches the disk of a self-hosted box, and still fits its memory cap", async () => {
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      hosted: false,
+      systemDropin: ENTRY_DROPIN,
+    });
+    expect(r.probe).toBe("present");
+    expect(
+      r.calls.filter((l) => /^(growpart|resize2fs|lsblk) /.test(l)),
+    ).toEqual([]);
+    expect(parseDropin(r.systemDropin).values).toEqual(POWER_VALUES);
+    expect(r.exit).toBe(0);
+  });
+
+  it.each([
+    [
+      "an xfs root",
+      {
+        source: "/dev/sda1",
+        fstype: "xfs",
+        partition: { disk: "sda", number: 1 },
+      },
+    ],
+    [
+      "an LVM root",
+      { source: "/dev/mapper/ubuntu--vg-ubuntu--lv", fstype: "ext4" },
+    ],
+  ])("leaves %s alone", async (_label, root) => {
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      hosted: true,
+      root,
+      systemDropin: ENTRY_DROPIN,
+    });
+    expect(r.probe).toBe("present");
+    expect(r.disk).toEqual([]);
+    // The run reached its end: the memory step after or before it still ran.
+    expect(parseDropin(r.systemDropin).values).toEqual(POWER_VALUES);
+    expect(r.exit).toBe(0);
+  });
+
+  it("skips the disk without failing on an image that has no growpart", async () => {
+    const r = await fitBox({
+      memMib: POWER_MIB,
+      hosted: true,
+      growpart: "absent",
+      systemDropin: ENTRY_DROPIN,
+    });
+    expect(r.probe).toBe("absent");
+    expect(r.disk).toEqual([]);
+    expect(parseDropin(r.systemDropin).values).toEqual(POWER_VALUES);
+    expect(r.exit).toBe(0);
+  });
+
+  // ---- the unit ----------------------------------------------------------
+
+  it("installs a boot unit that runs before the office and before any user manager, and only enables it", async () => {
+    const root = mkdtempSync(join(dir, "proc-fit-unit-"));
+    const { out, exit } = await run(
+      root,
+      `DRY_RUN=1; OOM_TOOL_PATH=/usr/local/sbin/isomux-oom-protect; install_fit_box_unit`,
+    );
+    expect(exit).toBe(0);
+    const unit = out
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /^[A-Za-z]+=/.test(l));
+    const all = (key: string) =>
+      unit
+        .filter((l) => l.startsWith(`${key}=`))
+        .flatMap((l) => l.slice(key.length + 1).split(/\s+/))
+        .filter(Boolean);
+    expect(all("Type")).toEqual(["oneshot"]);
+    expect(all("ExecStart")).toEqual([
+      "/usr/local/sbin/isomux-oom-protect",
+      "--fit-box",
+    ]);
+    expect(all("Before")).toContain("isomux.service");
+    // user@.service runs After=systemd-user-sessions.service: a lingering
+    // user manager must not load the old user drop-in before this rewrites it.
+    expect(all("Before")).toContain("systemd-user-sessions.service");
+    expect(all("After")).toContain("local-fs.target");
+    expect(all("WantedBy")).toEqual(["multi-user.target"]);
+    const systemctl = out
+      .split("\n")
+      .filter((l) => l.includes("DRY-RUN: systemctl"));
+    expect(
+      systemctl.some((l) => /enable\b.*isomux-fit-box\.service/.test(l)),
+    ).toBe(true);
+    // Enabled for the next boot, never started by an install or an update:
+    // a start would grow the disk in the middle of an update.
+    expect(systemctl.filter((l) => /--now|\bstart\b|restart/.test(l))).toEqual(
+      [],
+    );
   });
 });

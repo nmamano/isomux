@@ -128,6 +128,7 @@ import {
   type ScheduleCapabilities,
 } from "./drive-loop.ts";
 import { lifecycleTick, resolveBrokenPromise } from "./lifecycle-tick.ts";
+import { sweepPlanPrices } from "./plan-price-check.ts";
 
 const reporter = new Reporter(undefined, process.argv[2] === "run");
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
@@ -352,6 +353,8 @@ function reconcileFn():
       assetState: string;
       ipv4?: string;
       serviceEndsAt?: string;
+      product?: string;
+      providerId?: string;
     } | null>)
   | undefined {
   let adapter: ContaboAdapter;
@@ -371,6 +374,9 @@ function reconcileFn():
       assetState: view.assetState,
       ...(view.ipv4 === undefined ? {} : { ipv4: view.ipv4 }),
       ...(raw?.cancelDate ? { serviceEndsAt: raw.cancelDate } : {}),
+      // The plan sync and the DNS re-point in tick.ts read these two.
+      ...(view.product === undefined ? {} : { product: view.product }),
+      ...(view.providerId === undefined ? {} : { providerId: view.providerId }),
     };
   };
 }
@@ -745,6 +751,9 @@ async function runLifecycleCadence(
       `lifecycle pass had ${summary.failed} failed subscription(s)`,
     );
   }
+  await sweepPlanPrices(store, store.now(), (line) =>
+    reporter.line(`Price check: ${line}`),
+  );
 }
 
 function scheduleCapabilities(

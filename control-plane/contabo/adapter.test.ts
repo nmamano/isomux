@@ -103,6 +103,64 @@ describe("get preserves the transport's outcome class", () => {
   });
 });
 
+// Task 644649b3. A plan change happens in the provider's panel, and the tick
+// learns of it from get(): the product code says which plan the box is on now,
+// and the instance id says which box the answer is about (the DNS re-point
+// only follows an address for the box our asset row names).
+describe("get reports the box's product and its own instance id", () => {
+  test("a row with both carries them on the view", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: {
+          data: [
+            {
+              instanceId: 203474835,
+              productId: "V155",
+              status: "running",
+              ipConfig: { v4: { ip: "192.0.2.20" } },
+            },
+          ],
+        },
+      },
+    ]);
+    const view = await adapter.get("203474835");
+    expect({
+      product: view.product,
+      providerId: view.providerId,
+      ipv4: view.ipv4,
+    }).toEqual({
+      product: "V155",
+      providerId: "203474835",
+      ipv4: "192.0.2.20",
+    });
+  });
+
+  test("a row without a usable product or id leaves them unset, never a guess", async () => {
+    for (const extra of [
+      {},
+      { productId: "" },
+      { productId: 155 },
+      { productId: null },
+    ]) {
+      const { adapter } = adapterOver([
+        {
+          status: 200,
+          body: { data: [{ status: "running", ...extra }] },
+        },
+      ]);
+      const view = await adapter.get("203474835");
+      // The read itself succeeded: the row was applied.
+      expect(view.assetState).toBe("active");
+      expect([extra, view.product, view.providerId]).toEqual([
+        extra,
+        undefined,
+        undefined,
+      ]);
+    }
+  });
+});
+
 describe("the intent stamp", () => {
   test("uses only characters the provider accepts", () => {
     // Measured 2026-08-09: Contabo answers 400 "Only numbers, letters, spaces

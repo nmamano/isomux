@@ -149,6 +149,13 @@ export function ownedFrom(
     // none leaves the stored one alone rather than nulling it (null reads as
     // EUR, plans.ts chargedCurrency).
     ...(s.currency ? { currency: s.currency } : {}),
+    // Written whole every time, so no writer leaves a stale price behind. An
+    // object without an items list records nothing (state null).
+    item_price_state: s.itemPrice?.kind ?? null,
+    item_price_amount:
+      s.itemPrice?.kind === "single" ? s.itemPrice.unitAmount : null,
+    item_price_currency:
+      s.itemPrice?.kind === "single" ? s.itemPrice.currency : null,
   };
 }
 

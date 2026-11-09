@@ -17,6 +17,7 @@ import {
   installCustomerKeyHandler,
   revokeAccessHandler,
   runInstallerHandler,
+  repointDnsHandler,
   setDnsHandler,
   verifyHttpsHandler,
   waitForPackageManagerHandler,
@@ -578,14 +579,23 @@ describe("revoke_access", () => {
   });
 });
 
-describe("set_dns owns the office and wildcard A records", () => {
+// repoint_dns (task 644649b3) is the same Cloudflare write for a live office
+// whose provider address moved, so both kinds answer to one table.
+describe.each([
+  ["set_dns", setDnsHandler],
+  ["repoint_dns", repointDnsHandler],
+] as const)("%s owns the office and wildcard A records", (kind, handlerFor) => {
+  test("is registered under its own kind", () => {
+    expect(handlerFor({} as HandlerDeps).kind).toBe(kind);
+  });
+
   test("retries without an address because reconcile is its only source", async () => {
     const b = await bed(new FakeExec(() => OK));
     await b.store.sqlRun(
       "update provider_assets set ipv4 = null where instance_id = 'inst-1'",
     );
     const writes: unknown[] = [];
-    const result = await setDnsHandler({
+    const result = await handlerFor({
       ...b.deps,
       officeDns: {
         officeARecords: async () => [],
@@ -604,9 +614,9 @@ describe("set_dns owns the office and wildcard A records", () => {
     const b = await bed(new FakeExec(() => OK));
     const ctx = await b.ctx({});
     // A missing writer raises attention and retries instead of doing nothing.
-    expect((await setDnsHandler(b.deps).run(ctx)).kind).toBe("retry");
+    expect((await handlerFor(b.deps).run(ctx)).kind).toBe("retry");
     expect(await b.store.openReasons("inst-1")).toHaveLength(1);
-    const result = await setDnsHandler({
+    const result = await handlerFor({
       ...b.deps,
       officeDns: {
         officeARecords: async () => [],
@@ -626,7 +636,7 @@ describe("set_dns owns the office and wildcard A records", () => {
   test("replaces both exact names with the reconciled asset address", async () => {
     const b = await bed(new FakeExec(() => OK));
     const calls: unknown[] = [];
-    const result = await setDnsHandler({
+    const result = await handlerFor({
       ...b.deps,
       officeDns: {
         officeARecords: async () => [],
@@ -649,13 +659,77 @@ describe("set_dns owns the office and wildcard A records", () => {
     ]);
   });
 
+  // Task 644649b3. The write resolves an address move (ipv4:<asset id>) only
+  // for the address it wrote. A poll that moves the address again while the
+  // write is in flight finds this op still open and opens none of its own,
+  // so if this op closed as done the records would stay on a stale address
+  // with nothing open to report it.
+  test("an address that moves during the write is not resolved: the op retries and the move stays open", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    await b.store.tx(() =>
+      raiseAttentionIn(b.store, {
+        instanceId: "inst-1",
+        reasonClass: "operation_condition",
+        sourceOpId: "ipv4:asset-1",
+        reason: "address moved",
+        severity: "warning",
+      }),
+    );
+    const written: string[] = [];
+    const result = await handlerFor({
+      ...b.deps,
+      officeDns: {
+        officeARecords: async () => [],
+        removeOfficeARecords: async () => true,
+        replaceOfficeARecords: async (_host: string, ipv4: string) => {
+          written.push(ipv4);
+          // The reconcile on another holder commits the next move now.
+          await b.store.sqlRun(
+            "update provider_assets set ipv4 = '192.0.2.99', version = version + 1 where id = 'asset-1'",
+          );
+        },
+      },
+    }).run(await b.ctx({}));
+    // The enabling condition: the write went out with the address read at
+    // the start, and the row moved under it.
+    expect(written).toEqual(["169.58.97.2"]);
+    expect((await b.store.getAsset("asset-1"))?.ipv4).toBe("192.0.2.99");
+    expect(result.kind).toBe("retry");
+    expect(
+      (await b.store.openReasons("inst-1")).map((r) => r.source_op_id),
+    ).toContain("ipv4:asset-1");
+  });
+
+  test("a write at the current address resolves the move", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    await b.store.tx(() =>
+      raiseAttentionIn(b.store, {
+        instanceId: "inst-1",
+        reasonClass: "operation_condition",
+        sourceOpId: "ipv4:asset-1",
+        reason: "address moved",
+        severity: "warning",
+      }),
+    );
+    const result = await handlerFor({
+      ...b.deps,
+      officeDns: {
+        officeARecords: async () => [],
+        removeOfficeARecords: async () => true,
+        replaceOfficeARecords: async () => {},
+      },
+    }).run(await b.ctx({}));
+    expect(result.kind).toBe("done");
+    expect(await b.store.openReasons("inst-1")).toEqual([]);
+  });
+
   test("a hung Cloudflare call ends at the remote budget and is audited ambiguous", async () => {
     const b = await bed(new FakeExec(() => OK));
     const begin = Date.now();
     const budget = new RemoteBudget(begin + 150, begin + 300_000, () =>
       Date.now(),
     );
-    const result = await setDnsHandler({
+    const result = await handlerFor({
       ...b.deps,
       officeDns: hungOfficeDns(),
     }).run(await b.ctx({}, budget));
@@ -663,7 +737,7 @@ describe("set_dns owns the office and wildcard A records", () => {
     expect(JSON.stringify(result)).not.toContain(UNBOUNDED);
     expect(Date.now() - begin).toBeLessThan(1000);
     // An aborted batch may have acted, whatever error the transport threw.
-    expect(b.audits).toContain("set_office_dns:ambiguous");
+    expect(b.audits.some((a) => a.endsWith(":ambiguous"))).toBe(true);
   });
 });
 
