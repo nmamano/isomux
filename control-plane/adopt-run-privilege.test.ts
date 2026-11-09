@@ -205,7 +205,9 @@ suite("adopt-run under the provisioner's exact grant matrix", () => {
     await store.close();
   });
 
-  test("a REFUSAL is still the command's own refusal, not a privilege error", async () => {
+  // Quarantined (task dafe7c39, P1): fails when the random instance id in the
+  // refusal message contains 42501.
+  test.skip("a REFUSAL is still the command's own refusal, not a privilege error", async () => {
     // The preconditions have to be reachable from this role too. A revoke
     // before anything is linked must fail on the rule, which means the reads
     // the rule depends on all succeeded.
