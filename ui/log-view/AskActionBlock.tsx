@@ -94,6 +94,10 @@ interface Value {
   label: string;
 }
 
+// A row whose value now equals the value asked for shows it once, with no
+// arrow.
+const sameValue = (now: Value, asked: Value) => now.value === asked.value;
+
 // One key of a kind that sets several: its label, the value now (undefined
 // until it is read) and asked for, and what the setting does.
 interface Row {
@@ -1886,7 +1890,7 @@ export function AskActionBlock({
             }}
           >
             <span>{row.label}</span>
-            {row.current ? (
+            {row.current && !sameValue(row.current, row.requested) ? (
               <span
                 {...noTranslate()}
                 style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}
@@ -1894,9 +1898,11 @@ export function AskActionBlock({
                 {row.current.label}
               </span>
             ) : (
-              view.loading && placeholder
+              !row.current && view.loading && placeholder
             )}
-            {(row.current || view.loading) && <span aria-hidden="true">→</span>}
+            {(row.current
+              ? !sameValue(row.current, row.requested)
+              : view.loading) && <span aria-hidden="true">→</span>}
             <span
               {...noTranslate()}
               style={{ fontWeight: 600, overflowWrap: "anywhere" }}
