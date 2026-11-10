@@ -2680,7 +2680,7 @@ audit row, and no new Checkout opens for an ended office. Continue refuses a dea
 signup page offers the new-office form instead. The office page of a dead
 reservation (`ProgressView.checkoutOver`, computed in `progressRows` from the same
 predicate) shows no Continue button, but a link to the signup form with its name
-filled in. The web holds no DELETE: a
+filled in, and, as for every ended office, no Progress or Plan card. The web holds no DELETE: a
 takeover is an UPDATE of the locked row.
 
 ### Progress, and what the browser is not told

@@ -556,6 +556,9 @@ test("a deleted office reads as ended, with nothing to open, reach or restart", 
     "restart-button",
     "cancel-ended",
     "payment-guidance",
+    // No build to follow and no plan to show (sign-off of task 03eef464).
+    "steps",
+    "office-tier",
   ]) {
     expect(ended).not.toContain(`data-testid="${section}"`);
   }
@@ -570,6 +573,8 @@ test("a deleted office reads as ended, with nothing to open, reach or restart", 
   expect(notReady).toContain('data-testid="cancel-ended"');
   expect(notReady).toContain('data-testid="handoff"');
   expect(notReady).toContain('data-testid="restart-button"');
+  expect(notReady).toContain('data-testid="steps"');
+  expect(notReady).toContain('data-testid="office-tier"');
 });
 
 test("a reservation whose checkout is over offers a new signup for its name, not Continue", () => {
@@ -604,6 +609,8 @@ test("a reservation whose checkout is over offers a new signup for its name, not
   expect(abandoned).toContain('data-testid="payment-over"');
   expect(abandoned).toContain('href="/signup?name=test-office"');
   expect(abandoned).not.toContain('name="signupIntent"');
+  expect(abandoned).not.toContain('data-testid="steps"');
+  expect(abandoned).not.toContain('data-testid="office-tier"');
 });
 
 test("an ended office does not poll as if it were still being built", () => {

@@ -1002,15 +1002,19 @@ export function OfficeView({
       <div className="office-columns">
         <div>
           {view.ready && gettingIn}
-          <section className="card">
-            <h2>{i18n.t("office.progressHeading")}</h2>
-            <Steps
-              i18n={i18n}
-              steps={progressSteps}
-              testid="steps"
-              now={timerNow}
-            />
-          </section>
+          {/* An ended office has no build to follow and no plan to show: its
+              status line already says it is gone. */}
+          {!view.ended && (
+            <section className="card">
+              <h2>{i18n.t("office.progressHeading")}</h2>
+              <Steps
+                i18n={i18n}
+                steps={progressSteps}
+                testid="steps"
+                now={timerNow}
+              />
+            </section>
+          )}
           {view.otherOperations.length > 0 && (
             <section className="card">
               <h2>{i18n.t("office.otherWorkHeading")}</h2>
@@ -1024,60 +1028,62 @@ export function OfficeView({
           )}
         </div>
         <div>
-          <section className="card" data-testid="office-tier">
-            <h2>{i18n.t("office.planHeading")}</h2>
-            {/* The plan name and its specification are the product's own words
-                and its hardware figures, not copy (ruling 11). */}
-            <p>
-              <strong>{view.tier.label}</strong>
-            </p>
-            {view.tier.specification && <p>{view.tier.specification}</p>}
-            {customerPriceLine(
-              language,
-              view.tier.customerPrice,
-              view.tier.currency,
-            ) && (
+          {!view.ended && (
+            <section className="card" data-testid="office-tier">
+              <h2>{i18n.t("office.planHeading")}</h2>
+              {/* The plan name and its specification are the product's own words
+                  and its hardware figures, not copy (ruling 11). */}
               <p>
-                {customerPriceLine(
-                  language,
-                  view.tier.customerPrice,
-                  view.tier.currency,
-                )}
+                <strong>{view.tier.label}</strong>
               </p>
-            )}
-            <p className="plan-line" data-testid="subscription">
-              {planLine(i18n, view)}
-            </p>
-            <CancelPanel
-              i18n={i18n}
-              view={view}
-              pending={billing}
-              onAct={(path, label) => void billingAct(path, label)}
-            />
-            {view.lifecycle?.reinstate.allowed && (
-              <>
-                <PolicyNotice language={language} />
-                <p className="action">
-                  <button
-                    data-testid="reinstate-button"
-                    onClick={() => void reinstate()}
-                  >
-                    {view.lifecycle.phase === "reinstatement_pending"
-                      ? i18n.t("office.reinstate.return")
-                      : i18n.t("office.reinstate.reinstate")}
-                  </button>
+              {view.tier.specification && <p>{view.tier.specification}</p>}
+              {customerPriceLine(
+                language,
+                view.tier.customerPrice,
+                view.tier.currency,
+              ) && (
+                <p>
+                  {customerPriceLine(
+                    language,
+                    view.tier.customerPrice,
+                    view.tier.currency,
+                  )}
                 </p>
-              </>
-            )}
-            {billingProblem && (
-              <p
-                className="callout callout-danger"
-                data-testid="billing-problem"
-              >
-                {billingProblem}
+              )}
+              <p className="plan-line" data-testid="subscription">
+                {planLine(i18n, view)}
               </p>
-            )}
-          </section>
+              <CancelPanel
+                i18n={i18n}
+                view={view}
+                pending={billing}
+                onAct={(path, label) => void billingAct(path, label)}
+              />
+              {view.lifecycle?.reinstate.allowed && (
+                <>
+                  <PolicyNotice language={language} />
+                  <p className="action">
+                    <button
+                      data-testid="reinstate-button"
+                      onClick={() => void reinstate()}
+                    >
+                      {view.lifecycle.phase === "reinstatement_pending"
+                        ? i18n.t("office.reinstate.return")
+                        : i18n.t("office.reinstate.reinstate")}
+                    </button>
+                  </p>
+                </>
+              )}
+              {billingProblem && (
+                <p
+                  className="callout callout-danger"
+                  data-testid="billing-problem"
+                >
+                  {billingProblem}
+                </p>
+              )}
+            </section>
+          )}
           {!view.ready && gettingIn}
           {/* An ended office has no box: nothing to get into, watch or restart. */}
           {!view.ended && (
@@ -1217,8 +1223,8 @@ function CancelPanel({
   ) => void;
 }) {
   const sub = view.subscription;
-  // An ended office says so in its status line, and has nothing to cancel.
-  if (!sub || view.ended) return null;
+  // An ended office shows no plan card, so this panel never sees one.
+  if (!sub) return null;
   const life = view.lifecycle;
 
   if (pending === "cancel") {
