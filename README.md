@@ -2,7 +2,7 @@
 
 **A meta-harness** where agents act like coworkers, not throwaway sessions.
 
-[Self-hosted](#get-started): free for individuals and teams of up to 10 · [Hosted](https://isomux.com/hosted): we run it for you, 24/7, from $9/month · [Enterprise](https://isomux.com/enterprise): on your own infrastructure, with a commercial license
+[Self-hosted](#get-started): free for individuals and companies of up to 10 people · [Hosted](https://isomux.com/hosted): we run it for you, 24/7, from $9/month · [Enterprise](https://isomux.com/enterprise): on your own infrastructure, with a commercial license
 
 Works with your Claude, Codex and OpenCode subscriptions.
 
