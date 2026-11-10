@@ -45,6 +45,7 @@
 - [Terms of Service](https://isomux.com/hosted-terms): Terms for Hosted Isomux
 - [Privacy Policy](https://isomux.com/hosted-privacy): Data collection, access, and retention for Hosted Isomux and Isomux for Enterprise accounts
 - [Refund Policy](https://isomux.com/hosted-refund): Refund eligibility and requests for Hosted Isomux
+- [Welcome Tips](https://isomux.com/hosted-welcome): The emails Hosted Isomux sends a new customer after their office goes live
 
 ## Browser extension
 

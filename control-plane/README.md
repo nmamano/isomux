@@ -1749,15 +1749,21 @@ a provisioner started without one refuses to serve the seam at all, and says so.
 ## The welcome series
 
 Five plain-text English mails to a new customer: day 0 ("your office is
-ready", with its address), then tips on days 1, 3, 7 and 14
-(`welcome-mail-copy.ts`). The provisioner sends them through Resend from
-`hello@isomux.com` (`welcome-mail.ts`).
+ready", with its address), then tips on days 1, 3, 7 and 14 when every step
+goes out on time (`welcome-mail-copy.ts`). The provisioner sends them through Resend from
+`hello@isomux.com` (`welcome-mail.ts`). The site build (`build:docs`) also
+publishes the approved ones at isomux.com/hosted-welcome from the same copy
+(`scripts/hosted-welcome-page.ts`).
 
-**Sending is off** until Nil approves the copy: `WELCOME_MAIL_SENDING` is
-`false`. Sending also needs `RESEND_API_KEY` in `provisioner.env` and a
-non-empty `WELCOME_MAIL_POSTAL_ADDRESS` (CAN-SPAM wants a postal address in
-each mail; the sender refuses without one). While sending is off, the
-schedule clause is off and the provisioner sends nothing.
+**Sending is on** (`WELCOME_MAIL_SENDING`) for the mails Nil approved:
+`WELCOME_MAILS_APPROVED` counts them from the first (1 on 2026-11-10). A
+series waits at the first mail past that count, with no skip, and goes on
+when the count grows: shipping the next mail is its copy plus one more in that
+constant. Sending also needs `RESEND_API_KEY` in `provisioner.env`. The mails
+carry no postal address: under CAN-SPAM, mail about a service the customer
+bought is transactional or relationship mail, and needs none while it promotes
+nothing. So the copy has no upgrade, plan or price pitch. While sending is
+off, the schedule clause is off and the provisioner sends nothing.
 
 - **The clock is first live.** `Ticker.finish` calls `store.recordFirstLive`
   when an office goes from `provisioning` to `live`, in the same transaction.
@@ -1770,15 +1776,23 @@ schedule clause is off and the provisioner sends nothing.
   its next step with a version CAS, and only the winner sends. A crash between
   the two loses that mail; no mail goes out twice. A failed send is audited
   and not retried.
+- **Each step moves the next.** The next step is due the gap between the two
+  day offsets after the moment this step was handled, sent or skipped. So a
+  late start or an outage moves the rest of the series, and two mails are
+  never closer than their gap.
 - **What stops a step.** A step goes out only to a `live` office whose current
-  subscription is `active` or `trialing`, with no cancellation and at most
-  48 hours late. Otherwise it is skipped and the series moves on. The series
-  ends when the office is deprovisioned, the subscription ends or no
-  subscription exists. Each outcome is an `audit_events` row with action
-  `welcome_mail`.
-- **The due clause is the pass's selection**: `next_due_at <= now` and
-  `opted_out_at is null`, the same predicate as `store.dueWelcomeMails`, so a
-  handled row is idle and an opted-out row never wakes the loop.
+  subscription is `active` or `trialing`, with no cancellation. Otherwise it
+  is skipped and the series moves on. Lateness skips nothing: a day 0 mail
+  handled more than 6 hours after the office went live (`WELCOME_MAIL_LATE_MS`;
+  the office went live before sending started) opens with
+  `WELCOME_MAIL_LATE_NOTE`. The series ends when the office is deprovisioned,
+  the subscription ends or no subscription exists, and when the day 0 mail is
+  skipped, so a series never opens with a later tip. Each outcome is an
+  `audit_events` row with action `welcome_mail`.
+- **The due clause is the pass's selection**: `next_due_at <= now`,
+  `opted_out_at is null` and a step below `WELCOME_MAILS_APPROVED`, the same
+  predicate as `store.dueWelcomeMails`, so a handled or waiting row is idle
+  and an opted-out row never wakes the loop.
 - **Unsubscribe.** Each mail carries a random token. The body links to the
   storefront's `/unsubscribe` page, which unsubscribes only on a button click,
   because mail scanners open links. `List-Unsubscribe` names

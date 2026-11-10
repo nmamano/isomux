@@ -5,10 +5,13 @@
 //
 // The rules (task 9d2d7d16): the clock starts when the office first goes live.
 // A step goes out only to a live office whose subscription is active and not
-// cancelled, and not more than 48 hours late; otherwise it is skipped and the
-// series moves on. The series ends with the office or the subscription. Every
-// handled row advances BEFORE its mail goes out, whatever the outcome, so a
-// handled row is never due again and no mail is sent twice.
+// cancelled; otherwise it is skipped and the series moves on. The series ends
+// with the office or the subscription, and when its first mail is not sent.
+// Task 733ed11b: only steps with approved copy go out; a series waits at the
+// first step past them and goes on when that copy ships. No step is skipped
+// for lateness: a first mail sent late opens with a note. Every handled row
+// advances BEFORE its mail goes out, whatever the outcome, so a handled row is
+// never due again and no mail is sent twice.
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { PROVISIONER_GRANTS, WEB_GRANTS } from "./roles.ts";
@@ -26,17 +29,20 @@ import {
   leastPrivilegedDsn,
 } from "./testing/least-privilege.ts";
 import {
+  WELCOME_MAIL_LATE_MS,
   WELCOME_MAIL_OFFSETS_MS,
-  WELCOME_MAIL_STALE_MS,
   type sendWelcomeMail,
 } from "./welcome-mail.ts";
+import { WELCOME_MAILS_APPROVED } from "./welcome-mail-copy.ts";
 import { watchWelcomeMail } from "./welcome-mail-watch.ts";
 
 afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 
 const T0 = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1_000;
-const POSTAL = "Isomux LLC, 1 Example Street, Springfield";
+// Every step approved: the cases that walk the whole series pass it. The
+// shipped count is WELCOME_MAILS_APPROVED ("a series waits" below).
+const ALL = WELCOME_MAIL_OFFSETS_MS.length;
 
 type Mail = Parameters<typeof sendWelcomeMail>[0];
 
@@ -142,7 +148,7 @@ describe("the series", () => {
     await store.recordFirstLive("inst-1", T0);
     const token = (await store.getWelcomeMail("inst-1"))!.unsubscribe_token;
     const { sent, send } = sender();
-    const deps = { apiKey: "re_k", send, postalAddress: POSTAL };
+    const deps = { apiKey: "re_k", send, approved: ALL };
 
     expect(await watchWelcomeMail(store, deps)).toBe(1);
     expect(sent[0]).toMatchObject({
@@ -195,7 +201,6 @@ describe("the series", () => {
       await watchWelcomeMail(store, {
         apiKey: "k",
         send,
-        postalAddress: POSTAL,
       }),
     ).toBe(2);
     expect((await store.getWelcomeMail("inst-a"))?.next_due_at).toBe(
@@ -203,7 +208,7 @@ describe("the series", () => {
     );
     expect((await store.getWelcomeMail("inst-b"))?.next_due_at).toBeNull();
     c.state.value = T0 + WELCOME_MAIL_OFFSETS_MS[1];
-    await watchWelcomeMail(store, { apiKey: "k", send, postalAddress: POSTAL });
+    await watchWelcomeMail(store, { apiKey: "k", send, approved: ALL });
     const steps = async (inst: string) => {
       const token = (await store.getWelcomeMail(inst))!.unsubscribe_token;
       return sent
@@ -226,7 +231,8 @@ describe("the series", () => {
 });
 
 describe("skip and end", () => {
-  // Each case: a due step 0 is not sent, and the row still moves on.
+  // Each case: a reason not to send now. At step 0 it ends the series; at a
+  // later step the series goes on.
   const SKIPS: [string, Parameters<typeof office>[3]][] = [
     ["cancelled at period end", { sub: { cancel_at_period_end: 1 } }],
     ["cancellation recorded", { sub: { canceled_at: T0 - 1 } }],
@@ -250,28 +256,48 @@ describe("skip and end", () => {
     const handled = await watchWelcomeMail(store, {
       apiKey: "k",
       send,
-      postalAddress: POSTAL,
     });
     return { store, sent, handled };
   }
 
-  test("each skip reason sends nothing, and the series goes on", async () => {
+  test("at the first mail, each skip reason ends the series", async () => {
+    // The first mail has the office address and the sign-in steps: a series
+    // without it must not open with a later tip.
     const { store, sent, handled } = await onePass(SKIPS);
     expect(handled).toBe(0);
     expect(sent).toEqual([]);
     for (const [n, [label]] of SKIPS.entries()) {
-      expect([label, await store.getWelcomeMail(`inst-${n}`)]).toEqual([
+      expect([
         label,
-        expect.objectContaining({
-          next_step: 1,
-          next_due_at: T0 + WELCOME_MAIL_OFFSETS_MS[1],
-        }),
-      ]);
-      expect([label, (await audits(store, `inst-${n}`)).length]).toEqual([
-        label,
-        1,
-      ]);
+        (await store.getWelcomeMail(`inst-${n}`))?.next_due_at,
+        (await audits(store, `inst-${n}`)).map((a) => a.outcome),
+      ]).toEqual([label, null, ["ended"]]);
     }
+  });
+
+  test("at a later step, a skip reason skips it and the series goes on", async () => {
+    const c = clock();
+    const store = await openTestStore(c.now);
+    await account(store, "acct-s", "s@example.com");
+    await office(store, "inst-s", "acct-s");
+    await store.recordFirstLive("inst-s", T0);
+    const { sent, send } = sender();
+    const deps = { apiKey: "k", send, approved: ALL };
+    expect(await watchWelcomeMail(store, deps)).toBe(1);
+    await store.sqlRun(
+      "update instances set service_state = 'suspended' where id = 'inst-s'",
+    );
+    c.state.value = T0 + WELCOME_MAIL_OFFSETS_MS[1];
+    expect(await watchWelcomeMail(store, deps)).toBe(0);
+    expect(await store.getWelcomeMail("inst-s")).toMatchObject({
+      next_step: 2,
+      next_due_at: T0 + WELCOME_MAIL_OFFSETS_MS[2],
+    });
+    expect((await audits(store, "inst-s")).map((a) => a.outcome)).toEqual([
+      "succeeded",
+      "skipped",
+    ]);
+    expect(sent.map((m) => m.step)).toEqual([0]);
   });
 
   test("each end reason sends nothing, and the series is over", async () => {
@@ -285,31 +311,74 @@ describe("skip and end", () => {
     }
   });
 
-  test("a step more than 48 hours late is skipped; one within the window goes out", async () => {
-    const c = clock(T0 + WELCOME_MAIL_STALE_MS + 1);
+  test("a late first mail moves the whole series: each mail keeps its gap to the one before", async () => {
+    // Sending starts 30 hours after the office went live: past the second
+    // mail's day.
+    const late = 30 * 60 * 60 * 1_000;
+    const c = clock(T0 + late);
     const store = await openTestStore(c.now);
-    await account(store, "acct-l", "l@example.com");
-    await office(store, "inst-late", "acct-l");
-    await office(store, "inst-edge", "acct-l");
-    await store.recordFirstLive("inst-late", T0);
-    await store.recordFirstLive("inst-edge", T0 + 1);
-    const { sent, send } = sender();
-    const deps = { apiKey: "k", send, postalAddress: POSTAL };
-    // inst-late's day 0 is one millisecond past the window; inst-edge's is
-    // exactly at its end.
-    expect(await watchWelcomeMail(store, deps)).toBe(1);
-    expect(sent.map((m) => m.step)).toEqual([0]);
-    expect(sent[0].unsubscribeToken).toBe(
-      (await store.getWelcomeMail("inst-edge"))!.unsubscribe_token,
+    await account(store, "acct-g", "g@example.com");
+    await office(store, "inst-g", "acct-g");
+    await store.recordFirstLive("inst-g", T0);
+    const at: number[] = [];
+    const { send } = sender(() => {
+      at.push(c.now());
+      return { ok: true };
+    });
+    const deps = { apiKey: "k", send, approved: ALL };
+    for (let step = 0; step < WELCOME_MAIL_OFFSETS_MS.length; step++) {
+      expect([step, await watchWelcomeMail(store, deps)]).toEqual([step, 1]);
+      const due = (await store.getWelcomeMail("inst-g"))?.next_due_at;
+      if (due == null) break;
+      // Nothing goes out before the gap is over.
+      c.state.value = due - 1;
+      expect([step, await watchWelcomeMail(store, deps)]).toEqual([step, 0]);
+      c.state.value = due;
+    }
+    expect(at).toEqual(
+      WELCOME_MAIL_OFFSETS_MS.map((offset) => T0 + late + offset),
     );
-    expect((await store.getWelcomeMail("inst-late"))?.next_step).toBe(1);
-    // Day 1 of inst-late is due and 24 hours late, inside its own window: the
-    // next pass sends it, one step per pass.
-    await watchWelcomeMail(store, deps);
-    const late = (await store.getWelcomeMail("inst-late"))!.unsubscribe_token;
-    expect(
-      sent.filter((m) => m.unsubscribeToken === late).map((m) => m.step),
-    ).toEqual([1]);
+  });
+});
+
+describe("a late first mail", () => {
+  test("is sent, with the note when the office went live more than WELCOME_MAIL_LATE_MS before; a later step never carries it", async () => {
+    const now = T0 + 30 * DAY;
+    const c = clock(now);
+    const store = await openTestStore(c.now);
+    const CASES: [string, number, boolean][] = [
+      ["on-time", now - WELCOME_MAIL_LATE_MS, false],
+      ["just-late", now - WELCOME_MAIL_LATE_MS - 1, true],
+      ["weeks-late", T0, true],
+    ];
+    for (const [id, liveAt] of CASES) {
+      await account(store, `acct-${id}`, `${id}@example.com`);
+      await office(store, `inst-${id}`, `acct-${id}`);
+      await store.recordFirstLive(`inst-${id}`, liveAt);
+    }
+    const { sent, send } = sender();
+    const deps = { apiKey: "k", send, approved: ALL };
+    const steps = async (id: string) => {
+      const token = (await store.getWelcomeMail(`inst-${id}`))!
+        .unsubscribe_token;
+      return sent
+        .filter((m) => m.unsubscribeToken === token)
+        .map((m) => [m.step, m.late]);
+    };
+    expect(await watchWelcomeMail(store, deps)).toBe(CASES.length);
+    for (const [id, , late] of CASES)
+      expect([id, await steps(id)]).toEqual([id, [[0, late]]]);
+    // However late, the next step goes out without the note.
+    c.state.value = now + 10 * DAY;
+    expect(await watchWelcomeMail(store, deps)).toBe(CASES.length);
+    for (const [id, , late] of CASES)
+      expect([id, await steps(id)]).toEqual([
+        id,
+        [
+          [0, late],
+          [1, false],
+        ],
+      ]);
   });
 });
 
@@ -323,7 +392,7 @@ describe("a send that fails", () => {
       ok: false,
       reason: "Resend answered 503",
     }));
-    const deps = { apiKey: "k", send, postalAddress: POSTAL };
+    const deps = { apiKey: "k", send };
     expect(await watchWelcomeMail(store, deps)).toBe(0);
     expect(sent).toHaveLength(1);
     expect((await store.getWelcomeMail("inst-f"))?.next_step).toBe(1);
@@ -351,7 +420,6 @@ describe("a send that fails", () => {
       await watchWelcomeMail(store, {
         apiKey: "k",
         send,
-        postalAddress: POSTAL,
         report: (line) => reports.push(line),
       }),
     ).toBe(1);
@@ -391,7 +459,7 @@ describe("unsubscribe", () => {
     expect(await store.unsubscribeWelcomeMail("no-such-token", T0)).toBe(0);
 
     const { sent, send } = sender();
-    await watchWelcomeMail(store, { apiKey: "k", send, postalAddress: POSTAL });
+    await watchWelcomeMail(store, { apiKey: "k", send });
     expect(sent.map((m) => m.to)).toEqual(["other@example.com"]);
   });
 
@@ -413,7 +481,7 @@ describe("unsubscribe", () => {
       (await store.getWelcomeMail("inst-n2"))?.opted_out_at,
     ).not.toBeNull();
     const { sent, send } = sender();
-    await watchWelcomeMail(store, { apiKey: "k", send, postalAddress: POSTAL });
+    await watchWelcomeMail(store, { apiKey: "k", send });
     expect(sent).toEqual([]);
     // Nothing of the account is due, so nothing wakes the loop for it.
     const schedule = await store.workSchedule(c.now(), 1, 1, SCHEDULE);
@@ -463,9 +531,12 @@ describe("the schedule", () => {
     return { c, store };
   }
 
-  async function agree(store: Store, now: number) {
-    const schedule = await store.workSchedule(now, 1, 1, SCHEDULE);
-    const due = await store.dueWelcomeMails(now);
+  async function agree(store: Store, now: number, approved = ALL) {
+    const schedule = await store.workSchedule(now, 1, 1, {
+      ...SCHEDULE,
+      welcomeMailsApproved: approved,
+    });
+    const due = await store.dueWelcomeMails(now, approved);
     expect(schedule.livenessDue).toBe(due.length > 0);
     return { schedule, due };
   }
@@ -478,11 +549,18 @@ describe("the schedule", () => {
     expect(first.due.map((r) => r.instance_id)).toEqual(["inst-w"]);
     expect(first.schedule.nextDueAt).toBe(T0);
 
+    // Live for the first mail only: a skipped first mail ends the series.
+    const state = (value: string) =>
+      store.sqlRun("update instances set service_state = $1 where id = $2", [
+        value,
+        "inst-w",
+      ]);
+    await state("live");
     await watchWelcomeMail(store, {
       apiKey: "k",
       send: sender().send,
-      postalAddress: POSTAL,
     });
+    await state("suspended");
     const handled = await agree(store, T0);
     expect(handled.due).toEqual([]);
     expect(handled.schedule.nextDueAt).toBe(T0 + WELCOME_MAIL_OFFSETS_MS[1]);
@@ -497,6 +575,91 @@ describe("the schedule", () => {
     const out = await agree(store, c.now());
     expect(out.due).toEqual([]);
     expect(out.schedule.nextDueAt).toBeNull();
+  });
+
+  test("a series waits at the first mail without approved copy, and goes on when that copy ships", async () => {
+    const { c, store } = await bed();
+    await store.recordFirstLive("inst-w", T0);
+    const state = (value: string) =>
+      store.sqlRun("update instances set service_state = $1 where id = $2", [
+        value,
+        "inst-w",
+      ]);
+    const { sent, send } = sender();
+    await state("live");
+    expect(
+      await watchWelcomeMail(store, { apiKey: "k", send, approved: 1 }),
+    ).toBe(1);
+    await state("suspended");
+    const waitingRow = await store.getWelcomeMail("inst-w");
+    expect(waitingRow?.next_step).toBe(1);
+    // Days past the second mail's day, and its copy is not approved: nothing
+    // is due and nothing wakes the loop for it.
+    c.state.value = T0 + WELCOME_MAIL_OFFSETS_MS[1] + 3 * DAY;
+    const waiting = await agree(store, c.now(), 1);
+    expect(waiting.due).toEqual([]);
+    expect(waiting.schedule.nextDueAt).toBeNull();
+    await state("live");
+    expect(
+      await watchWelcomeMail(store, { apiKey: "k", send, approved: 1 }),
+    ).toBe(0);
+    expect(await store.getWelcomeMail("inst-w")).toEqual(waitingRow);
+    expect((await audits(store, "inst-w")).map((a) => a.outcome)).toEqual([
+      "succeeded",
+    ]);
+
+    // The copy of the second mail ships: it is due at once and goes out,
+    // and the third mail keeps its gap from it.
+    await state("suspended");
+    expect((await agree(store, c.now(), 2)).due).toHaveLength(1);
+    await state("live");
+    expect(
+      await watchWelcomeMail(store, { apiKey: "k", send, approved: 2 }),
+    ).toBe(1);
+    expect(sent.map((m) => [m.step, m.late])).toEqual([
+      [0, false],
+      [1, false],
+    ]);
+    const gap = WELCOME_MAIL_OFFSETS_MS[2] - WELCOME_MAIL_OFFSETS_MS[1];
+    expect(await store.getWelcomeMail("inst-w")).toMatchObject({
+      next_step: 2,
+      next_due_at: c.now() + gap,
+    });
+    // And waits again at the third, whose copy is not approved.
+    await state("suspended");
+    const third = await agree(store, c.now() + gap, 2);
+    expect(third.due).toEqual([]);
+    expect(third.schedule.nextDueAt).toBeNull();
+  });
+
+  test("without a count, the pass and the schedule use the shipped one", async () => {
+    const { store } = await bed();
+    await store.recordFirstLive("inst-w", T0);
+    // Last approved step: due. The step after it: waits.
+    for (const [step, due] of [
+      [WELCOME_MAILS_APPROVED - 1, true],
+      [WELCOME_MAILS_APPROVED, false],
+    ] as const) {
+      await store.sqlRun(
+        "update welcome_mails set next_step = $1 where instance_id = $2",
+        [step, "inst-w"],
+      );
+      const schedule = await store.workSchedule(T0, 1, 1, SCHEDULE);
+      expect([step, schedule.livenessDue]).toEqual([step, due]);
+      expect([step, schedule.nextDueAt]).toEqual([step, due ? T0 : null]);
+      expect([step, (await store.dueWelcomeMails(T0)).length]).toEqual([
+        step,
+        due ? 1 : 0,
+      ]);
+    }
+    // The pass with no count leaves the waiting row alone.
+    const { sent, send } = sender();
+    await store.sqlRun(
+      "update instances set service_state = 'live' where id = 'inst-w'",
+    );
+    expect(await watchWelcomeMail(store, { apiKey: "k", send })).toBe(0);
+    expect(sent).toEqual([]);
+    expect(await audits(store, "inst-w")).toEqual([]);
   });
 
   test("with sending off, a due row neither wakes the loop nor sets a wake time", async () => {
@@ -556,7 +719,6 @@ privileged("the series under the deployed grants", () => {
       await watchWelcomeMail(provisioner, {
         apiKey: "k",
         send,
-        postalAddress: POSTAL,
       }),
     ).toBe(2);
     expect(await audits(owner, "inst-p1")).toHaveLength(1);
