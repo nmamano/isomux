@@ -24,7 +24,9 @@ its normal user account.
    bun --version
    ```
 
-   Bun must be at least version 1.3.11.
+   Bun must be at least version 1.3.11. If the shell cannot find `bun`, add
+   the lines that the installer printed to your shell configuration file and
+   open another terminal.
 
 3. Download Isomux into a new directory and start it:
 

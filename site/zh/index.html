@@ -622,70 +622,6 @@
         text-decoration-thickness: 2px;
       }
 
-      /* ---- Setup card ---- */
-      .setup-card {
-        background: var(--bg-surface);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 24px;
-      }
-
-      .setup-card h3 {
-        font-size: 1rem;
-        font-weight: 600;
-        margin-top: 20px;
-        margin-bottom: 8px;
-        color: var(--text);
-      }
-
-      .setup-card h3:first-child {
-        margin-top: 0;
-      }
-
-      .setup-card pre {
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 12px 16px;
-        font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-        font-size: 0.85rem;
-        color: var(--accent);
-        overflow-x: auto;
-        margin-top: 4px;
-        line-height: 1.5;
-      }
-
-      .setup-card pre .comment {
-        color: var(--text-dim);
-      }
-
-      .setup-card p {
-        color: var(--text-dim);
-        font-size: 0.9rem;
-        margin-bottom: 4px;
-      }
-
-      .setup-card ul {
-        list-style: none;
-        margin-top: 8px;
-      }
-
-      .setup-card li {
-        color: var(--text-dim);
-        font-size: 0.9rem;
-        padding-left: 16px;
-        position: relative;
-        margin-bottom: 6px;
-      }
-
-      .setup-card li::before {
-        content: "\b7";
-        position: absolute;
-        left: 0;
-        color: var(--accent);
-        font-weight: bold;
-      }
-
       .section-intro {
         color: var(--text-dim);
         margin-bottom: 16px;
@@ -879,9 +815,9 @@
     <!-- Coworkers -->
     <section id="features">
       <nav class="ways" aria-label="Isomux 的使用方式">
-        <a class="way" href="#setup"
+        <a class="way" href="/docs/hosting-local"
           ><strong>自托管</strong><span>个人和 10 人以内的团队免费。</span
-          ><em>开始使用 ↓</em></a
+          ><em>开始使用 →</em></a
         >
         <a class="way" href="/zh/hosted"
           ><strong>托管</strong><span>我们为你全天候运行。每月 9 USD 起。</span
@@ -1032,81 +968,6 @@
       <p style="color: var(--text-dim); font-size: 0.95rem; margin-top: 20px">
         查看 <a href="/docs">完整功能列表</a>。
       </p>
-    </section>
-
-    <!-- Get Started -->
-    <section id="setup">
-      <h2>开始使用</h2>
-      <p
-        style="
-          background: var(--bg-surface);
-          border-radius: 4px;
-          padding: 12px 16px;
-          margin-bottom: 16px;
-          color: var(--text-dim);
-          font-size: 0.95rem;
-        "
-      >
-        Isomux 处于 beta 阶段。
-        <a href="https://github.com/nmamano/isomux/issues">欢迎报告缺陷</a>。
-      </p>
-      <div class="setup-card">
-        <h3>1. 前提条件</h3>
-        <p>
-          需要
-          <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
-          （v1.3.11+），以及至少一个受支持提供方的访问权限。
-        </p>
-        <pre>curl -fsSL https://bun.sh/install | bash</pre>
-        <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
-          完成后，请打开新的终端，以便将
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >bun</code
-          >
-          加入
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >PATH</code
-          >。如果仍找不到，请把安装程序输出的那几行添加到你的 shell
-          配置文件中，然后再打开一个新终端。
-        </p>
-
-        <h3>2. 安装并运行</h3>
-        <pre>
-git clone https://github.com/nmamano/isomux.git
-cd isomux
-bun install
-bun run dev</pre
-        >
-        <h3>3. 打开</h3>
-        <p>打开 <strong>bun run dev</strong> 输出的设置链接。</p>
-        <ul>
-          <li>
-            Claude Code 和 Codex 随 Isomux 提供。与智能体交谈时会提示登录。
-          </li>
-          <li>OpenCode 随 Isomux 提供。请选择免费、按量付费或订阅模型。</li>
-        </ul>
-
-        <p style="margin-top: 20px">
-          想在常开服务器上运行，从所有设备访问，并让其他人加入你的办公室？请参阅
-          <a href="/docs/hosting">自托管设置</a>。
-        </p>
-        <p style="margin-top: 8px">
-          不想自行运行服务器？
-          <a href="/zh/hosted">我们可以提供托管服务</a>。
-        </p>
-      </div>
     </section>
 
     <!-- How It Works (link) -->
