@@ -302,6 +302,8 @@ export const en = {
   "office.plan.noCharge": ", no charge",
   "office.plan.periodEnds": "period ends {date}",
   "office.plan.nextInvoice": "next invoice {date}",
+  "office.billingPortal": "Invoices and payment",
+  "office.action.openBillingPortal": "open the payment page",
 
   "office.cancel.pendingCancel":
     "We have asked Stripe to cancel your subscription. This page updates when Stripe confirms it.",
@@ -390,7 +392,7 @@ export const en = {
   "refusals.requestCancellationSuspended":
     "This office cannot be restarted. Your office dashboard shows the options available now.",
   "refusals.requestPaymentSuspended":
-    "This office is powered off because a payment failed. Pay the open invoice to power it back on, or contact support.",
+    "This office is powered off because a payment failed. To power it back on, update your card and pay the open invoice under Your plan, or contact support.",
   "refusals.cancelNotYours": "We could not find that office.",
   "refusals.cancelNoSubscription":
     "We have no subscription for this office yet.",

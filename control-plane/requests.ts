@@ -78,7 +78,7 @@ export const REFUSAL_WORDS: Record<RefusalCode, string> = {
   cancellation_suspended:
     "This office cannot be restarted. Your office dashboard shows the options available now.",
   payment_suspended:
-    "This office is powered off because a payment failed. Pay the open invoice to power it back on, or contact support.",
+    "This office is powered off because a payment failed. To power it back on, update your card and pay the open invoice under Your plan, or contact support.",
 };
 
 export type RequestOutcome =

@@ -23,6 +23,7 @@ import {
   enterprisePortalUrl,
   ensureEnterpriseCustomer,
   heldEnterpriseInvoices,
+  hostedPortalUrl,
   invoiceEnterprises,
   recordManualInvoice,
   releaseHeldInvoice,
@@ -30,7 +31,8 @@ import {
 import { opsFloor } from "./ops.ts";
 import { setOperator } from "./operator-admin.ts";
 import { PROVISIONER_GRANTS, WEB_GRANTS } from "./roles.ts";
-import { accountForDevSignIn } from "./signup.ts";
+import { accountForDevSignIn, reserveOffice } from "./signup.ts";
+import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 import { Store, type WorkScheduleOptions } from "./store.ts";
 import { StripeClient } from "./stripe/client.ts";
 import {
@@ -1464,6 +1466,169 @@ describe("the customer portal", () => {
   });
 });
 
+// ------------------------------------------------------- the Hosted portal
+//
+// A Hosted customer updates the card and pays the open invoice in the same
+// Stripe portal, on the customer of the office's subscription (task 87e0251d).
+
+let hostedOffices = 0;
+/** A Hosted office owned by a new account, with a subscription in `status`
+ * (none for null). */
+async function hostedOffice(
+  s: Setup,
+  status: string | null = "unpaid",
+): Promise<{ accountId: string; instanceId: string; customer: string }> {
+  hostedOffices += 1;
+  const n = hostedOffices;
+  const account = await s.store.tx(
+    async () =>
+      await ensureAccount(s.store, {
+        id: `acct-hosted-${n}`,
+        email: `owner${n}@hosted.example`,
+      }),
+  );
+  const reserved = await reserveOffice(s.store, {
+    accountId: account.id,
+    officeName: `hosted${n}`,
+    plan: "office",
+    couponId: null,
+  });
+  if (!reserved.ok) throw new Error(JSON.stringify(reserved));
+  const instanceId = reserved.reservation.instance_id;
+  const customer = `cus_hosted_${n}`;
+  if (status === null) return { accountId: account.id, instanceId, customer };
+  await s.store.tx(
+    async () =>
+      await insertSubscription(s.store, {
+        id: `sub_hosted_${n}`,
+        account_id: account.id,
+        instance_id: instanceId,
+        stripe_customer_id: customer,
+        status,
+        current_period_end: START + 30 * DAY,
+        cancel_at_period_end: 0,
+        ended_at: null,
+        canceled_at: null,
+        cancellation_reason: null,
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 4,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        last_event_id: null,
+        last_event_created: null,
+      }),
+  );
+  return { accountId: account.id, instanceId, customer };
+}
+
+describe("the Hosted customer portal", () => {
+  const back = "https://cloud.example/office/hosted";
+
+  test("the owner gets a new session on the subscription's customer, with our configuration, per click", async () => {
+    const s = await setup();
+    const office = await hostedOffice(s);
+    const fake = new FakeStripe();
+    const first = await hostedPortalUrl(
+      s.store,
+      fake.client(),
+      office.accountId,
+      office.instanceId,
+      back,
+    );
+    expect(first).toEqual({ ok: true, url: fake.sessions[0]?.url });
+    const ours =
+      [...fake.configs.values()].find(
+        (c) => c.params["metadata[isx]"] === "enterprise-portal",
+      )?.id ?? "";
+    // The enabling condition: our tagged configuration exists, and it is not
+    // the account's default.
+    expect(ours).not.toBe("");
+    expect(ours).not.toBe("bpc_default");
+    expect(fake.sessions[0]).toMatchObject({
+      customer: office.customer,
+      return_url: back,
+      configuration: ours,
+    });
+    // The Hosted customer is never copied into a Stripe customer of our own.
+    expect(fake.posts().filter((c) => c.path === "/v1/customers")).toEqual([]);
+
+    // A second click is a new session, not a replay of the first.
+    const second = await hostedPortalUrl(
+      s.store,
+      fake.client(),
+      office.accountId,
+      office.instanceId,
+      back,
+    );
+    expect(second).toEqual({ ok: true, url: fake.sessions[1]?.url });
+    expect(fake.sessions).toHaveLength(2);
+    expect(fake.sessions[1]?.url).not.toBe(fake.sessions[0]?.url);
+    expect(fake.configUpdates).not.toContain("bpc_default");
+  });
+
+  test("another account's office is refused before Stripe is asked", async () => {
+    const s = await setup();
+    const office = await hostedOffice(s);
+    const stranger = await hostedOffice(s);
+    const fake = new FakeStripe();
+    expect(
+      await hostedPortalUrl(
+        s.store,
+        fake.client(),
+        stranger.accountId,
+        office.instanceId,
+        back,
+      ),
+    ).toEqual({ ok: false, reason: "not_yours" });
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("an office with no subscription, or no such office, is refused before Stripe is asked", async () => {
+    const s = await setup();
+    const office = await hostedOffice(s, null);
+    const fake = new FakeStripe();
+    for (const instanceId of [office.instanceId, "inst-not-there"]) {
+      expect([
+        instanceId,
+        await hostedPortalUrl(
+          s.store,
+          fake.client(),
+          office.accountId,
+          instanceId,
+          back,
+        ),
+      ]).toEqual([instanceId, { ok: false, reason: "no_subscription" }]);
+    }
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("a session Stripe refuses is 'stripe'", async () => {
+    const s = await setup();
+    const office = await hostedOffice(s);
+    const fake = new FakeStripe();
+    fake.fail("POST", /^\/v1\/billing_portal\/sessions$/, "refused");
+    expect(
+      await hostedPortalUrl(
+        s.store,
+        fake.client(),
+        office.accountId,
+        office.instanceId,
+        back,
+      ),
+    ).toEqual({ ok: false, reason: "stripe" });
+    // The enabling condition: the refusal came from the session call.
+    expect(
+      fake.calls.some((c) => c.path === "/v1/billing_portal/sessions"),
+    ).toBe(true);
+    expect(fake.sessions).toEqual([]);
+  });
+});
+
 // ------------------------------------------------------------------ roles
 
 describe("as the deployed roles", () => {
@@ -1509,6 +1674,26 @@ describe("as the deployed roles", () => {
       [big.id],
     );
     expect(stored.rows[0].stripe_customer_id).toMatch(/^cus_/);
+  });
+
+  test("the web tier opens a Hosted office's portal", async () => {
+    const s = await setup();
+    const office = await hostedOffice(s);
+    const web = await Store.openRuntime(
+      await leastPrivilegedDsn({ dsn: s.dsn, grants: WEB_GRANTS }),
+      () => clock,
+    );
+    roleStores.push(web);
+    const fake = new FakeStripe();
+    expect(
+      await hostedPortalUrl(
+        web,
+        fake.client(),
+        office.accountId,
+        office.instanceId,
+        "https://cloud.example/office/hosted",
+      ),
+    ).toEqual({ ok: true, url: fake.sessions[0]?.url });
   });
 });
 

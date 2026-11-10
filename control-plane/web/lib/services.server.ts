@@ -1599,6 +1599,34 @@ export async function removeOfficeFor(
   return withStore((store) => removeOffice(store, accountId, change));
 }
 
+/** The Stripe customer portal for a Hosted office's subscription, coming
+ * back to that office's page. */
+export async function hostedPortalFor(
+  accountId: string,
+  instanceId: string,
+): Promise<
+  | { ok: true; url: string }
+  | { ok: false; reason: "not_yours" | "no_subscription" | "stripe" }
+> {
+  const [{ StripeClient }, { hostedPortalUrl }, { reservationForInstance }] =
+    await Promise.all([
+      import("../../stripe/client"),
+      import("../../enterprise-invoices"),
+      import("../../signup"),
+    ]);
+  const client = new StripeClient(await stripeRuntime());
+  const origin = deploymentOrigin();
+  if (!origin) throw new Error("AUTH_URL is not set");
+  return withStore(async (store) => {
+    // The dashboard routes on the reserved name, not on the hostname.
+    const reservation = await reservationForInstance(store, instanceId);
+    const back = reservation
+      ? `${origin}/office/${encodeURIComponent(reservation.name)}`
+      : `${origin}/`;
+    return hostedPortalUrl(store, client, accountId, instanceId, back);
+  });
+}
+
 /** The Stripe customer portal for the account's IT, coming back to
  * `returnPath` on this deployment. */
 export async function enterprisePortalFor(

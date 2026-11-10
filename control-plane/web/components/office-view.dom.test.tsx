@@ -8,7 +8,7 @@
 // rest of the suite shares this process and needs Bun's own globals. Every
 // module that touches the DOM is loaded after registration.
 
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { ProgressView } from "../lib/services.server";
 import {
@@ -40,7 +40,9 @@ let clicked: string[] = [];
 /** A test that needs a particular answer for one path sets it here; the call
  * count lets a script answer differently the second time. */
 let answers: Record<string, (call: number) => Response> = {};
-globalThis.fetch = (async (input: RequestInfo | URL) => {
+/** Each click request's method and parsed JSON body, in order. */
+let sent: { url: string; method: string; body: unknown }[] = [];
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url =
     typeof input === "string"
       ? input
@@ -50,6 +52,13 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   if (url.startsWith("/api/progress/"))
     return new Response("{}", { status: 500 });
   clicked.push(url);
+  let body: unknown;
+  try {
+    body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+  } catch {
+    body = init?.body ?? null;
+  }
+  sent.push({ url, method: (init?.method ?? "GET").toUpperCase(), body });
   const answer = answers[url];
   if (answer) return answer(clicked.filter((u) => u === url).length);
   if (failure === "unreachable") throw new TypeError("Failed to fetch");
@@ -174,6 +183,7 @@ afterEach(async () => {
   box?.remove();
   box = null;
   clicked = [];
+  sent = [];
   answers = {};
 });
 
@@ -484,4 +494,193 @@ describe("the office page's layout", () => {
       true,
     );
   });
+});
+
+// THE CARD AND PAYMENT BUTTON (task 87e0251d). A Hosted customer updates the
+// card and pays the open invoice on Stripe's portal: the page asks the route
+// for a session and goes to its URL. It is there while the subscription has
+// not ended - the payment-suspended office first of all.
+
+const paymentSuspendedView: ProgressView = {
+  ...liveView,
+  serviceState: "suspended",
+  ready: false,
+  subscription: { ...liveView.subscription!, status: "unpaid" },
+  lifecycle: null,
+};
+
+describe("the card and payment button", () => {
+  const PORTAL = "/api/billing/portal";
+  const staticPage = (view: ProgressView): HTMLElement => {
+    const page = document.createElement("div");
+    page.innerHTML = renderToStaticMarkup(
+      createElement(OfficeView, {
+        language: "en",
+        initial: view,
+        instanceId: view.instanceId,
+      }),
+    );
+    return page;
+  };
+
+  test("shown while the subscription has not ended, in the plan card; not for an ended one or none", () => {
+    for (const [state, view, shown] of [
+      ["active", liveView, true],
+      [
+        "past due",
+        {
+          ...liveView,
+          subscription: { ...liveView.subscription!, status: "past_due" },
+        },
+        true,
+      ],
+      ["payment-suspended", paymentSuspendedView, true],
+      ["ended", suspendedView, false],
+      ["no subscription", { ...liveView, subscription: null }, false],
+    ] as const) {
+      const page = staticPage(view);
+      // The enabling condition: the plan card is drawn either way.
+      expect([
+        state,
+        page.querySelector('[data-testid="office-tier"]') !== null,
+      ]).toEqual([state, true]);
+      const button = page.querySelector<HTMLButtonElement>(
+        '[data-testid="billing-portal"]',
+      );
+      expect([state, button !== null]).toEqual([state, shown]);
+      if (button) {
+        expect([state, button.disabled]).toEqual([state, false]);
+        expect([
+          state,
+          page.querySelector('[data-testid="office-tier"]')!.contains(button),
+        ]).toEqual([state, true]);
+        expect([state, (button.textContent ?? "").trim().length > 0]).toEqual([
+          state,
+          true,
+        ]);
+      }
+    }
+  });
+
+  async function mount(
+    language: SupportedLanguageCode,
+    view: ProgressView,
+  ): Promise<HTMLElement> {
+    await act(async () => root?.unmount());
+    box?.remove();
+    box = document.createElement("div");
+    document.body.append(box);
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(
+        createElement(OfficeView, {
+          language,
+          initial: view,
+          instanceId: view.instanceId,
+        }),
+      );
+    });
+    return box;
+  }
+
+  async function press(page: HTMLElement): Promise<void> {
+    const button = page.querySelector<HTMLButtonElement>(
+      '[data-testid="billing-portal"]',
+    );
+    expect(button !== null && !button.disabled).toBe(true);
+    await act(async () => {
+      button!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  test("a press asks the route for this office's session and goes to its URL", async () => {
+    const assign = spyOn(window.location, "assign").mockImplementation(
+      () => {},
+    );
+    try {
+      answers = {
+        [PORTAL]: () =>
+          Response.json({
+            ok: true,
+            url: "https://billing.stripe.example/s/1",
+          }),
+      };
+      const page = await mount("en", paymentSuspendedView);
+      await press(page);
+      expect(sent).toEqual([
+        {
+          url: PORTAL,
+          method: "POST",
+          body: { instanceId: paymentSuspendedView.instanceId },
+        },
+      ]);
+      expect(assign.mock.calls).toEqual([
+        ["https://billing.stripe.example/s/1"],
+      ]);
+      expect(
+        page.querySelector('[data-testid="billing-portal-failed"]'),
+      ).toBeNull();
+      // Back from Stripe's page can restore this page from the back/forward
+      // cache as it was: the button must be pressable again.
+      expect(
+        page.querySelector<HTMLButtonElement>('[data-testid="billing-portal"]')!
+          .disabled,
+      ).toBe(false);
+    } finally {
+      assign.mockRestore();
+    }
+  });
+
+  for (const { code: language } of SUPPORTED_LANGUAGES) {
+    test(`${language}: a refused or failed press stays on the page and says so in one whole sentence`, async () => {
+      const assign = spyOn(window.location, "assign").mockImplementation(
+        () => {},
+      );
+      try {
+        const outcomes: (string | null)[] = [];
+        for (const mode of ["refused", "no-reason", "unreachable"] as const) {
+          sent = [];
+          clicked = [];
+          answers =
+            mode === "refused"
+              ? {
+                  [PORTAL]: () =>
+                    Response.json(
+                      { ok: false, reason: "stripe" },
+                      { status: 409 },
+                    ),
+                }
+              : {};
+          failure = mode === "unreachable" ? "unreachable" : "no-reason";
+          const page = await mount(language, paymentSuspendedView);
+          await press(page);
+          // The enabling condition: the press reached the route.
+          expect([mode, sent.map((r) => r.url)]).toEqual([mode, [PORTAL]]);
+          const callout = page.querySelector(
+            '[data-testid="billing-portal-failed"]',
+          );
+          expect([mode, callout?.classList.contains("callout-danger")]).toEqual(
+            [mode, true],
+          );
+          const text = callout?.textContent ?? "";
+          expect([mode, /^(?!\p{Ll})\p{L}/u.test(text)]).toEqual([mode, true]);
+          expect([mode, /[.!?。]$/u.test(text)]).toEqual([mode, true]);
+          expect([
+            mode,
+            page.querySelector<HTMLButtonElement>(
+              '[data-testid="billing-portal"]',
+            )!.disabled,
+          ]).toEqual([mode, false]);
+          outcomes.push(text);
+        }
+        expect(assign.mock.calls.length).toBe(0);
+        // One sentence, however the press failed.
+        expect(new Set(outcomes).size).toBe(1);
+      } finally {
+        failure = "no-reason";
+        assign.mockRestore();
+      }
+    });
+  }
 });

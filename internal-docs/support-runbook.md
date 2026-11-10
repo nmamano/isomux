@@ -213,10 +213,17 @@ row is missing, or the row has no date), it is never retried:
 3. The mail names a deletion date at least 14 days after it goes out, and the
    deletion waits for that date. Both rows clear when the mail is sent.
 
-## Change a card before the customer portal is enabled
+## Change a card
+
+The customer changes the card and pays an open invoice in Stripe's customer
+portal: **Invoices and payment** under Your plan on the office page. The
+suspension mail links that page. The portal uses our own configuration
+(metadata `isx=enterprise-portal`), which the first click makes.
 
 Isomux never receives card details. Do not ask the customer to email card data,
 and do not enter card data for them.
+
+If the button fails for the customer, the manual path:
 
 1. Complete the account checks above, and open the matching live-mode Stripe
    subscription.
@@ -235,17 +242,11 @@ and do not enter card data for them.
    deletion date in the mail.
 
 The update link changes the payment method for that subscription; it does not
-change the customer's default payment method. It is available only for eligible
-automatically billed subscriptions, and Stripe can withhold it for an ended or
-otherwise unsupported subscription. If the action is unavailable, stop and
-report that constraint. Do not collect card data or improvise an API write.
-
-Enabling and configuring the Stripe customer portal is a pending Nil Dashboard
-action. A default configuration may already exist: the first enterprise Billing
-click makes one (metadata `isx=portal-base`) on an account without one. The
-Dashboard's portal settings edit that default, never the enterprise
-configuration. Until that action is complete and the product exposes the portal path,
-the single-use Stripe payment-update link above is the manual card-change path.
+change the customer's default payment method. Stripe offers it only for an
+`active`, `past_due` or `trialing` subscription, so a payment-suspended
+(`unpaid`) one has no update link: the portal is its only card-change path. If
+the action is unavailable, stop and report that constraint. Do not collect
+card data or improvise an API write.
 
 
 ## An office answers on the box but not on the internet

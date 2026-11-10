@@ -18,11 +18,16 @@ import {
 } from "./lifecycle.ts";
 import { deadlinesFor } from "./operations.ts";
 import { credentialValues, redactLogText } from "./report.ts";
+import { reservationForInstance } from "./signup.ts";
 import { getSubscription } from "./stripe/billing-store.ts";
 import { openerStamp } from "./stripe/suspension.ts";
 import type { Store } from "./store.ts";
 import type { Handler, HandlerContext, HandlerResult } from "./tick.ts";
-import { WELCOME_MAIL_FROM, WELCOME_MAIL_REPLY_TO } from "./welcome-mail.ts";
+import {
+  STOREFRONT_ORIGIN,
+  WELCOME_MAIL_FROM,
+  WELCOME_MAIL_REPLY_TO,
+} from "./welcome-mail.ts";
 
 export interface PaymentNoticeMail {
   to: string;
@@ -71,12 +76,24 @@ export function namedDeletionAt(openerDeletesAt: number, now: number): number {
 }
 
 /**
+ * The office's page on the dashboard, where the owner updates the card and pays
+ * the open invoice. The dashboard routes on the reserved name, not on the
+ * hostname. An office with no reservation gets the dashboard itself.
+ */
+export function officePageUrl(reservedName: string | null): string {
+  return reservedName === null
+    ? STOREFRONT_ORIGIN
+    : `${STOREFRONT_ORIGIN}/office/${encodeURIComponent(reservedName)}`;
+}
+
+/**
  * The mail. A function of the office and the date only, so a retry of one
  * operation renders the same body: Resend refuses a reused idempotency key
  * with a different body.
  */
 export function renderPaymentNotice(vars: {
   officeName: string;
+  officeUrl: string;
   deletesAt: number;
 }): { subject: string; text: string } {
   const date = deletionDay(vars.deletesAt);
@@ -87,9 +104,9 @@ export function renderPaymentNotice(vars: {
       `The payment for your Isomux office ${vars.officeName} failed, and ` +
       `Stripe has stopped retrying. We powered the server off. Your data ` +
       `stays on it, untouched.\n\n` +
-      `To keep the office, pay before ${date}: write to ` +
-      `${WELCOME_MAIL_REPLY_TO} to update your card. The office then comes ` +
-      `back exactly as it was.\n\n` +
+      `To keep the office, update your card and pay the open invoice before ` +
+      `${date}:\n${vars.officeUrl}\n\n` +
+      `The office then comes back exactly as it was.\n\n` +
       `On ${date}, we ask the server provider to delete the server. After ` +
       `that, the data cannot be recovered.\n\n` +
       `Isomux\n`,
@@ -165,10 +182,17 @@ export function paymentNoticeHandler(deps: PaymentNoticeDeps): Handler {
             "the subscription's account has no row, so no address to mail",
         };
       }
+      // The link only: an office with no reservation still gets its mail,
+      // because a held mail holds the deletion.
+      const reservation = await reservationForInstance(ctx.store, instance.id);
       const deletesAt = namedDeletionAt(openerDeletesAt, ctx.now);
       const mail: PaymentNoticeMail = {
         to: account.email,
-        ...renderPaymentNotice({ officeName: instance.name, deletesAt }),
+        ...renderPaymentNotice({
+          officeName: instance.name,
+          officeUrl: officePageUrl(reservation?.name ?? null),
+          deletesAt,
+        }),
       };
       ctx.budget.claim("payment_notice");
       await ctx.audit("payment_notice", "started", "suspension mail");

@@ -1963,6 +1963,10 @@ inUse}` when the other offices' members plus `members` pass N; `add: false` (a
   configuration its default, and the Dashboard edits the default, so on an
   account without a default a base one (`isx=portal-base`: invoices and payment
   method only) is made first; ours is never the default.
+  The owner of a Hosted office opens the same portal configuration on the
+  subscription's Stripe customer from **Invoices and payment** under Your plan
+  on the office page (`POST /api/billing/portal`), to change the card and pay
+  an open invoice.
 - **A negotiated account.** An operator records it:
   `bun control-plane/cli.ts enterprise-negotiated --email <sign-in email>
 --company <name> --plan monthly|yearly --seats <N> --price-note <text>
@@ -3100,7 +3104,9 @@ stamped `reason: "payment"` and their ids derive from the episode
 1. The first pass opens `payment_notice`: one mail to the account through the
    provisioner's `RESEND_API_KEY`, with the operation id as Resend's
    Idempotency-Key. The handler is registered only when the key is set. It
-   skips (no `sentAt`) when the office is no longer payment-suspended.
+   skips (no `sentAt`) when the office is no longer payment-suspended. The
+   mail links the office page (by its reserved name), where the customer
+   changes the card and pays the open invoice.
 2. The deletion date is the latest of `paymentDeletionAt(poweredOffAt)`
    (14 days, counted from `PAYMENT_DELETION_EFFECTIVE_AT`, 1 December 2026, for
    a box powered off earlier), the `deletesAt` the mail named, and the mail's

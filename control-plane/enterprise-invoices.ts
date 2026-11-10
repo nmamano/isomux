@@ -21,6 +21,7 @@ import {
   type EnterprisePlan,
   type SeatChange,
 } from "./enterprise-billing.ts";
+import { currentSubscriptionForInstance } from "./reinstatement.ts";
 import type { Store } from "./store.ts";
 import type { StripeClient, StripeResult } from "./stripe/client.ts";
 
@@ -777,6 +778,54 @@ async function portalConfiguration(
   return { ok: true, value: made.body.id };
 }
 
+/** The Stripe customer portal for a Hosted office's subscription: the
+ * customer updates the card and pays the open invoice there. Only the account
+ * that owns the subscription gets a session. */
+export async function hostedPortalUrl(
+  store: Store,
+  stripe: StripeClient,
+  accountId: string,
+  instanceId: string,
+  returnUrl: string,
+): Promise<
+  | { ok: true; url: string }
+  | { ok: false; reason: "not_yours" | "no_subscription" | "stripe" }
+> {
+  const row = await currentSubscriptionForInstance(store, instanceId);
+  if (!row) return { ok: false, reason: "no_subscription" };
+  if (row.account_id !== accountId) return { ok: false, reason: "not_yours" };
+  return portalSession(
+    stripe,
+    row.stripe_customer_id,
+    returnUrl,
+    // A new session per click.
+    `isx-hosted-portal-${row.id}-${randomUUID()}`,
+  );
+}
+
+/** One portal session on our configuration for `customer`. */
+async function portalSession(
+  stripe: StripeClient,
+  customer: string,
+  returnUrl: string,
+  idempotencyKey: string,
+): Promise<{ ok: true; url: string } | { ok: false; reason: "stripe" }> {
+  const configuration = await portalConfiguration(stripe);
+  if (!configuration.ok) return { ok: false, reason: "stripe" };
+  const session = await stripe.post(
+    "/v1/billing_portal/sessions",
+    {
+      customer,
+      return_url: returnUrl,
+      configuration: configuration.value,
+    },
+    idempotencyKey,
+  );
+  if (session.kind !== "ok" || typeof session.body.url !== "string")
+    return { ok: false, reason: "stripe" };
+  return { ok: true, url: session.body.url };
+}
+
 /** The Stripe customer portal for the signed-in account's IT, with our own
  * configuration (invoice history, payment method, address and tax id; no
  * email change). */
@@ -802,19 +851,11 @@ export async function enterprisePortalUrl(
   if (row.signed_at === null) return { ok: false, reason: "not_signed" };
   const customer = await ensureEnterpriseCustomer(store, stripe, row.id);
   if (!customer.ok) return { ok: false, reason: "stripe" };
-  const configuration = await portalConfiguration(stripe);
-  if (!configuration.ok) return { ok: false, reason: "stripe" };
-  const session = await stripe.post(
-    "/v1/billing_portal/sessions",
-    {
-      customer: customer.customerId,
-      return_url: returnUrl,
-      configuration: configuration.value,
-    },
+  return portalSession(
+    stripe,
+    customer.customerId,
+    returnUrl,
     // A new session per click.
     `isx-ent-portal-${row.id}-${randomUUID()}`,
   );
-  if (session.kind !== "ok" || typeof session.body.url !== "string")
-    return { ok: false, reason: "stripe" };
-  return { ok: true, url: session.body.url };
 }

@@ -299,6 +299,8 @@ export const es: Catalog = {
   "office.plan.noCharge": ", sin cargo",
   "office.plan.periodEnds": "el periodo termina el {date}",
   "office.plan.nextInvoice": "próxima factura {date}",
+  "office.billingPortal": "Facturas y pago",
+  "office.action.openBillingPortal": "abrir la página de pago",
 
   "office.cancel.pendingCancel":
     "Hemos pedido a Stripe que cancele tu suscripción. Esta página se actualiza cuando Stripe lo confirma.",
@@ -381,7 +383,7 @@ export const es: Catalog = {
   "refusals.requestCancellationSuspended":
     "Esta oficina no se puede reiniciar. El panel de tu oficina muestra las opciones disponibles ahora.",
   "refusals.requestPaymentSuspended":
-    "Esta oficina está apagada porque falló un pago. Paga la factura pendiente para volver a encenderla, o contacta con soporte.",
+    "Esta oficina está apagada porque falló un pago. Para volver a encenderla, actualiza tu tarjeta y paga la factura pendiente en Tu plan, o contacta con soporte.",
   "refusals.cancelNotYours": "No hemos encontrado esa oficina.",
   "refusals.cancelNoSubscription":
     "Todavía no tenemos ninguna suscripción para esta oficina.",

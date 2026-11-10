@@ -85,6 +85,7 @@ describe("only one file reaches the store", () => {
       "emailChangeRefusalFor",
       "enterpriseAccountFor",
       "enterprisePortalFor",
+      "hostedPortalFor",
       "identityForSignIn",
       "incidentsForKey",
       "officeRouteForAccount",

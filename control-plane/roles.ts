@@ -700,7 +700,9 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     via:
       "mint-seam.ts fetchInvite -> signup.ts instanceOwnedBy -> " +
       "signup.ts reservationForInstance; the same read the 2026-08-12 " +
-      "probe (deploy/probe.ts main) was refused",
+      "probe (deploy/probe.ts main) was refused; payment-notice.ts " +
+      "paymentNoticeHandler -> signup.ts reservationForInstance (the office " +
+      "page the mail links)",
   },
   {
     table: "name_reservations",
@@ -857,7 +859,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "reinstateOffice -> signup:instanceOwnedBy; signup:reserveOffice admission count, " +
       "its locked read of a held name (select ... for update) and its one-unpaid-office " +
       "bound; signupPageState -> signup:heldUnpaidReservation; continueSignup -> " +
-      "signup:reservationIsDead",
+      "signup:reservationIsDead; hostedPortalFor -> signup:reservationForInstance " +
+      "(the office page Stripe's portal returns to)",
   },
   {
     table: "name_reservations",
@@ -1035,14 +1038,17 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "-> reinstatement.ts currentSubscriptionForInstance; progress:projectionFor; " +
       "stripeCustomersFor -> signup:stripeCustomersForAccount; signup:reserveOffice, " +
       "signupPageState -> signup:heldUnpaidReservation and continueSignup -> " +
-      "signup:reservationIsDead read whether a reservation is paid",
+      "signup:reservationIsDead read whether a reservation is paid; " +
+      "enterprise-invoices:hostedPortalUrl -> reinstatement.ts " +
+      "currentSubscriptionForInstance reads the office's customer",
   },
   {
     table: "reinstatement_attempts",
     verb: "select",
     via:
       "reinstatement.ts currentSubscriptionForInstance (stripe/billing-store:" +
-      "subscriptionForInstance); progress:projectionFor (attemptForClosedSubscription); " +
+      "subscriptionForInstance), also from enterprise-invoices:hostedPortalUrl; " +
+      "progress:projectionFor (attemptForClosedSubscription); " +
       "reinstatement:prepareReinstatementCheckout (attemptById)",
   },
   {
@@ -1197,7 +1203,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "renewSecret",
       "signAgreement",
     ],
-    "enterprise-invoices": ["enterprisePortalUrl"],
+    "enterprise-invoices": ["enterprisePortalUrl", "hostedPortalUrl"],
     "enterprise-billing": [
       "ADDED_SEAT_MONTH_USD",
       "MIN_SEATS",
@@ -1239,6 +1245,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "recordTerminalOrdinarySession",
       "removeGoogleSignIn",
       "reservationByName",
+      "reservationForInstance",
       "reservationIsDead",
       "reservationsForAccount",
       "reserveOffice",

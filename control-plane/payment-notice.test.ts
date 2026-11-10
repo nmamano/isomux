@@ -22,6 +22,7 @@ import {
 } from "./testing/pg.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
+import { STOREFRONT_ORIGIN } from "./welcome-mail.ts";
 
 afterEach(async () => {
   await releaseTestStores();
@@ -38,6 +39,9 @@ async function bed(
     serviceState?: ServiceState;
     status?: string;
     deletesAt?: number;
+    /** The office's name on the dashboard (its route key); null for an
+     * instance with no reservation. */
+    officeName?: string | null;
   } = {},
 ): Promise<{ store: Store; ctx: HandlerContext }> {
   const store = await openTestStore(() => NOW);
@@ -63,6 +67,13 @@ async function bed(
     host_key_fingerprint: null,
     next_reconcile_at: 0,
   });
+  if (over.officeName !== null)
+    await store.sqlRun(
+      "insert into name_reservations (name, id, account_id, instance_id, plan, " +
+        "checkout_generation, checkout_state, version, created_at, updated_at) " +
+        "values ($1, 'res-1', 'acct-1', 'inst-1', 'V153', 1, 'reconciled', 1, $2, $2)",
+      [over.officeName ?? "cp2", P - 60 * DAY],
+    );
   await store.tx(async () => {
     const account = await ensureAccount(store, { id: "acct-1", email: OWNER });
     await insertSubscription(store, {
@@ -169,6 +180,35 @@ describe("the payment notice handler", () => {
     await r.handler.run({ ...b.ctx, now: NOW + 30 * 60_000 });
     expect(r.sent.length).toBe(2);
     expect(r.sent[1]).toEqual(r.sent[0]!);
+  });
+
+  test("the mail links the office's page on the dashboard, where the card is updated", async () => {
+    // The dashboard routes on the reserved name, not on the hostname.
+    const b = await bed({ officeName: "cp2" });
+    // The enabling condition: the two differ, so the link shows which one.
+    expect(b.ctx.instance.name).not.toBe("cp2");
+    const r = recorder();
+    await r.handler.run(b.ctx);
+    const links = r.sent[0]!.mail.text.match(/https:\/\/\S+/g) ?? [];
+    expect(links.map((l) => l.replace(/[.,;:)]+$/, ""))).toContain(
+      `${STOREFRONT_ORIGIN}/office/cp2`,
+    );
+  });
+
+  test("an office with no reservation still gets its mail, with a link to the dashboard", async () => {
+    const b = await bed({ officeName: null });
+    const r = recorder();
+    const result = await r.handler.run(b.ctx);
+    expect(result.kind).toBe("done");
+    expect(r.sent.length).toBe(1);
+    const links = (r.sent[0]!.mail.text.match(/https:\/\/\S+/g) ?? []).map(
+      (l) => l.replace(/[.,;:)]+$/, ""),
+    );
+    // The enabling condition: the mail has a link at all.
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links)
+      expect(link.startsWith(STOREFRONT_ORIGIN)).toBe(true);
+    expect(links.some((l) => l.includes("/office/"))).toBe(false);
   });
 
   test("a mail that goes out late names a date at least 14 days away, and records it", async () => {

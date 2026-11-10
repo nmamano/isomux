@@ -122,6 +122,14 @@ export const enterpriseLimiter = createLimiter({
   maxKeys: MAX_KEYS,
 });
 
+/** POST /api/billing/portal, which opens a Stripe portal session for a Hosted
+ * office: the same bound as the enterprise portal. */
+export const billingPortalLimiter = createLimiter({
+  limit: 30,
+  windowMs: TEN_MINUTES,
+  maxKeys: MAX_KEYS,
+});
+
 /** The seat service (/api/enterprise/v1/seats), per client address. A 429
  * refuses an office's add, and a company's offices may share one address,
  * so it is as wide as the per-secret quota: it only bounds the database load

@@ -448,6 +448,8 @@ export function OfficeView({
    * never writes subscription state, so it must not claim it either. */
   const [billing, setBilling] = useState<"cancel" | "uncancel" | null>(null);
   const [billingProblem, setBillingProblem] = useState<string | null>(null);
+  const [portalBusy, setPortalBusy] = useState(false);
+  const [portalProblem, setPortalProblem] = useState<string | null>(null);
   const invitePathOffered =
     view.origin === "adopted" || view.handoff.invite.mintedAt !== null;
   const paymentStep: ProgressView["steps"][number] = {
@@ -656,6 +658,34 @@ export function OfficeView({
       setBilling(null);
       setBillingProblem(i18n.t("office.cancel.planFailed"));
     }
+  };
+
+  // Stripe's portal, where the card is updated and the open invoice paid.
+  const openPortal = async (): Promise<void> => {
+    setPortalProblem(null);
+    setPortalBusy(true);
+    let url: string | null = null;
+    try {
+      const { data, status } = await postJson("/api/billing/portal", {
+        instanceId,
+      });
+      if (status === 200 && data.ok === true && typeof data.url === "string")
+        url = data.url;
+    } catch {
+      url = null;
+    }
+    // Also after a success: Back from Stripe's page can restore this page
+    // from the back/forward cache as it was.
+    setPortalBusy(false);
+    if (url !== null) {
+      window.location.assign(url);
+      return;
+    }
+    setPortalProblem(
+      i18n.t("office.action.failed", {
+        action: i18n.t("office.action.openBillingPortal"),
+      }),
+    );
   };
 
   const reinstate = async (): Promise<void> => {
@@ -1073,6 +1103,27 @@ export function OfficeView({
                     </button>
                   </p>
                 </>
+              )}
+              {view.subscription &&
+                view.subscription.endedAt === null &&
+                !view.ended && (
+                  <p className="action">
+                    <button
+                      data-testid="billing-portal"
+                      disabled={portalBusy}
+                      onClick={() => void openPortal()}
+                    >
+                      {i18n.t("office.billingPortal")}
+                    </button>
+                  </p>
+                )}
+              {portalProblem && (
+                <p
+                  className="callout callout-danger"
+                  data-testid="billing-portal-failed"
+                >
+                  {portalProblem}
+                </p>
               )}
               {billingProblem && (
                 <p

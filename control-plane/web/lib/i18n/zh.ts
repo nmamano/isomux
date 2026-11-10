@@ -231,6 +231,8 @@ export const zh: Catalog = {
   "office.plan.noCharge": "，不收费",
   "office.plan.periodEnds": "本期于 {date} 结束",
   "office.plan.nextInvoice": "下次发票日期为 {date}",
+  "office.billingPortal": "发票与付款",
+  "office.action.openBillingPortal": "打开付款页面",
   "office.cancel.pendingCancel":
     "我们已请求 Stripe 取消订阅。Stripe 确认后，此页面会更新。",
   "office.cancel.pendingUncancel":
@@ -301,7 +303,7 @@ export const zh: Catalog = {
   "refusals.requestCancellationSuspended":
     "无法重启此办公室。办公室控制台会显示当前可用的选项。",
   "refusals.requestPaymentSuspended":
-    "此办公室因付款失败已关机。请支付未结发票以重新开机，或联系支持人员。",
+    "此办公室因付款失败已关机。如需重新开机，请在“你的套餐”中更新银行卡并支付未结发票，或联系支持人员。",
   "refusals.cancelNotYours": "找不到该办公室。",
   "refusals.cancelNoSubscription": "此办公室还没有订阅。",
   "refusals.cancelAlreadyCancelled": "你的订阅已安排结束。",

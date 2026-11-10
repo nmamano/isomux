@@ -299,6 +299,8 @@ export const ca: Catalog = {
   "office.plan.noCharge": ", sense càrrec",
   "office.plan.periodEnds": "el període acaba el {date}",
   "office.plan.nextInvoice": "propera factura {date}",
+  "office.billingPortal": "Factures i pagament",
+  "office.action.openBillingPortal": "obrir la pàgina de pagament",
 
   "office.cancel.pendingCancel":
     "Hem demanat a Stripe que cancel·li la teva subscripció. Aquesta pàgina s'actualitza quan Stripe ho confirma.",
@@ -380,7 +382,7 @@ export const ca: Catalog = {
   "refusals.requestCancellationSuspended":
     "Aquesta oficina no es pot reiniciar. El tauler de la teva oficina mostra les opcions disponibles ara.",
   "refusals.requestPaymentSuspended":
-    "Aquesta oficina està apagada perquè ha fallat un pagament. Paga la factura pendent per tornar-la a engegar, o contacta amb el suport.",
+    "Aquesta oficina està apagada perquè ha fallat un pagament. Per tornar-la a engegar, actualitza la targeta i paga la factura pendent a El teu pla, o contacta amb el suport.",
   "refusals.cancelNotYours": "No hem trobat aquesta oficina.",
   "refusals.cancelNoSubscription":
     "Encara no tenim cap subscripció per a aquesta oficina.",
