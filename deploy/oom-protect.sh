@@ -166,7 +166,7 @@ install_earlyoom() {
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would wait up to 120s and apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom"
+    log "DRY-RUN: would wait up to 120s, download earlyoom with a 600s limit, and apt-get -o DPkg::Lock::Timeout=120 install -y --no-download -o Dpkg::Options::=--force-confold earlyoom"
     return 0
   fi
   # --force-confold for the same reason as the installer's apt_install: a
@@ -178,7 +178,17 @@ install_earlyoom() {
     warn "Ubuntu's package manager stayed busy for ${APT_LOCK_TIMEOUT_SECONDS} seconds; earlyoom was not installed"
     return 1
   }
-  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
+  # The download runs under a limit, so a package mirror that stops sending
+  # cannot hold this step forever; the install from the cache has none, so the
+  # limit never stops dpkg.
+  local apt_opts=(-o DPkg::Lock::Timeout=120 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+  # --foreground keeps apt-get in this script's process group, so Ctrl-C still
+  # reaches it.
+  timeout --foreground --kill-after=30 600 apt-get "${apt_opts[@]}" install -y --download-only earlyoom >/dev/null 2>&1 || {
+    warn "could not download earlyoom: the package mirror did not answer, or earlyoom is not in your apt sources (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
+    return 1
+  }
+  DEBIAN_FRONTEND=noninteractive apt-get "${apt_opts[@]}" install -y --no-download -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
     warn "could not install earlyoom (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
     return 1
   }

@@ -183,7 +183,10 @@ ${box.after ?? ""}
     isApt(l) && / update( |$)/.test(l) && !l.includes("sourcelist=");
   const ghUpdate = (l: string) =>
     isApt(l) && / update( |$)/.test(l) && l.includes("sourcelist=");
-  const install = (l: string) => isApt(l) && / install( |$)/.test(l);
+  // The install from the cache: an install also runs a --download-only half
+  // first (install-apt-limits.test.ts), which this file does not count.
+  const install = (l: string) =>
+    isApt(l) && / install( |$)/.test(l) && !l.includes(" --download-only");
   const leftovers = [
     ...readdirSync(join(fix, "keyrings")),
     ...readdirSync(join(fix, "sources")),
@@ -304,13 +307,14 @@ apt_install apparmor apparmor-profiles`,
     const { during, later } = split(r.lines);
     expect(during.filter((l) => l.startsWith("apt-get "))).toEqual([]);
     const apt = later.filter((l) => l.startsWith("apt-get "));
-    expect(apt).toHaveLength(4);
+    expect(apt.filter((l) => / update( |$)/.test(l))).toHaveLength(1);
     // The update comes first: the Chrome package's dependencies resolve from
     // the lists too.
     expect(/ update( |$)/.test(apt[0]) && !apt[0].includes("sourcelist=")).toBe(
       true,
     );
     expect(apt.slice(1).every((l) => / install( |$)/.test(l))).toBe(true);
+    expect(apt.filter((l) => !l.includes(" --download-only"))).toHaveLength(4);
   });
 
   it("does not refresh the lists again after a package run that refreshed them", () => {
@@ -325,8 +329,8 @@ apt_install apparmor apparmor-profiles`,
     });
     const { later } = split(r.lines);
     expect(r.fullUpdates).toHaveLength(1);
-    expect(later.filter((l) => l.startsWith("apt-get "))).toHaveLength(1);
-    expect(later.some((l) => / install( |$)/.test(l))).toBe(true);
+    expect(later.filter((l) => / update( |$)/.test(l))).toEqual([]);
+    expect(r.installs.filter((l) => later.includes(l))).toHaveLength(1);
   });
 
   it("a full install still refreshes and installs everything on a box that has it all", () => {
@@ -348,6 +352,7 @@ apt_install apparmor apparmor-profiles`,
     ).toBe(true);
     expect(installs.some((l) => / gh( |$)/.test(l))).toBe(true);
     // The full run's refresh serves the later steps too.
-    expect(later.filter((l) => l.startsWith("apt-get "))).toHaveLength(1);
+    expect(later.filter((l) => / update( |$)/.test(l))).toEqual([]);
+    expect(r.installs.filter((l) => later.includes(l))).toHaveLength(1);
   });
 });

@@ -351,6 +351,7 @@ ${RETRY}
 ${body}
 DRY_RUN=""
 apt_get() { :; }
+apt_fetch() { :; }
 apt_install() { echo "APT_INSTALL: $*"; }
 dpkg() { echo amd64; }
 install_github_cli

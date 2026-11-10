@@ -167,6 +167,13 @@ CONFFILE_ROOT=/etc
 # inherit apt's binary-scoped default. Match that upstream bound explicitly.
 APT_LOCK_TIMEOUT_SECONDS=120
 APT_LOCK_POLL_SECONDS=2
+# How long apt waits on a host that sends nothing, per try (apt's own default,
+# set here so box config cannot change it).
+APT_HOST_TIMEOUT_SECONDS=30
+# The overall limit of one apt call that downloads, and how long apt gets to
+# stop after the limit before it is killed.
+APT_MAX_SECONDS=10800
+APT_KILL_GRACE_SECONDS=30
 # The packages every install and every dependency sync puts on the box.
 # polkitd: authorizes the in-UI update trigger (see install_updater); present
 # on most Ubuntu images but not guaranteed on minimal ones.
@@ -359,9 +366,101 @@ wait_for_package_manager() {
   done
 }
 
+# apt-get with no overall limit, for the calls that run dpkg. A call that
+# downloads goes through apt_fetch.
 apt_get() {
   wait_for_package_manager || return $?
-  run apt-get -o "DPkg::Lock::Timeout=$APT_LOCK_TIMEOUT_SECONDS" "$@"
+  run apt-get -o "Acquire::http::Timeout=$APT_HOST_TIMEOUT_SECONDS" \
+    -o "Acquire::https::Timeout=$APT_HOST_TIMEOUT_SECONDS" \
+    -o "DPkg::Lock::Timeout=$APT_LOCK_TIMEOUT_SECONDS" "$@"
+}
+
+# apt-get with network access, under the overall limit, with its output kept
+# so that a failure can name the hosts. Returns apt-get's status (124 or 137
+# when the limit stopped it). Only calls that download go through here: the
+# limit must never stop dpkg.
+apt_fetch() {
+  wait_for_package_manager || return $?
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: apt-get $*"
+    return 0
+  fi
+  local out rc=0
+  out=$(mktemp /tmp/isomux-apt.XXXXXXXXXX) || out=/dev/null
+  # Both streams are copied to $out and each stays on its own stream for the
+  # operator. pipefail makes the status apt-get's, not tee's.
+  # --foreground keeps apt-get in the installer's process group, so Ctrl-C
+  # still reaches it; without it, timeout moves apt-get to a group of its own
+  # and the installer waits out the limit. apt-get's download methods end with it.
+  {
+    timeout --foreground --kill-after="$APT_KILL_GRACE_SECONDS" "$APT_MAX_SECONDS" \
+      apt-get -o "Acquire::http::Timeout=$APT_HOST_TIMEOUT_SECONDS" \
+      -o "Acquire::https::Timeout=$APT_HOST_TIMEOUT_SECONDS" \
+      -o "DPkg::Lock::Timeout=$APT_LOCK_TIMEOUT_SECONDS" "$@" 2>&1 1>&3 3>&- | tee -a "$out" >&2
+  } 3>&1 | tee -a "$out" || rc=$?
+  apt_report_hosts "$out" "$rc" "$@" || true
+  [[ $out == /dev/null ]] || rm -f "$out"
+  return "$rc"
+}
+
+# Log which hosts the apt run whose output is in file $1 and whose status is $2
+# could not download from, if any. The remaining arguments are that run's
+# apt-get arguments: when the limit stopped apt before it printed a host, the
+# hosts come from the sources those arguments select.
+apt_report_hosts() {
+  local out=$1 rc=$2
+  shift 2
+  local stopped="" hosts
+  [[ $rc == 124 || $rc == 137 ]] && stopped=1
+  # "Failed to fetch" names a host that failed to send a file. Err: alone can
+  # be another error, such as a key apt cannot check. After a stop apt prints
+  # no summary, so the hosts come from Err:, from the hosts it was still
+  # trying (Ign:) and from those it had started a download from since the
+  # last file it got (Get: after the last Hit:).
+  hosts=$(awk -v stopped="$stopped" '
+    function host(line,   m) {
+      if (match(line, /https?:\/\/[^\/ ]+/)) {
+        m = substr(line, RSTART, RLENGTH)
+        sub(/^https?:\/\//, "", m)
+        sub(/^.*@/, "", m)
+        return m
+      }
+      return ""
+    }
+    /^[WE]: Failed to fetch / { h = host($0); if (h != "") failed[++n] = h; next }
+    stopped && /^Err:[0-9]+ / { h = host($0); if (h != "") failed[++n] = h; next }
+    stopped && /^Ign:[0-9]+ / { h = host($0); if (h != "") failed[++n] = h; next }
+    stopped && /^Hit:[0-9]+ / { g = 0; next }
+    stopped && /^Get:[0-9]+ / { h = host($0); if (h != "") started[++g] = h; next }
+    END {
+      for (i = 1; i <= n; i++) if (!seen[failed[i]]++) print failed[i]
+      for (i = 1; i <= g; i++) if (!seen[started[i]]++) print started[i]
+    }' "$out" 2>/dev/null) || hosts=""
+  if [[ -z $hosts && -n $stopped ]]; then
+    local options=() arg
+    while (($#)); do
+      arg=$1
+      shift
+      if [[ $arg == -o && $# -gt 0 ]]; then
+        options+=(-o "$1")
+        shift
+      fi
+    done
+    hosts=$(apt-get "${options[@]}" indextargets --format '$(SITE)' 2>/dev/null |
+      sed -nE 's#^https?://([^/@]*@)?([^/ ]+).*#\2#p' | awk '!seen[$0]++') || hosts=""
+  fi
+  [[ -n $stopped || -n $hosts ]] || return 0
+  local list=${hosts//$'\n'/, }
+  local advice="The cause is the network or the package mirror, not Isomux. Try again later, or switch apt to another mirror."
+  if [[ -n $stopped && -n $list ]]; then
+    log "apt reached its time limit while it waited on: $list. $advice"
+  elif [[ -n $stopped ]]; then
+    log "apt reached its time limit. $advice"
+  elif ((rc == 0)); then
+    log "warning: apt could not download from: $list. $advice"
+  else
+    log "apt could not download from: $list. $advice"
+  fi
 }
 
 outcome_add() {
@@ -371,7 +470,7 @@ outcome_add() {
 # Refresh apt's package lists from every source, once per run: apt_install
 # calls this first when nothing has refreshed them yet.
 refresh_apt_lists() {
-  apt_get update -y || return $?
+  apt_fetch update -y || return $?
   APT_LISTS_FRESH=1
 }
 
@@ -442,9 +541,15 @@ apt_install() {
   if [[ -z ${APT_LISTS_FRESH:-} ]]; then
     refresh_apt_lists || return $?
   fi
+  # Download everything first, under the overall limit, then install from the
+  # cache with no limit: a stop must never interrupt dpkg. The install call
+  # has no --no-download: with it, apt cannot install a local .deb ("Pathname
+  # to install is not absolute"), and after the download it gets nothing anyway.
+  apt_fetch install -y --download-only "$@" || return $?
   local before rc=0
   before=$(mktemp /tmp/isomux-conffile.XXXXXXXXXX) || before=""
-  [[ -z $before ]] || conffile_markers >"$before"
+  # The scan only feeds a report: a scan that fails must not stop the install.
+  [[ -z $before ]] || conffile_markers >"$before" || true
   DEBIAN_FRONTEND=noninteractive apt_get install -y \
     -o Dpkg::Options::=--force-confold "$@" || rc=$?
   if [[ -n $before ]]; then
@@ -656,7 +761,7 @@ install_github_cli() {
     ! mv -f "$source_tmp" "$source" ||
     # A one-source update otherwise deletes every other repository's cached
     # package list, which breaks the package installs that follow this step.
-    ! apt_get update -y \
+    ! apt_fetch update -y \
       -o "Dir::Etc::sourcelist=$source" \
       -o Dir::Etc::sourceparts=/dev/null \
       -o APT::Get::List-Cleanup=0; then
@@ -2741,7 +2846,7 @@ install_earlyoom() {
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would wait up to 120s and apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom"
+    log "DRY-RUN: would wait up to 120s, download earlyoom with a 600s limit, and apt-get -o DPkg::Lock::Timeout=120 install -y --no-download -o Dpkg::Options::=--force-confold earlyoom"
     return 0
   fi
   # --force-confold for the same reason as the installer's apt_install: a
@@ -2753,7 +2858,17 @@ install_earlyoom() {
     warn "Ubuntu's package manager stayed busy for ${APT_LOCK_TIMEOUT_SECONDS} seconds; earlyoom was not installed"
     return 1
   }
-  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
+  # The download runs under a limit, so a package mirror that stops sending
+  # cannot hold this step forever; the install from the cache has none, so the
+  # limit never stops dpkg.
+  local apt_opts=(-o DPkg::Lock::Timeout=120 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+  # --foreground keeps apt-get in this script's process group, so Ctrl-C still
+  # reaches it.
+  timeout --foreground --kill-after=30 600 apt-get "${apt_opts[@]}" install -y --download-only earlyoom >/dev/null 2>&1 || {
+    warn "could not download earlyoom: the package mirror did not answer, or earlyoom is not in your apt sources (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
+    return 1
+  }
+  DEBIAN_FRONTEND=noninteractive apt-get "${apt_opts[@]}" install -y --no-download -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
     warn "could not install earlyoom (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
     return 1
   }
@@ -3982,7 +4097,10 @@ install_browser() {
   else
     local deb
     deb=$(mktemp /tmp/isomux-chrome.XXXXXXXXXX.deb)
-    if ! curl -fsSL -o "$deb" "$CHROME_DEB_URL"; then
+    # A host that stops sending fails after 5 minutes; the whole download has
+    # the same overall limit as apt.
+    if ! curl -fsSL --connect-timeout 30 --speed-limit 1 --speed-time 300 \
+      --max-time "$APT_MAX_SECONDS" -o "$deb" "$CHROME_DEB_URL"; then
       rm -f "$deb"
       log "warning: could not download Google Chrome from $CHROME_DEB_URL, so page previews (the preview-url card) will be unavailable. Re-run this installer to retry; nothing else is affected."
       return 0

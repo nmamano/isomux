@@ -623,6 +623,7 @@ install_caddy_release() { apt_install caddy; }
 snapshot_caddy_state() { echo snapshot >> "$FIXTURE/events"; CADDY_SNAPSHOT_ARMED=1; }
 restore_caddy_state() { [[ -z $CADDY_SNAPSHOT_ARMED ]] || echo restore >> "$FIXTURE/events"; CADDY_SNAPSHOT_ARMED=""; }
 apt_get() { echo "apt $*" >> "$FIXTURE/events"; }
+apt_fetch() { echo "apt $*" >> "$FIXTURE/events"; }
 apt_install() { echo "packages $*" >> "$FIXTURE/events"; [[ ! -e "$FIXTURE/fail-apt" ]]; }
 curl() { echo repository; }
 gpg() { cat >"\${@: -1}"; }
@@ -677,6 +678,9 @@ apt_install() { :; }
 curl() { echo repository; }
 gpg() { cat >"\${@: -1}"; }
 apt_get() {
+  [[ ! -e "$FIXTURE/keyring" && ! -e "$FIXTURE/source.list" ]]
+}
+apt_fetch() {
   [[ ! -e "$FIXTURE/keyring" && ! -e "$FIXTURE/source.list" ]]
 }
 umask 077

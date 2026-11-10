@@ -73,6 +73,8 @@ function writeAptStub() {
     `#!/usr/bin/env bash
 printf '%s\\n' "apt-get $*" >> "$STUB_LOG"
 [[ " $* " == *" install "* ]] || exit 0
+# The download half of an install touches no config file.
+[[ " $* " != *" --download-only "* ]] || exit 0
 if [[ " $* " != *" -o Dpkg::Options::=--force-confold "* ]]; then
   echo "Configuration file '\${CONFFILE}'" >&2
   echo "dpkg: error processing package caddy (--configure):" >&2
@@ -113,7 +115,12 @@ eval "$(grep -m1 '^APT_LOCK_TIMEOUT_SECONDS=' "$INSTALL_SH")"
 eval "$(grep -m1 '^APT_LOCK_POLL_SECONDS=' "$INSTALL_SH")"
 eval "$(sed -n '/^package_manager_locked()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^wait_for_package_manager()/,/^}/p' "$INSTALL_SH")"
+eval "$(grep -m1 '^APT_HOST_TIMEOUT_SECONDS=' "$INSTALL_SH")"
+eval "$(grep -m1 '^APT_MAX_SECONDS=' "$INSTALL_SH")"
+eval "$(grep -m1 '^APT_KILL_GRACE_SECONDS=' "$INSTALL_SH")"
 eval "$(sed -n '/^apt_get()/,/^}/p' "$INSTALL_SH")"
+eval "$(sed -n '/^apt_fetch()/,/^}/p' "$INSTALL_SH")"
+eval "$(sed -n '/^apt_report_hosts()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^apt_install()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^conffile_markers()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^report_kept_conffiles()/,/^}/p' "$INSTALL_SH")"
@@ -180,10 +187,12 @@ describe("install.sh apt_install: operator edits survive a package run", () => {
       packages: ["caddy", "nodejs"],
     });
     expect(r.code).toBe(0);
-    expect(r.calls).toHaveLength(1);
-    expect(r.calls[0]).toContain("-o Dpkg::Options::=--force-confold");
-    expect(r.calls[0]).toContain("install -y");
-    expect(r.calls[0]).toContain("caddy nodejs");
+    // The download half (install-apt-limits.test.ts) runs no dpkg.
+    const dpkg = r.calls.filter((c) => !c.includes(" --download-only"));
+    expect(dpkg).toHaveLength(1);
+    expect(dpkg[0]).toContain("-o Dpkg::Options::=--force-confold");
+    expect(dpkg[0]).toContain("install -y");
+    expect(dpkg[0]).toContain("caddy nodejs");
     expect(r.out).not.toContain("end of file on stdin at conffile prompt");
     // The edit is still the edit.
     expect(readFileSync(conffile, "utf8")).toBe(OPERATOR_EDIT);

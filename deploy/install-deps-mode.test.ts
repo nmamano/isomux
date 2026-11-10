@@ -609,6 +609,7 @@ ${topLevelHelpers()}
 DRY_RUN=""
 apt_install() { echo "APT_INSTALL: $*"; [[ ${JSON.stringify(fail)} != install ]]; }
 apt_get() { apt-get "$@"; }
+apt_fetch() { apt-get "$@"; }
 curl() {
   [[ ${JSON.stringify(fail)} != curl ]] || return 1
   local out=""

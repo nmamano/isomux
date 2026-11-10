@@ -268,6 +268,7 @@ while (($#)); do [[ $1 == -o ]] && echo deb > "$2"; shift; done`,
 SERVICE_HOME=/home/isomux
 ${path}
 ${constant("CHROME_DEB_URL")}
+${constant("APT_MAX_SECONDS")}
 ${extract("as_service_user")}${extract("install_browser")}${extract("verify_browser")}
 apt_install() {
   echo "apt_install $*" >> "$CALLS"
@@ -303,6 +304,22 @@ install_browser`,
     expect(r.warnings).toHaveLength(1);
     expect(r.warnings[0]).toContain("arm64");
     expect(firstIndex(r.calls, "curl ")).toBe(-1);
+  });
+
+  // A mirror that stalls must not hang the install: the download gives up on
+  // a host that sends nothing and has an overall limit (task da2560b8).
+  it("downloads with a connect limit, a stall limit and an overall limit", () => {
+    const r = runBrowser({});
+    expectCarriesOn(r);
+    const curl = r.calls.find((l) => l.startsWith("curl "));
+    expect(curl).toBeDefined();
+    for (const flag of [
+      "--connect-timeout",
+      "--speed-limit",
+      "--speed-time",
+      "--max-time",
+    ])
+      expect(curl!).toMatch(new RegExp(` ${flag} [1-9]\\d*( |$)`));
   });
 
   it("warns when the download fails, and installs nothing", () => {
