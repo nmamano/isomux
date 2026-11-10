@@ -1,9 +1,10 @@
 // The welcome series: what each mail says. English only, plain text.
 //
 // Draft 2 (2026-11-08), on the five topics Nil chose. The mails speak as Nil,
-// in the first person (2026-11-10). Mail 1 is his final copy and links the Add
-// to Home Screen picture on isomux.com/hosted-welcome; mails 2-5 are drafts he
-// is still editing, so they neither send nor show (WELCOME_MAILS_APPROVED).
+// in the first person (2026-11-10). Mails 1-3 are his final copy (mail 1
+// links the Add to Home Screen picture on isomux.com/hosted-welcome); mails
+// 4 and 5 are drafts he is still editing, so they neither send nor show
+// (WELCOME_MAILS_APPROVED).
 // The copy cannot depend on what the customer did in the office, because
 // after setup we have no access to it.
 //
@@ -20,12 +21,13 @@
 
 /**
  * How many mails, from the first, have copy Nil approved (Nil, 2026-11-10:
- * mail 1 goes out while he edits the rest). Only these send and show on
- * isomux.com/hosted-welcome; a series waits at the first mail past them,
- * with no skip, and goes on when this number grows. Shipping the next mail is
- * its final copy below plus one here.
+ * mail 1 goes out while he edits the rest; he approved mails 2 and 3 the
+ * same day).
+ * Only these send and show on isomux.com/hosted-welcome; a series waits at
+ * the first mail past them, with no skip, and goes on when this number grows.
+ * Shipping the next mail is its final copy below plus one here.
  */
-export const WELCOME_MAILS_APPROVED = 1;
+export const WELCOME_MAILS_APPROVED = 3;
 
 /** The line a late first mail opens with: the office went live before the
  * series sent anything (WELCOME_MAIL_LATE_MS). A placeholder until Nil picks
@@ -58,22 +60,26 @@ Thank you!
 Nil`,
   },
   {
-    subject: "Bring your team in",
-    body: `To bring someone in, open Settings, then Members, select New member at the end of the list, and send them their sign-in link. You choose which rooms they see.
+    subject: "Bring your collaborators in",
+    body: `Isomux shines when you lean into the multiplayer aspects. When I work on a project with someone, I create a room for the project and invite them.
 
-They talk to the same agents and see the same conversations, live. Members also have their own chat in the lobby.
+I also add friends and family with no previous experience with agents. It's my favorite way of showing them what AI can do for them. I found that even non-technical people will embrace it!
+
+To bring someone in: Settings → Members → New member. Choose which rooms they see and send them the sign-in link.
 
 {officeUrl}
 
 Nil`,
   },
   {
-    subject: "Front room, back room",
-    body: `Each room has a front with eight desks for the agents you talk to, and a back room behind the trap door for up to 100 more.
+    subject: "Agent collaboration",
+    body: `Isomux agents can discover and message each other.
 
-A pattern I use all the time: talk to one agent in the front. When it has work to hand out, it starts workers in the back room, messages them, and reports back to you. You can still open any worker and follow its work.
+For software development, I like to use the /pair-programming built-in skill to pair two agents up. For example, Claude builds and Codex reviews.
 
-Agents can also message each other and read each other's conversations, so one agent can review another's work.
+You may have also noticed that each Isomux room also has a hatch that leads to a basement. That's where I keep the agents I never talk to.
+
+I like to keep a project's "Lead Agent" in the front room. When it has work to hand out, it dispatches it to workers in the basement. This way, the lead agent stays available for me and its context stays clear of implementation details.
 
 {officeUrl}
 

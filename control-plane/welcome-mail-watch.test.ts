@@ -632,6 +632,45 @@ describe("the schedule", () => {
     expect(third.schedule.nextDueAt).toBeNull();
   });
 
+  // Shipping the next mail's copy lifts only the step gate: a row that has
+  // not reached its day still waits for it (Nil, 2026-11-10: mail 2 ships the
+  // day before it is due, and no mail goes out early). MUTANTS: the due-time
+  // test dropped from dueWelcomeMails, or from the schedule's due clause
+  // (each dies here).
+  test("a count that grows before a row's day sends nothing early", async () => {
+    const { c, store } = await bed();
+    await store.recordFirstLive("inst-w", T0);
+    const state = (value: string) =>
+      store.sqlRun("update instances set service_state = $1 where id = $2", [
+        value,
+        "inst-w",
+      ]);
+    const { sent, send } = sender();
+    await state("live");
+    expect(
+      await watchWelcomeMail(store, { apiKey: "k", send, approved: 1 }),
+    ).toBe(1);
+    const due = T0 + WELCOME_MAIL_OFFSETS_MS[1];
+    expect((await store.getWelcomeMail("inst-w"))?.next_due_at).toBe(due);
+
+    // The copy of the second mail ships an hour after the first went out.
+    c.state.value = T0 + 60 * 60 * 1_000;
+    await state("suspended");
+    const early = await agree(store, c.now(), 2);
+    expect(early.due).toEqual([]);
+    expect(early.schedule.nextDueAt).toBe(due);
+    await state("live");
+    c.state.value = due - 1;
+    expect(
+      await watchWelcomeMail(store, { apiKey: "k", send, approved: 2 }),
+    ).toBe(0);
+    c.state.value = due;
+    expect(
+      await watchWelcomeMail(store, { apiKey: "k", send, approved: 2 }),
+    ).toBe(1);
+    expect(sent.map((m) => m.step)).toEqual([0, 1]);
+  });
+
   test("without a count, the pass and the schedule use the shipped one", async () => {
     const { store } = await bed();
     await store.recordFirstLive("inst-w", T0);
