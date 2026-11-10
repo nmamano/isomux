@@ -119,12 +119,6 @@ import { useCan } from "../hooks/useCan.ts";
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
 
-// The desktop footer's two drag hints, with and without the trap door.
-const DRAG_DESK_HINTS = [
-  "office.hints.dragDesk",
-  "office.hints.dragDeskTrapDoor",
-] as const;
-
 const LOBBY_CHAT_WIDTH = DEFAULT_MEMBERS_CHAT_WIDTH;
 
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
@@ -1218,99 +1212,6 @@ export function OfficeView({
           />
         )}
       </div>
-
-      {/* Bottom HUD */}
-      {!embed && (
-        <div
-          style={{
-            padding: isMobile ? "8px 12px" : "8px 20px",
-            ...(isMobile
-              ? {
-                  paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
-                }
-              : {}),
-            background: "var(--bg-hud-bottom)",
-            backdropFilter: "blur(8px)",
-            borderTop: "1px solid var(--border-subtle)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: isMobile ? 12 : 20,
-            flexShrink: 0,
-            zIndex: 500,
-          }}
-        >
-          {(showBackRoom
-            ? isMobile
-              ? ([
-                  "office.hints.tap",
-                  "office.hints.longPress",
-                  "office.hints.pinch",
-                  "office.hints.dragFloor",
-                ] as const)
-              : ([
-                  "office.hints.click",
-                  "office.hints.dragAgent",
-                  "office.hints.wheel",
-                  "office.hints.dragFloor",
-                  "office.hints.rightClick",
-                  "office.hints.resetView",
-                ] as const)
-            : isMobile
-              ? ([
-                  "office.hints.tap",
-                  "office.hints.longPress",
-                  "office.hints.pinch",
-                  "office.hints.dragZoomed",
-                ] as const)
-              : ([
-                  "office.hints.click",
-                  !lobbyOpen && currentHasBackRoom
-                    ? "office.hints.dragDeskTrapDoor"
-                    : "office.hints.dragDesk",
-                  "office.hints.wheel",
-                  "office.hints.dragFloor",
-                  "office.hints.rightClick",
-                  "office.hints.resetView",
-                ] as const)
-          ).map((key, i) => {
-            const dragHint = DRAG_DESK_HINTS.some((k) => k === key);
-            return (
-              <span
-                key={i}
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-hint)",
-                  fontFamily: "var(--font-ui)",
-                  letterSpacing: "0.04em",
-                  ...(dragHint
-                    ? { display: "inline-grid", textAlign: "center" }
-                    : {}),
-                }}
-              >
-                {dragHint
-                  ? // Both drag hints share one grid cell and only one shows, so
-                    // the footer, and with it the scene, keeps one size in rooms
-                    // with and without a trap door (task f158d7f9).
-                    DRAG_DESK_HINTS.map((k) => (
-                      <span
-                        key={k}
-                        data-drag-hint={k === key ? "" : undefined}
-                        aria-hidden={k === key ? undefined : true}
-                        style={{
-                          gridArea: "1 / 1",
-                          visibility: k === key ? "visible" : "hidden",
-                        }}
-                      >
-                        {t(k)}
-                      </span>
-                    ))
-                  : t(key)}
-              </span>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

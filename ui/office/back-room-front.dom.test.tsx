@@ -168,38 +168,6 @@ it.each(headerCases)(
   },
 );
 
-it("names the trap door in the footer drag hint", async () => {
-  const view = mount([room("first")]);
-  await act(async () =>
-    shimEmit({
-      type: "full_state",
-      agents: [agent("Front", 0, "idle")],
-      rooms: [room("first")],
-      office: { name: "Back room test", prompt: null },
-      recentCwds: [],
-      killedAgents: [],
-      interactions: [],
-    } as never),
-  );
-  expect(view.container.textContent).toContain("Front");
-  expect(view.container.querySelector("[data-trap-door]")).not.toBeNull();
-  // The other hint stays in the footer, hidden, to keep its size (task
-  // f158d7f9).
-  expect(EN.t("office.hints.dragDesk")).not.toBe(
-    EN.t("office.hints.dragDeskTrapDoor"),
-  );
-  const dragHint = () => view.container.querySelectorAll("[data-drag-hint]");
-  expect(dragHint().length).toBe(1);
-  expect(dragHint()[0]?.textContent).toBe(
-    EN.t("office.hints.dragDeskTrapDoor"),
-  );
-  const reserve = [...(dragHint()[0]?.parentElement?.children ?? [])];
-  expect(reserve).toHaveLength(2);
-  expect(
-    reserve.filter((e) => e.getAttribute("aria-hidden") === "true"),
-  ).toHaveLength(1);
-});
-
 // A full front is not a full room: the back room still has seats, so a door
 // takes the drop into a next room whose front is full.
 it("a door moves an agent into a next room with a full front", async () => {
