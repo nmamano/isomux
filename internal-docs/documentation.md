@@ -18,6 +18,7 @@ Keep these consistent across all surfaces below.
 - **Audience:** Developers landing on the GitHub repo.
 - **Structure:**
   - Headline tagline (the bold line under the H1): Isomux's one-line category pitch. **Must stay in lockstep with the landing's `<title>`, social meta tags, and hero (section 2), and the org profile tagline (section 11).**
+  - The line under it: the three ways to run Isomux (self-hosted, Hosted, Enterprise) and the subscriptions line. **Must stay in lockstep with the landing's `.ways` cards (section 2).**
   - `## Feature Highlights` - two subsections, `### Coworkers...` and `### An office made for humans and agents`. **Must stay in lockstep with the landing page's `<ul class="coworker-list">` and `<ul class="office-list">` (see section 2)** - same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa. Ends with a one-liner linking to `docs/features.md`.
   - `## Get Started` - install & first-run instructions (basic local only). Ends with links to `docs/self-hosted.md` and the hosted page (section 2b).
   - `## How it works` - one-line link to `docs/how-it-works.md`. Technical overview content lives in the docs.
@@ -30,6 +31,7 @@ Keep these consistent across all surfaces below.
 - **Audience:** Visitors to isomux.com.
 - **Structure:**
   - `<title>`, social meta tags (og/twitter title + description), and the hero `<p class="tagline">`: Isomux's category pitch. **Must stay in lockstep with the README headline (section 1)** and the org profile tagline (section 11). The `<title>` and social titles use the short form; the description and hero use the full line.
+  - At the top of `<section id="features">`, the `.ways` cards (Self-hosted, Hosted, Enterprise) and the subscriptions badge under them. **Must stay in lockstep with the line under the README headline (section 1).** The hero buttons below the demo are only Star on GitHub and Discord; the Self-hosted card is the way to Get Started.
   - `<section id="features">` with `<ul class="coworker-list">`, and `<section id="office">` with `<ul class="office-list">` - **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa. Followed by a one-liner linking to `/docs/features`.
   - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with a link to `/docs/hosting` for always-on-server setups, and to `/hosted` for the managed version.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.

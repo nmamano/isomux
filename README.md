@@ -2,7 +2,9 @@
 
 **A meta-harness** where agents act like coworkers, not throwaway sessions.
 
-free for small teams · source-available · no account needed · works with your subscriptions
+[Self-hosted](#get-started): free for individuals and teams of up to 10 · [Hosted](https://isomux.com/hosted): we run it for you, 24/7, from $9/month · [Enterprise](https://isomux.com/enterprise): on your own infrastructure, with a commercial license
+
+Works with your Claude, Codex and OpenCode subscriptions.
 
 - [isomux.com](https://isomux.com): setup instructions and a live demo
 - [isomux.com/docs](https://isomux.com/docs): full feature list, self-hosted setup, security audit, more
