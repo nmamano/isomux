@@ -28,8 +28,9 @@ export const STOREFRONT_ORIGIN = "https://cloud.isomux.com";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
-/** When each step is due, counted from the moment the office first went live. */
-export const WELCOME_MAIL_OFFSETS_MS: readonly number[] = [0, 1, 3, 7, 14].map(
+/** When each step is due, counted from the moment the office first went live
+ * (days 0, 1, 3, 6 and 10: Nil, 2026-11-10). */
+export const WELCOME_MAIL_OFFSETS_MS: readonly number[] = [0, 1, 3, 6, 10].map(
   (days) => days * DAY_MS,
 );
 
