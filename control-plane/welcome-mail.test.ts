@@ -98,8 +98,8 @@ describe("the series is configured only when it may send", () => {
   });
 
   test("the shipped build sends once the key is set", () => {
-    // The default arguments are the production call. Nil approved mail 1
-    // (2026-11-10); the mails past it wait (WELCOME_MAILS_APPROVED).
+    // The default arguments are the production call. Nil approved mails 1
+    // to 3 (2026-11-10); the mails past them wait (WELCOME_MAILS_APPROVED).
     const saved = process.env.RESEND_API_KEY;
     process.env.RESEND_API_KEY = KEY;
     try {
