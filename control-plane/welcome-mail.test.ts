@@ -23,7 +23,6 @@ import {
 const KEY = "re_test_key_51c0e8a7d2b94f63";
 const TOKEN = "tok_Zm9vYmFyYmF6cXV4LXdlbGNvbWUtbWFpbA";
 const OFFICE = "https://acme.test.isomux.app";
-const POSTAL = "Isomux LLC, 1 Example Street, Springfield";
 const WEB_APP = path.join(import.meta.dir, "web", "app");
 
 interface Sent {
@@ -98,13 +97,13 @@ describe("the series is configured only when it may send", () => {
     expect(welcomeMailConfigured({ RESEND_API_KEY: "" }, true)).toBe(false);
   });
 
-  test("the shipped flag is off until Nil approves the copy", () => {
-    // The default arguments are the production call: the key alone must not
-    // start the series.
+  test("the shipped build sends once the key is set", () => {
+    // The default arguments are the production call. Nil approved mail 1
+    // (2026-11-10); the mails past it wait (WELCOME_MAILS_APPROVED).
     const saved = process.env.RESEND_API_KEY;
     process.env.RESEND_API_KEY = KEY;
     try {
-      expect(welcomeMailConfigured()).toBe(false);
+      expect(welcomeMailConfigured()).toBe(true);
     } finally {
       if (saved === undefined) delete process.env.RESEND_API_KEY;
       else process.env.RESEND_API_KEY = saved;
@@ -119,7 +118,6 @@ describe("every step", () => {
       const mail = renderWelcomeMail(step, {
         officeUrl: OFFICE,
         unsubscribeToken: TOKEN,
-        postalAddress: POSTAL,
       });
       expect([step, mail.subject.trim().length > 0]).toEqual([step, true]);
       // A placeholder left in is a mail that says "{dashboardUrl}".
@@ -127,7 +125,10 @@ describe("every step", () => {
         step,
         false,
       ]);
-      expect([step, mail.text.includes(POSTAL)]).toEqual([step, true]);
+      // The opt-out is the last line (no postal address: ruling of
+      // 2026-11-10, task 733ed11b).
+      const last = mail.text.trimEnd().split("\n").at(-1) ?? "";
+      expect([step, last.includes(TOKEN)]).toEqual([step, true]);
       const links = mail.text.match(/https:\/\/\S+/g) ?? [];
       const optOut = links.filter((link) => link.includes(TOKEN));
       expect([step, optOut.length]).toEqual([step, 1]);
@@ -136,11 +137,31 @@ describe("every step", () => {
     }
   });
 
+  test("a late first mail opens with one more paragraph; a later step never does", () => {
+    const vars = { officeUrl: OFFICE, unsubscribeToken: TOKEN };
+    for (let step = 0; step < WELCOME_MAIL_OFFSETS_MS.length; step++) {
+      const plain = renderWelcomeMail(step, vars);
+      const late = renderWelcomeMail(step, { ...vars, late: true });
+      expect([step, late.subject]).toEqual([step, plain.subject]);
+      if (step > 0) {
+        expect([step, late.text]).toEqual([step, plain.text]);
+        continue;
+      }
+      expect(late.text.endsWith(`\n\n${plain.text}`)).toBe(true);
+      const note = late.text.slice(0, -plain.text.length - 2);
+      // One paragraph of words, filled.
+      expect(note.trim().length).toBeGreaterThan(0);
+      expect(note).not.toMatch(/\n|[{}]/);
+      expect(renderWelcomeMail(0, { ...vars, late: false }).text).toBe(
+        plain.text,
+      );
+    }
+  });
+
   test("the first step stands alone; the series has no step past the offsets", () => {
     const vars = {
       officeUrl: OFFICE,
       unsubscribeToken: TOKEN,
-      postalAddress: POSTAL,
     };
     expect(() =>
       renderWelcomeMail(WELCOME_MAIL_OFFSETS_MS.length, vars),
@@ -164,7 +185,7 @@ describe("the request to Resend", () => {
         officeUrl: OFFICE,
         unsubscribeToken: TOKEN,
       },
-      { apiKey: KEY, fetch, postalAddress: POSTAL },
+      { apiKey: KEY, fetch },
     );
     expect(result).toEqual({ ok: true });
     expect(sent.length).toBe(1);
@@ -181,7 +202,6 @@ describe("the request to Resend", () => {
     const rendered = renderWelcomeMail(2, {
       officeUrl: OFFICE,
       unsubscribeToken: TOKEN,
-      postalAddress: POSTAL,
     });
     expect(request.body.subject).toBe(rendered.subject);
     expect(request.body.text).toBe(rendered.text);
@@ -196,34 +216,6 @@ describe("the request to Resend", () => {
 
     // The key travels in the Authorization header and nowhere else.
     expect(JSON.stringify(request.body)).not.toContain(KEY);
-  });
-
-  test("an empty postal address refuses without a request", async () => {
-    const { sent, fetch } = recorder(() => Response.json({ id: "x" }));
-    const result = await sendWelcomeMail(
-      {
-        to: "a@example.com",
-        step: 0,
-        officeUrl: OFFICE,
-        unsubscribeToken: TOKEN,
-      },
-      { apiKey: KEY, fetch, postalAddress: "" },
-    );
-    expect(result.ok).toBe(false);
-    expect(sent.length).toBe(0);
-    // The shipped constant is empty until Nil fills it, so the default refuses
-    // the same way.
-    const byDefault = await sendWelcomeMail(
-      {
-        to: "a@example.com",
-        step: 0,
-        officeUrl: OFFICE,
-        unsubscribeToken: TOKEN,
-      },
-      { apiKey: KEY, fetch },
-    );
-    expect(byDefault.ok).toBe(false);
-    expect(sent.length).toBe(0);
   });
 });
 
@@ -243,7 +235,7 @@ describe("a send that fails", () => {
         officeUrl: OFFICE,
         unsubscribeToken: TOKEN,
       },
-      { apiKey: KEY, fetch, postalAddress: POSTAL },
+      { apiKey: KEY, fetch },
     );
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain(KEY);
@@ -262,7 +254,7 @@ describe("a send that fails", () => {
         officeUrl: OFFICE,
         unsubscribeToken: TOKEN,
       },
-      { apiKey: KEY, fetch, postalAddress: POSTAL },
+      { apiKey: KEY, fetch },
     );
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain(KEY);

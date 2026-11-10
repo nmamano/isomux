@@ -5,8 +5,8 @@
 import { currentSubscriptionForInstance } from "./reinstatement.ts";
 import type { Store, WelcomeMailRow } from "./store.ts";
 import {
+  WELCOME_MAIL_LATE_MS,
   WELCOME_MAIL_OFFSETS_MS,
-  WELCOME_MAIL_STALE_MS,
   sendWelcomeMail,
 } from "./welcome-mail.ts";
 
@@ -14,13 +14,14 @@ export interface WelcomeMailWatchDeps {
   /** The Resend key. */
   apiKey: string;
   send?: typeof sendWelcomeMail;
-  /** Passed to the sender; defaults to WELCOME_MAIL_POSTAL_ADDRESS. */
-  postalAddress?: string;
   report?: (line: string) => void;
+  /** How many mails have approved copy. Absent means WELCOME_MAILS_APPROVED;
+   * the schedule must use the same count (WorkScheduleOptions). */
+  approved?: number;
 }
 
 type Decision =
-  | { kind: "send"; to: string; officeUrl: string }
+  | { kind: "send"; to: string; officeUrl: string; late: boolean }
   | { kind: "skip"; why: string }
   | { kind: "end"; why: string };
 
@@ -53,9 +54,6 @@ async function decide(
   ) {
     return { kind: "skip", why: "subscription not in good standing" };
   }
-  if (now > row.next_due_at! + WELCOME_MAIL_STALE_MS) {
-    return { kind: "skip", why: "more than 48 hours late" };
-  }
   const account = await store.sqlGet<{ email: string }>(
     "select email from accounts where id = $1",
     [row.account_id],
@@ -65,21 +63,34 @@ async function decide(
     kind: "send",
     to: account.email,
     officeUrl: `https://${instance.name}`,
+    // No step is skipped for lateness (Nil, 2026-11-10): an office that went
+    // live before the series sent gets its first mail, with a note, and a
+    // tip that waited for its copy goes out when the copy ships.
+    late: row.next_step === 0 && now > row.live_at + WELCOME_MAIL_LATE_MS,
   };
 }
 
 /** The step after `row`'s, and when it is due; null once the series is over.
- * A later office of an account (tips 0) gets the first mail only. */
+ * A later office of an account (tips 0) gets the first mail only. The next
+ * step is due the gap between the two offsets after `now`, when this step was
+ * handled: a series that starts late, or waits out an outage, moves as a
+ * whole, and two mails never go out closer together than their gap. That is
+ * never earlier than the next step's own offset: this step was due, so
+ * now >= next_due_at >= live_at + its offset. */
 function nextStep(
   row: WelcomeMailRow,
   ended: boolean,
+  now: number,
 ): { next_step: number; next_due_at: number | null } {
   const next = row.next_step + 1;
   const over =
     ended || next >= WELCOME_MAIL_OFFSETS_MS.length || row.tips === 0;
+  if (over) return { next_step: next, next_due_at: null };
+  const gap =
+    WELCOME_MAIL_OFFSETS_MS[next] - WELCOME_MAIL_OFFSETS_MS[row.next_step];
   return {
     next_step: next,
-    next_due_at: over ? null : row.live_at + WELCOME_MAIL_OFFSETS_MS[next],
+    next_due_at: now + gap,
   };
 }
 
@@ -93,7 +104,7 @@ export async function watchWelcomeMail(
 ): Promise<number> {
   const send = deps.send ?? sendWelcomeMail;
   let sent = 0;
-  for (const row of await store.dueWelcomeMails(store.now())) {
+  for (const row of await store.dueWelcomeMails(store.now(), deps.approved)) {
     const step = row.next_step;
     const audit = (outcome: string, detail: string) =>
       store.appendAudit({
@@ -105,20 +116,19 @@ export async function watchWelcomeMail(
         detail: `step ${step}: ${detail}`,
       });
     try {
-      const decision = await decide(store, row, store.now());
+      const now = store.now();
+      const decision = await decide(store, row, now);
       if (decision.kind !== "send") {
+        // The first mail carries the office address and the sign-in steps:
+        // a series without it ends rather than opening with a later tip.
+        const ends = decision.kind === "end" || step === 0;
         await store.tx(async () => {
           const advanced = await store.advanceWelcomeMail(
             row.instance_id,
             row.version,
-            nextStep(row, decision.kind === "end"),
+            nextStep(row, ends, now),
           );
-          if (advanced) {
-            await audit(
-              decision.kind === "end" ? "ended" : "skipped",
-              decision.why,
-            );
-          }
+          if (advanced) await audit(ends ? "ended" : "skipped", decision.why);
         });
         continue;
       }
@@ -127,7 +137,7 @@ export async function watchWelcomeMail(
       const advanced = await store.advanceWelcomeMail(
         row.instance_id,
         row.version,
-        nextStep(row, false),
+        nextStep(row, false, now),
       );
       if (!advanced) continue;
       let result: Awaited<ReturnType<typeof sendWelcomeMail>>;
@@ -138,8 +148,9 @@ export async function watchWelcomeMail(
             step,
             officeUrl: decision.officeUrl,
             unsubscribeToken: row.unsubscribe_token,
+            late: decision.late,
           },
-          { apiKey: deps.apiKey, postalAddress: deps.postalAddress },
+          { apiKey: deps.apiKey },
         );
       } catch (err) {
         result = {

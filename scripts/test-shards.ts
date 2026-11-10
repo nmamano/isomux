@@ -88,6 +88,7 @@ const DOM_FILE = /\.dom\.test\.[a-z]+$/;
 // so in two processes at once one reads pages the other has just removed
 // (red in CI on 2026-10-07). They share one process.
 export const DOCS_BUILD_FILES = [
+  "scripts/hosted-welcome-page.test.ts",
   "scripts/hosting-docs.test.ts",
   "scripts/indexnow.test.ts",
   "scripts/site-i18n-check.test.ts",

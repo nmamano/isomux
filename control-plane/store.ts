@@ -42,6 +42,7 @@ import {
   SUBSCRIPTION_REQUIRED_COLUMNS,
 } from "./subscription-plan-price-ddl.ts";
 import { invoiceDue } from "./enterprise-ddl.ts";
+import { WELCOME_MAILS_APPROVED } from "./welcome-mail-copy.ts";
 import {
   ASSET_GONE_REASON,
   LIFECYCLE_ASSET_GONE,
@@ -240,6 +241,17 @@ export interface LivenessRow {
   updated_at: number;
 }
 
+// A welcome row is due only at a step whose copy Nil approved
+// (WELCOME_MAILS_APPROVED; a test passes its own count): a series waits at the
+// first mail past them and goes on when the copy ships. A whole number from
+// the code, never input, so it goes in the SQL as a literal.
+function welcomeStepSendable(approved: number): string {
+  if (!Number.isInteger(approved) || approved < 0) {
+    throw new Error(`not a count of approved welcome mails: ${approved}`);
+  }
+  return `next_step < ${approved}`;
+}
+
 /**
  * One office's welcome series (welcome-mail-watch.ts). The row is created when
  * the office first goes from provisioning to live, so `live_at` is the only
@@ -303,6 +315,9 @@ export interface WorkScheduleOptions {
   livenessConfigured: boolean;
   /** The welcome series may send (welcomeMailConfigured). Absent means no. */
   welcomeMailConfigured?: boolean;
+  /** How many welcome mails have approved copy. Absent means
+   * WELCOME_MAILS_APPROVED. */
+  welcomeMailsApproved?: number;
   enterpriseInvoicesConfigured?: boolean;
   staleProvisioningMs: number;
   staleProvisioningReason: string;
@@ -2340,7 +2355,7 @@ export class Store {
         // The welcome series: exactly dueWelcomeMails' predicate, so a row the
         // pass handles is a row that woke it, and a handled row is idle.
         "or ($14 = 1 and exists (select 1 from welcome_mails where next_due_at <= $1 " +
-        `and opted_out_at is null)) or ${invoiceDue(opts).due})) as liveness_due` +
+        `and opted_out_at is null and ${welcomeStepSendable(opts.welcomeMailsApproved ?? WELCOME_MAILS_APPROVED)})) or ${invoiceDue(opts).due})) as liveness_due` +
         "), due_times as (" +
         "select case when lease_until is not null and lease_until > next_attempt_at " +
         "then lease_until else next_attempt_at end as due_at from operations " +
@@ -2380,7 +2395,7 @@ export class Store {
         "then $1 else certificate_contact_next_check_at end " +
         "from instances where $11 = 1 and service_state = 'live' " +
         "union all select next_due_at from welcome_mails where $11 = 1 and $14 = 1 " +
-        `and opted_out_at is null and next_due_at is not null${invoiceDue(opts).at}` +
+        `and opted_out_at is null and next_due_at is not null and ${welcomeStepSendable(opts.welcomeMailsApproved ?? WELCOME_MAILS_APPROVED)}${invoiceDue(opts).at}` +
         ") select case when operation_due or provider_due then 1 else 0 end as tick_due, " +
         "case when cadence_due then 1 else 0 end as cadence_due, " +
         "case when liveness_due then 1 else 0 end as liveness_due, " +
@@ -2768,11 +2783,14 @@ export class Store {
   }
 
   /** The rows the send pass handles at `now`: the same predicate as the
-   * schedule's welcome-mail clause. */
-  async dueWelcomeMails(now: number): Promise<WelcomeMailRow[]> {
+   * schedule's welcome-mail clause, with the same count of approved mails. */
+  async dueWelcomeMails(
+    now: number,
+    approved: number = WELCOME_MAILS_APPROVED,
+  ): Promise<WelcomeMailRow[]> {
     return this.sqlAll<WelcomeMailRow>(
       "select * from welcome_mails where next_due_at <= $1 and opted_out_at is null " +
-        "order by next_due_at, instance_id",
+        `and ${welcomeStepSendable(approved)} order by next_due_at, instance_id`,
       [now],
     );
   }
