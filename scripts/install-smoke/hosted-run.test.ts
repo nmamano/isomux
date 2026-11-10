@@ -44,6 +44,8 @@ async function run(mode: string) {
     "git",
     "[[ $1 != rev-parse ]] || echo 1111111111111111111111111111111111111111",
   );
+  // The Ubuntu archive probe answers at once.
+  stub("curl", "true");
   stub(
     "docker",
     `

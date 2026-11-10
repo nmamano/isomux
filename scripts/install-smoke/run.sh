@@ -36,7 +36,8 @@
 # SMOKE_DOCKER_LABEL (KEY=VALUE) labels the containers and volumes this run
 # makes and the installer's box image, so that whoever started it can remove
 # them when this script is killed before its own cleanup (scripts/ci-remote.sh
-# does).
+# does). SMOKE_HEARTBEAT_SECONDS sets how often a running step reports its
+# progress (default 20).
 set -Eeuo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -59,6 +60,7 @@ domain=office.example.com
 images=()
 check_set=()
 labels=()
+beat=""
 [[ -z ${SMOKE_DOCKER_LABEL:-} ]] || labels=(--label "$SMOKE_DOCKER_LABEL")
 [[ ${SMOKE_FREE_AGENT:-} != 1 ]] || check_set=(--free-agent)
 # A tag other than latest: Kubernetes would try to pull a :latest image.
@@ -75,6 +77,7 @@ created_cluster() { grep -qs "k3d-$k8s_cluster" "$KUBECONFIG"; }
 log() { printf '[smoke:%s] %s\n' "$path" "$*"; }
 
 cleanup() {
+  stop_heartbeat
   docker rm -f "$name" >/dev/null 2>&1 || true
   docker volume rm "$name-data" >/dev/null 2>&1 || true
   if [[ $path == kubernetes ]] && created_cluster; then "${k8s[@]}" down >/dev/null 2>&1 || true; fi
@@ -98,13 +101,41 @@ office_log() {
   esac
 }
 
+# Every SMOKE_HEARTBEAT_SECONDS (default 20) while a step runs: its time so
+# far and the last line of its log. CI's wall-clock limit kills this script
+# with SIGKILL, so no trap can report the step's log; the last of these lines
+# is then what CI shows.
+# The sleep runs in the background and gets no stdout: an orphaned sleep would
+# hold the caller's pipe open after this script exits.
+heartbeat() {
+  local step=$1 started=$2 last nap=""
+  trap 'kill "$nap" 2>/dev/null || true; exit 0' TERM
+  while :; do
+    sleep "${SMOKE_HEARTBEAT_SECONDS:-20}" >/dev/null 2>&1 &
+    nap=$!
+    wait "$nap"
+    last=$(tail -n 1 "$logs/$step.log" 2>/dev/null | tr -d '\r' | cut -c1-200) || last=""
+    log "step $step still running ($((SECONDS - started))s); last log line: ${last:-(none)}"
+  done
+}
+
+stop_heartbeat() {
+  [[ -n $beat ]] || return 0
+  kill "$beat" 2>/dev/null || true
+  wait "$beat" 2>/dev/null || true
+  beat=""
+}
+
 # step NAME COMMAND...: run COMMAND with its output in $logs/NAME.log.
 step() {
   local step=$1 started=$SECONDS rc=0
   shift
-  # A run stopped from outside ends on this line, which names the step.
   log "step $step"
+  : >"$logs/$step.log"
+  heartbeat "$step" "$started" &
+  beat=$!
   "$@" >"$logs/$step.log" 2>&1 || rc=$?
+  stop_heartbeat
   if ((rc == 0)); then
     log "PASS $step ($((SECONDS - started))s)"
     return 0
@@ -196,6 +227,7 @@ run_checks() {
 
 manual() {
   as_user() { docker exec -u smoke -w /home/smoke "$name" bash -ic "$*"; }
+  step ubuntu-archive ubuntu_archive
   step machine docker run -d --name "$name" "${labels[@]}" --memory 6g ubuntu:24.04 sleep infinity
   # The guide's reader: a normal account with sudo on an Ubuntu machine that
   # already has curl.
@@ -259,14 +291,36 @@ installer_packages() {
   printf '%s\n' "$list"
 }
 
+# The box's apt reads the Ubuntu archive (the sources of the ubuntu:24.04
+# image). An archive that answers too slowly stalls apt inside the box-image or
+# install step until CI's wall-clock limit kills the run (2026-11-10: from two
+# networks, most IPv4 addresses of archive.ubuntu.com and security.ubuntu.com
+# sent nothing in 20 s and the others about 15 KB/s, while IPv6 worked).
+# One index file each, about 2 MB, which a working mirror sends in a second.
+# IPv4 only, as Docker's default bridge network gives the box no IPv6.
+ubuntu_archive() {
+  local url rc=0
+  for url in http://archive.ubuntu.com/ubuntu/dists/noble-updates/main/binary-amd64/Packages.gz \
+    http://security.ubuntu.com/ubuntu/dists/noble-security/main/binary-amd64/Packages.gz; do
+    if ! curl -4 -fsS -o /dev/null --max-time 15 \
+      -w "%{size_download} bytes in %{time_total}s from %{remote_ip}: $url\n" "$url"; then
+      echo "The Ubuntu archive did not send $url within 15 s, so apt in the box would stall. This is outside isomux: try again later."
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+
 installer() {
   images+=("$name-box")
+  step ubuntu-archive ubuntu_archive
   local packages=()
   if [[ $path == installer-gate ]]; then
     step packages-list installer_packages
     packages=(--build-arg "PACKAGES=$(cat "$logs/packages-list.log")")
   fi
-  step box-image docker build -q -t "$name-box" "${labels[@]}" "${packages[@]}" -f scripts/install-smoke/box.Dockerfile scripts/install-smoke
+  # Plain progress, so that a stalled apt names its download in the log.
+  step box-image docker build --progress=plain -t "$name-box" "${labels[@]}" "${packages[@]}" -f scripts/install-smoke/box.Dockerfile scripts/install-smoke
   # systemd needs SYS_ADMIN for its mounts and the firewall step needs
   # NET_ADMIN. Both stay inside the container's own namespaces. Kernel-wide
   # settings (sysctl, swap, AppArmor) remain the host's: the installer warns

@@ -32,7 +32,7 @@ beforeEach(() => {
     "docker",
     `case "$1 $2" in
   "build "*) [[ $STUB_MODE == build-fails ]] && exit 17
-    [[ $STUB_MODE == build-hangs ]] && exec sleep 30
+    [[ $STUB_MODE == build-hangs ]] && { echo "stub-build-progress"; exec sleep 30; }
     cat >/dev/null; exit 0 ;;
   "image inspect") echo "sha256:0 linux/amd64" ;;
   "run "*) [[ $STUB_MODE == checks-fail ]] && exit 1
@@ -68,6 +68,13 @@ if [[ $1 == -C && $3 == fetch ]]; then
 fi
 [[ $1 == clone ]] || exec "${GIT}" "$@"
 d="\${@: -1}/deploy/kubernetes-latest"; mkdir -p "$d"; printf '#!/bin/sh\\n' > "$d/deploy.sh"; chmod +x "$d/deploy.sh"`,
+  );
+  // The Ubuntu archive probe. STUB_ARCHIVE=stalls answers as curl does when
+  // --max-time stops a slow download.
+  stub(
+    "curl",
+    `if [[ $STUB_ARCHIVE == stalls ]]; then echo "curl: (28) Operation timed out" >&2; exit 28; fi
+echo "2000000 bytes in 0.5s from 192.0.2.1: \${@: -1}"`,
   );
   // deploy/container/build.sh exports the source with python3 first.
   stub("python3", 'touch "$3"; echo 0000000');
@@ -211,6 +218,7 @@ describe("run.sh step progress", () => {
         PATH: `${base}:${process.env.PATH}`,
         STUB_MODE: "build-hangs",
         SMOKE_LOG_DIR: join(base, "logs"),
+        SMOKE_HEARTBEAT_SECONDS: "1",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -221,7 +229,9 @@ describe("run.sh step progress", () => {
     const reader = child.stdout.getReader();
     const deadline = Date.now() + 10_000;
     try {
-      while (!/box-image/.test(out) && Date.now() < deadline) {
+      // A heartbeat names the step and carries the last line of its log.
+      const beat = /box-image.*stub-build-progress/;
+      while (!beat.test(out) && Date.now() < deadline) {
         const next = await Promise.race([
           reader.read(),
           Bun.sleep(deadline - Date.now()).then(() => undefined),
@@ -229,7 +239,7 @@ describe("run.sh step progress", () => {
         if (!next || next.done) break;
         out += decoder.decode(next.value, { stream: true });
       }
-      expect(out).toMatch(/box-image/);
+      expect(out).toMatch(beat);
       // The enabling condition: the step has started and still runs (the
       // stub sleeps). run.sh names the step before it starts the command.
       const calls = () => readFileSync(join(base, "calls.log"), "utf8");
@@ -246,6 +256,27 @@ describe("run.sh step progress", () => {
       await child.exited;
     }
   }, 30_000);
+});
+
+// 2026-11-10: a stalled Ubuntu archive held apt in the install step until
+// CI's wall-clock limit. The probe fails first, names the archive, and builds
+// nothing.
+describe("run.sh Ubuntu archive probe", () => {
+  it("fails before the box image when the archive does not answer", async () => {
+    const r = await run("passes", "installer-gate", { STUB_ARCHIVE: "stalls" });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/FAIL at step ubuntu-archive/);
+    expect(r.out).toMatch(/archive\.ubuntu\.com/);
+    expect(r.calls).toMatch(/^curl /m);
+    expect(r.calls).not.toMatch(/^docker (build|run) /m);
+  }, 60_000);
+
+  it("lets the run go on when the archive answers", async () => {
+    const r = await run("passes", "installer-gate");
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/PASS ubuntu-archive/);
+    expect(r.calls).toMatch(/^docker build /m);
+  }, 60_000);
 });
 
 // Task cc5c205b: serve_revision's local fetch once failed with a corrupt
