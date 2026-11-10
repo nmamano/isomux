@@ -6,6 +6,7 @@ import {
 } from "./safety-policy.ts";
 import { STATE_ROOT } from "./config.ts";
 import catalogInput from "./test-support/fixtures/safety-hook-cwd-catalog.json";
+import functionLines from "./test-support/fixtures/safety-hook-function-lines.json";
 
 // Verbatim f9a24bf9 tool input, including the quoted Catalan heredoc.
 // These commands are classified only; none of them execute.
@@ -399,16 +400,18 @@ const cases: Case[] = [
     reason: protectedWrite,
   },
   {
-    name: "while keyword exposes cd",
+    // A loop can repeat its cd, so its body is unresolved.
+    name: "while loop with cd leaves its writes unresolved",
     command: "while cd ~; do cat > .isomux/x; done",
     denied: true,
-    reason: protectedWrite,
+    reason: changedCwd,
   },
   {
-    name: "until keyword exposes cd",
+    // A loop can repeat its cd, so its body is unresolved.
+    name: "until loop with cd leaves its writes unresolved",
     command: "until cd ~; do cat > .isomux/x; done",
     denied: true,
-    reason: protectedWrite,
+    reason: changedCwd,
   },
   {
     name: "elif keyword exposes cd",
@@ -680,6 +683,168 @@ const cases: Case[] = [
     command:
       "cd /tmp && echo \"$(date) ${x} `date`\"\ncat > /tmp/x.ts <<'EOF'\nif (a >= 4) b();\nEOF",
     denied: false,
+  },
+  // Statements before the first function definition or loop run in order,
+  // so their directory flow stays exact. Only what follows is unresolved.
+  {
+    // Neutral paths; the shape of a line the hook refused (task 03588f78).
+    name: "verbatim heredoc write before function definitions",
+    command: functionLines.heredocBeforeFunctions,
+    denied: false,
+  },
+  {
+    // Neutral paths; the shape of a line the hook refused (task 03588f78).
+    name: "verbatim cp before a function that writes through a variable",
+    command: functionLines.cpBeforeFunction,
+    denied: false,
+  },
+  {
+    name: "relative write before a function definition",
+    command: "cd /tmp/a && cat > s.js\nf() { echo; }",
+    denied: false,
+  },
+  {
+    name: "every statement before a function definition stays resolved",
+    command: "cd /tmp/w && cat > a; cat > b; f() { cd ~; }",
+    denied: false,
+  },
+  {
+    name: "function body relative cp after a literal cd",
+    command: "cd /tmp/w && F=s/a.sh; f() { cp /tmp/g $F; }; f",
+    denied: false,
+  },
+  {
+    name: "protected write before a function definition",
+    command: "cd ~ && cat > .isomux/x; f() { :; }",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "directory before a function definition reaches later writes",
+    command: "cd ~; f() { :; }; cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "function body cd after the definition leaves writes unresolved",
+    command: "cd /tmp; f() { cd ~; }; f; cat > .isomux/x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "cd after a function definition leaves writes unresolved",
+    command: "cd /tmp; g() { :; }; cd ~; cat > .isomux/x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "function definition in a subshell after a resolved write",
+    command: "cd /tmp && cat > x; ( f() { cd ~; }; f; cat > .isomux/y )",
+    denied: true,
+    reason: changedCwd,
+  },
+  // `&` ends one and-or list; the statements before it run in the parent.
+  {
+    name: "cd before a background job moves the parent",
+    command: "cd ~/.isomux; true & cat > x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    // The cd runs in the job, so the parent stays in the safe directory.
+    name: "whole and-or list before & is the job",
+    command: "cd ~ && true & cat > .isomux/x",
+    denied: false,
+  },
+  {
+    // coproc runs its command in a child, like a background job.
+    name: "coproc keeps parent protected",
+    command: "coproc cd /tmp && cat > .isomux/x",
+    cwd: home,
+    denied: true,
+    reason: protectedWrite,
+  },
+  // A loop body can run its cd any number of times.
+  ...[
+    "for i in 1 2; do cd ..; done",
+    "while true; do cd ..; done",
+    "until false; do cd ..; done",
+    "select d in a b; do cd ..; done",
+    "{ for i in 1 2; do cd ..; done; }",
+  ].map(
+    (loop): Case => ({
+      name: `loop repeats its cd: ${loop.split(";")[0]}`,
+      command: `cd ~/q/r; ${loop}; cd .isomux; cat > x`,
+      denied: true,
+      reason: changedCwd,
+    }),
+  ),
+  {
+    name: "loop without cd keeps writes resolved",
+    command: "cd /tmp && cat > a; for i in 1 2; do echo $i; done; cat > b",
+    denied: false,
+  },
+  {
+    name: "write before a loop with cd stays resolved",
+    command: "cd /tmp && cat > a; for i in 1; do cd ..; done",
+    denied: false,
+  },
+  // A DEBUG trap runs its payload in the parent before each later command.
+  {
+    name: "trap payload can move the parent",
+    command: "trap 'cd ~/.isomux' DEBUG; cat > x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "trap in a function body can move the parent",
+    command: "f() { trap 'cd ~/.isomux' DEBUG; }; f; cat > x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "write before a trap stays resolved",
+    command: "cd /tmp && cat > x; trap 'rm -f x' EXIT",
+    denied: false,
+  },
+  // A command name from an expansion can be cd.
+  {
+    name: "variable command name set to a plain command",
+    command: "X=echo; cd /tmp && $X hi; cat > out",
+    denied: false,
+  },
+  {
+    name: "brace expansion command name can be cd",
+    command: "{cd,~/.isomux}; cat > x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "glob command name can be cd",
+    command: "c[d] ~/.isomux; cat > x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "unknown command name can move the parent",
+    command: "$CMD ~/.isomux; cat > x",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
+    name: "variable command name set to cd",
+    command: "X=cd; $X ~/.isomux; cat > x",
+    denied: true,
+  },
+  {
+    name: "default command name cd",
+    command: "${X:-cd} ~/.isomux; cat > x",
+    denied: true,
+  },
+  {
+    name: "variable command name cd after a function definition",
+    command: "X=cd; f() { :; }; $X ~/.isomux; cat > x",
+    denied: true,
   },
 ];
 

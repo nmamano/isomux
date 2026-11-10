@@ -4026,6 +4026,11 @@ function unionDirectories(...sets: DirectorySet[]): DirectorySet {
   return new Set(sets.flatMap((set) => [...set]));
 }
 
+/** Commands that can move the shell they run in: trap through its payload. */
+const DIRECTORY_COMMANDS = ["cd", "pushd", "popd", "eval", "trap"];
+
+const LOOP_KEYWORDS = ["for", "select", "while", "until"];
+
 function denyShellPath(filePath: string, nonLiteral: boolean): PolicyDecision {
   return deny(
     `BLOCKED by Isomux safety hooks\n\n` +
@@ -4171,6 +4176,35 @@ function shellWriteFlow(
     );
   };
 
+  // A command name with an expansion runs whatever it expands to: a variable,
+  // a substitution, a glob or a brace expansion ({cd,~}). It is known only
+  // when each value is a plain name; ${X:-cd} and the like are not read. The
+  // keywords [, [[ and { are no expansion.
+  const expandedNameMayMove = (word: ShellWord): boolean => {
+    if (!/[$`*?[{]/.test(word.text) || ["[", "[[", "{"].includes(word.text))
+      return false;
+    if (
+      !/^(?:[^$`*?[{]|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\})*$/.test(
+        word.text,
+      )
+    )
+      return true;
+    const { state, unresolvable, results } = expandVariables(word, variables);
+    return (
+      state ||
+      unresolvable ||
+      results.some((result) => {
+        const name = result.text.replace(/^.*\//, "");
+        return (
+          !/^[A-Za-z0-9_.+/-]+$/.test(result.text) ||
+          DIRECTORY_COMMANDS.includes(name) ||
+          COMMAND_WRAPPERS.includes(name) ||
+          SHELL_COMMANDS.includes(name)
+        );
+      })
+    );
+  };
+
   const simple = (
     node: Extract<ShellSyntax, { words: ShellWord[] }>,
     directories: DirectorySet,
@@ -4180,9 +4214,10 @@ function shellWriteFlow(
       walk(substitution, directories);
     }
     const redirects = node.words.filter((word) => word.redirect === "output");
-    const candidates = commandCandidates(
-      node.words.filter((word) => word.redirect !== "output"),
+    const commandWords = node.words.filter(
+      (word) => word.redirect !== "output",
     );
+    const candidates = commandCandidates(commandWords);
     if (candidates.length === 0) {
       for (const target of redirects) checkTarget(target, directories);
     }
@@ -4261,6 +4296,19 @@ function shellWriteFlow(
           if (evalFollows) ({ success, failure } = nested.flow);
         }
       }
+      // A trap payload runs in this shell before later commands (DEBUG), and
+      // a command name from an expansion can be cd.
+      if (
+        (candidate.name === "trap" &&
+          candidate.args.some(
+            (word) => !word.redirect && !word.text.startsWith("-"),
+          )) ||
+        expandedNameMayMove(
+          commandWords[commandWords.length - candidate.args.length - 1],
+        )
+      ) {
+        success = failure = new Set([UNKNOWN_DIRECTORY]);
+      }
     }
     // A failed cd leaves the old directory in place. && takes only success;
     // || takes only failure; ; and newline must preserve both possibilities.
@@ -4277,13 +4325,13 @@ function shellWriteFlow(
           command: Extract<ShellSyntax, { words: ShellWord[] }>;
         }
       | { kind: "group"; body: Node; redirects: Node[] }
+      | { kind: "job"; body: Node }
       | { kind: "binary"; operator: string; left: Node; right: Node }
       | { kind: "empty" };
     const empty: Node = { kind: "empty" };
     const precedence: Record<string, number> = {
       ";": 1,
       "\n": 1,
-      "&": 1,
       "&&": 2,
       "||": 2,
       "|": 3,
@@ -4292,8 +4340,16 @@ function shellWriteFlow(
     const values: Node[] = [];
     const operators: string[] = [];
     const starts: number[] = [];
+    // Token index of each open (, of each statement separator at depth 0,
+    // and of the first syntax this grammar cannot follow.
+    const parens: number[] = [];
+    const separators: number[] = [];
+    let index = 0;
     let needsValue = true;
-    let opaque = false;
+    let opaqueAt = Infinity;
+    const markOpaque = (at: number) => {
+      opaqueAt = Math.min(opaqueAt, at);
+    };
     const reduce = () => {
       const operator = operators.pop()!;
       const right = values.pop() ?? empty;
@@ -4315,7 +4371,7 @@ function shellWriteFlow(
         }
         // Functions and other syntax outside this small shell grammar do not
         // establish a trustworthy directory. Still inspect every named target.
-        opaque = true;
+        markOpaque(index);
         const left = values.pop() ?? empty;
         values.push({ kind: "binary", operator: ";", left, right: node });
       } else values.push(node);
@@ -4323,25 +4379,33 @@ function shellWriteFlow(
     };
     // Build the precedence tree with stacks, so long lists and deeply nested
     // groups use linear space instead of recursion and repeated array copies.
-    for (const token of nodes) {
+    for (; index < nodes.length; index++) {
+      const token = nodes[index];
       if ("words" in token) {
-        // A function body runs at the call, not where it is defined.
+        const words = token.words.filter((word) => word.redirect !== "output");
+        const candidates = commandCandidates(words);
+        // A function body runs at the call, not where it is defined, and a
+        // loop body can run its cd any number of times.
+        const head = candidates.length
+          ? words.slice(0, words.length - candidates[0].args.length)
+          : words;
         if (
-          commandCandidates(
-            token.words.filter((word) => word.redirect !== "output"),
-          ).some((candidate) => candidate.name === "function")
+          candidates.some((candidate) => candidate.name === "function") ||
+          head.some((word) => LOOP_KEYWORDS.includes(word.text))
         )
-          opaque = true;
+          markOpaque(index);
         append({ kind: "simple", command: token });
       } else if (token.operator === "(") {
-        if (!needsValue) opaque = true;
+        if (!needsValue) markOpaque(index);
         operators.push("(");
         starts.push(values.length);
+        parens.push(index);
         needsValue = true;
       } else if (token.operator === ")") {
         if (needsValue && operators.at(-1) !== "(") values.push(empty);
         while (operators.length && operators.at(-1) !== "(") reduce();
-        if (operators.pop() !== "(") opaque = true;
+        if (operators.pop() !== "(") markOpaque(index);
+        parens.pop();
         const start = starts.pop() ?? 0;
         const body = values.length > start ? values.pop()! : empty;
         needsValue = true;
@@ -4351,33 +4415,67 @@ function shellWriteFlow(
           // Newlines after &&, ||, or | continue the same command.
           if (token.operator === "\n") continue;
           values.push(empty);
+        } else if (
+          (token.operator === ";" || token.operator === "\n") &&
+          parens.length === 0
+        )
+          separators.push(index);
+        // & ends one and-or list and makes it a job; the list after it runs
+        // in the parent as after ;.
+        let operator = token.operator;
+        if (operator === "&") {
+          while (
+            operators.length &&
+            operators.at(-1) !== "(" &&
+            precedence[operators.at(-1)!] >= precedence["&&"]
+          )
+            reduce();
+          values.push({ kind: "job", body: values.pop() ?? empty });
+          operator = ";";
         }
         while (
           operators.length &&
           operators.at(-1) !== "(" &&
-          precedence[operators.at(-1)!] >= precedence[token.operator]
+          precedence[operators.at(-1)!] >= precedence[operator]
         )
           reduce();
-        operators.push(token.operator);
+        operators.push(operator);
         needsValue = true;
       }
     }
     if (needsValue && operators.length) values.push(empty);
     while (operators.length) {
-      if (operators.at(-1) === "(") {
-        operators.pop();
-        opaque = true;
-      } else reduce();
+      if (operators.at(-1) === "(") operators.pop();
+      else reduce();
     }
-    if (values.length > 1) opaque = true;
+    // An unclosed ( is found only here, but its index can come before a
+    // function found earlier: take the smallest index of all.
+    for (const at of parens) markOpaque(at);
+    // A ( after a value leaves an extra value; it is marked where it opens.
+    if (values.length > 1 && opaqueAt === Infinity) markOpaque(0);
+    const opaque = opaqueAt !== Infinity;
+    // Statements before the first opaque one run in order and leave the
+    // suffix's input exact. The suffix holds no separator before its opaque
+    // token, so it does not split again.
+    const split = separators.findLast((at) => at < opaqueAt);
+    if (opaque && split !== undefined) {
+      const prefix = walk(nodes.slice(0, split), directories);
+      return walk(
+        nodes.slice(split + 1),
+        unionDirectories(prefix.success, prefix.failure),
+      );
+    }
     const hasDirectoryChange = nodes.some((node) => {
       if (!("words" in node)) return false;
       // Opaque syntax has no complete command grammar. A keyword list here
       // could hide a directory change behind an unrecognized control word.
       // The shell removes quotes, so 'cd' runs cd; eval can run one.
-      return node.words.some(
-        (word) =>
-          !word.redirect && ["cd", "pushd", "popd", "eval"].includes(word.text),
+      const words = node.words.filter((word) => !word.redirect);
+      return (
+        words.some((word) => DIRECTORY_COMMANDS.includes(word.text)) ||
+        commandCandidates(words).some((candidate) =>
+          expandedNameMayMove(words[words.length - candidate.args.length - 1]),
+        )
       );
     });
     let result = unchanged(directories);
@@ -4402,6 +4500,11 @@ function shellWriteFlow(
                 : input,
             ),
           );
+          return;
+        }
+        if (node.kind === "job") {
+          // A job runs in a child and returns at once.
+          schedule(node.body, input, () => finish(unchanged(input)));
           return;
         }
         if (node.kind === "group") {
@@ -4431,10 +4534,6 @@ function shellWriteFlow(
                   failure: right.failure,
                 }),
               );
-              break;
-            case "&":
-              // Only the left list is a job; the right list runs in the parent.
-              schedule(node.right, input, finish);
               break;
             case "|":
             case "|&":
