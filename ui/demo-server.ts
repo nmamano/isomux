@@ -70,7 +70,6 @@ import type {
   AgentBackendType,
   AgentCapabilities,
   AgentInfo,
-  BackgroundTask,
   AppWire,
   ClientCommand,
   InviteWire,
@@ -699,27 +698,6 @@ function demoContextUsage(
   };
 }
 
-// Idle agents that still run background work (the ring in place of the zZ).
-const DEMO_BACKGROUND: Record<string, BackgroundTask[]> = {
-  Jim: [
-    {
-      id: "bg-1",
-      kind: "agent",
-      label: "Find every prank in the Dundie archive",
-      startedAt: 0,
-    },
-    { id: "bg-2", kind: "command", label: "bun test --watch", startedAt: 0 },
-  ],
-  Stanley: [
-    {
-      id: "bg-3",
-      kind: "agent",
-      label: "Check crossword answers",
-      startedAt: 0,
-    },
-  ],
-};
-
 function seedOffice() {
   const chars = embedMode
     ? OFFICE_CHARACTERS.filter((c) => c.room === 0)
@@ -762,7 +740,7 @@ function seedOffice() {
       // Both sign-ins, so the demo shows the office tint beside the plain ring.
       signIn: char.desk % 2 === 0 ? "individual" : "office",
       contextUsage: demoContextUsage(char.desk, char.modelFamily),
-      backgroundTasks: DEMO_BACKGROUND[char.name] ?? null,
+      backgroundTasks: null,
     });
   }
   // The receptionist: the lobby's one agent, outside every room, as the real
