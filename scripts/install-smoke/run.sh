@@ -230,11 +230,11 @@ manual() {
   ubuntu_archive_step
   step machine docker run -d --name "$name" "${labels[@]}" --memory 6g ubuntu:24.04 sleep infinity
   docker cp scripts/install-smoke/apt-mirrors.sh "$name:/usr/local/sbin/isomux-smoke-apt-mirrors"
-  step apt-mirrors docker exec "$name" bash /usr/local/sbin/isomux-smoke-apt-mirrors "$apt_order"
+  step apt-mirrors docker exec "$name" isomux-smoke-apt-mirrors "$apt_order"
   # The guide's reader: a normal account with sudo on an Ubuntu machine that
   # already has curl.
   step account docker exec "$name" bash -c '
-    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y sudo curl ca-certificates &&
+    isomux-smoke-apt-mirrors update && DEBIAN_FRONTEND=noninteractive apt-get install -y sudo curl ca-certificates &&
     useradd -m -s /bin/bash smoke &&
     echo "smoke ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/smoke'
   docker cp scripts/install-smoke/manual-steps.sh "$name:/usr/local/bin/manual-steps"

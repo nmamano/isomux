@@ -309,7 +309,7 @@ describe("apt-mirrors.sh", () => {
       { env: { ...process.env, APT_ROOT: root } },
     );
     const read = (p: string) => readFileSync(join(root, p), "utf8");
-    return { code: r.exitCode, read };
+    return { code: r.exitCode, read, root };
   };
   const hosts = (list: string) =>
     list
@@ -352,6 +352,91 @@ describe("apt-mirrors.sh", () => {
       { env: { ...process.env, APT_ROOT: root } },
     );
     expect(r.exitCode).not.toBe(0);
+  });
+
+  // 2026-11-10: apt-get update logged "Ign:3 ... noble InRelease" (no mirror
+  // sent it), exited 0, and the install found no packages. The apt-get stub
+  // acts as apt does then: exit 0, or 100 with --error-on=any. The Nth word
+  // of STUB_IGNORES says whether call N ignores an index.
+  const update = (order: string, ignores: string) => {
+    const { root, read } = apply(order);
+    const bin = join(base, "apt-bin");
+    mkdirSync(bin, { recursive: true });
+    const log = join(base, "apt-calls.log");
+    writeFileSync(log, "");
+    writeFileSync(
+      join(bin, "apt-get"),
+      `#!/usr/bin/env bash
+n=$(grep -c '^apt-get' "${log}")
+ignores=($STUB_IGNORES)
+first=$(head -n 1 "$APT_ROOT/etc/apt/mirrors/ubuntu.list" | cut -f1)
+echo "apt-get ignores=\${ignores[$n]} first=$first $*" >> "${log}"
+[[ \${ignores[$n]} == 1 && " $* " == *" --error-on=any "* ]] && exit 100
+exit 0
+`,
+    );
+    writeFileSync(
+      join(bin, "sleep"),
+      `#!/usr/bin/env bash\necho "sleep $*" >> "${log}"\n`,
+    );
+    chmodSync(join(bin, "apt-get"), 0o755);
+    chmodSync(join(bin, "sleep"), 0o755);
+    const r = Bun.spawnSync(
+      ["bash", join(import.meta.dir, "apt-mirrors.sh"), "update"],
+      {
+        env: {
+          ...process.env,
+          APT_ROOT: root,
+          PATH: `${bin}:${process.env.PATH}`,
+          STUB_IGNORES: ignores,
+        },
+      },
+    );
+    const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean);
+    const apt = calls.filter((l) => l.startsWith("apt-get "));
+    const firstHost = (l: string) => new URL(/ first=(\S+)/.exec(l)![1]!).host;
+    return { code: r.exitCode, calls, apt, firstHost, read };
+  };
+
+  it("runs apt-get update once when it gets every index", () => {
+    const u = update("archive", "0");
+    expect(u.code).toBe(0);
+    expect(u.apt).toHaveLength(1);
+    expect(u.calls.filter((l) => l.startsWith("sleep "))).toHaveLength(0);
+  });
+
+  it("tries again, after a pause, with the other mirror first when an index is ignored", () => {
+    for (const [order, firstBefore] of [
+      ["archive", "archive.ubuntu.com"],
+      ["fallback", "mirrors.edge.kernel.org"],
+    ] as const) {
+      const u = update(order, "1 0");
+      expect(u.code, u.calls.join("\n")).toBe(0);
+      expect(u.apt).toHaveLength(2);
+      expect(u.apt[0]).toMatch(/ ignores=1 /);
+      expect(u.firstHost(u.apt[0]!)).toBe(firstBefore);
+      expect(u.firstHost(u.apt[1]!)).not.toBe(firstBefore);
+      const lists = ["ubuntu.list", "ubuntu-security.list"].map(
+        (l) => hosts(u.read(`etc/apt/mirrors/${l}`))[0],
+      );
+      expect(lists[0]).toBe(u.firstHost(u.apt[1]!));
+      expect(lists[1]).toBe(
+        order === "archive" ? "mirrors.edge.kernel.org" : "security.ubuntu.com",
+      );
+      expect(u.calls.indexOf(u.apt[1]!)).toBeGreaterThan(
+        u.calls.findIndex((l) => l.startsWith("sleep ")),
+      );
+      expect(u.calls.findIndex((l) => l.startsWith("sleep "))).toBeGreaterThan(
+        0,
+      );
+    }
+  });
+
+  it("fails when the index is ignored with either mirror first", () => {
+    const u = update("archive", "1 1");
+    expect(u.code).not.toBe(0);
+    expect(u.apt).toHaveLength(2);
+    expect(u.apt[1]).toMatch(/ ignores=1 /);
   });
 });
 
