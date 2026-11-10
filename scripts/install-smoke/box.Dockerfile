@@ -3,6 +3,10 @@
 # Not pinned on purpose: the check follows the Ubuntu a new server gets.
 FROM ubuntu:24.04
 ENV container=docker
+# apt reads the archive with a fallback mirror; run.sh passes the order.
+ARG APT_ORDER=archive
+COPY apt-mirrors.sh /usr/local/sbin/isomux-smoke-apt-mirrors
+RUN bash /usr/local/sbin/isomux-smoke-apt-mirrors "$APT_ORDER"
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server sudo curl ca-certificates git iproute2 \
   && rm -rf /var/lib/apt/lists/*

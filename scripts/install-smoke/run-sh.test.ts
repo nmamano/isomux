@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -259,24 +260,99 @@ describe("run.sh step progress", () => {
 });
 
 // 2026-11-10: a stalled Ubuntu archive held apt in the install step until
-// CI's wall-clock limit. The probe fails first, names the archive, and builds
-// nothing.
+// CI's wall-clock limit. The probe's verdict sets the order of the box's apt
+// mirrors: the archive first while it answers, the fallback first when it
+// does not, with a warning in run.sh's own output.
 describe("run.sh Ubuntu archive probe", () => {
-  it("fails before the box image when the archive does not answer", async () => {
+  const builds = (calls: string) =>
+    calls.split("\n").filter((l) => l.startsWith("docker build "));
+
+  it("puts the fallback mirror first, with a warning, when the archive stalls", async () => {
     const r = await run("passes", "installer-gate", { STUB_ARCHIVE: "stalls" });
-    expect(r.code).not.toBe(0);
-    expect(r.out).toMatch(/FAIL at step ubuntu-archive/);
-    expect(r.out).toMatch(/archive\.ubuntu\.com/);
-    expect(r.calls).toMatch(/^curl /m);
-    expect(r.calls).not.toMatch(/^docker (build|run) /m);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(
+      /\[smoke:installer-gate\] warning:.*archive\.ubuntu\.com/,
+    );
+    expect(builds(r.calls)).toHaveLength(1);
+    expect(builds(r.calls)[0]).toMatch(/--build-arg APT_ORDER=fallback( |$)/);
   }, 60_000);
 
-  it("lets the run go on when the archive answers", async () => {
+  it("keeps the archive first when it answers", async () => {
     const r = await run("passes", "installer-gate");
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toMatch(/PASS ubuntu-archive/);
-    expect(r.calls).toMatch(/^docker build /m);
+    expect(r.out).not.toMatch(/warning:/);
+    expect(builds(r.calls)).toHaveLength(1);
+    expect(builds(r.calls)[0]).toMatch(/--build-arg APT_ORDER=archive( |$)/);
   }, 60_000);
+});
+
+// apt-mirrors.sh on a copy of the ubuntu:24.04 sources: both archive hosts
+// become mirror lists, in the order asked, and nothing else changes.
+describe("apt-mirrors.sh", () => {
+  const SOURCES = [
+    "Types: deb",
+    "URIs: http://archive.ubuntu.com/ubuntu/",
+    "Suites: noble noble-updates noble-backports",
+    "",
+    "Types: deb",
+    "URIs: http://security.ubuntu.com/ubuntu/",
+    "Suites: noble-security",
+    "",
+  ].join("\n");
+  const apply = (order: string) => {
+    const root = join(base, `root-${order}`);
+    mkdirSync(join(root, "etc/apt/sources.list.d"), { recursive: true });
+    mkdirSync(join(root, "etc/apt/apt.conf.d"), { recursive: true });
+    writeFileSync(join(root, "etc/apt/sources.list.d/ubuntu.sources"), SOURCES);
+    const r = Bun.spawnSync(
+      ["bash", join(import.meta.dir, "apt-mirrors.sh"), order],
+      { env: { ...process.env, APT_ROOT: root } },
+    );
+    const read = (p: string) => readFileSync(join(root, p), "utf8");
+    return { code: r.exitCode, read };
+  };
+  const hosts = (list: string) =>
+    list
+      .trim()
+      .split("\n")
+      .map((l) => new URL(l.split("\t")[0]!).host);
+
+  it("lists the archive first for archive and the fallback first for fallback", () => {
+    for (const [order, first] of [
+      ["archive", 0],
+      ["fallback", 1],
+    ] as const) {
+      const { code, read } = apply(order);
+      expect(code).toBe(0);
+      const sources = read("etc/apt/sources.list.d/ubuntu.sources");
+      expect(sources).not.toMatch(/^URIs: http:/m);
+      expect(sources).toMatch(/^Suites: noble noble-updates noble-backports$/m);
+      for (const [list, archive] of [
+        ["ubuntu.list", "archive.ubuntu.com"],
+        ["ubuntu-security.list", "security.ubuntu.com"],
+      ]) {
+        expect(sources).toContain(`URIs: mirror+file:/etc/apt/mirrors/${list}`);
+        const order2 = hosts(read(`etc/apt/mirrors/${list}`));
+        expect(order2).toHaveLength(2);
+        expect(order2[first]).toBe(archive);
+        expect(order2[1 - first]).not.toBe(archive);
+      }
+    }
+  });
+
+  it("refuses sources it does not recognise", () => {
+    const root = join(base, "root-other");
+    mkdirSync(join(root, "etc/apt/sources.list.d"), { recursive: true });
+    writeFileSync(
+      join(root, "etc/apt/sources.list.d/ubuntu.sources"),
+      "URIs: http://example.org/ubuntu/\n",
+    );
+    const r = Bun.spawnSync(
+      ["bash", join(import.meta.dir, "apt-mirrors.sh"), "archive"],
+      { env: { ...process.env, APT_ROOT: root } },
+    );
+    expect(r.exitCode).not.toBe(0);
+  });
 });
 
 // Task cc5c205b: serve_revision's local fetch once failed with a corrupt

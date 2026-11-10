@@ -227,8 +227,10 @@ run_checks() {
 
 manual() {
   as_user() { docker exec -u smoke -w /home/smoke "$name" bash -ic "$*"; }
-  step ubuntu-archive ubuntu_archive
+  ubuntu_archive_step
   step machine docker run -d --name "$name" "${labels[@]}" --memory 6g ubuntu:24.04 sleep infinity
+  docker cp scripts/install-smoke/apt-mirrors.sh "$name:/usr/local/sbin/isomux-smoke-apt-mirrors"
+  step apt-mirrors docker exec "$name" bash /usr/local/sbin/isomux-smoke-apt-mirrors "$apt_order"
   # The guide's reader: a normal account with sudo on an Ubuntu machine that
   # already has curl.
   step account docker exec "$name" bash -c '
@@ -291,33 +293,43 @@ installer_packages() {
   printf '%s\n' "$list"
 }
 
-# The box's apt reads the Ubuntu archive (the sources of the ubuntu:24.04
-# image). An archive that answers too slowly stalls apt inside the box-image or
-# install step until CI's wall-clock limit kills the run (2026-11-10: from two
-# networks, most IPv4 addresses of archive.ubuntu.com and security.ubuntu.com
-# sent nothing in 20 s and the others about 15 KB/s, while IPv6 worked).
-# One index file each, about 2 MB, which a working mirror sends in a second.
-# IPv4 only, as Docker's default bridge network gives the box no IPv6.
+# The box's apt reads the Ubuntu archive with a fallback mirror
+# (apt-mirrors.sh). An archive that answers too slowly once stalled apt in the
+# install step until CI's wall-clock limit killed the run (2026-11-10: from
+# two networks, most IPv4 addresses of archive.ubuntu.com and
+# security.ubuntu.com sent nothing in 20 s and the others about 15 KB/s, while
+# IPv6 worked). This probe fetches one index file from each, about 2 MB, which
+# a working mirror sends in a second, over IPv4, as Docker's default bridge
+# network gives the box no IPv6. A stalled archive is a warning, not a
+# failure: the box then puts the fallback mirror first (apt_order).
+apt_order=archive
 ubuntu_archive() {
-  local url rc=0
+  local url
   for url in http://archive.ubuntu.com/ubuntu/dists/noble-updates/main/binary-amd64/Packages.gz \
     http://security.ubuntu.com/ubuntu/dists/noble-security/main/binary-amd64/Packages.gz; do
     if ! curl -4 -fsS -o /dev/null --max-time 15 \
       -w "%{size_download} bytes in %{time_total}s from %{remote_ip}: $url\n" "$url"; then
-      echo "The Ubuntu archive did not send $url within 15 s, so apt in the box would stall. This is outside isomux: try again later."
-      rc=1
+      echo "warning: the Ubuntu archive did not send $url within 15 s, so the box's apt puts its fallback mirror first. This is outside isomux."
+      apt_order=fallback
     fi
   done
-  return "$rc"
+}
+
+# The probe's step. Its warnings go to run.sh's own output, which CI keeps.
+ubuntu_archive_step() {
+  step ubuntu-archive ubuntu_archive
+  if [[ $apt_order != archive ]]; then
+    grep -F 'warning:' "$logs/ubuntu-archive.log" | sed "s/^/[smoke:$path] /" || true
+  fi
 }
 
 installer() {
   images+=("$name-box")
-  step ubuntu-archive ubuntu_archive
-  local packages=()
+  ubuntu_archive_step
+  local packages=(--build-arg "APT_ORDER=$apt_order")
   if [[ $path == installer-gate ]]; then
     step packages-list installer_packages
-    packages=(--build-arg "PACKAGES=$(cat "$logs/packages-list.log")")
+    packages+=(--build-arg "PACKAGES=$(cat "$logs/packages-list.log")")
   fi
   # Plain progress, so that a stalled apt names its download in the log.
   step box-image docker build --progress=plain -t "$name-box" "${labels[@]}" "${packages[@]}" -f scripts/install-smoke/box.Dockerfile scripts/install-smoke
