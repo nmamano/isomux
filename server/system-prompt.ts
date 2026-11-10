@@ -65,15 +65,21 @@ export function appHostingClaudeCaveatTail(
     : "";
 }
 
+// The way out of the namespace for work that must outlive the session: a
+// transient user service. It does not inherit the cwd, PATH or other env, and
+// --collect frees a failed unit's name for the next run (task 030093e9).
+const KEEP_RUNNING =
+  "To keep one running, start it with `systemd-run --user --unit=<name> --same-dir --collect -E PATH <command>`.";
+
 // The line for a session that runs in its own PID namespace, true for the
 // form of that spawn's wrap; "" when the spawn is not wrapped. sudo and the
 // nested sandboxes print their own errors, so this line names the cause and
 // the owner's switch (task 8db21c8b).
 export function processIsolationPromptLine(form: IsolationForm | null): string {
   if (form === "session")
-    return "\n\nThis session runs in its own process namespace: ps shows only its processes, background processes stop with it, and sudo and nested sandboxes fail; an office owner can turn off Isolate agent processes in Office Settings.";
+    return `\n\nThis session runs in its own process namespace: ps shows only its processes, and sudo and nested sandboxes fail; an office owner can turn off Isolate agent processes in Office Settings. Every process you start stops with the session, also a detached one. ${KEEP_RUNNING}`;
   if (form === "shared_server")
-    return "\n\nYour OpenCode server runs in its own process namespace: ps shows only its processes, including the other OpenCode agents of your manager, background processes stop with that server, and sudo and nested sandboxes fail; an office owner can turn off Isolate agent processes in Office Settings.";
+    return `\n\nYour OpenCode server runs in its own process namespace: ps shows only its processes, including the other OpenCode agents of your manager, and sudo and nested sandboxes fail; an office owner can turn off Isolate agent processes in Office Settings. Every process you start stops with that server, also a detached one. ${KEEP_RUNNING}`;
   return "";
 }
 

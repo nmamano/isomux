@@ -18,6 +18,14 @@ Create with `POST /api/cronjobs` and `{name,schedule,prompt,cwd,modelFamily,effo
 
 To message an agent instead of running a session, add `target:{kind:"agent",agentId}`. Each run sends the prompt to that agent, which gets it as a message from the schedule, with its own context and memory. Such a job needs no `cwd`, `modelFamily`, `effort` or `permissionMode`, and an ordinary agent's mode and folder do not limit it. The job's owner must reach the agent's room, and a token limited to rooms must reach it too; else the create or change returns 404. Isomux checks the owner again at each run, and a send that fails makes a failed run with the reason. Such a run has no transcript, so a message or edit into it returns 409. `PATCH {target:null}` turns the job back into a session job, checked as one. Its system prompt read returns 409 `agent_target`.
 
+A run's session ends with the run. When the run's system prompt says that it runs in its own process namespace, every process the run starts stops then, also one started with `setsid`, `nohup` or `systemd-run --scope`. Start work that must outlive the run as a transient service, where `systemctl --user` works:
+
+```sh
+systemd-run --user --unit=<name> --same-dir --collect -E PATH <command>
+```
+
+The service does not get the run's folder, `PATH` or other variables: `--same-dir` keeps the folder, `-E PATH` copies `PATH`, and `-E <VAR>` copies each other variable the command needs. `--collect` frees the name after a failure, so the next run can use it again. Check the service with `systemctl --user is-active <name>`, not `pgrep -f`, which also finds its own shell. Read its output with `journalctl --user -u <name>`. A service that must run all the time is an app (page `apps`): it restarts when it exits.
+
 Safe example: `GET /api/cronjobs`.
 
 ## Route contract
