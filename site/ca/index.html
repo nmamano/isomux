@@ -690,7 +690,7 @@
       /* ---- Responsive ---- */
       @media (max-width: 640px) {
         .hero {
-          padding: 32px 16px 24px;
+          padding: 32px 16px 0;
         }
         .hero h1 {
           font-size: 1.7rem;
@@ -725,10 +725,8 @@
         max-width: 860px;
         margin: 0 auto 16px;
       }
-      @media (max-width: 700px) {
-        .ways {
-          grid-template-columns: 1fr;
-        }
+      .ways + .cta-row {
+        margin-bottom: 16px;
       }
       .way {
         display: flex;
@@ -759,6 +757,38 @@
         padding-top: 4px;
       }
 
+      /* Phones: each card is two short lines, title and link on the first. */
+      @media (max-width: 700px) {
+        #features {
+          padding-top: 8px;
+        }
+        .ways {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        .way {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          column-gap: 12px;
+          row-gap: 2px;
+          padding: 10px 14px;
+          font-size: 0.85rem;
+          line-height: 1.4;
+        }
+        .way strong {
+          font-size: 0.98rem;
+        }
+        .way span {
+          grid-column: 1 / -1;
+        }
+        .way em {
+          grid-row: 1;
+          grid-column: 2;
+          align-self: center;
+          margin-top: 0;
+          padding-top: 0;
+        }
+      }
       .badge-row {
         text-align: center;
         margin-bottom: 20px;
@@ -843,6 +873,28 @@
           ><span>Prova la demo &rarr;</span></a
         >
       </div>
+    </div>
+
+    <!-- Coworkers -->
+    <section id="features">
+      <nav class="ways" aria-label="Maneres de fer servir Isomux">
+        <a class="way" href="#setup"
+          ><strong>Autoallotjat</strong
+          ><span>Gratis per a particulars i equips de fins a 10 persones.</span
+          ><em>Comença &darr;</em></a
+        >
+        <a class="way" href="/ca/hosted"
+          ><strong>Hosted</strong
+          ><span>Te'l gestionem nosaltres, 24/7. Des de 9 USD/mes.</span
+          ><em>Mira els plans &rarr;</em></a
+        >
+        <a class="way" href="/enterprise"
+          ><strong>Empreses</strong
+          ><span
+            >A la teva pròpia infraestructura, amb llicència comercial.</span
+          ><em>Més informació &rarr;</em></a
+        >
+      </nav>
       <div class="cta-row">
         <a
           href="https://github.com/nmamano/isomux"
@@ -873,28 +925,6 @@
           Discord
         </a>
       </div>
-    </div>
-
-    <!-- Coworkers -->
-    <section id="features">
-      <nav class="ways" aria-label="Maneres de fer servir Isomux">
-        <a class="way" href="#setup"
-          ><strong>Autoallotjat</strong
-          ><span>Gratis per a particulars i equips de fins a 10 persones.</span
-          ><em>Comença &darr;</em></a
-        >
-        <a class="way" href="/ca/hosted"
-          ><strong>Hosted</strong
-          ><span>Te'l gestionem nosaltres, 24/7. Des de 9 USD/mes.</span
-          ><em>Mira els plans &rarr;</em></a
-        >
-        <a class="way" href="/enterprise"
-          ><strong>Empreses</strong
-          ><span
-            >A la teva pròpia infraestructura, amb llicència comercial.</span
-          ><em>Més informació &rarr;</em></a
-        >
-      </nav>
       <div class="badge-row">
         <div class="free-badge">
           Funciona amb les teves subscripcions de Claude, Codex i OpenCode.
