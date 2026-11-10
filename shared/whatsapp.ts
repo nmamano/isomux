@@ -45,13 +45,15 @@ export function normaliseWhatsAppPhone(raw: string): string | null {
 }
 
 // A contact row (task d03a61d8, slice 2): one WhatsApp chat (a contact or a
-// group) that reaches one agent the member manages. The name is the member's,
+// group) that reaches one agent the member manages (any agent for an office
+// owner, task 0b53ff37). The name is the member's,
 // and it is what the agent sees as the sender.
 export type WhatsAppRouteTrigger = "mention" | "all";
 
 // Why a row no longer delivers. A code, never copy.
 //   agent_gone       - the agent was deleted
-//   agent_not_yours  - the agent's manager is no longer the member
+//   agent_not_yours  - the agent's manager is not the member, and the member
+//                      is not an office owner
 //   agent_chat_only  - the agent is at Chat stop, so it cannot reply
 export type WhatsAppRouteDead =
   | "agent_gone"
@@ -142,4 +144,11 @@ export function normaliseWhatsAppPrefix(raw: string): string | null {
   if (UNSAFE_CHARS_RE.test(raw)) return null;
   const prefix = raw.trim();
   return [...prefix].length > WHATSAPP_PREFIX_MAX ? null : prefix;
+}
+
+// Whether a chat's name holds the name an agent gave in a whatsapp-route
+// step (task 0b53ff37): a part of it, in any case, after trimming both.
+export function chatNameMatches(name: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q.length > 0 && name.trim().toLowerCase().includes(q);
 }

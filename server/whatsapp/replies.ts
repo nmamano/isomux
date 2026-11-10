@@ -22,7 +22,7 @@ export const WHATSAPP_SEND_OPTION = "Send";
 export const WHATSAPP_DONT_SEND_OPTION = "Don't send";
 
 export interface WhatsAppRepliesDeps {
-  routes: Pick<WhatsAppRoutes, "get" | "check">;
+  routes: Pick<WhatsAppRoutes, "get" | "check" | "rowMember">;
   // The agent as it is now, or null when it is gone.
   agent(agentId: string): { userId: string | null } | null;
   asks: Pick<AskStore, "create" | "listForAgent">;
@@ -160,7 +160,9 @@ export function createWhatsAppReplies(
   return {
     async reply(agentId, routeId, text) {
       const agent = deps.agent(agentId);
-      const userId = agent?.userId ?? null;
+      // The row's member: the agent's manager, or an office owner who routed
+      // a chat to it (task 0b53ff37).
+      const userId = deps.routes.rowMember(agentId, routeId);
       const route = userId ? deps.routes.get(userId, routeId) : null;
       if (!agent || !userId || !route || route.agentId !== agentId)
         return notFound;

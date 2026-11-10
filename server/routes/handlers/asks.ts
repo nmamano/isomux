@@ -167,11 +167,13 @@ export interface AsksDeps {
   // caller. Absent in leaf tests: no step runs.
   stepRuns?: {
     // `memberUserId`: the member the ask is for, who runs it;
-    // `callerSessionIdHash` their session, which a sign-out ends last.
+    // `callerSessionIdHash` their session, which a sign-out ends last;
+    // `pick` the body of the Apply (the chat of a whatsapp-route step).
     routeOf(
       step: AskStep,
       memberUserId: string,
       callerSessionIdHash?: string,
+      pick?: unknown,
     ): StepRun | null;
     dispatch(
       identity: Identity,
@@ -1332,7 +1334,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const runs = deps.stepRuns;
     const run =
       entry.step && runs
-        ? runs.routeOf(entry.step, entry.memberUserId, ctx.callerSessionIdHash)
+        ? runs.routeOf(
+            entry.step,
+            entry.memberUserId,
+            ctx.callerSessionIdHash,
+            ctx.body,
+          )
         : null;
     if (!runs || !run)
       return fail(409, "not_runnable", "This ask has no action to run.");

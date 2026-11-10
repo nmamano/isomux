@@ -2145,6 +2145,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Only the member this ask is for can do this step.",
   "asks.action.self": "This is the agent that asks.",
   "asks.action.gone": "You can no longer reach this agent.",
+  "asks.action.whatsappNoMatch":
+    "No WhatsApp chat matches {name} yet. A chat shows here after its next message.",
+  "asks.action.whatsappMoves": "This chat goes to {agent} now. Apply moves it.",
+  "asks.action.whatsappManager":
+    "{member} manages this agent. Members who can open it can read this chat.",
+  "asks.action.whatsappOtherMember":
+    "Only {member} can choose the chat and apply.",
   "asks.action.memberGone": "This member is no longer in the office.",
   "asks.action.roomGranted": "Access",
   "asks.action.roomRemoved": "No access",
@@ -3653,6 +3660,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.officeUpdated": "Office updated to {release}.",
   "systemEntries.stepAsk.storagePruned": "Old files deleted.",
   "systemEntries.stepAsk.storageCompressed": "Old conversations compressed.",
+  "systemEntries.stepAsk.whatsappRouted":
+    "WhatsApp chat {chat} now goes to {agent}.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",
   "systemEntries.sudoRequest.started": "Running as root: {command}",
   "systemEntries.sudoRequest.exited": "Ended with exit code {code}: {command}",

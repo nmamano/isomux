@@ -68,6 +68,15 @@ import {
 } from "./routes/handlers/storage.ts";
 import { compareCalver } from "./update-checker.ts";
 import type { StorageApplied } from "./office-storage-routes.ts";
+import {
+  WHATSAPP_ROUTE_NAME_MAX,
+  chatNameMatches,
+  normaliseWhatsAppRouteName,
+  type WhatsAppChatSeen,
+  type WhatsAppRoute,
+  type WhatsAppRouteDead,
+} from "../shared/whatsapp.ts";
+import { replySettings } from "./whatsapp/routes.ts";
 import type { UpdateStatusWire } from "../shared/types.ts";
 import type { PruneTarget } from "../shared/contract-shapes.ts";
 
@@ -193,6 +202,16 @@ export interface StepRunDeps {
   // The last prune applied to the target and the last compress, or null.
   lastPrune(target: PruneTarget): StorageApplied | null;
   lastCompress(): StorageApplied | null;
+  // The member's WhatsApp (task 0b53ff37): whether they linked it, the chats
+  // their bridge saw since it started (groups come at each connect), their
+  // rows as stored (a read that never writes), and why an agent cannot be a
+  // row's agent for them.
+  whatsapp: {
+    linked(userId: string): boolean;
+    chatsSeen(userId: string): WhatsAppChatSeen[];
+    rows(userId: string): WhatsAppRoute[];
+    agentProblem(userId: string, agentId: string): WhatsAppRouteDead | null;
+  };
   // Whether the member passes the route's own authorization, as from the
   // page: the refusal, or null. Runs nothing.
   authorizeAs(
@@ -277,6 +296,15 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "office-update": ["kind"],
   "storage-prune": ["kind", "target", "olderThanDays", "keepPerAgent"],
   "storage-compress": ["kind", "olderThanDays"],
+  "whatsapp-route": [
+    "kind",
+    "chatName",
+    "agentId",
+    "trigger",
+    "sendDirect",
+    "prefix",
+    "ownMessages",
+  ],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -378,7 +406,71 @@ function doneLine(step: AskStep, target: string): LogMessage {
       return msg("systemEntries.stepAsk.storagePruned");
     case "storage-compress":
       return msg("systemEntries.stepAsk.storageCompressed");
+    // The name the agent gave, never the picked chat's: the agent learns no
+    // chat name it did not give.
+    case "whatsapp-route":
+      return msg("systemEntries.stepAsk.whatsappRouted", {
+        chat: step.chatName,
+        agent: target,
+      });
   }
+}
+
+type WhatsAppRouteStep = Extract<AskStep, { kind: "whatsapp-route" }>;
+
+// Whether a row's chat matches the step's name: by the row's name or by the
+// name the bridge saw for its chat.
+function rowMatches(
+  row: WhatsAppRoute,
+  step: WhatsAppRouteStep,
+  seen: readonly WhatsAppChatSeen[],
+): boolean {
+  return (
+    chatNameMatches(row.name, step.chatName) ||
+    seen.some(
+      (c) => c.chat === row.chat && chatNameMatches(c.name, step.chatName),
+    )
+  );
+}
+
+// The row settings a whatsapp-route step sets, every one explicit: an omitted
+// one is the default (drafts, own messages off, no prefix, mention). A
+// trigger only for a group.
+function stepRowSettings(
+  step: WhatsAppRouteStep,
+  group: boolean,
+): {
+  sendDirect: boolean;
+  ownMessages: boolean;
+  prefix: string;
+  trigger?: "mention" | "all";
+} {
+  return {
+    sendDirect: step.sendDirect === true,
+    ownMessages: step.ownMessages === true,
+    prefix: step.prefix ?? "",
+    ...(group ? { trigger: step.trigger ?? "mention" } : {}),
+  };
+}
+
+// Whether a row is what the step asks for: its agent and all its settings.
+function rowIsStep(row: WhatsAppRoute, step: WhatsAppRouteStep): boolean {
+  const want = stepRowSettings(step, row.group);
+  return (
+    row.agentId === step.agentId &&
+    (row.sendDirect === true) === want.sendDirect &&
+    (row.ownMessages === true) === want.ownMessages &&
+    (row.prefix ?? "") === want.prefix &&
+    (!row.group || (row.trigger ?? "mention") === want.trigger)
+  );
+}
+
+// The name a new row takes: the chat's name as the bridge saw it, cut to the
+// row name's length, else the name the agent gave.
+function newRowName(seenName: string | undefined, chatName: string): string {
+  if (seenName === undefined) return chatName;
+  const cut = [...seenName.trim()].slice(0, WHATSAPP_ROUTE_NAME_MAX).join("");
+  return normaliseWhatsAppRouteName(cut) ?? chatName;
 }
 
 // Whether an applied prune or compress covers the step: applied since the ask
@@ -590,6 +682,23 @@ export function createStepAsks(deps: StepAskDeps) {
           ? runs.compressCandidates(step.olderThanDays) === 0
           : covers(runs.lastCompress(), since, step.olderThanDays, 0);
       }
+      // A live row of a matching chat to the agent, with the step's
+      // settings. Reads only: reconcile runs this from the rows' own change
+      // hook.
+      case "whatsapp-route": {
+        const wa = deps.runs?.whatsapp;
+        if (!wa) return false;
+        const seen = wa.chatsSeen(memberUserId);
+        return wa
+          .rows(memberUserId)
+          .some(
+            (row) =>
+              !row.dead &&
+              rowIsStep(row, step) &&
+              rowMatches(row, step, seen) &&
+              wa.agentProblem(memberUserId, row.agentId) === null,
+          );
+      }
     }
   }
 
@@ -678,6 +787,57 @@ export function createStepAsks(deps: StepAskDeps) {
     return on ? [...rest, roomId] : rest;
   }
 
+  // The run of a whatsapp-route step on the picked chat: a chat that matches
+  // the step's name, seen by the bridge or already a row. A chat with a row
+  // moves to the agent with the step's settings (the row keeps its name); a
+  // chat with none gets a row.
+  function whatsappRouteRun(
+    step: WhatsAppRouteStep,
+    memberUserId: string,
+    pick: unknown,
+  ): StepRun {
+    const wa = deps.runs?.whatsapp;
+    if (!wa) return invalid("this office runs no action steps");
+    const chat =
+      isObject(pick) && typeof pick.chat === "string" ? pick.chat : null;
+    if (!chat) return invalid("send {chat}: the chat the member picked");
+    const seen = wa.chatsSeen(memberUserId);
+    const seenChat = seen.find((c) => c.chat === chat);
+    const row = wa.rows(memberUserId).find((r) => r.chat === chat);
+    const matches =
+      (!!seenChat && chatNameMatches(seenChat.name, step.chatName)) ||
+      (!!row && rowMatches(row, step, seen));
+    if (!matches)
+      return {
+        ok: false,
+        status: 409,
+        code: "chat_not_matching",
+        message: "this chat does not match the name the ask gives",
+      };
+    const settings = stepRowSettings(step, chat.endsWith("@g.us"));
+    return {
+      ok: true,
+      routes: [
+        row
+          ? {
+              method: "PATCH",
+              path: `/api/whatsapp/routes/${encodeURIComponent(row.id)}`,
+              body: { agentId: step.agentId, ...settings },
+            }
+          : {
+              method: "POST",
+              path: "/api/whatsapp/routes",
+              body: {
+                chat,
+                name: newRowName(seenChat?.name, step.chatName),
+                agentId: step.agentId,
+                ...settings,
+              },
+            },
+      ],
+    };
+  }
+
   // The route an action step runs now, or null for a step with a link. A
   // member step reads the member when it runs: their name for the path, their
   // rooms for the new room list. A removal on a room closed since the create
@@ -687,10 +847,13 @@ export function createStepAsks(deps: StepAskDeps) {
   // runs on the record of `memberUserId`, the member the ask is for.
   // A sign-out ends the session of `callerSessionIdHash` (the member's own)
   // last.
+  // A whatsapp-route step runs on the chat the member picked: `pick` is the
+  // body of the Apply, {chat}.
   function routeOf(
     step: AskStep,
     memberUserId: string,
     callerSessionIdHash?: string,
+    pick?: unknown,
   ): StepRun | null {
     switch (step.kind) {
       case "agent-access":
@@ -996,6 +1159,8 @@ export function createStepAsks(deps: StepAskDeps) {
             },
           ],
         };
+      case "whatsapp-route":
+        return whatsappRouteRun(step, memberUserId, pick);
       default:
         return null;
     }
@@ -1325,6 +1490,35 @@ export function createStepAsks(deps: StepAskDeps) {
           },
         };
       }
+      // The settings as the row stores them: false and a blank prefix are
+      // the default, so they are left out.
+      case "whatsapp-route": {
+        const chatName =
+          typeof body.chatName === "string"
+            ? normaliseWhatsAppRouteName(body.chatName)
+            : null;
+        if (chatName === null)
+          return invalid(
+            "step.chatName is a part of the chat's name: 1 to 60 characters on one line",
+          );
+        if (typeof body.agentId !== "string" || body.agentId === "")
+          return invalid("step.agentId is an agent id");
+        const trigger = body.trigger;
+        if (trigger !== undefined && trigger !== "mention" && trigger !== "all")
+          return invalid("step.trigger is mention or all");
+        const settings = replySettings(body);
+        if (!settings.ok) return invalid(`step.${settings.error}`);
+        return {
+          ok: true,
+          step: {
+            kind,
+            chatName,
+            agentId: body.agentId,
+            ...(trigger === undefined ? {} : { trigger }),
+            ...settings.set,
+          },
+        };
+      }
       case "storage-compress": {
         const days = body.olderThanDays;
         if (
@@ -1393,6 +1587,7 @@ export function createStepAsks(deps: StepAskDeps) {
   function targetName(step: AskStep): string {
     switch (step.kind) {
       case "agent-access":
+      case "whatsapp-route":
         return deps.runs?.agent(step.agentId)?.name ?? step.agentId;
       case "member-room":
       case "member-role":
@@ -1663,6 +1858,54 @@ export function createStepAsks(deps: StepAskDeps) {
         return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
           ? notAllowed("only an office owner can clean up storage")
           : null;
+      // The chat is picked on the card, so the create judges the member on
+      // the add route, and the agent by the rows' own rule.
+      case "whatsapp-route": {
+        const unknownAgent: StepFailure = {
+          ok: false,
+          status: 422,
+          code: "unknown_agent",
+          message: "no agent with this id in a room you can reach",
+        };
+        if (
+          !askingAgentId ||
+          !runs.agent(step.agentId) ||
+          !runs.agentReaches(askingAgentId, step.agentId)
+        )
+          return unknownAgent;
+        if (
+          runs.authorizeAs(memberUserId, {
+            method: "POST",
+            path: "/api/whatsapp/routes",
+          })
+        )
+          return notAllowed("this member cannot route WhatsApp chats");
+        if (!runs.whatsapp.linked(memberUserId))
+          return {
+            ok: false,
+            status: 409,
+            code: "whatsapp_not_linked",
+            message:
+              "this member has not linked WhatsApp: they link it in Integrations, Messaging",
+          };
+        switch (runs.whatsapp.agentProblem(memberUserId, step.agentId)) {
+          case "agent_gone":
+            return unknownAgent;
+          case "agent_not_yours":
+            return notAllowed(
+              "this member can route a chat only to an agent they manage; an office owner can route to any agent",
+            );
+          case "agent_chat_only":
+            return {
+              ok: false,
+              status: 422,
+              code: "agent_chat_only",
+              message: "an agent at Chat stop cannot reply",
+            };
+          default:
+            return null;
+        }
+      }
     }
   }
 

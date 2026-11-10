@@ -1224,6 +1224,7 @@ export type {
   MemberPreferencesSet,
   MemberViewList,
   OfficeSettingsSet,
+  WhatsAppRouteStepRun,
 } from "./action-steps.ts";
 export { isActionStep } from "./action-steps.ts";
 

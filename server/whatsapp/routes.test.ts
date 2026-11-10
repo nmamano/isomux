@@ -65,6 +65,8 @@ function harness(stateRoot?: string) {
     newId: () => `r${++h.n}`,
     agent: (id) => h.agents.get(id) ?? null,
     linkedPhone: (userId) => h.phones.get(userId) ?? null,
+    isOfficeOwner: () => false,
+    linkedMembers: () => [...h.phones.keys()],
     onChange: (userId) => void h.changes.push(userId),
   });
   return h;

@@ -11,6 +11,7 @@ import type { AgentAccess } from "./agent-access.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AskStep } from "./types.ts";
+import type { WhatsAppRouteTrigger } from "./whatsapp.ts";
 
 // An action step (task e3d1bc63): a human-only action the member runs from
 // the ask card with the Apply button. It has no link; the ask closes itself
@@ -74,7 +75,27 @@ export type ActionStepRequest =
       keepPerAgent?: number;
     }
   // Old transcripts gzipped, as POST /api/storage/compress applies it.
-  | { kind: "storage-compress"; olderThanDays: number };
+  | { kind: "storage-compress"; olderThanDays: number }
+  // One WhatsApp chat of the member routed to an agent (task 0b53ff37). The
+  // agent names the chat by a part of its name; the member picks the chat on
+  // the card, and Apply sends it as {chat} (WhatsAppRouteStepRun). The
+  // settings are the whole row: an omitted one is the default (drafts,
+  // mention, no prefix, own messages off).
+  | {
+      kind: "whatsapp-route";
+      chatName: string;
+      agentId: string;
+      trigger?: WhatsAppRouteTrigger;
+      sendDirect?: boolean;
+      prefix?: string;
+      ownMessages?: boolean;
+    };
+
+// The body of POST /api/asks/:askId/action for a whatsapp-route step: the
+// chat the member picked. Other kinds take no body.
+export interface WhatsAppRouteStepRun {
+  chat: string;
+}
 
 export type MemberViewList = "shown" | "tucked" | "notif" | "push";
 
@@ -109,6 +130,7 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "office-update",
   "storage-prune",
   "storage-compress",
+  "whatsapp-route",
 ]);
 
 // Whether a step is one the member runs from the card.

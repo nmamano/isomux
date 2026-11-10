@@ -21,13 +21,21 @@
 // delete for good (member-purge), the office update (office-update), and the
 // storage prune and compress (storage-prune, storage-compress), whose results
 // go to askResults too.
+// Task 0b53ff37: one of the member's WhatsApp chats routed to an agent
+// (whatsapp-route). The agent names the chat by a part of its name; the
+// member picks one of their chats that match, and Apply sends it.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useAppState, useDispatch, type AskResult } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import { agentAccessOf } from "../../shared/agent-access.ts";
+import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
+import {
+  chatNameMatches,
+  type WhatsAppChatSeen,
+  type WhatsAppRoute,
+} from "../../shared/whatsapp.ts";
 import type { ActionStepRequest } from "../../shared/types.ts";
 import type { MemberViewList } from "../../shared/action-steps.ts";
 import {
@@ -97,6 +105,49 @@ interface ActionView {
   lines: ReactNode[];
   marks: Record<string, string>;
   gone: string | null;
+  // No Apply: the viewer is not the member who can run it.
+  noApply?: boolean;
+  // Apply waits for a choice on the card.
+  waiting?: boolean;
+}
+
+// A chat a whatsapp-route step may route: its name as the bridge saw it (else
+// the row's), and its row when it has one.
+interface WhatsAppCandidate {
+  chat: string;
+  name: string;
+  group: boolean;
+  row?: WhatsAppRoute;
+}
+
+// The member's chats that match the step's name: those the bridge saw, and
+// those with a row, matched by the seen name or the row's name (the server's
+// rule, step-asks.ts).
+export function whatsappCandidates(
+  chatName: string,
+  seen: readonly WhatsAppChatSeen[],
+  rows: readonly WhatsAppRoute[],
+): WhatsAppCandidate[] {
+  const out = new Map<string, WhatsAppCandidate>();
+  for (const c of seen)
+    if (chatNameMatches(c.name, chatName))
+      out.set(c.chat, { chat: c.chat, name: c.name, group: c.group });
+  for (const row of rows) {
+    const seenName = seen.find((c) => c.chat === row.chat)?.name;
+    if (
+      chatNameMatches(row.name, chatName) ||
+      (seenName !== undefined && chatNameMatches(seenName, chatName))
+    )
+      out.set(row.chat, {
+        chat: row.chat,
+        name: seenName ?? row.name,
+        group: row.group,
+      });
+  }
+  return [...out.values()].map((c) => {
+    const row = rows.find((r) => r.chat === c.chat);
+    return row ? { ...c, row } : c;
+  });
 }
 
 // The labels of the settings an office-settings step sets, with the page's
@@ -219,6 +270,43 @@ export function AskActionBlock({
                   ? "/api/office/update"
                   : null;
   const [fetched, setFetched] = useState<unknown>(undefined);
+  // A whatsapp-route step reads the chats and rows of the viewer, so only the
+  // member the ask is for reads them: another viewer (an owner) would see
+  // their own chats.
+  const viewerId = sessionContext?.userId ?? null;
+  const waMember =
+    step.kind === "whatsapp-route" &&
+    !!memberUserId &&
+    viewerId === memberUserId;
+  const [waChats, setWaChats] = useState<WhatsAppChatSeen[] | null>(null);
+  const [waRows, setWaRows] = useState<WhatsAppRoute[] | null>(null);
+  const [waPick, setWaPick] = useState<string | null>(null);
+  useEffect(() => {
+    if (!waMember) return;
+    let live = true;
+    void Promise.allSettled([
+      apiFetch<WhatsAppChatSeen[]>("GET", "/api/whatsapp/chats"),
+      apiFetch<WhatsAppRoute[]>("GET", "/api/whatsapp/routes"),
+    ]).then(([chats, rows]) => {
+      if (!live) return;
+      setWaChats(chats.status === "fulfilled" ? chats.value : []);
+      setWaRows(rows.status === "fulfilled" ? rows.value : []);
+    });
+    return () => {
+      live = false;
+    };
+  }, [waMember]);
+  const waCandidates =
+    step.kind === "whatsapp-route" && waChats && waRows
+      ? whatsappCandidates(step.chatName, waChats, waRows)
+      : [];
+  // One match is picked for the member; several wait for their choice.
+  const waChosen =
+    waPick !== null && waCandidates.some((c) => c.chat === waPick)
+      ? waPick
+      : waCandidates.length === 1
+        ? waCandidates[0].chat
+        : null;
   useEffect(() => {
     if (!read) return;
     let live = true;
@@ -336,7 +424,11 @@ export function AskActionBlock({
     setPhase("running");
     setError(null);
     try {
-      const body = await apiFetch<unknown>("POST", `/api/asks/${askId}/action`);
+      const body = await apiFetch<unknown>(
+        "POST",
+        `/api/asks/${askId}/action`,
+        step.kind === "whatsapp-route" ? { chat: waChosen } : undefined,
+      );
       // Through the store, as this card may be gone: the ask closed as the
       // link or token was made.
       const result = resultOf(body);
@@ -1209,6 +1301,177 @@ export function AskActionBlock({
     };
   }
 
+  function whatsappRouteView(s: Step<"whatsapp-route">): ActionView {
+    const target = agents.find((a) => a.id === s.agentId);
+    const agentName = (id: string) =>
+      agents.find((a) => a.id === id)?.name ?? id;
+    const picked = waCandidates.find((c) => c.chat === waChosen);
+    const row = picked?.row;
+    const onOff = (on: boolean): Value => ({
+      value: on ? "on" : "off",
+      label: on ? t("asks.action.on") : t("asks.action.off"),
+    });
+    const group = picked ? picked.group : s.trigger !== undefined;
+    const trigger = s.trigger ?? "mention";
+    const triggerLabel = (v: "mention" | "all"): Value => ({
+      value: v,
+      label: t(
+        v === "all"
+          ? "integrations.whatsapp.rows.trigger.all"
+          : "integrations.whatsapp.rows.trigger.mention",
+      ),
+    });
+    const rows: Row[] = [
+      {
+        key: "agent",
+        label: t("integrations.whatsapp.rows.agent"),
+        ...(row
+          ? { current: { value: row.agentId, label: agentName(row.agentId) } }
+          : {}),
+        requested: { value: s.agentId, label: target?.name ?? s.agentId },
+      },
+      {
+        key: "waitForSend",
+        label: t("integrations.whatsapp.rows.waitForSend"),
+        ...(row ? { current: onOff(row.sendDirect !== true) } : {}),
+        requested: onOff(s.sendDirect !== true),
+        ...(s.sendDirect
+          ? { hint: t("integrations.whatsapp.rows.directHint") }
+          : {}),
+      },
+      ...(group
+        ? [
+            {
+              key: "trigger",
+              label: t("integrations.whatsapp.rows.trigger"),
+              ...(row
+                ? { current: triggerLabel(row.trigger ?? "mention") }
+                : {}),
+              requested: triggerLabel(trigger),
+            },
+          ]
+        : []),
+      ...(s.prefix || row?.prefix
+        ? [
+            {
+              key: "prefix",
+              label: t("integrations.whatsapp.rows.prefix"),
+              ...(row
+                ? {
+                    current: {
+                      value: row.prefix ?? "",
+                      label: row.prefix ?? t("asks.action.off"),
+                    },
+                  }
+                : {}),
+              requested: {
+                value: s.prefix ?? "",
+                label: s.prefix ?? t("asks.action.off"),
+              },
+            },
+          ]
+        : []),
+      ...(s.ownMessages || row?.ownMessages
+        ? [
+            {
+              key: "ownMessages",
+              label: t("integrations.whatsapp.rows.ownMessages"),
+              ...(row ? { current: onOff(row.ownMessages === true) } : {}),
+              requested: onOff(s.ownMessages === true),
+            },
+          ]
+        : []),
+    ];
+    const member = memberUserId ? memberById(memberUserId) : undefined;
+    const manager =
+      target?.userId && target.userId !== memberUserId
+        ? memberById(target.userId)
+        : undefined;
+    const lines: ReactNode[] = [];
+    if (manager)
+      lines.push(
+        <div key="manager" data-ask-action-wa-manager="" style={muted}>
+          {t("asks.action.whatsappManager", { member: manager.name })}
+        </div>,
+      );
+    if (target && !belowStandard(agentAccessOf(target)))
+      lines.push(
+        <div
+          key="shell"
+          data-ask-action-wa-shell=""
+          style={{ ...muted, color: "var(--orange-text)" }}
+        >
+          {t("integrations.whatsapp.rows.shellWarning")}
+        </div>,
+      );
+    if (!waMember)
+      lines.push(
+        <div key="other" data-ask-action-wa-other="" style={muted}>
+          {t("asks.action.whatsappOtherMember", {
+            member: member?.name ?? "",
+          })}
+        </div>,
+      );
+    else if (waChats !== null && waCandidates.length === 0)
+      lines.push(
+        <div key="none" data-ask-action-wa-none="" style={muted}>
+          {t("asks.action.whatsappNoMatch", { name: s.chatName })}
+        </div>,
+      );
+    else if (waCandidates.length > 1)
+      lines.push(
+        <fieldset
+          key="pick"
+          data-ask-action-wa-pick=""
+          style={{ border: "none", margin: "4px 0 0", padding: 0 }}
+        >
+          <legend style={muted}>
+            {t("integrations.whatsapp.rows.chatPrompt")}
+          </legend>
+          {waCandidates.map((c) => (
+            <label
+              key={c.chat}
+              data-ask-action-chat={c.chat}
+              style={{ display: "flex", gap: 6, alignItems: "baseline" }}
+            >
+              <input
+                type="radio"
+                name={`ask-${askId}-chat`}
+                value={c.chat}
+                checked={waChosen === c.chat}
+                onChange={() => setWaPick(c.chat)}
+              />
+              <span {...noTranslate()}>{c.name}</span>
+              {c.group && (
+                <span style={muted}>
+                  {t("integrations.whatsapp.rows.group")}
+                </span>
+              )}
+            </label>
+          ))}
+        </fieldset>,
+      );
+    if (row && row.agentId !== s.agentId)
+      lines.push(
+        <div key="moves" data-ask-action-wa-moves="" style={muted}>
+          {t("asks.action.whatsappMoves", { agent: agentName(row.agentId) })}
+        </div>,
+      );
+    return {
+      name: `WhatsApp: ${picked?.name ?? s.chatName}`,
+      loading: waMember && waChats === null,
+      rows,
+      lines,
+      marks: {
+        "data-ask-action-agent": s.agentId,
+        ...(waChosen ? { "data-ask-action-chat-picked": waChosen } : {}),
+      },
+      gone: target ? null : t("asks.action.gone"),
+      noApply: !waMember,
+      waiting: waChosen === null,
+    };
+  }
+
   const view = (() => {
     switch (step.kind) {
       case "agent-access":
@@ -1252,6 +1515,8 @@ export function AskActionBlock({
         return storagePruneView(step);
       case "storage-compress":
         return storageCompressView(step);
+      case "whatsapp-route":
+        return whatsappRouteView(step);
     }
   })();
 
@@ -1367,13 +1632,16 @@ export function AskActionBlock({
       {view.lines}
       {view.gone !== null ? (
         <div style={muted}>{view.gone}</div>
-      ) : step.kind === "office-update" && phase === "ran" ? null : (
+      ) : view.noApply ||
+        (step.kind === "office-update" && phase === "ran") ? null : (
         <button
           type="button"
           ref={applyButton}
           data-ask-action-apply=""
           {...(phase === "confirming" ? { "data-ask-action-confirm": "" } : {})}
-          disabled={phase !== "idle" && phase !== "confirming"}
+          disabled={
+            (phase !== "idle" && phase !== "confirming") || !!view.waiting
+          }
           // The confirm ends when the button loses focus, as on the pages: a
           // click after the member moved on asks again (a prune previews
           // again).
@@ -1399,10 +1667,13 @@ export function AskActionBlock({
             fontSize: 12,
             fontWeight: 600,
             cursor:
-              phase === "idle" || phase === "confirming"
+              (phase === "idle" || phase === "confirming") && !view.waiting
                 ? "pointer"
                 : "default",
-            opacity: phase === "idle" || phase === "confirming" ? 1 : 0.6,
+            opacity:
+              (phase === "idle" || phase === "confirming") && !view.waiting
+                ? 1
+                : 0.6,
           }}
         >
           {phase !== "confirming"

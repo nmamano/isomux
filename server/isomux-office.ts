@@ -3019,8 +3019,8 @@ function buildExecutorDeps(
       history: officeAskHistory(),
       steps: stepAsks,
       stepRuns: {
-        routeOf: (step, memberUserId, callerSessionIdHash) =>
-          stepAsks!.routeOf(step, memberUserId, callerSessionIdHash),
+        routeOf: (step, memberUserId, callerSessionIdHash, pick) =>
+          stepAsks!.routeOf(step, memberUserId, callerSessionIdHash, pick),
         dispatch: (identity, route, opts) =>
           dispatchInProcess(identity, route.method, route.path, route.body, {
             via: "ask",

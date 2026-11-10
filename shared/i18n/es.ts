@@ -2191,6 +2191,14 @@ Cosas que puedes hacer por él:
     "Solo el miembro de esta petición puede hacer este paso.",
   "asks.action.self": "Es el agente que lo pide.",
   "asks.action.gone": "Ya no puedes acceder a este agente.",
+  "asks.action.whatsappNoMatch":
+    "Aún no hay ningún chat de WhatsApp que coincida con {name}. Un chat aparece aquí después de su siguiente mensaje.",
+  "asks.action.whatsappMoves":
+    "Ahora este chat va a {agent}. Aplicar lo mueve.",
+  "asks.action.whatsappManager":
+    "{member} gestiona este agente. Los miembros que pueden abrirlo pueden leer este chat.",
+  "asks.action.whatsappOtherMember":
+    "Solo {member} puede elegir el chat y aplicar.",
   "asks.action.memberGone": "Este miembro ya no está en la oficina.",
   "asks.action.roomGranted": "Acceso",
   "asks.action.roomRemoved": "Sin acceso",
@@ -3725,6 +3733,8 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.storagePruned": "Archivos antiguos borrados.",
   "systemEntries.stepAsk.storageCompressed":
     "Conversaciones antiguas comprimidas.",
+  "systemEntries.stepAsk.whatsappRouted":
+    "El chat de WhatsApp {chat} ahora va a {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

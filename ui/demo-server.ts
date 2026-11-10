@@ -124,6 +124,7 @@ import { demoSecretsRoute } from "./demo-secrets.ts";
 import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { nextVariableNotes } from "../shared/connection-notes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
+import type { WhatsAppChatSeen, WhatsAppRoute } from "../shared/whatsapp.ts";
 
 // Every instruction layer's read answer: the text and its version.
 function demoInstructions(text: string | null) {
@@ -1196,6 +1197,29 @@ const demoApps: (AppWire & { canManage: true })[] = demoAppFixtures.map(
   ({ page: _page, ...app }) => ({ ...app, canManage: true }),
 );
 
+// The WhatsApp chats and rows the whatsapp-route ask's card reads (task
+// 0b53ff37). No phone is linked in the demo, so the Integrations card shows
+// none of them; the ask's card lists the two Scranton groups, and one already
+// goes to Dwight, so Apply moves it.
+const DEMO_WA_BRANCH = "120363000000000001@g.us";
+const DEMO_WA_PARK = "120363000000000002@g.us";
+const demoWhatsAppChats: WhatsAppChatSeen[] = [
+  { chat: DEMO_WA_BRANCH, name: "Scranton Branch", group: true },
+  { chat: DEMO_WA_PARK, name: "Scranton Business Park", group: true },
+  { chat: "15705550100@s.whatsapp.net", name: "Jan", group: false },
+];
+let demoWhatsAppRoutes: WhatsAppRoute[] = [
+  {
+    id: "r_demo0001",
+    chat: DEMO_WA_PARK,
+    group: true,
+    name: "Business Park",
+    agentId: "demo-dwight",
+    trigger: "mention",
+    createdAt: Date.now() - 7 * 24 * 60 * 60_000,
+  },
+];
+
 // Asks to the viewer. Michael's are the ones his chat shows him
 // opening: short prompts and a long one, so the stack shows its clamp and,
 // on a desktop, its maximum height. Built on the first list so they can
@@ -1256,6 +1280,22 @@ function demoAskEntries(): AskMemberWire[] {
       createdAt: now - 3 * 60_000,
       updatedAt: now - 3 * 60_000,
       link: "/integrations/mcp",
+    },
+    // An action ask (task 0b53ff37): a WhatsApp chat routed to Michael. Two
+    // chats match, so the card asks the viewer to pick one.
+    {
+      id: "dea0ac09",
+      agentId: "demo-michael",
+      memberUserId: member,
+      prompt:
+        "Can I follow the Scranton group on WhatsApp? I'll draft each reply for you to send.",
+      createdAt: now - 2 * 60_000,
+      updatedAt: now - 2 * 60_000,
+      step: {
+        kind: "whatsapp-route",
+        chatName: "Scranton",
+        agentId: "demo-michael",
+      },
     },
     // One from the back room, so its plate shows the count dot too.
     {
@@ -3202,10 +3242,12 @@ export async function demoApi(
       return { state: "linking", method: "qr" };
     case "DELETE /api/whatsapp":
       return undefined;
-    // No phone is ever linked in the demo, so no chat was seen or routed.
+    // No phone is linked in the demo: these are for the whatsapp-route
+    // ask's card (demoWhatsAppChats).
     case "GET /api/whatsapp/chats":
+      return [...demoWhatsAppChats];
     case "GET /api/whatsapp/routes":
-      return [];
+      return [...demoWhatsAppRoutes];
     // The Discord card: the demo has no bot, and Discord cannot check a
     // token from it.
     case "GET /api/discord":
@@ -4088,6 +4130,38 @@ export async function demoApi(
     });
     demoChatReply(entry.agentId);
     return undefined;
+  }
+  // asks.runAction for a whatsapp-route step (task 0b53ff37): the picked
+  // chat gets a row to the agent, or its row moves there, and the ask
+  // closes, as the server's reconcile closes it.
+  const actionMatch = pathname.match(/^\/api\/asks\/([^/]+)\/action$/);
+  if (actionMatch && method === "POST") {
+    const found = demoFindAsk(decodeURIComponent(actionMatch[1]));
+    if (!found) throw new ApiError(404, "not_found", "No such open ask.");
+    const step = found.entry.step;
+    if (step?.kind !== "whatsapp-route")
+      throw new ApiError(409, "not_runnable", "This ask has no action to run.");
+    const chat = (body as { chat?: unknown } | null)?.chat;
+    const seen = demoWhatsAppChats.find((c) => c.chat === chat);
+    const row = demoWhatsAppRoutes.find((r) => r.chat === chat);
+    if (typeof chat !== "string" || (!seen && !row))
+      throw new ApiError(400, "invalid_request", "Pick a chat.");
+    const next: WhatsAppRoute = row
+      ? { ...row, agentId: step.agentId }
+      : {
+          id: `r_demo${demoWhatsAppRoutes.length + 1}`,
+          chat,
+          group: chat.endsWith("@g.us"),
+          name: seen?.name ?? step.chatName,
+          agentId: step.agentId,
+          ...(chat.endsWith("@g.us") ? { trigger: "mention" as const } : {}),
+          createdAt: Date.now(),
+        };
+    demoWhatsAppRoutes = row
+      ? demoWhatsAppRoutes.map((r) => (r.id === row.id ? next : r))
+      : [...demoWhatsAppRoutes, next];
+    demoRemoveAsk(found.entry.id, found.other !== null);
+    return next;
   }
   // asks.ack - stop a paged ask's alarm; the ask stays open.
   const ackMatch = pathname.match(/^\/api\/asks\/([^/]+)\/ack$/);

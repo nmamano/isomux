@@ -125,6 +125,7 @@ import type {
   AskMemberWire,
   AskCommandRun,
   GithubLinkWire,
+  WhatsAppRouteStepRun,
 } from "../../shared/types.ts";
 import type { GithubLinkInput } from "../github-sync.ts";
 import type {
@@ -1281,7 +1282,9 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // The member the ask is for runs its action step (task e3d1bc63) through
   // the step's own route, as the caller. The click is the authorization.
-  defineRoute<void, unknown>({
+  // A whatsapp-route step takes the picked chat as the body; the other
+  // kinds take none.
+  defineRoute<WhatsAppRouteStepRun | void, unknown>({
     opId: "asks.runAction",
     audit: {
       owner: "none",

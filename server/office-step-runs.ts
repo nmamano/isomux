@@ -22,7 +22,13 @@ import { listApiTokens, liveApiTokenOwner } from "./api-tokens.ts";
 import type { GuardDeps } from "./identity/guards.ts";
 import { identityFromSession, type Identity } from "./identity/index.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
-import { agentManager } from "./office-managers.ts";
+import {
+  agentManager,
+  whatsappRoutes,
+  whatsappSupervisor,
+} from "./office-managers.ts";
+import { STATE_ROOT } from "./config.ts";
+import { readLink } from "./whatsapp/store.ts";
 import {
   authorizeRoute,
   executeRoute,
@@ -134,6 +140,13 @@ export function officeStepRuns(deps: {
         : null;
     },
     officeSettings: deps.officeSettings,
+    whatsapp: {
+      linked: (userId) => readLink(STATE_ROOT, userId) !== null,
+      chatsSeen: (userId) => whatsappSupervisor.chatsSeen(userId),
+      rows: (userId) => whatsappRoutes.rows(userId),
+      agentProblem: (userId, agentId) =>
+        whatsappRoutes.agentProblem(userId, agentId),
+    },
     backupSettings: loadBackupSettings,
     backupDirFromEnv: () => !!process.env.ISOMUX_BACKUP_DIR,
     roomName: (roomId) =>

@@ -59,6 +59,8 @@ function harness() {
     newId: () => `r${++n}`,
     agent: (id) => agents.get(id) ?? null,
     linkedPhone: (userId) => (userId === U ? "447700900111" : null),
+    isOfficeOwner: () => false,
+    linkedMembers: () => [U],
     onChange: () => {},
   });
   const asks = createAskStore({

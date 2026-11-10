@@ -102,6 +102,7 @@ import {
 import { createBridgeInstaller } from "./whatsapp/installer.ts";
 import {
   WHATSAPP_RUNTIME_DIR,
+  listMemberDirs,
   readLink,
   whatsappRoot,
 } from "./whatsapp/store.ts";
@@ -607,7 +608,16 @@ export function createManagers(
         : null;
     },
     linkedPhone: (userId) => readLink(STATE_ROOT, userId)?.phone ?? null,
-    onChange: (userId) => whatsappSupervisor.setRoutes(userId),
+    isOfficeOwner: (userId) => getUserById(userId)?.role === "owner",
+    linkedMembers: () =>
+      listMemberDirs(STATE_ROOT)
+        .filter((d) => d.hasLink)
+        .map((d) => d.userId),
+    onChange: (userId) => {
+      whatsappSupervisor.setRoutes(userId);
+      // A row made or changed may do a whatsapp-route step.
+      stepsChanged();
+    },
   });
   const routes = whatsappRoutes;
   const whatsappInbound = createWhatsAppInbound({
@@ -776,11 +786,11 @@ export function createManagers(
     discord: discordReplies,
     routeApp: (agentId, routeId) => {
       const userId = agentManager.getAgent(agentId)?.userId ?? null;
-      if (!userId) return null;
-      if (discordRoutes.get(userId, routeId)?.agentId === agentId)
+      if (userId && discordRoutes.get(userId, routeId)?.agentId === agentId)
         return "discord";
-      if (whatsappRoutes.get(userId, routeId)?.agentId === agentId)
-        return "whatsapp";
+      // A WhatsApp row may be an office owner's row to an agent they do not
+      // manage (task 0b53ff37).
+      if (whatsappRoutes.rowMember(agentId, routeId)) return "whatsapp";
       return null;
     },
   });

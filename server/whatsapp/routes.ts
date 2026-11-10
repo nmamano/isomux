@@ -1,7 +1,9 @@
 // A member's WhatsApp contact rows (task d03a61d8, slice 2): the rules for
 // adding, changing and removing a row, and the live checks on its agent.
-// A row's agent is one the member manages, not at Chat stop (it could not
-// reply). The chat cannot change: delete the row and add another.
+// A row's agent is one the member manages, or any agent when the member is an
+// office owner (task 0b53ff37: an owner can already give any agent another
+// manager), and not at Chat stop (it could not reply). The chat cannot
+// change: delete the row and add another.
 
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import {
@@ -27,6 +29,9 @@ export interface WhatsAppRoutesDeps {
   ): { userId: string | null; access: AgentAccess; name: string } | null;
   // The linked phone, or null when the member is not linked.
   linkedPhone(userId: string): string | null;
+  isOfficeOwner(userId: string): boolean;
+  // Every member with a linked WhatsApp.
+  linkedMembers(): string[];
   // The rows changed: the bridge gets the new allowlist.
   onChange(userId: string): void;
 }
@@ -45,6 +50,15 @@ export interface WhatsAppRoutes {
   ): WhatsAppRouteResult;
   remove(userId: string, routeId: string): boolean;
   get(userId: string, routeId: string): WhatsAppRoute | null;
+  // The member whose row `routeId` reaches agent `agentId`, or null: the
+  // agent's manager first, then each office owner with a link. A reply finds
+  // its row through this, since the row's member need not manage the agent.
+  rowMember(agentId: string, routeId: string): string | null;
+  // The member's rows as stored, with no check of their agents: a read that
+  // never writes, for the step-ask predicate.
+  rows(userId: string): WhatsAppRoute[];
+  // Why this agent cannot be a row's agent for this member now, or null.
+  agentProblem(userId: string, agentId: string): WhatsAppRouteDead | null;
   // The live row for a chat (a dead row delivers nothing).
   forChat(userId: string, chat: string): WhatsAppRoute | null;
   // The chats of the live rows: the bridge's allowlist.
@@ -72,7 +86,7 @@ const refuse = (status: 400 | 404 | 409, error: string): Refusal => ({
 // The reply settings of a create or an update, checked: the keys to set and
 // the keys to delete (false and a blank prefix are the default, stored as no
 // key), or a refusal.
-function replySettings(req: {
+export function replySettings(req: {
   sendDirect?: unknown;
   prefix?: unknown;
   ownMessages?: unknown;
@@ -123,14 +137,16 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
   ): WhatsAppRouteDead | null {
     const agent = deps.agent(agentId);
     if (!agent) return "agent_gone";
-    if (agent.userId !== userId) return "agent_not_yours";
+    if (agent.userId !== userId && !deps.isOfficeOwner(userId))
+      return "agent_not_yours";
     if (agent.access === "chat") return "agent_chat_only";
     return null;
   }
 
   const AGENT_ERRORS: Record<WhatsAppRouteDead, string> = {
     agent_gone: "no such agent",
-    agent_not_yours: "the agent must be one you manage",
+    agent_not_yours:
+      "the agent must be one you manage; an office owner may pick any agent",
     agent_chat_only: "an agent at Chat stop cannot reply",
   };
 
@@ -244,6 +260,21 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
 
     get: (userId, routeId) =>
       read(userId).routes.find((r) => r.id === routeId) ?? null,
+
+    rowMember(agentId, routeId) {
+      const manager = deps.agent(agentId)?.userId ?? null;
+      const owners = deps
+        .linkedMembers()
+        .filter((userId) => userId !== manager && deps.isOfficeOwner(userId));
+      for (const userId of manager ? [manager, ...owners] : owners) {
+        if (routes.get(userId, routeId)?.agentId === agentId) return userId;
+      }
+      return null;
+    },
+
+    rows: (userId) => read(userId).routes,
+
+    agentProblem,
 
     forChat: (userId, chat) =>
       read(userId).routes.find((r) => r.chat === chat && !r.dead) ?? null,

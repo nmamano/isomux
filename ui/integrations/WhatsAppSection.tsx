@@ -435,10 +435,14 @@ function WhatsAppRows({
   // A deleted row has no Undo: Delete asks first.
   const deleteStep = useConfirmStep();
 
-  // Agents that can reply: the member's own, above Chat stop.
+  // Agents that can reply, above Chat stop: the member's own, or any agent
+  // for an office owner (task 0b53ff37).
+  const isOwner = sessionContext?.role === "owner";
   const mine = agents.filter(
     (a) =>
-      selfId !== null && a.userId === selfId && agentAccessOf(a) !== "chat",
+      selfId !== null &&
+      (isOwner || a.userId === selfId) &&
+      agentAccessOf(a) !== "chat",
   );
   // The agent picker groups them by room (AgentOptions); the form opens on
   // its first choice.

@@ -1946,6 +1946,13 @@ App 的一些原则：
   "asks.step.othersUnknown": "只有这条请示的成员能完成这一步。",
   "asks.action.self": "这就是发出请示的智能体。",
   "asks.action.gone": "你已无法访问这个智能体。",
+  "asks.action.whatsappNoMatch":
+    "还没有与 {name} 匹配的 WhatsApp 聊天。聊天收到下一条消息后会显示在这里。",
+  "asks.action.whatsappMoves":
+    "此聊天现在发给 {agent}。应用后将改为发给此智能体。",
+  "asks.action.whatsappManager":
+    "{member} 管理着此智能体。能打开它的成员可以读取此聊天。",
+  "asks.action.whatsappOtherMember": "只有 {member} 可以选择聊天并应用。",
   "asks.action.memberGone": "这位成员已不在办公室中。",
   "asks.action.roomGranted": "可访问",
   "asks.action.roomRemoved": "不可访问",
@@ -3336,6 +3343,8 @@ App 的一些原则：
   "systemEntries.stepAsk.officeUpdated": "办公室已更新到 {release}。",
   "systemEntries.stepAsk.storagePruned": "已删除旧文件。",
   "systemEntries.stepAsk.storageCompressed": "已压缩旧对话。",
+  "systemEntries.stepAsk.whatsappRouted":
+    "已将 WhatsApp 聊天 {chat} 转给 {agent}。",
   "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",
   "systemEntries.sudoRequest.started": "正在以 root 身份运行：{command}",
   "systemEntries.sudoRequest.exited": "已结束，退出码 {code}：{command}",

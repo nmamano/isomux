@@ -397,6 +397,7 @@ it("the agent picker groups the member's agents by room, in the office's room or
     access = "office",
   ) => ({ ...agent(id, id, userId, access), roomId, desk }) as AgentInfo;
   const s = await show({
+    ...asMember().state,
     // Office order: Beta before Alpha; Empty holds none of the member's.
     rooms: [room("rb", "Beta"), room("rx", "Empty"), room("ra", "Alpha")],
     agents: [
@@ -502,7 +503,7 @@ it("adds a group from the picker: routed chats left out, the name prefilled, onl
     { chat: FAMILY, name: "Family chat", group: true },
     { chat: "447700900124@s.whatsapp.net", name: "Dad", group: false },
   ];
-  const s = await show({ agents: AGENTS });
+  const s = await show({ ...asMember().state, agents: AGENTS });
   const form = await openAdd(s);
   const picker = field(form, "whatsappChat") as HTMLSelectElement;
   const values = [...picker.options].map((o) => o.value);
@@ -540,6 +541,17 @@ it("adds a group from the picker: routed chats left out, the name prefilled, onl
   ]);
   expect(s.q("[data-whatsapp-add-form]")).toBeNull();
   expect(s.q('[data-whatsapp-row="r2"]')).not.toBeNull();
+});
+
+// Task 0b53ff37: an office owner may route a chat to any agent.
+it("an owner's agent picker offers every agent above Chat stop, another member's too", async () => {
+  current = LINKED;
+  const s = await show({ agents: AGENTS });
+  const form = await openAdd(s);
+  const agents = [
+    ...(field(form, "whatsappRowAgent") as HTMLSelectElement).options,
+  ].map((o) => o.value);
+  expect(agents.sort()).toEqual(["a-office", "a-other", "a-std"]);
 });
 
 it("adds a contact by number: one POST with the number; a refused number and a taken chat show different lines", async () => {
