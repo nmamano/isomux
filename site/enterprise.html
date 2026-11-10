@@ -385,6 +385,17 @@
         preload="none"
         playsinline
       ></video>
+      <script>
+        // The Spanish and Catalan pages link here with ?lang=es or ?lang=ca:
+        // their readers get the Spanish cut of the video.
+        (function () {
+          var lang = new URLSearchParams(location.search).get("lang");
+          if (lang !== "es" && lang !== "ca") return;
+          var video = document.querySelector("video.pitch");
+          video.poster = "/enterprise-pitch-es.jpg";
+          video.src = "/enterprise-pitch-es.mp4";
+        })();
+      </script>
 
       <p class="lead">
         Isomux for Enterprise runs on your company's own infrastructure, under a
