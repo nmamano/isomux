@@ -286,6 +286,7 @@ import {
   accessGrantOf,
   agentAccessOf,
   belowStandard,
+  grantAt,
   stopIncludes,
   type AgentAccess,
   type AgentAccessGrant,
@@ -486,16 +487,12 @@ export interface LimitResumeClock {
   clearTimeout(handle: unknown): void;
 }
 
-// The access slider fields of an agent record, written only when set, so a
+// The access slider field of an agent record, written only when set, so a
 // record from before the slider round-trips unchanged.
-function accessFields(src: { access?: AgentAccess; pack?: ApiTokenLimits }): {
+function accessFields(src: { access?: AgentAccess }): {
   access?: AgentAccess;
-  pack?: ApiTokenLimits;
 } {
-  return {
-    ...(src.access ? { access: src.access } : {}),
-    ...(src.pack ? { pack: src.pack } : {}),
-  };
+  return src.access ? { access: src.access } : {};
 }
 
 function backendSessionHasFixedCwd(agentType: AgentInfo["agentType"]): boolean {
@@ -4090,16 +4087,10 @@ export function createAgentManager(deps: ManagerDeps) {
     )
       return "engine_below_standard";
     const current = accessGrantOf(managed.info);
-    if (
-      current.access === grant.access &&
-      JSON.stringify(current.pack) === JSON.stringify(grant.pack)
-    )
-      return managed.info;
-    // A move down, or a new pack at the same stop, ends the running turn
-    // before the token rotates.
-    const down =
-      !stopIncludes(grant.access, current.access) ||
-      (current.access === grant.access && grant.pack !== undefined);
+    // The stop decides the token limits: the same stop changes nothing.
+    if (current.access === grant.access) return managed.info;
+    // A move down ends the running turn before the token rotates.
+    const down = !stopIncludes(grant.access, current.access);
     // An engine that can stop the turn in place stops it here; for the
     // others (Claude) the swap below closes the session, which ends the turn.
     // abort() is not used: its slow path builds a session of its own, on the
@@ -4120,12 +4111,16 @@ export function createAgentManager(deps: ManagerDeps) {
     // (SessionManagerDeps.builtOnCurrentToken).
     for (const event of officeState.updateAgent(agentId, {
       access: grant.access,
-      pack: grant.pack,
       privileged: grant.access === "privileged",
     }))
       emit(event);
     deps.onAccessChanged?.();
-    mintAgentToken(agentId, tokenUserIdFor(managed.info), grant);
+    // The stop decides the limits, whatever pack the caller passed.
+    mintAgentToken(
+      agentId,
+      tokenUserIdFor(managed.info),
+      grantAt(grant.access),
+    );
     if (managed.sessionManager.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
       await managed.sessionManager.replaceWith(managed, sessionId);
@@ -5335,12 +5330,10 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!spawned) return null;
     const { agent: info, events } = spawned;
     const id = info.id;
-    // Before the first token: it carries the pack. Standard keeps the record
+    // Before the first token: it carries the stop. Standard keeps the record
     // as it was before the slider.
-    if (access && access.grant.access !== "standard") {
+    if (access && access.grant.access !== "standard")
       info.access = access.grant.access;
-      if (access.grant.pack) info.pack = access.grant.pack;
-    }
 
     // The lazy spawn's cwd check (below): a good cwd starts the agent
     // released as a blank conversation.

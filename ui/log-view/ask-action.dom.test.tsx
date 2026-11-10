@@ -16,8 +16,6 @@ const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
-const { AREA_LABEL: PACK_AREA_LABEL } =
-  await import("../components/AreaLevelsGrid.tsx");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 const NOW = Date.now();
@@ -38,8 +36,8 @@ const action = (
   }) as AskEntry;
 const ENTRIES: AskEntry[] = [
   action("act00001", "t1", "privileged"),
-  // The asking agent itself, to a pack stop.
-  action("act00002", "a1", "office", { areas: { tasks: "read" } }),
+  // The asking agent itself, to a stop below Standard.
+  action("act00002", "a1", "office"),
   // An agent the office state does not have.
   action("act00003", "ghost", "privileged"),
 ];
@@ -198,7 +196,7 @@ it("reads the target's stop live: a change in the office state shows on the card
     seeded({
       type: "agent_updated",
       agentId: "t1",
-      changes: { access: "office", pack: { areas: { tasks: "read" } } },
+      changes: { access: "office" },
     } as never);
   });
   expect(block("act00001")!.dataset.askActionCurrent).toBe("office");
@@ -278,41 +276,24 @@ it("starts the reply field empty on an action ask", async () => {
   view.unmount();
 });
 
-// Task 0fb79ed4: Apply sends the whole pack, so the card shows every area of
-// it, also one the slider cannot set (an ask stored before the create refused
-// those), and the rooms the pack reaches.
-it("an agent-access card shows every area of the pack and its rooms line; no rooms line without a pack", async () => {
+// Task 82da687b: an ask stored before it can hold a step with a pack. Apply
+// gives the stop's fixed grant, so the card is the card of the stop alone.
+it("an agent-access card stored with a pack shows exactly the card of its stop", async () => {
   const hidden = {
     areas: { agents: "write", asks: "write", memory: "write" },
+    rooms: ["r1"],
   };
-  const scoped = { areas: { tasks: "read" }, rooms: ["r1"] };
   const { view, block } = await mount([
-    action("pak00001", "a1", "web", hidden),
-    action("pak00002", "t1", "office", scoped),
-    action("pak00003", "t1", "privileged"),
+    action("pak00001", "t1", "web", hidden),
+    action("pak00002", "t1", "web"),
   ]);
-  const chips = (id: string) =>
-    block(id)!.querySelectorAll("[data-ask-action-pack] > span").length;
-  const rooms = (id: string) =>
-    block(id)!.querySelector<HTMLElement>("[data-ask-action-rooms]");
-  expect({
-    hiddenChips: chips("pak00001"),
-    memory: block("pak00001")!
-      .querySelector("[data-ask-action-pack]")!
-      .textContent!.includes(en[PACK_AREA_LABEL.memory]),
-    scopedChips: chips("pak00002"),
-  }).toEqual({ hiddenChips: 3, memory: true, scopedChips: 1 });
-  // No rooms axis: every room. A rooms axis: the rooms it names.
-  const all = rooms("pak00001");
-  const some = rooms("pak00002");
-  expect({
-    all: all?.textContent?.includes(en["settings.apiTokens.allRooms"]),
-    allNames: ["Studio", "Garden"].filter((n) => all?.textContent?.includes(n)),
-    someNames: ["Studio", "Garden"].filter((n) =>
-      some?.textContent?.includes(n),
-    ),
-    noPack: rooms("pak00003"),
-  }).toEqual({ all: true, allNames: [], someNames: ["Studio"], noPack: null });
+  const shape = (id: string) => block(id)!.innerHTML.replaceAll(id, "<id>");
+  // The enabling condition: both cards are up, at the stop asked for.
+  expect([
+    block("pak00001")!.dataset.askActionRequested,
+    block("pak00002")!.dataset.askActionRequested,
+  ]).toEqual(["web", "web"]);
+  expect(shape("pak00001")).toBe(shape("pak00002"));
   view.unmount();
 });
 

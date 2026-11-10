@@ -421,10 +421,8 @@ export function AskActionBlock({
   function agentAccessView(s: Step<"agent-access">): ActionView {
     const target = agents.find((a) => a.id === s.agentId);
     const current = target ? agentAccessOf(target) : null;
-    // Every area and the rooms: Apply sends the pack whole.
-    const areas = s.pack?.areas
-      ? (Object.keys(s.pack.areas) as (keyof typeof PACK_AREA_LABEL)[])
-      : [];
+    // A pack an older version stored on the step is not shown: Apply sends
+    // the stop alone.
     const self = s.agentId === askingAgentId;
     return {
       name: target?.name ?? s.agentId,
@@ -436,39 +434,6 @@ export function AskActionBlock({
         <div key="hint" style={muted}>
           {t(STOP_HINT[s.access])}
         </div>,
-        areas.length > 0 && (
-          <div
-            key="pack"
-            data-ask-action-pack=""
-            style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}
-          >
-            {areas.map((area) => (
-              <span
-                key={area}
-                style={{
-                  display: "inline-flex",
-                  gap: 4,
-                  padding: "1px 6px",
-                  borderRadius: 6,
-                  background: "var(--bg-surface)",
-                  fontSize: small,
-                }}
-              >
-                <span>{t(PACK_AREA_LABEL[area])}</span>
-                <span style={{ color: "var(--text-muted)" }}>
-                  {t(LEVEL_LABEL[s.pack!.areas![area]!])}
-                </span>
-              </span>
-            ))}
-          </div>
-        ),
-        s.pack && (
-          <div key="rooms" data-ask-action-rooms="" style={muted}>
-            {t("settings.apiTokens.roomsLine", {
-              rooms: roomsSummary(t, tn, language, s.pack, rooms),
-            })}
-          </div>
-        ),
         self && (
           <div key="self" style={muted}>
             {t("asks.action.self")}

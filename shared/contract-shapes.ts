@@ -51,7 +51,7 @@ import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
 import type { RecordingWord } from "./recording-redact.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
-import type { AgentAccess, AgentAccessGrant } from "./agent-access.ts";
+import type { AgentAccess } from "./agent-access.ts";
 import type { MemberPack } from "./pack-fit.ts";
 
 // UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
@@ -135,10 +135,9 @@ export interface SpawnReq {
   effort?: AgentInfo["effort"];
   agentType?: AgentInfo["agentType"];
   codexSandbox?: AgentInfo["codexSandbox"];
-  // A stop below standard (or standard, the default) for the new agent, with
-  // its pack at office, folder and web. Privileged keeps its own route.
+  // A stop below standard (or standard, the default) for the new agent.
+  // Privileged keeps its own route. A pack is refused.
   access?: AgentAccess;
-  pack?: AgentAccessGrant["pack"];
 }
 
 // Read-only form preview. Identity comes from the existing agent or the caller.
@@ -220,8 +219,10 @@ export interface SetPrivilegedReq {
 }
 
 // Body for agents.setAccess (PUT /api/agents/:id/access): a stop on the
-// access slider, with its pack at office, folder and web.
-export type SetAgentAccessReq = AgentAccessGrant;
+// access slider. A pack is refused: the stop sets the token limits.
+export interface SetAgentAccessReq {
+  access: AgentAccess;
+}
 
 // Body for agents.setManager (PUT /api/agents/:id/manager). Its own route:
 // it needs an office owner's reach, which PATCH /api/agents/:id does not.

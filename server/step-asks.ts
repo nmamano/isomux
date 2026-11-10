@@ -17,7 +17,7 @@
 // holds. A hook says only that something changed.
 
 import {
-  AGENT_PACK_AREAS,
+  packNotAccepted,
   parseAgentAccessGrant,
   sameAccessGrant,
   type AgentAccessGrant,
@@ -700,10 +700,9 @@ export function createStepAsks(deps: StepAskDeps) {
             {
               method: "PUT",
               path: `/api/agents/${encodeURIComponent(step.agentId)}/access`,
-              body: {
-                access: step.access,
-                ...(step.pack ? { pack: step.pack } : {}),
-              },
+              // A step an older version stored with a pack sends the stop
+              // alone: the stop decides the token limits.
+              body: { access: step.access },
             },
           ],
         };
@@ -1089,36 +1088,17 @@ export function createStepAsks(deps: StepAskDeps) {
       case "agent-access": {
         if (typeof body.agentId !== "string" || body.agentId === "")
           return invalid("step.agentId is an agent id");
-        // The stored grant is the parsed one, so the done predicate
-        // compares like with like.
-        const grant = parseAgentAccessGrant({
-          access: body.access,
-          ...("pack" in body ? { pack: body.pack } : {}),
-        });
+        // A pack is refused, not dropped: the stop alone sets the token
+        // limits, so a narrow pack would give a wider grant.
+        if ("pack" in body) return invalid(packNotAccepted("step.pack"));
+        const grant = parseAgentAccessGrant({ access: body.access });
         if (!grant)
           return invalid(
-            "step.access is a stop (chat, office, folder, web, standard, privileged), with step.pack (token limits with areas) only at office, folder and web",
-          );
-        // The card shows only what the dialog can set, so the step may
-        // name no other area: Apply sends the stored pack whole.
-        const packAreas: readonly string[] = AGENT_PACK_AREAS;
-        if (
-          grant.pack &&
-          Object.keys(grant.pack.areas ?? {}).some(
-            (area) => !packAreas.includes(area),
-          )
-        )
-          return invalid(
-            "step.pack.areas names only agents, logs, tasks and asks",
+            "step.access is a stop (chat, office, folder, web, standard, privileged)",
           );
         return {
           ok: true,
-          step: {
-            kind,
-            agentId: body.agentId,
-            access: grant.access,
-            ...(grant.pack ? { pack: grant.pack } : {}),
-          },
+          step: { kind, agentId: body.agentId, access: grant.access },
         };
       }
       case "member-pack": {

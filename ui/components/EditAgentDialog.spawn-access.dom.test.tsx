@@ -6,7 +6,6 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
-const { AGENT_PACK_PRESETS } = await import("../../shared/agent-access.ts");
 const {
   BELOW,
   cleanup,
@@ -24,11 +23,9 @@ type AgentAccess = import("../../shared/agent-access.ts").AgentAccess;
 describe("a new agent", () => {
   it("goes below Standard in the spawn itself, and to Privileged with one PUT /access after it", async () => {
     const cases: Array<[AgentAccess, Record<string, unknown>, string[]]> = [
-      [
-        "office",
-        { access: "office", pack: AGENT_PACK_PRESETS.asksOnly },
-        ["POST /api/agents"],
-      ],
+      // The spawn carries the stop alone (task 82da687b: no pack).
+      ["office", { access: "office" }, ["POST /api/agents"]],
+      ["web", { access: "web" }, ["POST /api/agents"]],
       ["privileged", {}, ["POST /api/agents", "PUT :id/access"]],
     ];
     for (const [stop, fields, order] of cases) {
@@ -43,11 +40,11 @@ describe("a new agent", () => {
         expect({
           stop,
           access: post.access ?? "standard",
-          pack: post.pack,
+          pack: "pack" in post,
         }).toEqual({
           stop,
           access: (fields.access as string | undefined) ?? "standard",
-          pack: fields.pack,
+          pack: false,
         });
         if (stop === "privileged")
           expect(calls[1].body).toEqual({ access: "privileged" });

@@ -1691,10 +1691,7 @@ describe("schedules an ordinary agent makes", () => {
         method: "PUT",
         body,
       });
-    expect(
-      (await moveTo({ access: "office", pack: { areas: { tasks: "read" } } }))
-        .status,
-    ).toBe(200);
+    expect((await moveTo({ access: "office" })).status).toBe(200);
     const refused = await memberRun(srv, asAlice, job.id);
     expect(refusedAtStart(refused)).toEqual(REFUSED_RUN);
     expect(wordedRefusalKey(refused, "Bot")).toBeDefined();
@@ -2143,7 +2140,7 @@ describe("schedules an ordinary agent makes", () => {
       asAlice,
       {
         method: "PUT",
-        body: { access: "office", pack: { areas: { tasks: "read" } } },
+        body: { access: "office" },
       },
     );
     expect(lowered.status).toBe(200);

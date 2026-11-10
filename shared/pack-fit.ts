@@ -74,8 +74,10 @@ export interface PackSender {
   ceiling: AgentAccess;
 }
 
-// The agent written to: its stop, its pack and its room, and the rooms its
-// manager reaches (an agent acts only in rooms its manager can access).
+// The agent written to: its stop, its token limits (the fixed office grant at
+// office, folder and web, shared/agent-access.ts grantAt) and its room, and
+// the rooms its manager reaches (an agent acts only in rooms its manager can
+// access).
 export interface FitTarget {
   access: AgentAccess;
   pack?: ApiTokenLimits;
@@ -114,16 +116,13 @@ export function fitsInside(sender: PackSender, target: FitTarget): boolean {
     const own = sender.areas[area as ApiTokenArea];
     if (!own || LEVEL_RANK[own] < LEVEL_RANK[level]) return false;
   }
+  // The target reaches every room its manager reaches: a room-limited sender
+  // must have them all.
   if (sender.rooms) {
     const rooms = sender.rooms;
     if (!rooms.includes(target.roomId)) return false;
-    const packRooms = target.pack.rooms;
-    const managerRooms = target.managerRooms;
-    const reach =
-      packRooms && managerRooms
-        ? packRooms.filter((room) => managerRooms.includes(room))
-        : (packRooms ?? managerRooms);
-    if (!reach?.every((room) => rooms.includes(room))) return false;
+    if (!target.managerRooms?.every((room) => rooms.includes(room)))
+      return false;
   }
   return true;
 }

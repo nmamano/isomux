@@ -9,7 +9,6 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
-const { AGENT_PACK_PRESETS } = await import("../../shared/agent-access.ts");
 const {
   REFUSAL,
   agentAt,
@@ -167,8 +166,7 @@ describe("a refused save", () => {
       opts.refuse = undefined;
       calls.length = 0;
       await save(view.container);
-      // Web carries a pack too (EditAgentDialog.access.dom.test.tsx); the
-      // stop is what this save must store.
+      // The stop is what this save must store.
       expect({
         closed,
         order: calls.map(route),
@@ -193,7 +191,7 @@ describe("a refused save", () => {
     const packed = {
       ...user("packed", "Packed", "member"),
       pack: {
-        areas: AGENT_PACK_PRESETS.asksOnly.areas!,
+        areas: { asks: "write" as const },
         agentCeiling: "web" as const,
       },
     };

@@ -185,17 +185,17 @@ const agentOf = (o: Office, id: string): AgentInfo => {
   return agent;
 };
 
-// Moves an agent with the owner's slider.
+// Moves an agent with the owner's slider. At office the agent gets the
+// fixed grant (task 82da687b): agents, tasks and asks write, in every room
+// its manager reaches. So an agent fits a member with a pack only when it is
+// one of the member's own and the pack covers those areas.
 async function lower(
   o: Office,
   agent: AgentInfo,
   access: "chat" | "office",
-  areas?: Record<string, string>,
-  rooms?: string[],
 ): Promise<void> {
   const res = await asOwner(o, "PUT", `/api/agents/${agent.id}/access`, {
     access,
-    ...(areas ? { pack: { areas, ...(rooms ? { rooms } : {}) } } : {}),
   });
   expect({ agent: agent.name, status: res.status }).toEqual({
     agent: agent.name,
@@ -419,7 +419,7 @@ describe("every identity of the member is capped to the pack, read live", () => 
     const o = await office();
     const standard = await spawn(o, "Mine", "Casey");
     const limited = await spawn(o, "MineLimited", "Casey");
-    await lower(o, limited, "office", { tasks: "write", agents: "write" });
+    await lower(o, limited, "office");
     expect(
       (await asBearer(o, tokenOf(standard.id), "GET", "/api/tasks")).status,
     ).toBe(200);
@@ -490,8 +490,9 @@ describe("every identity of the member is capped to the pack, read live", () => 
 });
 
 describe("the messaging rule for a member with a pack", () => {
+  // Covers the fixed grant of an agent at Office.
   const TALK: MemberPack = {
-    areas: { agents: "write", asks: "write" },
+    areas: { agents: "write", asks: "write", tasks: "write" },
     agentCeiling: "office",
   };
 
@@ -500,11 +501,12 @@ describe("the messaging rule for a member with a pack", () => {
     const standard = await spawn(o, "Standard");
     const chat = await spawn(o, "Chat");
     await lower(o, chat, "chat");
-    const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { agents: "write" }, [o.room]);
-    // Its pack reaches every room, also those Casey cannot access.
+    // Casey's own agent reaches Casey's rooms only.
+    const fitting = await spawn(o, "Fitting", "Casey");
+    await lower(o, fitting, "office");
+    // The owner's agent reaches every room, also those Casey cannot access.
     const everywhere = await spawn(o, "Everywhere");
-    await lower(o, everywhere, "office", { agents: "write" });
+    await lower(o, everywhere, "office");
     const full = await mintAsCasey(o);
     const send = (who: "session" | string, toId: string, text: string) =>
       who === "session"
@@ -544,29 +546,34 @@ describe("the messaging rule for a member with a pack", () => {
     );
   });
 
+  // An agent reaches every room of its manager: the member's own agent
+  // reaches all of the member's rooms, so a token with fewer rooms fits it
+  // no more.
   it("a member's token with rooms reaches only agents inside both its rooms and the member's", async () => {
     const o = await office();
     const other = o.srv.agentManager.createRoom("Other");
-    const both = await spawn(o, "Both");
-    await lower(o, both, "office", { agents: "write" }, [o.room, other]);
-    const onlyHere = await spawn(o, "OnlyHere");
-    await lower(o, onlyHere, "office", { agents: "write" }, [o.room]);
+    const mine = await spawn(o, "Mine", "Casey");
+    await lower(o, mine, "office");
     const token = await mintAsCasey(o, { rooms: [o.room] });
     const res = await asOwner(o, "PUT", `/api/users/${o.caseyName}/access`, {
       allowedRooms: [o.room, other],
       pack: TALK,
     });
     expect(res.status).toBe(200);
+    const wide = await mintAsCasey(o, { rooms: [o.room, other] });
     const send = (who: "session" | string, toId: string, text: string) =>
       who === "session"
         ? asCasey(o, "POST", `/api/agents/${toId}/messages`, { text })
         : asBearer(o, who, "POST", `/api/agents/${toId}/messages`, { text });
-    // The member reaches both rooms, so the agent fits her session.
-    expect((await send("session", both.id, "from the session")).status).toBe(
+    // The member reaches both rooms, so her agent fits her session and a
+    // token with both rooms.
+    expect((await send("session", mine.id, "from the session")).status).toBe(
       200,
     );
-    expect((await send(token.bearer, onlyHere.id, "inside")).status).toBe(200);
-    expect(outcome(await send(token.bearer, both.id, "outside"))).toEqual(
+    expect(
+      (await send(wide.bearer, mine.id, "from the wide token")).status,
+    ).toBe(200);
+    expect(outcome(await send(token.bearer, mine.id, "outside"))).toEqual(
       REFUSED,
     );
   });
@@ -694,23 +701,18 @@ describe("the messaging rule for a member with a pack", () => {
       () => o.srv.agentManager.getAgent(mine.id)?.access === "office",
       "the agent moved down",
     );
-    expect(
-      (
-        await move({
-          access: "office",
-          pack: { areas: { agents: "write" }, rooms: [o.room] },
-        })
-      ).status,
-    ).toBe(200);
-    // A wider pack at the same stop, and back to Standard: both outside.
-    expect(
-      outcome(
-        await move({
-          access: "office",
-          pack: { areas: { agents: "write", memory: "read" }, rooms: [o.room] },
-        }),
-      ),
-    ).toEqual(REFUSED);
+    // The fixed grant has tasks and asks write, which the pack has not.
+    expect(outcome(await move({ access: "office" }))).toEqual(REFUSED);
+    await packCasey(o, {
+      areas: {
+        agents: "write",
+        agentManagement: "write",
+        tasks: "write",
+        asks: "write",
+      },
+      agentCeiling: "office",
+    });
+    expect((await move({ access: "office" })).status).toBe(200);
     // Above the ceiling: the ceiling's refusal.
     expect(outcome(await move({ access: "standard" }))).toEqual({
       status: 403,
@@ -726,8 +728,8 @@ describe("the outbox of scheduled messages for a member with a pack", () => {
     const receiver = await spawn(o, "Receiver");
     await lower(o, receiver, "chat");
     const standard = await spawn(o, "Standard");
-    const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { agents: "write" }, [o.room]);
+    const fitting = await spawn(o, "Fitting", "Casey");
+    await lower(o, fitting, "office");
     const deliverAt = new Date(Date.now() + 3_600_000).toISOString();
     const schedule = async (from: AgentInfo): Promise<string> => {
       const res = await asBearer(
@@ -772,12 +774,17 @@ describe("the member's agents and answers under the pack", () => {
   it("a reply answers no prompt that waits for a member, where a fitting message does", async () => {
     const o = await office();
     const asker = await spawn(o, "Asker");
-    const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { agents: "write" }, [o.room]);
+    const fitting = await spawn(o, "Fitting", "Casey");
+    await lower(o, fitting, "office");
     // agentManagement: an answer to a model picker needs it
     // (slash-command-areas.test.ts).
     await packCasey(o, {
-      areas: { agents: "write", asks: "write", agentManagement: "write" },
+      areas: {
+        agents: "write",
+        asks: "write",
+        tasks: "write",
+        agentManagement: "write",
+      },
       agentCeiling: "office",
     });
     expect(
@@ -841,10 +848,10 @@ describe("the member's agents and answers under the pack", () => {
   it("an answer to an ask is marked replies only when the asking agent does not fit", async () => {
     const o = await office();
     const standard = await spawn(o, "Standard");
-    const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { asks: "write" }, [o.room]);
+    const fitting = await spawn(o, "Fitting", "Casey");
+    await lower(o, fitting, "office");
     await packCasey(o, {
-      areas: { agents: "write", asks: "write" },
+      areas: { agents: "write", asks: "write", tasks: "write" },
       agentCeiling: "office",
     });
     const answer = async (agent: AgentInfo, text: string) => {

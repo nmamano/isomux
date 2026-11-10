@@ -4,7 +4,6 @@
 // createAgentManager (server/agent-manager.ts), which wires it.
 import { newFlushState } from "./queue-flush.ts";
 import type { AgentAccess, AgentAccessGrant } from "../shared/agent-access.ts";
-import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -140,14 +139,10 @@ export interface AgentRestoreDeps {
   buildOpenCodeLaunchEnvironmentForUserId: AgentSkills["buildOpenCodeLaunchEnvironmentForUserId"];
   openCodeEnvironmentRevisionForUserId: AgentSkills["openCodeEnvironmentRevisionForUserId"];
   openCodeSkillPathsForUserId: AgentSkills["openCodeSkillPathsForUserId"];
-  accessFields: (src: { access?: AgentAccess; pack?: ApiTokenLimits }) => {
-    access?: AgentAccess;
-    pack?: ApiTokenLimits;
-  };
+  accessFields: (src: { access?: AgentAccess }) => { access?: AgentAccess };
   accessGrantOf: (src: {
     access?: AgentAccess;
     privileged?: boolean;
-    pack?: ApiTokenLimits;
   }) => AgentAccessGrant;
   needsInterruptionMarker: (
     tail: Pick<LogEntry, "kind"> | undefined,
@@ -212,16 +207,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       userId,
       ...(persisted.access ? { access: persisted.access } : {}),
       privileged: persisted.privileged ?? false,
-      ...(persisted.pack ? { pack: persisted.pack } : {}),
     });
     if (clamp.kind !== "move") return persisted;
-    const { pack: _old, ...rest } = persisted;
-    return {
-      ...rest,
-      privileged: false,
-      access: clamp.grant.access,
-      ...(clamp.grant.pack ? { pack: clamp.grant.pack } : {}),
-    };
+    return { ...persisted, privileged: false, access: clamp.grant.access };
   }
 
   // Shared per-agent install path used by both restoreAgents() at boot and

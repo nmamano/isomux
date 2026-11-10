@@ -1977,11 +1977,11 @@ Cosas que puedes hacer por él:
   "dialogs.agent.access.chatHint":
     "Sin herramientas. Solo responde en su chat.",
   "dialogs.agent.access.officeHint":
-    "Sin terminal ni archivos. Usa la oficina solo como permite su paquete de permisos.",
+    "Sin terminal ni archivos. Puede enviar mensajes a agentes, trabajar en tareas y abrir peticiones.",
   "dialogs.agent.access.folderHint":
     "Oficina, más archivos solo en su propia carpeta.",
   "dialogs.agent.access.webHint":
-    "Carpeta, más búsqueda y descarga web. Una página web puede pedirle que envíe lo que lee, así que dale un paquete reducido.",
+    "Carpeta, más búsqueda y descarga web. Una página web puede pedirle que envíe lo que lee.",
   "dialogs.agent.access.standardHint":
     "Una terminal y todas las herramientas de su motor.",
   "dialogs.agent.access.boundaryNote":
@@ -1993,9 +1993,6 @@ Cosas que puedes hacer por él:
     "Tus agentes trabajan en la carpeta de su sala.",
   "dialogs.agent.access.aboveCeiling":
     "Por encima del nivel de agente más alto del paquete de permisos del responsable",
-  "dialogs.agent.pack.asksOnly": "Solo preguntas",
-  "dialogs.agent.pack.tasksAndAsks": "Tareas y preguntas",
-  "dialogs.agent.pack.showsSecrets": "puede mostrar secretos",
   "dialogs.agent.autoHandoff": "Traspaso automático",
   "dialogs.agent.autoHandoffHint":
     "Cuando el contexto se llena, el agente escribe un resumen y continúa en una sesión nueva. El chat se vacía.",

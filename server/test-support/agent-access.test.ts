@@ -1,11 +1,18 @@
 // The access slider (task e77304b1) through the real HTTP server: the member's
-// agents.setAccess route, the pack as limits on the agent's token, the tasks
+// agents.setAccess route, the fixed grant as limits on the agent's token
+// (task 82da687b: one grant at office, folder and web, no per-agent pack), the tasks
 // an agent below Standard may change, and /mcp for its token. The agent below
 // Standard has no shell, so /mcp is its only way into the office; REST with
 // its token shows what the executor enforces under every tool.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -135,6 +142,9 @@ async function asToken(
 const errCode = (body: unknown): string | undefined =>
   (body as { error?: { code?: string } } | null)?.error?.code;
 
+const errMessage = (body: unknown): string =>
+  (body as { error?: { message?: string } } | null)?.error?.message ?? "";
+
 function setAccess(o: Office, agentId: string, body: unknown): Promise<Res> {
   return asMember(o, "PUT", `/api/agents/${agentId}/access`, body);
 }
@@ -151,11 +161,12 @@ function agentOf(srv: TestServer, id: string): AgentInfo {
   return agent;
 }
 
-// The slider fields of an agent as the wire shows them.
+// The slider fields of an agent as the wire shows them. The record carries
+// no pack (task 82da687b): `pack` reads true when the key is there at all.
 function sliderOf(agent: AgentInfo) {
   return {
     access: agent.access,
-    pack: agent.pack,
+    pack: "pack" in agent,
     privileged: agent.privileged ?? false,
   };
 }
@@ -170,64 +181,126 @@ async function waitUntil(pred: () => boolean, label: string) {
 
 const TASKS_READ = { areas: { tasks: "read" } } as const;
 
+// The one grant of an agent at office, folder and web (task 82da687b).
+const FIXED_GRANT = {
+  areas: { agents: "write", tasks: "write", asks: "write" },
+} as const;
+
+// The stored agent records, as an older release or a hand edit left them.
+function editPersistedAgent(
+  srv: TestServer,
+  id: string,
+  edit: (agent: Record<string, unknown>) => void,
+): void {
+  const path = join(srv.stateRoot, "agents.json");
+  const rooms = JSON.parse(readFileSync(path, "utf-8")) as {
+    agents: Record<string, unknown>[];
+  }[];
+  const agent = rooms.flatMap((room) => room.agents).find((a) => a.id === id);
+  if (!agent) throw new Error(`agent ${id} not in agents.json`);
+  edit(agent);
+  writeFileSync(path, JSON.stringify(rooms, null, 2));
+}
+
+// What the token of an agent at a stop with the fixed grant opens: tasks
+// write and agents, never logs (its own system prompt is a logs read).
+async function expectFixedGrant(o: Office, agentId: string, label: string) {
+  const token = tokenOf(agentId);
+  const write = await asToken(o, token, "POST", "/api/tasks", {
+    title: `fixed grant ${label}`,
+  });
+  const agents = await asToken(o, token, "GET", "/agents");
+  const logs = await asToken(
+    o,
+    token,
+    "GET",
+    `/api/agents/${agentId}/system-prompt`,
+  );
+  expect({
+    label,
+    taskWrite: write.status,
+    agents: agents.status,
+    logs: logs.status,
+  }).toEqual({ label, taskWrite: 201, agents: 200, logs: 403 });
+}
+
 describe("agents.setAccess", () => {
-  it("moves an agent to a stop with a pack: the wire, the token and a restart follow", async () => {
+  it("moves an agent to a stop with the fixed grant: the wire, the token and a restart follow", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
     const before = tokenOf(agent.id);
 
-    const moved = await setAccess(o, agent.id, {
-      access: "folder",
-      pack: TASKS_READ,
-    });
+    const moved = await setAccess(o, agent.id, { access: "folder" });
     expect(moved.status).toBe(200);
     const wire = (moved.body as { agent: AgentInfo }).agent;
     expect(sliderOf(wire)).toEqual({
       access: "folder",
-      pack: TASKS_READ,
+      pack: false,
       privileged: false,
     });
     expect(sliderOf(agentOf(o.srv, agent.id))).toEqual(sliderOf(wire));
 
     // The move rotates the token: the old one no longer opens anything.
     expect((await asToken(o, before, "GET", "/api/tasks")).status).toBe(401);
-    // The new token carries the pack: tasks read passes, a task write does
-    // not.
     const after = tokenOf(agent.id);
     expect(after).not.toBe(before);
-    expect((await asToken(o, after, "GET", "/api/tasks")).status).toBe(200);
-    const write = await asToken(o, after, "POST", "/api/tasks", {
-      title: "not in the pack",
-    });
-    expect({ status: write.status, code: errCode(write.body) }).toEqual({
-      status: 403,
-      code: "forbidden",
-    });
+    await expectFixedGrant(o, agent.id, "after the move");
 
-    // A cold boot reads the stop and the pack back, and mints the boot token
-    // with the pack.
+    // A cold boot reads the stop back and mints the boot token with the
+    // fixed grant.
     const srv2 = await o.srv.restart();
     server = srv2;
     const o2 = { ...o, srv: srv2 };
     expect(sliderOf(agentOf(srv2, agent.id))).toEqual({
       access: "folder",
-      pack: TASKS_READ,
+      pack: false,
       privileged: false,
     });
-    const booted = tokenOf(agent.id);
-    expect((await asToken(o2, booted, "GET", "/api/tasks")).status).toBe(200);
-    expect(
-      (await asToken(o2, booted, "POST", "/api/tasks", { title: "x" })).status,
-    ).toBe(403);
+    await expectFixedGrant(o2, agent.id, "after a restart");
   });
 
-  it("kill and revive keep the stop and the pack", async () => {
+  // State saved before task 82da687b: an agent record with a pack, narrow or
+  // wide. Old state stays readable, and the stored pack decides nothing.
+  it("an agent saved with a pack boots with the fixed grant and saves no pack", async () => {
+    const o = await office();
+    const narrow = await spawn(o, "Narrow");
+    const wide = await spawn(o, "Wide");
+    expect((await setAccess(o, narrow.id, { access: "office" })).status).toBe(
+      200,
+    );
+    expect((await setAccess(o, wide.id, { access: "web" })).status).toBe(200);
+    editPersistedAgent(o.srv, narrow.id, (agent) => {
+      agent.pack = { areas: { asks: "write" } };
+    });
+    editPersistedAgent(o.srv, wide.id, (agent) => {
+      agent.pack = { areas: { logs: "read", tasks: "read" }, rooms: ["r-x"] };
+    });
+    // The enabling condition: the file holds both packs at the restart.
+    const stored = readFileSync(join(o.srv.stateRoot, "agents.json"), "utf-8");
+    expect(stored.includes('"asks": "write"')).toBe(true);
+    expect(stored.includes('"r-x"')).toBe(true);
+    const srv2 = await o.srv.restart();
+    server = srv2;
+    const o2 = { ...o, srv: srv2 };
+    for (const [agent, access] of [
+      [narrow, "office"],
+      [wide, "web"],
+    ] as const) {
+      expect(sliderOf(agentOf(srv2, agent.id))).toEqual({
+        access,
+        pack: false,
+        privileged: false,
+      });
+      await expectFixedGrant(o2, agent.id, agent.name);
+    }
+  });
+
+  it("kill and revive keep the stop and the fixed grant", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
-    expect(
-      (await setAccess(o, agent.id, { access: "office", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     expect(
       (await asMember(o, "DELETE", `/api/agents/${agent.id}`)).status,
     ).toBe(204);
@@ -242,29 +315,31 @@ describe("agents.setAccess", () => {
     expect(revived.status).toBe(200);
     expect(sliderOf(agentOf(o.srv, agent.id))).toEqual({
       access: "office",
-      pack: TASKS_READ,
+      pack: false,
       privileged: false,
     });
-    const token = tokenOf(agent.id);
-    expect((await asToken(o, token, "GET", "/api/tasks")).status).toBe(200);
-    expect(
-      (await asToken(o, token, "POST", "/api/tasks", { title: "x" })).status,
-    ).toBe(403);
+    await expectFixedGrant(o, agent.id, "after a revive");
   });
 
-  it("refuses a body that does not fit its stop, and changes nothing", async () => {
+  // A caller that asks for a pack must not get a wider grant than it asked
+  // for without being told: any pack is refused, the fixed grant's own areas
+  // included, and the error names the field.
+  it("refuses a body with a pack or an unknown stop, and changes nothing", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
     const before = tokenOf(agent.id);
-    for (const body of [
-      { access: "office" },
+    const packBodies = [
+      { access: "office", pack: TASKS_READ },
+      {
+        access: "folder",
+        pack: { areas: { agents: "write", tasks: "write", asks: "write" } },
+      },
+      { access: "web", pack: { rooms: [o.room] } },
       { access: "standard", pack: TASKS_READ },
       { access: "chat", pack: TASKS_READ },
-      {
-        access: "web",
-        pack: { areas: { agents: "write" }, repliesOnly: true },
-      },
-      { access: "folder", pack: { rooms: [o.room] } },
+    ];
+    for (const body of [
+      ...packBodies,
       { access: "root" },
       { privileged: true },
     ]) {
@@ -274,6 +349,11 @@ describe("agents.setAccess", () => {
         status: 422,
         code: "invalid_request",
       });
+      if ("pack" in body)
+        expect({
+          body,
+          namesPack: errMessage(res.body).includes("pack"),
+        }).toEqual({ body, namesPack: true });
     }
     expect(sliderOf(agentOf(o.srv, agent.id)).access ?? "standard").toBe(
       "standard",
@@ -284,10 +364,9 @@ describe("agents.setAccess", () => {
   it("setPrivileged on an agent below Standard is a 409 either way; the slider moves it up", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
-    expect(
-      (await setAccess(o, agent.id, { access: "folder", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "folder" })).status).toBe(
+      200,
+    );
     const token = tokenOf(agent.id);
     for (const privileged of [false, true]) {
       const res = await asMember(
@@ -310,7 +389,7 @@ describe("agents.setAccess", () => {
     expect(up.status).toBe(200);
     expect(sliderOf((up.body as { agent: AgentInfo }).agent)).toEqual({
       access: "privileged",
-      pack: undefined,
+      pack: false,
       privileged: true,
     });
     // At Privileged, setPrivileged is the switch it always was.
@@ -325,7 +404,7 @@ describe("agents.setAccess", () => {
     expect(down.status).toBe(200);
     expect(sliderOf(agentOf(o.srv, agent.id))).toEqual({
       access: "standard",
-      pack: undefined,
+      pack: false,
       privileged: false,
     });
   });
@@ -336,7 +415,7 @@ describe("agents.setAccess", () => {
   // default, which is not proven.
   it("Claude and OpenCode go below Standard, and Codex at every stop with gpt-5.5", async () => {
     const o = await office();
-    const OFFICE = { access: "office", pack: TASKS_READ };
+    const OFFICE = { access: "office" };
     const cases: [
       string,
       AgentInfo["agentType"],
@@ -347,13 +426,7 @@ describe("agents.setAccess", () => {
       // OpenCode runs every stop, whatever the model (merge C2).
       ["opencode at office", "opencode", undefined, OFFICE, 200],
       ["opencode at chat", "opencode", undefined, { access: "chat" }, 200],
-      [
-        "opencode at folder",
-        "opencode",
-        undefined,
-        { access: "folder", pack: TASKS_READ },
-        200,
-      ],
+      ["opencode at folder", "opencode", undefined, { access: "folder" }, 200],
       ["codex on its default model at office", "codex", undefined, OFFICE, 422],
       [
         "codex on gpt-5.6-sol at chat",
@@ -366,28 +439,22 @@ describe("agents.setAccess", () => {
         "codex on gpt-5.5 at folder",
         "codex",
         "gpt-5.5",
-        { access: "folder", pack: TASKS_READ },
+        { access: "folder" },
         200,
       ],
       [
         "codex on gpt-5.6-sol at folder",
         "codex",
         "gpt-5.6-sol",
-        { access: "folder", pack: TASKS_READ },
+        { access: "folder" },
         422,
       ],
-      [
-        "codex on gpt-5.5 at web",
-        "codex",
-        "gpt-5.5",
-        { access: "web", pack: TASKS_READ },
-        200,
-      ],
+      ["codex on gpt-5.5 at web", "codex", "gpt-5.5", { access: "web" }, 200],
       [
         "codex on gpt-5.6-sol at web",
         "codex",
         "gpt-5.6-sol",
-        { access: "web", pack: TASKS_READ },
+        { access: "web" },
         422,
       ],
       ["codex on gpt-5.5 at office", "codex", "gpt-5.5", OFFICE, 200],
@@ -417,10 +484,9 @@ describe("agents.setAccess", () => {
   it("an agent below Standard changes engine or model only to one that runs its stop", async () => {
     const o = await office();
     const claude = await spawn(o, "On claude");
-    expect(
-      (await setAccess(o, claude.id, { access: "office", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, claude.id, { access: "office" })).status).toBe(
+      200,
+    );
     const refused: [string, string, Record<string, unknown>][] = [
       // No model named: Codex's default, not proven.
       ["codex", "PATCH", { agentType: "codex" }],
@@ -501,10 +567,7 @@ describe("agents.setAccess", () => {
     );
     const running = sessions()[0];
 
-    const down = await setAccess(o, agent.id, {
-      access: "folder",
-      pack: TASKS_READ,
-    });
+    const down = await setAccess(o, agent.id, { access: "folder" });
     expect(down.status).toBe(200);
     // By the time the route answers, the Standard session is gone and its
     // turn is over.
@@ -525,14 +588,14 @@ describe("agents.setAccess", () => {
   });
 });
 
-describe("the pack limits the agent's token", () => {
+describe("the fixed grant limits the agent's token", () => {
   it("at Chat the token opens no area", async () => {
     const o = await office();
     const agent = await spawn(o, "Chatter");
     expect((await setAccess(o, agent.id, { access: "chat" })).status).toBe(200);
     expect(sliderOf(agentOf(o.srv, agent.id))).toEqual({
       access: "chat",
-      pack: undefined,
+      pack: false,
       privileged: false,
     });
     const token = tokenOf(agent.id);
@@ -540,40 +603,35 @@ describe("the pack limits the agent's token", () => {
       const res = await asToken(o, token, "GET", path);
       expect({ path, status: res.status }).toEqual({ path, status: 403 });
     }
-    // The agent reference is "always": the refusals above are the pack's.
+    // The agent reference is "always": the refusals above are the stop's.
     expect(
       (await asToken(o, token, "GET", "/api/agent-reference")).status,
     ).toBe(200);
   });
 
-  it("the pack's rooms limit what the token sees", async () => {
+  // No room limit: the token reaches every room its manager can access.
+  it("the token sees the agents of every room of its manager", async () => {
     const o = await office();
     const other = o.srv.agentManager.createRoom("Other");
     const inHome = await spawn(o, "Home peer");
     const inOther = await spawn(o, "Other peer", "claude", other);
     const agent = await spawn(o, "Triage");
-    expect(
-      (
-        await setAccess(o, agent.id, {
-          access: "office",
-          pack: { areas: { agents: "read" }, rooms: [other] },
-        })
-      ).status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     const listed = await asToken(o, tokenOf(agent.id), "GET", "/agents");
     expect(listed.status).toBe(200);
     const ids = (listed.body as AgentInfo[]).map((a) => a.id);
     expect(ids).toContain(inOther.id);
-    expect(ids).not.toContain(inHome.id);
+    expect(ids).toContain(inHome.id);
   });
 
   it("asks write opens the agent's own asks, never a member's answer", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
-    const pack = { areas: { asks: "write" } } as const;
-    expect(
-      (await setAccess(o, agent.id, { access: "office", pack })).status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     const token = tokenOf(agent.id);
     const opened = await asToken(
       o,
@@ -588,10 +646,10 @@ describe("the pack limits the agent's token", () => {
     expect(opened.status).toBe(201);
     const askId = (opened.body as { id: string }).id;
 
-    // The pack grants asks write, so a refusal of the reply is the
-    // member-only guard, not the pack.
+    // The fixed grant has asks write, so a refusal of the reply is the
+    // member-only guard, not the grant.
     const reply = API_ROUTES.find((r) => r.opId === "asks.reply")!;
-    expect(routeAllowedByLimits(pack, reply.tokenArea)).toBe(true);
+    expect(routeAllowedByLimits(FIXED_GRANT, reply.tokenArea)).toBe(true);
     const answered = await asToken(
       o,
       token,
@@ -619,14 +677,9 @@ describe("tasks of an agent below Standard", () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
     const standard = await spawn(o, "Peer");
-    expect(
-      (
-        await setAccess(o, agent.id, {
-          access: "office",
-          pack: { areas: { tasks: "write" } },
-        })
-      ).status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     const token = tokenOf(agent.id);
 
     const mine = await asToken(o, token, "POST", "/api/tasks", {
@@ -754,8 +807,29 @@ async function call(
   return (await client.callTool({ name, arguments: args })) as ToolResult;
 }
 
+// The office tools of the fixed grant. messaging_reply drafts an ask (task
+// d03a61d8): the asks area, for every agent; the route refuses one with no
+// row. read_replies is an API token's inbox: never an agent's.
+const FIXED_TOOLS = [
+  "list_agents",
+  "send_message",
+  "get_task",
+  "list_tasks",
+  "claim_task",
+  "complete_task",
+  "create_task",
+  "update_task",
+  "delete_ask",
+  "edit_ask",
+  "list_my_asks",
+  "open_ask",
+  "messaging_reply",
+].sort();
+
 describe("/mcp for an agent below Standard", () => {
-  it("takes the token at office, folder and web only, and lists the tools its pack grants", async () => {
+  // The fixed grant (task 82da687b): agents, tasks and asks write, no logs,
+  // so never read_conversation.
+  it("takes the token at office, folder and web only, and lists the tools of the fixed grant", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
 
@@ -768,75 +842,23 @@ describe("/mcp for an agent below Standard", () => {
     expect((await setAccess(o, agent.id, { access: "chat" })).status).toBe(200);
     expect(await mcpStatus(o, tokenOf(agent.id))).toBe(403);
 
-    const TASK_READ_TOOLS = ["get_task", "list_tasks"];
-    const TASK_WRITE_TOOLS = [
-      "claim_task",
-      "complete_task",
-      "create_task",
-      "update_task",
-    ];
-    // messaging_reply drafts an ask (task d03a61d8): the asks area, for every
-    // agent; the route refuses one with no row.
-    const ASK_TOOLS = [
-      "delete_ask",
-      "edit_ask",
-      "list_my_asks",
-      "open_ask",
-      "messaging_reply",
-    ];
-    const cases: Array<[string, Record<string, string>, string[]]> = [
-      ["no areas", {}, []],
-      ["tasks read", { tasks: "read" }, TASK_READ_TOOLS],
-      [
-        "tasks write",
-        { tasks: "write" },
-        [...TASK_READ_TOOLS, ...TASK_WRITE_TOOLS],
-      ],
-      ["asks read", { asks: "read" }, []],
-      ["asks write", { asks: "write" }, ASK_TOOLS],
-      ["agents read", { agents: "read" }, ["list_agents"]],
-      ["agents write", { agents: "write" }, ["list_agents", "send_message"]],
-      [
-        "agents and logs read",
-        { agents: "read", logs: "read" },
-        ["list_agents", "read_conversation"],
-      ],
-    ];
     for (const access of ["office", "folder", "web"] as const) {
-      for (const [label, areas, expected] of cases) {
-        const res = await setAccess(o, agent.id, {
-          access,
-          pack: { areas },
-        });
-        expect({ access, label, status: res.status }).toEqual({
-          access,
-          label,
-          status: 200,
-        });
-        const { tools } = await (
-          await connect(o, tokenOf(agent.id))
-        ).listTools();
-        // read_replies is an API token's inbox: never an agent's.
-        expect({
-          access,
-          label,
-          tools: tools.map((t) => t.name).sort(),
-        }).toEqual({ access, label, tools: [...expected].sort() });
-      }
+      const res = await setAccess(o, agent.id, { access });
+      expect({ access, status: res.status }).toEqual({ access, status: 200 });
+      const { tools } = await (await connect(o, tokenOf(agent.id))).listTools();
+      expect({ access, tools: tools.map((t) => t.name).sort() }).toEqual({
+        access,
+        tools: FIXED_TOOLS,
+      });
     }
   });
 
   it("drafts a WhatsApp reply to its own row as an ask the member sees; a row it does not have is an error", async () => {
     const o = await office();
     const agent = await spawn(o, "Replier");
-    expect(
-      (
-        await setAccess(o, agent.id, {
-          access: "office",
-          pack: { areas: { asks: "write" } },
-        })
-      ).status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     writeRoutes(o.srv.stateRoot, o.userId, {
       phone: "447700900111",
       routes: [
@@ -904,21 +926,15 @@ describe("/mcp for an agent below Standard", () => {
   it("creates a marked task, refuses another's, opens an ask the member sees, and sends a message as itself", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
-    // The peer fits inside the agent's pack, so the agent may write to it
+    // The peer fits inside the agent's grant, so the agent may write to it
     // (task 134b8f77).
     const peer = await spawn(o, "Peer");
-    expect(
-      (await setAccess(o, peer.id, { access: "office", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
-    expect(
-      (
-        await setAccess(o, agent.id, {
-          access: "office",
-          pack: { areas: { tasks: "write", asks: "write", agents: "write" } },
-        })
-      ).status,
-    ).toBe(200);
+    expect((await setAccess(o, peer.id, { access: "office" })).status).toBe(
+      200,
+    );
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     const client = await connect(o, tokenOf(agent.id));
 
     const created = toolJson<TaskItem>(
@@ -1042,7 +1058,7 @@ describe("the folder rules at Folder and Web", () => {
     for (const [label, cwd] of cases) {
       const agent = await spawnIn(o, `Triage ${label}`, cwd);
       for (const access of ["folder", "web"] as const) {
-        const res = await setAccess(o, agent.id, { access, pack: TASKS_READ });
+        const res = await setAccess(o, agent.id, { access });
         expect({ label, access, ...outcome(res) }).toEqual({
           label,
           access,
@@ -1055,10 +1071,9 @@ describe("the folder rules at Folder and Web", () => {
         "standard",
       );
       // Office has no file tools, so the rules do not apply there.
-      expect(
-        (await setAccess(o, agent.id, { access: "office", pack: TASKS_READ }))
-          .status,
-      ).toBe(200);
+      expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+        200,
+      );
     }
     // A provider home: a folder agent could read the engine's sign-in there.
     const codexHome = subdir(freshFolder(), "codex-home");
@@ -1072,7 +1087,6 @@ describe("the folder rules at Folder and Web", () => {
     try {
       const res = await setAccess(o, inCodexHome.id, {
         access: "folder",
-        pack: TASKS_READ,
       });
       expect(outcome(res)).toEqual(FOLDER_REFUSED);
     } finally {
@@ -1081,18 +1095,15 @@ describe("the folder rules at Folder and Web", () => {
     }
     // A folder of its own passes.
     const own = await spawn(o, "Own folder");
-    expect(
-      (await setAccess(o, own.id, { access: "web", pack: TASKS_READ })).status,
-    ).toBe(200);
+    expect((await setAccess(o, own.id, { access: "web" })).status).toBe(200);
   });
 
   it("hold after the move: no agent, spawn or schedule may overlap the folder, and the agent may not move its folder onto one", async () => {
     const o = await office();
     const triage = await spawn(o, "Triage");
-    expect(
-      (await setAccess(o, triage.id, { access: "folder", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, triage.id, { access: "folder" })).status).toBe(
+      200,
+    );
     const inside = subdir(triage.cwd, "sub");
 
     // A new agent in or around the folder.
@@ -1168,7 +1179,6 @@ describe("the folder rules at Folder and Web", () => {
       outcome(
         await setAccess(o, nextToApp.id, {
           access: "folder",
-          pack: TASKS_READ,
         }),
       ),
     ).toEqual(FOLDER_REFUSED);
@@ -1210,7 +1220,7 @@ describe("attachments for an agent below Standard", () => {
           await setAccess(
             o,
             agent.id,
-            access === "chat" ? { access } : { access, pack: TASKS_READ },
+            access === "chat" ? { access } : { access },
           )
         ).status,
       ).toBe(200);
@@ -1244,7 +1254,6 @@ describe("attachments for an agent below Standard", () => {
       (
         await setAccess(o, folderAgent.id, {
           access: "folder",
-          pack: TASKS_READ,
         })
       ).status,
     ).toBe(200);
@@ -1266,10 +1275,9 @@ describe("the prompt of an agent below Standard", () => {
     const o = await office();
     const standard = await spawn(o, "Standard");
     const limited = await spawn(o, "Limited");
-    expect(
-      (await setAccess(o, limited.id, { access: "folder", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, limited.id, { access: "folder" })).status).toBe(
+      200,
+    );
     const promptOf = async (agentId: string) => {
       const res = await asMember(
         o,
@@ -1327,13 +1335,13 @@ describe("a spawn below Standard", () => {
     const cases: Array<[string, Record<string, unknown>, number, string?]> = [
       [
         "the home folder at folder",
-        { cwd: "~", access: "folder", pack: TASKS_READ },
+        { cwd: "~", access: "folder" },
         422,
         FOLDER_NOT_ALLOWED,
       ],
       [
         "the office state at web",
-        { cwd: o.srv.stateRoot, access: "web", pack: TASKS_READ },
+        { cwd: o.srv.stateRoot, access: "web" },
         422,
         FOLDER_NOT_ALLOWED,
       ],
@@ -1344,7 +1352,6 @@ describe("a spawn below Standard", () => {
           agentType: "codex",
           modelFamily: "gpt-5.6-sol",
           access: "office",
-          pack: ASKS_ONLY,
         },
         422,
         "engine_below_standard",
@@ -1363,7 +1370,6 @@ describe("a spawn below Standard", () => {
           agentType: "codex",
           modelFamily: "gpt-5.6-sol",
           access: "folder",
-          pack: ASKS_ONLY,
         },
         422,
         "engine_below_standard",
@@ -1371,7 +1377,21 @@ describe("a spawn below Standard", () => {
 
       // Privileged keeps its own user-only route.
       ["privileged", { cwd: freshFolder(), access: "privileged" }, 400],
-      ["office without a pack", { cwd: freshFolder(), access: "office" }, 400],
+      // Any pack is refused (task 82da687b), at every stop.
+      [
+        "a pack at office",
+        { cwd: freshFolder(), access: "office", pack: ASKS_ONLY },
+        400,
+      ],
+      [
+        "the fixed grant as a pack at web",
+        {
+          cwd: freshFolder(),
+          access: "web",
+          pack: { areas: { agents: "write", tasks: "write", asks: "write" } },
+        },
+        400,
+      ],
       [
         "a pack at chat",
         { cwd: freshFolder(), access: "chat", pack: ASKS_ONLY },
@@ -1392,6 +1412,11 @@ describe("a spawn below Standard", () => {
         status,
         ...(code ? { code } : {}),
       });
+      if ("pack" in fields)
+        expect({
+          label,
+          namesPack: errMessage(res.body).includes("pack"),
+        }).toEqual({ label, namesPack: true });
       expect({
         label,
         made: o.srv.agentManager.getAllAgents().some((a) => a.name === label),
@@ -1410,7 +1435,7 @@ describe("a spawn below Standard", () => {
     }
   });
 
-  it("starts the agent at its stop: the first token carries the pack, and the first session the stop", async () => {
+  it("starts the agent at its stop: the first token carries the fixed grant, and the first session the stop", async () => {
     const o = await office();
     const res = await asMember(o, "POST", "/api/agents", {
       name: "Inbox",
@@ -1418,23 +1443,16 @@ describe("a spawn below Standard", () => {
       roomId: o.room,
       agentType: "claude",
       access: "office",
-      pack: ASKS_ONLY,
     });
     expect(res.status).toBe(201);
     const inbox = (res.body as { agent: AgentInfo }).agent;
     expect(sliderOf(agentOf(o.srv, inbox.id))).toEqual({
       access: "office",
-      pack: ASKS_ONLY,
+      pack: false,
       privileged: false,
     });
     const { tools } = await (await connect(o, tokenOf(inbox.id))).listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([
-      "delete_ask",
-      "edit_ask",
-      "list_my_asks",
-      "messaging_reply",
-      "open_ask",
-    ]);
+    expect(tools.map((t) => t.name).sort()).toEqual(FIXED_TOOLS);
 
     const filed = await asMember(o, "POST", "/api/agents", {
       name: "Filer",
@@ -1442,7 +1460,6 @@ describe("a spawn below Standard", () => {
       roomId: o.room,
       agentType: "claude",
       access: "folder",
-      pack: TASKS_READ,
     });
     expect(filed.status).toBe(201);
     const filer = (filed.body as { agent: AgentInfo }).agent;
@@ -1463,13 +1480,12 @@ describe("a spawn below Standard", () => {
       agentType: "codex",
       modelFamily: "gpt-5.5",
       access: "office",
-      pack: ASKS_ONLY,
     });
     expect(codexRes.status).toBe(201);
     const codexAgent = (codexRes.body as { agent: AgentInfo }).agent;
     expect(sliderOf(agentOf(o.srv, codexAgent.id))).toEqual({
       access: "office",
-      pack: ASKS_ONLY,
+      pack: false,
       privileged: false,
     });
     expect(agentOf(o.srv, codexAgent.id).modelFamily).toBe("gpt-5.5");
@@ -1488,7 +1504,7 @@ describe("a spawn below Standard", () => {
   });
 
   // OpenCode allows the office tools by exact name (merge C2, P5): the
-  // session gets the names the agent's token lists at /mcp, and a new pack
+  // session gets the names the agent's token lists at /mcp, and a new stop
   // gives the next session the new list.
   it("gives an OpenCode session the office tools its token lists, and none at chat", async () => {
     const o = await office();
@@ -1497,9 +1513,9 @@ describe("a spawn below Standard", () => {
       o.srv.fakeBackend.sessions.filter((s) => s.opts.agentId === agent.id)
         .length;
     for (const [grant, label] of [
-      [{ access: "office", pack: ASKS_ONLY }, "asks only"],
-      [{ access: "office", pack: TASKS_READ }, "tasks read"],
+      [{ access: "office" }, "office"],
       [{ access: "chat" }, "chat"],
+      [{ access: "office" }, "office again"],
     ] as const) {
       // Before the grant: with a session, the grant builds the next one.
       const before = sessionsBefore();
@@ -1536,7 +1552,7 @@ describe("a spawn below Standard", () => {
     let checks = 0;
     let sawItself = false;
     const access = (): SpawnAccess => ({
-      grant: { access: "folder", pack: TASKS_READ },
+      grant: { access: "folder" },
       refusal: (name, cwd) => {
         checks++;
         const agents = o.srv.agentManager.getAllAgents();
@@ -1649,7 +1665,7 @@ describe("the isomux_files server of a Codex agent", () => {
     };
     const agent = await spawn(o, "Reader", "codex", o.room, "gpt-5.5");
     for (const access of ["folder", "web"] as const) {
-      const servers = await grant(agent.id, { access, pack: TASKS_READ });
+      const servers = await grant(agent.id, { access });
       const files = servers[FOLDER_FILES_MCP_SERVER];
       expect({ access, names: Object.keys(servers).sort() }).toEqual({
         access,
@@ -1660,11 +1676,9 @@ describe("the isomux_files server of a Codex agent", () => {
         Authorization: `Bearer ${tokenOf(agent.id)}`,
       });
     }
-    expect(
-      Object.keys(
-        await grant(agent.id, { access: "office", pack: TASKS_READ }),
-      ),
-    ).toEqual(["isomux"]);
+    expect(Object.keys(await grant(agent.id, { access: "office" }))).toEqual([
+      "isomux",
+    ]);
     expect(
       (await grant(agent.id, { access: "standard" }))[FOLDER_FILES_MCP_SERVER],
     ).toBeUndefined();
@@ -1674,7 +1688,6 @@ describe("the isomux_files server of a Codex agent", () => {
       const other = await spawn(o, `Other ${engine}`, engine);
       const servers = await grant(other.id, {
         access: "folder",
-        pack: TASKS_READ,
       });
       expect({ engine, files: FOLDER_FILES_MCP_SERVER in servers }).toEqual({
         engine,
@@ -1689,21 +1702,18 @@ describe("the isomux_files server of a Codex agent", () => {
     const claude = await spawn(o, "Claude reader");
     expect(await filesStatus(o, null)).toBe(401);
     expect(await filesStatus(o, tokenOf(agent.id))).toBe(403);
-    expect(
-      (await setAccess(o, claude.id, { access: "folder", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, claude.id, { access: "folder" })).status).toBe(
+      200,
+    );
     expect(await filesStatus(o, tokenOf(claude.id))).toBe(403);
-    expect(
-      (await setAccess(o, agent.id, { access: "office", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
     expect(await filesStatus(o, tokenOf(agent.id))).toBe(403);
 
-    expect(
-      (await setAccess(o, agent.id, { access: "folder", pack: TASKS_READ }))
-        .status,
-    ).toBe(200);
+    expect((await setAccess(o, agent.id, { access: "folder" })).status).toBe(
+      200,
+    );
     const folder = agentOf(o.srv, agent.id).cwd;
     writeFileSync(join(folder, "readme.txt"), "files-25015e41\n");
     const client = await connectFiles(o, tokenOf(agent.id));

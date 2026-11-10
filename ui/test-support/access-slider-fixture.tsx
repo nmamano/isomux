@@ -1,6 +1,6 @@
 // Shared by the access slider DOM tests (task e77304b1): a shim that records
 // what a save writes, agents at a stop, and helpers for the slider's DOM
-// (data-access-stop, data-pack-preset, data-pack-area).
+// (data-access-stop). The slider has no pack picker (task 82da687b).
 // Imports the dialog, so a test loads it with `await import(...)` after
 // setUpDomTestFile(), never statically.
 import { act, fireEvent, render } from "@testing-library/react";
@@ -10,7 +10,6 @@ import { onLanguage, selfUserRecord } from "./language-fixture.tsx";
 import { claudeAgent, room, settle, viewer } from "./claude-limits-fixture.tsx";
 import type { AgentInfo, UserRecord } from "../../shared/types.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
-import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 
 export { settle, viewer };
 
@@ -76,7 +75,6 @@ export function shim(
 
 export function agentAt(
   access: AgentAccess | undefined,
-  pack?: ApiTokenLimits,
   agentType: AgentInfo["agentType"] = "claude",
 ): AgentInfo {
   const base = claudeAgent("opus", "default", []);
@@ -85,7 +83,6 @@ export function agentAt(
     agentType,
     ...(access ? { access } : {}),
     ...(access === "privileged" ? { privileged: true } : {}),
-    ...(pack ? { pack } : {}),
   };
 }
 
@@ -176,20 +173,12 @@ export async function pick(container: HTMLElement, stop: AgentAccess) {
   });
 }
 
-export function presetSelect(container: HTMLElement) {
-  const select = container.querySelector<HTMLSelectElement>(
-    "select[data-pack-preset]",
-  );
-  if (!select) throw new Error("no pack preset select");
-  return select;
-}
-
-export function areaSelect(container: HTMLElement, area: string) {
-  const select = container.querySelector<HTMLSelectElement>(
-    `select[data-pack-area="${area}"]`,
-  );
-  if (!select) throw new Error(`no ${area} area select`);
-  return select;
+// The controls of the slider's field other than its stops: none below
+// Standard since task 82da687b (no pack, area or room picker).
+export function accessFieldControls(container: HTMLElement): number {
+  const field = container.querySelector(".agent-access-field");
+  if (!field) throw new Error("no access field");
+  return field.querySelectorAll("select, input, textarea").length;
 }
 
 export async function change(select: HTMLElement, value: string) {

@@ -213,12 +213,12 @@ async function cast(srv: TestServer): Promise<Cast> {
       bearer: mintAgentToken(helper.id, ownerId),
       agentId: helper.id,
     },
-    // Below Standard, with a pack that grants the office area: only the
-    // guard's pack check refuses it.
+    // Below Standard, with the fixed grant (task 82da687b): an owner's agent
+    // the guard refuses for its stop.
     limitedOwnerAgent: {
       bearer: mintAgentToken(reader.id, ownerId, {
         access: "office",
-        pack: { areas: { office: "write" } },
+        pack: { areas: { agents: "write", tasks: "write", asks: "write" } },
       }),
     },
     memberAgent: { bearer: mintAgentToken(aide.id, memberId) },

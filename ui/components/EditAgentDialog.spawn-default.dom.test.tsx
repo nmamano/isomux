@@ -7,8 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { AGENT_PACK_PRESETS, AGENT_ACCESS_STOPS } =
-  await import("../../shared/agent-access.ts");
+const { AGENT_ACCESS_STOPS } = await import("../../shared/agent-access.ts");
 const {
   cleanup,
   renderSpawn,
@@ -115,7 +114,7 @@ const ROOM_FOLDER = "/srv/studio";
 const packed = {
   ...user("packed", "Packed", "member"),
   pack: {
-    areas: AGENT_PACK_PRESETS.asksOnly.areas!,
+    areas: { asks: "write" as const },
     agentCeiling: "web" as const,
   },
 };

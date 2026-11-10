@@ -7,7 +7,10 @@ import {
 } from "../shared/members-chat.ts";
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
-import { parseAgentAccessGrant } from "../shared/agent-access.ts";
+import {
+  packNotAccepted,
+  parseAgentAccessGrant,
+} from "../shared/agent-access.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import { deskOfBackSeat, hasBackRoom } from "../shared/desks.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
@@ -3970,19 +3973,20 @@ export async function demoApi(
   const accessMatch = pathname.match(/^\/api\/agents\/([^/]+)\/access$/);
   if (method === "PUT" && accessMatch) {
     const id = decodeURIComponent(accessMatch[1]);
+    if (typeof body === "object" && body !== null && "pack" in body)
+      throw new ApiError(422, "invalid_request", packNotAccepted("pack"));
     const grant = parseAgentAccessGrant(body);
     if (!grant)
       throw new ApiError(
         422,
         "invalid_request",
-        "access must be a stop (chat, office, folder, web, standard, privileged), with a pack (token limits with areas) only at office, folder and web",
+        "access must be a stop (chat, office, folder, web, standard, privileged)",
       );
     if (!state.getAgent(id))
       throw new ApiError(404, "agent_not_found", "Agent not found");
     emitEvents(
       state.updateAgent(id, {
         access: grant.access,
-        pack: grant.pack,
         privileged: grant.access === "privileged",
       }),
     );

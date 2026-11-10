@@ -232,10 +232,7 @@ it("gives an agent below Standard only the office /mcp with its own token, and n
   const office = await spawnFor(srv, "Office agent", "Ann");
   const chat = await spawnFor(srv, "Chat agent", "Ann");
   expect(
-    await srv.agentManager.setAccess(office.id, {
-      access: "office",
-      pack: { areas: { tasks: "read" } },
-    }),
+    await srv.agentManager.setAccess(office.id, { access: "office" }),
   ).toMatchObject({ access: "office" });
   expect(
     await srv.agentManager.setAccess(chat.id, { access: "chat" }),

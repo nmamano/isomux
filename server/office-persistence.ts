@@ -2,11 +2,10 @@
 // agent-history.json, and the killed-agent roster. Moved out of
 // createAgentManager (server/agent-manager.ts), which wires it.
 import {
-  agentAccessOf,
-  stopHasPack,
+  accessGrantOf,
   type AgentAccess,
+  type AgentAccessGrant,
 } from "../shared/agent-access.ts";
-import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import type {
   LogInFlightTurn,
   ManifestInFlightTurn,
@@ -62,10 +61,7 @@ export interface OfficePersistenceDeps {
   globalRoomIndexOf: (roomId: string) => number;
   liveAgentRoom: (info: { id: string; roomId: string }) => RoomWire | undefined;
   unclaimedQueue: ReturnType<typeof createMessageQueue>["unclaimedQueue"];
-  accessFields: (src: { access?: AgentAccess; pack?: ApiTokenLimits }) => {
-    access?: AgentAccess;
-    pack?: ApiTokenLimits;
-  };
+  accessFields: (src: { access?: AgentAccess }) => { access?: AgentAccess };
 }
 
 export function createOfficePersistence(deps: OfficePersistenceDeps) {
@@ -565,19 +561,13 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     return loadAgentHistory()[agentId]?.lastRoomId ?? null;
   }
 
-  // A KILLED agent's last stop and pack, which a revive gives it back, or null
-  // for a live or unknown agent.
-  function killedAgentGrant(
-    agentId: string,
-  ): { access: AgentAccess; pack?: ApiTokenLimits } | null {
+  // A KILLED agent's last stop and its grant, which a revive gives it back,
+  // or null for a live or unknown agent.
+  function killedAgentGrant(agentId: string): AgentAccessGrant | null {
     if (agents.has(agentId)) return null;
     const entry = loadAgentHistory()[agentId];
     if (!entry) return null;
-    const access = agentAccessOf(entry);
-    return {
-      access,
-      ...(stopHasPack(access) && entry.pack ? { pack: entry.pack } : {}),
-    };
+    return accessGrantOf(entry);
   }
 
   // What the agent ceiling reads of a KILLED agent (server/member-ceiling.ts),
@@ -598,7 +588,6 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       ...(entry.modelFamily ? { modelFamily: entry.modelFamily } : {}),
       ...(entry.access ? { access: entry.access } : {}),
       privileged: entry.privileged ?? false,
-      ...(entry.pack ? { pack: entry.pack } : {}),
     };
   }
 

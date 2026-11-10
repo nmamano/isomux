@@ -14,7 +14,6 @@ import type { AgentInfo } from "../../shared/types.ts";
 
 setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
-const { AGENT_PACK_PRESETS } = await import("../../shared/agent-access.ts");
 const {
   BELOW,
   STOPS,
@@ -33,11 +32,7 @@ const {
 
 function codexAt(access: AgentAccess, modelFamily: string): AgentInfo {
   return {
-    ...agentAt(
-      access,
-      access === "standard" ? undefined : AGENT_PACK_PRESETS.asksOnly,
-      "codex",
-    ),
+    ...agentAt(access, "codex"),
     modelFamily,
   };
 }
@@ -80,7 +75,7 @@ async function key(k: string) {
 describe("the access slider", () => {
   it("six stops in order, each named, the chosen one checked, it and the ones below it filled, one tab stop", async () => {
     shim();
-    const view = renderEdit(agentAt("web", AGENT_PACK_PRESETS.asksOnly));
+    const view = renderEdit(agentAt("web"));
     try {
       await settle();
       const s = slider(view.container);
@@ -203,7 +198,7 @@ describe("the engine and the stops", () => {
   it("below Standard, a Codex model that is not proven is disabled; the stops follow the picked model", async () => {
     shim();
     const view = renderEdit({
-      ...agentAt("standard", undefined, "codex"),
+      ...agentAt("standard", "codex"),
       modelFamily: "gpt-5.6-sol",
     });
     try {
@@ -227,7 +222,7 @@ describe("the engine and the stops", () => {
 
   it("a switch to Codex at office lands on the proven model", async () => {
     shim();
-    const view = renderEdit(agentAt("office", AGENT_PACK_PRESETS.asksOnly));
+    const view = renderEdit(agentAt("office"));
     try {
       await settle();
       const engine = view.container.querySelector<HTMLSelectElement>(

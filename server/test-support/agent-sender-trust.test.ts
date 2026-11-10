@@ -282,26 +282,22 @@ describe("the label marker comes from the tokens at delivery", () => {
   // Task e77304b1: an agent below Standard reads text from strangers and
   // carries no trust, whoever its manager is. "limited" is the marker. Task
   // 134b8f77: it stays on a message to a receiver that fits inside the
-  // sender's pack, the only receiver the pack rule lets it reach.
+  // sender's grant, the only receiver the pack rule lets it reach.
   it('a sender below Standard gets "limited" and never "same manager"', async () => {
     const fake = fakeBackend();
     const mgr = makeManager(fake);
     const recv = await spawnAs(mgr, "Receiver", "user-1");
-    expect(
-      await mgr.setAccess(recv.id, {
-        access: "office",
-        pack: { areas: { agents: "read" } },
-      }),
-    ).toMatchObject({ id: recv.id, access: "office" });
+    expect(await mgr.setAccess(recv.id, { access: "office" })).toMatchObject({
+      id: recv.id,
+      access: "office",
+    });
     const same = await spawnAs(mgr, "Triage", "user-1");
     const other = await spawnAs(mgr, "Other triage", "user-2");
     for (const id of [same.id, other.id]) {
-      expect(
-        await mgr.setAccess(id, {
-          access: "office",
-          pack: { areas: { agents: "write" } },
-        }),
-      ).toMatchObject({ id, access: "office" });
+      expect(await mgr.setAccess(id, { access: "office" })).toMatchObject({
+        id,
+        access: "office",
+      });
     }
     const text = await deliver(mgr, fake, recv.id, [
       { sender: senderOf(mgr, same.id), text: "from my triage" },

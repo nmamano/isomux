@@ -6,7 +6,6 @@ import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecor } from "../shared/room-decor.ts";
 import type { AgentAccess } from "../shared/agent-access.ts";
-import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { basename, join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
@@ -921,10 +920,10 @@ export interface PersistedAgent {
   spawnedByAgentId?: string;
   spawnRootAgentId?: string;
   privileged?: boolean;
-  // The access slider stop and its pack (AgentInfo). Absent on agents saved
-  // before the slider: privileged decides (agentAccessOf).
+  // The access slider stop (AgentInfo). Absent on agents saved before the
+  // slider: privileged decides (agentAccessOf). A pack an older version saved
+  // beside it is not read: the stop decides the token limits.
   access?: AgentAccess;
-  pack?: ApiTokenLimits;
   // Automatic handoff switch. Written only when off; absent reads as true.
   autoHandoff?: boolean;
   // Its token trigger. Written only off the default; absent reads as
@@ -1707,9 +1706,8 @@ export interface AgentHistoryEntry {
   // Privileged-token flag, snapshotted so a killed agent revives with the
   // same privilege it had. Absent ⇒ false (legacy/normal agents).
   privileged?: boolean;
-  // The access slider stop and its pack, snapshotted like privileged.
+  // The access slider stop, snapshotted like privileged.
   access?: AgentAccess;
-  pack?: ApiTokenLimits;
   // AgentInfo's spawn-tree fields, snapshotted so a revived agent keeps them.
   spawnedByAgentId?: string;
   spawnRootAgentId?: string;

@@ -1,212 +1,64 @@
-// The pack picker of the agent dialog's access slider (task e77304b1, merge
-// B): presets, areas and rooms, where it shows, and the boundary note. What a
-// save sends is in EditAgentDialog.access.dom.test.tsx, and the engines and
-// Codex models a stop allows in EditAgentDialog.access-slider.dom.test.tsx.
+// The access slider below Standard (task 82da687b): the agent gets one fixed
+// office grant, so the slider's field has no pack, area or room picker, and a
+// save sends the stop alone. What a save sends at each stop is in
+// EditAgentDialog.access.dom.test.tsx, and the engines and Codex models a
+// stop allows in EditAgentDialog.access-slider.dom.test.tsx.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { act, fireEvent } = await import("@testing-library/react");
-const { AGENT_PACK_PRESETS } = await import("../../shared/agent-access.ts");
 const {
   STOPS,
+  accessFieldControls,
   agentAt,
-  areaSelect,
-  change,
   cleanup,
   pick,
-  presetSelect,
   renderEdit,
   save,
   settle,
   shim,
 } = await import("../test-support/access-slider-fixture.tsx");
 
-describe("the pack picker", () => {
-  it("sets each preset's exact areas, and sends them", async () => {
-    const calls = shim();
-    const view = renderEdit(agentAt("standard"));
-    try {
-      await settle();
-      await pick(view.container, "office");
-      const levels = () =>
-        Object.fromEntries(
-          (["agents", "logs", "tasks", "asks"] as const)
-            .map((area) => [area, areaSelect(view.container, area).value])
-            .filter(([, level]) => level !== "none"),
-        );
-      for (const [preset, pack] of Object.entries(AGENT_PACK_PRESETS)) {
-        await change(presetSelect(view.container), preset);
-        expect({ preset, areas: levels() }).toEqual({
-          preset,
-          areas: pack.areas,
-        });
-      }
-      await save(view.container);
-      expect(calls[0]?.body).toEqual({
-        access: "office",
-        pack: AGENT_PACK_PRESETS.talkToAgents,
-      });
-    } finally {
-      cleanup(view);
-    }
-  });
-
-  it("shows the preset a saved pack matches, whatever its order and rooms", async () => {
+describe("the slider below Standard", () => {
+  it("has no control but its stops at any stop", async () => {
     shim();
-    const view = renderEdit(
-      agentAt("folder", {
-        areas: { asks: "write", tasks: "write" },
-        rooms: ["r1"],
-      }),
-    );
-    try {
-      await settle();
-      expect(presetSelect(view.container).value).toBe("tasksAndAsks");
-    } finally {
-      cleanup(view);
-    }
-  });
-
-  it("an area edit turns the preset to custom and is sent", async () => {
-    const calls = shim();
     const view = renderEdit(agentAt("standard"));
     try {
       await settle();
-      await pick(view.container, "web");
-      await change(presetSelect(view.container), "tasksAndAsks");
-      await change(areaSelect(view.container, "agents"), "read");
-      expect(presetSelect(view.container).value).toBe("custom");
-      await change(areaSelect(view.container, "logs"), "read");
-      await save(view.container);
-      expect(calls[0]?.body).toEqual({
-        access: "web",
-        pack: {
-          areas: {
-            tasks: "write",
-            asks: "write",
-            agents: "read",
-            logs: "read",
-          },
-        },
+      const controls: Record<string, number> = {};
+      for (const stop of STOPS) {
+        await pick(view.container, stop);
+        controls[stop] = accessFieldControls(view.container);
+      }
+      expect(controls).toEqual({
+        chat: 0,
+        office: 0,
+        folder: 0,
+        web: 0,
+        standard: 0,
+        privileged: 0,
       });
     } finally {
       cleanup(view);
     }
   });
 
-  it("some rooms sends the picked room ids", async () => {
+  it("sends the stop alone, also after passing through Chat", async () => {
     const calls = shim();
     const view = renderEdit(agentAt("standard"));
     try {
       await settle();
       await pick(view.container, "office");
-      await change(
-        view.container.querySelector('[data-testid="agent-pack-rooms"]')!,
-        "some",
-      );
-      await act(async () => {
-        fireEvent.click(
-          view.container.querySelector<HTMLInputElement>(
-            'input[data-room="r2"]',
-          )!,
-        );
-      });
-      await save(view.container);
-      expect(calls[0]?.body).toEqual({
-        access: "office",
-        pack: { ...AGENT_PACK_PRESETS.asksOnly, rooms: ["r2"] },
-      });
-    } finally {
-      cleanup(view);
-    }
-  });
-
-  it("an area edit keeps the agent's rooms while the room list is not loaded or failed", async () => {
-    for (const rooms of ["never"] as const) {
-      const calls = shim({ rooms });
-      const view = renderEdit(
-        agentAt("office", { areas: { asks: "write" }, rooms: ["r2"] }),
-      );
-      try {
-        await settle();
-        await change(areaSelect(view.container, "tasks"), "read");
-        await save(view.container);
-        expect({ rooms, body: calls[0]?.body }).toEqual({
-          rooms,
-          body: {
-            access: "office",
-            pack: { areas: { asks: "write", tasks: "read" }, rooms: ["r2"] },
-          },
-        });
-      } finally {
-        cleanup(view);
-      }
-    }
-  });
-
-  it("keeps an edited pack while the slider passes through Chat", async () => {
-    const calls = shim();
-    const view = renderEdit(agentAt("office", AGENT_PACK_PRESETS.asksOnly));
-    try {
-      await settle();
-      await change(areaSelect(view.container, "tasks"), "read");
       await pick(view.container, "chat");
       await pick(view.container, "folder");
       await save(view.container);
-      expect(calls[0]?.body).toEqual({
-        access: "folder",
-        pack: { areas: { asks: "write", tasks: "read" } },
-      });
-    } finally {
-      cleanup(view);
-    }
-  });
-
-  it("does not send a stale pack the agent kept at Standard", async () => {
-    const calls = shim();
-    const view = renderEdit(
-      agentAt("standard", { areas: { agents: "write", logs: "read" } }),
-    );
-    try {
-      await settle();
-      await pick(view.container, "office");
-      await save(view.container);
-      expect(calls[0]?.body).toEqual({
-        access: "office",
-        pack: AGENT_PACK_PRESETS.asksOnly,
-      });
-    } finally {
-      cleanup(view);
-    }
-  });
-
-  it("is shown only at office, folder and web, and warns on logs read only", async () => {
-    shim();
-    const view = renderEdit(agentAt("standard"));
-    try {
-      await settle();
-      const shown: Record<string, boolean> = {};
-      for (const stop of STOPS) {
-        await pick(view.container, stop);
-        shown[stop] =
-          view.container.querySelector("select[data-pack-preset]") !== null;
-      }
-      expect(shown).toEqual({
-        chat: false,
-        office: true,
-        folder: true,
-        web: true,
-        standard: false,
-        privileged: false,
-      });
-      await pick(view.container, "office");
-      const warned = () =>
-        view.container.querySelector("[data-pack-secrets-warning]") !== null;
-      await change(presetSelect(view.container), "talkToAgents");
-      expect(warned()).toBe(false);
-      await change(areaSelect(view.container, "logs"), "read");
-      expect(warned()).toBe(true);
+      expect(calls).toEqual([
+        {
+          method: "PUT",
+          path: "/api/agents/a1/access",
+          body: { access: "folder" },
+        },
+      ]);
     } finally {
       cleanup(view);
     }

@@ -3,6 +3,8 @@
 // API token) writes only to agents whose access fits inside that pack; it
 // replies (send, abort, queue cancel) to an agent that wrote to it first; what
 // it spawns or revives must fit it too. Every refusal carries the rule's code.
+// Every agent below Standard holds one fixed grant (task 82da687b): agents,
+// tasks and asks write, with no room limit.
 // The fit table's coverage is routes-table.test.ts, the drop at a scheduled
 // fire scheduled-messages.di.test.ts, the label of a fitting agent sender
 // agent-sender-trust.test.ts.
@@ -149,18 +151,18 @@ function tokenOf(agentId: string): string {
   return token;
 }
 
-type Pack = { areas: Record<string, string>; rooms?: string[] };
+// The areas of the fixed grant, as token limits: a token with them fits an
+// agent at Office.
+const FIXED_AREAS = { agents: "write", tasks: "write", asks: "write" } as const;
 
 // Moves an agent with the member's slider.
 async function lower(
   o: Office,
   agent: AgentInfo,
   access: "chat" | "office" | "folder" | "web" | "standard",
-  pack?: Pack,
 ): Promise<void> {
   const res = await asMember(o, "PUT", `/api/agents/${agent.id}/access`, {
     access,
-    ...(pack ? { pack } : {}),
   });
   expect({ agent: agent.name, status: res.status }).toEqual({
     agent: agent.name,
@@ -236,72 +238,30 @@ async function sendEach(
 }
 
 describe("an agent below Standard as the sender", () => {
-  it("sends only to an agent at Chat or one whose stop and pack fit inside its own", async () => {
+  it("sends only to an agent at Chat or one whose stop fits inside its own", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", {
-      areas: { agents: "write", tasks: "read" },
-    });
+    await lower(o, sender, "office");
     const chat = await spawn(o, "Chat");
     await lower(o, chat, "chat");
-    const narrower = await spawn(o, "Narrower");
-    await lower(o, narrower, "office", { areas: { tasks: "read" } });
+    // The same fixed grant at the same stop.
     const equal = await spawn(o, "Equal");
-    await lower(o, equal, "office", {
-      areas: { agents: "write", tasks: "read" },
-    });
-    const widerArea = await spawn(o, "Wider area");
-    await lower(o, widerArea, "office", {
-      areas: { tasks: "read", memory: "read" },
-    });
-    const widerLevel = await spawn(o, "Wider level");
-    await lower(o, widerLevel, "office", { areas: { tasks: "write" } });
+    await lower(o, equal, "office");
     const higherStop = await spawn(o, "Higher stop");
-    await lower(o, higherStop, "folder", { areas: { tasks: "read" } });
+    await lower(o, higherStop, "folder");
     const standard = await spawn(o, "Standard");
 
     await sendEach(o, tokenOf(sender.id), [
       ["chat", chat, true],
-      ["narrower pack", narrower, true],
-      ["equal pack", equal, true],
-      ["wider area", widerArea, false],
-      ["wider level", widerLevel, false],
+      ["equal", equal, true],
       ["higher stop", higherStop, false],
       ["standard", standard, false],
     ]);
     // The sender reads text from strangers: its label says so even where it
     // fits.
-    for (const target of [chat, narrower, equal]) {
+    for (const target of [chat, equal]) {
       expect(received(o, target.id, "to ")).toContain(limitedLabel(sender.id));
     }
-  });
-
-  it("with a room limit, fits no agent whose pack reaches a room outside it", async () => {
-    const o = await office();
-    const other = o.srv.agentManager.createRoom("Other");
-    const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", {
-      areas: { agents: "write", tasks: "read" },
-      rooms: [o.room],
-    });
-    const inside = await spawn(o, "Inside");
-    await lower(o, inside, "office", {
-      areas: { tasks: "read" },
-      rooms: [o.room],
-    });
-    const everyRoom = await spawn(o, "Every room");
-    await lower(o, everyRoom, "office", { areas: { tasks: "read" } });
-    const twoRooms = await spawn(o, "Two rooms");
-    await lower(o, twoRooms, "office", {
-      areas: { tasks: "read" },
-      rooms: [o.room, other],
-    });
-
-    await sendEach(o, tokenOf(sender.id), [
-      ["inside", inside, true],
-      ["every room", everyRoom, false],
-      ["two rooms", twoRooms, false],
-    ]);
   });
 
   it("at Folder or Web, fits no other agent at Folder or Web", async () => {
@@ -310,15 +270,13 @@ describe("an agent below Standard as the sender", () => {
     // reads files the sender cannot.
     const o = await office();
     const sender = await spawn(o, "Reader");
-    await lower(o, sender, "web", {
-      areas: { agents: "write", tasks: "read" },
-    });
+    await lower(o, sender, "web");
     const office_ = await spawn(o, "Office peer");
-    await lower(o, office_, "office", { areas: { tasks: "read" } });
+    await lower(o, office_, "office");
     const folder = await spawn(o, "Folder peer");
-    await lower(o, folder, "folder", { areas: { tasks: "read" } });
+    await lower(o, folder, "folder");
     const web = await spawn(o, "Web peer");
-    await lower(o, web, "web", { areas: { tasks: "read" } });
+    await lower(o, web, "web");
 
     await sendEach(o, tokenOf(sender.id), [
       ["office", office_, true],
@@ -330,7 +288,7 @@ describe("an agent below Standard as the sender", () => {
   it("is refused the same way through /mcp send_message", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", { areas: { agents: "write" } });
+    await lower(o, sender, "office");
     const chat = await spawn(o, "Chat");
     await lower(o, chat, "chat");
     const standard = await spawn(o, "Standard");
@@ -377,7 +335,7 @@ describe("a reply to an agent that wrote first", () => {
   it("an agent below Standard sends, aborts and cancels to the writer only, and its reply is marked limited", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", { areas: { agents: "write" } });
+    await lower(o, sender, "office");
     const writer = await spawn(o, "Lead");
     const bystander = await spawn(o, "Bystander");
     const bearer = tokenOf(sender.id);
@@ -428,7 +386,7 @@ describe("a reply to an agent that wrote first", () => {
   it("comes at delivery: a message taken back before it reached the agent gives none", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", { areas: { agents: "write" } });
+    await lower(o, sender, "office");
     const writer = await spawn(o, "Lead");
 
     // The member starts a long turn, so the writer's message waits.
@@ -482,7 +440,7 @@ describe("a reply to an agent that wrote first", () => {
   it("survives a restart, and ends when the writer is killed", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", { areas: { agents: "write" } });
+    await lower(o, sender, "office");
     const writer = await spawn(o, "Lead");
     expect(
       (await send(o, tokenOf(writer.id), sender.id, "please check")).status,
@@ -521,7 +479,7 @@ describe("a reply to an agent that wrote first", () => {
   it("ends when the agent that may reply is killed", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", { areas: { agents: "write" } });
+    await lower(o, sender, "office");
     const writer = await spawn(o, "Lead");
     expect(
       (await send(o, tokenOf(writer.id), sender.id, "please check")).status,
@@ -547,31 +505,37 @@ describe("a reply to an agent that wrote first", () => {
 });
 
 describe("a limited API token as the sender", () => {
-  it("sends only to an agent at Chat or Office whose pack fits inside its areas, without a marker", async () => {
+  // An agent at Office holds agents, tasks and asks write: a token fits it
+  // only with all three. The talk-to-agents preset has tasks read only.
+  it("sends only to an agent at Chat or Office whose grant fits inside its areas, without a marker", async () => {
     const o = await office();
+    const fixed = await mint(o, { areas: FIXED_AREAS });
     const talk = await mint(o, API_TOKEN_PRESETS.talkToAgents);
     const chat = await spawn(o, "Chat");
     await lower(o, chat, "chat");
-    const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { areas: { tasks: "read" } });
-    const wider = await spawn(o, "Wider");
-    await lower(o, wider, "office", { areas: { tasks: "write" } });
+    const atOffice = await spawn(o, "At office");
+    await lower(o, atOffice, "office");
     // A token reaches no folder: Office is its highest stop.
     const folder = await spawn(o, "Folder");
-    await lower(o, folder, "folder", { areas: { tasks: "read" } });
+    await lower(o, folder, "folder");
     const standard = await spawn(o, "Standard");
 
-    await sendEach(o, talk.bearer, [
+    await sendEach(o, fixed.bearer, [
       ["chat", chat, true],
-      ["fitting", fitting, true],
-      ["wider", wider, false],
+      ["office", atOffice, true],
       ["folder", folder, false],
       ["standard", standard, false],
     ]);
     // A message that fits keeps the member's authority.
-    const label = received(o, fitting.id, "to fitting")!;
-    expect(label).toContain(`(${talk.id})`);
+    const label = received(o, atOffice.id, "to office")!;
+    expect(label).toContain(`(${fixed.id})`);
     expect(label).not.toContain(API_TOKEN_REPLIES_ONLY);
+
+    // Tasks read is narrower than the agent's tasks write.
+    expect(
+      outcome(await send(o, talk.bearer, atOffice.id, "from talk")),
+    ).toEqual(REFUSED);
+    expect((await send(o, talk.bearer, chat.id, "from talk")).status).toBe(200);
   });
 
   it("is outside the rule when its pack already reaches everything", async () => {
@@ -605,21 +569,6 @@ describe("a limited API token as the sender", () => {
           : { label, ...REFUSED },
       );
     }
-    // The same holds for an agent sender, whose label still says limited.
-    const sender = await spawn(o, "Curator");
-    await lower(o, sender, "office", {
-      areas: { agents: "write", memory: "write" },
-    });
-    expect(
-      (await send(o, tokenOf(sender.id), standard.id, "from an agent")).status,
-    ).toBe(200);
-    await waitUntil(
-      () => received(o, standard.id, "from an agent") !== undefined,
-      "the agent's message delivered",
-    );
-    expect(received(o, standard.id, "from an agent")).toContain(
-      limitedLabel(sender.id),
-    );
   });
 
   it("replies to an agent that wrote to its inbox, marked replies only, and gives it no order", async () => {
@@ -686,16 +635,16 @@ describe("a limited API token as the sender", () => {
 describe("the outbox of scheduled messages", () => {
   it("a limited token cancels only in the outbox of an agent that fits it; an agent at Folder still cancels in its own", async () => {
     const o = await office();
-    const talk = await mint(o, API_TOKEN_PRESETS.talkToAgents);
+    const talk = await mint(o, { areas: FIXED_AREAS });
     const receiver = await spawn(o, "Receiver");
     await lower(o, receiver, "chat");
     const standard = await spawn(o, "Standard");
     const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { areas: { agents: "write" } });
+    await lower(o, fitting, "office");
     // An agent at Folder fits no agent at Folder, itself included: only its
     // own outbox lets it in.
     const folder = await spawn(o, "Folder");
-    await lower(o, folder, "folder", { areas: { agents: "write" } });
+    await lower(o, folder, "folder");
     const deliverAt = new Date(Date.now() + 3_600_000).toISOString();
     const schedule = async (from: AgentInfo): Promise<string> => {
       const res = await asBearer(
@@ -760,25 +709,21 @@ describe("the outbox of scheduled messages", () => {
 describe("what a sender with a pack spawns or revives", () => {
   it("a token spawns only an agent that fits it, and nothing is left of a refusal", async () => {
     const o = await office();
-    const token = await mint(o, {
+    const narrow = await mint(o, {
       areas: { agents: "write", agentManagement: "write" },
     });
-    const cases: Array<[string, Record<string, unknown>, boolean]> = [
-      ["standard", {}, false],
-      [
-        "office wider",
-        { access: "office", pack: { areas: { memory: "read" } } },
-        false,
-      ],
-      [
-        "office fitting",
-        { access: "office", pack: { areas: { agents: "read" } } },
-        true,
-      ],
-      ["chat", { access: "chat" }, true],
+    const wide = await mint(o, {
+      areas: { ...FIXED_AREAS, agentManagement: "write" },
+    });
+    // The agent at Office gets the fixed grant: wider than the narrow token.
+    const cases: Array<[string, string, Record<string, unknown>, boolean]> = [
+      ["standard", narrow.bearer, {}, false],
+      ["office narrow", narrow.bearer, { access: "office" }, false],
+      ["office wide", wide.bearer, { access: "office" }, true],
+      ["chat", narrow.bearer, { access: "chat" }, true],
     ];
-    for (const [name, fields, fits] of cases) {
-      const res = await asBearer(o, token.bearer, "POST", "/api/agents", {
+    for (const [name, bearer, fields, fits] of cases) {
+      const res = await asBearer(o, bearer, "POST", "/api/agents", {
         name,
         cwd: freshFolder(),
         roomId: o.room,
@@ -795,17 +740,16 @@ describe("what a sender with a pack spawns or revives", () => {
     }
   });
 
-  it("an agent below Standard spawns only an agent that fits it", async () => {
+  // The fixed grant has no agentManagement: an agent below Standard spawns
+  // nothing, an agent at Chat included.
+  it("an agent below Standard spawns no agent", async () => {
     const o = await office();
     const sender = await spawn(o, "Dispatcher");
-    await lower(o, sender, "office", {
-      areas: { agents: "write", agentManagement: "write" },
-    });
-    const cases: Array<[string, Record<string, unknown>, boolean]> = [
-      ["standard child", {}, false],
-      ["chat child", { access: "chat" }, true],
-    ];
-    for (const [name, fields, fits] of cases) {
+    await lower(o, sender, "office");
+    for (const [name, fields] of [
+      ["standard child", {}],
+      ["chat child", { access: "chat" }],
+    ] as const) {
       const cwd = join(sender.cwd, name.replace(" ", "-"));
       mkdirSync(cwd);
       const res = await asBearer(o, tokenOf(sender.id), "POST", "/api/agents", {
@@ -815,24 +759,22 @@ describe("what a sender with a pack spawns or revives", () => {
         agentType: "claude",
         ...fields,
       });
-      expect({ name, ...outcome(res) }).toEqual(
-        fits ? { name, status: 201, code: undefined } : { name, ...REFUSED },
-      );
+      expect({ name, status: res.status }).toEqual({ name, status: 403 });
       expect({
         name,
         made: o.srv.agentManager.getAllAgents().some((a) => a.name === name),
-      }).toEqual({ name, made: fits });
+      }).toEqual({ name, made: false });
     }
   });
 
   it("a token revives only an agent that fits it", async () => {
     const o = await office();
     const token = await mint(o, {
-      areas: { agents: "write", agentManagement: "write" },
+      areas: { ...FIXED_AREAS, agentManagement: "write" },
     });
     const standard = await spawn(o, "Standard");
     const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { areas: { agents: "read" } });
+    await lower(o, fitting, "office");
     for (const agent of [standard, fitting]) {
       expect(
         (await asMember(o, "DELETE", `/api/agents/${agent.id}`)).status,
@@ -857,9 +799,9 @@ describe("a scheduled message from an agent below Standard", () => {
   it("is refused at scheduling when it does not fit, and at delivery once the target moved up", async () => {
     const o = await office();
     const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", { areas: { agents: "write" } });
+    await lower(o, sender, "office");
     const target = await spawn(o, "Target");
-    await lower(o, target, "office", { areas: { agents: "read" } });
+    await lower(o, target, "office");
     const standard = await spawn(o, "Standard");
     const deliverAt = new Date(Date.now() + 3_600_000).toISOString();
     const schedule = (toId: string) =>
@@ -888,53 +830,6 @@ describe("a scheduled message from an agent below Standard", () => {
     // And at once: the enqueue to the agent at Office before the move.
     await Bun.sleep(50);
     expect(sentTexts(o, target.id)).toEqual([]);
-  });
-});
-
-describe("a scheduled message from an agent with a room limit", () => {
-  it("is refused at delivery once the target moved to a room outside the sender's rooms", async () => {
-    const o = await office();
-    const other = o.srv.agentManager.createRoom("Other");
-    const sender = await spawn(o, "Triage");
-    await lower(o, sender, "office", {
-      areas: { agents: "write" },
-      rooms: [o.room],
-    });
-    const target = await spawn(o, "Target");
-    await lower(o, target, "office", {
-      areas: { agents: "read" },
-      rooms: [o.room],
-    });
-    const scheduled = await asBearer(
-      o,
-      tokenOf(sender.id),
-      "POST",
-      `/api/agents/${target.id}/messages`,
-      {
-        text: "later",
-        deliverAt: new Date(Date.now() + 3_600_000).toISOString(),
-      },
-    );
-    expect(scheduled.status).toBe(200);
-
-    expect(
-      (
-        await asMember(o, "POST", `/api/agents/${target.id}/move`, {
-          targetRoomId: other,
-        })
-      ).status,
-    ).toBe(200);
-    const fired = o.srv.agentManager.enqueueMessage(target.id, {
-      sender: {
-        kind: "agent",
-        agentId: sender.id,
-        agentName: sender.name,
-        roomName: "Room",
-      },
-      text: "later",
-      scheduledFor: Date.now() - 1_000,
-    });
-    expect(fired).toMatchObject({ ok: false, status: 403 });
   });
 });
 
@@ -1020,10 +915,10 @@ describe("tasks and asks from a limited API token", () => {
 
   it("its answer to an ask is marked replies only when the asking agent does not fit it", async () => {
     const o = await office();
-    const token = await mint(o, { areas: { asks: "write" } });
+    const token = await mint(o, { areas: FIXED_AREAS });
     const standard = await spawn(o, "Standard");
     const fitting = await spawn(o, "Fitting");
-    await lower(o, fitting, "office", { areas: { asks: "write" } });
+    await lower(o, fitting, "office");
     const answer = async (agent: AgentInfo, text: string) => {
       const ask = await asBearer(
         o,

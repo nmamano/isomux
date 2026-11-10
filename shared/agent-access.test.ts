@@ -1,22 +1,27 @@
 // The access slider's pure rules (task e77304b1): the order of the stops, how
 // an agent saved before the slider reads, which bodies agents.setAccess
 // takes, and the exact Claude built-in tools at each stop below Standard.
+// Task 82da687b: at office, folder and web the grant is one fixed set of
+// areas; a body or record never chooses it.
 
 import { describe, expect, it } from "bun:test";
 import {
   AGENT_ACCESS_STOPS,
-  AGENT_PACK_PRESETS,
+  accessGrantOf,
   agentAccessOf,
-  agentPackPresetOf,
   belowStandard,
   claudeToolsForStop,
   engineRunsAccess,
   parseAgentAccessGrant,
-  parseAgentPack,
   sameAccessGrant,
   type AgentAccess,
-  type AgentAccessGrant,
 } from "./agent-access.ts";
+import type { ApiTokenLimits } from "./api-token-limits.ts";
+
+// A record as an older release saved it, with a pack: the record type has
+// none since task 82da687b.
+type SavedRecord = Parameters<typeof accessGrantOf>[0];
+const saved = (record: object) => record as SavedRecord;
 
 const ORDER: AgentAccess[] = [
   "chat",
@@ -50,63 +55,46 @@ describe("agent access stops", () => {
   });
 });
 
-describe("parseAgentPack", () => {
-  it("takes token limits with areas, and refuses a pack without areas or with replies only", () => {
-    expect(parseAgentPack({ areas: { tasks: "read" } })).toEqual({
-      areas: { tasks: "read" },
-    });
-    expect(
-      parseAgentPack({ areas: { asks: "write" }, rooms: ["room-1"] }),
-    ).toEqual({ areas: { asks: "write" }, rooms: ["room-1"] });
-    // No areas axis would be every area.
-    expect(parseAgentPack({ rooms: ["room-1"] })).toBeNull();
-    expect(parseAgentPack({})).toBeNull();
-    // Replies only is an inbox rule: an agent has no token inbox.
-    expect(
-      parseAgentPack({ areas: { agents: "write" }, repliesOnly: true }),
-    ).toBeNull();
-    // What token limits refuse, a pack refuses too.
-    expect(parseAgentPack({ areas: { nowhere: "read" } })).toBeNull();
-    expect(parseAgentPack({ areas: { tasks: "admin" } })).toBeNull();
-    expect(parseAgentPack(null)).toBeNull();
-  });
-});
+// The one grant of an agent at office, folder and web (task 82da687b).
+const FIXED: ApiTokenLimits = {
+  areas: { agents: "write", tasks: "write", asks: "write" },
+};
+const PACK_STOPS = ["office", "folder", "web"] as const;
+const OTHER_STOPS = ["chat", "standard", "privileged"] as const;
 
 describe("parseAgentAccessGrant", () => {
-  const pack = { areas: { tasks: "read" } } as const;
-
-  it("takes a pack exactly at office, folder and web", () => {
-    for (const access of ["office", "folder", "web"] as const) {
-      expect({
-        access,
-        grant: parseAgentAccessGrant({ access, pack }),
-      }).toEqual({ access, grant: { access, pack } });
+  it("gives the fixed grant at office, folder and web, and no pack at the other stops", () => {
+    for (const access of PACK_STOPS)
       expect({ access, grant: parseAgentAccessGrant({ access }) }).toEqual({
         access,
-        grant: null,
+        grant: { access, pack: FIXED },
       });
-    }
-    for (const access of ["chat", "standard", "privileged"] as const) {
+    for (const access of OTHER_STOPS)
       expect({ access, grant: parseAgentAccessGrant({ access }) }).toEqual({
         access,
         grant: { access },
       });
-      expect({
-        access,
-        grant: parseAgentAccessGrant({ access, pack }),
-      }).toEqual({ access, grant: null });
-    }
   });
 
-  it("refuses an unknown stop, a bad pack and extra keys", () => {
+  // A caller that asks for a pack must not get a wider grant than it asked
+  // for without being told: a body with a pack is refused at every stop, the
+  // fixed grant itself included.
+  it("refuses a body with a pack at every stop", () => {
+    const packs = [{ areas: { tasks: "read" } }, FIXED, {}, null];
+    for (const access of [...PACK_STOPS, ...OTHER_STOPS])
+      for (const pack of packs)
+        expect({
+          access,
+          pack,
+          grant: parseAgentAccessGrant({ access, pack }),
+        }).toEqual({ access, pack, grant: null });
+  });
+
+  it("refuses an unknown stop and extra keys", () => {
     for (const body of [
       { access: "admin" },
-      { access: "Folder", pack },
-      {
-        access: "web",
-        pack: { areas: { agents: "write" }, repliesOnly: true },
-      },
-      { access: "office", pack: { rooms: ["room-1"] } },
+      { access: "Folder" },
+      { access: "office", rooms: ["room-1"] },
       { access: "standard", privileged: true },
       {},
       null,
@@ -117,6 +105,56 @@ describe("parseAgentAccessGrant", () => {
         grant: null,
       });
     }
+  });
+
+  // Callers spread and intersect the grant: a shared object would let one
+  // caller widen every later grant.
+  it("returns a fresh grant each time", () => {
+    const first = parseAgentAccessGrant({ access: "office" });
+    const areas = first?.pack?.areas as Record<string, string> | undefined;
+    if (areas) areas.logs = "read";
+    expect(parseAgentAccessGrant({ access: "office" })).toEqual({
+      access: "office",
+      pack: FIXED,
+    });
+    expect(accessGrantOf({ access: "folder" })).toEqual({
+      access: "folder",
+      pack: FIXED,
+    });
+  });
+});
+
+describe("accessGrantOf", () => {
+  // A record saved before task 82da687b can carry a narrow or a wide pack;
+  // either reads as the fixed grant.
+  it("reads a saved pack as the fixed grant at office, folder and web", () => {
+    const packs = [
+      undefined,
+      { areas: { asks: "write" } },
+      { areas: { logs: "read", tasks: "read" }, rooms: ["r1"] },
+    ] as const;
+    for (const access of PACK_STOPS)
+      for (const pack of packs)
+        expect({
+          access,
+          pack,
+          grant: accessGrantOf(saved({ access, pack })),
+        }).toEqual({ access, pack, grant: { access, pack: FIXED } });
+  });
+
+  it("gives no pack at the other stops, a saved one included", () => {
+    for (const access of OTHER_STOPS)
+      expect({
+        access,
+        grant: accessGrantOf(
+          saved({ access, pack: { areas: { asks: "write" } } }),
+        ),
+      }).toEqual({ access, grant: { access } });
+    // An agent saved before the slider.
+    expect(accessGrantOf({ privileged: true })).toEqual({
+      access: "privileged",
+    });
+    expect(accessGrantOf({})).toEqual({ access: "standard" });
   });
 });
 
@@ -233,91 +271,26 @@ describe("engineRunsAccess", () => {
 });
 
 // A false "same" drops a member's change at save; a false "different" rotates
-// the token and restarts the session for nothing.
-describe("the dialog's pack rules", () => {
-  it("two grants are the same only in content, whatever the order", () => {
-    const pack = (areas: object, rooms?: string[]) =>
-      ({ areas, ...(rooms ? { rooms } : {}) }) as AgentAccessGrant["pack"];
-    const base: AgentAccessGrant = {
-      access: "office",
-      pack: pack({ tasks: "read", asks: "write" }, ["r1", "r2"]),
-    };
-    const cases: Array<[string, AgentAccessGrant, boolean]> = [
-      [
-        "areas and rooms in another order",
-        {
-          access: "office",
-          pack: pack({ asks: "write", tasks: "read" }, ["r2", "r1"]),
-        },
-        true,
-      ],
-      ["another stop", { ...base, access: "folder" }, false],
-      [
-        "another level",
-        {
-          access: "office",
-          pack: pack({ tasks: "write", asks: "write" }, ["r1", "r2"]),
-        },
-        false,
-      ],
-      [
-        "one more area",
-        {
-          access: "office",
-          pack: pack({ tasks: "read", asks: "write", logs: "read" }, [
-            "r1",
-            "r2",
-          ]),
-        },
-        false,
-      ],
-      [
-        "fewer rooms",
-        {
-          access: "office",
-          pack: pack({ tasks: "read", asks: "write" }, ["r1"]),
-        },
-        false,
-      ],
-      [
-        "every room",
-        { access: "office", pack: pack({ tasks: "read", asks: "write" }) },
-        false,
-      ],
-    ];
-    for (const [label, other, same] of cases)
-      expect({ label, same: sameAccessGrant(base, other) }).toEqual({
-        label,
-        same,
-      });
-    // No rooms (every room) and an empty list (no room) differ.
+// the token and restarts the session for nothing. Only the stop counts now.
+describe("sameAccessGrant", () => {
+  it("compares the stop only", () => {
     expect(
       sameAccessGrant(
-        { access: "web", pack: pack({ asks: "write" }) },
-        { access: "web", pack: pack({ asks: "write" }, []) },
-      ),
-    ).toBe(false);
-    // A stop without a pack ignores a stale one.
-    expect(
-      sameAccessGrant(
-        { access: "standard", pack: pack({ agents: "write" }) },
-        { access: "standard" },
+        { access: "office", pack: { areas: { asks: "write" } } },
+        { access: "office" },
       ),
     ).toBe(true);
-  });
-
-  it("a pack shows a preset only with exactly its areas", () => {
-    for (const [key, preset] of Object.entries(AGENT_PACK_PRESETS)) {
-      // Widened to string, so the expected side may be any key.
-      const shown: string = agentPackPresetOf({ ...preset, rooms: ["r1"] });
-      expect({ key, shown }).toEqual({ key, shown: key });
-    }
-    expect(agentPackPresetOf({ areas: { asks: "write", tasks: "read" } })).toBe(
-      "custom",
+    expect(
+      sameAccessGrant(
+        parseAgentAccessGrant({ access: "web" })!,
+        parseAgentAccessGrant({ access: "web" })!,
+      ),
+    ).toBe(true);
+    expect(sameAccessGrant({ access: "office" }, { access: "folder" })).toBe(
+      false,
     );
-    expect(agentPackPresetOf({ areas: { asks: "write", logs: "read" } })).toBe(
-      "custom",
-    );
-    expect(agentPackPresetOf({ areas: {} })).toBe("custom");
+    expect(
+      sameAccessGrant({ access: "standard" }, { access: "privileged" }),
+    ).toBe(false);
   });
 });

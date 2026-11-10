@@ -21,7 +21,6 @@ import type { DiscordBot } from "./discord.ts";
 import type { Floor } from "./floors.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AgentAccess } from "./agent-access.ts";
-import type { ApiTokenLimits } from "./api-token-limits.ts";
 import { keyFrom } from "./i18n/translate.ts";
 import type { MessageKey, Translator } from "./i18n/translate.ts";
 import type { LogMessage, LogPart } from "./i18n/log-message.ts";
@@ -936,11 +935,6 @@ export interface AgentInfo {
   // by a user via agents.setAccess (or agents.setPrivileged); never by an
   // agent.
   access?: AgentAccess;
-  // The permission pack at the office, folder and web stops: the limits on the
-  // agent's token. Read it only where stopHasPack(access): a move to a stop
-  // without a pack sends pack: undefined in agent_updated, which JSON drops,
-  // so a browser can keep the old value.
-  pack?: ApiTokenLimits;
   // Automatic handoff: when the context crosses the trigger after a completed
   // turn, the server has the agent write a brief and hands off to a fresh
   // session (internal-docs/auto-handoff-design.md). Absent reads as true; the

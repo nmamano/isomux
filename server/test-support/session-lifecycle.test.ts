@@ -384,10 +384,7 @@ describe("session lifecycle: access change during a swap drain", () => {
     expect(sessionsFor(lane.fake, agent.id)).toHaveLength(2);
 
     // The member moves the agent below Standard inside that window.
-    const moved = await lane.mgr.setAccess(agent.id, {
-      access: "office",
-      pack: { areas: { tasks: "read" } },
-    });
+    const moved = await lane.mgr.setAccess(agent.id, { access: "office" });
     expect(moved).toMatchObject({ access: "office" });
 
     old.endStream();
@@ -413,10 +410,7 @@ describe("session lifecycle: access change during a swap drain", () => {
     expect(running.canAbortInPlace()).toBe(false);
     running.abort = () => Promise.reject(new Error("no in-place abort"));
 
-    const moved = await lane.mgr.setAccess(agent.id, {
-      access: "office",
-      pack: { areas: { tasks: "read" } },
-    });
+    const moved = await lane.mgr.setAccess(agent.id, { access: "office" });
     expect(moved).toMatchObject({ access: "office" });
     expect(running.closed).toBe(true);
     const sessions = sessionsFor(lane.fake, agent.id);
@@ -440,10 +434,7 @@ describe("session lifecycle: access change during a swap drain", () => {
       });
     openGates.push(() => releaseAbort?.());
 
-    const move = lane.mgr.setAccess(agent.id, {
-      access: "office",
-      pack: { areas: { tasks: "read" } },
-    });
+    const move = lane.mgr.setAccess(agent.id, { access: "office" });
     await waitUntil(() => running.abortCount > 0, "abort in flight");
     await lane.mgr.kill(agent.id);
     expect(getAgentTokenRaw(agent.id)).toBeNull();

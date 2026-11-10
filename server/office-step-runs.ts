@@ -2,7 +2,7 @@
 // checks and builds an action step with, and the in-process run of an office
 // route as a caller, shared by a member's Apply and the /mcp tool calls.
 
-import { accessGrantOf, belowStandard } from "../shared/agent-access.ts";
+import { accessGrantOf } from "../shared/agent-access.ts";
 import type { AgentAccess } from "../shared/agent-access.ts";
 import {
   LOBBY_ROOM_ID,
@@ -85,13 +85,10 @@ export function officeStepRuns(deps: {
   tokenLimitableRoomIds: StepRunDeps["tokenLimitableRoomIds"];
   storage: StorageOps;
 }): StepRunDeps {
-  // The asking agent's reach, as its token has it: its manager's rooms,
-  // narrowed to its pack's rooms below Standard.
+  // The asking agent's reach, as its token has it: its manager's rooms.
   function agentReachesRoom(askingAgentId: string, roomId: string): boolean {
     const asker = agentManager.getAgent(askingAgentId);
     if (!asker?.userId) return false;
-    const { access, pack } = accessGrantOf(asker);
-    const rooms = belowStandard(access) ? pack?.rooms : undefined;
     return deps.guardDeps().hasRoomAccess(
       {
         scope: "agent",
@@ -99,7 +96,6 @@ export function officeStepRuns(deps: {
         agentId: asker.id,
         role: "member",
         capabilities: [],
-        ...(rooms ? { apiTokenLimits: { rooms } } : {}),
       },
       roomId,
     );

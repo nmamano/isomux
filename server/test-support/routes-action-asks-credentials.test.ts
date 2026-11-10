@@ -1136,7 +1136,7 @@ describe("credential asks from /mcp", () => {
       o.morgan,
       "PUT",
       `/api/agents/${agent.id}/access`,
-      { access: "office", pack: { areas: { asks: "write" } } },
+      { access: "office" },
     );
     expect(lowered.status).toBe(200);
     const caseyToken = await mintToken(o, o.casey, "laptop");

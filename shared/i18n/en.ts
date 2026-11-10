@@ -1934,11 +1934,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.access.privileged": "Privileged",
   "dialogs.agent.access.chatHint": "No tools. It only answers in its chat.",
   "dialogs.agent.access.officeHint":
-    "No shell and no files. It uses the office only as its permission pack allows.",
+    "No shell and no files. It can message agents, work on tasks and open asks.",
   "dialogs.agent.access.folderHint":
     "Office, plus files in its own folder only.",
   "dialogs.agent.access.webHint":
-    "Folder, plus web search and fetch. A web page can tell it to send out what it reads, so give it a narrow pack.",
+    "Folder, plus web search and fetch. A web page can tell it to send out what it reads.",
   "dialogs.agent.access.standardHint": "A shell and every tool of its engine.",
   "dialogs.agent.access.boundaryNote":
     "With a shell, an agent can read the office tokens of other agents. Only Chat, Office, Folder and Web limit what it can reach.",
@@ -1948,9 +1948,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.roomFolderOnly": "Your agents work in their room's folder.",
   "dialogs.agent.access.aboveCeiling":
     "Above the highest agent level of the manager's permission pack",
-  "dialogs.agent.pack.asksOnly": "Asks only",
-  "dialogs.agent.pack.tasksAndAsks": "Tasks and asks",
-  "dialogs.agent.pack.showsSecrets": "can show secrets",
   "dialogs.agent.autoHandoff": "Automatic handoff",
   "dialogs.agent.autoHandoffHint":
     "When the context gets full, the agent writes a brief and continues in a fresh session. The chat clears.",

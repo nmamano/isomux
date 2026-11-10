@@ -2,6 +2,7 @@ import type { AgentSystemPromptPreviewReq } from "../../../shared/contract-shape
 import {
   AGENT_ACCESS_STOPS,
   FOLDER_NOT_ALLOWED,
+  packNotAccepted,
   parseAgentAccessGrant,
   type AgentAccessGrant,
 } from "../../../shared/agent-access.ts";
@@ -260,7 +261,7 @@ export interface AgentsDeps {
     effort?: AgentInfo["effort"];
     agentType?: AgentInfo["agentType"];
     codexSandbox?: AgentInfo["codexSandbox"];
-    // The new agent's stop below standard, with its pack. Absent: standard.
+    // The new agent's stop below standard. Absent: standard.
     grant?: AgentAccessGrant;
     username: string | undefined;
     userId: string | null;
@@ -574,19 +575,19 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.roomId !== "string" || b.roomId.length === 0) {
         return fail(422, "invalid_request", "roomId is required");
       }
-      // A stop below standard at spawn, with its pack. Privileged keeps its
-      // own user-only route.
+      // A stop below standard at spawn. Privileged keeps its own user-only
+      // route. A pack is refused, not dropped: the stop alone sets the
+      // token limits.
+      if ("pack" in b)
+        return fail(400, "invalid_request", packNotAccepted("pack"));
       let grant: AgentAccessGrant | undefined;
-      if (b.access !== undefined || b.pack !== undefined) {
-        const parsed = parseAgentAccessGrant({
-          access: b.access,
-          ...(b.pack !== undefined ? { pack: b.pack } : {}),
-        });
+      if (b.access !== undefined) {
+        const parsed = parseAgentAccessGrant({ access: b.access });
         if (!parsed || parsed.access === "privileged")
           return fail(
             400,
             "invalid_request",
-            "access must be chat, office, folder, web or standard, with a pack (token limits with areas) only at office, folder and web",
+            "access must be chat, office, folder, web or standard",
           );
         grant = parsed;
       }
@@ -862,14 +863,17 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.setAccess": async (ctx) => {
-      // Double-gated like agents.setPrivileged. The body is a stop, with a
-      // pack exactly at office, folder and web.
-      const grant = parseAgentAccessGrant(ctx.body);
+      // Double-gated like agents.setPrivileged. The body is {access}; a pack
+      // is refused, not dropped: the stop alone sets the token limits.
+      const body = ctx.body;
+      if (typeof body === "object" && body !== null && "pack" in body)
+        return fail(422, "invalid_request", packNotAccepted("pack"));
+      const grant = parseAgentAccessGrant(body);
       if (!grant)
         return fail(
           422,
           "invalid_request",
-          "access must be a stop (chat, office, folder, web, standard, privileged), with a pack (token limits with areas) only at office, folder and web",
+          "access must be a stop (chat, office, folder, web, standard, privileged)",
         );
       const agent = await deps.setAccess(ctx.params.id, grant);
       if (!agent) return fail(404, "agent_not_found", "Agent not found");

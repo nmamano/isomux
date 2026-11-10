@@ -9,11 +9,7 @@ import type {
   LogEntry,
   QueuedMessage,
 } from "../shared/types.ts";
-import {
-  agentAccessOf,
-  belowStandard,
-  stopHasPack,
-} from "../shared/agent-access.ts";
+import { accessGrantOf, belowStandard } from "../shared/agent-access.ts";
 import { fitsInside } from "../shared/pack-fit.ts";
 import { errMessage } from "../shared/errors.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
@@ -194,14 +190,10 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       : null;
     const receiver = agents.get(receiverId)?.info;
     if (!sender || !receiver) return false;
-    const access = agentAccessOf(receiver);
     const managerRooms = managerRoomsOf(receiver.userId);
     if (
       fitsInside(sender, {
-        access,
-        ...(stopHasPack(access) && receiver.pack
-          ? { pack: receiver.pack }
-          : {}),
+        ...accessGrantOf(receiver),
         roomId: receiver.roomId,
         ...(managerRooms ? { managerRooms } : {}),
       })

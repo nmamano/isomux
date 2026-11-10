@@ -20,7 +20,6 @@ import {
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../shared/memory-caps.ts";
-import { AGENT_PACK_PRESETS } from "../shared/agent-access.ts";
 import { DEMO_ROOM_NAMES, demoApi, sendInitialState } from "./demo-server.ts";
 import { demoAppMockContent } from "./demo-app.ts";
 import { addRawListener, removeRawListener } from "./ws.ts";
@@ -205,8 +204,9 @@ describe("demo fixture data", () => {
 
   // The spawn dialog sends PUT /access after the spawn for a Privileged
   // agent, its default for an owner (task 9279a412). As on the server
-  // (agent-manager applyAccess), the stop, the pack and the flag change
-  // together, and a grant that does not parse is a 422.
+  // (agent-manager applyAccess), the stop and the flag change together, and
+  // a grant that does not parse, or one with a pack (task 82da687b), is a
+  // 422.
   it("moves an agent between stops with PUT /api/agents/:id/access", async () => {
     const demoRoom = (await demoApi("POST", "/api/rooms", {
       name: "Access stops",
@@ -220,7 +220,7 @@ describe("demo fixture data", () => {
     })) as { agent: { id: string } };
     const fields = (a: Record<string, unknown>) => ({
       access: a.access,
-      pack: a.pack,
+      pack: "pack" in a,
       privileged: a.privileged,
     });
     const put = async (body: unknown) =>
@@ -233,23 +233,26 @@ describe("demo fixture data", () => {
       );
     expect(await put({ access: "privileged" })).toEqual({
       access: "privileged",
-      pack: undefined,
+      pack: false,
       privileged: true,
     });
-    const pack = AGENT_PACK_PRESETS.asksOnly;
-    expect(await put({ access: "folder", pack })).toEqual({
+    expect(await put({ access: "folder" })).toEqual({
       access: "folder",
-      pack,
+      pack: false,
       privileged: false,
     });
     expect(await put({ access: "standard" })).toEqual({
       access: "standard",
-      pack: undefined,
+      pack: false,
       privileged: false,
     });
-    expect(
-      demoApi("PUT", `/api/agents/${agent.id}/access`, { access: "admin" }),
-    ).rejects.toMatchObject({ status: 422 });
+    for (const body of [
+      { access: "admin" },
+      { access: "office", pack: { areas: { asks: "write" } } },
+    ])
+      await expect(
+        demoApi("PUT", `/api/agents/${agent.id}/access`, body),
+      ).rejects.toMatchObject({ status: 422 });
   });
 
   it("keeps usage stable across agent and cron fixture mutations", async () => {

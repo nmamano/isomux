@@ -2,7 +2,7 @@ import { dialogInput } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { MemberRoom } from "./ApiTokensPane.tsx";
 
-// The rooms of a limited token or an agent's pack: all rooms, or only the
+// The rooms of a limited token: all rooms, or only the
 // picked ones. `picked` is ids; the checkboxes list `rooms` in their order.
 export function RoomPicker({
   scope,

@@ -71,8 +71,6 @@ const PACK: MemberPack = {
   areas: { agents: "write", agentManagement: "write", rooms: "write" },
   agentCeiling: "web",
 };
-// The pack a Folder or Web agent gets at spawn.
-const AGENT_PACK = { areas: { agents: "read" } } as const;
 
 // Morgan owns the office and Casey is a member with access to `rooms`. The
 // first room's folder is `roomFolder`.
@@ -174,12 +172,7 @@ async function spawnVia(
     roomId: opts.roomId ?? o.room,
     agentType: "claude",
     ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
-    ...(access !== "standard"
-      ? {
-          access,
-          ...(access === "chat" ? {} : { pack: AGENT_PACK }),
-        }
-      : {}),
+    ...(access !== "standard" ? { access } : {}),
   };
   return who === "owner"
     ? asOwner(o, "POST", "/api/agents", body)
@@ -491,15 +484,11 @@ describe("the member's Folder agents outside the room folder move to Office", ()
     );
     expect({
       atRoom: accessOf(o, atRoom.id),
-      elsewhere: [
-        accessOf(o, elsewhere.id),
-        agentOf(o, elsewhere.id).pack?.areas,
-      ],
+      elsewhere: accessOf(o, elsewhere.id),
       owners: accessOf(o, owners.id),
     }).toEqual({
       atRoom: "folder",
-      // It keeps its pack, inside the member's areas.
-      elsewhere: ["office", AGENT_PACK.areas],
+      elsewhere: "office",
       owners: "folder",
     });
   });
@@ -648,7 +637,6 @@ describe("the member's Folder agents outside the room folder move to Office", ()
       (
         await asOwner(o, "PUT", `/api/agents/${x.id}/access`, {
           access: "folder",
-          pack: AGENT_PACK,
         })
       ).status,
     ).toBe(200);

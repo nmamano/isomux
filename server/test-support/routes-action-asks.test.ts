@@ -7,7 +7,13 @@
 // grant, by the card or by any other path.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -21,12 +27,7 @@ import {
   loadBackupSettings,
   saveBackupSettings,
 } from "../backup.ts";
-import {
-  AGENT_PACK_AREAS,
-  FOLDER_NOT_ALLOWED,
-  parseAgentPack,
-} from "../../shared/agent-access.ts";
-import { API_TOKEN_AREAS } from "../../shared/api-token-limits.ts";
+import { FOLDER_NOT_ALLOWED } from "../../shared/agent-access.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -209,9 +210,11 @@ function agentOf(o: Office, id: string): AgentInfo {
   return agent;
 }
 
+// The stop an agent holds. The record has no pack (task 82da687b): `pack`
+// reads true when the key is there at all.
 const grantOf = (o: Office, id: string) => {
   const a = agentOf(o, id);
-  return { access: a.access ?? "standard", pack: a.pack };
+  return { access: a.access ?? "standard", pack: "pack" in a };
 };
 
 async function waitUntil(pred: () => Promise<boolean>, label: string) {
@@ -231,7 +234,7 @@ const stepLines = (o: Office, agentId: string) =>
     .filter((key): key is string => key !== undefined);
 
 describe("an agent-access ask at create", () => {
-  it("opens for the manager with the grant asked for and no link, at a plain stop and at a pack stop", async () => {
+  it("opens for the manager with the grant asked for and no link, at a stop with and without a shell", async () => {
     const o = await office();
     const asker = await spawn(o, "Asker");
     const target = await spawn(o, "Curator");
@@ -240,21 +243,16 @@ describe("an agent-access ask at create", () => {
       { kind: "agent-access", agentId: target.id, access: "privileged" },
       undefined,
     ]);
-    const down = await opened(
-      o,
-      asker.id,
-      accessStep(target.id, "office", TASKS_READ),
-    );
+    const down = await opened(o, asker.id, accessStep(target.id, "office"));
     expect(down.step).toEqual({
       kind: "agent-access",
       agentId: target.id,
       access: "office",
-      pack: TASKS_READ,
     });
     // Nothing ran: the target is where it was.
     expect(grantOf(o, target.id)).toEqual({
       access: "standard",
-      pack: undefined,
+      pack: false,
     });
   });
 
@@ -264,8 +262,16 @@ describe("an agent-access ask at create", () => {
     const target = await spawn(o, "Curator");
     const bad: [string, Record<string, unknown>][] = [
       ["an unknown stop", accessStep(target.id, "root")],
+      // Any pack is refused (task 82da687b): the step would grant what the
+      // agent did not ask for.
       ["a pack at privileged", accessStep(target.id, "privileged", TASKS_READ)],
-      ["no pack at office", accessStep(target.id, "office")],
+      ["a pack at office", accessStep(target.id, "office", TASKS_READ)],
+      [
+        "the fixed grant as a pack at web",
+        accessStep(target.id, "web", {
+          areas: { agents: "write", tasks: "write", asks: "write" },
+        }),
+      ],
       ["no agent", { kind: "agent-access", access: "privileged" }],
       [
         "an extra key",
@@ -298,51 +304,6 @@ describe("an agent-access ask at create", () => {
       `/api/agents/${asker.id}/asks`,
     );
     expect(JSON.stringify(open.body)).not.toContain(target.id);
-  });
-
-  // Task 0fb79ed4: the card and the slider show only the agent pack areas,
-  // so a pack with any other area would grant what the member did not see.
-  it("refuses a pack with an area outside the agent pack areas: 400, nothing opened; the agent pack areas and rooms open", async () => {
-    const o = await office();
-    const asker = await spawn(o, "Asker");
-    const target = await spawn(o, "Curator");
-    const base = { agents: "write", asks: "write" };
-    const outside = API_TOKEN_AREAS.filter(
-      (area) => !(AGENT_PACK_AREAS as readonly string[]).includes(area),
-    );
-    expect(outside.length).toBeGreaterThan(0);
-    for (const area of outside)
-      for (const level of ["read", "write"]) {
-        const pack = { areas: { ...base, [area]: level } };
-        // The parser takes it: only the agent pack rule refuses it.
-        expect({ area, parsed: parseAgentPack(pack) !== null }).toEqual({
-          area,
-          parsed: true,
-        });
-        expect({
-          area,
-          level,
-          ...outcome(
-            await ask(o, asker.id, accessStep(target.id, "web", pack)),
-          ),
-        }).toEqual({ area, level, status: 400, code: "invalid_request" });
-      }
-    const open = await asAgent(
-      o,
-      asker.id,
-      "GET",
-      `/api/agents/${asker.id}/asks`,
-    );
-    expect(JSON.stringify(open.body)).not.toContain(target.id);
-    // Every agent pack area, with a rooms axis, opens as asked.
-    const full = {
-      areas: Object.fromEntries(
-        AGENT_PACK_AREAS.map((area) => [area, "write"]),
-      ),
-      rooms: [o.room],
-    };
-    const up = await opened(o, asker.id, accessStep(target.id, "web", full));
-    expect(up.step as unknown).toEqual(accessStep(target.id, "web", full));
   });
 
   it("answers a target the asking agent cannot reach exactly as a missing one, before the member's verdict and the done check", async () => {
@@ -402,9 +363,7 @@ describe("an agent-access ask at create", () => {
     // Codex on its default model does not run below Standard.
     const codex = await spawn(o, "Codex", { agentType: "codex" });
     expect(
-      outcome(
-        await ask(o, asker.id, accessStep(codex.id, "office", TASKS_READ)),
-      ),
+      outcome(await ask(o, asker.id, accessStep(codex.id, "office"))),
     ).toEqual({ status: 422, code: "engine_below_standard" });
     // A folder stop is refused for an agent whose folder holds the office
     // state.
@@ -412,13 +371,11 @@ describe("an agent-access ask at create", () => {
       cwd: dirname(o.srv.stateRoot),
     });
     expect(
-      outcome(
-        await ask(o, asker.id, accessStep(inState.id, "folder", TASKS_READ)),
-      ),
+      outcome(await ask(o, asker.id, accessStep(inState.id, "folder"))),
     ).toEqual({ status: 422, code: FOLDER_NOT_ALLOWED });
     // The same agents at a stop their refusal does not cover open.
     await opened(o, asker.id, accessStep(codex.id, "privileged"));
-    await opened(o, asker.id, accessStep(inState.id, "office", TASKS_READ));
+    await opened(o, asker.id, accessStep(inState.id, "office"));
   });
 
   it("refuses a grant the agent has: 409 step_done", async () => {
@@ -433,23 +390,14 @@ describe("an agent-access ask at create", () => {
       o.morgan,
       "PUT",
       `/api/agents/${target.id}/access`,
-      {
-        access: "office",
-        pack: TASKS_READ,
-      },
+      { access: "office" },
     );
     expect(set.status).toBe(200);
     expect(
-      outcome(
-        await ask(o, asker.id, accessStep(target.id, "office", TASKS_READ)),
-      ),
+      outcome(await ask(o, asker.id, accessStep(target.id, "office"))),
     ).toEqual({ status: 409, code: "step_done" });
-    // Another pack at the same stop is not done.
-    await opened(
-      o,
-      asker.id,
-      accessStep(target.id, "office", { areas: { tasks: "write" } }),
-    );
+    // The enabling condition: another stop is not done.
+    await opened(o, asker.id, accessStep(target.id, "folder"));
   });
 });
 
@@ -524,11 +472,7 @@ describe("an agent-access ask run from the card", () => {
     const o = await office();
     const asker = await spawn(o, "Asker");
     const target = await spawn(o, "Curator");
-    const entry = await opened(
-      o,
-      asker.id,
-      accessStep(target.id, "office", TASKS_READ),
-    );
+    const entry = await opened(o, asker.id, accessStep(target.id, "office"));
     // After the create, the agent moves to an engine that does not run
     // the stop.
     const moved = await asSession(
@@ -599,26 +543,52 @@ describe("an agent-access ask closes when the agent reaches the grant by another
     ]);
   });
 
-  it("a move with no route (the manager-transfer and pack clamps) closes it; a move to another grant does not", async () => {
+  it("a move with no route (the manager-transfer and pack clamps) closes it; a move to another stop does not", async () => {
     const o = await office();
     const asker = await spawn(o, "Asker");
     const target = await spawn(o, "Curator");
-    const entry = await opened(
-      o,
-      asker.id,
-      accessStep(target.id, "office", TASKS_READ),
-    );
-    // Another pack at the same stop: not the grant asked for.
-    await o.srv.agentManager.setAccess(target.id, {
-      access: "office",
-      pack: { areas: { tasks: "write" } },
-    });
+    const entry = await opened(o, asker.id, accessStep(target.id, "office"));
+    // Another stop: not the grant asked for.
+    await o.srv.agentManager.setAccess(target.id, { access: "chat" });
     await Bun.sleep(50);
     expect(await askStatus(o, asker.id, entry.id)).toBe("open");
-    await o.srv.agentManager.setAccess(target.id, {
-      access: "office",
-      pack: TASKS_READ,
+    await o.srv.agentManager.setAccess(target.id, { access: "office" });
+    await waitUntil(
+      async () => (await askStatus(o, asker.id, entry.id)) === "done",
+      "the ask closes",
+    );
+  });
+
+  // An ask opened before task 82da687b can hold a step with a pack. It
+  // loads, Apply moves the agent to the stop with the fixed grant, and the
+  // ask closes as done.
+  it("a stored step with a pack applies as the fixed grant and closes", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const target = await spawn(o, "Curator");
+    const entry = await opened(o, asker.id, accessStep(target.id, "office"));
+    const file = join(o.srv.stateRoot, "asks.json");
+    const stored = JSON.parse(readFileSync(file, "utf8")) as Array<{
+      id: string;
+      step?: Record<string, unknown>;
+    }>;
+    const mine = stored.find((e) => e.id === entry.id);
+    expect(mine?.step?.kind).toBe("agent-access");
+    mine!.step!.pack = { areas: { asks: "write" } };
+    writeFileSync(file, JSON.stringify(stored, null, 2));
+    o.srv = await o.srv.restart();
+    server = o.srv;
+    // The enabling condition: the ask loaded with its step.
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(200);
+    expect(grantOf(o, target.id)).toEqual({ access: "office", pack: false });
+    // The fixed grant: tasks write, which the stored pack did not have.
+    const created = await asAgent(o, target.id, "POST", "/api/tasks", {
+      title: "from the fixed grant",
     });
+    expect(created.status).toBe(201);
     await waitUntil(
       async () => (await askStatus(o, asker.id, entry.id)) === "done",
       "the ask closes",
@@ -637,10 +607,7 @@ describe("an agent-access ask from /mcp", () => {
       o.morgan,
       "PUT",
       `/api/agents/${agent.id}/access`,
-      {
-        access: "office",
-        pack: { areas: { asks: "write" } },
-      },
+      { access: "office" },
     );
     expect(lowered.status).toBe(200);
     const client = new Client({ name: "action-asks-test", version: "0.0.0" });
@@ -652,6 +619,37 @@ describe("an agent-access ask from /mcp", () => {
       }),
     );
     clients.push(client);
+    // A step with a pack is refused through /mcp too, before anything opens:
+    // the tool's schema must not drop the key and open the step with the
+    // fixed grant (task 82da687b). The peer is at Standard, so the same step
+    // without the pack opens.
+    const peer = await spawn(o, "Peer");
+    const askStep = (pack?: Record<string, unknown>) =>
+      client.callTool({
+        name: "open_ask",
+        arguments: {
+          prompt: "Move the peer to Office?",
+          step: accessStep(peer.id, "office", pack),
+        },
+      }) as Promise<{ isError?: boolean }>;
+    for (const pack of [
+      { areas: { tasks: "read" } },
+      { areas: { agents: "write", tasks: "write", asks: "write" } },
+    ]) {
+      const refused = await askStep(pack);
+      expect({ pack, error: refused.isError ?? false }).toEqual({
+        pack,
+        error: true,
+      });
+    }
+    const asksFor = async (id: string) =>
+      ((await asSession(o, o.morgan, "GET", "/api/asks")).body as AskEntry[])
+        .map((a) => a.step as { agentId?: string } | undefined)
+        .filter((step) => step?.agentId === id).length;
+    expect(await asksFor(peer.id)).toBe(0);
+    // The enabling condition: without the pack the step opens.
+    expect((await askStep()).isError ?? false).toBe(false);
+    expect(await asksFor(peer.id)).toBe(1);
     const result = (await client.callTool({
       name: "open_ask",
       arguments: {
@@ -666,7 +664,7 @@ describe("an agent-access ask from /mcp", () => {
     expect(res.status).toBe(200);
     expect(grantOf(o, agent.id)).toEqual({
       access: "standard",
-      pack: undefined,
+      pack: false,
     });
     const memberAsks = async () =>
       (await asSession(o, o.morgan, "GET", "/api/asks")).body as AskEntry[];
@@ -1223,7 +1221,7 @@ describe("member asks from /mcp", () => {
       o.morgan,
       "PUT",
       `/api/agents/${agent.id}/access`,
-      { access: "office", pack: { areas: { asks: "write" } } },
+      { access: "office" },
     );
     expect(lowered.status).toBe(200);
     const client = new Client({ name: "action-asks-test", version: "0.0.0" });
@@ -2071,7 +2069,7 @@ describe("settings asks from /mcp", () => {
       o.morgan,
       "PUT",
       `/api/agents/${agent.id}/access`,
-      { access: "office", pack: { areas: { asks: "write" } } },
+      { access: "office" },
     );
     expect(lowered.status).toBe(200);
     const client = new Client({ name: "action-asks-test", version: "0.0.0" });

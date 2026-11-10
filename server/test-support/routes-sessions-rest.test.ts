@@ -611,22 +611,24 @@ describe("routes/sessions REST: an agent's read of a member's sessions (task 43b
     expect((await readAs(o, o.casey.username, agent.token)).status).toBe(200);
   });
 
-  it("an agent whose pack has no office read is refused for the office area; with office read it reads", async () => {
+  // The fixed grant of an agent below Standard (task 82da687b) has no
+  // office area.
+  it("an agent below Standard is refused for the office area; at Standard it reads", async () => {
     const o = await office();
     const agent = await o.spawnFor("Asker", o.morgan.username);
-    const setPack = async (areas: Record<string, string>) =>
+    const setStop = async (access: string) =>
       expect(
         (
           await api(o.srv, `/api/agents/${agent.id}/access`, {
             method: "PUT",
-            body: { access: "office", pack: { areas } },
+            body: { access },
             rawSessionId: o.morgan.rawSessionId,
           })
         ).status,
       ).toBe(200);
     // A new stop mints the agent a new token: read it after each.
     const tokenNow = () => getAgentTokenRaw(agent.id)!;
-    await setPack({ asks: "write" });
+    await setStop("office");
     const refused = await readAs(o, o.casey.username, tokenNow());
     const err = (refused.body as { error?: { area?: string; level?: string } })
       .error;
@@ -635,7 +637,7 @@ describe("routes/sessions REST: an agent's read of a member's sessions (task 43b
       area: err?.area,
       level: err?.level,
     }).toEqual({ status: 403, area: "office", level: "read" });
-    await setPack({ asks: "write", office: "read" });
+    await setStop("standard");
     expect((await readAs(o, o.casey.username, tokenNow())).status).toBe(200);
   });
 });

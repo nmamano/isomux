@@ -12,12 +12,7 @@
 //
 import { withinTokenRooms, type Identity } from "./index.ts";
 import type { CeilingManager, GuardDeps } from "./guards.ts";
-import {
-  agentAccessOf,
-  stopHasPack,
-  type AgentAccess,
-} from "../../shared/agent-access.ts";
-import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
+import { accessGrantOf, type AgentAccess } from "../../shared/agent-access.ts";
 import { managerRoomsOf, type FitTarget } from "../../shared/pack-fit.ts";
 
 // The minimal live readers the adapter needs, as structural shapes so the
@@ -34,7 +29,7 @@ export interface GuardDepsLiveReaders {
   // `userId` is the agent's MANAGER (its spawning user) - used by the
   // agents.setPrivileged manager-match gate. The live AgentInfo carries it.
   // `spawnedByAgentId` gates agents.kill for an ordinary agent.
-  // `access`, `privileged` and `pack` give the pack rule its target.
+  // `access` and `privileged` give the pack rule its target.
   getAllAgents(): readonly {
     id: string;
     roomId: string;
@@ -42,7 +37,6 @@ export interface GuardDepsLiveReaders {
     spawnedByAgentId?: string;
     access?: AgentAccess;
     privileged?: boolean;
-    pack?: ApiTokenLimits;
   }[];
   // The live global rooms list (dense, creation order); index → roomId.
   getRooms(): readonly { id: string }[];
@@ -91,7 +85,7 @@ export interface GuardDepsLiveReaders {
     id: string,
   ): string | null;
   apiTokenHeardFrom(tokenId: string, agentId: string): boolean;
-  // A killed agent's last stop and pack (agentManager.killedAgentGrant).
+  // A killed agent's last stop and its grant (agentManager.killedAgentGrant).
   killedAgentGrant?(agentId: string): Omit<FitTarget, "roomId"> | null;
   // agentManager.agentHeardFrom.
   agentHeardFrom?(receiverId: string, writerId: string): boolean;
@@ -122,13 +116,11 @@ export function buildProductionGuardDeps(
     agentFitTarget(agentId) {
       const agent = live.getAllAgents().find((a) => a.id === agentId);
       if (!agent) return null;
-      const access = agentAccessOf(agent);
       const managerRooms = managerRoomsOf(
         agent.userId ? live.userRecordById?.(agent.userId) : null,
       );
       return {
-        access,
-        ...(stopHasPack(access) && agent.pack ? { pack: agent.pack } : {}),
+        ...accessGrantOf(agent),
         roomId: agent.roomId,
         ...(managerRooms ? { managerRooms } : {}),
       };

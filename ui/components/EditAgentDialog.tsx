@@ -68,19 +68,14 @@ import {
 import { SystemPromptButton } from "./SystemPromptButton.tsx";
 import { AccessSlider } from "./AccessSlider.tsx";
 import {
-  AGENT_PACK_PRESETS,
   agentAccessOf,
   belowStandard,
   stopHasFolder,
   CODEX_BELOW_STANDARD_MODELS,
   engineRunsAccessOnSomeModel,
   FOLDER_NOT_ALLOWED,
-  sameAccessGrant,
-  stopHasPack,
   type AgentAccess,
-  type AgentAccessGrant,
 } from "../../shared/agent-access.ts";
-import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
@@ -216,7 +211,7 @@ export interface AgentFormSnapshot {
   permissionMode: AgentInfo["permissionMode"];
   codexSandbox: CodexSandboxMode;
   privileged: boolean;
-  // The access slider stop and, at a stop with a pack, the pack (JSON).
+  // The access slider stop.
   access?: string;
   // The chosen manager's user id ("" for none). Only an owner in edit mode
   // can change it.
@@ -483,22 +478,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     isCodex &&
     belowStandard(access) &&
     !CODEX_BELOW_STANDARD_MODELS.includes(model);
-  // The pack is state of its own: it stays while the member moves the
-  // slider, and is sent only at a stop with a pack. A pack the agent kept at
-  // a stop without one is stale, so it starts from the narrowest preset.
-  const [pack, setPack] = useState<ApiTokenLimits>(() =>
-    agent?.pack && stopHasPack(savedAccess)
-      ? agent.pack
-      : { ...AGENT_PACK_PRESETS.asksOnly },
-  );
   const privileged = access === "privileged";
-  const grant: AgentAccessGrant = stopHasPack(access)
-    ? { access, pack }
-    : { access };
-  const accessChanged = !sameAccessGrant(
-    { access: savedAccess, ...(agent?.pack ? { pack: agent.pack } : {}) },
-    grant,
-  );
+  // The stop alone: it sets the agent's token limits.
+  const accessChanged = access !== savedAccess;
   // Manager transfer (PUT /api/agents/:id/manager): an office owner only, in
   // edit mode, mirroring the server gate. "" is an agent with no manager.
   const canChangeManager = !isSpawn && sessionContext?.role === "owner";
@@ -619,7 +601,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     permissionMode,
     codexSandbox,
     privileged,
-    access: JSON.stringify(grant),
+    access,
     manager: managerUserId,
     autoHandoff,
     autoHandoffTokens,
@@ -1165,7 +1147,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         agentType: targetEngine,
         ...(isCodex ? { codexSandbox } : {}),
         // Below Standard in the spawn itself, so a refusal leaves no agent.
-        ...(belowStandard(access) ? grant : {}),
+        ...(belowStandard(access) ? { access } : {}),
       } satisfies SpawnReq)
         .then(async (res) => {
           // Spawn takes neither switch: set what is off the default with an
@@ -1281,11 +1263,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // keeps each swap clean (both re-read the freshly re-minted token).
       const ops: Array<() => Promise<unknown>> = [];
       const putAccess = () =>
-        apiFetch(
-          "PUT",
-          `/api/agents/${agent!.id}/access`,
-          grant satisfies SetAgentAccessReq,
-        );
+        apiFetch("PUT", `/api/agents/${agent!.id}/access`, {
+          access,
+        } satisfies SetAgentAccessReq);
       // Up to Standard or above, the access goes first: a switch to an engine
       // that cannot run below Standard needs it. Below Standard it goes after
       // the PATCH, so the folder rules check the new folder.
@@ -2549,8 +2529,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <AccessSlider
                     access={access}
                     onAccess={setAccess}
-                    pack={pack}
-                    onPack={setPack}
                     agentType={targetEngine}
                     model={modelFamily}
                     {...(ceiling ? { ceiling } : {})}

@@ -1984,11 +1984,11 @@ Coses que pots fer per ell:
   "dialogs.agent.access.privileged": "Privilegiat",
   "dialogs.agent.access.chatHint": "Sense eines. Només respon al seu xat.",
   "dialogs.agent.access.officeHint":
-    "Sense terminal ni fitxers. Fa servir l'oficina només com permet el seu paquet de permisos.",
+    "Sense terminal ni fitxers. Pot enviar missatges a agents, treballar en tasques i obrir peticions.",
   "dialogs.agent.access.folderHint":
     "Oficina, més fitxers només a la seva pròpia carpeta.",
   "dialogs.agent.access.webHint":
-    "Carpeta, més cerca i descàrrega web. Una pàgina web li pot demanar que enviï el que llegeix, així que dona-li un paquet reduït.",
+    "Carpeta, més cerca i descàrrega web. Una pàgina web li pot demanar que enviï el que llegeix.",
   "dialogs.agent.access.standardHint":
     "Un terminal i totes les eines del seu motor.",
   "dialogs.agent.access.boundaryNote":
@@ -2000,9 +2000,6 @@ Coses que pots fer per ell:
     "Els teus agents treballen a la carpeta de la seva sala.",
   "dialogs.agent.access.aboveCeiling":
     "Per sobre del nivell d'agent més alt del paquet de permisos del responsable",
-  "dialogs.agent.pack.asksOnly": "Només preguntes",
-  "dialogs.agent.pack.tasksAndAsks": "Tasques i preguntes",
-  "dialogs.agent.pack.showsSecrets": "pot mostrar secrets",
   "dialogs.agent.autoHandoff": "Traspàs automàtic",
   "dialogs.agent.autoHandoffHint":
     "Quan el context s'omple, l'agent escriu un resum i continua en una sessió nova. El xat es buida.",

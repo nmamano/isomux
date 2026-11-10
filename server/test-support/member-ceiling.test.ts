@@ -159,17 +159,15 @@ async function spawn(
   return agent;
 }
 
-// Moves an agent with the owner's slider.
+// Moves an agent with the owner's slider. At office and folder the agent
+// gets the fixed grant (task 82da687b).
 async function lower(
   o: Office,
   agent: AgentInfo,
   access: "chat" | "office" | "folder",
-  areas?: Record<string, string>,
-  rooms?: string[],
 ): Promise<void> {
   const res = await asOwner(o, "PUT", `/api/agents/${agent.id}/access`, {
     access,
-    ...(areas ? { pack: { areas, ...(rooms ? { rooms } : {}) } } : {}),
   });
   expect({ agent: agent.name, status: res.status }).toEqual({
     agent: agent.name,
@@ -191,15 +189,26 @@ const agentOf = (o: Office, id: string): AgentInfo => {
 const isLive = (o: Office, id: string) =>
   o.srv.agentManager.getAllAgents().some((a) => a.id === id);
 
-// The stop and pack areas an agent holds, for one comparison.
+// The stop an agent holds, for one comparison. Below Standard its token
+// gets the fixed grant, capped live by its member's pack.
 const grantOf = (o: Office, id: string) => {
   const agent = agentOf(o, id);
   return {
     access: agent.access ?? "standard",
     privileged: agent.privileged ?? false,
-    areas: agent.pack?.areas,
   };
 };
+
+// What an agent's token may do with tasks: the fixed grant has tasks write,
+// so a refused write is the member's pack, read live.
+async function taskReach(o: Office, agentId: string) {
+  const token = tokenOf(agentId);
+  const read = await asBearer(o, token, "GET", "/api/tasks");
+  const write = await asBearer(o, token, "POST", "/api/tasks", {
+    title: "reach",
+  });
+  return { read: read.status, write: write.status };
+}
 
 // The stops of the sessions the backend made for an agent after `mark`.
 const stopsSince = (
@@ -241,9 +250,16 @@ async function talkTo(o: Office, agent: AgentInfo, text: string) {
 }
 
 // A pack that counts for the messaging rule, and one that does not (memory
-// write reaches everything already): the ceiling binds both.
+// write reaches everything already): the ceiling binds both. The counted one
+// covers the fixed grant of an agent at Office (task 82da687b), so its
+// agents fit it.
 const COUNTED: MemberPack = {
-  areas: { agents: "write", agentManagement: "write" },
+  areas: {
+    agents: "write",
+    agentManagement: "write",
+    tasks: "write",
+    asks: "write",
+  },
   agentCeiling: "office",
 };
 const UNCOUNTED: MemberPack = {
@@ -259,10 +275,7 @@ describe("no request puts a member's agent above the member's ceiling", () => {
     it(`the member, their agent and an owner, with ${label}`, async () => {
       const o = await office();
       const mine = await spawn(o, "Mine", "Casey");
-      await lower(o, mine, "office", {
-        agents: "write",
-        agentManagement: "write",
-      });
+      await lower(o, mine, "office");
       await packCasey(o, pack);
       const refusedToCasey = { status: 403, code: ABOVE_AGENT_CEILING };
 
@@ -281,21 +294,16 @@ describe("no request puts a member's agent above the member's ceiling", () => {
           cwd: freshFolder(),
           roomId: o.room,
           agentType: "claude",
-          ...(access
-            ? {
-                access,
-                ...(access === "folder"
-                  ? { pack: { areas: { agents: "read" } } }
-                  : {}),
-              }
-            : {}),
+          ...(access ? { access } : {}),
         });
         expect({ access, ...outcome(res) }).toEqual({
           access,
           ...refusedToCasey,
         });
       }
-      // The member's agent spawns above the ceiling.
+      // The member's agent spawns above the ceiling: refused before the
+      // ceiling, since the fixed grant of an agent below Standard has no
+      // agentManagement (task 82da687b).
       const byAgent = await asBearer(
         o,
         tokenOf(mine.id),
@@ -309,7 +317,7 @@ describe("no request puts a member's agent above the member's ceiling", () => {
           access: "standard",
         },
       );
-      expect(outcome(byAgent)).toEqual(refusedToCasey);
+      expect(outcome(byAgent)).toEqual({ status: 403, code: "forbidden" });
       expect(o.srv.agentManager.getAllAgents()).toHaveLength(before);
       // The enabling condition: a spawn at the ceiling passes.
       // No folder: the member's agent works in the room's folder (task
@@ -319,7 +327,6 @@ describe("no request puts a member's agent above the member's ceiling", () => {
         roomId: o.room,
         agentType: "claude",
         access: "office",
-        pack: { areas: { agents: "read" } },
       });
       expect(atCeiling.status).toBe(201);
 
@@ -340,7 +347,7 @@ describe("no request puts a member's agent above the member's ceiling", () => {
       await lower(o, mine, "chat");
       // An owner's own agent is not bound by Casey's ceiling.
       const ownAgent = await spawn(o, "Morgan's");
-      await lower(o, ownAgent, "office", { agents: "read" });
+      await lower(o, ownAgent, "office");
       expect(
         (
           await asOwner(o, "PUT", `/api/agents/${ownAgent.id}/access`, {
@@ -378,8 +385,9 @@ describe("a manager change and a revive move the agent down", () => {
       manager: o.caseyId,
       access: "office",
       privileged: false,
-      areas: PACK.areas,
     });
+    // The fixed grant, capped live by the member's pack: tasks read only.
+    expect(await taskReach(o, given.id)).toEqual({ read: 200, write: 403 });
     // The move rotated its token.
     expect(tokenOf(given.id)).not.toBe(oldToken);
     expect(
@@ -428,7 +436,6 @@ describe("a manager change and a revive move the agent down", () => {
     expect(grantOf(o, old.id)).toEqual({
       access: "office",
       privileged: false,
-      areas: PACK.areas,
     });
     await talkTo(o, agentOf(o, old.id), "after the revive");
     const stops = stopsSince(o, old.id, mark);
@@ -451,16 +458,22 @@ describe("a manager change and a revive move the agent down", () => {
     expect(
       (await asOwner(o, "DELETE", `/api/agents/${old.id}`)).status,
     ).toBeLessThan(300);
-    // A pack that counts for the messaging rule.
-    await packCasey(o, COUNTED);
-    const revived = await asCasey(o, "POST", `/api/agents/${old.id}/revive`, {
-      roomId: o.room,
+    const revive = () =>
+      asCasey(o, "POST", `/api/agents/${old.id}/revive`, { roomId: o.room });
+    // A pack that counts for the messaging rule, without tasks and asks: the
+    // agent at the ceiling gets the fixed grant, which does not fit it.
+    await packCasey(o, {
+      areas: { agents: "write", agentManagement: "write" },
+      agentCeiling: "office",
     });
-    expect(outcome(revived)).toEqual({ status: 200, code: undefined });
+    expect(outcome(await revive())).toEqual({ status: 403, code: NOT_FIT });
+    expect(isLive(o, old.id)).toBe(false);
+    // A pack that covers the fixed grant.
+    await packCasey(o, COUNTED);
+    expect(outcome(await revive())).toEqual({ status: 200, code: undefined });
     expect(grantOf(o, old.id)).toEqual({
       access: "office",
       privileged: false,
-      areas: COUNTED.areas,
     });
   });
 });
@@ -491,15 +504,12 @@ describe("a pack save moves the member's agents down", () => {
       cwd: o.srv.workDir,
     });
     const atOffice = await spawn(o, "At office", "Casey");
-    const wide = { agents: "write", tasks: "write" } as const;
-    await lower(o, atOffice, "office", wide);
+    await lower(o, atOffice, "office");
     const atChat = await spawn(o, "At chat", "Casey");
     await lower(o, atChat, "chat");
-    // At the ceiling with a pack wider than the member's areas, in a folder
-    // that is not the room's.
+    // At the ceiling, in a folder that is not the room's.
     const atFolder = await spawn(o, "At folder", "Casey");
-    const wider = { agents: "write", tasks: "write", memory: "read" } as const;
-    await lower(o, atFolder, "folder", wider);
+    await lower(o, atFolder, "folder");
     const others = await spawn(o, "Morgan's");
     const tokens = Object.fromEntries(
       [standard, privileged, inState, atOffice, atChat, others].map((a) => [
@@ -529,21 +539,24 @@ describe("a pack save moves the member's agents down", () => {
       atFolder: grantOf(o, atFolder.id),
       others: grantOf(o, others.id),
     }).toEqual({
-      standard: { access: "folder", privileged: false, areas: pack.areas },
-      privileged: { access: "folder", privileged: false, areas: pack.areas },
-      inState: { access: "office", privileged: false, areas: pack.areas },
-      // At or below the ceiling: its stored pack stays (the token is capped
-      // live by the member's pack).
-      atOffice: { access: "office", privileged: false, areas: wide },
-      atChat: { access: "chat", privileged: false, areas: undefined },
-      // Not in its room's folder: Office, its pack cut to the member's areas.
-      atFolder: {
-        access: "office",
-        privileged: false,
-        areas: { agents: "write", tasks: "read" },
-      },
-      others: { access: "standard", privileged: false, areas: undefined },
+      standard: { access: "folder", privileged: false },
+      privileged: { access: "folder", privileged: false },
+      inState: { access: "office", privileged: false },
+      // At or below the ceiling: it stays.
+      atOffice: { access: "office", privileged: false },
+      atChat: { access: "chat", privileged: false },
+      // Not in its room's folder: Office.
+      atFolder: { access: "office", privileged: false },
+      others: { access: "standard", privileged: false },
     });
+    // Moved or not, the token of an agent below Standard is the fixed grant
+    // capped live by the member's pack (tasks read).
+    for (const agent of [standard, atOffice, atFolder])
+      expect({ agent: agent.name, ...(await taskReach(o, agent.id)) }).toEqual({
+        agent: agent.name,
+        read: 200,
+        write: 403,
+      });
     // A moved agent's token is rotated; the others keep theirs.
     expect({
       standard: tokenOf(standard.id) === tokens[standard.name],
@@ -632,7 +645,6 @@ describe("a pack save moves the member's agents down", () => {
     expect(grantOf(o, claude.id)).toEqual({
       access: "office",
       privileged: false,
-      areas: COUNTED.areas,
     });
     await talkTo(o, agentOf(o, claude.id), "after the restart");
     const stops = stopsSince(o, claude.id, mark);
@@ -653,52 +665,71 @@ describe("a pack save moves the member's agents down", () => {
   });
 });
 
+// Every agent below Standard holds the fixed grant (task 82da687b): agents,
+// tasks and asks write, in every room its manager reaches. A target fits the
+// member's agent only when the member's pack covers those areas and the
+// target's manager reaches no room outside the member's.
+const FULL_FIT: MemberPack = {
+  areas: { agents: "write", tasks: "write", asks: "write" },
+  agentCeiling: "office",
+};
+
 describe("the member's agent sends as the member's pack", () => {
-  it("on /api: it reaches no agent whose pack reaches rooms outside the member's", async () => {
+  it("on /api: it reaches no agent whose grant reaches more than the member's pack", async () => {
     const o = await office();
     const mine = await spawn(o, "Mine", "Casey");
-    // Its own pack has no room limit.
-    await lower(o, mine, "office", { agents: "write" });
+    await lower(o, mine, "office");
+    // The owner's agent reaches every room; Casey reaches one.
     const everywhere = await spawn(o, "Everywhere");
-    await lower(o, everywhere, "office", { agents: "read" });
-    const inRoom = await spawn(o, "In the room");
-    await lower(o, inRoom, "office", { agents: "read" }, [o.room]);
-    await packCasey(o, { areas: { agents: "write" }, agentCeiling: "office" });
+    await lower(o, everywhere, "office");
+    // Casey's own agent reaches Casey's rooms only.
+    const peer = await spawn(o, "Peer", "Casey");
+    await lower(o, peer, "office");
+    const atChat = await spawn(o, "At chat");
+    await lower(o, atChat, "chat");
     const send = (to: AgentInfo) =>
       asBearer(o, tokenOf(mine.id), "POST", `/api/agents/${to.id}/messages`, {
         text: `to ${to.name}`,
       });
+    const abort = (to: AgentInfo) =>
+      asBearer(o, tokenOf(mine.id), "POST", `/api/agents/${to.id}/abort`, {});
+
+    // A pack without tasks and asks: no target at Office fits.
+    await packCasey(o, { areas: { agents: "write" }, agentCeiling: "office" });
+    expect(outcome(await send(peer))).toEqual({ status: 403, code: NOT_FIT });
+    // The enabling condition: an agent at Chat fits every sender.
+    expect((await send(atChat)).status).toBe(200);
+
+    // A pack with the fixed grant's areas: Casey's agent fits, the owner's
+    // (every room) does not.
+    await packCasey(o, FULL_FIT);
     expect(outcome(await send(everywhere))).toEqual({
       status: 403,
       code: NOT_FIT,
     });
-    expect((await send(inRoom)).status).toBe(200);
+    expect((await send(peer)).status).toBe(200);
     // A write that does not go through the message queue: the request's own
-    // check. The agent in the room passes it and has no turn to stop.
-    const abort = (to: AgentInfo) =>
-      asBearer(o, tokenOf(mine.id), "POST", `/api/agents/${to.id}/abort`, {});
+    // check. The fitting agent passes it and has no turn to stop.
     expect(outcome(await abort(everywhere))).toEqual({
       status: 403,
       code: NOT_FIT,
     });
-    expect(outcome(await abort(inRoom))).toEqual({
+    expect(outcome(await abort(peer))).toEqual({
       status: 409,
       code: "nothing_to_abort",
     });
   });
 
-  it("at the fire: a message scheduled before a pack is refused when the target is outside the pack's areas, rooms or ceiling", async () => {
+  it("at the fire: a message scheduled before a pack is refused when the target is outside the pack's areas or rooms", async () => {
     const o = await office();
     const mine = await spawn(o, "Mine", "Casey");
-    await lower(o, mine, "office", { agents: "write", tasks: "write" });
-    const tasksAgent = await spawn(o, "Tasks");
-    await lower(o, tasksAgent, "office", { agents: "read", tasks: "write" });
+    await lower(o, mine, "office");
     const everywhere = await spawn(o, "Everywhere");
-    await lower(o, everywhere, "office", { agents: "read" });
-    const inRoom = await spawn(o, "In the room");
-    await lower(o, inRoom, "office", { agents: "read" }, [o.room]);
+    await lower(o, everywhere, "office");
+    const peer = await spawn(o, "Peer", "Casey");
+    await lower(o, peer, "office");
     const deliverAt = new Date(Date.now() + 3_600_000).toISOString();
-    for (const to of [tasksAgent, everywhere, inRoom]) {
+    for (const to of [everywhere, peer]) {
       const res = await asBearer(
         o,
         tokenOf(mine.id),
@@ -712,13 +743,6 @@ describe("the member's agent sends as the member's pack", () => {
       });
     }
 
-    // The pack has no tasks area and Casey's room only. Mine sits at the
-    // ceiling, so no move touches it or its stored pack.
-    await packCasey(o, { areas: { agents: "write" }, agentCeiling: "office" });
-    expect(grantOf(o, mine.id).areas).toEqual({
-      agents: "write",
-      tasks: "write",
-    });
     // The fire enqueues the entry as the agent's message
     // (scheduled-messages.ts tick).
     const fire = (to: AgentInfo) =>
@@ -732,14 +756,16 @@ describe("the member's agent sends as the member's pack", () => {
         text: `fired to ${to.name}`,
         scheduledFor: Date.now() - 1_000,
       });
-    expect(fire(tasksAgent)).toMatchObject({ ok: false, status: 403 });
+    // The pack has no tasks area. Mine sits at the ceiling, so no move
+    // touches it.
+    await packCasey(o, { areas: { agents: "write" }, agentCeiling: "office" });
+    expect(grantOf(o, mine.id).access).toBe("office");
+    expect(fire(peer)).toMatchObject({ ok: false, status: 403 });
+    // Every area, but the owner's agent reaches rooms Casey does not.
+    await packCasey(o, FULL_FIT);
     expect(fire(everywhere)).toMatchObject({ ok: false, status: 403 });
     // The enabling condition: a target inside the pack gets it.
-    expect(fire(inRoom)).toMatchObject({ ok: true });
-
-    // The ceiling: at chat the member's agents reach no agent at Office.
-    await packCasey(o, { areas: { agents: "write" }, agentCeiling: "chat" });
-    expect(fire(inRoom)).toMatchObject({ ok: false, status: 403 });
+    expect(fire(peer)).toMatchObject({ ok: true });
   });
 });
 
@@ -802,7 +828,7 @@ describe("schedules of a member with a pack", () => {
 
     // The enabling condition: a schedule with a target agent is created.
     const target = await spawn(o, "Target");
-    await lower(o, target, "office", { agents: "read" });
+    await lower(o, target, "office");
     const targeted = await asCasey(
       o,
       "POST",

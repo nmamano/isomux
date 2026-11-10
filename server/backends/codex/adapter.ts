@@ -342,7 +342,7 @@ function codexMcpServerEntries(
 // Below standard every server is Isomux's own (the office one, and the files
 // one at folder and web). Codex 0.164 asks for approval before an MCP tool
 // that is not marked read-only, and with no approvals it refuses the call:
-// "approve" runs them, as the agent's pack already limits what the office
+// "approve" runs them, as the agent's token already limits what the office
 // tools do. The file tools are kept off Codex's tool search, which gpt-5.5
 // has and which would hide every MCP tool behind it: the model would not see
 // that it can read (core/src/tools/spec_plan.rs, omit_tools_from).

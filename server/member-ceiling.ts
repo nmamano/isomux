@@ -6,16 +6,12 @@
 
 import {
   agentAccessOf,
+  grantAt,
   stopHasFolder,
-  stopHasPack,
   stopIncludes,
   type AgentAccess,
   type AgentAccessGrant,
 } from "../shared/agent-access.ts";
-import {
-  intersectAreas,
-  type ApiTokenLimits,
-} from "../shared/api-token-limits.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
 import type { AgentInfo, UserRecord } from "../shared/types.ts";
 
@@ -27,7 +23,6 @@ export type CeilingAgent = Pick<
   modelFamily?: string;
   access?: AgentAccess;
   privileged?: boolean;
-  pack?: ApiTokenLimits;
 };
 
 // What a manager's ceiling does to an agent: nothing, a move to `grant`, or
@@ -57,7 +52,7 @@ export function createMemberCeiling(deps: MemberCeilingDeps) {
   // What `pack` does to `agent`: keep at or below the ceiling, unless it is
   // at a folder stop the folder rules refuse (its folder is not its room's,
   // task 329974fe); else the ceiling (Office when the folder rules refuse a
-  // folder stop) with a pack inside the member's areas.
+  // folder stop) with its fixed grant, which the member's pack caps live.
   function clampFor(
     agent: CeilingAgent,
     pack: MemberPack | undefined,
@@ -76,14 +71,7 @@ export function createMemberCeiling(deps: MemberCeilingDeps) {
         ? "office"
         : target;
     const kind = deps.engineRuns(agent, stop) ? "move" : "cannot";
-    if (!stopHasPack(stop)) return { kind, grant: { access: stop } };
-    // An agent with a pack keeps its rooms and gets the member's areas inside
-    // its own; a Standard or Privileged one gets the member's areas.
-    const own = stopHasPack(access) ? agent.pack : undefined;
-    const pack2: ApiTokenLimits = own?.areas
-      ? { ...own, areas: intersectAreas(own.areas, pack.areas) }
-      : { areas: pack.areas };
-    return { kind, grant: { access: stop, pack: pack2 } };
+    return { kind, grant: grantAt(stop) };
   }
 
   // What the ceiling of `agent`'s manager does to it.
@@ -110,11 +98,11 @@ export function createMemberCeiling(deps: MemberCeilingDeps) {
 
   // Move each live agent of member `userId` above the ceiling down to it, and
   // one at a folder stop outside its room's folder to Office.
-  // Any other agent at or below the ceiling is not touched, even when its stored pack
-  // is wider than the member's areas: its token is capped live by the member's
-  // pack (server/identity/member-pack.ts), and another sender that checks the
-  // stored pack as the target sees a wider pack, which only refuses more.
-  // Rewriting it would rotate its token and end its turn for nothing.
+  // Any other agent at or below the ceiling is not touched, even when its
+  // fixed grant is wider than the member's areas: its token is capped live by
+  // the member's pack (server/identity/member-pack.ts), and another sender
+  // that checks the fixed grant as the target sees a wider one, which only
+  // refuses more.
   async function moveMemberAgentsDown(userId: string): Promise<void> {
     if (!packOf(deps.getUserById(userId))) return;
     await moveAgentsDown((agent) => agent.userId === userId);

@@ -225,10 +225,8 @@ function resultTarget(
     if (!current) return null;
     if (opId === "agents.setPrivileged")
       return { access: "privileged", roomId: current.roomId };
-    const grant = parseAgentAccessGrant({
-      access: b.access,
-      ...(b.pack !== undefined ? { pack: b.pack } : {}),
-    });
+    // A pack in the body is the route's refusal; the rule reads the stop.
+    const grant = parseAgentAccessGrant({ access: b.access });
     return grant ? { ...current, ...grant, roomId: current.roomId } : null;
   }
   const roomId = typeof b.roomId === "string" ? b.roomId : "";
@@ -239,16 +237,13 @@ function resultTarget(
     return grant ? withManagerRooms({ ...grant, roomId }, manager, deps) : null;
   }
   // A spawn's agent is managed by the spawner's member.
-  if (b.access === undefined && b.pack === undefined)
+  if (b.access === undefined)
     return withManagerRooms(
       { access: "standard", roomId },
       identityUserId,
       deps,
     );
-  const grant = parseAgentAccessGrant({
-    access: b.access,
-    ...(b.pack !== undefined ? { pack: b.pack } : {}),
-  });
+  const grant = parseAgentAccessGrant({ access: b.access });
   return grant
     ? withManagerRooms({ ...grant, roomId }, identityUserId, deps)
     : null;
@@ -348,7 +343,7 @@ const TARGET_OUTSIDE =
 const FILES_OUTSIDE =
   "This agent has access outside yours, so you cannot open its files.";
 const RESULT_OUTSIDE =
-  "An agent you spawn, revive or move must have access and a pack inside yours.";
+  "An agent you spawn, revive or move must have access inside yours.";
 
 // The executor's check for one route call: null when the identity may make it,
 // else the refusal: the agent ceiling first, then the messaging rule. A route

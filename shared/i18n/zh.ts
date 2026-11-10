@@ -1759,10 +1759,10 @@ App 的一些原则：
   "dialogs.agent.access.privileged": "特权",
   "dialogs.agent.access.chatHint": "没有工具。只在自己的聊天中回答。",
   "dialogs.agent.access.officeHint":
-    "没有终端，也没有文件。只能按权限包的允许使用办公室。",
+    "没有终端，也没有文件。可以给智能体发消息、处理任务和发起请示。",
   "dialogs.agent.access.folderHint": "办公室，外加只在自己文件夹中的文件。",
   "dialogs.agent.access.webHint":
-    "文件夹，外加网页搜索和抓取。网页可能让它把读到的内容发出去，所以请给它较窄的权限包。",
+    "文件夹，外加网页搜索和抓取。网页可能让它把读到的内容发出去。",
   "dialogs.agent.access.standardHint": "终端以及其引擎的全部工具。",
   "dialogs.agent.access.boundaryNote":
     "有终端的智能体可以读取其他智能体的办公室令牌。只有聊天、办公室、文件夹和网络会限制它能访问的范围。",
@@ -1770,9 +1770,6 @@ App 的一些原则：
   "dialogs.agent.access.roomHasNoFolder": "此房间没有文件夹",
   "dialogs.agent.roomFolderOnly": "你的智能体在其房间的文件夹中工作。",
   "dialogs.agent.access.aboveCeiling": "高于管理者权限包的最高智能体级别",
-  "dialogs.agent.pack.asksOnly": "仅询问",
-  "dialogs.agent.pack.tasksAndAsks": "任务和询问",
-  "dialogs.agent.pack.showsSecrets": "可能显示密钥",
   "dialogs.agent.autoHandoff": "自动交接",
   "dialogs.agent.autoHandoffHint":
     "上下文快满时，智能体会写一份简报并在新会话中继续。聊天记录会清空。",

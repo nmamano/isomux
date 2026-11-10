@@ -41,8 +41,9 @@ interface StoredToken {
   // time so changing the setting requires a re-mint (rotation), never a
   // per-request recompute.
   privileged: boolean;
-  // AGENT scope only: the access slider stop and its pack, bound at mint time
-  // like privileged. Absent on cron-run tokens.
+  // AGENT scope only: the access slider stop and, at office, folder and web,
+  // the fixed office grant (grantAt), bound at mint time like privileged.
+  // Absent on cron-run tokens.
   access?: AgentAccess;
   pack?: ApiTokenLimits;
 }
@@ -109,7 +110,7 @@ function remove(key: string): void {
 // set the token resolves to - toggling the setting re-mints (revoking the old
 // token), so a live agent MUST be session-swapped onto the new token or its
 // in-flight one goes dead. Returns the raw secret to inject into the agent's
-// session env. `grant` is the agent's access slider stop with its pack; a
+// session env. `grant` is the agent's access slider stop with its limits; a
 // boolean is the privileged flag (true = privileged, false = standard).
 export function mintAgentToken(
   agentId: string,
@@ -161,8 +162,8 @@ export function getAgentTokenIdentity(agentId: string): {
   };
 }
 
-// The token limits of an agent below standard: its pack, or no area at all at
-// chat. Undefined at standard and privileged (no limits).
+// The token limits of an agent below standard: the fixed office grant, or no
+// area at all at chat. Undefined at standard and privileged (no limits).
 function agentTokenLimits(token: StoredToken): ApiTokenLimits | undefined {
   if (!token.access || !belowStandard(token.access)) return undefined;
   return token.pack ?? { areas: {} };

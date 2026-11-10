@@ -16,14 +16,9 @@ import type { AskStep } from "./types.ts";
 // the ask card with the Apply button. It has no link; the ask closes itself
 // when the state reaches the value, by the card or by hand.
 export type ActionStepRequest =
-  // An agent's stop on the access slider, with its pack at office, folder
-  // and web.
-  | {
-      kind: "agent-access";
-      agentId: string;
-      access: AgentAccess;
-      pack?: ApiTokenLimits;
-    }
+  // An agent's stop on the access slider. A step an older version stored
+  // may still carry a pack, which nothing reads.
+  | { kind: "agent-access"; agentId: string; access: AgentAccess }
   // One room of a member's room access, granted or removed. The agent names
   // the member by username; the server stores the id.
   | { kind: "member-room"; userId: string; roomId: string; grant: boolean }

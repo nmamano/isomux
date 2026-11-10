@@ -1,18 +1,14 @@
 // What an agent may use: one stop on the access slider. Each stop has
 // everything the stop below it has. Below Standard the agent has no shell and
 // reaches the office only through the office MCP server, with its token
-// limited by a permission pack.
+// limited to the fixed office grant.
 
-import {
-  parseApiTokenLimits,
-  type ApiTokenArea,
-  type ApiTokenLimits,
-} from "./api-token-limits.ts";
+import type { ApiTokenAreaLevels, ApiTokenLimits } from "./api-token-limits.ts";
 
 export const AGENT_ACCESS_STOPS = [
   // No tools and no office MCP server: the agent only answers in its chat.
   "chat",
-  // The office MCP server with the pack, no engine file tools.
+  // The office MCP server with the fixed office grant, no engine file tools.
   "office",
   // Plus the file tools, inside the agent's folder only.
   "folder",
@@ -26,10 +22,28 @@ export const AGENT_ACCESS_STOPS = [
 
 export type AgentAccess = (typeof AGENT_ACCESS_STOPS)[number];
 
-// A stop and its pack. The pack is present exactly at office, folder and web.
+// The limits of the token of an agent at office, folder and web: agents,
+// tasks and asks write, no logs, every room its manager can access. Read it
+// through grantAt, which gives a fresh copy.
+const AGENT_OFFICE_AREAS: Readonly<ApiTokenAreaLevels> = {
+  agents: "write",
+  tasks: "write",
+  asks: "write",
+};
+
+// A stop and its token limits. `pack` is present exactly at office, folder
+// and web, and is always the fixed office grant.
 export interface AgentAccessGrant {
   access: AgentAccess;
   pack?: ApiTokenLimits;
+}
+
+// The grant at `access`: a fresh object each call, as consumers spread and
+// intersect it.
+export function grantAt(access: AgentAccess): AgentAccessGrant {
+  return stopHasPack(access)
+    ? { access, pack: { areas: { ...AGENT_OFFICE_AREAS } } }
+    : { access };
 }
 
 // The stop of an agent record. A record from before the slider has only the
@@ -42,16 +56,13 @@ export function agentAccessOf(info: {
   return info.privileged ? "privileged" : "standard";
 }
 
-// The stop and pack of an agent record, as its token is minted with them.
+// The grant of an agent record, as its token is minted with it. A pack an
+// older version saved on the record is not read: the stop decides.
 export function accessGrantOf(info: {
   access?: AgentAccess;
   privileged?: boolean;
-  pack?: ApiTokenLimits;
 }): AgentAccessGrant {
-  const access = agentAccessOf(info);
-  return info.pack && stopHasPack(access)
-    ? { access, pack: info.pack }
-    : { access };
+  return grantAt(agentAccessOf(info));
 }
 
 // Whether `access` has no shell (a stop below standard).
@@ -61,7 +72,7 @@ export function belowStandard(access: AgentAccess): boolean {
   );
 }
 
-// Whether `access` carries a pack.
+// Whether `access` has the office MCP server with the fixed office grant.
 export function stopHasPack(access: AgentAccess): boolean {
   return access === "office" || access === "folder" || access === "web";
 }
@@ -82,26 +93,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 const KNOWN_STOPS: ReadonlySet<string> = new Set(AGENT_ACCESS_STOPS);
 
-// null: not a valid pack. A pack is token limits with areas (an absent areas
-// axis would be every area) and without replies only.
-export function parseAgentPack(value: unknown): ApiTokenLimits | null {
-  const limits = parseApiTokenLimits(value);
-  if (!limits || !limits.areas || limits.repliesOnly) return null;
-  return limits;
+// The refusal of a request that still sends an agent pack (`field` names it,
+// for example "pack" or "step.pack").
+export function packNotAccepted(field: string): string {
+  return `${field} is no longer accepted. The access stop alone sets the agent's office tools.`;
 }
 
-// null: not a valid agents.setAccess body. A pack is required at office,
-// folder and web and refused at every other stop.
+// null: not a valid agents.setAccess body. The body is {access} alone: a
+// pack is no longer accepted at any stop, so a caller that asks for a narrow
+// one is told instead of getting the wider fixed grant.
 export function parseAgentAccessGrant(value: unknown): AgentAccessGrant | null {
   if (!isPlainObject(value)) return null;
-  if (Object.keys(value).some((key) => key !== "access" && key !== "pack"))
-    return null;
+  if (Object.keys(value).some((key) => key !== "access")) return null;
   const access = value.access;
   if (typeof access !== "string" || !KNOWN_STOPS.has(access)) return null;
-  const stop = access as AgentAccess;
-  if (!stopHasPack(stop)) return "pack" in value ? null : { access: stop };
-  const pack = parseAgentPack(value.pack);
-  return pack ? { access: stop, pack } : null;
+  return grantAt(access as AgentAccess);
 }
 
 const FOLDER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"];
@@ -188,65 +194,10 @@ export const INLINE_IMAGE_TYPES: ReadonlySet<string> = new Set([
   "image/webp",
 ]);
 
-// The areas an agent's pack can grant: the ones with an office MCP tool for
-// an agent token. A pack the dialog builds names only these.
-export const AGENT_PACK_AREAS = ["agents", "logs", "tasks", "asks"] as const;
-
-export type AgentPackArea = (typeof AGENT_PACK_AREAS)[number];
-
-// The pack presets of the agent dialog, narrowest first.
-export const AGENT_PACK_PRESETS: {
-  asksOnly: ApiTokenLimits;
-  tasksAndAsks: ApiTokenLimits;
-  talkToAgents: ApiTokenLimits;
-} = {
-  asksOnly: { areas: { asks: "write" } },
-  tasksAndAsks: { areas: { tasks: "write", asks: "write" } },
-  talkToAgents: { areas: { agents: "write", tasks: "write", asks: "write" } },
-};
-
-export type AgentPackPreset = keyof typeof AGENT_PACK_PRESETS;
-
-// The preset whose areas `pack` has exactly, else "custom". Rooms do not
-// count.
-export function agentPackPresetOf(
-  pack: ApiTokenLimits,
-): AgentPackPreset | "custom" {
-  for (const key of Object.keys(AGENT_PACK_PRESETS) as AgentPackPreset[])
-    if (sameAreas(pack.areas, AGENT_PACK_PRESETS[key].areas)) return key;
-  return "custom";
-}
-
-function sameAreas(
-  a: ApiTokenLimits["areas"],
-  b: ApiTokenLimits["areas"],
-): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  const keys = Object.keys(a);
-  return (
-    keys.length === Object.keys(b).length &&
-    keys.every((key) => a[key as ApiTokenArea] === b[key as ApiTokenArea])
-  );
-}
-
-function sameRooms(a: string[] | undefined, b: string[] | undefined): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  const set = new Set(a);
-  return set.size === new Set(b).size && b.every((id) => set.has(id));
-}
-
-// Whether two grants are the same in content: the stop, and at a stop with a
-// pack the same areas and the same set of rooms, whatever their order.
+// Whether two grants are the same: the stop decides the limits.
 export function sameAccessGrant(
   a: AgentAccessGrant,
   b: AgentAccessGrant,
 ): boolean {
-  if (a.access !== b.access) return false;
-  if (!stopHasPack(a.access)) return true;
-  if (!a.pack || !b.pack) return a.pack === b.pack;
-  return (
-    sameAreas(a.pack.areas, b.pack.areas) &&
-    sameRooms(a.pack.rooms, b.pack.rooms) &&
-    a.pack.repliesOnly === b.pack.repliesOnly
-  );
+  return a.access === b.access;
 }
