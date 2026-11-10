@@ -2694,6 +2694,9 @@ export interface ProviderAccountWire {
   // sign-in wins.
   apiKeySource?: EnvVariableSource;
   shared?: boolean;
+  // The one account per provider the viewer's agents use now
+  // (ProviderAccountManager.effectiveTarget). Absent when it cannot be told.
+  effective?: boolean;
   canBrowserLogin: boolean;
   externalCli?: boolean;
   explicitDirectory?: boolean;

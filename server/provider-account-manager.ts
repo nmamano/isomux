@@ -443,7 +443,7 @@ export class ProviderAccountManager {
         (provider === selection.provider && scope === selection.scope),
     );
     const seen: Array<{ key: string; revision: number } | undefined> = [];
-    let wires = await this.withApiKeySource(
+    let wires = await this.withViewerFields(
       userId,
       await Promise.all(
         pairs.map(([provider, scope], index) =>
@@ -467,7 +467,7 @@ export class ProviderAccountManager {
       (at) => at !== undefined && this.loginRevision(at.key) !== at.revision,
     );
     if (moved.some(Boolean))
-      wires = await this.withApiKeySource(
+      wires = await this.withViewerFields(
         userId,
         await Promise.all(
           pairs.map(([provider, scope], index) =>
@@ -495,10 +495,45 @@ export class ProviderAccountManager {
     this.loginRevisions.set(key, this.loginRevision(key) + 1);
   }
 
-  // The viewer's OPENAI_API_KEY source on each Codex wire, read now: a
-  // cached or queued wire may carry another read's or member's. Only when
-  // the key is what the viewer's agents use, i.e. their CODEX_HOME holds no
-  // stored sign-in.
+  // The viewer's own fields on each wire, read now: a cached or queued wire
+  // may carry another read's or member's. Every wire that leaves the manager
+  // goes through here.
+  private async withViewerFields(
+    userId: string,
+    wires: ProviderAccountWire[],
+  ): Promise<ProviderAccountWire[]> {
+    return this.withEffective(
+      userId,
+      await this.withApiKeySource(userId, wires),
+    );
+  }
+
+  // `effective` on the one wire per provider that the viewer's agents use
+  // now. A personal sign-in stays active after it expires, so a connected
+  // wire alone does not say it. None when the directory maps to no scope.
+  private withEffective(
+    userId: string,
+    wires: ProviderAccountWire[],
+  ): ProviderAccountWire[] {
+    const scopes = new Map<ProviderAccountProvider, ProviderAccountScope>();
+    for (const provider of ["claude", "codex"] as const) {
+      try {
+        scopes.set(provider, this.effectiveTarget(userId, provider).scope);
+      } catch {
+        // A collision or an unmapped directory: no account is the one.
+      }
+    }
+    return wires.map((wire) => {
+      const next = { ...wire };
+      delete next.effective;
+      if (scopes.get(wire.provider) === wire.scope) next.effective = true;
+      return next;
+    });
+  }
+
+  // The viewer's OPENAI_API_KEY source on each Codex wire. Only when the key
+  // is what the viewer's agents use, i.e. their CODEX_HOME holds no stored
+  // sign-in.
   private async withApiKeySource(
     userId: string,
     wires: ProviderAccountWire[],
@@ -570,7 +605,7 @@ export class ProviderAccountManager {
         );
       }
     }
-    return this.withApiKeySource(userId, accounts);
+    return this.withViewerFields(userId, accounts);
   }
 
   private inactivePersonal(target: Target): ProviderAccountWire {
@@ -843,7 +878,7 @@ export class ProviderAccountManager {
         ok: true,
         value: {
           account: (
-            await this.withApiKeySource(userId, [this.activeWire(existing)])
+            await this.withViewerFields(userId, [this.activeWire(existing)])
           )[0],
           ...(existing.state.phase === "ended"
             ? {}
@@ -929,7 +964,7 @@ export class ProviderAccountManager {
         ok: true,
         value: {
           account: (
-            await this.withApiKeySource(active.userId, [
+            await this.withViewerFields(active.userId, [
               this.activeWire(active),
             ])
           )[0],

@@ -47,8 +47,8 @@ that answers and sends the message again, until a member picks a model.
 OpenCode's free usage limit, which every free model shares, ends the check
 and the seed keeps the preferred model. A turn it refuses on an agent with
 no OpenCode key shows a notice in place of the error; on these two agents
-the notice carries the Claude and Codex sign-in cards for the agent's owner,
-and their topic is not generated for an hour after it.
+the notice carries a card for the agent's owner that switches the agent to
+Claude or Codex, or signs in to one first, and their topic is not generated for an hour after it.
 Seeds from before the mark get it once, at the first boot after the update,
 when they still run on a past free default (`PAST_FREE_DEFAULT_MODELS`).
 Permission mode is

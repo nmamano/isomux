@@ -2579,6 +2579,12 @@ App 的一些原则：
   "subscription.duration.hoursMinutes": "{hours} {minutes}",
   "logView.editAgent": "编辑智能体",
   "logView.pickModel": "选择模型",
+  "logView.signIn.otherOptions": "其他登录选项",
+  "logView.freeLimit.lead": "将此智能体切换到你已登录的引擎。",
+  "logView.freeLimit.switchTo": "切换到 {provider}",
+  "logView.freeLimit.switching": "正在切换…",
+  "logView.freeLimit.switchFailed": "无法切换到 {provider}。",
+  "logView.freeLimit.switchHint": "切换会开始新的对话。",
   "logView.goneModelTitle": "OpenCode 已不再提供 {model}。请选择其他模型。",
   "panels.editor.noFileOpen": "未打开文件",
   "panels.editor.emptyHint":

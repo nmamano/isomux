@@ -107,7 +107,7 @@ import type { TaskMap } from "./task-links.tsx";
 import { AskLink, askAnswerText } from "./ask-link.tsx";
 import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
-import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
+import { ChatSignInCard } from "./ChatSignInCard.tsx";
 import { useI18n } from "../i18n.tsx";
 import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
@@ -2688,12 +2688,13 @@ export function LogView({
                   const ownEngine =
                     providerLogin === "codex" || providerLogin === "claude";
                   // The OpenCode free usage limit notice on an office free
-                  // model: a titled card per engine, with no new
-                  // conversation, which would stay on the same free model.
+                  // model: a row per engine to switch the agent to, with no
+                  // new conversation, which would stay on the same free model.
                   const providers: readonly ProviderAccountProvider[] =
                     ownEngine
                       ? [providerLogin]
                       : (entry.metadata?.providerLogins ?? []);
+                  const canChangeOffice = sessionContext?.role === "owner";
                   return (
                     <>
                       {entry.metadata?.pickModel === true && (
@@ -2703,28 +2704,29 @@ export function LogView({
                         (isOwner ? (
                           // Sign-in controls: not in the chat's HTML file.
                           <div data-chat-export="omit">
-                            {providers.map((provider) => (
-                              <ProviderSignInCard
-                                key={provider}
-                                provider={provider}
+                            {ownEngine ? (
+                              <ChatSignInCard
+                                kind="ownEngine"
+                                agentId={agent.id}
+                                provider={providerLogin}
                                 accounts={providerAccounts}
-                                showTitle={!ownEngine}
-                                apiKeyNote
-                                canChangeOffice={
-                                  sessionContext?.role === "owner"
-                                }
-                                onStartNewConversation={
-                                  ownEngine
-                                    ? async () => {
-                                        await apiFetch(
-                                          "POST",
-                                          `/api/agents/${agent.id}/new-conversation`,
-                                        );
-                                      }
-                                    : undefined
-                                }
+                                canChangeOffice={canChangeOffice}
+                                onStartNewConversation={async () => {
+                                  await apiFetch(
+                                    "POST",
+                                    `/api/agents/${agent.id}/new-conversation`,
+                                  );
+                                }}
                               />
-                            ))}
+                            ) : (
+                              <ChatSignInCard
+                                kind="freeLimit"
+                                agentId={agent.id}
+                                providers={providers}
+                                accounts={providerAccounts}
+                                canChangeOffice={canChangeOffice}
+                              />
+                            )}
                           </div>
                         ) : (
                           entry.metadata?.openCodeFreeLimit === true && (

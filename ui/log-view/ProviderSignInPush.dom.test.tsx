@@ -63,7 +63,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
     }),
   );
   const signIn = () =>
-    view.getAllByRole("button", { name: t("settings.signIn.signIn") });
+    view.queryAllByRole("button", { name: t("settings.signIn.signIn") });
   await act(async () => {
     shimEmit({
       type: "session_context",
@@ -75,6 +75,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
         {
           provider: "claude",
           scope: "office",
+          effective: true,
           accountStatus: "not_connected",
           loginStatus: "idle",
           canBrowserLogin: true,
@@ -89,7 +90,8 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       ],
     });
   });
-  expect(signIn()).toHaveLength(2);
+  // Only the account the agent uses (task 3abb740b); the other is collapsed.
+  expect(signIn()).toHaveLength(1);
   await act(async () => {
     shimEmit({
       type: "provider_accounts_updated",
@@ -97,6 +99,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
         {
           provider: "claude",
           scope: "office",
+          effective: true,
           accountStatus: "not_connected",
           loginStatus: "waiting_external",
           canBrowserLogin: true,
@@ -119,6 +122,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
         {
           provider: "claude",
           scope: "office",
+          effective: true,
           accountStatus: "connected",
           accountLabel: "probe@example.test",
           loginStatus: "succeeded",
@@ -139,7 +143,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       t("settings.signIn.connectedAs", { account: "probe@example.test" }),
     ),
   ).toBeDefined();
-  expect(signIn()).toHaveLength(1);
+  expect(signIn()).toHaveLength(0);
   // A refreshed connected account has idle login status. The auth-error card
   // must still expose the existing clear action.
   await act(async () => {
@@ -152,6 +156,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
           accountStatus: "connected",
           loginStatus: "idle",
           canBrowserLogin: true,
+          effective: true,
         },
       ],
     });

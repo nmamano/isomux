@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   EnvVariableSource,
@@ -67,6 +67,8 @@ export function ProviderSignInCard({
   onGoToOtherHalf,
   style,
   pageLook = false,
+  compact = false,
+  footer,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
@@ -88,6 +90,11 @@ export function ProviderSignInCard({
   // the account as data, and a Test per sign-in. The log view's card keeps
   // its plain look.
   pageLook?: boolean;
+  // The chat card's look: the scope line names the sign-in, with no hint
+  // paragraph under it.
+  compact?: boolean;
+  // At the card's end, after the API-key note.
+  footer?: ReactNode;
 }) {
   const { t } = useI18n();
   const title = provider === "codex" ? "Codex" : "Claude";
@@ -125,6 +132,7 @@ export function ProviderSignInCard({
           onStartNewConversation={onStartNewConversation}
           onGoToOtherHalf={onGoToOtherHalf}
           pageLook={pageLook}
+          compact={compact}
         />
       ))}
       {apiKeyNote && (
@@ -139,6 +147,7 @@ export function ProviderSignInCard({
           {t("settings.signIn.apiKeyNote")}
         </p>
       )}
+      {footer}
     </section>
   );
 }
@@ -180,6 +189,7 @@ function ProviderScopeConnection({
   onGoToOtherHalf,
   hideTopBorder = false,
   pageLook,
+  compact,
 }: {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
@@ -192,6 +202,7 @@ function ProviderScopeConnection({
   onGoToOtherHalf?: () => void;
   hideTopBorder?: boolean;
   pageLook: boolean;
+  compact: boolean;
 }) {
   const i18n = useI18n();
   const { t, rich } = i18n;
@@ -512,7 +523,9 @@ function ProviderScopeConnection({
           <div data-sign-in-scope={scope} style={scopeLineStyle}>
             {scopeTitle}
           </div>
-          <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
+          {!compact && (
+            <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
+          )}
         </>
       )}
       <p

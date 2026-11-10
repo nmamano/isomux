@@ -2296,3 +2296,110 @@ describe("signing out a removed member", () => {
     }
   });
 });
+
+// Task 3abb740b: each wire says whether it is the account the member's
+// agents use now (effectiveTarget), so the chat card leads with it. A member's
+// personal sign-in stays active after it expires, so "connected" alone cannot
+// tell.
+describe("the effective account flag", () => {
+  const OFFICE = {
+    claude: resolve("/tmp/effective-flag-office-claude"),
+    codex: resolve("/tmp/effective-flag-office-codex"),
+  };
+  const PERSONAL = {
+    claude: resolve("/tmp/effective-flag-personal-claude"),
+    codex: resolve("/tmp/effective-flag-personal-codex"),
+  };
+  type Provider = "claude" | "codex";
+
+  // `active`: the providers whose personal sign-in is active. `connected`:
+  // the account directories that report a connected account. `claudeDir`
+  // overrides where the member's agents point CLAUDE_CONFIG_DIR.
+  function managerFor(state: {
+    active: Provider[];
+    connected: string[];
+    claudeDir?: string;
+  }) {
+    const client =
+      (variable: "CLAUDE_CONFIG_DIR" | "CODEX_HOME") =>
+      (env: Record<string, string | undefined>) => ({
+        start: async () => {},
+        read: async () => ({
+          connected: state.connected.includes(resolve(env[variable] ?? "")),
+        }),
+        close: async () => {},
+      });
+    const dir = (provider: Provider) =>
+      state.active.includes(provider) ? PERSONAL[provider] : OFFICE[provider];
+    return new ProviderAccountManager(
+      () => {},
+      client("CODEX_HOME") as never,
+      undefined,
+      (id) => id,
+      () => ({
+        CLAUDE_CONFIG_DIR: state.claudeDir ?? dir("claude"),
+        CODEX_HOME: dir("codex"),
+      }),
+      client("CLAUDE_CONFIG_DIR") as never,
+      () => ({ CLAUDE_CONFIG_DIR: OFFICE.claude, CODEX_HOME: OFFICE.codex }),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "member" }],
+      (_id, provider) => PERSONAL[provider],
+      (_id, provider) => PERSONAL[provider],
+      (_id, provider) => state.active.includes(provider),
+    );
+  }
+  const effective = (
+    accounts: Array<{ provider: string; scope: string; effective?: boolean }>,
+  ) =>
+    accounts
+      .filter((a) => a.effective === true)
+      .map((a) => `${a.provider}:${a.scope}`)
+      .sort();
+
+  it("marks the office accounts when no personal sign-in is active", async () => {
+    const manager = managerFor({
+      active: [],
+      connected: [OFFICE.claude, OFFICE.codex],
+    });
+    expect(effective(await manager.list("member"))).toEqual([
+      "claude:office",
+      "codex:office",
+    ]);
+  });
+
+  it("marks an active personal sign-in that is not connected, not the connected office one", async () => {
+    const manager = managerFor({
+      active: ["claude"],
+      connected: [OFFICE.claude, OFFICE.codex],
+    });
+    const accounts = await manager.list("member");
+    // The condition this case is for: office connected, personal not.
+    expect(
+      accounts
+        .filter((a) => a.provider === "claude")
+        .map((a) => [a.scope, a.accountStatus]),
+    ).toEqual([
+      ["office", "connected"],
+      ["personal", "not_connected"],
+    ]);
+    expect(manager.effectiveTarget("member", "claude").scope).toBe("personal");
+    expect(effective(accounts)).toEqual(["claude:personal", "codex:office"]);
+    // The snapshot pushed to the browser carries the same flag.
+    expect(effective((await manager.cachedList("member"))!)).toEqual([
+      "claude:personal",
+      "codex:office",
+    ]);
+  });
+
+  it("marks no account of a provider whose directory maps to no scope", async () => {
+    const manager = managerFor({
+      active: [],
+      connected: [OFFICE.claude, OFFICE.codex],
+      claudeDir: resolve("/tmp/effective-flag-elsewhere"),
+    });
+    expect(() => manager.effectiveTarget("member", "claude")).toThrow();
+    expect(effective(await manager.list("member"))).toEqual(["codex:office"]);
+  });
+});

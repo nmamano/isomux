@@ -1,13 +1,14 @@
 // Task a5c551e4: the office's notice for OpenCode's free usage limit. On an
 // agent the office seeded (metadata.providerLogins), the agent's owner gets
-// the Claude and Codex sign-in cards under it; anyone else gets the line
+// one card under it to switch the agent to Claude or Codex (task 3abb740b;
+// its rows are ChatSignInCard.dom.test.tsx's); anyone else gets the line
 // that asks the office owner, and no card.
 import { afterAll, afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
 
 setUpDomTestFile();
-const { act, cleanup, render, within } = await import("@testing-library/react");
+const { act, cleanup, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { StoreProvider } = await import("../store.tsx");
 const { LogView } = await import("./LogView.tsx");
@@ -89,22 +90,19 @@ async function show(
           accountStatus: "connected",
           loginStatus: "idle",
           canBrowserLogin: true,
+          effective: true,
         },
       ],
     });
   });
   const cards = [
-    ...view.container.querySelectorAll<HTMLElement>("[data-provider-card]"),
+    ...view.container.querySelectorAll<HTMLElement>("[data-chat-sign-in]"),
   ];
   return {
-    cards: cards.map((c) => c.dataset.providerCard).sort(),
+    cards: cards.map((c) => c.dataset.chatSignIn),
     exported: cards.filter((c) => !c.closest('[data-chat-export="omit"]'))
       .length,
     asks: view.queryAllByText(t("settings.signIn.askOfficeOwner")).length,
-    // Two cards side by side: each names its engine.
-    untitled: cards.filter(
-      (c) => within(c).queryAllByRole("heading").length === 0,
-    ).length,
     // A new conversation of this OpenCode agent stays on the same limit.
     newConversation: view.queryAllByRole("button", {
       name: t("settings.signIn.startConversation"),
@@ -112,15 +110,14 @@ async function show(
   };
 }
 
-it("shows the agent's owner a Claude and a Codex sign-in card, kept out of the chat export", async () => {
+it("shows the agent's owner one card to switch engines, kept out of the chat export", async () => {
   const shown = await show({ userId: OWNER, role: "owner" }, [
     "claude",
     "codex",
   ]);
-  expect(shown.cards).toEqual(["claude", "codex"]);
+  expect(shown.cards).toEqual(["freeLimit"]);
   expect(shown.exported).toBe(0);
   expect(shown.asks).toBe(0);
-  expect(shown.untitled).toBe(0);
   expect(shown.newConversation).toBe(0);
 });
 

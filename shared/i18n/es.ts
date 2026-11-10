@@ -2894,6 +2894,13 @@ Cosas que puedes hacer por él:
   "subscription.duration.hoursMinutes": "{hours} y {minutes}",
   "logView.editAgent": "Editar el agente",
   "logView.pickModel": "Elegir un modelo",
+  "logView.signIn.otherOptions": "Otras opciones de inicio de sesión",
+  "logView.freeLimit.lead":
+    "Cambia este agente a un motor en el que hayas iniciado sesión.",
+  "logView.freeLimit.switchTo": "Cambiar a {provider}",
+  "logView.freeLimit.switching": "Cambiando…",
+  "logView.freeLimit.switchFailed": "No se pudo cambiar a {provider}.",
+  "logView.freeLimit.switchHint": "Al cambiar empieza una conversación nueva.",
   "logView.goneModelTitle": "OpenCode ya no ofrece {model}. Elige otro modelo.",
   "panels.editor.noFileOpen": "Ningún archivo abierto",
   "panels.editor.emptyHint":

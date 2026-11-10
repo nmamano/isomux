@@ -2809,6 +2809,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "subscription.duration.hoursMinutes": "{hours} {minutes}",
   "logView.editAgent": "Edit agent",
   "logView.pickModel": "Pick a model",
+  "logView.signIn.otherOptions": "Other sign-in options",
+  "logView.freeLimit.lead":
+    "Switch this agent to an engine you're signed in to.",
+  "logView.freeLimit.switchTo": "Switch to {provider}",
+  "logView.freeLimit.switching": "Switching…",
+  "logView.freeLimit.switchFailed": "Could not switch to {provider}.",
+  "logView.freeLimit.switchHint": "Switching starts a new conversation.",
   "logView.goneModelTitle":
     "OpenCode no longer lists model {model}. Pick another model.",
   "panels.editor.noFileOpen": "No file open",

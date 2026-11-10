@@ -2902,6 +2902,13 @@ Coses que pots fer per ell:
   "subscription.duration.hoursMinutes": "{hours} i {minutes}",
   "logView.editAgent": "Edita l'agent",
   "logView.pickModel": "Tria un model",
+  "logView.signIn.otherOptions": "Altres opcions d'inici de sessió",
+  "logView.freeLimit.lead":
+    "Canvia aquest agent a un motor on hagis iniciat la sessió.",
+  "logView.freeLimit.switchTo": "Canvia a {provider}",
+  "logView.freeLimit.switching": "S'està canviant…",
+  "logView.freeLimit.switchFailed": "No s'ha pogut canviar a {provider}.",
+  "logView.freeLimit.switchHint": "En canviar comença una conversa nova.",
   "logView.goneModelTitle":
     "OpenCode ja no ofereix {model}. Tria un altre model.",
   "panels.editor.noFileOpen": "Cap fitxer obert",
