@@ -688,6 +688,24 @@ export function OfficeView({
     );
   };
 
+  // Under Your plan while the subscription has not ended.
+  const portalButton = view.subscription &&
+    view.subscription.endedAt === null &&
+    !view.ended && (
+      <p className="action">
+        <button
+          data-testid="billing-portal"
+          disabled={portalBusy}
+          onClick={() => void openPortal()}
+        >
+          {i18n.t("office.billingPortal")}
+        </button>
+      </p>
+    );
+  // A payment-suspended office comes back when the open invoice is paid, so
+  // the portal comes before Cancel my office there (Nil, 2026-11-10).
+  const portalFirst = view.serviceState === "suspended";
+
   const reinstate = async (): Promise<void> => {
     setBillingProblem(null);
     try {
@@ -1083,6 +1101,7 @@ export function OfficeView({
               <p className="plan-line" data-testid="subscription">
                 {planLine(i18n, view)}
               </p>
+              {portalFirst && portalButton}
               <CancelPanel
                 i18n={i18n}
                 view={view}
@@ -1104,19 +1123,7 @@ export function OfficeView({
                   </p>
                 </>
               )}
-              {view.subscription &&
-                view.subscription.endedAt === null &&
-                !view.ended && (
-                  <p className="action">
-                    <button
-                      data-testid="billing-portal"
-                      disabled={portalBusy}
-                      onClick={() => void openPortal()}
-                    >
-                      {i18n.t("office.billingPortal")}
-                    </button>
-                  </p>
-                )}
+              {!portalFirst && portalButton}
               {portalProblem && (
                 <p
                   className="callout callout-danger"
