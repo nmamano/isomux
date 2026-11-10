@@ -305,7 +305,7 @@
       .hero {
         max-width: var(--max-width);
         margin: 0 auto;
-        padding: 48px 24px 0;
+        padding: 20px 24px 0;
         text-align: center;
       }
 
@@ -322,7 +322,8 @@
         font-size: 2.4rem;
         font-weight: 700;
         letter-spacing: -0.02em;
-        margin-bottom: 8px;
+        line-height: 1.25;
+        margin-bottom: 4px;
       }
 
       .hero .tagline {
@@ -332,7 +333,7 @@
           sans-serif;
         font-size: 1.15rem;
         color: var(--text-dim);
-        margin-bottom: 16px;
+        margin-bottom: 12px;
       }
 
       .hero .tagline em {
@@ -357,10 +358,16 @@
         margin-bottom: 22px;
       }
 
+      /* The demo is as wide as the window height allows, so the whole office
+         fits on a laptop screen without a scroll. --hero-head is the height
+         of the title and tagline above it, plus a small gap below. */
       .hero-embed {
+        --hero-head: 136px;
         position: relative;
-        width: 100%;
+        width: min(100%, 820px, calc((100vh - var(--hero-head)) * 4 / 3));
+        width: min(100%, 820px, calc((100svh - var(--hero-head)) * 4 / 3));
         max-width: 820px;
+        min-width: min(100%, 480px);
         aspect-ratio: 4 / 3;
         margin: 0 auto 12px;
         overflow: hidden;
@@ -692,9 +699,12 @@
         }
         .hero h1 {
           font-size: 1.7rem;
+          line-height: 1.6;
+          margin-bottom: 8px;
         }
         .hero .tagline {
           font-size: 1rem;
+          margin-bottom: 16px;
         }
 
         .hero-embed {
