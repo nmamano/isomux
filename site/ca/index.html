@@ -745,18 +745,23 @@
       .ways + .cta-row {
         margin-bottom: 20px;
       }
+      /* Title and link share the first line when they fit; the description
+         is below. */
       .way {
         display: flex;
-        flex-direction: column;
-        gap: 6px;
+        flex-wrap: wrap;
+        align-items: baseline;
+        align-content: flex-start;
+        column-gap: 12px;
+        row-gap: 4px;
         text-align: left;
         background: var(--bg-surface);
         border: 1px solid var(--border);
         border-radius: 10px;
-        padding: 16px 18px;
+        padding: 12px 16px;
         color: var(--text-dim);
-        font-size: 0.92rem;
-        line-height: 1.45;
+        font-size: 0.88rem;
+        line-height: 1.4;
       }
       .way:hover {
         border-color: var(--accent);
@@ -764,17 +769,22 @@
       }
       .way strong {
         color: var(--text);
-        font-size: 1.05rem;
+        font-size: 1rem;
+        margin-right: auto;
+      }
+      .way span {
+        order: 2;
+        flex-basis: 100%;
       }
       .way em {
+        order: 1;
         font-style: normal;
         color: var(--accent);
         font-weight: 600;
-        margin-top: auto;
-        padding-top: 4px;
+        white-space: nowrap;
       }
 
-      /* Phones: each card is two short lines, title and link on the first. */
+      /* Phones: the cards stack. */
       @media (max-width: 700px) {
         #features {
           padding-top: 8px;
@@ -784,26 +794,12 @@
           gap: 8px;
         }
         .way {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          column-gap: 12px;
           row-gap: 2px;
           padding: 10px 14px;
           font-size: 0.85rem;
-          line-height: 1.4;
         }
         .way strong {
           font-size: 0.98rem;
-        }
-        .way span {
-          grid-column: 1 / -1;
-        }
-        .way em {
-          grid-row: 1;
-          grid-column: 2;
-          align-self: center;
-          margin-top: 0;
-          padding-top: 0;
         }
       }
       .cta-row .free-badge {
