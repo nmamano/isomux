@@ -1749,7 +1749,7 @@ a provisioner started without one refuses to serve the seam at all, and says so.
 ## The welcome series
 
 Five plain-text English mails to a new customer: day 0 ("your office is
-ready", with its address), then tips on days 1, 3, 7 and 14 when every step
+ready", with its address), then tips on days 1, 3, 6 and 10 when every step
 goes out on time (`welcome-mail-copy.ts`). The provisioner sends them through Resend from
 `hello@isomux.com` (`welcome-mail.ts`). The site build (`build:docs`) also
 publishes the approved ones at isomux.com/hosted-welcome from the same copy

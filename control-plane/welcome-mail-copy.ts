@@ -79,7 +79,7 @@ For software development, I like to use the /pair-programming built-in skill to 
 
 You may have also noticed that each Isomux room also has a hatch that leads to a basement. That's where I keep the agents I never talk to.
 
-I like to keep a project's "Lead Agent" in the front room. When it has work to hand out, it dispatches it to workers in the basement. This way, the lead agent stays available for me and its context stays clear of implementation details.
+I like to keep a project's "Lead Agent" in the front room. When it has work to hand out, it dispatches it to workers in the basement. This way, the Lead Agent stays available for me and its context stays clear of implementation details.
 
 {officeUrl}
 
