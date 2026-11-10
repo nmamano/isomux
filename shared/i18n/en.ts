@@ -3443,8 +3443,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.handoff.waiting": "Hands off when this turn ends.",
   "commands.handoff.underWay": "A handoff is already under way.",
   "commands.handoff.empty": "Nothing to hand off: this conversation is empty.",
-  "commands.handoff.notResumable":
-    "Cannot hand off: this conversation cannot be resumed. Type /clear to start fresh.",
 
   // /context
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
@@ -3779,6 +3777,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Started a fresh session (previous one could not be restored).",
   "systemEntries.sessionNotResumable":
     "Started a fresh session (previous one is no longer stored).",
+  "systemEntries.unsavedResent.one":
+    "Started a fresh session (the previous one ended before it was saved). Isomux sends {count} message again.",
+  "systemEntries.unsavedResent.other":
+    "Started a fresh session (the previous one ended before it was saved). Isomux sends {count} messages again.",
   "systemEntries.freshSessionBeforeFlush":
     "Started a fresh session before flushing queued messages.",
   "systemEntries.flushStartFailed":

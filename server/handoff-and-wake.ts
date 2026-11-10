@@ -85,10 +85,13 @@ export interface HandoffAndWakeDeps {
     attachments?: Attachment[],
   ) => unknown;
   pickAutoResumeSessionId: (managed: ManagedAgent) => string | null;
+  // MessageQueueDeps.resumeIdOrDrop.
+  resumeIdOrDrop: (agentId: string, managed: ManagedAgent) => string | null;
+  // Null: start a fresh session.
   claimAutoResume: (
     agentId: string,
     managed: ManagedAgent,
-    sessionId: string,
+    sessionId: string | null,
   ) => void;
   releaseBackendHold: (agentId: string, managed: ManagedAgent) => void;
   requestFlush: (agentId: string, label: string) => void;
@@ -137,6 +140,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     emitEphemeralLog,
     addLogEntry,
     pickAutoResumeSessionId,
+    resumeIdOrDrop,
     claimAutoResume,
     releaseBackendHold,
     requestFlush,
@@ -199,12 +203,15 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       return;
     }
     // After a failed turn the agent is in error: the brief turn needs the
-    // conversation resumed first, as a message's enqueue does.
+    // conversation resumed first, as a message's enqueue does. A session the
+    // engine never saved is dropped instead: there is nothing to hand off,
+    // and a fresh session gets the messages it had accepted.
     const state = managed.info.state;
     const resumeId =
-      state === "error" ? pickAutoResumeSessionId(managed) : null;
+      state === "error" ? resumeIdOrDrop(agentId, managed) : null;
     if (state === "error" && resumeId === null) {
-      refuse(msg("commands.handoff.notResumable"));
+      refuse(msg("commands.handoff.empty"));
+      claimAutoResume(agentId, managed, null);
       return;
     }
     // The echo pairs with the prompt the brief turn sends, for edit-fork.

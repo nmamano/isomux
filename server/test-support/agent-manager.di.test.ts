@@ -761,17 +761,25 @@ describe("AgentManager DI (temp-state isolated)", () => {
         sender: { kind: "user", username: "tester" },
         text: "recover",
       });
+      // Both recover (task 5d8e6cd4): a durable session resumes, a missing
+      // one is dropped and a fresh session starts.
       const recoveryDeadline = Date.now() + 2000;
       while (
-        state === "durable" &&
-        fake.createSessionCount + fake.resumeSessionCount < 2 &&
+        !(fake.lastSession?.sent ?? []).some((m) =>
+          m.text.includes("recover"),
+        ) &&
         Date.now() < recoveryDeadline
       ) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
-      expect(recovery.ok).toBe(state === "durable");
-      expect(fake.createSessionCount).toBe(1);
+      expect(recovery.ok).toBe(true);
+      expect(fake.createSessionCount).toBe(state === "durable" ? 1 : 2);
       expect(fake.resumeSessionCount).toBe(state === "durable" ? 1 : 0);
+      const delivered = (fake.lastSession?.sent ?? []).map((m) => m.text);
+      expect(delivered.some((t) => t.includes("recover"))).toBe(true);
+      // The failed first turn ended: the engine had it, so it is not sent
+      // again.
+      expect(delivered.some((t) => t.includes("first"))).toBe(false);
       fake.lastSession?.close();
     });
   }

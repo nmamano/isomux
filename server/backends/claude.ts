@@ -121,6 +121,7 @@ import {
   CLAUDE_NATIVE_BIN,
   claudeProjectDir,
   claudeSessionFileExists,
+  claudeStoredSessionState,
 } from "../cwd-utils.ts";
 import {
   claudeProviderId,
@@ -151,6 +152,7 @@ import type {
   OneShotOptions,
   PermissionModeOption,
   SessionPluginReload,
+  StoredSessionState,
   SubagentOrigin,
   SubscriptionUsageResult,
   SubscriptionUsageWindow,
@@ -2351,10 +2353,12 @@ export function createClaudeBackend(
       );
     },
 
-    inspectStoredSession(): "durable" {
-      // Preserve Claude's existing silent auto-resume policy: a stored id is
-      // trusted and the SDK surfaces any missing-file error when it starts.
-      return "durable";
+    // A transcript with no conversation entry (a process killed during its
+    // first turn) is "empty"; anything else is trusted, and the SDK surfaces
+    // any other resume error when it starts. Never "missing": see
+    // claudeStoredSessionState.
+    inspectStoredSession(sessionId, opts): StoredSessionState {
+      return claudeStoredSessionState(opts.cwd, sessionId, opts.env);
     },
 
     checkSessionResumable(sessionId, opts): LogMessage | null {

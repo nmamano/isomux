@@ -3548,8 +3548,6 @@ Coses que pots fer per ell:
   "commands.handoff.underWay": "Ja hi ha un traspàs en curs.",
   "commands.handoff.empty":
     "No hi ha res a traspassar: aquesta conversa és buida.",
-  "commands.handoff.notResumable":
-    "No es pot traspassar: aquesta conversa no es pot reprendre. Escriu /clear per començar de zero.",
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No hi ha cap sessió activa.",
   "commands.context.unavailable":
@@ -3863,6 +3861,10 @@ Coses que pots fer per ell:
     "S'ha iniciat una sessió nova (l'anterior no s'ha pogut restaurar).",
   "systemEntries.sessionNotResumable":
     "S'ha iniciat una sessió nova (l'anterior ja no està desada).",
+  "systemEntries.unsavedResent.one":
+    "S'ha iniciat una sessió nova (l'anterior va acabar abans de desar-se). Isomux torna a enviar {count} missatge.",
+  "systemEntries.unsavedResent.other":
+    "S'ha iniciat una sessió nova (l'anterior va acabar abans de desar-se). Isomux torna a enviar {count} missatges.",
   "systemEntries.freshSessionBeforeFlush":
     "S'ha iniciat una sessió nova abans de buidar la cua de missatges.",
   "systemEntries.flushStartFailed":

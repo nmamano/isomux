@@ -124,9 +124,13 @@ export interface AgentRestoreDeps {
     agentType: AgentInfo["agentType"],
     sessionId: string,
     state: StoredSessionState | "unknown",
+    resent?: number,
   ) => void;
+  // The line for messages sent again with no session dropped.
+  noteUnsavedResent: (agentId: string, count: number) => void;
   summarizeEndedSession: (agentId: string, sessionId: string | null) => void;
   readPersistedQueueRecord: MessageQueue["readPersistedQueueRecord"];
+  requeueUnsavedDelivery: MessageQueue["requeueUnsavedDelivery"];
   queueStore: MessageQueue["queueStore"];
   setQueueStoreCache: MessageQueue["setQueueStoreCache"];
   restoreLimitResume: HandoffAndWake["restoreLimitResume"];
@@ -172,8 +176,10 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     userSkillRootsForInfo,
     tokenUserIdFor,
     noteUnresumableSession,
+    noteUnsavedResent,
     summarizeEndedSession,
     readPersistedQueueRecord,
+    requeueUnsavedDelivery,
     queueStore,
     setQueueStoreCache,
     restoreLimitResume,
@@ -502,6 +508,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     if (persisted) {
       managed.messageQueue = persisted.queue;
       managed.queueDedupe = persisted.dedupe;
+      // No process from before the restart is left to bind to.
+      if (persisted.unsaved)
+        managed.unsavedDelivery = { ...persisted.unsaved, session: null };
     }
     agents.set(p.id, managed);
     // Mint (or rotate, on revive) the agent's bearer token before any
@@ -513,8 +522,6 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     // Worked out again, never carried over: the sign-in may have changed
     // while the server was down.
     deps.refreshSignIn(managed);
-    if (p.lastSessionId && droppedState)
-      noteUnresumableSession(p.id, agentType, p.lastSessionId, droppedState);
 
     if (resumeSessionId) {
       const history = loadLogWithAncestors(p.id, resumeSessionId);
@@ -522,6 +529,18 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
         logCache.set(p.id, [...history]);
       }
     }
+
+    // Messages accepted by a process the restart ended, in a turn the
+    // engine never saved, go back to the head of the queue: those of the
+    // dropped session, and those of a process that never reported a session
+    // id. The boot replay below delivers them. A dropped session's chat is
+    // not loaded, and a record with no id has no chat on disk, so their
+    // delivery writes the entries.
+    const dropped = p.lastSessionId && droppedState ? p.lastSessionId : null;
+    const resent = requeueUnsavedDelivery(p.id, managed, dropped, false);
+    if (dropped && droppedState)
+      noteUnresumableSession(p.id, agentType, dropped, droppedState, resent);
+    else if (resent > 0) noteUnsavedResent(p.id, resent);
 
     // Lazy restore: stop here. The agent is on its desk (addExistingAgent above),
     // state="idle", dormant=true, sessionId set, transcript loaded into logCache,

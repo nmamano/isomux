@@ -441,6 +441,11 @@ export interface ManagedAgent {
   freeModelResend: QueuedMessage[] | null;
   // The running turn is such a resend: a second refusal is not retried.
   freeModelRetryTurn: boolean;
+  // Messages a backend process accepted (runAgentTurn) in a turn it has not
+  // ended (server/unsaved-delivery.ts). Mirrored to the agent's message-queue
+  // record. When the session they went to is dropped because the engine
+  // never saved it, they go back to the head of the queue. Unset: none.
+  unsavedDelivery?: UnsavedDelivery | null;
   // Date.now() of the watchdog's last forced recovery for this agent. Forced
   // recovery is rate-limited (cooldown) so a truly unrecoverable wedge (an
   // adapter that ignores close/send teardown) escalates via logs instead of
@@ -752,3 +757,13 @@ export type UserSendAcceptance =
 export type RunSendResult =
   | { ok: true; deduped?: boolean }
   | Extract<UserSendAcceptance, { ok: false }>;
+
+// ManagedAgent.unsavedDelivery. `sessionId` is the engine's id of the session
+// that accepted the items, null while that session had not reported one.
+// `session` binds a null-id record to the process that accepted it; it is
+// never persisted, so a record read at boot has none.
+export interface UnsavedDelivery {
+  sessionId: string | null;
+  session: BackendSession | null;
+  items: QueuedMessage[];
+}

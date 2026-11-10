@@ -3,6 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import {
+  claudeProjectDir,
+  claudeStoredSessionState,
   cwdProblem,
   diagnoseProcessExit,
   inspectCodexStoredSession,
@@ -63,6 +65,77 @@ describe("inspectCodexStoredSession", () => {
 // Why a cwd cannot be used, per cause (task beb6089b). The session start
 // writes each cause as a message each reader words, so the cause and the
 // resolved path must come back as data, not as an English sentence.
+// Task 5d8e6cd4: a Claude process killed during its first turn leaves a
+// transcript with bookkeeping lines only, and the CLI answers its resume with
+// "No conversation found". Only that proof reads as "empty"; any doubt reads
+// as "durable", which keeps the resume.
+describe("claudeStoredSessionState", () => {
+  const SESSION = "00000000-aaaa-4bbb-8ccc-000000000001";
+  const CWD = "/work/project";
+  // The shape of the incident's file: an owner line and a queued input that
+  // was taken, and no conversation entry.
+  const BOOKKEEPING =
+    [
+      { type: "session-owner", sessionId: SESSION },
+      { type: "queue-operation", operation: "enqueue", sessionId: SESSION },
+      { type: "queue-operation", operation: "dequeue", sessionId: SESSION },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n") + "\n";
+  const ENTRY =
+    JSON.stringify({
+      type: "user",
+      uuid: "11111111-2222-4333-8444-555555555555",
+    }) + "\n";
+
+  function configDir(contents?: string): string {
+    const root = mkdtempSync(join(tmpdir(), "isomux-claude-inspect-"));
+    roots.push(root);
+    if (contents !== undefined) {
+      const dir = claudeProjectDir(CWD, { CLAUDE_CONFIG_DIR: root });
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${SESSION}.jsonl`), contents);
+    }
+    return root;
+  }
+  const state = (root: string) =>
+    claudeStoredSessionState(CWD, SESSION, { CLAUDE_CONFIG_DIR: root });
+
+  // MUTANTS: the uuid test dropped (dies on "a conversation entry"); the
+  // line-end test dropped (dies on "a last line with no line end"); the size
+  // limit dropped (dies on "larger than the limit"); a non-object line read
+  // as bookkeeping (dies on "a line that is not an object").
+  it("is empty only for a whole file of bookkeeping lines", () => {
+    const cases: [string, string | undefined, "empty" | "durable"][] = [
+      ["bookkeeping only", BOOKKEEPING, "empty"],
+      ["an empty file", "", "empty"],
+      ["a conversation entry", BOOKKEEPING + ENTRY, "durable"],
+      [
+        "a last line with no line end",
+        BOOKKEEPING + '{"type":"user"}',
+        "durable",
+      ],
+      ["a line that does not parse", BOOKKEEPING + "{oops\n", "durable"],
+      ["a line that is not an object", BOOKKEEPING + "42\n", "durable"],
+      [
+        "larger than the limit, with no entry",
+        BOOKKEEPING.repeat(Math.ceil((65 * 1024) / BOOKKEEPING.length)),
+        "durable",
+      ],
+      ["no file", undefined, "durable"],
+    ];
+    for (const [label, contents, expected] of cases)
+      expect([label, state(configDir(contents))]).toEqual([label, expected]);
+  });
+
+  it("reads the session under the config dir it is given", () => {
+    const root = configDir(BOOKKEEPING);
+    expect(state(root)).toBe("empty");
+    // The same id under another config dir is not proven empty.
+    expect(state(configDir())).toBe("durable");
+  });
+});
+
 describe("cwdProblem", () => {
   const scratch = () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-cwd-problem-"));

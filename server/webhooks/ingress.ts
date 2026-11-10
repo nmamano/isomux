@@ -248,7 +248,6 @@ function parsePayload(
 const REFUSAL_DETAIL: Record<string, string> = {
   "agent not found": "agent deleted",
   agent_stopped: "agent stopped",
-  agent_error: "agent in error",
   queue_full: "agent queue full",
   usage_cap: "usage cap reached",
 };

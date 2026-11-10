@@ -81,7 +81,9 @@ export interface SessionAccountsDeps {
     managed: ManagedAgent,
     resumeSessionId?: string,
   ) => BackendSession;
-  pickAutoResumeSessionId: (managed: ManagedAgent) => string | null;
+  // The session id a new session resumes, or null after the office dropped
+  // a session the engine never saved (agent-manager resumeIdOrDrop).
+  resumeIdOrDrop: (agentId: string, managed: ManagedAgent) => string | null;
   getAgentDisplay: (
     agentId: string,
   ) => { name: string; roomName: string } | null;
@@ -122,7 +124,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     persistAll,
     getBackend,
     createSession,
-    pickAutoResumeSessionId,
+    resumeIdOrDrop,
     getAgentDisplay,
     enqueueMessage,
     agentMcpServers,
@@ -543,7 +545,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   function reinstallAfterAccountCheck(managed: ManagedAgent): void {
     if (managed.sessionManager.session) return;
     try {
-      const sessionId = pickAutoResumeSessionId(managed);
+      const sessionId = resumeIdOrDrop(managed.info.id, managed);
       // Read before installSession moves the slot.
       const reason = managed.sessionManager.releasedReason;
       managed.sessionManager.installSession(

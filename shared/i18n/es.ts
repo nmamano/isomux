@@ -3544,8 +3544,6 @@ Cosas que puedes hacer por él:
   "commands.handoff.underWay": "Ya hay un traspaso en curso.",
   "commands.handoff.empty":
     "No hay nada que traspasar: esta conversación está vacía.",
-  "commands.handoff.notResumable":
-    "No se puede traspasar: esta conversación no se puede reanudar. Escribe /clear para empezar de cero.",
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No hay ninguna sesión activa.",
   "commands.context.unavailable":
@@ -3857,6 +3855,10 @@ Cosas que puedes hacer por él:
     "Se inició una sesión nueva (la anterior no se pudo restaurar).",
   "systemEntries.sessionNotResumable":
     "Se inició una sesión nueva (la anterior ya no está guardada).",
+  "systemEntries.unsavedResent.one":
+    "Se inició una sesión nueva (la anterior terminó antes de guardarse). Isomux vuelve a enviar {count} mensaje.",
+  "systemEntries.unsavedResent.other":
+    "Se inició una sesión nueva (la anterior terminó antes de guardarse). Isomux vuelve a enviar {count} mensajes.",
   "systemEntries.freshSessionBeforeFlush":
     "Se inició una sesión nueva antes de vaciar la cola de mensajes.",
   "systemEntries.flushStartFailed":

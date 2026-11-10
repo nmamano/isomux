@@ -226,6 +226,36 @@ the report as a policy note, not decided fresh here. The `clientMessageId`
 dedupe map surviving restarts closes the sender-retry-across-restart duplicate
 window the board called out.
 
+**Sessions the engine never saved (task 5d8e6cd4).** A message leaves the
+queue when the process accepts it. A process killed during its first turn
+(a restart seconds after a new session or a handoff) can leave a transcript
+with no conversation in it, and the engine answers its resume with "No
+conversation found". Two parts close that:
+
+- Claude's `inspectStoredSession` reads a small transcript (64 KB or less):
+  every line parses and none has a `uuid` → `"empty"`; anything else →
+  `"durable"` (an absent file too: the path is computed, so a miss must not
+  drop a real conversation). The auto-resume policy drops an empty session.
+- The record keeps what the process accepted:
+  `ManagedAgent.unsavedDelivery`, stored as `unsaved: {sessionId, items}` in
+  the agent's record. runAgentTurn writes it at send-accept (in the drain's
+  own store write); the system_init of a fresh session gives a record with no
+  id that session's id; every `turn_completed` and a Stop clear it. Every
+  site that installs a session calls `resumeIdOrDrop`: on a drop, the
+  dropped session's items go back to the head of the queue, with one chat
+  line, in one store write (`requeueUnsavedDelivery`); with no session id, a
+  record with no id goes back the same way. Boot restore does the same from
+  the stored record. An errored agent whose session is dropped starts a fresh
+  session on the next message or `/handoff` instead of refusing it; a
+  continue (limit resume, restart wake, office sign-in continue) sent to it
+  is not queued, since its conversation is gone.
+
+Known limits: a process killed after the send was accepted but before Claude
+created the file leaves no file, which reads as durable, so its resume still
+fails. A member's direct message that wakes a dropped session goes before the
+messages sent again. Skill runs and message edits pass no resend, so they are
+not recorded.
+
 ## Task 314ee9fb - out-of-band swap strands a pre-send-cancelled flush
 
 When an out-of-band `replaceSession` (setPrivileged; /model and /effort picks

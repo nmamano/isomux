@@ -604,7 +604,10 @@ describe("resume after a usage limit: when it is dropped", () => {
     expect(h.clock.pending()).toEqual([]);
   });
 
-  it("an errored agent whose conversation cannot resume: the send is refused and nothing re-arms", async () => {
+  it("an errored agent whose conversation cannot resume: no resume goes to a fresh session, and nothing re-arms", async () => {
+    // Task 5d8e6cd4: the send no longer answers 409; the session is dropped.
+    // The resume continues a conversation that does not exist, so it is not
+    // sent to the fresh one (as a resume is not sent again after a drop).
     const h = makeHarness();
     const info = await spawn(h, "codex");
     const reset = h.clock.now() + HOUR;
@@ -612,10 +615,9 @@ describe("resume after a usage limit: when it is dropped", () => {
     h.fake.setStoredSessionState(s.sessionId, "missing");
     expect(persistedAt(info.id)).toBe(reset + LIMIT_RESUME_DELAY_MS);
     await toResume(h, reset);
-    // The fire ran (it clears the stored time), and the refused send left the
-    // agent in error with nothing queued.
+    // The fire ran (it clears the stored time).
     expect(persistedAt(info.id)).toBeUndefined();
-    expect(stateOf(h, info.id)).toBe("error");
+    await settle();
     expect(queueOf(h, info.id)).toEqual([]);
     expect(resumesSent(h)).toBe(0);
     expect(h.clock.pending()).toEqual([]);

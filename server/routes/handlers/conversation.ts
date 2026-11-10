@@ -71,10 +71,11 @@ import { formatAppViewLabel } from "../../app-view-label.ts";
 // code directly (self-send/unknown-sender from the dep's checks; otherwise
 // enqueueMessage's own status + error code passed through verbatim), so the
 // handler stays a thin mapper and the legacy POST /agents/:id/message contract
-// (400 self/unknown, 404 unknown-receiver, 409 agent_error/agent_stopped, 429
-// queue_full) is preserved bit-for-bit. 500 persist_failed is new with durable
-// queues: the durable write failed, the message was rolled
-// back, and the sender should retry.
+// (400 self/unknown, 404 unknown-receiver, 409 agent_stopped, 429 queue_full)
+// is preserved bit-for-bit. An errored receiver no longer answers 409
+// agent_error: the send resumes it, or starts a fresh session. 500
+// persist_failed is new with durable queues: the durable write failed, the
+// message was rolled back, and the sender should retry.
 // `queued` is the enqueue outcome for THIS send: true = parked
 // behind the receiver's in-flight turn, false = handed straight to a turn.
 // Undefined when this call never learned the answer (a deduped retry acks the

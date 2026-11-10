@@ -90,6 +90,14 @@ type AgentTurnDeps = {
     managed: ManagedAgent,
     headsUp: { dayStartMs: number },
   ) => void;
+  /** Keeps an accepted input until the turn ends
+   *  (server/unsaved-delivery.ts). `persist`: write it to disk now; else the
+   *  caller's onSendAccepted writes it with its queue drain. */
+  recordUnsavedDelivery: (
+    managed: ManagedAgent,
+    items: QueuedMessage[] | undefined,
+    persist: boolean,
+  ) => void;
 };
 
 let deps: AgentTurnDeps | null = null;
@@ -276,10 +284,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   let thrown: unknown = undefined;
 
   try {
-    if (!managed.sessionManager.session) {
+    const sentTo = managed.sessionManager.session;
+    if (!sentTo) {
       throw new Error("Cannot send: agent has no session.");
     }
-    await managed.sessionManager.session.send(
+    await sentTo.send(
       finalText,
       attachments && attachments.length > 0 ? attachments : undefined,
     );
@@ -344,6 +353,12 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     if (signInNotice && managed.signInNotice === signInNotice) {
       managed.signInNotice = null;
     }
+    // Before onSendAccepted: its queue drain writes the record in the same
+    // store write that takes the items out of the queue. Only for the
+    // session the send went to: a swap during the send installed another
+    // one, and these items do not belong to its conversation.
+    if (managed.sessionManager.session === sentTo)
+      deps.recordUnsavedDelivery(managed, opts.resend, !onSendAccepted);
     if (onSendAccepted) {
       try {
         onSendAccepted();

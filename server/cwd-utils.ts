@@ -156,6 +156,73 @@ export function claudeSessionInterruptedByShutdown(
   return false;
 }
 
+// The largest Claude session .jsonl the classification below reads. A file
+// that size holds more than the bookkeeping lines of a session start.
+const CLAUDE_SESSION_EMPTY_MAX_BYTES = 64 * 1024;
+
+// Whether a stored Claude session holds a conversation the CLI can resume.
+// The CLI writes bookkeeping lines (session-owner, queue-operation) before
+// the first conversation entry; every conversation entry carries a `uuid`.
+// A file with bookkeeping lines only is what a process killed during its
+// first turn leaves, and the CLI answers its resume with "No conversation
+// found".
+//
+// "empty" only on proof: the file was read to its end, every line parses,
+// and no line has a string uuid. Everything else is "durable", an absent
+// file included: the path here is a computed one, and a miss there must not
+// drop a real conversation. A file over the size limit is "durable" without
+// a read, so a long transcript costs one stat.
+//
+// Known gap: a process killed after the send was accepted but before the CLI
+// created the file leaves no file, which reads as "durable"; its resume
+// still fails.
+export function claudeStoredSessionState(
+  cwd: string,
+  sessionId: string,
+  env?: { [key: string]: string | undefined },
+): "empty" | "durable" {
+  const path = join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`);
+  let text: string;
+  try {
+    const size = statSync(path).size;
+    if (size > CLAUDE_SESSION_EMPTY_MAX_BYTES) return "durable";
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(size);
+      let read = 0;
+      while (read < size) {
+        const n = readSync(fd, buf, read, size - read, read);
+        if (n === 0) break;
+        read += n;
+      }
+      if (read < size) return "durable";
+      text = buf.toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return "durable";
+  }
+  // A last line with no line end may be a write in progress.
+  if (text.length > 0 && !text.endsWith("\n")) return "durable";
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return "durable";
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as { uuid?: unknown }).uuid === "string"
+    )
+      return "durable";
+  }
+  return "empty";
+}
+
 // Directory where Codex stores live (resumable) thread rollouts. Codex's
 // app-server reads from here when servicing thread/resume. The archived
 // counterpart at `${CODEX_HOME}/archived_sessions/` is NOT searched - once

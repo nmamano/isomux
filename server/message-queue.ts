@@ -42,6 +42,11 @@ import {
 } from "./internal-types.ts";
 import { loadMessageQueuesRaw, saveMessageQueues } from "./persistence.ts";
 import { queueHeld } from "./queue-flush.ts";
+import {
+  cleanedForSendAgain,
+  unsavedItemsToSendAgain,
+  type PersistedUnsavedDelivery,
+} from "./unsaved-delivery.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
 
 export const TOOL_BOUNDARY_NOTE =
@@ -64,7 +69,9 @@ export interface MessageQueueDeps {
   ) => Record<string, unknown> | undefined;
   getCurrentSessionId: (agentId: string) => string | null;
   maybeFillTopic: (agentId: string, managed: ManagedAgent) => void;
-  pickAutoResumeSessionId: (managed: ManagedAgent) => string | null;
+  // The session id a new session resumes, or null after the office dropped
+  // a session the engine never saved (agent-manager resumeIdOrDrop).
+  resumeIdOrDrop: (agentId: string, managed: ManagedAgent) => string | null;
   enqueueCapRefusal: (
     managed: ManagedAgent,
     sender: QueuedMessage["sender"],
@@ -75,10 +82,11 @@ export interface MessageQueueDeps {
     cause: NonNullable<QueuedMessage["interruptCause"]>,
   ) => SendNowResult;
   releaseBackendHold: (agentId: string, managed: ManagedAgent) => void;
+  // Null: start a fresh session (the dropped one held no conversation).
   claimAutoResume: (
     agentId: string,
     managed: ManagedAgent,
-    sessionId: string,
+    sessionId: string | null,
   ) => void;
   // The live pack and rooms of member `userId` (server/identity/member-pack.ts).
   memberPackOf: (
@@ -102,7 +110,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     buildUserMeta,
     getCurrentSessionId,
     maybeFillTopic,
-    pickAutoResumeSessionId,
+    resumeIdOrDrop,
     enqueueCapRefusal,
     requestFlush,
     sendNow,
@@ -700,15 +708,33 @@ export function createMessageQueue(deps: MessageQueueDeps) {
 
   // Snapshot the agent's durable record, or null when there is nothing worth
   // keeping (empty queue, no unexpired dedupe keys).
-  function buildQueueRecord(
-    managed: ManagedAgent,
-  ): { queue: QueuedMessage[]; dedupe: Record<string, number> } | null {
+  function buildQueueRecord(managed: ManagedAgent): {
+    queue: QueuedMessage[];
+    dedupe: Record<string, number>;
+    unsaved?: PersistedUnsavedDelivery;
+  } | null {
     const now = Date.now();
     const dedupe: Record<string, number> = {};
     for (const [k, v] of managed.queueDedupe) if (v > now) dedupe[k] = v;
-    if (managed.messageQueue.length === 0 && Object.keys(dedupe).length === 0)
+    const unsaved = managed.unsavedDelivery;
+    if (
+      managed.messageQueue.length === 0 &&
+      Object.keys(dedupe).length === 0 &&
+      !unsaved
+    )
       return null;
-    return { queue: [...managed.messageQueue], dedupe };
+    return {
+      queue: [...managed.messageQueue],
+      dedupe,
+      ...(unsaved
+        ? {
+            unsaved: {
+              sessionId: unsaved.sessionId,
+              items: [...unsaved.items],
+            },
+          }
+        : {}),
+    };
   }
 
   // THROWS - the transactional acceptance path in enqueueMessage.
@@ -757,9 +783,11 @@ export function createMessageQueue(deps: MessageQueueDeps) {
 
   // Boot-replay read: validate one persisted record. Invalid items are dropped
   // with a log line; expired dedupe keys are dropped silently.
-  function readPersistedQueueRecord(
-    agentId: string,
-  ): { queue: QueuedMessage[]; dedupe: Map<string, number> } | null {
+  function readPersistedQueueRecord(agentId: string): {
+    queue: QueuedMessage[];
+    dedupe: Map<string, number>;
+    unsaved: PersistedUnsavedDelivery | null;
+  } | null {
     const raw = queueStore()[agentId];
     if (typeof raw !== "object" || raw === null) return null;
     const r = raw as Record<string, unknown>;
@@ -788,8 +816,50 @@ export function createMessageQueue(deps: MessageQueueDeps) {
           dedupe.set(k, v);
       }
     }
-    if (queue.length === 0 && dedupe.size === 0) return null;
-    return { queue, dedupe };
+    let unsaved: PersistedUnsavedDelivery | null = null;
+    if (typeof r.unsaved === "object" && r.unsaved !== null) {
+      const u = r.unsaved as Record<string, unknown>;
+      const items = Array.isArray(u.items)
+        ? u.items.filter((item): item is QueuedMessage =>
+            isValidQueuedMessage(item),
+          )
+        : [];
+      if (
+        items.length > 0 &&
+        (u.sessionId === null || typeof u.sessionId === "string")
+      )
+        unsaved = { sessionId: u.sessionId, items };
+    }
+    if (queue.length === 0 && dedupe.size === 0 && !unsaved) return null;
+    return { queue, dedupe, unsaved };
+  }
+
+  // The items of ManagedAgent.unsavedDelivery for `droppedId` go back to the
+  // head of the queue (server/unsaved-delivery.ts), and the record is
+  // cleared, in ONE store write, so a crash cannot lose or double them.
+  // QUEUE_MAX does not apply: the items were accepted once already.
+  // `echoed`: the chat still shows them. Returns how many went back.
+  function requeueUnsavedDelivery(
+    agentId: string,
+    managed: ManagedAgent,
+    droppedId: string | null,
+    echoed: boolean,
+  ): number {
+    const items = unsavedItemsToSendAgain(managed, droppedId);
+    if (!items) return 0;
+    managed.unsavedDelivery = null;
+    const back: QueuedMessage[] = [];
+    for (const item of cleanedForSendAgain(items, echoed)) {
+      back.push({
+        ...item,
+        id: generateQueuedId([...managed.messageQueue, ...back]),
+        queuedAt: Date.now(),
+      });
+    }
+    managed.messageQueue.unshift(...back);
+    emitQueueUpdate(agentId, managed);
+    persistQueueState(agentId, managed);
+    return back.length;
   }
 
   function generateQueuedId(existing: QueuedMessage[]): string {
@@ -895,12 +965,6 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     if (state === "stopped") {
       return { ok: false, error: `agent_${state}`, status: 409 };
     }
-    const autoResumeSessionId =
-      state === "error" ? pickAutoResumeSessionId(managed) : null;
-    if (state === "error" && autoResumeSessionId === null) {
-      return { ok: false, error: "agent_error", status: 409 };
-    }
-
     // Idempotency check first; record only after a successful accept below so
     // a 429-rejected retry doesn't poison the dedup map.
     if (msg.clientMessageId && managed.queueDedupe.has(msg.clientMessageId)) {
@@ -919,6 +983,29 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       agentSendDoesNotFit(msg.sender.agentId, agentId)
     ) {
       return { ok: false, error: AGENT_DOES_NOT_FIT, status: 403 };
+    }
+
+    // An errored agent resumes its session; one the engine never saved is
+    // dropped (its accepted messages go back to the queue first), and a fresh
+    // session starts. After every refusal, so a refused send changes
+    // nothing; before the push, because a drop clears the chat.
+    const autoResumeSessionId =
+      state === "error" ? resumeIdOrDrop(agentId, managed) : null;
+    // A continue of a conversation that is gone (a resume after a usage limit
+    // or a restart, a continue on the office sign-in) does not go to the
+    // fresh session, as the requeue leaves such items out. The fresh session
+    // starts only for what else waits.
+    if (
+      state === "error" &&
+      autoResumeSessionId === null &&
+      (msg.limitResume || msg.restartWake || msg.fallbackContinue)
+    ) {
+      console.log(
+        `[resume] agent ${agentId}: its conversation is gone; the continue is not sent to a fresh session`,
+      );
+      if (managed.messageQueue.length > 0)
+        claimAutoResume(agentId, managed, null);
+      return { ok: true, queued: false };
     }
 
     const id = generateQueuedId(managed.messageQueue);
@@ -996,7 +1083,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     // `error` until replaceSession completes, so a second send in the same
     // tick only joins the queue.
     if (state === "error") {
-      claimAutoResume(agentId, managed, autoResumeSessionId!);
+      claimAutoResume(agentId, managed, autoResumeSessionId);
       return {
         ok: true,
         queued: true,
@@ -1103,6 +1190,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     persistQueueState,
     removeQueueRecord,
     readPersistedQueueRecord,
+    requeueUnsavedDelivery,
     generateQueuedId,
     isQueueIdleState,
     steerRateLimited,

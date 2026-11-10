@@ -357,6 +357,11 @@ import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { agentStopRefusal, stopName } from "./identity/agent-fit.ts";
 import { managerRoomsOf } from "../shared/pack-fit.ts";
 import { serverStopping } from "./server-stop.ts";
+import {
+  bindUnsavedSessionId,
+  clearUnsavedDeliveryOnTurnEnd,
+  recordUnsavedDelivery,
+} from "./unsaved-delivery.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
 // unit: createAgentManager(deps) owns its collaborators; the production wiring
@@ -699,6 +704,10 @@ export function createAgentManager(deps: ManagerDeps) {
           { notice: "settings" },
         ),
       logUsageHeadsUp,
+      recordUnsavedDelivery: (managed, items, persist) => {
+        if (recordUnsavedDelivery(managed, items) && persist)
+          persistQueueState(managed.info.id, managed);
+      },
     });
   }
 
@@ -788,6 +797,7 @@ export function createAgentManager(deps: ManagerDeps) {
     persistQueueState,
     removeQueueRecord,
     readPersistedQueueRecord,
+    requeueUnsavedDelivery,
     generateQueuedId,
     isQueueIdleState,
     steerRateLimited,
@@ -800,7 +810,7 @@ export function createAgentManager(deps: ManagerDeps) {
     buildUserMeta,
     getCurrentSessionId,
     maybeFillTopic,
-    pickAutoResumeSessionId,
+    resumeIdOrDrop,
     enqueueCapRefusal,
     requestFlush,
     sendNow,
@@ -967,6 +977,7 @@ export function createAgentManager(deps: ManagerDeps) {
     emitEphemeralLog,
     addLogEntry,
     pickAutoResumeSessionId,
+    resumeIdOrDrop,
     claimAutoResume,
     releaseBackendHold,
     requestFlush,
@@ -1003,7 +1014,7 @@ export function createAgentManager(deps: ManagerDeps) {
     persistAll,
     getBackend,
     createSession,
-    pickAutoResumeSessionId,
+    resumeIdOrDrop,
     getAgentDisplay,
     enqueueMessage,
     agentMcpServers,
@@ -1159,8 +1170,10 @@ export function createAgentManager(deps: ManagerDeps) {
     userSkillRootsForInfo,
     tokenUserIdFor,
     noteUnresumableSession,
+    noteUnsavedResent,
     summarizeEndedSession,
     readPersistedQueueRecord,
+    requeueUnsavedDelivery,
     queueStore,
     setQueueStoreCache,
     restoreLimitResume,
@@ -2052,9 +2065,7 @@ export function createAgentManager(deps: ManagerDeps) {
         if (fixedCwdChange) pendingFixedCwdReset.add(agentId);
         const sessionId = fixedCwdChange
           ? null
-          : pickAutoResumeSessionId(managed);
-        if (managed.sessionManager.sessionId && !sessionId && !fixedCwdChange)
-          dropUnresumableSession(agentId, managed);
+          : resumeIdOrDrop(agentId, managed);
         // The resumed conversation hears what changed on its next turn; a
         // fresh one has nothing the change could explain. Armed before the
         // swap: the swap flushes queued messages before it returns, and the
@@ -3287,6 +3298,8 @@ export function createAgentManager(deps: ManagerDeps) {
             resetContextUsage(managed);
           }
           managed.sessionManager.adoptSessionId(sessionId);
+          if (bindUnsavedSessionId(managed, sessionId))
+            persistQueueState(agentId, managed);
           // Record the cwd this session was born in (source of truth for
           // per-session cwd). Idempotent: a fork already stamped its cwd via
           // persistSessionFork so this no-ops there; a plain fresh session
@@ -3538,6 +3551,12 @@ export function createAgentManager(deps: ManagerDeps) {
         // error, so the continue's flush starts at the idle transition.
         const fallbackContinues =
           agents.get(agentId)?.turnFlags.limitStopFallback === true;
+        // The engine ended the turn, so it saved what it accepted.
+        {
+          const m = agents.get(agentId);
+          if (m && clearUnsavedDeliveryOnTurnEnd(m))
+            persistQueueState(agentId, m);
+        }
         // Items delivered at this turn's tool boundaries leave the queue now,
         // before the idle transition below can start a flush that would send
         // them again. Only the installed session's claim drains (liveClaimed).
@@ -4034,7 +4053,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // in-flight token dies mid-turn.
     mintAgentToken(agentId, tokenUserIdFor(managed.info), { access });
     if (managed.sessionManager.session !== null) {
-      const sessionId = pickAutoResumeSessionId(managed);
+      const sessionId = resumeIdOrDrop(agentId, managed);
       await managed.sessionManager.replaceWith(managed, sessionId);
     }
     return managed.info;
@@ -4126,7 +4145,7 @@ export function createAgentManager(deps: ManagerDeps) {
       grantAt(grant.access),
     );
     if (managed.sessionManager.session !== null) {
-      const sessionId = pickAutoResumeSessionId(managed);
+      const sessionId = resumeIdOrDrop(agentId, managed);
       await managed.sessionManager.replaceWith(managed, sessionId);
     }
     return managed.info;
@@ -4696,9 +4715,7 @@ export function createAgentManager(deps: ManagerDeps) {
         );
         addLogEntry(agentId, "system", msg("systemEntries.deliveryStalled"));
         try {
-          const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionManager.sessionId && !sessionId)
-            dropUnresumableSession(agentId, managed);
+          const sessionId = resumeIdOrDrop(agentId, managed);
           await managed.sessionManager.replaceWith(managed, sessionId);
           acted++;
         } catch (err) {
@@ -4735,9 +4752,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(agentId, "system", msg("systemEntries.deliveryStalled"));
       try {
         // Same resume-or-fresh dance as abort's slow path.
-        const sessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionManager.sessionId && !sessionId)
-          dropUnresumableSession(agentId, managed);
+        const sessionId = resumeIdOrDrop(agentId, managed);
         await managed.sessionManager.replaceWith(managed, sessionId);
         acted++;
       } catch (err) {
@@ -4951,22 +4966,58 @@ export function createAgentManager(deps: ManagerDeps) {
   // which and why, and when the conversation is gone the new one opens with a
   // note. An empty one held nothing to lose, so it is only logged. Called at
   // the drop, never in pickAutoResumeSessionId, which predicates also call.
+  // `resent`: messages the dropped session had accepted went back to the
+  // queue; their line takes the place of the note.
   function noteUnresumableSession(
     agentId: string,
     agentType: AgentInfo["agentType"],
     sessionId: string,
     state: StoredSessionState | "unknown",
+    resent = 0,
   ): void {
     console.log(
-      `[resume] agent ${agentId}: stored ${agentType} session ${sessionId} is ${state}; starting a new conversation`,
+      `[resume] agent ${agentId}: stored ${agentType} session ${sessionId} is ${state}; starting a new conversation${resent > 0 ? ` and sending its ${resent} message(s) again` : ""}`,
     );
-    if (state === "missing")
+    if (resent > 0) noteUnsavedResent(agentId, resent);
+    else if (state === "missing")
       addLogEntry(agentId, "system", msg("systemEntries.sessionNotResumable"));
+  }
+
+  function noteUnsavedResent(agentId: string, count: number): void {
+    addLogEntry(agentId, "system", msgN("systemEntries.unsavedResent", count));
+  }
+
+  // The session id a new session resumes, or null for a fresh one. Every
+  // site that installs a session asks here, never pickAutoResumeSessionId
+  // alone: a stored session the auto-resume policy refuses is dropped
+  // (dropUnresumableSession), and the messages its process accepted in a turn
+  // the engine never saved go back to the head of the queue. With no session
+  // id, messages accepted by a process that never reported one go back too:
+  // that process is gone or about to be replaced. Predicates (canDemote,
+  // canReleaseForEnv, restart-wake planning) call pickAutoResumeSessionId.
+  function resumeIdOrDrop(
+    agentId: string,
+    managed: ManagedAgent,
+  ): string | null {
+    const sessionId = pickAutoResumeSessionId(managed);
+    if (managed.sessionManager.sessionId && !sessionId) {
+      dropUnresumableSession(agentId, managed);
+    } else if (!managed.sessionManager.sessionId) {
+      // The chat still shows these messages: no conversation was cleared.
+      const resent = requeueUnsavedDelivery(agentId, managed, null, true);
+      if (resent > 0) {
+        console.log(
+          `[resume] agent ${agentId}: its process ended before it reported a session; sending its ${resent} message(s) again`,
+        );
+        noteUnsavedResent(agentId, resent);
+      }
+    }
+    return sessionId;
   }
 
   // clearStaleAutoResumeState for a session the auto-resume policy dropped,
   // with its log line and note. The note comes after the clear, which empties
-  // the chat.
+  // the chat, and so do the messages the session had accepted.
   function dropUnresumableSession(
     agentId: string,
     managed: ManagedAgent,
@@ -4985,7 +5036,14 @@ export function createAgentManager(deps: ManagerDeps) {
       );
     } catch {}
     const cleared = clearStaleAutoResumeState(agentId, managed);
-    noteUnresumableSession(agentId, managed.info.agentType, sessionId, state);
+    const resent = requeueUnsavedDelivery(agentId, managed, sessionId, false);
+    noteUnresumableSession(
+      agentId,
+      managed.info.agentType,
+      sessionId,
+      state,
+      resent,
+    );
     return cleared;
   }
 
@@ -5726,12 +5784,10 @@ export function createAgentManager(deps: ManagerDeps) {
           // unexpected death gets the alarming one.
           const wasDormant = managed.info.dormant ?? false;
           const dormantReason = managed.sessionManager.releasedReason;
-          const sessionId = pickAutoResumeSessionId(managed);
           // A dropped session gets its own note (dropUnresumableSession).
-          const dropped =
-            managed.sessionManager.sessionId && !sessionId
-              ? dropUnresumableSession(agentId, managed)
-              : false;
+          const hadSession = managed.sessionManager.sessionId !== null;
+          const sessionId = resumeIdOrDrop(agentId, managed);
+          const dropped = hadSession && !sessionId;
           managed.sessionManager.installSession(
             managed,
             sessionId
@@ -6195,11 +6251,9 @@ export function createAgentManager(deps: ManagerDeps) {
     // it returns null so we fresh-start cleanly instead of crashing on
     // thread/resume.
     try {
-      const sessionId = pickAutoResumeSessionId(managed);
-      const clearedStale =
-        managed.sessionManager.sessionId && !sessionId
-          ? dropUnresumableSession(agentId, managed)
-          : false;
+      const hadSession = managed.sessionManager.sessionId !== null;
+      const sessionId = resumeIdOrDrop(agentId, managed);
+      const clearedStale = hadSession && !sessionId;
       // If we wiped logCache while echoEarly already added the user's
       // message to it, the message is now gone from UI/cache. Re-add it
       // here - the bottom of sendMessage won't re-add (echoEarly is still
@@ -7003,9 +7057,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // thread is non-durable either way, and a rollback that revives a
           // stale logCache+sessionId pointing at a dead thread would only
           // confuse the user.
-          const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionManager.sessionId && !sessionId)
-            dropUnresumableSession(agentId, managed);
+          const sessionId = resumeIdOrDrop(agentId, managed);
           // Armed before the swap, as in editAgent; restored if it fails.
           const priorNotice = managed.settingsNotice;
           if (sessionId && username)
@@ -7094,9 +7146,7 @@ export function createAgentManager(deps: ManagerDeps) {
         } else {
           // Auto-resume policy outside the rollback - see model-switch above
           // for the rationale.
-          const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionManager.sessionId && !sessionId)
-            dropUnresumableSession(agentId, managed);
+          const sessionId = resumeIdOrDrop(agentId, managed);
           // Armed before the swap, as in editAgent; restored if it fails.
           const priorNotice = managed.settingsNotice;
           if (sessionId && username)
@@ -7574,9 +7624,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // replacement never runs - it has to happen here or not at all.
         if (denied === "failed") {
           try {
-            const autoSessionId = pickAutoResumeSessionId(managed);
-            if (managed.sessionManager.sessionId && !autoSessionId)
-              dropUnresumableSession(agentId, managed);
+            const autoSessionId = resumeIdOrDrop(agentId, managed);
             await managed.sessionManager.replaceWith(managed, autoSessionId);
           } catch (err) {
             addLogEntry(
@@ -7639,6 +7687,12 @@ export function createAgentManager(deps: ManagerDeps) {
       return await managed.sessionManager.abortPromise;
     }
     managed.sessionManager.aborting = true;
+    // A Stop ends the turn on purpose: what it accepted is not sent again
+    // when the engine did not save it (server/unsaved-delivery.ts).
+    if (managed.unsavedDelivery) {
+      managed.unsavedDelivery = null;
+      persistQueueState(agentId, managed);
+    }
     let abortDone!: (result: AbortResult) => void;
     managed.sessionManager.abortPromise = new Promise<AbortResult>((res) => {
       abortDone = res;
@@ -7710,9 +7764,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Apply auto-resume policy at the point of replace, against the
         // freshest managed.sessionManager.sessionId - the hot-abort path can race with
         // session-died events that leave sessionId stale.
-        const autoSessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionManager.sessionId && !autoSessionId)
-          dropUnresumableSession(agentId, managed);
+        const autoSessionId = resumeIdOrDrop(agentId, managed);
         await managed.sessionManager.replaceWith(managed, autoSessionId);
         // If we got here via a hot-abort failure, processNormalizedEvent
         // flipped state to "error" - restore waiting_for_response so the
@@ -8817,16 +8869,45 @@ export function createAgentManager(deps: ManagerDeps) {
   // Claimed synchronously: the state stays `error` until the resume ends, so
   // a second caller in the same tick joins this resume instead of starting
   // another against the same transcript.
+  // Null: the errored agent's session was dropped (resumeIdOrDrop), so a
+  // fresh one starts instead of a resume.
   function claimAutoResume(
     agentId: string,
     managed: ManagedAgent,
-    sessionId: string,
+    sessionId: string | null,
   ): void {
     if (managed.autoResumeInProgress) return;
     managed.autoResumeInProgress = true;
-    void resume(agentId, sessionId).finally(() => {
+    const recovery =
+      sessionId === null
+        ? startFreshAfterError(agentId, managed)
+        : resume(agentId, sessionId);
+    void recovery.finally(() => {
       managed.autoResumeInProgress = false;
     });
+  }
+
+  // An errored agent whose session was dropped: a fresh session, then the
+  // move out of error, which flushes the queue. With no session installed,
+  // the flush's wake starts the fresh one.
+  async function startFreshAfterError(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<void> {
+    try {
+      if (managed.sessionManager.session)
+        await managed.sessionManager.replaceWith(managed, null);
+      if (agents.get(agentId) !== managed) return;
+      if (managed.info.state === "error")
+        updateState(agentId, "waiting_for_response");
+    } catch (err) {
+      addLogEntry(
+        agentId,
+        "error",
+        msg("systemEntries.flushStartFailed", { error: errorText(err) }),
+      );
+      updateState(agentId, "error");
+    }
   }
 
   async function resume(agentId: string, sessionId: string) {

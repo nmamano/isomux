@@ -1163,12 +1163,13 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
     expect(queueOf(server, recv.id).length).toBe(50); // unchanged
   });
 
-  it("rejects malformed / self / unknown-receiver / error-state sends with today's status codes", async () => {
+  it("rejects malformed / self / unknown-receiver sends with today's status codes; an unresumable errored receiver accepts", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
-    // Codex without a durable rollout makes the later error state deliberately
-    // unresumable, so this contract test keeps pinning the 409 fallback while
-    // resumable error states are covered by agent-death-recovery.test.ts.
+    // Codex without a durable rollout makes the later error state
+    // unresumable. Since task 5d8e6cd4 that receiver starts a fresh session
+    // instead of answering 409; resumable error states are covered by
+    // agent-death-recovery.test.ts.
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
 
@@ -1191,8 +1192,9 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
     );
     expect(unknown.status).toBe(404);
 
-    // Unresumable error-state receiver -> 409. Drive a failed turn to reach
-    // state "error"; pickAutoResumeSessionId rejects its missing rollout.
+    // Unresumable error-state receiver -> accepted, into a fresh session.
+    // Drive a failed turn to reach state "error"; pickAutoResumeSessionId
+    // rejects its missing rollout.
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     await waitUntil(
       () => stateOf(server!, recv.id) === "thinking",
@@ -1207,14 +1209,26 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       2000,
       "error state",
     );
-    const rejected = await postAgentMessage(
+    const failed = server.fakeBackend.sessionForAgent(recv.id)!;
+    const accepted = await postAgentMessage(
       server,
       recv.id,
       sender.id,
       "after-error",
     );
-    expect(rejected.status).toBe(409);
-    expect(rejected.body.error?.code).toBe("agent_error");
+    expect(accepted.status).toBe(200);
+    await waitUntil(
+      () => {
+        const live = server!.fakeBackend.sessionForAgent(recv.id)!;
+        return (
+          live !== failed &&
+          !live.isResume &&
+          live.sent.some((m) => m.text.includes("after-error"))
+        );
+      },
+      2000,
+      "fresh session got the send",
+    );
   });
 });
 

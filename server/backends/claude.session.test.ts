@@ -12,6 +12,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { claudeToolsForStop } from "../../shared/agent-access.ts";
 import { STATE_ROOT } from "../config.ts";
+import { claudeProjectDir } from "../cwd-utils.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
 import {
   EXPECTED,
@@ -866,6 +867,34 @@ describe("ClaudeSession plugin reload and command list", () => {
 // ---------------------------------------------------------------------------
 // createClaudeBackend - module-level backend functions
 // ---------------------------------------------------------------------------
+
+// Task 5d8e6cd4: the backend answers with the transcript's own fact, so a
+// session its process never saved is dropped instead of resumed into "No
+// conversation found" (the cases are cwd-utils.test.ts's).
+describe("createClaudeBackend.inspectStoredSession", () => {
+  it("reads the transcript under the session's config dir", () => {
+    const root = mkdtempSync(join(tmpdir(), "isomux-claude-backend-inspect-"));
+    try {
+      const cwd = "/work/agent";
+      const id = "00000000-aaaa-4bbb-8ccc-000000000002";
+      const dir = claudeProjectDir(cwd, { CLAUDE_CONFIG_DIR: root });
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `${id}.jsonl`);
+      const backend = createClaudeBackend(new FakeSdkClient());
+      const inspect = () =>
+        backend.inspectStoredSession(id, {
+          cwd,
+          env: { CLAUDE_CONFIG_DIR: root },
+        });
+      writeFileSync(file, JSON.stringify({ type: "session-owner" }) + "\n");
+      expect(inspect()).toBe("empty");
+      writeFileSync(file, JSON.stringify({ type: "user", uuid: "u-1" }) + "\n");
+      expect(inspect()).toBe("durable");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("createClaudeBackend.listModels", () => {
   it("lists the same effort levels for every family, haiku included", async () => {

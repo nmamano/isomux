@@ -1391,7 +1391,7 @@ async function deliverCronjobToAgent(
       messageId: result.messageId ?? "",
       agentName: agentManager.getAgent(agentId)?.name ?? agentId,
     };
-  if (result.error === "agent_stopped" || result.error === "agent_error")
+  if (result.error === "agent_stopped")
     return { ok: false, reason: msg("systemEntries.scheduleRun.agentStopped") };
   if (result.error === "queue_full")
     return {
@@ -4699,7 +4699,7 @@ function buildExecutorDeps(
           };
         // enqueueMessage's error code passes through verbatim ("agent not found"
         // 404 - normally pre-empted by the messageRecipientExists precondition;
-        // agent_stopped / agent_error 409; queue_full 429; persist_failed 500
+        // agent_stopped 409; queue_full 429; persist_failed 500
         // when the durable-queue write failed and the message was rolled back -
         // the sender should retry), preserving the legacy endpoint's
         // status + code contract.

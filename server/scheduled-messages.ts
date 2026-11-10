@@ -444,8 +444,7 @@ export function createScheduledMessageManager(
           );
           continue;
         }
-        // Retryable (agent_stopped 409, an unresumable agent_error 409, or
-        // queue_full 429): the
+        // Retryable (agent_stopped 409 or queue_full 429): the
         // rejected enqueue is a cheap no-op - no turn started, nothing queued.
         // Stay pending and retry next tick until the delivery deadline.
         if (now - entry.deliverAt > DELIVERY_DEADLINE_MS) {

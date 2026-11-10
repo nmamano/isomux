@@ -1091,12 +1091,17 @@ describe("queue reliability: durable queues (9870b472)", () => {
       m.text.includes("m-two"),
     )!.text;
     const prefix = formatAgentSenderPrefix(sender.id, "Sender", room.name);
-    const expected = [
-      "[Note: these messages were queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent them.]",
-      `${prefix} m-one`,
-      `${prefix} m-two`,
-    ].join("\n\n");
-    expect(prompt).toBe(expected);
+    expect(
+      prompt.startsWith(
+        "[Note: these messages were queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent them.]",
+      ),
+    ).toBe(true);
+    expect(prompt.endsWith(`${prefix} m-one\n\n${prefix} m-two`)).toBe(true);
+    // The restart cut the kickoff's turn and its session is not stored
+    // (task 5d8e6cd4): it is sent again, once, ahead of the queue.
+    expect(prompt.indexOf("kickoff")).toBeGreaterThan(-1);
+    expect(prompt.indexOf("kickoff")).toBeLessThan(prompt.indexOf("m-one"));
+    expect(deliveryCount(server, recv.id, "kickoff")).toBe(2);
     // One coalesced send, not one per item.
     const sendsAfter = sessionsFor(server, recv.id).reduce(
       (n, s) => n + s.sent.length,
@@ -1262,13 +1267,19 @@ describe("queue reliability: durable queues (9870b472)", () => {
     );
 
     // B's save must not have dragged A's rolled-back record onto disk.
+    // A's record holds only the kickoff its running turn accepted (task
+    // 5d8e6cd4), never the rolled-back message.
     const store = queueFile(server);
     expect(store[recvB.id]?.queue?.length).toBe(1);
-    expect(store[recvA.id]).toBeUndefined();
+    expect(store[recvA.id]?.queue ?? []).toEqual([]);
+    expect(JSON.stringify(store[recvA.id] ?? {})).not.toContain("phantom");
 
-    // And it stays dead across a restart: A replays nothing, B replays its item.
+    // And it stays dead across a restart: A replays no phantom, B replays its
+    // item.
     server = await server.restart();
-    expect(queueOf(server, recvA.id).length).toBe(0);
+    expect(
+      queueOf(server, recvA.id).some((m) => m.text.includes("phantom")),
+    ).toBe(false);
     await waitUntil(
       () => deliveryCount(server!, recvB.id, "b-real") === 1,
       5000,
