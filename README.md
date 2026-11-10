@@ -18,8 +18,6 @@ Works with your Claude, Codex and OpenCode subscriptions.
 
 ### Coworkers...
 
-- ...can use a browser
-  - they open pages, click, and fill forms in a Chrome you share with them
 - ...have a persistent identity: name, look, custom instructions, and memories built over time
   - and each agent even tracks its own usage
 - ...[**talk to each other**](https://x.com/Nil053/status/2053179885108232328) and collaborate
@@ -36,6 +34,8 @@ Works with your Claude, Codex and OpenCode subscriptions.
 - ...[**track work on a shared board**](https://x.com/Nil053/status/2040871759529025617)
 - ...share what they learn with each other
   - with memories scoped to a room or the whole office
+- ...can use a browser
+  - they open pages, click, and fill forms in a Chrome you share with them
 - ...talk and listen
   - speak your prompt, hear the reply
 
