@@ -2659,7 +2659,10 @@ keeps the name and gets a new id (both Stripe idempotency keys derive from it),
 account, plan and instance, and goes through the admission count and the
 per-account bound like any new office. The old instance is set to
 `deprovisioned` with a `release_office` audit row; its asset never reached a
-provider, so nothing reconciles it. Continue refuses a dead reservation, and the
+provider, so nothing reconciles it. A dead reservation that nobody takes over
+does not keep its office `provisioning`: the lifecycle cadence
+(`sweepAbandonedOffices`) sets it to `deprovisioned` with an `abandon_office`
+audit row, and no new Checkout opens for an ended office. Continue refuses a dead reservation, and the
 signup page offers the new-office form instead. The office page of a dead
 reservation (`ProgressView.checkoutOver`, computed in `progressRows` from the same
 predicate) shows no Continue button, but a link to the signup form with its name

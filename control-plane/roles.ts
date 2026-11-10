@@ -605,7 +605,9 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "instances",
     verb: "update",
-    via: "store.ts Store.casInstance, from tick.ts Ticker.finish and Ticker.syncPlan",
+    via:
+      "store.ts Store.casInstance, from tick.ts Ticker.finish and Ticker.syncPlan, " +
+      "and cli.ts runLifecycleCadence -> abandoned-office.ts sweepAbandonedOffices",
   },
   {
     table: "provider_assets",
@@ -706,7 +708,8 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     columns: ["checkout_next_check_at", "updated_at", "version"],
     via:
       "cli.ts runLifecycleCadence -> stripe/checkout-poll.ts pollPendingCheckouts " +
-      "-> signup.ts deferOrdinaryCheckoutPoll, while the session is open",
+      "-> signup.ts deferOrdinaryCheckoutPoll, while the session is open; " +
+      "abandoned-office.ts sweepAbandonedOffices locks the row (select ... for update)",
   },
   {
     table: "name_reservations",
@@ -1543,7 +1546,7 @@ export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
   ],
   reconcileFn: ["adapter.get", "makeAdapter"],
   runLifecycleCadence: [
-    // "candidate(s)" and "subscription(s)" in the two problem lines.
+    // "candidate(s)" and "subscription(s)" in the problem lines.
     "candidate",
     "subscription",
     "lifecycleTick",
@@ -1551,6 +1554,7 @@ export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
     "reporter.problem",
     "running.handles",
     "store.now",
+    "sweepAbandonedOffices",
     "sweepCustomerKeyRetention",
     "sweepProvisioningStalls",
     "sweepProvisioningStarts",

@@ -105,6 +105,7 @@ import { CloudflareDns, DNS_ORPHAN_AGE_MS } from "./cloudflare-dns.ts";
 import { dnsHookIntentsDir } from "./cloudflare-dns-hook.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
+import { sweepAbandonedOffices } from "./abandoned-office.ts";
 import { sweepProvisioningStarts } from "./provisioning-start.ts";
 import {
   PROVISIONING_STALL_MS,
@@ -752,6 +753,16 @@ async function runLifecycleCadence(
         `Checkout poll had ${checkouts.failed} failed candidate(s)`,
       );
     }
+  }
+  // After the poll, so an expiry it records ends its office in this pass, and
+  // before the stall check, which then sees the office ended.
+  const abandoned = await sweepAbandonedOffices(store, (line) =>
+    reporter.line(`Abandoned-office sweep: ${line}`),
+  );
+  if (abandoned.failed > 0) {
+    reporter.problem(
+      `abandoned-office sweep had ${abandoned.failed} failed candidate(s)`,
+    );
   }
   // Starts first: a payment that landed late gets its create before the stall
   // check sees it.

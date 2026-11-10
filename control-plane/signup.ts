@@ -724,7 +724,8 @@ function sourceColumns(
 }
 
 /** Retire the office a taken-over reservation named. Its asset never reached a
- * provider (provider_id is null), so nothing reconciles it. */
+ * provider (provider_id is null), so nothing reconciles it. The abandoned-office
+ * sweep may have retired it already; the release still gets its audit row. */
 async function releaseOffice(
   store: Store,
   old: ReservationRow,
@@ -733,10 +734,13 @@ async function releaseOffice(
 ): Promise<void> {
   const instance = await store.getInstance(old.instance_id);
   if (!instance) throw new Error("released instance is missing");
-  const retired = await store.casInstance(instance.id, instance.version, {
-    service_state: "deprovisioned",
-  });
-  if (!retired) throw new Error(`instance ${instance.id} moved while released`);
+  if (instance.service_state !== "deprovisioned") {
+    const retired = await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+    if (!retired)
+      throw new Error(`instance ${instance.id} moved while released`);
+  }
   await store.appendAudit({
     actor: `account:${takerAccountId}`,
     instance_id: old.instance_id,
@@ -1052,7 +1056,9 @@ export async function recordOrdinaryCheckoutSession(
       "checkout_state='pending', checkout_next_check_at=$3, updated_at=$4, version=version+1 " +
       "where id=$5 and coalesce(checkout_generation, 1)=$6 " +
       "and (checkout_state='opening' or checkout_state is null) " +
-      "and checkout_session_id is null returning id",
+      "and checkout_session_id is null and exists (select 1 from instances i " +
+      "where i.id = name_reservations.instance_id and i.service_state = 'provisioning') " +
+      "returning id",
     [
       session.id,
       session.expiresAt,
@@ -1080,18 +1086,33 @@ export async function recordTerminalOrdinarySession(
   return changed !== null;
 }
 
-/** Start the next generation only after the previous one is terminal. */
+/**
+ * Start the next generation only after the previous one is terminal, and only
+ * while its office is still 'provisioning': the abandoned-office sweep may have
+ * ended it (task 03eef464). The lock comes first and the UPDATE is a separate
+ * statement, so under READ COMMITTED it sees an end the sweep committed while
+ * this transaction waited; one UPDATE with the check inside would keep the
+ * instance snapshot it took before it waited.
+ */
 export async function advanceExpiredOrdinaryCheckout(
   store: Store,
   reservationId: string,
 ): Promise<ReservationRow | null> {
-  return store.sqlGet<ReservationRow>(
-    "update name_reservations set checkout_generation=checkout_generation+1, " +
-      "checkout_session_id=null, checkout_expires_at=null, checkout_state='opening', " +
-      "checkout_next_check_at=null, updated_at=$1, version=version+1 " +
-      "where id=$2 and checkout_state='expired' returning *",
-    [store.now(), reservationId],
-  );
+  return store.tx(async () => {
+    await store.sqlGet<{ id: string }>(
+      "select id from name_reservations where id=$1 for update",
+      [reservationId],
+    );
+    return store.sqlGet<ReservationRow>(
+      "update name_reservations set checkout_generation=checkout_generation+1, " +
+        "checkout_session_id=null, checkout_expires_at=null, checkout_state='opening', " +
+        "checkout_next_check_at=null, updated_at=$1, version=version+1 " +
+        "where id=$2 and checkout_state='expired' and exists (select 1 from instances i " +
+        "where i.id = name_reservations.instance_id and i.service_state = 'provisioning') " +
+        "returning *",
+      [store.now(), reservationId],
+    );
+  });
 }
 
 export async function dueOrdinaryCheckouts(

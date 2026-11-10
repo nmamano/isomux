@@ -12,6 +12,7 @@ import {
   recordTerminalOrdinarySession,
   reserveOffice,
 } from "./signup.ts";
+import { UNPAID_OPENING_HOLD_MS } from "./reservation-hold.ts";
 import { insertSubscription } from "./stripe/billing-store.ts";
 import {
   openTestStore,
@@ -157,15 +158,26 @@ describe("silent provisioning stalls", () => {
 
   // Each case is a buyer who never paid. The tail pays (or completes the
   // payment) and shows the same office does raise, so the silence above it is
-  // the rule's, not the fixture's.
+  // the rule's, not the fixture's. `wake` is what the schedule owes the
+  // abandoned-office sweep (task 03eef464), never the stall: an unpaid
+  // reservation with no recorded session is due when its hold ends, one whose
+  // Checkout expired is due now, and a subscription makes either paid.
   const unpaid: {
     name: string;
     setUp: (f: Awaited<ReturnType<typeof reserved>>) => Promise<void>;
+    wake: (f: Awaited<ReturnType<typeof reserved>>) => {
+      cadenceDue: boolean;
+      nextDueAt: number | null;
+    };
     pay: (f: Awaited<ReturnType<typeof reserved>>) => Promise<void>;
   }[] = [
     {
       name: "a reservation with no subscription",
       setUp: async () => {},
+      wake: (f) => ({
+        cadenceDue: false,
+        nextDueAt: f.reservation.updated_at + UNPAID_OPENING_HOLD_MS,
+      }),
       pay: async (f) => {
         await f.subscribe("active");
       },
@@ -188,6 +200,7 @@ describe("silent provisioning stalls", () => {
           ),
         ).toBe(true);
       },
+      wake: () => ({ cadenceDue: true, nextDueAt: null }),
       pay: async (f) => {
         await f.subscribe("active");
       },
@@ -197,6 +210,7 @@ describe("silent provisioning stalls", () => {
       setUp: async (f: Awaited<ReturnType<typeof reserved>>) => {
         await f.subscribe(status);
       },
+      wake: () => ({ cadenceDue: false, nextDueAt: null }),
       pay: async (f: Awaited<ReturnType<typeof reserved>>) => {
         await f.store.sqlRun(
           "update subscriptions set status = 'active' where id = 'sub-buyer'",
@@ -206,15 +220,16 @@ describe("silent provisioning stalls", () => {
   ];
 
   test.each(unpaid)(
-    "$name raises nothing and wakes nothing",
-    async ({ setUp, pay }) => {
+    "$name raises nothing, and wakes nothing for the stall",
+    async ({ setUp, wake, pay }) => {
       const f = await reserved();
       await setUp(f);
       f.advance(DAY_MS + PROVISIONING_STALL_MS);
       await expectSilentProvisioning(f.store, f.instanceId);
       const s = await schedule(f.store);
-      expect(s.cadenceDue).toBe(false);
-      expect(s.nextDueAt).toBeNull();
+      expect({ cadenceDue: s.cadenceDue, nextDueAt: s.nextDueAt }).toEqual(
+        wake(f),
+      );
       expect(await sweepProvisioningStalls(f.store)).toBe(0);
       expect(await f.store.openReasons(f.instanceId)).toEqual([]);
       expect((await f.store.getInstance(f.instanceId))?.attention_state).toBe(
@@ -257,6 +272,8 @@ describe("silent provisioning stalls", () => {
     );
     const s = await schedule(f.store);
     expect(s.cadenceDue).toBe(false);
-    expect(s.nextDueAt).toBeNull();
+    // No stall time; only the abandoned-office sweep's, when the hold of a
+    // reservation with no recorded session ends (task 03eef464).
+    expect(s.nextDueAt).toBe(f.reservation.updated_at + UNPAID_OPENING_HOLD_MS);
   });
 });

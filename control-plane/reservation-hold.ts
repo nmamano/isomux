@@ -62,3 +62,40 @@ export function checkoutOverSql(r: string, cutoff: string): string {
 export function deadSql(r: string, cutoff: string): string {
   return `(not ${paidSql(r)} and ${checkoutOverSql(r, cutoff)})`;
 }
+
+/**
+ * ABANDONED: instance `i` is still 'provisioning' while its reservation is
+ * dead (task 03eef464). The sweep (abandoned-office.ts) and the work schedule
+ * (store.ts) apply this one rule. `cutoff` is now minus UNPAID_OPENING_HOLD_MS.
+ */
+export function abandonedSql(i: string, cutoff: string): string {
+  return (
+    `(${i}.service_state = 'provisioning' and exists (select 1 from ` +
+    `name_reservations n where n.instance_id = ${i}.id and ${deadSql("n", cutoff)}))`
+  );
+}
+
+/**
+ * The work schedule's cadence clause: some office is abandoned at `now` (a SQL
+ * expression), with the cutoff the sweep computes.
+ */
+export function abandonedWakeSql(now: string): string {
+  const cutoff = `(${now} - ${UNPAID_OPENING_HOLD_MS})`;
+  return `exists (select 1 from instances i where ${abandonedSql("i", cutoff)})`;
+}
+
+/**
+ * The work schedule's due-time arm, a complete `union all` branch: an office
+ * with no recorded session becomes abandoned at its unpaid 'opening'
+ * reservation's updated_at plus the hold. An expired reservation is abandoned
+ * at once and needs no due time. The arm runs only while `gate` (a SQL
+ * expression) is 1.
+ */
+export function abandonedDueSql(gate: string): string {
+  return (
+    `union all select n.updated_at + ${UNPAID_OPENING_HOLD_MS} from name_reservations n ` +
+    `join instances i on i.id = n.instance_id where ${gate} = 1 ` +
+    `and i.service_state = 'provisioning' and not ${paidSql("n")} ` +
+    "and coalesce(n.checkout_state, 'opening') = 'opening'"
+  );
+}

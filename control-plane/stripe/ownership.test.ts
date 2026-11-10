@@ -124,6 +124,7 @@ describe("the subscription insert", () => {
     // and a rule that skipped tests would let a "just for the fixture" writer in.
     // reconcile.ts is still the only production caller.
     expect(callersOf("insertSubscription")).toEqual([
+      "abandoned-office.test.ts",
       "account-email.test.ts",
       "cancel.test.ts",
       "certificate-credentials.test.ts",

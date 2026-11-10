@@ -933,9 +933,10 @@ export function OfficeView({
           </a>
         )}
       </div>
-      {!view.subscription && !view.ended && view.checkoutOver && (
+      {!view.subscription && view.checkoutOver && (
         // Continue is refused once the checkout is over: the name is free, and
-        // a new signup for it starts afresh.
+        // a new signup for it starts afresh. Shown for an ended office too: the
+        // abandoned-office sweep ends a never-paid one.
         <section className="callout" data-testid="payment-over">
           <p>
             {i18n.rich("office.paymentOver", {

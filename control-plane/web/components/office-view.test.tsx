@@ -589,13 +589,21 @@ test("a reservation whose checkout is over offers a new signup for its name, not
   expect(over).not.toContain('data-testid="payment-guidance"');
   expect(over).toContain('data-testid="payment-over"');
   expect(over).toContain('href="/signup?name=test-office"');
-  // A paid or ended office shows neither.
-  for (const view of [
-    { ...baseView, checkoutOver: true },
-    { ...baseView, subscription: null, ended: true, checkoutOver: true },
-  ]) {
-    expect(render(view)).not.toContain('data-testid="payment-over"');
-  }
+  // A paid office shows neither.
+  expect(render({ ...baseView, checkoutOver: true })).not.toContain(
+    'data-testid="payment-over"',
+  );
+  // A never-paid office the expiry sweep ended (task 03eef464) keeps the way
+  // back: its name is free, so a new signup for it starts afresh.
+  const abandoned = render({
+    ...baseView,
+    subscription: null,
+    ended: true,
+    checkoutOver: true,
+  });
+  expect(abandoned).toContain('data-testid="payment-over"');
+  expect(abandoned).toContain('href="/signup?name=test-office"');
+  expect(abandoned).not.toContain('name="signupIntent"');
 });
 
 test("an ended office does not poll as if it were still being built", () => {
