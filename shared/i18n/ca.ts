@@ -3837,6 +3837,8 @@ Coses que pots fer per ell:
     "`{from}` no està disponible, així que aquest agent ara fa servir `{to}` i torna a enviar el missatge.",
   "systemEntries.openCodeFreeLimit":
     "El límit d'ús gratuït d'OpenCode s'ha esgotat a la xarxa d'aquest servidor. Es restableix més tard. Per continuar ara, inicia la sessió a Claude o Codex i escriu a un dels seus agents, o afegeix `OPENCODE_API_KEY` a la pàgina Integracions (pestanya Variables) i tria un model de pagament d'OpenCode.",
+  "systemEntries.openCodeFreeLimitCard":
+    "El límit d'ús gratuït d'OpenCode s'ha esgotat a la xarxa d'aquest servidor.",
   "systemEntries.openCodeFreeTierHint":
     "OpenCode també pot enviar això quan un servidor fa servir massa el seu nivell gratuït. Un model de pagament o OpenCode Go ho evita.",
   "systemEntries.openCodeProviderRetry":

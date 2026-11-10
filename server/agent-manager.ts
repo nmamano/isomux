@@ -3809,17 +3809,21 @@ export function createAgentManager(deps: ManagerDeps) {
         // OpenCode's free usage limit on an agent with no key: a notice in
         // place of the turn's error line, which says to switch models, and
         // on an office free model the sign-in cards for the agent's owner.
+        // The cards give the fix, so that notice names only the limit.
         if (ev.freeLimit?.keyless) {
           managed.turnFlags.freeLimitNotice = true;
+          const cards = managed.info.officeFreeModel !== undefined;
           addLogEntry(
             agentId,
             "system",
-            msg("systemEntries.openCodeFreeLimit"),
+            msg(
+              cards
+                ? "systemEntries.openCodeFreeLimitCard"
+                : "systemEntries.openCodeFreeLimit",
+            ),
             {
               openCodeFreeLimit: true,
-              ...(managed.info.officeFreeModel !== undefined
-                ? { providerLogins: ["claude", "codex"] }
-                : {}),
+              ...(cards ? { providerLogins: ["claude", "codex"] } : {}),
             },
           );
           break;

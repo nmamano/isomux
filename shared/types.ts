@@ -1276,7 +1276,8 @@ export interface SubagentOrigin {
 
 // A log entry's metadata: free-form, with these keys read by name.
 export type LogEntryMetadata = Record<string, unknown> & {
-  // The OpenCode free usage limit notice (systemEntries.openCodeFreeLimit).
+  // The OpenCode free usage limit notice (systemEntries.openCodeFreeLimit,
+  // or openCodeFreeLimitCard when the sign-in cards follow).
   openCodeFreeLimit?: true;
   // The sign-in cards that notice shows the agent's owner.
   providerLogins?: ("claude" | "codex")[];

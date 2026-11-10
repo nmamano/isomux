@@ -1311,6 +1311,9 @@ describe("OpenCode free usage limit", () => {
       capabilities: { limitResume: false },
       ...(oneShot !== undefined ? { oneShot } : {}),
     });
+  // The notice's message keys: protocol values, not copy.
+  const NOTICE_WITH_FIX = "systemEntries.openCodeFreeLimit";
+  const NOTICE_ABOVE_CARD = "systemEntries.openCodeFreeLimitCard";
   const notices = (h: Harness, id: string) =>
     h.logs.filter(
       (e) => e.agentId === id && e.metadata?.openCodeFreeLimit === true,
@@ -1346,8 +1349,30 @@ describe("OpenCode free usage limit", () => {
     expect(notices(h, info.id)).toHaveLength(1);
     expect(notices(h, info.id)[0].kind).toBe("system");
     expect(notices(h, info.id)[0].metadata?.providerLogins).toBeUndefined();
+    // With no card under it, the notice keeps the text that gives the fix.
+    expect(notices(h, info.id)[0].message).toEqual([{ key: NOTICE_WITH_FIX }]);
     expect(errors(h, info.id)).toEqual([]);
     expect(stateOf(h, info.id)).toBe("waiting_for_response");
+  });
+
+  // Task 1b57a9a2 (Nil at sign-off): on an office free model the sign-in
+  // card gives the fix, so the notice says only that the limit is used up.
+  it("writes the notice without the fix above the sign-in cards on an office free model", async () => {
+    const h = openCodeHarness();
+    const info = await spawn(h, "opencode", { modelFamily: FREE });
+    h.mgr.setOfficeFreeModel(info.id, FREE);
+    await refusedTurn(h, info.id, true);
+    await settle();
+    expect(notices(h, info.id)).toHaveLength(1);
+    const [notice] = notices(h, info.id);
+    expect([...(notice.metadata?.providerLogins ?? [])].sort()).toEqual([
+      "claude",
+      "codex",
+    ]);
+    expect(notice.message).toEqual([{ key: NOTICE_ABOVE_CARD }]);
+    // The English text is the short entry's, not the one with the fix.
+    expect(notice.content).toBe(english.t(NOTICE_ABOVE_CARD));
+    expect(notice.content).not.toBe(english.t(NOTICE_WITH_FIX));
   });
 
   it("keeps OpenCode's error, and no notice, on a server with a key", async () => {

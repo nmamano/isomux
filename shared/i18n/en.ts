@@ -3754,6 +3754,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "`{from}` is unavailable, so this agent now uses `{to}` and sends the message again.",
   "systemEntries.openCodeFreeLimit":
     "OpenCode's free usage limit is used up on this server's network. It resets later. To keep going now, sign in to Claude or Codex and message one of their agents, or add `OPENCODE_API_KEY` on the Integrations page (Variables tab) and pick a paid OpenCode model.",
+  "systemEntries.openCodeFreeLimitCard":
+    "OpenCode's free usage limit is used up on this server's network.",
   "systemEntries.openCodeFreeTierHint":
     "OpenCode may also send this when a server uses too much of its free tier. A paid model or OpenCode Go avoids it.",
   "systemEntries.openCodeProviderRetry":

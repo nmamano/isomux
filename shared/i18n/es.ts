@@ -3830,6 +3830,8 @@ Cosas que puedes hacer por él:
     "`{from}` no está disponible, así que este agente ahora usa `{to}` y vuelve a enviar el mensaje.",
   "systemEntries.openCodeFreeLimit":
     "El límite de uso gratuito de OpenCode se ha agotado en la red de este servidor. Se restablece más tarde. Para seguir ahora, inicia sesión en Claude o Codex y escribe a uno de sus agentes, o añade `OPENCODE_API_KEY` en la página Integraciones (pestaña Variables) y elige un modelo de pago de OpenCode.",
+  "systemEntries.openCodeFreeLimitCard":
+    "El límite de uso gratuito de OpenCode se ha agotado en la red de este servidor.",
   "systemEntries.openCodeFreeTierHint":
     "OpenCode también puede enviar esto cuando un servidor usa demasiado su nivel gratuito. Un modelo de pago u OpenCode Go lo evita.",
   "systemEntries.openCodeProviderRetry":
