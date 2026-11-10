@@ -1756,10 +1756,10 @@ publishes the approved ones at isomux.com/hosted-welcome from the same copy
 (`scripts/hosted-welcome-page.ts`).
 
 **Sending is on** (`WELCOME_MAIL_SENDING`) for the mails Nil approved:
-`WELCOME_MAILS_APPROVED` counts them from the first (4 since 2026-11-10). A
-series waits at the first mail past that count, with no skip, and goes on
-when the count grows: shipping the next mail is its copy plus one more in that
-constant. Sending also needs `RESEND_API_KEY` in `provisioner.env`. The mails
+`WELCOME_MAILS_APPROVED` counts them from the first (all 5 since
+2026-11-11). A series waits at the first mail past that count, with no
+skip, and goes on when the count grows: shipping the next mail is its copy
+plus one more in that constant. Sending also needs `RESEND_API_KEY` in `provisioner.env`. The mails
 carry no postal address: under CAN-SPAM, mail about a service the customer
 bought is transactional or relationship mail, and needs none while it promotes
 nothing. So the copy has no upgrade, plan or price pitch. While sending is

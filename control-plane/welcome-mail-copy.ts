@@ -1,10 +1,9 @@
 // The welcome series: what each mail says. English only, plain text.
 //
 // Draft 2 (2026-11-08), on the five topics Nil chose. The mails speak as Nil,
-// in the first person (2026-11-10). Mails 1-4 are his final copy (mail 1
-// links the Add to Home Screen picture on isomux.com/hosted-welcome); mail 5
-// is a draft he is still editing, so it neither sends nor shows
-// (WELCOME_MAILS_APPROVED).
+// in the first person (2026-11-10). All five are his final copy (mail 1
+// links the Add to Home Screen picture on isomux.com/hosted-welcome, and mail
+// 5 links that page).
 // The copy cannot depend on what the customer did in the office, because
 // after setup we have no access to it.
 //
@@ -22,12 +21,12 @@
 /**
  * How many mails, from the first, have copy Nil approved (Nil, 2026-11-10:
  * mail 1 goes out while he edits the rest; he approved mails 2-4 the same
- * day).
+ * day and mail 5 on 2026-11-11).
  * Only these send and show on isomux.com/hosted-welcome; a series waits at
  * the first mail past them, with no skip, and goes on when this number grows.
  * Shipping the next mail is its final copy below plus one here.
  */
-export const WELCOME_MAILS_APPROVED = 4;
+export const WELCOME_MAILS_APPROVED = 5;
 
 /** The line a late first mail opens with: the office went live before the
  * series sent anything (WELCOME_MAIL_LATE_MS). A placeholder until Nil picks
@@ -103,11 +102,15 @@ Nil`,
   },
   {
     subject: "One Inbox for every decision",
-    body: `When an agent needs you (a decision, an answer, a step only you can take), it opens an ask in your Inbox instead of waiting in a chat. Each ask says what to decide, the options and the agent's pick. You answer with one tap, from your phone or your desk.
+    body: `When agents need you (a decision, an answer, a step only you can take), they open an ask in your Inbox instead of waiting in a chat.
 
-Ask your agents to send everything they need from you there, and you run the whole office from one feed of decisions. An urgent ask rings through your notifications until you answer it.
+I built the Inbox because I run all my projects from my Isomux office, and things were falling through the cracks. Now, I ask my agents to send everything they need from me there; I call it the "Decision Feed". For urgent asks, agents even send me notifications.
 
-That's the last tip. Reply and tell me what is missing. I read every answer.
+That's the last tip! You can find them all at https://isomux.com/hosted-welcome.
+
+If you still have questions, reply here. I'd love to hear your first impressions of Isomux!
+
+{officeUrl}
 
 Nil`,
   },
