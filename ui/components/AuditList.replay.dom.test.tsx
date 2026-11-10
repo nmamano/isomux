@@ -4,8 +4,9 @@
 // no clipboard write (OSC 52), no window it opens (OSC 8 links).
 //
 // Contract with the replay view: it opens playing at 1x, and its play/pause
-// toggle is the dialog's button with aria-pressed (true while playing).
-import { afterAll, expect, it, mock } from "bun:test";
+// toggle is the dialog's button with aria-pressed (true while playing), and
+// its speed is the dialog's select.
+import { afterAll, beforeAll, expect, it, mock } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { render, fireEvent, act, waitFor } =
@@ -13,6 +14,10 @@ const { render, fireEvent, act, waitFor } =
 const { AuditPane } = await import("./AuditList.tsx");
 const { setApiShim } = await import("../api.ts");
 afterAll(() => setApiShim(null));
+// The audit log loads the player (xterm) with the first replay. Load it here,
+// outside the test's time budget; that lazy import then resolves from the
+// module cache.
+beforeAll(() => import("./TerminalReplay.tsx"));
 
 const RECORDING = "tr-0123456789abcdef";
 
@@ -26,8 +31,9 @@ const row = (sequence: number, terminalRecording?: { id: string }) => ({
   ...(terminalRecording ? { terminalRecording } : {}),
 });
 
-// What the recording holds: two lines of output 0.3 s apart, a clipboard
-// write and a link between them.
+// What the recording holds: two lines of output 1.5 s apart, a clipboard
+// write and a link between them. The gap is the time the test has, at 1x
+// and under load, to see the first frames and pause.
 const cast = [
   JSON.stringify({
     version: 2,
@@ -47,8 +53,8 @@ const cast = [
     "o",
     "\x1b]52;c;aGVsbG8=\x07\x1b]8;;https://example.test/\x07a link\x1b]8;;\x07\r\n",
   ]),
-  JSON.stringify([0.3, "o", "second-line\r\n"]),
-  JSON.stringify([0.3, "x", "end"]),
+  JSON.stringify([1.5, "o", "second-line\r\n"]),
+  JSON.stringify([1.5, "x", "end"]),
 ].join("\n");
 
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
@@ -105,9 +111,7 @@ function clickCell(dialog: HTMLElement, col: number, row: number) {
   fireEvent.mouseUp(screen, at);
 }
 
-// Quarantined (task 5388f3f0, P1): under CI load the fixed 450 ms waits race
-// the replay, and the second line is not on screen yet after resume.
-it.skip("replays a recorded session that cannot write the clipboard or open a page, and pauses", async () => {
+it("replays a recorded session that cannot write the clipboard or open a page, and pauses", async () => {
   setApiShim(async () => ({
     items: [row(2, { id: RECORDING }), row(1)],
     nextBefore: null,
@@ -148,7 +152,6 @@ it.skip("replays a recorded session that cannot write the clipboard or open a pa
     expect(replay).toHaveLength(1);
 
     fireEvent.click(replay[0]);
-    // The player's module (xterm) loads with the first replay.
     const dialog = await waitFor(() => view.getByRole("dialog"), {
       interval: 10,
     });
@@ -159,7 +162,7 @@ it.skip("replays a recorded session that cannot write the clipboard or open a pa
         " ",
       );
     // Playback starts once the player is in: wait for the first two frames
-    // (10 ms apart), which leaves the 290 ms before the third to check and
+    // (10 ms apart), which leaves the 1.49 s before the third to check and
     // pause.
     await waitFor(
       () => {
@@ -179,11 +182,20 @@ it.skip("replays a recorded session that cannot write the clipboard or open a pa
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    // A speed change does not start a paused replay. At 8x, 450 ms is 3.6 s
+    // of the recording, more than the gap: a pause that did not stop the
+    // replay would show the second line within this wait.
+    const speed = dialog.querySelector("select")!;
+    fireEvent.change(speed, { target: { value: "8" } });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
     await wait(450);
     expect(screen()).not.toContain("second-line");
     fireEvent.click(toggle);
-    await wait(450);
-    expect(screen()).toContain("second-line");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(screen()).toContain("second-line"), {
+      interval: 10,
+      timeout: 2000,
+    });
 
     // The link is the second line's first word.
     clickCell(dialog, 2, 2);
