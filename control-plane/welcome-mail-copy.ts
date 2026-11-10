@@ -1,9 +1,9 @@
 // The welcome series: what each mail says. English only, plain text.
 //
 // Draft 2 (2026-11-08), on the five topics Nil chose. The mails speak as Nil,
-// in the first person (2026-11-10). Mails 1-3 are his final copy (mail 1
-// links the Add to Home Screen picture on isomux.com/hosted-welcome); mails
-// 4 and 5 are drafts he is still editing, so they neither send nor show
+// in the first person (2026-11-10). Mails 1-4 are his final copy (mail 1
+// links the Add to Home Screen picture on isomux.com/hosted-welcome); mail 5
+// is a draft he is still editing, so it neither sends nor shows
 // (WELCOME_MAILS_APPROVED).
 // The copy cannot depend on what the customer did in the office, because
 // after setup we have no access to it.
@@ -21,13 +21,13 @@
 
 /**
  * How many mails, from the first, have copy Nil approved (Nil, 2026-11-10:
- * mail 1 goes out while he edits the rest; he approved mails 2 and 3 the
- * same day).
+ * mail 1 goes out while he edits the rest; he approved mails 2-4 the same
+ * day).
  * Only these send and show on isomux.com/hosted-welcome; a series waits at
  * the first mail past them, with no skip, and goes on when this number grows.
  * Shipping the next mail is its final copy below plus one here.
  */
-export const WELCOME_MAILS_APPROVED = 3;
+export const WELCOME_MAILS_APPROVED = 4;
 
 /** The line a late first mail opens with: the office went live before the
  * series sent anything (WELCOME_MAIL_LATE_MS). A placeholder until Nil picks
@@ -86,10 +86,16 @@ I like to keep a project's "Lead Agent" in the front room. When it has work to h
 Nil`,
   },
   {
-    subject: "Apps, and your own app store",
-    body: `Ask an agent to build you a small web app: a tracker, a dashboard, a form. It runs in your office, behind your sign-in, and opens from any device.
+    subject: "Your own app store",
+    body: `My agents have built dozens of apps for me. Like Isomux, they work 24/7 and can be opened from any device, behind the office's sign-in.
 
-Every app shows in the Apps tab, your own app store. Members who share a room share its apps, and you can install an app on your phone's Home Screen as its own app.
+What makes these apps powerful is that they're integrated with the agents. Here are a couple of examples, for inspiration.
+
+One of my apps is a monitoring dashboard for Hosted Isomux. Every 30 minutes, it checks all my systems. If anything looks off, the app tells one of my agents to look into it right away. This helps me be on top of things as a one-person company.
+
+Another app is a daily video pipeline for the Wall Game's YouTube channel (https://www.youtube.com/@wallgameio). An agent cuts game clips into videos and queues them in the app. I watch them in the app and sign off or give feedback. Feedback goes back to the agent, while signed-off videos get posted to social media by the app itself. It even shows me view counts.
+
+Every app shows in the Apps tab, like your own app store. Members who share a room share its apps, and you can install an app on your phone's Home Screen as its own app, just like Isomux.
 
 {officeUrl}
 
