@@ -31,6 +31,7 @@ import {
   type CreateEnterpriseInput,
 } from "./enterprise.ts";
 import { migrateEnterpriseTables } from "./bootstrap.ts";
+import { MIN_SEATS } from "./enterprise-billing.ts";
 import { accountForDevSignIn } from "./signup.ts";
 import { AGREEMENT_HTML } from "./web/lib/enterprise-agreement-text.ts";
 import type { Store } from "./store.ts";
@@ -222,6 +223,7 @@ describe("setting up an account", () => {
       [{ billingEmail: `${"b".repeat(243)}@acme.example` }, "billingEmail"],
       [{ plan: "weekly" as never }, "plan"],
       [{ seats: 0 }, "seats"],
+      [{ seats: MIN_SEATS - 1 }, "seats"],
       [{ seats: 10_001 }, "seats"],
       [{ seats: 2.5 }, "seats"],
       [{ seats: Number.NaN }, "seats"],
@@ -237,6 +239,10 @@ describe("setting up an account", () => {
     // The bounds themselves are accepted.
     await created(s, { company: "x".repeat(200), seats: 10_000 });
     expect((await enterpriseFor(s.store, s.it, SECRET))?.seats).toBe(10_000);
+    await created(s, { seats: MIN_SEATS }, s.other);
+    expect((await enterpriseFor(s.store, s.other, SECRET))?.seats).toBe(
+      MIN_SEATS,
+    );
   });
 });
 
@@ -543,10 +549,10 @@ describe("changing the seat count", () => {
     });
   });
 
-  test("a target outside 1..10000 or not a whole number is 'invalid'", async () => {
+  test("a target outside MIN_SEATS..10000 or not a whole number is 'invalid'", async () => {
     const s = await setup();
     const id = await signed(s);
-    for (const to of [0, -1, 10_001, 2.5, Number.NaN]) {
+    for (const to of [0, -1, MIN_SEATS - 1, 10_001, 2.5, Number.NaN]) {
       expect({
         to,
         result: await changeSeats(s.store, s.it, { from: 50, to }),
@@ -560,10 +566,42 @@ describe("changing the seat count", () => {
       seats: 10_000,
     });
     expect(
+      await changeSeats(s.store, s.it, { from: 10_000, to: MIN_SEATS }),
+    ).toEqual({ ok: true, seats: MIN_SEATS });
+    expect(
       (await auditOf(s, id)).filter(
         (r) => r.action === "enterprise.seats_changed",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
+  });
+
+  test("an account below the minimum (made before it) keeps its N and seats, and IT can only raise it to the minimum or more", async () => {
+    const s = await setup();
+    const id = await signed(s);
+    const legacy = MIN_SEATS - 2;
+    await sql(s, "update enterprise_accounts set seats = $2 where id = $1", [
+      id,
+      legacy,
+    ]);
+    // Its seats still work: an office takes all of them.
+    expect(await call(s, secretOf(id), seat(A, legacy, true))).toMatchObject({
+      ok: true,
+      seats: legacy,
+      inUse: legacy,
+    });
+    // A raise that stays below the minimum is refused, and N stays.
+    expect(
+      await changeSeats(s.store, s.it, { from: legacy, to: MIN_SEATS - 1 }),
+    ).toEqual({ ok: false, reason: "invalid" });
+    expect((await enterpriseFor(s.store, s.it, SECRET))?.seats).toBe(legacy);
+    expect(
+      await changeSeats(s.store, s.it, { from: legacy, to: MIN_SEATS }),
+    ).toEqual({ ok: true, seats: MIN_SEATS });
+    expect(
+      (await auditOf(s, id))
+        .filter((r) => r.action === "enterprise.seats_changed")
+        .map((r) => r.detail),
+    ).toEqual([`${legacy} -> ${MIN_SEATS}`]);
   });
 });
 
@@ -688,6 +726,29 @@ describe("a negotiated account", () => {
       instance_id: null,
       action: "enterprise.created",
     });
+  });
+
+  test("refuses seats below the minimum, and accepts the minimum", async () => {
+    const s = await setup();
+    const base = {
+      email: "it@acme.example",
+      company: "Acme Inc.",
+      plan: "monthly" as const,
+      priceNote: "custom",
+    };
+    expect(
+      await createNegotiatedEnterprise(s.store, {
+        ...base,
+        seats: MIN_SEATS - 1,
+      }),
+    ).toEqual({ ok: false, reason: "invalid", field: "seats" });
+    expect(await hasEnterprise(s.store, s.it)).toBe(false);
+    const made = await createNegotiatedEnterprise(s.store, {
+      ...base,
+      seats: MIN_SEATS,
+    });
+    expect(made.ok).toBe(true);
+    expect((await enterpriseFor(s.store, s.it, SECRET))?.seats).toBe(MIN_SEATS);
   });
 
   test("starts now by default, needs an existing sign-in, and is one per sign-in", async () => {

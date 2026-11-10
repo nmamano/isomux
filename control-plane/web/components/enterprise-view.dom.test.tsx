@@ -24,8 +24,9 @@ GlobalRegistrator.register({
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { EnterpriseAccount, EnterpriseAgreement } =
+const { EnterpriseAccount, EnterpriseAgreement, EnterpriseSetup } =
   await import("./enterprise-view");
+const { MIN_SEATS } = await import("../../enterprise-billing");
 const { translatorFor } = await import("../lib/i18n/translate");
 const { SUPPORTED_LANGUAGES } = await import("../lib/i18n/languages");
 type View = import("../../enterprise").EnterpriseView;
@@ -337,6 +338,111 @@ test("a post refused for no session goes to the enterprise sign-in page", async 
     ).toEqual(["/enterprise/signin"]);
   } finally {
     assign.mockRestore();
+  }
+});
+
+// ------------------------------------------------- the minimum seat count
+
+// Task ca889899: a license has at least MIN_SEATS seats. Both seat inputs
+// carry the minimum, so the browser stops a lower count before any post, and
+// a seats refusal from the server names the minimum in every language.
+// maxSeats is 500 here, so the minimum's digits are not part of it.
+const MAX = 500;
+
+function seatsForm(): HTMLElement {
+  return container.querySelector(
+    '[data-testid="enterprise-seats"]',
+  ) as HTMLElement;
+}
+
+async function reviewSeats(count: number): Promise<void> {
+  const input = seatsForm().querySelector(
+    'input[name="seats"]',
+  ) as HTMLInputElement;
+  await type(input, String(count));
+  await click(
+    seatsForm().querySelector('button[type="submit"]') as HTMLButtonElement,
+  );
+}
+
+test("the Seats card stops a count below the minimum: no quote and no post; the minimum itself gets a quote", async () => {
+  // No members, so only the minimum can refuse a lower count.
+  await render({ ...VIEW, inUse: 0, offices: [] });
+  const input = seatsForm().querySelector(
+    'input[name="seats"]',
+  ) as HTMLInputElement;
+  expect(Number(input.min)).toBe(MIN_SEATS);
+  await reviewSeats(MIN_SEATS - 1);
+  expect(seatsForm().querySelector('[data-testid="seat-quote"]')).toBeNull();
+  // The enabling condition: the same card quotes the minimum itself.
+  await reviewSeats(MIN_SEATS);
+  expect(
+    seatsForm().querySelector('[data-testid="seat-quote"]'),
+  ).not.toBeNull();
+  expect(posts.length).toBe(0);
+});
+
+test("set up shows no total below the minimum, and a seats refusal from the server names the minimum in every language", async () => {
+  for (const { code } of SUPPORTED_LANGUAGES) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        createElement(EnterpriseSetup, {
+          language: code,
+          email: "it@acme.example",
+          maxSeats: MAX,
+        }),
+      );
+    });
+    const form = container.querySelector(
+      '[data-testid="enterprise-setup"]',
+    ) as HTMLElement;
+    const seats = form.querySelector('input[name="seats"]') as HTMLInputElement;
+    const total = () =>
+      form.querySelector('[data-testid="enterprise-total"]') !== null;
+    expect({ code, min: Number(seats.min) }).toEqual({ code, min: MIN_SEATS });
+    await type(seats, String(MIN_SEATS - 1));
+    expect({ code, total: total() }).toEqual({ code, total: false });
+    // A valid count, so the post goes out whatever the page checks first.
+    await type(seats, String(MIN_SEATS));
+    expect({ code, total: total() }).toEqual({ code, total: true });
+
+    reply = () =>
+      Response.json(
+        { ok: false, reason: "invalid", field: "seats" },
+        { status: 400 },
+      );
+    await type(
+      form.querySelector('input[name="company"]') as HTMLInputElement,
+      "Acme Inc.",
+    );
+    await click(
+      form.querySelector('button[type="submit"]') as HTMLButtonElement,
+    );
+    expect({ code, posts: posts.map((p) => p.url) }).toEqual({
+      code,
+      posts: ["/api/enterprise"],
+    });
+    const text = form.querySelector('[role="alert"]')?.textContent ?? "";
+    expect({ code, text }).toEqual({
+      code,
+      text: translatorFor(code).t("enterprise.invalid.seats", {
+        min: MIN_SEATS,
+        max: MAX,
+      }),
+    });
+    // The sentence names the minimum and has no placeholder left.
+    expect({
+      code,
+      min: text.includes(String(MIN_SEATS)),
+      placeholder: /[{}]/.test(text),
+    }).toEqual({ code, min: true, placeholder: false });
+    await act(async () => root?.unmount());
+    root = null;
+    container.remove();
+    posts = [];
   }
 });
 

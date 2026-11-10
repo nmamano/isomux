@@ -1200,6 +1200,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
     "enterprise-invoices": ["enterprisePortalUrl"],
     "enterprise-billing": [
       "ADDED_SEAT_MONTH_USD",
+      "MIN_SEATS",
       "MONTHLY_SEAT_USD",
       "YEARLY_SEAT_USD",
       "periodTotalUsd",
@@ -1282,6 +1283,7 @@ export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
     "the office name's length bound, a constant",
   "enterprise:MAX_SEATS": "the seat count's sanity bound, a constant",
   "enterprise-billing:ADDED_SEAT_MONTH_USD": "a price, a constant",
+  "enterprise-billing:MIN_SEATS": "a seat count, a constant",
   "enterprise-billing:MONTHLY_SEAT_USD": "a price, a constant",
   "enterprise-billing:YEARLY_SEAT_USD": "a price, a constant",
   "enterprise-billing:periodTotalUsd": "multiplies a seat count by a price",

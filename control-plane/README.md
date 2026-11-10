@@ -1906,9 +1906,10 @@ its contract calendar and prices, and the tables are in `enterprise-ddl.ts`
   secret at once: no office of any enterprise customer can add a member until
   IT pastes the new secret from the account page in each office. Change
   `AUTH_SECRET` only with that in the customer notice.
-- **Seats.** The writes go through `POST /api/enterprise`, `/agreement`,
-  `/seats` (`{from, to}`, refused when N is no longer `from`, below the seats in
-  use, or lower on a yearly plan) and `/secret`; each locks the account row,
+- **Seats.** N is at least `MIN_SEATS` (10) on every write that sets it by
+  hand: set up, `/seats` and the negotiated CLI. The writes go through `POST
+/api/enterprise`, `/agreement`, `/seats` (`{from, to}`, refused when N is no
+  longer `from`, below the seats in use, or lower on a yearly plan) and `/secret`; each locks the account row,
   and each is rate-limited (`enterpriseLimiter`). Each write appends an audit
   row in the same transaction (`enterprise.created`, `.signed`,
   `.seats_changed` with `50 -> 60`, `.secret_renewed`); there is no page for

@@ -338,14 +338,14 @@ export const zh: Catalog = {
   "enterprise.setup.yearlyNote": "年内增加的席位，在当季末按当年剩余时间开票。",
   "enterprise.setup.seats": "席位",
   "enterprise.setup.seatsNote":
-    "一个席位就是一名成员，可在你的任意 Isomux 办公室中使用。每个席位不限智能体和设备数量。",
+    "一个席位就是一名成员，可在你的任意 Isomux 办公室中使用。每个席位不限智能体和设备数量。最少 {min} 个席位。",
   "enterprise.setup.totalMonthly": "合计：每月 {total}",
   "enterprise.setup.totalYearly": "合计：每年 {total}",
   "enterprise.setup.trial": "第一个月免费。无需银行卡：发票会发送到账单邮箱。",
   "enterprise.setup.continue": "继续",
   "enterprise.invalid.company": "请输入公司名称。",
   "enterprise.invalid.billingEmail": "请输入有效的账单邮箱。",
-  "enterprise.invalid.seats": "请输入 1 到 {max} 之间的整数席位数。",
+  "enterprise.invalid.seats": "请输入 {min} 到 {max} 之间的整数席位数。",
   "enterprise.failed": "操作未成功，请重试。",
   "enterprise.agreement.heading": "签署协议",
   "enterprise.agreement.lead":

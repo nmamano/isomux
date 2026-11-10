@@ -427,7 +427,7 @@ export const es: Catalog = {
     "Los puestos que añadas durante el año se facturan al final de ese trimestre por el resto del año.",
   "enterprise.setup.seats": "Puestos",
   "enterprise.setup.seatsNote":
-    "Un puesto es un miembro, en cualquiera de tus oficinas de Isomux. Agentes y dispositivos ilimitados por puesto.",
+    "Un puesto es un miembro, en cualquiera de tus oficinas de Isomux. Agentes y dispositivos ilimitados por puesto. Mínimo {min} puestos.",
   "enterprise.setup.totalMonthly": "Total: {total} al mes",
   "enterprise.setup.totalYearly": "Total: {total} al año",
   "enterprise.setup.trial":
@@ -436,7 +436,7 @@ export const es: Catalog = {
   "enterprise.invalid.company": "Escribe el nombre de la empresa.",
   "enterprise.invalid.billingEmail": "Escribe un correo de facturación válido.",
   "enterprise.invalid.seats":
-    "Escribe un número entero de puestos, de 1 a {max}.",
+    "Escribe un número entero de puestos, de {min} a {max}.",
   "enterprise.failed": "No ha funcionado. Inténtalo de nuevo.",
   "enterprise.agreement.heading": "Firmar el acuerdo",
   "enterprise.agreement.lead":

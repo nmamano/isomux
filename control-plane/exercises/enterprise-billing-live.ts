@@ -378,22 +378,22 @@ const dsn = await freshDsn();
 const schema = new URL(dsn).searchParams.get("application_name") ?? "";
 const store = await openTestStoreOn(dsn, () => now);
 try {
-  const yearly = await newAccount(store, "yearly", "yearly", 5);
-  const monthly = await newAccount(store, "monthly", "monthly", 3);
+  const yearly = await newAccount(store, "yearly", "yearly", 15);
+  const monthly = await newAccount(store, "monthly", "monthly", 13);
   now = TL;
-  const lost = await newAccount(store, "lost", "monthly", 2);
+  const lost = await newAccount(store, "lost", "monthly", 12);
   accounts.push(yearly, monthly, lost);
 
-  // Monthly: 3 -> 4 -> 3 inside month 1. m1 bills the highest N.
+  // Monthly: 13 -> 14 -> 13 inside month 1. m1 bills the highest N.
   now = M(1) + DAY_MS;
-  await seats(store, monthly, 3, 4);
+  await seats(store, monthly, 13, 14);
   now = M(1) + 2 * DAY_MS;
-  await seats(store, monthly, 4, 3);
+  await seats(store, monthly, 14, 13);
 
-  // The trial ends: yearly y0 = 5 x $20 x 11.
+  // The trial ends: yearly y0 = 15 x $20 x 11.
   now = due(M(1));
   await runPass(store, "trial end");
-  await expectInvoice(store, yearly, "y0", 110_000);
+  await expectInvoice(store, yearly, "y0", 330_000);
   const yearlyCustomer = ok(
     await real.get(`/v1/customers/${await customerOf(store, yearly)}`),
     "get customer",
@@ -402,10 +402,10 @@ try {
   check("yearly customer email", yearlyCustomer.email === yearly.email);
   await expectNextInvoiceAt(store, yearly, M(3));
 
-  // m1 = 4 x $25 (highest N).
+  // m1 = 14 x $25 (highest N).
   now = due(M(2));
   await runPass(store, "month 2");
-  await expectInvoice(store, monthly, "m1", 10_000);
+  await expectInvoice(store, monthly, "m1", 35_000);
   await expectNextInvoiceAt(store, monthly, M(3));
 
   // lost m1, the draft create's answer lost: the next pass adopts the draft.
@@ -428,7 +428,7 @@ try {
     );
   }
   await runPass(store, "lost month 2 again");
-  await expectInvoice(store, lost, "m1", 5_000);
+  await expectInvoice(store, lost, "m1", 30_000);
 
   // y0q0 bills nothing.
   now = due(M(3));
@@ -460,13 +460,13 @@ try {
     }
   }
   await runPass(store, "lost month 3 again");
-  await expectInvoice(store, lost, "m2", 5_000);
+  await expectInvoice(store, lost, "m2", 30_000);
 
   // +2 seats in contract month 4: y0q1 = 2 x $20 x 8.
   now = due(M(4));
   await runPass(store, "month 4");
   now = M(4) + DAY_MS;
-  await seats(store, yearly, 5, 7);
+  await seats(store, yearly, 15, 17);
 
   // lost m3, the finalize answer lost: the re-read is open, then the send.
   pass.lose = { method: "POST", path: /^\/v1\/invoices\/in_[^/]+\/finalize$/ };
@@ -493,18 +493,18 @@ try {
     } else check("lost m3 ledger has the invoice id", false);
   }
   await runPass(store, "lost month 4 again");
-  await expectInvoice(store, lost, "m3", 5_000);
+  await expectInvoice(store, lost, "m3", 30_000);
 
   now = due(M(6));
   await runPass(store, "month 6");
   await expectInvoice(store, yearly, "y0q1", 32_000);
 
   // +1 seat in contract month 10: y0q2 nothing, y0q3 = 1 x $20 x 2, and y1 =
-  // 8 x $240, both open on the same customer.
+  // 18 x $240, both open on the same customer.
   now = due(M(9));
   await runPass(store, "month 9");
   now = M(10) + DAY_MS;
-  await seats(store, yearly, 7, 8);
+  await seats(store, yearly, 17, 18);
   now = due(M(12));
   await runPass(store, "month 12");
   check(
@@ -512,7 +512,7 @@ try {
     !(await ledger(store, yearly)).some((r) => r.period === "y0q2"),
   );
   await expectInvoice(store, yearly, "y0q3", 4_000);
-  await expectInvoice(store, yearly, "y1", 192_000);
+  await expectInvoice(store, yearly, "y1", 432_000);
 
   // A second pass at the same moment: no new Stripe invoice.
   const before = new Map<string, number>();

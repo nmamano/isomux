@@ -442,7 +442,7 @@ export const en = {
     "Seats you add during the year are invoiced at the end of that quarter for the rest of the year.",
   "enterprise.setup.seats": "Seats",
   "enterprise.setup.seatsNote":
-    "A seat is one member, in any of your Isomux offices. Unlimited agents and devices per seat.",
+    "A seat is one member, in any of your Isomux offices. Unlimited agents and devices per seat. Minimum {min} seats.",
   "enterprise.setup.totalMonthly": "Total: {total} per month",
   "enterprise.setup.totalYearly": "Total: {total} per year",
   "enterprise.setup.trial":
@@ -450,7 +450,8 @@ export const en = {
   "enterprise.setup.continue": "Continue",
   "enterprise.invalid.company": "Enter the company name.",
   "enterprise.invalid.billingEmail": "Enter a valid billing email.",
-  "enterprise.invalid.seats": "Enter a whole number of seats, from 1 to {max}.",
+  "enterprise.invalid.seats":
+    "Enter a whole number of seats, from {min} to {max}.",
   "enterprise.failed": "That did not work. Try again.",
 
   "enterprise.agreement.heading": "Sign the agreement",

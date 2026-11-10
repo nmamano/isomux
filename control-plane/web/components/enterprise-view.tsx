@@ -7,6 +7,7 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ADDED_SEAT_MONTH_USD,
+  MIN_SEATS,
   MONTHLY_SEAT_USD,
   YEARLY_SEAT_USD,
   periodTotalUsd,
@@ -69,7 +70,7 @@ function invalidText(t: T, field: unknown, maxSeats: number): string {
     case "billingEmail":
       return t("enterprise.invalid.billingEmail");
     case "seats":
-      return t("enterprise.invalid.seats", { max: maxSeats });
+      return t("enterprise.invalid.seats", { min: MIN_SEATS, max: maxSeats });
     case "name":
       return t("enterprise.invalid.name");
     case "title":
@@ -109,7 +110,8 @@ export function EnterpriseSetup({
   const [busy, setBusy] = useState(false);
 
   const count = Number(seats);
-  const valid = Number.isInteger(count) && count >= 1 && count <= maxSeats;
+  const valid =
+    Number.isInteger(count) && count >= MIN_SEATS && count <= maxSeats;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -203,7 +205,7 @@ export function EnterpriseSetup({
             <input
               name="seats"
               type="number"
-              min={1}
+              min={MIN_SEATS}
               max={maxSeats}
               step={1}
               required
@@ -212,7 +214,9 @@ export function EnterpriseSetup({
             />
           </label>
         </p>
-        <p className="note">{t("enterprise.setup.seatsNote")}</p>
+        <p className="note">
+          {t("enterprise.setup.seatsNote", { min: MIN_SEATS })}
+        </p>
         {valid && (
           <p data-testid="enterprise-total">
             <strong>
@@ -547,8 +551,10 @@ function Seats({
     setRefusal(null);
     setQuote(null);
     const to = Number(draft);
-    if (!Number.isInteger(to) || to < 1 || to > maxSeats) {
-      setRefusal(t("enterprise.invalid.seats", { max: maxSeats }));
+    if (!Number.isInteger(to) || to < MIN_SEATS || to > maxSeats) {
+      setRefusal(
+        t("enterprise.invalid.seats", { min: MIN_SEATS, max: maxSeats }),
+      );
       return;
     }
     if (to === seats) return;
@@ -621,7 +627,7 @@ function Seats({
           <input
             name="seats"
             type="number"
-            min={1}
+            min={MIN_SEATS}
             max={maxSeats}
             step={1}
             value={draft}

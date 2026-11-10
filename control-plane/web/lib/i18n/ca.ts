@@ -427,7 +427,7 @@ export const ca: Catalog = {
     "Les places que afegeixis durant l'any es facturen al final d'aquell trimestre per la resta de l'any.",
   "enterprise.setup.seats": "Places",
   "enterprise.setup.seatsNote":
-    "Una plaça és un membre, en qualsevol de les teves oficines d'Isomux. Agents i dispositius il·limitats per plaça.",
+    "Una plaça és un membre, en qualsevol de les teves oficines d'Isomux. Agents i dispositius il·limitats per plaça. Mínim {min} places.",
   "enterprise.setup.totalMonthly": "Total: {total} al mes",
   "enterprise.setup.totalYearly": "Total: {total} l'any",
   "enterprise.setup.trial":
@@ -435,7 +435,8 @@ export const ca: Catalog = {
   "enterprise.setup.continue": "Continua",
   "enterprise.invalid.company": "Escriu el nom de l'empresa.",
   "enterprise.invalid.billingEmail": "Escriu un correu de facturació vàlid.",
-  "enterprise.invalid.seats": "Escriu un nombre enter de places, d'1 a {max}.",
+  "enterprise.invalid.seats":
+    "Escriu un nombre enter de places, de {min} a {max}.",
   "enterprise.failed": "No ha funcionat. Torna-ho a provar.",
   "enterprise.agreement.heading": "Signar l'acord",
   "enterprise.agreement.lead":

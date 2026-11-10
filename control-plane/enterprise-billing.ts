@@ -18,6 +18,8 @@ export type EnterprisePlan = "monthly" | "yearly";
 export const MONTHLY_SEAT_USD = 25;
 export const YEARLY_SEAT_USD = 240;
 export const ADDED_SEAT_MONTH_USD = 20;
+/** The fewest seats a license can have (Nil, 2026-11-10). */
+export const MIN_SEATS = 10;
 
 const DAY_MS = 86_400_000;
 

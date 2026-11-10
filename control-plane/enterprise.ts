@@ -19,7 +19,11 @@
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Store } from "./store.ts";
-import { nextInvoice, type EnterprisePlan } from "./enterprise-billing.ts";
+import {
+  MIN_SEATS,
+  nextInvoice,
+  type EnterprisePlan,
+} from "./enterprise-billing.ts";
 
 export type { EnterprisePlan };
 export type EnterpriseKind = "standard" | "negotiated";
@@ -33,13 +37,14 @@ export const ENTERPRISE_SECRET_PREFIX = "isx_ent_";
  * a signature stores this version and the PDF's sha256. A new PDF needs a new
  * version. `pdfPath` is relative to control-plane/. */
 export const AGREEMENT = {
-  version: "2026-11-07-draft-7",
-  pdfPath: "web/public/enterprise/isomux-agreement-7.pdf",
-  publicPath: "/enterprise/isomux-agreement-7.pdf",
-  sha256: "9b53d09313a069a9854af725e25383324bd96c09ad4b92b094ef146738c52292",
+  version: "2026-11-10-draft-8",
+  pdfPath: "web/public/enterprise/isomux-agreement-8.pdf",
+  publicPath: "/enterprise/isomux-agreement-8.pdf",
+  sha256: "cfa88f2aa6050ce6a13cf0eafd0eae8ea9df5b729dade18cfee99b096b6d5109",
 } as const;
 
-/** Sanity bounds, not product limits. */
+/** Sanity bounds, not product limits (the seat floor is MIN_SEATS, in
+ * enterprise-billing.ts). */
 export const MAX_SEATS = 10_000;
 export const MAX_COMPANY_LENGTH = 200;
 export const MAX_SIGNER_LENGTH = 200;
@@ -212,7 +217,7 @@ function validSeats(seats: unknown): seats is number {
   return (
     typeof seats === "number" &&
     Number.isInteger(seats) &&
-    seats >= 1 &&
+    seats >= MIN_SEATS &&
     seats <= MAX_SEATS
   );
 }
@@ -482,7 +487,7 @@ export type ChangeSeatsResult =
       inUse: number;
     };
 
-/** Change N from `from` to `to` (an integer 1..MAX_SEATS). Audits
+/** Change N from `from` to `to` (an integer MIN_SEATS..MAX_SEATS). Audits
  * enterprise.seats_changed with detail "<from> -> <to>". */
 export async function changeSeats(
   store: Store,
@@ -490,7 +495,8 @@ export async function changeSeats(
   change: { from: number; to: number },
 ): Promise<ChangeSeatsResult> {
   // `from` is the N IT saw, compared with the current one, not a new count:
-  // a check-in can raise N past MAX_SEATS, and IT must still change it then.
+  // a check-in can raise N past MAX_SEATS, and an account made before the
+  // floor can sit below MIN_SEATS; IT must still change N in both cases.
   const from: unknown = change.from;
   if (
     !validSeats(change.to) ||
