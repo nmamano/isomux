@@ -1283,7 +1283,7 @@ bun run dev</pre
                     .toFixed(1)
                     .replace(/\.0$/, "") + "k"
                 : data.stargazers_count;
-            el.textContent = "\u00b7 \u2605 " + count;
+            el.textContent = "\u2605 " + count;
           }
         })
         .catch(() => {});
