@@ -15,6 +15,10 @@ import {
 import { join } from "node:path";
 import { marked } from "marked";
 import {
+  HOSTED_WELCOME_FILE,
+  renderHostedWelcomePage,
+} from "./hosted-welcome-page.ts";
+import {
   HOSTING_GUIDES,
   hostingBody,
   hostingNavigation,
@@ -59,6 +63,7 @@ export const STATIC_PATHS = [
   "/hosted-terms",
   "/hosted-privacy",
   "/hosted-refund",
+  "/hosted-welcome",
   "/browser-extension-privacy",
 ];
 
@@ -1193,10 +1198,14 @@ export function main() {
   }
 
   writeFileSync(join(SITE_DIR, "sitemap.xml"), renderSitemapXml(pages));
+  // Not a docs page, but built here so the site build has one step that
+  // writes generated pages.
+  writeFileSync(join(SITE_DIR, HOSTED_WELCOME_FILE), renderHostedWelcomePage());
 
   console.log(
     `built ${pages.length} doc pages → ${OUT_DIR}/ (${pages.map((p) => p.slug).join(", ")})`,
   );
+  console.log(`built welcome tips → ${SITE_DIR}/${HOSTED_WELCOME_FILE}`);
   console.log(
     `built sitemap → ${SITE_DIR}/sitemap.xml (${STATIC_PATHS.length + pages.length} urls)`,
   );

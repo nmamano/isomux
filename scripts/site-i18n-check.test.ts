@@ -128,6 +128,7 @@ const DOC_SLUGS = readdirSync(join(ROOT, "docs"))
 const BUILT_PATHS = new Set<string>([
   "/demo",
   "/docs",
+  "/hosted-welcome",
   ...DOC_SLUGS.filter((slug) => slug !== "features").map((s) => `/docs/${s}`),
 ]);
 

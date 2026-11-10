@@ -11,6 +11,7 @@ site/demo/katex/
 site/demo/assets/
 site/docs/
 site/sitemap.xml
+site/hosted-welcome.html
 site/_agent/docs/
 *.log
 .claude/
