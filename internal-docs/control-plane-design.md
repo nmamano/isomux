@@ -769,7 +769,13 @@ so a later cancellation does not inherit the old promise. Unknown policy fails
 closed to legacy.
 
 Payment failure remains a separate lifecycle. Its resumable suspension rules do
-not enter the customer-cancellation machine. A customer restart is refused, at
+not enter the customer-cancellation machine. **Settled 2026-11-10 (Nil):** a
+payment-suspended server is treated like a cancellation. The customer is
+emailed the deletion date, at least 14 days after the proven power-off and
+14 days after the mail went out; paying before it resumes the same server; on
+it we request deletion. A server suspended before the rule took effect
+(1 December 2026) is kept until at least 15 December 2026. Deletion never
+starts before the mail went out. A customer restart is refused, at
 request and at run time, while the office is suspended for non-payment, also
 during a cancellation grace; only a resume after payment powers it back on.
 

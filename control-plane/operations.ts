@@ -44,6 +44,12 @@ export type OperationKind =
   | "cancel_asset"
   | "remove_dns"
   /**
+   * The mail that tells a payment-suspended customer the date their server is
+   * deleted (payment-notice.ts). Opened by the lifecycle tick's payment arm;
+   * deletion waits for it to succeed.
+   */
+  | "payment_notice"
+  /**
    * Re-points the office DNS records at a new provider address. Opened by the
    * asset reconcile when the provider reports a different IPv4 for a live or
    * suspended office (a plan change can move it), never by the chain.
@@ -214,6 +220,13 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 60 * MINUTE,
     maxRemoteMs: 60_000,
   },
+  // One mail send. Retries are safe: the send carries the operation id as its
+  // idempotency key. Wide ceiling, because deletion waits for this mail.
+  payment_notice: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 60 * MINUTE,
+    maxRemoteMs: 30_000,
+  },
   // The same Cloudflare mutation as set_dns, with its retry shape.
   repoint_dns: {
     inactivityMs: 5 * MINUTE,
@@ -295,6 +308,7 @@ export function nextKind(
     case "cancel_asset":
     case "remove_dns":
     case "repoint_dns":
+    case "payment_notice":
       return null;
   }
 }

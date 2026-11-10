@@ -89,6 +89,10 @@ import { watchCertificateContact } from "./certificate-contact-watch.ts";
 import { WELCOME_MAIL_KEY_ENV, welcomeMailConfigured } from "./welcome-mail.ts";
 import { watchWelcomeMail } from "./welcome-mail-watch.ts";
 import {
+  requeuePaymentNotice,
+  resendPaymentNoticeSender,
+} from "./payment-notice.ts";
+import {
   readReleaseIdentity,
   startMintSeam,
   type ReleaseIdentity,
@@ -481,6 +485,13 @@ function makeTicker(
         : null,
       report: line,
       stripe,
+      // The payment-suspension mail sends through the welcome series' Resend
+      // key, but not behind its switch: it is a transactional mail.
+      mail: process.env[WELCOME_MAIL_KEY_ENV]
+        ? {
+            send: resendPaymentNoticeSender(process.env[WELCOME_MAIL_KEY_ENV]),
+          }
+        : null,
     }),
     reconcile: reconcileFn(),
     report: (line) => reporter.line(line),
@@ -1330,16 +1341,27 @@ async function cmdAttention(args: Map<string, string>): Promise<void> {
     // keeps reporting needs_operator until the condition itself goes away.
     reporter.line(`acknowledged ${n} open reason(s) on ${ack}`);
   }
+  const resend = args.get("resend-payment-notice");
+  if (resend && resend !== "true") {
+    // A held payment deletion: the suspension mail failed. Fix its cause first
+    // (the Resend key, the account row), then put the mail back in the queue.
+    const outcome = await requeuePaymentNotice(
+      store,
+      resend,
+      args.get("by") ?? "operator",
+    );
+    reporter.line(`payment notice on ${resend}: ${outcome}`);
+  }
   const resolve = args.get("resolve");
   if (resolve && resolve !== "true") {
-    // Only a broken promise: nothing else ever clears it, and every other
-    // reason clears when its condition goes away.
+    // Only a broken promise and a payment after deletion: nothing else ever
+    // clears them, and every other reason clears when its condition goes away.
     const n = await resolveBrokenPromise(
       store,
       resolve,
       args.get("by") ?? "operator",
     );
-    reporter.line(`resolved ${n} broken-promise reason(s) on ${resolve}`);
+    reporter.line(`resolved ${n} operator-only reason(s) on ${resolve}`);
   }
   for (const inst of await store.listInstances()) {
     for (const r of await store.openReasons(inst.id)) {

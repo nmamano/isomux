@@ -177,6 +177,42 @@ Do not force an earlier deletion:
   paid-term end, and the automatic `cancel_asset` operation handles the
   provider term on its own.
 
+## A payment after a payment deletion started
+
+When Stripe's retries run out, the control plane powers the office off, emails
+the customer the deletion date, and on that date asks the provider to delete
+the server. If the customer pays after the deletion started, the office cannot
+come back, and the control plane raises the critical attention row
+`payment-after-deletion` instead of powering the box on.
+
+1. In the live-mode Stripe Dashboard, refund the payment in full and cancel the
+   subscription immediately, so no later invoice can be paid.
+2. Draft a reply to the customer: the server was deleted on the date in the
+   suspension mail, and the payment is refunded. Send it to Nil for approval
+   first; every customer email needs his approval.
+3. Resolve the row: `attention --resolve <instance id>`.
+
+## A payment deletion is held
+
+The control plane deletes a payment-suspended server only after the
+suspension mail went out. Until then the warning row `payment-deletion-held`
+stays open from the deletion date, and the server is kept.
+
+If Resend refuses the mail, the `payment_notice` operation does not fail: it
+keeps retrying, and its deadline row shows in `attention`. Fix the cause; the
+next retry sends.
+
+If the operation FAILED (the provisioner has no `RESEND_API_KEY`, the account
+row is missing, or the row has no date), it is never retried:
+
+1. Read the failed operation's reason in `attention` and fix its cause. A
+   missing key is a provisioner environment change (Lead SRE).
+2. Put the mail back in the queue:
+   `attention --resend-payment-notice <instance id>`. It answers `requeued`,
+   or why not (`not_failed` for an operation that is still retrying).
+3. The mail names a deletion date at least 14 days after it goes out, and the
+   deletion waits for that date. Both rows clear when the mail is sent.
+
 ## Change a card before the customer portal is enabled
 
 Isomux never receives card details. Do not ask the customer to email card data,
@@ -192,6 +228,11 @@ and do not enter card data for them.
 4. After the customer confirms completion, reload the subscription in Stripe
    and confirm that it shows the new card as the subscription payment method.
    Do not inspect or repeat card details in the support reply.
+5. If the office is suspended for a failed payment (the customer got the
+   suspension mail), Stripe has stopped retrying: collect the open invoice
+   with the new card in Stripe. When the subscription is active again, the
+   control plane powers the office back on. This must happen before the
+   deletion date in the mail.
 
 The update link changes the payment method for that subscription; it does not
 change the customer's default payment method. It is available only for eligible

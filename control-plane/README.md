@@ -81,7 +81,7 @@ bun control-plane/cli.ts revoke  --run <runId>
 bun control-plane/cli.ts run [--bind ADDR] [--deployment ID]  # the tick loop, as its own process
 bun control-plane/cli.ts tick                    # one pass
 bun control-plane/cli.ts ops     [--run <runId>] # the operation rows
-bun control-plane/cli.ts attention [--ack <instanceId>] [--resolve <instanceId>] [--by <name>]
+bun control-plane/cli.ts attention [--ack <instanceId>] [--resolve <instanceId>] [--resend-payment-notice <instanceId>] [--by <name>]
 bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
 bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
@@ -298,8 +298,10 @@ columns are a written summary of the still-open reasons, recomputed in the same
 transaction - so an installer deadline cannot clear or overwrite an open
 revocation failure. Acknowledging is **not** clearing: `attention --ack` records
 that a human saw it, and the instance keeps reporting `needs_operator` until the
-condition itself goes away. `attention --resolve` clears only a broken promise,
-the one condition that never goes away by itself. `attention` and `ops` run no
+condition itself goes away. `attention --resolve` clears only a broken promise
+and a payment after a payment deletion, the conditions that never go away by
+themselves. `attention --resend-payment-notice` puts a failed payment-suspension
+mail back in the queue. `attention` and `ops` run no
 schema statements, so they work in the provisioner container as its role; with
 `CONTROL_PLANE_DB_IDENTITY` set they refuse a role that can write the identity.
 
@@ -2180,11 +2182,11 @@ tax code before any live Product is changed.
 Stripe owns tax collection, customer tax IDs, statement descriptors, invoices,
 Checkout confirmation text, receipts and subscription-related customer emails
 for Managed Payments. The control plane's customer mails are the email
-sign-in link (see "What is in the app") and the welcome series (see "The
-welcome series", off until its copy is approved); as checked 2026-08-16, its dunning
-ladder records state, raises internal attention and requests suspension, so it
-does not duplicate Stripe's customer emails. Adding customer
-dunning email copy later is a policy decision, not an implementation default.
+sign-in link (see "What is in the app"), the welcome series (see "The
+welcome series", off until its copy is approved) and the payment-suspension
+mail (see "Deleting a payment-suspended office"), which names the deletion
+date. The dunning ladder itself records state, raises internal attention and
+requests suspension, so it does not duplicate Stripe's failed-payment emails.
 
 Test-mode evidence from 2026-08-16:
 
@@ -2981,7 +2983,7 @@ CLEARED with its audit when provider truth becomes safe again - an incident that
 survived the fix is indistinguishable from one nobody dealt with. A promise that
 was actually broken cannot be un-broken, so nothing automatic clears it. An
 operator resolves it with `attention --resolve <instanceId>`, which clears only
-that instance's open broken-promise rows and writes a `resolve_attention` audit
+that instance's open broken-promise (and payment-after-deletion) rows and writes a `resolve_attention` audit
 row for each. The ended arm keeps seeing the broken promise on every tick, so
 the tick never raises it again for the same promised date; a different promised
 date raises a new row.
@@ -3066,6 +3068,42 @@ authority. Newest-first with no skipping says the honest thing instead.
 `serviceStateAfter("power_on")` is `live`: `suspended` is a claim about what we
 did to the box, and after a proven power_on it is no longer true. Whether the
 office ANSWERS is the liveness axis, which the design keeps separate.
+
+### Deleting a payment-suspended office (task 6eb1e7d6)
+
+Nil, 2026-11-10: a payment-suspended office is treated like a cancellation. The
+lifecycle tick's payment arm (`decidePaymentLifecycle`, run before the
+cancellation pass) owns an office whose latest dunning `power_off` succeeded
+with a recorded `poweredOffAt`, whose subscription is not paid up and is not a
+customer cancellation, and which was not resumed for that episode. Its rows are
+stamped `reason: "payment"` and their ids derive from the episode
+(`op-<kind>-payment-<episode>`), so `isLifecycleRow` stays cancellation-only.
+
+1. The first pass opens `payment_notice`: one mail to the account through the
+   provisioner's `RESEND_API_KEY`, with the operation id as Resend's
+   Idempotency-Key. The handler is registered only when the key is set. It
+   skips (no `sentAt`) when the office is no longer payment-suspended.
+2. The deletion date is the latest of `paymentDeletionAt(poweredOffAt)`
+   (14 days, counted from `PAYMENT_DELETION_EFFECTIVE_AT`, 1 December 2026, for
+   a box powered off earlier), the `deletesAt` the mail named, and the mail's
+   `sentAt` + 14 days. So the server may be kept longer than the mail says,
+   never shorter.
+3. Deletion waits for a mail that went out. Past the date without one, the
+   arm raises `payment-deletion-held` and keeps the server. A failed mail is
+   never reopened on its own; `attention --resend-payment-notice` requeues it
+   (support runbook, "A payment deletion is held"). A mail that goes out late
+   names the next whole UTC day at least 14 days away, and records it.
+4. At the date it opens `cancel_asset` and `remove_dns`; provider truth then
+   records the data end, as for a cancellation.
+
+The arm re-reads the subscription `FOR UPDATE`, the row a payment webhook
+writes first, so a payment and a deletion decision serialise. A payment inside
+the window resumes the office as before. Once a payment deletion row exists,
+`requestResume` refuses with `deletion_started` and the webhook raises
+`payment-after-deletion` (critical, raised once, cleared only by
+`attention --resolve`): the refund is done by hand in Stripe. After the
+deletion the Stripe subscription stays `unpaid`; Stripe leaves its new invoices
+as unattempted drafts.
 
 ### Reinstating the retained office
 

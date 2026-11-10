@@ -131,6 +131,7 @@ export const zh: Catalog = {
   "steps.labelCancelAsset": "正在向提供方取消服务器",
   "steps.labelRemoveDns": "正在移除办公室地址",
   "steps.labelRepointDns": "正在更新办公室地址",
+  "steps.labelPaymentNotice": "正在邮件通知删除日期",
   "stepState.waiting": "未开始",
   "stepState.active": "进行中",
   "stepState.checking": "正在检查",

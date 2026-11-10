@@ -47,6 +47,9 @@ import {
   LIFECYCLE_ASSET_GONE,
   LIFECYCLE_PROVIDER_CANCEL,
   PAYING_SQL,
+  PAYMENT_DELETION_EFFECTIVE_AT,
+  PAYMENT_DELETION_HELD,
+  paymentScheduleSql,
   PROVIDER_CANCEL_REASON_PARTS,
 } from "./lifecycle.ts";
 import { deadSql, UNPAID_OPENING_HOLD_MS } from "./reservation-hold.ts";
@@ -2237,13 +2240,21 @@ export class Store {
     opts: WorkScheduleOptions,
   ): Promise<WorkSchedule> {
     const staleProvisioningBefore = now - opts.staleProvisioningMs;
+    const payment = paymentScheduleSql({
+      now: "$1",
+      retention: "$3",
+      enabled: "$10",
+      effective: "$20",
+      heldKey: "$21",
+    });
     const row = await this.sqlGet<{
       tick_due: number;
       cadence_due: number;
       liveness_due: number;
       next_due_at: number | null;
     }>(
-      "with schedule as (" +
+      `with ${payment.cte}, ` +
+        "schedule as (" +
         "select " +
         "exists (select 1 from operations where status in ('pending', 'running', 'ambiguous') " +
         "and next_attempt_at <= $1 and (lease_until is null or lease_until <= $1)) as operation_due, " +
@@ -2310,6 +2321,8 @@ export class Store {
         "or exists (select 1 from reinstatement_attempts r where r.state = 'opening' " +
         "and r.fence_expires_at <= $1 and not exists (select 1 from operations o where o.id = " +
         "'op-checkout_expire-' || r.id)) " +
+        // The payment arm's work, as decidePaymentLifecycle decides it.
+        `or ${payment.due} ` +
         // The provisioning stall: exactly sweepProvisioningStalls' raise and
         // clear rule, through the one predicate.
         `or exists (select 1 from instances i where ${stalledSql("i", "$7")} ` +
@@ -2349,6 +2362,7 @@ export class Store {
         "where $10 = 1 and s.ended_at is not null and s.cancellation_reason = 'cancellation_requested' " +
         "and s.cancellation_policy = 'launch' and i.service_state = 'suspended' and not exists " +
         "(select 1 from operations o where o.id = 'op-cancel_asset-cancel-' || s.id || '-' || s.ended_at::text) " +
+        `${payment.times} ` +
         "union all select fence_expires_at from reinstatement_attempts r where $10 = 1 and state = 'opening' " +
         "and not exists (select 1 from operations o where o.id = 'op-checkout_expire-' || r.id) " +
         `union all select ${stallDueSql("i", "$9")} from instances i where $10 = 1 and i.service_state = 'provisioning' ` +
@@ -2391,6 +2405,8 @@ export class Store {
         PROVIDER_CANCEL_REASON_PARTS.between,
         PROVIDER_CANCEL_REASON_PARTS.unknownDate,
         PROVIDER_CANCEL_REASON_PARTS.after,
+        PAYMENT_DELETION_EFFECTIVE_AT,
+        PAYMENT_DELETION_HELD,
       ],
     );
     if (!row) throw new Error("the work schedule query returned no row");

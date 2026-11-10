@@ -28,6 +28,7 @@ import {
   AUDITED_CMDRUN_SURFACES,
   AUDITED_HANDLER_KINDS,
   AUDITED_PROVIDER_HANDLER_KINDS,
+  AUDITED_MAIL_HANDLER_KINDS,
   AUDITED_STRIPE_HANDLER_KINDS,
 } from "./roles.ts";
 import {
@@ -119,6 +120,20 @@ describe("the audited roster is the roster the loop is built from", () => {
     }).map((handler) => handler.kind);
     expect(withStripe.filter((kind) => !base.includes(kind))).toEqual([
       ...AUDITED_STRIPE_HANDLER_KINDS,
+    ]);
+  });
+
+  test("the mail sender adds exactly the audited mail handlers", () => {
+    const base = kindsOf(null);
+    const withMail = tickerHandlerRoster({
+      box,
+      provider: null,
+      report: () => {},
+      mail: { send: async () => {} },
+    }).map((handler) => handler.kind);
+    expect(base).not.toContain("payment_notice");
+    expect(withMail.filter((kind) => !base.includes(kind))).toEqual([
+      ...AUDITED_MAIL_HANDLER_KINDS,
     ]);
   });
 });

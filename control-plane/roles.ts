@@ -528,7 +528,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "subscriptions",
     verb: "select",
-    via: "lifecycle-tick.ts cancelledSubscriptions and the transactional subscription re-read; certificate-credentials.ts liveWithSubscription, from the certificate-contact watch",
+    via: "lifecycle-tick.ts cancelledSubscriptions and the transactional subscription re-read (FOR UPDATE in the payment arm); payment-notice.ts paymentNoticeHandler re-reads the subscription before it mails; certificate-credentials.ts liveWithSubscription, from the certificate-contact watch",
   },
   {
     table: "subscriptions",
@@ -545,7 +545,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "accounts",
     verb: "select",
-    via: "stripe/reconcile.ts ensureRow reads the account named by fetched Stripe metadata through getAccount, and stripe/billing-store.ts ensureAccount reads by email when that id does not exist",
+    via: "stripe/reconcile.ts ensureRow reads the account named by fetched Stripe metadata through getAccount, and stripe/billing-store.ts ensureAccount reads by email when that id does not exist; payment-notice.ts paymentNoticeHandler reads the address it mails",
   },
   {
     table: "accounts",
@@ -1380,6 +1380,15 @@ export const AUDITED_PROVIDER_HANDLER_KINDS = [
 export const AUDITED_STRIPE_HANDLER_KINDS = ["expire_checkout"] as const;
 
 /**
+ * Registered only when the provisioner holds the Resend key. Audited
+ * 2026-11-10 (task 6eb1e7d6): `payment_notice` reads instances, subscriptions
+ * and accounts (the address) and writes its own operation row and audit rows,
+ * a subset of what the matrix already grants for the welcome series and the
+ * webhook path. Its mail is not a database verb.
+ */
+export const AUDITED_MAIL_HANDLER_KINDS = ["payment_notice"] as const;
+
+/**
  * EVERYTHING `cmdRun` CALLS that is not a handler, as the names in its body.
  *
  * The handlers are the loop's work; these are the surfaces around it - the
@@ -1516,6 +1525,8 @@ export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
     "path.join",
     "prepareCreateRun",
     "reconcileFn",
+    // The payment-suspension mail's sender: one Resend POST, no database verb.
+    "resendPaymentNoticeSender",
     "resolveStripeMode",
     "silently",
     "stripeKeyFromEnv",

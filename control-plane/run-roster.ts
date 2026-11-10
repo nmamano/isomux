@@ -27,6 +27,10 @@ import {
 } from "./handlers.ts";
 import type { CreateCoordinator } from "./create-coordinator.ts";
 import { rebootHandler } from "./reboot.ts";
+import {
+  paymentNoticeHandler,
+  type PaymentNoticeDeps,
+} from "./payment-notice.ts";
 import { powerOnHandler } from "./resume.ts";
 import { powerOffHandler } from "./stripe/suspension.ts";
 import { checkoutExpiryHandler } from "./reinstatement-operations.ts";
@@ -111,6 +115,10 @@ export function tickerHandlerRoster(args: {
   } | null;
   report: (line: string) => void;
   stripe?: { client: StripeClient; reader: StripeObjectReader } | null;
+  /** The mail sender, only when the provisioner holds the Resend key. Without
+   * it a payment_notice surfaces through the no-handler path, and the payment
+   * deletion stays held. */
+  mail?: { send: PaymentNoticeDeps["send"] } | null;
 }): Handler[] {
   const { box, provider, report } = args;
   const provision =
@@ -146,5 +154,8 @@ export function tickerHandlerRoster(args: {
     // No provider credential needed: remove_dns uses the injected Cloudflare writer.
     removeDnsHandler({ report, officeDns: box.officeDns }),
     ...(args.stripe ? [checkoutExpiryHandler(args.stripe)] : []),
+    ...(args.mail
+      ? [paymentNoticeHandler({ send: args.mail.send, report })]
+      : []),
   ];
 }

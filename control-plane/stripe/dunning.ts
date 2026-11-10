@@ -370,7 +370,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
         reason:
           `this subscription ended as ${subscription.status} with a dunning ` +
           `episode still open, so it went unpaid; the box is still running and ` +
-          `deprovisioning is not built yet, which makes this a human's call`,
+          `nothing suspends it on this path, which makes this a human's call`,
         severity: "critical",
       },
       note: `ended as ${subscription.status} with an open dunning episode`,

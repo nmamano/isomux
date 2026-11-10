@@ -179,6 +179,11 @@ export function openerStamp(raw: string): Record<string, unknown> {
   for (const key of ["reason", "subscription", "episode"]) {
     if (typeof ev[key] === "string") out[key] = ev[key];
   }
+  // The date a payment-suspension mail names (payment-notice.ts): the payment
+  // deletion reads it back from the succeeded row.
+  if (typeof ev.deletesAt === "number" && Number.isFinite(ev.deletesAt)) {
+    out.deletesAt = ev.deletesAt;
+  }
   if (typeof ev.correctiveFor === "string") {
     out.correctiveFor = ev.correctiveFor;
   }

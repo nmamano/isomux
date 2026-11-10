@@ -13,7 +13,12 @@
 // hand back an office that is on its way to deletion.
 
 import { deadlinesFor } from "./operations.ts";
-import { isLifecycleRow } from "./lifecycle.ts";
+import {
+  isLifecycleRow,
+  isPaymentLifecycleRow,
+  latestDunningSuspension,
+  resumeOperationId,
+} from "./lifecycle.ts";
 import { openerStamp } from "./stripe/suspension.ts";
 import type { Store } from "./store.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
@@ -25,23 +30,15 @@ export const RESUME_ACTOR = "billing-resume";
  * uses to close an episode: one definition of "recovered", not two. */
 const HEALTHY = new Set(["active", "trialing"]);
 
-/**
- * The resume operation's id, derived from the EPISODE the suspension belongs to.
- *
- * Same construction as `suspensionOperationId`, and for the same reason: the
- * operations primary key then refuses a second resume for one episode
- * permanently, terminal or not, so a redelivered recovery event cannot power a
- * box on twice.
- */
-export function resumeOperationId(episodeId: string): string {
-  return `op-power_on-${episodeId}`;
-}
+// The resume operation's id lives in lifecycle.ts, which needs it too.
+export { resumeOperationId };
 
 export type ResumeRefusal =
   | "not_suspended"
   | "not_healthy"
   | "no_episode"
   | "cancellation_in_progress"
+  | "deletion_started"
   | "no_dunning_suspension"
   | "already_open";
 
@@ -66,12 +63,27 @@ export async function requestResume(
   }
   if (!sub.instance_id) return { ok: false, code: "no_episode" };
   const instance = await store.getInstance(sub.instance_id);
-  if (!instance || instance.service_state !== "suspended") {
+  if (!instance) return { ok: false, code: "not_suspended" };
+  const operations = await store.operationsFor(sub.instance_id);
+
+  // A payment deletion that has started is not undone by a late payment: the
+  // provider may already be deleting the server. The caller raises the refund.
+  // Checked BEFORE the suspended state: the usual late payment arrives after
+  // the data end, when the office is deprovisioned and no longer suspended.
+  if (
+    HEALTHY.has(sub.status) &&
+    operations.some(
+      (op) =>
+        isPaymentLifecycleRow(op) &&
+        (op.kind === "cancel_asset" || op.kind === "remove_dns"),
+    )
+  ) {
+    return { ok: false, code: "deletion_started" };
+  }
+  if (instance.service_state !== "suspended") {
     return { ok: false, code: "not_suspended" };
   }
   if (!HEALTHY.has(sub.status)) return { ok: false, code: "not_healthy" };
-
-  const operations = await store.operationsFor(sub.instance_id);
 
   // PREDICATE 4, and the one a careless implementation gets wrong: a
   // cancellation-retention box is suspended and recovered-looking too. Any
@@ -86,7 +98,13 @@ export async function requestResume(
     return { ok: false, code: "cancellation_in_progress" };
   }
 
-  const episodeId = suspensionEpisodeOf(operations, sub);
+  const episodeId =
+    latestDunningSuspension(operations)?.episode ??
+    // A dunning suspension with no episode stamp is not something to guess at:
+    // the whole point of the derived id is that a resume can be opened exactly
+    // once, and an invented episode id would defeat it. Fall back to the
+    // subscription's own episode only when it is still set.
+    sub.episode_id;
   if (!episodeId) return { ok: false, code: "no_dunning_suspension" };
 
   const opId = resumeOperationId(episodeId);
@@ -111,77 +129,6 @@ export async function requestResume(
     detail: `dunning episode ${episodeId} recovered`,
   });
   return { ok: true, operationId: opId };
-}
-
-/**
- * The episode whose suspension this instance is actually sitting in.
- *
- * Read off the SUCCEEDED power_off row's own evidence rather than from the
- * subscription's current episode columns, because a recovery CLEARS those: by
- * the time we know the customer paid, `episode_id` is already null. The row that
- * powered the box off is the only thing that still remembers which episode did
- * it.
- */
-/** The instant the handler recorded, or -Infinity when the row carries none. */
-function poweredOffAtOf(evidence: string): number {
-  try {
-    const parsed = JSON.parse(evidence) as Record<string, unknown>;
-    const at = parsed.poweredOffAt;
-    return typeof at === "number" && Number.isFinite(at) ? at : -Infinity;
-  } catch {
-    return -Infinity;
-  }
-}
-
-function suspensionEpisodeOf(
-  operations: { id: string; kind: string; status: string; evidence: string }[],
-  sub: SubscriptionRow,
-): string | null {
-  // THE LATEST SUSPENSION, decided by WHEN THE BOX WAS ACTUALLY POWERED OFF.
-  //
-  // Taking the first match in row order was a real defect: an account suspended
-  // and resumed for episode A, then suspended again for episode B, selected A -
-  // found `op-power_on-A` already there - and reported `already_open`, leaving a
-  // PAYING customer's box switched off.
-  //
-  // Reversing the row order fixes that case and is still not a rule: operations
-  // are ordered by `created_at`, timestamps have millisecond resolution and can
-  // TIE, and SQL promises nothing about the order of tied rows. So the
-  // comparison is on `poweredOffAt` - the instant the handler recorded on
-  // purpose, which is the semantic thing "latest suspension" means - with the
-  // operation id as a deterministic tie-break so two rows that genuinely share
-  // an instant still resolve the same way on every engine and every read.
-  //
-  // NOT skipping episodes whose resume already exists, deliberately. That looks
-  // like the obvious extra safeguard and is worse: if the newest suspension has
-  // already been resumed, skipping it selects an OLDER, stale episode and opens
-  // a resume on its authority. The caller's derived-id guard answers
-  // `already_open` for that case, which is the honest thing to say.
-  let best: { episode: string; at: number; id: string } | null = null;
-  for (const op of operations) {
-    if (op.kind !== "power_off" || op.status !== "succeeded") continue;
-    const stamp = openerStamp(op.evidence);
-    if (stamp.reason !== "dunning") continue;
-    const episode = typeof stamp.episode === "string" ? stamp.episode : "";
-    if (!episode) continue;
-    // A row with no recorded instant loses to any row that has one: it predates
-    // the field, so it cannot be the suspension the box is currently in if a
-    // dated one exists.
-    const at = poweredOffAtOf(op.evidence);
-    if (
-      !best ||
-      at > best.at ||
-      (at === best.at && op.id.localeCompare(best.id) > 0)
-    ) {
-      best = { episode, at, id: op.id };
-    }
-  }
-  if (best) return best.episode;
-  // A dunning suspension with no episode stamp is not something to guess at: the
-  // whole point of the derived id is that a resume can be opened exactly once,
-  // and an invented episode id would defeat it. Fall back to the subscription's
-  // own episode only when it is still set.
-  return sub.episode_id;
 }
 
 export interface ResumeDeps {

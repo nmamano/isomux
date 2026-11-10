@@ -246,6 +246,7 @@ const LABELS: Record<OperationKind, string> = {
   cancel_asset: "Cancelling your server with the provider",
   remove_dns: "Removing your office's address",
   repoint_dns: "Updating your office's address",
+  payment_notice: "Emailing you the deletion date",
 };
 
 /**

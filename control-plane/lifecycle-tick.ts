@@ -19,6 +19,10 @@ import { deadlinesFor } from "./operations.ts";
 import {
   assetGoneAction,
   decideLifecycle,
+  decidePaymentLifecycle,
+  latestDunningSuspension,
+  PAYMENT_AFTER_DELETION,
+  type LifecycleDecision,
   GONE_STATES,
   LIFECYCLE_ASSET_GONE,
   LIFECYCLE_PROVIDER_CANCEL,
@@ -28,7 +32,7 @@ import {
   type AttentionAction,
   type LifecyclePhase,
 } from "./lifecycle.ts";
-import type { Store } from "./store.ts";
+import type { InstanceRow, Store } from "./store.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import {
   checkoutExpiryOperationId,
@@ -47,6 +51,23 @@ export interface LifecycleTickSummary {
    * resolved something reads differently from one that found nothing. */
   cleared: number;
   phases: Record<string, number>;
+}
+
+/**
+ * Offices that a dunning suspension ever powered off: the payment lifecycle's
+ * candidates. A pre-filter only; each one is re-decided inside its
+ * transaction.
+ */
+async function paymentSuspendedInstances(
+  store: Store,
+): Promise<{ instance_id: string }[]> {
+  return store.sqlAll<{ instance_id: string }>(
+    "select distinct instance_id from operations where kind = 'power_off' " +
+      // A text match, not a jsonb cast: one malformed evidence row must not
+      // fail the whole scan. The decision re-reads the stamp properly.
+      "and status = 'succeeded' and evidence like '%\"reason\":\"dunning\"%' " +
+      "order by instance_id",
+  );
 }
 
 /**
@@ -160,18 +181,150 @@ async function applyAttention(
 }
 
 /**
- * The operator's resolve for a broken promise, which nothing else clears. Only
- * that condition: every other lifecycle row clears when its condition goes
- * away. Each resolved row gets a `resolve_attention` audit row naming `by`.
+ * The operator's resolve for the conditions nothing else clears: a broken
+ * promise, and a payment that arrived after the payment deletion started (the
+ * refund is done by hand). Every other lifecycle row clears when its condition
+ * goes away. Each resolved row gets a `resolve_attention` audit row naming
+ * `by`.
  */
 export async function resolveBrokenPromise(
   store: Store,
   instanceId: string,
   by: string,
 ): Promise<number> {
-  return store.tx(() =>
-    resolveAttentionIn(store, instanceId, PROMISE_BROKEN, by),
-  );
+  return store.tx(async () => {
+    let n = 0;
+    for (const key of [PROMISE_BROKEN, PAYMENT_AFTER_DELETION]) {
+      n += await resolveAttentionIn(store, instanceId, key, by);
+    }
+    return n;
+  });
+}
+
+interface Applied {
+  opened: string[];
+  finished: boolean;
+  raised: boolean;
+  cleared: number;
+  phase: LifecyclePhase;
+  note: string;
+}
+
+/**
+ * Apply one lifecycle decision inside the caller's transaction: open its
+ * operations (the derived id is the arbiter), record the data end, and apply
+ * its attention in order. Shared by the cancellation and the payment arms.
+ */
+async function applyDecision(
+  store: Store,
+  instance: InstanceRow,
+  decision: LifecycleDecision,
+  now: number,
+): Promise<Applied> {
+  const opened: string[] = [];
+  for (const spec of decision.open) {
+    if (spec.kind === "power_off") {
+      for (const reboot of await store.operationsFor(instance.id)) {
+        if (reboot.kind !== "reboot" || reboot.status !== "pending") continue;
+        await store.sqlRun(
+          "update operations set status = 'failed', evidence = $1, " +
+            "evidence_at = $2, updated_at = $2, version = version + 1 " +
+            "where id = $3 and status = 'pending'",
+          [
+            JSON.stringify({
+              reason: "superseded_by_cancellation",
+              powerOffOperation: spec.id,
+            }),
+            now,
+            reboot.id,
+          ],
+        );
+      }
+    }
+    // getOperation, not the one-active index, is the arbiter here: the id
+    // is derived, so a row that already exists in ANY status - including a
+    // terminal one - means this rung has been walked and must not be
+    // walked twice. The index alone stops holding the moment a row goes
+    // terminal, which is the exact hole suspension.ts documents.
+    if (await store.getOperation(spec.id)) continue;
+    const d = deadlinesFor(spec.kind);
+    await store.enqueue({
+      id: spec.id,
+      instance_id: instance.id,
+      kind: spec.kind,
+      inactivity_deadline_at: now + d.inactivityMs,
+      absolute_deadline_at: now + d.absoluteMs,
+      evidence: spec.evidence,
+    });
+    await store.appendAudit({
+      actor: LIFECYCLE_TICK_ACTOR,
+      instance_id: instance.id,
+      action: `lifecycle_${spec.kind}`,
+      target: spec.id,
+      outcome: "started",
+      detail: decision.note,
+    });
+    opened.push(spec.id);
+  }
+
+  let finished = false;
+  if (decision.finish) {
+    // The data end, and the ONE place it is recorded. Provider truth said
+    // the asset is gone; our deadline passing never says that.
+    if (
+      !(await store.casInstance(instance.id, instance.version, {
+        service_state: "deprovisioned",
+      }))
+    ) {
+      throw new Error(
+        `instance ${instance.id} moved while its data end was being recorded`,
+      );
+    }
+    await store.appendAudit({
+      actor: LIFECYCLE_TICK_ACTOR,
+      instance_id: instance.id,
+      action: "data_end",
+      target: instance.id,
+      outcome: "succeeded",
+      detail: decision.note,
+    });
+    finished = true;
+  }
+
+  let cleared = 0;
+  // A live office can raise this during its grace week. Power-off then
+  // stops future probes, so the data end is the last point that can
+  // resolve the stale measurement. Every pass, not only the one that
+  // records the end: nothing probes a deprovisioned office, so an open
+  // liveness row on one is stale however it got there. Match the whole
+  // durable identity: the empty source sentinel is shared by other
+  // conditions.
+  if (finished || instance.service_state === "deprovisioned") {
+    for (const open of await store.openReasons(instance.id)) {
+      if (open.source_op_id !== "" || open.reason !== LIVENESS_REASON) continue;
+      await clearAttentionIn(store, instance.id, open.id, LIFECYCLE_TICK_ACTOR);
+      cleared++;
+    }
+  }
+
+  // IN ORDER, IN THIS TRANSACTION. A promotion is a clear followed by a
+  // raise, and the two committing separately would leave a superseded
+  // instruction on the ops floor beside the incident that replaced it.
+  let raised = false;
+  for (const action of decision.attention) {
+    const applied = await applyAttention(store, instance.id, action);
+    raised = applied.raised || raised;
+    cleared += applied.cleared;
+  }
+
+  return {
+    opened,
+    finished,
+    raised,
+    cleared,
+    phase: decision.phase,
+    note: decision.note,
+  };
 }
 
 export async function lifecycleTick(
@@ -188,6 +341,63 @@ export async function lifecycleTick(
     cleared: 0,
     phases: {},
   };
+
+  // The payment lifecycle FIRST: a payment deletion that reached the provider
+  // records its data end here, so the passes below read the office as
+  // deprovisioned and raise no asset-gone alarm for it (design D3).
+  for (const scanned of await paymentSuspendedInstances(store)) {
+    let committed: Applied | null = null;
+    try {
+      committed = await store.tx(async () => {
+        const suspension = latestDunningSuspension(
+          await store.operationsFor(scanned.instance_id),
+        );
+        if (!suspension?.subscription) return null;
+        // FOR UPDATE, on the row a payment webhook writes first: a payment
+        // that lands while this pass decides is serialised against it. Either
+        // the webhook commits first and this sees the payment, or this commits
+        // first and the webhook's resume sees the deletion (design D1).
+        const sub = await store.sqlGet<SubscriptionRow>(
+          "select * from subscriptions where id = $1 for update",
+          [suspension.subscription],
+        );
+        if (!sub || sub.instance_id !== scanned.instance_id) return null;
+        const instance = await store.getInstance(scanned.instance_id);
+        if (!instance) return null;
+        const decision = decidePaymentLifecycle({
+          instance,
+          asset: await store.assetForInstance(instance.id),
+          // Re-read under the lock.
+          operations: await store.operationsFor(instance.id),
+          subscription: {
+            id: sub.id,
+            status: sub.status,
+            endedAt: sub.ended_at,
+            cancellationReason: sub.cancellation_reason,
+          },
+          now,
+        });
+        return applyDecision(store, instance, decision, now);
+      });
+    } catch (err) {
+      summary.failed++;
+      report(
+        `payment lifecycle ${scanned.instance_id} failed: ${messageOf(err)}`,
+      );
+      continue;
+    }
+    if (!committed) continue;
+    summary.opened += committed.opened.length;
+    if (committed.finished) summary.finished++;
+    if (committed.raised) summary.raised++;
+    summary.cleared += committed.cleared;
+    if (committed.phase !== "serving") {
+      const key = `payment_${committed.phase}`;
+      summary.phases[key] = (summary.phases[key] ?? 0) + 1;
+    }
+    for (const id of committed.opened) report(`opened ${id}`);
+    if (committed.finished) report(`${scanned.instance_id}: data end recorded`);
+  }
 
   for (const scanned of await cancelledSubscriptions(store)) {
     summary.examined++;
@@ -254,117 +464,7 @@ export async function lifecycleTick(
           now,
         });
 
-        const opened: string[] = [];
-        for (const spec of decision.open) {
-          if (spec.kind === "power_off") {
-            for (const reboot of await store.operationsFor(instance.id)) {
-              if (reboot.kind !== "reboot" || reboot.status !== "pending")
-                continue;
-              await store.sqlRun(
-                "update operations set status = 'failed', evidence = $1, " +
-                  "evidence_at = $2, updated_at = $2, version = version + 1 " +
-                  "where id = $3 and status = 'pending'",
-                [
-                  JSON.stringify({
-                    reason: "superseded_by_cancellation",
-                    powerOffOperation: spec.id,
-                  }),
-                  now,
-                  reboot.id,
-                ],
-              );
-            }
-          }
-          // getOperation, not the one-active index, is the arbiter here: the id
-          // is derived, so a row that already exists in ANY status - including a
-          // terminal one - means this rung has been walked and must not be
-          // walked twice. The index alone stops holding the moment a row goes
-          // terminal, which is the exact hole suspension.ts documents.
-          if (await store.getOperation(spec.id)) continue;
-          const d = deadlinesFor(spec.kind);
-          await store.enqueue({
-            id: spec.id,
-            instance_id: instance.id,
-            kind: spec.kind,
-            inactivity_deadline_at: now + d.inactivityMs,
-            absolute_deadline_at: now + d.absoluteMs,
-            evidence: spec.evidence,
-          });
-          await store.appendAudit({
-            actor: LIFECYCLE_TICK_ACTOR,
-            instance_id: instance.id,
-            action: `lifecycle_${spec.kind}`,
-            target: spec.id,
-            outcome: "started",
-            detail: decision.note,
-          });
-          opened.push(spec.id);
-        }
-
-        let finished = false;
-        if (decision.finish) {
-          // The data end, and the ONE place it is recorded. Provider truth said
-          // the asset is gone; our deadline passing never says that.
-          if (
-            !(await store.casInstance(instance.id, instance.version, {
-              service_state: "deprovisioned",
-            }))
-          ) {
-            throw new Error(
-              `instance ${instance.id} moved while its data end was being recorded`,
-            );
-          }
-          await store.appendAudit({
-            actor: LIFECYCLE_TICK_ACTOR,
-            instance_id: instance.id,
-            action: "data_end",
-            target: instance.id,
-            outcome: "succeeded",
-            detail: decision.note,
-          });
-          finished = true;
-        }
-
-        let cleared = 0;
-        // A live office can raise this during its grace week. Power-off then
-        // stops future probes, so the data end is the last point that can
-        // resolve the stale measurement. Every pass, not only the one that
-        // records the end: nothing probes a deprovisioned office, so an open
-        // liveness row on one is stale however it got there. Match the whole
-        // durable identity: the empty source sentinel is shared by other
-        // conditions.
-        if (finished || instance.service_state === "deprovisioned") {
-          for (const open of await store.openReasons(instance.id)) {
-            if (open.source_op_id !== "" || open.reason !== LIVENESS_REASON)
-              continue;
-            await clearAttentionIn(
-              store,
-              instance.id,
-              open.id,
-              LIFECYCLE_TICK_ACTOR,
-            );
-            cleared++;
-          }
-        }
-
-        // IN ORDER, IN THIS TRANSACTION. A promotion is a clear followed by a
-        // raise, and the two committing separately would leave a superseded
-        // instruction on the ops floor beside the incident that replaced it.
-        let raised = false;
-        for (const action of decision.attention) {
-          const applied = await applyAttention(store, instance.id, action);
-          raised = applied.raised || raised;
-          cleared += applied.cleared;
-        }
-
-        return {
-          opened,
-          finished,
-          raised,
-          cleared,
-          phase: decision.phase,
-          note: decision.note,
-        };
+        return applyDecision(store, instance, decision, now);
       });
     } catch (err) {
       summary.failed++;

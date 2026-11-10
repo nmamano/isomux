@@ -32,6 +32,7 @@ import {
   type SubscriptionRow,
 } from "./billing-store.ts";
 import { decide, ownedFrom } from "./dunning.ts";
+import { PAYMENT_AFTER_DELETION } from "../lifecycle.ts";
 import { requestResume } from "../resume.ts";
 import { requestSuspension } from "./suspension.ts";
 import type {
@@ -313,6 +314,23 @@ export async function applyEvent(
       report(
         `resume requested for ${current.instance_id}: ${asked.operationId}`,
       );
+    } else if (asked.code === "deletion_started" && current.instance_id) {
+      // The customer paid after the payment deletion started, so nothing can
+      // give the server back. Only a person can refund: raised once, and only
+      // an operator resolves it (`attention --resolve`).
+      await raiseAttentionIn(store, {
+        instanceId: current.instance_id,
+        sourceOpId: PAYMENT_AFTER_DELETION,
+        reasonClass: "operation_condition",
+        reason:
+          "the customer paid after this office's payment deletion started, so " +
+          "the server cannot be restored; refund the payment in Stripe",
+        severity: "critical",
+        actor: WEBHOOK_ACTOR,
+        detail: `subscription=${current.id}; status=${current.status}; observed=${new Date(input.now).toISOString()}`,
+        once: true,
+      });
+      report(`payment after deletion on ${current.instance_id}: refund needed`);
     }
   }
   if (reinstatement) {

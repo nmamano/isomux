@@ -939,3 +939,395 @@ function datedEvidence(
 function iso(instant: number | null): string {
   return instant === null ? "unknown" : new Date(instant).toISOString();
 }
+
+// ------------------------------------------------------------------ payment
+//
+// The PAYMENT lifecycle (Nil, 2026-11-10: "treat like cancellation"). When
+// Stripe's retries run out, dunning powers the box off. This machine keeps it 14
+// days from that proven power-off, tells the customer the date first, and then
+// asks the provider to delete it. Paying inside the window resumes the same box
+// (resume.ts), as before. It never touches a customer cancellation: that is the
+// machine above.
+
+/**
+ * When the payment deletion rule took effect (the hosted terms, "If a payment
+ * fails"). A box powered off before this instant counts its 14 days from here,
+ * so no box suspended under the old terms is deleted earlier than 14 days
+ * after the change.
+ */
+export const PAYMENT_DELETION_EFFECTIVE_AT = Date.UTC(2026, 11, 1);
+
+/** Evidence stamp that marks a row as belonging to the payment lifecycle. Not
+ * LIFECYCLE_REASON: isLifecycleRow stays a cancellation-only predicate. */
+export const PAYMENT_LIFECYCLE_REASON = "payment";
+
+/** Attention key: deletion is due, and the customer has not been told. */
+export const PAYMENT_DELETION_HELD = "payment-deletion-held";
+/** Attention key: a payment arrived after the payment deletion started. */
+export const PAYMENT_AFTER_DELETION = "payment-after-deletion";
+
+/** The earliest deletion for a box powered off at `poweredOffAt`. */
+export function paymentDeletionAt(poweredOffAt: number): number {
+  return Math.max(poweredOffAt, PAYMENT_DELETION_EFFECTIVE_AT) + RETENTION_MS;
+}
+
+/** The payment lifecycle's operation ids, derived from the dunning episode. */
+export function paymentOperationId(
+  kind: OperationKind,
+  episodeId: string,
+): string {
+  return `op-${kind}-payment-${episodeId}`;
+}
+
+/**
+ * The resume operation's id, derived from the EPISODE the suspension belongs to
+ * (resume.ts re-exports it). Same construction as `suspensionOperationId`: the
+ * operations primary key then refuses a second resume for one episode.
+ */
+export function resumeOperationId(episodeId: string): string {
+  return `op-power_on-${episodeId}`;
+}
+
+/** Did this operation come from the payment lifecycle? A stamp we wrote. */
+export function isPaymentLifecycleRow(op: OperationRow): boolean {
+  try {
+    const parsed: unknown = JSON.parse(op.evidence);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return false;
+    return (
+      (parsed as Record<string, unknown>).reason === PAYMENT_LIFECYCLE_REASON
+    );
+  } catch {
+    return false;
+  }
+}
+
+export interface DunningSuspension {
+  episode: string;
+  /** The subscription the opener stamped, or null on a row without one. */
+  subscription: string | null;
+  /** The instant the handler proved the box off, or null on a row without one. */
+  poweredOffAt: number | null;
+}
+
+/**
+ * The dunning suspension this office is sitting in: the LATEST succeeded
+ * dunning power_off, by the instant the handler recorded (a row without one
+ * loses to any row with one), with the operation id as a deterministic
+ * tie-break (row order is not a rule: created_at can tie, and taking the first
+ * match once left a paying customer's box off). Never skips an episode that was
+ * already resumed: a stale older
+ * episode must not stand in for the newest one.
+ */
+export function latestDunningSuspension(
+  operations: { id: string; kind: string; status: string; evidence: string }[],
+): DunningSuspension | null {
+  let best: { s: DunningSuspension; at: number; id: string } | null = null;
+  for (const op of operations) {
+    if (op.kind !== "power_off" || op.status !== "succeeded") continue;
+    let ev: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(op.evidence);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        continue;
+      ev = parsed as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (ev.reason !== "dunning") continue;
+    if (typeof ev.episode !== "string" || ev.episode === "") continue;
+    const poweredOffAt =
+      typeof ev.poweredOffAt === "number" && Number.isFinite(ev.poweredOffAt)
+        ? ev.poweredOffAt
+        : null;
+    const at = poweredOffAt ?? -Infinity;
+    if (
+      !best ||
+      at > best.at ||
+      (at === best.at && op.id.localeCompare(best.id) > 0)
+    ) {
+      best = {
+        s: {
+          episode: ev.episode,
+          subscription:
+            typeof ev.subscription === "string" ? ev.subscription : null,
+          poweredOffAt,
+        },
+        at,
+        id: op.id,
+      };
+    }
+  }
+  return best?.s ?? null;
+}
+
+export interface PaymentLifecycleInputs {
+  instance: InstanceRow;
+  asset: AssetRow | null;
+  operations: OperationRow[];
+  subscription: {
+    id: string;
+    status: string;
+    endedAt: number | null;
+    cancellationReason: string | null;
+  };
+  now: number;
+}
+
+/** Stripe statuses that mean the customer is paid up (dunning.ts, resume.ts). */
+const PAID_UP = new Set(["active", "trialing"]);
+
+/**
+ * What the lifecycle tick does about one payment-suspended office. Phase
+ * "serving" with nothing to open is the answer for every office this machine
+ * does not own.
+ *
+ * The deletion date is the LATEST of three instants, so the server may be kept
+ * longer than the mail says and never shorter:
+ *   - paymentDeletionAt(poweredOffAt), from the proven power-off;
+ *   - the date the mail named (`deletesAt`, fixed when the mail was opened, so
+ *     moving PAYMENT_DELETION_EFFECTIVE_AT later never changes a date a
+ *     customer already read);
+ *   - 14 days after the mail actually went out (`sentAt`), so a mail that went
+ *     out late still gives the customer 14 days.
+ * Deletion waits for a mail that went out: we never delete the server of a
+ * customer we did not tell.
+ */
+export function decidePaymentLifecycle(
+  inputs: PaymentLifecycleInputs,
+): LifecycleDecision {
+  const { instance, asset, operations, subscription, now } = inputs;
+  const clearHeld: AttentionAction = {
+    kind: "clear",
+    key: PAYMENT_DELETION_HELD,
+  };
+  const none = (note: string): LifecycleDecision => ({
+    open: [],
+    finish: false,
+    attention: [clearHeld],
+    phase: "serving",
+    note,
+  });
+
+  // A customer cancellation is the cancellation machine's, start to end.
+  if (isCustomerCancellation(subscription)) {
+    return none("a customer cancellation; not the payment lifecycle's");
+  }
+  const suspension = latestDunningSuspension(operations);
+  if (!suspension) return none("no dunning suspension");
+  const episode = suspension.episode;
+  if (
+    operations.some(
+      (op) => op.id === resumeOperationId(episode) && op.status === "succeeded",
+    )
+  ) {
+    return none("the dunning suspension was resumed");
+  }
+  if (PAID_UP.has(subscription.status)) {
+    return none(`the subscription is ${subscription.status} again`);
+  }
+  // No proven power-off, no clock: a box that might still serve is never
+  // deleted.
+  if (suspension.poweredOffAt === null) {
+    return none("the suspension has no proven power-off instant");
+  }
+
+  const noticeId = paymentOperationId("payment_notice", episode);
+  const noticeRow = operations.find((op) => op.id === noticeId) ?? null;
+  const named = noticeRow ? numberEvidence(noticeRow, "deletesAt") : null;
+  const sentAt =
+    noticeRow?.status === "succeeded"
+      ? numberEvidence(noticeRow, "sentAt")
+      : null;
+  const computed = paymentDeletionAt(suspension.poweredOffAt);
+  // Before the mail went out this is the earliest the deletion can be; after,
+  // it is the deletion date.
+  const promised = Math.max(
+    computed,
+    named ?? -Infinity,
+    sentAt === null ? -Infinity : sentAt + RETENTION_MS,
+  );
+  const atRisk = promiseAtRisk(asset, promised);
+  const stamp = {
+    reason: PAYMENT_LIFECYCLE_REASON,
+    subscription: subscription.id,
+    episode,
+  };
+
+  if (asset && GONE_STATES.has(asset.asset_state)) {
+    // The same rule as the cancellation's ended arm: provider truth records
+    // the data end, and an end before the promised date is a broken promise.
+    const early =
+      atRisk !== null ||
+      (parseServiceEndsAt(asset.service_ends_at) === null && now < promised);
+    return {
+      open: [
+        {
+          kind: "remove_dns",
+          id: paymentOperationId("remove_dns", episode),
+          evidence: { ...stamp, assetState: asset.asset_state },
+        },
+      ],
+      finish: instance.service_state !== "deprovisioned",
+      attention: [
+        clearHeld,
+        { kind: "clear", key: LIFECYCLE_ASSET_GONE },
+        { kind: "clear", key: PROMISE_AT_RISK },
+        ...(early
+          ? [
+              {
+                kind: "raise" as const,
+                key: PROMISE_BROKEN,
+                reason:
+                  `the provider asset for this office ended BEFORE the ` +
+                  `${iso(promised)} the customer was promised; the payment ` +
+                  `suspension promise was broken and the data is already gone`,
+                severity: "critical" as const,
+                detail: datedEvidence(asset, promised, now),
+              },
+            ]
+          : []),
+      ],
+      phase: "ended",
+      note: early
+        ? `provider ended the asset EARLY (${asset.asset_state}); promise broken`
+        : `provider reports the asset ${asset.asset_state}; data end recorded`,
+    };
+  }
+
+  if (instance.service_state !== "suspended") {
+    return none(`the office is ${instance.service_state}, not suspended`);
+  }
+
+  const open: LifecycleDecision["open"] = [];
+  const attention: AttentionAction[] = [
+    atRisk
+      ? {
+          kind: "raise",
+          key: PROMISE_AT_RISK,
+          ...atRisk,
+          detail: datedEvidence(asset, promised, now),
+        }
+      : { kind: "clear", key: PROMISE_AT_RISK },
+  ];
+  if (!noticeRow) {
+    open.push({
+      kind: "payment_notice",
+      id: noticeId,
+      evidence: { ...stamp, deletesAt: computed },
+    });
+  }
+  if (sentAt === null) {
+    // Held: the date has come and the customer has not been told. One key,
+    // one sentence, no date in it; cleared by this same arm once the mail
+    // went out, the customer paid, or the box ended.
+    attention.push(
+      now >= promised
+        ? {
+            kind: "raise",
+            key: PAYMENT_DELETION_HELD,
+            reason:
+              "this office's payment deletion is due, and the suspension mail " +
+              "to the customer has not gone out; the server is kept until it does",
+            severity: "warning",
+          }
+        : clearHeld,
+    );
+    return {
+      open,
+      finish: false,
+      attention,
+      phase: "suspended",
+      note: `payment suspension; mail not sent yet (deletion not before ${iso(promised)})`,
+    };
+  }
+  attention.push(clearHeld);
+  if (now < promised) {
+    return {
+      open,
+      finish: false,
+      attention,
+      phase: "suspended",
+      note: `payment suspension; deletion due ${iso(promised)}`,
+    };
+  }
+  for (const kind of ["cancel_asset", "remove_dns"] as const) {
+    open.push({
+      kind,
+      id: paymentOperationId(kind, episode),
+      evidence: { ...stamp, deletesAt: promised },
+    });
+  }
+  return {
+    open,
+    finish: false,
+    attention,
+    phase: "deprovision_due",
+    note: `payment deletion due ${iso(promised)}`,
+  };
+}
+
+/**
+ * The work schedule's view of the payment lifecycle (store.workSchedule), as
+ * SQL over the caller's placeholders. Clause for clause the same rule as
+ * decidePaymentLifecycle, so a pass the schedule wakes does work, and handled
+ * work goes idle.
+ *
+ * `cte`: the offices the payment arm owns - the latest succeeded dunning
+ * power_off per office (by its recorded instant, then id), with a proven
+ * instant, on a subscription that is not paid up, not a customer cancellation,
+ * not resumed for that episode, on a suspended office. `computed` is
+ * paymentDeletionAt. The CASE keeps the jsonb cast off rows that are not
+ * dunning stamps.
+ * `due`: the mail when it was never opened; the deletion at the latest of the
+ * three instants once the mail went out; the held row's raise once the date
+ * came with no mail sent, and its clear once that stopped being true.
+ * `times`: the next instants the deletion or the held raise fall due.
+ */
+export function paymentScheduleSql(p: {
+  now: string;
+  retention: string;
+  enabled: string;
+  effective: string;
+  heldKey: string;
+}): { cte: string; due: string; times: string } {
+  const named = "greatest(p.computed, coalesce(p.deletes_at, p.computed))";
+  const deleteAt = `greatest(p.computed, coalesce(p.deletes_at, p.computed), p.sent_at + ${p.retention})`;
+  const cte =
+    "dunning as (select distinct on (o.instance_id) o.instance_id, " +
+    "j.ev ->> 'episode' as episode, j.ev ->> 'subscription' as subscription, " +
+    "(j.ev ->> 'poweredOffAt')::bigint as powered_off_at from operations o " +
+    'cross join lateral (select case when o.evidence like \'%"reason":"dunning"%\' ' +
+    "then o.evidence::jsonb end as ev) j " +
+    "where o.kind = 'power_off' and o.status = 'succeeded' and j.ev ->> 'reason' = 'dunning' " +
+    "and coalesce(j.ev ->> 'episode', '') <> '' " +
+    "order by o.instance_id, (j.ev ->> 'poweredOffAt')::bigint desc nulls last, o.id desc), " +
+    `payment as (select d.instance_id, greatest(d.powered_off_at, ${p.effective}) + ${p.retention} as computed, ` +
+    "n.status as notice_status, (n.ev ->> 'deletesAt')::bigint as deletes_at, " +
+    "case when n.status = 'succeeded' then (n.ev ->> 'sentAt')::bigint end as sent_at, " +
+    "exists (select 1 from operations c where c.id = 'op-cancel_asset-payment-' || d.episode) as deleting, " +
+    "exists (select 1 from attention_reasons r where r.instance_id = d.instance_id " +
+    `and r.cleared_at is null and r.source_op_id = ${p.heldKey}) as held_open ` +
+    "from dunning d join subscriptions s on s.id = d.subscription and s.instance_id = d.instance_id " +
+    "join instances i on i.id = d.instance_id " +
+    "left join lateral (select n0.status, n0.evidence::jsonb as ev from operations n0 " +
+    "where n0.id = 'op-payment_notice-payment-' || d.episode) n on true " +
+    "where d.powered_off_at is not null " +
+    `and not (s.ended_at is not null and s.cancellation_reason = '${CUSTOMER_CANCELLATION_REASON}') ` +
+    "and s.status not in ('active', 'trialing') " +
+    "and not exists (select 1 from operations p where p.id = 'op-power_on-' || d.episode " +
+    "and p.status = 'succeeded') and i.service_state = 'suspended')";
+  const due =
+    "(exists (select 1 from payment p where p.notice_status is null " +
+    `or (p.sent_at is not null and not p.deleting and ${p.now} >= ${deleteAt}) ` +
+    `or (p.sent_at is null and not p.held_open and ${p.now} >= ${named})) ` +
+    "or exists (select 1 from attention_reasons r where r.cleared_at is null " +
+    `and r.source_op_id = ${p.heldKey} and not exists (select 1 from payment p ` +
+    `where p.instance_id = r.instance_id and p.sent_at is null and ${p.now} >= ${named})))`;
+  const times =
+    `union all select ${deleteAt} from payment p where ${p.enabled} = 1 ` +
+    "and p.sent_at is not null and not p.deleting " +
+    `union all select ${named} from payment p where ${p.enabled} = 1 ` +
+    "and p.sent_at is null and not p.held_open";
+  return { cte, due, times };
+}

@@ -171,6 +171,7 @@ export const en = {
   "steps.labelCancelAsset": "Cancelling your server with the provider",
   "steps.labelRemoveDns": "Removing your office's address",
   "steps.labelRepointDns": "Updating your office's address",
+  "steps.labelPaymentNotice": "Emailing you the deletion date",
 
   "stepState.waiting": "not started",
   "stepState.active": "in progress",
