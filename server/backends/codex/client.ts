@@ -29,6 +29,7 @@
 // isolation, simpler auth/request-id scoping). The transport layer is
 // designed to support sharing later without breaking the contract.
 
+import { resolve } from "path";
 import { errMessage } from "../../../shared/errors.ts";
 import { getAgentHost, type AgentChild } from "../../agent-host.ts";
 import {
@@ -52,6 +53,25 @@ const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch
 // subprocess group. Long enough for a healthy process to flush and exit, short
 // enough that a hung (mid-turn) process is reclaimed promptly.
 export const CODEX_KILL_GRACE_MS = 2000;
+
+// Two App Servers that start at the same time on a fresh CODEX_HOME race to
+// create its state database, and one exits 1 before it answers initialize
+// (Codex 0.164-0.167; task 6e4e2012). So one launch opens a cold home and the
+// others wait for its initialize answer, at most this long, then start
+// anyway: a hung opener must not block every session on its home. Absent
+// from the map = cold. Per process: after a restart a home is opened once
+// more, which costs one launch one initialize.
+const DEFAULT_LAUNCH_GATE_WAIT_MS = 10_000;
+let launchGateWaitMs = DEFAULT_LAUNCH_GATE_WAIT_MS;
+type LaunchGate =
+  | { kind: "opening"; settled: Promise<void> }
+  | { kind: "ready" };
+const launchGates = new Map<string, LaunchGate>();
+
+// Tests shorten the wait; null restores the default.
+export function setCodexLaunchGateWaitMsForTests(ms: number | null): void {
+  launchGateWaitMs = ms ?? DEFAULT_LAUNCH_GATE_WAIT_MS;
+}
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
@@ -144,6 +164,13 @@ export class JsonRpcLiteClient {
     signal: NodeJS.Signals | null;
   } | null = null;
   private initialized = false;
+  // The CODEX_HOME of this launch, the key of launchGates; set by start().
+  private launchHome: string | null = null;
+  // Set while this client is the launch that opens a cold home: every way
+  // the launch settles calls it once.
+  private releaseLaunchGate: (() => void) | null = null;
+  // Set while start() waits for another launch to open the home.
+  private wakeLaunchWaiter: (() => void) | null = null;
   // The key initialize() signs in with; set by start().
   private envApiKey: string | null = null;
 
@@ -222,11 +249,17 @@ export class JsonRpcLiteClient {
     // all spawn with the same effective env. withIsomuxCodexHome honors a
     // caller-set CODEX_HOME verbatim (per-user managed variables for billing isolation, see
     // server/backends/codex/native-bin.ts).
-    //
+
+    // One launch opens a cold home (launchGates, top of this file).
+    if (effectiveEnv.CODEX_HOME) {
+      this.launchHome = resolve(effectiveEnv.CODEX_HOME);
+      await this.passLaunchGate(this.launchHome);
+    }
     // A close() during the awaits above found no child to kill: spawning
     // now would leave an App Server that nothing stops.
     if (this.killed) {
       this.starting = false;
+      this.releaseLaunchGate?.();
       throw new Error("JsonRpcLiteClient is closed");
     }
     let child: AgentChild;
@@ -245,6 +278,9 @@ export class JsonRpcLiteClient {
         stderr: "pipe",
         ...(opts.isolate ? { isolate: true } : {}),
       });
+    } catch (err) {
+      this.releaseLaunchGate?.();
+      throw err;
     } finally {
       this.starting = false;
     }
@@ -267,6 +303,7 @@ export class JsonRpcLiteClient {
       // the client closed so any subsequent request short-circuits on the
       // `this.closed` guard in request() instead of writing to a dead process.
       this.closed = true;
+      this.releaseLaunchGate?.();
       if (err.code === "ENOENT") {
         this.closedReason = new Error(CODEX_LAUNCH_FAILED_MESSAGE);
         this.failAllPending(this.closedReason);
@@ -278,6 +315,7 @@ export class JsonRpcLiteClient {
     child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
       this.exitInfo = { code, signal };
       this.closed = true;
+      this.releaseLaunchGate?.();
       this.closedReason = new Error(
         `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
       );
@@ -311,10 +349,17 @@ export class JsonRpcLiteClient {
     if (this.initialized) {
       throw new Error("initialize() called twice on the same client");
     }
-    const response = await this.request<InitializeResponse>(
-      "initialize",
-      params,
-    );
+    let response: InitializeResponse;
+    try {
+      response = await this.request<InitializeResponse>("initialize", params);
+    } catch (err) {
+      this.releaseLaunchGate?.();
+      throw err;
+    }
+    // An answer means Codex created the home's state database. Ready before
+    // the release, so a release cannot turn the home cold again.
+    if (this.launchHome) launchGates.set(this.launchHome, { kind: "ready" });
+    this.releaseLaunchGate?.();
     this.initialized = true;
     this.notify("initialized", {});
     const apiKey = this.envApiKey;
@@ -382,7 +427,46 @@ export class JsonRpcLiteClient {
       }
     }
     this.closed = true;
+    this.wakeLaunchWaiter?.();
+    this.releaseLaunchGate?.();
     this.failAllPending("client closed");
+  }
+
+  // Returns when this launch may spawn: the home is ready, this client opens
+  // it, the wait ran out, or close() was called (start() then throws).
+  private async passLaunchGate(home: string): Promise<void> {
+    const deadline = Date.now() + launchGateWaitMs;
+    for (;;) {
+      if (this.killed) return;
+      const gate = launchGates.get(home);
+      if (gate?.kind === "ready") return;
+      if (!gate) {
+        let settle!: () => void;
+        const opening: LaunchGate = {
+          kind: "opening",
+          settled: new Promise<void>((done) => (settle = done)),
+        };
+        launchGates.set(home, opening);
+        this.releaseLaunchGate = () => {
+          this.releaseLaunchGate = null;
+          if (launchGates.get(home) === opening) launchGates.delete(home);
+          settle();
+        };
+        return;
+      }
+      const left = deadline - Date.now();
+      if (left <= 0) return;
+      await new Promise<void>((wake) => {
+        const timer = setTimeout(wake, left);
+        const done = () => {
+          clearTimeout(timer);
+          wake();
+        };
+        this.wakeLaunchWaiter = done;
+        void gate.settled.then(done);
+      });
+      this.wakeLaunchWaiter = null;
+    }
   }
 
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {
