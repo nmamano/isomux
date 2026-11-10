@@ -308,7 +308,9 @@ describe("app relay: requests from other pages", () => {
     expect(got).toEqual(want);
   });
 
-  it("refuses a screenshot capture's state-changing request from another page too", async () => {
+  // Quarantined (task 54c24a17, P1): the relay got no answer from the test
+  // app (502) once in ci:remote and passed on the re-run of the same commit.
+  it.skip("refuses a screenshot capture's state-changing request from another page too", async () => {
     const { srv, label } = await office();
     const seen: Seen[] = [];
     app = startApp(seen);
