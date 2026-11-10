@@ -360,6 +360,12 @@ export interface AffordancePreviewUrlReq {
   wait?: number;
 }
 
+export interface AffordancePreviewUrlResp {
+  ok: true;
+  /** Absolute server path of the saved PNG, usable in an ask's readFiles. */
+  path: string;
+}
+
 /**
  * GET /api/agents/:id/context - an agent's own context-window fullness.
  * The reading is the latest backend sample and may lag the caller's in-flight
@@ -478,7 +484,8 @@ export interface AffordanceBrowserReq {
  * Every action answers with the page's url and title after it ran, so an agent
  * that clicked into a navigation knows where it landed. `snapshot` adds the
  * ARIA tree, `text` adds the rendered body text, `close` sets `closed`.
- * A `screenshot` puts its image in the agent's chat and returns no bytes here.
+ * A `screenshot` puts its image in the agent's chat and returns no bytes here,
+ * only `path`.
  * Screenshot dimensions use CSS pixels.
  */
 export interface AffordanceBrowserResp {
@@ -497,6 +504,8 @@ export interface AffordanceBrowserResp {
   muted?: boolean;
   /** The input completed, but a navigation it started had not loaded. */
   loading?: boolean;
+  /** `screenshot`: absolute server path of the saved PNG, usable in an ask's readFiles. */
+  path?: string;
   /** JavaScript dialogs that the action opened, and their answers. A failure carries them as `error.dialogs`. */
   dialogs?: { type: string; message: string; accepted: boolean }[];
 }

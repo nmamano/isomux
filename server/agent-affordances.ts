@@ -45,10 +45,17 @@ import {
 } from "./mcp-servers.ts";
 import type { createMessageQueue } from "./message-queue.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
-import { saveFile as savePersistedFile } from "./persistence.ts";
+import { getFilePath, saveFile as savePersistedFile } from "./persistence.ts";
 import { capturePreview, type PreviewCaptureDeps } from "./preview-capture.ts";
 import { getUserById } from "./users.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
+
+const SAVE_FAILED = {
+  ok: false,
+  status: 500,
+  code: "save_failed",
+  error: "failed to persist the screenshot",
+} as const;
 
 // The chat's terminal-command answer for each refusal (an HTTP 400 body).
 const TERMINAL_COMMAND_ERRORS: Record<
@@ -440,6 +447,19 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     return { ok: true };
   }
 
+  // Save a screenshot PNG in the agent's files dir. The stored name can differ
+  // from the requested one (a collision adds _2), so the absolute path comes
+  // from the saved attachment: the agent gets it back to attach to an ask.
+  function saveScreenshot(
+    agentId: string,
+    png: Buffer,
+    filename: string,
+  ): { att: Attachment; path: string } | null {
+    const att = savePersistedFile(agentId, png, "image/png", filename);
+    const path = att ? getFilePath(agentId, att.filename) : null;
+    return att && path ? { att, path } : null;
+  }
+
   // Screenshot a URL (headless Chrome CLI via preview-capture.ts)
   // and emit a `file-view` card, reusing read-file's attachment path. Used by
   // POST /api/agents/:id/preview-url. Unlike the sync
@@ -453,7 +473,8 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     body: unknown,
     appGrant?: PreviewCaptureDeps["appGrant"],
   ): Promise<
-    { ok: true } | { ok: false; status: number; code: string; error: string }
+    | { ok: true; path: string }
+    | { ok: false; status: number; code: string; error: string }
   > {
     const managed = agents.get(agentId);
     if (!managed)
@@ -465,27 +486,16 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
       };
     const result = await capturePreview(body, { appGrant });
     if (!result.ok) return result;
-    const att = savePersistedFile(
-      agentId,
-      result.png,
-      "image/png",
-      result.filename,
-    );
-    if (!att) {
-      return {
-        ok: false,
-        status: 500,
-        code: "save_failed",
-        error: "failed to persist the screenshot",
-      };
-    }
+    const saved = saveScreenshot(agentId, result.png, result.filename);
+    if (!saved) return SAVE_FAILED;
+    const { att, path } = saved;
     // metadata.preview marks the caption as renderable: the UI shows
     // `content` under the image ONLY for entries carrying this marker, so
     // read-file cards (content = the attachment's own filename) and any other
     // file-view producer stay caption-free by explicit contract, not
     // inference.
     addLogEntry(agentId, "file-view", result.caption, { preview: true }, [att]);
-    return { ok: true };
+    return { ok: true, path };
   }
 
   // Drive a page in the paired Chrome browser (server/browser-extension-session.ts) for
@@ -495,7 +505,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
   // the screenshot action: its PNG becomes the same `file-view` preview card
   // preview-url emits, and the bytes are dropped from the response, because a
   // base64 image in a curl result is worth nothing to the agent and costs it a
-  // large part of a context window.
+  // large part of a context window. The response names the saved file instead.
   async function runAgentBrowserAction(
     agentId: string,
     body: unknown,
@@ -507,6 +517,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
         snapshot?: string;
         text?: string;
         closed?: boolean;
+        path?: string;
       }
     | {
         ok: false;
@@ -532,16 +543,12 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     if (!result.ok) return result;
     const { png, filename, caption, ...payload } = result;
     if (png && filename && caption) {
-      const att = savePersistedFile(agentId, png, "image/png", filename);
-      if (!att) {
-        return {
-          ok: false,
-          status: 500,
-          code: "save_failed",
-          error: "failed to persist the screenshot",
-        };
-      }
-      addLogEntry(agentId, "file-view", caption, { preview: true }, [att]);
+      const saved = saveScreenshot(agentId, png, filename);
+      if (!saved) return SAVE_FAILED;
+      addLogEntry(agentId, "file-view", caption, { preview: true }, [
+        saved.att,
+      ]);
+      return { ...payload, path: saved.path };
     }
     return payload;
   }

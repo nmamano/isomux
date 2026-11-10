@@ -57,7 +57,7 @@ type AffordanceResult =
 // no_browser / unreachable / capture_failed / save_failed / capture_timeout)
 // instead of the handler passing a fixed one.
 type PreviewAffordanceResult =
-  | { ok: true }
+  | { ok: true; path: string }
   | { ok: false; status: number; code: string; error: string };
 
 // The browser affordance answers with data, not just `ok`: an agent reads the
@@ -202,7 +202,7 @@ export function agentAffordanceHandlers(
           ctx.identity,
         );
         return r.ok
-          ? ok({ ok: true })
+          ? ok({ ok: true, path: r.path })
           : fail(r.status as HandlerErrorStatus, r.code, r.error);
       } catch (err) {
         console.error("[agents.previewUrl] unexpected rejection:", err);

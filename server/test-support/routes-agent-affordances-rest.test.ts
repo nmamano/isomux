@@ -19,8 +19,8 @@
 
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import { ExtensionBrowserSessions } from "../browser-extension-session.ts";
-import { writeFileSync, chmodSync } from "fs";
-import { join } from "path";
+import { writeFileSync, chmodSync, readFileSync } from "fs";
+import { basename, isAbsolute, join } from "path";
 import {
   startTestServer,
   type TestServer,
@@ -338,7 +338,13 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
         { bearer: token },
       );
       expect(r.status).toBe(200);
-      expect(r.body.ok).toBe(true);
+      // Task 3837820d: the response names the saved PNG, as a screenshot's does.
+      expect(r.body).toEqual({ ok: true, path: expect.any(String) });
+      const path = r.body.path as string;
+      expect(isAbsolute(path)).toBe(true);
+      expect(readFileSync(path).subarray(0, 4).toString("latin1")).toBe(
+        "\x89PNG",
+      );
       // Caption = origin + pathname, query stripped.
       const caption = `http://127.0.0.1:${target.port}/dash`;
       await waitUntil(
@@ -346,6 +352,12 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
         2000,
         "preview file-view with caption",
       );
+      const card = sock.messages
+        .map((m) => (m as { entry?: LogEntry }).entry)
+        .find((e) => e?.kind === "file-view" && e.content === caption);
+      expect(card?.attachments?.map((a) => a.filename)).toEqual([
+        basename(path),
+      ]);
     } finally {
       if (prevEnv === undefined) delete process.env.ISOMUX_PREVIEW_BROWSER;
       else process.env.ISOMUX_PREVIEW_BROWSER = prevEnv;
@@ -521,6 +533,108 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
       expect(r.status).toBe(500);
       expect(r.body.error?.code).toBe("action_timeout");
       expect(r.body.error?.dialogs).toEqual(dialogs);
+    } finally {
+      run.mockRestore();
+    }
+  });
+
+  // Task 3837820d: a screenshot answers with the path of the saved PNG, so the
+  // agent can put it in an ask's readFiles without searching its logs.
+  it("a screenshot returns the saved file's path, which an ask accepts in readFiles", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const sock = await srv.connectWs(owner.rawSessionId);
+    const first = Buffer.from("first screenshot bytes");
+    const second = Buffer.from("second screenshot bytes");
+    const page = { url: "https://example.com/a", title: "A" };
+    const run = spyOn(ExtensionBrowserSessions.prototype, "run");
+    const screenshot = async (png: Buffer) => {
+      run.mockResolvedValueOnce({
+        ok: true,
+        ...page,
+        png,
+        filename: "a.png",
+        caption: page.url,
+      });
+      const r = await affordance(
+        srv,
+        agent.id,
+        "browser",
+        { action: "screenshot" },
+        { bearer: token },
+      );
+      expect(r.status).toBe(200);
+      return r.body;
+    };
+    // The attachment names of the agent's file-view cards, in order.
+    const cards = () =>
+      sock.messages.flatMap((m) => {
+        const msg = m as { type?: string; entry?: LogEntry };
+        return msg.type === "log_entry" &&
+          msg.entry?.agentId === agent.id &&
+          msg.entry.kind === "file-view"
+          ? (msg.entry.attachments ?? []).map((a) => a.filename)
+          : [];
+      });
+    try {
+      const a = await screenshot(first);
+      // The bytes stay out of the response; the path replaces them.
+      expect(a).toEqual({ ok: true, ...page, path: expect.any(String) });
+      const pathA = a.path as string;
+      expect(isAbsolute(pathA)).toBe(true);
+      expect(readFileSync(pathA).equals(first)).toBe(true);
+      await waitUntil(() => cards().length === 1, 2000, "first card");
+      expect(cards()).toEqual([basename(pathA)]);
+
+      // Same name, other bytes: the store saves a new file under a new name,
+      // and the path names that file, not the one the name first meant.
+      const b = await screenshot(second);
+      const pathB = b.path as string;
+      expect(pathB).not.toBe(pathA);
+      expect(readFileSync(pathB).equals(second)).toBe(true);
+      expect(readFileSync(pathA).equals(first)).toBe(true);
+      await waitUntil(() => cards().length === 2, 2000, "second card");
+      expect(cards()[1]).toBe(basename(pathB));
+
+      // The point of the path: an ask takes it as a file to show the member.
+      const ask = await srv.http(`/api/agents/${agent.id}/asks`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: "Does the page look right?",
+          member: owner.username,
+          readFiles: [pathB],
+        }),
+      });
+      expect(ask.status).toBe(201);
+      const entry = (await ask.json()) as {
+        readFiles?: { originalName: string; size: number }[];
+      };
+      expect(entry.readFiles).toEqual([
+        expect.objectContaining({
+          originalName: basename(pathB),
+          size: second.length,
+        }),
+      ]);
+
+      // Only a screenshot saves a file, so only a screenshot has a path.
+      run.mockResolvedValueOnce({ ok: true, ...page, text: "body text" });
+      const text = await affordance(
+        srv,
+        agent.id,
+        "browser",
+        { action: "text" },
+        { bearer: token },
+      );
+      expect(text.status).toBe(200);
+      expect(text.body).toEqual({ ok: true, ...page, text: "body text" });
     } finally {
       run.mockRestore();
     }

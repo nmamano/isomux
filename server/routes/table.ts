@@ -148,6 +148,7 @@ import type {
   AffordanceDiffReq,
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
+  AffordancePreviewUrlResp,
   AffordanceBrowserReq,
   AffordanceBrowserResp,
   AgentContextUsageResp,
@@ -1334,7 +1335,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     ],
     preconditions: ["officeNotEnterpriseLocked"],
   }),
-  defineRoute<AffordancePreviewUrlReq, OkTrue>({
+  defineRoute<AffordancePreviewUrlReq, AffordancePreviewUrlResp>({
     opId: "agents.previewUrl",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
