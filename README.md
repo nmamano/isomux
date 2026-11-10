@@ -6,7 +6,7 @@
 
 Works with your Claude, Codex and OpenCode subscriptions.
 
-- [isomux.com](https://isomux.com): setup instructions and a live demo
+- [isomux.com](https://isomux.com): the ways to run Isomux and a live demo
 - [isomux.com/docs](https://isomux.com/docs): full feature list, self-hosted setup, security audit, more
 - [nilmamano.com/blog/isomux](https://nilmamano.com/blog/isomux): technical deep dive
 - [Discord](https://discord.gg/FrjEYyNvYs): ask questions, share setups, or report bugs

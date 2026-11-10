@@ -621,70 +621,6 @@
         text-decoration-thickness: 2px;
       }
 
-      /* ---- Setup card ---- */
-      .setup-card {
-        background: var(--bg-surface);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 24px;
-      }
-
-      .setup-card h3 {
-        font-size: 1rem;
-        font-weight: 600;
-        margin-top: 20px;
-        margin-bottom: 8px;
-        color: var(--text);
-      }
-
-      .setup-card h3:first-child {
-        margin-top: 0;
-      }
-
-      .setup-card pre {
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 12px 16px;
-        font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-        font-size: 0.85rem;
-        color: var(--accent);
-        overflow-x: auto;
-        margin-top: 4px;
-        line-height: 1.5;
-      }
-
-      .setup-card pre .comment {
-        color: var(--text-dim);
-      }
-
-      .setup-card p {
-        color: var(--text-dim);
-        font-size: 0.9rem;
-        margin-bottom: 4px;
-      }
-
-      .setup-card ul {
-        list-style: none;
-        margin-top: 8px;
-      }
-
-      .setup-card li {
-        color: var(--text-dim);
-        font-size: 0.9rem;
-        padding-left: 16px;
-        position: relative;
-        margin-bottom: 6px;
-      }
-
-      .setup-card li::before {
-        content: "\b7";
-        position: absolute;
-        left: 0;
-        color: var(--accent);
-        font-weight: bold;
-      }
-
       .section-intro {
         color: var(--text-dim);
         margin-bottom: 16px;
@@ -884,10 +820,10 @@
     <!-- Coworkers -->
     <section id="features">
       <nav class="ways" aria-label="Maneres de fer servir Isomux">
-        <a class="way" href="#setup"
+        <a class="way" href="/docs/hosting-local"
           ><strong>Autoallotjat</strong
           ><span>Gratis per a particulars i equips de fins a 10 persones.</span
-          ><em>Comença &darr;</em></a
+          ><em>Comença &rarr;</em></a
         >
         <a class="way" href="/ca/hosted"
           ><strong>Hosted</strong
@@ -1075,90 +1011,6 @@
       <p style="color: var(--text-dim); font-size: 0.95rem; margin-top: 20px">
         Mira la <a href="/docs">llista completa de funcions</a>.
       </p>
-    </section>
-
-    <!-- Get Started -->
-    <section id="setup">
-      <h2>Comença</h2>
-      <p
-        style="
-          background: var(--bg-surface);
-          border-radius: 4px;
-          padding: 12px 16px;
-          margin-bottom: 16px;
-          color: var(--text-dim);
-          font-size: 0.95rem;
-        "
-      >
-        Isomux està en beta.
-        <a href="https://github.com/nmamano/isomux/issues"
-          >S'agraeixen els informes d'errors</a
-        >.
-      </p>
-      <div class="setup-card">
-        <h3>1. Requisits</h3>
-        <p>
-          Necessites
-          <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
-          (v1.3.11+) i accés a com a mínim un proveïdor compatible.
-        </p>
-        <pre>curl -fsSL https://bun.sh/install | bash</pre>
-        <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
-          Obre un terminal nou després d'això perquè
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >bun</code
-          >
-          quedi al
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >PATH</code
-          >. Si encara no es troba, afegeix a la configuració del teu shell les
-          línies que ha imprès l'instal·lador i obre un altre terminal.
-        </p>
-
-        <h3>2. Instal·la i arrenca</h3>
-        <pre>
-git clone https://github.com/nmamano/isomux.git
-cd isomux
-bun install
-bun run dev</pre
-        >
-        <h3>3. Obre</h3>
-        <p>
-          Obre l'enllaç de configuració que mostra <strong>bun run dev</strong>.
-        </p>
-        <ul>
-          <li>
-            Claude Code i Codex vénen amb Isomux. Se't demanarà iniciar la
-            sessió quan parlis amb un agent.
-          </li>
-          <li>
-            OpenCode ve amb Isomux. Tria un model gratuït, de pagament per ús o
-            de subscripció.
-          </li>
-        </ul>
-
-        <p style="margin-top: 20px">
-          El vols en un servidor sempre encès, accessible des de qualsevol
-          dispositiu i amb altres persones a la teva oficina? Mira la
-          <a href="/docs/hosting">instal·lació autoallotjada</a>.
-        </p>
-        <p style="margin-top: 8px">
-          Prefereixes no portar cap servidor?
-          <a href="/ca/hosted">Te l'allotgem nosaltres</a>.
-        </p>
-      </div>
     </section>
 
     <!-- How It Works (link) -->
