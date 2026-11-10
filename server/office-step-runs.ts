@@ -24,9 +24,12 @@ import { identityFromSession, type Identity } from "./identity/index.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
 import {
   agentManager,
+  discordRoutes,
+  discordSupervisor,
   whatsappRoutes,
   whatsappSupervisor,
 } from "./office-managers.ts";
+import { readBots } from "./discord/store.ts";
 import { STATE_ROOT } from "./config.ts";
 import { readLink } from "./whatsapp/store.ts";
 import {
@@ -140,6 +143,14 @@ export function officeStepRuns(deps: {
         : null;
     },
     officeSettings: deps.officeSettings,
+    discord: {
+      bots: (userId) =>
+        readBots(STATE_ROOT, userId).map((b) => ({ id: b.id, name: b.name })),
+      guilds: (userId, botId) => discordSupervisor.guilds(userId, botId),
+      routes: (userId) => discordRoutes.rows(userId),
+      agentProblem: (userId, agentId) =>
+        discordRoutes.agentProblem(userId, agentId),
+    },
     whatsapp: {
       linked: (userId) => readLink(STATE_ROOT, userId) !== null,
       chatsSeen: (userId) => whatsappSupervisor.chatsSeen(userId),

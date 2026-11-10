@@ -589,7 +589,8 @@ it("Add: one bot needs no bot field; the server's text and forum channels, not i
   guilds = { [BOT]: GUILDS };
   // GENERAL already has a route of this bot.
   routes = [route("d_1")];
-  const s = await show();
+  // A member: only their own agents (an owner's picker is below).
+  const s = await show({ ...asMember().state });
   const form = await openAdd(s);
   expect(checkedReplies(form)).toBe("ask");
   expect(form.querySelector('[name="discordRouteBot"]')).toBeNull();
@@ -619,6 +620,16 @@ it("Add: one bot needs no bot field; the server's text and forum channels, not i
   expect((routePosts()[0].body as { name: string }).name).toContain("side");
   expect(s.q("form[data-discord-route-form]")).toBeNull();
   expect(s.all("[data-discord-route]")).toHaveLength(2);
+});
+
+// Task 386ec4d6: an office owner may route a place to any agent.
+it("an owner's agent picker offers every agent above Chat stop, another member's too", async () => {
+  bots = [bot(BOT)];
+  guilds = { [BOT]: GUILDS };
+  const s = await show();
+  const form = await openAdd(s);
+  const agents = options(field(form, "discordRouteAgent") as HTMLSelectElement);
+  expect(agents.sort()).toEqual(["a-office", "a-other", "a-std"]);
 });
 
 it("Add: a category lists the categories, a whole server has no place field; the settings that are not the default are sent", async () => {

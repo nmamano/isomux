@@ -2152,6 +2152,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "{member} manages this agent. Members who can open it can read this chat.",
   "asks.action.whatsappOtherMember":
     "Only {member} can choose the chat and apply.",
+  "asks.action.discordNoMatch":
+    "None of your Discord bots sees a place that matches {name}.",
+  "asks.action.discordPlacePrompt": "Choose a place",
+  "asks.action.discordMoves": "This place goes to {agent} now. Apply moves it.",
+  "asks.action.discordManager":
+    "{member} manages this agent. Members who can open it can read the messages from this place.",
+  "asks.action.discordOtherMember":
+    "Only {member} can choose the place and apply.",
   "asks.action.memberGone": "This member is no longer in the office.",
   "asks.action.roomGranted": "Access",
   "asks.action.roomRemoved": "No access",
@@ -3662,6 +3670,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.storageCompressed": "Old conversations compressed.",
   "systemEntries.stepAsk.whatsappRouted":
     "WhatsApp chat {chat} now goes to {agent}.",
+  "systemEntries.stepAsk.discordRouted":
+    "Discord place {place} now goes to {agent}.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",
   "systemEntries.sudoRequest.started": "Running as root: {command}",
   "systemEntries.sudoRequest.exited": "Ended with exit code {code}: {command}",

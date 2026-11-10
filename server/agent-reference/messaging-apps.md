@@ -12,7 +12,7 @@ You cannot edit a draft. To change one, delete it (`DELETE /api/agents/:id/asks/
 
 ## Setting up Discord for your manager
 
-A privileged agent can connect your manager's Discord bot and route places to their agents. A standard agent gets 403. Only the member links WhatsApp, because the link needs their phone. To have one of their WhatsApp chats routed to an agent, open an action ask with a `whatsapp-route` step (page `action-asks`): the member picks the chat on the card.
+A privileged agent can connect your manager's Discord bot and route places to their agents. A standard agent gets 403: to have a place routed, open an action ask with a `discord-route` step (page `action-asks`). Only the member links WhatsApp, because the link needs their phone. To have one of their WhatsApp chats routed to an agent, open an action ask with a `whatsapp-route` step (page `action-asks`): the member picks the chat on the card.
 
 First make the bot in your manager's browser (page `browser`): open your own tab at `https://discord.com/developers/applications`, or use a tab they offer. Click New Application, give it a name, accept the terms and click Create. On its Bot page, turn on Message Content Intent and click Save Changes. Read the Application ID on its General Information page. When Discord shows a step you cannot do, such as a captcha, a 2FA code or a password, open an ask that names that one step and says it is in your tab in their browser, and continue after the answer. With no browser, leave out `applicationId` below: the ask tells your manager how to make the bot.
 

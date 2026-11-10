@@ -2205,6 +2205,14 @@ Coses que pots fer per ell:
     "{member} gestiona aquest agent. Els membres que el poden obrir poden llegir aquest xat.",
   "asks.action.whatsappOtherMember":
     "Només {member} pot triar el xat i aplicar.",
+  "asks.action.discordNoMatch":
+    "Cap dels teus bots de Discord no veu un lloc que coincideixi amb {name}.",
+  "asks.action.discordPlacePrompt": "Tria un lloc",
+  "asks.action.discordMoves": "Ara aquest lloc va a {agent}. Aplica el mou.",
+  "asks.action.discordManager":
+    "{member} gestiona aquest agent. Els membres que el poden obrir poden llegir els missatges d'aquest lloc.",
+  "asks.action.discordOtherMember":
+    "Només {member} pot triar el lloc i aplicar.",
   "asks.action.memberGone": "Aquest membre ja no és a l'oficina.",
   "asks.action.roomGranted": "Accés",
   "asks.action.roomRemoved": "Sense accés",
@@ -3740,6 +3748,8 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.storageCompressed": "Converses antigues comprimides.",
   "systemEntries.stepAsk.whatsappRouted":
     "El xat de WhatsApp {chat} ara va a {agent}.",
+  "systemEntries.stepAsk.discordRouted":
+    "El lloc de Discord {place} ara va a {agent}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":

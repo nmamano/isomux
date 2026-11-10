@@ -83,6 +83,9 @@ function harness(stateRoot?: string) {
     agent: (id) => h.agents.get(id) ?? null,
     botIds: (userId) => h.bots.get(userId) ?? [],
     guilds: (botId) => h.guilds.get(botId) ?? null,
+    isOfficeOwner: () => false,
+    membersWithBots: () => [],
+    onChange: () => {},
   });
   return h;
 }

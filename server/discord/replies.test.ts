@@ -137,6 +137,9 @@ function harness() {
     agent: (id) => agents.get(id) ?? null,
     botIds: (userId) => (userId === U ? [BOT] : []),
     guilds: () => GUILDS,
+    isOfficeOwner: () => false,
+    membersWithBots: () => [],
+    onChange: () => {},
   });
   const asks = createAskStore({
     persistence: {

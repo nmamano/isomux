@@ -125,6 +125,14 @@ import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { nextVariableNotes } from "../shared/connection-notes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 import type { WhatsAppChatSeen, WhatsAppRoute } from "../shared/whatsapp.ts";
+import {
+  discordInviteUrl,
+  type DiscordBotListed,
+  type DiscordGuildSeen,
+  type DiscordRoute,
+  type DiscordRouteCreateReq,
+  type DiscordRouteUpdateReq,
+} from "../shared/discord.ts";
 
 // Every instruction layer's read answer: the text and its version.
 function demoInstructions(text: string | null) {
@@ -1220,6 +1228,99 @@ let demoWhatsAppRoutes: WhatsAppRoute[] = [
   },
 ];
 
+// The visitor's Discord bot (task 386ec4d6), for the discord-route ask's card
+// and the Integrations Discord card. #sales-leads already goes to Jim, so the
+// ask's Apply moves it to Dwight. Discord never answers in the demo: the bot
+// shows connected and nothing posts.
+const DEMO_DC_BOT = "1100000000000000777";
+const DEMO_DC_GUILD = "1200000000000000777";
+const demoDiscordBots: DiscordBotListed[] = [
+  {
+    id: DEMO_DC_BOT,
+    name: "Dunder Bot",
+    addedAt: Date.now() - 14 * 24 * 60 * 60_000,
+    status: { state: "connected" },
+    inviteUrl: discordInviteUrl(DEMO_DC_BOT),
+  },
+];
+const demoDiscordGuilds: DiscordGuildSeen[] = [
+  {
+    id: DEMO_DC_GUILD,
+    name: "Dunder Mifflin Scranton",
+    channels: [
+      {
+        id: "1300000000000000771",
+        name: "Sales",
+        kind: "category",
+        parentId: null,
+      },
+      {
+        id: "1300000000000000772",
+        name: "sales-floor",
+        kind: "text",
+        parentId: "1300000000000000771",
+      },
+      {
+        id: "1300000000000000773",
+        name: "sales-leads",
+        kind: "text",
+        parentId: "1300000000000000771",
+      },
+      {
+        id: "1300000000000000774",
+        name: "general",
+        kind: "text",
+        parentId: null,
+      },
+      {
+        id: "1300000000000000775",
+        name: "party-planning",
+        kind: "forum",
+        parentId: null,
+      },
+    ],
+  },
+];
+let demoDiscordRoutes: DiscordRoute[] = [
+  {
+    id: "d_demo0001",
+    botId: DEMO_DC_BOT,
+    guildId: DEMO_DC_GUILD,
+    scope: "channel",
+    targetId: "1300000000000000773",
+    name: "Leads",
+    agentId: "demo-jim",
+    trigger: "mention",
+    replyMode: "ask",
+    createdAt: Date.now() - 7 * 24 * 60 * 60_000,
+  },
+];
+
+// A demo route with an Integrations update applied: false and "" clear.
+function demoDiscordRouteUpdated(
+  route: DiscordRoute,
+  req: DiscordRouteUpdateReq,
+): DiscordRoute {
+  const next: DiscordRoute = { ...route };
+  if (req.name !== undefined) next.name = req.name;
+  if (req.agentId !== undefined) next.agentId = req.agentId;
+  if (req.trigger !== undefined) next.trigger = req.trigger;
+  if (req.replyMode !== undefined) next.replyMode = req.replyMode;
+  if (req.prefix !== undefined) {
+    if (req.prefix.trim()) next.prefix = req.prefix.trim();
+    else delete next.prefix;
+  }
+  if (req.includeBots !== undefined) {
+    if (req.includeBots) next.includeBots = true;
+    else delete next.includeBots;
+  }
+  if (req.react !== undefined) {
+    if (req.react) next.react = true;
+    else delete next.react;
+  }
+  return next;
+}
+
 // Asks to the viewer. Michael's are the ones his chat shows him
 // opening: short prompts and a long one, so the stack shows its clamp and,
 // on a desktop, its maximum height. Built on the first list so they can
@@ -1295,6 +1396,22 @@ function demoAskEntries(): AskMemberWire[] {
         kind: "whatsapp-route",
         chatName: "Scranton",
         agentId: "demo-michael",
+      },
+    },
+    // An action ask (task 386ec4d6): a Discord channel routed to Dwight. One
+    // place matches, and it goes to Jim now, so Apply moves it.
+    {
+      id: "dea0ac0a",
+      agentId: "demo-dwight",
+      memberUserId: member,
+      prompt:
+        "Can I take the sales leads channel on Discord? I'll draft each reply for you to send.",
+      createdAt: now - 60_000,
+      updatedAt: now - 60_000,
+      step: {
+        kind: "discord-route",
+        placeName: "#sales-leads",
+        agentId: "demo-dwight",
       },
     },
     // One from the back room, so its plate shows the count dot too.
@@ -3248,13 +3365,34 @@ export async function demoApi(
       return [...demoWhatsAppChats];
     case "GET /api/whatsapp/routes":
       return [...demoWhatsAppRoutes];
-    // The Discord card: the demo has no bot, and Discord cannot check a
-    // token from it.
+    // The Discord card and the discord-route ask's card: one demo bot
+    // (demoDiscordBots). Discord cannot check a token from the demo.
     case "GET /api/discord":
+      return [...demoDiscordBots];
     case "GET /api/discord/routes":
-      return [];
+      return [...demoDiscordRoutes];
     case "POST /api/discord/bots":
       throw new ApiError(400, "check_failed", "no Discord in the demo");
+    case "POST /api/discord/routes": {
+      const req = (body ?? {}) as DiscordRouteCreateReq;
+      const next: DiscordRoute = {
+        id: `d_demo${String(demoDiscordRoutes.length + 1).padStart(4, "0")}`,
+        botId: req.botId,
+        guildId: req.guildId,
+        scope: req.scope,
+        targetId: req.targetId,
+        name: req.name,
+        agentId: req.agentId,
+        trigger: req.trigger ?? "mention",
+        replyMode: req.replyMode ?? "ask",
+        ...(req.prefix ? { prefix: req.prefix } : {}),
+        ...(req.includeBots ? { includeBots: true as const } : {}),
+        ...(req.react ? { react: true as const } : {}),
+        createdAt: Date.now(),
+      };
+      demoDiscordRoutes = [...demoDiscordRoutes, next];
+      return next;
+    }
     // "Changed for you": nobody changes the visitor's settings in the demo.
     case "GET /api/me/integration-changes":
       return { items: [] };
@@ -4131,14 +4269,81 @@ export async function demoApi(
     demoChatReply(entry.agentId);
     return undefined;
   }
+  // The demo bot's servers, and a change to one of its routes from the
+  // Integrations Discord card.
+  if (
+    method === "GET" &&
+    pathname === `/api/discord/bots/${DEMO_DC_BOT}/guilds`
+  )
+    return demoDiscordGuilds;
+  // Disconnect: the bot and its routes go, as on the server.
+  if (
+    method === "DELETE" &&
+    pathname === `/api/discord/bots/${DEMO_DC_BOT}` &&
+    demoDiscordBots.length > 0
+  ) {
+    demoDiscordBots.splice(0);
+    demoDiscordRoutes = [];
+    return undefined;
+  }
+  const dcRouteMatch = pathname.match(/^\/api\/discord\/routes\/([^/]+)$/);
+  if (dcRouteMatch && (method === "PATCH" || method === "DELETE")) {
+    const id = decodeURIComponent(dcRouteMatch[1]);
+    const current = demoDiscordRoutes.find((r) => r.id === id);
+    if (!current) throw new ApiError(404, "not_found", "no such route");
+    if (method === "DELETE") {
+      demoDiscordRoutes = demoDiscordRoutes.filter((r) => r.id !== id);
+      return undefined;
+    }
+    const next = demoDiscordRouteUpdated(current, body ?? {});
+    demoDiscordRoutes = demoDiscordRoutes.map((r) => (r.id === id ? next : r));
+    return next;
+  }
   // asks.runAction for a whatsapp-route step (task 0b53ff37): the picked
   // chat gets a row to the agent, or its row moves there, and the ask
-  // closes, as the server's reconcile closes it.
+  // closes, as the server's reconcile closes it. A discord-route step (task
+  // 386ec4d6) does the same with the picked place.
   const actionMatch = pathname.match(/^\/api\/asks\/([^/]+)\/action$/);
   if (actionMatch && method === "POST") {
     const found = demoFindAsk(decodeURIComponent(actionMatch[1]));
     if (!found) throw new ApiError(404, "not_found", "No such open ask.");
     const step = found.entry.step;
+    if (step?.kind === "discord-route") {
+      const pick = (body ?? {}) as Partial<DiscordRoute>;
+      const route = demoDiscordRoutes.find(
+        (r) =>
+          r.botId === pick.botId &&
+          r.scope === pick.scope &&
+          r.targetId === pick.targetId,
+      );
+      const place = demoDiscordGuilds
+        .flatMap((g) => [
+          { guildId: g.id, id: g.id, name: g.name },
+          ...g.channels.map((c) => ({ guildId: g.id, id: c.id, name: c.name })),
+        ])
+        .find((p) => p.guildId === pick.guildId && p.id === pick.targetId);
+      if (pick.botId !== DEMO_DC_BOT || !place)
+        throw new ApiError(400, "invalid_request", "Pick a place.");
+      const next: DiscordRoute = route
+        ? { ...route, agentId: step.agentId }
+        : {
+            id: `d_demo${String(demoDiscordRoutes.length + 1).padStart(4, "0")}`,
+            botId: DEMO_DC_BOT,
+            guildId: place.guildId,
+            scope: pick.scope ?? "channel",
+            targetId: place.id,
+            name: place.name,
+            agentId: step.agentId,
+            trigger: step.trigger ?? "mention",
+            replyMode: step.replyMode ?? "ask",
+            createdAt: Date.now(),
+          };
+      demoDiscordRoutes = route
+        ? demoDiscordRoutes.map((r) => (r.id === route.id ? next : r))
+        : [...demoDiscordRoutes, next];
+      demoRemoveAsk(found.entry.id, found.other !== null);
+      return next;
+    }
     if (step?.kind !== "whatsapp-route")
       throw new ApiError(409, "not_runnable", "This ask has no action to run.");
     const chat = (body as { chat?: unknown } | null)?.chat;

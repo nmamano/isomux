@@ -2199,6 +2199,15 @@ Cosas que puedes hacer por él:
     "{member} gestiona este agente. Los miembros que pueden abrirlo pueden leer este chat.",
   "asks.action.whatsappOtherMember":
     "Solo {member} puede elegir el chat y aplicar.",
+  "asks.action.discordNoMatch":
+    "Ninguno de tus bots de Discord ve un lugar que coincida con {name}.",
+  "asks.action.discordPlacePrompt": "Elige un lugar",
+  "asks.action.discordMoves":
+    "Ahora este lugar va a {agent}. Aplicar lo mueve.",
+  "asks.action.discordManager":
+    "{member} gestiona este agente. Los miembros que pueden abrirlo pueden leer los mensajes de este lugar.",
+  "asks.action.discordOtherMember":
+    "Solo {member} puede elegir el lugar y aplicar.",
   "asks.action.memberGone": "Este miembro ya no está en la oficina.",
   "asks.action.roomGranted": "Acceso",
   "asks.action.roomRemoved": "Sin acceso",
@@ -3735,6 +3744,8 @@ Cosas que puedes hacer por él:
     "Conversaciones antiguas comprimidas.",
   "systemEntries.stepAsk.whatsappRouted":
     "El chat de WhatsApp {chat} ahora va a {agent}.",
+  "systemEntries.stepAsk.discordRouted":
+    "El lugar de Discord {place} ahora va a {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

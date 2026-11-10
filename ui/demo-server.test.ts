@@ -21,6 +21,11 @@ import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../shared/memory-caps.ts";
 import { DEMO_ROOM_NAMES, demoApi, sendInitialState } from "./demo-server.ts";
+import {
+  discordPlacesMatching,
+  type DiscordGuildSeen,
+  type DiscordRouteScope,
+} from "../shared/discord.ts";
 import { demoAppMockContent } from "./demo-app.ts";
 import { addRawListener, removeRawListener } from "./ws.ts";
 
@@ -391,13 +396,73 @@ describe("demo fixture data", () => {
 });
 
 describe("demo Discord card", () => {
-  it("has no bot and no route, and a connect is refused with a code the card words", async () => {
-    expect(await demoApi("GET", "/api/discord")).toEqual([]);
-    expect(await demoApi("GET", "/api/discord/routes")).toEqual([]);
+  // Task 386ec4d6: one demo bot, so the discord-route ask's card has a place
+  // to show. Discord cannot check a token from the demo.
+  it("a connect is refused with a code the card words, and the bot list stays as it was", async () => {
+    const before = (await demoApi("GET", "/api/discord")) as { id: string }[];
     await expect(
       demoApi("POST", "/api/discord/bots", { token: "x" }),
     ).rejects.toMatchObject({ status: 400, code: "check_failed" });
-    expect(await demoApi("GET", "/api/discord")).toEqual([]);
+    const after = (await demoApi("GET", "/api/discord")) as { id: string }[];
+    expect(after.map((b) => b.id)).toEqual(before.map((b) => b.id));
+  });
+
+  it("each discord-route ask of the Inbox matches a place of the demo bots, and Apply applies it", async () => {
+    const bots = (await demoApi("GET", "/api/discord")) as { id: string }[];
+    const seen = await Promise.all(
+      bots.map(async (b) => ({
+        botId: b.id,
+        guilds: (await demoApi(
+          "GET",
+          `/api/discord/bots/${b.id}/guilds`,
+        )) as DiscordGuildSeen[],
+      })),
+    );
+    const asks = (await demoApi("GET", "/api/asks", undefined)) as {
+      id: string;
+      step?: {
+        kind: string;
+        placeName?: string;
+        agentId?: string;
+        scope?: DiscordRouteScope;
+      };
+    }[];
+    const routeAsks = asks.filter((a) => a.step?.kind === "discord-route");
+    expect(routeAsks.length).toBeGreaterThan(0);
+    for (const ask of routeAsks) {
+      const places = discordPlacesMatching(
+        ask.step!.placeName!,
+        ask.step!.scope,
+        seen,
+      );
+      expect({ ask: ask.id, places: places.length > 0 }).toEqual({
+        ask: ask.id,
+        places: true,
+      });
+      const p = places[0];
+      await demoApi("POST", `/api/asks/${ask.id}/action`, {
+        botId: p.botId,
+        guildId: p.guildId,
+        scope: p.scope,
+        targetId: p.targetId,
+      });
+      const routes = (await demoApi("GET", "/api/discord/routes")) as {
+        botId: string;
+        scope: string;
+        targetId: string;
+        agentId: string;
+      }[];
+      expect(
+        routes
+          .filter(
+            (r) =>
+              r.botId === p.botId &&
+              r.scope === p.scope &&
+              r.targetId === p.targetId,
+          )
+          .map((r) => r.agentId),
+      ).toEqual([ask.step!.agentId!]);
+    }
   });
 });
 

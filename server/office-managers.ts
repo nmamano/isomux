@@ -137,6 +137,7 @@ import { DISCORD_API_BASE, createDiscordRest } from "./discord/rest.ts";
 import {
   openDiscordSentRing,
   readBots,
+  listDiscordMembers,
   readCursors,
   writeCursors,
 } from "./discord/store.ts";
@@ -710,6 +711,13 @@ export function createManagers(
     botIds: (userId) => readBots(STATE_ROOT, userId).map((b) => b.id),
     // A bot is one member's: connect refuses it to a second.
     guilds: (botId) => discordSupervisor.guildsOfBot(botId),
+    isOfficeOwner: (userId) => getUserById(userId)?.role === "owner",
+    membersWithBots: () =>
+      listDiscordMembers(STATE_ROOT).filter(
+        (userId) => readBots(STATE_ROOT, userId).length > 0,
+      ),
+    // A route made or changed may do a discord-route step.
+    onChange: () => stepsChanged(),
   });
   const discordInbound = createDiscordInbound({
     clock: discordClock,
@@ -784,12 +792,10 @@ export function createManagers(
       answer: (entry, input) => whatsappReplies.answer(entry, input),
     },
     discord: discordReplies,
+    // A route or row may be an office owner's, to an agent they do not
+    // manage (tasks 0b53ff37 and 386ec4d6).
     routeApp: (agentId, routeId) => {
-      const userId = agentManager.getAgent(agentId)?.userId ?? null;
-      if (userId && discordRoutes.get(userId, routeId)?.agentId === agentId)
-        return "discord";
-      // A WhatsApp row may be an office owner's row to an agent they do not
-      // manage (task 0b53ff37).
+      if (discordRoutes.rowMember(agentId, routeId)) return "discord";
       if (whatsappRoutes.rowMember(agentId, routeId)) return "whatsapp";
       return null;
     },

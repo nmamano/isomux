@@ -12,6 +12,11 @@ import type { ApiTokenLimits } from "./api-token-limits.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AskStep } from "./types.ts";
 import type { WhatsAppRouteTrigger } from "./whatsapp.ts";
+import type {
+  DiscordReplyMode,
+  DiscordRouteScope,
+  DiscordRouteTrigger,
+} from "./discord.ts";
 
 // An action step (task e3d1bc63): a human-only action the member runs from
 // the ask card with the Apply button. It has no link; the ask closes itself
@@ -89,12 +94,38 @@ export type ActionStepRequest =
       sendDirect?: boolean;
       prefix?: string;
       ownMessages?: boolean;
+    }
+  // One Discord place of the member's bots routed to an agent (task
+  // 386ec4d6). The agent names the place by a part of its name (a channel, a
+  // category or a server), and `scope` narrows the match; the member picks
+  // the place on the card, and Apply sends it (DiscordRouteStepRun). The
+  // settings are the whole route: an omitted one is the default (mention,
+  // replies wait for Send, no prefix, bot posts and react off).
+  | {
+      kind: "discord-route";
+      placeName: string;
+      agentId: string;
+      scope?: DiscordRouteScope;
+      trigger?: DiscordRouteTrigger;
+      replyMode?: DiscordReplyMode;
+      prefix?: string;
+      includeBots?: boolean;
+      react?: boolean;
     };
 
 // The body of POST /api/asks/:askId/action for a whatsapp-route step: the
 // chat the member picked. Other kinds take no body.
 export interface WhatsAppRouteStepRun {
   chat: string;
+}
+
+// The body of POST /api/asks/:askId/action for a discord-route step: the
+// place the member picked.
+export interface DiscordRouteStepRun {
+  botId: string;
+  guildId: string;
+  scope: DiscordRouteScope;
+  targetId: string;
 }
 
 export type MemberViewList = "shown" | "tucked" | "notif" | "push";
@@ -131,6 +162,7 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "storage-prune",
   "storage-compress",
   "whatsapp-route",
+  "discord-route",
 ]);
 
 // Whether a step is one the member runs from the card.

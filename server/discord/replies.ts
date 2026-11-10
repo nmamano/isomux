@@ -42,7 +42,7 @@ export const DISCORD_SEND_OPTION = "Send";
 export const DISCORD_DONT_SEND_OPTION = "Don't send";
 
 export interface DiscordRepliesDeps {
-  routes: Pick<DiscordRoutes, "get" | "check" | "forPlace">;
+  routes: Pick<DiscordRoutes, "get" | "check" | "forPlace" | "rowMember">;
   // The agent as it is now, or null when it is gone.
   agent(agentId: string): { userId: string | null; name: string } | null;
   // The bot's live view, or null when it is not connected.
@@ -203,7 +203,9 @@ export function createDiscordReplies(deps: DiscordRepliesDeps): DiscordReplies {
   return {
     async reply(agentId, routeId, body) {
       const agent = deps.agent(agentId);
-      const userId = agent?.userId ?? null;
+      // The route's member: the agent's manager, or an office owner who
+      // routed a place to it (task 386ec4d6).
+      const userId = deps.routes.rowMember(agentId, routeId);
       const route = userId ? deps.routes.get(userId, routeId) : null;
       if (!agent || !userId || !route || route.agentId !== agentId)
         return notFound;

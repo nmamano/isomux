@@ -1225,6 +1225,7 @@ export type {
   MemberViewList,
   OfficeSettingsSet,
   WhatsAppRouteStepRun,
+  DiscordRouteStepRun,
 } from "./action-steps.ts";
 export { isActionStep } from "./action-steps.ts";
 

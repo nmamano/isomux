@@ -783,10 +783,14 @@ function RouteForm({
   const { agents, rooms, sessionContext } = useAppState();
   const placeName = usePlaceName();
   const selfId = sessionContext?.userId ?? null;
-  // Agents that can reply: the member's own, above Chat stop.
+  // Agents that can reply, above Chat stop: the member's own, or any agent
+  // for an office owner (task 386ec4d6).
+  const isOwner = sessionContext?.role === "owner";
   const mine = agents.filter(
     (a) =>
-      selfId !== null && a.userId === selfId && agentAccessOf(a) !== "chat",
+      selfId !== null &&
+      (isOwner || a.userId === selfId) &&
+      agentAccessOf(a) !== "chat",
   );
   const firstAgent =
     groupAgentsByRoom(mine, rooms).flatMap((g) => g.agents)[0]?.id ?? NONE;

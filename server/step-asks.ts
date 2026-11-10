@@ -69,6 +69,7 @@ import {
 import { compareCalver } from "./update-checker.ts";
 import type { StorageApplied } from "./office-storage-routes.ts";
 import {
+  WHATSAPP_PREFIX_MAX,
   WHATSAPP_ROUTE_NAME_MAX,
   chatNameMatches,
   normaliseWhatsAppRouteName,
@@ -77,6 +78,17 @@ import {
   type WhatsAppRouteDead,
 } from "../shared/whatsapp.ts";
 import { replySettings } from "./whatsapp/routes.ts";
+import {
+  discordPlacesMatching,
+  normaliseDiscordPrefix,
+  normaliseDiscordRouteName,
+  type DiscordGuildSeen,
+  type DiscordPlace,
+  type DiscordReplyMode,
+  type DiscordRoute,
+  type DiscordRouteDead,
+  type DiscordRouteTrigger,
+} from "../shared/discord.ts";
 import type { UpdateStatusWire } from "../shared/types.ts";
 import type { PruneTarget } from "../shared/contract-shapes.ts";
 
@@ -212,6 +224,16 @@ export interface StepRunDeps {
     rows(userId: string): WhatsAppRoute[];
     agentProblem(userId: string, agentId: string): WhatsAppRouteDead | null;
   };
+  // The member's Discord (task 386ec4d6): their stored bots, the servers a
+  // bot is in now (null when it has not connected yet), their routes as
+  // stored (a read that never writes), and why an agent cannot be a route's
+  // agent for them.
+  discord: {
+    bots(userId: string): { id: string; name: string }[];
+    guilds(userId: string, botId: string): DiscordGuildSeen[] | null;
+    routes(userId: string): DiscordRoute[];
+    agentProblem(userId: string, agentId: string): DiscordRouteDead | null;
+  };
   // Whether the member passes the route's own authorization, as from the
   // page: the refusal, or null. Runs nothing.
   authorizeAs(
@@ -296,6 +318,17 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "office-update": ["kind"],
   "storage-prune": ["kind", "target", "olderThanDays", "keepPerAgent"],
   "storage-compress": ["kind", "olderThanDays"],
+  "discord-route": [
+    "kind",
+    "placeName",
+    "agentId",
+    "scope",
+    "trigger",
+    "replyMode",
+    "prefix",
+    "includeBots",
+    "react",
+  ],
   "whatsapp-route": [
     "kind",
     "chatName",
@@ -406,6 +439,13 @@ function doneLine(step: AskStep, target: string): LogMessage {
       return msg("systemEntries.stepAsk.storagePruned");
     case "storage-compress":
       return msg("systemEntries.stepAsk.storageCompressed");
+    // The name the agent gave, never the place's: the agent learns no
+    // Discord name it did not give.
+    case "discord-route":
+      return msg("systemEntries.stepAsk.discordRouted", {
+        place: step.placeName,
+        agent: target,
+      });
     // The name the agent gave, never the picked chat's: the agent learns no
     // chat name it did not give.
     case "whatsapp-route":
@@ -469,8 +509,74 @@ function rowIsStep(row: WhatsAppRoute, step: WhatsAppRouteStep): boolean {
 // row name's length, else the name the agent gave.
 function newRowName(seenName: string | undefined, chatName: string): string {
   if (seenName === undefined) return chatName;
-  const cut = [...seenName.trim()].slice(0, WHATSAPP_ROUTE_NAME_MAX).join("");
-  return normaliseWhatsAppRouteName(cut) ?? chatName;
+  return cutRouteName(seenName) ?? chatName;
+}
+
+type DiscordRouteStep = Extract<AskStep, { kind: "discord-route" }>;
+
+// The route settings a discord-route step sets, every one explicit: an
+// omitted one is the default (mention, replies wait for Send, no prefix, bot
+// posts and react off).
+function stepRouteSettings(step: DiscordRouteStep): {
+  trigger: DiscordRouteTrigger;
+  replyMode: DiscordReplyMode;
+  prefix: string;
+  includeBots: boolean;
+  react: boolean;
+} {
+  return {
+    trigger: step.trigger ?? "mention",
+    replyMode: step.replyMode ?? "ask",
+    prefix: step.prefix ?? "",
+    includeBots: step.includeBots === true,
+    react: step.react === true,
+  };
+}
+
+// Whether a route is what the step asks for: its agent and all its settings.
+function routeIsStep(route: DiscordRoute, step: DiscordRouteStep): boolean {
+  const want = stepRouteSettings(step);
+  return (
+    route.agentId === step.agentId &&
+    route.trigger === want.trigger &&
+    route.replyMode === want.replyMode &&
+    (route.prefix ?? "") === want.prefix &&
+    (route.includeBots === true) === want.includeBots &&
+    (route.react === true) === want.react
+  );
+}
+
+// Whether a route listens at the place: the same bot, scope and target.
+const samePlace = (
+  place: { botId: string; scope: string; targetId: string },
+  route: { botId: string; scope: string; targetId: string },
+) =>
+  place.botId === route.botId &&
+  place.scope === route.scope &&
+  place.targetId === route.targetId;
+
+// The places of the member's bots that match the step, over the servers each
+// bot is in now (a bot that has not connected has none).
+function discordPlaces(
+  dc: StepRunDeps["discord"],
+  step: DiscordRouteStep,
+  memberUserId: string,
+): DiscordPlace[] {
+  return discordPlacesMatching(
+    step.placeName,
+    step.scope,
+    dc.bots(memberUserId).map((bot) => ({
+      botId: bot.id,
+      guilds: dc.guilds(memberUserId, bot.id) ?? [],
+    })),
+  );
+}
+
+// The name a new row or route takes: the place's own name cut to the name's
+// length, else the name the agent gave.
+function cutRouteName(name: string): string | null {
+  const cut = [...name.trim()].slice(0, WHATSAPP_ROUTE_NAME_MAX).join("");
+  return normaliseWhatsAppRouteName(cut);
 }
 
 // Whether an applied prune or compress covers the step: applied since the ask
@@ -682,6 +788,23 @@ export function createStepAsks(deps: StepAskDeps) {
           ? runs.compressCandidates(step.olderThanDays) === 0
           : covers(runs.lastCompress(), since, step.olderThanDays, 0);
       }
+      // A live route of a matching place to the agent, with the step's
+      // settings. Reads only: reconcile runs this from the routes' own
+      // change hook.
+      case "discord-route": {
+        const dc = deps.runs?.discord;
+        if (!dc) return false;
+        const places = discordPlaces(dc, step, memberUserId);
+        return dc
+          .routes(memberUserId)
+          .some(
+            (route) =>
+              !route.dead &&
+              routeIsStep(route, step) &&
+              places.some((p) => samePlace(p, route)) &&
+              dc.agentProblem(memberUserId, route.agentId) === null,
+          );
+      }
       // A live row of a matching chat to the agent, with the step's
       // settings. Reads only: reconcile runs this from the rows' own change
       // hook.
@@ -830,6 +953,72 @@ export function createStepAsks(deps: StepAskDeps) {
               body: {
                 chat,
                 name: newRowName(seenChat?.name, step.chatName),
+                agentId: step.agentId,
+                ...settings,
+              },
+            },
+      ],
+    };
+  }
+
+  // The run of a discord-route step on the picked place: one of the places
+  // of the member's bots that match the step now. A place with a route moves
+  // to the agent with the step's settings (the route keeps its name); a
+  // place with none gets a route, named by the place.
+  function discordRouteRun(
+    step: DiscordRouteStep,
+    memberUserId: string,
+    pick: unknown,
+  ): StepRun {
+    const dc = deps.runs?.discord;
+    if (!dc) return invalid("this office runs no action steps");
+    const scopes: readonly unknown[] = ["channel", "category", "server"];
+    if (
+      !isObject(pick) ||
+      typeof pick.botId !== "string" ||
+      typeof pick.guildId !== "string" ||
+      typeof pick.targetId !== "string" ||
+      !scopes.includes(pick.scope)
+    )
+      return invalid(
+        "send {botId, guildId, scope, targetId}: the place the member picked",
+      );
+    const picked = {
+      botId: pick.botId,
+      guildId: pick.guildId,
+      scope: pick.scope as string,
+      targetId: pick.targetId,
+    };
+    const place = discordPlaces(dc, step, memberUserId).find(
+      (p) => samePlace(p, picked) && p.guildId === picked.guildId,
+    );
+    if (!place)
+      return {
+        ok: false,
+        status: 409,
+        code: "place_not_matching",
+        message: "this place does not match the name the ask gives",
+      };
+    const route = dc.routes(memberUserId).find((r) => samePlace(place, r));
+    const settings = stepRouteSettings(step);
+    return {
+      ok: true,
+      routes: [
+        route
+          ? {
+              method: "PATCH",
+              path: `/api/discord/routes/${encodeURIComponent(route.id)}`,
+              body: { agentId: step.agentId, ...settings },
+            }
+          : {
+              method: "POST",
+              path: "/api/discord/routes",
+              body: {
+                botId: place.botId,
+                guildId: place.guildId,
+                scope: place.scope,
+                targetId: place.targetId,
+                name: cutRouteName(place.name) ?? step.placeName,
                 agentId: step.agentId,
                 ...settings,
               },
@@ -1159,6 +1348,8 @@ export function createStepAsks(deps: StepAskDeps) {
             },
           ],
         };
+      case "discord-route":
+        return discordRouteRun(step, memberUserId, pick);
       case "whatsapp-route":
         return whatsappRouteRun(step, memberUserId, pick);
       default:
@@ -1184,7 +1375,12 @@ export function createStepAsks(deps: StepAskDeps) {
     if (!Object.keys(body).every((key) => allowed.includes(key)))
       return invalid(`a ${kind} step takes only ${allowed.join(", ")}`);
     const scope = body.scope ?? "personal";
-    if (kind !== "browser-pairing" && kind !== "github-link")
+    // A discord-route step's scope is its place's kind, checked in its case.
+    if (
+      kind !== "browser-pairing" &&
+      kind !== "github-link" &&
+      kind !== "discord-route"
+    )
       if (scope !== "personal" && scope !== "office")
         return invalid("step.scope is personal or office");
     const owner = deps.isOfficeOwner(memberUserId);
@@ -1490,6 +1686,72 @@ export function createStepAsks(deps: StepAskDeps) {
           },
         };
       }
+      // The settings as the route stores them: false and a blank prefix
+      // are the default, so they are left out.
+      case "discord-route": {
+        const placeName =
+          typeof body.placeName === "string"
+            ? normaliseDiscordRouteName(body.placeName)
+            : null;
+        if (placeName === null)
+          return invalid(
+            "step.placeName is a part of the place's name: 1 to 60 characters on one line",
+          );
+        if (typeof body.agentId !== "string" || body.agentId === "")
+          return invalid("step.agentId is an agent id");
+        const scope = body.scope;
+        if (
+          scope !== undefined &&
+          scope !== "channel" &&
+          scope !== "category" &&
+          scope !== "server"
+        )
+          return invalid("step.scope is channel, category or server");
+        const trigger = body.trigger;
+        if (trigger !== undefined && trigger !== "mention" && trigger !== "all")
+          return invalid("step.trigger is mention or all");
+        const replyMode = body.replyMode;
+        if (
+          replyMode !== undefined &&
+          replyMode !== "bot" &&
+          replyMode !== "read" &&
+          replyMode !== "ask"
+        )
+          return invalid("step.replyMode is bot, read or ask");
+        const flags: { includeBots?: true; react?: true } = {};
+        for (const key of ["includeBots", "react"] as const) {
+          const v = body[key];
+          if (v === undefined) continue;
+          if (typeof v !== "boolean")
+            return invalid(`step.${key} is true or false`);
+          if (v) flags[key] = true;
+        }
+        let prefix: string | undefined;
+        if (body.prefix !== undefined) {
+          const p =
+            typeof body.prefix === "string"
+              ? normaliseDiscordPrefix(body.prefix)
+              : null;
+          if (p === null)
+            return invalid(
+              `step.prefix is at most ${WHATSAPP_PREFIX_MAX} characters on one line`,
+            );
+          if (p) prefix = p;
+        }
+        return {
+          ok: true,
+          step: {
+            kind,
+            placeName,
+            agentId: body.agentId,
+            ...(scope === undefined ? {} : { scope }),
+            ...(trigger === undefined ? {} : { trigger }),
+            ...(replyMode === undefined ? {} : { replyMode }),
+            ...(prefix === undefined ? {} : { prefix }),
+            ...flags,
+          },
+        };
+      }
       // The settings as the row stores them: false and a blank prefix are
       // the default, so they are left out.
       case "whatsapp-route": {
@@ -1588,6 +1850,7 @@ export function createStepAsks(deps: StepAskDeps) {
     switch (step.kind) {
       case "agent-access":
       case "whatsapp-route":
+      case "discord-route":
         return deps.runs?.agent(step.agentId)?.name ?? step.agentId;
       case "member-room":
       case "member-role":
@@ -1858,6 +2121,54 @@ export function createStepAsks(deps: StepAskDeps) {
         return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
           ? notAllowed("only an office owner can clean up storage")
           : null;
+      // The place is picked on the card, so the create judges the member
+      // on the add route, and the agent by the routes' own rule.
+      case "discord-route": {
+        const unknownAgent: StepFailure = {
+          ok: false,
+          status: 422,
+          code: "unknown_agent",
+          message: "no agent with this id in a room you can reach",
+        };
+        if (
+          !askingAgentId ||
+          !runs.agent(step.agentId) ||
+          !runs.agentReaches(askingAgentId, step.agentId)
+        )
+          return unknownAgent;
+        if (
+          runs.authorizeAs(memberUserId, {
+            method: "POST",
+            path: "/api/discord/routes",
+          })
+        )
+          return notAllowed("this member cannot route Discord places");
+        if (runs.discord.bots(memberUserId).length === 0)
+          return {
+            ok: false,
+            status: 409,
+            code: "discord_not_connected",
+            message:
+              "this member has not connected a Discord bot: they connect one in Integrations, Messaging",
+          };
+        switch (runs.discord.agentProblem(memberUserId, step.agentId)) {
+          case "agent_gone":
+            return unknownAgent;
+          case "agent_not_yours":
+            return notAllowed(
+              "this member can route a place only to an agent they manage; an office owner can route to any agent",
+            );
+          case "agent_chat_only":
+            return {
+              ok: false,
+              status: 422,
+              code: "agent_chat_only",
+              message: "an agent at Chat stop cannot reply",
+            };
+          default:
+            return null;
+        }
+      }
       // The chat is picked on the card, so the create judges the member on
       // the add route, and the agent by the rows' own rule.
       case "whatsapp-route": {

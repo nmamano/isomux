@@ -24,6 +24,9 @@
 // Task 0b53ff37: one of the member's WhatsApp chats routed to an agent
 // (whatsapp-route). The agent names the chat by a part of its name; the
 // member picks one of their chats that match, and Apply sends it.
+// Task 386ec4d6: one place of the member's Discord bots routed to an agent
+// (discord-route), the same way: the member picks one of the channels,
+// categories and servers whose name matches.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -36,6 +39,15 @@ import {
   type WhatsAppChatSeen,
   type WhatsAppRoute,
 } from "../../shared/whatsapp.ts";
+import {
+  discordPlacesMatching,
+  type DiscordBotListed,
+  type DiscordGuildSeen,
+  type DiscordPlace,
+  type DiscordReplyMode,
+  type DiscordRoute,
+  type DiscordRouteTrigger,
+} from "../../shared/discord.ts";
 import type { ActionStepRequest } from "../../shared/types.ts";
 import type { MemberViewList } from "../../shared/action-steps.ts";
 import {
@@ -149,6 +161,10 @@ export function whatsappCandidates(
     return row ? { ...c, row } : c;
   });
 }
+
+// A Discord place as one key: its bot, scope and target.
+const placeKey = (p: { botId: string; scope: string; targetId: string }) =>
+  `${p.botId}:${p.scope}:${p.targetId}`;
 
 // The labels of the settings an office-settings step sets, with the page's
 // hint for each switch that changes what agents or members get.
@@ -307,6 +323,59 @@ export function AskActionBlock({
       : waCandidates.length === 1
         ? waCandidates[0].chat
         : null;
+  // A discord-route step reads the viewer's bots, the servers each bot sees
+  // and their routes, so only the member the ask is for reads them, as for
+  // WhatsApp.
+  const dcMember =
+    step.kind === "discord-route" &&
+    !!memberUserId &&
+    viewerId === memberUserId;
+  const [dcBots, setDcBots] = useState<
+    { botId: string; name: string; guilds: DiscordGuildSeen[] }[] | null
+  >(null);
+  const [dcRoutes, setDcRoutes] = useState<DiscordRoute[]>([]);
+  const [dcPick, setDcPick] = useState<string | null>(null);
+  useEffect(() => {
+    if (!dcMember) return;
+    let live = true;
+    void Promise.allSettled([
+      apiFetch<DiscordBotListed[]>("GET", "/api/discord"),
+      apiFetch<DiscordRoute[]>("GET", "/api/discord/routes"),
+    ]).then(async ([listed, routes]) => {
+      const bots = listed.status === "fulfilled" ? listed.value : [];
+      // A bot that is not connected yet (404) sees no server.
+      const seen = await Promise.allSettled(
+        bots.map((b) =>
+          apiFetch<DiscordGuildSeen[]>(
+            "GET",
+            `/api/discord/bots/${encodeURIComponent(b.id)}/guilds`,
+          ),
+        ),
+      );
+      if (!live) return;
+      setDcRoutes(routes.status === "fulfilled" ? routes.value : []);
+      setDcBots(
+        bots.map((b, i) => {
+          const res = seen[i];
+          return {
+            botId: b.id,
+            name: b.name,
+            guilds: res.status === "fulfilled" ? res.value : [],
+          };
+        }),
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [dcMember]);
+  const dcPlaces =
+    step.kind === "discord-route" && dcBots
+      ? discordPlacesMatching(step.placeName, step.scope, dcBots)
+      : [];
+  const dcChosen =
+    (dcPick !== null && dcPlaces.find((p) => placeKey(p) === dcPick)) ||
+    (dcPlaces.length === 1 ? dcPlaces[0] : null);
   useEffect(() => {
     if (!read) return;
     let live = true;
@@ -427,7 +496,16 @@ export function AskActionBlock({
       const body = await apiFetch<unknown>(
         "POST",
         `/api/asks/${askId}/action`,
-        step.kind === "whatsapp-route" ? { chat: waChosen } : undefined,
+        step.kind === "whatsapp-route"
+          ? { chat: waChosen }
+          : step.kind === "discord-route" && dcChosen
+            ? {
+                botId: dcChosen.botId,
+                guildId: dcChosen.guildId,
+                scope: dcChosen.scope,
+                targetId: dcChosen.targetId,
+              }
+            : undefined,
       );
       // Through the store, as this card may be gone: the ask closed as the
       // link or token was made.
@@ -1472,6 +1550,208 @@ export function AskActionBlock({
     };
   }
 
+  function discordRouteView(s: Step<"discord-route">): ActionView {
+    const target = agents.find((a) => a.id === s.agentId);
+    const agentName = (id: string) =>
+      agents.find((a) => a.id === id)?.name ?? id;
+    const route = dcChosen
+      ? dcRoutes.find(
+          (r) =>
+            r.botId === dcChosen.botId &&
+            r.scope === dcChosen.scope &&
+            r.targetId === dcChosen.targetId,
+        )
+      : undefined;
+    // "#general", "Category Talk" or "Whole server".
+    const placeLabel = (p: DiscordPlace) =>
+      p.scope === "channel"
+        ? `#${p.name}`
+        : p.scope === "category"
+          ? t("integrations.discord.routes.inCategory", { name: p.name })
+          : t("integrations.discord.routes.scope.server");
+    const manyBots = (dcBots?.length ?? 0) > 1;
+    const botName = (botId: string) =>
+      dcBots?.find((b) => b.botId === botId)?.name ?? botId;
+    const onOff = (on: boolean): Value => ({
+      value: on ? "on" : "off",
+      label: on ? t("asks.action.on") : t("asks.action.off"),
+    });
+    const triggerLabel = (v: DiscordRouteTrigger): Value => ({
+      value: v,
+      label: t(
+        v === "all"
+          ? "integrations.discord.routes.trigger.all"
+          : "integrations.discord.routes.trigger.mention",
+      ),
+    });
+    const repliesLabel = (v: DiscordReplyMode): Value => ({
+      value: v,
+      label: t(
+        v === "bot"
+          ? "integrations.discord.routes.replies.bot"
+          : v === "read"
+            ? "integrations.discord.routes.replies.read"
+            : "integrations.discord.routes.replies.ask",
+      ),
+    });
+    const prefixLabel = (v: string | undefined): Value => ({
+      value: v ?? "",
+      label: v ?? t("asks.action.off"),
+    });
+    const rows: Row[] = [
+      {
+        key: "agent",
+        label: t("integrations.whatsapp.rows.agent"),
+        ...(route
+          ? {
+              current: {
+                value: route.agentId,
+                label: agentName(route.agentId),
+              },
+            }
+          : {}),
+        requested: { value: s.agentId, label: target?.name ?? s.agentId },
+      },
+      {
+        key: "replies",
+        label: t("integrations.discord.routes.replies"),
+        ...(route ? { current: repliesLabel(route.replyMode) } : {}),
+        requested: repliesLabel(s.replyMode ?? "ask"),
+      },
+      {
+        key: "trigger",
+        label: t("integrations.discord.routes.trigger"),
+        ...(route ? { current: triggerLabel(route.trigger) } : {}),
+        requested: triggerLabel(s.trigger ?? "mention"),
+      },
+      ...(s.prefix || route?.prefix
+        ? [
+            {
+              key: "prefix",
+              label: t("integrations.whatsapp.rows.prefix"),
+              ...(route ? { current: prefixLabel(route.prefix) } : {}),
+              requested: prefixLabel(s.prefix),
+            },
+          ]
+        : []),
+      ...(s.includeBots || route?.includeBots
+        ? [
+            {
+              key: "includeBots",
+              label: t("integrations.discord.routes.includeBots"),
+              ...(route ? { current: onOff(route.includeBots === true) } : {}),
+              requested: onOff(s.includeBots === true),
+            },
+          ]
+        : []),
+      ...(s.react || route?.react
+        ? [
+            {
+              key: "react",
+              label: t("integrations.discord.routes.react"),
+              ...(route ? { current: onOff(route.react === true) } : {}),
+              requested: onOff(s.react === true),
+            },
+          ]
+        : []),
+    ];
+    const member = memberUserId ? memberById(memberUserId) : undefined;
+    const manager =
+      target?.userId && target.userId !== memberUserId
+        ? memberById(target.userId)
+        : undefined;
+    const lines: ReactNode[] = [];
+    if (manager)
+      lines.push(
+        <div key="manager" data-ask-action-dc-manager="" style={muted}>
+          {t("asks.action.discordManager", { member: manager.name })}
+        </div>,
+      );
+    if (target && !belowStandard(agentAccessOf(target)))
+      lines.push(
+        <div
+          key="shell"
+          data-ask-action-dc-shell=""
+          style={{ ...muted, color: "var(--orange-text)" }}
+        >
+          {t("integrations.discord.routes.shellWarning")}
+        </div>,
+      );
+    if (!dcMember)
+      lines.push(
+        <div key="other" data-ask-action-dc-other="" style={muted}>
+          {t("asks.action.discordOtherMember", {
+            member: member?.name ?? "",
+          })}
+        </div>,
+      );
+    else if (dcBots !== null && dcPlaces.length === 0)
+      lines.push(
+        <div key="none" data-ask-action-dc-none="" style={muted}>
+          {t("asks.action.discordNoMatch", { name: s.placeName })}
+        </div>,
+      );
+    else if (dcPlaces.length > 1)
+      lines.push(
+        <fieldset
+          key="pick"
+          data-ask-action-dc-pick=""
+          style={{ border: "none", margin: "4px 0 0", padding: 0 }}
+        >
+          <legend style={muted}>{t("asks.action.discordPlacePrompt")}</legend>
+          {dcPlaces.map((p) => (
+            <label
+              key={placeKey(p)}
+              style={{ display: "flex", gap: 6, alignItems: "baseline" }}
+            >
+              <input
+                type="radio"
+                name={`ask-${askId}-place`}
+                value={placeKey(p)}
+                checked={
+                  dcChosen !== null && placeKey(dcChosen) === placeKey(p)
+                }
+                onChange={() => setDcPick(placeKey(p))}
+              />
+              <span {...noTranslate()}>{placeLabel(p)}</span>
+              <span style={muted} {...noTranslate()}>
+                {manyBots
+                  ? `${p.guildName} · ${botName(p.botId)}`
+                  : p.guildName}
+              </span>
+            </label>
+          ))}
+        </fieldset>,
+      );
+    if (route && route.agentId !== s.agentId)
+      lines.push(
+        <div key="moves" data-ask-action-dc-moves="" style={muted}>
+          {t("asks.action.discordMoves", { agent: agentName(route.agentId) })}
+        </div>,
+      );
+    return {
+      name: `Discord: ${
+        dcChosen
+          ? dcChosen.scope === "server"
+            ? dcChosen.guildName
+            : placeLabel(dcChosen)
+          : s.placeName
+      }`,
+      loading: dcMember && dcBots === null,
+      rows,
+      lines,
+      marks: {
+        "data-ask-action-agent": s.agentId,
+        ...(dcChosen
+          ? { "data-ask-action-place-picked": placeKey(dcChosen) }
+          : {}),
+      },
+      gone: target ? null : t("asks.action.gone"),
+      noApply: !dcMember,
+      waiting: dcChosen === null,
+    };
+  }
+
   const view = (() => {
     switch (step.kind) {
       case "agent-access":
@@ -1517,6 +1797,8 @@ export function AskActionBlock({
         return storageCompressView(step);
       case "whatsapp-route":
         return whatsappRouteView(step);
+      case "discord-route":
+        return discordRouteView(step);
     }
   })();
 

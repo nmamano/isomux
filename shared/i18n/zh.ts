@@ -1953,6 +1953,14 @@ App 的一些原则：
   "asks.action.whatsappManager":
     "{member} 管理着此智能体。能打开它的成员可以读取此聊天。",
   "asks.action.whatsappOtherMember": "只有 {member} 可以选择聊天并应用。",
+  "asks.action.discordNoMatch":
+    "你的 Discord 机器人都看不到与 {name} 匹配的位置。",
+  "asks.action.discordPlacePrompt": "选择一个位置",
+  "asks.action.discordMoves":
+    "此位置现在发给 {agent}。应用后将改为发给此智能体。",
+  "asks.action.discordManager":
+    "{member} 管理着此智能体。能打开它的成员可以读取来自此位置的消息。",
+  "asks.action.discordOtherMember": "只有 {member} 可以选择位置并应用。",
   "asks.action.memberGone": "这位成员已不在办公室中。",
   "asks.action.roomGranted": "可访问",
   "asks.action.roomRemoved": "不可访问",
@@ -3345,6 +3353,8 @@ App 的一些原则：
   "systemEntries.stepAsk.storageCompressed": "已压缩旧对话。",
   "systemEntries.stepAsk.whatsappRouted":
     "已将 WhatsApp 聊天 {chat} 转给 {agent}。",
+  "systemEntries.stepAsk.discordRouted":
+    "已将 Discord 位置 {place} 转给 {agent}。",
   "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",
   "systemEntries.sudoRequest.started": "正在以 root 身份运行：{command}",
   "systemEntries.sudoRequest.exited": "已结束，退出码 {code}：{command}",

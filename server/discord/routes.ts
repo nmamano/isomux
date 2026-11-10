@@ -1,7 +1,8 @@
 // A member's Discord routes (task 7fd44c30): the rules for adding, changing
 // and removing a route, the live checks on its agent, and which route a
-// message belongs to. A route's agent is one the member manages, not at Chat
-// stop, as for a WhatsApp row. A route is added only for a server the bot is
+// message belongs to. A route's agent is one the member manages (any agent
+// for an office owner, task 386ec4d6), not at Chat stop, as for a WhatsApp
+// row. A route is added only for a server the bot is
 // in now, and its target must be a channel of the right kind there.
 
 import type { AgentAccess } from "../../shared/agent-access.ts";
@@ -32,6 +33,11 @@ export interface DiscordRoutesDeps {
   botIds(userId: string): string[];
   // The servers the bot is in now; null when it has not connected yet.
   guilds(botId: string): DiscordGuildSeen[] | null;
+  isOfficeOwner(userId: string): boolean;
+  // Every member with a stored bot (from disk, so a reconnecting bot counts).
+  membersWithBots(): string[];
+  // The routes changed: a discord-route step may be done (task 386ec4d6).
+  onChange(userId: string): void;
 }
 
 export type DiscordRouteResult =
@@ -58,6 +64,16 @@ export interface DiscordRoutes {
   ): DiscordRouteResult;
   remove(userId: string, routeId: string): boolean;
   get(userId: string, routeId: string): DiscordRoute | null;
+  // The member whose route `routeId` reaches agent `agentId`, or null: the
+  // agent's manager first, then each office owner with a bot. A reply finds
+  // its route through this, since the route's member need not manage the
+  // agent (task 386ec4d6).
+  rowMember(agentId: string, routeId: string): string | null;
+  // The member's routes as stored, with no check of their agents: a read
+  // that never writes, for the step-ask predicate.
+  rows(userId: string): DiscordRoute[];
+  // Why this agent cannot be a route's agent for this member now, or null.
+  agentProblem(userId: string, agentId: string): DiscordRouteDead | null;
   // The live route of the same bot for a message: the channel route, else
   // the category route, else the server route. Null when none.
   forPlace(userId: string, place: DiscordMessagePlace): DiscordRoute | null;
@@ -160,8 +176,11 @@ function targetProblem(
 // Routes are read from disk at each call: the files are small.
 export function createDiscordRoutes(deps: DiscordRoutesDeps): DiscordRoutes {
   const read = (userId: string) => readDiscordRoutes(deps.stateRoot, userId);
-  const write = (userId: string, routes: DiscordRoute[]) =>
+  // Every change of a member's routes tells deps.onChange.
+  const write = (userId: string, routes: DiscordRoute[]) => {
     writeDiscordRoutes(deps.stateRoot, userId, routes);
+    deps.onChange(userId);
+  };
 
   function agentProblem(
     userId: string,
@@ -169,14 +188,16 @@ export function createDiscordRoutes(deps: DiscordRoutesDeps): DiscordRoutes {
   ): DiscordRouteDead | null {
     const agent = typeof agentId === "string" ? deps.agent(agentId) : null;
     if (!agent) return "agent_gone";
-    if (agent.userId !== userId) return "agent_not_yours";
+    if (agent.userId !== userId && !deps.isOfficeOwner(userId))
+      return "agent_not_yours";
     if (agent.access === "chat") return "agent_chat_only";
     return null;
   }
 
   const AGENT_ERRORS: Record<DiscordRouteDead, string> = {
     agent_gone: "no such agent",
-    agent_not_yours: "the agent must be one you manage",
+    agent_not_yours:
+      "the agent must be one you manage; an office owner may pick any agent",
     agent_chat_only: "an agent at Chat stop cannot reply",
   };
 
@@ -280,6 +301,21 @@ export function createDiscordRoutes(deps: DiscordRoutesDeps): DiscordRoutes {
 
     get: (userId, routeId) =>
       read(userId).find((r) => r.id === routeId) ?? null,
+
+    rowMember(agentId, routeId) {
+      const manager = deps.agent(agentId)?.userId ?? null;
+      const owners = deps
+        .membersWithBots()
+        .filter((userId) => userId !== manager && deps.isOfficeOwner(userId));
+      for (const userId of manager ? [manager, ...owners] : owners) {
+        if (routes.get(userId, routeId)?.agentId === agentId) return userId;
+      }
+      return null;
+    },
+
+    rows: (userId) => read(userId),
+
+    agentProblem,
 
     forPlace(userId, place) {
       const mine = live(userId).filter(

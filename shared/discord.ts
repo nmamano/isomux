@@ -4,6 +4,7 @@
 // wire shapes the Integrations card reads.
 
 import {
+  chatNameMatches,
   normaliseWhatsAppPrefix,
   normaliseWhatsAppRouteName,
 } from "./whatsapp.ts";
@@ -162,6 +163,56 @@ export const DISCORD_BOTS_MAX = 5;
 // accept the same text.
 export const normaliseDiscordRouteName = normaliseWhatsAppRouteName;
 export const normaliseDiscordPrefix = normaliseWhatsAppPrefix;
+
+// A place of the member's bots that a discord-route step may route (task
+// 386ec4d6): a server, a category or a text or forum channel, with its
+// Discord name (the server's name for a server).
+export interface DiscordPlace {
+  botId: string;
+  guildId: string;
+  guildName: string;
+  scope: DiscordRouteScope;
+  targetId: string;
+  name: string;
+}
+
+// The places whose Discord name holds `placeName` (the WhatsApp chat rule;
+// one leading "#" of the name is dropped), of `scope` when given, over each
+// bot's servers as seen. In the order of the bots, servers and channels.
+export function discordPlacesMatching(
+  placeName: string,
+  scope: DiscordRouteScope | undefined,
+  bots: readonly { botId: string; guilds: readonly DiscordGuildSeen[] }[],
+): DiscordPlace[] {
+  const trimmed = placeName.trim();
+  const query = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  const out: DiscordPlace[] = [];
+  for (const { botId, guilds } of bots)
+    for (const guild of guilds) {
+      const place = (
+        kind: DiscordRouteScope,
+        targetId: string,
+        name: string,
+      ) => {
+        if (
+          (scope === undefined || scope === kind) &&
+          chatNameMatches(name, query)
+        )
+          out.push({
+            botId,
+            guildId: guild.id,
+            guildName: guild.name,
+            scope: kind,
+            targetId,
+            name,
+          });
+      };
+      place("server", guild.id, guild.name);
+      for (const c of guild.channels)
+        place(c.kind === "category" ? "category" : "channel", c.id, c.name);
+    }
+  return out;
+}
 
 // Discord's epoch (2015-01-01T00:00:00Z) in Unix ms.
 export const DISCORD_EPOCH_MS = 1_420_070_400_000;
