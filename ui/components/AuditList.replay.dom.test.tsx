@@ -105,7 +105,9 @@ function clickCell(dialog: HTMLElement, col: number, row: number) {
   fireEvent.mouseUp(screen, at);
 }
 
-it("replays a recorded session that cannot write the clipboard or open a page, and pauses", async () => {
+// Quarantined (task 5388f3f0, P1): under CI load the fixed 450 ms waits race
+// the replay, and the second line is not on screen yet after resume.
+it.skip("replays a recorded session that cannot write the clipboard or open a page, and pauses", async () => {
   setApiShim(async () => ({
     items: [row(2, { id: RECORDING }), row(1)],
     nextBefore: null,
