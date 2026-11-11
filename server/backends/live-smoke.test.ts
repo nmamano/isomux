@@ -49,6 +49,36 @@ import type {
 // A response_item payload in a Codex rollout, as far as the checks read it.
 type Item = { role?: string; content?: { text?: string }[] };
 
+// The system prompt of each request the Claude CLI sent, in transcript order.
+// The CLI writes an api-request entry per request, which names the
+// api-request-shape entry (system blocks and tools) it was sent with.
+type TranscriptEntry = {
+  type?: string;
+  shapeHash?: string;
+  shape?: { system?: unknown };
+};
+function claudeRequestSystems(path: string): string[] {
+  const entries = readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as TranscriptEntry);
+  const shapes = new Map<string | undefined, string>();
+  for (const entry of entries) {
+    if (entry.type === "api-request-shape") {
+      shapes.set(entry.shapeHash, JSON.stringify(entry.shape?.system ?? null));
+    }
+  }
+  return entries
+    .filter((entry) => entry.type === "api-request")
+    .map((entry) => {
+      const system = shapes.get(entry.shapeHash);
+      if (system === undefined) {
+        throw new Error(`no shape ${entry.shapeHash} in ${path}`);
+      }
+      return system;
+    });
+}
+
 // Isomux's own words arrive as messages (task c37a7365); the checks read the
 // English a reader would see.
 const english = (text: LogText): string =>
@@ -406,6 +436,9 @@ for (const cfg of PROVIDERS) {
     // writes developer instructions into the thread only at thread/start, so
     // the adapter injects a changed prompt after thread/resume. The new code
     // word can only come from the prompt the resume was launched with.
+    // Claude is checked on the requests the CLI sent, not on the reply: with
+    // the new prompt sent, Haiku still repeats its earlier answer from the
+    // history in about 1 resume in 8 (task d2dc09c2).
     it(
       "a resume reads the system prompt it is launched with",
       async () => {
@@ -431,6 +464,13 @@ for (const cfg of PROVIDERS) {
         expect(first.turns[0].status, told(cfg, first.turns)).toBe("completed");
         expect(first.turns[0].text.toLowerCase()).toContain(oldWord);
 
+        const transcript = join(
+          claudeProjectDir(cwd, ENGINE_ENV),
+          `${first.sessionId}.jsonl`,
+        );
+        const firstLaunch =
+          cfg.name === "claude" ? claudeRequestSystems(transcript) : [];
+
         const resumed = await runTurns(
           cfg,
           openSession(cfg, cwd, first.sessionId, promptWith(newWord)),
@@ -439,9 +479,30 @@ for (const cfg of PROVIDERS) {
         expect(resumed.turns[0].status, told(cfg, resumed.turns)).toBe(
           "completed",
         );
-        const reply = resumed.turns[0].text.toLowerCase();
-        expect(reply).not.toContain(oldWord);
-        expect(reply).toContain(newWord);
+
+        if (cfg.name === "claude") {
+          // The transcript must show the first launch sending the old word,
+          // or a CLI that stops writing request shapes would pass.
+          expect(
+            firstLaunch.some((system) => system.includes(oldWord)),
+            "no first-launch request carries the old prompt",
+          ).toBe(true);
+          const resumeRequests = claudeRequestSystems(transcript).slice(
+            firstLaunch.length,
+          );
+          expect(resumeRequests.length).toBeGreaterThan(0);
+          expect(
+            resumeRequests.filter((system) => system.includes(oldWord)),
+          ).toHaveLength(0);
+          expect(
+            resumeRequests.some((system) => system.includes(newWord)),
+            "no resume request carries the new prompt",
+          ).toBe(true);
+        } else {
+          const reply = resumed.turns[0].text.toLowerCase();
+          expect(reply).not.toContain(oldWord);
+          expect(reply).toContain(newWord);
+        }
 
         // Codex carries a changed prompt as one update in the thread's
         // rollout (task d6550a09). A second resume with the same prompt adds
