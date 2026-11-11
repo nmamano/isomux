@@ -3,6 +3,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   agentInboxItems,
+  failureFirstLine,
   failureKey,
   type AgentInboxItem,
 } from "./inbox-agent-items.ts";
@@ -212,5 +213,20 @@ describe("inboxCounts with agent items", () => {
     // Items with no ask open count on their own.
     const c = inboxCounts([], agents, new Map(), new Set(), undefined, items);
     expect([c.asks, c.newAsks]).toEqual([3, 3]);
+  });
+});
+
+describe("failureFirstLine", () => {
+  it("keeps the first line that is not blank, trimmed, and inner spaces", () => {
+    expect(failureFirstLine("one line")).toBe("one line");
+    expect(failureFirstLine("first  part\nsecond\nthird")).toBe("first  part");
+    expect(failureFirstLine("\n  \n\t first \nsecond")).toBe("first");
+    expect(failureFirstLine("first\r\nsecond")).toBe("first");
+    expect(failureFirstLine("\r\n  \r\nfirst\r\n")).toBe("first");
+  });
+
+  it("gives an empty string when every line is blank", () => {
+    expect(failureFirstLine("")).toBe("");
+    expect(failureFirstLine(" \n\t\r\n ")).toBe("");
   });
 });

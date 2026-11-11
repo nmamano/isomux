@@ -1,7 +1,7 @@
 // A card of the Inbox's Asks tab for an agent item (task ddf02829): an agent
 // waiting on a permission request, answered in place with the chat's own
-// choice card, or an agent that failed, with its error and a Dismiss for the
-// member. Both open the agent's chat. Who sees which item is
+// choice card, or an agent that failed, with the first line of its error and
+// a Dismiss for the member. Both open the agent's chat. Who sees which item is
 // ui/inbox-agent-items.ts.
 
 import { useState } from "react";
@@ -11,9 +11,9 @@ import { ChoiceInteractionCard } from "../log-view/LogView.tsx";
 import { filledSecondaryBtn } from "./dialog-styles.ts";
 import { logEntryText } from "../../shared/i18n/log-message.ts";
 import type { AgentInfo } from "../../shared/types.ts";
-import type { AgentInboxItem } from "../inbox-agent-items.ts";
+import { failureFirstLine, type AgentInboxItem } from "../inbox-agent-items.ts";
 
-// The most lines of an error or a permission's input the card shows.
+// The most lines of a permission's reason or input the card shows.
 const CLAMP_LINES = 3;
 
 export function AgentInboxItemCard({
@@ -41,8 +41,8 @@ export function AgentInboxItemCard({
     ...filledSecondaryBtn,
     padding: isMobile ? "8px 14px" : "5px 14px",
   };
-  // Long text (an error, a command) shows its first lines; the chat has it
-  // all.
+  // Long permission text (a command, a file) shows its first lines; the
+  // chat has it all.
   const clamped: React.CSSProperties = {
     color: "var(--text-dim)",
     fontSize: isMobile ? 13 : 12,
@@ -111,9 +111,22 @@ export function AgentInboxItemCard({
           {roomName}
         </span>
       </div>
+      {/* An error shows its first line only, cut at the card's edge; the
+          chat has the full text (Nil, 2026-11-11). */}
       {item.kind === "failed" && (
-        <div data-agent-item-text="" style={{ ...clamped, marginTop: 4 }}>
-          {logEntryText(i18n, item.failure)}
+        <div
+          data-agent-item-text=""
+          style={{
+            color: "var(--text-dim)",
+            fontSize: isMobile ? 13 : 12,
+            lineHeight: 1.5,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            marginTop: 4,
+          }}
+        >
+          {failureFirstLine(logEntryText(i18n, item.failure))}
         </div>
       )}
       {/* What the permission is for, as the chat shows it above its card:

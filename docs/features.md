@@ -162,7 +162,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ## Inbox
 
 - **Inbox**: a single place for everything the agents need from you. An urgent ask rings through your notifications until you ack it.
-- **Agents that wait for your permission, or that failed**, also show in the Inbox. Answer the permission there.
+- **Agents that wait for your permission, or that failed**, also show in the Inbox.
 - **Owners see and answer every member's asks.**
 - **Run from the ask**: a command in an ask runs with one tap, in the agent's folder. The card shows its output and exit code.
 - **Sudo requests**: an agent asks to run one command as root. The owner reads the command and types the server account's password in the ask. The password goes only to sudo; the agent gets the exit code and the output. Not on Hosted Isomux. A command that runs a file the agent can edit is only as safe as that file.

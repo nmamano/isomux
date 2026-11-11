@@ -82,3 +82,16 @@ export function agentInboxItems(
   failures.sort((a, b) => b.failure.since - a.failure.since);
   return [...permissions, ...failures];
 }
+
+/**
+ * The line a failed card shows (Nil, 2026-11-11 sign-off): the first line of
+ * the error that is not blank, trimmed; "" when every line is blank. The
+ * chat has the full text.
+ */
+export function failureFirstLine(text: string): string {
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed !== "") return trimmed;
+  }
+  return "";
+}

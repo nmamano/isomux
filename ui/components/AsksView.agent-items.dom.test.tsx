@@ -6,7 +6,7 @@
 //
 // Markers the page carries: [data-agent-item="<item key>"] on each card,
 // [data-agent-item-open] (Open chat) and, on a failed card,
-// [data-agent-item-dismiss].
+// [data-agent-item-text] (the error) and [data-agent-item-dismiss].
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -56,7 +56,11 @@ const agents = [
     userId: ME,
     pendingPrompt: null,
     turnMemberIds: [],
-    failure: { since: 300, content: "Error: disk full", memberIds: [] },
+    failure: {
+      since: 300,
+      content: "\n  Error: disk full \nType /clear to start fresh.",
+      memberIds: [],
+    },
   },
   // r2: a failure of a turn I started, and one I already dismissed.
   {
@@ -145,8 +149,16 @@ describe("agent items on the Asks page", () => {
         item(c, key)!.compareDocumentPosition(firstAsk!) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
-    // The failed card says what failed.
-    expect(item(c, F3)!.textContent).toContain("disk full");
+    // The failed card says what failed: only the error's first line, on one
+    // line that ends in an ellipsis (Nil, 2026-11-11 sign-off). The chat has
+    // the rest.
+    const text = item(c, F3)!.querySelector<HTMLElement>(
+      "[data-agent-item-text]",
+    )!;
+    expect(text.textContent).toBe("Error: disk full");
+    expect(text.style.whiteSpace).toBe("nowrap");
+    expect(text.style.overflow).toBe("hidden");
+    expect(text.style.textOverflow).toBe("ellipsis");
     // Another sort (the last one the page offers) keeps them on top.
     const sort = c.querySelector<HTMLSelectElement>("select[data-asks-sort]")!;
     const other = [...sort.options].at(-1)!.value;
