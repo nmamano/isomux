@@ -11,7 +11,8 @@
 // first step past them and goes on when that copy ships. No step is skipped
 // for lateness: a first mail sent late opens with a note. Every handled row
 // advances BEFORE its mail goes out, whatever the outcome, so a handled row is
-// never due again and no mail is sent twice.
+// never due again and no mail is sent twice. Its follow-up: a live office
+// with no row (it went live before the series shipped) gets one from the pass.
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { PROVISIONER_GRANTS, WEB_GRANTS } from "./roles.ts";
@@ -520,6 +521,311 @@ describe("unsubscribe", () => {
 // The pass runs only when the schedule says the watch class is due. The two
 // must agree exactly: a clause that is true for a row the pass does not handle
 // is a hot loop, and a row the clause misses is a mail that never goes out.
+describe("an office that went live before the series", () => {
+  // Task 733ed11b follow-up (Nil, 2026-11-10): a live office with no welcome
+  // row gets one from the pass, its first mail due now and sent late, and then
+  // the series. Only a MISSING row is made: a series that ended or opted out
+  // never starts again. A subscription that could not take the first mail
+  // gets no row yet, because a first mail that cannot go out ends the series.
+
+  /** Backdate an office's creation: the go-live moment the pass records. */
+  async function created(store: Store, id: string, at: number) {
+    await store.sqlRun("update instances set created_at = $2 where id = $1", [
+      id,
+      at,
+    ]);
+  }
+
+  /** The mails sent for `inst`, as [step, late], read by its token. */
+  async function mails(store: Store, sent: Mail[], inst: string) {
+    const token = (await store.getWelcomeMail(inst))?.unsubscribe_token;
+    return sent
+      .filter((m) => m.unsubscribeToken === token)
+      .map((m) => [m.step, m.late]);
+  }
+
+  test("each live office without a row gets the series once: the first mail late, the next at its gap", async () => {
+    const c = clock();
+    const store = await openTestStore(c.now);
+    // Created months, weeks and hours before the pass; the hours-old one is
+    // inside WELCOME_MAIL_LATE_MS, so its first mail has no note.
+    const BORN: [string, number, boolean][] = [
+      ["old", T0 - 78 * DAY, true],
+      ["weeks", T0 - 24 * DAY, true],
+      ["fresh", T0 - WELCOME_MAIL_LATE_MS + 1, false],
+    ];
+    for (const [id, at] of BORN) {
+      await account(store, `acct-${id}`, `${id}@example.com`);
+      await office(store, `inst-${id}`, `acct-${id}`);
+      await created(store, `inst-${id}`, at);
+    }
+    const reports: string[] = [];
+    const { sent, send } = sender();
+    const deps = {
+      apiKey: "k",
+      send,
+      approved: ALL,
+      report: (line: string) => reports.push(line),
+    };
+    expect(await watchWelcomeMail(store, deps)).toBe(BORN.length);
+    for (const [id, at, late] of BORN) {
+      expect([id, await store.getWelcomeMail(`inst-${id}`)]).toMatchObject([
+        id,
+        {
+          live_at: at,
+          tips: 1,
+          next_step: 1,
+          next_due_at: T0 + WELCOME_MAIL_OFFSETS_MS[1],
+        },
+      ]);
+      expect([id, await mails(store, sent, `inst-${id}`)]).toEqual([
+        id,
+        [[0, late]],
+      ]);
+      expect([
+        id,
+        (await audits(store, `inst-${id}`)).map((a) => a.outcome),
+      ]).toEqual([id, ["started", "succeeded"]]);
+    }
+    // Once: the same moment neither starts nor sends again.
+    expect(await watchWelcomeMail(store, deps)).toBe(0);
+    c.state.value = T0 + WELCOME_MAIL_OFFSETS_MS[1];
+    expect(await watchWelcomeMail(store, deps)).toBe(BORN.length);
+    for (const [id, , late] of BORN) {
+      expect([id, await mails(store, sent, `inst-${id}`)]).toEqual([
+        id,
+        [
+          [0, late],
+          [1, false],
+        ],
+      ]);
+      expect((await audits(store, `inst-${id}`)).map((a) => a.outcome)).toEqual(
+        ["started", "succeeded", "succeeded"],
+      );
+    }
+    expect(reports).toEqual([]);
+  });
+
+  test("a subscription not in good standing gets no row, and the office starts on the first pass after it is", async () => {
+    const c = clock();
+    const store = await openTestStore(c.now);
+    // One office per clause of good standing; the fix makes it good again.
+    const CASES: [string, Parameters<typeof office>[3], string][] = [
+      ["past-due", { sub: { status: "past_due" } }, "status = 'active'"],
+      [
+        "at-period-end",
+        { sub: { cancel_at_period_end: 1 } },
+        "cancel_at_period_end = 0",
+      ],
+      ["cancelled", { sub: { canceled_at: T0 - 1 } }, "canceled_at = null"],
+      ["ended", { sub: { ended_at: T0 - 1 } }, "ended_at = null"],
+    ];
+    for (const [id, opts] of CASES) {
+      await account(store, `acct-${id}`, `${id}@example.com`);
+      await office(store, `inst-${id}`, `acct-${id}`, opts);
+      await created(store, `inst-${id}`, T0 - 40 * DAY);
+    }
+    // No subscription at all: there is nothing to put in good standing.
+    await account(store, "acct-none", "none@example.com");
+    await office(store, "inst-none", "acct-none", { sub: null });
+    const { sent, send } = sender();
+    const deps = { apiKey: "k", send, approved: ALL };
+    // Passes over days: an office waits, it is not given up on.
+    for (const at of [T0, T0 + DAY, T0 + 9 * DAY]) {
+      c.state.value = at;
+      expect(await watchWelcomeMail(store, deps)).toBe(0);
+    }
+    for (const id of [...CASES.map(([id]) => id), "none"]) {
+      expect([id, await store.getWelcomeMail(`inst-${id}`)]).toEqual([
+        id,
+        null,
+      ]);
+      expect([id, await audits(store, `inst-${id}`)]).toEqual([id, []]);
+    }
+    for (const [id, , fix] of CASES) {
+      const fixed = await store.sqlAll(
+        `update subscriptions set ${fix} where id = $1 returning id`,
+        [`sub-inst-${id}`],
+      );
+      expect([id, fixed.length]).toEqual([id, 1]);
+    }
+    c.state.value = T0 + 10 * DAY;
+    expect(await watchWelcomeMail(store, deps)).toBe(CASES.length);
+    for (const [id] of CASES) {
+      expect([id, await mails(store, sent, `inst-${id}`)]).toEqual([
+        id,
+        [[0, true]],
+      ]);
+      expect((await store.getWelcomeMail(`inst-${id}`))?.next_due_at).toBe(
+        T0 + 10 * DAY + WELCOME_MAIL_OFFSETS_MS[1],
+      );
+    }
+    expect(await store.getWelcomeMail("inst-none")).toBeNull();
+  });
+
+  test("an office that is not live, or has no reservation, gets no row", async () => {
+    const store = await openTestStore(() => T0);
+    const STATES: ServiceState[] = [
+      "provisioning",
+      "suspended",
+      "deprovisioned",
+    ];
+    for (const state of STATES) {
+      await account(store, `acct-${state}`, `${state}@example.com`);
+      await office(store, `inst-${state}`, `acct-${state}`, { state });
+      await created(store, `inst-${state}`, T0 - 40 * DAY);
+    }
+    await account(store, "acct-unres", "unres@example.com");
+    await office(store, "inst-unres", "acct-unres");
+    await created(store, "inst-unres", T0 - 40 * DAY);
+    await store.sqlRun(
+      "delete from name_reservations where instance_id = 'inst-unres'",
+    );
+    // A live office that qualifies, so a pass that does nothing at all
+    // cannot pass this case.
+    await account(store, "acct-yes", "yes@example.com");
+    await office(store, "inst-yes", "acct-yes");
+    await created(store, "inst-yes", T0 - 40 * DAY);
+    const { sent, send } = sender();
+    expect(await watchWelcomeMail(store, { apiKey: "k", send })).toBe(1);
+    expect(await mails(store, sent, "inst-yes")).toEqual([[0, true]]);
+    for (const id of [...STATES, "unres"]) {
+      expect([id, await store.getWelcomeMail(`inst-${id}`)]).toEqual([
+        id,
+        null,
+      ]);
+    }
+  });
+
+  test("a series that ended, finished or opted out never starts again, and a later office inherits the opt-out", async () => {
+    const c = clock();
+    const store = await openTestStore(c.now);
+    // Ended: its first mail met a past-due subscription, which ends a series.
+    await account(store, "acct-e", "e@example.com");
+    await office(store, "inst-e", "acct-e", { sub: { status: "past_due" } });
+    await store.recordFirstLive("inst-e", T0);
+    // Finished: its account's later office gets the first mail only.
+    await account(store, "acct-f", "f@example.com");
+    await office(store, "inst-f0", "acct-f");
+    await office(store, "inst-f", "acct-f");
+    await store.recordFirstLive("inst-f0", T0);
+    await store.recordFirstLive("inst-f", T0);
+    // Opted out, with a second office that went live before the series.
+    await account(store, "acct-o", "o@example.com");
+    await office(store, "inst-o", "acct-o");
+    await office(store, "inst-o2", "acct-o");
+    await created(store, "inst-o2", T0 - 40 * DAY);
+    await store.recordFirstLive("inst-o", T0);
+    const { sent, send } = sender();
+    const deps = { apiKey: "k", send, approved: ALL };
+    // inst-o2 has no row yet, so this pass gives it one: opt out first.
+    await store.unsubscribeWelcomeMail(
+      (await store.getWelcomeMail("inst-o"))!.unsubscribe_token,
+      T0,
+    );
+    await watchWelcomeMail(store, deps);
+    expect((await store.getWelcomeMail("inst-e"))?.next_due_at).toBeNull();
+    expect((await store.getWelcomeMail("inst-f"))?.next_due_at).toBeNull();
+    expect(await store.getWelcomeMail("inst-o2")).toMatchObject({
+      opted_out_at: T0,
+      tips: 0,
+    });
+    // Paid now, and every row as it stands: later passes change nothing.
+    await store.sqlRun(
+      "update subscriptions set status = 'active' where id = 'sub-inst-e'",
+    );
+    const before = await Promise.all(
+      ["inst-e", "inst-f", "inst-o", "inst-o2"].map((id) =>
+        store.getWelcomeMail(id),
+      ),
+    );
+    for (const at of [T0 + DAY, T0 + 30 * DAY]) {
+      c.state.value = at;
+      await watchWelcomeMail(store, deps);
+    }
+    expect(
+      await Promise.all(
+        ["inst-e", "inst-f", "inst-o", "inst-o2"].map((id) =>
+          store.getWelcomeMail(id),
+        ),
+      ),
+    ).toEqual(before);
+    expect(await mails(store, sent, "inst-f")).toEqual([[0, false]]);
+    expect(await mails(store, sent, "inst-e")).toEqual([]);
+    expect(await mails(store, sent, "inst-o2")).toEqual([]);
+  });
+
+  test("of two offices of one account, the older gets the series and the later the first mail only", async () => {
+    const c = clock();
+    const store = await openTestStore(c.now);
+    await account(store, "acct-2", "two@example.com");
+    // Inserted newest first, so creation order is the only thing that ranks.
+    await office(store, "inst-new", "acct-2");
+    await office(store, "inst-old", "acct-2");
+    await created(store, "inst-new", T0 - 10 * DAY);
+    await created(store, "inst-old", T0 - 50 * DAY);
+    const { sent, send } = sender();
+    const deps = { apiKey: "k", send, approved: ALL };
+    expect(await watchWelcomeMail(store, deps)).toBe(2);
+    c.state.value = T0 + WELCOME_MAIL_OFFSETS_MS[1];
+    expect(await watchWelcomeMail(store, deps)).toBe(1);
+    expect(await mails(store, sent, "inst-old")).toEqual([
+      [0, true],
+      [1, false],
+    ]);
+    expect(await mails(store, sent, "inst-new")).toEqual([[0, true]]);
+  });
+
+  test("an office that went live on the tick keeps its row: the pass does not start it again", async () => {
+    // Provisioning took two days; the go-live moment, not the creation, is
+    // the start of its series.
+    const store = await openTestStore(() => T0);
+    await account(store, "acct-t", "t@example.com");
+    await office(store, "inst-t", "acct-t");
+    await created(store, "inst-t", T0 - 2 * DAY);
+    await store.recordFirstLive("inst-t", T0);
+    const { sent, send } = sender();
+    expect(await watchWelcomeMail(store, { apiKey: "k", send })).toBe(1);
+    expect((await store.getWelcomeMail("inst-t"))?.live_at).toBe(T0);
+    expect(await mails(store, sent, "inst-t")).toEqual([[0, false]]);
+    expect((await audits(store, "inst-t")).map((a) => a.outcome)).toEqual([
+      "succeeded",
+    ]);
+  });
+
+  test("recordFirstLive says whether it made the row", async () => {
+    const store = await openTestStore(() => T0);
+    await account(store, "acct-r", "r@example.com");
+    await office(store, "inst-r", "acct-r");
+    await office(store, "inst-r2", "acct-r");
+    await store.sqlRun(
+      "delete from name_reservations where instance_id = 'inst-r2'",
+    );
+    expect(await store.recordFirstLive("inst-r", T0)).toBe(true);
+    expect(await store.recordFirstLive("inst-r", T0 + 1)).toBe(false);
+    expect(await store.recordFirstLive("inst-r2", T0)).toBe(false);
+  });
+
+  test("two provisioners from cold start one series and send one first mail", async () => {
+    const dsn = await freshDsn();
+    const a = await openTestStoreOn(dsn, () => T0);
+    const b = await openTestStoreOn(dsn, () => T0);
+    await account(a, "acct-c", "c@example.com");
+    await office(a, "inst-c", "acct-c");
+    await created(a, "inst-c", T0 - 40 * DAY);
+    const { sent, send } = sender();
+    const counts = await Promise.all(
+      [a, b].map((store) => watchWelcomeMail(store, { apiKey: "k", send })),
+    );
+    expect(counts.reduce((x, y) => x + y)).toBe(1);
+    expect(sent.map((m) => [m.step, m.late])).toEqual([[0, true]]);
+    expect((await audits(a, "inst-c")).map((e) => e.outcome)).toEqual([
+      "started",
+      "succeeded",
+    ]);
+  });
+});
+
 describe("the schedule", () => {
   // Suspended, so the liveness and certificate checks (live offices only) add
   // nothing: what the schedule shows is the welcome row alone.
@@ -771,5 +1077,32 @@ privileged("the series under the deployed grants", () => {
       await web.unsubscribeWelcomeMail(sent[0].unsubscribeToken, T0 + 1),
     ).toBe(2);
     expect((await owner.getWelcomeMail("inst-p2"))?.opted_out_at).toBe(T0 + 1);
+  });
+
+  test("the provisioner starts the series of a live office that has none", async () => {
+    const dsn = await freshDsn();
+    const owner = await openTestStoreOn(dsn, () => T0);
+    await account(owner, "acct-q", "q@example.com");
+    await office(owner, "inst-q", "acct-q");
+    const provisioner = await Store.openRuntime(
+      await leastPrivilegedDsn({ dsn, grants: PROVISIONER_GRANTS }),
+      () => T0,
+    );
+    roleStores.push(provisioner);
+    const reports: string[] = [];
+    const { sent, send } = sender();
+    expect(
+      await watchWelcomeMail(provisioner, {
+        apiKey: "k",
+        send,
+        report: (line) => reports.push(line),
+      }),
+    ).toBe(1);
+    expect(reports).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect((await audits(owner, "inst-q")).map((a) => a.outcome)).toEqual([
+      "started",
+      "succeeded",
+    ]);
   });
 });

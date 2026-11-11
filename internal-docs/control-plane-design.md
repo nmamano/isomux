@@ -833,8 +833,10 @@ version, provider row ref, access-window state and the attention fields below) -
 ends at, host key fingerprint) - `operations` (as above) - `instance_secrets`
 (encrypted provisioning key material, destroyed at revocation) - `audit_events`
 (append-only: actor, instance, action, outcome, including every remote command
-we run) - `welcome_mails` (one row per office from its first live moment: the
-welcome series step, its due time, the unsubscribe token and the opt-out) -
+we run) - `welcome_mails` (one row per office from its first live moment, or, for an
+office that went live before the series shipped, from the first send pass while
+it is paid: the welcome series step, its due time, the unsubscribe token and the
+opt-out) -
 `first_paid_checkouts` (one row per office whose payment opened its create, with
 the signup source its reservation kept; no account id, email or office name) -
 `status_customers`, `incidents`, `incident_updates`, `incident_keys` (the
