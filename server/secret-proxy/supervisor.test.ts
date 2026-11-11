@@ -3,6 +3,7 @@
 // the production entry.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { join } from "node:path";
 
@@ -151,6 +152,70 @@ function alive(pid: number): boolean {
   }
 }
 
+// A free port below the kernel's ephemeral range. A port-0 listener of any
+// other process on the host never gets it, so it stays free while a child is
+// down (task e341af70: a restart test lost its port that way).
+async function quietPort(): Promise<number> {
+  let first = 49152;
+  try {
+    first = Number(
+      readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").split(
+        /\s+/,
+      )[0],
+    );
+  } catch {
+    // Not Linux: the IANA range, which macOS uses.
+  }
+  const low = Math.max(1024, first - 8000);
+  for (let tries = 0; tries < 50 && low < first; tries++) {
+    const port = low + Math.floor(Math.random() * (first - low));
+    const probe: Server = createServer(() => {});
+    const bound = await new Promise<boolean>((resolve) => {
+      probe.once("error", () => resolve(false));
+      probe.listen(port, "127.0.0.1", () => resolve(true));
+    });
+    if (bound) {
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+      return port;
+    }
+  }
+  throw new Error(`no free port below the ephemeral range (${first})`);
+}
+
+// The /proc/net/tcp rows: a socket inode names one socket, so a later
+// listener on the same port has another inode. Linux only.
+function tcpRows(): { port: number; state: string; inode: string }[] {
+  return readFileSync("/proc/net/tcp", "utf8")
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim().split(/\s+/))
+    .filter((fields) => fields.length >= 10)
+    .map((fields) => ({
+      port: parseInt(fields[1]!.split(":")[1]!, 16),
+      state: fields[3]!,
+      inode: fields[9]!,
+    }));
+}
+
+// The inodes of the sockets of `pid` that listen on `port`.
+function listenerInodes(pid: number, port: number): string[] {
+  const own = new Set<string>();
+  for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+    try {
+      const match = /^socket:\[(\d+)\]$/.exec(
+        readlinkSync(`/proc/${pid}/fd/${fd}`),
+      );
+      if (match) own.add(match[1]!);
+    } catch {
+      // Closed between the listing and the read.
+    }
+  }
+  return tcpRows()
+    .filter((row) => row.port === port && row.state === "0A")
+    .map((row) => row.inode)
+    .filter((inode) => own.has(inode));
+}
+
 function portOpen(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect(port, "127.0.0.1", () => {
@@ -165,10 +230,11 @@ describe("the supervisor", () => {
   test(
     "a killed child comes back on the same port",
     async () => {
-      const { supervisor, ports, listens } = supervise();
+      const saved = await quietPort();
+      const { supervisor, ports, listens } = supervise({ savedPort: saved });
       try {
         const port = await supervisor.start();
-        expect(ports).toEqual([[port, null]]);
+        expect(port).toBe(saved);
         expect(await tunnelWorks(port)).toBe(true);
         const first = supervisor.pid!;
         process.kill(first, "SIGKILL");
@@ -178,13 +244,23 @@ describe("the supervisor", () => {
         expect(await tunnelWorks(port)).toBe(true);
         expect(supervisor.port).toBe(port);
         // Same port: no port change for agents.
-        expect(ports).toHaveLength(1);
+        expect(ports).toEqual([]);
       } finally {
         await supervisor.stop();
       }
     },
     RESTART_TIMEOUT_MS,
   );
+
+  test("with no saved port, the first port goes through onPort", async () => {
+    const { supervisor, ports } = supervise();
+    try {
+      const port = await supervisor.start();
+      expect(ports).toEqual([[port, null]]);
+    } finally {
+      await supervisor.stop();
+    }
+  });
 
   test("a saved port that is taken is replaced once, through onPort", async () => {
     const squatter: Server = createServer(() => {});
@@ -206,13 +282,7 @@ describe("the supervisor", () => {
   });
 
   test("a saved port that is free is kept, with no port change", async () => {
-    const probe: Server = createServer(() => {});
-    const free = await new Promise<number>((resolve) =>
-      probe.listen(0, "127.0.0.1", () =>
-        resolve((probe.address() as { port: number }).port),
-      ),
-    );
-    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    const free = await quietPort();
     const { supervisor, ports } = supervise({ savedPort: free });
     try {
       expect(await supervisor.start()).toBe(free);
@@ -258,8 +328,7 @@ describe("the supervisor", () => {
     }
   });
 
-  // Flaky: the port was still open after the child exited, in CI on 2169730b (task e341af70).
-  test.skip("when the server dies by SIGKILL, the child exits and frees the port", async () => {
+  test("when the server dies by SIGKILL, the child exits and its listener closes", async () => {
     const parent = Bun.spawn(
       [
         process.execPath,
@@ -282,10 +351,19 @@ describe("the supervisor", () => {
     };
     expect(alive(childPid)).toBe(true);
     expect(await portOpen(port)).toBe(true);
+    // After the exit, the port may belong to any other process on the host:
+    // the check follows the child's own socket, not the port.
+    const linux = process.platform === "linux";
+    const listeners = linux ? listenerInodes(childPid, port) : [];
+    if (linux) expect(listeners).toHaveLength(1);
     parent.kill("SIGKILL");
     await parent.exited;
     expect(await until(() => !alive(childPid))).toBe(true);
-    expect(await portOpen(port)).toBe(false);
+    if (linux) {
+      // No process still holds the child's listener.
+      const left = tcpRows().filter((row) => row.inode === listeners[0]);
+      expect(left).toEqual([]);
+    }
   });
 });
 
@@ -376,6 +454,7 @@ test(
     const ROTATED = "ghp_FAKEwhiledownFAKEwhiledownFAKEwhi01";
     let current = snapshot();
     const { supervisor, listens, logged } = supervise({
+      savedPort: await quietPort(),
       snapshot: () => current,
       seams: {
         standIns: { "api.stub.test:443": https.port },
@@ -418,6 +497,7 @@ test(
   async () => {
     let broken = false;
     const { supervisor, listens, logged } = supervise({
+      savedPort: await quietPort(),
       snapshot: () => {
         if (broken) throw new Error("the store could not be read");
         return snapshot();
