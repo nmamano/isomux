@@ -32,6 +32,15 @@ COPY --from=runtime-deps /app ./
 COPY control-plane ./control-plane
 COPY --from=build /app/control-plane/web/.next ./control-plane/web/.next
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
-USER node
+# The storefront's own user, uid and gid 10101. Docker on the host has no user
+# namespace remap, so the uid in the container is the uid on the host: the
+# image's `node` user is uid 1000, a login account on the VPS. No account or
+# file on the VPS uses 10101 (Lead SRE, 2026-11-11), and it is not the
+# provisioner's 10102 or a uid another project on the host runs as. The files
+# under /app stay root's, read-only to the storefront.
+RUN groupadd --system --gid 10101 isomux-web \
+    && useradd --system --uid 10101 --gid 10101 --no-create-home --home-dir /nonexistent \
+      --shell /usr/sbin/nologin isomux-web
+USER 10101:10101
 WORKDIR /app/control-plane/web
 CMD ["node", "node_modules/.bin/next", "start"]

@@ -1179,6 +1179,12 @@ The `db` network is internal. The storefront reaches the seam at
 `docker compose ... run --rm owner bun control-plane/cli.ts <command>` and gets
 only the owner's DSN: no provider or Stripe values and no state volume. The
 provisioner state root is the named volume `provisioner-state` at `/data`.
+The storefront and the provisioner (and `owner`) each run as their own numeric
+uid, which no host account uses; the uids are in the two Dockerfiles. Before
+it starts a provisioner, `deploy.sh` stops the running one and gives every file
+of the state volume to the uid that the new image runs as (`own_state` in
+`running.sh`, owner only, never a mode). A rollback does the same for the
+previous image.
 Containers restart with the Docker daemon, so the host needs no
 unit of its own.
 

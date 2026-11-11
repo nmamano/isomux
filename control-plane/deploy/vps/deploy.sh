@@ -12,7 +12,8 @@
 # generates every database password, the seam token and the database identity,
 # creates the roles, bootstraps the schema and stamps the identity. Every later
 # run builds, runs every owner migration with the new image, converges the
-# runtime grants to the commit's matrix, replaces the two app containers and
+# runtime grants to the commit's matrix, stops the provisioner, gives its state
+# volume to the user the new image runs as, replaces the two app containers and
 # checks them: it never bootstraps, creates a role, changes a login, resets a
 # password or stamps the identity.
 #
@@ -131,8 +132,8 @@ first_start=false
 # that only the commit's bytes reach the build that is labelled with it. ---
 release=$root/releases/$commit
 tmp=$(mktemp -d "$root/releases/.unpack-XXXXXX")
-# The images copy file modes from the tree, and the storefront runs as an
-# unprivileged user, so the tree gets ordinary modes whatever this umask is.
+# The images copy file modes from the tree, and both app images run as
+# unprivileged users, so the tree gets ordinary modes whatever this umask is.
 (umask 022 && git -C "$repo" archive "$commit" | tar -x --no-same-owner -C "$tmp")
 if [[ -e $release ]]; then
   old=$(mktemp -d "$root/releases/.replaced-XXXXXX")
@@ -227,6 +228,17 @@ roll_back() {
   cp -p "$root/release.env.previous" "$root/release.env"
   ln -sfn "$previous_release" "$root/current"
   dcp() { docker compose --env-file "$root/release.env" -f "$previous_release/control-plane/deploy/vps/compose.yaml" "$@"; }
+  # The state volume goes back to the user the previous provisioner runs as,
+  # with no provisioner running: a new one that restarts during the change
+  # would write files the previous one cannot read.
+  if ! dcp stop provisioner >>"$log" 2>&1; then
+    say "FAIL rollback: the provisioner did not stop; see $log"
+    return 6
+  fi
+  if ! reason=$(own_state "$(sed -n 's/^ISOMUX_PROVISIONER_IMAGE=//p' "$root/release.env")" "$state_volume" 2>&1); then
+    say "FAIL rollback: $reason"
+    return 6
+  fi
   # --no-deps: the database stays as it is.
   if ! dcp up -d --no-deps --wait --wait-timeout 240 provisioner web >>"$log" 2>&1; then
     say "FAIL rollback: the previous release did not start; see $log"
@@ -312,6 +324,15 @@ if $prepare; then
   exit 0
 fi
 
+# The state volume gets the owner the new provisioner image runs as, while no
+# provisioner runs: one that runs as another user would get EACCES in the
+# middle of a tick. A first install has no volume yet; Compose creates it
+# from the image's /data, with that owner.
+if ! $first_install; then
+  quiet dc stop provisioner
+  reason=$(own_state "$provisioner_image" "$state_volume" 2>&1) || die "$reason"
+  say "provisioner state: owned by the user of the new image"
+fi
 quiet dc up -d --wait --wait-timeout 240 provisioner web
 say "provisioner and web: healthy"
 

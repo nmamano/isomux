@@ -158,6 +158,51 @@ describe("the compose project", () => {
   });
 });
 
+describe("the images' run-time users", () => {
+  // The user of an image's last stage: the last USER line after the last FROM.
+  function finalUser(dockerfile: string): string | undefined {
+    const lines = fs
+      .readFileSync(dockerfile, "utf8")
+      .split("\n")
+      .map((line) => line.trim());
+    const lastFrom = lines.findLastIndex((line) => /^FROM\s/i.test(line));
+    return lines
+      .slice(lastFrom)
+      .findLast((line) => /^USER\s/i.test(line))
+      ?.replace(/^USER\s+/i, "");
+  }
+
+  // On the VPS, Docker maps no user namespace: a container uid is the host
+  // uid. 0 is host root and 1000 is the host's login user (ubuntu), so an
+  // escape as either owns the host or that user's files. The two apps differ
+  // so that an escape from the public storefront does not own the
+  // provisioner's state volume. Numeric, so the uid needs no passwd lookup to
+  // read from the image.
+  test("each app runs as its own numeric uid:gid, never root or the host login user", () => {
+    const users = {
+      web: finalUser(path.join(VPS, "web.Dockerfile")) ?? "",
+      provisioner: finalUser(path.join(import.meta.dir, "Dockerfile")) ?? "",
+    };
+    const ids: Record<string, number[]> = {};
+    for (const [name, user] of Object.entries(users)) {
+      expect({ name, user }).toEqual({
+        name,
+        user: expect.stringMatching(/^\d+:\d+$/),
+      });
+      ids[name] = user.split(":").map(Number);
+      for (const id of ids[name]) {
+        expect({ name, id, forbidden: id === 0 || id === 1000 }).toEqual({
+          name,
+          id,
+          forbidden: false,
+        });
+      }
+    }
+    expect(ids.web[0]).not.toBe(ids.provisioner[0]);
+    expect(ids.web[1]).not.toBe(ids.provisioner[1]);
+  });
+});
+
 describe("the committed templates", () => {
   // A value is a placeholder, empty, or a public constant the code pins.
   const allowed =

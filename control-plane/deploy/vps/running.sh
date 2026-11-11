@@ -1,4 +1,5 @@
-# What runs, read from the engine. Sourced by deploy.sh and auto-deploy.sh.
+# What runs, read from the engine, and the provisioner state volume's owner.
+# Sourced by deploy.sh and auto-deploy.sh.
 #
 #   release_healthy <commit> <web port> <compose command...>
 #
@@ -41,6 +42,47 @@ console.log([h.ok, h.database_identity, h.release_source?.commit ?? "unknown"].j
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$web_port/") || code=none
   [[ $code == 200 ]] || {
     echo "the storefront home page answered $code"
+    return 1
+  }
+}
+
+#   own_state <image> <state volume>
+#
+# Gives every file in <state volume> the owner that <image> runs as (its
+# Config.User: empty or a root form is 0:0, otherwise a numeric <uid>:<gid>),
+# so the provisioner of that image can read the state an image with another
+# user wrote. It changes the owner only, never a mode, and mounts nothing but
+# that volume. Run it only while no provisioner runs. Returns 0 on success;
+# otherwise non-zero and one line on stderr, and for a user it cannot map it
+# runs no container.
+own_state() {
+  local image=$1 volume=$2 user owner
+  user=$(docker image inspect "$image" --format '{{.Config.User}}' 2>/dev/null) || {
+    echo "own_state: cannot read the user of $image" >&2
+    return 1
+  }
+  case $user in
+  "" | root | 0 | 0:0) owner=0:0 ;;
+  *)
+    [[ $user =~ ^[0-9]+:[0-9]+$ ]] || {
+      echo "own_state: $image runs as '$user', not as root or a numeric uid:gid" >&2
+      return 1
+    }
+    owner=$user
+    ;;
+  esac
+  # A run would create a missing volume empty.
+  docker volume inspect "$volume" >/dev/null 2>&1 || {
+    echo "own_state: there is no volume $volume" >&2
+    return 1
+  }
+  # --mount type=volume: a value that starts with / never becomes a bind mount.
+  # -P -h: no symbolic link is followed out of the volume.
+  docker run --rm --network none --user 0:0 --cap-drop ALL \
+    --cap-add CHOWN --cap-add DAC_READ_SEARCH --security-opt no-new-privileges \
+    --mount "type=volume,src=$volume,dst=/data" --entrypoint chown \
+    "$image" -R -h -P "$owner" /data >/dev/null 2>&1 || {
+    echo "own_state: the owner of $volume did not change to $owner" >&2
     return 1
   }
 }

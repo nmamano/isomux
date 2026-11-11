@@ -77,14 +77,23 @@ RUN payload_sha256="$(find /app -type f -print0 | sort -z | xargs -0 sha256sum |
 # revoke our own access with it.
 ENV HOME=/data
 
-# ENV above reaches only the processes the container starts. A login session
-# builds its environment from root's passwd entry instead (measured on Fly,
-# 2026-08-12: sessions resolved /root and wrote state to the ephemeral disk), so
-# the passwd entry must agree with ENV or the container has two state roots. sed
-# rather than usermod: usermod refuses while root runs a process, and the build
-# shell is one. The grep asserts the edit landed.
-RUN sed -i 's|^\(root:.*:\)/root:\(.*\)$|\1/data:\2|' /etc/passwd \
-    && grep -q '^root:.*:/data:' /etc/passwd
+# The provisioner's own user, uid and gid 10102. Docker on the host has no user
+# namespace remap, so the uid in the container is the uid on the host, and root
+# here would own every file the provisioner writes as host root. No account or
+# file on the VPS uses 10102 (Lead SRE, 2026-11-11), and it is not the
+# storefront's 10101 or a uid another project on the host runs as.
+#
+# Its passwd home is /data, the same as HOME: ssh resolves ~ from the passwd
+# entry, not from HOME. /data is created here with the user as owner and mode
+# 0700, so Docker gives a new named volume that owner and mode. An existing
+# volume gets its owner from own_state (vps/running.sh) before each start.
+RUN groupadd --system --gid 10102 isomux-provisioner \
+    && useradd --system --uid 10102 --gid 10102 --no-create-home --home-dir /data \
+      --shell /usr/sbin/nologin isomux-provisioner \
+    && grep -q '^isomux-provisioner:.*:/data:' /etc/passwd \
+    && mkdir -m 0700 /data \
+    && chown 10102:10102 /data
+USER 10102:10102
 
 # No CMD: vps/compose.yaml gives every service its command, including the
 # provisioner's --bind and the --deployment id that deploy.sh generates.

@@ -12,8 +12,9 @@
 # imported create latch into its database. A third run is a redeploy that must
 # keep the database identity, the generated credentials, the data and the
 # provisioner state, must build the commit's bytes even when the cached
-# release tree was changed, and must bring runtime grants that drifted back to
-# the commit's matrix. Around them it checks each container's resource
+# release tree was changed, must bring runtime grants that drifted back to
+# the commit's matrix, and must give a state volume a root release left to the
+# provisioner's own uid, with each app on its own uid. Around them it checks each container's resource
 # ceiling, and that deploy.sh refuses an unfinished or incomplete install (exit
 # 3 and 4) before it builds or creates anything. Last, auto-deploy.sh ticks
 # from a local origin, under the lock that a manual deploy.sh meanwhile cannot
@@ -31,7 +32,7 @@ umask 077
   exit 2
 }
 here=$(cd "$(dirname "$0")" && pwd)
-export ISOMUX_HOSTED_PROJECT=isomux-hosted-proof
+export ISOMUX_HOSTED_PROJECT=${ISOMUX_HOSTED_PROJECT:-isomux-hosted-proof}
 export ISOMUX_HOSTED_WEB_PORT=13100
 export ISOMUX_HOSTED_PROVISIONER_PORT=14311
 work=$(mktemp -d /tmp/isomux-hosted-proof.XXXXXX)
@@ -254,6 +255,15 @@ EOF
 [[ $(grants) == "false true" ]] || die "the stale grants were not staged"
 deploy_logs_before=$(find "$work/root" -maxdepth 1 -name 'deploy-*.log' | sort)
 
+# The state as a release whose provisioner ran as root left it: every file
+# root's, and one that only its owner can read.
+dc stop provisioner >/dev/null 2>&1
+docker run --rm --network none --user 0:0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_READ_SEARCH \
+  --security-opt no-new-privileges --mount "type=volume,src=${project}_provisioner-state,dst=/data" \
+  --entrypoint sh "$(sed -n 's/^ISOMUX_PROVISIONER_IMAGE=//p' "$work/root/release.env")" \
+  -c 'chown -R -h -P 0:0 /data && (umask 077 && echo root >/data/root-sentinel)' ||
+  die "the root-owned state was not staged"
+
 "$here/deploy.sh" "$commit"
 [[ $(grants) == "true false" ]] || die "the redeploy did not converge the runtime grants to the matrix"
 redeploy_log=$(comm -13 <(echo "$deploy_logs_before") <(find "$work/root" -maxdepth 1 -name 'deploy-*.log' | sort))
@@ -272,6 +282,25 @@ say "prune: previous release kept for a rollback, older one removed"
 [[ $(echo "select count(*) from accounts where id = 'proof-account';" | sql) == 1 ]] || die "the redeploy lost data"
 [[ $(cat "$work/env/generated"/* | sha256sum) == "$generated_before" ]] || die "the redeploy changed the generated credentials"
 [[ $(dc exec -T provisioner cat /data/proof-sentinel) == proof ]] || die "the redeploy lost the provisioner state"
+# Each app runs as the numeric user its image names: not root, not uid 1000,
+# not the other app's. The provisioner owns every file of the state root
+# again, and reads the one only root could read before.
+users=()
+for service in provisioner web; do
+  user=$(docker inspect "$(dc ps -q "$service")" --format '{{.Config.User}}')
+  [[ $user =~ ^[0-9]+:[0-9]+$ && ${user%:*} != 0 && ${user%:*} != 1000 ]] ||
+    die "$service runs as '$user', not as its own numeric uid:gid"
+  [[ $(dc exec -T "$service" sh -c 'echo "$(id -u):$(id -g)"') == "$user" ]] ||
+    die "$service's process does not run as $user"
+  users+=("$user")
+done
+[[ ${users[0]%:*} != "${users[1]%:*}" && ${users[0]#*:} != "${users[1]#*:}" ]] ||
+  die "the provisioner and the storefront share a uid or a gid"
+foreign=$(dc exec -T provisioner find /data \( ! -user "${users[0]%:*}" -o ! -group "${users[0]#*:}" \) -print) ||
+  die "the provisioner cannot walk its whole state volume"
+[[ -z $foreign ]] || die "the redeploy left files the provisioner does not own: $foreign"
+[[ $(dc exec -T provisioner cat /data/root-sentinel) == root ]] || die "the provisioner cannot read the file a root release left"
+say "users: provisioner ${users[0]}, web ${users[1]}; the state root's files are the provisioner's again"
 for service in provisioner web; do
   dc exec -T "$service" cat /app/control-plane/stripe/mode.ts |
     cmp -s - <(git -C "$here" show "$commit:control-plane/stripe/mode.ts") ||
@@ -298,8 +327,13 @@ say "lock: a manual deploy refuses while another holds the lock, nothing built"
 git init -q --bare -b main "$work/origin.git"
 git -C "$here" push -q --no-verify "$work/origin.git" "$commit:refs/heads/main"
 git clone -q -b main "$work/origin.git" "$work/src"
-printf 'if (process.argv[2] === "run") process.exit(1);\n' |
-  cat - "$work/src/control-plane/cli.ts" >"$work/cli.ts"
+# After the shebang: above it the file is a syntax error, which fails the
+# migrations before the provisioner ever starts.
+{
+  head -n 1 "$work/src/control-plane/cli.ts"
+  printf 'if (process.argv[2] === "run") process.exit(1);\n'
+  tail -n +2 "$work/src/control-plane/cli.ts"
+} >"$work/cli.ts"
 mv "$work/cli.ts" "$work/src/control-plane/cli.ts"
 git -C "$work/src" -c user.name=proof -c user.email=proof@example.com commit -qam "a provisioner that cannot start"
 git -C "$work/src" push -q --no-verify origin HEAD:main
