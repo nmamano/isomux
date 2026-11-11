@@ -23,6 +23,51 @@ export const OFFICE_BAR_TWINS: ReadonlySet<string> = new Set([
 ]);
 export const CHAT_BAR_TWINS: ReadonlySet<string> = new Set(["tasks", "inbox"]);
 
+/**
+ * Which sidebar sections are open, kept per device (ui/device-settings.ts):
+ * the rooms, the back rooms (by room id), Tucked rooms and the Lobby.
+ * `anchor` is the last anchor key the sidebar acted on, so a reload to the
+ * same agent or room does not open again what the member closed.
+ */
+export type ChatSidebarSections = {
+  rooms: string[];
+  back: string[];
+  more: boolean;
+  lobby: boolean;
+  anchor: string | null;
+};
+
+export const CHAT_SIDEBAR_SECTIONS_DEFAULT: ChatSidebarSections = {
+  rooms: [],
+  back: [],
+  more: false,
+  lobby: true,
+  anchor: null,
+};
+
+/**
+ * The sections after the anchor (the open agent's room, else the room in
+ * view) settles: a new anchor opens its room (and back room, and Tucked
+ * rooms). Returns `s` itself when nothing changes.
+ */
+export function sidebarSectionsForAnchor(
+  s: ChatSidebarSections,
+  anchor: { key: string; room: string | null; back: boolean; tucked: boolean },
+  ready: boolean,
+): ChatSidebarSections {
+  // Before the saved view is back, the anchor is not the one the member left.
+  if (!ready || anchor.key === s.anchor) return s;
+  const { room } = anchor;
+  if (room === null) return { ...s, anchor: anchor.key };
+  return {
+    rooms: s.rooms.includes(room) ? s.rooms : [...s.rooms, room],
+    back: anchor.back && !s.back.includes(room) ? [...s.back, room] : s.back,
+    more: s.more || anchor.tucked,
+    lobby: s.lobby,
+    anchor: anchor.key,
+  };
+}
+
 /** Below this window width the sidebar starts collapsed. */
 export const CHAT_SIDEBAR_MIN_OPEN_WIDTH = 1100;
 

@@ -5,10 +5,13 @@
 import { describe, expect, it } from "bun:test";
 import {
   CHAT_SIDEBAR_MIN_OPEN_WIDTH,
+  CHAT_SIDEBAR_SECTIONS_DEFAULT,
   newAgentSeat,
   roomAgents,
   sidebarRooms,
+  sidebarSectionsForAnchor,
   sidebarStartsOpen,
+  type ChatSidebarSections,
 } from "./chat-sidebar.ts";
 import { BACK_SEAT_BASE, DESK_COUNT } from "../shared/desks.ts";
 import {
@@ -129,5 +132,76 @@ describe("newAgentSeat", () => {
     expect(newAgentSeat(full, "r1")).toBeNull();
     // One desk short of full: the last desk.
     expect(newAgentSeat(full.slice(0, -1), "r1")).toBe(DESK_COUNT - 1);
+  });
+});
+
+// The sections a new anchor opens (task c23f23d0). The anchor is the open
+// agent's room, else the room in view. Its key is stored with the sections,
+// so a reload to the same anchor leaves the member's collapsed sections
+// alone. The reload itself is in ui/App.chat-sidebar-reload.dom.test.tsx.
+describe("sidebarSectionsForAnchor", () => {
+  const left: ChatSidebarSections = {
+    rooms: ["r2"],
+    back: [],
+    more: false,
+    lobby: false,
+    anchor: "a1|r1|0",
+  };
+  const anchor = (
+    key: string,
+    room: string | null,
+    back = false,
+    tucked = false,
+  ) => ({ key, room, back, tucked });
+
+  it("before the view is restored, changes nothing and does not take the anchor", () => {
+    const out = sidebarSectionsForAnchor(left, anchor("|r3|0", "r3"), false);
+    expect(out).toBe(left);
+    // The restored anchor, one render later, is still the stored one.
+    expect(sidebarSectionsForAnchor(out, anchor("a1|r1|0", "r1"), true)).toBe(
+      left,
+    );
+  });
+
+  it("the stored anchor again (a reload) keeps a room the member collapsed closed", () => {
+    expect(sidebarSectionsForAnchor(left, anchor("a1|r1|0", "r1"), true)).toBe(
+      left,
+    );
+  });
+
+  it("a new anchor opens its room, its back room for a back agent and Tucked rooms for a tucked room, and keeps the rest", () => {
+    const cases = [
+      {
+        a: anchor("a3|r1|1", "r1", true),
+        want: { ...left, rooms: ["r2", "r1"], back: ["r1"], anchor: "a3|r1|1" },
+      },
+      {
+        a: anchor("a7|r3|0", "r3", false, true),
+        want: { ...left, rooms: ["r2", "r3"], more: true, anchor: "a7|r3|0" },
+      },
+      // Its room already open: only the anchor is taken.
+      { a: anchor("a4|r2|0", "r2"), want: { ...left, anchor: "a4|r2|0" } },
+      // No room (none to show): the anchor is taken, nothing opens.
+      { a: anchor("||0", null), want: { ...left, anchor: "||0" } },
+    ];
+    expect(cases.map((c) => sidebarSectionsForAnchor(left, c.a, true))).toEqual(
+      cases.map((c) => c.want),
+    );
+  });
+
+  it("on a first visit, the first anchor opens its room beside the open Lobby", () => {
+    expect(
+      sidebarSectionsForAnchor(
+        CHAT_SIDEBAR_SECTIONS_DEFAULT,
+        anchor("a1|r1|0", "r1"),
+        true,
+      ),
+    ).toEqual({
+      rooms: ["r1"],
+      back: [],
+      more: false,
+      lobby: true,
+      anchor: "a1|r1|0",
+    });
   });
 });

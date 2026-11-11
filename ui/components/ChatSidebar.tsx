@@ -19,7 +19,18 @@ import { useInboxCounts } from "../inbox.ts";
 import { askCounts, openAsks } from "../asks-sync.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useCan } from "../hooks/useCan.ts";
-import { newAgentSeat, roomAgents, sidebarRooms } from "../chat-sidebar.ts";
+import {
+  CHAT_SIDEBAR_SECTIONS_DEFAULT,
+  newAgentSeat,
+  roomAgents,
+  sidebarRooms,
+  sidebarSectionsForAnchor,
+  type ChatSidebarSections,
+} from "../chat-sidebar.ts";
+import {
+  getChatSidebarSections,
+  setChatSidebarSections,
+} from "../device-settings.ts";
 import { Character } from "../office/Character.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { StatusLight, statusColor } from "../office/StatusLight.tsx";
@@ -48,6 +59,9 @@ export interface ChatSidebarProps {
   officeShown: boolean;
   // The office shows a room's back room screen.
   backRoomOpen: boolean;
+  // App has restored the saved view (or has none to restore): until then the
+  // anchor is not the one the member left, so it opens nothing.
+  viewReady: boolean;
   onCollapse: () => void;
   // The Office row: back to the room view the open agent sits in.
   onOffice: () => void;
@@ -388,6 +402,7 @@ export function ChatSidebar({
   page,
   officeShown,
   backRoomOpen,
+  viewReady,
   onCollapse,
   onOffice,
   onNewAgent,
@@ -439,17 +454,14 @@ export function ChatSidebar({
   ).length;
   const receptionist = agents.find((a) => a.roomId === LOBBY_ROOM_ID);
 
-  // Which sections are open. The open agent's room (and its back room, for a
-  // back agent) opens each time the open agent changes; with no open agent,
-  // the room in view does. The member's toggles hold until then.
-  const [openRooms, setOpenRooms] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
+  // Which sections are open, kept on this device. The open agent's room (and
+  // its back room, for a back agent) opens each time the open agent changes;
+  // with no open agent, the room in view does. The member's toggles hold
+  // until then, also across a reload to the same spot.
+  const [sections, setSections] = useState<ChatSidebarSections>(
+    () => getChatSidebarSections() ?? CHAT_SIDEBAR_SECTIONS_DEFAULT,
   );
-  const [openBack, setOpenBack] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [lobbyOpen, setLobbyOpen] = useState(true);
+  useEffect(() => setChatSidebarSections(sections), [sections]);
   const anchorRoom = openRoomId ?? currentRoomId;
   const anchorBack = openAgent
     ? isBackSeat(openAgent.desk)
@@ -460,26 +472,26 @@ export function ChatSidebar({
     : lobbyInView
       ? null
       : currentRoomId;
-  const anchorKey = `${openAgentId ?? ""}|${anchorRoom ?? ""}|${anchorBack ? 1 : 0}`;
-  const [seenAnchor, setSeenAnchor] = useState<string | null>(null);
-  if (seenAnchor !== anchorKey) {
-    setSeenAnchor(anchorKey);
-    if (anchorRoom && !openRooms.has(anchorRoom))
-      setOpenRooms(new Set([...openRooms, anchorRoom]));
-    if (anchorRoom && anchorBack && !openBack.has(anchorRoom))
-      setOpenBack(new Set([...openBack, anchorRoom]));
-    if (anchorRoom && more.some((r) => r.id === anchorRoom)) setMoreOpen(true);
-  }
-  const toggle = (
-    set: ReadonlySet<string>,
-    write: (s: ReadonlySet<string>) => void,
-    id: string,
-  ) => {
-    const next = new Set(set);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    write(next);
-  };
+  const anchored = sidebarSectionsForAnchor(
+    sections,
+    {
+      key: `${openAgentId ?? ""}|${anchorRoom ?? ""}|${anchorBack ? 1 : 0}`,
+      room: anchorRoom,
+      back: anchorBack,
+      tucked: more.some((r) => r.id === anchorRoom),
+    },
+    viewReady,
+  );
+  if (anchored !== sections) setSections(anchored);
+  const toggle = (field: "rooms" | "back", id: string) =>
+    setSections((s) => ({
+      ...s,
+      [field]: s[field].includes(id)
+        ? s[field].filter((x) => x !== id)
+        : [...s[field], id],
+    }));
+  const moreOpen = sections.more;
+  const lobbyOpen = sections.lobby;
 
   const agentRow = (agent: AgentInfo) => (
     <AgentRow
@@ -496,8 +508,8 @@ export function ChatSidebar({
 
   const roomSection = (room: RoomWire) => {
     const { front, back } = roomAgents(agents, room.id);
-    const open = openRooms.has(room.id);
-    const backOpen = openBack.has(room.id);
+    const open = sections.rooms.includes(room.id);
+    const backOpen = sections.back.includes(room.id);
     // A full front room seats the new agent in the back room.
     const plusLabel =
       newAgentSeat(agents, room.id) === null
@@ -512,7 +524,7 @@ export function ChatSidebar({
           <SectionHeader
             label={room.name}
             open={open}
-            onToggle={() => toggle(openRooms, setOpenRooms, room.id)}
+            onToggle={() => toggle("rooms", room.id)}
             dot={open ? null : roomActivityDotColor([...front, ...back], false)}
             attr={{ "data-sidebar-room": room.id }}
           />
@@ -547,7 +559,7 @@ export function ChatSidebar({
                   label={t("office.backRoom.title")}
                   open={backOpen}
                   strong={false}
-                  onToggle={() => toggle(openBack, setOpenBack, room.id)}
+                  onToggle={() => toggle("back", room.id)}
                   attr={{ "data-sidebar-back-room": room.id }}
                   right={
                     <span
@@ -753,7 +765,7 @@ export function ChatSidebar({
           <SectionHeader
             label={t("common.lobby")}
             open={lobbyOpen}
-            onToggle={() => setLobbyOpen(!lobbyOpen)}
+            onToggle={() => setSections((s) => ({ ...s, lobby: !s.lobby }))}
             attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
           />
           {lobbyOpen && (
@@ -786,7 +798,7 @@ export function ChatSidebar({
               label={t("office.tabs.tuckedRooms")}
               open={moreOpen}
               strong={false}
-              onToggle={() => setMoreOpen(!moreOpen)}
+              onToggle={() => setSections((s) => ({ ...s, more: !s.more }))}
               attr={{ "data-sidebar-more-rooms": "" }}
               right={
                 <span style={{ fontSize: 11, color: "var(--text-dim)" }}>

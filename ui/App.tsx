@@ -1310,6 +1310,9 @@ export function App({ routing = true }: { routing?: boolean }) {
                     page={page}
                     officeShown={page === null && !focusedAgent}
                     backRoomOpen={backRoomOpen}
+                    viewReady={
+                      restored || (!persistEnabled && hasReceivedInitialState)
+                    }
                     onCollapse={() => setSidebarOpen(false)}
                     onOffice={() => leaveThen(goOffice)}
                     onNewAgent={canSpawn ? spawnFromSidebar : null}

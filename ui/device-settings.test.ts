@@ -48,6 +48,8 @@ const {
   setAsksMember,
   getChatCopyFormat,
   setChatCopyFormat,
+  getChatSidebarSections,
+  setChatSidebarSections,
   getWhatsAppLayout,
   setWhatsAppLayout,
   getGithubLayout,
@@ -185,6 +187,46 @@ describe("settings groups open", () => {
     }
     setSettingsGroupOpen("rooms", true);
     expect([...getSettingsGroupsOpen()]).toEqual(["rooms"]);
+  });
+});
+
+// The chat sidebar's open sections on this device (task c23f23d0). A value
+// the device cannot read, from an older build or a hand edit, reads as none,
+// and the sidebar starts as on a first visit.
+describe("chat sidebar sections", () => {
+  beforeEach(() => store.clear());
+  const sections = {
+    rooms: ["r1", "r2"],
+    back: ["r2"],
+    more: true,
+    lobby: false,
+    anchor: "a1|r1|0",
+  };
+
+  it("reads back what it saved, and none when nothing is saved", () => {
+    expect(getChatSidebarSections()).toBeNull();
+    setChatSidebarSections(sections);
+    expect(getChatSidebarSections()).toEqual(sections);
+    setChatSidebarSections({ ...sections, anchor: null });
+    expect(getChatSidebarSections()).toEqual({ ...sections, anchor: null });
+  });
+
+  it("reads a broken value as none", () => {
+    const bad = [
+      "{not json",
+      "null",
+      '["r1"]',
+      JSON.stringify({ ...sections, rooms: "r1" }),
+      JSON.stringify({ ...sections, rooms: ["r1", 2] }),
+      JSON.stringify({ ...sections, back: [null] }),
+      JSON.stringify({ ...sections, more: "true" }),
+      JSON.stringify({ ...sections, lobby: undefined }),
+      JSON.stringify({ ...sections, anchor: 1 }),
+    ];
+    for (const raw of bad) {
+      store.set("isomux-chat-sidebar-sections", raw);
+      expect(getChatSidebarSections(), raw).toBeNull();
+    }
   });
 });
 

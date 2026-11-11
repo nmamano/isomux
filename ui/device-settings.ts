@@ -9,7 +9,7 @@
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
-import type { ChatSidebarChoice } from "./chat-sidebar.ts";
+import type { ChatSidebarChoice, ChatSidebarSections } from "./chat-sidebar.ts";
 import {
   FILTER_PRIORITIES,
   type PriorityFilterValue,
@@ -87,6 +87,39 @@ export function getChatSidebar(): ChatSidebarChoice | null {
 export function setChatSidebar(choice: ChatSidebarChoice): void {
   try {
     localStorage.setItem(KEY_CHAT_SIDEBAR, choice);
+  } catch {}
+}
+
+// The chat sidebar's open sections on this device (task c23f23d0). Two tabs
+// on one device share it: the last write wins, with no sync between them.
+const KEY_CHAT_SIDEBAR_SECTIONS = "isomux-chat-sidebar-sections";
+
+// Null when nothing is stored or the stored value is not a valid
+// ChatSidebarSections.
+export function getChatSidebarSections(): ChatSidebarSections | null {
+  try {
+    const raw: unknown = JSON.parse(
+      localStorage.getItem(KEY_CHAT_SIDEBAR_SECTIONS) ?? "null",
+    );
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const { rooms, back, more, lobby, anchor } = raw as Record<string, unknown>;
+    const ids = (v: unknown): v is string[] =>
+      Array.isArray(v) && v.every((id) => typeof id === "string");
+    if (
+      ids(rooms) &&
+      ids(back) &&
+      typeof more === "boolean" &&
+      typeof lobby === "boolean" &&
+      (anchor === null || typeof anchor === "string")
+    )
+      return { rooms, back, more, lobby, anchor };
+  } catch {}
+  return null;
+}
+
+export function setChatSidebarSections(sections: ChatSidebarSections): void {
+  try {
+    localStorage.setItem(KEY_CHAT_SIDEBAR_SECTIONS, JSON.stringify(sections));
   } catch {}
 }
 
