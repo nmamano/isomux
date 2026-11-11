@@ -4,7 +4,6 @@
 
 import { currentSubscriptionForInstance } from "./reinstatement.ts";
 import type { Store, WelcomeMailRow } from "./store.ts";
-import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import {
   WELCOME_MAIL_LATE_MS,
   WELCOME_MAIL_OFFSETS_MS,
@@ -19,17 +18,6 @@ export interface WelcomeMailWatchDeps {
   /** How many mails have approved copy. Absent means WELCOME_MAILS_APPROVED;
    * the schedule must use the same count (WorkScheduleOptions). */
   approved?: number;
-}
-
-/** A subscription a welcome mail may go out on: not ended, paid, and not
- * cancelled or set to cancel. */
-function inGoodStanding(subscription: SubscriptionRow): boolean {
-  return (
-    subscription.ended_at === null &&
-    ["active", "trialing"].includes(subscription.status) &&
-    subscription.cancel_at_period_end === 0 &&
-    subscription.canceled_at === null
-  );
 }
 
 type Decision =
@@ -59,7 +47,11 @@ async function decide(
   if (instance.service_state !== "live") {
     return { kind: "skip", why: `office ${instance.service_state}` };
   }
-  if (!inGoodStanding(subscription)) {
+  if (
+    !["active", "trialing"].includes(subscription.status) ||
+    subscription.cancel_at_period_end !== 0 ||
+    subscription.canceled_at !== null
+  ) {
     return { kind: "skip", why: "subscription not in good standing" };
   }
   const account = await store.sqlGet<{ email: string }>(
@@ -103,59 +95,14 @@ function nextStep(
 }
 
 /**
- * Start the series of each live office that has no welcome row: an office
- * that went live before the series shipped (Nil, 2026-11-10: it still gets the
- * mails, the first one with the late note). Its first mail is due now. An
- * office whose subscription is not in good standing gets no row yet, because
- * a first mail that cannot go out ends the series: a past-due office starts
- * on the first pass after it is paid. Only a missing row is made, so a series
- * that ended or opted out never starts again. Every live office has a liveness
- * check, so the pass that does this runs while one waits.
- */
-async function startMissingSeries(
-  store: Store,
-  now: number,
-  report: ((line: string) => void) | undefined,
-): Promise<void> {
-  for (const office of await store.liveOfficesWithoutWelcomeMail()) {
-    try {
-      const subscription = await currentSubscriptionForInstance(
-        store,
-        office.id,
-      );
-      if (!subscription || !inGoodStanding(subscription)) continue;
-      await store.tx(async () => {
-        // The office went live after it was created; the provisioner cannot
-        // read the audit log that holds the moment.
-        if (await store.recordFirstLive(office.id, now, office.created_at)) {
-          await store.appendAudit({
-            actor: "control-plane",
-            instance_id: office.id,
-            action: "welcome_mail",
-            target: office.id,
-            outcome: "started",
-            detail: "step 0: series started after the office went live",
-          });
-        }
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      report?.(`welcome series start failed for ${office.id}: ${message}`);
-    }
-  }
-}
-
-/**
- * Start the series of each live office that has none, then handle every row
- * that is due at store.now(): send, skip or end, and always advance. Returns
- * the number of mails sent.
+ * Handle every row that is due at store.now(): send, skip or end, and always
+ * advance. Returns the number of mails sent.
  */
 export async function watchWelcomeMail(
   store: Store,
   deps: WelcomeMailWatchDeps,
 ): Promise<number> {
   const send = deps.send ?? sendWelcomeMail;
-  await startMissingSeries(store, store.now(), deps.report);
   let sent = 0;
   for (const row of await store.dueWelcomeMails(store.now(), deps.approved)) {
     const step = row.next_step;

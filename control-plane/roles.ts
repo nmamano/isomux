@@ -464,8 +464,7 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
     table: "welcome_mails",
     verbs: ["select", "insert", "update"],
     because:
-      "the tick starts an office's welcome series when it first goes live, the send pass " +
-      "starts it for a live office that has none, and advances it",
+      "the tick starts an office's welcome series when it first goes live, and the send pass advances it",
   },
   {
     table: "first_paid_checkouts",
@@ -734,16 +733,12 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     via:
       "tick.ts Ticker.finish -> store.recordFirstLive (the account's earlier rows); " +
       "cli.ts cmdRun watch -> welcome-mail-watch.ts watchWelcomeMail -> " +
-      "store.dueWelcomeMails, and startMissingSeries -> " +
-      "store.liveOfficesWithoutWelcomeMail; store.workSchedule's welcome clause",
+      "store.dueWelcomeMails; store.workSchedule's welcome clause",
   },
   {
     table: "welcome_mails",
     verb: "insert",
-    via:
-      "tick.ts Ticker.finish -> store.recordFirstLive, at provisioning -> live; " +
-      "welcome-mail-watch.ts watchWelcomeMail -> startMissingSeries -> " +
-      "store.recordFirstLive, for a live office with no row",
+    via: "tick.ts Ticker.finish -> store.recordFirstLive, at provisioning -> live",
   },
   {
     table: "welcome_mails",

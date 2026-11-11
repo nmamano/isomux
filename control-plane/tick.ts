@@ -839,8 +839,7 @@ export class Ticker {
               detail: becomes,
             });
             // The first time only: a powered-on office was live before, and
-            // its welcome series (welcome-mail-watch.ts) started then, or
-            // starts on a send pass when it has no row.
+            // its welcome series (welcome-mail-watch.ts) started then or never.
             if (
               instance.service_state === "provisioning" &&
               becomes === "live"
