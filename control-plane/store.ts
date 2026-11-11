@@ -255,7 +255,8 @@ function welcomeStepSendable(approved: number): string {
 /**
  * One office's welcome series (welcome-mail-watch.ts). The row is created when
  * the office first goes from provisioning to live, so `live_at` is the only
- * record of that moment. `next_due_at` null means the series is over.
+ * record of that moment. An office that went live before the series shipped
+ * gets its row from the send pass, with its creation as `live_at`. `next_due_at` null means the series is over.
  * `tips` 0 marks a later office of an account that already had a series: it
  * gets the first mail only. An opt-out covers every row of the account.
  */
@@ -2354,6 +2355,8 @@ export class Store {
         "or i.certificate_contact_claim_until <= $1)))) " +
         // The welcome series: exactly dueWelcomeMails' predicate, so a row the
         // pass handles is a row that woke it, and a handled row is idle.
+        // The pass also starts the series of a live office with no row
+        // (startMissingSeries); the liveness clause above wakes it for that.
         "or ($14 = 1 and exists (select 1 from welcome_mails where next_due_at <= $1 " +
         `and opted_out_at is null and ${welcomeStepSendable(opts.welcomeMailsApproved ?? WELCOME_MAILS_APPROVED)})) or ${invoiceDue(opts).due})) as liveness_due` +
         "), due_times as (" +
@@ -2757,21 +2760,42 @@ export class Store {
 
   /**
    * Start the welcome series of an office that has just gone from provisioning
-   * to live. One statement, so it cannot fail the transition it runs in: an
-   * office with no reservation inserts nothing, and a second call changes
-   * nothing. A later office of the same account gets tips 0 and inherits the
-   * account's opt-out.
+   * to live, its first mail due at `now`. One statement, so it cannot fail the
+   * transition it runs in: an office with no reservation inserts nothing, and
+   * a second call changes nothing. A later office of the same account gets
+   * tips 0 and inherits the account's opt-out. `liveAt` is the moment the
+   * office went live, when that was before `now` (startMissingSeries). True
+   * when this call made the row.
    */
-  async recordFirstLive(instanceId: string, now: number): Promise<void> {
-    await this.sqlRun(
+  async recordFirstLive(
+    instanceId: string,
+    now: number,
+    liveAt: number = now,
+  ): Promise<boolean> {
+    const made = await this.sqlAll<{ instance_id: string }>(
       "insert into welcome_mails (instance_id, account_id, live_at, tips, next_step, " +
         "next_due_at, unsubscribe_token, opted_out_at, version, created_at, updated_at) " +
-        "select n.instance_id, n.account_id, $2, case when exists (select 1 from welcome_mails w " +
+        "select n.instance_id, n.account_id, $4, case when exists (select 1 from welcome_mails w " +
         "where w.account_id = n.account_id) then 0 else 1 end, 0, $2, $3, " +
         "(select min(w.opted_out_at) from welcome_mails w where w.account_id = n.account_id), " +
         "0, $2, $2 from name_reservations n where n.instance_id = $1 " +
-        "order by n.created_at, n.name limit 1 on conflict (instance_id) do nothing",
-      [instanceId, now, randomBytes(32).toString("base64url")],
+        "order by n.created_at, n.name limit 1 on conflict (instance_id) do nothing " +
+        "returning instance_id",
+      [instanceId, now, randomBytes(32).toString("base64url"), liveAt],
+    );
+    return made.length > 0;
+  }
+
+  /** Live offices with a reservation and no welcome row, oldest first: an
+   * office that went live before the series shipped has none. */
+  async liveOfficesWithoutWelcomeMail(): Promise<
+    { id: string; created_at: number }[]
+  > {
+    return this.sqlAll(
+      "select i.id, i.created_at from instances i where i.service_state = 'live' " +
+        "and not exists (select 1 from welcome_mails w where w.instance_id = i.id) " +
+        "and exists (select 1 from name_reservations n where n.instance_id = i.id) " +
+        "order by i.created_at, i.id",
     );
   }
 

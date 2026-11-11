@@ -29,8 +29,8 @@
 export const WELCOME_MAILS_APPROVED = 5;
 
 /** The line a late first mail opens with: the office went live before the
- * series sent anything (WELCOME_MAIL_LATE_MS). A placeholder until Nil picks
- * the words. */
+ * series sent anything (WELCOME_MAIL_LATE_MS). Nil approved this text on
+ * 2026-11-10. */
 export const WELCOME_MAIL_LATE_NOTE =
   "We just started sending these welcome emails, so this one comes after your office went live. I still wanted you to have it.";
 
