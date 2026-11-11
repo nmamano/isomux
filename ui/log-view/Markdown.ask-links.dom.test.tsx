@@ -380,3 +380,27 @@ it("takes the title from the prompt's first line with text, without block markup
   });
   view.unmount();
 });
+
+it("keeps an ask id in a path as text and never asks about it (task 64cbacee)", () => {
+  const content = `See ~/nil/isomux-media/${ASK.id}/ and /tmp/t-${ASK.id}.`;
+  const md = refs({ [ASK.id]: ASK });
+  const mdView = render(
+    withRefs(
+      md,
+      <Markdown content={content} tasks={new Map()} onOpenTask={() => {}} />,
+    ),
+  );
+  expect(askChips(mdView.container).length).toBe(0);
+  expect(requested(md).size).toBe(0);
+  mdView.unmount();
+  const plain = refs({});
+  const plainView = render(
+    withRefs(
+      plain,
+      <PlainTaskText content={content} tasks={new Map()} onOpen={() => {}} />,
+    ),
+  );
+  expect(askChips(plainView.container).length).toBe(0);
+  expect(requested(plain).size).toBe(0);
+  expect(plainView.container.textContent).toBe(content);
+});

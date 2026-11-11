@@ -38,7 +38,13 @@ import {
   safeUrl,
   sanitizeHtml,
 } from "./html-sanitize.ts";
-import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
+import {
+  PATH_REACH,
+  idInPath,
+  taskChipLabel,
+  taskChipSuffix,
+  type TaskMap,
+} from "./task-links.tsx";
 import { AskRefs, askChipSuffix, askChipTitle } from "./ask-refs.tsx";
 import { writeClipboardText } from "../components/CopyButton.tsx";
 
@@ -165,7 +171,10 @@ marked.use({
 // see the reader's ACL-filtered task map, so the layout effect below upgrades
 // only ids that resolve, to a task chip or else to an ask chip (task
 // 84aadfab). Marked keeps this tokenizer out of code blocks and
-// code spans; the inLink guard keeps link text unchanged too.
+// code spans; the inLink guard keeps link text unchanged too. An id inside a
+// file path stays text (idInPath). The tokenizer sees only what follows
+// the id, so it reads the path before it from the last text token (marked
+// merges adjacent text tokens).
 marked.use({
   extensions: [
     {
@@ -174,10 +183,14 @@ marked.use({
       start(src: string) {
         return src.search(/\b[0-9a-f]{8}\b/);
       },
-      tokenizer(src: string) {
+      tokenizer(src: string, tokens) {
         if (this.lexer.state.inLink) return;
         const match = /^\b[0-9a-f]{8}\b/.exec(src);
         if (!match) return;
+        const last = tokens.at(-1);
+        const before = last?.type === "text" ? last.raw.slice(-PATH_REACH) : "";
+        const near = before + src.slice(0, match[0].length + PATH_REACH);
+        if (idInPath(near, before.length)) return;
         return { type: "taskId", raw: match[0], id: match[0] };
       },
       renderer(token) {

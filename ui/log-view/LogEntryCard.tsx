@@ -1631,62 +1631,10 @@ function PeerMessage({
         borderLeft: "3px dashed var(--text-muted)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-        <div
-          ref={bodyRef}
-          id={bodyId}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontFamily: "var(--font-ui)",
-            fontSize,
-            lineHeight: 1.45,
-            color: "var(--text-secondary)",
-            overflowWrap: "break-word",
-            ...(expanded
-              ? { whiteSpace: "pre-wrap" }
-              : {
-                  display: "-webkit-box",
-                  WebkitLineClamp: isMobile ? 3 : 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }),
-          }}
-        >
-          <span
-            {...noTranslate()}
-            style={{
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              marginRight: 8,
-            }}
-          >
-            <span style={{ whiteSpace: "nowrap" }}>
-              <AgentAvatar agentId={agentId} />
-              <AgentLink agentId={agentId}>{agentName}</AgentLink>
-            </span>
-            {room && (expanded || !isMobile) && (
-              <span style={{ fontWeight: 400, color: "var(--text-faint)" }}>
-                {" "}
-                · {room}
-              </span>
-            )}
-          </span>
-          {expanded && "\n"}
-          <span {...noTranslate()}>
-            {!expanded ? (
-              content.replace(/\s*\n+\s*(?:[-*]\s+)?/g, " · ")
-            ) : tasks && onOpenTask ? (
-              <PlainTaskText
-                content={content}
-                tasks={tasks}
-                onOpen={onOpenTask}
-              />
-            ) : (
-              content
-            )}
-          </span>
-        </div>
+      {/* The corner floats: the collapsed lines (a line clamp, so a block
+          formatting context) sit beside it, and the expanded text wraps under
+          it at full width instead of in a column beside it. */}
+      <div style={{ display: "flow-root" }}>
         <BubbleCorner timestamp={timestamp}>
           {canToggle && (
             <button
@@ -1729,6 +1677,67 @@ function PeerMessage({
           )}
           <CopyButton getText={getText} />
         </BubbleCorner>
+        <div
+          ref={bodyRef}
+          id={bodyId}
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize,
+            lineHeight: 1.45,
+            color: "var(--text-secondary)",
+            overflowWrap: "break-word",
+            ...(expanded
+              ? { whiteSpace: "pre-wrap" }
+              : {
+                  display: "-webkit-box",
+                  WebkitLineClamp: isMobile ? 3 : 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }),
+          }}
+        >
+          <span
+            {...noTranslate()}
+            style={{
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              marginRight: 8,
+            }}
+          >
+            <span style={{ whiteSpace: "nowrap" }}>
+              <AgentAvatar agentId={agentId} />
+              <AgentLink agentId={agentId}>{agentName}</AgentLink>
+            </span>
+            {room && (expanded || !isMobile) && (
+              <>
+                {" "}
+                <span
+                  style={{
+                    fontWeight: 400,
+                    color: "var(--text-faint)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  · {room}
+                </span>
+              </>
+            )}
+          </span>
+          {expanded && "\n"}
+          <span {...noTranslate()}>
+            {!expanded ? (
+              content.replace(/\s*\n+\s*(?:[-*]\s+)?/g, " · ")
+            ) : tasks && onOpenTask ? (
+              <PlainTaskText
+                content={content}
+                tasks={tasks}
+                onOpen={onOpenTask}
+              />
+            ) : (
+              content
+            )}
+          </span>
+        </div>
       </div>
       {attachments && attachments.length > 0 && (
         <AttachmentDisplay

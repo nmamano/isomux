@@ -6,7 +6,37 @@ import { AskIdText } from "./ask-refs.tsx";
 
 export type TaskMap = ReadonlyMap<string, TaskItem>;
 
-export const TASK_ID_PATTERN = /\b[0-9a-f]{8}\b/g;
+const TASK_ID_PATTERN = /\b[0-9a-f]{8}\b/g;
+
+const TASK_ID_LENGTH = 8;
+// How far the path check looks each way from an id. Bounded, so a long run
+// of joined ids still renders in linear time.
+export const PATH_REACH = 64;
+
+/** True when the task id at index is part of a file path, not a reference
+ * (task 64cbacee): a "/" or "\" in the same non-whitespace run, at most
+ * PATH_REACH characters away. */
+export function idInPath(text: string, index: number): boolean {
+  const isSeparator = (char: string) => char === "/" || char === "\\";
+  const isSpace = (char: string) => /\s/.test(char);
+  for (let i = index - 1; i >= Math.max(0, index - PATH_REACH); i--) {
+    if (isSpace(text[i])) break;
+    if (isSeparator(text[i])) return true;
+  }
+  const end = index + TASK_ID_LENGTH;
+  for (let i = end; i < Math.min(text.length, end + PATH_REACH); i++) {
+    if (isSpace(text[i])) break;
+    if (isSeparator(text[i])) return true;
+  }
+  return false;
+}
+
+/** The task id matches in text, minus ids inside a path. */
+function taskIdMatches(text: string): RegExpExecArray[] {
+  return [...text.matchAll(TASK_ID_PATTERN)].filter(
+    (match) => !idInPath(text, match.index),
+  );
+}
 
 // Opens a task on the board. App provides it; with no opener, ids stay plain
 // text (ask prompts, AskPrompt).
@@ -55,7 +85,7 @@ export function renderTaskText(
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
   let cursor = 0;
-  for (const match of text.matchAll(TASK_ID_PATTERN)) {
+  for (const match of taskIdMatches(text)) {
     const index = match.index;
     const id = match[0];
     const task = tasks.get(id);
