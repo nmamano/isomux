@@ -19,6 +19,7 @@ import {
 import { STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import {
+  FAKE_SESSION,
   fakeOpenCode,
   fakeSupervisor,
   fakeToolEnvironment,
@@ -1545,4 +1546,93 @@ describe("OpenCode pinned transport", () => {
       40_000,
     );
   }
+});
+
+// Agent steers reach a busy OpenCode session through its inbox, without an
+// abort (internal-docs/steer-delivery-design.md §3.5). The orchestrator's
+// push path (message-queue pushBoundarySteer) reads the capability flag and
+// the session's steer(); the transport covers the wire behavior
+// (transport.test.ts, "OpenCode 2 native steer").
+describe("OpenCode session steer", () => {
+  it("the OpenCode backend delivers agent steers without aborting", () => {
+    // The enqueue path reads this flag; without it every steer still aborts.
+    expect(getBackend("opencode").toolBoundaryDelivery).toBe(true);
+  });
+
+  it("steers the running turn and surfaces the delivery on its stream", async () => {
+    const f = framesOf(FAKE_SESSION);
+    const turn: FakeTurn = {
+      frames: [
+        f.delivered("INBOX"),
+        f.stepStarted("m1"),
+        ...f.toolCalled("m1", "call_1", "shell", { command: "sleep 5" }),
+        f.asked("per_1", "sleep 5"),
+        f.toolSuccess("m1", "call_1", "slept"),
+        f.stepEnded("m1"),
+        f.textEnded("m1", "done"),
+        f.succeeded(),
+      ] as Frame[],
+      session: FAKE_SESSION,
+      inbox: "INBOX",
+    };
+    const fake = fakeOpenCode({ turns: [turn] });
+    cleanup.push(fake.restore);
+    const backend = createOpenCodeBackend({
+      supervisor: fakeSupervisor().supervisor,
+    });
+    const session = backend.createSession({
+      ...opts,
+      modelFamily: "provider/model",
+    });
+    cleanup.push(() => session.close());
+
+    const events: NormalizedEvent[] = [];
+    const streamed = (async () => {
+      for await (const event of session.stream()) {
+        events.push(event);
+        if (event.kind === "turn_completed") return event;
+      }
+      return undefined;
+    })();
+    const sending = session.send("work");
+    const askAt = Date.now() + 3_000;
+    while (
+      !events.some((e) => e.kind === "approval_request") &&
+      Date.now() < askAt
+    )
+      await Bun.sleep(2);
+    const ask = events.find(
+      (e) => e.kind === "approval_request",
+    ) as Extract<NormalizedEvent, { kind: "approval_request" }>;
+    expect(ask).toBeDefined();
+    expect(await session.steer!("FYI from Sender", "steer-1")).toBe(true);
+    await session.approve(ask.approvalId, { kind: "allow_once" });
+    await sending;
+    const end = await streamed;
+
+    expect(end?.status).toBe("completed");
+    const delivered = events.filter((e) => e.kind === "steer_delivered");
+    expect(delivered).toEqual([
+      { kind: "steer_delivered", steerId: "steer-1" },
+    ]);
+    expect(events.indexOf(delivered[0]!)).toBeLessThan(
+      events.findIndex((e) => e.kind === "turn_completed"),
+    );
+    expect(fake.inboxRow("msg_steer-1")?.state).toBe("delivered");
+  });
+
+  it("refuses a steer with no turn running", async () => {
+    const fake = fakeOpenCode({});
+    cleanup.push(fake.restore);
+    const backend = createOpenCodeBackend({
+      supervisor: fakeSupervisor().supervisor,
+    });
+    const session = backend.createSession({
+      ...opts,
+      modelFamily: "provider/model",
+    });
+    cleanup.push(() => session.close());
+    expect(await session.steer!("early", "steer-0")).toBe(false);
+    expect(fake.steerLog).toEqual([]);
+  });
 });

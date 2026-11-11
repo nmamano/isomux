@@ -4,6 +4,8 @@
 > returned the text" (no transcript read), and §5 is settled. Tasks 0a248523 (P0, steer read as a human rejection) and 7529b23b (P3, deliver
 > at the next tool boundary). Builds on `message-steering-design.md` §2.1, which shipped the `steer` flag.
 > Codex receivers joined in task 85706f13 (2026-10-19): §3.4 delivers their steers with `turn/steer`.
+> OpenCode receivers joined on the `@opencode/cli` 2.2.5 pin (2026-11-11): §3.5 delivers their steers through
+> the session's own inbox. Every engine now takes agent steers at a boundary.
 
 ## 1. The failure, reproduced
 
@@ -64,6 +66,17 @@ tool result and the new user message in the same run. But there is no "only if s
 that races the end of the run starts a fresh run on its own (43 of 48 timed race trials), which is the unowned
 follow-on turn of the July attempt, and the source shows a narrow window where such a prompt gets no reply at
 all. OpenCode therefore keeps the abort.
+
+Re-probed on the current pin (2026-11-11, `@opencode/cli` 2.2.5 source at tag v2.2.5 plus the pinned binary with
+the gate mock; 48 timed race trials per mode): the v2 inbox changes the picture. `POST /api/session/:id/prompt`
+durably admits its input to the session's SQLite inbox and answers at once; a busy run promotes rows admitted
+with `delivery:"steer"` (the default) at its next step boundary, inside the same run - the tool finishes, no
+interrupt. `resume:false` admits WITHOUT scheduling a run (a run starts only through the coordinator's wake), so
+a steer that misses the run's last boundary check stays a pending row instead of starting anything: 0 of 48 race
+trials produced an unowned run or a lost reply (31 folded into the run, 17 stayed pending and cancelled). The
+default path (an ordinary prompt) still starts a successor run when the wake lands in the settle window - 13 of
+48 trials - but the no-reply window of 1.18.35 is gone: the row is durable and every drain re-checks it. §3.5
+ships the `resume:false` form.
 
 
 Probe scripts: `internal-docs/evidence/steer-delivery-0926/` (`probe.ts` for the table above, `probe2.ts` for §3.1).
@@ -170,8 +183,9 @@ A real human permission denial followed by an ordinary agent message carries no 
 same turn stays a denial even when a steer follows it.
 
 The sender half of that line has since moved to the messaging page of the agent reference
-(`server/agent-reference/messaging.md`), which since task 85706f13 reads "a Claude or Codex agent receives it without being
-interrupted; an OpenCode agent is interrupted."
+(`server/agent-reference/messaging.md`), which since task 85706f13 read "a Claude or Codex agent receives it without being
+interrupted; an OpenCode agent is interrupted", and since §3.5 (2026-11-11) names no engine: a busy recipient
+receives a steer at a tool boundary without being interrupted, whichever engine runs it.
 
 ### 3.4 Codex: agent steers go in with `turn/steer` (85706f13)
 
@@ -210,16 +224,56 @@ first (4 of 4).
 **Edit and fork.** On Codex the steer is a backend user message inside a turn. Its text starts with the note and
 the sender prefix, so it never matches a member's text, and `editMessage` already excludes `tool_boundary` entries.
 
+### 3.5 OpenCode: agent steers go in through the session's own inbox (2.2.5 pin, 2026-11-11)
+
+The OpenCode backend declares the same `toolBoundaryDelivery` capability, so the enqueue branch of §3.1 and the
+whole orchestrator half of §3.4 are unchanged: same session gate, eligible-batch rule, `boundaryText`, push at
+the steer's enqueue and at each main-thread `tool_call`, rate-limit exemption. OpenCode is a push session like
+Codex; its `steer()` rides the v2 inbox that §2's re-probe qualified.
+
+**Push.** `OpenCodeSession.steer(text, steerId)` (transport.steer) sends
+`POST /api/session/:id/prompt` with `{id: "msg_<steerId>", text, delivery: "steer", resume: false}`.
+`resume:false` is the precondition the 1.18.35 probe found missing: the admit is durable, but only the
+coordinator's wake starts a run (upstream `core/src/session/session.ts:187`,
+`core/src/session/run-coordinator.ts:119-140`), and this call never wakes. A run that is already active promotes
+the row at its next step boundary (`core/src/session/runner/llm.ts:95-98,187-199`); a steer that misses the
+run's last boundary check stays pending and can never start an unowned run. The caller-chosen inbox id (the
+route only requires the `msg_` prefix, `schema/src/session-message.ts:21`) is registered before the POST, so the
+delivered frame is recognized even when it outruns the admit's answer. The same guards as Codex answer false
+with no request (no active turn, no prompt out yet, abort in flight); a refused admit (any HTTP failure, a 409
+id conflict) answers false and never throws.
+
+**Delivery is the inbox event.** OpenCode promotes the row inside the run and publishes
+`session.inbox.delivered` on the same ordered event stream, always before the run's terminal frame. The
+transport maps a delivered frame of one of its own inbox ids to `steer_delivered` (once per id), and the
+orchestrator logs the items at that point, as in §3.4.
+
+**Release.** The transport releases every admitted-but-undelivered steer inside the terminal-frame handling, in
+`abort()` after the interrupt (which parks rows: no `resume`), and on the failed turn's stop chain that the next
+turn waits out; a pre-prompt cancel catches survivors of a server replacement. The cancel route is no oracle:
+2.2.5 answers 204 for every `DELETE /api/session/:id/inbox/:inboxId` of an existing session, swallowing the
+conflict of a delivered or unknown row (`server/src/handlers/session.ts`, `session.inbox.cancel`). So the
+pending list decides first: `GET /api/session/:id/inbox` still listing the row means the run never took it -
+the DELETE cancels it; a row gone from the list was promoted (its delivered frame lost with a broken stream),
+which is reported as `steer_delivered` before the completion. The session is idle at every one of those points
+(Isomux sends the only wakes), so the list cannot change between the read and the cancel. Cancelled items go
+back to the queue with the turn's drain (`drainBoundaryClaim`), and the flush that follows delivers them once.
+At-least-once, as §3.1/§3.4: a duplicate remains possible only when the list read or the DELETE itself fails
+against a live server, since a row it misses is promoted by the next run before the flush's copy.
+
+**Edit and fork.** As on Codex, the steer is a backend user message inside the turn; its text starts with the
+note and the sender prefix, and `editMessage` already excludes `tool_boundary` entries (§3.1).
+
 ## 4. What changes for callers
 
 | Surface | Before | After |
 |---|---|---|
-| Ack `steered:true` | turn aborted | Claude receiver: delivered at its next batch boundary, or as its next turn if the turn ends first or the queue holds a member/skill/handoff item. Codex receiver (since 85706f13): delivered at its next step (after the running tool or reply, or at the next poll of a long command, which keeps running), or as its next turn if codex refuses it or drops it. OpenCode: turn aborted (unchanged). Shape unchanged. |
-| Ack `queued:false` on a steer | "does not wait for the current turn" | Claude or Codex receiver: can wait for the rest of the turn (long tool call, no further boundary, ineligible batch) |
+| Ack `steered:true` | turn aborted | Claude receiver: delivered at its next batch boundary, or as its next turn if the turn ends first or the queue holds a member/skill/handoff item. Codex receiver (since 85706f13): delivered at its next step (after the running tool or reply, or at the next poll of a long command, which keeps running), or as its next turn if codex refuses it or drops it. OpenCode receiver (since the 2.2.5 pin, §3.5): as Codex - delivered at the run's next step boundary, or as its next turn if the run ended first or OpenCode refused the admit. Shape unchanged. |
+| Ack `queued:false` on a steer | "does not wait for the current turn" | Claude, Codex or OpenCode receiver: can wait for the rest of the turn (long tool call, no further boundary, ineligible batch) |
 | Rate limit (3/min/receiver) | counts steers that interrupted | unchanged meaning: boundary steers interrupt nothing, so they are neither counted nor refused |
-| Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | Claude: steer waits for it. Codex: the command keeps running and the steer can go in at its next poll. OpenCode: steer cuts it |
+| Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | Claude: steer waits for it. Codex: the command keeps running and the steer can go in at its next poll. OpenCode: the tool runs to its end and the steer goes in at the step boundary after it |
 | Ordinary agent that must stop a Claude agent now | steer | no path; privileged agents and members keep `/abort` and Send now. Since task f4452169 (Nil, 2026-10-02) every agent may `/abort` any agent it may message; agent stops share the steer window and leave the target a stop notice |
-| Chat log | "Agent interrupted." then the message | no interruption line. Claude: the message appears after the tool result. Codex: where codex recorded it, which for a long command can be between the command card and its result |
+| Chat log | "Agent interrupted." then the message | no interruption line. Claude: the message appears after the tool result. Codex: where codex recorded it, which for a long command can be between the command card and its result. OpenCode: after the tool result of the step whose boundary promoted it |
 | Curl card label for a steer | "Interrupt {who} with a message" | "Message {who} mid-turn" (en; es, ca, zh follow) |
 
 ## 5. Decisions (PM, 2026-09-26)
@@ -228,7 +282,9 @@ the sender prefix, so it never matches a member's text, and `editMessage` alread
    privileged agents keep `/abort`. The PM takes the contract change to Nil.
 2. The rate limit counts only steers that abort.
 3. Codex `turn/steer`: a follow-up task. Codex and OpenCode keep the abort plus the §3.2 note. Done for Codex in
-   task 85706f13 (§3.4, 2026-10-19); OpenCode keeps the abort (§2).
+   task 85706f13 (§3.4, 2026-10-19); done for OpenCode on the 2.2.5 pin (§3.5, 2026-11-11) after the §2
+   re-probe qualified the native inbox steer. An agent steer now aborts no engine; the §3.2 notes remain for
+   the abort paths that are left (a member's Send now, an agent's `/abort`, and the send-now route).
 
 ## 6. Verification
 
@@ -269,3 +325,19 @@ the sender prefix, so it never matches a member's text, and `editMessage` alread
   recorded the text at a poll boundary; the chat showed it before the Bash card, which the adapter reported only
   when the command ended until task 9f8d6942); the Receiver did steps 2 and 3 and replied with the line count. It asked nobody anything and did
   not treat the steer as injected text.
+- Unit, OpenCode push (§3.5; `transport.test.ts` "OpenCode 2 native steer", `adapter.test.ts` "OpenCode session
+  steer"): an admitted steer folds into the running turn - `steer_delivered` before `turn_completed`, a foreign
+  inbox row's delivery reports nothing, no cancel owed; false with no request when no turn runs; a refused admit
+  answers false and leaves nothing pending; a parked steer is cancelled before the completion is emitted; a row
+  gone from the pending list (the cancel route answers 204 for both outcomes) is reported as the delivery, once,
+  before the completion, with no DELETE; abort cancels a parked steer after the interrupt; the backend declares
+  the capability; the session's stream surfaces the delivery. The fake answers the steer route (`resume:false`
+  prompts), the inbox GET/DELETE routes (204 for every cancel, as 2.2.5), and plays each turn's boundary as
+  `deliver`, `silent` (a frame the stream lost) or `park` (the steer missed the run).
+- Probe, OpenCode 2.2.5 (§2 re-probe, 2026-11-11): pinned darwin-arm64 binary with the gate mock, 48 timed race
+  trials per mode. `resume:false`: 31 folded into the run, 17 stayed pending and cancelled (204), 0 successor
+  runs, 0 lost. Default prompts: 35 folded, 13 successor runs, 0 lost. Mid-run steer during a 6 s tool: the tool
+  ran to its end, one run, the next model request carried the text. Idle admit with `resume:false`: no execution
+  started while the row was pending. Scratch runs, not kept.
+- Unverified for OpenCode: a pending row across an OpenCode server restart (durable in its SQLite by design, and
+  the next turn's pre-prompt cancel guards it); the §1 live repro at an OpenCode receiver.
