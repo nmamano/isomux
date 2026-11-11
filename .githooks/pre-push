@@ -2,6 +2,8 @@
 # Runs the exact CI gate (`bun run ci`: format:check, lint, typecheck, UI
 # build, tests, web app) so a push that passes here passes on GitHub. One command on
 # purpose - a hand-copied subset of the steps is how the two drifted apart.
+# Off Linux, with no isomux.ciRemote set, it skips the gate: the suite passes
+# only on Linux, and GitHub runs it on every pull request.
 # Bypass with `git push --no-verify` only after deciding the push is safe.
 #
 # scripts/ci-remote.sh runs it, here or on the machine git config

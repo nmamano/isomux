@@ -9,7 +9,8 @@
 # The target is the clone's git config key isomux.ciRemote (user@host), set
 # with `git config isomux.ciRemote user@host`: never committed, and shared by
 # every worktree of the clone. Unset, both CI entry points run `bun run ci`
-# here, in place, as the hook always did.
+# here, in place, except that the hook skips it off Linux: the suite passes
+# only on Linux, and GitHub runs it on every pull request.
 #
 # Set, the commit goes to the remote by `git push` over ssh, and this file is
 # piped to the remote shell to run it there (--remote below). The remote half
@@ -372,6 +373,11 @@ local_main() {
   fi
   TARGET=$(git config --get isomux.ciRemote)
   if [[ -z $TARGET ]]; then
+    # uname by PATH, so a test can stub it.
+    if [[ ${1:-} == --pre-push && $(uname -s) != Linux ]]; then
+      echo "→ Skipped the full CI gate: it passes only on Linux, and GitHub runs it on your pull request. Checks to run by hand: CONTRIBUTING.md"
+      return 0
+    fi
     run_here "${TMPDIR:-/tmp}/isomux-pre-push-$(date +%Y%m%dT%H%M%S).log"
     return
   fi

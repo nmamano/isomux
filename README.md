@@ -105,6 +105,10 @@ Want it on an always-on server, reachable from every device, with other people i
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## How it works
 
 Curious about the internals? [Read how it works](docs/how-it-works.md).

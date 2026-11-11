@@ -60,13 +60,22 @@ type Local = {
   /** With merge, stderr goes into stdout as in a caller's `> log 2>&1`. */
   run(
     args: string[],
-    opts?: { target?: string; stdin?: string; entry?: string; merge?: boolean },
+    opts?: {
+      target?: string;
+      stdin?: string;
+      entry?: string;
+      merge?: boolean;
+      /** What `uname` answers; unset, the host's own uname runs. */
+      os?: string;
+    },
   ): { status: number | null; out: string };
   /** One line per `bun` call: its arguments and the commit checked out. */
   bunCalls(): string[];
   /** One line per remote half started: its arguments. */
   remoteRuns(): string[];
   sshCalls(): string[];
+  /** One line per call of the stub `uname`: its arguments. */
+  unameCalls(): string[];
   /** The files the script left in its TMPDIR. */
   logs(): string[];
 };
@@ -203,6 +212,11 @@ exit ${localCode}`,
         if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
       }
       if (opts.target) git(repo, "config", "isomux.ciRemote", opts.target);
+      if (opts.os)
+        stub(
+          join(bin, "uname"),
+          `printf '%s\\n' "$*" >> "$FIX/uname.log"\necho ${opts.os}`,
+        );
       const entry = [opts.entry ?? script, ...args];
       const argv = opts.merge
         ? ["-c", 'exec bash "$@" 2>&1', "_", ...entry]
@@ -228,6 +242,7 @@ exit ${localCode}`,
     bunCalls: () => read(join(dir, "bun.log")).split("\n").filter(Boolean),
     remoteRuns: () => read(join(dir, "remote.log")).split("\n").filter(Boolean),
     sshCalls: () => read(join(dir, "ssh.log")).split("\n").filter(Boolean),
+    unameCalls: () => read(join(dir, "uname.log")).split("\n").filter(Boolean),
     logs: () => readdirSync(join(dir, "tmp")).sort(),
   };
 }
@@ -259,6 +274,7 @@ describe("ci-remote, with no target", () => {
     const [first, second] = f.shas;
     const r = f.run(["--pre-push"], {
       entry: HOOK,
+      os: "Linux",
       stdin: `refs/heads/main ${second} refs/heads/main ${first}\nrefs/heads/x ${first} refs/heads/x ${first}\n`,
     });
     expect(r.status, r.out).toBe(1);
@@ -271,11 +287,39 @@ describe("ci-remote, with no target", () => {
     const f = local(0, 0);
     const r = f.run(["--pre-push"], {
       entry: HOOK,
+      os: "Linux",
       stdin: `refs/heads/main ${f.shas[1]} refs/heads/main ${f.shas[0]}\n`,
     });
     expect(r.status, r.out).toBe(0);
     expect(f.bunCalls()).toEqual([`run ci ${f.shas[1]}`]);
     expect(f.logs()).toEqual([]);
+  });
+
+  // The full suite is Linux-only; off Linux the pull request's checks run it.
+  it("skips the hook's gate off Linux, and says so in one line", () => {
+    for (const os of ["Darwin", "FreeBSD"]) {
+      const f = local(1, 1);
+      const r = f.run(["--pre-push"], {
+        entry: HOOK,
+        os,
+        stdin: `refs/heads/main ${f.shas[1]} refs/heads/main ${f.shas[0]}\n`,
+      });
+      expect(r.status, `${os}: ${r.out}`).toBe(0);
+      expect(f.bunCalls(), os).toEqual([]);
+      expect(f.sshCalls(), os).toEqual([]);
+      expect(f.logs(), os).toEqual([]);
+      const lines = r.out.split("\n").filter((l) => l.trim());
+      expect(lines, os).toHaveLength(1);
+      // The verdict came from the stub's answer, not the host's.
+      expect(f.unameCalls(), os).not.toEqual([]);
+    }
+  });
+
+  it("runs bun run ci off Linux when asked directly, not from the hook", () => {
+    const f = local(0, 0);
+    const r = f.run([], { os: "Darwin" });
+    expect(r.status, r.out).toBe(0);
+    expect(f.bunCalls()).toEqual([`run ci ${f.shas[1]}`]);
   });
 });
 
@@ -418,6 +462,20 @@ describe("ci-remote, with a target", () => {
     const r = f.run([], { target: TARGET });
     expect(r.status, r.out).toBe(0);
     expect(existsSync(join(f.dir, "hook-ran"))).toBe(false);
+  });
+
+  it("tests the pushed commit on the remote from the hook off Linux", () => {
+    const f = local(0, 1);
+    const [first, second] = f.shas;
+    const r = f.run([], {
+      entry: HOOK,
+      target: TARGET,
+      os: "Darwin",
+      stdin: `refs/heads/main ${second} refs/heads/main ${first}\n`,
+    });
+    expect(r.status, r.out).toBe(0);
+    expect(f.remoteRuns().map((line) => line.split(" ")[4])).toEqual([second]);
+    expect(f.bunCalls()).toEqual([]);
   });
 
   it("tests each pushed commit once from the hook and skips deletions", () => {
