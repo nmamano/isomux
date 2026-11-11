@@ -104,6 +104,7 @@ it("no entry hides the sidebar: the walk clicks every button it draws, opening c
       "apps",
       "skills",
       "integrations",
+      "settings",
     ].map((row) => `data-sidebar-nav=${row}`),
     "data-sidebar-self=",
     "data-sidebar-more-rooms=",

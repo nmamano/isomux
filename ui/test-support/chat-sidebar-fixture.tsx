@@ -17,7 +17,7 @@
 //   button[data-sidebar-nav="<row>"]         office, new-agent, members-chat
 //                                            and the pages (asks, tasks,
 //                                            cronjobs, apps, skills,
-//                                            integrations)
+//                                            integrations, settings)
 //   [data-sidebar-badge]                     a row's count, absent at 0
 //   button[data-sidebar-room="<roomId>"]     a room header, aria-expanded
 //   button[data-sidebar-back-room="<roomId>"] a room's Back room row,

@@ -97,12 +97,14 @@ it("has no + for a member whose pack gives agent management read only; its page 
     view.container.querySelector('button[data-sidebar-room="r1"]'),
   ).not.toBeNull();
   expect(anyPlus(view)).toBe(0);
-  // Tasks is in the pack; Automations, Apps and Skills are not.
-  const pages = ["tasks", "cronjobs", "apps", "skills"] as const;
+  // Tasks is in the pack; Automations, Apps and Skills are not. Settings
+  // has no gate, as the office bar's Settings has none.
+  const pages = ["tasks", "cronjobs", "apps", "skills", "settings"] as const;
   expect(pages.map((row) => navRow(view, row) !== null)).toEqual([
     true,
     false,
     false,
     false,
+    true,
   ]);
 });

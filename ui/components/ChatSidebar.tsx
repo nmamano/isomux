@@ -30,6 +30,7 @@ import {
   ClockIcon,
   InboxIcon,
   PlugIcon,
+  SettingsIcon,
   SidebarIcon,
   SkillsIcon,
   TasksIcon,
@@ -675,13 +676,15 @@ export function ChatSidebar({
           gap: 1,
         }}
       >
-        <NavRow
-          attr="office"
-          icon={BuildingIcon}
-          label={t("sidebar.office")}
-          current={officeShown}
-          onClick={onOffice}
-        />
+        {canApps && (
+          <NavRow
+            attr="apps"
+            icon={AppsIcon}
+            label={t("common.apps")}
+            current={page === "apps"}
+            onClick={() => onOpenPage("apps")}
+          />
+        )}
         <NavRow
           attr="asks"
           icon={InboxIcon}
@@ -708,15 +711,6 @@ export function ChatSidebar({
             onClick={() => onOpenPage("cronjobs")}
           />
         )}
-        {canApps && (
-          <NavRow
-            attr="apps"
-            icon={AppsIcon}
-            label={t("common.apps")}
-            current={page === "apps"}
-            onClick={() => onOpenPage("apps")}
-          />
-        )}
         {canSkills && (
           <NavRow
             attr="skills"
@@ -732,6 +726,20 @@ export function ChatSidebar({
           label={t("common.integrations")}
           current={page === "integrations"}
           onClick={() => onOpenPage("integrations")}
+        />
+        <NavRow
+          attr="settings"
+          icon={SettingsIcon}
+          label={t("common.settings")}
+          current={page === "settings"}
+          onClick={onOpenSettings}
+        />
+        <NavRow
+          attr="office"
+          icon={BuildingIcon}
+          label={t("sidebar.office")}
+          current={officeShown}
+          onClick={onOffice}
         />
         <div
           style={{
