@@ -45,6 +45,8 @@ Default `bun test` makes zero LLM calls.
 
 T3 is gated behind the `ISOMUX_TEST_LIVE` env flag plus the separate `test:live` script, run manually or nightly, serial, on cheap models. Never in CI or pre-commit.
 
+Codex's sandbox needs user namespaces, which a shell in an agent session with process isolation does not have. From such a shell, run `server/backends/codex-access.live.test.ts` through `systemd-run --user --wait --pipe --quiet --collect --same-dir -E PATH -E ISOMUX_TEST_LIVE=1 bun test <file>`; run in the session, its folder write test fails and names the cause.
+
 ## Principles
 
 Keep a test only when all applicable rules below pass. A failed rule makes the test a cut candidate, not an automatic deletion: a test may stay when it protects a high-severity invariant that has no stable, cheaper oracle.

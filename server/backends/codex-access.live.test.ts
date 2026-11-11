@@ -30,6 +30,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 
 import { CodexSession } from "./codex/adapter.ts";
 import { CODEX_EMPTY_CWD_ROOT } from "./codex/access.ts";
+import { classifyCodexSandboxProbe } from "./codex/sandbox-probe.ts";
 import {
   FOLDER_FILES_MCP_PATH,
   FOLDER_FILES_MCP_SERVER,
@@ -139,6 +140,38 @@ async function officeMcp(req: Request): Promise<Response> {
 // Prepare while this module loads: the hook build and the trust probe take
 // several seconds, and Bun's 5 s hook cap must not compete with them.
 if (LIVE) await prepareCodexSafetyHookArtifact();
+
+// Codex's workspace-write sandbox is bubblewrap, which needs a new user
+// namespace. A process that cannot make one, such as a shell in an agent
+// session with process isolation on, gets "Failed to write file" for every
+// write in the folder: the environment, not a product regression. Only a
+// bwrap denial counts; bwrap absent or any other failure gives no verdict.
+// The other confinement tests here do not depend on it: Codex's policy or the
+// Isomux safety hook rejects their writes before any sandbox runs (same
+// outputs with and without namespaces, task 00f891ea).
+const namespaceDenial = (() => {
+  if (!LIVE) return null;
+  try {
+    const probe = Bun.spawnSync(["bwrap", "--ro-bind", "/", "/", "true"]);
+    const stderr = probe.stderr.toString();
+    return classifyCodexSandboxProbe(probe.exitCode, stderr) === "denied"
+      ? (stderr.trim().split("\n")[0] ?? "").replace(/\.$/, "")
+      : null;
+  } catch {
+    return null;
+  }
+})();
+
+// First line of each test that needs Codex's sandbox to run: fails at once,
+// naming the cause, where it cannot.
+function requireNamespaces(): void {
+  if (namespaceDenial === null) return;
+  throw new Error(
+    `Codex's sandbox cannot run in this process: bwrap cannot create a namespace (${namespaceDenial}). ` +
+      "An agent session with process isolation is such a place. Run this file outside it: " +
+      "systemd-run --user --wait --pipe --quiet --collect --same-dir -E PATH -E ISOMUX_TEST_LIVE=1 bun test server/backends/codex-access.live.test.ts",
+  );
+}
 
 beforeAll(async () => {
   if (!LIVE) return;
@@ -523,8 +556,9 @@ describe.skipIf(!LIVE)(`Codex ${MODEL} below Standard (live)`, () => {
     expect(existsSync(stdioMarker)).toBe(false);
   }, 60_000);
 
-  // apply_patch stays offered (§6.2a); the read-only sandbox refuses every
-  // write, in the thread's folder and outside it.
+  // apply_patch stays offered (§6.2a) and writes nothing: the safety hook
+  // refuses the write in the thread's folder (it is under ~/.isomux), and
+  // Codex's read-only policy refuses the write outside it.
   test("a streamed apply_patch writes nothing, inside the folder or outside", async () => {
     const patch = (k: number, body: string) => ({
       type: "custom_tool_call",
@@ -748,6 +782,7 @@ describe.skipIf(!LIVE)(`Codex ${MODEL} at folder and web (live)`, () => {
   // engine or repository config (the hook, from the confinement the session
   // puts in the app-server's environment), never in a temp folder.
   test("folder: apply_patch writes inside the folder only", async () => {
+    requireNamespaces();
     const agentCwd = agentFolder();
     const tmpTarget = join(tmpdir(), `c2-${process.pid}-escape.txt`);
     const run = await runTurn(
