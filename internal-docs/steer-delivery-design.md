@@ -264,6 +264,13 @@ against a live server, since a row it misses is promoted by the next run before 
 **Edit and fork.** As on Codex, the steer is a backend user message inside the turn; its text starts with the
 note and the sender prefix, and `editMessage` already excludes `tool_boundary` entries (§3.1).
 
+**Upstream guarantee.** OpenCode's own suite pins only half of this: "only records the prompt when resume is
+false" (`packages/core/test/session-prompt.test.ts`) checks that `resume: false` never wakes the session. A test
+for the other half, a steer row that stays pending and cancellable, was proposed and declined
+([anomalyco/opencode#63356](https://github.com/anomalyco/opencode/pull/63356), closed as not planned). Only the
+live tests in `server/test-support/agent-manager.opencode.live.test.ts` guard it, so run
+`bun run test:opencode` on every OpenCode version bump.
+
 ## 4. What changes for callers
 
 | Surface | Before | After |
