@@ -140,7 +140,8 @@ function spawnEslint(
       env: eslintEnv(process.env, selfReport),
     });
     const code = await child.exited;
-    return { code, signal: child.signalCode };
+    const signal = child.signalCode;
+    return { code, signal: signal === null ? null : String(signal) };
   };
 }
 

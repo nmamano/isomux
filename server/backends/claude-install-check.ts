@@ -278,7 +278,10 @@ export async function runClaudeAuthStatus(
     child.exited,
   ]);
   return authStatusFromCli(
-    { exitCode: child.exitCode, signalCode: child.signalCode },
+    {
+      exitCode: child.exitCode,
+      signalCode: child.signalCode === null ? null : String(child.signalCode),
+    },
     stdout,
   );
 }

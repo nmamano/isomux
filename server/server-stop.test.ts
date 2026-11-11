@@ -65,7 +65,7 @@ async function runStop(
     .map((line) => JSON.parse(line) as Record<string, unknown>);
   return {
     lines,
-    signalCode: proc.signalCode,
+    signalCode: proc.signalCode === null ? null : String(proc.signalCode),
     exitCode: proc.exitCode,
     stderr,
     hung,

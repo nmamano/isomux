@@ -213,7 +213,7 @@ export async function startSudo(opts: SudoStartOptions): Promise<SudoStart> {
   const done = ended.then(
     (): SudoRunResult => ({
       exitCode: proc.exitCode,
-      signal: proc.signalCode ?? null,
+      signal: proc.signalCode === null ? null : String(proc.signalCode),
       timedOut: supervision.timedOut(),
       durationMs: Date.now() - t0,
       output: tail.value(),

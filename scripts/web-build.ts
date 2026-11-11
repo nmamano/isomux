@@ -99,7 +99,12 @@ function spawnBuild(): BuildRun {
     ]);
     clearTimeout(timer);
     for (const pipe of pipes) pipe.cancel();
-    return { code, signal: child.signalCode, output: chunks.join("") };
+    const signal = child.signalCode;
+    return {
+      code,
+      signal: signal === null ? null : String(signal),
+      output: chunks.join(""),
+    };
   };
 }
 

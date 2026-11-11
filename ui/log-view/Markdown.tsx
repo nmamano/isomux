@@ -410,6 +410,9 @@ function getMermaid() {
         theme: mode,
         securityLevel: "strict",
         fontFamily: "var(--font-ui)",
+        // Mermaid 12's default layout, ELK, loads ~1.5 MB more script and
+        // takes about three times as long to draw a simple flowchart.
+        layout: "dagre",
         // On a failed render, draw no error graphic of mermaid's own and
         // remove the temporary element render() adds to document.body; our
         // in-chat error card is the only error shown.

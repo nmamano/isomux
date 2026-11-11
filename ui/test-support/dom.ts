@@ -265,6 +265,10 @@ const PROCESS_GLOBALS = new Set([
   // zod's global config and registry, at the first import of zod.
   "__zod_globalConfig",
   "__zod_globalRegistry",
+  // mermaid 12's profiler seed and its bundled fastdom, at the first import of
+  // mermaid (Markdown loads it lazily, on the first mermaid block).
+  "injected",
+  "fastdom",
 ]);
 
 function sameDescriptor(a: PropertyDescriptor, b: PropertyDescriptor): boolean {

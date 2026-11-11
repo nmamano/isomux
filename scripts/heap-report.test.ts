@@ -449,7 +449,18 @@ describe("the CI stages", () => {
 
   it("a stage's peak RSS is its largest process, a grandchild too, also when the stage fails", async () => {
     const dir = scratch();
-    const HOLD = 384 * MIB;
+    // A forked child keeps its parent's RSS high-water mark across exec, so
+    // a stage that allocates nothing reports about this runner's RSS, which
+    // grows with every file run before this one in the same bun process.
+    const small = await runStage(
+      "tsc",
+      ["bash", "-c", "exit 0"],
+      join(dir, "small.log"),
+    );
+    expect(small.status).toBe("passed");
+    expect(typeof small.peakRssBytes).toBe("number");
+    // The grandchild's buffer must stand above that floor to be seen at all.
+    const HOLD = Math.max(384 * MIB, small.peakRssBytes! + 128 * MIB);
     // bash forks bun (a command follows), so the buffer is a grandchild's.
     const hold = `const b = Buffer.alloc(${HOLD}, 1); if (b[7] !== 1) process.exit(9);`;
     const big = await runStage(
@@ -461,18 +472,7 @@ describe("the CI stages", () => {
       status: "failed",
       exitCode: 3,
     });
-    // A forked child keeps its parent's RSS high-water mark across exec, so
-    // a stage that allocates nothing reports about this runner's RSS. The
-    // condition the check rests on: that is below the grandchild's buffer.
-    const small = await runStage(
-      "tsc",
-      ["bash", "-c", "exit 0"],
-      join(dir, "small.log"),
-    );
-    expect(small.status).toBe("passed");
     expect(typeof big.peakRssBytes).toBe("number");
-    expect(typeof small.peakRssBytes).toBe("number");
-    expect(small.peakRssBytes!).toBeLessThan(HOLD);
     // Bytes, not kilobytes, and the grandchild's buffer, not this runner.
     expect(big.peakRssBytes!).toBeGreaterThanOrEqual(HOLD);
   });

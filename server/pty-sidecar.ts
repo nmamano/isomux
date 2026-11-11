@@ -136,7 +136,8 @@ input.on("line", (line) => {
       }
       const spawned = child;
       void spawned.exited.then((exitCode) => {
-        exit = { exitCode, signal: spawned.signalCode };
+        const code = spawned.signalCode;
+        exit = { exitCode, signal: code === null ? null : String(code) };
         // A background job can retain the slave after the shell exits. Keep
         // node-pty's 200 ms drain bound for that case; normal exits use EOF.
         if (!outputEnded)
