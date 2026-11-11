@@ -1,15 +1,28 @@
-// The desktop chat sidebar (task c61316be): the rooms and agents beside an
-// agent's chat and the pages, Codex-style. This module holds its decisions,
+// The desktop sidebar (task c61316be): the rooms and agents beside the office
+// view, an agent's chat and the pages, Codex-style. This module holds its decisions,
 // so they can be tested without a DOM; ui/components/ChatSidebar.tsx draws it.
 
-import {
-  LOBBY_ROOM_ID,
-  type AgentInfo,
-  type RoomWire,
-} from "../shared/types.ts";
+import type { AgentInfo, RoomWire } from "../shared/types.ts";
 import { DESK_COUNT, isBackSeat } from "../shared/desks.ts";
 
 export type ChatSidebarChoice = "open" | "closed";
+
+/**
+ * The top-bar buttons the open sidebar repeats (NavAction ids), hidden while
+ * it is open: the office bar's pages and Settings (the sidebar's member row),
+ * and the chat bar's Tasks and Inbox. The chat bar's "settings" is the
+ * agent's, which the sidebar does not have.
+ */
+export const OFFICE_BAR_TWINS: ReadonlySet<string> = new Set([
+  "tasks",
+  "cronjobs",
+  "apps",
+  "skills",
+  "integrations",
+  "inbox",
+  "settings",
+]);
+export const CHAT_BAR_TWINS: ReadonlySet<string> = new Set(["tasks", "inbox"]);
 
 /** Below this window width the sidebar starts collapsed. */
 export const CHAT_SIDEBAR_MIN_OPEN_WIDTH = 1100;
@@ -81,16 +94,4 @@ export function newAgentSeat(
     if (!taken.has(desk)) return desk;
   }
   return null;
-}
-
-/**
- * The room a new agent goes to: the open agent's room, or for a Lobby agent
- * or no agent, the last room the member stood in.
- */
-export function spawnRoomFor(
-  openAgent: AgentInfo | null,
-  currentRoomId: string | null,
-): string | null {
-  if (openAgent && openAgent.roomId !== LOBBY_ROOM_ID) return openAgent.roomId;
-  return currentRoomId;
 }

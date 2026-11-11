@@ -1,3 +1,4 @@
+import { useLeaveGuard } from "../page-leave-guard.ts";
 import { TaskHistoryList } from "./AuditList.tsx";
 import { TaskGithubBlock, TaskGithubChip } from "./TaskGithubBlock.tsx";
 import { useState, useRef, useEffect, useMemo } from "react";
@@ -53,7 +54,10 @@ type SortDir = "asc" | "desc";
 // seeded title. Exactly one is ever pending (see pendingNavRef).
 type PendingNav =
   | { kind: "select"; id: string }
-  | { kind: "create"; title: string };
+  | { kind: "create"; title: string }
+  // A click outside the page (the desktop sidebar): leave once the panel
+  // has closed.
+  | { kind: "leave"; after: () => void };
 
 export interface TaskOpenRequest {
   id: string;
@@ -1011,6 +1015,17 @@ export function TaskView({
     }
   }
 
+  // A click outside the page (the desktop sidebar) closes an open panel
+  // through its dirty check first, as a row click does.
+  useLeaveGuard((after) => {
+    if (!panelOpen) {
+      after();
+      return;
+    }
+    pendingNavRef.current = { kind: "leave", after };
+    tryClosePanel();
+  });
+
   useEffect(() => {
     if (!openTaskRequest) return;
     const requestedTask = tasks.find((task) => task.id === openTaskRequest.id);
@@ -1073,7 +1088,9 @@ export function TaskView({
     const pending = pendingNavRef.current;
     if (!pending) return;
     pendingNavRef.current = null;
-    if (pending.kind === "select") {
+    if (pending.kind === "leave") {
+      pending.after();
+    } else if (pending.kind === "select") {
       setSelectedId(pending.id);
     } else {
       setCreateInitialTitle(pending.title);

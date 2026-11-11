@@ -3,6 +3,7 @@ import { useAgentLog } from "../agent-log.ts";
 import { useLoadRest } from "./load-rest.ts";
 import { HeaderBackgroundPill } from "../components/BackgroundWork.tsx";
 import { BackRoomStrip } from "./BackRoomStrip.tsx";
+import { CHAT_BAR_TWINS } from "../chat-sidebar.ts";
 import {
   STATE_LABEL_KEYS,
   escalationColor,
@@ -791,9 +792,9 @@ export function LogView({
   onOpenInbox?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
-  // The desktop chat sidebar (ui/components/ChatSidebar.tsx) sits beside the
+  // The desktop sidebar (ui/components/ChatSidebar.tsx) sits beside the
   // chat: its Office row and room lists take the place of "Back to Office"
-  // and the back room strip.
+  // and the back room strip, and its rows of the header's Tasks and Inbox.
   sidebarOpen?: boolean;
   // Given while the sidebar is collapsed on a desktop: the header's button
   // that shows it again.
@@ -2356,7 +2357,14 @@ export function LogView({
               />
             )}
             <ContextBattery usage={agent.contextUsage} />
-            <NavActions actions={desktopAgentActions} viewport="desktop" />
+            <NavActions
+              actions={
+                sidebarOpen
+                  ? desktopAgentActions.filter((a) => !CHAT_BAR_TWINS.has(a.id))
+                  : desktopAgentActions
+              }
+              viewport="desktop"
+            />
           </div>
         </div>
       )}

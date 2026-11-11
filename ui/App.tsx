@@ -45,11 +45,8 @@ import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
 import { ChatSidebar, type SidebarPage } from "./components/ChatSidebar.tsx";
-import {
-  newAgentSeat,
-  sidebarStartsOpen,
-  spawnRoomFor,
-} from "./chat-sidebar.ts";
+import { newAgentSeat, sidebarStartsOpen } from "./chat-sidebar.ts";
+import { PageLeaveGuard, type LeaveGuard } from "./page-leave-guard.ts";
 import { askIdForPage } from "./inbox.ts";
 import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
@@ -189,6 +186,8 @@ export function App({ routing = true }: { routing?: boolean }) {
     setChatSidebar(open ? "open" : "closed");
   }, []);
   // The sidebar's New agent: the room and the seat it picked.
+  // The page on top's leave guard (ui/page-leave-guard.ts).
+  const leaveGuardRef = useRef<LeaveGuard | null>(null);
   const [sidebarSpawn, setSidebarSpawn] = useState<{
     roomId: string;
     desk: number | null;
@@ -1153,11 +1152,11 @@ export function App({ routing = true }: { routing?: boolean }) {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [applyPage, dispatch, somethingUnderPage, closeTopPage, logOverBackRoom]);
 
-  // The sidebar shows beside the chat and every page but Settings, on a
-  // desktop. The shell stays while the sidebar collapses, so the chat does not
-  // mount again.
-  const sidebarView =
-    !isMobile && (page === null ? !!focusedAgent : page !== "settings");
+  // The sidebar shows beside the office view, the chat and every page, on a
+  // desktop; never on a phone or in the site's embed. The shell stays while
+  // the sidebar collapses and while the view changes under it, so neither the
+  // sidebar nor the chat mounts again.
+  const sidebarView = !isMobile && !features.embed;
   const sidebarShown = sidebarView && sidebarOpen;
 
   // The pages and the chat, as before the sidebar.
@@ -1260,19 +1259,29 @@ export function App({ routing = true }: { routing?: boolean }) {
         onSwipeLeft={swipeRoomNext}
         onSwipeRight={swipeRoomPrev}
         viewportControlsRef={viewportControlsRef}
+        sidebarOpen={sidebarShown}
+        onShowSidebar={
+          sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
+        }
       />
     );
 
-  const openSidebarPage = (target: SidebarPage) => {
-    if (target === "tasks") openTasks();
-    else if (target === "integrations") openIntegrations();
-    else changePages({ type: "open", page: target });
+  // A sidebar row that leaves the page on top asks the page first, so its
+  // unsaved edits go through its own discard prompt.
+  const leaveThen = (go: () => void) => {
+    const guard = leaveGuardRef.current;
+    if (guard) guard(go);
+    else go();
   };
-  const spawnFromSidebar = () => {
-    const roomId = spawnRoomFor(focusedAgent ?? null, currentRoomId);
-    if (roomId === null) return;
+  const openSidebarPage = (target: SidebarPage) =>
+    leaveThen(() => {
+      if (target === "tasks") openTasks();
+      else if (target === "integrations") openIntegrations();
+      else changePages({ type: "open", page: target });
+    });
+  // A room header's "+": its first free front desk, else its back room.
+  const spawnFromSidebar = (roomId: string) =>
     setSidebarSpawn({ roomId, desk: newAgentSeat(agents, roomId) });
-  };
 
   return (
     <OfficeLinkOpener.Provider value={openOfficeLink}>
@@ -1299,20 +1308,29 @@ export function App({ routing = true }: { routing?: boolean }) {
                   <ChatSidebar
                     openAgentId={focusedAgent?.id ?? null}
                     page={page}
+                    officeShown={page === null && !focusedAgent}
+                    backRoomOpen={backRoomOpen}
                     onCollapse={() => setSidebarOpen(false)}
-                    onOffice={goOffice}
+                    onOffice={() => leaveThen(goOffice)}
                     onNewAgent={canSpawn ? spawnFromSidebar : null}
                     onOpenPage={openSidebarPage}
-                    onOpenAgent={openAgentChat}
+                    onOpenAgent={(agentId) =>
+                      leaveThen(() => openAgentChat(agentId))
+                    }
                     onAgentContextMenu={(x, y, agent) =>
                       setCtxMenu({ x, y, agent })
                     }
-                    onMembersChat={openMembersChat}
-                    onOpenSettings={() => openSettings(null)}
+                    onMembersChat={() => leaveThen(openMembersChat)}
+                    onOpenSettings={() => {
+                      if (page !== "settings")
+                        leaveThen(() => openSettings(null));
+                    }}
                   />
                 )}
                 <div style={{ flex: 1, minWidth: 0, height: "100%" }}>
-                  {content}
+                  <PageLeaveGuard.Provider value={leaveGuardRef}>
+                    {content}
+                  </PageLeaveGuard.Provider>
                 </div>
               </div>
             ) : (

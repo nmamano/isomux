@@ -84,6 +84,9 @@ it("opens the room and the Back room row of a back agent whose chat opens from t
 
 it("Inbox badge: beside a chat it leaves out that agent's asks, as the chat header does; beside a page it counts every new ask", async () => {
   setAsks([ask("q1", scout.id), ask("q2", ranger.id), ask("q3", faraway.id)]);
+  // The header's Inbox shows only while the sidebar is hidden, so read its
+  // count first, then show the sidebar.
+  window.localStorage.setItem("isomux-chat-sidebar", "closed");
   const view = await boot();
   await openFirstDesk(view);
   const badge = () =>
@@ -94,6 +97,8 @@ it("Inbox badge: beside a chat it leaves out that agent's asks, as the chat head
       ?.textContent ?? null;
   // The header's own count, today's behavior: Scout's ask is in this chat.
   expect(headerBadge(view)).toBe("2");
+  await click(view.container.querySelector("[data-show-sidebar]"));
+  expect(chatOpen(view)).toBe(true);
   expect(badge()).toBe("2");
 
   // Tasks does not mark asks seen, so all three stay new.

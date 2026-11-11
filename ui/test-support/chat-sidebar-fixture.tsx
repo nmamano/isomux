@@ -32,7 +32,8 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { createElement } from "react";
 import { App } from "../App.tsx";
 import { SceneDecorationContext } from "../office/scene-decoration.tsx";
-import { StoreProvider } from "../store.tsx";
+import { FeaturesProvider, StoreProvider } from "../store.tsx";
+import type { Features } from "../../shared/features.ts";
 import { setApiShim } from "../api.ts";
 import { connect, setShim, shimEmit } from "../ws.ts";
 import { BACK_SEAT_BASE } from "../../shared/desks.ts";
@@ -101,6 +102,18 @@ const ROOMS = [
   { id: "r1", name: "First room", prompt: null, canCloseWhenEmpty: true },
   { id: "r2", name: "Second room", prompt: null, canCloseWhenEmpty: true },
 ];
+// A third room, only in the tests that seat it (setRooms).
+export const THIRD_ROOM = {
+  id: "r3",
+  name: "Third room",
+  prompt: null,
+  canCloseWhenEmpty: true,
+};
+let rooms: typeof ROOMS = ROOMS;
+export function setRooms(next: typeof ROOMS): void {
+  rooms = next;
+}
+export const ALL_ROOMS = [...ROOMS, THIRD_ROOM];
 
 let agents: AgentInfo[] = DEFAULT_AGENTS;
 export function setAgents(next: AgentInfo[]): void {
@@ -129,6 +142,22 @@ export function setSelfPack(pack: MemberPack): void {
     allowedRooms: ["r1", "r2"],
     pack,
   };
+}
+// The member's own full record, with `over` on top (tucked rooms, a role).
+export function setSelfUser(over: Partial<UserRecord>): void {
+  selfUser = {
+    ...selfUserRecord(null),
+    id: "u1",
+    name: "member",
+    role: "member",
+    allowedRooms: ["r1", "r2", "r3"],
+    ...over,
+  };
+}
+// The role session_context carries; "member" unless a test sets "owner".
+let role: "member" | "owner" = "member";
+export function setRole(next: "member" | "owner"): void {
+  role = next;
 }
 // POST /api/agents bodies (a spawn), in order.
 export const spawns: Record<string, unknown>[] = [];
@@ -160,7 +189,19 @@ export function setUpChatSidebarTests(): void {
     // The Automations page's runs.
     if (path === "/api/cron-runs") return { jobs: [] };
     // The spawn dialog's reads.
-    if (path === "/api/me/rooms") return { rooms: ROOMS };
+    if (path === "/api/me/rooms") return { rooms };
+    // The Settings page's reads.
+    if (path.startsWith("/api/memory"))
+      return { text: "", version: "0", size: 0, cap: 4000 };
+    if (method === "GET" && path === "/api/office/settings")
+      return { prompt: null, name: null, version: "1" };
+    if (method === "GET" && /^\/api\/rooms\/[^/]+\/settings$/.test(path))
+      return { prompt: null, version: "1" };
+    if (path === "/api/removed-members") return { members: [] };
+    if (method === "GET" && path === "/api/office/instructions")
+      return { instructions: null, version: "1" };
+    if (method === "GET" && /^\/api\/rooms\/[^/]+\/instructions$/.test(path))
+      return { instructions: null, version: "1" };
     if (path === "/api/validate/cwd") return { ok: true };
     if (/^\/api\/agents\/[^/]+\/sessions/.test(path))
       return { sessions: [], currentSessionId: null };
@@ -182,6 +223,8 @@ export function setUpChatSidebarTests(): void {
   });
   beforeEach(() => {
     agents = DEFAULT_AGENTS;
+    rooms = ROOMS;
+    role = "member";
     asks = [];
     selfUser = null;
     spawns.length = 0;
@@ -195,8 +238,10 @@ export function setUpChatSidebarTests(): void {
   });
 }
 
-/** Load the office at "/", signed in as "member", on the load entry. */
-export async function boot(): Promise<View> {
+/** Load the office at "/", signed in as "member", on the load entry.
+ *  `features` is the office the App runs in: production unless a test passes
+ *  another, as the landing-page embed does. */
+export async function boot(features?: Features): Promise<View> {
   window.history.replaceState(LOAD_ENTRY, "", "/");
   let hydrated!: () => void;
   const hydration = new Promise<void>((resolve) => {
@@ -207,12 +252,12 @@ export async function boot(): Promise<View> {
     () => {
       shimEmit({
         type: "session_context",
-        context: { username: "member", userId: "u1", role: "member" },
+        context: { username: "member", userId: "u1", role },
       } as never);
       shimEmit({
         type: "full_state",
         agents,
-        rooms: ROOMS,
+        rooms,
         office: { name: "Test Office" },
         recentCwds: [],
         killedAgents: [],
@@ -223,16 +268,19 @@ export async function boot(): Promise<View> {
       hydrated();
     },
   );
-  const view = render(
+  const app = createElement(
+    StoreProvider,
+    null,
     createElement(
-      StoreProvider,
-      null,
-      createElement(
-        SceneDecorationContext.Provider,
-        { value: false },
-        createElement(App),
-      ),
+      SceneDecorationContext.Provider,
+      { value: false },
+      createElement(App),
     ),
+  );
+  const view = render(
+    features
+      ? createElement(FeaturesProvider, { features, children: app })
+      : app,
   );
   await act(async () => {
     await hydration;

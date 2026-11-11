@@ -9,7 +9,6 @@ import {
   roomAgents,
   sidebarRooms,
   sidebarStartsOpen,
-  spawnRoomFor,
 } from "./chat-sidebar.ts";
 import { BACK_SEAT_BASE, DESK_COUNT } from "../shared/desks.ts";
 import {
@@ -130,17 +129,5 @@ describe("newAgentSeat", () => {
     expect(newAgentSeat(full, "r1")).toBeNull();
     // One desk short of full: the last desk.
     expect(newAgentSeat(full.slice(0, -1), "r1")).toBe(DESK_COUNT - 1);
-  });
-});
-
-describe("spawnRoomFor", () => {
-  it("is the open agent's room, front or back; for a Lobby agent or no agent, the room the member last stood in", () => {
-    expect([
-      spawnRoomFor(agent("f", "r2", 0), "r1"),
-      spawnRoomFor(agent("b", "r2", BACK_SEAT_BASE), "r1"),
-      spawnRoomFor(agent("l", LOBBY_ROOM_ID, 0), "r1"),
-      spawnRoomFor(null, "r1"),
-      spawnRoomFor(null, null),
-    ]).toEqual(["r2", "r2", "r1", "r1", null]);
   });
 });

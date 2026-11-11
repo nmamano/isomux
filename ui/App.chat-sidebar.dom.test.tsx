@@ -1,7 +1,10 @@
-// Where the desktop chat sidebar shows (task c61316be; Nil, 2026-11-11:
-// "Sidebar on chat and pages"): beside an agent's chat and beside the Inbox,
-// Tasks, Automations, Apps, Skills and Integrations pages; never on Settings,
-// the office or a phone. Its rows open those pages. The setup is in
+// Where the desktop sidebar shows (task c61316be; Nil, 2026-11-11: "Sidebar on
+// chat and pages", then "the side bar should also appear on the office view",
+// then "clicking something on the side bar does not close the sidebar"):
+// beside the office view (a room, the lobby, a back room screen), an agent's
+// chat and every page, Settings included; never on a phone or in the site
+// embed. That no entry of the sidebar hides it is in
+// ui/App.chat-sidebar-walk.dom.test.tsx. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
@@ -10,50 +13,58 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act } = await import("@testing-library/react");
+const { DEMO_FEATURES } = await import("../shared/features.ts");
 const {
+  backRoomRow,
+  backScreen,
   boot,
   chatOpen,
   click,
   navRow,
   openFirstDesk,
   press,
+  roomHeader,
   setUpChatSidebarTests,
   setWindowWidth,
   sidebar,
 } = await import("./test-support/chat-sidebar-fixture.tsx");
+type View = import("./test-support/chat-sidebar-fixture.tsx").View;
 
 setUpChatSidebarTests();
 
-// Each page's own marker, which only that page renders.
-const PAGES = [
-  ["asks", "[data-inbox]"],
-  ["tasks", "[data-tasks-page]"],
-  ["cronjobs", "[data-automations-header]"],
-  ["apps", "[data-apps-page]"],
-  ["skills", "[data-skills-page]"],
-  ["integrations", "[data-integrations-page]"],
-] as const;
+const officeCurrent = (view: View) =>
+  navRow(view, "office")?.getAttribute("aria-current") ?? null;
+const roomTab = (view: View, roomId: string) =>
+  view.container.querySelector<HTMLElement>(
+    `[data-room-tab-button="${roomId}"]`,
+  );
 
-it("is not on the office; shows beside a chat; its rows open each page with the sidebar still beside it", async () => {
+it("shows beside the office view: the lobby, a room and its back room screen, with the Office row current; beside a chat it is not current", async () => {
   const view = await boot();
   expect(chatOpen(view)).toBe(false);
-  expect(sidebar(view)).toBeNull();
+  expect(sidebar(view)).not.toBeNull();
+  expect(officeCurrent(view)).toBe("page");
 
+  await click(roomTab(view, "r1"));
+  expect(sidebar(view)).not.toBeNull();
+  // With no open agent, the room in view opens.
+  expect(roomHeader(view, "r1")?.getAttribute("aria-expanded")).toBe("true");
+
+  await press("b");
+  expect(backScreen(view)).toBe(true);
+  expect(sidebar(view)).not.toBeNull();
+  // On its back room screen, the room's Back room row opens too.
+  expect(backRoomRow(view, "r1")?.getAttribute("aria-expanded")).toBe("true");
+  expect(officeCurrent(view)).toBe("page");
+
+  await press("b");
+  expect(backScreen(view)).toBe(false);
   await openFirstDesk(view);
   expect(sidebar(view)).not.toBeNull();
-
-  for (const [page, marker] of PAGES) {
-    await click(navRow(view, page));
-    expect({
-      page,
-      open: view.container.querySelector(marker) !== null,
-      sidebar: sidebar(view) !== null,
-      chat: chatOpen(view),
-    }).toEqual({ page, open: true, sidebar: true, chat: false });
-  }
+  expect(officeCurrent(view)).toBeNull();
 });
 
-it("is not on Settings, even when Settings opens over a page that has it", async () => {
+it("stays beside Settings, also when Settings opens over a page", async () => {
   const view = await boot();
   await openFirstDesk(view);
   await press("t");
@@ -64,10 +75,18 @@ it("is not on Settings, even when Settings opens over a page that has it", async
   expect(
     view.baseElement.querySelector('[data-testid="settings-content"]'),
   ).not.toBeNull();
-  expect(sidebar(view)).toBeNull();
+  expect(sidebar(view)).not.toBeNull();
 });
 
-it("is not on a phone: the chat keeps its own header", async () => {
+it("is not in the site embed: neither the sidebar nor a Show sidebar button", async () => {
+  const view = await boot({ ...DEMO_FEATURES, embed: true });
+  // The embed draws the office (with no room tabs).
+  expect(view.container.querySelector("[data-floor-scene]")).not.toBeNull();
+  expect(sidebar(view)).toBeNull();
+  expect(view.container.querySelector("[data-show-sidebar]")).toBeNull();
+});
+
+it("is not on a phone, in the office or a chat", async () => {
   setWindowWidth(390);
   // This browser chose the sidebar open before (a desktop window made narrow),
   // so only the phone check keeps it off, not the narrow-width default.
@@ -78,6 +97,9 @@ it("is not on a phone: the chat keeps its own header", async () => {
     window.dispatchEvent(new Event("resize"));
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
+  expect(sidebar(view)).toBeNull();
+  expect(view.container.querySelector("[data-show-sidebar]")).toBeNull();
+
   await openFirstDesk(view);
   // The chat is in its phone layout (LogView lays out its shell as a row on
   // a phone, a column on a desktop), so the window really reads as a phone.

@@ -82,7 +82,9 @@ import {
   SkillsIcon,
   PlugIcon,
   SettingsIcon,
+  SidebarIcon,
 } from "../components/NavIcons.tsx";
+import { OFFICE_BAR_TWINS } from "../chat-sidebar.ts";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useI18n } from "../i18n.tsx";
 import { useViewport } from "./useViewport.ts";
@@ -228,6 +230,12 @@ interface OfficeViewProps {
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
   viewportControlsRef?: React.RefObject<ViewportControls | null>;
+  // The desktop sidebar (ui/components/ChatSidebar.tsx) is open beside the
+  // office: the bar leaves out the buttons the sidebar repeats.
+  sidebarOpen?: boolean;
+  // Given while the sidebar is hidden on a desktop: the bar's button that
+  // shows it again.
+  onShowSidebar?: () => void;
 }
 
 export function OfficeView({
@@ -252,6 +260,8 @@ export function OfficeView({
   onSwipeLeft,
   onSwipeRight,
   viewportControlsRef,
+  sidebarOpen = false,
+  onShowSidebar,
 }: OfficeViewProps) {
   const {
     agents,
@@ -363,10 +373,21 @@ export function OfficeView({
     preferredChatWidth ?? LOBBY_CHAT_WIDTH,
     chatViewportWidth,
   );
+  // The office's own width, not the window's: the desktop sidebar takes a
+  // column beside it.
+  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const resize = () => setChatViewportWidth(window.innerWidth);
+    const resize = () =>
+      setChatViewportWidth(rootRef.current?.clientWidth || window.innerWidth);
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    if (rootRef.current) observer?.observe(rootRef.current);
+    resize();
+    return () => {
+      window.removeEventListener("resize", resize);
+      observer?.disconnect();
+    };
   }, []);
   function changeChatWidth(width: number) {
     const next = clampMembersChatWidth(width, chatViewportWidth);
@@ -622,6 +643,7 @@ export function OfficeView({
 
   return (
     <div
+      ref={rootRef}
       style={{
         height: isMobile
           ? "calc(100dvh - var(--banner-h, 0px))"
@@ -659,6 +681,28 @@ export function OfficeView({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {onShowSidebar && (
+              <button
+                type="button"
+                data-show-sidebar=""
+                onClick={onShowSidebar}
+                title={t("sidebar.show")}
+                aria-label={t("sidebar.show")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: 5,
+                  borderRadius: 6,
+                  border: "1px solid var(--border-subtle)",
+                  background: "var(--btn-surface)",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                {SidebarIcon}
+              </button>
+            )}
             <div style={{ display: "flex", gap: 12 }}>
               {(
                 [
@@ -738,7 +782,14 @@ export function OfficeView({
               </span>
             )}
           </div>
-          <NavActions actions={officeActions} viewport="desktop" />
+          <NavActions
+            actions={
+              sidebarOpen
+                ? officeActions.filter((a) => !OFFICE_BAR_TWINS.has(a.id))
+                : officeActions
+            }
+            viewport="desktop"
+          />
         </div>
       )}
 

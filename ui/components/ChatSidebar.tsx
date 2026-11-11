@@ -1,7 +1,7 @@
-// The desktop chat sidebar (task c61316be): beside an agent's chat and the
-// Inbox, Tasks, Automations, Apps, Skills and Integrations pages, a
-// Codex-style list of the office's rooms and agents. The phone, the office
-// view and Settings never show it. Its decisions live in ui/chat-sidebar.ts.
+// The desktop sidebar (task c61316be): beside the office view, an agent's
+// chat and every page, a Codex-style list of the office's rooms and agents.
+// The phone and the site embed never show it. No click in it closes it; only
+// its own hide button does. Its decisions live in ui/chat-sidebar.ts.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -9,7 +9,7 @@ import {
   type AgentInfo,
   type RoomWire,
 } from "../../shared/types.ts";
-import { DESK_COUNT, hasBackRoom, isBackSeat } from "../../shared/desks.ts";
+import { hasBackRoom, isBackSeat } from "../../shared/desks.ts";
 import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
 import type { Page } from "../routes.ts";
 import { useAppState, useRoomList } from "../store.tsx";
@@ -18,7 +18,8 @@ import { noTranslate } from "../no-translate.ts";
 import { useInboxCounts } from "../inbox.ts";
 import { askCounts, openAsks } from "../asks-sync.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
-import { roomAgents, sidebarRooms } from "../chat-sidebar.ts";
+import { useCan } from "../hooks/useCan.ts";
+import { newAgentSeat, roomAgents, sidebarRooms } from "../chat-sidebar.ts";
 import { Character } from "../office/Character.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { StatusLight, statusColor } from "../office/StatusLight.tsx";
@@ -40,13 +41,18 @@ export type SidebarPage = Exclude<Page, "settings">;
 export interface ChatSidebarProps {
   // The agent whose chat is open, or null (a page with no chat under it).
   openAgentId: string | null;
-  // The page on top, or null for the chat.
+  // The page on top, or null for the chat or the office view.
   page: Page | null;
+  // The office view shows (no page, no chat): the Office row is current.
+  officeShown: boolean;
+  // The office shows a room's back room screen.
+  backRoomOpen: boolean;
   onCollapse: () => void;
   // The Office row: back to the room view the open agent sits in.
   onOffice: () => void;
-  // Null when the member may not spawn.
-  onNewAgent: (() => void) | null;
+  // A room header's "+": a new agent in that room. Null when the member may
+  // not spawn.
+  onNewAgent: ((roomId: string) => void) | null;
   onOpenPage: (page: SidebarPage) => void;
   onOpenAgent: (agentId: string) => void;
   onAgentContextMenu: (x: number, y: number, agent: AgentInfo) => void;
@@ -68,8 +74,7 @@ const PlusIcon = (
     strokeLinecap="round"
     style={{ display: "block" }}
   >
-    <circle cx="8" cy="8" r="6" />
-    <path d="M8 5.3v5.4M5.3 8h5.4" />
+    <path d="M8 3.5v9M3.5 8h9" />
   </svg>
 );
 
@@ -380,6 +385,8 @@ function SectionHeader({
 export function ChatSidebar({
   openAgentId,
   page,
+  officeShown,
+  backRoomOpen,
   onCollapse,
   onOffice,
   onNewAgent,
@@ -398,9 +405,18 @@ export function ChatSidebar({
     stateChangedAt,
     membersChat,
     currentRoomId,
+    lobbyOpen: lobbyInView,
     sessionContext,
   } = useAppState();
   const { t } = useI18n();
+  // A member with a permission pack sees only the pages of its areas, as in
+  // the office bar.
+  const canTasks = useCan("tasks", "read");
+  const canSchedules = useCan("schedules", "read");
+  const canWebhooks = useCan("webhooks", "read");
+  const canAutomations = canSchedules || canWebhooks;
+  const canApps = useCan("apps", "read");
+  const canSkills = useCan("skills", "read");
   const list = useRoomList();
   const self = useSelfUser();
   // The chat's header pill leaves out the open agent's asks, which its chat
@@ -434,7 +450,15 @@ export function ChatSidebar({
   const [moreOpen, setMoreOpen] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(true);
   const anchorRoom = openRoomId ?? currentRoomId;
-  const anchorBack = openAgent && isBackSeat(openAgent.desk);
+  const anchorBack = openAgent
+    ? isBackSeat(openAgent.desk)
+    : backRoomOpen && !lobbyInView;
+  // The room in view: its header always shows its "+".
+  const roomInView = openAgent
+    ? openRoomId
+    : lobbyInView
+      ? null
+      : currentRoomId;
   const anchorKey = `${openAgentId ?? ""}|${anchorRoom ?? ""}|${anchorBack ? 1 : 0}`;
   const [seenAnchor, setSeenAnchor] = useState<string | null>(null);
   if (seenAnchor !== anchorKey) {
@@ -473,26 +497,46 @@ export function ChatSidebar({
     const { front, back } = roomAgents(agents, room.id);
     const open = openRooms.has(room.id);
     const backOpen = openBack.has(room.id);
+    // A full front room seats the new agent in the back room.
+    const plusLabel =
+      newAgentSeat(agents, room.id) === null
+        ? t("sidebar.newAgentInBack", { room: room.name })
+        : t("sidebar.newAgentIn", { room: room.name });
     return (
       <div key={room.id}>
-        <SectionHeader
-          label={room.name}
-          open={open}
-          onToggle={() => toggle(openRooms, setOpenRooms, room.id)}
-          dot={open ? null : roomActivityDotColor([...front, ...back], false)}
-          attr={{ "data-sidebar-room": room.id }}
-          right={
-            <span
+        <div
+          className="chat-sidebar-room-row"
+          style={{ display: "flex", alignItems: "center", gap: 2 }}
+        >
+          <SectionHeader
+            label={room.name}
+            open={open}
+            onToggle={() => toggle(openRooms, setOpenRooms, room.id)}
+            dot={open ? null : roomActivityDotColor([...front, ...back], false)}
+            attr={{ "data-sidebar-room": room.id }}
+          />
+          {onNewAgent && (
+            <button
+              type="button"
+              tabIndex={-1}
+              className="chat-sidebar-row chat-sidebar-new-agent"
+              data-sidebar-new-agent={room.id}
+              data-in-view={room.id === roomInView ? "" : undefined}
+              title={plusLabel}
+              aria-label={plusLabel}
+              onClick={() => onNewAgent(room.id)}
               style={{
-                fontSize: 11,
-                fontWeight: 400,
+                ...rowBase,
+                width: "auto",
+                padding: 5,
                 color: "var(--text-dim)",
+                flexShrink: 0,
               }}
             >
-              {t("sidebar.seats", { n: front.length, max: DESK_COUNT })}
-            </span>
-          }
-        />
+              {PlusIcon}
+            </button>
+          )}
+        </div>
         {open && (
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             {front.map(agentRow)}
@@ -635,16 +679,9 @@ export function ChatSidebar({
           attr="office"
           icon={BuildingIcon}
           label={t("sidebar.office")}
+          current={officeShown}
           onClick={onOffice}
         />
-        {onNewAgent && (
-          <NavRow
-            attr="new-agent"
-            icon={PlusIcon}
-            label={t("sidebar.newAgent")}
-            onClick={onNewAgent}
-          />
-        )}
         <NavRow
           attr="asks"
           icon={InboxIcon}
@@ -653,34 +690,42 @@ export function ChatSidebar({
           current={page === "asks"}
           onClick={() => onOpenPage("asks")}
         />
-        <NavRow
-          attr="tasks"
-          icon={TasksIcon}
-          label={t("common.tasks")}
-          current={page === "tasks"}
-          onClick={() => onOpenPage("tasks")}
-        />
-        <NavRow
-          attr="cronjobs"
-          icon={ClockIcon}
-          label={t("common.automations")}
-          current={page === "cronjobs"}
-          onClick={() => onOpenPage("cronjobs")}
-        />
-        <NavRow
-          attr="apps"
-          icon={AppsIcon}
-          label={t("common.apps")}
-          current={page === "apps"}
-          onClick={() => onOpenPage("apps")}
-        />
-        <NavRow
-          attr="skills"
-          icon={SkillsIcon}
-          label={t("common.skills")}
-          current={page === "skills"}
-          onClick={() => onOpenPage("skills")}
-        />
+        {canTasks && (
+          <NavRow
+            attr="tasks"
+            icon={TasksIcon}
+            label={t("common.tasks")}
+            current={page === "tasks"}
+            onClick={() => onOpenPage("tasks")}
+          />
+        )}
+        {canAutomations && (
+          <NavRow
+            attr="cronjobs"
+            icon={ClockIcon}
+            label={t("common.automations")}
+            current={page === "cronjobs"}
+            onClick={() => onOpenPage("cronjobs")}
+          />
+        )}
+        {canApps && (
+          <NavRow
+            attr="apps"
+            icon={AppsIcon}
+            label={t("common.apps")}
+            current={page === "apps"}
+            onClick={() => onOpenPage("apps")}
+          />
+        )}
+        {canSkills && (
+          <NavRow
+            attr="skills"
+            icon={SkillsIcon}
+            label={t("common.skills")}
+            current={page === "skills"}
+            onClick={() => onOpenPage("skills")}
+          />
+        )}
         <NavRow
           attr="integrations"
           icon={PlugIcon}

@@ -161,6 +161,7 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
         ) : (
           <button
             key={a.id}
+            data-nav-action={a.id}
             onClick={a.onClick}
             disabled={a.disabled}
             title={a.title ?? a.label}
@@ -266,6 +267,7 @@ function DesktopMenuAction({
     <>
       <button
         ref={buttonRef}
+        data-nav-action={a.id}
         onClick={toggle}
         disabled={a.disabled}
         title={a.title ?? a.label}

@@ -266,6 +266,12 @@ ${emitThemesCss()}
   .chat-sidebar-row:hover {
     background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   }
+  /* A room header's "+": on hover of the header, and always for the room
+     in view. */
+  .chat-sidebar-new-agent { opacity: 0; }
+  .chat-sidebar-room-row:hover .chat-sidebar-new-agent,
+  .chat-sidebar-new-agent[data-in-view],
+  .chat-sidebar-new-agent:focus-visible { opacity: 1; }
   .chat-sidebar-row[aria-current="page"] {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }

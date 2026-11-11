@@ -78,6 +78,7 @@ import { RecordingPane } from "./RecordingPane.tsx";
 import { UpdatePane } from "./UpdatePane.tsx";
 import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { useLeaveGuard } from "../page-leave-guard.ts";
 import { InvitesPane, PendingMemberSignInLink } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
@@ -353,6 +354,9 @@ export function UserSettingsView({
       after?.();
     }
   }
+  // A click outside the page (the desktop sidebar) leaves through the same
+  // dirty check.
+  useLeaveGuard((after) => leaveEdit(after));
 
   function select(next: Selection) {
     // Any explicit choice consumes the pending hydration default (above) so

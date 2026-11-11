@@ -4249,8 +4249,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // The desktop chat sidebar (ui/components/ChatSidebar.tsx).
   "sidebar.label": "Rooms and agents",
   "sidebar.office": "Office",
-  "sidebar.newAgent": "New agent",
-  "sidebar.seats": "{n} / {max}",
+  "sidebar.newAgentIn": "New agent in {room}",
+  "sidebar.newAgentInBack": "New agent in the back room of {room}",
   "sidebar.hide": "Hide sidebar",
   "sidebar.show": "Show sidebar",
   // The Inbox and its nav entry (ui/components/InboxView.tsx).
