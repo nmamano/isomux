@@ -788,7 +788,6 @@ export const LogEntryCard = memo(function LogEntryCard({
           content={content}
           agentId={entry.metadata?.sender_agent_id as string | undefined}
           agentName={senderAgentName}
-          room={entry.metadata?.sender_agent_room as string | undefined}
           isMobile={isMobile}
           expanded={!!messageExpanded}
           onToggle={
@@ -1571,14 +1570,13 @@ export function UserMessage({
   );
 }
 
-// A message from another agent, compact: the sender's avatar, linked name and
-// room lead the first line, the text follows on the same line with its line
+// A message from another agent, compact: the sender's avatar and linked name
+// lead the first line, the text follows on the same line with its line
 // breaks folded, and the chevron opens the full text.
 function PeerMessage({
   content,
   agentId,
   agentName,
-  room,
   isMobile,
   expanded,
   onToggle,
@@ -1591,7 +1589,6 @@ function PeerMessage({
   content: string;
   agentId?: string;
   agentName: string;
-  room?: string;
   isMobile?: boolean;
   expanded: boolean;
   onToggle?: () => void;
@@ -1708,20 +1705,6 @@ function PeerMessage({
               <AgentAvatar agentId={agentId} />
               <AgentLink agentId={agentId}>{agentName}</AgentLink>
             </span>
-            {room && (expanded || !isMobile) && (
-              <>
-                {" "}
-                <span
-                  style={{
-                    fontWeight: 400,
-                    color: "var(--text-faint)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  · {room}
-                </span>
-              </>
-            )}
           </span>
           {expanded && "\n"}
           <span {...noTranslate()}>
