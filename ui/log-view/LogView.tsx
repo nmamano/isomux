@@ -90,6 +90,7 @@ import {
   CopyIcon,
   CheckIcon,
   EndConversationIcon,
+  SidebarIcon,
 } from "../components/NavIcons.tsx";
 import { lazyComponent } from "../lazy-component.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
@@ -777,6 +778,8 @@ export function LogView({
   onOpenInbox,
   onSwipeLeft,
   onSwipeRight,
+  sidebarOpen = false,
+  onShowSidebar,
 }: {
   agent: AgentInfo;
   logs: LogEntry[];
@@ -788,6 +791,13 @@ export function LogView({
   onOpenInbox?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
+  // The desktop chat sidebar (ui/components/ChatSidebar.tsx) sits beside the
+  // chat: its Office row and room lists take the place of "Back to Office"
+  // and the back room strip.
+  sidebarOpen?: boolean;
+  // Given while the sidebar is collapsed on a desktop: the header's button
+  // that shows it again.
+  onShowSidebar?: () => void;
 }) {
   // Loads this chat when the server loads chats on open (task 9ebe887d).
   useAgentLog(agent.id);
@@ -899,39 +909,52 @@ export function LogView({
     setEditorWidth(w);
     writePanelWidth("editor", w);
   }, []);
-  // Live max: reading window.innerWidth at call time so a window-resize
-  // mid-drag is reflected immediately (vs a value captured at mousedown).
+  // The chat's own width, not the window's: the desktop chat sidebar takes a
+  // column beside it (ui/components/ChatSidebar.tsx).
+  const shellRef = useRef<HTMLDivElement>(null);
+  const shellWidth = useCallback(
+    () => shellRef.current?.clientWidth || window.innerWidth,
+    [],
+  );
+  // Live max: reading the width at call time so a resize mid-drag is
+  // reflected immediately (vs a value captured at mousedown).
   const getTerminalMax = useCallback(() => {
     return Math.max(
       PANEL_MIN.terminal,
-      Math.min(PANEL_MAX.terminal, window.innerWidth - CHAT_COLUMN_FLOOR),
+      Math.min(PANEL_MAX.terminal, shellWidth() - CHAT_COLUMN_FLOOR),
     );
-  }, []);
+  }, [shellWidth]);
   const getEditorMax = useCallback(() => {
     return Math.max(
       PANEL_MIN.editor,
-      Math.min(PANEL_MAX.editor, window.innerWidth - CHAT_COLUMN_FLOOR),
+      Math.min(PANEL_MAX.editor, shellWidth() - CHAT_COLUMN_FLOOR),
     );
-  }, []);
-  // Window-resize clamp: when the member shrinks the browser window so far
-  // that the panel + min chat column would overflow, shrink the panel.
+  }, [shellWidth]);
+  // Resize clamp: when the window shrinks, or the sidebar opens, so far that
+  // the panel + min chat column would overflow, shrink the panel.
   useEffect(() => {
     function clamp() {
       const maxAllowed = Math.max(
         PANEL_MIN.terminal,
-        window.innerWidth - CHAT_COLUMN_FLOOR,
+        shellWidth() - CHAT_COLUMN_FLOOR,
       );
       setTerminalWidth((w) => (w > maxAllowed ? maxAllowed : w));
       const maxAllowedEditor = Math.max(
         PANEL_MIN.editor,
-        window.innerWidth - CHAT_COLUMN_FLOOR,
+        shellWidth() - CHAT_COLUMN_FLOOR,
       );
       setEditorWidth((w) => (w > maxAllowedEditor ? maxAllowedEditor : w));
     }
     window.addEventListener("resize", clamp);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(clamp);
+    if (shellRef.current) observer?.observe(shellRef.current);
     clamp();
-    return () => window.removeEventListener("resize", clamp);
-  }, []);
+    return () => {
+      window.removeEventListener("resize", clamp);
+      observer?.disconnect();
+    };
+  }, [shellWidth]);
   // First-render flag so we can tell "user just toggled the terminal open"
   // from "agent-switch restored a previously-open terminal" - only the
   // former should grab keyboard focus from the chat textarea.
@@ -1972,6 +1995,7 @@ export function LogView({
 
   return (
     <div
+      ref={shellRef}
       className="log-view-shell"
       style={{
         ...(isMobile
@@ -2009,31 +2033,56 @@ export function LogView({
             flexShrink: 0,
           }}
         >
-          <button
-            onClick={onBack}
-            title={
-              isBackSeat(agent.desk)
-                ? i18n.t("logView.backToBackRoomTitle")
-                : i18n.t("logView.backToOfficeTitle")
-            }
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "0 16px",
-              border: "none",
-              borderRight: "1px solid var(--border-medium)",
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              fontSize: 13,
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            {isBackSeat(agent.desk)
-              ? i18n.t("logView.backToBackRoom")
-              : i18n.t("logView.backToOffice")}
-          </button>
+          {onShowSidebar && (
+            <button
+              type="button"
+              data-show-sidebar=""
+              onClick={onShowSidebar}
+              title={i18n.t("sidebar.show")}
+              aria-label={i18n.t("sidebar.show")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "0 12px",
+                border: "none",
+                borderRight: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              {SidebarIcon}
+            </button>
+          )}
+          {!sidebarOpen && (
+            <button
+              data-log-back=""
+              onClick={onBack}
+              title={
+                isBackSeat(agent.desk)
+                  ? i18n.t("logView.backToBackRoomTitle")
+                  : i18n.t("logView.backToOfficeTitle")
+              }
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "0 16px",
+                border: "none",
+                borderRight: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                fontSize: 13,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              {isBackSeat(agent.desk)
+                ? i18n.t("logView.backToBackRoom")
+                : i18n.t("logView.backToOffice")}
+            </button>
+          )}
           <div
             style={{
               display: "flex",
@@ -2454,12 +2503,14 @@ export function LogView({
               </div>
             </div>
           )}
-          <BackRoomStrip
-            agent={agent}
-            agents={allAgents}
-            rooms={allRooms}
-            onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
-          />
+          {!sidebarOpen && (
+            <BackRoomStrip
+              agent={agent}
+              agents={allAgents}
+              rooms={allRooms}
+              onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
+            />
+          )}
 
           {/* Pinned line + messages share one positioned box so the portrait
           can float over both. */}

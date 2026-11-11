@@ -332,3 +332,20 @@ export const SettingsIcon = (
     <circle cx="10.5" cy="11.5" r="1.8" fill="var(--btn-surface)" />
   </svg>
 );
+
+/** A panel with its left column: the hide and show sidebar buttons. */
+export const SidebarIcon = (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+    <path d="M6 2.5v11" />
+  </svg>
+);

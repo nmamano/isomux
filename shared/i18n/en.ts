@@ -4241,6 +4241,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.discord.stillOpen": "Still open: {title}",
   "pager.discord.resolved": "Resolved: {title}",
   "pager.discord.test": "Test page from Isomux.",
+  // The desktop chat sidebar (ui/components/ChatSidebar.tsx).
+  "sidebar.label": "Rooms and agents",
+  "sidebar.office": "Office",
+  "sidebar.newAgent": "New agent",
+  "sidebar.seats": "{n} / {max}",
+  "sidebar.hide": "Hide sidebar",
+  "sidebar.show": "Show sidebar",
   // The Inbox and its nav entry (ui/components/InboxView.tsx).
   "nav.inbox": "Inbox",
   "nav.inboxShortcut": "Inbox (i)",

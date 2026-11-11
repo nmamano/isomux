@@ -260,6 +260,16 @@ ${emitThemesCss()}
     .log-view-column .nav-action-label { display: none; }
   }
 
+  /* The desktop chat sidebar's rows (ui/components/ChatSidebar.tsx): a
+     background on hover, and a filled one on the open agent and page. */
+  .chat-sidebar-row { background: transparent; }
+  .chat-sidebar-row:hover {
+    background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  }
+  .chat-sidebar-row[aria-current="page"] {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+
   /* Side panel resizer: invisible 6 px hit target with a 1 px visible line
      drawn via ::after so the line tints on hover/drag without layout reflow. */
   .panel-resizer { background: transparent; }

@@ -9,6 +9,7 @@
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
+import type { ChatSidebarChoice } from "./chat-sidebar.ts";
 import {
   FILTER_PRIORITIES,
   type PriorityFilterValue,
@@ -68,6 +69,24 @@ export function getChatCopyFormat(): ChatCopyFormat {
 export function setChatCopyFormat(format: ChatCopyFormat): void {
   try {
     localStorage.setItem(KEY_CHAT_COPY_FORMAT, format);
+  } catch {}
+}
+
+const KEY_CHAT_SIDEBAR = "isomux-chat-sidebar";
+
+// The desktop chat sidebar, open or closed, as this browser last chose it.
+// Null until the member toggles it (ui/chat-sidebar.ts sidebarStartsOpen).
+export function getChatSidebar(): ChatSidebarChoice | null {
+  try {
+    const stored = localStorage.getItem(KEY_CHAT_SIDEBAR);
+    if (stored === "open" || stored === "closed") return stored;
+  } catch {}
+  return null;
+}
+
+export function setChatSidebar(choice: ChatSidebarChoice): void {
+  try {
+    localStorage.setItem(KEY_CHAT_SIDEBAR, choice);
   } catch {}
 }
 

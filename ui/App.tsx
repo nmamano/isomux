@@ -44,13 +44,25 @@ import {
 import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
+import { ChatSidebar, type SidebarPage } from "./components/ChatSidebar.tsx";
+import {
+  newAgentSeat,
+  sidebarStartsOpen,
+  spawnRoomFor,
+} from "./chat-sidebar.ts";
 import { askIdForPage } from "./inbox.ts";
 import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
 import { CSS, OFFICE_PAGE_CSS } from "./styles.ts";
-import { getUsername, getDevice } from "./device-settings.ts";
+import {
+  getUsername,
+  getDevice,
+  getChatSidebar,
+  setChatSidebar,
+  setMembersChatOpen,
+} from "./device-settings.ts";
 import { languageSeed } from "./preference-form.ts";
 import { useSelfUser } from "./hooks/useSelfUser.ts";
 import { apiFetch } from "./api.ts";
@@ -141,6 +153,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     hasReceivedInitialState,
     lobbyOpen,
     rideArrival,
+    isMobile,
   } = useAppState();
   const features = useFeatures();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -163,6 +176,23 @@ export function App({ routing = true }: { routing?: boolean }) {
     agent: AgentInfo;
   } | null>(null);
   const [editAgent, setEditAgent] = useState<AgentInfo | null>(null);
+  // The desktop chat sidebar (task c61316be): open or collapsed, as this
+  // device last chose, else by the window's width.
+  const [sidebarOpen, setSidebarOpenState] = useState(() =>
+    sidebarStartsOpen(
+      getChatSidebar(),
+      typeof window === "undefined" ? 0 : window.innerWidth,
+    ),
+  );
+  const setSidebarOpen = useCallback((open: boolean) => {
+    setSidebarOpenState(open);
+    setChatSidebar(open ? "open" : "closed");
+  }, []);
+  // The sidebar's New agent: the room and the seat it picked.
+  const [sidebarSpawn, setSidebarSpawn] = useState<{
+    roomId: string;
+    desk: number | null;
+  } | null>(null);
   // The display name is tracked for the user-switch handler, but the server now
   // derives message attribution from the session identity (the send/edit routes
   // no longer carry a username), so the value itself is no longer read in the UI.
@@ -616,16 +646,21 @@ export function App({ routing = true }: { routing?: boolean }) {
 
   // Opens an agent's chat from anywhere outside its desk (a page, a link):
   // every page closes, the back screen and the lobby close, and the agent's
-  // room becomes the current room, so Back lands next to the agent (task
-  // 1faeb586). A back agent's chat reopens the back screen through
-  // focusedInBack.
+  // room becomes the current room (for the receptionist, the lobby opens),
+  // so Back lands next to the agent (task 1faeb586). A back agent's chat
+  // reopens the back screen through focusedInBack.
   const openAgentChat = useCallback(
     (agentId: string) => {
       const agent = agents.find((a) => a.id === agentId);
       if (!agent) return;
       applyPage(null);
       setBackRoomOpen(false);
-      dispatch({ type: "set_current_room", roomId: agent.roomId });
+      // The lobby is not a room: its receptionist's chat opens over the
+      // lobby, and the room the member last stood in stays the current room
+      // (the sidebar's New agent spawns there).
+      if (agent.roomId === LOBBY_ROOM_ID)
+        dispatch({ type: "set_lobby_open", open: true });
+      else dispatch({ type: "set_current_room", roomId: agent.roomId });
       dispatch({ type: "focus", agentId: agent.id });
     },
     [agents, applyPage, dispatch],
@@ -694,6 +729,45 @@ export function App({ routing = true }: { routing?: boolean }) {
     dispatch({ type: "focus", agentId: null });
     setBackRoomOpen(false);
   }, [applyPage, dispatch]);
+
+  // The sidebar's Office row: every page and the chat close, and the room
+  // view of the open agent shows. A back agent returns to its back room screen, which stays deep, so the history entry
+  // stays. Anything else leaves for the office the way goHome does, but with
+  // the state reset first: from a page over a chat, the popstate handler
+  // alone would close only the top page.
+  const leaveToOffice = useCallback(() => {
+    applyPage(null);
+    dispatch({ type: "focus", agentId: null });
+    setBackRoomOpen(false);
+    if (entryRef.current === "pushed") {
+      window.history.back();
+      return;
+    }
+    if (entryRef.current === "adopted")
+      window.history.replaceState({ isomux: true, page: null }, "", "/");
+    entryRef.current = "none";
+  }, [applyPage, dispatch]);
+  const goOffice = useCallback(() => {
+    // The room view the open agent sits in: its room, or the lobby.
+    const roomId = focusedAgent?.roomId ?? null;
+    if (focusedInBack) {
+      applyPage(null);
+      if (roomId !== null) dispatch({ type: "set_current_room", roomId });
+      dispatch({ type: "focus", agentId: null });
+      return;
+    }
+    leaveToOffice();
+    if (roomId === LOBBY_ROOM_ID)
+      dispatch({ type: "set_lobby_open", open: true });
+    else if (roomId !== null) dispatch({ type: "set_current_room", roomId });
+  }, [focusedAgent, focusedInBack, applyPage, dispatch, leaveToOffice]);
+  // The sidebar's Members chat row: the lobby, with its chat open.
+  const openMembersChat = useCallback(() => {
+    leaveToOffice();
+    dispatch({ type: "set_lobby_open", open: true });
+    setMembersChatOpen(true);
+    dispatch({ type: "set_members_chat_shown", shown: true });
+  }, [leaveToOffice, dispatch]);
 
   // Live-avatars: tell the server where this session's ghost should
   // appear. Fires whenever any of the relevant view states change, plus
@@ -1079,6 +1153,127 @@ export function App({ routing = true }: { routing?: boolean }) {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [applyPage, dispatch, somethingUnderPage, closeTopPage, logOverBackRoom]);
 
+  // The sidebar shows beside the chat and every page but Settings, on a
+  // desktop. The shell stays while the sidebar collapses, so the chat does not
+  // mount again.
+  const sidebarView =
+    !isMobile && (page === null ? !!focusedAgent : page !== "settings");
+  const sidebarShown = sidebarView && sidebarOpen;
+
+  // The pages and the chat, as before the sidebar.
+  const content =
+    page === "settings" ? (
+      <UserSettingsView
+        initialUserId={editingUserId}
+        initialTarget={settingsTarget}
+        onSwitchUser={(name) => setUsername(name)}
+        onClose={closePage}
+      />
+    ) : page === "tasks" ? (
+      <TaskView
+        onClose={closeTasks}
+        openTaskRequest={taskOpenRequest}
+        onTaskOpenRequestHandled={() => setTaskOpenRequest(null)}
+        onFocusAgent={openAgentChat}
+      />
+    ) : page === "cronjobs" ? (
+      <CronjobsView onClose={closePage} onFocusAgent={openAgentChat} />
+    ) : page === "apps" ? (
+      <AppsView onClose={closePage} onFocusAgent={openAgentChat} />
+    ) : page === "skills" ? (
+      <SkillsView onClose={closePage} />
+    ) : page === "integrations" ? (
+      <IntegrationsView
+        onClose={closePage}
+        request={integrationsRequest}
+        onRequestHandled={clearIntegrationsRequest}
+      />
+    ) : page === "asks" ? (
+      <InboxView onClose={closePage} chatOpen={inboxChat !== null}>
+        <AsksView
+          onFocusAgent={openAgentChat}
+          onChatAgent={setInboxChat}
+          focusAskId={askFocus}
+          onClearFocus={clearAskFocus}
+          filterAgentId={askAgentFilter}
+          onFilterAgentHandled={clearAskAgentFilter}
+        />
+        {inboxChat && (
+          <AgentChatPanel
+            agentId={inboxChat}
+            onSelectAgent={setInboxChat}
+            onClose={() => setInboxChat(null)}
+            onOpenFullChat={openAgentChat}
+          />
+        )}
+      </InboxView>
+    ) : focusedAgent ? (
+      <LogView
+        key={focusedAgent.id}
+        agent={focusedAgent}
+        logs={logs.get(focusedAgent.id) ?? []}
+        onBack={closeLog}
+        onEditAgent={() => setEditAgent(focusedAgent)}
+        onOpenTasks={openTasks}
+        onOpenTask={openTask}
+        onOpenInbox={openInbox}
+        onSwipeLeft={swipeAgentNext}
+        onSwipeRight={swipeAgentPrev}
+        sidebarOpen={sidebarShown}
+        onShowSidebar={
+          sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
+        }
+      />
+    ) : (
+      <OfficeView
+        onSpawn={(desk) => {
+          if (canSpawn) setSpawnPickerDesk(desk);
+        }}
+        onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+        onOpenBackRoom={() => setBackRoomOpen(true)}
+        backRoomOpen={backRoomOpen}
+        onCloseBackRoom={goHome}
+        onSpawnBack={() => {
+          if (canSpawn) setSpawnBackOpen(true);
+        }}
+        onOpenSettings={() => openSettings(null)}
+        onOpenUserSettingsForUser={(userId) => {
+          setEditingUserId(userId);
+          openSettings(null);
+        }}
+        onEditOfficePrompt={() =>
+          openSettings({ kind: "section", section: "office" })
+        }
+        onEditRoomSettings={(roomId) => openSettings({ kind: "room", roomId })}
+        onOpenThemePicker={() =>
+          openSettings({ kind: "section", section: "theme" })
+        }
+        onOpenTasks={openTasks}
+        onOpenCronjobs={() => changePages({ type: "open", page: "cronjobs" })}
+        onOpenApps={() => changePages({ type: "open", page: "apps" })}
+        onOpenSkills={() => changePages({ type: "open", page: "skills" })}
+        onOpenIntegrations={() => openIntegrations()}
+        onOpenInbox={openInbox}
+        onOpenUpdate={() =>
+          openSettings({ kind: "section", section: "updates" })
+        }
+        onSwipeLeft={swipeRoomNext}
+        onSwipeRight={swipeRoomPrev}
+        viewportControlsRef={viewportControlsRef}
+      />
+    );
+
+  const openSidebarPage = (target: SidebarPage) => {
+    if (target === "tasks") openTasks();
+    else if (target === "integrations") openIntegrations();
+    else changePages({ type: "open", page: target });
+  };
+  const spawnFromSidebar = () => {
+    const roomId = spawnRoomFor(focusedAgent ?? null, currentRoomId);
+    if (roomId === null) return;
+    setSidebarSpawn({ roomId, desk: newAgentSeat(agents, roomId) });
+  };
+
   return (
     <OfficeLinkOpener.Provider value={openOfficeLink}>
       <AskSignInResult.Provider value={askSignInResult}>
@@ -1092,107 +1287,36 @@ export function App({ routing = true }: { routing?: boolean }) {
             <ConnectionBanner />
             <UpdateOverlay />
             <UiBuildNotice />
-            {page === "settings" ? (
-              <UserSettingsView
-                initialUserId={editingUserId}
-                initialTarget={settingsTarget}
-                onSwitchUser={(name) => setUsername(name)}
-                onClose={closePage}
-              />
-            ) : page === "tasks" ? (
-              <TaskView
-                onClose={closeTasks}
-                openTaskRequest={taskOpenRequest}
-                onTaskOpenRequestHandled={() => setTaskOpenRequest(null)}
-                onFocusAgent={openAgentChat}
-              />
-            ) : page === "cronjobs" ? (
-              <CronjobsView onClose={closePage} onFocusAgent={openAgentChat} />
-            ) : page === "apps" ? (
-              <AppsView onClose={closePage} onFocusAgent={openAgentChat} />
-            ) : page === "skills" ? (
-              <SkillsView onClose={closePage} />
-            ) : page === "integrations" ? (
-              <IntegrationsView
-                onClose={closePage}
-                request={integrationsRequest}
-                onRequestHandled={clearIntegrationsRequest}
-              />
-            ) : page === "asks" ? (
-              <InboxView onClose={closePage} chatOpen={inboxChat !== null}>
-                <AsksView
-                  onFocusAgent={openAgentChat}
-                  onChatAgent={setInboxChat}
-                  focusAskId={askFocus}
-                  onClearFocus={clearAskFocus}
-                  filterAgentId={askAgentFilter}
-                  onFilterAgentHandled={clearAskAgentFilter}
-                />
-                {inboxChat && (
-                  <AgentChatPanel
-                    agentId={inboxChat}
-                    onSelectAgent={setInboxChat}
-                    onClose={() => setInboxChat(null)}
-                    onOpenFullChat={openAgentChat}
+            {sidebarView ? (
+              <div
+                data-chat-shell=""
+                style={{
+                  display: "flex",
+                  height: "calc(100vh - var(--banner-h, 0px))",
+                }}
+              >
+                {sidebarShown && (
+                  <ChatSidebar
+                    openAgentId={focusedAgent?.id ?? null}
+                    page={page}
+                    onCollapse={() => setSidebarOpen(false)}
+                    onOffice={goOffice}
+                    onNewAgent={canSpawn ? spawnFromSidebar : null}
+                    onOpenPage={openSidebarPage}
+                    onOpenAgent={openAgentChat}
+                    onAgentContextMenu={(x, y, agent) =>
+                      setCtxMenu({ x, y, agent })
+                    }
+                    onMembersChat={openMembersChat}
+                    onOpenSettings={() => openSettings(null)}
                   />
                 )}
-              </InboxView>
-            ) : focusedAgent ? (
-              <LogView
-                key={focusedAgent.id}
-                agent={focusedAgent}
-                logs={logs.get(focusedAgent.id) ?? []}
-                onBack={closeLog}
-                onEditAgent={() => setEditAgent(focusedAgent)}
-                onOpenTasks={openTasks}
-                onOpenTask={openTask}
-                onOpenInbox={openInbox}
-                onSwipeLeft={swipeAgentNext}
-                onSwipeRight={swipeAgentPrev}
-              />
+                <div style={{ flex: 1, minWidth: 0, height: "100%" }}>
+                  {content}
+                </div>
+              </div>
             ) : (
-              <OfficeView
-                onSpawn={(desk) => {
-                  if (canSpawn) setSpawnPickerDesk(desk);
-                }}
-                onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-                onOpenBackRoom={() => setBackRoomOpen(true)}
-                backRoomOpen={backRoomOpen}
-                onCloseBackRoom={goHome}
-                onSpawnBack={() => {
-                  if (canSpawn) setSpawnBackOpen(true);
-                }}
-                onOpenSettings={() => openSettings(null)}
-                onOpenUserSettingsForUser={(userId) => {
-                  setEditingUserId(userId);
-                  openSettings(null);
-                }}
-                onEditOfficePrompt={() =>
-                  openSettings({ kind: "section", section: "office" })
-                }
-                onEditRoomSettings={(roomId) =>
-                  openSettings({ kind: "room", roomId })
-                }
-                onOpenThemePicker={() =>
-                  openSettings({ kind: "section", section: "theme" })
-                }
-                onOpenTasks={openTasks}
-                onOpenCronjobs={() =>
-                  changePages({ type: "open", page: "cronjobs" })
-                }
-                onOpenApps={() => changePages({ type: "open", page: "apps" })}
-                onOpenSkills={() =>
-                  changePages({ type: "open", page: "skills" })
-                }
-                onOpenIntegrations={() => openIntegrations()}
-                onOpenInbox={openInbox}
-                onOpenUpdate={() =>
-                  openSettings({ kind: "section", section: "updates" })
-                }
-                onSwipeLeft={swipeRoomNext}
-                onSwipeRight={swipeRoomPrev}
-                viewportControlsRef={viewportControlsRef}
-              />
+              content
             )}
             {spawnBackOpen && currentRoomId && (
               <EditAgentDialog
@@ -1201,6 +1325,17 @@ export function App({ routing = true }: { routing?: boolean }) {
                 spawnAgentType="claude"
                 roomId={currentRoomId}
                 onClose={() => setSpawnBackOpen(false)}
+              />
+            )}
+            {sidebarSpawn && (
+              <EditAgentDialog
+                deskIndex={sidebarSpawn.desk}
+                defaultCwd={
+                  rooms.find((r) => r.id === sidebarSpawn.roomId)?.cwd ?? "~"
+                }
+                spawnAgentType="claude"
+                roomId={sidebarSpawn.roomId}
+                onClose={() => setSidebarSpawn(null)}
               />
             )}
             {spawnPickerDesk !== null && currentRoomId && (

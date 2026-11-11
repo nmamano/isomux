@@ -136,6 +136,7 @@ export function ContextMenu({
   return (
     <div
       ref={ref}
+      data-agent-menu={agent.id}
       style={{
         position: "fixed",
         left: x,
