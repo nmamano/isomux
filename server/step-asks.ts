@@ -1490,8 +1490,13 @@ export function createStepAsks(deps: StepAskDeps) {
             return invalid("step.set is an object of preferences");
           const parsed = parsePreferenceChange(body.set, ASK_PREFERENCE_KEYS);
           if (!parsed.ok) return invalid(`step.set: ${parsed.message}`);
-          // ASK_PREFERENCE_KEYS refuses the word list, so this drops nothing.
-          const { recordingWords: _refused, ...set } = parsed.change;
+          // ASK_PREFERENCE_KEYS refuses the word list and the dismiss list,
+          // so this drops nothing.
+          const {
+            recordingWords: _refused,
+            inboxDismissed: _refusedToo,
+            ...set
+          } = parsed.change;
           return { ok: true, step: { kind, set } };
         }
         if (typeof body.list !== "string" || !VIEW_LISTS.includes(body.list))

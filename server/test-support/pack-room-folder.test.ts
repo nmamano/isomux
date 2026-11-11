@@ -668,14 +668,13 @@ describe("the member's Folder agents outside the room folder move to Office", ()
       resumedInOld: sessionsSince(o, x.id, mark).some(
         (s) => s.opts.cwd === old,
       ),
-      // The folder never switched, not even for a moment.
-      switchedToOld: sock.messages
-        .slice(seen)
-        .some(
-          (m) =>
-            (m as { type?: string }).type === "agent_updated" &&
-            JSON.stringify(m).includes(JSON.stringify(old).slice(1, -1)),
-        ),
+      // The folder never switched, not even for a moment. Read the cwd the
+      // update sets: other fields (the failure record's text) may name the
+      // refused folder.
+      switchedToOld: sock.messages.slice(seen).some((m) => {
+        const u = m as { type?: string; changes?: { cwd?: string } };
+        return u.type === "agent_updated" && u.changes?.cwd === old;
+      }),
     }).toEqual({
       cwd: o.roomFolder,
       access: "folder",

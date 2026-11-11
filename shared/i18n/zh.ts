@@ -1916,6 +1916,10 @@ App 的一些原则：
   "asks.badge.other": "{count} 条请示",
   "asks.answerFailed": "未发送：{error}",
   "asks.empty": "没有待处理的请示。",
+  "asks.agentItem.permission": "正在等待权限批准",
+  "asks.agentItem.failed": "失败",
+  "asks.agentItem.openChat": "打开聊天",
+  "asks.agentItem.dismissFailed": "未关闭。请重试。",
   "asks.loadFailed": "无法加载请示。",
   "asks.retry": "重试",
   "asks.sort": "排序",
@@ -3464,6 +3468,7 @@ App 的一些原则：
   "systemEntries.settingsNotice.interrupted": "重启中断了你的上一个轮次。",
   "systemEntries.flushError": "发送队列消息时出错：{error}",
   "systemEntries.genericError": "错误：{error}",
+  "systemEntries.turnFailed": "本轮次失败。",
   "systemEntries.restoreOnStartupFailed":
     "启动时恢复失败：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.flushInterrupted": "会话更改中断了队列消息发送，将重试。",

@@ -149,6 +149,16 @@ function recordingWordsOf(value: unknown): Pick<UserRecord, "recordingWords"> {
   };
 }
 
+// The Inbox dismiss list (task ddf02829): absent and [] both mean none, so
+// [] is not stored. A hand-edited list keeps only its string keys.
+function inboxDismissedOf(value: unknown): Pick<UserRecord, "inboxDismissed"> {
+  if (!Array.isArray(value)) return {};
+  const keys = value.filter(
+    (k): k is string => typeof k === "string" && k !== "",
+  );
+  return keys.length > 0 ? { inboxDismissed: keys } : {};
+}
+
 // Avatar color (live-avatars feature). Stored as a normalized lowercase
 // "#rrggbb" string. Legacy records without the field - or any record
 // where the value isn't a valid hex color - fall back to a stable
@@ -275,6 +285,7 @@ function load(): Record<string, UserRecord> {
         language: normalizeLanguage(value.language),
         ...voicePreferences(value),
         ...recordingWordsOf(value.recordingWords),
+        ...inboxDismissedOf(value.inboxDismissed),
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
@@ -706,6 +717,7 @@ export function updateUserById(
       | "voiceOutput"
       | "voiceName"
       | "recordingWords"
+      | "inboxDismissed"
     >
   > & { allowedRooms?: string[]; pack?: MemberPack | null },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -791,6 +803,7 @@ export function updateUserById(
       voiceName: changes.voiceName ?? existing.voiceName,
     }),
     ...recordingWordsOf(changes.recordingWords ?? existing.recordingWords),
+    ...inboxDismissedOf(changes.inboxDismissed ?? existing.inboxDismissed),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
   // A pack is a member's only: a promotion to owner drops it. The caller

@@ -40,3 +40,22 @@ export function permissionInputSummary(
         : undefined;
   return filePath === undefined ? {} : { file_path: bounded(filePath) };
 }
+
+/**
+ * The tool input a permission card shows (AgentChoiceInteraction.permission,
+ * task ddf02829): the audit summary, else an OpenCode permission's patterns
+ * (its only input), one per line, bounded and redacted as the summary is.
+ */
+export function permissionCardInput(
+  toolName: string,
+  input: Record<string, unknown>,
+): Record<string, string> {
+  const summary = permissionInputSummary(toolName, input);
+  if (Object.keys(summary).length > 0) return summary;
+  const patterns = Array.isArray(input.patterns)
+    ? input.patterns.filter(
+        (value): value is string => typeof value === "string" && value !== "",
+      )
+    : [];
+  return patterns.length > 0 ? { patterns: bounded(patterns.join("\n")) } : {};
+}

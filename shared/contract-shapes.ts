@@ -806,6 +806,7 @@ export type PreferencesReq = Partial<{
   voiceOutput: VoiceOutput;
   voiceName: VoiceName;
   recordingWords: RecordingWord[];
+  inboxDismissed: string[];
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
@@ -817,14 +818,25 @@ export const PREFERENCE_KEYS = [
   "voiceOutput",
   "voiceName",
   "recordingWords",
+  "inboxDismissed",
 ] as const;
 
+// The Inbox dismiss list's bounds (UserRecord.inboxDismissed): the keys of
+// the failures a member dismissed, which the client prunes at each write.
+export const INBOX_DISMISSED_MAX = 200;
+export const INBOX_DISMISSED_KEY_MAX = 200;
+
 // The keys a member-preferences ask may set: every preference but the
-// recording mode word list. That list holds the names the member hides on
-// video, and an ask card shows the values it sets.
+// recording mode word list, which holds the names the member hides on video
+// (an ask card shows the values it sets), and the Inbox dismiss list, which
+// only the member's own dismisses write.
 export const ASK_PREFERENCE_KEYS = PREFERENCE_KEYS.filter(
-  (k): k is Exclude<(typeof PREFERENCE_KEYS)[number], "recordingWords"> =>
-    k !== "recordingWords",
+  (
+    k,
+  ): k is Exclude<
+    (typeof PREFERENCE_KEYS)[number],
+    "recordingWords" | "inboxDismissed"
+  > => k !== "recordingWords" && k !== "inboxDismissed",
 );
 
 // memberRecordingWords.get (GET /api/users/:username/recording-words): the

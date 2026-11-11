@@ -2160,6 +2160,10 @@ Cosas que puedes hacer por él:
   "asks.badge.other": "{count} peticiones",
   "asks.answerFailed": "No enviado: {error}",
   "asks.empty": "No hay peticiones abiertas.",
+  "asks.agentItem.permission": "Esperando un permiso",
+  "asks.agentItem.failed": "Falló",
+  "asks.agentItem.openChat": "Abrir el chat",
+  "asks.agentItem.dismissFailed": "No se ocultó. Inténtalo de nuevo.",
   "asks.loadFailed": "No se pudieron cargar las peticiones.",
   "asks.retry": "Reintentar",
   "asks.sort": "Ordenar",
@@ -3872,6 +3876,7 @@ Cosas que puedes hacer por él:
     "El reinicio detuvo tu turno anterior.",
   "systemEntries.flushError": "Error al vaciar la cola: {error}",
   "systemEntries.genericError": "Error: {error}",
+  "systemEntries.turnFailed": "El turno falló.",
   "systemEntries.restoreOnStartupFailed":
     "No se pudo restaurar al arrancar: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
   "systemEntries.flushInterrupted":

@@ -65,6 +65,7 @@ import {
   ensureSessionClaudeConfigDir,
   getSessionClaudeConfigDir,
   loadLogWithAncestors,
+  prepareLogEntry,
   saveMessageQueues,
   type PersistedAgent,
   type Room,
@@ -85,6 +86,7 @@ import {
   type UserSkillRoot,
 } from "./skills.ts";
 import { spawnTreeFields } from "./spawn-agent-limits.ts";
+import { nextFailure, persistedFailure } from "./agent-failure.ts";
 import type { createTaskStore } from "./task-store.ts";
 
 type MessageQueue = ReturnType<typeof createMessageQueue>;
@@ -364,6 +366,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       agentType,
       ...(codexSandbox ? { codexSandbox } : {}),
       ...(p.officeFreeModel ? { officeFreeModel: p.officeFreeModel } : {}),
+      // The last failure outlives the restart that brings the agent back
+      // without state error (task ddf02829).
+      failure: persistedFailure(p.failure) ?? null,
       capabilities: getBackend(agentType).capabilities,
       limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
       claudeFamilyModels: claudeFamilyModelsForUserId(userId),
@@ -610,7 +615,6 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
           ? "(unknown)"
           : renderLogText(english, sessionError),
       );
-      officeState.updateAgent(p.id, { state: "error" });
       const entry: LogEntry = {
         id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         agentId: p.id,
@@ -622,6 +626,26 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
           }),
         ),
       };
+      // Not through updateState: the failure record is set here, from this
+      // entry, with no turn starters (no member's turn failed).
+      const current = info.failure ?? null;
+      // Redacted, as the stored log text: the record reaches agents.json.
+      const text = prepareLogEntry(entry);
+      officeState.updateAgent(p.id, {
+        state: "error",
+        failure: nextFailure({
+          current,
+          prevState: info.state,
+          nextState: "error",
+          lastError: {
+            content: text.content,
+            ...(text.message !== undefined ? { message: text.message } : {}),
+            at: text.timestamp,
+          },
+          turnMemberIds: [],
+          now: entry.timestamp,
+        }),
+      });
       const cached = logCache.get(p.id) ?? [];
       cached.push(entry);
       logCache.set(p.id, cached);

@@ -228,6 +228,8 @@ import {
   autoHandoffTrigger,
   persistedAutoHandoffTokens,
 } from "./auto-handoff.ts";
+import { nextFailure } from "./agent-failure.ts";
+import { redactLogEntry } from "./log-redaction.ts";
 import { spawnTreeFields } from "./spawn-agent-limits.ts";
 import { createHandoffAndWake } from "./handoff-and-wake.ts";
 import { createMessageQueue } from "./message-queue.ts";
@@ -341,7 +343,10 @@ import {
   usageHeadsUpText,
   type BillingAccount,
 } from "./member-usage-cap.ts";
-import { permissionInputSummary } from "./permission-audit.ts";
+import {
+  permissionCardInput,
+  permissionInputSummary,
+} from "./permission-audit.ts";
 import { stripAttachmentNotices } from "./attachment-prompt.ts";
 import {
   editLogUserText,
@@ -2274,6 +2279,7 @@ export function createAgentManager(deps: ManagerDeps) {
     title: LogText,
     instruction: LogText,
     choices: readonly ChoiceInput[],
+    extra?: Pick<AgentChoiceInteraction, "permission">,
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -2285,6 +2291,7 @@ export function createAgentManager(deps: ManagerDeps) {
       agentId,
       kind,
       ...choiceCardFields(title, instruction, choices),
+      ...(extra?.permission ? { permission: extra.permission } : {}),
     };
     // A client holds the cards it was sent until it hears they are gone, so
     // a replaced interaction must be removed out loud. Otherwise the client
@@ -2440,6 +2447,26 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   // Open the card for one permission request and park the agent on it.
+  // What a permission card shows besides its title (the Inbox card has no
+  // chat above it): the backend's reason and the tool input, redacted as
+  // log text is. A redaction that throws leaves them out, never unredacted:
+  // the card still opens, so the agent never parks with nothing to answer.
+  function cardFacts(
+    ev: QueuedPermission["event"],
+  ): Pick<AgentChoiceInteraction, "permission"> {
+    try {
+      return {
+        permission: redactLogEntry({
+          ...(ev.description ? { description: ev.description } : {}),
+          input: permissionCardInput(ev.toolName, ev.input),
+        }),
+      };
+    } catch {
+      console.error("Permission card redaction failed; facts left out.");
+      return {};
+    }
+  }
+
   function showPermissionPrompt(
     agentId: string,
     managed: ManagedAgent,
@@ -2461,6 +2488,7 @@ export function createAgentManager(deps: ManagerDeps) {
         ev.allowPersistentLabel,
         ev.allowPrefixLabel,
       ),
+      cardFacts(ev),
     );
     managed.pendingPermission.interactionId = managed.pendingInteraction?.id;
     updateState(agentId, "waiting_for_response");
@@ -2596,11 +2624,29 @@ export function createAgentManager(deps: ManagerDeps) {
     // needed. A pending resume is armed at a turn's end, after that turn's
     // last busy state, and an event with no live turn never sets a busy state
     // (processNormalizedEvent).
-    if (state === "thinking" || state === "tool_executing")
+    if (state === "thinking" || state === "tool_executing") {
       dropLimitResume(agentId, managed);
+      // A new turn: an error entry from before it is not this turn's.
+      managed.lastErrorText = null;
+    }
     const prev = managed.info.state;
-    for (const event of officeState.updateAgent(agentId, { state }))
+    // The failure record (AgentInfo.failure): set on entering error, cleared
+    // at a real turn start, else the same object and no write.
+    const current = managed.info.failure ?? null;
+    const failure = nextFailure({
+      current,
+      prevState: prev,
+      nextState: state,
+      lastError: managed.lastErrorText ?? null,
+      turnMemberIds: managed.info.turnMemberIds,
+      now: Date.now(),
+    });
+    for (const event of officeState.updateAgent(
+      agentId,
+      failure === current ? { state } : { state, failure },
+    ))
       emit(event);
+    if (failure !== current) persistAll();
     if (state !== "thinking" && state !== "tool_executing")
       scheduleTurnRecordClear(agentId);
 
@@ -2763,6 +2809,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const cached = logCache.get(agentId) ?? [];
     cached.push(entry);
     logCache.set(agentId, cached);
+    stashErrorText(managed, entry);
 
     emit(
       opts?.open
@@ -2837,7 +2884,26 @@ export function createAgentManager(deps: ManagerDeps) {
     const cached = logCache.get(agentId) ?? [];
     cached.push(entry);
     logCache.set(agentId, cached);
+    stashErrorText(agents.get(agentId), entry);
     emit({ type: "log_entry", entry });
+  }
+
+  // An error entry's text, for the failure record of the turn it ends
+  // (ManagedAgent.lastErrorText).
+  function stashErrorText(
+    managed: ManagedAgent | undefined,
+    entry: LogEntry,
+  ): void {
+    if (!managed || entry.kind !== "error") return;
+    // The record reaches agents.json and every viewer of the agent: the
+    // redacted text, as a stored log entry has (an ephemeral entry is not
+    // prepared).
+    const stored = prepareLogEntry(entry);
+    managed.lastErrorText = {
+      content: stored.content,
+      ...(stored.message !== undefined ? { message: stored.message } : {}),
+      at: stored.timestamp,
+    };
   }
 
   // The one writer of the topic state. It goes through officeState so a

@@ -67,6 +67,11 @@ export interface AgentChoiceInteraction {
     current?: boolean;
     message?: { label?: LogPart[]; description?: LogPart[] };
   }[];
+  // A permission interaction only: what the chat shows above its card, so
+  // the Inbox card is answered with the same facts (task ddf02829). The
+  // backend's reason, and the tool input summary (permissionInputSummary:
+  // a Bash command, a file path). Redacted, as log text is.
+  permission?: { description?: string; input: Record<string, string> };
 }
 
 export interface AgentOutfit {
@@ -827,6 +832,19 @@ export type ReportedBackgroundTask = Omit<BackgroundTask, "startedAt">;
 // "failed" when the last one gave no label; null otherwise.
 export type TopicState = "generating" | "usage_limit" | "failed" | null;
 
+// Why an agent failed (AgentInfo.failure). The text is the error entry's own
+// pair (logTextFields): the English `content`, and the parts as `message`
+// so each reader sees it in their language (logEntryText).
+export interface AgentFailure {
+  // When the agent entered error (ms).
+  since: number;
+  content: string;
+  message?: LogPart[];
+  // turnMemberIds at the failure. turnMemberIds is not persisted, so the
+  // failure keeps its own copy of who started the failed turn.
+  memberIds: string[];
+}
+
 export interface AgentInfo {
   id: string;
   name: string;
@@ -983,6 +1001,13 @@ export interface AgentInfo {
   // pending prompt does not survive a restart either. Clears go over the wire
   // as EXPLICIT null for the same JSON.stringify reason as contextUsage below.
   pendingPrompt?: PendingPromptKind | null;
+  // The agent's last failure (task ddf02829): set when it enters state
+  // error, cleared when its next turn starts (thinking/tool_executing) and
+  // with the agent. Persisted, so it outlives the restart that brings an
+  // errored agent back idle. The Inbox shows it to the agent's manager and
+  // to the members who started the failed turn. Clears go over the wire as
+  // EXPLICIT null, as pendingPrompt.
+  failure?: AgentFailure | null;
   // Background work the live session still runs (Claude background agents,
   // commands and workflows; Codex subagents and background terminals). Live
   // only: not persisted, and cleared with the session. Explicit null when
@@ -2499,6 +2524,10 @@ export interface UserRecord {
   // mode (shared/recording-redact.ts). Absent means never saved: the
   // default list (the office name) applies.
   recordingWords?: RecordingWord[];
+  // The failed-agent Inbox items the member dismissed (task ddf02829), as
+  // "<agentId>:<since>" keys (ui/inbox-agent-items.ts failureKey). Absent
+  // reads as none. Written whole through prefs.update.
+  inboxDismissed?: string[];
   // Set when an owner creates the member (users.create); removed by the
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".

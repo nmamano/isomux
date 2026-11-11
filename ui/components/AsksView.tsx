@@ -37,6 +37,10 @@ import { asksFor, visibleAsks } from "../asks-sync.ts";
 import { AskCard, AskUndoHost } from "../log-view/AskCard.tsx";
 import { AskResultCard } from "../log-view/AskResultCard.tsx";
 import { PinnedAsk } from "./PinnedAsk.tsx";
+import { AgentInboxItemCard } from "./AgentInboxItemCard.tsx";
+import { useAgentInboxItems, useInboxDismissed } from "../inbox.ts";
+import { failureKey, type AgentInboxItem } from "../inbox-agent-items.ts";
+import { apiFetch } from "../api.ts";
 import {
   ASKS_SORTS,
   getAsksFilter,
@@ -44,6 +48,7 @@ import {
   setAsksMember,
   type AsksMember,
   getAsksSort,
+  getAsksSeen,
   getAsksSortDir,
   markAsksSeen,
   setAsksFilter,
@@ -91,6 +96,7 @@ export interface AskFilter {
 }
 
 const MINE: AsksMember = { kind: "mine" };
+const NO_ITEMS: readonly AgentInboxItem[] = [];
 
 // The member select's option values, in the setting's own encoding, so a
 // member named "all" or "mine" stays a member.
@@ -123,6 +129,7 @@ function filterCounts(
   asks: readonly AskMemberWire[],
   agents: readonly AgentInfo[],
   filter: AskFilter,
+  items: readonly AgentInboxItem[],
 ): {
   rooms: Map<string, number>;
   priorities: Map<string, number>;
@@ -143,6 +150,13 @@ function filterCounts(
     if (priority && byThisAgent) add(rooms, agent.roomId);
     if (room && byThisAgent) add(priorities, entry.priority ?? "none");
     if (room && priority) add(byAgent, agent.id);
+  }
+  // The agent items have no priority: they count for the room and the agent.
+  for (const item of items) {
+    const agent = agentById.get(item.agentId);
+    if (!agent) continue;
+    if (passesAgent(filter, agent)) add(rooms, agent.roomId);
+    if (passesRoom(filter, agent)) add(byAgent, agent.id);
   }
   return { rooms, priorities, agents: byAgent };
 }
@@ -329,6 +343,11 @@ export function AsksView({
   const [member, setMember] = useState<AsksMember>(getAsksMember);
   const whose = isOwner ? member : MINE;
   const { t } = useI18n();
+  // The agent items (task ddf02829) are the member's own: they show with
+  // the own asks, not on another member's list.
+  const allItems = useAgentInboxItems();
+  const items = whose.kind === "member" ? NO_ITEMS : allItems;
+  const dismissed = useInboxDismissed();
   // A list the member filter shows did not load: the page cannot say that
   // no ask is open.
   const loadFailed =
@@ -365,13 +384,18 @@ export function AsksView({
     document.addEventListener("visibilitychange", onChange);
     return () => document.removeEventListener("visibilitychange", onChange);
   }, []);
+  // The agent items are seen as the asks are, by their key. With no ask
+  // loaded the earlier marks are all kept, as markAsksSeen keeps them.
   useEffect(() => {
     if (!pageVisible) return;
+    const itemKeys = allItems.map((item) => item.key);
     markAsksSeen(
-      visibleAsks(asks, agents).map((e) => e.id),
-      asks.map((e) => e.id),
+      [...visibleAsks(asks, agents).map((e) => e.id), ...itemKeys],
+      asks.length > 0
+        ? [...asks.map((e) => e.id), ...itemKeys]
+        : [...getAsksSeen(), ...itemKeys],
     );
-  }, [asks, agents, pageVisible]);
+  }, [asks, agents, allItems, pageVisible]);
   const [openFilter, setOpenFilter] = useState<
     "room" | "priority" | "agent" | null
   >(null);
@@ -441,7 +465,10 @@ export function AsksView({
   // checked again after its asks went. Grouped by room (groupAgentsByRoom);
   // the agents of no known room by name whatever the case, then by id.
   const agentGroups = useMemo(() => {
-    const withAsk = new Set(open.map((e) => e.agentId));
+    const withAsk = new Set([
+      ...open.map((e) => e.agentId),
+      ...items.map((item) => item.agentId),
+    ]);
     const offered = agents
       .filter((agent) => withAsk.has(agent.id) || hiddenAgents.has(agent.id))
       .sort(
@@ -450,7 +477,7 @@ export function AsksView({
           (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
     return groupAgentsByRoom(offered, rooms);
-  }, [open, agents, hiddenAgents, rooms]);
+  }, [open, items, agents, hiddenAgents, rooms]);
   const filterAgents = useMemo(
     () => agentGroups.flatMap((group) => group.agents),
     [agentGroups],
@@ -505,9 +532,35 @@ export function AsksView({
     [listed, agents, filterRooms, filter, sort, dir],
   );
   const counts = useMemo(
-    () => filterCounts(open, agents, filter),
-    [open, agents, filter],
+    () => filterCounts(open, agents, filter, items),
+    [open, agents, filter, items],
   );
+  // The agent items the room and agent filters let through, with their
+  // agent; the priority filter does not apply to them.
+  const shownItems = useMemo(() => {
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    return items.flatMap((item) => {
+      const agent = agentById.get(item.agentId);
+      return agent && passesRoom(filter, agent) && passesAgent(filter, agent)
+        ? [{ item, agent }]
+        : [];
+    });
+  }, [items, agents, filter]);
+  // Dismiss writes the whole list: the dismissed failures agents still
+  // carry, and this one. A key no agent carries any more is dropped.
+  const dismissItem = (agentId: string, since: number) => {
+    const live = new Set(
+      agents.flatMap((agent) =>
+        agent.failure ? [failureKey(agent.id, agent.failure.since)] : [],
+      ),
+    );
+    const key = failureKey(agentId, since);
+    const inboxDismissed = [
+      ...dismissed.filter((k) => live.has(k) && k !== key),
+      key,
+    ];
+    return apiFetch<void>("PATCH", "/api/me/preferences", { inboxDismissed });
+  };
   const showAll = () => {
     setUncheckedRooms([]);
     setUncheckedAgents([]);
@@ -539,6 +592,12 @@ export function AsksView({
       listed.some((e) => e.agentId === "") ||
       agents.some((agent) => listed.some((e) => e.agentId === agent.id)),
     [listed, agents],
+  );
+  // An agent item exists, shown or hidden by the filters. With no ask open,
+  // the items shown are the list (no "No open asks"), and items the filters
+  // all hide give the filtered line.
+  const anyItem = items.some((item) =>
+    agents.some((agent) => agent.id === item.agentId),
   );
   // The toasts of the held answers in the list.
   const [undoHost, setUndoHost] = useState<HTMLDivElement | null>(null);
@@ -855,7 +914,34 @@ export function AsksView({
                 </button>
               </div>
             )}
-            {groups.length === 0 && !anyOpen ? (
+            {/* The agent items, above the asks in every sort. */}
+            {shownItems.length > 0 && (
+              <div
+                data-agent-items=""
+                style={{ marginBottom: groups.length > 0 ? 16 : 0 }}
+              >
+                {shownItems.map(({ item, agent }) => (
+                  <AgentInboxItemCard
+                    key={item.key}
+                    item={item}
+                    agent={agent}
+                    roomName={roomNameById.get(agent.roomId) ?? ""}
+                    isMobile={isMobile}
+                    onOpenChat={onChatAgent ?? onFocusAgent}
+                    onDismiss={
+                      item.kind === "failed"
+                        ? () => dismissItem(item.agentId, item.failure.since)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            )}
+            {groups.length === 0 &&
+            !anyOpen &&
+            shownItems.length > 0 ? null : groups.length === 0 &&
+              !anyOpen &&
+              !anyItem ? (
               // The pinned card is the one open ask: no "No open asks" under
               // it. A failed load cannot tell that none is open.
               pinnedEntry || loadFailed ? null : (

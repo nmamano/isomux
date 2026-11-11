@@ -110,6 +110,26 @@ describe("prefs.update - persistence", () => {
     expect(getUserByName("Morgan")!.recordingWords).toEqual([]);
   });
 
+  // The failed-agent Inbox items a member dismissed (task ddf02829): on the
+  // record, so a dismiss on the laptop holds on the phone and after a restart.
+  it("round-trips the dismissed Inbox items through a cold restart, and an empty list clears them", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    await putPrefs(server, owner.rawSessionId, { language: "es" });
+    const keys = ["agent-1:1700000000000", "agent-2:1700000000500"];
+    expect(
+      await putPrefs(server, owner.rawSessionId, { inboxDismissed: keys }),
+    ).toBe(204);
+    server = await server.restart();
+    const rec = getUserByName("Morgan")!;
+    expect(rec.inboxDismissed).toEqual(keys);
+    expect(rec.language).toBe("es");
+    expect(
+      await putPrefs(server, owner.rawSessionId, { inboxDismissed: [] }),
+    ).toBe(204);
+    expect(getUserByName("Morgan")!.inboxDismissed ?? []).toEqual([]);
+  });
+
   it("language: null clears an earlier pick", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -276,6 +296,49 @@ describe("prefs.update - recording mode words", () => {
   });
 });
 
+describe("prefs.update - dismissed Inbox items", () => {
+  // The client writes the whole list each time, pruned to live failures, so
+  // the cap is a sanity check, not a budget a member can reach.
+  it("refuses a list that is not strings, too long, or with a key too long, and writes nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    const saved = ["agent-1:1700000000000"];
+    // The enabling write: the key is known and a good list lands.
+    expect(
+      await putPrefs(server, owner.rawSessionId, { inboxDismissed: saved }),
+    ).toBe(204);
+    expect(getUserByName("Morgan")!.inboxDismissed).toEqual(saved);
+    // At the caps: accepted.
+    const atCap = Array.from({ length: 200 }, (_, i) => `a:${i}`);
+    atCap[0] = "x".repeat(200);
+    expect(
+      await putPrefs(server, owner.rawSessionId, { inboxDismissed: atCap }),
+    ).toBe(204);
+    expect(
+      await putPrefs(server, owner.rawSessionId, { inboxDismissed: saved }),
+    ).toBe(204);
+    for (const inboxDismissed of [
+      "agent-1:1",
+      null,
+      [1],
+      [null],
+      [["agent-1:1"]],
+      [{ key: "agent-1:1" }],
+      Array.from({ length: 201 }, (_, i) => `a:${i}`),
+      ["x".repeat(201)],
+    ]) {
+      const status = await putPrefs(server, owner.rawSessionId, {
+        inboxDismissed,
+      });
+      expect({ inboxDismissed, status }).toEqual({
+        inboxDismissed,
+        status: 422,
+      });
+    }
+    expect(getUserByName("Morgan")!.inboxDismissed).toEqual(saved);
+  });
+});
+
 // The UI is event-authoritative: PreferencesPane reads the record out of the
 // store, so a write that persists but never fans out looks like a Save that
 // did nothing. These pin the audiences.
@@ -307,6 +370,8 @@ describe("prefs.update - live event contract", () => {
       ["language", "es"],
       ["voiceInput", "openai"],
       ["recordingWords", [{ word: "Zyxquorp", standIn: "Client" }]],
+      // Every device of the member drops a dismissed Inbox item at once.
+      ["inboxDismissed", ["agent-1:1700000000000"]],
     ] as const) {
       // Ignore earlier events; only events caused by this write count.
       const beforeSelf = bag(memberSock, "user_self_updated").length;

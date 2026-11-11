@@ -2114,6 +2114,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.badge.other": "{count} asks",
   "asks.answerFailed": "Not sent: {error}",
   "asks.empty": "No open asks.",
+  "asks.agentItem.permission": "Waiting for permission",
+  "asks.agentItem.failed": "Failed",
+  "asks.agentItem.openChat": "Open chat",
+  "asks.agentItem.dismissFailed": "Not dismissed. Try again.",
   "asks.loadFailed": "Could not load asks.",
   "asks.retry": "Try again",
   "asks.sort": "Sort",
@@ -3794,6 +3798,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The restart stopped your previous turn.",
   "systemEntries.flushError": "Error flushing queue: {error}",
   "systemEntries.genericError": "Error: {error}",
+  "systemEntries.turnFailed": "The turn failed.",
   "systemEntries.restoreOnStartupFailed":
     "Failed to restore on startup: {error}\nType /clear to start fresh, or /resume to pick another session.",
   "systemEntries.flushInterrupted":

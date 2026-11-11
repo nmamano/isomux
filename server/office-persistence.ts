@@ -335,6 +335,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       ...(a.info.officeFreeModel
         ? { officeFreeModel: a.info.officeFreeModel }
         : {}),
+      ...(a.info.failure ? { failure: a.info.failure } : {}),
       lastSessionId: a.sessionManager.sessionId,
       topic: a.info.topic,
       customInstructions: a.info.customInstructions,

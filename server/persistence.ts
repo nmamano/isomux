@@ -30,6 +30,7 @@ import {
 } from "fs";
 import { createHash } from "crypto";
 import type {
+  AgentFailure,
   AgentInfo,
   Attachment,
   BackgroundTask,
@@ -887,6 +888,8 @@ export interface PersistedAgent {
   // Engine. Missing field defaults to "claude" on load (legacy agents spawned
   // before this field was added). Fixed at spawn.
   agentType?: AgentInfo["agentType"];
+  // The agent's last failure (AgentInfo.failure). Absent = none.
+  failure?: AgentFailure;
   // Codex-only sandbox setting.
   codexSandbox?: AgentInfo["codexSandbox"];
   // OpenCode only: AgentInfo.officeFreeModel. Absent on every agent the

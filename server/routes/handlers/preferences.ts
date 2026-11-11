@@ -34,6 +34,8 @@
 
 import { noContent, fail, ok, type RouteHandler } from "../executor.ts";
 import {
+  INBOX_DISMISSED_KEY_MAX,
+  INBOX_DISMISSED_MAX,
   PREFERENCE_KEYS,
   VOICE_PREFERENCE_KEYS,
   type MemberRecordingWordsRes,
@@ -136,6 +138,25 @@ export function parsePreferenceChange(
     change.recordingWords = (words as RecordingWord[]).map(
       ({ word, standIn }) => ({ word, standIn }),
     );
+  }
+  if ("inboxDismissed" in body) {
+    const keys = body.inboxDismissed;
+    if (
+      !Array.isArray(keys) ||
+      keys.length > INBOX_DISMISSED_MAX ||
+      !keys.every(
+        (k) =>
+          typeof k === "string" &&
+          k !== "" &&
+          k.length <= INBOX_DISMISSED_KEY_MAX,
+      )
+    ) {
+      return refuse(
+        "invalid_inbox_dismissed",
+        `inboxDismissed must be a list of at most ${INBOX_DISMISSED_MAX} keys of 1 to ${INBOX_DISMISSED_KEY_MAX} characters`,
+      );
+    }
+    change.inboxDismissed = [...new Set(keys as string[])];
   }
   if ("voiceInput" in body) {
     if (!isVoiceInput(body.voiceInput)) {

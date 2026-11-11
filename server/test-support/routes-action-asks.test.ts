@@ -1503,15 +1503,20 @@ describe("a member-preferences ask at create", () => {
       });
   });
 
-  it("refuses the recording word list, alone or beside a key it takes: 400, nothing opened", async () => {
+  it("refuses the recording word list and the dismissed Inbox items, alone or beside a key it takes: 400, nothing opened", async () => {
     // The list holds the names the member hides on video, and a card shows
-    // the current and requested values: an ask must not carry it.
+    // the current and requested values: an ask must not carry it. The
+    // dismissed Inbox items (task ddf02829) are the member's own clicks, not
+    // a setting an agent asks for.
     const o = await office();
     const asker = await spawn(o, "Asker");
     const words = [{ word: "Acme Corp", standIn: "Client A" }];
+    const dismissed = ["agent-1:1700000000000"];
     for (const set of [
       { recordingWords: words },
       { language: "es", recordingWords: words },
+      { inboxDismissed: dismissed },
+      { language: "es", inboxDismissed: dismissed },
     ])
       expect({
         set,
@@ -1525,6 +1530,13 @@ describe("a member-preferences ask at create", () => {
       (
         await asSession(o, o.morgan, "PATCH", "/api/me/preferences", {
           recordingWords: words,
+        })
+      ).status,
+    ).toBe(204);
+    expect(
+      (
+        await asSession(o, o.morgan, "PATCH", "/api/me/preferences", {
+          inboxDismissed: dismissed,
         })
       ).status,
     ).toBe(204);

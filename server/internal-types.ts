@@ -19,6 +19,7 @@ import type {
   NormalizedEvent,
 } from "./backends/types.ts";
 import type { SessionManager } from "./session-manager.ts";
+import type { LogPart } from "../shared/i18n/log-message.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type { BillingAccount } from "./member-usage-cap.ts";
 import type { AutoHandoffTrigger } from "./auto-handoff.ts";
@@ -366,6 +367,10 @@ export interface ManagedAgent {
   pendingEffortPick: boolean;
   pendingInteraction?: AgentChoiceInteraction | null;
   pendingInteractionAdded?: AgentChoiceInteraction | null;
+  // The text of the last error entry of the current turn (logged or
+  // ephemeral), for the failure record (server/agent-failure.ts). Cleared at
+  // every turn start, so it never names an earlier turn's error.
+  lastErrorText?: { content: string; message?: LogPart[]; at: number } | null;
   pendingInteractionRemoved?: { interactionId: string; agentId: string } | null;
   // Auto-mode permission prompt two-step state. Carries the approvalId for
   // routing plus enough to interpret the reply; the backend holds the

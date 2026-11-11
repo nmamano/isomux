@@ -2167,6 +2167,10 @@ Coses que pots fer per ell:
   "asks.badge.other": "{count} peticions",
   "asks.answerFailed": "No enviat: {error}",
   "asks.empty": "No hi ha peticions obertes.",
+  "asks.agentItem.permission": "Esperant un permís",
+  "asks.agentItem.failed": "Ha fallat",
+  "asks.agentItem.openChat": "Obre el xat",
+  "asks.agentItem.dismissFailed": "No s’ha amagat. Torna-ho a provar.",
   "asks.loadFailed": "No s'han pogut carregar les peticions.",
   "asks.retry": "Torna-ho a provar",
   "asks.sort": "Ordena",
@@ -3878,6 +3882,7 @@ Coses que pots fer per ell:
     "El reinici ha aturat el teu torn anterior.",
   "systemEntries.flushError": "Error en buidar la cua: {error}",
   "systemEntries.genericError": "Error: {error}",
+  "systemEntries.turnFailed": "El torn ha fallat.",
   "systemEntries.restoreOnStartupFailed":
     "No s'ha pogut restaurar en arrencar: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
   "systemEntries.flushInterrupted":
