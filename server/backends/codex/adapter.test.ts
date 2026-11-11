@@ -3098,60 +3098,67 @@ describe("CodexSession misc notifications", () => {
     ).toBe("completed");
   });
 
-  it("retries structured provider capacity with empty turns and one terminal", async () => {
-    const clock = retryClock();
-    const { session, fake, it } = await bootstrapped(undefined, {
-      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
-    });
-    await session.send("do this once");
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+  // Codex 0.166 adds policyCapacityUnavailable, with the same retry advice
+  // as an overload (codex-rs/protocol/src/error.rs).
+  for (const capacityKind of [
+    "serverOverloaded",
+    "policyCapacityUnavailable",
+  ] as const) {
+    it(`retries structured provider capacity (${capacityKind}) with empty turns and one terminal`, async () => {
+      const clock = retryClock();
+      const { session, fake, it } = await bootstrapped(undefined, {
+        scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+      });
+      await session.send("do this once");
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        fake.fireNotification("error", {
+          error: {
+            message: "provider wording can change",
+            codexErrorInfo: capacityKind,
+          },
+          willRetry: false,
+          threadId: FIXTURE_THREAD_ID,
+          turnId: `turn-${attempt}`,
+        });
+        fake.fireNotification("turn/completed", {
+          threadId: FIXTURE_THREAD_ID,
+          turn: { id: `turn-${attempt}`, status: "failed" },
+        });
+        const retry = expectKind(
+          await nextEvent(it, `capacity retry ${attempt}`),
+          "provider_capacity_retry",
+        );
+        expect(retry).toMatchObject({
+          attempt,
+          maxAttempts: 3,
+          delayMs: [5_000, 15_000, 30_000][attempt - 1],
+        });
+        await clock.runNext();
+        const request = fake.requests.at(-1)!;
+        expect(request.method).toBe("turn/start");
+        expect(request.params).toMatchObject({ input: [] });
+      }
       fake.fireNotification("error", {
-        error: {
-          message: "provider wording can change",
-          codexErrorInfo: "serverOverloaded",
-        },
+        error: { message: "still full", codexErrorInfo: capacityKind },
         willRetry: false,
         threadId: FIXTURE_THREAD_ID,
-        turnId: `turn-${attempt}`,
+        turnId: "turn-4",
       });
       fake.fireNotification("turn/completed", {
         threadId: FIXTURE_THREAD_ID,
-        turn: { id: `turn-${attempt}`, status: "failed" },
+        turn: { id: "turn-4", status: "failed" },
       });
-      const retry = expectKind(
-        await nextEvent(it, `capacity retry ${attempt}`),
-        "provider_capacity_retry",
+      const terminal = expectKind(
+        await nextEvent(it, "capacity terminal"),
+        "turn_completed",
       );
-      expect(retry).toMatchObject({
-        attempt,
-        maxAttempts: 3,
-        delayMs: [5_000, 15_000, 30_000][attempt - 1],
+      expect(terminal).toMatchObject({
+        status: "failed",
+        error: "still full",
+        causedByProviderCapacity: true,
       });
-      await clock.runNext();
-      const request = fake.requests.at(-1)!;
-      expect(request.method).toBe("turn/start");
-      expect(request.params).toMatchObject({ input: [] });
-    }
-    fake.fireNotification("error", {
-      error: { message: "still full", codexErrorInfo: "serverOverloaded" },
-      willRetry: false,
-      threadId: FIXTURE_THREAD_ID,
-      turnId: "turn-4",
     });
-    fake.fireNotification("turn/completed", {
-      threadId: FIXTURE_THREAD_ID,
-      turn: { id: "turn-4", status: "failed" },
-    });
-    const terminal = expectKind(
-      await nextEvent(it, "capacity terminal"),
-      "turn_completed",
-    );
-    expect(terminal).toMatchObject({
-      status: "failed",
-      error: "still full",
-      causedByProviderCapacity: true,
-    });
-  });
+  }
 
   it("does not replay a capacity failure after a completed item", async () => {
     const clock = retryClock();
@@ -3209,14 +3216,19 @@ describe("CodexSession misc notifications", () => {
     });
   }
 
-  it("serverOverloaded with willRetry true stays on the provider retry path", async () => {
-    const { fake, it } = await bootstrapped();
-    fake.fireNotification("error", {
-      error: { message: "upstream retry", codexErrorInfo: "serverOverloaded" },
-      willRetry: true,
+  for (const capacityKind of [
+    "serverOverloaded",
+    "policyCapacityUnavailable",
+  ] as const) {
+    it(`${capacityKind} with willRetry true stays on the provider retry path`, async () => {
+      const { fake, it } = await bootstrapped();
+      fake.fireNotification("error", {
+        error: { message: "upstream retry", codexErrorInfo: capacityKind },
+        willRetry: true,
+      });
+      expectKind(await nextEvent(it, "upstream retry"), "system_text");
     });
-    expectKind(await nextEvent(it, "upstream retry"), "system_text");
-  });
+  }
 
   it("terminal error still follows a retryable error on the same turn", async () => {
     const { fake, it } = await bootstrapped();
@@ -5731,6 +5743,8 @@ describe("CodexSession provider refusals", () => {
       "bioPolicy",
       "invalidPrompt",
       "misalignmentPolicyViolation",
+      // Codex 0.165+ sends a provider 404 for the model as its own kind.
+      "modelNotFound",
       { httpConnectionFailed: { httpStatusCode: 400 } },
       FORBIDDEN,
       { httpConnectionFailed: { httpStatusCode: 499 } },
@@ -5746,6 +5760,7 @@ describe("CodexSession provider refusals", () => {
       { responseTooManyFailedAttempts: { httpStatusCode: 401 } },
       "usageLimitExceeded",
       "serverOverloaded",
+      "policyCapacityUnavailable",
       "badRequest",
       "contextWindowExceeded",
       "internalServerError",

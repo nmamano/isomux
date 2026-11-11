@@ -54,6 +54,8 @@ On 2026-10-02, the trust pin (`CODEX_HOOK_TRUST_HASH_PROVEN_VERSION`) moved to C
 
 On 2026-10-25, the trust pin moved to Codex 0.164.0, with an API-key login. The live trust contract test showed the installer hash equal to Codex's `currentHash`. The paid pair allowed the workspace write and blocked the protected write on both gpt-6.1-sol and gpt-5.6-sol. The coverage matrix passed on gpt-5.6-sol with no validation error, and the model issued the tool call in all 31 cells.
 
+On 2026-11-11, the trust pin moved to Codex 0.166.0, with an API-key login. The trust contract and the paid pair passed as on 0.164.0, on both models. The coverage matrix passed on gpt-5.6-sol with no validation error, and the model issued the tool call in all 34 cells. Three new cells give a shell call a `workdir` and a relative write. From 0.166.0, `PreToolUse` reports that resolved directory as the hook's `cwd`; 0.164.0 reported the session directory, so the hook checked the write against the wrong directory. The hook input carries no `workdir`, so the checker depends on that `cwd`.
+
 ## Failure behavior
 
 Codex fails open when a hook executable is missing, exits with an error, times out, or returns an invalid result. Isomux surfaces the same signed transcript warning when it detects a pre-spawn installation or trust failure, a caught checker fault, or a technical `hook/completed` failure:

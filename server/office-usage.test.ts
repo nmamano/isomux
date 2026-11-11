@@ -150,7 +150,12 @@ function codexLimits(
   };
 }
 
-const chatgpt = { type: "chatgpt", email: null, planType: "pro" } as const;
+const chatgpt = {
+  type: "chatgpt",
+  email: null,
+  planType: "pro",
+  workspaceName: null,
+} as const;
 
 describe("parseCodexWeekly", () => {
   it("finds the 10080-minute window in either slot", () => {
@@ -182,7 +187,7 @@ describe("parseCodexWeekly", () => {
     ).toEqual({ kind: "weekly", usedPercent: 20, resetsAtMs: resetsAt * 1000 });
   });
 
-  it("exempts only API-key and Bedrock billing", () => {
+  it("exempts only API-key, Bedrock and Vertex billing", () => {
     expect(parseCodexWeekly({ type: "apiKey" }, null)).toEqual({
       kind: "no_limit",
     });
@@ -192,12 +197,36 @@ describe("parseCodexWeekly", () => {
         null,
       ),
     ).toEqual({ kind: "no_limit" });
+    expect(parseCodexWeekly({ type: "gcp" }, null)).toEqual({
+      kind: "no_limit",
+    });
     expect(parseCodexWeekly(null, null)).toEqual({ kind: "signed_out" });
+  });
+
+  it("reads an account type it does not know by its rate limits", () => {
+    // A later Codex can add a plan with a weekly limit: it must not read as
+    // no limit.
+    const unknown = { type: "chatgptTeams" } as unknown as Parameters<
+      typeof parseCodexWeekly
+    >[0];
+    const resetsAt = Math.floor(NOW / 1000) + 3600;
+    expect(
+      parseCodexWeekly(
+        unknown,
+        codexLimits([{ usedPercent: 30, windowDurationMins: 10080, resetsAt }]),
+      ),
+    ).toEqual({ kind: "weekly", usedPercent: 30, resetsAtMs: resetsAt * 1000 });
+    expect(parseCodexWeekly(unknown, null)).toEqual({ kind: "failed" });
   });
 
   it("reads a plan whose windows are all other than a week as no limit", () => {
     // The free plan (office sign-in, 2026-10-26): one 30-day window.
-    const free = { type: "chatgpt", email: null, planType: "free" } as const;
+    const free = {
+      type: "chatgpt",
+      email: null,
+      planType: "free",
+      workspaceName: null,
+    } as const;
     expect(
       parseCodexWeekly(
         free,

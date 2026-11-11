@@ -75,6 +75,7 @@ import { sanitizeTaskLabel } from "../task-label.ts";
 import { effectiveCodexSandbox } from "./sandbox-probe.ts";
 import {
   CODEX_DEFAULT_SANDBOX,
+  CODEX_MODELS,
   type ReportedBackgroundTask,
   type SubagentOrigin,
 } from "../../../shared/types.ts";
@@ -198,12 +199,22 @@ export function codexProviderRefusal(
 const CODEX_REFUSAL_KINDS = new Set([
   "rateLimitExceeded",
   "flexUnavailable",
+  // Codex 0.165 stops retrying and keeps the provider's words (0.164 sent
+  // the 4xx as an HTTP variant, a refusal by the rule below).
+  "modelNotFound",
   "cyberPolicy",
   // Codex 0.160 (codex-rs/protocol/src/error.rs); not in the generated
   // CodexErrorInfo yet.
   "bioPolicy",
   "invalidPrompt",
   "misalignmentPolicyViolation",
+]);
+
+// Capacity errors take the provider-capacity retry. Codex 0.166 gives
+// policyCapacityUnavailable the same retry advice as serverOverloaded.
+const CODEX_CAPACITY_KINDS: ReadonlySet<unknown> = new Set([
+  "serverOverloaded",
+  "policyCapacityUnavailable",
 ]);
 
 // The variants that carry the provider's HTTP status.
@@ -378,15 +389,7 @@ const CAPABILITIES: BackendCapabilities = {
 // auth-appropriate subset (ChatGPT-login vs API-key users see different
 // sets) with per-model supportedReasoningEfforts. This list backs
 // getModelOptions() and modelDisplayLabel() when the RPC isn't available.
-// Slugs listed by `codex debug models` on codex-cli 0.164.0, 2026-10-25;
-// mirror of CODEX_MODELS in shared/types.ts.
-const MODEL_OPTIONS: ModelOption[] = [
-  { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
-  { value: "gpt-6-astra", label: "GPT-6 Astra" },
-  { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-  { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-  { value: "gpt-5.5", label: "GPT-5.5" },
-];
+const MODEL_OPTIONS: ModelOption[] = CODEX_MODELS;
 
 function modelDisplayLabel(slug: string): string {
   return MODEL_OPTIONS.find((m) => m.value === slug)?.label ?? slug;
@@ -2961,7 +2964,7 @@ export class CodexSession implements BackendSession {
         if (
           message &&
           notification.willRetry === false &&
-          notification.error.codexErrorInfo === "serverOverloaded"
+          CODEX_CAPACITY_KINDS.has(notification.error.codexErrorInfo)
         ) {
           this.capacityErrorThisAttempt = message;
           break;

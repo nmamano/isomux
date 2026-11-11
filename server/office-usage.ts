@@ -102,6 +102,28 @@ export function parseClaudeWeekly(raw: unknown): ProbeResult {
   return { kind: "weekly", usedPercent: week.utilization, resetsAtMs };
 }
 
+// Whether a Codex login has plan usage limits. Only a ChatGPT login has
+// them. The switch is exhaustive, so a login type that a new Codex adds fails
+// the typecheck until it is sorted here. At runtime, an unknown type takes
+// the rate-limit path, never "no limit".
+function codexAccountHasPlanLimits(
+  account: NonNullable<GetAccountResponse["account"]>,
+): boolean {
+  switch (account.type) {
+    case "apiKey":
+    case "amazonBedrock":
+    case "gcp":
+      return false;
+    case "chatgpt":
+      return true;
+    default: {
+      const unsorted: never = account;
+      void unsorted;
+      return true;
+    }
+  }
+}
+
 // Codex account + rate limits -> the weekly outcome. Exported for tests. The
 // weekly window is the one 10080 minutes long, whichever slot it rides in (a
 // Pro plan sends it as `primary`). Windows that are all of another length (the
@@ -111,8 +133,7 @@ export function parseCodexWeekly(
   limits: GetAccountRateLimitsResponse | null,
 ): ProbeResult {
   if (!account) return { kind: "signed_out" };
-  if (account.type === "apiKey" || account.type === "amazonBedrock")
-    return { kind: "no_limit" };
+  if (!codexAccountHasPlanLimits(account)) return { kind: "no_limit" };
   if (!limits) return { kind: "failed" };
   const snapshot: RateLimitSnapshot | undefined =
     limits.rateLimitsByLimitId?.[CODEX_PREFERRED_LIMIT_ID] ??

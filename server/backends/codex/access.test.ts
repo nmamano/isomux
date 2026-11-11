@@ -31,7 +31,7 @@ import { STATE_ROOT } from "../../config.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 
 // Every feature flag that adds a tool, a tool source or a way out, in Codex
-// 0.164.0. Each one is set false, so a member config.toml that turns it on
+// 0.166.0. Each one is set false, so a member config.toml that turns it on
 // loses.
 const FEATURES_OFF = [
   "shell_tool",

@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { performance } from "perf_hooks";
 import { JsonRpcLiteClient, PASS } from "./client.ts";
 import { closeAndReap, waitForGroupExit } from "./live-client-reap.ts";
@@ -28,7 +28,16 @@ import {
 } from "./hook-probe-fixture.ts";
 
 type Json = Record<string, unknown>;
-type ActionKind = "bash" | "apply_patch" | "dynamic_tool" | "mcp";
+// bash_workdir: a Bash call that sets its workdir to a subfolder and writes
+// a relative path. Codex 0.166 (#57198) reports that resolved workdir as the
+// PreToolUse cwd; 0.164 reported the thread cwd, so a relative write was
+// checked against the wrong folder.
+type ActionKind =
+  | "bash"
+  | "bash_workdir"
+  | "apply_patch"
+  | "dynamic_tool"
+  | "mcp";
 type SessionMode = "start" | "resume" | "fork" | "one-shot";
 
 interface Reading {
@@ -48,6 +57,8 @@ interface Reading {
   hookListing?: Json;
   homeLayout?: "default-replica" | "per-user-override" | "managed-system";
   userHookPayloads?: unknown[];
+  // bash_workdir: the folder each PreToolUse payload must name as its cwd.
+  expectedHookCwd?: string;
 }
 
 const enabled = process.env.ISOMUX_TEST_CODEX_HOOK_LIVE === "1";
@@ -59,7 +70,7 @@ const outerDeadlineMs = Number(
 );
 const selectedActions = (
   process.env.ISOMUX_TEST_CODEX_HOOK_ACTIONS ??
-  "bash,apply_patch,dynamic_tool,mcp"
+  "bash,bash_workdir,apply_patch,dynamic_tool,mcp"
 ).split(",") as ActionKind[];
 const selectedControls = (
   process.env.ISOMUX_TEST_CODEX_HOOK_CONTROLS ?? "allow,deny,untrusted"
@@ -305,6 +316,9 @@ function promptFor(action: ActionKind, marker: string): string {
   if (action === "bash") {
     return `Use the Bash tool exactly once to run: printf reached > ${marker}. Do not use apply_patch or another tool.`;
   }
+  if (action === "bash_workdir") {
+    return `Use the Bash tool exactly once, with its workdir argument set to ${dirname(marker)}, to run exactly: printf reached > ${basename(marker)}. Do not cd and do not use another path. Do not use apply_patch or another tool.`;
+  }
   if (action === "apply_patch") {
     return `Use the apply_patch tool exactly once to create ${marker} with the single line reached. Do not use Bash or another tool.`;
   }
@@ -510,8 +524,9 @@ async function runReading(
       ? join(root, ".isomux", "codex-home")
       : join(root, "users", "probe-user", "codex-home");
   const cwd = join(root, "workspace");
-  const marker = join(cwd, `marker-${action}`);
-  mkdirSync(cwd, { recursive: true });
+  const markerDir = action === "bash_workdir" ? join(cwd, "workdir") : cwd;
+  const marker = join(markerDir, `marker-${action}`);
+  mkdirSync(markerDir, { recursive: true });
   writeFileSync(join(cwd, ".keep"), "");
   const startedAt = performance.now();
   let client: JsonRpcLiteClient | null = null;
@@ -626,6 +641,10 @@ async function runReading(
       itemTypes: [...new Set(items)],
       wallMs: Math.round(performance.now() - startedAt),
       homeLayout,
+      // An untrusted hook does not run, so it writes no payload.
+      ...(action === "bash_workdir" && behavior !== "untrusted"
+        ? { expectedHookCwd: markerDir }
+        : {}),
     };
   } catch (error) {
     return {
@@ -983,6 +1002,15 @@ function validate(readings: Reading[]): string[] {
     }
     if (reading.behavior === "self-timeout" && reading.sideEffect) {
       errors.push(`${label} self-timeout deny created its side effect`);
+    }
+    if (reading.expectedHookCwd !== undefined) {
+      const cwds = reading.payloads.map(
+        (payload) => (payload as Json | null)?.cwd,
+      );
+      if (cwds.length === 0 || cwds.some((c) => c !== reading.expectedHookCwd))
+        errors.push(
+          `${label} PreToolUse cwd ${JSON.stringify(cwds)} is not the call's workdir ${JSON.stringify(reading.expectedHookCwd)}`,
+        );
     }
   }
   return errors;

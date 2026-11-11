@@ -40,7 +40,7 @@ const GOLDEN_HOOK_PATH = join(
 const TRUST_SENTINEL = "# isomux-managed-codex-safety-hook";
 const HOOK_REFUSAL =
   "Codex not started: the installed safety hook differs from this checkout's source, and only the office server installs it.";
-export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.164.0";
+export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.166.0";
 
 export interface CodexSafetyHookIdentity {
   sourcePath: string;

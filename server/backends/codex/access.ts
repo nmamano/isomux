@@ -6,7 +6,8 @@
 // workspace-write without network, with Isomux's file tools
 // (server/folder-files.ts) and the safety hook confined to the folder
 // (confine-env.ts); web adds Codex's hosted web search. Measured on codex
-// 0.164.0 with gpt-5.5 (tasks e77304b1, 25015e41); another version or model
+// 0.164.0 with gpt-5.5 (tasks e77304b1, 25015e41), again on 0.166.0 (task
+// 19d0dead); another version or model
 // runs these stops only after a new probe
 // (server/backends/codex-access.live.test.ts).
 
@@ -23,9 +24,9 @@ import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 
 // The Codex version the probe ran on. getCodexPinnedVersion() must equal it.
-export const CODEX_BELOW_STANDARD_PROVEN_VERSION = "0.164.0";
+export const CODEX_BELOW_STANDARD_PROVEN_VERSION = "0.166.0";
 
-// Every feature of Codex 0.164.0 that adds a tool, a tool source or a way
+// Every feature of Codex 0.166.0 that adds a tool, a tool source or a way
 // out. The ones from apps on add a tool only under a ChatGPT sign-in, which
 // the live test cannot see, so they are named here.
 const FEATURES_OFF = [

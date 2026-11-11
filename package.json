@@ -50,7 +50,7 @@
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@openai/codex": "0.164.0",
+    "@openai/codex": "0.166.0",
     "@opencode/cli": "2.2.5",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
