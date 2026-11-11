@@ -1,7 +1,5 @@
 # Contributing
 
-Bug reports and pull requests are welcome.
-
 ## Setup
 
 ```sh
@@ -14,7 +12,7 @@ The first command also turns on the pre-push hook in `.githooks/`. The type chec
 
 ## Before you open a pull request
 
-Start your branch from an up-to-date `main`, then run:
+Run:
 
 ```sh
 bun run typecheck
