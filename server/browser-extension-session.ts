@@ -74,9 +74,10 @@ type Session = {
   parents: Map<Page, Page>;
   opened: boolean;
   dialogs?: ActionDialogs;
-  // Playwright left a dialog open between actions. It never forgets one it
-  // did not answer, and refuses to evaluate on that page after the member
-  // answers it.
+  // Playwright left a dialog open between actions. 1.62 kept one it did not
+  // answer and refused to evaluate on that page after the member answered it;
+  // 1.64 drops it at Chrome's close event (checked 2026-11-11). The retire
+  // stays as a guard.
   heldDialog?: boolean;
 };
 const failure = (

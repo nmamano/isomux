@@ -348,8 +348,8 @@ systemd-run --user --scope -p MemoryMax=2G timeout 300s xvfb-run -a env ISOMUX_T
 ```
 
 The dialogs file reads `ISOMUX_TEST_BROWSER_DIALOGS=1` instead. Measured
-2026-10-23 on auntie: the office file takes about 2 minutes and the
-interactions file about 80 seconds; the others take about 10 seconds each.
+2026-11-11 on auntie: the interactions file takes about 2.5 minutes and the
+office file about 1 minute; the others take about 10 seconds each.
 [The bridge design](browser-extension.md) gives their limits. Those that do
 not boot an office connect through the loopback socket of
 `server/test-support/browser-extension-fixture.ts`, which no production office

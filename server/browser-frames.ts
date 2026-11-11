@@ -360,7 +360,7 @@ function maskPasswordValues(text: string, values: string[]): string {
 }
 
 // Copies of Playwright's normalizeWhiteSpace and yamlEscapeValueIfNeeded
-// quoting (1.62): the snapshot prints a textbox value in this form.
+// quoting (1.64): the snapshot prints a textbox value in this form.
 function normalizeWhiteSpace(text: string): string {
   return text
     .replace(/[\u200b\u00ad]/g, "")

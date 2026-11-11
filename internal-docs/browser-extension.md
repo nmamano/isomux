@@ -227,7 +227,7 @@ during the metadata read triggers the same bounded selection check. Text, snapsh
 and screenshot payloads use that selected page. Other action or read errors remain
 failures.
 
-Pinned Playwright 1.62.1 runs inside the Bun office process. The public
+Pinned Playwright 1.64.1 runs inside the Bun office process. The public
 `chromium.connectOverCDP(transport, { noDefaults: true })` overload connects
 directly to an authorized assignment through `browser-extension-transport.ts`.
 There is no agent CDP HTTP/WS endpoint, private Playwright patch or Node child.
@@ -660,7 +660,7 @@ extension, fixture bridge, the real session code; fake page that copies the
 Namecheap patterns):
 
 ```
-systemd-run --user --scope -p MemoryMax=2G timeout 120s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-interactions.live.test.ts
+systemd-run --user --scope -p MemoryMax=2G timeout 300s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-interactions.live.test.ts
 ```
 
 **Findings.** A listbox that picks its option in a window-capture pointerdown
@@ -706,7 +706,7 @@ run first: the element (first match on the main frame, strict in a frame),
 `isEnabled` (includes disabled fieldsets), then the option that `selectOption`
 picks, which is the first match in document order. Public utility-world reads
 find it: a candidate locator that holds every match in document order, then
-`getAttribute` and `textContent` per candidate, matched as Playwright 1.62
+`getAttribute` and `textContent` per candidate, matched as Playwright 1.64
 matches (value equal to `option.value`; label equal to `option.label` or equal
 after `normalizeWhiteSpace`; Chrome's `option.text` strips and collapses ASCII
 whitespace, and a `label=""` attribute gives an empty label). `isEnabled` on
@@ -739,12 +739,15 @@ for its session (the result and the event come on separate channels), and
 with its popup or frame session. While one is listed on any page or frame of
 the grant, every action but `tabs` and `close` returns `action_failed` with
 the list in `error.dialogs`, after the office-page refusals and the fence
-checks, and sends nothing. Playwright never forgets a dialog it did not
-answer and refuses to evaluate on that page after it closes, so the next
-action retires a client that left one open (cause `held_dialog`) and attaches
-a fresh one. Agents cannot answer such a dialog; the member does. Not
-tracked: a dialog already open before the offer, or still open when the
-debugger reattached (a new debugger session gets "No dialog is showing");
+checks, and sends nothing. Playwright 1.62 kept a dialog it did not answer
+and refused to evaluate on that page after it closed. 1.64 drops it on
+`Page.javascriptDialogClosed` and evaluates again (checked 2026-11-11 against
+real Chrome). The next action still retires a client that left one open
+(cause `held_dialog`) and attaches a fresh one, as a guard: it costs one
+attach, and keeps the tab working if a later Playwright keeps the dialog
+again. Agents cannot answer such a dialog; the member does. Not tracked: a
+dialog already open before the offer, or still open when the debugger
+reattached (a new debugger session gets "No dialog is showing");
 there the action waits to its deadline.
 
 Such a dialog also blocks the extension's own attach, so no agent client ever

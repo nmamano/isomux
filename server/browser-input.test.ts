@@ -6,8 +6,9 @@ import {
   clickNotPerformedReason,
 } from "./browser-input";
 
-// Call logs as Playwright 1.62.1 reports them for a click that timed out
-// before it dispatched input (recorded 2026-10-08 against real Chrome).
+// Call logs as Playwright 1.64.1 reports them for a click that timed out
+// before it dispatched input (recorded 2026-10-08 on 1.62.1 against real
+// Chrome, the same on 1.64.1 on 2026-11-11).
 const log = (...lines: string[]) =>
   ["TimeoutError: click: Timeout 3500ms exceeded.", "Call log:", ...lines].join(
     "\n",
@@ -97,8 +98,9 @@ test("a colored call log gives the same reasons as a plain one", () => {
 });
 
 test("a known setChecked failure maps to a fixed reason, and any other error to none", () => {
-  // First message lines of isChecked and forced setChecked errors in Playwright 1.62.1
-  // against real Chrome (recorded 2026-10-15). A call log follows them.
+  // First message lines of isChecked and forced setChecked errors in Playwright 1.64.1
+  // against real Chrome (recorded 2026-10-15 on 1.62.1, the same on 1.64.1 on
+  // 2026-11-11). A call log follows them.
   const failure = (first: string) =>
     [first, "Call log:", "  - waiting for locator('#x')"].join("\n");
   expect(
