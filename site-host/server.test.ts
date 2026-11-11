@@ -247,7 +247,15 @@ beforeAll(async () => {
     if (entry === "site" || entry === ".git") continue;
     symlinkSync(join(REPO, entry), join(root, entry));
   }
-  cpSync(join(REPO, "site"), join(root, "site"), { recursive: true });
+  // Not what build-docs writes: the build below writes it again, and the docs
+  // tests can remove it while the copy walks it.
+  const buildOutput = ["docs", "_agent/docs", "hosted-welcome.html"].map(
+    (path) => join(REPO, "site", path),
+  );
+  cpSync(join(REPO, "site"), join(root, "site"), {
+    recursive: true,
+    filter: (source) => !buildOutput.includes(source),
+  });
   const build = Bun.spawnSync({
     cmd: [process.execPath, join(REPO, "scripts/build-docs.ts")],
     cwd: root,

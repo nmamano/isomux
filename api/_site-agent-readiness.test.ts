@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { readdirSync } from "node:fs";
 import chat, { ISOMUX_KNOWLEDGE } from "./chat.ts";
 import notFound from "./not-found.ts";
 import middleware, { negotiate } from "../middleware.ts";
@@ -182,15 +183,27 @@ describe("isomux.com agent readiness", () => {
     expect(llms).toContain(canonical![1]);
   });
 
+  // The pages build-docs writes. The docs tests remove and write them again
+  // in another shard, so the walk must not enter them: a page or folder it
+  // lists can be gone when it is read. None of them has the footer columns.
+  const BUILD_OUTPUT = [
+    "site/docs",
+    "site/_agent/docs",
+    "site/hosted-welcome.html",
+  ];
+  const sitePages = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = `${dir}/${entry.name}`;
+      if (BUILD_OUTPUT.includes(path)) return [];
+      if (entry.isDirectory()) return sitePages(path);
+      return path.endsWith(".html") ? [path] : [];
+    });
   for (const file of [
     "site/ai-instructions.html",
     "site/contact.html",
     "site/compare.html",
   ]) {
-    // Quarantined (task 89063064, P1): the footer scan opened a site/docs page
-    // that the docs build in use-cases-docs.test.ts had just removed (ENOENT)
-    // once in ci:remote, and passed on the re-run of the same commit.
-    it.skip(`links ${file} from the sitemap, llms.txt, and every site footer`, async () => {
+    it(`links ${file} from the sitemap, llms.txt, and every site footer`, async () => {
       const page = await Bun.file(file).text();
       const canonical = page.match(/<link rel="canonical" href="([^"]+)"/);
       expect(canonical).not.toBeNull();
@@ -201,7 +214,7 @@ describe("isomux.com agent readiness", () => {
       expect(await Bun.file("site/llms.txt").text()).toContain(canonical![1]);
 
       const footerPages: string[] = [];
-      for await (const html of new Bun.Glob("site/**/*.html").scan(".")) {
+      for (const html of sitePages("site")) {
         const text = await Bun.file(html).text();
         const footer = text.match(
           /<footer class="site-footer">([\s\S]*?)<\/footer>/,
