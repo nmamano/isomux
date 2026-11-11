@@ -1831,9 +1831,10 @@ describe("OpenCode 2 native steer", () => {
     // to its boundary, where 2.2.5 promotes the row.
     await until(() => h.events.some((e) => e.kind === "approval_request"));
     expect(await h.transport.steer("FYI from Sender", "steer-a")).toBe(true);
-    const ask = h.events.find(
-      (e) => e.kind === "approval_request",
-    ) as Extract<NormalizedEvent, { kind: "approval_request" }>;
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
     await h.transport.approve(ask.approvalId, { kind: "allow_once" });
     const { events, end } = await sending;
 
@@ -1859,7 +1860,9 @@ describe("OpenCode 2 native steer", () => {
     // The boundary delivered it: one steer_delivered, before the completion,
     // and nothing for the foreign row. No cancel was owed.
     const delivered = events.filter((e) => e.kind === "steer_delivered");
-    expect(delivered).toEqual([{ kind: "steer_delivered", steerId: "steer-a" }]);
+    expect(delivered).toEqual([
+      { kind: "steer_delivered", steerId: "steer-a" },
+    ]);
     expect(events.indexOf(delivered[0]!)).toBeLessThan(
       events.findIndex((e) => e.kind === "turn_completed"),
     );
@@ -1888,9 +1891,10 @@ describe("OpenCode 2 native steer", () => {
     const sending = h.turn([{ type: "text", text: "go" }]);
     await until(() => h.events.some((e) => e.kind === "approval_request"));
     expect(await h.transport.steer("refused", "steer-r")).toBe(false);
-    const ask = h.events.find(
-      (e) => e.kind === "approval_request",
-    ) as Extract<NormalizedEvent, { kind: "approval_request" }>;
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
     await h.transport.approve(ask.approvalId, { kind: "allow_once" });
     const { events, end } = await sending;
     expect(end?.status).toBe("completed");
@@ -1913,9 +1917,10 @@ describe("OpenCode 2 native steer", () => {
     });
     await until(() => h.events.some((e) => e.kind === "approval_request"));
     expect(await h.transport.steer("too late", "steer-p")).toBe(true);
-    const ask = h.events.find(
-      (e) => e.kind === "approval_request",
-    ) as Extract<NormalizedEvent, { kind: "approval_request" }>;
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
     await h.transport.approve(ask.approvalId, { kind: "allow_once" });
     const { events, end } = await sending;
 
@@ -1935,9 +1940,10 @@ describe("OpenCode 2 native steer", () => {
     const sending = h.turn([{ type: "text", text: "go" }]);
     await until(() => h.events.some((e) => e.kind === "approval_request"));
     expect(await h.transport.steer("quietly taken", "steer-s")).toBe(true);
-    const ask = h.events.find(
-      (e) => e.kind === "approval_request",
-    ) as Extract<NormalizedEvent, { kind: "approval_request" }>;
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
     await h.transport.approve(ask.approvalId, { kind: "allow_once" });
     const { events, end } = await sending;
 
@@ -1950,7 +1956,9 @@ describe("OpenCode 2 native steer", () => {
     // The promotion means the model read the steer: the delivery is reported
     // before the completion, exactly once, so the flush does not resend it.
     const delivered = events.filter((e) => e.kind === "steer_delivered");
-    expect(delivered).toEqual([{ kind: "steer_delivered", steerId: "steer-s" }]);
+    expect(delivered).toEqual([
+      { kind: "steer_delivered", steerId: "steer-s" },
+    ]);
     expect(events.indexOf(delivered[0]!)).toBeLessThan(
       events.findIndex((e) => e.kind === "turn_completed"),
     );

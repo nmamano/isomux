@@ -1601,9 +1601,10 @@ describe("OpenCode session steer", () => {
       Date.now() < askAt
     )
       await Bun.sleep(2);
-    const ask = events.find(
-      (e) => e.kind === "approval_request",
-    ) as Extract<NormalizedEvent, { kind: "approval_request" }>;
+    const ask = events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
     expect(ask).toBeDefined();
     expect(await session.steer!("FYI from Sender", "steer-1")).toBe(true);
     await session.approve(ask.approvalId, { kind: "allow_once" });

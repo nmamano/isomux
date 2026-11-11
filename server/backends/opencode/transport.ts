@@ -1322,9 +1322,9 @@ export class OpenCodeTransport {
         let pending = false;
         try {
           const list = listData(
-            await this
-              .request(`/api/session/${session}/inbox`)
-              .then((r) => r.json()),
+            await this.request(`/api/session/${session}/inbox`).then((r) =>
+              r.json(),
+            ),
           );
           pending = list.some(
             (row) => stringField(asRecord(row), "id") === inboxId,

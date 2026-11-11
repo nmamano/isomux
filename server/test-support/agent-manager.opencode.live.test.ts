@@ -447,7 +447,9 @@ function steerMock(state: SteerMockState) {
         .reverse()
         .find((message) => message.role === "user")?.content;
       const prompt =
-        typeof lastUser === "string" ? lastUser : JSON.stringify(lastUser ?? "");
+        typeof lastUser === "string"
+          ? lastUser
+          : JSON.stringify(lastUser ?? "");
       requests.push({ messages, topic: prompt.includes("topic label") });
       const hasToolResult = messages.some((message) => message.role === "tool");
       const id = `gate-${requests.length}`;
@@ -551,7 +553,11 @@ async function waitUntil(
   for (;;) {
     if (await pred()) return;
     if (Date.now() > deadline) {
-      if (onTimeout) console.info(`live steer timeout diagnostics:`, JSON.stringify(onTimeout(), null, 1));
+      if (onTimeout)
+        console.info(
+          `live steer timeout diagnostics:`,
+          JSON.stringify(onTimeout(), null, 1),
+        );
       throw new Error(`live steer: timed out waiting for ${label}`);
     }
     await Bun.sleep(20);
@@ -606,11 +612,15 @@ async function allowNextPermission(
     "permission interaction",
     60_000,
     () => ({
-      eventTypes: [...new Set(events.map((e) => (e as { type?: string }).type))],
+      eventTypes: [
+        ...new Set(events.map((e) => (e as { type?: string }).type)),
+      ],
       state: mgr.getAgent(agentId)?.state,
       logs: mgr
         .getAgentLogs(agentId)
-        .map((entry) => `${entry.kind}: ${String(entry.content).slice(0, 100)}`),
+        .map(
+          (entry) => `${entry.kind}: ${String(entry.content).slice(0, 100)}`,
+        ),
     }),
   );
   const event = events.find(
@@ -620,7 +630,9 @@ async function allowNextPermission(
         .interaction?.kind === "permission" &&
       (candidate as { interaction?: { agentId?: string } }).interaction
         ?.agentId === agentId &&
-      !answered.has((candidate as { interaction: { id: string } }).interaction.id),
+      !answered.has(
+        (candidate as { interaction: { id: string } }).interaction.id,
+      ),
   ) as { interaction: { id: string } };
   answered.add(event.interaction.id);
   const result = mgr.respondToChoiceInteraction(
@@ -650,10 +662,7 @@ async function liveInbox(
   }
 }
 
-async function spawnReceiver(
-  mgr: SteerManager,
-  room: string,
-): Promise<string> {
+async function spawnReceiver(mgr: SteerManager, room: string): Promise<string> {
   const info = await mgr.spawn(
     "Steer Receiver",
     STATE_ROOT,
@@ -708,11 +717,7 @@ it.skipIf(!LIVE)(
         { steer: true },
       );
       expect(ack).toMatchObject({ ok: true, queued: false, steered: true });
-      await waitUntil(
-        () => settled(mgr, agentId),
-        "turn settled",
-        60_000,
-      );
+      await waitUntil(() => settled(mgr, agentId), "turn settled", 60_000);
 
       // Logged exactly once, as a tool-boundary delivery (steer_delivered),
       // before the turn's final reply.
@@ -727,7 +732,9 @@ it.skipIf(!LIVE)(
       // request carried its result plus the steer text: OpenCode promoted
       // the row at the boundary, inside the same run. Keyed on the last
       // user message, since the topic-label request also holds the history.
-      const lastUserOf = (request: { messages: Array<Record<string, unknown>> }) => {
+      const lastUserOf = (request: {
+        messages: Array<Record<string, unknown>>;
+      }) => {
         const last = [...request.messages]
           .reverse()
           .find((message) => message.role === "user")?.content;
@@ -814,7 +821,12 @@ it.skipIf(!LIVE)(
         );
         expect(ack.ok).toBe(true);
         await waitUntil(
-          () => settled(mgr, agentId, () => steerEntries(mgr, agentId, steerText).length > 0),
+          () =>
+            settled(
+              mgr,
+              agentId,
+              () => steerEntries(mgr, agentId, steerText).length > 0,
+            ),
           `attempt ${attempt} settled`,
           60_000,
         );
@@ -889,7 +901,11 @@ it.skipIf(!LIVE)(
       expect(result.ok).toBe(true);
       await waitUntil(
         () =>
-          settled(mgr, agentId, () => steerEntries(mgr, agentId, steerText).length > 0),
+          settled(
+            mgr,
+            agentId,
+            () => steerEntries(mgr, agentId, steerText).length > 0,
+          ),
         "abort settled with the flush delivered",
         60_000,
       );
@@ -928,9 +944,7 @@ it.skipIf(!LIVE)(
       expect(await liveInbox(supervisor, sessionId!)).toEqual([]);
       const carrying = requests.filter((request) =>
         JSON.stringify(
-          request.messages.filter(
-            (message) => message.role === "user",
-          ),
+          request.messages.filter((message) => message.role === "user"),
         ).includes("STEER-C3"),
       );
       expect(carrying).toHaveLength(1);
