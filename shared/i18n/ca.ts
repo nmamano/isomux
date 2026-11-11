@@ -2745,7 +2745,6 @@ Coses que pots fer per ell:
   "logView.queue.cancel": "Cancel·la aquest missatge en cua",
   "logView.interaction.current": "Actual",
   "logView.interaction.failed": "No s'ha pogut aplicar aquesta opció.",
-  "logView.nav.agentTitle": "Configuració de l'agent",
   "logView.rest.loadOlder": "Carrega anteriors",
   "logView.rest.loadingOlder": "Carregant missatges anteriors…",
   "logView.rest.copyWaits": "Carregant tot el xat…",
@@ -2757,7 +2756,8 @@ Coses que pots fer per ell:
   "logView.nav.copyMarkdown": "Markdown",
   "logView.nav.copyPlainText": "Text sense format",
   "logView.nav.copyHtml": "Fitxer HTML (baixada)",
-  "logView.nav.avatarTitle": "Mostra l'avatar",
+  "logView.nav.avatarTitle":
+    "Fes clic a l'avatar per a la configuració de l'agent",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Obre l'editor de fitxers (Ctrl+E)",
   "logView.nav.terminalTitle": "Obre la terminal (Ctrl+`)",

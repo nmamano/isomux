@@ -144,8 +144,7 @@ async function hideSidebar(view: View): Promise<void> {
 }
 
 // The top-bar buttons with a sidebar twin (agreed with the worker,
-// 2026-11-11). The chat header's "settings" is the agent's settings, which
-// the sidebar does not have, so it stays.
+// 2026-11-11).
 const OFFICE_TWINS = new Set([
   "tasks",
   "cronjobs",

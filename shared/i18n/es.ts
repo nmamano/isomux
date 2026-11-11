@@ -2740,7 +2740,6 @@ Cosas que puedes hacer por él:
   "logView.queue.cancel": "Cancelar este mensaje en cola",
   "logView.interaction.current": "Actual",
   "logView.interaction.failed": "No se ha podido aplicar esa opción.",
-  "logView.nav.agentTitle": "Ajustes del agente",
   "logView.rest.loadOlder": "Cargar anteriores",
   "logView.rest.loadingOlder": "Cargando mensajes anteriores…",
   "logView.rest.copyWaits": "Cargando todo el chat…",
@@ -2752,7 +2751,8 @@ Cosas que puedes hacer por él:
   "logView.nav.copyMarkdown": "Markdown",
   "logView.nav.copyPlainText": "Texto sin formato",
   "logView.nav.copyHtml": "Archivo HTML (descarga)",
-  "logView.nav.avatarTitle": "Ver el avatar",
+  "logView.nav.avatarTitle":
+    "Haz clic en el avatar para ver los ajustes del agente",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Abrir el editor de archivos (Ctrl+E)",
   "logView.nav.terminalTitle": "Abrir la terminal (Ctrl+`)",

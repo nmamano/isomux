@@ -10,8 +10,7 @@ export type ChatSidebarChoice = "open" | "closed";
 /**
  * The top-bar buttons the open sidebar repeats (NavAction ids), hidden while
  * it is open: the office bar's pages and Settings, and the chat bar's Tasks
- * and Inbox. The chat bar's "settings" is the agent's, which the sidebar does
- * not have.
+ * and Inbox.
  */
 export const OFFICE_BAR_TWINS: ReadonlySet<string> = new Set([
   "tasks",

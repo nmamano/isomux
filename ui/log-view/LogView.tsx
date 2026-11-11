@@ -85,7 +85,6 @@ import { SubscriptionPill } from "./SubscriptionPill.tsx";
 import {
   TasksIcon,
   AgentIcon,
-  EyeIcon,
   TerminalIcon,
   EditorIcon,
   CopyIcon,
@@ -1621,16 +1620,10 @@ export function LogView({
       },
       disabled: logs.length === 0,
     },
-    {
-      id: "settings",
-      icon: AgentIcon,
-      label: i18n.t("common.agent"),
-      onClick: onEditAgent,
-      title: i18n.t("logView.nav.agentTitle"),
-    },
+    // Agent settings open from a click on the shown avatar (Nil, 2026-11-11).
     {
       id: "viewAvatar",
-      icon: EyeIcon,
+      icon: AgentIcon,
       label: i18n.t("common.avatar"),
       onClick: toggleAvatar,
       active: showAvatar,
