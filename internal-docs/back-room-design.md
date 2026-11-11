@@ -134,8 +134,8 @@ Approved by the Lead, 2026-10-15.
   f0af4677, e2fb9fa0). Light
   shows through the planks when a back agent works; badges above it:
   "{n} asking", "{n} error", each hidden at 0. A back agent's unread output
-  lights nothing on the front, the room tab dot included: people rarely talk
-  to the back room (Nil). An empty back room leaves it closed and quiet. A click opens the back screen. A desk
+  lights nothing on the front: people rarely talk to the back room (Nil).
+  An empty back room leaves it closed and quiet. A click opens the back screen. A desk
   dropped on it moves to the back. The b key goes between the front and the
   back screen. Phone tap box: 60 × 44 px.
 - Room tabs during a desk drag, or a figure drag on the back screen: a drop

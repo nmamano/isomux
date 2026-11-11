@@ -3,7 +3,7 @@ import type { AgentInfo, PresenceInfo, RoomWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
-import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
+import { roomActivityDotColor } from "./room-activity.ts";
 
 const MINI_GHOST_SIZE = 12;
 const MAX_MINI_GHOSTS = 3;
@@ -15,7 +15,6 @@ export function tuckedChipSummary(
   tuckedRooms: readonly RoomWire[],
   activeRoomId: string | null,
   agents: readonly AgentInfo[],
-  needsAttention: ReadonlySet<string>,
   presencesByRoom: ReadonlyMap<string, PresenceInfo[]>,
 ): {
   presences: PresenceInfo[];
@@ -27,11 +26,7 @@ export function tuckedChipSummary(
   const roomAgents = agents.filter((a) => ids.has(a.roomId));
   return {
     presences: [...ids].flatMap((id) => presencesByRoom.get(id) ?? []),
-    dotColor: roomActivityDotColor(
-      roomAgents,
-      roomHasUnread(roomAgents, needsAttention),
-      false,
-    ),
+    dotColor: roomActivityDotColor(roomAgents, false),
   };
 }
 
@@ -76,7 +71,6 @@ export function TuckedRoomsChip({
   tuckedRooms,
   activeRoomId,
   agents,
-  needsAttention,
   presencesByRoom,
   selfConnectionId,
   dragging,
@@ -86,7 +80,6 @@ export function TuckedRoomsChip({
   tuckedRooms: RoomWire[];
   activeRoomId: string | null;
   agents: AgentInfo[];
-  needsAttention: ReadonlySet<string>;
   presencesByRoom: ReadonlyMap<string, PresenceInfo[]>;
   selfConnectionId: string | null;
   dragging: boolean;
@@ -123,7 +116,6 @@ export function TuckedRoomsChip({
     tuckedRooms,
     activeRoomId,
     agents,
-    needsAttention,
     presencesByRoom,
   );
   const label = t("office.tabs.tuckedRooms");
@@ -223,11 +215,7 @@ export function TuckedRoomsChip({
           {tuckedRooms.map((room) => {
             const isActive = room.id === activeRoomId;
             const roomAgents = agents.filter((a) => a.roomId === room.id);
-            const dot = roomActivityDotColor(
-              roomAgents,
-              roomHasUnread(roomAgents, needsAttention),
-              isActive,
-            );
+            const dot = roomActivityDotColor(roomAgents, isActive);
             const presences = presencesByRoom.get(room.id) ?? [];
             const names = presentMemberNames(presences, selfConnectionId);
             return (

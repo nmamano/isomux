@@ -315,22 +315,20 @@ describe("tuckedChipSummary", () => {
       rooms,
       null,
       [agent("x", "b", "idle"), agent("y", "c", "thinking")],
-      new Set(["x"]),
       presences,
     );
     expect(summary.presences.map((p) => p.connectionId)).toEqual(["c1", "c2"]);
     expect(summary.dotColor).toBe("var(--green)");
   });
 
-  it("shows attention when no tucked room has a working agent", () => {
+  it("shows no dot when no tucked room has a working agent", () => {
     const summary = tuckedChipSummary(
       rooms,
       null,
       [agent("x", "b", "idle")],
-      new Set(["x"]),
       presences,
     );
-    expect(summary.dotColor).toBe("var(--purple)");
+    expect(summary.dotColor).toBeNull();
   });
 
   it("leaves out the active room, which has its own tab", () => {
@@ -338,7 +336,6 @@ describe("tuckedChipSummary", () => {
       rooms,
       "c",
       [agent("y", "c", "thinking")],
-      new Set(),
       presences,
     );
     expect(summary.presences.map((p) => p.connectionId)).toEqual(["c1"]);

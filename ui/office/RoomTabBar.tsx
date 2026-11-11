@@ -15,7 +15,7 @@ import {
 import type { PresenceInfo } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
+import { roomActivityDotColor } from "./room-activity.ts";
 import { TuckedRoomsChip } from "./TuckedRoomsChip.tsx";
 import { useDraggedDesk } from "./useDeskDrag.ts";
 import { getDraggedDesk } from "./drag-state.ts";
@@ -188,7 +188,6 @@ export function RoomTabBar({
   const {
     agents,
     currentRoomId,
-    needsAttention,
     presences,
     totalOnlineUsers,
     sessionContext,
@@ -568,10 +567,8 @@ export function RoomTabBar({
               const pinned = room === activeTucked;
               const isActive = !lobbyOpen && room.id === currentRoomId;
               const roomAgents = agents.filter((a) => a.roomId === room.id);
-              const hasAttention = roomHasUnread(roomAgents, needsAttention);
               const activityDotColor = roomActivityDotColor(
                 roomAgents,
-                hasAttention,
                 isActive,
               );
               const isEmpty = roomAgents.length === 0;
@@ -843,7 +840,6 @@ export function RoomTabBar({
         tuckedRooms={tuckedRooms}
         activeRoomId={activeTucked?.id ?? null}
         agents={agents}
-        needsAttention={needsAttention}
         presencesByRoom={presencesByRoom}
         selfConnectionId={selfConnectionId}
         dragging={dragFrom !== null}
