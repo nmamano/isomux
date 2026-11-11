@@ -1582,3 +1582,15 @@ describe("OpenCode pinned transport", () => {
     );
   }
 });
+
+// Agent steers reach a busy OpenCode session through its inbox, without an
+// abort (internal-docs/steer-delivery-design.md §3.5). The transport owns the
+// wire behavior (transport.test.ts, "OpenCode 2 native steer"); the live tier
+// owns the path through the orchestrator
+// (agent-manager.opencode.live.test.ts).
+describe("OpenCode session steer", () => {
+  it("the OpenCode backend delivers agent steers without aborting", () => {
+    // The enqueue path reads this flag; without it every steer still aborts.
+    expect(getBackend("opencode").toolBoundaryDelivery).toBe(true);
+  });
+});

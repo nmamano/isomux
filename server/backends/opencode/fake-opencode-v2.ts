@@ -123,6 +123,23 @@ export interface FakeTurn {
   interruptBefore?: (frame: Frame) => boolean;
   // false: play on without waiting for each permission reply.
   waitForReplies?: boolean;
+  // What the turn's boundary does with steers still pending when its
+  // terminal frame goes out (2.2.5 promotes them before the frame):
+  // "deliver" emits their session.inbox.delivered (the default, the mid-run
+  // fold-in), "silent" marks them delivered without a frame (a frame the
+  // stream lost; the cancel then answers 409), "park" leaves them pending
+  // (the steer missed the run's last boundary check). An interrupted turn
+  // promotes nothing at its end: its pending steers park.
+  steers?: "deliver" | "silent" | "park";
+  // 2.2.5's interrupt answers before the run stops (core/src/session/
+  // run-coordinator.ts:159-160). The turn plays on after its interrupt wait
+  // only once this resolves.
+  stopping?: Promise<void>;
+  // "promoting": the run had a promote of the session's pending steers in
+  // flight when the interrupt came. Those rows stay listed, a DELETE cannot
+  // cancel them, and the stopping run delivers them before its terminal
+  // frame.
+  atInterrupt?: "promoting";
 }
 
 export function fixtureTurn(
@@ -148,6 +165,9 @@ type Route =
   | "session.list"
   | "messages"
   | "prompt"
+  | "steer"
+  | "inbox.list"
+  | "inbox.cancel"
   | "instructions"
   | "model.select"
   | "interrupt"
@@ -317,6 +337,41 @@ export function fakeOpenCode(options: FakeOptions = {}) {
   const agents = new Map<string, string>();
   // Every prompt, with the agent its session had when it arrived.
   const promptLog: { session: string; text: unknown; agent: string }[] = [];
+  // The inbox rows steer prompts (resume:false) admitted, by inbox id. A row
+  // is pending until the turn's boundary delivers it (play's flush) or a
+  // DELETE cancels it, as in 2.2.5's session_inbox table.
+  const inboxRows = new Map<
+    string,
+    {
+      id: string;
+      sessionID: string;
+      text: unknown;
+      state: "pending" | "promoting" | "delivered" | "cancelled";
+    }
+  >();
+  // Every steer prompt, admitted or not.
+  const steerLog: { session: string; id: unknown; text: unknown }[] = [];
+  // The boundary flush of one turn: what happens to its session's pending
+  // steers when its terminal frame goes out.
+  const flushSteers = (
+    session: string,
+    mode: "deliver" | "silent" | "park",
+  ) => {
+    for (const row of inboxRows.values()) {
+      if (row.sessionID !== session) continue;
+      const rowMode = row.state === "promoting" ? "deliver" : mode;
+      if (row.state === "delivered" || row.state === "cancelled") continue;
+      if (rowMode === "park") continue;
+      row.state = "delivered";
+      if (rowMode === "deliver")
+        emit({
+          type: "session.inbox.delivered",
+          data: { sessionID: session, inboxID: row.id },
+        });
+    }
+  };
+  // The turn being played, for the interrupt route's atInterrupt.
+  let current: { turn: FakeTurn; session: string } | null = null;
   const playing: Promise<void>[] = [];
   const encoder = new TextEncoder();
   // Frames emitted while no stream is open are lost, as on /api/event.
@@ -361,13 +416,16 @@ export function fakeOpenCode(options: FakeOptions = {}) {
   const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
   // interruptsBefore: the interrupt count when the prompt arrived. An
-  // interrupt after it releases the turn's interrupt waits.
+  // interrupt after it releases the turn's interrupt waits. repliesBefore:
+  // the reply count then; only a later reply answers the turn's asks, since
+  // a replayed fixture repeats the ids an earlier turn's replies answered.
   async function play(
     turn: FakeTurn,
     session: string,
     inboxId: string,
     emitFrom: number,
     interruptsBefore: number,
+    repliesBefore: number,
   ) {
     const interrupted = () =>
       interrupts > interruptsBefore
@@ -385,17 +443,28 @@ export function fakeOpenCode(options: FakeOptions = {}) {
       [recordedSession]: session,
       ...(recordedInbox ? { [recordedInbox]: inboxId } : {}),
     });
+    current = { turn, session };
     for (const frame of frames.slice(emitFrom)) {
-      if (turn.interruptBefore?.(frame)) await interrupted();
+      if (turn.interruptBefore?.(frame)) {
+        await interrupted();
+        await turn.stopping;
+      }
+      // 2.2.5 promotes pending steers at the boundary before the run ends;
+      // an interrupted run promotes only what it had in flight.
+      if (TERMINAL.has(frame.type))
+        flushSteers(
+          session,
+          interrupts > interruptsBefore ? "park" : (turn.steers ?? "deliver"),
+        );
       emit(frame);
       await tick();
       if (frame.type === "permission.asked" && turn.waitForReplies !== false)
-        await replied(frame.data.id as string);
+        await replied(frame.data.id as string, repliesBefore);
       if (frame.type === "form.created") await interrupted();
     }
   }
-  const replied = (id: string) =>
-    replies.some((reply) => reply.id === id)
+  const replied = (id: string, from: number) =>
+    replies.slice(from).some((reply) => reply.id === id)
       ? Promise.resolve()
       : new Promise<void>((resolve) => replyWaiters.set(id, resolve));
   // The frames of a turn that go out before the prompt answer.
@@ -617,6 +686,56 @@ export function fakeOpenCode(options: FakeOptions = {}) {
           cursor: { ...(next ? { next } : {}) },
         });
       });
+    // A steer admit (2.2.5's prompt with resume:false): a durable inbox row
+    // the running turn promotes at its next boundary, no run scheduled, no
+    // turn consumed. The caller's own id, echoed back, 409 on a duplicate.
+    if (
+      method === "POST" &&
+      rest[2] === "prompt" &&
+      (bodyOf(init) as { resume?: unknown } | undefined)?.resume === false
+    )
+      return r("steer", () => {
+        const body = bodyOf(init) as
+          | { id?: unknown; text?: unknown; delivery?: unknown }
+          | undefined;
+        const inboxId =
+          typeof body?.id === "string" && body.id
+            ? body.id
+            : `msg_steer_${inboxRows.size + 1}`;
+        steerLog.push({ session: id, id: body?.id, text: body?.text });
+        if (inboxRows.has(inboxId))
+          return json(
+            {
+              _tag: "Session.PromptConflictError",
+              message: `Prompt message ID conflicts: ${inboxId}`,
+            },
+            409,
+          );
+        inboxRows.set(inboxId, {
+          id: inboxId,
+          sessionID: id,
+          text: body?.text,
+          state: "pending",
+        });
+        emit({
+          type: "session.inbox.enqueued",
+          data: {
+            sessionID: id,
+            inboxID: inboxId,
+            item: { type: "user", delivery: body?.delivery ?? "steer" },
+          },
+        });
+        return json({
+          data: {
+            id: inboxId,
+            sessionID: id,
+            time: { created: 1 },
+            type: "user",
+            payload: { text: body?.text },
+            delivery: body?.delivery ?? "steer",
+          },
+        });
+      });
     if (method === "POST" && rest[2] === "prompt")
       return r("prompt", async () => {
         promptCount++;
@@ -627,6 +746,7 @@ export function fakeOpenCode(options: FakeOptions = {}) {
           agent: agents.get(id) ?? "build",
         });
         const turn = turns.shift();
+        const repliesBefore = replies.length;
         const emitFrom = preparePrompt(turn, id, inboxId);
         // The early frames reach the stream reader before the answer does.
         if (emitFrom > 0) await settleUntil(() => false, 20);
@@ -634,7 +754,14 @@ export function fakeOpenCode(options: FakeOptions = {}) {
         if (turn) {
           const run = (async () => {
             await tick();
-            await play(turn, id, inboxId, emitFrom, interruptsBefore);
+            await play(
+              turn,
+              id,
+              inboxId,
+              emitFrom,
+              interruptsBefore,
+              repliesBefore,
+            );
           })();
           playing.push(run);
         }
@@ -648,6 +775,39 @@ export function fakeOpenCode(options: FakeOptions = {}) {
             delivery: "steer",
           },
         });
+      });
+    // The pending inbox rows only: a delivered or cancelled one is gone from
+    // the table, as 2.2.5's list answers.
+    if (method === "GET" && rest[2] === "inbox" && rest.length === 3)
+      return r("inbox.list", () =>
+        json({
+          data: [...inboxRows.values()]
+            .filter(
+              (row) =>
+                row.sessionID === id &&
+                (row.state === "pending" || row.state === "promoting"),
+            )
+            .map((row) => ({
+              id: row.id,
+              sessionID: row.sessionID,
+              time: { created: 1 },
+              type: "user",
+              payload: { text: row.text },
+              delivery: "steer",
+            })),
+        }),
+      );
+    // 2.2.5 answers 204 for every cancel of an existing session: a
+    // delivered, cancelled or unknown row is a lifecycle conflict the
+    // handler swallows (server/src/handlers/session.ts,
+    // session.inbox.cancel), so the pending list is the only way to tell
+    // what a cancel did.
+    if (method === "DELETE" && rest[2] === "inbox" && rest.length === 4)
+      return r("inbox.cancel", () => {
+        const row = inboxRows.get(rest[3]);
+        if (row && row.sessionID === id && row.state === "pending")
+          row.state = "cancelled";
+        return new Response(null, { status: 204 });
       });
     // 2.1.4 changes a session's agent here; PATCH ignores an agent field
     // (2026-10-25).
@@ -667,6 +827,10 @@ export function fakeOpenCode(options: FakeOptions = {}) {
     if (method === "POST" && rest[2] === "interrupt")
       return r("interrupt", () => {
         interrupts++;
+        if (current?.turn.atInterrupt === "promoting")
+          for (const row of inboxRows.values())
+            if (row.sessionID === current.session && row.state === "pending")
+              row.state = "promoting";
         interruptWaiters.splice(0).forEach((resolve) => resolve());
         return json({ interrupted: true });
       });
@@ -754,6 +918,10 @@ export function fakeOpenCode(options: FakeOptions = {}) {
       ),
     replies,
     promptLog,
+    // Every steer prompt that arrived, admitted or not.
+    steerLog,
+    // The inbox row of a steer id: its admission state, or undefined.
+    inboxRow: (inboxId: string) => inboxRows.get(inboxId),
     // The shells DELETE /api/shell/:id removed, in order.
     deletedShells: () => [...deletedShells],
     interrupts: () => interrupts,

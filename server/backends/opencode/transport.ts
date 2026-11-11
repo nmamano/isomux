@@ -445,6 +445,9 @@ export class OpenCodeTransport {
   // Set when this turn's prompt request starts. A later mark for a server
   // that stopped answering replaces it even while other turns run on it.
   private promptSent = false;
+  // The open turn's end has begun (its terminal frame arrived): a steer
+  // admitted now could only wait for the next turn, so steer() refuses it.
+  private turnClosing = false;
   private promptSentAt = 0;
   private turnInput: TurnInput = {
     id: null,
@@ -459,6 +462,14 @@ export class OpenCodeTransport {
   // Open permission requests: request id -> OpenCode session id. OpenCode
   // runs the tool calls of one step in parallel, and each can ask at once.
   private pendingPermissions = new Map<string, string>();
+  // Agent steers admitted into OpenCode's inbox that it has not delivered
+  // yet: the inbox id (msg_<steerId>, chosen here so the delivered frame is
+  // recognized even when it outruns the admit's answer) -> the orchestrator's
+  // steer id and the admit, which a cancel waits on so it never races it.
+  private readonly pendingSteers = new Map<
+    string,
+    { steerId: string; admitted: Promise<boolean> }
+  >();
   // The open turn's question forms: form id -> session id.
   private openForms = new Map<string, string>();
   // The open turn's subagent sessions, nested ones included.
@@ -794,6 +805,9 @@ export class OpenCodeTransport {
               () => undefined,
               () => undefined,
             )
+            // A steer this turn admitted must not outlive it; the next turn
+            // waits this chain out before its prompt.
+            .then(() => this.cancelPendingSteers())
             .then(() => this.sweepLeakedShells(scope))
             .finally(() => {
               if (this.sessionStop === stop) this.sessionStop = null;
@@ -905,6 +919,7 @@ export class OpenCodeTransport {
       this.activeTurn = true;
       this.abortRequested = false;
       this.promptSent = false;
+      this.turnClosing = false;
       this.turnInput = {
         id: null,
         armed: false,
@@ -981,6 +996,11 @@ export class OpenCodeTransport {
       const { variant, notice } = await this.resolveEffort();
       if (settled) return;
       await this.previousSessionStop();
+      if (settled) return;
+      // A steer row a previous turn's cancel could not reach (its server was
+      // replaced mid-turn) must not ride into this run: OpenCode promotes
+      // pending steers before the input they were never claimed with.
+      await this.cancelPendingSteers();
       if (settled) return;
       // A stop during the waits above: no prompt is out, so none goes.
       if (this.abortRequested) {
@@ -1099,6 +1119,120 @@ export class OpenCodeTransport {
     }
   }
 
+  // An agent steer into the running turn, through OpenCode's own inbox
+  // (internal-docs/steer-delivery-design.md §3.5, probed on 2.2.5).
+  // delivery:"steer" makes the run promote the text at its next step
+  // boundary: the running tool finishes and the next model request carries
+  // the steer, with no interrupt. resume:false admits WITHOUT scheduling a
+  // run, so a steer that misses the run's last boundary check stays a
+  // pending inbox row instead of starting an unowned run; the turn's end
+  // cancels it and the orchestrator's flush delivers it. Answers false,
+  // never throws, when no turn is running or OpenCode refused the admit.
+  async steer(text: string, steerId: string): Promise<boolean> {
+    if (
+      !this.activeTurn ||
+      !this.promptSent ||
+      this.abortRequested ||
+      this.turnClosing ||
+      !this.sessionId
+    )
+      return false;
+    const inboxId = `msg_${steerId}`;
+    const admitted = this.admitSteer(inboxId, text);
+    this.pendingSteers.set(inboxId, { steerId, admitted });
+    if (await admitted) return true;
+    const entry = this.pendingSteers.get(inboxId);
+    if (entry?.admitted === admitted) this.pendingSteers.delete(inboxId);
+    return false;
+  }
+
+  private async admitSteer(inboxId: string, text: string): Promise<boolean> {
+    if (!this.sessionId) return false;
+    try {
+      const response = await this.request(
+        `/api/session/${encodeURIComponent(this.sessionId)}/prompt`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            id: inboxId,
+            text,
+            delivery: "steer",
+            resume: false,
+          }),
+        },
+      );
+      const data = asRecord(asRecord(await response.json()).data);
+      // The admit must carry the id this transport chose: the delivered
+      // frame and the cancel both key on it. A duplicate id is a 409 the
+      // catch below turns into a refusal.
+      if (stringField(data, "id") !== inboxId) return false;
+      this.contractShapeSink?.("http:prompt:{data:{id:string}}");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Every steer this turn admitted that OpenCode has not delivered: cancel
+  // its inbox row, so no later run promotes it after the orchestrator
+  // released the items to the flush (a duplicate for the model). The cancel
+  // route answers 204 for every row of an existing session - it swallows the
+  // conflict of a delivered or unknown one (2.2.5
+  // server/src/handlers/session.ts, session.inbox.cancel) - so the pending
+  // list decides first: a row still listed is cancelled; a row gone from it
+  // was promoted into the run, which is the delivery this stream missed and
+  // is reported as such. Runs at the terminal frame, before the completion
+  // is emitted: the run has stopped and only Isomux wakes the session, so the
+  // list cannot change between the read and the cancel. Also runs before the
+  // next turn's prompt, and after the interrupt on the failed turn's stop
+  // chain and on close(). 2.2.5 answers the interrupt before the run stops,
+  // so there a promote in flight can commit after the read, and the flush
+  // sends its items again (at-least-once, steer-delivery-design.md §3.1).
+  private async cancelPendingSteers(): Promise<void> {
+    if (this.pendingSteers.size === 0) return;
+    const entries = [...this.pendingSteers.entries()];
+    this.pendingSteers.clear();
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    const session = encodeURIComponent(sessionId);
+    await Promise.all(
+      entries.map(async ([inboxId, entry]) => {
+        if (!(await entry.admitted)) return;
+        let pending = false;
+        try {
+          const list = listData(
+            await this.request(`/api/session/${session}/inbox`).then((r) =>
+              r.json(),
+            ),
+          );
+          pending = list.some(
+            (row) => stringField(asRecord(row), "id") === inboxId,
+          );
+        } catch {
+          // A list this turn cannot read leaves the items to the flush.
+          return;
+        }
+        if (!pending) {
+          this.turnSink?.({
+            kind: "steer_delivered",
+            steerId: entry.steerId,
+          });
+          return;
+        }
+        try {
+          await this.request(
+            `/api/session/${session}/inbox/${encodeURIComponent(inboxId)}`,
+            { method: "DELETE" },
+          );
+        } catch {
+          // Best effort: a row this cancel missed is promoted by the next
+          // run, which the flush's copy then duplicates (at-least-once, the
+          // policy of §3.1).
+        }
+      }),
+    );
+  }
+
   async abort(): Promise<void> {
     // No prompt is out during a pre-stream wait, so OpenCode has nothing to
     // interrupt, and a request to this folder would wait on its setup too.
@@ -1114,6 +1248,9 @@ export class OpenCodeTransport {
       `/api/session/${encodeURIComponent(this.sessionId)}/interrupt`,
       { method: "POST" },
     ).catch(() => undefined);
+    // A parked steer is cancelled at the interrupted frame, once the run has
+    // stopped: 2.2.5 answers the interrupt before that, while a promote can
+    // still be in flight.
   }
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
@@ -1296,8 +1433,11 @@ export class OpenCodeTransport {
     // interrupt chain finishes.
     if (this.activeTurn) {
       const scope = this.promptSent ? this.shellSweepScope() : null;
+      // No terminal frame comes after close, so a parked steer is cancelled
+      // here, or the next prompt to this session promotes it.
       void this.rejectPendingPermission()
         .then(() => this.abort())
+        .then(() => this.cancelPendingSteers())
         .then(() => (scope ? this.sweepLeakedShells(scope) : undefined));
     }
     this.abortController?.abort();
@@ -1756,6 +1896,11 @@ export class OpenCodeTransport {
     };
     // An end of this turn's busy period, mapped to the turn's end.
     const terminal = async (frame: Record<string, unknown>): Promise<void> => {
+      this.turnClosing = true;
+      // A steer the run never picked up is cancelled before the completion
+      // reaches the orchestrator, whose flush would send its items again.
+      // A cancel that finds the row promoted reports the delivery first.
+      await this.cancelPendingSteers();
       const data = asRecord(frame.data);
       if (frame.type === "session.execution.succeeded") {
         settle({ kind: "turn_completed", status: "completed" });
@@ -1927,6 +2072,15 @@ export class OpenCodeTransport {
             if (type === "session.inbox.delivered") {
               const inbox = stringField(data, "inboxID");
               if (!inbox) continue;
+              // A steer this transport admitted: OpenCode promoted it into
+              // the run, so the model reads it before its next request. The
+              // orchestrator logs its items on this event.
+              const steered = this.pendingSteers.get(inbox);
+              if (steered !== undefined) {
+                this.pendingSteers.delete(inbox);
+                sink({ kind: "steer_delivered", steerId: steered.steerId });
+                continue;
+              }
               if (turn.id === null)
                 turn.early.push({ kind: "delivered", id: inbox, at: created });
               else if (inbox === turn.id && !turn.armed) {

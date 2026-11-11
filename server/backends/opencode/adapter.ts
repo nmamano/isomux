@@ -323,6 +323,15 @@ class OpenCodeServerSession implements BackendSession {
     await this.transport.abort();
   }
 
+  // Push delivery of an agent steer (message-queue pushBoundarySteer): the
+  // transport admits it into OpenCode's inbox with resume:false, so it folds
+  // into the running turn or waits to be cancelled - it never starts a run of
+  // its own. Delivery is the inbox event, reported as steer_delivered.
+  async steer(text: string, steerId: string): Promise<boolean> {
+    if (this.ended) return false;
+    return this.transport.steer(text, steerId);
+  }
+
   canAbortInPlace(): boolean {
     return this.transport.canAbortInPlace();
   }
@@ -616,6 +625,10 @@ export function createOpenCodeBackend(
   };
   return {
     capabilities: CAPABILITIES,
+    // Agent steers ride the session's own inbox (OpenCodeSession.steer) into
+    // the running turn instead of aborting it, as on Claude and Codex
+    // (internal-docs/steer-delivery-design.md §3.5).
+    toolBoundaryDelivery: true,
     getModelOptions: () => [],
     getPermissionModes: () => PERMISSION_MODES,
     // A saved setting reaches both of the member's servers: the limited one

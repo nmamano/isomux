@@ -1809,6 +1809,310 @@ describe("OpenCode 2 permissions", () => {
   });
 });
 
+// Agent steers ride OpenCode's own inbox (internal-docs/steer-delivery-design.md
+// §3.5, probed on 2.2.5): POST prompt with delivery:"steer" and resume:false
+// admits a durable row the running turn promotes at its next step boundary -
+// no interrupt, no run of its own. A steer the run never picked up is
+// cancelled before the turn ends, so the orchestrator's flush can send it
+// itself; a row gone from the pending list means OpenCode promoted it after
+// all (the cancel route answers 204 for both).
+describe("OpenCode 2 native steer", () => {
+  it("folds an admitted steer into the running turn and reports it before the turn ends", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("shell-allow")] } });
+    const sending = h.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "approval_request")
+        // Not ours: a delivery of some other inbox row reports nothing.
+        h.fake.emit({
+          type: "session.inbox.delivered",
+          data: { sessionID: h.fake.sessionId, inboxID: "msg_foreign" },
+        });
+    });
+    // The steer admits while the ask parks the turn; the approve lets it run
+    // to its boundary, where 2.2.5 promotes the row.
+    await until(() => h.events.some((e) => e.kind === "approval_request"));
+    expect(await h.transport.steer("FYI from Sender", "steer-a")).toBe(true);
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
+    await h.transport.approve(ask.approvalId, { kind: "allow_once" });
+    const { events, end } = await sending;
+
+    expect(end?.status).toBe("completed");
+    // The admit is one prompt call with the caller's own id, steer delivery
+    // and no run scheduled - the precondition that keeps a late steer from
+    // starting an unowned run.
+    expect(h.fake.steerLog).toEqual([
+      { session: h.fake.sessionId, id: "msg_steer-a", text: "FYI from Sender" },
+    ]);
+    const steerBody = h.fake
+      .calls("POST", /\/prompt$/)
+      .map((r) => r.body)
+      .filter((body) => (body as { resume?: unknown })?.resume === false);
+    expect(steerBody).toEqual([
+      {
+        id: "msg_steer-a",
+        text: "FYI from Sender",
+        delivery: "steer",
+        resume: false,
+      },
+    ]);
+    // The boundary delivered it: one steer_delivered, before the completion,
+    // and nothing for the foreign row. No cancel was owed.
+    const delivered = events.filter((e) => e.kind === "steer_delivered");
+    expect(delivered).toEqual([
+      { kind: "steer_delivered", steerId: "steer-a" },
+    ]);
+    expect(events.indexOf(delivered[0]!)).toBeLessThan(
+      events.findIndex((e) => e.kind === "turn_completed"),
+    );
+    expect(h.fake.inboxRow("msg_steer-a")?.state).toBe("delivered");
+    expect(h.fake.calls("DELETE", /\/inbox\//)).toEqual([]);
+  });
+
+  it("answers false with no request when no turn is running", async () => {
+    const h = setup({ fake: { turns: [fixtureTurn("shell-allow")] } });
+    // Before any turn.
+    expect(await h.transport.steer("early", "steer-e")).toBe(false);
+    const { end } = await h.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "approval_request")
+        void h.transport.approve(event.approvalId, { kind: "allow_once" });
+    });
+    expect(end?.status).toBe("completed");
+    // After the turn ended.
+    expect(await h.transport.steer("late", "steer-l")).toBe(false);
+    expect(h.fake.steerLog).toEqual([]);
+  });
+
+  it("answers false, never throws, when OpenCode refuses the admit", async () => {
+    const h = setup({
+      fake: { status: { steer: 500 }, turns: [fixtureTurn("shell-allow")] },
+    });
+    const sending = h.turn([{ type: "text", text: "go" }]);
+    await until(() => h.events.some((e) => e.kind === "approval_request"));
+    expect(await h.transport.steer("refused", "steer-r")).toBe(false);
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
+    await h.transport.approve(ask.approvalId, { kind: "allow_once" });
+    const { events, end } = await sending;
+    expect(end?.status).toBe("completed");
+    // The admit went out and was refused (the fake's status short-circuits
+    // its route answer, so the request count is the evidence).
+    expect(h.fake.count("steer")).toBe(1);
+    // The refusal left nothing pending: no delivery, no cancel.
+    expect(events.filter((e) => e.kind === "steer_delivered")).toEqual([]);
+    expect(h.fake.calls("DELETE", /\/inbox\//)).toEqual([]);
+  });
+
+  it("cancels a steer the turn's end left pending, before the completion", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("shell-allow", 0, { steers: "park" })] },
+    });
+    let cancelsAtEnd = -1;
+    const sending = h.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "turn_completed")
+        cancelsAtEnd = h.fake.calls("DELETE", /\/inbox\//).length;
+    });
+    await until(() => h.events.some((e) => e.kind === "approval_request"));
+    expect(await h.transport.steer("too late", "steer-p")).toBe(true);
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
+    await h.transport.approve(ask.approvalId, { kind: "allow_once" });
+    const { events, end } = await sending;
+
+    expect(end?.status).toBe("completed");
+    // The cancel ran before the completion went out, so the flush the
+    // completion releases cannot double-deliver the row's text.
+    expect(cancelsAtEnd).toBe(1);
+    expect(h.fake.calls("DELETE", /\/inbox\/msg_steer-p$/)).toHaveLength(1);
+    expect(h.fake.inboxRow("msg_steer-p")?.state).toBe("cancelled");
+    expect(events.filter((e) => e.kind === "steer_delivered")).toEqual([]);
+  });
+
+  it("reads a row gone from the inbox as the delivery the stream lost", async () => {
+    const h = setup({
+      fake: { turns: [fixtureTurn("shell-allow", 0, { steers: "silent" })] },
+    });
+    const sending = h.turn([{ type: "text", text: "go" }]);
+    await until(() => h.events.some((e) => e.kind === "approval_request"));
+    expect(await h.transport.steer("quietly taken", "steer-s")).toBe(true);
+    const ask = h.events.find((e) => e.kind === "approval_request") as Extract<
+      NormalizedEvent,
+      { kind: "approval_request" }
+    >;
+    await h.transport.approve(ask.approvalId, { kind: "allow_once" });
+    const { events, end } = await sending;
+
+    expect(end?.status).toBe("completed");
+    // The cancel answered 204 for everything, so the pending list decided:
+    // the row OpenCode promoted is gone from it, and no DELETE went out.
+    expect(h.fake.inboxRow("msg_steer-s")?.state).toBe("delivered");
+    expect(h.fake.calls("GET", /\/inbox$/)).toHaveLength(1);
+    expect(h.fake.calls("DELETE", /\/inbox\//)).toEqual([]);
+    // The promotion means the model read the steer: the delivery is reported
+    // before the completion, exactly once, so the flush does not resend it.
+    const delivered = events.filter((e) => e.kind === "steer_delivered");
+    expect(delivered).toEqual([
+      { kind: "steer_delivered", steerId: "steer-s" },
+    ]);
+    expect(events.indexOf(delivered[0]!)).toBeLessThan(
+      events.findIndex((e) => e.kind === "turn_completed"),
+    );
+  });
+
+  // The run is still stopping when 2.2.5's interrupt answers: a cancel
+  // there could list a row whose promote is in flight (listed, not
+  // cancellable), so a parked row is cancelled at the interrupted frame.
+  it("cancels a parked steer on abort once the run has stopped, before the completion", async () => {
+    let stop!: () => void;
+    const stopping = new Promise<void>((resolve) => (stop = resolve));
+    const h = setup({
+      fake: {
+        turns: [
+          fixtureTurn("shell-deny", 0, {
+            waitForReplies: false,
+            interruptBefore: (frame) => frame.type === "permission.replied",
+            stopping,
+          }),
+        ],
+      },
+    });
+    let cancelsAtEnd = -1;
+    const sending = h.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "turn_completed")
+        cancelsAtEnd = h.fake.calls("DELETE", /\/inbox\//).length;
+    });
+    await until(() => approvals(h.events).length > 0);
+    expect(await h.transport.steer("parked", "steer-x")).toBe(true);
+    await h.transport.abort();
+    expect(h.fake.interrupts()).toBe(1);
+    // The interrupt is out and the run has not stopped: nothing read or
+    // cancelled the inbox yet.
+    expect(h.fake.calls("GET", /\/inbox$/)).toHaveLength(0);
+    expect(h.fake.calls("DELETE", /\/inbox\//)).toHaveLength(0);
+    stop();
+    const { events, end } = await sending;
+
+    expect(end?.status).toBe("interrupted");
+    expect(cancelsAtEnd).toBe(1);
+    expect(h.fake.calls("DELETE", /\/inbox\/msg_steer-x$/)).toHaveLength(1);
+    expect(h.fake.inboxRow("msg_steer-x")?.state).toBe("cancelled");
+    expect(events.filter((e) => e.kind === "steer_delivered")).toEqual([]);
+  });
+
+  it("reports a steer the stopping run still promotes after an abort", async () => {
+    let stop!: () => void;
+    const stopping = new Promise<void>((resolve) => (stop = resolve));
+    const h = setup({
+      fake: {
+        turns: [
+          fixtureTurn("shell-deny", 0, {
+            waitForReplies: false,
+            interruptBefore: (frame) => frame.type === "permission.replied",
+            stopping,
+            atInterrupt: "promoting",
+          }),
+        ],
+      },
+    });
+    const sending = h.turn([{ type: "text", text: "go" }]);
+    await until(() => approvals(h.events).length > 0);
+    expect(await h.transport.steer("in flight", "steer-f")).toBe(true);
+    await h.transport.abort();
+    expect(h.fake.inboxRow("msg_steer-f")?.state).toBe("promoting");
+    stop();
+    const { events, end } = await sending;
+
+    expect(end?.status).toBe("interrupted");
+    // The model read the steer in the stopping run: one steer_delivered
+    // before the completion, so the flush does not send its items again.
+    expect(h.fake.inboxRow("msg_steer-f")?.state).toBe("delivered");
+    const delivered = events.filter((e) => e.kind === "steer_delivered");
+    expect(delivered).toEqual([
+      { kind: "steer_delivered", steerId: "steer-f" },
+    ]);
+    expect(events.indexOf(delivered[0]!)).toBeLessThan(
+      events.findIndex((e) => e.kind === "turn_completed"),
+    );
+  });
+
+  // The turn's end has begun once its terminal frame arrived: a steer
+  // admitted then could only wait for the next turn's cancel, so steer()
+  // refuses it and the orchestrator keeps its items for the flush.
+  it("refuses a steer while the turn's end cancels, and takes one again in the next turn", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          fixtureTurn("shell-allow", 0, { steers: "park" }),
+          fixtureTurn("shell-allow"),
+        ],
+        hold: { "inbox.list": "first" },
+      },
+    });
+    const first = h.turn([{ type: "text", text: "go" }]);
+    await until(() => approvals(h.events).length > 0);
+    expect(await h.transport.steer("parked", "steer-a")).toBe(true);
+    await h.transport.approve(approvals(h.events)[0]!.approvalId, {
+      kind: "allow_once",
+    });
+    // The terminal frame arrived and the end's cancel is reading the inbox.
+    await until(() => h.fake.heldCount("inbox.list") === 1);
+    expect(h.fake.heldCount("inbox.list")).toBe(1);
+    expect(h.completions()).toHaveLength(0);
+    expect(await h.transport.steer("late", "steer-b")).toBe(false);
+    h.fake.release("inbox.list");
+    const ended = await first;
+    expect(ended.end?.status).toBe("completed");
+    expect(h.fake.inboxRow("msg_steer-a")?.state).toBe("cancelled");
+    expect(h.fake.steerLog.map((row) => row.id)).toEqual(["msg_steer-a"]);
+
+    const second = h.turn([{ type: "text", text: "again" }]);
+    await until(() => approvals(h.events).length > 1);
+    // The replayed fixture repeats turn 1's ask id: the turn must still wait
+    // for this turn's own reply.
+    expect(h.completions()).toHaveLength(1);
+    expect(await h.transport.steer("next", "steer-c")).toBe(true);
+    await h.transport.approve(approvals(h.events)[1]!.approvalId, {
+      kind: "allow_once",
+    });
+    const next = await second;
+    expect(next.end?.status).toBe("completed");
+    expect(h.fake.steerLog.map((row) => row.id)).toEqual([
+      "msg_steer-a",
+      "msg_steer-c",
+    ]);
+    expect(next.events.filter((e) => e.kind === "steer_delivered")).toEqual([
+      { kind: "steer_delivered", steerId: "steer-c" },
+    ]);
+  });
+
+  // close() stops the stream, so no terminal frame reaches terminal(): the
+  // close chain is the only cancel before the transport, and its map, go.
+  it("cancels a parked steer when the transport closes mid-turn", async () => {
+    const h = setup({
+      fake: {
+        turns: [
+          fixtureTurn("shell-deny", 0, {
+            waitForReplies: false,
+            interruptBefore: (frame) => frame.type === "permission.replied",
+          }),
+        ],
+      },
+    });
+    void h.turn([{ type: "text", text: "go" }]);
+    await until(() => approvals(h.events).length > 0);
+    expect(await h.transport.steer("parked", "steer-z")).toBe(true);
+    h.transport.close();
+    await until(() => h.fake.inboxRow("msg_steer-z")?.state !== "pending");
+    expect(h.fake.interrupts()).toBe(1);
+    expect(h.fake.inboxRow("msg_steer-z")?.state).toBe("cancelled");
+  });
+});
+
 describe("OpenCode 2 failures (T10)", () => {
   // Task 2008c993: a refusal of OpenCode's own Zen or Go plan is a usage
   // limit stop, which the office fallback acts on. It names no reset time, and
