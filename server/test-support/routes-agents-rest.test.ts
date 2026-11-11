@@ -32,7 +32,7 @@ import {
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
-import { CODEX_MODELS } from "../../shared/types.ts";
+import { CODEX_MODELS, FAMILY_TO_MODEL } from "../../shared/types.ts";
 import type {
   AgentPermissionMode,
   BackendModelWire,
@@ -481,7 +481,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     const res = await req(srv, "POST", "/api/agents", {
       body: {
         ...spawnBody(srv, "Derived", roomId, 0),
-        model: "claude-fable-5-1",
+        model: FAMILY_TO_MODEL.fable,
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -857,7 +857,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const roomId = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", roomId, 0);
     const patched = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { model: "claude-fable-5-1" },
+      body: { model: FAMILY_TO_MODEL.fable },
       rawSessionId: owner.rawSessionId,
     });
     expect(patched.status).toBe(200);
@@ -867,7 +867,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const agent = (listed.body as Array<{ id: string; model: string }>).find(
       (candidate) => candidate.id === x.id,
     );
-    expect(agent?.model).toBe("claude-fable-5-1");
+    expect(agent?.model).toBe(FAMILY_TO_MODEL.fable);
     expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("fable");
   });
 
@@ -889,7 +889,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const agent = (listed.body as Array<{ id: string; model: string }>).find(
       (candidate) => candidate.id === x.id,
     );
-    expect(agent?.model).toBe("claude-fable-5-1");
+    expect(agent?.model).toBe(FAMILY_TO_MODEL.fable);
   });
 
   it("PATCH rejects an unmapped Claude model and leaves the agent unchanged", async () => {

@@ -12,6 +12,7 @@ import {
   runClaudeAuthStatus,
   type ClaudeSignInState,
 } from "./claude-install-check.ts";
+import { FAMILY_TO_MODEL } from "../../shared/types.ts";
 
 const roots: string[] = [];
 
@@ -119,7 +120,7 @@ describe("claudeFamilyModels", () => {
       claudeFamilyModels({
         [selector]: "1",
         ANTHROPIC_DEFAULT_OPUS_MODEL: " us.anthropic.claude-opus-4-8 ",
-        ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5-1",
+        ANTHROPIC_DEFAULT_FABLE_MODEL: FAMILY_TO_MODEL.fable,
         ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
         ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-5-5",
       }),

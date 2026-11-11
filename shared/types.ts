@@ -188,20 +188,24 @@ export type ClaudeModel = string;
 // Before a family repoint, check the bundled CLI's model metadata and context
 // resolver; bump @anthropic-ai/claude-agent-sdk if it cannot size the new model.
 // The CLI has a 200k base fallback, but native-1M metadata, [1m], and runtime
-// settings can override it. Fable 5.1 has native-1M metadata in SDK 0.3.257
-// and 0.3.293 (source checked 2026-10-11); a missing string in sdk.mjs does
-// not prove the model is unknown to the platform CLI binary.
+// settings can override it. Fable 5.2 has native-1M metadata in SDK 0.3.322
+// (checked 2026-11-11; 0.3.319 does not know the id); a missing string in
+// sdk.mjs does not prove the model is unknown to the platform CLI binary.
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5-5",
-  fable: "claude-fable-5-1",
+  fable: "claude-fable-5-2",
   sonnet: "claude-sonnet-5-5",
   haiku: "claude-haiku-5-5",
 };
 
 // Update cloud defaults in the same change as FAMILY_TO_MODEL. See
 // internal-docs/model-discovery-design.md (model release rule).
-// Checked 2026-10-10 against Claude Code 2.1.293 and 2.1.296: Opus/Fable
-// already resolve to 5.5/5.1 on both providers; recheck them on every release.
+// Checked 2026-11-11 against Claude Code 2.1.322: Opus/Fable resolve to
+// 5.5/5.2 on both providers; recheck them on every release. Fable 5.2, read
+// 2026-11-11, has the same shape as 5.1: Bedrock lists only the us. geo
+// profile and global, Vertex lists global, us and eu. So Fable keeps no row.
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-2.html
+// https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5-2
 // Model IDs and source regions, read 2026-10-10:
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-5-5.html
@@ -535,7 +539,7 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
 
 // Claude families that support the "max" effort level: the families whose
 // supportedModels() row lists "max" in supportedEffortLevels. Every family
-// does (SDK 0.3.293, 2026-10-07). Single source so the UI effort filters, the
+// does (SDK 0.3.322, 2026-11-11). Single source so the UI effort filters, the
 // backend's listModels metadata, and server-side validateEffort stay aligned.
 export function claudeFamilySupportsMaxEffort(
   family: string,
@@ -545,8 +549,8 @@ export function claudeFamilySupportsMaxEffort(
 }
 
 // Claude families that support effort levels: the families whose
-// supportedModels() row sets supportsEffort. Every family does (SDK 0.3.293,
-// 2026-10-07). For a family without it, the CLI drops the effort option and
+// supportedModels() row sets supportsEffort. Every family does (SDK 0.3.322,
+// 2026-11-11). For a family without it, the CLI drops the effort option and
 // sends no effort parameter.
 export function claudeFamilySupportsEffort(
   family: string,
@@ -578,8 +582,8 @@ export function effortLevelsFor(
 
 // Claude families allowed to use Isomux's "auto" permission mode (the /resolve
 // auto-classifier). Gated for classifier reliability to the families whose
-// SDK model row reports supportsAutoMode: every family (SDK 0.3.293,
-// 2026-10-07).
+// SDK model row reports supportsAutoMode: every family (SDK 0.3.322,
+// 2026-11-11).
 export function claudeFamilySupportsAutoPermission(
   family: string,
   limited: readonly string[] = [],

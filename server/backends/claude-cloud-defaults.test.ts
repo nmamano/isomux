@@ -8,6 +8,7 @@ import {
   limitedClaudeFamilies,
   withCloudModelDefaults,
 } from "./claude-install-check.ts";
+import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 
 describe("Claude cloud defaults", () => {
   it("keeps each cloud row aligned with the picker model", () => {
@@ -16,6 +17,24 @@ describe("Claude cloud defaults", () => {
       expect(model).toBe(row.vertex);
       for (const id of Object.values(row.bedrock)) expect(id).toContain(model);
     }
+  });
+
+  // A family repoint needs a CLI that knows the new id: an unknown id runs
+  // with the 200k fallback window, and cloud aliases still resolve to the
+  // old model (internal-docs/model-discovery-design.md).
+  it("repoints only to ids the bundled CLI knows", () => {
+    const ids = [...new Set(Object.values(FAMILY_TO_MODEL))];
+    const found = Bun.spawnSync([
+      "grep",
+      "-a",
+      "-o",
+      "-F",
+      ...ids.flatMap((id) => ["-e", id]),
+      CLAUDE_NATIVE_BIN,
+    ]);
+    expect(found.exitCode).toBeLessThan(2);
+    const known = new Set(found.stdout.toString().split("\n"));
+    expect(ids.filter((id) => !known.has(id))).toEqual([]);
   });
 
   for (const [region, sonnet, haiku] of [

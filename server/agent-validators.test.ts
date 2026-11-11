@@ -9,6 +9,7 @@ import {
   validateEffort,
   validatePermissionMode,
 } from "./agent-validators.ts";
+import { FAMILY_TO_MODEL } from "../shared/types.ts";
 
 describe("validateCodexSandbox", () => {
   it("leaves an absent raw value undefined for non-agent consumers", () => {
@@ -110,7 +111,7 @@ describe("interactive model selection validation", () => {
         .error,
     ).not.toBeNull();
     expect(
-      resolveInteractiveModelSelection("claude", "fable", "claude-fable-5-1")
+      resolveInteractiveModelSelection("claude", "fable", FAMILY_TO_MODEL.fable)
         .error,
     ).toBeNull();
     expect(
@@ -121,7 +122,11 @@ describe("interactive model selection validation", () => {
 
   it("derives a family from model-only input", () => {
     expect(
-      resolveInteractiveModelSelection("claude", undefined, "claude-fable-5-1"),
+      resolveInteractiveModelSelection(
+        "claude",
+        undefined,
+        FAMILY_TO_MODEL.fable,
+      ),
     ).toEqual({ modelFamily: "fable", error: null });
     expect(
       resolveInteractiveModelSelection("codex", undefined, "gpt-7-x"),

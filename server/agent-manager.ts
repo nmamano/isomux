@@ -4722,7 +4722,7 @@ export function createAgentManager(deps: ManagerDeps) {
   const QUEUE_WATCHDOG_STUCK_MS = 60_000;
   // Busy-turn recovery for the silent Agent SDK async-iterator hangs in
   // issues #333 and #403 in anthropics/claude-agent-sdk-typescript. Rechecked
-  // 2026-11-07 against 0.3.319: both issues are open and no changelog entry
+  // 2026-11-11 against 0.3.322: both issues are open and no changelog entry
   // fixes them. This arm covers only the measured #333-like tool_executing
   // shape; a silent thinking-state recurrence is observed but never acted on.
   // Remove this arm when the SDK supplies a reliable terminal event or
