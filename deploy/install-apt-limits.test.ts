@@ -111,7 +111,9 @@ ${c.body}
 `;
   // A file, not -c: the installer is larger than one argument may be.
   writeFileSync(join(fix, "run.sh"), script);
-  const started = Date.now();
+  // A monotonic clock: the wall clock can step back during a case (task
+  // 37728939: an NTP step gave 2.983 s for a 3 s sleep).
+  const started = performance.now();
   const res = spawnSync("bash", [join(fix, "run.sh")], {
     env: {
       PATH: `${bin}:/usr/bin:/bin`,
@@ -124,7 +126,7 @@ ${c.body}
     timeout: 12_000,
     killSignal: "SIGKILL",
   });
-  const seconds = (Date.now() - started) / 1000;
+  const seconds = (performance.now() - started) / 1000;
   const lines = (f: string) =>
     readFileSync(join(fix, f), "utf8").split("\n").filter(Boolean);
   const stdout = res.stdout ?? "";
@@ -247,8 +249,7 @@ describe("install.sh apt limits: an install downloads first, then installs from 
     expect(has(install, "Dpkg::Options::=--force-confold")).toBe(true);
   });
 
-  // Flaky: measured 2.983 s against the 3 s sleep in CI (task 37728939).
-  it.skip("the limit never stops the install from the cache", () => {
+  it("the limit never stops the install from the cache", () => {
     const r = runCase({
       maxSeconds: 1,
       apt: `if [[ " $* " != *" --download-only "* ]]; then
@@ -504,17 +505,18 @@ refresh_apt_lists
     );
     const pids = () =>
       readFileSync(join(fix, "pids"), "utf8").split("\n").filter(Boolean);
-    const ready = Date.now() + 5_000;
-    while (pids().length === 0 && Date.now() < ready) await Bun.sleep(50);
+    const ready = performance.now() + 5_000;
+    while (pids().length === 0 && performance.now() < ready)
+      await Bun.sleep(50);
     // The condition the case needs: apt is running when the signal comes.
     expect(pids()).toHaveLength(1);
-    const started = Date.now();
+    const started = performance.now();
     process.kill(-child.pid!, "SIGINT");
     const ended = await Promise.race([
       exited,
       Bun.sleep(8_000).then(() => false),
     ]);
-    const seconds = (Date.now() - started) / 1000;
+    const seconds = (performance.now() - started) / 1000;
     const alive = pids().filter((pid) => {
       try {
         return readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(MARKER);
@@ -573,7 +575,7 @@ rc=0
 install_earlyoom || rc=$?
 echo RC=$rc
 `;
-    const started = Date.now();
+    const started = performance.now();
     const res = spawnSync("bash", ["-c", script], {
       env: { PATH: `${bin}:/usr/bin:/bin`, HOME: fix, FIX: fix },
       encoding: "utf8",
@@ -594,7 +596,7 @@ echo RC=$rc
       calls: readFileSync(join(fix, "calls"), "utf8")
         .split("\n")
         .filter(Boolean),
-      seconds: (Date.now() - started) / 1000,
+      seconds: (performance.now() - started) / 1000,
     };
   }
 
