@@ -187,7 +187,10 @@ describe("isomux.com agent readiness", () => {
     "site/contact.html",
     "site/compare.html",
   ]) {
-    it(`links ${file} from the sitemap, llms.txt, and every site footer`, async () => {
+    // Quarantined (task 89063064, P1): the footer scan opened a site/docs page
+    // that the docs build in use-cases-docs.test.ts had just removed (ENOENT)
+    // once in ci:remote, and passed on the re-run of the same commit.
+    it.skip(`links ${file} from the sitemap, llms.txt, and every site footer`, async () => {
       const page = await Bun.file(file).text();
       const canonical = page.match(/<link rel="canonical" href="([^"]+)"/);
       expect(canonical).not.toBeNull();
