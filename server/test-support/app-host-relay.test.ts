@@ -24,6 +24,7 @@ import {
   raw,
   signIn,
   withAppCookie,
+  TEST_APP_RESPONSE_HEADERS,
 } from "./app-host-test-kit.ts";
 import { type TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
@@ -32,7 +33,7 @@ import { OFFICE_MARKER_HEADER } from "../browser-office-gate.ts";
 let server: TestServer | null = null;
 let app: ReturnType<typeof Bun.serve> | null = null;
 afterEach(async () => {
-  void app?.stop(true);
+  await app?.stop(true);
   app = null;
   await server?.stop();
   server = null;
@@ -61,6 +62,7 @@ function startApp(name: string, seen: Seen[]): ReturnType<typeof Bun.serve> {
       });
       return new Response("<h1>the app</h1>", {
         headers: {
+          ...TEST_APP_RESPONSE_HEADERS,
           "Content-Type": "text/html",
           "Set-Cookie": "app_pref=blue; Path=/",
         },

@@ -27,6 +27,7 @@ import {
   startFlatOffice,
   withAppCookie,
   type RawResponse,
+  TEST_APP_RESPONSE_HEADERS,
 } from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
@@ -37,7 +38,7 @@ import { getUserByName } from "../users.ts";
 let server: TestServer | null = null;
 let app: ReturnType<typeof Bun.serve> | null = null;
 afterEach(async () => {
-  void app?.stop(true);
+  await app?.stop(true);
   app = null;
   await server?.stop();
   server = null;
@@ -64,7 +65,7 @@ function startApp(seen: Seen[]): ReturnType<typeof Bun.serve> {
         path: new URL(req.url).pathname,
         member: req.headers.get("x-isomux-member-id"),
       });
-      return new Response("ok");
+      return new Response("ok", { headers: TEST_APP_RESPONSE_HEADERS });
     },
   });
 }
@@ -308,9 +309,7 @@ describe("app relay: requests from other pages", () => {
     expect(got).toEqual(want);
   });
 
-  // Quarantined (task 54c24a17, P1): the relay got no answer from the test
-  // app (502) once in ci:remote and passed on the re-run of the same commit.
-  it.skip("refuses a screenshot capture's state-changing request from another page too", async () => {
+  it("refuses a screenshot capture's state-changing request from another page too", async () => {
     const { srv, label } = await office();
     const seen: Seen[] = [];
     app = startApp(seen);

@@ -18,6 +18,7 @@ import {
   proxySecretOf,
   raw,
   type RawResponse,
+  TEST_APP_RESPONSE_HEADERS,
 } from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry, appRegistrationGeneration } from "../app-registry.ts";
@@ -62,7 +63,12 @@ function startApp(
       });
       return new Response(
         `<title>${APP_TITLE}</title><link rel="icon" href="https://hello.office.example/icon.png">`,
-        { headers: { "Content-Type": "text/html" } },
+        {
+          headers: {
+            ...TEST_APP_RESPONSE_HEADERS,
+            "Content-Type": "text/html",
+          },
+        },
       );
     },
   });

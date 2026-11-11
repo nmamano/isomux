@@ -29,6 +29,7 @@ import {
   wsConnect,
   cookieValue,
   proxySecretOf,
+  TEST_APP_RESPONSE_HEADERS,
 } from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
@@ -38,7 +39,7 @@ import { getUserByName } from "../users.ts";
 let server: TestServer | null = null;
 let app: ReturnType<typeof Bun.serve> | null = null;
 afterEach(async () => {
-  void app?.stop(true);
+  await app?.stop(true);
   app = null;
   await server?.stop();
   server = null;
@@ -83,7 +84,7 @@ function startApp(seen: Seen, name = APP): ReturnType<typeof Bun.serve> {
       if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
         if (s.upgrade(req, { data: undefined })) return;
       }
-      return new Response("ok");
+      return new Response("ok", { headers: TEST_APP_RESPONSE_HEADERS });
     },
     websocket: { message() {} },
   });

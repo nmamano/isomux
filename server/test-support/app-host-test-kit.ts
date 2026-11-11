@@ -38,6 +38,14 @@ import type { AgentInfo } from "../../shared/types.ts";
 export const OFFICE_HOST = "office.example";
 export const HTTPS_ORIGIN = `https://${OFFICE_HOST}`;
 
+// Headers for every response of a test app on a registry port. Each test makes
+// a new office, so the registry gives the next test's app the same port. The
+// relay's fetch keeps a keep-alive socket to the old app, and a request that
+// takes it after that app stopped fails with ECONNRESET, a 502 (task
+// 54c24a17). With this header Bun's fetch opens a new connection for each
+// request, so no socket outlives its test.
+export const TEST_APP_RESPONSE_HEADERS = { Connection: "close" } as const;
+
 export function patchOfficeConfig(patch: Record<string, unknown>): void {
   const file = join(STATE_ROOT, "office-config.json");
   assertTestStatePath(file);
