@@ -1785,6 +1785,10 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         while ((await ratio()) === unzoomed && Date.now() < deadline)
           await Bun.sleep(50);
         await setupPage.evaluate(() => scrollTo(0, 1050));
+
+        const shot = decodePng(ok(await act({ action: "screenshot" })).png!);
+        // Read after the shot: Chrome lays out the debugger bar late, so a
+        // read before it can see a taller view (task 138f617b).
         const view = await setupPage.evaluate(() => ({
           y: scrollY,
           width: innerWidth,
@@ -1794,8 +1798,6 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         // The enabling conditions: the tab draws at 150% and is scrolled.
         expect(view.ratio).toBeCloseTo(unzoomed * 1.5, 5);
         expect(view.y).toBeCloseTo(1050, 0);
-
-        const shot = decodePng(ok(await act({ action: "screenshot" })).png!);
         const full = decodePng(
           ok(await act({ action: "screenshot", fullPage: true })).png!,
         );
