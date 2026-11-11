@@ -10,6 +10,7 @@ import {
   discoverOpenCodeModels,
   OPENCODE_CATALOG_LOAD_LIMIT_MS,
   OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
+  OPENCODE_EVENT_STREAM_DEADLINE_MS,
   OPENCODE_EVENT_STREAM_LOST_FAILURE,
   OPENCODE_FOLDER_SETUP_FAILURE,
   OPENCODE_FOLDER_SETUP_LIMIT_MS,
@@ -2045,6 +2046,130 @@ it("does not cancel another waiter when a turn stops waiting for the catalog", a
   await settleUntil(() => listed !== undefined);
   expect(listed).toEqual(["provider/model:high"]);
   expect(turn.fake.count("catalog"), "one shared load").toBe(1);
+});
+
+// 2.2.5 answers /api/model with 503 while the server starts (at once) and
+// while the folder's plugins finish setup (after a wait of up to 5 s). Both
+// mean "not ready yet" (task 2f759503).
+const NOT_READY = [
+  () =>
+    Response.json(
+      { code: "service_starting" },
+      { status: 503, headers: { "retry-after": "1" } },
+    ),
+  () =>
+    Response.json(
+      {
+        _tag: "ServiceUnavailableError",
+        message: "Location plugins did not finish activating",
+        service: "plugin",
+      },
+      { status: 503 },
+    ),
+];
+
+// Each answer waits one macrotask, as a real socket read does: a loop that
+// asks again with no pause still lets the test count its requests. As fetch
+// does, a request on an aborted signal fails.
+function notReadyCatalog(times: number): FakeOptions["override"] {
+  let answered = 0;
+  return (route, { init }) => {
+    if (route !== "catalog" || answered >= times) return undefined;
+    if (init?.signal?.aborted)
+      return Promise.reject(new DOMException("aborted", "AbortError"));
+    const answer = NOT_READY[answered++ % NOT_READY.length];
+    return new Promise<Response>((resolve) =>
+      setImmediate(() => resolve(answer())),
+    );
+  };
+}
+
+// Small clock steps, so the turn's own deadlines stay far away.
+async function untilCatalogRequests(turn: Driven, count: number) {
+  for (let step = 0; step < 40 && turn.fake.count("catalog") < count; step++) {
+    turn.clock.advance(25);
+    await settleUntil(() => turn.fake.count("catalog") >= count, 20);
+  }
+}
+
+it("asks again while OpenCode answers 503 for the catalog, and the turn gets the catalog", async () => {
+  const turn = driven({ fake: { override: notReadyCatalog(2) } });
+  void turn.send();
+  await settleUntil(() => turn.fake.count("catalog") > 0);
+  await untilCatalogRequests(turn, 3);
+  await settleUntil(() => turn.fake.prompts() > 0);
+  expect(turn.fake.calls("POST", /\/model$/)[0].body, "the variant").toEqual({
+    model: { providerID: "provider", id: "model", variant: "high" },
+  });
+  expect(turn.notices).toEqual([]);
+  expect(turn.fake.count("catalog"), "two 503s and one success").toBe(3);
+  turn.fake.emit(f.delivered(INPUT_1));
+  turn.complete();
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "completed" }]);
+});
+
+it("does not ask again for a catalog that fails with another status", async () => {
+  const turn = driven({ fake: { status: { catalog: 500 } } });
+  void turn.send();
+  // The clock does not move: only a load that fails at once lets the turn
+  // reach its prompt.
+  await settleUntil(() => turn.fake.prompts() > 0);
+  expect(turn.notices).toEqual([OPENCODE_EFFORT_CATALOG_UNAVAILABLE]);
+  turn.fake.emit(f.delivered(INPUT_1));
+  turn.complete();
+  await settleUntil(() => turn.completions.length > 0);
+  turn.clock.advance(10_000);
+  await settleUntil(() => false);
+  expect(turn.fake.count("catalog")).toBe(1);
+});
+
+it("stops asking for a catalog that answers 503 at the cap, and names the 503", async () => {
+  const cap = OPENCODE_EVENT_STREAM_DEADLINE_MS;
+  const turn = driven({ fake: { override: notReadyCatalog(Infinity) } });
+  void turn.send();
+  await settleUntil(() => turn.fake.count("event") > 0);
+  let failure: unknown;
+  let listed = false;
+  void discoverOpenCodeModels(turn.lease.supervisor, FAKE_CWD).then(
+    () => {
+      listed = true;
+    },
+    (error) => {
+      failure = error;
+    },
+  );
+  await passCatalogWait(turn);
+  await settleUntil(() => turn.fake.prompts() > 0);
+  turn.fake.emit(f.delivered(INPUT_1));
+  turn.complete();
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.notices).toEqual([OPENCODE_EFFORT_CATALOG_UNAVAILABLE]);
+  // The load started when the transport acquired its lease, at 0.
+  for (let passed = DEADLINE_MS; passed < cap - 1; ) {
+    const step = Math.min(100, cap - 1 - passed);
+    turn.clock.advance(step);
+    passed += step;
+    await settleUntil(() => false, 5);
+  }
+  expect(failure, "still asking before the cap").toBeUndefined();
+  expect(listed).toBe(false);
+  const asked = turn.fake.count("catalog");
+  expect(asked, "it kept asking").toBeGreaterThan(cap / 1_000);
+  expect(asked, "with a pause between requests").toBeLessThan(cap / 100);
+  for (let step = 0; step < 20 && failure === undefined; step++) {
+    turn.clock.advance(100);
+    await settleUntil(() => failure !== undefined, 5);
+  }
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).name, "not a bare abort").not.toBe("AbortError");
+  expect((failure as Error).message, "the last answer").toContain("503");
+  const atFailure = turn.fake.count("catalog");
+  turn.clock.advance(10_000);
+  await settleUntil(() => false);
+  expect(turn.fake.count("catalog"), "no request after the failure").toBe(
+    atFailure,
+  );
 });
 
 for (const [when, leaseOptions] of [

@@ -503,7 +503,7 @@ describe("OpenCode pinned transport", () => {
         ]),
       ],
       100,
-      { status: { catalog: 503 } },
+      { status: { catalog: 500 } },
     );
     const session = harness.backend.createSession({
       ...opts,
@@ -1119,6 +1119,42 @@ describe("OpenCode pinned transport", () => {
       40_000,
     );
   }
+
+  // 2.2.5 answers /api/model with 503 until the folder's plugins finish
+  // setup, and waits at most 5 s for them per request (task 2f759503).
+  it.skipIf(!LIVE)(
+    "lists models in a folder whose plugin setup outlasts OpenCode's plugin wait",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "isomux-opencode-slow-"));
+      liveCleanup.push(() => rm(root, { recursive: true, force: true }));
+      await mkdir(join(root, ".opencode", "plugins"), { recursive: true });
+      await writeFile(
+        join(root, ".opencode", "plugins", "slow.js"),
+        'export default { id: "isomux.test.slow", async setup() { await new Promise((r) => setTimeout(r, 6000)); } };\n',
+      );
+      const supervisor = await liveSupervisor();
+      const statuses: number[] = [];
+      const realFetch = globalThis.fetch;
+      const spy = spyOn(globalThis, "fetch").mockImplementation((async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const response = await realFetch(input, init);
+        const url = input instanceof Request ? input.url : String(input);
+        if (new URL(url).pathname === "/api/model")
+          statuses.push(response.status);
+        return response;
+      }) as typeof fetch);
+      cleanup.push(() => spy.mockRestore());
+      const models = await livePhase("slow plugin folder listing", () =>
+        createOpenCodeBackend({ supervisor }).listModels({ cwd: root }),
+      );
+      expect(models.map((model) => model.id)).toContain("gate/gate-model");
+      expect(statuses, "OpenCode made the listing wait").toContain(503);
+      expect(statuses.at(-1)).toBe(200);
+    },
+    40_000,
+  );
 
   // Real subprocess contract: run with bun run test:opencode.
   const toolsScenario = (async function* () {

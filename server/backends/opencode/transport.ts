@@ -49,17 +49,37 @@ import {
   type OpenCodePermissionEnvelope,
 } from "./safety-adapter.ts";
 import type { evaluateProposedAction } from "../../safety-policy.ts";
-import {
-  DEFAULT_EFFORT,
-  EFFORT_LEVELS,
-  type EffortLevel,
-} from "../../../shared/types.ts";
+import { DEFAULT_EFFORT, type EffortLevel } from "../../../shared/types.ts";
 import {
   joinLogText,
   msg,
   type LogText,
 } from "../../../shared/i18n/log-message.ts";
 import { providerText } from "../provider-text.ts";
+import {
+  allowDiscoveredModels,
+  discoverOpenCodeModels,
+  folderPath,
+  keptCatalog,
+  OPENCODE_CATALOG_LOAD_LIMIT_MS,
+  OPENCODE_EVENT_STREAM_DEADLINE_MS,
+  OPENCODE_LIST_POLL_MS,
+  pauseFor,
+  realDeadlineScheduler,
+  type DiscoveredOpenCodeModel,
+  type OpenCodeDeadlineScheduler,
+} from "./catalog.ts";
+import { asRecord, listData, numberField, stringField } from "./records.ts";
+
+// The catalog load moved to catalog.ts; its names stay importable here.
+export {
+  allowDiscoveredModels,
+  discoverOpenCodeModels,
+  OPENCODE_CATALOG_LOAD_LIMIT_MS,
+  OPENCODE_EVENT_STREAM_DEADLINE_MS,
+  type DiscoveredOpenCodeModel,
+  type OpenCodeDeadlineScheduler,
+};
 
 // The OpenCode 2 transport (task e47be82a): the /api routes and the
 // /api/event frames of @opencode/cli 2.1.4, as recorded on 2026-10-25 in
@@ -118,13 +138,6 @@ export const OPENCODE_COMPACTION_FAILED_NOTICE = "Context compaction failed.";
 // folder open was not measured.
 export const OPENCODE_FOLDER_SETUP_LIMIT_MS = 3 * 60_000;
 
-// OpenCode 2.1.4 sends an SSE comment ": heartbeat" on /api/event every
-// 15.000 s (measured 2026-10-25), and no data frame. 45 s is three missed
-// heartbeats. The same bound covers the requests a turn makes before its
-// stream reads: with 8 sessions on one 1.18.35 server, /event headers took at
-// most 0.5 s, POST /session 1.7 s and /provider 12.8 s (2026-10-07).
-export const OPENCODE_EVENT_STREAM_DEADLINE_MS = 45_000;
-
 // Heartbeats keep a stream alive while the turn's session makes no progress,
 // for example after a sequence collision (upstream #53146) stops its writes.
 // After this long without a frame of the turn's sessions, and while no
@@ -132,31 +145,12 @@ export const OPENCODE_EVENT_STREAM_DEADLINE_MS = 45_000;
 // the session still runs.
 export const OPENCODE_TURN_PROGRESS_CHECK_MS = 60_000;
 
-// A turn stops waiting for the catalog at the deadline above, but the load
-// goes on so a late success is kept. This bound only frees the slot of a
-// load that never answers, so a later caller can try again.
-export const OPENCODE_CATALOG_LOAD_LIMIT_MS = 5 * 60_000;
-
-// How often a turn asks again for a list that 2.1.4 fills a moment after a
-// start or a folder open: the plugin rows of a folder, and the providers.
-const OPENCODE_LIST_POLL_MS = 250;
-
 // The instruction entry that carries the agent's system prompt. 2.1.4 puts
 // it in the system message as <context key="isomux">, and a changed value
 // reaches the model at the next step as an update (2026-10-25). 2.1.4 takes
 // at most 256 KiB per entry and answers 413 above it; the system prompts of
 // this office's OpenCode agents were 19-41 KB on 2026-10-25.
 const OPENCODE_INSTRUCTIONS_KEY = "isomux";
-
-export interface OpenCodeDeadlineScheduler {
-  setTimeout(callback: () => void, delayMs: number): unknown;
-  clearTimeout(timer: unknown): void;
-}
-
-const realDeadlineScheduler: OpenCodeDeadlineScheduler = {
-  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
-};
 
 // A failure whose message is already member-facing copy. `detail` goes to
 // the service log only.
@@ -210,41 +204,6 @@ export function openCodeEffortUnavailableNotice(
   return `\`${model}\` has no \`${effort}\` effort, so this turn runs at its default effort. Pick an effort in the agent settings.`;
 }
 
-export interface DiscoveredOpenCodeModel {
-  id: string;
-  label: string;
-  contextLimit?: number;
-  // The catalog's input and output limits, for the compaction point
-  // (openCodeAutoCompactTokens). Server-internal, like the rest of this type.
-  inputLimit?: number;
-  outputLimit?: number;
-  isFree?: boolean;
-  supportedEfforts: { level: EffortLevel }[];
-}
-
-// 2.1.4 lists a model's prices as tiers. A model is free when it has at
-// least one tier and every price of every tier is zero.
-function openCodeModelIsFree(rawCost: unknown): boolean {
-  if (!Array.isArray(rawCost) || rawCost.length === 0) return false;
-  return rawCost.every((tier) => {
-    const cost = asRecord(tier);
-    const cache = asRecord(cost.cache);
-    const values: unknown[] = [];
-    for (const [record, field] of [
-      [cost, "input"],
-      [cost, "output"],
-      [cache, "read"],
-      [cache, "write"],
-    ] as const) {
-      if (field in record) values.push(record[field]);
-    }
-    return (
-      values.length > 0 &&
-      values.every((value) => typeof value === "number" && value === 0)
-    );
-  });
-}
-
 // The MCP server configs Isomux sent, per server process, folder and name:
 // a hash of url and headers, so a rotated header is sent again. Only a
 // cache: after an Isomux restart it is empty, and every server is sent again.
@@ -269,93 +228,6 @@ const checkedConfigs = new WeakMap<
   OpenCodeSupervisor,
   { serverKey: string; folders: Set<string> }
 >();
-
-// One catalog per OpenCode server process and directory (/api/model takes
-// the folder, and a project config can add models). A running server does
-// not reload its model registry, and every change to the model list replaces
-// the server (internal-docs/opencode-oc1-scope.md), so the server key is the
-// invalidation. Callers share one load; only a success is kept.
-const keptCatalogs = new WeakMap<
-  OpenCodeSupervisor,
-  {
-    serverKey: string;
-    byCwd: Map<string, Promise<DiscoveredOpenCodeModel[]>>;
-  }
->();
-
-function keptCatalog(
-  supervisor: OpenCodeSupervisor,
-  lease: OpenCodeLease,
-  cwd: string,
-  scheduler: OpenCodeDeadlineScheduler = realDeadlineScheduler,
-): Promise<DiscoveredOpenCodeModel[]> {
-  const serverKey = lease.serverKey;
-  let kept = keptCatalogs.get(supervisor);
-  if (!kept || kept.serverKey !== serverKey) {
-    kept = { serverKey, byCwd: new Map() };
-    keptCatalogs.set(supervisor, kept);
-  }
-  const byCwd = kept.byCwd;
-  const existing = byCwd.get(cwd);
-  if (existing) return existing;
-  const load = loadCatalog(lease, cwd, scheduler);
-  byCwd.set(cwd, load);
-  load.catch(() => {
-    if (byCwd.get(cwd) === load) byCwd.delete(cwd);
-  });
-  return load;
-}
-
-async function loadCatalog(
-  lease: OpenCodeLease,
-  cwd: string,
-  scheduler: OpenCodeDeadlineScheduler,
-): Promise<DiscoveredOpenCodeModel[]> {
-  const controller = new AbortController();
-  const timer = scheduler.setTimeout(
-    () => controller.abort(),
-    OPENCODE_CATALOG_LOAD_LIMIT_MS,
-  );
-  try {
-    // A row carries its provider's settings, which can hold an API key.
-    // Reduce it to scalars right here and never log, store or forward the
-    // raw body.
-    const response = await fetch(
-      new URL(folderPath("/api/model", cwd), lease.baseUrl),
-      {
-        headers: { authorization: lease.authHeader },
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new Error(`OpenCode HTTP ${response.status} at /api/model.`);
-    }
-    const models = allowDiscoveredModels(await response.json());
-    // 2.1.4 lists no model for a moment after a start (gate E4a): an empty
-    // list is a catalog that has not loaded yet, not one to keep.
-    if (models.length === 0) throw new Error("OpenCode listed no model yet.");
-    return models;
-  } finally {
-    scheduler.clearTimeout(timer);
-  }
-}
-
-// stopIfStarted: a server this listing starts stops when it ends, instead of
-// after the idle wait (OpenCodeLease.releaseAndStopIfStarted).
-export async function discoverOpenCodeModels(
-  supervisor: OpenCodeSupervisor,
-  cwd: string,
-  options: { stopIfStarted?: boolean } = {},
-): Promise<DiscoveredOpenCodeModel[]> {
-  const lease = await supervisor.acquire();
-  try {
-    return await keptCatalog(supervisor, lease, cwd);
-  } finally {
-    if (options.stopIfStarted) lease.releaseAndStopIfStarted();
-    else lease.release();
-  }
-}
 
 export interface OpenCodeTransportOptions {
   cwd: string;
@@ -2532,17 +2404,7 @@ export class OpenCodeTransport {
 
   // A pause on the deadline scheduler, ended early by the signal.
   private pause(ms: number, signal?: AbortSignal): Promise<void> {
-    return new Promise<void>((resolve) => {
-      const timer = this.deadlineScheduler.setTimeout(resolve, ms);
-      signal?.addEventListener(
-        "abort",
-        () => {
-          this.deadlineScheduler.clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
-    });
+    return pauseFor(this.deadlineScheduler, ms, signal);
   }
 
   // A request a turn makes before its stream reads. A frozen server accepts
@@ -3008,16 +2870,6 @@ const OPEN_PART_REPLAY_FRAMES = new Set([
   OPEN_REASONING_REPLAY,
 ]);
 
-// A route that serves one folder names it in the query.
-function folderPath(path: string, cwd: string): string {
-  return `${path}?${new URLSearchParams({ "location[directory]": cwd })}`;
-}
-
-function listData(raw: unknown): unknown[] {
-  const data = asRecord(raw).data;
-  return Array.isArray(data) ? data : [];
-}
-
 // The session a frame belongs to; a form names it inside the form.
 function frameSession(frame: Record<string, unknown>): string | null {
   const data = asRecord(frame.data);
@@ -3236,85 +3088,6 @@ export function splitModel(model: string): [string, string] {
   return [model.slice(0, slash), model.slice(slash + 1)];
 }
 
-// The rows of GET /api/model: 2.1.4 lists the enabled models of the
-// providers it can use (gate E4a).
-export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
-  const byId = new Map<string, DiscoveredOpenCodeModel>();
-  for (const model of listData(raw).map(asRecord)) {
-    if (model.enabled !== true || model.status !== "active") continue;
-    const providerId = stringField(model, "providerID");
-    if (!providerId || !safeCatalogId(providerId)) continue;
-    const rawModelId =
-      stringField(model, "modelID") ?? stringField(model, "id");
-    if (!rawModelId) continue;
-    const modelId = rawModelId.startsWith(`${providerId}/`)
-      ? rawModelId.slice(providerId.length + 1)
-      : rawModelId;
-    if (!modelId || !safeCatalogId(modelId)) continue;
-    const id = `${providerId}/${modelId}`;
-    const modelLabel = safeCatalogLabel(model.name, modelId);
-    const contextLimit = positiveNumber(asRecord(model.limit), "context");
-    const inputLimit = positiveNumber(asRecord(model.limit), "input");
-    const outputLimit = positiveNumber(asRecord(model.limit), "output");
-    const variants = new Set(
-      (Array.isArray(model.variants) ? model.variants.map(asRecord) : [])
-        .map((variant) => variant.id)
-        .filter((value): value is string => typeof value === "string"),
-    );
-    const supportedEfforts = EFFORT_LEVELS.filter(({ level }) =>
-      variants.has(level),
-    ).map(({ level }) => ({ level }));
-    if (!byId.has(id)) {
-      byId.set(id, {
-        id,
-        // The two house providers prefix every model; "OpenCode Zen - " or
-        // "OpenCode Go - " on each row is noise - the picker groups
-        // them as pay-as-you-go and subscription instead. Other providers
-        // keep the prefix - it disambiguates same-named models across them.
-        label:
-          providerId === "opencode" || providerId === "opencode-go"
-            ? modelLabel
-            : `${providerId} - ${modelLabel}`,
-        ...(contextLimit !== null ? { contextLimit } : {}),
-        ...(inputLimit !== null ? { inputLimit } : {}),
-        ...(outputLimit !== null ? { outputLimit } : {}),
-        ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
-        supportedEfforts,
-      });
-    }
-  }
-  const compare = (
-    left: DiscoveredOpenCodeModel,
-    right: DiscoveredOpenCodeModel,
-  ) => {
-    if (left.label !== right.label) return left.label < right.label ? -1 : 1;
-    if (left.id === right.id) return 0;
-    return left.id < right.id ? -1 : 1;
-  };
-  return [...byId.values()].sort(compare);
-}
-
-function safeCatalogId(value: string): boolean {
-  return value.length <= 128 && /^[a-zA-Z0-9._:-]+$/.test(value);
-}
-
-function safeCatalogLabel(value: unknown, fallback: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > 200 ||
-    [...value].some((character) => {
-      const code = character.charCodeAt(0);
-      return code <= 31 || code === 127;
-    }) ||
-    /(authorization|api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|password|secret|bearer)/i.test(
-      value,
-    )
-  )
-    return fallback;
-  return value;
-}
-
 function allowSession(raw: unknown): { id: string } {
   const id = stringField(asRecord(asRecord(raw).data), "id");
   if (!id) throw new Error("OpenCode returned an invalid session shape.");
@@ -3515,11 +3288,6 @@ function safeJournalName(value: unknown): string {
     : "unknown";
 }
 
-function positiveNumber(record: Record<string, unknown>, field: string) {
-  const value = numberField(record, field);
-  return value !== null && value > 0 ? value : null;
-}
-
 // A 2.1.4 structured error {type, message, status, response}. The response
 // body is the provider's raw answer and is never read (T10).
 function allowError(value: unknown): SafeOpenCodeError {
@@ -3558,26 +3326,4 @@ function openCodePlanLimit(
     (error.name === "provider.quota" || error.name === "provider.free-limit") &&
     OPENCODE_KEY_PROVIDERS.has(splitModel(model)[0])
   );
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function stringField(
-  value: Record<string, unknown>,
-  key: string,
-): string | null {
-  return typeof value[key] === "string" ? value[key] : null;
-}
-
-function numberField(
-  value: Record<string, unknown>,
-  key: string,
-): number | null {
-  return typeof value[key] === "number" && Number.isFinite(value[key])
-    ? value[key]
-    : null;
 }
