@@ -384,3 +384,566 @@ it.skipIf(!LIVE)(
   },
   25_000,
 );
+
+// ---------------------------------------------------------------------------
+// Native steer against the real pinned 2.2.5 server (steer-delivery-design.md
+// §3.5, probed 2026-11-11): a steer folded into a running turn at the step
+// boundary, a steer that misses the run's last boundary check (cancelled,
+// then delivered once by the flush), and an abort with a parked steer. Mock
+// provider, no model tokens. The cancel race of the miss case is a real
+// millisecond window: the test sweeps steer delays until one attempt lands
+// in it, asserting the invariants (delivered exactly once, inbox drained,
+// no unowned run) on every attempt.
+// ---------------------------------------------------------------------------
+
+const STEER_SENDER = {
+  kind: "agent" as const,
+  agentId: "agent-live-sender",
+  agentName: "Sender",
+  roomName: "room-live-steer",
+};
+
+interface SteerMockState {
+  // Resolved when the mock starts streaming a FAST-ANSWER reply: the run's
+  // last boundary checks are milliseconds away.
+  onFinal?: () => void;
+}
+
+// The tool ran to its end: its stdout, echoed in the tool result. (The
+// session's cwd is the state root, where the safety plugin denies writes, so
+// completion is proven through stdout, not a file.)
+const SLEPT_TO_END = "SLEPT-TO-END";
+
+// The deterministic provider mock: keyed on the LAST user message, so one
+// session's accumulated history never changes a later turn's answer. A
+// LONG-SHELL prompt gets one shell tool call (sleep 4, then the stdout
+// marker); anything holding steer text gets a fixed reply; the rest a plain
+// answer. The shell tool asks (Isomux's BASE_RULES), as in production.
+function steerMock(state: SteerMockState) {
+  // topic: the session's asynchronous topic-label generation, which can
+  // outlive the turn that triggered it; the quiescence checks ignore it.
+  const requests: {
+    messages: Array<Record<string, unknown>>;
+    topic: boolean;
+  }[] = [];
+  let callId = 0;
+  const mock = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/v1/models")
+        return Response.json({
+          object: "list",
+          data: [{ id: "gate-model", object: "model" }],
+        });
+      if (url.pathname !== "/v1/chat/completions")
+        return new Response("not found", { status: 404 });
+      const body = (await request.json()) as {
+        messages?: Array<Record<string, unknown>>;
+      };
+      const messages = body.messages ?? [];
+      const lastUser = [...messages]
+        .reverse()
+        .find((message) => message.role === "user")?.content;
+      const prompt =
+        typeof lastUser === "string" ? lastUser : JSON.stringify(lastUser ?? "");
+      requests.push({ messages, topic: prompt.includes("topic label") });
+      const hasToolResult = messages.some((message) => message.role === "tool");
+      const id = `gate-${requests.length}`;
+      const stream = new ReadableStream({
+        start(controller) {
+          const send = (value: unknown) =>
+            controller.enqueue(
+              `data: ${typeof value === "string" ? value : JSON.stringify(value)}\n\n`,
+            );
+          const chunk = (delta: unknown, finish: string | null) => ({
+            id,
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "gate-model",
+            choices: [{ index: 0, delta, finish_reason: finish }],
+          });
+          send(chunk({ role: "assistant" }, null));
+          if (prompt.includes("LONG-SHELL") && !hasToolResult) {
+            send(
+              chunk(
+                {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: `call_${++callId}`,
+                      type: "function",
+                      function: {
+                        name: "shell",
+                        arguments: JSON.stringify({
+                          command: `sleep 4; echo ${SLEPT_TO_END}`,
+                        }),
+                      },
+                    },
+                  ],
+                },
+                null,
+              ),
+            );
+            send(chunk({}, "tool_calls"));
+          } else {
+            if (prompt.includes("FAST-ANSWER")) state.onFinal?.();
+            const text = prompt.includes("STEER-")
+              ? "STEER-ACK-REPLY"
+              : `REPLY:${prompt.replaceAll("\n", " ").slice(0, 60)}`;
+            send(chunk({ content: text }, null));
+            send(chunk({}, "stop"));
+          }
+          send("[DONE]");
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  });
+  return { mock, requests };
+}
+
+// Conversation requests only: a turn's asynchronous topic-label generation
+// can outlive it and is not run activity.
+const conversationCount = (requests: { topic: boolean }[]) =>
+  requests.filter((request) => !request.topic).length;
+
+type SteerManager = ReturnType<typeof createAgentManager>;
+
+function bootSteerOffice(room: string, profile: string, mockPort: number) {
+  const events: unknown[] = [];
+  const supervisor = new OpenCodeSupervisor({
+    profileDir: `${STATE_ROOT}/${profile}`,
+    serverCwd: STATE_ROOT,
+    launchEnv: openCodeLiveLaunchEnv(`${STATE_ROOT}/${profile}`),
+    // Long enough that the server stays warm between a test's turns.
+    idleShutdownMs: 30_000,
+    config: openCodeLiveConfig("gate/gate-model", {
+      gate: openCodeMockProvider(`http://127.0.0.1:${mockPort}/v1`),
+    }),
+  });
+  reaper.track(supervisor);
+  const backend = createOpenCodeBackend({ supervisor });
+  const sink: EventHandler = (event) => {
+    events.push(event);
+  };
+  const mgr = createAgentManager({
+    eventSink: sink,
+    resolveBackend: () => backend,
+    officeState: new OfficeState({ rooms: rooms(room) }),
+    initialRooms: [],
+  });
+  mgr.configureAgentTurnDeps();
+  return { mgr, supervisor, events };
+}
+
+async function waitUntil(
+  pred: () => boolean | Promise<boolean>,
+  label: string,
+  timeoutMs = 30_000,
+  onTimeout?: () => unknown,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await pred()) return;
+    if (Date.now() > deadline) {
+      if (onTimeout) console.info(`live steer timeout diagnostics:`, JSON.stringify(onTimeout(), null, 1));
+      throw new Error(`live steer: timed out waiting for ${label}`);
+    }
+    await Bun.sleep(20);
+  }
+}
+
+function settled(
+  mgr: SteerManager,
+  agentId: string,
+  extra: () => boolean = () => true,
+): boolean {
+  const queue = mgr.getAllAgents().find((a) => a.id === agentId)?.queue ?? [];
+  return (
+    mgr.getAgent(agentId)?.state === "waiting_for_response" &&
+    queue.length === 0 &&
+    extra()
+  );
+}
+
+function steerEntries(mgr: SteerManager, agentId: string, text: string) {
+  return mgr
+    .getAgentLogs(agentId)
+    .filter(
+      (entry) =>
+        entry.kind === "user_message" &&
+        typeof entry.content === "string" &&
+        entry.content.includes(text),
+    );
+}
+
+// Answers the shell permission with "allow once" (choice 1: OpenCode offers
+// no persistent label, so allow_once is first).
+async function allowNextPermission(
+  mgr: SteerManager,
+  events: unknown[],
+  agentId: string,
+  answered: Set<string>,
+): Promise<void> {
+  await waitUntil(
+    () =>
+      events.some(
+        (event) =>
+          (event as { type?: string }).type === "interaction_added" &&
+          (event as { interaction?: { kind?: string; agentId?: string } })
+            .interaction?.kind === "permission" &&
+          (event as { interaction?: { agentId?: string } }).interaction
+            ?.agentId === agentId &&
+          !answered.has(
+            (event as { interaction: { id: string } }).interaction.id,
+          ),
+      ),
+    "permission interaction",
+    60_000,
+    () => ({
+      eventTypes: [...new Set(events.map((e) => (e as { type?: string }).type))],
+      state: mgr.getAgent(agentId)?.state,
+      logs: mgr
+        .getAgentLogs(agentId)
+        .map((entry) => `${entry.kind}: ${String(entry.content).slice(0, 100)}`),
+    }),
+  );
+  const event = events.find(
+    (candidate) =>
+      (candidate as { type?: string }).type === "interaction_added" &&
+      (candidate as { interaction?: { kind?: string; agentId?: string } })
+        .interaction?.kind === "permission" &&
+      (candidate as { interaction?: { agentId?: string } }).interaction
+        ?.agentId === agentId &&
+      !answered.has((candidate as { interaction: { id: string } }).interaction.id),
+  ) as { interaction: { id: string } };
+  answered.add(event.interaction.id);
+  const result = mgr.respondToChoiceInteraction(
+    agentId,
+    event.interaction.id,
+    "1",
+    "tester",
+  );
+  expect(result.ok).toBe(true);
+}
+
+// The session's pending inbox rows, read straight from the real server.
+async function liveInbox(
+  supervisor: OpenCodeSupervisor,
+  sessionId: string,
+): Promise<unknown[]> {
+  const lease = await supervisor.acquire();
+  try {
+    const response = await fetch(
+      `${lease.baseUrl}/api/session/${encodeURIComponent(sessionId)}/inbox`,
+      { headers: { authorization: lease.authHeader } },
+    );
+    const body = (await response.json()) as { data?: unknown[] };
+    return body.data ?? [];
+  } finally {
+    lease.release();
+  }
+}
+
+async function spawnReceiver(
+  mgr: SteerManager,
+  room: string,
+): Promise<string> {
+  const info = await mgr.spawn(
+    "Steer Receiver",
+    STATE_ROOT,
+    "default",
+    undefined,
+    undefined,
+    room,
+    undefined,
+    "gate/gate-model",
+    "high",
+    undefined,
+    "opencode",
+  );
+  if (!info) throw new Error("live steer: spawn returned null");
+  return info.id;
+}
+
+it.skipIf(!LIVE)(
+  "steer during a long shell call folds into the running turn on the real server",
+  async () => {
+    const { mock, requests } = steerMock({});
+    const { mgr, supervisor, events } = bootSteerOffice(
+      "room-live-steer-c1",
+      "opencode-steer-c1-profile",
+      mock.port ?? 0,
+    );
+    const teardown = reaper.add(async () => {
+      await supervisor.shutdown();
+      await mock.stop(true);
+    });
+    try {
+      const agentId = await spawnReceiver(mgr, "room-live-steer-c1");
+      const answered = new Set<string>();
+      mgr.enqueueMessage(agentId, {
+        sender: { kind: "user", username: "tester" },
+        text: "Please run LONG-SHELL now.",
+      });
+      await allowNextPermission(mgr, events, agentId, answered);
+      // The tool now runs its sleep 4: the run has no boundary until it ends.
+      await waitUntil(
+        () =>
+          ["thinking", "tool_executing"].includes(
+            mgr.getAgent(agentId)?.state ?? "",
+          ),
+        "tool running",
+        60_000,
+      );
+      const steerText = "STEER-C1 FYI from Sender while the shell runs.";
+      const ack = mgr.enqueueMessage(
+        agentId,
+        { sender: STEER_SENDER, text: steerText },
+        { steer: true },
+      );
+      expect(ack).toMatchObject({ ok: true, queued: false, steered: true });
+      await waitUntil(
+        () => settled(mgr, agentId),
+        "turn settled",
+        60_000,
+      );
+
+      // Logged exactly once, as a tool-boundary delivery (steer_delivered),
+      // before the turn's final reply.
+      const entries = steerEntries(mgr, agentId, "STEER-C1");
+      expect(entries).toHaveLength(1);
+      expect(entries[0].metadata?.delivery).toBe("tool_boundary");
+      const logs = mgr.getAgentLogs(agentId);
+      expect(logs.indexOf(entries[0]!)).toBeLessThan(
+        logs.findIndex((entry) => entry.content?.includes("STEER-ACK-REPLY")),
+      );
+      // The tool ran to its end (the sleep was not cut) and the next model
+      // request carried its result plus the steer text: OpenCode promoted
+      // the row at the boundary, inside the same run. Keyed on the last
+      // user message, since the topic-label request also holds the history.
+      const lastUserOf = (request: { messages: Array<Record<string, unknown>> }) => {
+        const last = [...request.messages]
+          .reverse()
+          .find((message) => message.role === "user")?.content;
+        return typeof last === "string" ? last : JSON.stringify(last ?? "");
+      };
+      const postTool = requests.find(
+        (request) =>
+          lastUserOf(request).includes("STEER-C1") &&
+          request.messages.some((message) => message.role === "tool"),
+      );
+      expect(postTool).toBeDefined();
+      // The marker in the tool role's own content is the sleep's stdout (the
+      // command text also names it, in the call's arguments).
+      expect(
+        postTool!.messages.some(
+          (message) =>
+            message.role === "tool" &&
+            JSON.stringify(message.content ?? "").includes(SLEPT_TO_END),
+        ),
+      ).toBe(true);
+      // The inbox is drained and nothing runs on its own after the turn.
+      const sessionId = mgr.getCurrentSessionId(agentId);
+      expect(sessionId).toBeTruthy();
+      expect(await liveInbox(supervisor, sessionId!)).toEqual([]);
+      const before = conversationCount(requests);
+      await Bun.sleep(2_000);
+      expect(conversationCount(requests)).toBe(before);
+    } finally {
+      await teardown();
+    }
+  },
+  90_000,
+);
+
+it.skipIf(!LIVE)(
+  "a steer that misses the run is cancelled and the flush delivers it exactly once",
+  async () => {
+    const mockState: SteerMockState = {};
+    const { mock, requests } = steerMock(mockState);
+    const { mgr, supervisor } = bootSteerOffice(
+      "room-live-steer-c2",
+      "opencode-steer-c2-profile",
+      mock.port ?? 0,
+    );
+    const teardown = reaper.add(async () => {
+      await supervisor.shutdown();
+      await mock.stop(true);
+    });
+    try {
+      const agentId = await spawnReceiver(mgr, "room-live-steer-c2");
+      const classifications: string[] = [];
+      // Swept delays after the mock started streaming the run's final
+      // answer: the miss window (admit after the run's last boundary check,
+      // before the turn's end cancels) is milliseconds wide, so attempts
+      // land folded, missed, or after the flip to idle. Every outcome must
+      // deliver exactly once; the test requires at least one real miss.
+      const offsets = [0, 3, 6, 10, 15, 25, 40, 70];
+      for (
+        let attempt = 0;
+        attempt < offsets.length && !classifications.includes("miss");
+        attempt++
+      ) {
+        const steerText = `STEER-C2-${attempt} note from Sender.`;
+        let signal!: () => void;
+        const finalStarted = new Promise<void>((resolve) => {
+          signal = resolve;
+        });
+        mockState.onFinal = signal;
+        mgr.enqueueMessage(agentId, {
+          sender: { kind: "user", username: "tester" },
+          text: `FAST-ANSWER-${attempt} please reply.`,
+        });
+        await Promise.race([
+          finalStarted,
+          Bun.sleep(30_000).then(() => {
+            throw new Error("live steer: final answer never streamed");
+          }),
+        ]);
+        await Bun.sleep(offsets[attempt]!);
+        const ack = mgr.enqueueMessage(
+          agentId,
+          { sender: STEER_SENDER, text: steerText },
+          { steer: true },
+        );
+        expect(ack.ok).toBe(true);
+        await waitUntil(
+          () => settled(mgr, agentId, () => steerEntries(mgr, agentId, steerText).length > 0),
+          `attempt ${attempt} settled`,
+          60_000,
+        );
+        // Delivered exactly once, whichever path took it.
+        const entries = steerEntries(mgr, agentId, steerText);
+        expect(entries).toHaveLength(1);
+        if ((ack as { steered?: boolean }).steered !== true)
+          classifications.push("idle-late");
+        else if (entries[0].metadata?.delivery === "tool_boundary")
+          classifications.push("folded");
+        else classifications.push("miss");
+        // The inbox is drained and no unowned run starts after the turn.
+        expect(
+          await liveInbox(supervisor, mgr.getCurrentSessionId(agentId)!),
+        ).toEqual([]);
+        const before = conversationCount(requests);
+        await Bun.sleep(1_200);
+        expect(conversationCount(requests)).toBe(before);
+      }
+      console.info(
+        "live steer race classifications",
+        JSON.stringify(classifications),
+      );
+      expect(classifications).toContain("miss");
+    } finally {
+      await teardown();
+    }
+  },
+  240_000,
+);
+
+it.skipIf(!LIVE)(
+  "an abort with a parked steer cancels its row and the flush delivers it once",
+  async () => {
+    const { mock, requests } = steerMock({});
+    const { mgr, supervisor, events } = bootSteerOffice(
+      "room-live-steer-c3",
+      "opencode-steer-c3-profile",
+      mock.port ?? 0,
+    );
+    const teardown = reaper.add(async () => {
+      await supervisor.shutdown();
+      await mock.stop(true);
+    });
+    try {
+      const agentId = await spawnReceiver(mgr, "room-live-steer-c3");
+      const answered = new Set<string>();
+      mgr.enqueueMessage(agentId, {
+        sender: { kind: "user", username: "tester" },
+        text: "Please run LONG-SHELL now.",
+      });
+      await allowNextPermission(mgr, events, agentId, answered);
+      await waitUntil(
+        () =>
+          ["thinking", "tool_executing"].includes(
+            mgr.getAgent(agentId)?.state ?? "",
+          ),
+        "tool running",
+        60_000,
+      );
+      const steerText = "STEER-C3 correction from Sender.";
+      const ack = mgr.enqueueMessage(
+        agentId,
+        { sender: STEER_SENDER, text: steerText },
+        { steer: true },
+      );
+      expect(ack).toMatchObject({ ok: true, queued: false, steered: true });
+      // The admit lands while the sleep still runs (it is durable in the
+      // inbox, and the run has no boundary until the tool ends).
+      await Bun.sleep(500);
+      const result = await mgr.abort(agentId);
+      expect(result.ok).toBe(true);
+      await waitUntil(
+        () =>
+          settled(mgr, agentId, () => steerEntries(mgr, agentId, steerText).length > 0),
+        "abort settled with the flush delivered",
+        60_000,
+      );
+
+      // The member's stop cut the tool: the sleep never reached its echo.
+      // Checked on tool-role content only - the command text itself names
+      // the marker in the call's arguments, which the history keeps.
+      expect(
+        requests.some((request) =>
+          request.messages.some(
+            (message) =>
+              message.role === "tool" &&
+              JSON.stringify(message.content ?? "").includes(SLEPT_TO_END),
+          ),
+        ),
+      ).toBe(false);
+      expect(
+        mgr
+          .getAgentLogs(agentId)
+          .some(
+            (entry) =>
+              entry.kind === "tool_result" &&
+              entry.content?.includes(SLEPT_TO_END),
+          ),
+      ).toBe(false);
+      // The parked steer was released and the flush delivered it exactly
+      // once, as an ordinary queued item (not a tool-boundary delivery).
+      const entries = steerEntries(mgr, agentId, steerText);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].metadata?.delivery).toBeUndefined();
+      // The row was cancelled: the inbox is empty and the flush's turn is
+      // the only request carrying the text, exactly once in its messages
+      // (a row the cancel missed would ride along as a promoted duplicate).
+      const sessionId = mgr.getCurrentSessionId(agentId);
+      expect(sessionId).toBeTruthy();
+      expect(await liveInbox(supervisor, sessionId!)).toEqual([]);
+      const carrying = requests.filter((request) =>
+        JSON.stringify(
+          request.messages.filter(
+            (message) => message.role === "user",
+          ),
+        ).includes("STEER-C3"),
+      );
+      expect(carrying).toHaveLength(1);
+      const occurrences = carrying[0]!.messages.filter((message) =>
+        JSON.stringify(message.content ?? "").includes("STEER-C3"),
+      ).length;
+      expect(occurrences).toBe(1);
+      const before = conversationCount(requests);
+      await Bun.sleep(2_000);
+      expect(conversationCount(requests)).toBe(before);
+    } finally {
+      await teardown();
+    }
+  },
+  90_000,
+);
