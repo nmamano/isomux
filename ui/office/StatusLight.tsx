@@ -37,39 +37,21 @@ export function StatusLight({
     if (elapsedMs >= ESCALATION_RED_MS) c = "var(--red)";
     else if (elapsedMs >= ESCALATION_AMBER_MS) c = "var(--orange)";
   }
-  const pulse = state !== "idle" && state !== "stopped";
+  // A light never pulses: its colour says the state, and the amber and
+  // red of a long turn are the warning.
   return (
     <span
       style={{
-        position: "relative",
-        display: "inline-flex",
+        display: "inline-block",
+        flexShrink: 0,
         width: size,
         height: size,
+        borderRadius: "50%",
+        background: c,
+        boxShadow: ring
+          ? `0 0 0 1px rgba(0,0,0,0.55), 0 0 ${size}px ${c}`
+          : `0 0 ${size}px ${c}`,
       }}
-    >
-      {pulse && (
-        <span
-          style={{
-            position: "absolute",
-            inset: -3,
-            borderRadius: "50%",
-            background: c,
-            opacity: 0.3,
-            animation: "dotPulse 2s ease-in-out infinite",
-          }}
-        />
-      )}
-      <span
-        style={{
-          width: size,
-          height: size,
-          borderRadius: "50%",
-          background: c,
-          boxShadow: ring
-            ? `0 0 0 1px rgba(0,0,0,0.55), 0 0 ${size}px ${c}`
-            : `0 0 ${size}px ${c}`,
-        }}
-      />
-    </span>
+    />
   );
 }
