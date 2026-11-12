@@ -828,7 +828,8 @@ export function ChatSidebar({
     setSections((s) => ({ ...s, [field]: !s[field] }));
   const membersOpen = sections.members !== false;
   // The agents an open Pinned or Recent section shows: a folded room leaves
-  // them out of its summary, so each unread shows once (task 3cf03055).
+  // them out of its summary, and their room rows show no badge and no unread
+  // dot, so each unread shows once (tasks 3cf03055, fdb6dcb4).
   const shownElsewhere = new Set([
     ...(sections.pinned
       ? pinned.flatMap((row) => (row.kind === "agent" ? [row.agent.id] : []))
@@ -939,8 +940,9 @@ export function ChatSidebar({
   };
 
   // Pinned and Recent list their agents; every other row is a room row (a
-  // room, a back room, the Lobby). A pinned agent's room row is muted, and
-  // while Pinned is open its Pinned row carries its badge and unread dot.
+  // room, a back room, the Lobby). A pinned agent's room row is muted. While
+  // an open Pinned or Recent section shows an agent, its row there carries
+  // its badge and unread dot, and its room row shows neither.
   const agentRow = (
     agent: AgentInfo,
     place: "room" | "list",
@@ -948,7 +950,7 @@ export function ChatSidebar({
   ) => {
     const pinned = pinnedSet.has(agent.id);
     const pinnedInRoom = place === "room" && pinned;
-    const marksElsewhere = pinnedInRoom && sections.pinned;
+    const marksElsewhere = place === "room" && shownElsewhere.has(agent.id);
     return (
       <AgentRow
         key={agent.id}

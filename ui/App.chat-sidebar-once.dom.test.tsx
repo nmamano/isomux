@@ -10,6 +10,11 @@
 // the room counts it again. The counting rule is in ui/chat-sidebar.test.ts;
 // the setup in ui/test-support/chat-sidebar-fixture.tsx.
 //
+// Sign-off change (task fdb6dcb4; Nil, 2026-11-12: "A Recent agent in an open
+// room also drops its badge there: one mark per message"): while Recent is
+// open, the room row of an agent it shows has no badge and no unread dot
+// either. It is not muted and has no pin marker: muting stays pinned-only.
+//
 // Hooks added by this task (agreed with the worker, 2026-11-12):
 //   [data-sidebar-pinned-mark]   the pin marker on a pinned agent's room row
 //   button[data-sidebar-muted]   a muted agent row (a pinned agent's room row)
@@ -21,6 +26,7 @@ setUpDomTestFile();
 
 const { act } = await import("@testing-library/react");
 const { shimEmit } = await import("./ws.ts");
+const { RECENT_AGENTS_SHOWN } = await import("./chat-sidebar.ts");
 const {
   agentAt,
   ask,
@@ -271,4 +277,107 @@ it("a pinned receptionist's Lobby row is marked and muted too, and the open pinn
   await setOpen(view, roomHeader(view, "r1"), true);
   expect(currentRows(view)).toEqual([scout.id, scout.id]);
   expect(marks(roomRow(view, scout.id)).muted).toBe(true);
+});
+
+it("a Recent agent's room row drops its badge and unread dot while Recent is open, and is neither muted nor marked", async () => {
+  // Faraway (r2 front) asks, Backbencher (r2 back) gets an unread dot, the
+  // receptionist (Lobby) asks; all three are recent. Other, in r2 and not
+  // recent, also asks.
+  const other = agentAt("a7", "r2", 1);
+  setAgents([
+    scout,
+    ranger,
+    builder,
+    faraway,
+    myTurn(backbencher),
+    receptionist,
+    other,
+  ]);
+  setAsks([
+    ask("q1", faraway.id),
+    ask("q2", receptionist.id),
+    ask("q3", other.id),
+  ]);
+  setSelfUser({
+    recentAgents: [faraway.id, backbencher.id, receptionist.id],
+  });
+  const view = await boot();
+  await endTurn(backbencher.id);
+  await setOpen(view, sectionHeader(view, "recent"), true);
+  await setOpen(view, roomHeader(view, "r2"), true);
+  await setOpen(view, backRoomRow(view, "r2"), true);
+  await setOpen(
+    view,
+    view.container.querySelector(
+      `nav[data-chat-sidebar] button[data-sidebar-room="lobby"]`,
+    ),
+    true,
+  );
+  expect(expanded(sectionHeader(view, "recent"))).toBe("true");
+
+  const plain = { badge: null, dot: false, pinMark: false, muted: false };
+  expect({
+    faraway: marks(roomRow(view, faraway.id)),
+    backbencher: marks(roomRow(view, backbencher.id)),
+    receptionist: marks(roomRow(view, receptionist.id)),
+    other: marks(roomRow(view, other.id)),
+  }).toEqual({
+    faraway: plain,
+    backbencher: plain,
+    receptionist: plain,
+    other: { ...plain, badge: "1" },
+  });
+  // The Recent rows carry them.
+  expect({
+    faraway: marks(listRow(view, "recent", faraway.id)),
+    backbencher: marks(listRow(view, "recent", backbencher.id)),
+    receptionist: marks(listRow(view, "recent", receptionist.id)),
+  }).toEqual({
+    faraway: { ...plain, badge: "1" },
+    backbencher: { ...plain, dot: true },
+    receptionist: { ...plain, badge: "1" },
+  });
+
+  // Recent folded: the room rows show them again, still not muted.
+  await setOpen(view, sectionHeader(view, "recent"), false);
+  expect(listRow(view, "recent", faraway.id)).toBeNull();
+  expect({
+    faraway: marks(roomRow(view, faraway.id)),
+    backbencher: marks(roomRow(view, backbencher.id)),
+    receptionist: marks(roomRow(view, receptionist.id)),
+  }).toEqual({
+    faraway: { ...plain, badge: "1" },
+    backbencher: { ...plain, dot: true },
+    receptionist: { ...plain, badge: "1" },
+  });
+});
+
+it("a recent agent that Recent does not show keeps its badge in its room", async () => {
+  // Seven recent agents: Recent shows the first RECENT_AGENTS_SHOWN. Faraway
+  // is shown, Other is not; both ask.
+  const other = agentAt("a7", "r2", 1);
+  const recent = [
+    scout,
+    ranger,
+    builder,
+    backbencher,
+    faraway,
+    receptionist,
+    other,
+  ];
+  expect(recent.indexOf(faraway)).toBeLessThan(RECENT_AGENTS_SHOWN);
+  expect(recent.indexOf(other)).toBeGreaterThanOrEqual(RECENT_AGENTS_SHOWN);
+  setAgents(recent);
+  setAsks([ask("q1", faraway.id), ask("q2", other.id)]);
+  setSelfUser({ recentAgents: recent.map((a) => a.id) });
+  const view = await boot();
+  await setOpen(view, sectionHeader(view, "recent"), true);
+  await setOpen(view, roomHeader(view, "r2"), true);
+
+  expect(listRow(view, "recent", faraway.id)).not.toBeNull();
+  expect(listRow(view, "recent", other.id)).toBeNull();
+  expect({
+    faraway: marks(roomRow(view, faraway.id)).badge,
+    other: marks(roomRow(view, other.id)).badge,
+  }).toEqual({ faraway: null, other: "1" });
 });
