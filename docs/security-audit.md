@@ -23,6 +23,8 @@ Inside the office, the boundary is the operating-system user. On every hosting s
 
 Thus, give office access only to persons you trust with a shell on the server. A personal API token gives the same access as its owner, from any network.
 
+The [isolation model](isolation-model.md) gives the boundaries and what an admin should do, on one short page.
+
 ---
 
 ## 2. Identities

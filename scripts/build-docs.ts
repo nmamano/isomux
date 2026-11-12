@@ -101,6 +101,7 @@ const NAV_ORDER = [
   "access-and-invites",
   "llm-providers",
   "browser-use",
+  "isolation-model",
   "security-audit",
   "data-retention",
 ];
