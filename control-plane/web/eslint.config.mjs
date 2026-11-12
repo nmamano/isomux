@@ -29,7 +29,10 @@ export default tseslint.config(
     files: ["**/*.ts", "**/*.tsx"],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // One program from this package's tsconfig, which holds every file
+        // linted here. The project service gave the same findings with about
+        // 0.4 GB more peak memory and a quarter more time (task 95b8f29f).
+        project: "./tsconfig.json",
         tsconfigRootDir: import.meta.dirname,
       },
       globals: { ...globals.browser, ...globals.node },

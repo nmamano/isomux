@@ -67,9 +67,15 @@ function lintProgram(config: ResolvedConfig): unknown {
   return relative(root, resolve(tsconfigRootDir ?? root, project));
 }
 
+// The web package's own config, as `bun run lint:web` runs it from the root.
+const webEslint = new ESLint({
+  cwd: root,
+  overrideConfigFile: resolve(root, "control-plane/web/eslint.config.mjs"),
+});
+
 /** undefined when ESLint does not lint the file. */
-async function typeAware(file: string) {
-  const config = (await eslint.calculateConfigForFile(file)) as
+async function typeAware(file: string, linter: ESLint = eslint) {
+  const config = (await linter.calculateConfigForFile(file)) as
     | ResolvedConfig
     | undefined;
   if (config === undefined) return undefined;
@@ -142,6 +148,44 @@ it("keeps the promise fence on all control-plane code, tests included", async ()
   const test = await typeAware("control-plane/boot.test.ts");
   expect(test?.on.toSorted()).toStrictEqual(PROMISE_FENCE.toSorted());
 }, 20_000);
+
+it("types web code against the web tsconfig, tests included, without the project service", async () => {
+  // The project service costs about 30% more heap and time than one program
+  // from the same tsconfig (task 95b8f29f).
+  for (const file of [
+    "control-plane/web/app/api/signup/route.ts",
+    "control-plane/web/app/account/account-view.tsx",
+    "control-plane/web/app/api/signup/route.test.ts",
+    "control-plane/web/app/account/email/email-change-confirm.dom.test.tsx",
+  ]) {
+    const result = await typeAware(file, webEslint);
+    expect({
+      file,
+      project: result?.project,
+      projectService: result?.projectService,
+    }).toEqual({
+      file,
+      project: "control-plane/web/tsconfig.json",
+      projectService: false,
+    });
+    expect(result?.on).toEqual(expect.arrayContaining(PROMISE_FENCE));
+  }
+}, 20_000);
+
+it("does not lint the gitignored .cache folder at the root", async () => {
+  // A package cache that an agent writes there holds third-party sources,
+  // which fail to parse under this config.
+  expect(await eslint.isPathIgnored("server/agent-turn.ts")).toBe(false);
+  for (const file of [
+    ".cache/bun/react@19.3.1@@@1/index.js",
+    ".cache/visuals/x.ts",
+  ]) {
+    expect({ file, ignored: await eslint.isPathIgnored(file) }).toEqual({
+      file,
+      ignored: true,
+    });
+  }
+});
 
 /** The root files of a tsconfig, read by the TypeScript the parser uses. */
 function rootFiles(tsconfig: string): string[] {

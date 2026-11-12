@@ -16,6 +16,10 @@ export default tseslint.config(
       // Stale Claude Code worktree leftovers - gitignored on disk but not
       // by ESLint, so explicit ignore here.
       ".claude/",
+      // Package caches: an agent whose environment sets a relative cache path
+      // (BUN_INSTALL_CACHE_DIR=.cache/bun) writes one here. Gitignored, and
+      // ESLint does not read .gitignore.
+      ".cache/",
       // Its own package, with its own config: typed linting there needs Next's
       // types, which exist only after the nested install. `bun run lint:web`
       // covers it, and `bun run ci` runs that.
