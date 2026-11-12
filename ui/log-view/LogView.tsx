@@ -2101,16 +2101,17 @@ export function LogView({
                 minWidth: 0,
               }}
             >
-              {/* Plain text: the shown avatar is the direct path to agent
-                  settings (Nil, 2026-11-12). */}
               <span
                 {...noTranslate()}
+                onClick={onEditAgent}
                 style={{
                   fontWeight: 600,
                   color: "var(--text-primary)",
+                  cursor: "pointer",
                   whiteSpace: "nowrap",
                   lineHeight: 1.2,
                 }}
+                title={i18n.t("logView.editAgent")}
               >
                 {agent.name}
               </span>
@@ -2431,10 +2432,12 @@ export function LogView({
                   <StatusLight state={agent.state} size={8} />
                   <span
                     {...noTranslate()}
+                    onClick={onEditAgent}
                     style={{
                       fontWeight: 600,
                       color: "var(--text-primary)",
                       fontSize: 15,
+                      cursor: "pointer",
                       flex: 1,
                       overflow: "hidden",
                       textOverflow: "ellipsis",

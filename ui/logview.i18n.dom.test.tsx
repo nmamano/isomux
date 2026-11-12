@@ -187,7 +187,7 @@ const ANCHOR = {
   emptyResume: translationsFor("logView.emptyResume"),
   // The composer's placeholder on a desktop viewport with an idle agent.
   composer: translationsFor("logView.composer.type"),
-  // The floating avatar, shown by default, which opens the agent settings.
+  // The header's agent button.
   editAgent: translationsFor("logView.editAgent"),
   // An agent parked on a permission prompt, which is the header label that
   // ui/pending-prompt.ts now supplies as a key.
