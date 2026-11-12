@@ -7,8 +7,8 @@
 // when that happens, and it names the two setters so that the failure explains
 // itself.
 //
-// It also scans the control-plane tree for live-key literals, which is the same
-// check the frozen diff gets before review.
+// The scan for live-key literals covers the whole repository, in
+// server/test-support/source-hygiene.test.ts.
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -151,27 +151,6 @@ describe("the subscription insert", () => {
       "web/e2e/production-server.e2e.ts",
       "web/e2e/signup-flow.e2e.ts",
     ]);
-  });
-});
-
-describe("live-mode credentials", () => {
-  test("no literal live key or webhook signing secret appears anywhere in control-plane/", async () => {
-    // The guards themselves must name the sk_live_ prefix, so the scan looks for a
-    // credential-shaped BODY after it rather than for the prefix alone.
-    const liveKey = /\b(?:sk|rk)_live_[A-Za-z0-9]{20,}/;
-    const signingSecret = /\bwhsec_[A-Za-z0-9]{20,}/;
-    for (const file of sourceFiles(CONTROL_PLANE)) {
-      const bytes = fs.readFileSync(file, "utf8");
-      expect({
-        file: path.relative(CONTROL_PLANE, file),
-        liveKey: liveKey.test(bytes),
-        signingSecret: signingSecret.test(bytes),
-      }).toEqual({
-        file: path.relative(CONTROL_PLANE, file),
-        liveKey: false,
-        signingSecret: false,
-      });
-    }
   });
 });
 

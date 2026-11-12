@@ -100,7 +100,7 @@ export const WHOLE_TREE_TESTS: Record<string, string[]> = {
     "ui/components/*.tsx",
   ],
   "ui/first-bundle.test.ts": ["ui/**/*.{ts,tsx}", "shared/**/*.ts"],
-  "server/test-support/source-hygiene.test.ts": ["**/*.{ts,tsx,mts,cts}"],
+  "server/test-support/source-hygiene.test.ts": ["**"],
   "site-host/server.test.ts": ["site/**", "docs/**/*.md"],
   "ui/audit-operations.test.ts": ["server/**/*.ts"],
 };

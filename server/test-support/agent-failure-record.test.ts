@@ -264,7 +264,9 @@ describe("the agent failure record", () => {
 // engine's shape: Claude and Codex send a Bash command, OpenCode sends the
 // permission's patterns.
 describe("the permission interaction's facts", () => {
-  const SECRET = "sk_live_abcdefghijklmnopqrstuvwxyz0123456789";
+  // Split so the source never holds a live Stripe key shape (GitHub push
+  // protection blocks one; source-hygiene.test.ts checks it).
+  const SECRET = "sk_live_" + "abcdefghijklmnopqrstuvwxyz0123456789";
   async function parkWith(
     srv: TestServer,
     rawSessionId: string,

@@ -2042,8 +2042,8 @@ independently be pointed at the wrong account:
    invoice. A live-mode object is a hard stop, never "unavailable" and never
    retried.
 
-`fixtures.test.ts` and `ownership.test.ts` scan the tree for credential-shaped
-literals and for personal data in fixtures, and the guards themselves have to
+`fixtures.test.ts` and `server/test-support/source-hygiene.test.ts` scan for
+credential-shaped literals and for personal data in fixtures, and the guards themselves have to
 name the `sk_live_` prefix - so those scans look for a credential-shaped BODY
 after a prefix rather than for the prefix alone.
 

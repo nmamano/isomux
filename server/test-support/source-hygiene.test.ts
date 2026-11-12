@@ -1,4 +1,7 @@
-// Source hygiene: no raw NUL (0x00) bytes in tracked TypeScript source.
+// Source hygiene: properties of every tracked file that no build or type
+// check sees.
+//
+// 1. No raw NUL (0x00) bytes in tracked TypeScript source.
 //
 // A literal NUL byte inside a string/template literal compiles fine (Bun and
 // tsc accept it) and runs correctly, but it flips the WHOLE file to "binary"
@@ -10,6 +13,11 @@
 // Regression guard for the collision-proof composite keys in server/isomux-office.ts
 // and server/transport/idempotency.ts: the NUL delimiter MUST be written as a
 // JS escape (the six characters backslash u 0 0 0 0), never as a raw 0x00 byte.
+//
+// 2. No literal Stripe live key or webhook signing secret in any tracked text
+// file. GitHub push protection refuses a push that carries one, fake or real
+// (task 985873a9), so a test fixture builds the string at run time
+// ("sk_live_" + "..."), which leaves the value the same and the source clean.
 //
 // Pure T0: reads tracked files, no server, no FS writes, no LLM.
 
@@ -48,5 +56,34 @@ describe("source hygiene: no raw NUL bytes in tracked TS source", () => {
       );
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("source hygiene: no literal Stripe live credential in a tracked file", () => {
+  it("git grep finds no live key or signing secret shape", () => {
+    // The guard must name the prefixes, so it looks for a credential-shaped
+    // BODY after them (GitHub's Stripe pattern has no checksum, so a fake
+    // body is refused as a real one is). -I skips binary files.
+    const pattern =
+      "\\b(sk|rk)_live_[A-Za-z0-9]{20,}|\\bwhsec_[A-Za-z0-9]{20,}";
+    const run = Bun.spawnSync(
+      ["git", "grep", "-z", "-n", "-I", "-E", "-e", pattern],
+      { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+    );
+    // Exit 1 is no match. Any exit but 0 or 1 is a failed scan: fail closed.
+    if (run.exitCode !== 0 && run.exitCode !== 1) {
+      throw new Error(
+        `git grep failed (exit ${run.exitCode}): ${run.stderr.toString()}`,
+      );
+    }
+    // With -z each hit is path NUL line NUL text. Report path:line only: a
+    // real key must not reach the test log.
+    const offenders = run.stdout
+      .toString("utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((hit) => hit.split(NUL).slice(0, 2).join(":"));
+    expect(offenders).toEqual([]);
+    expect(run.exitCode).toBe(1);
   });
 });
