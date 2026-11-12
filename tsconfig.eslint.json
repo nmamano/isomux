@@ -1,0 +1,23 @@
+// The program ESLint's typed rules read (eslint.config.js): tsconfig.json
+// without the files ESLint lints untyped. Every file ESLint lints with types
+// must be in it; scripts/eslint-config.test.ts checks that both ways.
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "control-plane/web",
+    "scripts",
+    "deploy",
+    "server/test-support",
+    "ui/test-support",
+    // Tests are linted untyped, except control-plane's (eslint.config.js).
+    "api/**/*.test.ts",
+    "browser-extension/**/*.test.ts",
+    "browser-extension/**/*.test.tsx",
+    "server/**/*.test.ts",
+    "server/**/*.test.tsx",
+    "shared/**/*.test.ts",
+    "site-host/**/*.test.ts",
+    "ui/**/*.test.ts",
+    "ui/**/*.test.tsx"
+  ]
+}

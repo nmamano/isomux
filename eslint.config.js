@@ -31,7 +31,12 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Typed rules read one program, built from tsconfig.eslint.json: the
+        // files linted with types and what they import. A file linted with
+        // types that no file of that program reaches fails with a parse error.
+        // The project service would type each file against tsconfig.json,
+        // tests included: 3.81 GiB of heap against 1.95 GiB (task 6a872fe1).
+        project: "./tsconfig.eslint.json",
         tsconfigRootDir: import.meta.dirname,
       },
       globals: {
@@ -64,8 +69,9 @@ export default tseslint.config(
   {
     // Type-aware lint is off on test code. Typing the tests cost about 1 GB of
     // ESLint's 3 GB heap (task abf51744, 2026-11-02), and any one type-aware
-    // rule left on them brings most of it back. tsc still checks the tests,
-    // and a wrong shape there fails the test itself.
+    // rule left on them brings most of it back. They are out of
+    // tsconfig.eslint.json too. tsc still checks the tests, and a wrong shape
+    // there fails the test itself.
     files: [
       "**/*.test.{ts,tsx}",
       "server/test-support/**",
@@ -81,9 +87,12 @@ export default tseslint.config(
     // recommended preset so a future trim of that preset cannot remove them.
     // The same block exists in control-plane/web/eslint.config.mjs, because
     // this config ignores that directory. It turns type information back on
-    // for control-plane tests too, which the test block above turned off.
+    // for control-plane tests too, which the test block above turned off, so
+    // tsconfig.eslint.json keeps them.
     files: ["control-plane/**/*.{ts,tsx}"],
-    languageOptions: { parserOptions: { projectService: true } },
+    languageOptions: {
+      parserOptions: { project: "./tsconfig.eslint.json" },
+    },
     rules: {
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
