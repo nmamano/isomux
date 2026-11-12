@@ -4,9 +4,13 @@
 //   ISOMUX_HOME=/tmp/isomux-opencode-s5-live \
 //   ISOMUX_TEST_LIVE=1 \
 //   ISOMUX_OPENCODE_CERT_MODELS=provider/model[,provider/model...] \
+//   OPENCODE_API_KEY=... \
 //   systemd-run --user --scope -p MemoryMax=2G \
 //     --unit=isomux-opencode-s5-live bun test \
 //     server/backends/opencode/live-certification.test.ts
+//
+// OPENCODE_API_KEY is needed for a paid OpenCode Zen model such as
+// opencode/glm-5.3-flash: OpenCode lists those models only with the key.
 //
 // At most three explicit models are accepted. The harness records billed
 // input-plus-output tokens and fails after a response exceeds 200,000; this is
@@ -59,6 +63,17 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
     });
     const backend = createOpenCodeBackend({ supervisor });
     const discovered = await backend.listModels({ cwd: repo });
+    // Before any prompt, so a wrong environment fails fast and spends nothing.
+    const connected = new Set(discovered.map((model) => model.id));
+    const missing = requestedModels.filter((model) => !connected.has(model));
+    if (missing.length > 0) {
+      throw new Error(
+        `OpenCode does not list ${missing.join(", ")}.` +
+          (process.env.OPENCODE_API_KEY
+            ? ""
+            : " OPENCODE_API_KEY is not set: OpenCode lists its paid Zen models only with it."),
+      );
+    }
     // Free models only from the default model's provider, as the product
     // picks them: OpenCode Go refuses its cost-0 models without a
     // subscription.
@@ -121,10 +136,6 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
         .map((event) => event.text)
         .join(""),
     ).toContain("OC1_VARIANT_OK");
-    const connected = new Set(discovered.map((model) => model.id));
-    for (const model of requestedModels) {
-      expect(connected.has(model)).toBe(true);
-    }
     for (const model of requestedModels) {
       const session = backend.createSession({
         agentId: `live-${model.replaceAll(/[^a-zA-Z0-9]/g, "-")}`,
