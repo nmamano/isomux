@@ -582,6 +582,7 @@ function SectionHeader({
   right,
   attr,
   strong = true,
+  list = false,
   onContextMenu,
 }: {
   label: ReactNode;
@@ -590,6 +591,9 @@ function SectionHeader({
   right?: ReactNode;
   attr: Record<string, string>;
   strong?: boolean;
+  // A list label (Pinned, Recent; task 7f93306a): small, muted capitals, so
+  // it does not read as a room.
+  list?: boolean;
   onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   return (
@@ -608,6 +612,13 @@ function SectionHeader({
         fontSize: 12,
         fontWeight: strong ? 700 : 400,
         color: "var(--text-secondary)",
+        ...(list && {
+          fontSize: 10.5,
+          fontWeight: 600,
+          color: "var(--text-dim)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+        }),
       }}
     >
       <Chevron open={open} />
@@ -1185,6 +1196,7 @@ export function ChatSidebar({
         <SectionHeader
           label={label}
           open={sections[name]}
+          list
           onToggle={() => flip(name)}
           attr={{ "data-sidebar-section": name }}
         />
