@@ -1313,15 +1313,6 @@ export function ChatSidebar({
         )}
         <div>
           <SectionHeader
-            label={t("common.lobby")}
-            open={sections.lobby}
-            onToggle={() => flip("lobby")}
-            attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
-          />
-          {sections.lobby && receptionist && agentRow(receptionist, "room")}
-        </div>
-        <div>
-          <SectionHeader
             label={t("sidebar.members")}
             open={membersOpen}
             list
@@ -1355,6 +1346,15 @@ export function ChatSidebar({
           )}
         </div>
         {shown.map(roomSection)}
+        <div>
+          <SectionHeader
+            label={t("common.lobby")}
+            open={sections.lobby}
+            onToggle={() => flip("lobby")}
+            attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
+          />
+          {sections.lobby && receptionist && agentRow(receptionist, "room")}
+        </div>
         {more.length > 0 && (
           <>
             <div

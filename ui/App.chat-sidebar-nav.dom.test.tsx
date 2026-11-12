@@ -36,8 +36,8 @@ const tasksShown = (view: View) =>
 
 it("orders the page rows Apps, Inbox, Tasks, Automations, Skills, Integrations, Settings, Office, above the Lobby's rows", async () => {
   const view = await boot();
-  // The Lobby section is open, so its Members chat row is drawn (the end
-  // marker of the order).
+  // The Lobby section is open; the Members chat row (in Members) is the end
+  // marker of the order.
   expect(
     view.container
       .querySelector('nav[data-chat-sidebar] button[data-sidebar-room="lobby"]')
