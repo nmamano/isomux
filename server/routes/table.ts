@@ -1850,7 +1850,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/me/view/pinned",
     auth: cap("view:manage", authenticated),
-    // The sidebar's pinned agents are a private record field, like tucked.
+    // The sidebar's pinned agents and members are a private record field,
+    // like tucked.
     emits: ["user_admin_updated", "user_self_updated"],
   }),
   defineRoute<PushRoomsReq, NoContent>({

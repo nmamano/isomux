@@ -361,21 +361,29 @@ ${emitThemesCss()}
   }
   .nav-action-fade-in { animation: navActionFadeIn 0.2s ease-out; }
   @keyframes navActionFadeIn { from { opacity: 0; } to { opacity: 1; } }
-  /* A member row's gear (owners), as an agent row's pin: over the row's
-     right end on hover and on focus. */
+  /* A member row's pin and gear (owners), as an agent row's pin: over the
+     row's right end on hover and on focus. */
   .chat-sidebar-member { position: relative; border-radius: 7px; }
-  .chat-sidebar-member-gear {
+  .chat-sidebar-member-actions {
     position: absolute;
     top: 50%;
     right: 6px;
     transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
     opacity: 0;
     pointer-events: none;
   }
-  .chat-sidebar-member:hover .chat-sidebar-member-gear,
-  .chat-sidebar-member-gear:focus-visible {
+  .chat-sidebar-member:hover .chat-sidebar-member-actions,
+  .chat-sidebar-member-actions:has(:focus-visible) {
     opacity: 1;
     pointer-events: auto;
+  }
+  .chat-sidebar-member-actions .chat-sidebar-pin {
+    position: static;
+    transform: none;
+    opacity: 1;
+    pointer-events: inherit;
   }
   .chat-sidebar-row[aria-current="page"] {
     background: color-mix(in srgb, var(--accent) 16%, transparent);

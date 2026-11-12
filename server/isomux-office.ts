@@ -2604,12 +2604,18 @@ function liveAgentIds(): Set<string> {
   return new Set(agentManager.getAllAgents().map((a) => a.id));
 }
 
-// view.setPinned (task 5dac6b9b). The list is private, like tucked: only the
-// record goes out, on the private channels, and only on a change.
+// view.setPinned (task 5dac6b9b): pinned agents and members (task b2889127).
+// The list is private, like tucked: only the record goes out, on the private
+// channels, and only on a change.
 function applyPinnedAgents(userId: string, pinned: string[]): boolean {
   const user = getUserById(userId);
   if (!user) return false;
-  const next = pinnedAgentsToStore(pinned, liveAgentIds());
+  const next = pinnedAgentsToStore(
+    pinned,
+    liveAgentIds(),
+    new Set(listUsers().map((u) => u.id)),
+    userId,
+  );
   if (sameIds(next, user.pinnedAgents ?? [])) return true;
   const r = updateUserById(userId, { pinnedAgents: next });
   if (!r.ok) {

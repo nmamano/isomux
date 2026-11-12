@@ -1,6 +1,7 @@
 // The desktop sidebar's Pinned and Recent agent lists (task 5dac6b9b): two
 // private fields of the member's record. Pinned is written through
-// PUT /api/me/view/pinned; Recent moves when the member's own session sends a
+// PUT /api/me/view/pinned and also holds pinned members (task b2889127);
+// Recent moves when the member's own session sends a
 // message to an agent. Both ride only the private record channels and survive
 // a reboot. Driven through the real HTTP server, auth and users store.
 
@@ -11,7 +12,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { getUserByName, getUserById } from "../users.ts";
+import { deleteUserById, getUserByName, getUserById } from "../users.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { PINNED_AGENTS_MAX } from "../sidebar-agents.ts";
@@ -183,6 +184,48 @@ describe("view.setPinned (task 5dac6b9b)", () => {
       (await putPinned(w.srv, w.member.rawSessionId, { pinned: [] })).status,
     ).toBe(204);
     expect(pinnedOf(w.member.id)).toEqual([]);
+  });
+
+  // Task b2889127 (Nil, 2026-11-12: "pinning makes sense"): a member pins
+  // another member as the key "member:<userId>" in the same list, mixed with
+  // agent ids in one order.
+  it("keeps member:<userId> for another member that exists, in the list's order; drops self, unknown and removed members", async () => {
+    const w = await setup(["A", "B"]);
+    const [a, b] = w.agents.map((x) => x.id);
+    const ola = getUserByName((await w.srv.seedMember("Ola")).username)!.id;
+    const gone = getUserByName((await w.srv.seedMember("Gus")).username)!.id;
+    expect(deleteUserById(gone)).toBe(true);
+
+    const res = await putPinned(w.srv, w.member.rawSessionId, {
+      pinned: [
+        `member:${ola}`,
+        a,
+        `member:${w.member.id}`,
+        `member:${w.owner.id}`,
+        "member:no-such-user",
+        `member:${gone}`,
+        "member:",
+        `member:${ola}`,
+        b,
+      ],
+    });
+    expect(res.status).toBe(204);
+    expect(pinnedOf(w.member.id)).toEqual([
+      `member:${ola}`,
+      a,
+      `member:${w.owner.id}`,
+      b,
+    ]);
+    // A bare user id is not a member pin, and member:<agentId> is not an
+    // agent pin.
+    expect(
+      (
+        await putPinned(w.srv, w.member.rawSessionId, {
+          pinned: [ola, `member:${a}`, b],
+        })
+      ).status,
+    ).toBe(204);
+    expect(pinnedOf(w.member.id)).toEqual([b]);
   });
 
   it("refuses a malformed or oversized list with 422 and keeps the stored list", async () => {

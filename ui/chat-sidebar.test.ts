@@ -13,7 +13,7 @@ import {
   clampSidebarWidth,
   moveRoom,
   newAgentSeat,
-  pinnedAgentsList,
+  pinnedRows,
   recentAgentsList,
   roomSummary,
   roomAgents,
@@ -281,14 +281,28 @@ describe("agentAttention and roomSummary", () => {
   });
 });
 
-describe("pinnedAgentsList and recentAgentsList", () => {
+describe("pinnedRows and recentAgentsList", () => {
   const all = ["a", "b", "c", "d", "e", "f", "g", "h"].map((id, i) =>
     agent(id, "r1", i),
   );
 
-  it("Pinned lists the pinned agents the client has, in the member's order", () => {
-    expect(ids(pinnedAgentsList(["c", "gone", "a"], all))).toEqual(["c", "a"]);
-    expect(ids(pinnedAgentsList([], all))).toEqual([]);
+  it("Pinned lists the pinned agents and live members the client has, mixed in the member's order", () => {
+    const members = [
+      { id: "m1", removed: false },
+      { id: "m2", removed: true },
+    ];
+    const rows = pinnedRows(
+      ["c", "gone", "member:m1", "a", "member:m2", "member:mx"],
+      all,
+      members,
+    );
+    expect(
+      rows.map((r) =>
+        r.kind === "agent" ? `agent ${r.agent.id}` : `member ${r.member.id}`,
+      ),
+    ).toEqual(["agent c", "member m1", "agent a"]);
+    expect(rows.map((r) => r.key)).toEqual(["c", "member:m1", "a"]);
+    expect(pinnedRows([], all, members).length).toBe(0);
   });
 
   it("Recent lists the newest five that are not pinned and that the client has, filling from older ones", () => {

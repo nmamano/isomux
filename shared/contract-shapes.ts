@@ -796,8 +796,9 @@ export interface TuckedRoomsReq {
   tucked: string[];
 }
 
-// view.setPinned: the FULL list of agents the caller pins in the desktop
-// sidebar, in order (task 5dac6b9b).
+// view.setPinned: the FULL list the caller pins in the desktop sidebar, in
+// order (task 5dac6b9b): agent ids and member:<userId> keys (task b2889127,
+// shared/sidebar-pins.ts).
 export interface PinnedReq {
   pinned: string[];
 }

@@ -66,6 +66,12 @@
 //                                            style
 //   [data-sidebar-resizer]                   the slot's right edge
 //   nav[data-sidebar-closing]                the sidebar while it slides out
+// Added by task b2889127 (agreed with the worker, 2026-11-12):
+//   button[data-sidebar-pin="member:<userId>"] a live member row's pin
+//                                            button, aria-pressed when pinned
+//   button[data-sidebar-member="<userId>"]   also in Pinned's
+//                                            [data-sidebar-section-agents],
+//                                            mixed with the agent rows
 
 import { afterAll, afterEach, beforeEach, expect } from "bun:test";
 import { act, fireEvent, render } from "@testing-library/react";

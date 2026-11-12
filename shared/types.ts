@@ -2547,8 +2547,10 @@ export interface UserRecord {
   // "<agentId>:<since>" keys (ui/inbox-agent-items.ts failureKey). Absent
   // reads as none. Written whole through prefs.update.
   inboxDismissed?: string[];
-  // The desktop sidebar's Pinned agents (task 5dac6b9b), in the member's
-  // order, written whole through view.setPinned. Absent reads as none.
+  // The desktop sidebar's Pinned list (task 5dac6b9b), in the member's order,
+  // written whole through view.setPinned: pinned agent ids and
+  // member:<userId> keys (task b2889127, shared/sidebar-pins.ts). Absent
+  // reads as none.
   pinnedAgents?: string[];
   // The agents the member last sent a message to from a signed-in session,
   // newest first (task 5dac6b9b): the sidebar's Recent list. The server

@@ -1,6 +1,7 @@
-// The desktop sidebar's Pinned and Recent agents (task 5dac6b9b), from the
-// member's own record, so they follow the member across devices. A pin or
-// unpin shows at once as a pending list over the record, and builds on the
+// The desktop sidebar's Pinned and Recent lists (task 5dac6b9b), from the
+// member's own record, so they follow the member across devices. Pinned holds
+// agent ids and member:<userId> keys (task b2889127, shared/sidebar-pins.ts).
+// A pin or unpin shows at once as a pending list over the record, and builds on the
 // list on screen, so two quick writes do not undo each other; a failed write
 // drops it, and the list returns to what the server holds.
 
@@ -19,7 +20,8 @@ export interface SidebarPins {
   pinned: readonly string[];
   recent: readonly string[];
   setPinned: (next: string[]) => void;
-  togglePin: (agentId: string) => void;
+  // An agent id or a member's pin key (memberPinKey).
+  togglePin: (key: string) => void;
 }
 
 export function useSidebarPins(): SidebarPins {
@@ -37,11 +39,11 @@ export function useSidebarPins(): SidebarPins {
   );
   // A pin goes at the end; an unpin keeps the others in their order.
   const togglePin = useCallback(
-    (agentId: string) =>
+    (key: string) =>
       setPinned(
-        pinned.includes(agentId)
-          ? pinned.filter((id) => id !== agentId)
-          : [...pinned, agentId],
+        pinned.includes(key)
+          ? pinned.filter((k) => k !== key)
+          : [...pinned, key],
       ),
     [pinned, setPinned],
   );

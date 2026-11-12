@@ -50,9 +50,9 @@ export interface ViewDeps {
   // Every room the user can ACCESS (hidden ones included), in office order.
   // null only if the user record vanished (rendered as 404 here).
   listAccessibleRooms(userId: string): AccessibleRoomWire[] | null;
-  // view.setPinned (task 5dac6b9b): stores the sidebar's pinned agents
-  // (server/sidebar-agents.ts pinnedAgentsToStore) and fans out the private
-  // record. false only if the user record vanished.
+  // view.setPinned (task 5dac6b9b): stores the sidebar's pinned agent ids and
+  // member:<userId> keys (server/sidebar-agents.ts pinnedAgentsToStore) and
+  // fans out the private record. false only if the user record vanished.
   applyPinned(userId: string, pinned: string[]): boolean;
 }
 
@@ -88,8 +88,9 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
     "view.setTucked": setIdList("tucked", "invalid_tucked"),
     "view.setPushRooms": setIdList("pushRooms", "invalid_push_rooms"),
 
-    // The sidebar's pinned agents (task 5dac6b9b). Unknown ids drop silently,
-    // as unknown rooms do above; only the shape and the bound are refused.
+    // The sidebar's pinned agents and members (tasks 5dac6b9b, b2889127).
+    // Unknown entries drop silently, as unknown rooms do above; only the
+    // shape and the bound are refused.
     "view.setPinned": (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user", "view is per-user");
@@ -98,14 +99,14 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
         return fail(
           422,
           "invalid_pinned",
-          "pinned must be an array of agent ids",
+          "pinned must be an array of agent ids and member:<userId> keys",
         );
       }
       if (body.pinned.length > PINNED_AGENTS_MAX) {
         return fail(
           422,
           "too_many_pinned",
-          `pinned holds at most ${PINNED_AGENTS_MAX} agent ids`,
+          `pinned holds at most ${PINNED_AGENTS_MAX} entries`,
         );
       }
       if (!deps.applyPinned(userId, body.pinned)) {

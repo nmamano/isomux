@@ -4,6 +4,7 @@
 
 import type { AgentInfo, RoomWire } from "../shared/types.ts";
 import { DESK_COUNT, isBackSeat } from "../shared/desks.ts";
+import { pinnedMemberId } from "../shared/sidebar-pins.ts";
 
 export type ChatSidebarChoice = "open" | "closed";
 
@@ -191,14 +192,32 @@ export function roomSummary(
   return { working, attention };
 }
 
-/** The Pinned section: the pinned agents the client has, in the member's
- *  order. */
-export function pinnedAgentsList(
-  pinnedIds: readonly string[],
+/** A row of the Pinned section: an agent or a member, with its pin key. */
+export type PinnedRow<M> =
+  | { kind: "agent"; key: string; agent: AgentInfo }
+  | { kind: "member"; key: string; member: M };
+
+/**
+ * The Pinned section: the pinned agents and members (task b2889127) the
+ * client has, in the member's order. A removed member is skipped: the server
+ * drops its key on the next write.
+ */
+export function pinnedRows<M extends { id: string; removed: boolean }>(
+  pinnedKeys: readonly string[],
   agents: readonly AgentInfo[],
-): AgentInfo[] {
-  const byId = new Map(agents.map((a) => [a.id, a]));
-  return pinnedIds.flatMap((id) => byId.get(id) ?? []);
+  members: readonly M[],
+): PinnedRow<M>[] {
+  const agentById = new Map(agents.map((a) => [a.id, a]));
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  return pinnedKeys.flatMap((key): PinnedRow<M>[] => {
+    const userId = pinnedMemberId(key);
+    if (userId === null) {
+      const agent = agentById.get(key);
+      return agent ? [{ kind: "agent", key, agent }] : [];
+    }
+    const member = memberById.get(userId);
+    return member && !member.removed ? [{ kind: "member", key, member }] : [];
+  });
 }
 
 /** How many agents the Recent section lists. */
@@ -243,6 +262,6 @@ export function moveRoom(
   return [...rest.slice(0, at), id, ...rest.slice(at)];
 }
 
-/** The pinned order after the member drops agent `id` before (or after)
- *  agent `targetId`; same rules as moveRoom. */
+/** The pinned order after the member drops pin key `id` before (or after)
+ *  pin key `targetId`; same rules as moveRoom. */
 export const movePinned = moveRoom;

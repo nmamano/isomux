@@ -159,10 +159,11 @@ function inboxDismissedOf(value: unknown): Pick<UserRecord, "inboxDismissed"> {
   return keys.length > 0 ? { inboxDismissed: keys } : {};
 }
 
-// The sidebar's pinned and recent agents (task 5dac6b9b): absent and [] both
-// mean none, so [] is not stored. A hand-edited list keeps its string ids,
-// first place wins. The rules (dead ids, the bounds) live in
-// server/sidebar-agents.ts; this only keeps the shape.
+// The sidebar's pinned list (agent ids and member:<userId> keys) and recent
+// agents (task 5dac6b9b): absent and [] both mean none, so [] is not stored.
+// A hand-edited list keeps its string entries, first place wins. The rules
+// (dead entries, the bounds) live in server/sidebar-agents.ts; this only
+// keeps the shape.
 function agentIdListOf<K extends "pinnedAgents" | "recentAgents">(
   key: K,
   value: unknown,

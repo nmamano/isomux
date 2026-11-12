@@ -1,8 +1,9 @@
 // The other members as the human chats list them (the sidebar's Members
 // section and the phone's chat switcher): every live member but yourself, and
-// a removed member only while a chat with them exists. Order: unread first,
-// then the newest chat, then the name. Never by online, so a row does not move
-// under the pointer when someone signs in.
+// a removed member only while a chat with them exists. Order: the newest chat
+// first, like a chat app (task b2889127), then the members with no chat by
+// name. A message sent or received moves its chat to the top; a read or a
+// sign-in never moves a row.
 import { useMemo } from "react";
 import { useAppState } from "../store.tsx";
 import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
@@ -88,7 +89,6 @@ export function useMemberChatRows(): MemberChatRow[] {
     }
     return [...rows.values()].sort(
       (a, b) =>
-        Number(b.unread > 0) - Number(a.unread > 0) ||
         (b.lastAt ?? -Infinity) - (a.lastAt ?? -Infinity) ||
         a.name.localeCompare(b.name),
     );

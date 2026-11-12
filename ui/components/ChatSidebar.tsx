@@ -46,7 +46,7 @@ import {
   moveRoom,
   movePinned,
   newAgentSeat,
-  pinnedAgentsList,
+  pinnedRows,
   recentAgentsList,
   roomAgents,
   roomSummary,
@@ -54,6 +54,7 @@ import {
   sidebarSectionsForAnchor,
   type ChatSidebarSections,
 } from "../chat-sidebar.ts";
+import { memberPinKey } from "../../shared/sidebar-pins.ts";
 import {
   getChatSidebarSections,
   setChatSidebarSections,
@@ -105,7 +106,8 @@ export interface ChatSidebarProps {
   onOpenSettings: () => void;
   // A room menu's Room settings.
   onRoomSettings: (roomId: string) => void;
-  // The member's Pinned and Recent agents (ui/sidebar-pins.ts).
+  // The member's Pinned (agents and members) and Recent agents
+  // (ui/sidebar-pins.ts).
   pins: SidebarPins;
   // The sidebar slides out (App's slot): inert until it leaves.
   closing?: boolean;
@@ -475,25 +477,39 @@ function Summary({
   );
 }
 
-// A member row of the Members section: ghost with online dot, name, unread
-// badge. An owner gets a gear to that member's settings, over the row's right
-// end on hover, as an agent row's pin; a removed member's row is muted and
-// has none.
+// A member row of the Members section, and of Pinned (task b2889127): ghost
+// with online dot, name, unread badge. Over the row's right end on hover, as
+// an agent row's pin: a pin button, then an owner's gear to that member's
+// settings. A removed member's row is muted and has neither.
 function MemberRow({
   row,
   current,
+  pinned,
   onOpen,
   onSettings,
+  onTogglePin,
+  drag,
 }: {
   row: MemberChatRow;
   current: boolean;
+  pinned: boolean;
   onOpen: (userId: string) => void;
   onSettings: ((userId: string) => void) | null;
+  // Null on a removed member's row.
+  onTogglePin: ((key: string) => void) | null;
+  // A row of the Pinned list: drag to reorder.
+  drag?: DragBindings;
 }) {
   const { t } = useI18n();
   const settingsLabel = t("humanChat.memberSettings", { name: row.name });
+  const pinLabel = t(pinned ? "sidebar.unpin" : "sidebar.pin");
+  const pinKey = memberPinKey(row.id);
   return (
-    <div className="chat-sidebar-member">
+    <div
+      className="chat-sidebar-member"
+      {...drag?.attrs}
+      data-drop={drag?.drop}
+    >
       <button
         type="button"
         tabIndex={-1}
@@ -559,17 +575,35 @@ function MemberRow({
         </span>
         <Badge n={row.unread} tone="red" />
       </button>
-      {onSettings && (
-        <button
-          type="button"
-          className="chat-sidebar-row-action chat-sidebar-member-gear"
-          data-sidebar-member-settings={row.id}
-          title={settingsLabel}
-          aria-label={settingsLabel}
-          onClick={() => onSettings(row.id)}
-        >
-          {GearIcon}
-        </button>
+      {(onTogglePin || onSettings) && (
+        <span className="chat-sidebar-member-actions">
+          {onTogglePin && (
+            <button
+              type="button"
+              tabIndex={-1}
+              className="chat-sidebar-row-action chat-sidebar-pin"
+              data-sidebar-pin={pinKey}
+              aria-pressed={pinned}
+              title={pinLabel}
+              aria-label={pinLabel}
+              onClick={() => onTogglePin(pinKey)}
+            >
+              <PinIcon filled={pinned} />
+            </button>
+          )}
+          {onSettings && (
+            <button
+              type="button"
+              className="chat-sidebar-row-action chat-sidebar-member-gear"
+              data-sidebar-member-settings={row.id}
+              title={settingsLabel}
+              aria-label={settingsLabel}
+              onClick={() => onSettings(row.id)}
+            >
+              {GearIcon}
+            </button>
+          )}
+        </span>
       )}
     </div>
   );
@@ -591,8 +625,8 @@ function SectionHeader({
   right?: ReactNode;
   attr: Record<string, string>;
   strong?: boolean;
-  // A list label (Pinned, Recent; task 7f93306a): small, muted capitals, so
-  // it does not read as a room.
+  // A list label (Pinned, Recent, Members; tasks 7f93306a, b2889127): small,
+  // muted capitals, so it does not read as a room.
   list?: boolean;
   onContextMenu?: (e: React.MouseEvent) => void;
 }) {
@@ -855,7 +889,7 @@ export function ChatSidebar({
   ).length;
   const receptionist = agents.find((a) => a.roomId === LOBBY_ROOM_ID);
   const pinnedSet = useMemo(() => new Set(pins.pinned), [pins.pinned]);
-  const pinnedAgents = pinnedAgentsList(pins.pinned, agents);
+  const pinned = pinnedRows(pins.pinned, agents, memberRows);
   const recentAgents = recentAgentsList(pins.recent, pins.pinned, agents);
 
   // Which sections are open, kept on this device. The open agent's room (and
@@ -953,7 +987,7 @@ export function ChatSidebar({
     ? (list.rooms.find((r) => r.id === roomMenu.roomId) ?? null)
     : null;
 
-  // A drag in progress: a room or a pinned agent, and where it would land.
+  // A drag in progress: a room or a pinned row, and where it would land.
   const [dragging, setDragging] = useState<{
     kind: "room" | "pin";
     id: string;
@@ -1184,12 +1218,28 @@ export function ChatSidebar({
     );
   };
 
-  // Pinned and Recent: lists of agents that also stay in their rooms.
-  const agentSection = (
+  // A member row, in Members or in Pinned (with drag).
+  const memberRow = (row: MemberChatRow, drag?: DragBindings) => (
+    <MemberRow
+      key={row.id}
+      row={row}
+      current={
+        humanChatShown?.kind === "dm" && humanChatShown.peerId === row.id
+      }
+      pinned={pinnedSet.has(memberPinKey(row.id))}
+      onOpen={(peerId) => onOpenHumanChat({ kind: "dm", peerId })}
+      onSettings={amOwner && !row.removed ? onOpenMemberSettings : null}
+      onTogglePin={row.removed ? null : pins.togglePin}
+      drag={drag}
+    />
+  );
+
+  // Pinned and Recent: lists of agents (and, in Pinned, members) that also
+  // stay in their rooms and in Members.
+  const listSection = (
     name: "pinned" | "recent",
     label: string,
-    rows: AgentInfo[],
-    pinDrag: boolean,
+    rows: ReactNode[],
   ) =>
     rows.length > 0 && (
       <div>
@@ -1205,21 +1255,14 @@ export function ChatSidebar({
             data-sidebar-section-agents={name}
             style={{ display: "flex", flexDirection: "column", gap: 1 }}
           >
-            {rows.map((a) =>
-              agentRow(
-                a,
-                pinDrag
-                  ? dragBindings("pin", a.id, (dragged, before) =>
-                      pins.setPinned(
-                        movePinned(pins.pinned, dragged, a.id, before),
-                      ),
-                    )
-                  : undefined,
-              ),
-            )}
+            {rows}
           </div>
         )}
       </div>
+    );
+  const pinDrag = (key: string) =>
+    dragBindings("pin", key, (dragged, before) =>
+      pins.setPinned(movePinned(pins.pinned, dragged, key, before)),
     );
 
   return (
@@ -1385,8 +1428,20 @@ export function ChatSidebar({
             flexShrink: 0,
           }}
         />
-        {agentSection("pinned", t("sidebar.pinned"), pinnedAgents, true)}
-        {agentSection("recent", t("sidebar.recent"), recentAgents, false)}
+        {listSection(
+          "pinned",
+          t("sidebar.pinned"),
+          pinned.map((row) =>
+            row.kind === "agent"
+              ? agentRow(row.agent, pinDrag(row.key))
+              : memberRow(row.member, pinDrag(row.key)),
+          ),
+        )}
+        {listSection(
+          "recent",
+          t("sidebar.recent"),
+          recentAgents.map((a) => agentRow(a)),
+        )}
         <div>
           <SectionHeader
             label={t("common.lobby")}
@@ -1400,6 +1455,7 @@ export function ChatSidebar({
           <SectionHeader
             label={t("sidebar.members")}
             open={membersOpen}
+            list
             onToggle={() =>
               setSections((s) => ({ ...s, members: s.members === false }))
             }
@@ -1425,20 +1481,7 @@ export function ChatSidebar({
                 badge={membersChat.unread}
                 onClick={() => onOpenHumanChat(MEMBERS_CHAT)}
               />
-              {memberRows.map((row) => (
-                <MemberRow
-                  key={row.id}
-                  row={row}
-                  current={
-                    humanChatShown?.kind === "dm" &&
-                    humanChatShown.peerId === row.id
-                  }
-                  onOpen={(peerId) => onOpenHumanChat({ kind: "dm", peerId })}
-                  onSettings={
-                    amOwner && !row.removed ? onOpenMemberSettings : null
-                  }
-                />
-              ))}
+              {memberRows.map((row) => memberRow(row))}
             </>
           )}
         </div>

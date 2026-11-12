@@ -1,7 +1,9 @@
 // The desktop sidebar's Members section (task 019e4d7c), through the real App,
-// store and socket shim: Members chat, then a row per other member, in a
-// stable order (unread first, then the newest chat, then the name; never by
-// online, so rows do not move under the pointer). A row opens its chat full
+// store and socket shim: Members chat, then a row per other member, newest
+// chat first, like a chat app (task b2889127; Nil, 2026-11-12: "Do members
+// reorder based on most recent chat, like a chat app? I think they should"),
+// then the members with no chat by name. A read or a sign-in never moves a
+// row. A row opens its chat full
 // screen in the main pane, in place of an agent chat; an owner's gear opens
 // Settings on that member. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
@@ -85,7 +87,7 @@ const pageRequests = (peerId: string) =>
     (r) => r.method === "GET" && r.path.startsWith(`/api/users/${peerId}/chat`),
   ).length;
 
-it("lists Members chat, then each other member: unread first, then the newest chat, then the name, never by online", async () => {
+it("lists Members chat, then each other member: newest chat first (sent or received), then the name; unread and online never move a row", async () => {
   seedOffice();
   const view = await boot();
   const section = view.container.querySelector("[data-sidebar-members]");
@@ -104,9 +106,9 @@ it("lists Members chat, then each other member: unread first, then the newest ch
   expect(order).toEqual([
     "header",
     "members-chat",
-    "u4",
     "u5",
     "u3",
+    "u4",
     "u9",
     "u2",
     "u6",
@@ -150,10 +152,42 @@ it("lists Members chat, then each other member: unread first, then the newest ch
       },
     } as never);
   });
-  expect(memberRowIds(view)).toEqual(["u2", "u4", "u5", "u3", "u9", "u6"]);
+  expect(memberRowIds(view)).toEqual(["u2", "u5", "u3", "u4", "u9", "u6"]);
   expect(
     memberRow(view, "u2")?.querySelector("[data-sidebar-badge]")?.textContent,
   ).toContain("1");
+
+  // Reading Cid's chat clears its unread and does not move its row.
+  await act(async () => {
+    shimEmit({
+      type: "dm_read",
+      peerId: "u4",
+      readPointer: null,
+      unread: 0,
+    } as never);
+  });
+  expect(
+    memberRow(view, "u4")?.querySelector("[data-sidebar-badge]") ?? null,
+  ).toBeNull();
+  expect(memberRowIds(view)).toEqual(["u2", "u5", "u3", "u4", "u9", "u6"]);
+
+  // A message the member sends moves that chat to the top too.
+  await act(async () => {
+    shimEmit({
+      type: "dm_message",
+      peerId: "u4",
+      message: {
+        id: "202611-000000a2",
+        kind: "user",
+        userId: "u1",
+        userName: "member",
+        timestamp: 400,
+        content: "hi Cid",
+        attachments: [],
+      },
+    } as never);
+  });
+  expect(memberRowIds(view)).toEqual(["u4", "u2", "u5", "u3", "u9", "u6"]);
 });
 
 it("an owner gets a gear on each live member's row, which opens Settings on that member", async () => {
