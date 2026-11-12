@@ -268,8 +268,8 @@ ${emitThemesCss()}
   }
   /* Tasks 5dac6b9b, c921308f. A row's actions (room header: sliders and
      "+"; agent and member row: sliders and pin): over the row's right end on
-     hover and on keyboard focus, with the hovered row's background, so they
-     take no room in the row and the folded summary keeps one right edge.
+     hover and on keyboard focus, so they take no room in the row and the
+     folded summary keeps one right edge.
      The open room in view always shows its buttons. */
   .chat-sidebar-row-actions {
     position: absolute;
@@ -312,9 +312,10 @@ ${emitThemesCss()}
   [data-drop="into"] { box-shadow: 0 0 0 2px var(--accent); }
   /* --settings-knob: the sliders icon's knobs (NavIcons SettingsIcon) take
      the button's own background, so they hide the line behind them and show
-     no disc. */
+     no disc. The solid surface keeps the button opaque: an unread badge
+     under it does not show through. */
   .chat-sidebar-row-action {
-    --settings-knob: color-mix(in srgb, var(--text-primary) 7%, var(--bg-surface));
+    --settings-knob: color-mix(in srgb, var(--text-primary) 7%, var(--bg-surface-solid));
     display: flex;
     align-items: center;
     padding: 5px;
@@ -325,8 +326,19 @@ ${emitThemesCss()}
     background: var(--settings-knob);
   }
   .chat-sidebar-row-action:hover {
-    --settings-knob: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface));
+    --settings-knob: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface-solid));
     color: var(--text-primary);
+  }
+  /* Task c1b3113e. A hovered agent or member row already has the 7%
+     background, so its buttons take one more step of it to stand out, as
+     the room header's do from the bare sidebar. */
+  .chat-sidebar-agent .chat-sidebar-row-action,
+  .chat-sidebar-member .chat-sidebar-row-action {
+    --settings-knob: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface-solid));
+  }
+  .chat-sidebar-agent .chat-sidebar-row-action:hover,
+  .chat-sidebar-member .chat-sidebar-row-action:hover {
+    --settings-knob: color-mix(in srgb, var(--text-primary) 21%, var(--bg-surface-solid));
   }
   .chat-sidebar-pin[aria-pressed="true"] { color: var(--accent); }
 
