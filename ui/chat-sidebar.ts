@@ -177,15 +177,19 @@ export function agentAttention(agent: AgentInfo, askCount: number): number {
 /**
  * The summary on a folded room or back room: how many of its agents work
  * (thinking or running a tool), and the sum of their row badges
- * (agentAttention).
+ * (agentAttention). It leaves out the agents in `shownElsewhere`, those an
+ * open Pinned or Recent section shows (task 3cf03055), so each one counts
+ * once.
  */
 export function roomSummary(
   agents: readonly AgentInfo[],
   askCountByAgent: ReadonlyMap<string, number>,
+  shownElsewhere: ReadonlySet<string> = new Set(),
 ): { working: number; attention: number } {
   let working = 0;
   let attention = 0;
   for (const a of agents) {
+    if (shownElsewhere.has(a.id)) continue;
     if (a.state === "thinking" || a.state === "tool_executing") working++;
     attention += agentAttention(a, askCountByAgent.get(a.id) ?? 0);
   }

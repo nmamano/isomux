@@ -279,6 +279,32 @@ describe("agentAttention and roomSummary", () => {
     );
     expect(roomSummary([], asks)).toEqual({ working: 0, attention: 0 });
   });
+
+  it("a folded room leaves out the agents shown elsewhere (an open Pinned or Recent): neither their work nor their badges count", () => {
+    const agents = [
+      agent("t", "r1", 0, "thinking"),
+      agent("x", "r1", 1, "tool_executing"),
+      agent("i", "r1", 2, "idle"),
+      withPrompt(agent("p", "r1", 3, "waiting_for_response"), "permission"),
+    ];
+    const asks = new Map([
+      ["t", 1],
+      ["i", 2],
+    ]);
+    // Shown elsewhere: t (works, asks) and p (a prompt). Left: x works, i asks.
+    expect(roomSummary(agents, asks, new Set(["t", "p"]))).toEqual({
+      working: 1,
+      attention: 2,
+    });
+    // All shown elsewhere: nothing left. None shown: all count.
+    expect(roomSummary(agents, asks, new Set(agents.map((a) => a.id)))).toEqual(
+      { working: 0, attention: 0 },
+    );
+    expect(roomSummary(agents, asks, new Set())).toEqual({
+      working: 2,
+      attention: 4,
+    });
+  });
 });
 
 describe("pinnedRows and recentAgentsList", () => {

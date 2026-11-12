@@ -300,6 +300,7 @@ function AgentRow({
   unread,
   changedAt,
   pinned,
+  pinnedInRoom,
   pinLabel,
   onOpen,
   onContextMenu,
@@ -314,6 +315,9 @@ function AgentRow({
   unread: boolean;
   changedAt: number | undefined;
   pinned: boolean;
+  // A pinned agent's row in its room (task 3cf03055): muted, with a pin
+  // marker, so the eye skips it.
+  pinnedInRoom: boolean;
   pinLabel: string;
   onOpen: (agentId: string) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
@@ -332,6 +336,7 @@ function AgentRow({
         className="chat-sidebar-row"
         data-sidebar-agent={agent.id}
         aria-current={current ? "page" : undefined}
+        data-sidebar-muted={pinnedInRoom ? "" : undefined}
         onClick={() => onOpen(agent.id)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -340,7 +345,14 @@ function AgentRow({
         style={{ ...rowBase, padding: "5px 10px" }}
       >
         <span style={{ position: "relative", flexShrink: 0, display: "flex" }}>
-          <Head outfit={agent.outfit} />
+          <span
+            style={{
+              display: "flex",
+              opacity: pinnedInRoom ? 0.55 : undefined,
+            }}
+          >
+            <Head outfit={agent.outfit} />
+          </span>
           <span style={{ position: "absolute", right: -2, bottom: -2 }}>
             <RowLight agent={agent} changedAt={changedAt} />
           </span>
@@ -353,11 +365,12 @@ function AgentRow({
             display: "flex",
             flexDirection: "column",
             lineHeight: 1.25,
+            color: pinnedInRoom ? "var(--text-dim)" : undefined,
           }}
         >
           <span
             style={{
-              fontWeight: current || unread ? 600 : 400,
+              fontWeight: current || (unread && !pinnedInRoom) ? 600 : 400,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -393,6 +406,14 @@ function AgentRow({
             }}
           />
         ) : null}
+        {pinnedInRoom && (
+          <span
+            data-sidebar-pinned-mark=""
+            style={{ color: "var(--text-dim)", flexShrink: 0 }}
+          >
+            <PinIcon filled />
+          </span>
+        )}
       </button>
       {/* Siblings of the row, not inside it: no button in a button. They
           show on hover over the row's right end. */}
@@ -805,6 +826,14 @@ export function ChatSidebar({
   const flip = (field: "more" | "lobby" | "pinned" | "recent") =>
     setSections((s) => ({ ...s, [field]: !s[field] }));
   const membersOpen = sections.members !== false;
+  // The agents an open Pinned or Recent section shows: a folded room leaves
+  // them out of its summary, so each unread shows once (task 3cf03055).
+  const shownElsewhere = new Set([
+    ...(sections.pinned
+      ? pinned.flatMap((row) => (row.kind === "agent" ? [row.agent.id] : []))
+      : []),
+    ...(sections.recent ? recentAgents.map((a) => a.id) : []),
+  ]);
 
   // The room order and the tucked list, written through the same calls as
   // the room tab bar (useRoomList), so the two always agree.
@@ -908,17 +937,31 @@ export function ChatSidebar({
     },
   };
 
-  const agentRow = (agent: AgentInfo, drag?: DragBindings) => {
+  // Pinned and Recent list their agents; every other row is a room row (a
+  // room, a back room, the Lobby). A pinned agent's room row is muted, and
+  // while Pinned is open its Pinned row carries its badge and unread dot.
+  const agentRow = (
+    agent: AgentInfo,
+    place: "room" | "list",
+    drag?: DragBindings,
+  ) => {
     const pinned = pinnedSet.has(agent.id);
+    const pinnedInRoom = place === "room" && pinned;
+    const marksElsewhere = pinnedInRoom && sections.pinned;
     return (
       <AgentRow
         key={agent.id}
         agent={agent}
         current={agent.id === openAgentId}
-        attention={agentAttention(agent, askCountByAgent.get(agent.id) ?? 0)}
-        unread={needsAttention.has(agent.id)}
+        attention={
+          marksElsewhere
+            ? 0
+            : agentAttention(agent, askCountByAgent.get(agent.id) ?? 0)
+        }
+        unread={!marksElsewhere && needsAttention.has(agent.id)}
         changedAt={stateChangedAt.get(agent.id)}
         pinned={pinned}
+        pinnedInRoom={pinnedInRoom}
         pinLabel={t(pinned ? "sidebar.unpin" : "sidebar.pin")}
         onOpen={onOpenAgent}
         onContextMenu={onAgentContextMenu}
@@ -936,8 +979,10 @@ export function ChatSidebar({
     const backOpen = sections.back.includes(room.id);
     const summary = open
       ? null
-      : roomSummary([...front, ...back], askCountByAgent);
-    const backSummary = backOpen ? null : roomSummary(back, askCountByAgent);
+      : roomSummary([...front, ...back], askCountByAgent, shownElsewhere);
+    const backSummary = backOpen
+      ? null
+      : roomSummary(back, askCountByAgent, shownElsewhere);
     // A full front room seats the new agent in the back room.
     const plusLabel =
       newAgentSeat(agents, room.id) === null
@@ -1000,7 +1045,7 @@ export function ChatSidebar({
         </div>
         {open && (
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {front.map((a) => agentRow(a))}
+            {front.map((a) => agentRow(a, "room"))}
             {hasBackRoom(room) && back.length > 0 && (
               <div style={{ paddingLeft: 14 }}>
                 <SectionHeader
@@ -1031,7 +1076,7 @@ export function ChatSidebar({
                       gap: 1,
                     }}
                   >
-                    {back.map((a) => agentRow(a))}
+                    {back.map((a) => agentRow(a, "room"))}
                   </div>
                 )}
               </div>
@@ -1257,14 +1302,14 @@ export function ChatSidebar({
           t("sidebar.pinned"),
           pinned.map((row) =>
             row.kind === "agent"
-              ? agentRow(row.agent, pinDrag(row.key))
+              ? agentRow(row.agent, "list", pinDrag(row.key))
               : memberRow(row.member, pinDrag(row.key)),
           ),
         )}
         {listSection(
           "recent",
           t("sidebar.recent"),
-          recentAgents.map((a) => agentRow(a)),
+          recentAgents.map((a) => agentRow(a, "list")),
         )}
         <div>
           <SectionHeader
@@ -1273,7 +1318,7 @@ export function ChatSidebar({
             onToggle={() => flip("lobby")}
             attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
           />
-          {sections.lobby && receptionist && agentRow(receptionist)}
+          {sections.lobby && receptionist && agentRow(receptionist, "room")}
         </div>
         <div>
           <SectionHeader
