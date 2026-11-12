@@ -270,7 +270,8 @@ ${emitThemesCss()}
      "+"; agent and member row: sliders and pin): over the row's right end on
      hover and on keyboard focus, so they take no room in the row and the
      folded summary keeps one right edge.
-     The open room in view always shows its buttons. */
+     Task 4eea73fc: with no hover (touch screens), the open room in view
+     shows its buttons, so they stay reachable. */
   .chat-sidebar-row-actions {
     position: absolute;
     top: 50%;
@@ -284,10 +285,15 @@ ${emitThemesCss()}
   .chat-sidebar-room-row:hover .chat-sidebar-row-actions,
   .chat-sidebar-agent:hover .chat-sidebar-row-actions,
   .chat-sidebar-member:hover .chat-sidebar-row-actions,
-  .chat-sidebar-row-actions:has(:focus-visible),
-  .chat-sidebar-row-actions[data-in-view] {
+  .chat-sidebar-row-actions:has(:focus-visible) {
     opacity: 1;
     pointer-events: auto;
+  }
+  @media (hover: none) {
+    .chat-sidebar-row-actions[data-in-view] {
+      opacity: 1;
+      pointer-events: auto;
+    }
   }
   .chat-sidebar-agent,
   .chat-sidebar-member,

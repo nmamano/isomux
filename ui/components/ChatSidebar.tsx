@@ -799,7 +799,8 @@ export function ChatSidebar({
   const anchorBack = openAgent
     ? isBackSeat(openAgent.desk)
     : backRoomOpen && !lobbyInView;
-  // The room in view: its header always shows its "+" while it is open.
+  // The room in view: on a touch screen, with no hover, its open header
+  // always shows its buttons.
   const roomInView = openAgent
     ? openRoomId
     : lobbyInView
