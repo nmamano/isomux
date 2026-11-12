@@ -323,6 +323,17 @@ Members, their API tokens and privileged agents can read and post to the office-
 
 Messages carry an optional `thumbsUp` list with each reactor’s `userId`, `userName`, `kind` and optional `device`. Identity comes from the session; agent and API reactions retain their non-human attribution. Edits, reactions and pin changes use `members_chat_message` with `updateOnly: true`. Clients update the pinned strip even when the message is not in the loaded page, without appending it to the conversation or raising unread. Clients can refresh the page response to refill the capped pinned list after a change.
 
+### 1:1 chats
+
+A 1:1 chat is between two members. Only those two members, their API tokens and their privileged agents reach it; an office owner outside the pair does not. A token needs the `directMessages` area. `:username` is the other member's name or id. A removed member is addressed by id only.
+
+- `GET /api/member-chats` returns `chats:[{peerId,peerName,removed,readPointer,unread,lastAt}]`, the caller's chats, newest first. A chat exists once its first message or file was sent; reads never make one.
+- `GET /api/users/:username/chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`, as members chat does, without `pinned`.
+- `POST /api/users/:username/chat`, `PATCH /api/users/:username/chat/:id`, `PUT /api/users/:username/chat/:id/thumbs-up`, `DELETE /api/users/:username/chat/:id`, `POST /api/users/:username/chat/read`, `POST /api/users/:username/chat/uploads` and `GET /api/users/:username/chat/files/:filename` work as their members chat routes. There are no pins. Edit and delete reach only the caller's own messages, also for an office owner.
+- While the other member is removed, posting, uploading and thumbs-up return `409 peer_removed`. A restore makes the chat writable again.
+
+Each member's sockets get `dm_message` and `dm_deleted` with `peerId`, the other member; `dm_read` reaches only the reader. A new message sends a web push to the recipient's devices.
+
 ### Desktop Chrome browser control
 
 `GET /api/me/browser` reports the browser owner, extension version, paired state, online state and `browsers:[{id,name,pairedAt,online,package?,outdated,reloadable,agentTabs}]`, one entry per paired browser. `package` is the extension version that browser reported since the office started (`null` for an extension older than 0.4.5); `outdated` is true when it is older than the office's version. `reloadable` is true when the online browser has newer extension files in its folder (extension 0.7.0 and later); `POST /api/me/browser/browsers/:id/reload` then reloads it, and returns `409 browser_offline` or `409 not_reloadable` otherwise. `agentTabs` is `"all"` (My agents), `"members"` (My agents and members I pick, with the picked `members:[{id,name}]`) or `"office"` (All agents) while the browser is online and its member lets agents open tabs, otherwise `null`. `"members"` and `members` are new in extension 0.6.0. There is no backend selector. `POST /api/me/browser/pair` creates a five-minute code that adds one more browser; an optional `name` (at most 40 characters) labels it, and an empty name becomes `Browser N`. `DELETE /api/me/browser/browsers/:id` revokes one browser, and `DELETE /api/me/browser` revokes all of them. `GET /api/me/browser/extension.zip` downloads the extension. These routes use the authenticated member's `user:self` capability; agent tokens cannot use them.

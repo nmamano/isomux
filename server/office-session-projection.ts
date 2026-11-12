@@ -50,11 +50,13 @@ import {
   extensionService,
   floors,
   membersChat,
+  memberDms,
   openCodeRunsOnHost,
   uiBuildTracker,
 } from "./office-managers.ts";
 import type { OfficeOutbox } from "./office-ws-outbox.ts";
 import { loadRecentCwds } from "./persistence.ts";
+import { officeMemberNameOf } from "./member-dms.ts";
 import { taskVisibleTo } from "./task-visibility.ts";
 import { isClosedTask } from "../shared/task-board.ts";
 import { getUserById, updateUserById, type UserAccessChange } from "./users.ts";
@@ -364,6 +366,14 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         // Every office session is a person, who holds chat:members.
         ...(can("membersChat")
           ? { membersChat: membersChat.summary(session.userId) }
+          : {}),
+        ...(can("directMessages")
+          ? {
+              memberDms: memberDms.conversationsOf(
+                session.userId,
+                officeMemberNameOf,
+              ),
+            }
           : {}),
         ...(can("office") ? { floors: floors.list() } : {}),
         uiBuild: uiBuildTracker?.current() ?? undefined,

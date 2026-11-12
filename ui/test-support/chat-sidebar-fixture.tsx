@@ -27,6 +27,23 @@
 //                                            aria-current="page" on the open
 //                                            agent's row
 //
+// The human chats (task 019e4d7c, agreed with the worker at the Part B stub):
+//   [data-sidebar-members]                   the Members section header
+//   button[data-sidebar-member="<userId>"]   a member row; data-removed on a
+//                                            removed peer, data-online on an
+//                                            online member, aria-current="page"
+//                                            on the open chat's row
+//   [data-sidebar-member-settings]           a member row's gear (owners)
+//   [data-sidebar-unread-dot]                the collapsed sidebar's open
+//                                            button, while a human chat has
+//                                            unread
+//   [data-human-chat="members"|"<userId>"]   the full-screen human chat
+//   [data-member-settings]                   its header's settings button
+//   [data-chat-switcher]                     its title where no sidebar shows,
+//   [data-chat-switcher-option="members"|"<userId>"]  and the options
+//   [data-peer-removed]                      the notice that replaces the
+//                                            composer for a removed peer
+//   [data-lobby-chat-fab]                    the lobby's chat button
 // Added by task 5dac6b9b (agreed with the worker, 2026-11-12):
 //   [data-sidebar-room-summary="<roomId>"]   a folded room header's summary
 //   [data-sidebar-back-room-summary="<roomId>"] a folded back room's summary
@@ -65,6 +82,9 @@ import {
   LOBBY_ROOM_ID,
   type AgentInfo,
   type AskEntry,
+  type MemberDmSummary,
+  type MembersChatMessage,
+  type UserPublicWire,
   type UserRecord,
 } from "../../shared/types.ts";
 import type { MemberPack } from "../../shared/pack-fit.ts";
@@ -187,6 +207,38 @@ export const spawns: Record<string, unknown>[] = [];
 // PUT /api/me/view/* writes, in order.
 export const viewWrites: { path: string; body: unknown }[] = [];
 
+// The other members (users_list after full_state, with "member" itself), who
+// is online, and full_state's 1:1 chat summaries (absent: not sent).
+let members: UserPublicWire[] = [];
+export function setMembers(next: UserPublicWire[]): void {
+  members = next;
+}
+export const memberWire = (id: string, name: string): UserPublicWire => ({
+  id,
+  name,
+  role: "member",
+  avatarColor: "#4a90d9",
+  avatarVariant: "classic",
+  createdAt: 0,
+});
+let onlineIds: string[] = [];
+export function setOnline(next: string[]): void {
+  onlineIds = next;
+}
+let memberDms: MemberDmSummary[] | undefined;
+export function setMemberDms(next: MemberDmSummary[] | undefined): void {
+  memberDms = next;
+}
+// GET /api/users/<id>/chat answers, by peer id; an empty page otherwise.
+export const dmPages: Record<string, MembersChatMessage[]> = {};
+// While true, every 1:1 chat page request fails.
+let dmFail = false;
+export function setDmFail(next: boolean): void {
+  dmFail = next;
+}
+// Every API call, in order.
+export const requests: { method: string; path: string; body: unknown }[] = [];
+
 /** The entry the page loaded on: the office. */
 export const LOAD_ENTRY = { loadEntry: true };
 
@@ -201,6 +253,40 @@ export function setWindowWidth(width: number): void {
 
 export function setUpChatSidebarTests(): void {
   setApiShim(async (method, path, body) => {
+    requests.push({ method, path, body });
+    const dm = /^\/api\/users\/([^/?]+)\/chat(\/[^?]*)?(\?.*)?$/.exec(path);
+    if (dm) {
+      const peerId = decodeURIComponent(dm[1]);
+      const rest = dm[2] ?? "";
+      if (method === "GET" && rest === "") {
+        if (dmFail) throw new Error("offline");
+        return {
+          messages: dmPages[peerId] ?? [],
+          hasMore: false,
+          readPointer: null,
+          unread: 0,
+        };
+      }
+      if (method === "POST" && rest === "/read")
+        return {
+          readPointer: (body as { lastReadId?: string })?.lastReadId ?? null,
+          unread: 0,
+        };
+      if (method === "POST" && rest === "") {
+        const text = (body as { text?: string })?.text ?? "";
+        return {
+          id: `202611-${(requests.length + 0x100).toString(16).padStart(8, "0")}`,
+          kind: "user",
+          userId: "u1",
+          userName: "member",
+          timestamp: 9_000,
+          content: text,
+          attachments: [],
+        } satisfies MembersChatMessage;
+      }
+      return {};
+    }
+    if (path === "/api/member-chats") return { chats: memberDms ?? [] };
     if (path === "/api/asks") return asks;
     if (path === "/api/asks/others") return [];
     if (path.startsWith("/api/members-chat"))
@@ -258,6 +344,12 @@ export function setUpChatSidebarTests(): void {
     asks = [];
     selfUser = null;
     spawns.length = 0;
+    members = [];
+    onlineIds = [];
+    memberDms = undefined;
+    for (const id of Object.keys(dmPages)) delete dmPages[id];
+    dmFail = false;
+    requests.length = 0;
     viewWrites.length = 0;
     window.localStorage.clear();
     // A desktop window wide enough that the sidebar starts open.
@@ -269,11 +361,11 @@ export function setUpChatSidebarTests(): void {
   });
 }
 
-/** Load the office at "/", signed in as "member", on the load entry.
- *  `features` is the office the App runs in: production unless a test passes
- *  another, as the landing-page embed does. */
-export async function boot(features?: Features): Promise<View> {
-  window.history.replaceState(LOAD_ENTRY, "", "/");
+/** Load the office at `path` ("/" by default), signed in as "member", on the
+ *  load entry. `features` is the office the App runs in: production unless a
+ *  test passes another, as the landing-page embed does. */
+export async function boot(features?: Features, path = "/"): Promise<View> {
+  window.history.replaceState(LOAD_ENTRY, "", path);
   let hydrated!: () => void;
   const hydration = new Promise<void>((resolve) => {
     hydrated = resolve;
@@ -293,7 +385,20 @@ export async function boot(features?: Features): Promise<View> {
         recentCwds: [],
         killedAgents: [],
         interactions: [],
+        ...(memberDms ? { memberDms } : {}),
       } as never);
+      if (members.length > 0)
+        shimEmit({
+          type: "users_list",
+          users: [{ ...memberWire("u1", "member"), role }, ...members],
+        } as never);
+      if (onlineIds.length > 0)
+        shimEmit({
+          type: "presence_list",
+          entries: [],
+          totalOnlineUsers: onlineIds.length,
+          onlineUserIds: onlineIds,
+        } as never);
       if (selfUser)
         shimEmit({ type: "user_self_updated", user: selfUser } as never);
       hydrated();

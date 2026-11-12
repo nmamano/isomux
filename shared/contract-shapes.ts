@@ -34,6 +34,7 @@ import type {
   PendingPromptKind,
   ProcessIsolationReason,
   MembersChatMessage,
+  MemberDmSummary,
   WebhookDelivery,
   WebhookRule,
   WebhookScheme,
@@ -1740,7 +1741,7 @@ export interface MemoryWriteRes {
   version: string;
 }
 
-// Members chat (humans-only stream on the Lobby tab). A page is newest-first
+// Members chat (humans-only stream). A page is newest-first
 // from the server's point of view and delivered oldest-first; `before` is the
 // id of the oldest message the client already holds. readPointer and unread
 // describe the CALLER's own position, so one read hydrates the panel and the
@@ -1751,6 +1752,14 @@ export interface MembersChatPageRes {
   hasMore: boolean;
   readPointer: string | null;
   unread: number;
+}
+
+// A page of a 1:1 chat (memberDms.page). No pins in a 1:1 chat.
+export type MemberDmPageRes = Omit<MembersChatPageRes, "pinned">;
+
+// GET /api/member-chats: the caller's 1:1 chats.
+export interface MemberDmListRes {
+  chats: MemberDmSummary[];
 }
 
 // Floors: other offices the lobby elevator links to (shared/floors.ts). The

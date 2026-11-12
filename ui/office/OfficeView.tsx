@@ -1,12 +1,3 @@
-import {
-  getMembersChatWidth,
-  setMembersChatWidth,
-  clampMembersChatWidth,
-  DEFAULT_MEMBERS_CHAT_WIDTH,
-  setMembersChatOpen,
-} from "../device-settings.ts";
-import { ChatWidthHandle } from "../members-chat/ChatWidthHandle.tsx";
-import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
 import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
 import {
@@ -64,9 +55,8 @@ import { SCENE_W, SCENE_H, sceneFrame } from "./grid.ts";
 import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
 import { crownHolder, employeeOfTheMinute } from "./lobby/employee.ts";
-import { LobbyChat } from "../members-chat/LobbyChat.tsx";
 import { MembersChatButton } from "../members-chat/MembersChatButton.tsx";
-import { MembersChatPanel } from "../members-chat/MembersChatPanel.tsx";
+import { SidebarUnreadDot } from "../members-chat/SidebarUnreadDot.tsx";
 import { apiFetch } from "../api.ts";
 import type {
   MoveAgentReq,
@@ -121,8 +111,6 @@ import { useCan } from "../hooks/useCan.ts";
 // (52×68) so it reads as "small floating watcher" against the desks.
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
-
-const LOBBY_CHAT_WIDTH = DEFAULT_MEMBERS_CHAT_WIDTH;
 
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({
@@ -237,6 +225,8 @@ interface OfficeViewProps {
   // Given while the sidebar is hidden on a desktop: the bar's button that
   // shows it again.
   onShowSidebar?: () => void;
+  // The phone lobby's chat button: Members chat, full screen.
+  onOpenMembersChat?: () => void;
 }
 
 export function OfficeView({
@@ -263,6 +253,7 @@ export function OfficeView({
   viewportControlsRef,
   sidebarOpen = false,
   onShowSidebar,
+  onOpenMembersChat,
 }: OfficeViewProps) {
   const {
     agents,
@@ -281,7 +272,6 @@ export function OfficeView({
     lobbyOpen,
     asks,
     answeredAsks,
-    membersChatShown,
     hasReceivedInitialState,
   } = useAppState();
   const askCountByAgent = useMemo(
@@ -360,53 +350,6 @@ export function OfficeView({
     : undefined;
   const decorateScene = useContext(SceneDecorationContext);
   const seasonalItems = useSeasonalItems();
-  const chatHidden = !membersChatShown;
-  const [chatViewportWidth, setChatViewportWidth] = useState(() =>
-    typeof window === "undefined" ? 1440 : window.innerWidth,
-  );
-  const [preferredChatWidth, setPreferredChatWidth] = useState<number | null>(
-    () => (isMobile ? null : getMembersChatWidth(chatViewportWidth)),
-  );
-  // A phone does not read the desktop preference, including on first mount.
-  if (!isMobile && preferredChatWidth === null)
-    setPreferredChatWidth(getMembersChatWidth(chatViewportWidth));
-  const chatWidth = clampMembersChatWidth(
-    preferredChatWidth ?? LOBBY_CHAT_WIDTH,
-    chatViewportWidth,
-  );
-  // The office's own width, not the window's: the desktop sidebar takes a
-  // column beside it.
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const resize = () =>
-      setChatViewportWidth(rootRef.current?.clientWidth || window.innerWidth);
-    window.addEventListener("resize", resize);
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
-    if (rootRef.current) observer?.observe(rootRef.current);
-    resize();
-    return () => {
-      window.removeEventListener("resize", resize);
-      observer?.disconnect();
-    };
-  }, []);
-  function changeChatWidth(width: number) {
-    const next = clampMembersChatWidth(width, chatViewportWidth);
-    setPreferredChatWidth(next);
-  }
-  function commitChatWidth(width: number) {
-    const next = clampMembersChatWidth(width, chatViewportWidth);
-    setPreferredChatWidth(next);
-    setMembersChatWidth(next);
-  }
-  const desktopChatVisible = lobbyOpen && !isMobile && !embed && !chatHidden;
-  // The mobile chat runs its own hydration (LobbyChat).
-  const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
-    useMembersChatHydration(desktopChatVisible);
-  function changeChatHidden(hidden: boolean) {
-    setMembersChatOpen(!hidden);
-    dispatch({ type: "set_members_chat_shown", shown: !hidden });
-  }
   const i18n = useI18n();
   const { t } = i18n;
   // The current room's skin, as theme-variable overrides for the scene
@@ -650,7 +593,6 @@ export function OfficeView({
 
   return (
     <div
-      ref={rootRef}
       style={{
         height: isMobile
           ? "calc(100dvh - var(--banner-h, 0px))"
@@ -697,6 +639,7 @@ export function OfficeView({
                 title={t("sidebar.show")}
                 aria-label={t("sidebar.show")}
                 style={{
+                  position: "relative",
                   display: "flex",
                   alignItems: "center",
                   padding: 5,
@@ -709,6 +652,7 @@ export function OfficeView({
                 }}
               >
                 {SidebarIcon}
+                <SidebarUnreadDot />
               </button>
             )}
             <div style={{ display: "flex", gap: 12 }}>
@@ -1231,7 +1175,6 @@ export function OfficeView({
                 onZoomIn={viewport.zoomIn}
                 onZoomOut={viewport.zoomOut}
                 onReset={viewport.resetView}
-                rightInset={desktopChatVisible ? chatWidth : 0}
               />
               /* eslint-enable react-hooks/refs */
             )}
@@ -1239,33 +1182,9 @@ export function OfficeView({
             {!embed && <Vignette />}
           </div>
         )}
-        {!embed && lobbyOpen && isMobile && <LobbyChat />}
-        {!embed && lobbyOpen && !isMobile && chatHidden && (
-          <MembersChatButton onClick={() => changeChatHidden(false)} />
-        )}
-        {desktopChatVisible && (
-          <MembersChatPanel
-            resizeHandle={
-              <ChatWidthHandle
-                width={chatWidth}
-                viewportWidth={chatViewportWidth}
-                onChange={changeChatWidth}
-                onCommit={commitChatWidth}
-              />
-            }
-            onHide={() => changeChatHidden(true)}
-            loadFailed={membersChatLoadFailed}
-            onRetry={retryMembersChat}
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 1,
-              width: chatWidth,
-              borderLeft: "1px solid var(--border)",
-            }}
-          />
+        {/* A phone has no sidebar: this button opens the human chats. */}
+        {!embed && lobbyOpen && isMobile && onOpenMembersChat && (
+          <MembersChatButton onClick={onOpenMembersChat} />
         )}
       </div>
     </div>

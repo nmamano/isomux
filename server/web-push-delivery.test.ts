@@ -470,6 +470,67 @@ describe("web push delivery: turn ends", () => {
   });
 });
 
+describe("web push delivery: 1:1 chat messages", () => {
+  // Task 019e4d7c: a new 1:1 message goes to every device of the recipient,
+  // with no room gate (notification and push rooms are empty here), titled
+  // with the sender and showing the preview. One tag per sender: the next
+  // message from the same sender replaces the last one.
+  it("goes to each device of the recipient, titled with the sender, one tag per sender", async () => {
+    const { store, calls, service, time } = await setup({
+      notifRooms: { "u-morgan": [] },
+      pushRooms: { "u-morgan": [] },
+    });
+    const phone = await browserDevice(1);
+    const laptop = await browserDevice(2);
+    const sender = await browserDevice(3);
+    await store.upsert("u-morgan", phone.input);
+    await store.upsert("u-morgan", laptop.input);
+    await store.upsert("u-mia", sender.input);
+
+    const message = (senderId: string, title: string, preview: string) => ({
+      recipientId: "u-morgan",
+      senderId,
+      title,
+      preview,
+    });
+    service.onDirectMessage(message("u-mia", "Mia", "lunch at 1?"));
+    await time.advance(0);
+    expect(calls.map((c) => c.url).sort()).toEqual(
+      [phone.input.endpoint, laptop.input.endpoint].sort(),
+    );
+    const first = await decrypt(
+      calls.find((c) => c.url === phone.input.endpoint)!.body,
+      phone,
+    );
+    expect(first.title).toBe("Mia");
+    expect(first.body).toBe("lunch at 1?");
+    expect(first.url).toBe("/chats/u-mia");
+    expect(first.renotify).toBe(true);
+    expect(typeof first.tag).toBe("string");
+
+    calls.length = 0;
+    service.onDirectMessage(message("u-mia", "Mia", "or 2"));
+    service.onDirectMessage(message("u-pau", "Pau", "hey"));
+    await time.advance(0);
+    const onPhone = await Promise.all(
+      calls
+        .filter((c) => c.url === phone.input.endpoint)
+        .map((c) => decrypt(c.body, phone)),
+    );
+    const tagOf = (title: string) =>
+      onPhone.find((p) => p.title === title)?.tag;
+    expect(onPhone.length).toBe(2);
+    expect(tagOf("Mia")).toBe(first.tag);
+    expect(tagOf("Pau")).not.toBe(first.tag);
+    // Nothing went to the sender's device.
+    expect(calls.some((c) => c.url === sender.input.endpoint)).toBe(false);
+    // Nothing repeats: a 1:1 message is not a page.
+    calls.length = 0;
+    await time.advance(60 * MIN);
+    expect(calls.length).toBe(0);
+  });
+});
+
 describe("web push delivery: failures", () => {
   it("drops a device the push service no longer knows; keeps others with the failure", async () => {
     const devs = await Promise.all([1, 2, 3, 4, 5, 6].map(browserDevice));

@@ -7,7 +7,6 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { StoreProvider, useAppState, useDispatch } =
   await import("../store.tsx");
 const { MembersChatPanel } = await import("./MembersChatPanel.tsx");
-const { RoomTabBar } = await import("../office/RoomTabBar.tsx");
 const { LanguageProvider } = await import("../i18n.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
@@ -105,15 +104,10 @@ function Harness() {
     snapshot = state;
     dispatch = send;
   }, [state, send]);
-  return createElement(
-    LanguageProvider,
-    null,
-    createElement(RoomTabBar),
-    createElement(MembersChatPanel),
-  );
+  return createElement(LanguageProvider, null, createElement(MembersChatPanel));
 }
 
-it("clears the Lobby badge when the later message has a lower random ID", async () => {
+it("clears the unread when the later message has a lower random ID", async () => {
   jest.useFakeTimers();
   const newestId = "202609-00000001";
   const reads: string[] = [];
@@ -156,12 +150,9 @@ it("clears the Lobby badge when the later message has a lower random ID", async 
   expect(list.scrollHeight - list.scrollTop - list.clientHeight < 80).toBe(
     true,
   );
-  expect(view.container.querySelectorAll("[data-lobby-unread]").length).toBe(1);
+  expect(snapshot.membersChat.unread).toBe(1);
   await settleRead();
   expect(reads).toEqual([newestId]);
   await act(async () => {});
   expect(snapshot.membersChat.unread).toBe(0);
-  expect(view.container.querySelector("[data-lobby-unread]") === null).toBe(
-    true,
-  );
 });

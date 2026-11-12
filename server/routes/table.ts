@@ -245,6 +245,8 @@ import type {
   TaskUpdateReq,
   TaskClaimReq,
   MembersChatPageRes,
+  MemberDmPageRes,
+  MemberDmListRes,
   FloorsListRes,
   FloorAddReq,
   FloorAddRes,
@@ -1492,7 +1494,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // Members chat: the humans-only stream on the Lobby tab. One capability,
+  // Members chat: the humans-only stream. One capability,
   // chat:members, is the whole gate - held by a cookie user, an API token and a
   // privileged agent, never by an ordinary agent, a cron run or an app. Ownership
   // (edit your own; delete your own, or any as an office owner) is a live check
@@ -1579,6 +1581,89 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/members-chat/files/:filename",
     auth: cap("chat:members", operationalAuthenticated),
     tokenArea: { area: "membersChat", level: "read" },
+    emits: [],
+  }),
+
+  // 1:1 chats between two members (server/member-dms.ts). The same
+  // capability as members chat; the pair gate is in every handler
+  // (server/routes/handlers/member-dms.ts): only the two members reach a chat,
+  // office owners included. :username is the peer, by user id or by name.
+  defineRoute<void, MemberDmListRes>({
+    opId: "memberDms.list",
+    method: "GET",
+    path: "/api/member-chats",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "read" },
+    emits: [],
+  }),
+  defineRoute<void, MemberDmPageRes>({
+    opId: "memberDms.page",
+    method: "GET",
+    path: "/api/users/:username/chat",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "read" },
+    emits: [],
+  }),
+  defineRoute<MembersChatPostReq, MembersChatMessage>({
+    opId: "memberDms.post",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/chat",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "write" },
+    emits: ["dm_message"],
+  }),
+  defineRoute<MembersChatThumbsUpReq, MembersChatMessage>({
+    opId: "memberDms.thumbsUp",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/users/:username/chat/:id/thumbs-up",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "write" },
+    emits: ["dm_message"],
+  }),
+  defineRoute<MembersChatEditReq, MembersChatMessage>({
+    opId: "memberDms.edit",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PATCH",
+    path: "/api/users/:username/chat/:id",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "write" },
+    emits: ["dm_message"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "memberDms.delete",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/users/:username/chat/:id",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "write" },
+    emits: ["dm_deleted"],
+  }),
+  defineRoute<MembersChatReadReq, MembersChatReadRes>({
+    opId: "memberDms.markRead",
+    audit: { owner: "none", reason: "Read markers are internal bookkeeping." },
+    method: "POST",
+    path: "/api/users/:username/chat/read",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "write" },
+    emits: ["dm_read"],
+  }),
+  defineRoute<unknown, { attachments: Attachment[] }>({
+    opId: "memberDms.upload",
+    audit: { owner: "store" },
+    method: "POST",
+    path: "/api/users/:username/chat/uploads",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "write" },
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "memberDms.getFile",
+    method: "GET",
+    path: "/api/users/:username/chat/files/:filename",
+    auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "directMessages", level: "read" },
     emits: [],
   }),
 

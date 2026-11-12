@@ -1,6 +1,6 @@
 import { savedFileAudit } from "../audit.ts";
-// Members chat resource handlers (opIds membersChat.*). The humans-only stream
-// on the Lobby tab: a cookie user, that user's API token, and that user's
+// Members chat resource handlers (opIds membersChat.*). The humans-only stream:
+// a cookie user, that user's API token, and that user's
 // privileged agents may read and write it; the chat:members capability on the
 // route table keeps every other identity out before a handler runs.
 //
@@ -28,7 +28,9 @@ import {
   noContent,
   fail,
   file,
+  type HandlerResult,
   type RouteHandler,
+  type RouteHandlerContext,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { Attachment, MembersChatMessage } from "../../../shared/types.ts";
@@ -104,7 +106,104 @@ function isAttachmentShape(v: unknown): v is Attachment {
   );
 }
 
-function storeError(err: unknown) {
+// The attachments a post names, each one a file the chat already holds, or the
+// 400 to answer. attachmentPath is the chat's own lookup.
+export function postAttachments(
+  body: Partial<MembersChatPostReq>,
+  attachmentPath: (filename: string) => string | null,
+): Attachment[] | HandlerResult {
+  if (body.attachments === undefined) return [];
+  if (
+    !Array.isArray(body.attachments) ||
+    !body.attachments.every(isAttachmentShape)
+  ) {
+    return fail(400, "invalid_request", "attachments must be a list");
+  }
+  for (const a of body.attachments) {
+    // Only a file this chat already holds may be attached: the name is
+    // the whole reference the card renders, so an unknown one would be a
+    // broken chip at best and a probe of another store at worst.
+    if (!attachmentPath(a.filename)) {
+      return fail(400, "unknown_attachment", `no such file: ${a.filename}`);
+    }
+  }
+  return body.attachments.map((a) => ({
+    filename: a.filename,
+    originalName: a.originalName,
+    mediaType: a.mediaType,
+    size: a.size,
+  }));
+}
+
+// The device label for the author line: the browser's own, for a cookie user
+// only; an API token's device is its name, an agent has none.
+export function postDevice(
+  author: MembersChatAuthor,
+  body: Partial<MembersChatPostReq>,
+): string | undefined {
+  if (author.kind === "user" && typeof body.device === "string") {
+    const trimmed = body.device.trim().slice(0, MAX_DEVICE_CHARS);
+    if (trimmed) return trimmed;
+  }
+  return author.device;
+}
+
+// A multipart upload into a chat's files, with the agents.upload limits.
+// save returns null when the file could not be kept. auditPrefix names the
+// chat in the audit record.
+export async function uploadFiles(
+  ctx: RouteHandlerContext,
+  auditPrefix: string,
+  save: (
+    data: Buffer,
+    mediaType: string,
+    originalName: string,
+  ) => Attachment | null,
+): Promise<HandlerResult> {
+  let formData: FormData;
+  try {
+    formData = await ctx.req.formData();
+  } catch {
+    return fail(400, "invalid_request", "expected multipart/form-data");
+  }
+  const attachments: Attachment[] = [];
+  let fileCount = 0;
+  let totalSize = 0;
+  for (const [, value] of formData) {
+    if (!(value instanceof File)) continue;
+    fileCount++;
+    if (fileCount > MAX_FILES) {
+      return fail(
+        400,
+        "too_many_files",
+        `Maximum ${MAX_FILES} files per upload`,
+      );
+    }
+    if (value.size > MAX_UPLOAD_BYTES) {
+      return fail(
+        400,
+        "file_too_large",
+        `File "${value.name}" exceeds 200MB limit`,
+      );
+    }
+    totalSize += value.size;
+    if (totalSize > MAX_TOTAL) {
+      return fail(400, "upload_too_large", "Total upload exceeds 400MB");
+    }
+    const data = Buffer.from(await value.arrayBuffer());
+    const saved = save(
+      data,
+      value.type || "application/octet-stream",
+      value.name,
+    );
+    if (!saved) return fail(500, "save_failed", "Failed to save file");
+    savedFileAudit(`${auditPrefix}/${saved.filename}`);
+    attachments.push(saved);
+  }
+  return ok({ attachments });
+}
+
+export function storeError(err: unknown) {
   if (err instanceof MembersChatError) {
     if (err.code === "reply_not_found") return fail(404, err.code);
     return fail(
@@ -149,38 +248,11 @@ export function membersChatHandlers(
       }
       if (body.replyTo !== undefined && typeof body.replyTo !== "string")
         return fail(400, "invalid_request", "replyTo must be a message id");
-      let attachments: Attachment[] = [];
-      if (body.attachments !== undefined) {
-        if (
-          !Array.isArray(body.attachments) ||
-          !body.attachments.every(isAttachmentShape)
-        ) {
-          return fail(400, "invalid_request", "attachments must be a list");
-        }
-        for (const a of body.attachments) {
-          // Only a file this chat already holds may be attached: the name is
-          // the whole reference the card renders, so an unknown one would be a
-          // broken chip at best and a probe of another store at worst.
-          if (!deps.attachmentPath(a.filename)) {
-            return fail(
-              400,
-              "unknown_attachment",
-              `no such file: ${a.filename}`,
-            );
-          }
-        }
-        attachments = body.attachments.map((a) => ({
-          filename: a.filename,
-          originalName: a.originalName,
-          mediaType: a.mediaType,
-          size: a.size,
-        }));
-      }
-      let device = author.device;
-      if (author.kind === "user" && typeof body.device === "string") {
-        const trimmed = body.device.trim().slice(0, MAX_DEVICE_CHARS);
-        if (trimmed) device = trimmed;
-      }
+      const attachments = postAttachments(body, (name) =>
+        deps.attachmentPath(name),
+      );
+      if (!Array.isArray(attachments)) return attachments;
+      const device = postDevice(author, body);
       let message: MembersChatMessage;
       try {
         message = deps.post({
@@ -269,49 +341,10 @@ export function membersChatHandlers(
       return ok({ readPointer, unread });
     },
 
-    "membersChat.upload": async (ctx) => {
-      let formData: FormData;
-      try {
-        formData = await ctx.req.formData();
-      } catch {
-        return fail(400, "invalid_request", "expected multipart/form-data");
-      }
-      const attachments: Attachment[] = [];
-      let fileCount = 0;
-      let totalSize = 0;
-      for (const [, value] of formData) {
-        if (!(value instanceof File)) continue;
-        fileCount++;
-        if (fileCount > MAX_FILES) {
-          return fail(
-            400,
-            "too_many_files",
-            `Maximum ${MAX_FILES} files per upload`,
-          );
-        }
-        if (value.size > MAX_UPLOAD_BYTES) {
-          return fail(
-            400,
-            "file_too_large",
-            `File "${value.name}" exceeds 200MB limit`,
-          );
-        }
-        totalSize += value.size;
-        if (totalSize > MAX_TOTAL) {
-          return fail(400, "upload_too_large", "Total upload exceeds 400MB");
-        }
-        const data = Buffer.from(await value.arrayBuffer());
-        const saved = deps.saveAttachment(
-          data,
-          value.type || "application/octet-stream",
-          value.name,
-        );
-        if (!saved) return fail(500, "save_failed", "Failed to save file");
-        savedFileAudit(`members-chat/${saved.filename}`);
-        attachments.push(saved);
-      }
-      return ok({ attachments });
-    },
+    "membersChat.upload": (ctx) =>
+      uploadFiles(ctx, "members-chat", (data, type, name) =>
+        deps.saveAttachment(data, type, name),
+      ),
 
     "membersChat.getFile": (ctx) => {
       const filePath = deps.attachmentPath(ctx.params.filename);

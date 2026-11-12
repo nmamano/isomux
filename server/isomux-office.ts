@@ -304,6 +304,9 @@ import {
   membersChatHandlers,
   type MembersChatAuthor,
 } from "./routes/handlers/members-chat.ts";
+import { memberDmHandlers } from "./routes/handlers/member-dms.ts";
+import { officeMemberNameOf } from "./member-dms.ts";
+import { membersChatExcerpt } from "../shared/members-chat.ts";
 import { floorsHandlers } from "./routes/handlers/floors.ts";
 import { probeOffice, type OfficeProbeOptions } from "./office-card.ts";
 import { createOfficeNameCache } from "./office-name-cache.ts";
@@ -462,6 +465,7 @@ import {
 } from "./api-tokens.ts";
 import {
   dropRemovedMember,
+  getRemovedMember,
   listRemovedMembers,
   purgeExpiredRemovedMembers,
   reconcileRemovedMembers,
@@ -506,6 +510,7 @@ import {
   scheduledMessageManager,
   askStore,
   membersChat,
+  memberDms,
   floors,
   pagerSettings,
   pagerDelivery,
@@ -3891,6 +3896,46 @@ function buildExecutorDeps(
       emitDeleted: (id) => liveEmit("members_chat_deleted", { id }),
       emitRead: (userId, readPointer, unread) =>
         liveEmit("members_chat_read", { readPointer, unread }, { userId }),
+    }),
+  );
+
+  // 1:1 chats: the peer resolves by live id, live name, then removed id.
+  register(
+    memberDmHandlers({
+      dms: memberDms,
+      resolvePeer: (param) => {
+        const live = getUserById(param) ?? getUserByName(param);
+        if (live) return { id: live.id, name: live.name, removed: false };
+        const removed = getRemovedMember(param);
+        return removed
+          ? { id: removed.user.id, name: removed.user.name, removed: true }
+          : null;
+      },
+      nameOf: officeMemberNameOf,
+      authorFor: membersChatAuthorFor,
+      contentTypeFor: (filename) => httpContentTypeForFilename(filename),
+      untrustedFileHeaders,
+      emitMessage: (toUserId, peerId, message, updateOnly) =>
+        liveEmit(
+          "dm_message",
+          { peerId, message, ...(updateOnly ? { updateOnly } : {}) },
+          { userId: toUserId },
+        ),
+      emitDeleted: (toUserId, peerId, id) =>
+        liveEmit("dm_deleted", { peerId, id }, { userId: toUserId }),
+      emitRead: (toUserId, peerId, readPointer, unread) =>
+        liveEmit(
+          "dm_read",
+          { peerId, readPointer, unread },
+          { userId: toUserId },
+        ),
+      notify: (recipientId, message) =>
+        webPushDelivery.onDirectMessage({
+          recipientId,
+          senderId: message.userId,
+          title: message.userName,
+          preview: membersChatExcerpt(message.content, message.attachments),
+        }),
     }),
   );
 

@@ -1789,7 +1789,9 @@ describe("RoomTabBar: the Lobby tab", () => {
       ),
     );
 
-  it("is first, shows the unread dot, and takes the active style from the rooms", () => {
+  // The tab carries no unread dot: the human chats left the lobby, and the
+  // sidebar and the phone's chat button count them (task 019e4d7c).
+  it("is first, carries no unread dot, and takes the active style from the rooms", () => {
     const quiet = html({});
     expect(quiet.indexOf("Lobby")).toBeLessThan(quiet.indexOf("Alpha"));
     expect(quiet).not.toContain("data-lobby-unread");
@@ -1798,18 +1800,9 @@ describe("RoomTabBar: the Lobby tab", () => {
       lobbyOpen: true,
       membersChat: { ...initialState.membersChat, unread: 7 },
     });
-    expect(busy).toContain("data-lobby-unread");
-    const en = translatorFor("en");
-    expect(busy).toContain(
-      `aria-label="${en.tn("membersChat.unreadCount", 7)}"`,
-    );
+    expect(busy.indexOf("Lobby")).toBeLessThan(busy.indexOf("Alpha"));
+    expect(busy).not.toContain("data-lobby-unread");
     expect(busy).not.toContain("data-active-room-tab");
-    const capped = html({
-      membersChat: { ...initialState.membersChat, unread: 100 },
-    });
-    expect(capped).toContain(
-      `aria-label="${en.tn("membersChat.unreadCount", 100)}"`,
-    );
   });
 });
 

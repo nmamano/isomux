@@ -1050,8 +1050,8 @@ export interface Attachment {
   size: number; // bytes
 }
 
-// One message in the members chat: the office-wide, humans-only stream that
-// lives on the Lobby tab (server/members-chat.ts). userName and device are a
+// One message in the members chat: the office-wide, humans-only stream
+// (server/members-chat.ts), or in a 1:1 chat (server/member-dms.ts). userName and device are a
 // snapshot at post time, so a renamed or deleted user's old messages still
 // read correctly. editedAt is set only after an in-place edit.
 // JS string length of one members chat message, like an app message.
@@ -1075,6 +1075,20 @@ export interface MembersChatReply {
 export interface MembersChatSummary {
   readPointer: string | null;
   unread: number;
+}
+
+// One 1:1 chat between the caller and another member (server/member-dms.ts),
+// as the sidebar lists it. A chat exists once its first message or file
+// landed. removed: the peer was removed from the office; the caller reads the
+// chat but cannot post until an owner restores the peer.
+export interface MemberDmSummary {
+  peerId: string;
+  peerName: string;
+  removed: boolean;
+  readPointer: string | null;
+  unread: number;
+  // When the newest live message was posted; null when none is left.
+  lastAt: number | null;
 }
 
 export interface MembersChatMessage {
@@ -2908,6 +2922,9 @@ export type ServerMessage =
       unavailableFeatures?: UnavailableFeatures;
       // Absent on older servers.
       membersChat?: MembersChatSummary;
+      // The caller's 1:1 chats with other members. Absent on older servers
+      // and for a member pack without the directMessages area.
+      memberDms?: MemberDmSummary[];
       // The lobby elevator's floors, in the order they were added. Absent on
       // older servers.
       floors?: Floor[];
@@ -3022,7 +3039,7 @@ export type ServerMessage =
   // changes (both re-project from scratch). A single task mutation does NOT ride
   // this - it arrives as one of the two deltas below, which is ~1KB instead of
   // the whole board.
-  // Members chat (the humans-only stream on the Lobby tab). A message event
+  // Members chat (the humans-only stream). A message event
   // carries a post or an in-place update. updateOnly replaces held messages
   // without appending an unloaded message or raising unread.
   | {
@@ -3035,6 +3052,21 @@ export type ServerMessage =
   | { type: "floors_updated"; floors: Floor[] }
   // The recipient's own read pointer moved (from any of their devices).
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
+  // 1:1 chats between two members. Each member gets their own copy, with
+  // peerId naming the other member; dm_read reaches only the reader.
+  | {
+      type: "dm_message";
+      peerId: string;
+      message: MembersChatMessage;
+      updateOnly?: boolean;
+    }
+  | { type: "dm_deleted"; peerId: string; id: string }
+  | {
+      type: "dm_read";
+      peerId: string;
+      readPointer: string | null;
+      unread: number;
+    }
   // summary: open and in-progress tasks only, each without its description
   // (a socket that asked with TASKS_SUMMARY_WS_PARAM). Absent: the whole board.
   | { type: "tasks"; tasks: TaskItem[]; summary?: true }

@@ -80,6 +80,7 @@ import {
   createMembersChatStore,
   type MembersChatStore,
 } from "./members-chat.ts";
+import { createMemberDms, type MemberDmsStore } from "./member-dms.ts";
 import { createFloorsStore, type FloorsStore } from "./floors-store.ts";
 import { BrowserExtensionStore } from "./browser-extension-store";
 import { BrowserExtensionService } from "./browser-extension-service";
@@ -195,9 +196,12 @@ export let cronjobManager: CronjobManager;
 
 export let scheduledMessageManager: ScheduledMessageManager;
 export let askStore: AskStore | undefined;
-// Members chat: the humans-only stream on the Lobby tab. The store is
+// Members chat: the humans-only stream. The store is
 // month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
 export let membersChat: MembersChatStore;
+// 1:1 chats between two members: one members chat store per pair under
+// <STATE_ROOT>/member-dms (server/member-dms.ts).
+export let memberDms: MemberDmsStore;
 // The lobby elevator's floors: <STATE_ROOT>/floors.json (server/floors-store.ts).
 export let floors: FloorsStore;
 export let pagerSettings: PagerSettingsStore;
@@ -498,6 +502,7 @@ export function createManagers(
   // into agents), and delivery. The store and delivery call each other
   // through these closures.
   membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
+  memberDms = createMemberDms(join(STATE_ROOT, "member-dms"));
   floors = createFloorsStore();
   const askHistory = officeAskHistory();
   const asks = createAskStore({

@@ -1,10 +1,9 @@
-import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { useHumanChatUnread } from "./human-chat-unread.ts";
 
+// The phone lobby's chat button: unread across every human chat.
 export function MembersChatUnread() {
-  const {
-    membersChat: { unread },
-  } = useAppState();
+  const unread = useHumanChatUnread();
   const { tn } = useI18n();
   if (unread <= 0) return null;
   const label = tn("membersChat.unreadCount", unread);

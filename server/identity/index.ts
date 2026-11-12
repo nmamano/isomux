@@ -132,7 +132,7 @@ export type Capability =
   // it: a run has nobody to hand a hook URL to.
   | "webhook:read"
   | "webhook:write"
-  // The members chat on the Lobby tab: humans and their proxies only. Held by
+  // The members chat: humans and their proxies only. Held by
   // USER, API and the PRIVILEGED agent set; deliberately absent from the AGENT
   // baseline, RUN and APP sets, so an ordinary agent, a cron run or an app can
   // neither read nor write it (Nil, 2026-09-05).

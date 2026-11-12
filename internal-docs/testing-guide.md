@@ -518,34 +518,29 @@ deferral, fetched expiry, paid linkage and provisioning, no synthetic event
 evidence, no poll-created dunning episode, complete-but-unpaid gating, and
 per-candidate failure isolation.
 
-Members chat mobile navigation, the unread count from `full_state`, the
-page fetch only while the chat is open and the catalog labels are covered by
-`ui/members-chat/mobile.dom.test.tsx`; `read.dom.test.tsx` in the same
-folder covers the visible-tab and at-bottom read rule on both widths, and a
-visible later message with a lower random ID clearing the Lobby badge. The
-read tests drive the mark-read delay with bun's fake clock, not a real sleep.
-The hydration hook runs from OfficeView (desktop panel) and LobbyChat
-(mobile), so its scoped checks include the App render tests as well as the
-office and chat tests.
-
-`ui/members-chat/desktop.dom.test.tsx` covers the chat at load (open only over
-this browser's saved open choice, never from the old key or on a phone, and a
-load saves nothing), the last show or hide click across a reload, the
-zoom-control inset, the open chat across an OfficeView remount, a room tab and a reconnect,
-and the page fetch only while the desktop chat is shown.
-`desktop-controls.dom.test.tsx` checks incoming unread while hidden and proves
-that showing the same message sends a read request; it also checks translated
-controls and that a phone ignores the store's shown state.
+Human chats (Members chat and the 1:1 chats, task 019e4d7c) open full screen
+in the main pane. `ui/App.human-chat-sidebar.dom.test.tsx` covers the
+sidebar's Members section (row order, badges, removed and online rows, the
+owner's gear, a row opening its chat, the /chats addresses and the collapsed
+sidebar's unread dot); `ui/App.human-chat-view.dom.test.tsx` the chat itself
+(the peer's name and route, the settings button, a removed peer's read-only
+chat, one draft per chat, Retry); `ui/App.human-chat-phone.dom.test.tsx` the
+lobby on both widths (a phone's chat button, its total unread and the chat
+switcher). `ui/store-member-dms.test.ts` covers the 1:1 reducer and
+`ui/members-chat/api.test.ts` the routes each chat calls. `read.dom.test.tsx`
+covers the visible-tab and at-bottom read rule. The read tests drive the
+mark-read delay with bun's fake clock, not a real sleep.
 
 `hydration.dom.test.tsx` covers the request-time snapshot, superseded
 responses and the pin refresh; the fresh-page case is in `ui/store.test.ts`.
 `panel.dom.test.tsx` checks message actions, adjacent author/device/kind
 grouping with per-message time, and desired-state reaction toggles with
 reactor names on hover, focus and tap. `replies-pins.dom.test.tsx` checks
-quotes, the reply-missing error and the pin strip. `width.dom.test.tsx`
-checks desktop sizing and persistence, the separator name, and mobile
-exclusion. `ui/device-settings.test.ts` checks stored width bounds.
+quotes, the reply-missing error and the pin strip.
 `server/test-support/routes-members-chat-rest.test.ts`
 checks the route guard, identity, idempotence, update events and unchanged unread.
 `server/members-chat.test.ts` checks reaction replay across a month boundary;
 `ui/store.test.ts` checks held updates, ignored unheld updates and new arrivals.
+`server/test-support/routes-member-dms-rest.test.ts` covers the 1:1 chat
+routes: only the pair reaches a chat, a read never makes one, a removed peer,
+the directMessages token area, the per-member events and the push.

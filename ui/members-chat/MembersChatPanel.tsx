@@ -1,4 +1,4 @@
-// The members chat panel: the office-wide, humans-only stream on the Lobby tab.
+// The members chat panel: the office-wide, humans-only stream.
 //
 // It is the agent chat's own message card (UserMessage / EditableUserMessage
 // from the log view) over a store slice that a REST page hydrates and the
@@ -12,6 +12,7 @@
 // their author line on every message. The list pages older messages at the
 // top instead of holding the whole history.
 
+import { MEMBERS_CHAT, humanChatId, type HumanChatKey } from "../human-chat.ts";
 import { membersChatExcerpt } from "../../shared/members-chat.ts";
 import {
   useCallback,
@@ -49,12 +50,13 @@ import {
   composerMaxHeight,
   fitComposer,
 } from "../composer-height.ts";
-import * as chatApi from "./api.ts";
 import { copySelectionAsPlainText } from "../log-view/plain-copy.ts";
-import {
-  MEMBERS_CHAT_FILES_BASE,
-  MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT,
-} from "./api.ts";
+import { chatApiFor, MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT } from "./api.ts";
+import type { MembersChatState } from "../store.tsx";
+import type { MembersChatPageRes } from "../../shared/contract-shapes.ts";
+import { SidebarIcon } from "../components/NavIcons.tsx";
+import { SidebarUnreadDot } from "./SidebarUnreadDot.tsx";
+import { useDmPeer } from "./member-rows.ts";
 import {
   secondaryBorder,
   secondaryFill,
@@ -217,23 +219,34 @@ function continuesMembersChatAuthor(
 }
 
 export function MembersChatPanel({
-  resizeHandle,
+  chat = MEMBERS_CHAT,
   style,
   onClose,
-  onHide,
+  onShowSidebar,
+  switcher,
+  onOpenMemberSettings,
   onRetry,
   loadFailed = false,
 }: {
-  resizeHandle?: ReactNode;
+  // Which chat: Members chat (the default) or a 1:1 chat.
+  chat?: HumanChatKey;
   style?: React.CSSProperties;
+  // The header's Back.
   onClose?: () => void;
-  onHide?: () => void;
+  // The collapsed desktop sidebar's open button.
+  onShowSidebar?: () => void;
+  // Replaces the title where no sidebar lists the chats (a phone).
+  switcher?: ReactNode;
+  // An owner's "<name>'s settings" in a 1:1 chat's header.
+  onOpenMemberSettings?: (userId: string) => void;
   onRetry?: () => void;
   loadFailed?: boolean;
 }) {
   const { t, language } = useI18n();
   const {
-    membersChat,
+    membersChat: membersChatSlice,
+    memberDms,
+    humanChatDrafts,
     sessionContext,
     users,
     onlineUserIds,
@@ -241,6 +254,54 @@ export function MembersChatPanel({
     isMobile,
   } = useAppState();
   const dispatch = useDispatch();
+  // A 1:1 chat's peer, or null in Members chat.
+  const peerId = chat.kind === "dm" ? chat.peerId : null;
+  const chatKey = humanChatId(chat);
+  const dm = peerId === null ? null : (memberDms[peerId] ?? null);
+  // The slice this chat renders. A 1:1 chat with no row yet is empty.
+  const membersChat: MembersChatState =
+    peerId === null ? membersChatSlice : (dm ?? EMPTY_CHAT);
+  const peer = useDmPeer(peerId ?? "");
+  const peerRemoved = peerId !== null && peer.removed;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the chat
+  const chatApi = useMemo(() => chatApiFor(chat), [chatKey]);
+  // The chat's own actions: the members_chat_* ones, or dm_* with the peer.
+  const onMessage = useCallback(
+    (message: MembersChatMessage, updateOnly?: boolean) =>
+      dispatch(
+        peerId === null
+          ? {
+              type: "members_chat_message",
+              message,
+              ...(updateOnly ? { updateOnly } : {}),
+            }
+          : {
+              type: "dm_message",
+              peerId,
+              message,
+              ...(updateOnly ? { updateOnly } : {}),
+            },
+      ),
+    [dispatch, peerId],
+  );
+  const onDeleted = useCallback(
+    (id: string) =>
+      dispatch(
+        peerId === null
+          ? { type: "members_chat_deleted", id }
+          : { type: "dm_deleted", peerId, id },
+      ),
+    [dispatch, peerId],
+  );
+  const onRead = useCallback(
+    (r: { readPointer: string | null; unread: number }) =>
+      dispatch(
+        peerId === null
+          ? { type: "members_chat_read", ...r }
+          : { type: "dm_read", peerId, ...r },
+      ),
+    [dispatch, peerId],
+  );
   // The store keys users by lowercased NAME (ui/user-merge.ts); messages and
   // presence carry ids, so index once by id here.
   const usersById = useMemo(() => {
@@ -256,7 +317,18 @@ export function MembersChatPanel({
     [messages],
   );
 
-  const [input, setInput] = useState("");
+  // The draft is the panel's own, written through to the store, one per
+  // chat, so a switch to another chat and back keeps it (the view mounts one
+  // panel per chat).
+  const [input, setInput] = useState(() => humanChatDrafts[chatKey] ?? "");
+  const draftChat = useRef(chat);
+  useEffect(() => {
+    dispatch({
+      type: "set_human_chat_draft",
+      chat: draftChat.current,
+      text: input,
+    });
+  }, [dispatch, input]);
   const [replyingTo, setReplyingTo] = useState<MembersChatMessage | null>(null);
   const [staged, setStaged] = useState<Staged[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -290,12 +362,23 @@ export function MembersChatPanel({
     chatApi
       .fetchPage({ before: messages[0].id, limit: PAGE_LIMIT })
       .then((page) => {
-        dispatch({
-          type: "members_chat_page",
-          ...page,
-          prepend: true,
-          pinsRevisionAtRequest,
-        });
+        if (peerId === null)
+          dispatch({
+            type: "members_chat_page",
+            ...(page as MembersChatPageRes),
+            prepend: true,
+            pinsRevisionAtRequest,
+          });
+        else
+          dispatch({
+            type: "dm_page",
+            peerId,
+            messages: page.messages,
+            hasMore: page.hasMore,
+            readPointer: page.readPointer,
+            unread: page.unread,
+            prepend: true,
+          });
         // Hold the reader's place: grow the scroll offset by what was added
         // above, so the message they were looking at does not jump.
         requestAnimationFrame(() => {
@@ -307,7 +390,15 @@ export function MembersChatPanel({
         setError(chatError(err, "membersChat.olderFailed")),
       )
       .finally(() => setLoadingOlder(false));
-  }, [loadingOlder, hasMore, messages, membersChat.pinsRevision, dispatch]);
+  }, [
+    loadingOlder,
+    hasMore,
+    messages,
+    membersChat.pinsRevision,
+    dispatch,
+    chatApi,
+    peerId,
+  ]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -334,11 +425,19 @@ export function MembersChatPanel({
     const t = setTimeout(() => {
       chatApi
         .markRead(newestId)
-        .then((r) => dispatch({ type: "members_chat_read", ...r }))
+        .then(onRead)
         .catch(() => {});
     }, 500);
     return () => clearTimeout(t);
-  }, [loaded, atBottom, newestId, readPointer, visibilityTick, dispatch]);
+  }, [
+    loaded,
+    atBottom,
+    newestId,
+    readPointer,
+    visibilityTick,
+    chatApi,
+    onRead,
+  ]);
 
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;
@@ -427,7 +526,7 @@ export function MembersChatPanel({
         ...(device ? { device } : {}),
       })
       .then((m) => {
-        dispatch({ type: "members_chat_message", message: m });
+        onMessage(m);
         setInput((prev) => unsentRest(prev, sentText));
         setReplyingTo((prev) => (prev?.id === sentReplyId ? null : prev));
         setStaged((prev) => prev.filter((s) => !sentStagedIds.has(s.id)));
@@ -459,11 +558,10 @@ export function MembersChatPanel({
   }
 
   function setPinned(id: string, active: boolean) {
+    if (!chatApi.setPinned) return;
     chatApi
       .setPinned(id, active)
-      .then((message) => {
-        dispatch({ type: "members_chat_message", message, updateOnly: true });
-      })
+      .then((message) => onMessage(message, true))
       .catch((err: unknown) =>
         setError(chatError(err, "membersChat.pinFailed")),
       );
@@ -473,11 +571,7 @@ export function MembersChatPanel({
     chatApi
       .edit(id, text)
       .then((m) => {
-        dispatch({
-          type: "members_chat_message",
-          message: m,
-          updateOnly: true,
-        });
+        onMessage(m, true);
         setEditingId(null);
       })
       .catch((err: unknown) =>
@@ -488,7 +582,7 @@ export function MembersChatPanel({
   async function setThumbsUp(id: string, active: boolean) {
     try {
       const message = await chatApi.setThumbsUp(id, active);
-      dispatch({ type: "members_chat_message", message, updateOnly: true });
+      onMessage(message, true);
     } catch (err) {
       setError(chatError(err, "membersChat.reactionFailed"));
     }
@@ -497,7 +591,7 @@ export function MembersChatPanel({
   function remove(id: string) {
     chatApi
       .remove(id)
-      .then(() => dispatch({ type: "members_chat_deleted", id }))
+      .then(() => onDeleted(id))
       .catch((err: unknown) =>
         setError(chatError(err, "membersChat.deleteFailed")),
       );
@@ -533,7 +627,6 @@ export function MembersChatPanel({
       }}
       onDrop={handleDrop}
     >
-      {resizeHandle}
       <div
         style={{
           display: "flex",
@@ -545,11 +638,37 @@ export function MembersChatPanel({
           flexShrink: 0,
         }}
       >
+        {onShowSidebar && (
+          <button
+            type="button"
+            data-show-sidebar=""
+            onClick={onShowSidebar}
+            title={t("sidebar.show")}
+            aria-label={t("sidebar.show")}
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              padding: 5,
+              borderRadius: 6,
+              border: "1px solid var(--border-subtle)",
+              background: "var(--btn-surface)",
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            {SidebarIcon}
+            <SidebarUnreadDot />
+          </button>
+        )}
         {onClose && (
           <button
+            type="button"
+            data-human-chat-back=""
             onClick={onClose}
             style={{
-              minHeight: 44,
+              minHeight: isMobile ? 44 : 28,
               padding: "0 12px",
               border: "1px solid var(--border)",
               borderRadius: 6,
@@ -561,64 +680,118 @@ export function MembersChatPanel({
             {t("common.back")}
           </button>
         )}
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            color: "var(--text-primary)",
-            fontFamily: "var(--font-ui)",
-          }}
-        >
-          {t("membersChat.title")}
-        </span>
-        <span
-          data-online-count
-          style={{
-            fontSize: 11,
-            color: "var(--text-ghost)",
-            marginLeft: "auto",
-          }}
-        >
-          {t("membersChat.online", {
-            count: formatNumber(language, totalOnlineUsers),
-          })}
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center" }}>
-          {online.slice(0, isMobile ? 3 : 8).map((u, i) => (
+        {switcher ??
+          (peerId !== null ? (
             <span
-              key={u.id}
-              {...noTranslate()}
-              title={u.name}
-              style={{ display: "inline-flex", marginLeft: i === 0 ? 0 : -4 }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                minWidth: 0,
+              }}
             >
               <GhostGraphic
-                variant={u.avatarVariant}
-                color={u.avatarColor}
-                size={14}
+                variant={usersById.get(peerId)?.avatarVariant ?? "classic"}
+                color={
+                  usersById.get(peerId)?.avatarColor ??
+                  defaultGhostColorForUserId(peerId)
+                }
+                size={16}
                 animated={false}
                 shadow={false}
               />
+              <span
+                {...noTranslate()}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {peer.name}
+              </span>
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-ui)",
+              }}
+            >
+              {t("membersChat.title")}
             </span>
           ))}
-        </span>
-        {onHide && (
-          <button
-            onClick={onHide}
-            style={{
-              flexShrink: 0,
-              padding: "4px 8px",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              background: "var(--bg-code)",
-              color: "var(--text-primary)",
-              fontSize: 11,
-              cursor: "pointer",
-            }}
-          >
-            {t("membersChat.hide")}
-          </button>
+        {peerId !== null ? (
+          <>
+            {!peerRemoved && onlineUserIds.includes(peerId) && (
+              <span style={{ fontSize: 11, color: "var(--green)" }}>
+                {t("humanChat.online")}
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            {amOwner && !peerRemoved && peer.live && onOpenMemberSettings && (
+              <button
+                type="button"
+                data-member-settings=""
+                onClick={() => onOpenMemberSettings(peerId)}
+                style={{
+                  flexShrink: 0,
+                  padding: "4px 8px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  background: "var(--bg-code)",
+                  color: "var(--text-primary)",
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                {t("humanChat.memberSettings", { name: peer.name })}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <span
+              data-online-count
+              style={{
+                fontSize: 11,
+                color: "var(--text-ghost)",
+                marginLeft: "auto",
+              }}
+            >
+              {t("membersChat.online", {
+                count: formatNumber(language, totalOnlineUsers),
+              })}
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center" }}>
+              {online.slice(0, isMobile ? 3 : 8).map((u, i) => (
+                <span
+                  key={u.id}
+                  {...noTranslate()}
+                  title={u.name}
+                  style={{
+                    display: "inline-flex",
+                    marginLeft: i === 0 ? 0 : -4,
+                  }}
+                >
+                  <GhostGraphic
+                    variant={u.avatarVariant}
+                    color={u.avatarColor}
+                    size={14}
+                    animated={false}
+                    shadow={false}
+                  />
+                </span>
+              ))}
+            </span>
+          </>
         )}
       </div>
 
@@ -734,7 +907,8 @@ export function MembersChatPanel({
                 />
               </span>
             ) : null;
-          const canDelete = mine || amOwner;
+          // In a 1:1 chat only your own: an owner has no reach there.
+          const canDelete = mine || (amOwner && peerId === null);
           return (
             <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
               <UserMessage
@@ -769,7 +943,7 @@ export function MembersChatPanel({
                 title={label}
                 fromNonHuman={author.nonHuman}
                 attachments={m.attachments}
-                fileBase={MEMBERS_CHAT_FILES_BASE}
+                fileBase={chatApi.filesBase}
                 avatar={avatar}
                 editTitle={t("common.edit")}
                 extraActions={
@@ -797,29 +971,31 @@ export function MembersChatPanel({
                         >
                           {t("membersChat.reply")}
                         </button>
-                        <button
-                          type="button"
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "var(--text-primary)",
-                            textAlign: "left",
-                            font: "inherit",
-                            fontSize: 12,
-                            cursor: "pointer",
-                            padding: "4px 0",
-                          }}
-                          onClick={() => {
-                            close();
-                            setPinned(m.id, m.pinnedAt === undefined);
-                          }}
-                        >
-                          {t(
-                            m.pinnedAt === undefined
-                              ? "membersChat.pin"
-                              : "membersChat.unpin",
-                          )}
-                        </button>
+                        {chatApi.setPinned && (
+                          <button
+                            type="button"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "var(--text-primary)",
+                              textAlign: "left",
+                              font: "inherit",
+                              fontSize: 12,
+                              cursor: "pointer",
+                              padding: "4px 0",
+                            }}
+                            onClick={() => {
+                              close();
+                              setPinned(m.id, m.pinnedAt === undefined);
+                            }}
+                          >
+                            {t(
+                              m.pinnedAt === undefined
+                                ? "membersChat.pin"
+                                : "membersChat.unpin",
+                            )}
+                          </button>
+                        )}
                         {mine && (
                           <button
                             type="button"
@@ -951,193 +1127,224 @@ export function MembersChatPanel({
             )}
           </div>
         )}
-        {staged.length > 0 && (
+        {peerRemoved ? (
           <div
+            data-peer-removed=""
             style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 6,
-              marginBottom: 8,
+              color: "var(--text-dim)",
+              fontSize: isMobile ? 13 : 12,
+              padding: "4px 2px",
             }}
           >
-            {staged.map((att) => (
+            {t("humanChat.peerRemoved")}
+          </div>
+        ) : (
+          <>
+            {staged.length > 0 && (
               <div
-                key={att.id}
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
+                  display: "flex",
+                  flexWrap: "wrap",
                   gap: 6,
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                  background: att.error ? "var(--red-bg)" : "var(--bg-hover)",
-                  border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
-                  fontSize: isMobile ? 13 : 11,
-                  fontFamily: "var(--font-ui)",
-                  color: att.error
-                    ? "var(--red-text)"
-                    : "var(--text-secondary)",
-                  maxWidth: "100%",
+                  marginBottom: 8,
                 }}
               >
-                {att.mediaType.startsWith("image/")
-                  ? "🖼️"
-                  : att.mediaType === "application/pdf"
-                    ? "📄"
-                    : "📎"}
-                <span
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    maxWidth: 150,
-                  }}
-                >
-                  {att.originalName}
-                </span>
-                {att.uploading && (
-                  <span style={{ color: "var(--text-ghost)" }}>
-                    {t("membersChat.uploading")}
-                  </span>
-                )}
-                {att.error && (
-                  <span style={{ fontSize: isMobile ? 11 : 10 }}>
-                    {errorText(att.error, t)}
-                  </span>
-                )}
-                <button
-                  onClick={() =>
-                    setStaged((prev) => prev.filter((s) => s.id !== att.id))
-                  }
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: att.error ? "var(--red-text)" : "var(--text-ghost)",
-                    cursor: "pointer",
-                    padding: "0 2px",
-                    fontSize: 14,
-                    lineHeight: 1,
-                    flexShrink: 0,
-                  }}
-                >
-                  ×
-                </button>
+                {staged.map((att) => (
+                  <div
+                    key={att.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      background: att.error
+                        ? "var(--red-bg)"
+                        : "var(--bg-hover)",
+                      border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
+                      fontSize: isMobile ? 13 : 11,
+                      fontFamily: "var(--font-ui)",
+                      color: att.error
+                        ? "var(--red-text)"
+                        : "var(--text-secondary)",
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {att.mediaType.startsWith("image/")
+                      ? "🖼️"
+                      : att.mediaType === "application/pdf"
+                        ? "📄"
+                        : "📎"}
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 150,
+                      }}
+                    >
+                      {att.originalName}
+                    </span>
+                    {att.uploading && (
+                      <span style={{ color: "var(--text-ghost)" }}>
+                        {t("membersChat.uploading")}
+                      </span>
+                    )}
+                    {att.error && (
+                      <span style={{ fontSize: isMobile ? 11 : 10 }}>
+                        {errorText(att.error, t)}
+                      </span>
+                    )}
+                    <button
+                      onClick={() =>
+                        setStaged((prev) => prev.filter((s) => s.id !== att.id))
+                      }
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: att.error
+                          ? "var(--red-text)"
+                          : "var(--text-ghost)",
+                        cursor: "pointer",
+                        padding: "0 2px",
+                        fontSize: 14,
+                        lineHeight: 1,
+                        flexShrink: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              background: "none",
-              border: "none",
-              padding: 0,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              lineHeight: "20px",
-              fontSize: 16,
-              flexShrink: 0,
-              opacity: 0.7,
-            }}
-            title={t("logView.attachFiles")}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          </button>
-          <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                fitComposer(e.target, isMobile);
-              }}
-              onPaste={handlePaste}
-              onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
-                if (
-                  e.key === "Enter" &&
-                  !e.shiftKey &&
-                  !e.ctrlKey &&
-                  !e.metaKey &&
-                  !touchPrimary
-                ) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder={t("membersChat.placeholder")}
-              rows={1}
-              style={{
-                width: "100%",
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                color: "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: isMobile ? COMPOSER_MOBILE_FONT_SIZE : 13,
-                caretColor: "var(--green)",
-                resize: "none",
-                padding: "0 0 4px",
-                lineHeight: "20px",
-                maxHeight: composerMaxHeight(isMobile),
-                overflowY: "auto",
-              }}
-            />
-            {input.length >= COUNTER_FROM && (
-              <span
-                style={{
-                  position: "absolute",
-                  right: 0,
-                  bottom: -2,
-                  fontSize: 10,
-                  color:
-                    input.length > MEMBERS_CHAT_MAX_CHARS
-                      ? "var(--red-text)"
-                      : "var(--text-ghost)",
-                }}
-              >
-                {formatNumber(language, input.length)}/
-                {formatNumber(language, MEMBERS_CHAT_MAX_CHARS)}
-              </span>
             )}
-          </div>
-          {(touchPrimary || isMobile) && (
-            <button
-              onClick={handleSend}
-              disabled={!canSend}
-              style={{
-                flexShrink: 0,
-                alignSelf: "flex-end",
-                height: 32,
-                padding: "0 12px",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: canSend ? "var(--accent-bg)" : "transparent",
-                color: canSend ? "var(--accent-text)" : "var(--text-ghost)",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: canSend ? "pointer" : "default",
-              }}
-            >
-              {t("common.send")}
-            </button>
-          )}
-        </div>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  lineHeight: "20px",
+                  fontSize: 16,
+                  flexShrink: 0,
+                  opacity: 0.7,
+                }}
+                title={t("logView.attachFiles")}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    fitComposer(e.target, isMobile);
+                  }}
+                  onPaste={handlePaste}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing) return;
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.ctrlKey &&
+                      !e.metaKey &&
+                      !touchPrimary
+                    ) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder={
+                    peerId !== null
+                      ? t("humanChat.placeholder", { name: peer.name })
+                      : t("membersChat.placeholder")
+                  }
+                  rows={1}
+                  style={{
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: "var(--text-secondary)",
+                    fontFamily: "var(--font-ui)",
+                    fontSize: isMobile ? COMPOSER_MOBILE_FONT_SIZE : 13,
+                    caretColor: "var(--green)",
+                    resize: "none",
+                    padding: "0 0 4px",
+                    lineHeight: "20px",
+                    maxHeight: composerMaxHeight(isMobile),
+                    overflowY: "auto",
+                  }}
+                />
+                {input.length >= COUNTER_FROM && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      bottom: -2,
+                      fontSize: 10,
+                      color:
+                        input.length > MEMBERS_CHAT_MAX_CHARS
+                          ? "var(--red-text)"
+                          : "var(--text-ghost)",
+                    }}
+                  >
+                    {formatNumber(language, input.length)}/
+                    {formatNumber(language, MEMBERS_CHAT_MAX_CHARS)}
+                  </span>
+                )}
+              </div>
+              {(touchPrimary || isMobile) && (
+                <button
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  style={{
+                    flexShrink: 0,
+                    alignSelf: "flex-end",
+                    height: 32,
+                    padding: "0 12px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                    background: canSend ? "var(--accent-bg)" : "transparent",
+                    color: canSend ? "var(--accent-text)" : "var(--text-ghost)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: canSend ? "pointer" : "default",
+                  }}
+                >
+                  {t("common.send")}
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 }
+
+const EMPTY_CHAT: MembersChatState = {
+  messages: [],
+  hasMore: false,
+  loaded: false,
+  readPointer: null,
+  unread: 0,
+};
 
 type ChatError = {
   key: Extract<PlainMessageKey, `membersChat.${string}`>;

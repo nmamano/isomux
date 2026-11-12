@@ -86,6 +86,7 @@ import type {
   UserRecord,
   UserRole,
   MembersChatMessage,
+  MemberDmSummary,
   AskMemberWire,
   TaskItem,
   WebhookDelivery,
@@ -246,7 +247,7 @@ function defaultDemoMemory(scope: string): string {
   return "";
 }
 
-// Members chat: the humans-only stream on the Lobby tab. A canned page seeded
+// Members chat: the humans-only stream. A canned page seeded
 // once per session; a post from the demo viewer lands as Ricky and fans out
 // through the same wire event the real server sends.
 let demoMembersChat: MembersChatMessage[] = [];
@@ -328,6 +329,160 @@ function seedMembersChat(now: number): void {
     excerpt: demoMembersChat[0].content,
   };
 }
+// The demo viewer's 1:1 chats, by the peer's user id (task 019e4d7c). Ricky
+// and Stephen have one; the others start empty.
+const demoDms = new Map<string, MembersChatMessage[]>();
+
+function seedDms(now: number): void {
+  const ricky = users.get("ricky");
+  const stephen = users.get("stephen");
+  if (!ricky || !stephen) return;
+  const min = 60_000;
+  const from = (
+    who: UserRecord,
+    device: string,
+    ago: number,
+    content: string,
+  ): MembersChatMessage => ({
+    id: membersChatId(),
+    kind: "user",
+    userId: who.id,
+    userName: who.name,
+    device,
+    timestamp: now - ago * min,
+    content,
+    attachments: [],
+  });
+  demoDms.clear();
+  demoDms.set(stephen.id, [
+    from(
+      stephen,
+      "Phone",
+      50,
+      "can you look at my agent in The Annex? it keeps asking for sudo",
+    ),
+    from(
+      ricky,
+      "Laptop",
+      47,
+      "on it. it needs apt for one package, approve its sudo request from your Inbox",
+    ),
+    from(stephen, "Phone", 2, "Thanks!"),
+  ]);
+}
+
+function demoDmSummaries(): MemberDmSummary[] {
+  return [...demoDms.entries()].map(([peerId, messages]) => ({
+    peerId,
+    peerName: [...users.values()].find((u) => u.id === peerId)?.name ?? peerId,
+    removed: false,
+    readPointer: messages.at(-1)?.id ?? null,
+    unread: 0,
+    lastAt: messages.at(-1)?.timestamp ?? null,
+  }));
+}
+
+// The 1:1 chat routes, or undefined for any other path.
+function demoDmRoute(
+  method: string,
+  pathname: string,
+  body: unknown,
+): { handled: true; value: unknown } | undefined {
+  if (method === "GET" && pathname === "/api/member-chats")
+    return { handled: true, value: { chats: demoDmSummaries() } };
+  const m = /^\/api\/users\/([^/]+)\/chat(?:\/(.*))?$/.exec(pathname);
+  if (!m) return undefined;
+  const ricky = users.get("ricky")!;
+  const peer = [...users.values()].find(
+    (u) => u.id === decodeURIComponent(m[1]) || u.name === m[1],
+  );
+  if (!peer) throw new ApiError(404, "not_found", "");
+  if (peer.id === ricky.id)
+    throw new ApiError(400, "invalid_request", "you cannot chat with yourself");
+  const rest = m[2] ?? "";
+  const messages = demoDms.get(peer.id) ?? [];
+  const emit = (message: MembersChatMessage, updateOnly?: boolean) =>
+    shimEmit({
+      type: "dm_message",
+      peerId: peer.id,
+      message,
+      ...(updateOnly ? { updateOnly } : {}),
+    });
+  if (method === "GET" && rest === "")
+    return {
+      handled: true,
+      value: {
+        messages: [...messages],
+        hasMore: false,
+        readPointer: messages.at(-1)?.id ?? null,
+        unread: 0,
+      },
+    };
+  if (method === "POST" && rest === "read") {
+    const readPointer = messages.at(-1)?.id ?? null;
+    shimEmit({ type: "dm_read", peerId: peer.id, readPointer, unread: 0 });
+    return { handled: true, value: { readPointer, unread: 0 } };
+  }
+  if (method === "POST" && rest === "") {
+    const b = (body ?? {}) as { text?: unknown; attachments?: unknown };
+    if (typeof b.text !== "string")
+      throw new ApiError(400, "invalid_request", "text must be a string");
+    const attachments = Array.isArray(b.attachments)
+      ? (b.attachments as MembersChatMessage["attachments"])
+      : [];
+    if (!b.text.trim() && attachments.length === 0)
+      throw new ApiError(400, "empty", "a message needs text or a file");
+    const message: MembersChatMessage = {
+      id: membersChatId(),
+      kind: "user",
+      userId: ricky.id,
+      userName: ricky.name,
+      timestamp: Date.now(),
+      content: b.text,
+      attachments,
+    };
+    demoDms.set(peer.id, [...messages, message]);
+    emit(message);
+    return { handled: true, value: message };
+  }
+  const thumbs = /^([^/]+)\/thumbs-up$/.exec(rest);
+  const target = messages.findIndex((x) => x.id === (thumbs?.[1] ?? rest));
+  if (target === -1) throw new ApiError(404, "not_found", "");
+  if (method === "PUT" && thumbs) {
+    const active = (body as { active?: unknown } | undefined)?.active === true;
+    const thumbsUp = (messages[target].thumbsUp ?? []).filter(
+      (r) => r.userId !== ricky.id,
+    );
+    if (active)
+      thumbsUp.push({ kind: "user", userId: ricky.id, userName: ricky.name });
+    const message = { ...messages[target], thumbsUp };
+    messages[target] = message;
+    emit(message, true);
+    return { handled: true, value: message };
+  }
+  if (messages[target].userId !== ricky.id)
+    throw new ApiError(403, "forbidden", "");
+  if (method === "DELETE") {
+    messages.splice(target, 1);
+    shimEmit({ type: "dm_deleted", peerId: peer.id, id: rest });
+    return { handled: true, value: undefined };
+  }
+  if (method === "PATCH") {
+    const text = (body as { text?: unknown } | undefined)?.text;
+    if (typeof text !== "string" || !text.trim())
+      throw new ApiError(400, "empty", "a message needs text or a file");
+    const message = {
+      ...messages[target],
+      content: text,
+      editedAt: Date.now(),
+    };
+    messages[target] = message;
+    emit(message, true);
+    return { handled: true, value: message };
+  }
+  throw new ApiError(404, "not_found", "");
+}
+
 const demoManagedEnv: Record<string, Record<string, string>> = {};
 // Each member's pager settings, by lower-case name: an owner sets another
 // member's too (task 7a3b4114).
@@ -867,6 +1022,7 @@ function ensureSeeded() {
   seedUsers();
   seedWebhooks();
   seedMembersChat(Date.now());
+  seedDms(Date.now());
   state.setOfficeSettings(
     "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
     null,
@@ -2843,6 +2999,8 @@ export async function demoApi(
     demoMemory.set(key, replacement.text);
     return { version: versionOf(replacement.text) } satisfies MemoryWriteRes;
   }
+  const dmRoute = demoDmRoute(method, pathname, body);
+  if (dmRoute) return dmRoute.value;
   const pinMatch = /^\/api\/members-chat\/([^/]+)\/pin$/.exec(pathname);
   if (method === "PUT" && pinMatch) {
     const index = demoMembersChat.findIndex(
@@ -4596,6 +4754,7 @@ export function sendInitialState() {
       readPointer: demoMembersChat.at(-1)?.id ?? null,
       unread: 0,
     },
+    memberDms: demoDmSummaries(),
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({

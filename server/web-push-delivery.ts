@@ -28,6 +28,9 @@
 // phone. One tag per agent, so the next turn end of that agent replaces the
 // last one.
 //
+// 1:1 chat messages (onDirectMessage): every device of the recipient, with no
+// room gate and no repeat, one tag per sender.
+//
 // A push service that answers 401, 403, 404 or 410 refuses or no longer
 // knows the subscription, so the device is removed. Any other failure stays on the device record for
 // the settings list. Log lines are fixed text: an error may quote the
@@ -93,6 +96,15 @@ export interface WebPushDeliveryService {
     name: string;
     roomId: string | null;
     memberIds: readonly string[];
+  }): void;
+  // A new 1:1 chat message for the recipient (task 019e4d7c): every device of
+  // theirs, no room gate. title is the name the message shows; preview is a
+  // short excerpt. One tag per sender, so the next message replaces it.
+  onDirectMessage(message: {
+    recipientId: string;
+    senderId: string;
+    title: string;
+    preview: string;
   }): void;
   start(): void;
   // The member changed their repeat interval: re-arm their open pages.
@@ -374,6 +386,24 @@ export function createWebPushDelivery(
         if (stopped || kind !== "created") return;
         send(entry, "page");
         arm(entry, deps.now());
+      });
+    },
+
+    onDirectMessage(message) {
+      guard(() => {
+        if (stopped) return;
+        const devices = deps.store.list(message.recipientId);
+        if (devices.length === 0) return;
+        const payload = encodePayload({
+          title: message.title,
+          body: message.preview,
+          tag: `dm:${message.senderId}`,
+          url: `/chats/${encodeURIComponent(message.senderId)}`,
+          renotify: true,
+        });
+        track(
+          Promise.all(devices.map((d) => deliver(d, payload))).then(() => {}),
+        );
       });
     },
 

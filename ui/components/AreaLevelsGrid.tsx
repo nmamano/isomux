@@ -23,6 +23,7 @@ export const AREA_LABEL: Record<ApiTokenArea, PlainMessageKey> = {
   tasks: "settings.apiTokens.area.tasks",
   asks: "settings.apiTokens.area.asks",
   membersChat: "settings.apiTokens.area.membersChat",
+  directMessages: "settings.apiTokens.area.directMessages",
   memory: "settings.apiTokens.area.memory",
   skills: "settings.apiTokens.area.skills",
   schedules: "settings.apiTokens.area.schedules",

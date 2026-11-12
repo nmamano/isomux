@@ -1,4 +1,5 @@
 import { isBackSeat } from "../../shared/desks.ts";
+import { SidebarUnreadDot } from "../members-chat/SidebarUnreadDot.tsx";
 import { useAgentLog } from "../agent-log.ts";
 import { useLoadRest } from "./load-rest.ts";
 import { HeaderBackgroundPill } from "../components/BackgroundWork.tsx";
@@ -2042,6 +2043,7 @@ export function LogView({
               title={i18n.t("sidebar.show")}
               aria-label={i18n.t("sidebar.show")}
               style={{
+                position: "relative",
                 display: "flex",
                 alignItems: "center",
                 padding: "0 12px",
@@ -2054,6 +2056,7 @@ export function LogView({
               }}
             >
               {SidebarIcon}
+              <SidebarUnreadDot />
             </button>
           )}
           {!sidebarOpen && (

@@ -6,6 +6,13 @@
 // menu and the drag to reorder and tuck rooms; App draws the slot around it
 // (its width, the resize edge and the slide).
 
+import { MEMBERS_CHAT, type HumanChatKey } from "../human-chat.ts";
+import {
+  useMemberChatRows,
+  type MemberChatRow,
+} from "../members-chat/member-rows.ts";
+import { GearIcon } from "../members-chat/icons.tsx";
+import { GhostGraphic } from "../office/ghostVariants.tsx";
 import {
   useEffect,
   useLayoutEffect,
@@ -91,7 +98,10 @@ export interface ChatSidebarProps {
   onOpenPage: (page: SidebarPage) => void;
   onOpenAgent: (agentId: string) => void;
   onAgentContextMenu: (x: number, y: number, agent: AgentInfo) => void;
-  onMembersChat: () => void;
+  // A row of the Members section: Members chat or a 1:1 chat.
+  onOpenHumanChat: (chat: HumanChatKey) => void;
+  // An owner's gear on a member row: Settings on that member.
+  onOpenMemberSettings: (userId: string) => void;
   onOpenSettings: () => void;
   // A room menu's Room settings.
   onRoomSettings: (roomId: string) => void;
@@ -465,6 +475,106 @@ function Summary({
   );
 }
 
+// A member row of the Members section: ghost with online dot, name, unread
+// badge. An owner gets a gear to that member's settings, over the row's right
+// end on hover, as an agent row's pin; a removed member's row is muted and
+// has none.
+function MemberRow({
+  row,
+  current,
+  onOpen,
+  onSettings,
+}: {
+  row: MemberChatRow;
+  current: boolean;
+  onOpen: (userId: string) => void;
+  onSettings: ((userId: string) => void) | null;
+}) {
+  const { t } = useI18n();
+  const settingsLabel = t("humanChat.memberSettings", { name: row.name });
+  return (
+    <div className="chat-sidebar-member">
+      <button
+        type="button"
+        tabIndex={-1}
+        className="chat-sidebar-row"
+        data-sidebar-member={row.id}
+        {...(row.removed ? { "data-removed": "" } : {})}
+        {...(row.online ? { "data-online": "" } : {})}
+        aria-current={current ? "page" : undefined}
+        title={
+          row.removed ? `${row.name} (${t("humanChat.removed")})` : undefined
+        }
+        onClick={() => onOpen(row.id)}
+        style={{
+          ...rowBase,
+          padding: "5px 10px",
+          opacity: row.removed ? 0.55 : 1,
+        }}
+      >
+        <span
+          style={{
+            position: "relative",
+            flexShrink: 0,
+            display: "flex",
+            width: HEAD_SIZE,
+            justifyContent: "center",
+          }}
+        >
+          <GhostGraphic
+            variant={row.avatarVariant as never}
+            color={row.avatarColor}
+            size={22}
+            animated={false}
+            shadow={false}
+          />
+          {!row.removed && (
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                right: 0,
+                bottom: -1,
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: row.online ? "var(--green)" : "var(--text-dim)",
+                border: "2px solid var(--bg-surface)",
+              }}
+            />
+          )}
+        </span>
+        <span
+          {...noTranslate()}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontWeight: row.unread > 0 ? 600 : 400,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {row.name}
+        </span>
+        <Badge n={row.unread} tone="red" />
+      </button>
+      {onSettings && (
+        <button
+          type="button"
+          className="chat-sidebar-row-action chat-sidebar-member-gear"
+          data-sidebar-member-settings={row.id}
+          title={settingsLabel}
+          aria-label={settingsLabel}
+          onClick={() => onSettings(row.id)}
+        >
+          {GearIcon}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SectionHeader({
   label,
   open,
@@ -681,7 +791,8 @@ export function ChatSidebar({
   onOpenPage,
   onOpenAgent,
   onAgentContextMenu,
-  onMembersChat,
+  onOpenHumanChat,
+  onOpenMemberSettings,
   onOpenSettings,
   onRoomSettings,
   pins,
@@ -695,9 +806,15 @@ export function ChatSidebar({
     needsAttention,
     stateChangedAt,
     membersChat,
+    openHumanChat,
     currentRoomId,
     lobbyOpen: lobbyInView,
+    sessionContext,
   } = useAppState();
+  const memberRows = useMemberChatRows();
+  const amOwner = sessionContext?.role === "owner";
+  // The open human chat's row is current while no page covers it.
+  const humanChatShown = page === null ? openHumanChat : null;
   const { t } = useI18n();
   // A member with a permission pack sees only the pages of its areas, as in
   // the office bar.
@@ -768,6 +885,7 @@ export function ChatSidebar({
     }));
   const flip = (field: "more" | "lobby" | "pinned" | "recent") =>
     setSections((s) => ({ ...s, [field]: !s[field] }));
+  const membersOpen = sections.members !== false;
 
   // The room order and the tucked list, written through the same calls as
   // the room tab bar (useRoomList), so the two always agree.
@@ -1264,7 +1382,18 @@ export function ChatSidebar({
             onToggle={() => flip("lobby")}
             attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
           />
-          {sections.lobby && (
+          {sections.lobby && receptionist && agentRow(receptionist)}
+        </div>
+        <div>
+          <SectionHeader
+            label={t("sidebar.members")}
+            open={membersOpen}
+            onToggle={() =>
+              setSections((s) => ({ ...s, members: s.members === false }))
+            }
+            attr={{ "data-sidebar-members": "" }}
+          />
+          {membersOpen && (
             <>
               <NavRow
                 attr="members-chat"
@@ -1280,10 +1409,24 @@ export function ChatSidebar({
                   </span>
                 }
                 label={t("membersChat.title")}
+                current={humanChatShown?.kind === "members"}
                 badge={membersChat.unread}
-                onClick={onMembersChat}
+                onClick={() => onOpenHumanChat(MEMBERS_CHAT)}
               />
-              {receptionist && agentRow(receptionist)}
+              {memberRows.map((row) => (
+                <MemberRow
+                  key={row.id}
+                  row={row}
+                  current={
+                    humanChatShown?.kind === "dm" &&
+                    humanChatShown.peerId === row.id
+                  }
+                  onOpen={(peerId) => onOpenHumanChat({ kind: "dm", peerId })}
+                  onSettings={
+                    amOwner && !row.removed ? onOpenMemberSettings : null
+                  }
+                />
+              ))}
             </>
           )}
         </div>

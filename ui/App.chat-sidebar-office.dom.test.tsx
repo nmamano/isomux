@@ -1,8 +1,9 @@
-// The desktop chat sidebar's Office and Members chat rows (task c61316be):
-// they leave every page and the chat for the room view, from a chat, from a
+// The desktop chat sidebar's Office row (task c61316be): it leaves every page
+// and the chat for the room view, from a chat, from a
 // page over a chat, and from a back agent's chat (its back room). The browser
 // history must end where the office's own ways back leave it: on the load
-// entry, so a Back after them brings no page or chat back. The setup is in
+// entry, so a Back after it brings no page or chat back. The Members chat row
+// is in ui/App.human-chat-sidebar.dom.test.tsx. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
@@ -85,23 +86,4 @@ it("from a back agent's chat, goes to its room's back room, and Back from there 
   // was r2's.
   await goBack();
   await expectFrontOffice(view, "r2");
-});
-
-it("Members chat, from a page over a chat, opens the lobby's members chat with no page or chat left", async () => {
-  const view = await boot();
-  await openFirstDesk(view);
-  await press("t");
-  await click(navRow(view, "members-chat"));
-  expect({
-    chat: chatOpen(view),
-    tasks: tasksOpen(view),
-    membersChat:
-      view.container.querySelector("[data-members-chat-list]") !== null,
-    entry: window.history.state,
-  }).toEqual({
-    chat: false,
-    tasks: false,
-    membersChat: true,
-    entry: LOAD_ENTRY,
-  });
 });

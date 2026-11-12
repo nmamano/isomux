@@ -87,6 +87,7 @@ const RENDERED = new Set([
 const COPIED = [
   "memory",
   "members-chat",
+  "member-dms",
   "skills",
   "member-skills",
   "office-prompt.md",

@@ -81,6 +81,10 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   members_chat_message: "all",
   members_chat_deleted: "all",
   members_chat_read: "recipient-scoped",
+  // 1:1 chats: each member of the pair gets their own copy (task 019e4d7c).
+  dm_message: "recipient-scoped",
+  dm_deleted: "recipient-scoped",
+  dm_read: "recipient-scoped",
   tasks: "recipient-scoped",
   task_upserted: "recipient-scoped",
   task_deleted: "recipient-scoped",

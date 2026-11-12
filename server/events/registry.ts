@@ -224,6 +224,15 @@ export interface EventPayloads {
   members_chat_message: { message: MembersChatMessage; updateOnly?: boolean };
   members_chat_deleted: { id: string };
   members_chat_read: { readPointer: string | null; unread: number };
+  // A 1:1 chat between two members: each member gets their own copy, with
+  // peerId naming the other member. dm_read reaches the reader only.
+  dm_message: {
+    peerId: string;
+    message: MembersChatMessage;
+    updateOnly?: boolean;
+  };
+  dm_deleted: { peerId: string; id: string };
+  dm_read: { peerId: string; readPointer: string | null; unread: number };
   // summary: open and in-progress tasks without descriptions (a socket that
   // asked for the summary board, task 9ebe887d).
   tasks: { tasks: TaskItem[]; summary?: true };
@@ -462,6 +471,16 @@ export const EVENT_REGISTRY = {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },
   },
+  // Never "all": only the two members of the pair get a 1:1 chat's events.
+  dm_message: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
+  dm_deleted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
+  dm_read: { audience: "recipient-scoped", projectionKey: { kind: "userId" } },
   tasks: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },

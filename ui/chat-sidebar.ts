@@ -37,6 +37,9 @@ export type ChatSidebarSections = {
   // The Pinned and Recent sections (task 5dac6b9b).
   pinned: boolean;
   recent: boolean;
+  // The Members section (Members chat and the 1:1 chats). Absent (saved
+  // before the section) is open.
+  members?: boolean;
   anchor: string | null;
 };
 
@@ -71,6 +74,7 @@ export function sidebarSectionsForAnchor(
     lobby: s.lobby,
     pinned: s.pinned,
     recent: s.recent,
+    ...(s.members !== undefined ? { members: s.members } : {}),
     anchor: anchor.key,
   };
 }

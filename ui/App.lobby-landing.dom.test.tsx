@@ -10,8 +10,7 @@ for (const visibleRooms of [[], rooms]) {
   it(`lands on Lobby without a saved view with ${visibleRooms.length} room grants`, async () => {
     expect(loadSavedView("member")).toBeNull();
     const view = await boot(visibleRooms, { decorations: false });
-    // An empty members chat starts minimized, so Lobby shows its button.
-    expect(view.getByRole("button", { name: /Members chat/ })).toBeDefined();
+    expect(view.container.querySelector("[data-floor-scene]")).not.toBeNull();
     expect(document.title).toBe("Test Office | Isomux");
     expect(loadSavedView("member")?.lobby).toBe(true);
   });

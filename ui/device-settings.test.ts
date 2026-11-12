@@ -28,10 +28,6 @@ afterAll(() => {
 });
 
 const {
-  getMembersChatWidth,
-  setMembersChatWidth,
-  getMembersChatOpen,
-  setMembersChatOpen,
   getUsagePin,
   setUsagePin,
   getSettingsGroupsOpen,
@@ -121,50 +117,6 @@ describe("usage pill pin", () => {
     expect(getUsagePin("agent-1", "claude")).toBeNull();
     expect(getUsagePin("agent-2", "claude")).toBeNull();
     expect(getUsagePin("agent-3", "claude")).toBeNull();
-  });
-});
-
-describe("members chat width", () => {
-  beforeEach(() => store.clear());
-  it("defaults missing and invalid values, clamps finite values, and remembers width", () => {
-    expect(getMembersChatWidth(1440)).toBe(520);
-    for (const value of ["broken", "NaN", "Infinity", ""]) {
-      store.set("isomux-members-chat-width", value);
-      expect(getMembersChatWidth(1440)).toBe(520);
-    }
-    store.set("isomux-members-chat-width", "-900");
-    expect(getMembersChatWidth(1440)).toBe(300);
-    setMembersChatWidth(800);
-    expect(getMembersChatWidth(1440)).toBe(800);
-    expect(getMembersChatWidth(768)).toBe(720);
-    setMembersChatWidth(90000);
-    expect(getMembersChatWidth(1440)).toBe(900);
-  });
-});
-
-// The store reads the lobby chat's open choice when the page loads, so a
-// browser that blocks storage (a sandboxed frame throws on access) must get
-// a closed chat, not a page that fails to start.
-describe("members chat open", () => {
-  beforeEach(() => store.clear());
-  it("reads closed and saves nothing, without throwing, when storage throws", () => {
-    const real = Object.getOwnPropertyDescriptor(globalThis, "localStorage")!;
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      get() {
-        throw new Error("SecurityError");
-      },
-    });
-    try {
-      expect(getMembersChatOpen()).toBe(false);
-      setMembersChatOpen(true);
-    } finally {
-      Object.defineProperty(globalThis, "localStorage", real);
-    }
-    // Anchor: with storage back, the same calls save and read.
-    expect(getMembersChatOpen()).toBe(false);
-    setMembersChatOpen(true);
-    expect(getMembersChatOpen()).toBe(true);
   });
 });
 

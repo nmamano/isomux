@@ -12,6 +12,7 @@ export const API_TOKEN_AREAS = [
   "tasks",
   "asks",
   "membersChat",
+  "directMessages",
   "memory",
   "skills",
   "schedules",

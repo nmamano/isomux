@@ -60,7 +60,6 @@ import {
   getDevice,
   getChatSidebar,
   setChatSidebar,
-  setMembersChatOpen,
 } from "./device-settings.ts";
 import { languageSeed } from "./preference-form.ts";
 import { useSelfUser } from "./hooks/useSelfUser.ts";
@@ -100,6 +99,13 @@ import { AskRefsProvider } from "./log-view/ask-refs.tsx";
 import { TaskLookupBridge } from "./task-lookup.ts";
 import type { OfficeLink } from "../shared/office-links.ts";
 import { useCan } from "./hooks/useCan.ts";
+import {
+  humanChatForPath,
+  humanChatId,
+  MEMBERS_CHAT,
+  type HumanChatKey,
+} from "./human-chat.ts";
+import { HumanChatView } from "./members-chat/HumanChatView.tsx";
 
 /**
  * The page a history entry names, `null` for an entry that means the office,
@@ -153,6 +159,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     lobbyOpen,
     rideArrival,
     isMobile,
+    openHumanChat,
   } = useAppState();
   const features = useFeatures();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -728,6 +735,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     entryRef.current = "none";
     applyPage(null);
     dispatch({ type: "focus", agentId: null });
+    dispatch({ type: "open_human_chat", chat: null });
     setBackRoomOpen(false);
   }, [applyPage, dispatch]);
 
@@ -739,6 +747,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   const leaveToOffice = useCallback(() => {
     applyPage(null);
     dispatch({ type: "focus", agentId: null });
+    dispatch({ type: "open_human_chat", chat: null });
     setBackRoomOpen(false);
     if (entryRef.current === "pushed") {
       window.history.back();
@@ -762,13 +771,48 @@ export function App({ routing = true }: { routing?: boolean }) {
       dispatch({ type: "set_lobby_open", open: true });
     else if (roomId !== null) dispatch({ type: "set_current_room", roomId });
   }, [focusedAgent, focusedInBack, applyPage, dispatch, leaveToOffice]);
-  // The sidebar's Members chat row: the lobby, with its chat open.
-  const openMembersChat = useCallback(() => {
-    leaveToOffice();
-    dispatch({ type: "set_lobby_open", open: true });
-    setMembersChatOpen(true);
-    dispatch({ type: "set_members_chat_shown", shown: true });
-  }, [leaveToOffice, dispatch]);
+  // A human chat, full screen in the main pane (task 019e4d7c): every page
+  // and the agent chat close, as for openAgentChat; the room in view stays,
+  // so Back lands where the member was.
+  const openHumanChatView = useCallback(
+    (chat: HumanChatKey) => {
+      applyPage(null);
+      setBackRoomOpen(false);
+      dispatch({ type: "open_human_chat", chat });
+    },
+    [applyPage, dispatch],
+  );
+  // An owner's gear on a member: Settings on that member, over what is open.
+  const openMemberSettings = useCallback(
+    (userId: string) => {
+      setEditingUserId(userId);
+      openSettings(null);
+    },
+    [openSettings],
+  );
+
+  // /chats/members or /chats/<userId> (a web push link) opens that chat, as
+  // an agent's address does: read once at mount, after the saved-spot restore.
+  const [bootHumanChat, setBootHumanChat] = useState(() =>
+    humanChatForPath(window.location.pathname),
+  );
+  useEffect(() => {
+    if (
+      bootHumanChat === null ||
+      !hasReceivedInitialState ||
+      (persistEnabled && !restored)
+    )
+      return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBootHumanChat(null);
+    openHumanChatView(bootHumanChat);
+  }, [
+    bootHumanChat,
+    hasReceivedInitialState,
+    persistEnabled,
+    restored,
+    openHumanChatView,
+  ]);
 
   // Live-avatars: tell the server where this session's ghost should
   // appear. Fires whenever any of the relevant view states change, plus
@@ -820,7 +864,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   // disappeared while a page was open closes to the office instead of a stale
   // focus.
   const somethingUnderPage =
-    page !== null && (pageBelow !== null || !!focusedAgent);
+    page !== null &&
+    (pageBelow !== null || !!focusedAgent || openHumanChat !== null);
 
   // Drop only the page on top; the state that belongs to it goes with it.
   // Focus and the history entry stay: we stay deep, so the sync effect
@@ -1079,7 +1124,11 @@ export function App({ routing = true }: { routing?: boolean }) {
     loneShift,
   ]);
 
-  const isDeep = page !== null || focusedAgentId !== null || backRoomOpen;
+  const isDeep =
+    page !== null ||
+    focusedAgentId !== null ||
+    openHumanChat !== null ||
+    backRoomOpen;
   useEffect(() => {
     const write = (method: "pushState" | "replaceState") => {
       const entry = { isomux: true, page };
@@ -1100,7 +1149,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       // Returned to office - entry was consumed by history.back()
       entryRef.current = "none";
     }
-  }, [isDeep, focusedAgentId, page, routing]);
+  }, [isDeep, focusedAgentId, openHumanChat, page, routing]);
 
   // Any path that is not a route shows the office, and the office is "/" - so
   // normalise rather than leave it sitting at /garbage. The entry the load made
@@ -1148,6 +1197,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
       applyPage(null);
       dispatch({ type: "focus", agentId: null });
+      dispatch({ type: "open_human_chat", chat: null });
       setBackRoomOpen(false);
     }
     window.addEventListener("popstate", handlePopState);
@@ -1211,6 +1261,19 @@ export function App({ routing = true }: { routing?: boolean }) {
           />
         )}
       </InboxView>
+    ) : openHumanChat ? (
+      <HumanChatView
+        // One view per chat: its load state and errors stay with it.
+        key={humanChatId(openHumanChat)}
+        chat={openHumanChat}
+        onBack={goHome}
+        onSelectChat={openHumanChatView}
+        onOpenMemberSettings={openMemberSettings}
+        sidebarOpen={sidebarShown}
+        onShowSidebar={
+          sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
+        }
+      />
     ) : focusedAgent ? (
       <LogView
         key={focusedAgent.id}
@@ -1268,6 +1331,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         onShowSidebar={
           sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
         }
+        onOpenMembersChat={() => openHumanChatView(MEMBERS_CHAT)}
       />
     );
 
@@ -1319,7 +1383,9 @@ export function App({ routing = true }: { routing?: boolean }) {
                       }
                       openAgentId={focusedAgent?.id ?? null}
                       page={page}
-                      officeShown={page === null && !focusedAgent}
+                      officeShown={
+                        page === null && !focusedAgent && openHumanChat === null
+                      }
                       backRoomOpen={backRoomOpen}
                       viewReady={
                         restored || (!persistEnabled && hasReceivedInitialState)
@@ -1334,7 +1400,12 @@ export function App({ routing = true }: { routing?: boolean }) {
                       onAgentContextMenu={(x, y, agent) =>
                         setCtxMenu({ x, y, agent })
                       }
-                      onMembersChat={() => leaveThen(openMembersChat)}
+                      onOpenHumanChat={(chat) =>
+                        leaveThen(() => openHumanChatView(chat))
+                      }
+                      onOpenMemberSettings={(userId) =>
+                        leaveThen(() => openMemberSettings(userId))
+                      }
                       onOpenSettings={() => {
                         if (page !== "settings")
                           leaveThen(() => openSettings(null));

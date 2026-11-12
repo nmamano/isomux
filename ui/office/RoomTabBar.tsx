@@ -1,4 +1,3 @@
-import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useRoomList } from "../store.tsx";
@@ -558,7 +557,6 @@ export function RoomTabBar({
                 }}
               >
                 {t("common.lobby")}
-                {!mobileLobby && <MembersChatUnread />}
               </button>
             </div>
             {tabRooms.map((room, i) => {

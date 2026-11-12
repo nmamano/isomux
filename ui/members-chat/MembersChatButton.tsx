@@ -1,7 +1,7 @@
 import type { Ref } from "react";
 import { useI18n } from "../i18n.tsx";
-import { useAppState } from "../store.tsx";
 import { MembersChatUnread } from "./MembersChatUnread.tsx";
+import { useHumanChatUnread } from "./human-chat-unread.ts";
 
 export function MembersChatButton({
   onClick,
@@ -11,9 +11,7 @@ export function MembersChatButton({
   buttonRef?: Ref<HTMLButtonElement>;
 }) {
   const { t, tn } = useI18n();
-  const {
-    membersChat: { unread },
-  } = useAppState();
+  const unread = useHumanChatUnread();
   const label =
     unread > 0
       ? `${t("membersChat.title")} ${tn("membersChat.unreadCount", unread)}`

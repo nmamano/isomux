@@ -39,6 +39,8 @@ import {
   endsTurn,
   turnEndMembers,
 } from "../shared/turn-end.ts";
+import { humanChatId, type HumanChatKey } from "./human-chat.ts";
+import { dmsFromSummaries, reduceMemberDm } from "./member-dms-reducer.ts";
 import type {
   AgentInfo,
   AgentState,
@@ -46,6 +48,7 @@ import type {
   KilledAgentSummary,
   LogEntry,
   MembersChatSummary,
+  MemberDmSummary,
   SessionInfo,
   ServerMessage,
   SkillInfo,
@@ -104,7 +107,6 @@ import {
   readLegacyUserPrefs,
   clearLegacyUserPrefs,
   shouldNotifyRoom,
-  getMembersChatOpen,
 } from "./device-settings.ts";
 import {
   DEFAULT_THEME_ID,
@@ -122,6 +124,14 @@ export interface MembersChatState {
   loaded: boolean;
   readPointer: string | null;
   unread: number;
+}
+
+// One 1:1 chat (task 019e4d7c): the members chat slice without pins, plus the
+// summary the sidebar lists (MemberDmSummary).
+export interface MemberDmState extends MembersChatState {
+  peerName: string;
+  removed: boolean;
+  lastAt: number | null;
 }
 
 // What an action ask's Apply made (task e3d1bc63, part 4): a sign-in link
@@ -250,13 +260,21 @@ export interface AppState {
   office: OfficeSettings;
   rooms: RoomWire[];
   tasks: TaskItem[];
-  // The members chat (humans-only stream on the Lobby tab). Hydrated by a REST
+  // The members chat (humans-only stream). Hydrated by a REST
   // page fetch while a chat panel is open, kept live by the members_chat_*
   // wire events. `loaded` drops on every full_state so an open panel
   // refetches; `unread` is the server's count after the caller's read pointer,
   // from full_state or a page, bumped locally for a new message from someone
   // else until the next markRead answer.
   membersChat: MembersChatState;
+  // The 1:1 chats, by the peer's user id. Hydrated by full_state's summaries
+  // and a REST page fetch while the chat is open, kept live by dm_* events.
+  memberDms: Record<string, MemberDmState>;
+  // The human chat open full screen in the main pane, or null. CLIENT state;
+  // mutually exclusive with focusedAgentId.
+  openHumanChat: HumanChatKey | null;
+  // Unsent text per human chat, by humanChatId (ui/human-chat.ts).
+  humanChatDrafts: Record<string, string>;
   // The lobby elevator's floors (shared/floors.ts), from full_state and
   // floors_updated, in the order they were added.
   floors: Floor[];
@@ -267,10 +285,6 @@ export interface AppState {
   // This load is an elevator ride (StoreProvider's ride prop). CLIENT state,
   // fixed for the page's life: the saved-spot restore keeps the lobby open.
   rideArrival: boolean;
-  // The desktop lobby chat panel is shown. CLIENT state: a load reads this
-  // browser's last show or hide click (closed when there is none, so a new
-  // member sees the lobby door), and a full_state (reconnect) keeps it.
-  membersChatShown: boolean;
   tasksLoaded: boolean;
   // Chats that load when they open (task 9ebe887d slice 2), per agent: a
   // stream the store asked for, its request, and the entries of a load in
@@ -476,6 +490,7 @@ export type Action =
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
       membersChat?: MembersChatSummary;
+      memberDms?: MemberDmSummary[];
       floors?: Floor[];
       uiBuild?: string;
       logsOnOpen?: true;
@@ -600,7 +615,6 @@ export type Action =
       pinsRevisionAtRequest: number;
     }
   | { type: "set_lobby_open"; open: boolean }
-  | { type: "set_members_chat_shown"; shown: boolean }
   // Wire events for the same slice (server/events/registry.ts).
   | {
       type: "members_chat_message";
@@ -609,6 +623,35 @@ export type Action =
     }
   | { type: "members_chat_deleted"; id: string }
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
+  // CLIENT-LOCAL: a 1:1 chat's REST page, as members_chat_page without pins.
+  | {
+      type: "dm_page";
+      peerId: string;
+      messages: MembersChatMessage[];
+      hasMore: boolean;
+      readPointer: string | null;
+      unread: number;
+      prepend: boolean;
+      heldAtRequest?: string[];
+    }
+  // Wire events of the 1:1 chats (server/events/registry.ts).
+  | {
+      type: "dm_message";
+      peerId: string;
+      message: MembersChatMessage;
+      updateOnly?: boolean;
+    }
+  | { type: "dm_deleted"; peerId: string; id: string }
+  | {
+      type: "dm_read";
+      peerId: string;
+      readPointer: string | null;
+      unread: number;
+    }
+  // CLIENT-LOCAL: open a human chat full screen (closes the agent chat and
+  // every page), or close it (null).
+  | { type: "open_human_chat"; chat: HumanChatKey | null }
+  | { type: "set_human_chat_draft"; chat: HumanChatKey; text: string }
   | { type: "tasks"; tasks: TaskItem[]; summary?: true }
   | { type: "task_upserted"; task: TaskItem }
   // A GET /api/tasks result (ui/task-lookup.ts). epoch and seqAtRequest are
@@ -1025,6 +1068,7 @@ export function reducer(state: AppState, action: Action): AppState {
           }),
           loaded: false,
         },
+        memberDms: dmsFromSummaries(state.memberDms, action.memberDms),
         // An older server sends none: no floors, not the list from before.
         floors: action.floors ?? [],
         needsAttention: new Set(),
@@ -1306,8 +1350,33 @@ export function reducer(state: AppState, action: Action): AppState {
       if (action.agentId) {
         needsAttention.delete(action.agentId);
       }
-      return { ...state, focusedAgentId: action.agentId, needsAttention };
+      return {
+        ...state,
+        focusedAgentId: action.agentId,
+        needsAttention,
+        // An agent chat replaces the open human chat.
+        openHumanChat: action.agentId ? null : state.openHumanChat,
+      };
     }
+    case "open_human_chat":
+      return {
+        ...state,
+        openHumanChat: action.chat,
+        focusedAgentId: action.chat ? null : state.focusedAgentId,
+      };
+    case "set_human_chat_draft": {
+      const key = humanChatId(action.chat);
+      if ((state.humanChatDrafts[key] ?? "") === action.text) return state;
+      const humanChatDrafts = { ...state.humanChatDrafts };
+      if (action.text) humanChatDrafts[key] = action.text;
+      else delete humanChatDrafts[key];
+      return { ...state, humanChatDrafts };
+    }
+    case "dm_page":
+    case "dm_message":
+    case "dm_deleted":
+    case "dm_read":
+      return reduceMemberDm(state, action);
     case "connected":
       return { ...state, connected: true };
     case "disconnected":
@@ -2031,9 +2100,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case "set_lobby_open":
       if (state.lobbyOpen === action.open) return state;
       return { ...state, lobbyOpen: action.open };
-    case "set_members_chat_shown":
-      if (state.membersChatShown === action.shown) return state;
-      return { ...state, membersChatShown: action.shown };
     case "room_created":
       // Select the new room only when nothing is currently selected (e.g. a
       // member whose visible rooms were all closed, then gains a freshly
@@ -2386,10 +2452,12 @@ export const initialState: AppState = {
     readPointer: null,
     unread: 0,
   },
+  memberDms: {},
+  openHumanChat: null,
+  humanChatDrafts: {},
   floors: [],
   lobbyOpen: false,
   rideArrival: false,
-  membersChatShown: false,
   apps: [],
   appsLoaded: false,
   appsRevision: 0,
@@ -2477,7 +2545,6 @@ export function StoreProvider({
       ...s,
       rideArrival: ride,
       lobbyOpen: ride || (llmConnected && (last === null || last.lobby)),
-      membersChatShown: getMembersChatOpen(),
     };
   });
 

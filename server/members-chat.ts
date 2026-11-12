@@ -1,6 +1,6 @@
 // The members chat store: one office-wide stream for humans and their proxies
-// (cookie users, API tokens, privileged agents), never an ordinary agent. It
-// lives on the Lobby tab. Access is the route layer's job (server/routes); this
+// (cookie users, API tokens, privileged agents), never an ordinary agent.
+// Access is the route layer's job (server/routes); this
 // module only knows how to keep and page the stream.
 //
 // WHY MONTH FILES. A chat between people has no natural end, so it cannot be
@@ -142,6 +142,8 @@ export interface MembersChatStore {
   unreadCount(userId: string): number;
   // The user's pointer, unread count and the newest live id, in one pass.
   summary(userId: string): MembersChatSummary;
+  // When the newest live message was posted; null when none is left.
+  newestAt(): number | null;
   saveAttachment(
     data: Buffer,
     mediaType: string,
@@ -164,7 +166,12 @@ function monthOfId(id: string): string | null {
   return m ? `${m[1]}-${m[2]}` : null;
 }
 
-function validateContent(content: string, attachments: Attachment[]): string {
+// Throws MembersChatError for text a post or an edit may not carry. Exported
+// so a caller can refuse a post before it makes anything on disk.
+export function validateContent(
+  content: string,
+  attachments: Attachment[],
+): string {
   if (typeof content !== "string") {
     throw new MembersChatError("empty", "text must be a string");
   }
@@ -190,9 +197,15 @@ function randomHex8(): string {
 
 export function createMembersChatStore(
   dir: string,
-  opts: { now?: () => number } = {},
+  opts: {
+    now?: () => number;
+    // False: a reader's own messages never count in their unread (a 1:1
+    // chat). Members chat counts every message after the pointer.
+    ownMessagesUnread?: boolean;
+  } = {},
 ): MembersChatStore {
   const now = opts.now ?? (() => Date.now());
+  const ownMessagesUnread = opts.ownMessagesUnread ?? true;
   const filesDir = join(dir, "files");
   const readsFile = join(dir, "reads.json");
   const cache = new Map<string, FoldedMonth>();
@@ -485,11 +498,16 @@ export function createMembersChatStore(
   }
 
   function unreadCount(userId: string): number {
-    return countAfter(getReadPointer(userId), listMonths());
+    return countAfter(userId, getReadPointer(userId), listMonths());
   }
 
-  // Live messages after the pointer, up to the cap. `months` ascending.
-  function countAfter(pointer: string | null, months: string[]): number {
+  // Live messages after the pointer, up to the cap, skipping the reader's own
+  // when ownMessagesUnread is off. `months` ascending.
+  function countAfter(
+    userId: string,
+    pointer: string | null,
+    months: string[],
+  ): number {
     const pos = pointer ? positionOf(pointer) : null;
     let count = 0;
     for (const month of months) {
@@ -497,7 +515,9 @@ export function createMembersChatStore(
       const folded = fold(month);
       const start = pos && month === pos.month ? pos.index + 1 : 0;
       for (let i = start; i < folded.order.length; i++) {
-        if (!folded.byId.has(folded.order[i])) continue;
+        const m = folded.byId.get(folded.order[i]);
+        if (!m) continue;
+        if (!ownMessagesUnread && m.userId === userId) continue;
         count++;
         if (count >= MEMBERS_CHAT_UNREAD_CAP) return MEMBERS_CHAT_UNREAD_CAP;
       }
@@ -553,11 +573,23 @@ export function createMembersChatStore(
     const readPointer = getReadPointer(userId);
     return {
       readPointer,
-      unread: countAfter(readPointer, listMonths()),
+      unread: countAfter(userId, readPointer, listMonths()),
     };
   }
 
+  function newestAt(): number | null {
+    for (const month of listMonths().reverse()) {
+      const folded = fold(month);
+      for (let i = folded.order.length - 1; i >= 0; i--) {
+        const m = folded.byId.get(folded.order[i]);
+        if (m) return m.timestamp;
+      }
+    }
+    return null;
+  }
+
   return {
+    newestAt,
     setPinned,
     post,
     edit,

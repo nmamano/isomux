@@ -200,7 +200,7 @@ You act as yourself with your manager's room access. These actions are attribute
 
 - The member asks you to move, reconfigure, revive, or remove another agent, or to drive another agent's conversation. Page: \`agent-management\`.
 - The member asks you to create, rename, or close a room, or to change its prompt or look. Page: \`rooms\`.
-- The member asks you to tell all the humans in the office something: post in members chat. Page: \`members-chat\`.
+- The member asks you to tell all the humans in the office something: post in members chat. To tell one member, post in the 1:1 chat with them. Page: \`members-chat\`.
 - The member asks you to edit member special instructions, or to add a person to the office and your manager is an office owner: update the prompt or create a member. Page: \`members\`.
 - The member asks you to change the office prompt, the office name or the member usage cap, and your manager is an office owner: read and update the office settings. Page: \`office-settings\`.
 - The member asks who changed something in the office, or to restore a deleted task or an earlier version of a memory, a prompt or instructions, and your manager is an office owner: read the audit log. Page: \`audit\`.

@@ -21,44 +21,6 @@ import {
 
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
-// A new key on purpose: an older build saved "isomux-members-chat-hidden", and
-// its "false" would open the chat over the lobby door on the first load.
-const KEY_MEMBERS_CHAT_OPEN = "isomux-members-chat-open";
-const KEY_MEMBERS_CHAT_WIDTH = "isomux-members-chat-width";
-export const DEFAULT_MEMBERS_CHAT_WIDTH = 520;
-export const MIN_MEMBERS_CHAT_WIDTH = 300;
-
-export function maxMembersChatWidth(viewportWidth: number): number {
-  return Math.max(MIN_MEMBERS_CHAT_WIDTH, Math.min(900, viewportWidth - 48));
-}
-
-export function clampMembersChatWidth(
-  width: number,
-  viewportWidth: number,
-): number {
-  const safe = Number.isFinite(width) ? width : DEFAULT_MEMBERS_CHAT_WIDTH;
-  return Math.round(
-    Math.max(
-      MIN_MEMBERS_CHAT_WIDTH,
-      Math.min(maxMembersChatWidth(viewportWidth), safe),
-    ),
-  );
-}
-
-export function getMembersChatWidth(viewportWidth: number): number {
-  let width = DEFAULT_MEMBERS_CHAT_WIDTH;
-  try {
-    const raw = localStorage.getItem(KEY_MEMBERS_CHAT_WIDTH);
-    if (raw !== null && raw.trim() !== "") width = Number(raw);
-  } catch {}
-  return clampMembersChatWidth(width, viewportWidth);
-}
-
-export function setMembersChatWidth(width: number): void {
-  try {
-    localStorage.setItem(KEY_MEMBERS_CHAT_WIDTH, String(width));
-  } catch {}
-}
 const KEY_CHAT_COPY_FORMAT = "isomux-chat-copy-format";
 
 // The chat bar's Copy format. Markdown unless this browser picked another.
@@ -106,10 +68,8 @@ export function getChatSidebarSections(): ChatSidebarSections | null {
       localStorage.getItem(KEY_CHAT_SIDEBAR_SECTIONS) ?? "null",
     );
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const { rooms, back, more, lobby, pinned, recent, anchor } = raw as Record<
-      string,
-      unknown
-    >;
+    const { rooms, back, more, lobby, pinned, recent, members, anchor } =
+      raw as Record<string, unknown>;
     const ids = (v: unknown): v is string[] =>
       Array.isArray(v) && v.every((id) => typeof id === "string");
     if (
@@ -127,6 +87,7 @@ export function getChatSidebarSections(): ChatSidebarSections | null {
         // Absent before task 5dac6b9b: the sections start open.
         pinned: typeof pinned === "boolean" ? pinned : true,
         recent: typeof recent === "boolean" ? recent : true,
+        ...(typeof members === "boolean" ? { members } : {}),
         anchor,
       };
   } catch {}
@@ -186,23 +147,6 @@ export function setDevice(label: string | null): void {
   if (typeof localStorage === "undefined") return;
   if (label && label.trim()) localStorage.setItem(KEY_DEVICE, label.trim());
   else localStorage.removeItem(KEY_DEVICE);
-}
-
-// The desktop lobby chat is open. False until a member opens it on this device.
-export function getMembersChatOpen(): boolean {
-  try {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem(KEY_MEMBERS_CHAT_OPEN) === "true";
-  } catch {
-    return false;
-  }
-}
-
-export function setMembersChatOpen(open: boolean): void {
-  try {
-    if (typeof localStorage !== "undefined")
-      localStorage.setItem(KEY_MEMBERS_CHAT_OPEN, String(open));
-  } catch {}
 }
 
 // The Apps page filter, remembered on this device. It starts off.
