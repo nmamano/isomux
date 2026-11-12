@@ -266,11 +266,12 @@ ${emitThemesCss()}
   .chat-sidebar-row:hover {
     background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   }
-  /* Task 5dac6b9b. A room header's "..." and "+", and an agent row's pin:
-     over the row's right end on hover, with the hovered row's background, so
-     they take no room in the row and the folded summary keeps one right
-     edge. The open room in view always shows its buttons. */
-  .chat-sidebar-room-actions {
+  /* Tasks 5dac6b9b, c921308f. A row's actions (room header: sliders and
+     "+"; agent and member row: sliders and pin): over the row's right end on
+     hover and on keyboard focus, with the hovered row's background, so they
+     take no room in the row and the folded summary keeps one right edge.
+     The open room in view always shows its buttons. */
+  .chat-sidebar-row-actions {
     position: absolute;
     top: 50%;
     right: 4px;
@@ -280,13 +281,16 @@ ${emitThemesCss()}
     opacity: 0;
     pointer-events: none;
   }
-  .chat-sidebar-room-row:hover .chat-sidebar-room-actions,
-  .chat-sidebar-room-actions:focus-within,
-  .chat-sidebar-room-actions[data-in-view] {
+  .chat-sidebar-room-row:hover .chat-sidebar-row-actions,
+  .chat-sidebar-agent:hover .chat-sidebar-row-actions,
+  .chat-sidebar-member:hover .chat-sidebar-row-actions,
+  .chat-sidebar-row-actions:has(:focus-visible),
+  .chat-sidebar-row-actions[data-in-view] {
     opacity: 1;
     pointer-events: auto;
   }
   .chat-sidebar-agent,
+  .chat-sidebar-member,
   .chat-sidebar-room-row,
   .chat-sidebar-drop-into { position: relative; border-radius: 7px; }
   /* A drag's drop place: a blue line above or below the row, or a ring on
@@ -306,20 +310,11 @@ ${emitThemesCss()}
   [data-drop="before"]::before { top: -1px; }
   [data-drop="after"]::after { bottom: -1px; }
   [data-drop="into"] { box-shadow: 0 0 0 2px var(--accent); }
-  .chat-sidebar-pin {
-    position: absolute;
-    top: 50%;
-    right: 6px;
-    transform: translateY(-50%);
-    opacity: 0;
-    pointer-events: none;
-  }
-  .chat-sidebar-agent:hover .chat-sidebar-pin,
-  .chat-sidebar-pin:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
-  }
+  /* --settings-knob: the sliders icon's knobs (NavIcons SettingsIcon) take
+     the button's own background, so they hide the line behind them and show
+     no disc. */
   .chat-sidebar-row-action {
+    --settings-knob: color-mix(in srgb, var(--text-primary) 7%, var(--bg-surface));
     display: flex;
     align-items: center;
     padding: 5px;
@@ -327,11 +322,11 @@ ${emitThemesCss()}
     border-radius: 6px;
     color: var(--text-dim);
     cursor: pointer;
-    background: color-mix(in srgb, var(--text-primary) 7%, var(--bg-surface));
+    background: var(--settings-knob);
   }
   .chat-sidebar-row-action:hover {
+    --settings-knob: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface));
     color: var(--text-primary);
-    background: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface));
   }
   .chat-sidebar-pin[aria-pressed="true"] { color: var(--accent); }
 
@@ -361,30 +356,6 @@ ${emitThemesCss()}
   }
   .nav-action-fade-in { animation: navActionFadeIn 0.2s ease-out; }
   @keyframes navActionFadeIn { from { opacity: 0; } to { opacity: 1; } }
-  /* A member row's pin and gear (owners), as an agent row's pin: over the
-     row's right end on hover and on focus. */
-  .chat-sidebar-member { position: relative; border-radius: 7px; }
-  .chat-sidebar-member-actions {
-    position: absolute;
-    top: 50%;
-    right: 6px;
-    transform: translateY(-50%);
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .chat-sidebar-member:hover .chat-sidebar-member-actions,
-  .chat-sidebar-member-actions:has(:focus-visible) {
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .chat-sidebar-member-actions .chat-sidebar-pin {
-    position: static;
-    transform: none;
-    opacity: 1;
-    pointer-events: inherit;
-  }
   .chat-sidebar-row[aria-current="page"] {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }

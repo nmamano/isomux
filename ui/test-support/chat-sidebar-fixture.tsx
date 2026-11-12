@@ -33,7 +33,8 @@
 //                                            removed peer, data-online on an
 //                                            online member, aria-current="page"
 //                                            on the open chat's row
-//   [data-sidebar-member-settings]           a member row's gear (owners)
+//   [data-sidebar-member-settings]           a member row's settings button
+//                                            (owners)
 //   [data-sidebar-unread-dot]                the collapsed sidebar's open
 //                                            button, while a human chat has
 //                                            unread
@@ -51,10 +52,6 @@
 //                                            the working count, absent at 0
 //                                            (its badge: [data-sidebar-badge])
 //   [data-sidebar-back-room-agents]          the indented list of a back room
-//   button[data-sidebar-room-menu="<roomId>"] a room header's "..." button
-//   [data-room-menu="settings|tuck|untuck|up|down"] the room menu's items
-//                                            (role=menuitem); one menu open
-//                                            at a time
 //   [data-sidebar-tucked-rooms]              the list under Tucked rooms
 //   button[data-sidebar-pin="<agentId>"]     an agent row's pin button,
 //                                            aria-pressed when pinned
@@ -72,6 +69,10 @@
 //   button[data-sidebar-member="<userId>"]   also in Pinned's
 //                                            [data-sidebar-section-agents],
 //                                            mixed with the agent rows
+// Added by task c921308f (agreed with the worker, 2026-11-12): a settings
+// button, the first button of its row's actions, before the plus or the pin:
+//   button[data-sidebar-room-settings="<roomId>"] a room header's
+//   button[data-sidebar-agent-settings="<agentId>"] an agent row's
 
 import { afterAll, afterEach, beforeEach, expect } from "bun:test";
 import { act, fireEvent, render } from "@testing-library/react";

@@ -83,7 +83,7 @@ The normal system-prompt builder supplies affordances, office instructions and
 memory. It does not inject knowledge.
 
 The spawn textarea shows the editable base voice. The server persists voice,
-knowledge and office guidance as custom instructions. Edit Agent therefore
+knowledge and office guidance as custom instructions. Agent Settings therefore
 shows a larger block after spawn. Office name and members are a spawn-time
 snapshot; later changes do not rewrite an existing agent's instructions.
 The owner can create a fresh agent from the profile to get the current text.

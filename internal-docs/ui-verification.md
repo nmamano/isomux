@@ -23,7 +23,7 @@ files before committing.
 
 The demo drives the REAL EditAgentDialog: click a desk sprite (the nameplate
 is NOT clickable) to open the log view, then the "Agent" header button opens
-Edit Agent. Fields are inputs/textareas 2..6 in global DOM order (0/1 are
+Agent Settings. Fields are inputs/textareas 2..6 in global DOM order (0/1 are
 office search + chat composer). Layout is viewport-dependent - fix the
 viewport before hardcoding any coordinate. An A/B "before" bundle builds
 straight from the main checkout with `--outdir /tmp` (non-mutating).

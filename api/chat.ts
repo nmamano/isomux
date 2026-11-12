@@ -151,7 +151,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Outfit customization: color swatches, hat, accessory, randomize with live preview
 - Custom instructions per agent, editable at spawn and later
 - Start with a blank-canvas agent or choose from 12 templates like Side Project Builder, Money Planner, and Health Navigator.
-- Hierarchical system prompts - three member-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room - useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI. The Spawn and Edit agent menus preview the full system prompt with unsaved settings; previewing saves nothing.
+- Hierarchical system prompts - three member-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room - useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI. The Spawn and Agent settings dialogs preview the full system prompt with unsaved settings; previewing saves nothing.
 
 ### Conversation View
 - Input drafts preserved when switching between agents and across page reloads
@@ -167,7 +167,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Embedded terminal for direct shell access per agent. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
 - Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit. Selecting text in it surfaces a "Cite" button that drops the selection into the chat input with its file path and lines.
 - Conversation branching - edit a past message to fork the conversation from that point, preserving the original
-- Right-click context menu - resume past sessions, edit agent, kill
+- Right-click context menu - resume past sessions, agent settings, kill
 
 ### Keyboard Shortcuts
 - Number keys 1–8 jump to agents from office view

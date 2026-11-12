@@ -4,7 +4,7 @@
 // reorder based on most recent chat, like a chat app? I think they should"),
 // then the members with no chat by name. A read or a sign-in never moves a
 // row. A row opens its chat full
-// screen in the main pane, in place of an agent chat; an owner's gear opens
+// screen in the main pane, in place of an agent chat; an owner's settings button opens
 // Settings on that member. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
 
@@ -131,7 +131,7 @@ it("lists Members chat, then each other member: newest chat first (sent or recei
       memberRow(view, id!)!.hasAttribute("data-online"),
     ),
   ).toEqual(["u6"]);
-  // A member who is not an owner gets no gear.
+  // A member who is not an owner gets no settings button.
   expect(
     view.container.querySelectorAll("[data-sidebar-member-settings]").length,
   ).toBe(0);
@@ -190,7 +190,7 @@ it("lists Members chat, then each other member: newest chat first (sent or recei
   expect(memberRowIds(view)).toEqual(["u4", "u2", "u5", "u3", "u9", "u6"]);
 });
 
-it("an owner gets a gear on each live member's row, which opens Settings on that member", async () => {
+it("an owner gets a settings button on each live member's row, which opens Settings on that member", async () => {
   seedOffice();
   setRole("owner");
   const view = await boot();

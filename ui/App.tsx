@@ -1400,6 +1400,7 @@ export function App({ routing = true }: { routing?: boolean }) {
                       onAgentContextMenu={(x, y, agent) =>
                         setCtxMenu({ x, y, agent })
                       }
+                      onAgentSettings={setEditAgent}
                       onOpenHumanChat={(chat) =>
                         leaveThen(() => openHumanChatView(chat))
                       }

@@ -2,26 +2,18 @@
 // chat and every page, a Codex-style list of the office's rooms and agents.
 // The phone and the site embed never show it. No click in it closes it; only
 // its own hide button does. Its decisions live in ui/chat-sidebar.ts.
-// Task 5dac6b9b added Pinned and Recent, the folded room summary, the room
-// menu and the drag to reorder and tuck rooms; App draws the slot around it
-// (its width, the resize edge and the slide).
+// Task 5dac6b9b added Pinned and Recent, the folded room summary and the
+// drag to reorder and tuck rooms; App draws the slot around it (its width,
+// the resize edge and the slide). Task c921308f: a room, agent or member row
+// opens its settings with one sliders button, the first of its hover actions.
 
 import { MEMBERS_CHAT, type HumanChatKey } from "../human-chat.ts";
 import {
   useMemberChatRows,
   type MemberChatRow,
 } from "../members-chat/member-rows.ts";
-import { GearIcon } from "../members-chat/icons.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   LOBBY_ROOM_ID,
   type AgentInfo,
@@ -62,7 +54,6 @@ import {
 import type { SidebarPins } from "../sidebar-pins.ts";
 import { Character } from "../office/Character.tsx";
 import { StatusLight } from "../office/StatusLight.tsx";
-import { MenuItem } from "./ContextMenu.tsx";
 import {
   AppsIcon,
   BuildingIcon,
@@ -99,12 +90,14 @@ export interface ChatSidebarProps {
   onOpenPage: (page: SidebarPage) => void;
   onOpenAgent: (agentId: string) => void;
   onAgentContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  // An agent row's sliders: the agent dialog.
+  onAgentSettings: (agent: AgentInfo) => void;
   // A row of the Members section: Members chat or a 1:1 chat.
   onOpenHumanChat: (chat: HumanChatKey) => void;
-  // An owner's gear on a member row: Settings on that member.
+  // An owner's sliders on a member row: Settings on that member.
   onOpenMemberSettings: (userId: string) => void;
   onOpenSettings: () => void;
-  // A room menu's Room settings.
+  // A room header's sliders: Settings on that room.
   onRoomSettings: (roomId: string) => void;
   // The member's Pinned (agents and members) and Recent agents
   // (ui/sidebar-pins.ts).
@@ -118,20 +111,6 @@ const HEAD_SIZE = 26;
 // Drag payload types, so a room never drops on the pinned list or back.
 const ROOM_DRAG = "application/x-isomux-sidebar-room";
 const PIN_DRAG = "application/x-isomux-sidebar-pin";
-
-const MoreIcon = (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 16 16"
-    fill="currentColor"
-    style={{ display: "block" }}
-  >
-    <circle cx="3.5" cy="8" r="1.3" />
-    <circle cx="8" cy="8" r="1.3" />
-    <circle cx="12.5" cy="8" r="1.3" />
-  </svg>
-);
 
 const PinIcon = ({ filled }: { filled: boolean }) => (
   <svg
@@ -324,6 +303,7 @@ function AgentRow({
   pinLabel,
   onOpen,
   onContextMenu,
+  onSettings,
   onTogglePin,
   drag,
 }: {
@@ -337,10 +317,13 @@ function AgentRow({
   pinLabel: string;
   onOpen: (agentId: string) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  onSettings: (agent: AgentInfo) => void;
   onTogglePin: (agentId: string) => void;
   // A row of the Pinned list: drag to reorder.
   drag?: DragBindings;
 }) {
+  const { t } = useI18n();
+  const settingsLabel = t("sidebar.agentSettings");
   return (
     <div className="chat-sidebar-agent" {...drag?.attrs} data-drop={drag?.drop}>
       <button
@@ -411,20 +394,33 @@ function AgentRow({
           />
         ) : null}
       </button>
-      {/* A sibling of the row, not inside it: no button in a button. It
-          shows on hover over the row's right end. */}
-      <button
-        type="button"
-        tabIndex={-1}
-        className="chat-sidebar-row-action chat-sidebar-pin"
-        data-sidebar-pin={agent.id}
-        aria-pressed={pinned}
-        title={pinLabel}
-        aria-label={pinLabel}
-        onClick={() => onTogglePin(agent.id)}
-      >
-        <PinIcon filled={pinned} />
-      </button>
+      {/* Siblings of the row, not inside it: no button in a button. They
+          show on hover over the row's right end. */}
+      <span className="chat-sidebar-row-actions">
+        <button
+          type="button"
+          tabIndex={-1}
+          className="chat-sidebar-row-action"
+          data-sidebar-agent-settings={agent.id}
+          title={settingsLabel}
+          aria-label={settingsLabel}
+          onClick={() => onSettings(agent)}
+        >
+          {SettingsIcon}
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          className="chat-sidebar-row-action chat-sidebar-pin"
+          data-sidebar-pin={agent.id}
+          aria-pressed={pinned}
+          title={pinLabel}
+          aria-label={pinLabel}
+          onClick={() => onTogglePin(agent.id)}
+        >
+          <PinIcon filled={pinned} />
+        </button>
+      </span>
     </div>
   );
 }
@@ -479,8 +475,8 @@ function Summary({
 
 // A member row of the Members section, and of Pinned (task b2889127): ghost
 // with online dot, name, unread badge. Over the row's right end on hover, as
-// an agent row's pin: a pin button, then an owner's gear to that member's
-// settings. A removed member's row is muted and has neither.
+// on an agent row: an owner's sliders to that member's settings, then a pin
+// button. A removed member's row is muted and has neither.
 function MemberRow({
   row,
   current,
@@ -576,7 +572,19 @@ function MemberRow({
         <Badge n={row.unread} tone="red" />
       </button>
       {(onTogglePin || onSettings) && (
-        <span className="chat-sidebar-member-actions">
+        <span className="chat-sidebar-row-actions">
+          {onSettings && (
+            <button
+              type="button"
+              className="chat-sidebar-row-action"
+              data-sidebar-member-settings={row.id}
+              title={settingsLabel}
+              aria-label={settingsLabel}
+              onClick={() => onSettings(row.id)}
+            >
+              {SettingsIcon}
+            </button>
+          )}
           {onTogglePin && (
             <button
               type="button"
@@ -589,18 +597,6 @@ function MemberRow({
               onClick={() => onTogglePin(pinKey)}
             >
               <PinIcon filled={pinned} />
-            </button>
-          )}
-          {onSettings && (
-            <button
-              type="button"
-              className="chat-sidebar-row-action chat-sidebar-member-gear"
-              data-sidebar-member-settings={row.id}
-              title={settingsLabel}
-              aria-label={settingsLabel}
-              onClick={() => onSettings(row.id)}
-            >
-              {GearIcon}
             </button>
           )}
         </span>
@@ -617,7 +613,6 @@ function SectionHeader({
   attr,
   strong = true,
   list = false,
-  onContextMenu,
 }: {
   label: ReactNode;
   open: boolean;
@@ -628,7 +623,6 @@ function SectionHeader({
   // A list label (Pinned, Recent, Members; tasks 7f93306a, b2889127): small,
   // muted capitals, so it does not read as a room.
   list?: boolean;
-  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -637,7 +631,6 @@ function SectionHeader({
       className="chat-sidebar-row"
       aria-expanded={open}
       onClick={onToggle}
-      onContextMenu={onContextMenu}
       {...attr}
       style={{
         ...rowBase,
@@ -704,126 +697,6 @@ const pointerHalf = (e: React.DragEvent) => {
   return e.clientY < rect.top + rect.height / 2;
 };
 
-// The room menu (task 5dac6b9b): Room settings, Tuck or Untuck, Move up and
-// Move down. Outside the nav, at the pointer or under the "..." button.
-function RoomMenu({
-  at,
-  tucked,
-  canUp,
-  canDown,
-  onSettings,
-  onTuck,
-  onUp,
-  onDown,
-  onClose,
-}: {
-  at: { x: number; y: number };
-  tucked: boolean;
-  canUp: boolean;
-  canDown: boolean;
-  onSettings: () => void;
-  onTuck: () => void;
-  onUp: () => void;
-  onDown: () => void;
-  onClose: () => void;
-}) {
-  const { t } = useI18n();
-  const ref = useRef<HTMLDivElement>(null);
-  // Near the window's bottom or right edge, the menu moves in so all of it
-  // shows; measured before the first paint, so it never jumps.
-  const [pos, setPos] = useState(at);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const margin = 8;
-    // offset sizes: the open animation scales the menu, its layout box not.
-    const rect = { width: el.offsetWidth, height: el.offsetHeight };
-    const next = {
-      x: Math.max(
-        margin,
-        Math.min(at.x, window.innerWidth - rect.width - margin),
-      ),
-      y: Math.max(
-        margin,
-        Math.min(at.y, window.innerHeight - rect.height - margin),
-      ),
-    };
-    // The clamp needs the menu's own size, known only once it is laid out,
-    // and applies before the paint.
-    if (next.x !== pos.x || next.y !== pos.y) setPos(next);
-  }, [at, pos]);
-  useEffect(() => {
-    const close = (e: Event) => {
-      const target = e.target as Element | null;
-      if (ref.current?.contains(target)) return;
-      // The "..." buttons open and switch the menu themselves.
-      if (target?.closest?.("[data-sidebar-room-menu]")) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("pointerdown", close);
-    // Capture: a page under the menu (Tasks) takes Escape first and stops
-    // it; the menu still closes, with the page.
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose]);
-  const item = (
-    id: string,
-    label: string,
-    run: () => void,
-    disabled = false,
-  ) => (
-    <MenuItem
-      key={id}
-      role="menuitem"
-      attrs={{ "data-room-menu": id }}
-      label={label}
-      disabled={disabled}
-      onClick={() => {
-        run();
-        onClose();
-      }}
-    />
-  );
-  // Straight into the body (no Portal mount pass), so the layout effect
-  // above measures the menu on its first render.
-  return createPortal(
-    <div
-      ref={ref}
-      role="menu"
-      style={{
-        position: "fixed",
-        left: pos.x,
-        top: pos.y,
-        zIndex: 1000,
-        background: "var(--bg-overlay)",
-        backdropFilter: "blur(16px)",
-        border: "1px solid var(--border-light)",
-        borderRadius: 12,
-        padding: 5,
-        minWidth: 180,
-        boxShadow: "0 12px 40px var(--shadow-heavy)",
-        animation: "hudIn 0.12s ease-out",
-      }}
-    >
-      {item("settings", t("sidebar.roomSettings"), onSettings)}
-      {tucked
-        ? item("untuck", t("sidebar.untuckRoom"), onTuck)
-        : item("tuck", t("sidebar.tuckRoom"), onTuck)}
-      {item("up", t("sidebar.moveUp"), onUp, !canUp)}
-      {item("down", t("sidebar.moveDown"), onDown, !canDown)}
-    </div>,
-    document.body,
-  );
-}
-
 export function ChatSidebar({
   openAgentId,
   page,
@@ -836,6 +709,7 @@ export function ChatSidebar({
   onOpenPage,
   onOpenAgent,
   onAgentContextMenu,
+  onAgentSettings,
   onOpenHumanChat,
   onOpenMemberSettings,
   onOpenSettings,
@@ -955,38 +829,6 @@ export function ChatSidebar({
         : list.tucked.filter((id) => id !== roomId),
     );
   };
-  // Move up and Move down step past the next room of the same kind: a shown
-  // room among the shown ones, a tucked one among the tucked.
-  const neighbour = (roomId: string, step: -1 | 1): string | null => {
-    const group = list.rooms
-      .map((r) => r.id)
-      .filter((id) => tuckedSet.has(id) === tuckedSet.has(roomId));
-    return group[group.indexOf(roomId) + step] ?? null;
-  };
-  const moveStep = (roomId: string, step: -1 | 1) => {
-    const target = neighbour(roomId, step);
-    if (!target) return;
-    writeOrder(
-      moveRoom(
-        list.rooms.map((r) => r.id),
-        roomId,
-        target,
-        step === -1,
-      ),
-    );
-  };
-
-  // One room menu at a time.
-  const [roomMenu, setRoomMenu] = useState<{
-    roomId: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const closeRoomMenu = useMemo(() => () => setRoomMenu(null), []);
-  const menuRoom = roomMenu
-    ? (list.rooms.find((r) => r.id === roomMenu.roomId) ?? null)
-    : null;
-
   // A drag in progress: a room or a pinned row, and where it would land.
   const [dragging, setDragging] = useState<{
     kind: "room" | "pin";
@@ -1080,6 +922,7 @@ export function ChatSidebar({
         pinLabel={t(pinned ? "sidebar.unpin" : "sidebar.pin")}
         onOpen={onOpenAgent}
         onContextMenu={onAgentContextMenu}
+        onSettings={onAgentSettings}
         onTogglePin={pins.togglePin}
         drag={drag}
       />
@@ -1100,8 +943,6 @@ export function ChatSidebar({
       newAgentSeat(agents, room.id) === null
         ? t("sidebar.newAgentInBack", { room: room.name })
         : t("sidebar.newAgentIn", { room: room.name });
-    const openMenu = (x: number, y: number) =>
-      setRoomMenu({ roomId: room.id, x, y });
     const drag = dragBindings("room", room.id, dropRoom(room.id));
     return (
       <div key={room.id}>
@@ -1114,10 +955,6 @@ export function ChatSidebar({
             label={room.name}
             open={open}
             onToggle={() => toggle("rooms", room.id)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              openMenu(e.clientX, e.clientY);
-            }}
             attr={{ "data-sidebar-room": room.id }}
             right={
               summary && (
@@ -1132,32 +969,19 @@ export function ChatSidebar({
           {/* Over the header's right end, on hover: they take no room in the
               row, so the summary keeps the same right edge as a back room's. */}
           <span
-            onContextMenu={(e) => {
-              e.preventDefault();
-              openMenu(e.clientX, e.clientY);
-            }}
-            className="chat-sidebar-room-actions"
+            className="chat-sidebar-row-actions"
             data-in-view={room.id === roomInView && open ? "" : undefined}
           >
             <button
               type="button"
               tabIndex={-1}
               className="chat-sidebar-row-action"
-              data-sidebar-room-menu={room.id}
-              title={t("sidebar.roomOptions")}
-              aria-label={t("sidebar.roomOptions")}
-              aria-haspopup="menu"
-              aria-expanded={roomMenu?.roomId === room.id}
-              onClick={(e) => {
-                if (roomMenu?.roomId === room.id) {
-                  setRoomMenu(null);
-                  return;
-                }
-                const rect = e.currentTarget.getBoundingClientRect();
-                openMenu(rect.left, rect.bottom + 4);
-              }}
+              data-sidebar-room-settings={room.id}
+              title={t("sidebar.roomSettings")}
+              aria-label={t("sidebar.roomSettings")}
+              onClick={() => onRoomSettings(room.id)}
             >
-              {MoreIcon}
+              {SettingsIcon}
             </button>
             {onNewAgent && (
               <button
@@ -1518,21 +1342,6 @@ export function ChatSidebar({
           </>
         )}
       </div>
-      {roomMenu && menuRoom && (
-        <RoomMenu
-          // A new place (another room, another click) starts a new clamp.
-          key={`${roomMenu.roomId}:${roomMenu.x}:${roomMenu.y}`}
-          at={roomMenu}
-          tucked={tuckedSet.has(menuRoom.id)}
-          canUp={neighbour(menuRoom.id, -1) !== null}
-          canDown={neighbour(menuRoom.id, 1) !== null}
-          onSettings={() => onRoomSettings(menuRoom.id)}
-          onTuck={() => setTucked(menuRoom.id, !tuckedSet.has(menuRoom.id))}
-          onUp={() => moveStep(menuRoom.id, -1)}
-          onDown={() => moveStep(menuRoom.id, 1)}
-          onClose={closeRoomMenu}
-        />
-      )}
     </nav>
   );
 }

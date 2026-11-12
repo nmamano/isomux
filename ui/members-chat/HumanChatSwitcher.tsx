@@ -8,7 +8,8 @@ import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { useDmPeer, useMemberChatRows } from "./member-rows.ts";
-import { ChevronDownIcon, GearIcon } from "./icons.tsx";
+import { ChevronDownIcon } from "./icons.tsx";
+import { SettingsIcon } from "../components/NavIcons.tsx";
 
 export interface HumanChatSwitcherProps {
   current: HumanChatKey;
@@ -226,7 +227,7 @@ export function HumanChatSwitcher({
                     justifyContent: "center",
                   }}
                 >
-                  {GearIcon}
+                  {SettingsIcon}
                 </button>
               )}
             </div>

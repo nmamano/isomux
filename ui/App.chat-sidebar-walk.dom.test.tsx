@@ -108,8 +108,9 @@ it("no entry hides the sidebar: the walk clicks every button it draws, opening c
     ].map((row) => `data-sidebar-nav=${row}`),
     "data-sidebar-more-rooms=",
     ...["lobby", "r1", "r2", "r3"].map((id) => `data-sidebar-room=${id}`),
-    // Task 5dac6b9b: a room's "..." menu and an agent row's pin button.
-    ...["r1", "r2", "r3"].map((id) => `data-sidebar-room-menu=${id}`),
+    // Task c921308f: a room's settings button. Task 5dac6b9b: an agent
+    // row's pin button; task c921308f: its settings button.
+    ...["r1", "r2", "r3"].map((id) => `data-sidebar-room-settings=${id}`),
     ...[
       scout,
       ranger,
@@ -119,7 +120,10 @@ it("no entry hides the sidebar: the walk clicks every button it draws, opening c
       receptionist,
       third,
       thirdBack,
-    ].map((a) => `data-sidebar-pin=${a.id}`),
+    ].flatMap((a) => [
+      `data-sidebar-pin=${a.id}`,
+      `data-sidebar-agent-settings=${a.id}`,
+    ]),
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-back-room=${id}`),
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-new-agent=${id}`),
     ...[

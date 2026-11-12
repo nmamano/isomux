@@ -97,7 +97,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Send now** to flush the message queue immediately while the agent is busy, via a button or Ctrl/Cmd+Enter.
 - **Ctrl+C to interrupt** - cleanly aborts and lets you resume.
 - **Conversation branching** - edit a past message to fork the conversation from that point, preserving the original.
-- **Right-click context menu** - resume past sessions, edit agent, kill.
+- **Right-click context menu** - resume past sessions, agent settings, kill.
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Media display** - agents can show images, video and audio inline in the conversation.
 - **Office language** - each person picks a language, like Spanish or Chinese, under Settings → You → Language and the whole office reads in it.
@@ -105,7 +105,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API, or via OpenAI voices.
 - **Voice settings** in Integrations > Voice: each member picks the browser or OpenAI for the mic and for read aloud. OpenAI gives better accuracy and voices, and a mic in Firefox.
 - **Context check** - agents and humans (`/context`) can see how full a context window is, and a battery meter in the header drains as it fills.
-- **Automatic handoff** - when an agent's context gets full, it writes a brief and continues in a fresh session. On by default; turn it off in the Edit agent menu.
+- **Automatic handoff** - when an agent's context gets full, it writes a brief and continues in a fresh session. On by default; turn it off in Agent settings.
 - **Plan usage at a glance** - for subscriptions, a ring next to the context meter shows how much of the plan allowance the agent's account has burned, with a tag for the limit it shows (5h, WK). Hovering (or tapping) it lists every limit that can gate the agent, with when each resets and how old the reading is.
 - **Resume after a usage limit** - a Claude or Codex agent that a usage limit stops continues by itself after the limit resets.
 

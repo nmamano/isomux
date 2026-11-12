@@ -311,8 +311,20 @@ export const SettingsIcon = (
   >
     <line x1="2" y1="4.5" x2="14" y2="4.5" />
     <line x1="2" y1="11.5" x2="14" y2="11.5" />
-    <circle cx="6" cy="4.5" r="1.8" fill="var(--btn-surface)" />
-    <circle cx="10.5" cy="11.5" r="1.8" fill="var(--btn-surface)" />
+    {/* The knobs hide the line behind them in the button's colour: a
+        sidebar row action sets --settings-knob (ui/styles.ts). */}
+    <circle
+      cx="6"
+      cy="4.5"
+      r="1.8"
+      fill="var(--settings-knob, var(--btn-surface))"
+    />
+    <circle
+      cx="10.5"
+      cy="11.5"
+      r="1.8"
+      fill="var(--settings-knob, var(--btn-surface))"
+    />
   </svg>
 );
 
