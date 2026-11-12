@@ -141,6 +141,9 @@ export interface ConversationDeps {
     // The sender's limits: a command needs the area of its HTTP twin.
     limits: ApiTokenLimits | undefined,
   ): Promise<UserSendAcceptance>;
+  // A member's own session had a message accepted for the agent: the agent
+  // moves to the front of that member's Recent list (task 5dac6b9b).
+  noteRecentAgent?(userId: string, agentId: string): void;
   // Whether a write by `identity` to the agent fits the pack rule
   // (server/identity/agent-fit.ts identityFitsAgent). A token message that
   // passes only as a reply is marked as data.
@@ -634,6 +637,10 @@ export function conversationHandlers(
         ctx.identity.apiTokenLimits,
       );
       if (!r.ok) return refusal(ctx.identity, r);
+      // Only a member's own session counts for Recent: not their agents,
+      // API tokens or schedules, which take the other branches above.
+      if (ctx.identity.scope === "user" && ctx.identity.userId)
+        deps.noteRecentAgent?.(ctx.identity.userId, ctx.params.id);
       return ok({ messageId: "" });
     },
 

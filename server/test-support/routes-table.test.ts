@@ -1262,7 +1262,14 @@ const SPEC_ROUTE_CONTRACT: Record<
       "agent:send-as-cron",
       "api:send-message",
     ],
-    emits: ["log_entry", "interaction_added", "agent_updated"],
+    // A member's own send moves their Recent list (task 5dac6b9b).
+    emits: [
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+      "user_admin_updated",
+      "user_self_updated",
+    ],
   },
   "agents.respondInteraction": {
     caps: ["agent:converse", "self:affordance"],
@@ -1539,6 +1546,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["user_admin_updated", "user_self_updated"],
   },
   "view.setPushRooms": {
+    caps: ["view:manage"],
+    emits: ["user_admin_updated", "user_self_updated"],
+  },
+  "view.setPinned": {
     caps: ["view:manage"],
     emits: ["user_admin_updated", "user_self_updated"],
   },

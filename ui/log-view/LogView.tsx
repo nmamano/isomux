@@ -4,6 +4,7 @@ import { useLoadRest } from "./load-rest.ts";
 import { HeaderBackgroundPill } from "../components/BackgroundWork.tsx";
 import { BackRoomStrip } from "./BackRoomStrip.tsx";
 import { CHAT_BAR_TWINS } from "../chat-sidebar.ts";
+import { useTwinFade } from "../hooks/useTwinFade.ts";
 import {
   STATE_LABEL_KEYS,
   escalationColor,
@@ -1661,6 +1662,11 @@ export function LogView({
     }
     return acts;
   })();
+  const chatBarActions = useTwinFade(
+    sidebarOpen,
+    desktopAgentActions,
+    CHAT_BAR_TWINS,
+  );
 
   // Mobile overflow menu - adds Editor and Terminal entries when their
   // features are enabled. The flow mirrors desktop (full-screen overlay
@@ -2031,6 +2037,7 @@ export function LogView({
             <button
               type="button"
               data-show-sidebar=""
+              className="nav-action-fade-in"
               onClick={onShowSidebar}
               title={i18n.t("sidebar.show")}
               aria-label={i18n.t("sidebar.show")}
@@ -2350,14 +2357,7 @@ export function LogView({
               />
             )}
             <ContextBattery usage={agent.contextUsage} />
-            <NavActions
-              actions={
-                sidebarOpen
-                  ? desktopAgentActions.filter((a) => !CHAT_BAR_TWINS.has(a.id))
-                  : desktopAgentActions
-              }
-              viewport="desktop"
-            />
+            <NavActions actions={chatBarActions} viewport="desktop" />
           </div>
         </div>
       )}

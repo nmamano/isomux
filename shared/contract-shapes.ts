@@ -795,6 +795,12 @@ export interface TuckedRoomsReq {
   tucked: string[];
 }
 
+// view.setPinned: the FULL list of agents the caller pins in the desktop
+// sidebar, in order (task 5dac6b9b).
+export interface PinnedReq {
+  pinned: string[];
+}
+
 // prefs.update (PATCH /api/me/preferences). SELF-only personal
 // preferences, deliberately NOT on the selfOrOwner users.update route: the
 // split keeps an owner out of a member's language. The voice part also has a

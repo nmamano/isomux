@@ -45,6 +45,8 @@ import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
 import { ChatSidebar, type SidebarPage } from "./components/ChatSidebar.tsx";
+import { SidebarSlot } from "./components/SidebarSlot.tsx";
+import { useSidebarPins } from "./sidebar-pins.ts";
 import { newAgentSeat, sidebarStartsOpen } from "./chat-sidebar.ts";
 import { PageLeaveGuard, type LeaveGuard } from "./page-leave-guard.ts";
 import { askIdForPage } from "./inbox.ts";
@@ -1158,6 +1160,9 @@ export function App({ routing = true }: { routing?: boolean }) {
   // sidebar nor the chat mounts again.
   const sidebarView = !isMobile && !features.embed;
   const sidebarShown = sidebarView && sidebarOpen;
+  // The member's Pinned and Recent agents: one pending list for the sidebar's
+  // pin buttons and the desk menu, so a pin from either builds on the other.
+  const pins = useSidebarPins();
 
   // The pages and the chat, as before the sidebar.
   const content =
@@ -1304,32 +1309,39 @@ export function App({ routing = true }: { routing?: boolean }) {
                   height: "calc(100vh - var(--banner-h, 0px))",
                 }}
               >
-                {sidebarShown && (
-                  <ChatSidebar
-                    openAgentId={focusedAgent?.id ?? null}
-                    page={page}
-                    officeShown={page === null && !focusedAgent}
-                    backRoomOpen={backRoomOpen}
-                    viewReady={
-                      restored || (!persistEnabled && hasReceivedInitialState)
-                    }
-                    onCollapse={() => setSidebarOpen(false)}
-                    onOffice={() => leaveThen(goOffice)}
-                    onNewAgent={canSpawn ? spawnFromSidebar : null}
-                    onOpenPage={openSidebarPage}
-                    onOpenAgent={(agentId) =>
-                      leaveThen(() => openAgentChat(agentId))
-                    }
-                    onAgentContextMenu={(x, y, agent) =>
-                      setCtxMenu({ x, y, agent })
-                    }
-                    onMembersChat={() => leaveThen(openMembersChat)}
-                    onOpenSettings={() => {
-                      if (page !== "settings")
-                        leaveThen(() => openSettings(null));
-                    }}
-                  />
-                )}
+                <SidebarSlot open={sidebarOpen}>
+                  {(closing) => (
+                    <ChatSidebar
+                      closing={closing}
+                      pins={pins}
+                      onRoomSettings={(roomId) =>
+                        leaveThen(() => openSettings({ kind: "room", roomId }))
+                      }
+                      openAgentId={focusedAgent?.id ?? null}
+                      page={page}
+                      officeShown={page === null && !focusedAgent}
+                      backRoomOpen={backRoomOpen}
+                      viewReady={
+                        restored || (!persistEnabled && hasReceivedInitialState)
+                      }
+                      onCollapse={() => setSidebarOpen(false)}
+                      onOffice={() => leaveThen(goOffice)}
+                      onNewAgent={canSpawn ? spawnFromSidebar : null}
+                      onOpenPage={openSidebarPage}
+                      onOpenAgent={(agentId) =>
+                        leaveThen(() => openAgentChat(agentId))
+                      }
+                      onAgentContextMenu={(x, y, agent) =>
+                        setCtxMenu({ x, y, agent })
+                      }
+                      onMembersChat={() => leaveThen(openMembersChat)}
+                      onOpenSettings={() => {
+                        if (page !== "settings")
+                          leaveThen(() => openSettings(null));
+                      }}
+                    />
+                  )}
+                </SidebarSlot>
                 <div style={{ flex: 1, minWidth: 0, height: "100%" }}>
                   <PageLeaveGuard.Provider value={leaveGuardRef}>
                     {content}
@@ -1378,6 +1390,14 @@ export function App({ routing = true }: { routing?: boolean }) {
                   setEditAgent(agent);
                   setCtxMenu(null);
                 }}
+                pin={
+                  sidebarView
+                    ? {
+                        pinned: pins.pinned.includes(ctxMenu.agent.id),
+                        onToggle: () => pins.togglePin(ctxMenu.agent.id),
+                      }
+                    : undefined
+                }
               />
             )}
             {editAgent && (

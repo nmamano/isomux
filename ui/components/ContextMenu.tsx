@@ -31,6 +31,8 @@ interface ContextMenuProps {
   agent: AgentInfo;
   onClose: () => void;
   onEdit: (agent: AgentInfo) => void;
+  // The desktop sidebar's pin (task 5dac6b9b): absent where no sidebar shows.
+  pin?: { pinned: boolean; onToggle: () => void };
 }
 
 export function ContextMenu({
@@ -39,6 +41,7 @@ export function ContextMenu({
   agent,
   onClose,
   onEdit,
+  pin,
 }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { t, language } = useI18n();
@@ -174,6 +177,16 @@ export function ContextMenu({
           onClose();
         }}
       />
+      {pin && (
+        <MenuItem
+          label={t(pin.pinned ? "sidebar.unpin" : "sidebar.pin")}
+          attrs={{ "data-agent-menu-pin": pin.pinned ? "unpin" : "pin" }}
+          onClick={() => {
+            pin.onToggle();
+            onClose();
+          }}
+        />
+      )}
       {room && isBackSeat(agent.desk) && (
         <MenuItem
           label={
@@ -328,6 +341,7 @@ export function MenuItem({
   ariaChecked,
   dataNavMenuItem,
   confirmProps,
+  attrs,
 }: {
   label: React.ReactNode;
   danger?: boolean;
@@ -341,9 +355,12 @@ export function MenuItem({
   dataNavMenuItem?: string;
   // A confirm step's bindings (useConfirmStep), for a destructive item.
   confirmProps?: ConfirmBindings;
+  // Data attributes that name the item (a test or a script finds it by them).
+  attrs?: Record<`data-${string}`, string>;
 }) {
   return (
     <button
+      {...attrs}
       {...confirmProps}
       role={role}
       aria-checked={ariaChecked}

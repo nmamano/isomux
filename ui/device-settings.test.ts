@@ -49,7 +49,9 @@ const {
   getChatCopyFormat,
   setChatCopyFormat,
   getChatSidebarSections,
+  getChatSidebarWidth,
   setChatSidebarSections,
+  setChatSidebarWidth,
   getWhatsAppLayout,
   setWhatsAppLayout,
   getGithubLayout,
@@ -200,6 +202,8 @@ describe("chat sidebar sections", () => {
     back: ["r2"],
     more: true,
     lobby: false,
+    pinned: false,
+    recent: true,
     anchor: "a1|r1|0",
   };
 
@@ -227,6 +231,36 @@ describe("chat sidebar sections", () => {
       store.set("isomux-chat-sidebar-sections", raw);
       expect(getChatSidebarSections(), raw).toBeNull();
     }
+  });
+  // Saved before task 5dac6b9b: Pinned and Recent start open.
+  it("reads a value saved without the Pinned and Recent flags with both open", () => {
+    const { pinned: _p, recent: _r, ...older } = sections;
+    store.set("isomux-chat-sidebar-sections", JSON.stringify(older));
+    expect(getChatSidebarSections()).toEqual({
+      ...older,
+      pinned: true,
+      recent: true,
+    });
+  });
+});
+
+// The sidebar width on this device (task 5dac6b9b).
+describe("chat sidebar width", () => {
+  beforeEach(() => store.clear());
+
+  it("reads back what it saved, clamped, and none when nothing valid is saved", () => {
+    expect(getChatSidebarWidth()).toBeNull();
+    setChatSidebarWidth(320);
+    expect(getChatSidebarWidth()).toBe(320);
+    setChatSidebarWidth(9999);
+    expect(getChatSidebarWidth()).toBe(440);
+    for (const raw of ["{not json", '"wide"', "null", "[300]"]) {
+      store.set("isomux-chat-sidebar-width", raw);
+      expect(getChatSidebarWidth(), raw).toBeNull();
+    }
+    // A stored number out of range (a hand edit) reads clamped.
+    store.set("isomux-chat-sidebar-width", "120");
+    expect(getChatSidebarWidth()).toBe(200);
   });
 });
 

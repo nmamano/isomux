@@ -34,6 +34,9 @@ export type ChatSidebarSections = {
   back: string[];
   more: boolean;
   lobby: boolean;
+  // The Pinned and Recent sections (task 5dac6b9b).
+  pinned: boolean;
+  recent: boolean;
   anchor: string | null;
 };
 
@@ -42,6 +45,8 @@ export const CHAT_SIDEBAR_SECTIONS_DEFAULT: ChatSidebarSections = {
   back: [],
   more: false,
   lobby: true,
+  pinned: true,
+  recent: true,
   anchor: null,
 };
 
@@ -64,6 +69,8 @@ export function sidebarSectionsForAnchor(
     back: anchor.back && !s.back.includes(room) ? [...s.back, room] : s.back,
     more: s.more || anchor.tucked,
     lobby: s.lobby,
+    pinned: s.pinned,
+    recent: s.recent,
     anchor: anchor.key,
   };
 }
@@ -139,3 +146,99 @@ export function newAgentSeat(
   }
   return null;
 }
+
+/** The sidebar's width range and default, in px (task 5dac6b9b). */
+export const CHAT_SIDEBAR_WIDTH_MIN = 200;
+export const CHAT_SIDEBAR_WIDTH_MAX = 440;
+export const CHAT_SIDEBAR_WIDTH_DEFAULT = 260;
+
+/** A width within CHAT_SIDEBAR_WIDTH_MIN..MAX, rounded to a whole px; the
+ *  default for a value that is not a finite number. */
+export function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return CHAT_SIDEBAR_WIDTH_DEFAULT;
+  return Math.round(
+    Math.min(CHAT_SIDEBAR_WIDTH_MAX, Math.max(CHAT_SIDEBAR_WIDTH_MIN, width)),
+  );
+}
+
+/**
+ * What one agent asks of the member, as the orange badge on its row counts
+ * it: its open asks, plus one when it waits on a permission prompt.
+ */
+export function agentAttention(agent: AgentInfo, askCount: number): number {
+  return askCount + (agent.pendingPrompt === "permission" ? 1 : 0);
+}
+
+/**
+ * The summary on a folded room or back room: how many of its agents work
+ * (thinking or running a tool), and the sum of their row badges
+ * (agentAttention).
+ */
+export function roomSummary(
+  agents: readonly AgentInfo[],
+  askCountByAgent: ReadonlyMap<string, number>,
+): { working: number; attention: number } {
+  let working = 0;
+  let attention = 0;
+  for (const a of agents) {
+    if (a.state === "thinking" || a.state === "tool_executing") working++;
+    attention += agentAttention(a, askCountByAgent.get(a.id) ?? 0);
+  }
+  return { working, attention };
+}
+
+/** The Pinned section: the pinned agents the client has, in the member's
+ *  order. */
+export function pinnedAgentsList(
+  pinnedIds: readonly string[],
+  agents: readonly AgentInfo[],
+): AgentInfo[] {
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  return pinnedIds.flatMap((id) => byId.get(id) ?? []);
+}
+
+/** How many agents the Recent section lists. */
+export const RECENT_AGENTS_SHOWN = 5;
+
+/**
+ * The Recent section: the first `count` recent agents, newest first, that
+ * are not pinned and that the client has.
+ */
+export function recentAgentsList(
+  recentIds: readonly string[],
+  pinnedIds: readonly string[],
+  agents: readonly AgentInfo[],
+  count: number = RECENT_AGENTS_SHOWN,
+): AgentInfo[] {
+  const pinned = new Set(pinnedIds);
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const out: AgentInfo[] = [];
+  for (const id of recentIds) {
+    if (out.length >= count) break;
+    const agent = byId.get(id);
+    if (agent && !pinned.has(id) && !out.includes(agent)) out.push(agent);
+  }
+  return out;
+}
+
+/**
+ * The room order after the member drops room `id` before (or after) room
+ * `targetId`. Returns `order` unchanged when either id is missing or the two
+ * are the same.
+ */
+export function moveRoom(
+  order: readonly string[],
+  id: string,
+  targetId: string,
+  before: boolean,
+): string[] {
+  if (id === targetId || !order.includes(id) || !order.includes(targetId))
+    return [...order];
+  const rest = order.filter((x) => x !== id);
+  const at = rest.indexOf(targetId) + (before ? 0 : 1);
+  return [...rest.slice(0, at), id, ...rest.slice(at)];
+}
+
+/** The pinned order after the member drops agent `id` before (or after)
+ *  agent `targetId`; same rules as moveRoom. */
+export const movePinned = moveRoom;

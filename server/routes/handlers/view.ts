@@ -1,6 +1,6 @@
 // View-preference resource handlers. The per-user visibility
 // surface (opIds view.{setOrder,setShown,setNotifRooms,setTucked,setPushRooms,
-// listRooms}) on the
+// setPinned, listRooms}) on the
 // unified REST surface. SELF-scoped: the route table gates every op with
 // view:manage + authenticated, and each handler acts on the CALLER's own userId.
 //
@@ -33,6 +33,7 @@
 
 import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
 import type { AccessibleRoomWire } from "../../../shared/contract-shapes.ts";
+import { PINNED_AGENTS_MAX } from "../../sidebar-agents.ts";
 
 export interface ViewChangeInput {
   order?: string[];
@@ -49,6 +50,10 @@ export interface ViewDeps {
   // Every room the user can ACCESS (hidden ones included), in office order.
   // null only if the user record vanished (rendered as 404 here).
   listAccessibleRooms(userId: string): AccessibleRoomWire[] | null;
+  // view.setPinned (task 5dac6b9b): stores the sidebar's pinned agents
+  // (server/sidebar-agents.ts pinnedAgentsToStore) and fans out the private
+  // record. false only if the user record vanished.
+  applyPinned(userId: string, pinned: string[]): boolean;
 }
 
 const isStringArray = (v: unknown): v is string[] =>
@@ -82,6 +87,32 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
     "view.setNotifRooms": setIdList("notifRooms", "invalid_notif_rooms"),
     "view.setTucked": setIdList("tucked", "invalid_tucked"),
     "view.setPushRooms": setIdList("pushRooms", "invalid_push_rooms"),
+
+    // The sidebar's pinned agents (task 5dac6b9b). Unknown ids drop silently,
+    // as unknown rooms do above; only the shape and the bound are refused.
+    "view.setPinned": (ctx) => {
+      const userId = ctx.identity.userId;
+      if (!userId) return fail(401, "not_a_user", "view is per-user");
+      const body = (ctx.body ?? {}) as Record<string, unknown>;
+      if (!isStringArray(body.pinned)) {
+        return fail(
+          422,
+          "invalid_pinned",
+          "pinned must be an array of agent ids",
+        );
+      }
+      if (body.pinned.length > PINNED_AGENTS_MAX) {
+        return fail(
+          422,
+          "too_many_pinned",
+          `pinned holds at most ${PINNED_AGENTS_MAX} agent ids`,
+        );
+      }
+      if (!deps.applyPinned(userId, body.pinned)) {
+        return fail(404, "user_not_found");
+      }
+      return noContent();
+    },
 
     "view.listRooms": (ctx) => {
       const userId = ctx.identity.userId;

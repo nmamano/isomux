@@ -266,12 +266,101 @@ ${emitThemesCss()}
   .chat-sidebar-row:hover {
     background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   }
-  /* A room header's "+": on hover of the header, and always for the room
-     in view. */
-  .chat-sidebar-new-agent { opacity: 0; }
-  .chat-sidebar-room-row:hover .chat-sidebar-new-agent,
-  .chat-sidebar-new-agent[data-in-view],
-  .chat-sidebar-new-agent:focus-visible { opacity: 1; }
+  /* Task 5dac6b9b. A room header's "..." and "+", and an agent row's pin:
+     over the row's right end on hover, with the hovered row's background, so
+     they take no room in the row and the folded summary keeps one right
+     edge. The open room in view always shows its buttons. */
+  .chat-sidebar-room-actions {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .chat-sidebar-room-row:hover .chat-sidebar-room-actions,
+  .chat-sidebar-room-actions:focus-within,
+  .chat-sidebar-room-actions[data-in-view] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .chat-sidebar-agent,
+  .chat-sidebar-room-row,
+  .chat-sidebar-drop-into { position: relative; border-radius: 7px; }
+  /* A drag's drop place: a blue line above or below the row, or a ring on
+     Tucked rooms. Over the row, so the hover background never hides it. */
+  [data-drop="before"]::before,
+  [data-drop="after"]::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    z-index: 3;
+    pointer-events: none;
+  }
+  [data-drop="before"]::before { top: -1px; }
+  [data-drop="after"]::after { bottom: -1px; }
+  [data-drop="into"] { box-shadow: 0 0 0 2px var(--accent); }
+  .chat-sidebar-pin {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .chat-sidebar-agent:hover .chat-sidebar-pin,
+  .chat-sidebar-pin:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .chat-sidebar-row-action {
+    display: flex;
+    align-items: center;
+    padding: 5px;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-dim);
+    cursor: pointer;
+    background: color-mix(in srgb, var(--text-primary) 7%, var(--bg-surface));
+  }
+  .chat-sidebar-row-action:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface));
+  }
+  .chat-sidebar-pin[aria-pressed="true"] { color: var(--accent); }
+
+  /* The sidebar's slot (ui/components/SidebarSlot.tsx): it opens and closes
+     over 200 ms, not while its edge is dragged, and not with reduced
+     motion. Its edge shows a line only on hover or drag; the sidebar's own
+     border is the edge otherwise. */
+  .chat-sidebar-slot { transition: width 0.2s ease-out; }
+  .chat-sidebar-slot[data-dragging] { transition: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .chat-sidebar-slot { transition: none; }
+    /* The twins' fade: !important over NavActions' inline transition. */
+    .nav-action-fade-in { animation: none; }
+    .nav-action-fade-out { transition: none !important; }
+  }
+  .chat-sidebar-resizer::after {
+    left: auto;
+    right: 0;
+    background: transparent;
+  }
+
+  /* A top-bar button the open sidebar repeats fades out as it opens and in
+     as it closes (ui/hooks/useTwinFade.ts). */
+  .nav-action-fade-out {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .nav-action-fade-in { animation: navActionFadeIn 0.2s ease-out; }
+  @keyframes navActionFadeIn { from { opacity: 0; } to { opacity: 1; } }
   .chat-sidebar-row[aria-current="page"] {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }

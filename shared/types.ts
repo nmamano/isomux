@@ -2533,6 +2533,13 @@ export interface UserRecord {
   // "<agentId>:<since>" keys (ui/inbox-agent-items.ts failureKey). Absent
   // reads as none. Written whole through prefs.update.
   inboxDismissed?: string[];
+  // The desktop sidebar's Pinned agents (task 5dac6b9b), in the member's
+  // order, written whole through view.setPinned. Absent reads as none.
+  pinnedAgents?: string[];
+  // The agents the member last sent a message to from a signed-in session,
+  // newest first (task 5dac6b9b): the sidebar's Recent list. The server
+  // writes it on agents.sendMessage; absent reads as none.
+  recentAgents?: string[];
   // Set when an owner creates the member (users.create); removed by the
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".

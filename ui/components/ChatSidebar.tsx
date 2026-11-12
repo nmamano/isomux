@@ -2,27 +2,47 @@
 // chat and every page, a Codex-style list of the office's rooms and agents.
 // The phone and the site embed never show it. No click in it closes it; only
 // its own hide button does. Its decisions live in ui/chat-sidebar.ts.
+// Task 5dac6b9b added Pinned and Recent, the folded room summary, the room
+// menu and the drag to reorder and tuck rooms; App draws the slot around it
+// (its width, the resize edge and the slide).
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import {
   LOBBY_ROOM_ID,
   type AgentInfo,
   type RoomWire,
 } from "../../shared/types.ts";
 import { hasBackRoom, isBackSeat } from "../../shared/desks.ts";
-import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
 import type { Page } from "../routes.ts";
 import { useAppState, useRoomList } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { useInboxCounts } from "../inbox.ts";
 import { askCounts, openAsks } from "../asks-sync.ts";
-import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useCan } from "../hooks/useCan.ts";
+import { apiFetch } from "../api.ts";
+import type {
+  TuckedRoomsReq,
+  ViewOrderReq,
+} from "../../shared/contract-shapes.ts";
 import {
+  agentAttention,
   CHAT_SIDEBAR_SECTIONS_DEFAULT,
+  moveRoom,
+  movePinned,
   newAgentSeat,
+  pinnedAgentsList,
+  recentAgentsList,
   roomAgents,
+  roomSummary,
   sidebarRooms,
   sidebarSectionsForAnchor,
   type ChatSidebarSections,
@@ -31,10 +51,10 @@ import {
   getChatSidebarSections,
   setChatSidebarSections,
 } from "../device-settings.ts";
+import type { SidebarPins } from "../sidebar-pins.ts";
 import { Character } from "../office/Character.tsx";
-import { GhostGraphic } from "../office/ghostVariants.tsx";
-import { StatusLight, statusColor } from "../office/StatusLight.tsx";
-import { roomActivityDotColor } from "../office/room-activity.ts";
+import { StatusLight } from "../office/StatusLight.tsx";
+import { MenuItem } from "./ContextMenu.tsx";
 import {
   AppsIcon,
   BuildingIcon,
@@ -73,10 +93,48 @@ export interface ChatSidebarProps {
   onAgentContextMenu: (x: number, y: number, agent: AgentInfo) => void;
   onMembersChat: () => void;
   onOpenSettings: () => void;
+  // A room menu's Room settings.
+  onRoomSettings: (roomId: string) => void;
+  // The member's Pinned and Recent agents (ui/sidebar-pins.ts).
+  pins: SidebarPins;
+  // The sidebar slides out (App's slot): inert until it leaves.
+  closing?: boolean;
 }
 
-export const CHAT_SIDEBAR_WIDTH = 260;
 const HEAD_SIZE = 26;
+
+// Drag payload types, so a room never drops on the pinned list or back.
+const ROOM_DRAG = "application/x-isomux-sidebar-room";
+const PIN_DRAG = "application/x-isomux-sidebar-pin";
+
+const MoreIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="currentColor"
+    style={{ display: "block" }}
+  >
+    <circle cx="3.5" cy="8" r="1.3" />
+    <circle cx="8" cy="8" r="1.3" />
+    <circle cx="12.5" cy="8" r="1.3" />
+  </svg>
+);
+
+const PinIcon = ({ filled }: { filled: boolean }) => (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 16 16"
+    fill={filled ? "currentColor" : "none"}
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <path d="M6 2.5h4l-.5 4 2.5 2.5H4l2.5-2.5zM8 9v4.5" />
+  </svg>
+);
 
 const PlusIcon = (
   <svg
@@ -247,89 +305,163 @@ function NavRow({
 function AgentRow({
   agent,
   current,
-  asks,
+  attention,
   unread,
   changedAt,
+  pinned,
+  pinLabel,
   onOpen,
   onContextMenu,
+  onTogglePin,
+  drag,
 }: {
   agent: AgentInfo;
   current: boolean;
-  asks: number;
+  // agentAttention: its open asks, plus one for a permission prompt.
+  attention: number;
   unread: boolean;
   changedAt: number | undefined;
+  pinned: boolean;
+  pinLabel: string;
   onOpen: (agentId: string) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  onTogglePin: (agentId: string) => void;
+  // A row of the Pinned list: drag to reorder.
+  drag?: DragBindings;
 }) {
   return (
-    <button
-      type="button"
-      tabIndex={-1}
-      className="chat-sidebar-row"
-      data-sidebar-agent={agent.id}
-      aria-current={current ? "page" : undefined}
-      onClick={() => onOpen(agent.id)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onContextMenu(e.clientX, e.clientY, agent);
-      }}
-      style={{ ...rowBase, padding: "5px 10px" }}
-    >
-      <span style={{ position: "relative", flexShrink: 0, display: "flex" }}>
-        <Head outfit={agent.outfit} />
-        <span style={{ position: "absolute", right: -2, bottom: -2 }}>
-          <RowLight agent={agent} changedAt={changedAt} />
-        </span>
-      </span>
-      <span
-        {...noTranslate()}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: "flex",
-          flexDirection: "column",
-          lineHeight: 1.25,
+    <div className="chat-sidebar-agent" {...drag?.attrs} data-drop={drag?.drop}>
+      <button
+        type="button"
+        tabIndex={-1}
+        className="chat-sidebar-row"
+        data-sidebar-agent={agent.id}
+        aria-current={current ? "page" : undefined}
+        onClick={() => onOpen(agent.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu(e.clientX, e.clientY, agent);
         }}
+        style={{ ...rowBase, padding: "5px 10px" }}
       >
+        <span style={{ position: "relative", flexShrink: 0, display: "flex" }}>
+          <Head outfit={agent.outfit} />
+          <span style={{ position: "absolute", right: -2, bottom: -2 }}>
+            <RowLight agent={agent} changedAt={changedAt} />
+          </span>
+        </span>
         <span
+          {...noTranslate()}
           style={{
-            fontWeight: current || unread ? 600 : 400,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            lineHeight: 1.25,
           }}
         >
-          {agent.name}
-        </span>
-        {agent.topic && (
           <span
             style={{
-              fontSize: 11.5,
-              color: "var(--text-dim)",
+              fontWeight: current || unread ? 600 : 400,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {agent.topic}
+            {agent.name}
           </span>
-        )}
-      </span>
-      {asks > 0 ? (
-        <Badge n={asks} tone="orange" />
-      ) : unread ? (
+          {agent.topic && (
+            <span
+              style={{
+                fontSize: 11.5,
+                color: "var(--text-dim)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {agent.topic}
+            </span>
+          )}
+        </span>
+        {attention > 0 ? (
+          <Badge n={attention} tone="orange" />
+        ) : unread ? (
+          <span
+            data-sidebar-unread=""
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: "var(--accent)",
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
+      </button>
+      {/* A sibling of the row, not inside it: no button in a button. It
+          shows on hover over the row's right end. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        className="chat-sidebar-row-action chat-sidebar-pin"
+        data-sidebar-pin={agent.id}
+        aria-pressed={pinned}
+        title={pinLabel}
+        aria-label={pinLabel}
+        onClick={() => onTogglePin(agent.id)}
+      >
+        <PinIcon filled={pinned} />
+      </button>
+    </div>
+  );
+}
+
+// The summary on a folded room or back room (ui/chat-sidebar.ts
+// roomSummary): one green dot with the working count, and the orange badge
+// with the sum of the row badges. Nothing when both are 0.
+function Summary({
+  working,
+  attention,
+  attr,
+  workingLabel,
+}: {
+  working: number;
+  attention: number;
+  attr: Record<string, string>;
+  workingLabel: string;
+}) {
+  return (
+    <span
+      {...attr}
+      style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}
+    >
+      {working > 0 && (
         <span
-          data-sidebar-unread=""
+          data-sidebar-room-working={working}
+          title={workingLabel}
           style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: "var(--accent)",
-            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--green-text)",
           }}
-        />
-      ) : null}
-    </button>
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--green-text)",
+            }}
+          />
+          {working}
+        </span>
+      )}
+      <Badge n={attention} tone="orange" />
+    </span>
   );
 }
 
@@ -337,18 +469,18 @@ function SectionHeader({
   label,
   open,
   onToggle,
-  dot,
   right,
   attr,
   strong = true,
+  onContextMenu,
 }: {
   label: ReactNode;
   open: boolean;
   onToggle: () => void;
-  dot?: string | null;
   right?: ReactNode;
   attr: Record<string, string>;
   strong?: boolean;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -357,6 +489,7 @@ function SectionHeader({
       className="chat-sidebar-row"
       aria-expanded={open}
       onClick={onToggle}
+      onContextMenu={onContextMenu}
       {...attr}
       style={{
         ...rowBase,
@@ -379,21 +512,160 @@ function SectionHeader({
       >
         {label}
       </span>
-      {dot && (
-        <span
-          data-sidebar-room-dot=""
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: dot,
-            flexShrink: 0,
-          }}
-        />
-      )}
       <span style={{ flex: 1 }} />
       {right}
     </button>
+  );
+}
+
+// An element's drag hooks: what it carries and where a drop goes.
+type DragBindings = {
+  attrs: {
+    draggable: true;
+    onDragStart: (e: React.DragEvent) => void;
+    onDragEnd: () => void;
+    onDragEnter: (e: React.DragEvent) => void;
+    onDragOver: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+  // Where the blue drop line shows (styles.ts [data-drop]).
+  drop: "before" | "after" | undefined;
+};
+
+// Where a dragged room or pin would land: before or after `id`, or into
+// Tucked rooms (id null). It holds until the next target, the drop or the
+// drag's end: a dragleave's relatedTarget is not reliable enough to clear it.
+type DropAt = { id: string | null; before: boolean };
+
+// The blue line a drop target shows, above or below it.
+const dropLine = (
+  at: DropAt | null,
+  id: string,
+): "before" | "after" | undefined =>
+  at?.id === id ? (at.before ? "before" : "after") : undefined;
+
+const pointerHalf = (e: React.DragEvent) => {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  return e.clientY < rect.top + rect.height / 2;
+};
+
+// The room menu (task 5dac6b9b): Room settings, Tuck or Untuck, Move up and
+// Move down. Outside the nav, at the pointer or under the "..." button.
+function RoomMenu({
+  at,
+  tucked,
+  canUp,
+  canDown,
+  onSettings,
+  onTuck,
+  onUp,
+  onDown,
+  onClose,
+}: {
+  at: { x: number; y: number };
+  tucked: boolean;
+  canUp: boolean;
+  canDown: boolean;
+  onSettings: () => void;
+  onTuck: () => void;
+  onUp: () => void;
+  onDown: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  // Near the window's bottom or right edge, the menu moves in so all of it
+  // shows; measured before the first paint, so it never jumps.
+  const [pos, setPos] = useState(at);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const margin = 8;
+    // offset sizes: the open animation scales the menu, its layout box not.
+    const rect = { width: el.offsetWidth, height: el.offsetHeight };
+    const next = {
+      x: Math.max(
+        margin,
+        Math.min(at.x, window.innerWidth - rect.width - margin),
+      ),
+      y: Math.max(
+        margin,
+        Math.min(at.y, window.innerHeight - rect.height - margin),
+      ),
+    };
+    // The clamp needs the menu's own size, known only once it is laid out,
+    // and applies before the paint.
+    if (next.x !== pos.x || next.y !== pos.y) setPos(next);
+  }, [at, pos]);
+  useEffect(() => {
+    const close = (e: Event) => {
+      const target = e.target as Element | null;
+      if (ref.current?.contains(target)) return;
+      // The "..." buttons open and switch the menu themselves.
+      if (target?.closest?.("[data-sidebar-room-menu]")) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("pointerdown", close);
+    // Capture: a page under the menu (Tasks) takes Escape first and stops
+    // it; the menu still closes, with the page.
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose]);
+  const item = (
+    id: string,
+    label: string,
+    run: () => void,
+    disabled = false,
+  ) => (
+    <MenuItem
+      key={id}
+      role="menuitem"
+      attrs={{ "data-room-menu": id }}
+      label={label}
+      disabled={disabled}
+      onClick={() => {
+        run();
+        onClose();
+      }}
+    />
+  );
+  // Straight into the body (no Portal mount pass), so the layout effect
+  // above measures the menu on its first render.
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      style={{
+        position: "fixed",
+        left: pos.x,
+        top: pos.y,
+        zIndex: 1000,
+        background: "var(--bg-overlay)",
+        backdropFilter: "blur(16px)",
+        border: "1px solid var(--border-light)",
+        borderRadius: 12,
+        padding: 5,
+        minWidth: 180,
+        boxShadow: "0 12px 40px var(--shadow-heavy)",
+        animation: "hudIn 0.12s ease-out",
+      }}
+    >
+      {item("settings", t("sidebar.roomSettings"), onSettings)}
+      {tucked
+        ? item("untuck", t("sidebar.untuckRoom"), onTuck)
+        : item("tuck", t("sidebar.tuckRoom"), onTuck)}
+      {item("up", t("sidebar.moveUp"), onUp, !canUp)}
+      {item("down", t("sidebar.moveDown"), onDown, !canDown)}
+    </div>,
+    document.body,
   );
 }
 
@@ -411,6 +683,9 @@ export function ChatSidebar({
   onAgentContextMenu,
   onMembersChat,
   onOpenSettings,
+  onRoomSettings,
+  pins,
+  closing = false,
 }: ChatSidebarProps): React.ReactElement {
   const {
     agents,
@@ -422,7 +697,6 @@ export function ChatSidebar({
     membersChat,
     currentRoomId,
     lobbyOpen: lobbyInView,
-    sessionContext,
   } = useAppState();
   const { t } = useI18n();
   // A member with a permission pack sees only the pages of its areas, as in
@@ -434,7 +708,6 @@ export function ChatSidebar({
   const canApps = useCan("apps", "read");
   const canSkills = useCan("skills", "read");
   const list = useRoomList();
-  const self = useSelfUser();
   // The chat's header pill leaves out the open agent's asks, which its chat
   // already shows; with the chat in view, so does this badge.
   const inbox = useInboxCounts(
@@ -453,6 +726,9 @@ export function ChatSidebar({
     (a) => a.state === "thinking" || a.state === "tool_executing",
   ).length;
   const receptionist = agents.find((a) => a.roomId === LOBBY_ROOM_ID);
+  const pinnedSet = useMemo(() => new Set(pins.pinned), [pins.pinned]);
+  const pinnedAgents = pinnedAgentsList(pins.pinned, agents);
+  const recentAgents = recentAgentsList(pins.recent, pins.pinned, agents);
 
   // Which sections are open, kept on this device. The open agent's room (and
   // its back room, for a back agent) opens each time the open agent changes;
@@ -466,7 +742,7 @@ export function ChatSidebar({
   const anchorBack = openAgent
     ? isBackSeat(openAgent.desk)
     : backRoomOpen && !lobbyInView;
-  // The room in view: its header always shows its "+".
+  // The room in view: its header always shows its "+" while it is open.
   const roomInView = openAgent
     ? openRoomId
     : lobbyInView
@@ -490,71 +766,256 @@ export function ChatSidebar({
         ? s[field].filter((x) => x !== id)
         : [...s[field], id],
     }));
-  const moreOpen = sections.more;
-  const lobbyOpen = sections.lobby;
+  const flip = (field: "more" | "lobby" | "pinned" | "recent") =>
+    setSections((s) => ({ ...s, [field]: !s[field] }));
 
-  const agentRow = (agent: AgentInfo) => (
-    <AgentRow
-      key={agent.id}
-      agent={agent}
-      current={agent.id === openAgentId}
-      asks={askCountByAgent.get(agent.id) ?? 0}
-      unread={needsAttention.has(agent.id)}
-      changedAt={stateChangedAt.get(agent.id)}
-      onOpen={onOpenAgent}
-      onContextMenu={onAgentContextMenu}
-    />
-  );
+  // The room order and the tucked list, written through the same calls as
+  // the room tab bar (useRoomList), so the two always agree.
+  const tuckedSet = useMemo(() => new Set(list.tucked), [list.tucked]);
+  const writeOrder = (order: string[]) => {
+    const body: ViewOrderReq = { order };
+    list.writeOrder(order, () =>
+      apiFetch<void>("PUT", "/api/me/view/order", body),
+    );
+  };
+  const writeTucked = (tucked: string[]) => {
+    const body: TuckedRoomsReq = { tucked };
+    list.writeTucked(tucked, () =>
+      apiFetch<void>("PUT", "/api/me/view/tucked", body),
+    );
+  };
+  const setTucked = (roomId: string, tuck: boolean) => {
+    if (tuck === tuckedSet.has(roomId)) return;
+    writeTucked(
+      tuck
+        ? [...list.tucked, roomId]
+        : list.tucked.filter((id) => id !== roomId),
+    );
+  };
+  // Move up and Move down step past the next room of the same kind: a shown
+  // room among the shown ones, a tucked one among the tucked.
+  const neighbour = (roomId: string, step: -1 | 1): string | null => {
+    const group = list.rooms
+      .map((r) => r.id)
+      .filter((id) => tuckedSet.has(id) === tuckedSet.has(roomId));
+    return group[group.indexOf(roomId) + step] ?? null;
+  };
+  const moveStep = (roomId: string, step: -1 | 1) => {
+    const target = neighbour(roomId, step);
+    if (!target) return;
+    writeOrder(
+      moveRoom(
+        list.rooms.map((r) => r.id),
+        roomId,
+        target,
+        step === -1,
+      ),
+    );
+  };
+
+  // One room menu at a time.
+  const [roomMenu, setRoomMenu] = useState<{
+    roomId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const closeRoomMenu = useMemo(() => () => setRoomMenu(null), []);
+  const menuRoom = roomMenu
+    ? (list.rooms.find((r) => r.id === roomMenu.roomId) ?? null)
+    : null;
+
+  // A drag in progress: a room or a pinned agent, and where it would land.
+  const [dragging, setDragging] = useState<{
+    kind: "room" | "pin";
+    id: string;
+  } | null>(null);
+  const [dropAt, setDropAt] = useState<DropAt | null>(null);
+  const endDrag = () => {
+    setDragging(null);
+    setDropAt(null);
+  };
+  const dragBindings = (
+    kind: "room" | "pin",
+    id: string,
+    onDrop: (dragged: string, before: boolean) => void,
+  ): DragBindings => {
+    const type = kind === "room" ? ROOM_DRAG : PIN_DRAG;
+    // Enter as well as over: the line shows from the first event on the row.
+    const over = (e: React.DragEvent) => {
+      if (dragging?.kind !== kind) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const before = pointerHalf(e);
+      if (dropAt?.id !== id || dropAt.before !== before)
+        setDropAt({ id, before });
+    };
+    return {
+      attrs: {
+        draggable: true,
+        onDragStart: (e) => {
+          e.dataTransfer.setData(type, id);
+          e.dataTransfer.effectAllowed = "move";
+          setDragging({ kind, id });
+        },
+        onDragEnd: endDrag,
+        onDragEnter: over,
+        onDragOver: over,
+        onDrop: (e) => {
+          if (dragging?.kind !== kind) return;
+          e.preventDefault();
+          const before = pointerHalf(e);
+          const dragged = dragging.id;
+          endDrag();
+          if (dragged !== id) onDrop(dragged, before);
+        },
+      },
+      drop: dragging?.kind === kind ? dropLine(dropAt, id) : undefined,
+    };
+  };
+  // A room dropped on a room takes its place and its kind: dropped among the
+  // tucked rooms it tucks, dragged out of them it untucks.
+  const dropRoom = (targetId: string) => (dragged: string, before: boolean) => {
+    writeOrder(
+      moveRoom(
+        list.rooms.map((r) => r.id),
+        dragged,
+        targetId,
+        before,
+      ),
+    );
+    setTucked(dragged, tuckedSet.has(targetId));
+  };
+  // "Tucked rooms" itself takes a dropped room into the tucked list.
+  const overTucked = (e: React.DragEvent) => {
+    if (dragging?.kind !== "room") return;
+    e.preventDefault();
+    if (dropAt?.id !== null) setDropAt({ id: null, before: false });
+  };
+  const tuckDrop = {
+    onDragEnter: overTucked,
+    onDragOver: overTucked,
+    onDrop: (e: React.DragEvent) => {
+      if (dragging?.kind !== "room") return;
+      e.preventDefault();
+      const dragged = dragging.id;
+      endDrag();
+      setTucked(dragged, true);
+    },
+  };
+
+  const agentRow = (agent: AgentInfo, drag?: DragBindings) => {
+    const pinned = pinnedSet.has(agent.id);
+    return (
+      <AgentRow
+        key={agent.id}
+        agent={agent}
+        current={agent.id === openAgentId}
+        attention={agentAttention(agent, askCountByAgent.get(agent.id) ?? 0)}
+        unread={needsAttention.has(agent.id)}
+        changedAt={stateChangedAt.get(agent.id)}
+        pinned={pinned}
+        pinLabel={t(pinned ? "sidebar.unpin" : "sidebar.pin")}
+        onOpen={onOpenAgent}
+        onContextMenu={onAgentContextMenu}
+        onTogglePin={pins.togglePin}
+        drag={drag}
+      />
+    );
+  };
+  const workingLabel = t("office.status.working");
 
   const roomSection = (room: RoomWire) => {
     const { front, back } = roomAgents(agents, room.id);
     const open = sections.rooms.includes(room.id);
     const backOpen = sections.back.includes(room.id);
+    const summary = open
+      ? null
+      : roomSummary([...front, ...back], askCountByAgent);
+    const backSummary = backOpen ? null : roomSummary(back, askCountByAgent);
     // A full front room seats the new agent in the back room.
     const plusLabel =
       newAgentSeat(agents, room.id) === null
         ? t("sidebar.newAgentInBack", { room: room.name })
         : t("sidebar.newAgentIn", { room: room.name });
+    const openMenu = (x: number, y: number) =>
+      setRoomMenu({ roomId: room.id, x, y });
+    const drag = dragBindings("room", room.id, dropRoom(room.id));
     return (
       <div key={room.id}>
         <div
           className="chat-sidebar-room-row"
-          style={{ display: "flex", alignItems: "center", gap: 2 }}
+          {...drag.attrs}
+          data-drop={drag.drop}
         >
           <SectionHeader
             label={room.name}
             open={open}
             onToggle={() => toggle("rooms", room.id)}
-            dot={open ? null : roomActivityDotColor([...front, ...back], false)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              openMenu(e.clientX, e.clientY);
+            }}
             attr={{ "data-sidebar-room": room.id }}
+            right={
+              summary && (
+                <Summary
+                  {...summary}
+                  workingLabel={workingLabel}
+                  attr={{ "data-sidebar-room-summary": room.id }}
+                />
+              )
+            }
           />
-          {onNewAgent && (
+          {/* Over the header's right end, on hover: they take no room in the
+              row, so the summary keeps the same right edge as a back room's. */}
+          <span
+            onContextMenu={(e) => {
+              e.preventDefault();
+              openMenu(e.clientX, e.clientY);
+            }}
+            className="chat-sidebar-room-actions"
+            data-in-view={room.id === roomInView && open ? "" : undefined}
+          >
             <button
               type="button"
               tabIndex={-1}
-              className="chat-sidebar-row chat-sidebar-new-agent"
-              data-sidebar-new-agent={room.id}
-              data-in-view={room.id === roomInView ? "" : undefined}
-              title={plusLabel}
-              aria-label={plusLabel}
-              onClick={() => onNewAgent(room.id)}
-              style={{
-                ...rowBase,
-                width: "auto",
-                padding: 5,
-                color: "var(--text-dim)",
-                flexShrink: 0,
+              className="chat-sidebar-row-action"
+              data-sidebar-room-menu={room.id}
+              title={t("sidebar.roomOptions")}
+              aria-label={t("sidebar.roomOptions")}
+              aria-haspopup="menu"
+              aria-expanded={roomMenu?.roomId === room.id}
+              onClick={(e) => {
+                if (roomMenu?.roomId === room.id) {
+                  setRoomMenu(null);
+                  return;
+                }
+                const rect = e.currentTarget.getBoundingClientRect();
+                openMenu(rect.left, rect.bottom + 4);
               }}
             >
-              {PlusIcon}
+              {MoreIcon}
             </button>
-          )}
+            {onNewAgent && (
+              <button
+                type="button"
+                tabIndex={-1}
+                className="chat-sidebar-row-action"
+                data-sidebar-new-agent={room.id}
+                title={plusLabel}
+                aria-label={plusLabel}
+                onClick={() => onNewAgent(room.id)}
+              >
+                {PlusIcon}
+              </button>
+            )}
+          </span>
         </div>
         {open && (
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {front.map(agentRow)}
+            {front.map((a) => agentRow(a))}
             {hasBackRoom(room) && back.length > 0 && (
-              <>
+              <div style={{ paddingLeft: 14 }}>
                 <SectionHeader
                   label={t("office.backRoom.title")}
                   open={backOpen}
@@ -562,37 +1023,31 @@ export function ChatSidebar({
                   onToggle={() => toggle("back", room.id)}
                   attr={{ "data-sidebar-back-room": room.id }}
                   right={
-                    <span
-                      style={{ display: "flex", alignItems: "center", gap: 3 }}
-                    >
-                      {!backOpen &&
-                        back.slice(0, 6).map((a) => (
-                          <span
-                            key={a.id}
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: "50%",
-                              background: statusColor(a.state),
-                            }}
-                          />
-                        ))}
-                      <span
-                        style={{
-                          marginLeft: 4,
-                          fontSize: 11,
-                          color: "var(--text-dim)",
-                        }}
-                      >
-                        {back.length}
-                      </span>
-                    </span>
+                    backSummary && (
+                      <Summary
+                        {...backSummary}
+                        workingLabel={workingLabel}
+                        attr={{ "data-sidebar-back-room-summary": room.id }}
+                      />
+                    )
                   }
                 />
                 {backOpen && (
-                  <div style={{ paddingLeft: 10 }}>{back.map(agentRow)}</div>
+                  <div
+                    data-sidebar-back-room-agents=""
+                    style={{
+                      marginLeft: 14,
+                      paddingLeft: 4,
+                      borderLeft: "1px solid var(--border-subtle)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 1,
+                    }}
+                  >
+                    {back.map((a) => agentRow(a))}
+                  </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}
@@ -600,16 +1055,55 @@ export function ChatSidebar({
     );
   };
 
-  const selfName = self?.name ?? sessionContext?.username ?? "";
+  // Pinned and Recent: lists of agents that also stay in their rooms.
+  const agentSection = (
+    name: "pinned" | "recent",
+    label: string,
+    rows: AgentInfo[],
+    pinDrag: boolean,
+  ) =>
+    rows.length > 0 && (
+      <div>
+        <SectionHeader
+          label={label}
+          open={sections[name]}
+          onToggle={() => flip(name)}
+          attr={{ "data-sidebar-section": name }}
+        />
+        {sections[name] && (
+          <div
+            data-sidebar-section-agents={name}
+            style={{ display: "flex", flexDirection: "column", gap: 1 }}
+          >
+            {rows.map((a) =>
+              agentRow(
+                a,
+                pinDrag
+                  ? dragBindings("pin", a.id, (dragged, before) =>
+                      pins.setPinned(
+                        movePinned(pins.pinned, dragged, a.id, before),
+                      ),
+                    )
+                  : undefined,
+              ),
+            )}
+          </div>
+        )}
+      </div>
+    );
 
   return (
     <nav
       data-chat-sidebar=""
+      data-sidebar-closing={closing ? "" : undefined}
+      inert={closing || undefined}
       aria-label={t("sidebar.label")}
       style={{
-        width: CHAT_SIDEBAR_WIDTH,
-        flexShrink: 0,
-        height: "100%",
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: "var(--chat-sidebar-w)",
         display: "flex",
         flexDirection: "column",
         background: "var(--bg-surface)",
@@ -761,14 +1255,16 @@ export function ChatSidebar({
             flexShrink: 0,
           }}
         />
+        {agentSection("pinned", t("sidebar.pinned"), pinnedAgents, true)}
+        {agentSection("recent", t("sidebar.recent"), recentAgents, false)}
         <div>
           <SectionHeader
             label={t("common.lobby")}
-            open={lobbyOpen}
-            onToggle={() => setSections((s) => ({ ...s, lobby: !s.lobby }))}
+            open={sections.lobby}
+            onToggle={() => flip("lobby")}
             attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
           />
-          {lobbyOpen && (
+          {sections.lobby && (
             <>
               <NavRow
                 attr="members-chat"
@@ -794,61 +1290,51 @@ export function ChatSidebar({
         {shown.map(roomSection)}
         {more.length > 0 && (
           <>
-            <SectionHeader
-              label={t("office.tabs.tuckedRooms")}
-              open={moreOpen}
-              strong={false}
-              onToggle={() => setSections((s) => ({ ...s, more: !s.more }))}
-              attr={{ "data-sidebar-more-rooms": "" }}
-              right={
-                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-                  {more.length}
-                </span>
+            <div
+              {...tuckDrop}
+              className="chat-sidebar-drop-into"
+              data-drop={
+                dragging?.kind === "room" && dropAt?.id === null
+                  ? "into"
+                  : undefined
               }
-            />
-            {moreOpen && (
-              <div style={{ paddingLeft: 8 }}>{more.map(roomSection)}</div>
+            >
+              <SectionHeader
+                label={t("office.tabs.tuckedRooms")}
+                open={sections.more}
+                strong={false}
+                onToggle={() => flip("more")}
+                attr={{ "data-sidebar-more-rooms": "" }}
+                right={
+                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                    {more.length}
+                  </span>
+                }
+              />
+            </div>
+            {sections.more && (
+              <div data-sidebar-tucked-rooms="" style={{ paddingLeft: 8 }}>
+                {more.map(roomSection)}
+              </div>
             )}
           </>
         )}
       </div>
-      <button
-        type="button"
-        tabIndex={-1}
-        className="chat-sidebar-row"
-        data-sidebar-self=""
-        onClick={onOpenSettings}
-        style={{
-          ...rowBase,
-          borderRadius: 0,
-          padding: "10px 14px",
-          borderTop: "1px solid var(--border-subtle)",
-          flexShrink: 0,
-        }}
-      >
-        {self && (
-          <GhostGraphic
-            variant={self.avatarVariant ?? "classic"}
-            color={self.avatarColor ?? defaultGhostColorForUserId(self.id)}
-            size={24}
-            animated={false}
-            shadow={false}
-          />
-        )}
-        <span
-          {...noTranslate()}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            fontWeight: 600,
-          }}
-        >
-          {selfName}
-        </span>
-      </button>
+      {roomMenu && menuRoom && (
+        <RoomMenu
+          // A new place (another room, another click) starts a new clamp.
+          key={`${roomMenu.roomId}:${roomMenu.x}:${roomMenu.y}`}
+          at={roomMenu}
+          tucked={tuckedSet.has(menuRoom.id)}
+          canUp={neighbour(menuRoom.id, -1) !== null}
+          canDown={neighbour(menuRoom.id, 1) !== null}
+          onSettings={() => onRoomSettings(menuRoom.id)}
+          onTuck={() => setTucked(menuRoom.id, !tuckedSet.has(menuRoom.id))}
+          onUp={() => moveStep(menuRoom.id, -1)}
+          onDown={() => moveStep(menuRoom.id, 1)}
+          onClose={closeRoomMenu}
+        />
+      )}
     </nav>
   );
 }

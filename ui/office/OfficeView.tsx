@@ -85,6 +85,7 @@ import {
   SidebarIcon,
 } from "../components/NavIcons.tsx";
 import { OFFICE_BAR_TWINS } from "../chat-sidebar.ts";
+import { useTwinFade } from "../hooks/useTwinFade.ts";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useI18n } from "../i18n.tsx";
 import { useViewport } from "./useViewport.ts";
@@ -641,6 +642,12 @@ export function OfficeView({
     },
   ];
 
+  const officeBarActions = useTwinFade(
+    sidebarOpen,
+    officeActions,
+    OFFICE_BAR_TWINS,
+  );
+
   return (
     <div
       ref={rootRef}
@@ -685,6 +692,7 @@ export function OfficeView({
               <button
                 type="button"
                 data-show-sidebar=""
+                className="nav-action-fade-in"
                 onClick={onShowSidebar}
                 title={t("sidebar.show")}
                 aria-label={t("sidebar.show")}
@@ -786,14 +794,7 @@ export function OfficeView({
               </span>
             )}
           </div>
-          <NavActions
-            actions={
-              sidebarOpen
-                ? officeActions.filter((a) => !OFFICE_BAR_TWINS.has(a.id))
-                : officeActions
-            }
-            viewport="desktop"
-          />
+          <NavActions actions={officeBarActions} viewport="desktop" />
         </div>
       )}
 

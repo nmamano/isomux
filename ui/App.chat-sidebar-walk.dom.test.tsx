@@ -106,9 +106,20 @@ it("no entry hides the sidebar: the walk clicks every button it draws, opening c
       "integrations",
       "settings",
     ].map((row) => `data-sidebar-nav=${row}`),
-    "data-sidebar-self=",
     "data-sidebar-more-rooms=",
     ...["lobby", "r1", "r2", "r3"].map((id) => `data-sidebar-room=${id}`),
+    // Task 5dac6b9b: a room's "..." menu and an agent row's pin button.
+    ...["r1", "r2", "r3"].map((id) => `data-sidebar-room-menu=${id}`),
+    ...[
+      scout,
+      ranger,
+      builder,
+      faraway,
+      backbencher,
+      receptionist,
+      third,
+      thirdBack,
+    ].map((a) => `data-sidebar-pin=${a.id}`),
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-back-room=${id}`),
     ...["r1", "r2", "r3"].map((id) => `data-sidebar-new-agent=${id}`),
     ...[

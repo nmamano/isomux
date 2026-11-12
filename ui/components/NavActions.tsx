@@ -38,6 +38,8 @@ type NavActionBase = {
   // badge: desktop shows it in the title, which a phone never shows. Zero or
   // absent shows nothing.
   count?: number;
+  // Fading out or in with the desktop sidebar (ui/hooks/useTwinFade.ts).
+  fade?: "out" | "in";
 };
 
 // An action runs on click, or opens a menu of choices (Copy: what to copy).
@@ -162,6 +164,7 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
           <button
             key={a.id}
             data-nav-action={a.id}
+            className={a.fade ? `nav-action-fade-${a.fade}` : undefined}
             onClick={a.onClick}
             disabled={a.disabled}
             title={a.title ?? a.label}
@@ -191,7 +194,9 @@ function desktopButtonStyle(a: NavAction): CSSProperties {
         : "var(--text-dim)",
     fontSize: 11,
     cursor: a.disabled ? "not-allowed" : "pointer",
-    transition: "color 0.15s, background 0.15s, border-color 0.15s",
+    // Opacity for a twin that fades with the sidebar (useTwinFade).
+    transition:
+      "color 0.15s, background 0.15s, border-color 0.15s, opacity 0.2s",
     lineHeight: 1,
   };
 }

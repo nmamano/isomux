@@ -26,6 +26,29 @@
 //                                            its section is open;
 //                                            aria-current="page" on the open
 //                                            agent's row
+//
+// Added by task 5dac6b9b (agreed with the worker, 2026-11-12):
+//   [data-sidebar-room-summary="<roomId>"]   a folded room header's summary
+//   [data-sidebar-back-room-summary="<roomId>"] a folded back room's summary
+//   [data-sidebar-room-working="<n>"]        in a summary: the green dot and
+//                                            the working count, absent at 0
+//                                            (its badge: [data-sidebar-badge])
+//   [data-sidebar-back-room-agents]          the indented list of a back room
+//   button[data-sidebar-room-menu="<roomId>"] a room header's "..." button
+//   [data-room-menu="settings|tuck|untuck|up|down"] the room menu's items
+//                                            (role=menuitem); one menu open
+//                                            at a time
+//   [data-sidebar-tucked-rooms]              the list under Tucked rooms
+//   button[data-sidebar-pin="<agentId>"]     an agent row's pin button,
+//                                            aria-pressed when pinned
+//   [data-agent-menu-pin="pin|unpin"]        the desk menu's pin item
+//   button[data-sidebar-section="pinned|recent"] a section header,
+//                                            aria-expanded, absent when empty
+//   [data-sidebar-section-agents="pinned|recent"] that section's rows
+//   [data-sidebar-slot]                      the sidebar's slot, its width in
+//                                            style
+//   [data-sidebar-resizer]                   the slot's right edge
+//   nav[data-sidebar-closing]                the sidebar while it slides out
 
 import { afterAll, afterEach, beforeEach, expect } from "bun:test";
 import { act, fireEvent, render } from "@testing-library/react";
@@ -161,6 +184,8 @@ export function setRole(next: "member" | "owner"): void {
 }
 // POST /api/agents bodies (a spawn), in order.
 export const spawns: Record<string, unknown>[] = [];
+// PUT /api/me/view/* writes, in order.
+export const viewWrites: { path: string; body: unknown }[] = [];
 
 /** The entry the page loaded on: the office. */
 export const LOAD_ENTRY = { loadEntry: true };
@@ -206,6 +231,11 @@ export function setUpChatSidebarTests(): void {
     if (/^\/api\/agents\/[^/]+\/sessions/.test(path))
       return { sessions: [], currentSessionId: null };
     if (path.startsWith("/api/backends/")) return { models: [] };
+    // The member's view writes (order, tucked, pinned), in order.
+    if (method === "PUT" && path.startsWith("/api/me/view/")) {
+      viewWrites.push({ path, body });
+      return undefined;
+    }
     if (path.startsWith("/api/me/") || path === "/api/sessions")
       throw new Error("no fixture");
     return {};
@@ -228,6 +258,7 @@ export function setUpChatSidebarTests(): void {
     asks = [];
     selfUser = null;
     spawns.length = 0;
+    viewWrites.length = 0;
     window.localStorage.clear();
     // A desktop window wide enough that the sidebar starts open.
     setWindowWidth(1440);
@@ -311,8 +342,12 @@ export async function openFirstDesk(view: View): Promise<void> {
   expect(chatOpen(view)).toBe(true);
 }
 
+/** The sidebar, or null when it is hidden or sliding out (task 5dac6b9b: a
+ *  closing sidebar stays mounted, inert, for its slide). */
 export const sidebar = (view: View) =>
-  view.container.querySelector<HTMLElement>("nav[data-chat-sidebar]");
+  view.container.querySelector<HTMLElement>(
+    "nav[data-chat-sidebar]:not([data-sidebar-closing])",
+  );
 export const chatOpen = (view: View) =>
   view.container.querySelector(".log-view-shell") !== null;
 export const backScreen = (view: View) =>

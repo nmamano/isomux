@@ -9,7 +9,11 @@
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
-import type { ChatSidebarChoice, ChatSidebarSections } from "./chat-sidebar.ts";
+import {
+  clampSidebarWidth,
+  type ChatSidebarChoice,
+  type ChatSidebarSections,
+} from "./chat-sidebar.ts";
 import {
   FILTER_PRIORITIES,
   type PriorityFilterValue,
@@ -102,7 +106,10 @@ export function getChatSidebarSections(): ChatSidebarSections | null {
       localStorage.getItem(KEY_CHAT_SIDEBAR_SECTIONS) ?? "null",
     );
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const { rooms, back, more, lobby, anchor } = raw as Record<string, unknown>;
+    const { rooms, back, more, lobby, pinned, recent, anchor } = raw as Record<
+      string,
+      unknown
+    >;
     const ids = (v: unknown): v is string[] =>
       Array.isArray(v) && v.every((id) => typeof id === "string");
     if (
@@ -112,7 +119,16 @@ export function getChatSidebarSections(): ChatSidebarSections | null {
       typeof lobby === "boolean" &&
       (anchor === null || typeof anchor === "string")
     )
-      return { rooms, back, more, lobby, anchor };
+      return {
+        rooms,
+        back,
+        more,
+        lobby,
+        // Absent before task 5dac6b9b: the sections start open.
+        pinned: typeof pinned === "boolean" ? pinned : true,
+        recent: typeof recent === "boolean" ? recent : true,
+        anchor,
+      };
   } catch {}
   return null;
 }
@@ -120,6 +136,30 @@ export function getChatSidebarSections(): ChatSidebarSections | null {
 export function setChatSidebarSections(sections: ChatSidebarSections): void {
   try {
     localStorage.setItem(KEY_CHAT_SIDEBAR_SECTIONS, JSON.stringify(sections));
+  } catch {}
+}
+
+const KEY_CHAT_SIDEBAR_WIDTH = "isomux-chat-sidebar-width";
+
+// The sidebar's width on this device (task 5dac6b9b), clamped; null when
+// nothing valid is stored.
+export function getChatSidebarWidth(): number | null {
+  try {
+    const raw: unknown = JSON.parse(
+      localStorage.getItem(KEY_CHAT_SIDEBAR_WIDTH) ?? "null",
+    );
+    if (typeof raw === "number" && Number.isFinite(raw))
+      return clampSidebarWidth(raw);
+  } catch {}
+  return null;
+}
+
+export function setChatSidebarWidth(width: number): void {
+  try {
+    localStorage.setItem(
+      KEY_CHAT_SIDEBAR_WIDTH,
+      String(clampSidebarWidth(width)),
+    );
   } catch {}
 }
 

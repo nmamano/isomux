@@ -162,6 +162,7 @@ import type {
   ViewOrderReq,
   ShownRoomsReq,
   TuckedRoomsReq,
+  PinnedReq,
   PushRoomsReq,
   NotifRoomsReq,
   MeRoomsRes,
@@ -836,7 +837,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     plainText: { params: MESSAGE_PLAIN_TEXT_PARAMS },
     tokenArea: { area: "agents", level: "write", reply: true },
-    emits: ["log_entry", "interaction_added", "agent_updated"],
+    // The two user frames: a member's own send moves their Recent list.
+    emits: [
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+      "user_admin_updated",
+      "user_self_updated",
+    ],
     preconditions: [
       "messageRecipientExists",
       "messagePendingPermissionBindsParam",
@@ -1748,6 +1756,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/me/view/tucked",
     auth: cap("view:manage", authenticated),
     // Tucked is a private record field, not in full_state.
+    emits: ["user_admin_updated", "user_self_updated"],
+  }),
+  defineRoute<PinnedReq, NoContent>({
+    opId: "view.setPinned",
+    tokenArea: "always",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "PUT",
+    path: "/api/me/view/pinned",
+    auth: cap("view:manage", authenticated),
+    // The sidebar's pinned agents are a private record field, like tucked.
     emits: ["user_admin_updated", "user_self_updated"],
   }),
   defineRoute<PushRoomsReq, NoContent>({

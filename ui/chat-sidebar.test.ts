@@ -4,9 +4,18 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  agentAttention,
   CHAT_SIDEBAR_MIN_OPEN_WIDTH,
   CHAT_SIDEBAR_SECTIONS_DEFAULT,
+  CHAT_SIDEBAR_WIDTH_DEFAULT,
+  CHAT_SIDEBAR_WIDTH_MAX,
+  CHAT_SIDEBAR_WIDTH_MIN,
+  clampSidebarWidth,
+  moveRoom,
   newAgentSeat,
+  pinnedAgentsList,
+  recentAgentsList,
+  roomSummary,
   roomAgents,
   sidebarRooms,
   sidebarSectionsForAnchor,
@@ -145,6 +154,8 @@ describe("sidebarSectionsForAnchor", () => {
     back: [],
     more: false,
     lobby: false,
+    pinned: false,
+    recent: true,
     anchor: "a1|r1|0",
   };
   const anchor = (
@@ -201,7 +212,126 @@ describe("sidebarSectionsForAnchor", () => {
       back: [],
       more: false,
       lobby: true,
+      pinned: true,
+      recent: true,
       anchor: "a1|r1|0",
     });
+  });
+});
+
+// Task 5dac6b9b: the sidebar width, the folded room summary, Pinned, Recent
+// and the drop order. The DOM around them is in
+// ui/App.chat-sidebar-lists.dom.test.tsx.
+describe("clampSidebarWidth", () => {
+  it("holds the width within the range, rounded, and takes the default for a value that is not a number", () => {
+    const cases: [number, number][] = [
+      [CHAT_SIDEBAR_WIDTH_MIN - 50, CHAT_SIDEBAR_WIDTH_MIN],
+      [CHAT_SIDEBAR_WIDTH_MAX + 1, CHAT_SIDEBAR_WIDTH_MAX],
+      [300.6, 301],
+      [CHAT_SIDEBAR_WIDTH_MIN, CHAT_SIDEBAR_WIDTH_MIN],
+      [CHAT_SIDEBAR_WIDTH_MAX, CHAT_SIDEBAR_WIDTH_MAX],
+      [Number.NaN, CHAT_SIDEBAR_WIDTH_DEFAULT],
+      [Number.POSITIVE_INFINITY, CHAT_SIDEBAR_WIDTH_DEFAULT],
+    ];
+    expect(cases.map(([w]) => clampSidebarWidth(w))).toEqual(
+      cases.map(([, want]) => want),
+    );
+    expect([
+      CHAT_SIDEBAR_WIDTH_MIN,
+      CHAT_SIDEBAR_WIDTH_DEFAULT,
+      CHAT_SIDEBAR_WIDTH_MAX,
+    ]).toEqual([200, 260, 440]);
+  });
+});
+
+describe("agentAttention and roomSummary", () => {
+  const withPrompt = (a: AgentInfo, prompt: string | undefined): AgentInfo =>
+    ({ ...a, pendingPrompt: prompt }) as unknown as AgentInfo;
+
+  it("a row counts its open asks plus one for a permission prompt, and nothing for another prompt", () => {
+    const a = agent("a", "r1", 0);
+    expect([
+      agentAttention(a, 0),
+      agentAttention(a, 2),
+      agentAttention(withPrompt(a, "permission"), 0),
+      agentAttention(withPrompt(a, "permission"), 2),
+      agentAttention(withPrompt(a, "resume"), 1),
+    ]).toEqual([0, 2, 1, 3, 1]);
+  });
+
+  it("a folded room counts its working agents (thinking or running a tool) and the sum of its row badges", () => {
+    const agents = [
+      agent("t", "r1", 0, "thinking"),
+      agent("x", "r1", 1, "tool_executing"),
+      agent("i", "r1", 2, "idle"),
+      withPrompt(agent("p", "r1", 3, "waiting_for_response"), "permission"),
+      agent("e", "r1", 4, "error"),
+    ];
+    const asks = new Map([
+      ["i", 2],
+      ["p", 1],
+      ["gone", 5], // an agent not in this room
+    ]);
+    expect(roomSummary(agents, asks)).toEqual({ working: 2, attention: 4 });
+    // The badge is the sum of the rows the member sees when it unfolds.
+    expect(roomSummary(agents, asks).attention).toBe(
+      agents.reduce((n, a) => n + agentAttention(a, asks.get(a.id) ?? 0), 0),
+    );
+    expect(roomSummary([], asks)).toEqual({ working: 0, attention: 0 });
+  });
+});
+
+describe("pinnedAgentsList and recentAgentsList", () => {
+  const all = ["a", "b", "c", "d", "e", "f", "g", "h"].map((id, i) =>
+    agent(id, "r1", i),
+  );
+
+  it("Pinned lists the pinned agents the client has, in the member's order", () => {
+    expect(ids(pinnedAgentsList(["c", "gone", "a"], all))).toEqual(["c", "a"]);
+    expect(ids(pinnedAgentsList([], all))).toEqual([]);
+  });
+
+  it("Recent lists the newest five that are not pinned and that the client has, filling from older ones", () => {
+    const recent = ["b", "gone", "a", "c", "d", "e", "f", "g", "h"];
+    expect(ids(recentAgentsList(recent, ["a", "c"], all))).toEqual([
+      "b",
+      "d",
+      "e",
+      "f",
+      "g",
+    ]);
+    // Fewer than five left: all of them, newest first.
+    expect(ids(recentAgentsList(["e", "a"], ["a"], all))).toEqual(["e"]);
+    expect(ids(recentAgentsList(recent, [], all, 2))).toEqual(["b", "a"]);
+  });
+});
+
+describe("moveRoom", () => {
+  const order = ["r1", "r2", "r3", "r4"];
+  it("puts the dropped id before or after the target and keeps the rest in order", () => {
+    expect([
+      moveRoom(order, "r4", "r2", true),
+      moveRoom(order, "r4", "r2", false),
+      moveRoom(order, "r1", "r3", false),
+      moveRoom(order, "r1", "r4", false),
+      moveRoom(order, "r3", "r1", true),
+      // A drop onto its own place.
+      moveRoom(order, "r2", "r3", true),
+    ]).toEqual([
+      ["r1", "r4", "r2", "r3"],
+      ["r1", "r2", "r4", "r3"],
+      ["r2", "r3", "r1", "r4"],
+      ["r2", "r3", "r4", "r1"],
+      ["r3", "r1", "r2", "r4"],
+      ["r1", "r2", "r3", "r4"],
+    ]);
+  });
+
+  it("returns the order unchanged when an id is missing or the two are the same", () => {
+    expect([
+      moveRoom(order, "r9", "r2", true),
+      moveRoom(order, "r2", "r9", true),
+      moveRoom(order, "r2", "r2", false),
+    ]).toEqual([order, order, order]);
   });
 });

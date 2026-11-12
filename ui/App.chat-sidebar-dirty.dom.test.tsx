@@ -55,7 +55,7 @@ it("Settings with an unsaved room edit: a sidebar row asks first, and leaves onl
   await openFirstDesk(view);
   await click(
     view.container.querySelector(
-      "nav[data-chat-sidebar] button[data-sidebar-self]",
+      'nav[data-chat-sidebar] button[data-sidebar-nav="settings"]',
     ),
   );
   expect(settingsOpen(view)).toBe(true);

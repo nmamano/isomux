@@ -208,6 +208,7 @@ export const AUDIT_OPERATIONS = [
   "users.update",
   "view.setNotifRooms",
   "view.setOrder",
+  "view.setPinned",
   "view.setPushRooms",
   "view.setShown",
   "view.setTucked",

@@ -144,6 +144,7 @@ it("the routes every pack lets a member call are their own pages", () => {
       "view.listRooms",
       "view.setNotifRooms",
       "view.setOrder",
+      "view.setPinned",
       "view.setPushRooms",
       "view.setShown",
       "view.setTucked",

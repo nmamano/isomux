@@ -159,6 +159,23 @@ function inboxDismissedOf(value: unknown): Pick<UserRecord, "inboxDismissed"> {
   return keys.length > 0 ? { inboxDismissed: keys } : {};
 }
 
+// The sidebar's pinned and recent agents (task 5dac6b9b): absent and [] both
+// mean none, so [] is not stored. A hand-edited list keeps its string ids,
+// first place wins. The rules (dead ids, the bounds) live in
+// server/sidebar-agents.ts; this only keeps the shape.
+function agentIdListOf<K extends "pinnedAgents" | "recentAgents">(
+  key: K,
+  value: unknown,
+): Partial<Pick<UserRecord, K>> {
+  if (!Array.isArray(value)) return {};
+  const ids = [
+    ...new Set(
+      value.filter((id): id is string => typeof id === "string" && id !== ""),
+    ),
+  ];
+  return ids.length > 0 ? ({ [key]: ids } as Partial<Pick<UserRecord, K>>) : {};
+}
+
 // Avatar color (live-avatars feature). Stored as a normalized lowercase
 // "#rrggbb" string. Legacy records without the field - or any record
 // where the value isn't a valid hex color - fall back to a stable
@@ -286,6 +303,8 @@ function load(): Record<string, UserRecord> {
         ...voicePreferences(value),
         ...recordingWordsOf(value.recordingWords),
         ...inboxDismissedOf(value.inboxDismissed),
+        ...agentIdListOf("pinnedAgents", value.pinnedAgents),
+        ...agentIdListOf("recentAgents", value.recentAgents),
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
@@ -718,6 +737,8 @@ export function updateUserById(
       | "voiceName"
       | "recordingWords"
       | "inboxDismissed"
+      | "pinnedAgents"
+      | "recentAgents"
     >
   > & { allowedRooms?: string[]; pack?: MemberPack | null },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -804,6 +825,14 @@ export function updateUserById(
     }),
     ...recordingWordsOf(changes.recordingWords ?? existing.recordingWords),
     ...inboxDismissedOf(changes.inboxDismissed ?? existing.inboxDismissed),
+    ...agentIdListOf(
+      "pinnedAgents",
+      changes.pinnedAgents ?? existing.pinnedAgents,
+    ),
+    ...agentIdListOf(
+      "recentAgents",
+      changes.recentAgents ?? existing.recentAgents,
+    ),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
   // A pack is a member's only: a promotion to owner drops it. The caller

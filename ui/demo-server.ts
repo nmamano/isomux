@@ -39,6 +39,7 @@ import type {
   PagerSettingsReq,
   PagerSettingsRes,
   TuckedRoomsReq,
+  PinnedReq,
   PushRoomsReq,
   StoragePruneReq,
   StorageCompressReq,
@@ -3303,6 +3304,19 @@ export async function demoApi(
         : undefined;
       if (!existing || !Array.isArray(b.tucked)) return undefined;
       const updated: UserRecord = { ...existing, tucked: [...b.tucked] };
+      users.set(updated.name.toLowerCase(), updated);
+      shimEmit({ type: "user_self_updated", user: updated });
+      return undefined;
+    }
+    // view.setPinned round-trips too, so the sidebar's Pinned list keeps a pin.
+    case "PUT /api/me/view/pinned": {
+      const b = (body ?? {}) as PinnedReq;
+      const selfId = sessionContext?.userId ?? null;
+      const existing = selfId
+        ? [...users.values()].find((u) => u.id === selfId)
+        : undefined;
+      if (!existing || !Array.isArray(b.pinned)) return undefined;
+      const updated: UserRecord = { ...existing, pinnedAgents: [...b.pinned] };
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_self_updated", user: updated });
       return undefined;

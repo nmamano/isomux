@@ -159,6 +159,7 @@ import {
   wouldDeleteLeaveNoOwner,
   setOnUserAccessChanged,
 } from "./users.ts";
+import { nextRecentAgents, pinnedAgentsToStore } from "./sidebar-agents.ts";
 import { homedir, hostname as osHostname, userInfo } from "os";
 import type { FileWatcher } from "./file-editor.ts";
 import { isCredentialStorePath } from "./credential-store-paths.ts";
@@ -2592,6 +2593,53 @@ function emitPrivateUserRecord(user: UserRecord): void {
   liveEmit("user_self_updated", { user }, { userId: user.id });
 }
 
+// The ids of the agents that exist now: the pinned and recent lists drop
+// the others when they are written (server/sidebar-agents.ts).
+function liveAgentIds(): Set<string> {
+  return new Set(agentManager.getAllAgents().map((a) => a.id));
+}
+
+// view.setPinned (task 5dac6b9b). The list is private, like tucked: only the
+// record goes out, on the private channels, and only on a change.
+function applyPinnedAgents(userId: string, pinned: string[]): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  const next = pinnedAgentsToStore(pinned, liveAgentIds());
+  if (sameIds(next, user.pinnedAgents ?? [])) return true;
+  const r = updateUserById(userId, { pinnedAgents: next });
+  if (!r.ok) {
+    console.error(`[view] applyPinnedAgents failed for ${userId}: ${r.error}`);
+    return false;
+  }
+  emitPrivateUserRecord(r.user);
+  return true;
+}
+
+// The member's own session sent a message to `agentId` (task 5dac6b9b): it
+// moves to the front of their Recent list. Nothing is written or sent when the
+// list stays as it was. A failed write never fails the send it follows.
+function noteRecentAgent(userId: string, agentId: string): void {
+  const user = getUserById(userId);
+  if (!user) return;
+  const next = nextRecentAgents(
+    user.recentAgents ?? [],
+    agentId,
+    liveAgentIds(),
+  );
+  if (next === null) return;
+  try {
+    const r = updateUserById(userId, { recentAgents: next });
+    if (r.ok) emitPrivateUserRecord(r.user);
+    else console.error(`[recent] write failed for ${userId}: ${r.error}`);
+  } catch (err) {
+    console.error(`[recent] write failed for ${userId}:`, err);
+  }
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 // An enqueue failure as an HTTP error. The code doubles as the message, the
 // legacy endpoint's contract, except for a usage cap refusal, which says why
 // and carries retryAtMs.
@@ -4599,6 +4647,7 @@ function buildExecutorDeps(
         }),
       identityFitsAgent: (identity, agentId) =>
         identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
+      noteRecentAgent,
       sendAsApi: (agentId, text, username, device, tokenId, opts) =>
         sendApiTokenMessage(
           tokenId,
@@ -4902,6 +4951,7 @@ function buildExecutorDeps(
         if (applied) stepsChanged();
         return applied;
       },
+      applyPinned: applyPinnedAgents,
       // Accessible rooms (hidden included) in office order, id+name only -
       // the re-show read for the hide-rooms UI.
       listAccessibleRooms: (userId) => {
