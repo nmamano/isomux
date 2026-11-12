@@ -59,15 +59,6 @@ const ART_BOX = {
   bottom: (ART_SVG.y1 - VB_Y) / SCENE_H,
 } as const;
 
-/**
- * Which axes may drive the rest scale down. "height" keeps the authored
- * sideways bleed on every screen; "both" also guarantees the left and right
- * wall ends are on screen in a narrow window, at the cost of a smaller scene
- * there. Width is never a constraint on mobile either way - the mobile static
- * scale crops 200px of width on purpose.
- */
-const FIT_AXES: "height" | "both" = "height";
-
 const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 
 // The one saved view, for every room and every back room: they draw the
@@ -92,6 +83,12 @@ export interface ViewportOptions {
   /** One finger pans at the rest scale too. The front cedes it to the room
    *  swipe until the user zooms in. */
   touchPanAtRest?: boolean;
+  /** Width may drive the rest scale down too, so the left and right wall
+   *  ends and their doors are on screen in a narrow space (a computer, beside
+   *  the sidebar). Off, only height does: the phone keeps the scene's
+   *  authored sideways bleed, as its static scale crops 200px of width on
+   *  purpose. Read at each fit, so it may change between renders. */
+  fitWidth?: boolean;
 }
 
 // Pan should start from any non-interactive surface in the scene. Every clickable
@@ -164,7 +161,8 @@ function fitAxis(size: number, scale: number, lo: number, hi: number) {
  *
  * `fitWidth` decides whether width may drive the scale. The scene is authored
  * to bleed sideways (mobileScale deliberately crops 200px of width so desks
- * stay tappable), so height alone is the default constraint; see FIT_AXES.
+ * stay tappable), so height alone is the default constraint; see
+ * ViewportOptions.fitWidth.
  */
 export function computeRestView(
   cw: number,
@@ -316,8 +314,13 @@ export function useViewport(
   enabled: boolean,
   options: ViewportOptions = {},
 ) {
-  // A call site's options never change; handlers set up once read them too.
+  // touchPanAtRest never changes at a call site; handlers set up once read
+  // it. fitWidth can (a narrow desktop window gets the phone layout), so the
+  // fit reads it through a ref that each render updates.
   const touchPanAtRest = options.touchPanAtRest ?? false;
+  const fitWidth = useRef(options.fitWidth ?? false);
+  // eslint-disable-next-line react-hooks/refs
+  fitWidth.current = options.fitWidth ?? false;
   // The saved view. Both refs point at the module's objects, which the
   // handlers update in place.
   const state = useRef<ViewportState>(savedView.state);
@@ -496,7 +499,7 @@ export function useViewport(
       container.clientWidth,
       container.clientHeight,
       artBounds(b),
-      FIT_AXES === "both",
+      fitWidth.current,
     );
     restView.current.x = target.x;
     restView.current.y = target.y;

@@ -30,6 +30,11 @@ let backRoomOpen = false;
 export function setBackRoomOpen(open: boolean) {
   backRoomOpen = open;
 }
+// Whether the desktop sidebar shows beside the office.
+let sidebarOpen = false;
+export function setSidebarOpen(open: boolean) {
+  sidebarOpen = open;
+}
 const noop = () => {};
 export let snapshot: ReturnType<typeof useAppState>;
 export let dispatch: ReturnType<typeof useDispatch>;
@@ -65,6 +70,7 @@ function Office({ creationOnly = false }: { creationOnly?: boolean }) {
       onOpenApps={noop}
       onOpenUpdate={noop}
       backRoomOpen={backRoomOpen}
+      sidebarOpen={sidebarOpen}
     />
   );
 }
@@ -108,6 +114,7 @@ export function setupRoomDoorTests({ decorations = true } = {}) {
   beforeEach(() => {
     decorateScene = decorations;
     backRoomOpen = false;
+    sidebarOpen = false;
     window.localStorage.clear();
     requests = [];
     reply = async () => ({ room: room("created", "Room 2") });

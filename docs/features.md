@@ -111,7 +111,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ### Navigation and shortcuts
 
-- **Sidebar** on a computer: beside the office, a chat and every page, a list of the rooms and their agents opens any chat in one click, and each room's **+** adds an agent to it. The sidebar can be hidden.
+- **Sidebar** on a computer: the rooms and their agents, one click to open any chat.
 - **Number keys 1–8** jump to agents from office view.
 - **Tab / Shift+Tab** cycle between agents in chat view.
 - **Escape** closes the page on top and returns to what was under it.

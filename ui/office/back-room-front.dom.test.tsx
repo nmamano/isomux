@@ -168,6 +168,49 @@ it.each(headerCases)(
   },
 );
 
+// The desktop sidebar counts the office's working agents in its header, so
+// while it shows, the office bar leaves out its own working count and keeps
+// the error count, which the sidebar has no total for (task a539eaae).
+it("the office bar has no working count while the sidebar shows", async () => {
+  const pills = (view: ReturnType<typeof mount>) =>
+    Object.fromEntries(
+      [...view.container.querySelectorAll("[data-bar-count]")].map((p) => [
+        p.getAttribute("data-bar-count"),
+        (p.textContent ?? "").replace(/\D/g, ""),
+      ]),
+    );
+  for (const sidebar of [false, true])
+    for (const back of [false, true]) {
+      fixture.setSidebarOpen(sidebar);
+      fixture.setBackRoomOpen(back);
+      const view = mount([room("first")]);
+      await act(async () =>
+        shimEmit({
+          type: "full_state",
+          agents: countedAgents,
+          rooms: [room("first")],
+          office: { name: "Back room test", prompt: null },
+          recentCwds: [],
+          killedAgents: [],
+          interactions: [],
+        } as never),
+      );
+      expect(fixture.snapshot.isMobile).toBe(false);
+      // The screen under test is drawn.
+      expect(
+        view.container.querySelector('[data-back-figure="B0"]') !== null,
+      ).toBe(back);
+      const working = back ? "2" : "3";
+      const error = back ? "2" : "1";
+      expect({ sidebar, back, pills: pills(view) }).toEqual({
+        sidebar,
+        back,
+        pills: sidebar ? { error } : { working, error },
+      });
+      view.unmount();
+    }
+});
+
 // A full front is not a full room: the back room still has seats, so a door
 // takes the drop into a next room whose front is full.
 it("a door moves an agent into a next room with a full front", async () => {

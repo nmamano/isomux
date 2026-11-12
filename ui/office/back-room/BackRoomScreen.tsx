@@ -487,6 +487,7 @@ export function BackRoomScreen({
   const frame = sceneFrame(embed, isMobile);
   const viewport = useViewport(`${frame.top}|${frame.scale}`, !embed, {
     touchPanAtRest: true,
+    fitWidth: !isMobile,
   });
   const { setContent } = viewport;
   const attachRoom = useCallback(

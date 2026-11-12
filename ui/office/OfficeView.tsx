@@ -427,7 +427,7 @@ export function OfficeView({
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
   // transform-only updates).
   const layoutKey = `${frame.top}|${frame.scale}`;
-  const viewport = useViewport(layoutKey, !embed);
+  const viewport = useViewport(layoutKey, !embed, { fitWidth: !isMobile });
   // Cede one-finger swipes to pan once the user zooms in (iOS-gallery pattern).
   const swipeRef = useSwipeLeftRight(
     onSwipeLeft ?? (() => {}),
@@ -707,11 +707,14 @@ export function OfficeView({
               {(
                 [
                   {
-                    n: counts.working,
+                    k: "working",
+                    // The sidebar's header counts the whole office's.
+                    n: sidebarOpen ? 0 : counts.working,
                     c: "var(--green-text)",
                     l: "office.status.working",
                   },
                   {
+                    k: "error",
                     n: counts.error,
                     c: "var(--red-text)",
                     l: "office.status.error",
@@ -721,7 +724,8 @@ export function OfficeView({
                 .filter((s) => s.n > 0)
                 .map((s) => (
                   <div
-                    key={s.l}
+                    key={s.k}
+                    data-bar-count={s.k}
                     style={{
                       display: "flex",
                       alignItems: "center",

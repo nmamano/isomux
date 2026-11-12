@@ -9,6 +9,7 @@ setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { mount, act, room } = fixture;
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { artBounds } = await import("./useViewport.ts");
 const EN = translatorFor("en");
 fixture.setupRoomDoorTests({ decorations: false });
 
@@ -141,4 +142,150 @@ it("draws the back room in the front's frame", async () => {
     }
   }
   view.unmount();
+});
+
+// A container narrower than the room (the office beside the desktop sidebar
+// at a 1100 px window), and tall enough that height never sets the fit.
+const NARROW = { w: 840, h: 1400 };
+const FIT_MARGIN = 12;
+
+/** Stands in for the browser's layout of the floor that shows, and returns the undo. */
+function fakeFloorLayout() {
+  const originalRect = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "getBoundingClientRect",
+  )!;
+  // happy-dom's own getters live on HTMLElement.prototype: the undo puts
+  // them back, or every later file in the process reads undefined.
+  const originalSizes = (["clientWidth", "clientHeight"] as const).map(
+    (key) =>
+      [
+        key,
+        Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)!,
+      ] as const,
+  );
+  // The viewport's container: the floor scene sits in its zoom/pan layer.
+  const isContainer = (el: Element) =>
+    [...el.children].some((layer) =>
+      [...layer.children].some((c) => c.hasAttribute("data-floor-scene")),
+    );
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (isContainer(this)) return new DOMRect(0, 0, NARROW.w, NARROW.h);
+    if (this.hasAttribute("data-floor-scene")) {
+      // The scene box in its static frame (centred at left 50% and its top),
+      // then where the zoom/pan layer's live transform puts it.
+      const el = this as HTMLElement;
+      const fs = Number(/scale\(([\d.e-]+)\)/.exec(el.style.transform)![1]);
+      const topFrac = parseFloat(el.style.top) / 100;
+      const w = 950 * fs;
+      const h = 700 * fs;
+      const t =
+        /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\(([\d.e-]+)\)/.exec(
+          el.parentElement!.style.transform,
+        );
+      const [x, y, s] = t ? [1, 2, 3].map((i) => Number(t[i])) : [0, 0, 1];
+      return new DOMRect(
+        x! + (NARROW.w / 2 - w / 2) * s!,
+        y! + (NARROW.h * topFrac - h / 2) * s!,
+        w * s!,
+        h * s!,
+      );
+    }
+    return (originalRect.value as () => DOMRect).call(this);
+  };
+  for (const [key, descriptor] of originalSizes)
+    Object.defineProperty(HTMLElement.prototype, key, {
+      configurable: true,
+      get() {
+        if (isContainer(this))
+          return key === "clientWidth" ? NARROW.w : NARROW.h;
+        return (descriptor.get as () => number).call(this);
+      },
+    });
+  return () => {
+    Object.defineProperty(
+      Element.prototype,
+      "getBoundingClientRect",
+      originalRect,
+    );
+    for (const [key, descriptor] of originalSizes)
+      Object.defineProperty(HTMLElement.prototype, key, descriptor);
+  };
+}
+
+/** The painted room (walls and doors included) in container pixels. */
+function paintedArt(view: View, back: boolean) {
+  const r = floorScene(view, back).getBoundingClientRect();
+  return artBounds({
+    left: r.left,
+    right: r.right,
+    top: r.top,
+    bottom: r.bottom,
+  });
+}
+
+async function resetView(view: View) {
+  const reset = view.container.querySelectorAll<HTMLElement>(
+    `button[aria-label="${EN.t("office.zoom.resetAria")}"]`,
+  );
+  expect(reset).toHaveLength(1);
+  await act(async () => reset[0]!.click());
+}
+
+// Task a539eaae: at a 1100 px window the sidebar left the room too narrow a
+// space, and the rest view cut it at both doors. On a computer the rest view
+// fits the room's width too, on both floors. A phone keeps its sideways
+// bleed: its frame crops the walls on purpose.
+it("fits the room's width on a computer and not on a phone", async () => {
+  const undo = fakeFloorLayout();
+  try {
+    const view = mount([room("first")]);
+    expect(fixture.snapshot.isMobile).toBe(false);
+    await resetView(view);
+    const front = viewOf(view, false);
+    const art = paintedArt(view, false);
+    // The painted room is wider than the space, so only a width fit shows it
+    // whole, and height does not set the fit.
+    expect((art.right - art.left) / front.s).toBeGreaterThan(
+      NARROW.w - 2 * FIT_MARGIN,
+    );
+    expect((art.bottom - art.top) / front.s).toBeLessThan(
+      NARROW.h - 2 * FIT_MARGIN,
+    );
+    expect(front.s).toBeLessThan(1);
+    // Both wall ends, with their doors, are inside the margin.
+    expect(art.left).toBeCloseTo(FIT_MARGIN, 1);
+    expect(art.right).toBeCloseTo(NARROW.w - FIT_MARGIN, 1);
+
+    // The back room keeps that view, and its own reset fits the same way.
+    await goTo(view, false, true);
+    expectSameView(front, viewOf(view, true));
+    await resetView(view);
+    expectSameView(front, viewOf(view, true));
+
+    for (const back of [false, true]) {
+      await goTo(view, false, back);
+      await act(async () => {
+        fixture.dispatch({ type: "set_mobile", isMobile: true });
+      });
+      expect(fixture.snapshot.isMobile).toBe(true);
+      await resetView(view);
+      const phone = viewOf(view, back);
+      const phoneArt = paintedArt(view, back);
+      // The phone's frame is wider than the space, so a width fit would act.
+      expect((phoneArt.right - phoneArt.left) / phone.s).toBeGreaterThan(
+        NARROW.w - 2 * FIT_MARGIN,
+      );
+      expect((phoneArt.bottom - phoneArt.top) / phone.s).toBeLessThan(
+        NARROW.h - 2 * FIT_MARGIN,
+      );
+      expect({ back, s: phone.s }).toEqual({ back, s: 1 });
+      await act(async () => {
+        fixture.dispatch({ type: "set_mobile", isMobile: false });
+      });
+    }
+    view.unmount();
+  } finally {
+    undo();
+  }
 });
