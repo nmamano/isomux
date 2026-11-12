@@ -642,7 +642,7 @@ function SectionHeader({
   attr: Record<string, string>;
   strong?: boolean;
   // A list label (Pinned, Recent, Members, Tucked rooms; tasks 7f93306a,
-  // b2889127, 203d7927): small capitals in the faintest text color, at a
+  // b2889127, 203d7927, fe49d6d0): small capitals in the accent hue, at a
   // lighter weight, so it never reads as a room.
   list?: boolean;
 }) {
@@ -664,7 +664,7 @@ function SectionHeader({
         ...(list && {
           fontSize: 10.5,
           fontWeight: 500,
-          color: "var(--text-hint)",
+          color: "var(--accent-text)",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
         }),
