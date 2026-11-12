@@ -641,8 +641,9 @@ function SectionHeader({
   right?: ReactNode;
   attr: Record<string, string>;
   strong?: boolean;
-  // A list label (Pinned, Recent, Members; tasks 7f93306a, b2889127): small,
-  // muted capitals, so it does not read as a room.
+  // A list label (Pinned, Recent, Members, Tucked rooms; tasks 7f93306a,
+  // b2889127, 203d7927): small capitals in the faintest text color, at a
+  // lighter weight, so it never reads as a room.
   list?: boolean;
 }) {
   return (
@@ -662,8 +663,8 @@ function SectionHeader({
         color: "var(--text-secondary)",
         ...(list && {
           fontSize: 10.5,
-          fontWeight: 600,
-          color: "var(--text-dim)",
+          fontWeight: 500,
+          color: "var(--text-hint)",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
         }),
@@ -1372,7 +1373,7 @@ export function ChatSidebar({
               <SectionHeader
                 label={t("office.tabs.tuckedRooms")}
                 open={sections.more}
-                strong={false}
+                list
                 onToggle={() => flip("more")}
                 attr={{ "data-sidebar-more-rooms": "" }}
                 right={
