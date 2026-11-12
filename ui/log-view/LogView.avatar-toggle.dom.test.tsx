@@ -2,6 +2,8 @@
 // hides the agent's avatar (it used to open the agent settings, and an eye
 // button toggled the avatar); the settings open from a click on the shown
 // avatar. The bar and the narrow layout's "..." menu share the same entries.
+// Task a334bf25: the agent's name in the header no longer opens the settings
+// either; the shown avatar is the one direct path.
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -102,14 +104,21 @@ function carriesAgentIcon(b: HTMLButtonElement): boolean {
   return b.querySelector("svg")?.outerHTML === agentIconSvg();
 }
 
-// The floating avatar: the box that holds the agent's character. The agent's
-// name in the header has the same tooltip, but it is a span.
+// The floating avatar: the box that holds the agent's character.
 function avatars(): HTMLElement[] {
   return [
     ...document.querySelectorAll<HTMLElement>(
       `div[title="${EN.t("logView.editAgent")}"]`,
     ),
   ].filter((el) => el.querySelector("svg") !== null);
+}
+
+// The agent's name as the header shows it: the elements whose whole text is
+// the name.
+function names(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>("span")].filter(
+    (el) => el.textContent === agent.name,
+  );
 }
 
 async function avatarControl(narrow: boolean): Promise<HTMLButtonElement> {
@@ -165,5 +174,19 @@ describe.each([
       fireEvent.click(shown[0]!);
     });
     expect(edits.count).toBe(1);
+  });
+
+  it("a click on the agent's name does not open the agent settings", async () => {
+    const edits = { count: 0 };
+    mount(narrow, edits);
+    const shown = names();
+    // The condition the case needs: the header shows the name.
+    expect(shown.length > 0).toBe(true);
+    for (const el of shown) {
+      await act(async () => {
+        fireEvent.click(el);
+      });
+    }
+    expect(edits.count).toBe(0);
   });
 });
