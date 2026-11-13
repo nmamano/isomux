@@ -798,7 +798,8 @@ export function LogView({
   // and the back room strip, and its rows of the header's Tasks and Inbox.
   sidebarOpen?: boolean;
   // Given while the sidebar is collapsed on a desktop: the header's button
-  // that shows it again.
+  // that shows it again. On a phone: the button after Back that opens the
+  // drawer (task 3cced5be).
   onShowSidebar?: () => void;
 }) {
   // Loads this chat when the server loads chats on open (task 9ebe887d).
@@ -2421,6 +2422,30 @@ export function LogView({
               >
                 ←
               </button>
+              {onShowSidebar && (
+                <button
+                  type="button"
+                  data-show-sidebar=""
+                  onClick={onShowSidebar}
+                  title={i18n.t("sidebar.show")}
+                  aria-label={i18n.t("sidebar.show")}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0 12px",
+                    border: "none",
+                    borderRight: "1px solid var(--border-medium)",
+                    background: "var(--btn-surface)",
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  {SidebarIcon}
+                  <SidebarUnreadDot />
+                </button>
+              )}
               <div
                 style={{
                   display: "flex",

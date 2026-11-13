@@ -45,6 +45,7 @@ import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
 import { ChatSidebar, type SidebarPage } from "./components/ChatSidebar.tsx";
+import { PhoneSidebarDrawer } from "./components/PhoneSidebarDrawer.tsx";
 import { SidebarSlot } from "./components/SidebarSlot.tsx";
 import { useSidebarPins } from "./sidebar-pins.ts";
 import { newAgentSeat, sidebarStartsOpen } from "./chat-sidebar.ts";
@@ -194,6 +195,10 @@ export function App({ routing = true }: { routing?: boolean }) {
     setSidebarOpenState(open);
     setChatSidebar(open ? "open" : "closed");
   }, []);
+  // The phone's sidebar drawer (task 3cced5be): the same sidebar, over the
+  // view. It always starts closed and never reads or writes the desktop
+  // choice above.
+  const [phoneDrawer, setPhoneDrawer] = useState(false);
   // The sidebar's New agent: the room and the seat it picked.
   // The page on top's leave guard (ui/page-leave-guard.ts).
   const leaveGuardRef = useRef<LeaveGuard | null>(null);
@@ -1124,11 +1129,17 @@ export function App({ routing = true }: { routing?: boolean }) {
     loneShift,
   ]);
 
-  const isDeep =
+  // The view under the phone's drawer is deep.
+  const deepView =
     page !== null ||
     focusedAgentId !== null ||
     openHumanChat !== null ||
     backRoomOpen;
+  // The open drawer is one more layer: over the office it takes an entry of
+  // its own, so Back closes it. Over a deep view it shares that view's
+  // entry, and Back closes it in the popstate handler; under a cold link
+  // (ruling 8) it pushes nothing.
+  const isDeep = deepView || phoneDrawer;
   useEffect(() => {
     const write = (method: "pushState" | "replaceState") => {
       const entry = { isomux: true, page };
@@ -1149,7 +1160,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       // Returned to office - entry was consumed by history.back()
       entryRef.current = "none";
     }
-  }, [isDeep, focusedAgentId, openHumanChat, page, routing]);
+  }, [isDeep, focusedAgentId, openHumanChat, page, phoneDrawer, routing]);
 
   // Any path that is not a route shows the office, and the office is "/" - so
   // normalise rather than leave it sitting at /garbage. The entry the load made
@@ -1168,6 +1179,14 @@ export function App({ routing = true }: { routing?: boolean }) {
         restored === undefined
           ? pageForPath(window.location.pathname)
           : restored;
+      if (phoneDrawer) {
+        // Back with the drawer open closes the drawer only. Over a chat the
+        // sync effect re-pushes the entry the Back took, as for a page over
+        // a chat; over the office the drawer's own entry is gone.
+        entryRef.current = "none";
+        setPhoneDrawer(false);
+        return;
+      }
       if (target !== null) {
         // The entry names a page: a Forward back into one, or a Back out of
         // something deeper. Open it and stay deep. Only a "none" ref is
@@ -1202,13 +1221,46 @@ export function App({ routing = true }: { routing?: boolean }) {
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [applyPage, dispatch, somethingUnderPage, closeTopPage, logOverBackRoom]);
+  }, [
+    applyPage,
+    dispatch,
+    somethingUnderPage,
+    closeTopPage,
+    logOverBackRoom,
+    phoneDrawer,
+  ]);
+
+  // The drawer's backdrop and hide button. It goes at once; over the office
+  // its own entry goes too, as leaveToOffice does. A second tap before the
+  // popstate finds no drawer, so it cannot go back twice.
+  const closeDrawer = useCallback(() => {
+    setPhoneDrawer(false);
+    if (!deepView && entryRef.current === "pushed") window.history.back();
+  }, [deepView]);
 
   // The sidebar shows beside the office view, the chat and every page, on a
   // desktop; never on a phone or in the site's embed. The shell stays while
   // the sidebar collapses and while the view changes under it, so neither the
   // sidebar nor the chat mounts again.
   const sidebarView = !isMobile && !features.embed;
+  // On a phone (not in the embed), the sidebar is a drawer (task 3cced5be).
+  const phoneSidebar = isMobile && !features.embed;
+  // A window that stops being a phone (a phone turned to landscape) closes
+  // the drawer and takes its entry away.
+  useEffect(() => {
+    // The close must also take the drawer's history entry, which only an
+    // effect may do.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!phoneSidebar && phoneDrawer) closeDrawer();
+  }, [phoneSidebar, phoneDrawer, closeDrawer]);
+  const drawerShown = phoneSidebar && phoneDrawer;
+  // The button that shows the sidebar: the drawer on a phone, the collapsed
+  // sidebar on a desktop.
+  const showSidebar = phoneSidebar
+    ? () => setPhoneDrawer(true)
+    : sidebarView && !sidebarOpen
+      ? () => setSidebarOpen(true)
+      : undefined;
   const sidebarShown = sidebarView && sidebarOpen;
   // The member's Pinned and Recent agents: one pending list for the sidebar's
   // pin buttons and the desk menu, so a pin from either builds on the other.
@@ -1270,9 +1322,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         onSelectChat={openHumanChatView}
         onOpenMemberSettings={openMemberSettings}
         sidebarOpen={sidebarShown}
-        onShowSidebar={
-          sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
-        }
+        onShowSidebar={showSidebar}
       />
     ) : focusedAgent ? (
       <LogView
@@ -1287,9 +1337,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         onSwipeLeft={swipeAgentNext}
         onSwipeRight={swipeAgentPrev}
         sidebarOpen={sidebarShown}
-        onShowSidebar={
-          sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
-        }
+        onShowSidebar={showSidebar}
       />
     ) : (
       <OfficeView
@@ -1328,29 +1376,73 @@ export function App({ routing = true }: { routing?: boolean }) {
         onSwipeRight={swipeRoomPrev}
         viewportControlsRef={viewportControlsRef}
         sidebarOpen={sidebarShown}
-        onShowSidebar={
-          sidebarView && !sidebarOpen ? () => setSidebarOpen(true) : undefined
-        }
+        onShowSidebar={showSidebar}
         onOpenMembersChat={() => openHumanChatView(MEMBERS_CHAT)}
       />
     );
 
   // A sidebar row that leaves the page on top asks the page first, so its
   // unsaved edits go through its own discard prompt.
-  const leaveThen = (go: () => void) => {
+  const leaveThen = useCallback((go: () => void) => {
     const guard = leaveGuardRef.current;
     if (guard) guard(go);
     else go();
+  }, []);
+  // A drawer row: the drawer closes first, so a page's discard prompt never
+  // shows under it.
+  const leaveFromDrawer = useCallback(
+    (go: () => void) => {
+      setPhoneDrawer(false);
+      leaveThen(go);
+    },
+    [leaveThen],
+  );
+  const openSidebarPage = (target: SidebarPage) => {
+    if (target === "tasks") openTasks();
+    else if (target === "integrations") openIntegrations();
+    else changePages({ type: "open", page: target });
   };
-  const openSidebarPage = (target: SidebarPage) =>
-    leaveThen(() => {
-      if (target === "tasks") openTasks();
-      else if (target === "integrations") openIntegrations();
-      else changePages({ type: "open", page: target });
-    });
   // A room header's "+": its first free front desk, else its back room.
   const spawnFromSidebar = (roomId: string) =>
     setSidebarSpawn({ roomId, desk: newAgentSeat(agents, roomId) });
+  // The sidebar, beside the view on a desktop or in the phone's drawer.
+  // `then` runs a row that leaves for another view. The pin, the
+  // context menu and the dialogs (agent settings, a room's "+") open over
+  // the drawer and keep it.
+  const chatSidebar = ({
+    closing,
+    onCollapse,
+    then,
+  }: {
+    closing: boolean;
+    onCollapse: () => void;
+    then: (go: () => void) => void;
+  }) => (
+    <ChatSidebar
+      closing={closing}
+      pins={pins}
+      onRoomSettings={(roomId) =>
+        then(() => openSettings({ kind: "room", roomId }))
+      }
+      openAgentId={focusedAgent?.id ?? null}
+      page={page}
+      officeShown={page === null && !focusedAgent && openHumanChat === null}
+      backRoomOpen={backRoomOpen}
+      viewReady={restored || (!persistEnabled && hasReceivedInitialState)}
+      onCollapse={onCollapse}
+      onOffice={() => then(goOffice)}
+      onNewAgent={canSpawn ? spawnFromSidebar : null}
+      onOpenPage={(target) => then(() => openSidebarPage(target))}
+      onOpenAgent={(agentId) => then(() => openAgentChat(agentId))}
+      onAgentContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+      onAgentSettings={setEditAgent}
+      onOpenHumanChat={(chat) => then(() => openHumanChatView(chat))}
+      onOpenMemberSettings={(userId) => then(() => openMemberSettings(userId))}
+      onOpenSettings={() => {
+        if (page !== "settings") then(() => openSettings(null));
+      }}
+    />
+  );
 
   return (
     <OfficeLinkOpener.Provider value={openOfficeLink}>
@@ -1374,45 +1466,13 @@ export function App({ routing = true }: { routing?: boolean }) {
                 }}
               >
                 <SidebarSlot open={sidebarOpen}>
-                  {(closing) => (
-                    <ChatSidebar
-                      closing={closing}
-                      pins={pins}
-                      onRoomSettings={(roomId) =>
-                        leaveThen(() => openSettings({ kind: "room", roomId }))
-                      }
-                      openAgentId={focusedAgent?.id ?? null}
-                      page={page}
-                      officeShown={
-                        page === null && !focusedAgent && openHumanChat === null
-                      }
-                      backRoomOpen={backRoomOpen}
-                      viewReady={
-                        restored || (!persistEnabled && hasReceivedInitialState)
-                      }
-                      onCollapse={() => setSidebarOpen(false)}
-                      onOffice={() => leaveThen(goOffice)}
-                      onNewAgent={canSpawn ? spawnFromSidebar : null}
-                      onOpenPage={openSidebarPage}
-                      onOpenAgent={(agentId) =>
-                        leaveThen(() => openAgentChat(agentId))
-                      }
-                      onAgentContextMenu={(x, y, agent) =>
-                        setCtxMenu({ x, y, agent })
-                      }
-                      onAgentSettings={setEditAgent}
-                      onOpenHumanChat={(chat) =>
-                        leaveThen(() => openHumanChatView(chat))
-                      }
-                      onOpenMemberSettings={(userId) =>
-                        leaveThen(() => openMemberSettings(userId))
-                      }
-                      onOpenSettings={() => {
-                        if (page !== "settings")
-                          leaveThen(() => openSettings(null));
-                      }}
-                    />
-                  )}
+                  {(closing) =>
+                    chatSidebar({
+                      closing,
+                      onCollapse: () => setSidebarOpen(false),
+                      then: leaveThen,
+                    })
+                  }
                 </SidebarSlot>
                 <div style={{ flex: 1, minWidth: 0, height: "100%" }}>
                   <PageLeaveGuard.Provider value={leaveGuardRef}>
@@ -1422,6 +1482,17 @@ export function App({ routing = true }: { routing?: boolean }) {
               </div>
             ) : (
               content
+            )}
+            {drawerShown && (
+              <PhoneSidebarDrawer onClose={closeDrawer}>
+                {() =>
+                  chatSidebar({
+                    closing: false,
+                    onCollapse: closeDrawer,
+                    then: leaveFromDrawer,
+                  })
+                }
+              </PhoneSidebarDrawer>
             )}
             {spawnBackOpen && currentRoomId && (
               <EditAgentDialog
@@ -1463,7 +1534,7 @@ export function App({ routing = true }: { routing?: boolean }) {
                   setCtxMenu(null);
                 }}
                 pin={
-                  sidebarView
+                  sidebarView || phoneSidebar
                     ? {
                         pinned: pins.pinned.includes(ctxMenu.agent.id),
                         onToggle: () => pins.togglePin(ctxMenu.agent.id),

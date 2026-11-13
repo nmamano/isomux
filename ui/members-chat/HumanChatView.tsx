@@ -17,7 +17,8 @@ export interface HumanChatViewProps {
   onOpenMemberSettings: (userId: string) => void;
   // The desktop sidebar is shown beside the chat.
   sidebarOpen?: boolean;
-  // Shows the collapsed desktop sidebar; absent when there is none.
+  // Shows the collapsed desktop sidebar, or opens the phone's drawer; absent
+  // when there is none.
   onShowSidebar?: () => void;
 }
 

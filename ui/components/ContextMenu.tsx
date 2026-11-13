@@ -1,5 +1,5 @@
 import { StatusShape } from "./StatusShape.tsx";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useLayoutEffect } from "react";
 import type {
   AgentInfo,
   SessionInfo,
@@ -69,6 +69,29 @@ export function ContextMenu({
 
   // Kill has no Undo: the first click arms it and keeps the menu open.
   const killStep = useConfirmStep();
+
+  // The menu opens at the point, moved up or left as far as it must to stay
+  // on screen (task 3cced5be: a long press low in the phone's sidebar).
+  // Every render: the sessions list and the kill step change its size.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    // Where this fixed box's (0, 0) is on screen: not the window's corner
+    // when an ancestor is transformed (the site demo's box under its
+    // banner, ui/demo-entry.tsx).
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;top:0;visibility:hidden";
+    parent.appendChild(probe);
+    const origin = probe.getBoundingClientRect();
+    probe.remove();
+    const margin = 8;
+    // The layout size: the open animation scales the box.
+    const fit = (at: number, size: number, room: number) =>
+      Math.max(margin, Math.min(at, room - size - margin));
+    el.style.left = `${fit(x, el.offsetWidth, window.innerWidth) - origin.left}px`;
+    el.style.top = `${fit(y, el.offsetHeight, window.innerHeight) - origin.top}px`;
+  });
 
   useEffect(() => {
     function handleDismiss(e: Event) {

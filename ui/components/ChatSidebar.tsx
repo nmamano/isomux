@@ -1,7 +1,9 @@
 // The desktop sidebar (task c61316be): beside the office view, an agent's
 // chat and every page, a Codex-style list of the office's rooms and agents.
-// The phone and the site embed never show it. No click in it closes it; only
-// its own hide button does. Its decisions live in ui/chat-sidebar.ts.
+// On a phone, App shows the same sidebar as a drawer over the view (task
+// 3cced5be); the site embed never shows it. On a desktop no click in it
+// closes it, only its own hide button does. Its decisions live in
+// ui/chat-sidebar.ts.
 // Task 5dac6b9b added Pinned and Recent, the folded room summary and the
 // drag to reorder and tuck rooms; App draws the slot around it (its width,
 // the resize edge and the slide). Task c921308f: a room, agent or member row
@@ -13,7 +15,7 @@ import {
   type MemberChatRow,
 } from "../members-chat/member-rows.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   LOBBY_ROOM_ID,
   type AgentInfo,
@@ -293,6 +295,78 @@ function NavRow({
   );
 }
 
+/** How long a still finger opens an agent row's menu, in ms. */
+const LONG_PRESS_MS = 500;
+/** How far a finger may move, in px, before it scrolls instead. */
+const LONG_PRESS_SLOP = 10;
+
+// A touch screen's long press on an agent row (task 3cced5be): its menu, as
+// a right click gives on a desktop (iOS sends no contextmenu). The listeners
+// stay passive, so the list still scrolls; a finger that moves past the slop
+// is a scroll. The click that ends the press is dropped, once, and the next
+// touch clears that.
+function useLongPress(onLongPress: (x: number, y: number) => void): {
+  handlers: Pick<
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
+    "onTouchStart" | "onTouchMove" | "onTouchEnd" | "onTouchCancel"
+  >;
+  // True when the click that just came ends a long press: drop it.
+  takeClick: () => boolean;
+} {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
+  const dropClick = useRef(false);
+  const cancel = () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => cancel, []);
+  return {
+    handlers: {
+      onTouchStart: (e) => {
+        cancel();
+        dropClick.current = false;
+        fired.current = false;
+        const touch = e.touches[0];
+        if (!touch) return;
+        const at = { x: touch.clientX, y: touch.clientY };
+        start.current = at;
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          fired.current = true;
+          onLongPress(at.x, at.y);
+        }, LONG_PRESS_MS);
+      },
+      onTouchMove: (e) => {
+        const touch = e.touches[0];
+        const at = start.current;
+        if (
+          !touch ||
+          !at ||
+          Math.hypot(touch.clientX - at.x, touch.clientY - at.y) >
+            LONG_PRESS_SLOP
+        )
+          cancel();
+      },
+      onTouchEnd: () => {
+        cancel();
+        if (fired.current) dropClick.current = true;
+        fired.current = false;
+      },
+      onTouchCancel: () => {
+        cancel();
+        fired.current = false;
+      },
+    },
+    takeClick: () => {
+      const drop = dropClick.current;
+      dropClick.current = false;
+      return drop;
+    },
+  };
+}
+
 function AgentRow({
   agent,
   current,
@@ -328,6 +402,7 @@ function AgentRow({
 }) {
   const { t } = useI18n();
   const settingsLabel = t("sidebar.agentSettings");
+  const longPress = useLongPress((x, y) => onContextMenu(x, y, agent));
   return (
     <div className="chat-sidebar-agent" {...drag?.attrs} data-drop={drag?.drop}>
       <button
@@ -337,12 +412,22 @@ function AgentRow({
         data-sidebar-agent={agent.id}
         aria-current={current ? "page" : undefined}
         data-sidebar-muted={pinnedInRoom ? "" : undefined}
-        onClick={() => onOpen(agent.id)}
+        onClick={() => {
+          if (!longPress.takeClick()) onOpen(agent.id);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           onContextMenu(e.clientX, e.clientY, agent);
         }}
-        style={{ ...rowBase, padding: "5px 10px" }}
+        {...longPress.handlers}
+        style={{
+          ...rowBase,
+          padding: "5px 10px",
+          // A long press opens the row's menu, not the system's callout or a
+          // text selection.
+          WebkitTouchCallout: "none",
+          userSelect: "none",
+        }}
       >
         <span style={{ position: "relative", flexShrink: 0, display: "flex" }}>
           <span

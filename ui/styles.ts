@@ -378,6 +378,44 @@ ${emitThemesCss()}
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
+  /* The phone's sidebar drawer (task 3cced5be; App.tsx): the sidebar slides
+     in from the left over a dimmed view, at most 85% of the width. Its rows
+     and the room actions are 44 px touch targets. */
+  .phone-sidebar { position: fixed; inset: 0; z-index: 800; }
+  .phone-sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    animation: phoneSidebarFade 0.2s ease-out;
+  }
+  .phone-sidebar-panel {
+    --chat-sidebar-w: min(320px, 85vw);
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--chat-sidebar-w);
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-surface);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+    animation: phoneSidebarIn 0.2s ease-out;
+  }
+  @keyframes phoneSidebarIn { from { transform: translateX(-100%); } to { transform: none; } }
+  @keyframes phoneSidebarFade { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .phone-sidebar-backdrop,
+    .phone-sidebar-panel { animation: none; }
+  }
+  .phone-sidebar .chat-sidebar-row { min-height: 44px; }
+  .phone-sidebar [data-sidebar-collapse],
+  .phone-sidebar .chat-sidebar-row-action {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+
   /* Side panel resizer: invisible 6 px hit target with a 1 px visible line
      drawn via ::after so the line tints on hover/drag without layout reflow. */
   .panel-resizer { background: transparent; }

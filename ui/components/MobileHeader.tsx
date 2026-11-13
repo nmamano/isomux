@@ -1,5 +1,7 @@
 import { NavActions, type NavAction } from "./NavActions.tsx";
 import { useI18n } from "../i18n.tsx";
+import { SidebarIcon } from "./NavIcons.tsx";
+import { SidebarUnreadDot } from "../members-chat/SidebarUnreadDot.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export type RoomCounts = {
@@ -21,11 +23,14 @@ export function MobileHeader({
   actions,
   updateAvailable,
   onOpenUpdate,
+  onShowSidebar,
 }: {
   counts: RoomCounts;
   actions: NavAction[];
   updateAvailable?: boolean;
   onOpenUpdate?: () => void;
+  // Opens the phone's sidebar drawer (task 3cced5be); absent in the embed.
+  onShowSidebar?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -45,6 +50,32 @@ export function MobileHeader({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        {onShowSidebar && (
+          <button
+            type="button"
+            data-show-sidebar=""
+            onClick={onShowSidebar}
+            title={t("sidebar.show")}
+            aria-label={t("sidebar.show")}
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 32,
+              height: 30,
+              borderRadius: 6,
+              border: "1px solid var(--border-subtle)",
+              background: "var(--btn-surface)",
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            {SidebarIcon}
+            <SidebarUnreadDot />
+          </button>
+        )}
         <div style={{ display: "flex", gap: 8 }}>
           {(
             [

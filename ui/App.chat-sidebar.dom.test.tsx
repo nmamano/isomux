@@ -2,10 +2,10 @@
 // chat and pages", then "the side bar should also appear on the office view",
 // then "clicking something on the side bar does not close the sidebar"):
 // beside the office view (a room, the lobby, a back room screen), an agent's
-// chat and every page, Settings included; never on a phone or in the site
-// embed. That no entry of the sidebar hides it is in
-// ui/App.chat-sidebar-walk.dom.test.tsx. The setup is in
-// ui/test-support/chat-sidebar-fixture.tsx.
+// chat and every page, Settings included; on a phone only as a drawer
+// (ui/App.phone-sidebar.dom.test.tsx); never in the site embed. That no
+// entry of the sidebar hides it is in ui/App.chat-sidebar-walk.dom.test.tsx.
+// The setup is in ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -86,7 +86,7 @@ it("is not in the site embed: neither the sidebar nor a Show sidebar button", as
   expect(view.container.querySelector("[data-show-sidebar]")).toBeNull();
 });
 
-it("is not on a phone, in the office or a chat", async () => {
+it("is not beside the view on a phone, in the office or a chat: only the drawer's button shows (task 3cced5be)", async () => {
   setWindowWidth(390);
   // This browser chose the sidebar open before (a desktop window made narrow),
   // so only the phone check keeps it off, not the narrow-width default.
@@ -98,7 +98,8 @@ it("is not on a phone, in the office or a chat", async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   expect(sidebar(view)).toBeNull();
-  expect(view.container.querySelector("[data-show-sidebar]")).toBeNull();
+  // The phone drawer's button (ui/App.phone-sidebar.dom.test.tsx).
+  expect(view.container.querySelectorAll("[data-show-sidebar]").length).toBe(1);
 
   await openFirstDesk(view);
   // The chat is in its phone layout (LogView lays out its shell as a row on
@@ -106,6 +107,5 @@ it("is not on a phone, in the office or a chat", async () => {
   const shell = view.container.querySelector<HTMLElement>(".log-view-shell");
   expect(shell?.style.flexDirection).toBe("row");
   expect(sidebar(view)).toBeNull();
-  // A phone is not a collapsed desktop: no Show sidebar either.
-  expect(view.container.querySelector("[data-show-sidebar]")).toBeNull();
+  expect(view.container.querySelectorAll("[data-show-sidebar]").length).toBe(1);
 });

@@ -233,7 +233,8 @@ export function MembersChatPanel({
   style?: React.CSSProperties;
   // The header's Back.
   onClose?: () => void;
-  // The collapsed desktop sidebar's open button.
+  // The collapsed desktop sidebar's open button, or the phone's drawer
+  // button.
   onShowSidebar?: () => void;
   // Replaces the title where no sidebar lists the chats (a phone).
   switcher?: ReactNode;
@@ -601,6 +602,37 @@ export function MembersChatPanel({
     .map((id) => usersById.get(id))
     .filter((u): u is NonNullable<typeof u> => !!u);
 
+  // Shows the sidebar: before Back on a desktop, after it on a phone, as in
+  // an agent's chat (task 3cced5be).
+  const showSidebarButton = onShowSidebar && (
+    <button
+      type="button"
+      data-show-sidebar=""
+      onClick={onShowSidebar}
+      title={t("sidebar.show")}
+      aria-label={t("sidebar.show")}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 5,
+        // A phone's touch target, as tall as Back beside it.
+        minWidth: isMobile ? 44 : undefined,
+        minHeight: isMobile ? 44 : undefined,
+        borderRadius: 6,
+        border: "1px solid var(--border-subtle)",
+        background: "var(--btn-surface)",
+        color: "var(--text-dim)",
+        cursor: "pointer",
+        flexShrink: 0,
+      }}
+    >
+      {SidebarIcon}
+      <SidebarUnreadDot />
+    </button>
+  );
+
   return (
     <div
       style={{
@@ -638,30 +670,7 @@ export function MembersChatPanel({
           flexShrink: 0,
         }}
       >
-        {onShowSidebar && (
-          <button
-            type="button"
-            data-show-sidebar=""
-            onClick={onShowSidebar}
-            title={t("sidebar.show")}
-            aria-label={t("sidebar.show")}
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "center",
-              padding: 5,
-              borderRadius: 6,
-              border: "1px solid var(--border-subtle)",
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            {SidebarIcon}
-            <SidebarUnreadDot />
-          </button>
-        )}
+        {!isMobile && showSidebarButton}
         {onClose && (
           <button
             type="button"
@@ -680,6 +689,7 @@ export function MembersChatPanel({
             {t("common.back")}
           </button>
         )}
+        {isMobile && showSidebarButton}
         {switcher ??
           (peerId !== null ? (
             <span

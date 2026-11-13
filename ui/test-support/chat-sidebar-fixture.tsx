@@ -69,6 +69,15 @@
 //   button[data-sidebar-member="<userId>"]   also in Pinned's
 //                                            [data-sidebar-section-agents],
 //                                            mixed with the agent rows
+// Added by task 3cced5be (the phone drawer, agreed with the worker,
+// 2026-11-13):
+//   [data-phone-sidebar]                     the drawer, present only while
+//                                            open; it holds the same
+//                                            nav[data-chat-sidebar]
+//   [data-phone-sidebar-backdrop]            its dimmed backdrop
+//   button[data-show-sidebar]                also the drawer's opener in the
+//                                            phone office bar and the phone
+//                                            chat headers
 // Added by task c921308f (agreed with the worker, 2026-11-12): a settings
 // button, the first button of its row's actions, before the plus or the pin:
 //   button[data-sidebar-room-settings="<roomId>"] a room header's
@@ -79,7 +88,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { createElement } from "react";
 import { App } from "../App.tsx";
 import { SceneDecorationContext } from "../office/scene-decoration.tsx";
-import { FeaturesProvider, StoreProvider } from "../store.tsx";
+import { FeaturesProvider, StoreProvider, initialState } from "../store.tsx";
 import type { Features } from "../../shared/features.ts";
 import { setApiShim } from "../api.ts";
 import { connect, setShim, shimEmit } from "../ws.ts";
@@ -432,6 +441,33 @@ export async function boot(features?: Features, path = "/"): Promise<View> {
   await act(async () => {});
   await act(async () => {});
   return view;
+}
+
+/** Resize the window to `width` and let the store's 150 ms resize debounce
+ *  run, so isMobile follows (the store reads the width once at import). */
+export async function resizeWindow(width: number): Promise<void> {
+  setWindowWidth(width);
+  await act(async () => {
+    window.dispatchEvent(new Event("resize"));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+}
+
+/** boot() as a load on a 390 px phone: the store starts as a phone, as it
+ *  does when it reads the width at a real load (its initialState, read once
+ *  at import, would otherwise say whatever width the first importer had). */
+export async function bootPhone(
+  features?: Features,
+  path = "/",
+): Promise<View> {
+  setWindowWidth(390);
+  const was = initialState.isMobile;
+  initialState.isMobile = true;
+  try {
+    return await boot(features, path);
+  } finally {
+    initialState.isMobile = was;
+  }
 }
 
 export async function press(key: string): Promise<void> {

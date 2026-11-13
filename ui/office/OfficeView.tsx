@@ -223,7 +223,7 @@ interface OfficeViewProps {
   // office: the bar leaves out the buttons the sidebar repeats.
   sidebarOpen?: boolean;
   // Given while the sidebar is hidden on a desktop: the bar's button that
-  // shows it again.
+  // shows it again. On a phone: the bar's button that opens the drawer.
   onShowSidebar?: () => void;
   // The phone lobby's chat button: Members chat, full screen.
   onOpenMembersChat?: () => void;
@@ -613,6 +613,7 @@ export function OfficeView({
           actions={officeActions}
           updateAvailable={updateAvailable}
           onOpenUpdate={onOpenUpdate}
+          onShowSidebar={onShowSidebar}
         />
       ) : (
         <div
