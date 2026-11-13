@@ -263,6 +263,22 @@ describe("install.sh escalation: template unit + placement", () => {
       expect(repoFile(into)).toContain(`<<'${delimiter}'`);
       expect(repoFile(into)).toContain(repoFile(path).trimEnd());
     }
+    // One run of the embed script walks the targets in the order NESTED
+    // first names them: a helper that is itself nested elsewhere
+    // (rescue-agent.md -> rescue-root.sh -> install-update-support.sh) takes
+    // its own copies first, or that run leaves the outer copy stale.
+    const firstAsTarget = (file: string) =>
+      NESTED.findIndex((entry) => entry.into === file);
+    const late = NESTED.filter(
+      (entry) =>
+        NESTED.some((other) => other.into === entry.into) &&
+        NESTED.some((outer) => outer.path === entry.into) &&
+        firstAsTarget(entry.into) >
+          firstAsTarget(
+            NESTED.find((outer) => outer.path === entry.into)!.into,
+          ),
+    ).map((entry) => `${entry.path} -> ${entry.into}`);
+    expect(late).toEqual([]);
   });
 });
 

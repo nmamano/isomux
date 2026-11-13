@@ -9,6 +9,7 @@
 //   bun run rescue export [dir]
 //   bun run rescue rollback                     prints the steps on a checkout
 //   bun run rescue report [file] [--note <text>]
+//   bun run rescue agent [--cli claude|codex] [dir]   a coding agent on a fresh export
 //
 // Self-hosted user-unit installs run it as the office's own user, and it does
 // every step itself. Root installs run the root-owned wrapper
@@ -33,10 +34,14 @@ import {
   existsSync,
   openSync,
   readdirSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
+  rmSync,
   statfsSync,
   statSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -63,7 +68,52 @@ import {
 
 export { findLeftovers, type ProcessInfo };
 
+/** File names a coding agent loads as instructions from a folder it reads,
+ *  lower case. The agent folder's office/ holds none of them under its own
+ *  name; scripts/rescue-root.sh keeps the same list. */
+export const INSTRUCTION_FILE_NAMES = [
+  "claude.md",
+  "claude.local.md",
+  "agents.md",
+  "agents.override.md",
+];
+
+/** Renames every file under `dir` whose name is in INSTRUCTION_FILE_NAMES
+ *  (any case) with a "_" prefix. Returns the new paths. */
+export function renameInstructionFiles(dir: string): string[] {
+  const renamed: string[] = [];
+  const walk = (folder: string) => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (
+        entry.isFile() &&
+        INSTRUCTION_FILE_NAMES.includes(entry.name.toLowerCase())
+      ) {
+        let target = join(folder, `_${entry.name}`);
+        while (existsSync(target))
+          target = join(folder, `_${basename(target)}`);
+        renameSync(path, target);
+        renamed.push(target);
+      }
+    }
+  };
+  walk(dir);
+  return renamed;
+}
+
+/** The brief with RESCUE_COMMAND replaced by `prefix`, taken literally. */
+export function agentBrief(template: string, prefix: string): string {
+  return template.replaceAll("RESCUE_COMMAND", () => prefix);
+}
+
 const UPDATE_CONF = "/etc/isomux/update.conf";
+const AGENT_CLIS = ["claude", "codex"];
+const AGENT_PROMPT = "Read report.md and tell me what is wrong.";
+const AGENT_NOTICE =
+  "The agent sends what it reads to its model provider. If that provider may be part of the problem, use the other rescue commands instead.";
+const agentClosing = (folder: string) =>
+  `${folder} holds a copy of the office's content: delete it when you are done.`;
 const STOP_TIMEOUT_MS = 60_000;
 const READY_TIMEOUT_MS = 90_000;
 const REPORT_JOURNAL_LINES = 200;
@@ -139,6 +189,18 @@ export interface RescueHost {
   readStdin(): Promise<string>;
   now(): Date;
   sleep(ms: number): Promise<void>;
+  /** This user's home: the agent folder's default parent. */
+  home: string;
+  /** The checkout this file runs from, for the commands in the agent brief. */
+  checkoutDir: string;
+  /** Whether stdin is a terminal. */
+  isTty(): boolean;
+  /** The path of a command on this user's PATH, or null. */
+  which(name: string): string | null;
+  /** Runs an interactive command in `cwd` on this terminal; its exit code. */
+  spawnCli(argv: string[], cwd: string): Promise<number>;
+  /** The text of scripts/rescue-agent.md. */
+  readBrief(): string;
 }
 
 export interface RescueOutput {
@@ -173,6 +235,7 @@ interface Args {
   previous: string | null;
   updateResult: string | null;
   journalStdin: boolean;
+  cli: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -187,6 +250,7 @@ function parseArgs(argv: string[]): Args {
     previous: null,
     updateResult: null,
     journalStdin: false,
+    cli: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -201,6 +265,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--update-result" && i + 1 < argv.length)
       args.updateResult = argv[++i];
     else if (a === "--journal-stdin") args.journalStdin = true;
+    else if (a === "--cli" && i + 1 < argv.length) args.cli = argv[++i];
     else args.positional.push(a);
   }
   return args;
@@ -215,6 +280,7 @@ const USAGE = [
   "  export [dir]                       write a readable copy of the office's content to dir",
   "  rollback                           print the steps back to the version this checkout ran before",
   "  report [file] [--note <text>]      write an incident report for Isomux support",
+  "  agent [--cli claude|codex] [dir]   start a coding agent on a fresh export and incident report",
 ];
 
 /** Runs one subcommand. Returns the exit code. */
@@ -242,6 +308,8 @@ export async function runRescue(
       return r.rollback();
     case "report":
       return await r.report(rest[0] ?? null, args);
+    case "agent":
+      return await r.agent(rest[0] ?? null, args);
     case "_step":
       // The root wrapper names the dir it made for the service user.
       if (rest[0] === "export") return await r.export(rest[1] ?? null);
@@ -553,6 +621,66 @@ class Rescue {
     return 0;
   }
 
+  /** Fills a new folder with office/ (the export), report.md and the brief
+   *  as AGENTS.md and CLAUDE.md, then starts the CLI there. */
+  async agent(dir: string | null, args: Args): Promise<number> {
+    // Every refusal comes before the first write.
+    if (!this.host.isTty()) {
+      this.out.err("agent needs a terminal: run it in an interactive shell.");
+      return 1;
+    }
+    if (args.cli !== null && !AGENT_CLIS.includes(args.cli)) {
+      this.out.err(`--cli takes ${AGENT_CLIS.join(" or ")}.`);
+      return 1;
+    }
+    let cliPath: string | null = null;
+    for (const name of args.cli === null ? AGENT_CLIS : [args.cli]) {
+      cliPath = this.host.which(name);
+      if (cliPath !== null) break;
+    }
+    if (cliPath === null) {
+      this.out.err(
+        `${args.cli ?? AGENT_CLIS.join(" or ")} is not installed for this user: install it, sign in, and run agent again.`,
+      );
+      return 1;
+    }
+    const folder = resolve(
+      dir ?? join(this.host.home, `isomux-rescue-${stampOf(this.host.now())}`),
+    );
+    try {
+      mkdirSync(folder, { mode: 0o700 });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      this.out.err(
+        code === "EEXIST"
+          ? `${folder} exists: name a folder that does not exist yet.`
+          : `Could not make ${folder} (${code ?? "error"}).`,
+      );
+      return 1;
+    }
+    const quiet: RescueOutput = { log: () => {}, err: (l) => this.out.err(l) };
+    const sub = new Rescue(this.config, this.host, quiet);
+    if (
+      (await sub.export(join(folder, "office"))) !== 0 ||
+      (await sub.report(join(folder, "report.md"), args)) !== 0
+    ) {
+      this.out.err(`Could not fill ${folder}.`);
+      rmSync(folder, { recursive: true, force: true });
+      return 1;
+    }
+    renameInstructionFiles(join(folder, "office"));
+    const brief = agentBrief(
+      this.host.readBrief(),
+      `cd ${shellQuote(this.host.checkoutDir)} && bun run rescue`,
+    );
+    for (const name of ["AGENTS.md", "CLAUDE.md"])
+      writeFileSync(join(folder, name), brief, { mode: 0o600, flag: "wx" });
+    this.out.log(AGENT_NOTICE);
+    const code = await this.host.spawnCli([cliPath, AGENT_PROMPT], folder);
+    this.out.log(agentClosing(folder));
+    return code;
+  }
+
   // A root or container install goes back through the updater, which only
   // root runs. A checkout follows main, not release tags, and can hold the
   // owner's own work: a git step made for them could lose it, so they get
@@ -708,6 +836,13 @@ class Rescue {
   }
 }
 
+/** `text` as one shell word: as is when it is plain, else single-quoted. */
+function shellQuote(text: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(text)
+    ? text
+    : `'${text.replaceAll("'", "'\\''")}'`;
+}
+
 // 20261106-100000, for default file names.
 function stampOf(now: Date): string {
   return now.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
@@ -831,6 +966,19 @@ function productionHost(config: RescueConfig): RescueHost {
     readStdin: () => Bun.stdin.text(),
     now: () => new Date(),
     sleep: (ms) => Bun.sleep(ms),
+    home: homedir(),
+    checkoutDir: resolve(import.meta.dir, ".."),
+    isTty: () => process.stdin.isTTY === true,
+    which: (name) => Bun.which(name),
+    spawnCli: async (argv, cwd) =>
+      await Bun.spawn(argv, {
+        cwd,
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      }).exited,
+    readBrief: () =>
+      readFileSync(join(import.meta.dir, "rescue-agent.md"), "utf8"),
   };
 }
 

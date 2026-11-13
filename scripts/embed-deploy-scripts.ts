@@ -18,7 +18,15 @@ const INSTALL_SH = `${ROOT}deploy/install.sh`;
 // Copies embedded in another helper before that helper is embedded in
 // install.sh: the container's install-update-support.sh runs from the target
 // release on an update, so what it carries reaches the box on the first one.
+// Listed in embedding order: a helper that is itself nested elsewhere takes
+// its own copies first (rescue-agent.md -> rescue-root.sh ->
+// install-update-support.sh -> install.sh).
 export const NESTED = [
+  {
+    path: "scripts/rescue-agent.md",
+    delimiter: "ISOMUX_RESCUE_AGENT_MD",
+    into: "scripts/rescue-root.sh",
+  },
   {
     path: "scripts/rescue-root.sh",
     delimiter: "ISOMUX_CONTAINER_RESCUE_ROOT_SH",

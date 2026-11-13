@@ -28,7 +28,10 @@ import {
   writeStateMarker,
 } from "../server/lockdown.ts";
 import {
+  INSTRUCTION_FILE_NAMES,
+  agentBrief,
   loadRescueConfig,
+  renameInstructionFiles,
   runRescue,
   type ProcessInfo,
   type RescueConfig,
@@ -235,6 +238,13 @@ function bed(
     sleep: async (ms) => {
       clock += ms;
     },
+    // The agent subcommand's host (slice 5); its tests replace these.
+    home: dir,
+    checkoutDir: dir,
+    isTty: () => false,
+    which: () => null,
+    spawnCli: async () => 0,
+    readBrief: () => "",
   };
   return {
     config,
@@ -1029,5 +1039,319 @@ describe("report", () => {
       ]),
     ).toBe(0);
     expect(readFileSync(file, "utf8").includes("forged")).toBe(false);
+  });
+});
+
+// The agent subcommand on a checkout (slice 5): a new folder with office/
+// (the export), report.md and the brief as AGENTS.md and CLAUDE.md, then the
+// coding agent's CLI started there. The CLI is a fake that records what it
+// was given and what the folder held when it started.
+describe("agent", () => {
+  const BRIEF =
+    "# brief\nRun RESCUE_COMMAND status, then RESCUE_COMMAND lockdown.\n";
+  const PROMPT_NAMES = "report.md";
+
+  interface Start {
+    argv: string[];
+    cwd: string;
+    /** Relative paths under the folder, at the start. */
+    files: string[];
+    /** Lines printed before the start. */
+    printedBefore: number;
+  }
+
+  function agentBed(
+    opts: {
+      tty?: boolean;
+      clis?: string[];
+      cliExit?: number;
+    } = {},
+  ) {
+    const b = bed();
+    const starts: Start[] = [];
+    const lookups: string[] = [];
+    const clis = opts.clis ?? ["claude", "codex"];
+    b.host.isTty = () => opts.tty ?? true;
+    b.host.which = (name) => {
+      lookups.push(name);
+      return clis.includes(name) ? `/fake/bin/${name}` : null;
+    };
+    b.host.readBrief = () => BRIEF;
+    b.host.checkoutDir = "/srv/office-checkout";
+    b.host.spawnCli = async (argv, cwd) => {
+      starts.push({
+        argv: [...argv],
+        cwd,
+        files: existsSync(cwd)
+          ? (readdirSync(cwd, { recursive: true }) as string[]).sort()
+          : [],
+        printedBefore: b.out.log.length + b.out.err.length,
+      });
+      return opts.cliExit ?? 0;
+    };
+    // Content the export copies, with instruction files in it.
+    mkdirSync(join(b.stateRoot, "memory"), { recursive: true });
+    writeFileSync(join(b.stateRoot, "memory", "office.md"), "kept-memory-line");
+    mkdirSync(join(b.stateRoot, "skills", "s1"), { recursive: true });
+    writeFileSync(join(b.stateRoot, "skills", "s1", "CLAUDE.md"), "injected-1");
+    mkdirSync(join(b.stateRoot, "member-skills", "m1", "deep"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(b.stateRoot, "member-skills", "m1", "deep", "Agents.MD"),
+      "injected-2",
+    );
+    return { b, starts, lookups };
+  }
+
+  const isInstructionName = (path: string) =>
+    INSTRUCTION_FILE_NAMES.includes(path.split("/").pop()!.toLowerCase());
+
+  test("fills a new folder, 0700, with the export, the report and the brief, then starts the CLI there with one opening prompt and returns its exit code", async () => {
+    const { b, starts } = agentBed({ cliExit: 7 });
+    const folder = join(dir, "given-folder");
+    const code = await b.run(["agent", folder]);
+    if (code !== 7) console.error(b.out);
+    const prefix = "cd /srv/office-checkout && bun run rescue";
+    const start = starts[0];
+    const read = (rel: string) =>
+      existsSync(join(folder, rel))
+        ? readFileSync(join(folder, rel), "utf8")
+        : null;
+    const mode = (rel: string) =>
+      existsSync(join(folder, rel))
+        ? statSync(join(folder, rel)).mode & 0o777
+        : null;
+    expect({
+      code,
+      starts: starts.length,
+      cwd: start?.cwd,
+      cli: start?.argv[0],
+      // One opening prompt, and it sends the agent to the report.
+      args: start?.argv.length,
+      prompt: start?.argv[1]?.includes(PROMPT_NAMES),
+      // Everything was in place when the CLI started.
+      atStart: {
+        readme: start?.files.includes(join("office", "README.md")),
+        memory: start?.files.includes(join("office", "memory", "office.md")),
+        report: start?.files.includes("report.md"),
+        agents: start?.files.includes("AGENTS.md"),
+        claude: start?.files.includes("CLAUDE.md"),
+      },
+      folderMode: mode(""),
+      fileModes: [mode("report.md"), mode("AGENTS.md"), mode("CLAUDE.md")],
+      agentsMd: read("AGENTS.md"),
+      claudeMd: read("CLAUDE.md"),
+      reportHasJournal: read("report.md")?.includes("journal line"),
+      memory: read(join("office", "memory", "office.md")),
+      // The closing line names the folder to delete.
+      closing: b.out.log
+        .slice(start?.printedBefore ?? 0)
+        .concat(b.out.err)
+        .some((l) => l.includes(folder)),
+      verbs: b.verbs(),
+    }).toEqual({
+      code: 7,
+      starts: 1,
+      cwd: folder,
+      cli: "/fake/bin/claude",
+      args: 2,
+      prompt: true,
+      atStart: {
+        readme: true,
+        memory: true,
+        report: true,
+        agents: true,
+        claude: true,
+      },
+      folderMode: 0o700,
+      fileModes: [0o600, 0o600, 0o600],
+      agentsMd: agentBrief(BRIEF, prefix),
+      claudeMd: agentBrief(BRIEF, prefix),
+      reportHasJournal: true,
+      memory: "kept-memory-line",
+      closing: true,
+      verbs: [],
+    });
+  });
+
+  // Claude Code loads a nested CLAUDE.md as instructions when it reads files
+  // in that folder, so member-written text would steer the agent.
+  test("office/ holds no instruction file under its own name when the CLI starts; the content stays, renamed", async () => {
+    const { b, starts } = agentBed();
+    const folder = join(dir, "renamed");
+    expect(await b.run(["agent", folder])).toBe(0);
+    const office = join(folder, "office");
+    const all = (readdirSync(office, { recursive: true }) as string[]).sort();
+    const renamed = all.filter((p) => {
+      const name = p.split("/").pop()!;
+      return name.startsWith("_") && isInstructionName(name.slice(1));
+    });
+    expect({
+      seededFound:
+        starts[0].files.filter((p) => p.startsWith("office/")).length > 0,
+      atStart: starts[0].files.filter(
+        (p) => p.startsWith("office/") && isInstructionName(p),
+      ),
+      after: all.filter(isInstructionName),
+      renamed: renamed.length,
+      kept: renamed.map((p) => readFileSync(join(office, p), "utf8")).sort(),
+    }).toEqual({
+      seededFound: true,
+      atStart: [],
+      after: [],
+      renamed: 2,
+      kept: ["injected-1", "injected-2"],
+    });
+  });
+
+  test("without a folder it makes isomux-rescue-<stamp> in the home", async () => {
+    const { b, starts } = agentBed();
+    const before = readdirSync(dir);
+    expect(await b.run(["agent"])).toBe(0);
+    const made = readdirSync(dir).filter((n) => !before.includes(n));
+    expect({
+      made: made.length,
+      named: made[0]?.startsWith("isomux-rescue-"),
+      cwd: starts[0]?.cwd,
+    }).toEqual({ made: 1, named: true, cwd: join(dir, made[0] ?? "") });
+  });
+
+  test("refuses a folder that exists, empty or not, and starts nothing", async () => {
+    for (const content of [[], ["keep.txt"]]) {
+      const { b, starts } = agentBed();
+      const folder = join(dir, "exists");
+      mkdirSync(folder);
+      for (const name of content) writeFileSync(join(folder, name), "mine");
+      const code = await b.run(["agent", folder]);
+      expect({
+        code,
+        starts: starts.length,
+        left: readdirSync(folder),
+      }).toEqual({
+        code: 1,
+        starts: 0,
+        left: content,
+      });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses without a terminal on stdin, before it writes anything", async () => {
+    const { b, starts } = agentBed({ tty: false });
+    const before = readdirSync(dir).sort();
+    const code = await b.run(["agent"]);
+    const refused = {
+      code,
+      starts: starts.length,
+      made: readdirSync(dir).sort(),
+      said: b.out.err.length > 0,
+    };
+    // The control: the same bed with a terminal starts.
+    b.host.isTty = () => true;
+    const control = await b.run(["agent"]);
+    expect({
+      refused,
+      control: { code: control, starts: starts.length },
+    }).toEqual({
+      refused: { code: 1, starts: 0, made: before, said: true },
+      control: { code: 0, starts: 1 },
+    });
+  });
+
+  test("picks claude, else codex; --cli picks one and is never swapped for the other", async () => {
+    const cases: {
+      clis: string[];
+      argv: string[];
+      want: string | null;
+    }[] = [
+      { clis: ["claude", "codex"], argv: [], want: "/fake/bin/claude" },
+      { clis: ["codex"], argv: [], want: "/fake/bin/codex" },
+      {
+        clis: ["claude", "codex"],
+        argv: ["--cli", "codex"],
+        want: "/fake/bin/codex",
+      },
+      { clis: ["codex"], argv: ["--cli", "claude"], want: null },
+      { clis: ["claude", "codex"], argv: ["--cli", "bash"], want: null },
+      { clis: [], argv: [], want: null },
+    ];
+    const got: (string | null)[] = [];
+    const codes: number[] = [];
+    const made: number[] = [];
+    for (const c of cases) {
+      const { b, starts } = agentBed({ clis: c.clis });
+      const before = readdirSync(dir).length;
+      codes.push(await b.run(["agent", ...c.argv]));
+      got.push(starts[0]?.argv[0] ?? null);
+      // A refusal comes before the export: no folder.
+      made.push(readdirSync(dir).length - before);
+      rmSync(dir, { recursive: true, force: true });
+    }
+    expect({ got, codes, made }).toEqual({
+      got: cases.map((c) => c.want),
+      codes: cases.map((c) => (c.want ? 0 : 1)),
+      made: cases.map((c) => (c.want ? 1 : 0)),
+    });
+  });
+});
+
+describe("renameInstructionFiles", () => {
+  test("renames every instruction file name in any case and at any depth with a _ prefix, and nothing else", () => {
+    dir = mkdtempSync(join(tmpdir(), "rescue-test-"));
+    const files = [
+      "CLAUDE.md",
+      "a/claude.local.md",
+      "a/b/AGENTS.md",
+      "a/b/agents.override.MD",
+      // Not instruction names.
+      "a/CLAUDE.md.bak",
+      "a/my-agents.md",
+      "a/README.md",
+    ];
+    for (const f of files) {
+      mkdirSync(join(dir, f, ".."), { recursive: true });
+      writeFileSync(join(dir, f), f);
+    }
+    const returned = renameInstructionFiles(dir).sort();
+    const left = (readdirSync(dir, { recursive: true }) as string[])
+      .filter((p) => statSync(join(dir, p)).isFile())
+      .sort();
+    expect({ returned, left }).toEqual({
+      returned: [
+        join(dir, "_CLAUDE.md"),
+        join(dir, "a", "_claude.local.md"),
+        join(dir, "a", "b", "_AGENTS.md"),
+        join(dir, "a", "b", "_agents.override.MD"),
+      ].sort(),
+      left: [
+        "_CLAUDE.md",
+        "a/CLAUDE.md.bak",
+        "a/README.md",
+        "a/_claude.local.md",
+        "a/b/_AGENTS.md",
+        "a/b/_agents.override.MD",
+        "a/my-agents.md",
+      ].sort(),
+    });
+  });
+});
+
+describe("agentBrief", () => {
+  test("replaces every placeholder with the prefix, taken literally", () => {
+    expect(
+      agentBrief(
+        "a RESCUE_COMMAND b\nRESCUE_COMMAND c",
+        "cd /o$&p$1 && bun run rescue",
+      ),
+    ).toBe("a cd /o$&p$1 && bun run rescue b\ncd /o$&p$1 && bun run rescue c");
+  });
+
+  test("the shipped brief keeps no placeholder once filled", () => {
+    const text = readFileSync(join(import.meta.dir, "rescue-agent.md"), "utf8");
+    expect(text.includes("RESCUE_COMMAND")).toBe(true);
+    expect(
+      agentBrief(text, "sudo isomux-rescue").includes("RESCUE_COMMAND"),
+    ).toBe(false);
   });
 });

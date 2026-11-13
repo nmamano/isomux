@@ -103,7 +103,7 @@ macOS and Windows get neither half - both mechanisms are Linux-specific.
 
 ## Locking the office down
 
-When the office is down or under attack, the rescue command on the office's machine checks it, locks it, rolls it back and writes a report for support. It needs no running office and no model. On an install made by the installer (a VPS or an AWS container), run it as root: `sudo isomux-rescue <command>`. Otherwise run it as the user that runs Isomux, in the checkout: `bun run rescue <command>`.
+When the office is down or under attack, the rescue command on the office's machine checks it, locks it, rolls it back and writes a report for support. It needs no running office, and only `agent` uses a model. On an install made by the installer (a VPS or an AWS container), run it as root: `sudo isomux-rescue <command>`. Otherwise run it as the user that runs Isomux, in the checkout: `bun run rescue <command>`.
 
 - `status` shows the service, the ready check, the lock, the version, free disk, the last backup and the last log lines. It exits 0 when the office serves, 1 when it is down and 2 when it is locked.
 - `lockdown --reason "<why>"` locks the office. It revokes every sign-in, API token, invite and browser extension pairing, ends every agent, and stops schedules, webhooks, apps and messaging bridges. The office then shows only a locked page; updates still install. Add `--stop` to keep the office stopped instead, also after a reboot.
@@ -112,6 +112,7 @@ When the office is down or under attack, the rescue command on the office's mach
 - `export [folder]` writes a readable copy of the office's content to a new folder: every conversation, task, ask, memory and file. It removes secret values and leaves out credentials. Without a folder, it picks one and prints it. The office can be up, down or locked. On a container install, the container must run: start a stopped one first (a locked office starts locked).
 - `rollback [release]` goes back to the release the last update replaced, or to the release you name, through the updater. It prints the command that goes forward again. A locked office stays locked: the updater refuses a release without locked mode, and does not start an office that `lockdown --stop` stopped. On a checkout, `bun run rescue rollback` prints the steps instead.
 - `report [file] [--note "<what you tried>"]` writes an incident report for Isomux support: the status, the last update, the lock history and the last log lines, with secret values removed. Read it before you send it.
+- `agent [--cli claude|codex] [folder]` writes an export and a report to a new folder and starts Claude Code or Codex there, to find out with you what is wrong. The agent gives you the commands to run; it sends what it reads to its model provider. As root, it runs as the user `isomux-rescue`, made on first use: install the CLI and sign in as that user (`sudo -iu isomux-rescue`). On a checkout, it runs with the rights of the office's user. Delete the folder when you are done.
 
 A lockdown keeps provider keys and connection tokens, but nothing uses them while locked. If they may have leaked, rotate them at the provider. A lock and an unlock each add a row to the audit log.
 
