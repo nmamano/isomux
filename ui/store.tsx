@@ -94,6 +94,7 @@ import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
 import { isClosedTask } from "../shared/task-board.ts";
+import { runSucceeded } from "../shared/runnable-command.ts";
 import { createNotificationSound } from "./notification-sound.ts";
 import { syncPanel } from "./elevator-panel-store.ts";
 import { loadLastSavedView } from "./view-persistence.ts";
@@ -170,7 +171,7 @@ function commandRunResult(entry: AskMemberWire | undefined): AskResult | null {
   const runs = commands.map((command) =>
     entry.runs?.find((r) => r.command === command),
   );
-  return runs.every((r) => r?.state === "done" && r.exitCode === 0)
+  return runs.every(runSucceeded)
     ? {
         kind: "command-run",
         agentId: entry.agentId,

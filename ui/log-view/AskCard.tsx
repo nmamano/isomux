@@ -301,11 +301,11 @@ function AskAffordances({
   const { t } = useI18n();
   const { agents } = useAppState();
   // The member's Run (task c3b91695): the taps whose answer is due, and the
-  // refusal of the last tap, per command.
+  // refusal of the last tap, per command, with its code.
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
-  const [runErrors, setRunErrors] = useState<ReadonlyMap<string, string>>(
-    new Map(),
-  );
+  const [runErrors, setRunErrors] = useState<
+    ReadonlyMap<string, { code: string | null; text: string }>
+  >(new Map());
   const { agentId, editFiles, commands } = entry;
   if (!entry.readFiles && !editFiles && !commands) return null;
   const agent = agents.find((a) => a.id === agentId);
@@ -316,6 +316,17 @@ function AskAffordances({
     !!agent &&
     !belowStandard(agentAccessOf(agent)) &&
     isRunnableCommand(command);
+  // The server runs one command of an ask at a time (task 3b648009): while
+  // one runs, or a tap's answer is due, the others' Run waits, and a refusal
+  // for that reason goes once nothing runs.
+  const anyRunning =
+    pending.size > 0 || !!entry.runs?.some((r) => r.state === "running");
+  const runErrorOf = (command: string) => {
+    const err = runErrors.get(command);
+    return !err || (err.code === "run_in_progress" && !anyRunning)
+      ? null
+      : err.text;
+  };
   const runCommand = async (command: string) => {
     setPending((prev) => new Set(prev).add(command));
     setRunErrors((prev) => {
@@ -326,7 +337,12 @@ function AskAffordances({
     try {
       await apiFetch("POST", `/api/asks/${entry.id}/run`, { command });
     } catch (err) {
-      setRunErrors((prev) => new Map(prev).set(command, runErrorText(t, err)));
+      setRunErrors((prev) =>
+        new Map(prev).set(command, {
+          code: err instanceof ApiError ? err.code : null,
+          text: runErrorText(t, err),
+        }),
+      );
     } finally {
       setPending((prev) => {
         const next = new Set(prev);
@@ -377,8 +393,9 @@ function AskAffordances({
                 ? {
                     onRun: (c: string) => void runCommand(c),
                     run: entry.runs?.find((r) => r.command === command),
-                    runError: runErrors.get(command) ?? null,
+                    runError: runErrorOf(command),
                     pending: pending.has(command),
+                    blocked: anyRunning,
                   }
                 : {})}
             />

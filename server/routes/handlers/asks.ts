@@ -33,7 +33,10 @@ import {
   askRunReply,
   type AskRunResult,
 } from "../../ask-command-runner.ts";
-import { isRunnableCommand } from "../../../shared/runnable-command.ts";
+import {
+  isRunnableCommand,
+  runSucceeded,
+} from "../../../shared/runnable-command.ts";
 import {
   ASK_HISTORY_LIMIT_DEFAULT,
   ASK_HISTORY_LIMIT_MAX,
@@ -1490,9 +1493,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         : null;
     if (!written) return notice();
     const allSucceeded = (written.commands ?? []).every((command) =>
-      written.runs?.some(
-        (r) => r.command === command && r.state === "done" && r.exitCode === 0,
-      ),
+      written.runs?.some((r) => r.command === command && runSucceeded(r)),
     );
     if (!allSucceeded || delivering.has(askId) || !readableBy(identity, askId))
       return notice();

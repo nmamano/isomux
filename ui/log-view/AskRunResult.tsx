@@ -2,6 +2,7 @@
 // output's tail, under the command on the ask card and in the result that
 // stays after the ask closed.
 import type { AskCommandRun } from "../../shared/types.ts";
+import { runSucceeded } from "../../shared/runnable-command.ts";
 import { useI18n } from "../i18n.tsx";
 
 function duration(ms: number): string {
@@ -21,7 +22,7 @@ export function AskRunResult({
   isMobile: boolean;
 }) {
   const { t } = useI18n();
-  const ok = run.state === "done" && run.exitCode === 0;
+  const ok = runSucceeded(run);
   const status =
     run.state === "running"
       ? t("cards.terminalCommand.running")

@@ -276,3 +276,150 @@ it("after a success closed the ask, its result stays on screen until Close; a cl
     failed.view.container.querySelector('[data-ask-result="run00001"]'),
   ).toBeNull();
 });
+
+// Several commands on one ask (task 3b648009). The server runs one command of
+// an ask at a time and keeps the latest run of each command, by its text.
+
+// Every row of a command: an ask may carry the same text twice.
+const runButtons = (m: ReturnType<typeof mount>, c: string) =>
+  [...m.view.container.querySelectorAll<HTMLElement>("[data-ask-command]")]
+    .filter((el) => el.getAttribute("data-ask-command") === c)
+    .map((el) => el.querySelector<HTMLButtonElement>("button[data-ask-run]"));
+
+it("a command that succeeded loses its Run, on each row with its text; the other commands keep theirs", () => {
+  const m = mount(
+    ask(
+      ["bun test", "bun lint", "bun test"],
+      [run("bun test", { output: "all green-3b6\n" })],
+    ),
+  );
+  const rows = runButtons(m, "bun test");
+  expect(rows.length).toBe(2);
+  expect(rows.map((b) => b === null)).toEqual([true, true]);
+  // The result and Copy to terminal stay.
+  expect(
+    m.command("bun test")?.querySelector("[data-ask-run-result]")?.textContent,
+  ).toContain("all green-3b6");
+  expect(m.copyButton("bun test")).not.toBeNull();
+  expect(m.runButton("bun lint")?.disabled).toBe(false);
+});
+
+it("a run that timed out or was killed keeps Run, so the member can try again", () => {
+  const m = mount(
+    ask(
+      ["bun test", "bun lint"],
+      [
+        run("bun test", { exitCode: null, signal: "SIGTERM", timedOut: true }),
+        run("bun lint", { exitCode: null, signal: "SIGKILL" }),
+      ],
+    ),
+  );
+  expect(m.runButton("bun test")?.disabled).toBe(false);
+  expect(m.runButton("bun lint")?.disabled).toBe(false);
+});
+
+it("while one command runs, the other commands' Run is disabled; when the run ends, it is back", async () => {
+  const m = mount(
+    ask(
+      ["bun test", "bun lint", "bun test"],
+      [run("bun test", { state: "running" })],
+    ),
+  );
+  // The running command, on each of its rows, stays shown as running.
+  expect(runButtons(m, "bun test").map((b) => b?.disabled)).toEqual([
+    true,
+    true,
+  ]);
+  expect(m.runButton("bun lint")?.disabled).toBe(true);
+  await act(async () => {
+    m.ref.dispatch({
+      type: "ask_upserted",
+      entry: ask(
+        ["bun test", "bun lint", "bun test"],
+        [run("bun test", { exitCode: 1 })],
+      ),
+    } as Action);
+  });
+  expect(m.runButton("bun lint")?.disabled).toBe(false);
+  expect(runButtons(m, "bun test").map((b) => b?.disabled)).toEqual([
+    false,
+    false,
+  ]);
+});
+
+it("while a tap's answer is due, the other commands' Run is disabled", async () => {
+  let release: () => void = () => {};
+  answer = () =>
+    new Promise((resolve) => {
+      release = () => resolve({});
+    });
+  const m = mount(ask(["bun test", "bun lint"]));
+  await act(async () => {
+    fireEvent.click(m.runButton("bun lint")!);
+  });
+  expect(posts.length).toBe(1);
+  expect(m.runButton("bun lint")?.disabled).toBe(true);
+  expect(m.runButton("bun test")?.disabled).toBe(true);
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(m.runButton("bun test")?.disabled).toBe(false));
+});
+
+it("a refusal because another command runs goes away when that run ends; other refusals stay", async () => {
+  const m = mount(ask(["bun test", "bun lint", "bun build"]));
+  const error = (c: string) =>
+    m.command(c)?.querySelector("[data-ask-run-error]") ?? null;
+  // Another member's run of bun test reaches the card just before the
+  // server refuses this tap on bun lint.
+  answer = async () => {
+    m.ref.dispatch({
+      type: "ask_upserted",
+      entry: ask(
+        ["bun test", "bun lint", "bun build"],
+        [run("bun test", { state: "running" })],
+      ),
+    } as Action);
+    throw new ApiError(409, "run_in_progress", "another command runs");
+  };
+  await act(async () => {
+    fireEvent.click(m.runButton("bun lint")!);
+  });
+  await waitFor(() => expect(error("bun lint")).not.toBeNull());
+  // A refusal for another reason, from a tap made when nothing ran.
+  await act(async () => {
+    m.ref.dispatch({
+      type: "ask_upserted",
+      entry: ask(
+        ["bun test", "bun lint", "bun build"],
+        [run("bun test", { exitCode: 2 })],
+      ),
+    } as Action);
+  });
+  expect(error("bun lint")).toBeNull();
+  answer = async () => {
+    throw new ApiError(403, "agent_limited", "below Standard");
+  };
+  await act(async () => {
+    fireEvent.click(m.runButton("bun build")!);
+  });
+  await waitFor(() => expect(error("bun build")).not.toBeNull());
+  // A later run that starts and ends leaves that refusal where it is.
+  for (const state of ["running", "done"] as const) {
+    await act(async () => {
+      m.ref.dispatch({
+        type: "ask_upserted",
+        entry: ask(
+          ["bun test", "bun lint", "bun build"],
+          [
+            run("bun test", {
+              state,
+              exitCode: state === "done" ? 1 : undefined,
+            }),
+          ],
+        ),
+      } as Action);
+    });
+  }
+  expect(error("bun build")).not.toBeNull();
+});
