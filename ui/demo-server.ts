@@ -4061,6 +4061,39 @@ export async function demoApi(
       ],
     };
   }
+  // memberConnections.list - an owner's read of a member's connections list,
+  // sign-in accounts included (task b85f4051). The demo member's Claude is
+  // signed in, as userEnv.names says, with a made-up account.
+  const memberConnectionsMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/connections$/,
+  );
+  if (memberConnectionsMatch && method === "GET") {
+    if (sessionContext?.role !== "owner")
+      throw new ApiError(403, "forbidden", "Forbidden");
+    const uname = decodeURIComponent(memberConnectionsMatch[1]);
+    const existing = users.get(uname.toLowerCase());
+    if (!existing)
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    return {
+      variables: Object.keys(demoManagedEnv[existing.id] ?? {})
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => ({
+          scope: "personal",
+          name,
+          note: demoEnvNotes[existing.id]?.[name] ?? null,
+        })),
+      signIns: [
+        {
+          scope: "personal",
+          engine: "claude",
+          account: `${existing.name.toLowerCase()}@example.com`,
+        },
+      ],
+      claudeConnectors: [],
+      mcpServers: demoMcpServerRows(existing.id, false),
+      engineMcpServers: [],
+    };
+  }
   // apiTokens.adminList / adminRevoke - an owner's view of a member's tokens.
   const memberTokensMatch = pathname.match(
     /^\/api\/users\/([^/]+)\/api-tokens(\/[^/]+)?$/,

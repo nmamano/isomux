@@ -85,6 +85,9 @@ export class IntegrationsFake {
   calls: Call[] = [];
   scopes = new Map<string, Scope>();
   connections: ConnectionsListRes = EMPTY_CONNECTIONS;
+  // GET /api/users/<name>/connections: a member's list, for an owner only,
+  // by lower-case member name; a member with no entry reads an empty list.
+  memberConnections = new Map<string, ConnectionsListRes>();
   accounts: ProviderAccountWire[] = [];
   providers: MemberProviderStatus[] = [
     { provider: "claude", status: "connected" },
@@ -275,6 +278,12 @@ export class IntegrationsFake {
     // items: the member, or an owner.
     const mayWrite = who === "office" ? owner : self || owner;
     const scope = this.scope(who);
+
+    // A member's connections list: an owner's session only.
+    if (rest === "/connections" && method === "GET" && who !== "office") {
+      if (!owner) this.forbidden();
+      return this.memberConnections.get(who.toLowerCase()) ?? EMPTY_CONNECTIONS;
+    }
 
     // Variables.
     if (rest === "/env/names") {

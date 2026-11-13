@@ -2702,6 +2702,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:self", userScope),
     emits: [],
   }),
+  // A member's integrations list, for an office owner who helps them (task
+  // b85f4051): the same list the member reads, sign-in accounts included.
+  // Account emails reach browser sessions only, so unlike userEnv.names an
+  // owner's API token and agents are refused too.
+  defineRoute<void, ConnectionsListRes>({
+    opId: "memberConnections.list",
+    tokenArea: { area: "environment", level: "read" },
+    method: "GET",
+    path: "/api/users/:username/connections",
+    auth: cap("integration:manage", officeOwner),
+    emits: [],
+  }),
   // The connections the calling agent gets, with their usage notes
   // (integrations A4). Agent tokens only; the scope is the token's member.
   // Read by agents: no capability, as the agent holds none of user:env.

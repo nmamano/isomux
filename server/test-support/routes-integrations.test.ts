@@ -859,6 +859,9 @@ describe("privileged agents", () => {
           // The member's recording mode words: names of customers and
           // people, behind the same gate (task 6e08239a).
           "memberRecordingWords.get",
+          // A member's connections list, sign-in accounts included: an
+          // owner's session only (task b85f4051).
+          "memberConnections.list",
           "pagerSettings.get",
           "pagerSettings.update",
           "pagerSettings.test",

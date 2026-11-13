@@ -1,8 +1,9 @@
 // The Model providers tab: the Claude and Codex sign-ins agents run on, and
 // OpenCode. The sign-in cards are the ones the Connections panes had (Nil:
 // that part worked well), laid flat inside the page's cards. An owner who
-// looks at another member sees that member's status only: the sign-in is the
-// member's own CLI login, which nobody else can start (Lead, ruling 3).
+// looks at another member sees that member's sign-ins and their accounts, to
+// help them (Nil, 2026-11-14), but cannot start or end them: the sign-in is
+// the member's own CLI login.
 //
 // OpenCode has no sign-in here: it ships with Isomux, its free models need
 // no key (the default model, OPENCODE_DEFAULT_MODEL, is one), and a key for
@@ -21,8 +22,8 @@ import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { ProviderMark } from "../components/ProviderMark.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
 import { OpenCodeSection } from "./OpenCodeSection.tsx";
-import { Empty, ItemRow, Pill, errorText, flatCard } from "./kit.tsx";
-import { useMyConnections } from "./my-connections.tsx";
+import { Data, Empty, ItemRow, Pill, errorText, flatCard } from "./kit.tsx";
+import { useMemberConnections, useMyConnections } from "./my-connections.tsx";
 import {
   onConnectionsChanged,
   onManagedEnvSaved,
@@ -180,11 +181,12 @@ export function ProvidersSection({
 }
 
 // A member's Claude and Codex status, for an owner, and their OpenCode key
-// (OpenCodeSection.tsx): whether the member has
-// their own sign-in (the same probe as their own sign-in card), never the
-// account. Read from the owner-only names route. Without a personal sign-in
-// the member's agents use an API key variable or the office account, which
-// this route cannot tell apart, so the row says only what it knows.
+// (OpenCodeSection.tsx): whether the member has their own sign-in (the same
+// probe as their own sign-in card), read from the owner-only names route,
+// and its account, from the member's connections list (owner session only).
+// Without a personal sign-in the member's agents use an API key variable or
+// the office account, which these routes cannot tell apart, so the row says
+// only what it knows.
 function MemberProviders({
   target,
   role,
@@ -202,6 +204,11 @@ function MemberProviders({
   );
   const [names, setNames] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
+  const connections = useMemberConnections(username).list;
+  const accountOf = (provider: MemberProviderStatus["provider"]) =>
+    connections?.signIns.find(
+      (signIn) => signIn.scope === "personal" && signIn.engine === provider,
+    )?.account ?? null;
 
   useEffect(() => {
     apiFetch<UserEnvNamesRes>(
@@ -242,12 +249,14 @@ function MemberProviders({
     <div data-member-providers aria-busy={!providers}>
       {rows.map(({ provider, status }) => {
         const label = provider === "claude" ? "Claude" : "Codex";
+        const account = status === "connected" ? accountOf(provider) : null;
         return (
           <ItemRow
             key={provider}
             data-member-provider={provider}
             logo={<ProviderMark provider={provider} size={28} />}
             title={label}
+            detail={account ? <Data>{account}</Data> : undefined}
             status={
               status === null ? (
                 <Pill tone="neutral">{t("common.loading")}</Pill>

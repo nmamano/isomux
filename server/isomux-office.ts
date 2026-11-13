@@ -5122,6 +5122,7 @@ function buildExecutorDeps(
           },
           userId,
         ),
+      userIdForUsername: (username) => getUserByName(username)?.id ?? null,
     }),
   );
   register(

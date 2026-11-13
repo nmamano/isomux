@@ -1,7 +1,8 @@
 // What Claude itself gives Claude agents, on the MCP servers tab: the
 // claude.ai connectors of a Claude sign-in, and the MCP servers set in
-// Claude's own files. Both come from the caller's connections list, so the
-// page shows them on the office card and under "You" only (ruling 3).
+// Claude's own files. Both come from the caller's connections list on the
+// office card and under "You", and from the member's list (passed as
+// `member`) when an owner picks a member.
 //
 // Claude's own files, by where they apply (Lead, 2026-10-13): a folder's
 // .mcp.json belongs to the folder, so it shows on the office card; user and
@@ -11,6 +12,7 @@
 
 import type {
   ConnectionScope,
+  ConnectionsListRes,
   McpServerStatus,
 } from "../../shared/contract-shapes.ts";
 import { CLAUDE_CONNECTORS_URL } from "../connection-rows.ts";
@@ -24,7 +26,7 @@ import {
   mono,
   type Tone,
 } from "./kit.tsx";
-import { useMyConnections } from "./my-connections.tsx";
+import { useMemberConnections, useMyConnections } from "./my-connections.tsx";
 
 const STATUS: Record<
   McpServerStatus,
@@ -80,9 +82,17 @@ function ClaudeStatus({
 // The claude.ai connectors of the Claude sign-in of one scope: a bullet list,
 // the name in the body style and the status as a pill, so the two never look
 // alike (Nil, 2026-10-13).
-export function ConnectorList({ scope }: { scope: ConnectionScope }) {
+export function ConnectorList({
+  scope,
+  member,
+}: {
+  scope: ConnectionScope;
+  // A member's card: their list, null while it loads or after it fails.
+  member?: { list: ConnectionsListRes | null };
+}) {
   const { t, rich } = useI18n();
-  const list = useMyConnections();
+  const own = useMyConnections();
+  const list = member ? member.list : own;
   const connectors = list?.claudeConnectors.find((c) => c.scope === scope);
   if (!connectors) return null;
   // A sign-in that really has none shows nothing.
@@ -159,12 +169,23 @@ export function ConnectorList({ scope }: { scope: ConnectionScope }) {
 
 // The MCP servers set in Claude's own files that apply on one card, as the
 // caller's own Claude sessions last reported them. Read-only: the page cannot
-// open those files.
-export function EngineMcpList({ scope }: { scope: ConnectionScope }) {
+// open those files. A member's card shows what the member's agents reported:
+// their personal sign-in's servers and those of their project folders, which
+// the owner sees nowhere else.
+export function EngineMcpList({
+  scope,
+  member,
+}: {
+  scope: ConnectionScope;
+  member?: { list: ConnectionsListRes | null };
+}) {
   const { t, rich } = useI18n();
-  const list = useMyConnections();
+  const own = useMyConnections();
+  const list = member ? member.list : own;
   const servers = (list?.engineMcpServers ?? []).filter((server) =>
-    server.source === "project" ? scope === "office" : server.signIn === scope,
+    server.source === "project"
+      ? scope === "office" || !!member
+      : server.signIn === scope,
   );
   if (servers.length === 0) return null;
   return (
@@ -221,5 +242,28 @@ export function EngineMcpList({ scope }: { scope: ConnectionScope }) {
         />
       ))}
     </div>
+  );
+}
+
+// Both lists on a member's card, from the member's own list (task b85f4051).
+// A list that cannot be read says so, as the caller's own does: an empty card
+// would read as "no connectors".
+export function MemberClaudeLists({ username }: { username: string }) {
+  const { t } = useI18n();
+  const member = useMemberConnections(username);
+  return (
+    <>
+      {member.failed && (
+        <p
+          role="alert"
+          data-connections-failed
+          style={{ ...hintText, color: "var(--red-text)", margin: "10px 2px" }}
+        >
+          {t("integrations.connectionsFailed")}
+        </p>
+      )}
+      <ConnectorList scope="personal" member={member} />
+      <EngineMcpList scope="personal" member={member} />
+    </>
   );
 }

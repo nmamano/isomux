@@ -1680,6 +1680,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "openCode.status": { caps: ["user:self"], emits: [] },
   "connections.list": { caps: ["user:self"], emits: [] },
   "agentConnections.list": { caps: [], emits: [] },
+  "memberConnections.list": { caps: ["integration:manage"], emits: [] },
   "providerAccounts.start": {
     caps: ["user:self"],
     emits: ["provider_accounts_updated"],

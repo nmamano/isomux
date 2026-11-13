@@ -45,7 +45,11 @@ import { WhatsAppSection } from "./WhatsAppSection.tsx";
 import { DiscordSection } from "./DiscordSection.tsx";
 import { ChangedForYou, useIntegrationChanges } from "./ChangedForYou.tsx";
 import { GithubSection } from "./GithubSection.tsx";
-import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
+import {
+  ConnectorList,
+  EngineMcpList,
+  MemberClaudeLists,
+} from "./ClaudeLists.tsx";
 import { takeSignIn, type SignInNote } from "./sign-in-return.ts";
 import { Btn, Data, card, hintText, input } from "./kit.tsx";
 import { targetKey, type Role, type Target } from "./target.ts";
@@ -301,15 +305,17 @@ function IntegrationsPage({
               onGone={memberGone}
               signIn={signInFor(target)}
             />
-            {target.kind !== "member" && (
-              <ConnectorList
-                scope={target.kind === "office" ? "office" : "personal"}
-              />
-            )}
-            {target.kind !== "member" && (
-              <EngineMcpList
-                scope={target.kind === "office" ? "office" : "personal"}
-              />
+            {target.kind === "member" ? (
+              <MemberClaudeLists username={target.username} />
+            ) : (
+              <>
+                <ConnectorList
+                  scope={target.kind === "office" ? "office" : "personal"}
+                />
+                <EngineMcpList
+                  scope={target.kind === "office" ? "office" : "personal"}
+                />
+              </>
             )}
           </div>
         );
