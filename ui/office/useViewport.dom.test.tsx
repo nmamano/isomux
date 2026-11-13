@@ -161,16 +161,29 @@ function mountRoom() {
   return { view, api, container, scene, rest };
 }
 
+// The wheel events' clock (Event.timeStamp). The room tells a trackpad stream
+// by the time between events, page-wide and across mounts, so each event
+// says how long after the one before it came (`after`, in ms); the default
+// is long enough that an event stands alone. The harness clears the page's
+// wheel history at the start of each file.
+let clock = 1e6;
+
 // happy-dom's WheelEvent is a UIEvent: it drops the pointer position and the
-// modifier keys from its init.
+// modifier keys from its init, and has no wheelDeltaY.
 function wheel(
-  target: Element,
+  target: EventTarget,
   init: {
     deltaX?: number;
     deltaY?: number;
     deltaMode?: number;
+    /** Blink and WebKit's wheelDeltaY; left out, the event has none (Firefox). */
+    wheelDeltaY?: number;
     ctrlKey?: boolean;
     metaKey?: boolean;
+    /** Ms since the event before it. */
+    after?: number;
+    /** Getters that replace the deltas, for an event that reads like Firefox's. */
+    deltas?: PropertyDescriptorMap;
   },
   at = { x: 400, y: 250 },
 ) {
@@ -181,11 +194,17 @@ function wheel(
     bubbles: true,
     cancelable: true,
   });
+  clock += init.after ?? 1000;
   Object.defineProperties(e, {
     clientX: { value: at.x },
     clientY: { value: at.y },
     ctrlKey: { value: init.ctrlKey ?? false },
     metaKey: { value: init.metaKey ?? false },
+    timeStamp: { value: clock },
+    ...(init.wheelDeltaY === undefined
+      ? {}
+      : { wheelDeltaY: { value: init.wheelDeltaY } }),
+    ...init.deltas,
   });
   act(() => {
     target.dispatchEvent(e);
@@ -271,16 +290,161 @@ it(
   "a trackpad scroll over the room at rest leaves the view alone and the page still",
   withLayout(() => {
     const { view, container, scene, rest } = mountRoom();
-    // Up and down, with sideways drift, as an inertia tail delivers it.
+    // Up and down, with sideways drift, as an inertia tail delivers it to
+    // Chrome on a Mac: a frame apart, wheelDeltaY = -3 * deltaY.
     for (const sign of [-1, 1]) {
       for (let i = 0; i < 40; i++) {
-        const e = wheel(container, { deltaX: sign * 3, deltaY: sign * 20 });
+        const deltaX = i % 2 ? 0 : sign * 3;
+        const e = wheel(container, {
+          deltaX,
+          deltaY: sign * 20,
+          wheelDeltaY: sign * -60,
+          after: 16,
+        });
         // The page neither scrolls nor swipes back in history.
         expect(e.defaultPrevented).toBe(true);
       }
       expect(transformOf(scene())).toEqual(rest);
     }
+    // One tick of a Mac trackpad (40 px, wheelDelta 120) on its own, and a
+    // pixel wheel with no wheelDelta at all (Firefox on a Mac).
+    for (const one of [
+      { deltaY: -40, wheelDeltaY: 120 },
+      { deltaY: -40.2, wheelDeltaY: 120 },
+      { deltaY: -100 },
+    ]) {
+      wheel(container, one);
+      expect({ one, t: transformOf(scene()) }).toEqual({ one, t: rest });
+    }
     view.unmount();
+  }),
+);
+
+// ---- A mouse wheel zooms at the cursor (task 5e8602df) ---------------------
+// Nil, 2026-11-13 (Windows): a plain mouse wheel zooms in and out at the
+// cursor again. A trackpad stream still must not: an event that looks like a
+// notch zooms only when no other wheel event came in the last 300 ms.
+
+/** A Windows Chrome or Edge notch: 100 px, wheelDeltaY 120. */
+const NOTCH_IN = { deltaY: -100, wheelDeltaY: 120 };
+const NOTCH_OUT = { deltaY: 100, wheelDeltaY: -120 };
+/** A Mac trackpad tick read at 125% browser zoom: Chrome scales deltaY, not wheelDeltaY. */
+const ZOOMED_MAC_TICK = { deltaY: -32, wheelDeltaY: 120 };
+const MAC_TRACKPAD = { deltaY: -20, wheelDeltaY: 60 };
+
+/** A Firefox notch: in lines, but only to a reader of deltaMode before the deltas. */
+function firefoxNotch(lines: number): PropertyDescriptorMap {
+  let mode: "line" | "pixel" | null = null;
+  const delta = (n: number) => {
+    mode ??= "pixel";
+    return mode === "line" ? n : n * 16;
+  };
+  return {
+    deltaMode: {
+      get() {
+        mode ??= "line";
+        return mode === "line" ? 1 : 0;
+      },
+    },
+    deltaX: { get: () => delta(0) },
+    deltaY: { get: () => delta(lines) },
+    deltaZ: { get: () => delta(0) },
+  };
+}
+
+it(
+  "a mouse-wheel notch zooms one step at the cursor, in and out",
+  withLayout(() => {
+    const { view, api, container, scene, rest } = mountRoom();
+    act(() => api.current!.zoomIn());
+    const step = transformOf(scene()).s / rest.s;
+    const at = { x: 420, y: 260 };
+    // A Firefox event's getters keep state, so each notch is made fresh.
+    for (const [browser, zoomIn, zoomOut] of [
+      ["Chrome", () => NOTCH_IN, () => NOTCH_OUT],
+      [
+        "Firefox",
+        () => ({ deltas: firefoxNotch(-3) }),
+        () => ({ deltas: firefoxNotch(3) }),
+      ],
+    ] as const) {
+      // Zoomed in first, so the pan clamp leaves the anchor alone.
+      act(() => api.current!.resetView(false));
+      act(() => api.current!.zoomIn());
+      const start = transformOf(scene());
+      const anchor = scenePointAt(start, at);
+      const e = wheel(container, zoomIn(), at);
+      expect(e.defaultPrevented).toBe(true);
+      const zoomed = transformOf(scene());
+      expect({ browser, ratio: zoomed.s / start.s }).toEqual({
+        browser,
+        ratio: expect.closeTo(step, 6),
+      });
+      const moved = scenePointAt(zoomed, at);
+      expect({ browser, x: moved.x, y: moved.y }).toEqual({
+        browser,
+        x: expect.closeTo(anchor.x, 3),
+        y: expect.closeTo(anchor.y, 3),
+      });
+      // Two notches 50 ms apart (a quick spin) both count.
+      wheel(container, zoomOut(), at);
+      wheel(container, { ...zoomOut(), after: 50 }, at);
+      expect({ browser, ratio: start.s / transformOf(scene()).s }).toEqual({
+        browser,
+        ratio: expect.closeTo(step, 6),
+      });
+    }
+    act(() => api.current!.resetView(false));
+    view.unmount();
+  }),
+);
+
+it(
+  "a notch-like event inside a trackpad stream does not zoom, however long the stream runs",
+  withLayout(() => {
+    const { view, api, container, scene, rest } = mountRoom();
+    // The same lone event zooms: otherwise the rest of the case proves nothing.
+    wheel(container, ZOOMED_MAC_TICK);
+    expect(transformOf(scene()).s).toBeGreaterThan(rest.s * 1.1);
+    act(() => api.current!.resetView(false));
+    // 100 ms after a trackpad event.
+    wheel(container, MAC_TRACKPAD);
+    wheel(container, { ...ZOOMED_MAC_TICK, after: 100 });
+    expect(transformOf(scene())).toEqual(rest);
+    // A stream of notch-like events, each within 300 ms of the one before,
+    // is one gesture: two seconds of them still do not zoom.
+    for (let i = 0; i < 20; i++) wheel(container, { ...NOTCH_IN, after: 100 });
+    expect(transformOf(scene())).toEqual(rest);
+    // After a 400 ms pause, the next notch is a mouse again.
+    wheel(container, { ...NOTCH_IN, after: 400 });
+    expect(transformOf(scene()).s).toBeGreaterThan(rest.s * 1.1);
+    act(() => api.current!.resetView(false));
+    view.unmount();
+  }),
+);
+
+it(
+  "a trackpad stream that began over the chat does not zoom the room it reaches",
+  withLayout(() => {
+    // The P0 of task 7dfe3044: a two-finger scroll in an agent's chat, and
+    // the member goes back to the room while its inertia tail still runs.
+    const chat = document.body.appendChild(document.createElement("div"));
+    try {
+      const first = mountRoom();
+      first.view.unmount();
+      for (let i = 0; i < 20; i++) wheel(chat, { ...MAC_TRACKPAD, after: 16 });
+      const { view, api, container, scene, rest } = mountRoom();
+      const e = wheel(container, { ...ZOOMED_MAC_TICK, after: 16 });
+      expect(e.defaultPrevented).toBe(true);
+      expect(transformOf(scene())).toEqual(rest);
+      // The same event once the stream is over zooms.
+      wheel(container, { ...ZOOMED_MAC_TICK, after: 400 });
+      expect(transformOf(scene()).s).toBeGreaterThan(rest.s * 1.1);
+      act(() => api.current!.resetView(false));
+      view.unmount();
+    } finally {
+      chat.remove();
+    }
   }),
 );
 
@@ -369,11 +533,12 @@ it(
     expect(after.s).toBe(before.s);
     expect(after.x).toBeCloseTo(before.x - 30, 3);
     expect(after.y).toBeCloseTo(before.y - 40, 3);
-    // A Firefox line-mode wheel pans in pixels too.
-    wheel(container, { deltaY: -2, deltaMode: 1 });
+    // A Firefox line-mode touchpad scroll (a fraction of a line) pans in
+    // pixels too.
+    wheel(container, { deltaY: -1.5, deltaMode: 1 });
     const lines = transformOf(scene());
     expect(lines.s).toBe(before.s);
-    expect(lines.y).toBeCloseTo(after.y + 32, 3);
+    expect(lines.y).toBeCloseTo(after.y + 24, 3);
     act(() => api.current!.resetView(false));
     view.unmount();
   }),

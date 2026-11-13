@@ -181,7 +181,7 @@ Approved by the Lead, 2026-10-15.
   error pose with a red light. Figures are static (no animation): measured
   2026-10-15, 100 static figures draw at the front view's frame time, 100
   animated ones 3 to 4 times slower.
-- Zoom and pan as on the front (trackpad pinch or Ctrl+wheel, drag, touch pinch, +, - and 0, and the zoom
+- Zoom and pan as on the front (mouse wheel, trackpad pinch or Ctrl+wheel, drag, touch pinch, +, - and 0, and the zoom
   buttons), with the front's useViewport, rest view and frame, and the
   front's one saved view, so going down or up keeps the zoom and pan. One
   finger pans at any scale (no room swipe here). The embed does not zoom it,

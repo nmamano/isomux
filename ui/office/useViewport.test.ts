@@ -3,7 +3,9 @@ import {
   computeRestView,
   artBounds,
   minZoomScale,
+  looksLikeMouseWheel,
   type Bounds,
+  type WheelSample,
 } from "./useViewport.ts";
 
 // The scene's layout box is 950x700 and it is centred in the container, so its
@@ -180,4 +182,136 @@ test("full zoom-out fits the whole painted scene in any container", () => {
   }
   // A container with room to spare keeps the usual floor of 0.5.
   expect(minZoomScale(1920, 941, artBounds(layoutBox(1920, 941)))).toBe(0.5);
+});
+
+// A plain wheel zooms the room only when it looks like a mouse-wheel notch
+// (task 5e8602df); a trackpad scroll must not (the P0 of task 7dfe3044).
+// Values as the browsers report them: Blink and WebKit set wheelDelta to 120
+// per tick, and on a Mac they count a tick per 40 px, so every Mac wheel event
+// has wheelDeltaY = -3 * deltaY (truncated), trackpad or mouse.
+test("looksLikeMouseWheel tells a mouse-wheel notch from a trackpad scroll", () => {
+  const cases: [string, WheelSample, boolean][] = [
+    [
+      "Windows Chrome notch down",
+      { deltaMode: 0, deltaX: 0, deltaY: 100, wheelDeltaY: -120 },
+      true,
+    ],
+    [
+      "Windows Chrome notch up",
+      { deltaMode: 0, deltaX: 0, deltaY: -100, wheelDeltaY: 120 },
+      true,
+    ],
+    [
+      "Windows Chrome two notches in one event",
+      { deltaMode: 0, deltaX: 0, deltaY: 200, wheelDeltaY: -240 },
+      true,
+    ],
+    [
+      "Linux Chrome notch",
+      { deltaMode: 0, deltaX: 0, deltaY: 53, wheelDeltaY: -120 },
+      true,
+    ],
+    ["Firefox notch, line mode", { deltaMode: 1, deltaX: 0, deltaY: 3 }, true],
+    [
+      "Firefox notch up, line mode",
+      { deltaMode: 1, deltaX: 0, deltaY: -3 },
+      true,
+    ],
+    ["Firefox page mode", { deltaMode: 2, deltaX: 0, deltaY: 1 }, true],
+    [
+      "Mac trackpad, small",
+      { deltaMode: 0, deltaX: 0, deltaY: -20, wheelDeltaY: 60 },
+      false,
+    ],
+    [
+      "Mac trackpad, exactly one tick",
+      { deltaMode: 0, deltaX: 0, deltaY: -40, wheelDeltaY: 120 },
+      false,
+    ],
+    [
+      "Mac trackpad, one tick truncated",
+      { deltaMode: 0, deltaX: 0, deltaY: -40.2, wheelDeltaY: 120 },
+      false,
+    ],
+    [
+      "Mac trackpad, three ticks down",
+      { deltaMode: 0, deltaX: 0, deltaY: 120, wheelDeltaY: -360 },
+      false,
+    ],
+    [
+      "Windows touchpad, sub-notch",
+      { deltaMode: 0, deltaX: 0, deltaY: 10, wheelDeltaY: -12 },
+      false,
+    ],
+    [
+      "Firefox touchpad, fractional lines",
+      { deltaMode: 1, deltaX: 0, deltaY: 0.5 },
+      false,
+    ],
+    [
+      "pixel mode with no wheelDeltaY",
+      { deltaMode: 0, deltaX: 0, deltaY: 100 },
+      false,
+    ],
+    [
+      "wheelDeltaY 0",
+      { deltaMode: 0, deltaX: 0, deltaY: 100, wheelDeltaY: 0 },
+      false,
+    ],
+    [
+      "diagonal drift",
+      { deltaMode: 0, deltaX: 4, deltaY: 100, wheelDeltaY: -120 },
+      false,
+    ],
+    [
+      "diagonal drift, line mode",
+      { deltaMode: 1, deltaX: 1, deltaY: 3 },
+      false,
+    ],
+    [
+      "sideways only (Shift+wheel)",
+      { deltaMode: 1, deltaX: 3, deltaY: 0 },
+      false,
+    ],
+    [
+      "no movement",
+      { deltaMode: 0, deltaX: 0, deltaY: 0, wheelDeltaY: 0 },
+      false,
+    ],
+  ];
+  for (const [name, sample, mouse] of cases) {
+    expect({ name, mouse: looksLikeMouseWheel(sample) }).toEqual({
+      name,
+      mouse,
+    });
+  }
+});
+
+// Firefox reports a mouse wheel in lines only to a page that reads deltaMode
+// before the deltas; a first read of a delta turns the event into pixels.
+function firefoxNotch(): WheelSample {
+  let mode: "line" | "pixel" | null = null;
+  const delta = (lines: number) => {
+    mode ??= "pixel";
+    return mode === "line" ? lines : lines * 16;
+  };
+  return {
+    get deltaMode() {
+      mode ??= "line";
+      return mode === "line" ? 1 : 0;
+    },
+    get deltaX() {
+      return delta(0);
+    },
+    get deltaY() {
+      return delta(3);
+    },
+  };
+}
+
+test("looksLikeMouseWheel reads deltaMode first, as Firefox needs", () => {
+  expect(looksLikeMouseWheel(firefoxNotch())).toBe(true);
+  // The stand-in is faithful: read in the other order, it is pixels.
+  const late = firefoxNotch();
+  expect([late.deltaY, late.deltaMode]).toEqual([48, 0]);
 });

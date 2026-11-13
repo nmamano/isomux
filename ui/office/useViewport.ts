@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+import { resetBetweenTestFiles } from "../test-file-resets.ts";
 export interface ViewportState {
   x: number;
   y: number;
@@ -21,9 +22,9 @@ const VIEWPORT = {
   /** Pixels of pointer movement before a mousedown becomes a pan. */
   PAN_THRESHOLD: 5,
   /**
-   * A pinch or Ctrl/Cmd+wheel multiplies the scale by exp(-deltaY * this) per
-   * event, so zooming out is as fast as zooming in. Each event is clamped to
-   * one ZOOM_STEP, so a mouse-wheel notch is one +/- step.
+   * A mouse-wheel notch, a pinch or Ctrl/Cmd+wheel multiplies the scale by
+   * exp(-deltaY * this) per event, so zooming out is as fast as zooming in.
+   * Each event is clamped to one ZOOM_STEP, so a notch is one +/- step.
    */
   WHEEL_ZOOM_SPEED: 0.01,
   /** Zoom multiplier for +/- button or keyboard shortcuts. */
@@ -238,6 +239,104 @@ export function artBounds(b: Bounds): Bounds {
     top: b.top + ART_BOX.top * h,
     bottom: b.top + ART_BOX.bottom * h,
   };
+}
+
+/** The wheel fields looksLikeMouseWheel reads. wheelDeltaY is non-standard. */
+export interface WheelSample {
+  deltaMode: number;
+  deltaX: number;
+  deltaY: number;
+  wheelDeltaY?: number;
+}
+
+/**
+ * True when a wheel event looks like a mouse-wheel notch, not a trackpad.
+ *
+ * - Line or page mode with a whole number of lines: a Firefox mouse wheel.
+ *   Firefox sends a trackpad in pixels, and it reports lines only to a page
+ *   that reads deltaMode before a delta, so deltaMode is read first.
+ * - Pixel mode: wheelDeltaY (non-standard, ticks * 120) is a whole number of
+ *   notches and is not -3 * deltaY. Chrome and Edge on Windows and Linux send
+ *   a notch as wheelDeltaY 120 with deltaY 100 (or 53). Chrome and Safari on
+ *   a Mac count one tick per 40 px for every event, trackpad or mouse, so
+ *   wheelDeltaY is -3 * deltaY (truncated) there.
+ *
+ * Known gaps: a mouse on a Mac has the 3x ratio and counts as a trackpad.
+ * High-resolution or free-spin mice on Windows send parts of a notch and count
+ * as a trackpad. Chrome divides deltaY by the browser zoom but not
+ * wheelDeltaY, so a 40 px Mac trackpad event at 125% zoom (deltaY -32,
+ * wheelDeltaY 120) looks like a notch: the stream guard in trackWheel lets at
+ * most the first event of a gesture through.
+ */
+export function looksLikeMouseWheel(e: WheelSample): boolean {
+  const mode = e.deltaMode;
+  const dx = e.deltaX;
+  const dy = e.deltaY;
+  if (dx !== 0 || dy === 0) {
+    return false;
+  }
+  if (mode !== 0) {
+    return Number.isInteger(dy);
+  }
+  const ticks = e.wheelDeltaY;
+  if (ticks === undefined || ticks === 0 || ticks % 120 !== 0) {
+    return false;
+  }
+  return Math.abs(ticks + 3 * dy) >= 1.5;
+}
+
+/** A wheel stream ends after this long with no wheel event that did not zoom. */
+const WHEEL_STREAM_GAP_MS = 300;
+/** e.timeStamp of the last wheel event on the page that was not let through to zoom. */
+let lastScrollWheelAt = -Infinity;
+/** Each wheel event's verdict, so the room uses the one the page listener made. */
+const wheelVerdicts = new WeakMap<Event, boolean>();
+/**
+ * The window the page listener is on. The DOM test harness gives each file a
+ * new DOM on the same global object, so it also forgets the listener.
+ */
+let trackedWindow: Window | null = null;
+resetBetweenTestFiles(() => {
+  trackedWindow = null;
+  lastScrollWheelAt = -Infinity;
+});
+
+/**
+ * True when a wheel event may zoom the room as a mouse wheel: it looks like a
+ * notch and no other wheel event came in the last WHEEL_STREAM_GAP_MS. Every
+ * event that is not let through restarts the gap, so one notch-like event in
+ * a trackpad stream does not zoom. The verdict is made once per event.
+ */
+function trackWheel(e: WheelEvent): boolean {
+  const known = wheelVerdicts.get(e);
+  if (known !== undefined) {
+    return known;
+  }
+  const zooms =
+    looksLikeMouseWheel(e) &&
+    e.timeStamp - lastScrollWheelAt >= WHEEL_STREAM_GAP_MS;
+  if (!zooms) {
+    lastScrollWheelAt = e.timeStamp;
+  }
+  wheelVerdicts.set(e, zooms);
+  return zooms;
+}
+
+/**
+ * Watch every wheel event on the page, not only over the room. A trackpad
+ * stream that starts over a chat goes on over the room after the member goes
+ * back to it (task 7dfe3044), and the room must know that stream. The
+ * listener stays when the room unmounts.
+ */
+function watchPageWheel() {
+  if (trackedWindow === window) {
+    return;
+  }
+  trackedWindow = window;
+  window.addEventListener("wheel", trackWheel, {
+    capture: true,
+    passive: true,
+  });
 }
 
 /** Safari's GestureEvent (not in lib.dom): the scale since gesturestart. */
@@ -738,24 +837,26 @@ export function useViewport(
       return (window.visualViewport?.scale ?? 1) > 1;
     }
 
-    // A plain wheel or two-finger trackpad scroll does not zoom: on a Mac
-    // trackpad it is a stream of events with an inertia tail, and it zoomed
-    // the room when the pointer was over it (task 7dfe3044). It pans a
-    // zoomed-in view. Only a pinch (a ctrlKey wheel in Chrome and Firefox) or
-    // Ctrl/Cmd+wheel zooms. Every wheel is prevented so the page does not
-    // scroll, zoom or go back in history from the room.
+    // A mouse-wheel notch, a pinch (a ctrlKey wheel in Chrome and Firefox) or
+    // Ctrl/Cmd+wheel zooms at the pointer. A two-finger trackpad scroll does
+    // not zoom: on a Mac trackpad it is a stream of events with an inertia
+    // tail, and it zoomed the room when the pointer was over it (task
+    // 7dfe3044). It pans a zoomed-in view. trackWheel tells a notch from a
+    // trackpad. Every wheel is prevented so the page does not scroll, zoom or
+    // go back in history from the room.
     function handleWheel(e: WheelEvent) {
       const zoom = e.ctrlKey || e.metaKey;
       if (zoom && browserZoomed()) {
         return;
       }
       e.preventDefault();
+      const mouseZoom = !zoom && trackWheel(e);
       const rect = container!.getBoundingClientRect();
       // Normalize deltas to pixels so line-mode and page-mode wheels move at the same rate as pixel-mode.
       const lineHeight = 16;
       const unit =
         e.deltaMode === 1 ? lineHeight : e.deltaMode === 2 ? rect.height : 1;
-      if (!zoom) {
+      if (!zoom && !mouseZoom) {
         if (!isZoomedIn()) {
           return;
         }
@@ -1065,6 +1166,7 @@ export function useViewport(
     });
     ro.observe(container);
 
+    watchPageWheel();
     container.addEventListener("wheel", handleWheel, { passive: false });
     container.addEventListener("gesturestart", handleGestureStart);
     container.addEventListener("gesturechange", handleGestureChange);
