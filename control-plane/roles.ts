@@ -822,7 +822,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "(accountByGoogleSubject, accountByAddress, and the removed Google mark " +
       "before it creates an account); continueSignup -> " +
       "stripe/billing-store:getAccount; ops:opsFloor, ops:opsInstance, " +
-      "ops:acknowledgeInstance -> operator.ts isOperator; accountSettings -> " +
+      "ops:acknowledgeInstance -> operator.ts isOperator; accountIsOperator -> " +
+      "operator:isOperator, a plain select outside a transaction; accountSettings -> " +
       "stripe/billing-store:getAccount; emailChangeRefusalFor, changeAccountEmailFor " +
       "-> signup:emailChangeRefusal, signup:changeAccountEmail (getAccount, " +
       "accountByAddress); stripeCustomersFor -> signup:stripeCustomersForAccount; " +
@@ -1214,6 +1215,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "renewalDate",
     ],
     "mint-client": ["fetchInviteFromSeam", "seamConfigFrom"],
+    operator: ["isOperator"],
     ops: ["acknowledgeInstance", "opsFloor", "opsInstance"],
     plans: ["PLANS", "planById", "planByProviderProduct", "resolveStripePrice"],
     progress: ["projectionFor"],

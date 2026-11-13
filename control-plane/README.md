@@ -3311,6 +3311,10 @@ projection, which strips it to a class. That difference is the point: an
 operator is the audience the reason was written for, and a floor showing only "a
 step needs a person" would be a pager with the message removed.
 
+The storefront's top bar links a signed-in operator to `/ops`:
+`/api/session?account=1` reads the flag through `operator.ts`, the read-only
+half. The link is only a convenience; each verb checks the flag again.
+
 Authority is a column, granted only by the CLI:
 
 ```

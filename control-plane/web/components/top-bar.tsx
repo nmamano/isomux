@@ -15,10 +15,14 @@ import { useSessionProbe, type SessionProbe } from "../lib/use-session";
 /** The wordmark is the product's name, not copy (ruling 11). */
 const WORDMARK = "Isomux";
 
+/** The ops floor is English (app/ops/page.tsx), so its link is too. */
+const OPS_LINK = "Ops";
+
 /**
  * The bar at the top of every customer page: the mark and the wordmark, and,
- * once the session probe says the visitor is signed in, the nav, the account's
- * address and Sign out. Below 640 px those move into a menu.
+ * once the session probe says the visitor is signed in, the nav (with a link to
+ * /ops for an operator), the account's address and Sign out. Below 640 px
+ * those move into a menu.
  *
  * The bar is mounted once, in the layout, and stays mounted across Link
  * navigations, so the menu closes when the pathname changes rather than when
@@ -37,8 +41,10 @@ export function TopBarView({
   probe: SessionProbe;
   pathname: string | null;
 }) {
-  const operator = hidesLanguageSwitch(pathname);
-  const signedIn = probe.state === "signed-in" && !operator;
+  const opsPage = hidesLanguageSwitch(pathname);
+  const signedIn = probe.state === "signed-in" && !opsPage;
+  // Only a convenience: the ops pages check the operator flag again.
+  const operator = probe.state === "signed-in" && probe.operator === true;
   const email = probe.state === "signed-in" ? (probe.email ?? "") : "";
   // Signing out on an enterprise page lands on the enterprise sign-in page.
   const enterprisePage =
@@ -103,6 +109,7 @@ export function TopBarView({
       <Link href="/enterprise" aria-current={current("/enterprise")}>
         {i18n.t("nav.enterprise")}
       </Link>
+      {operator && <Link href="/ops">{OPS_LINK}</Link>}
     </>
   );
   const signOutButton = (testid: string | undefined) => (
@@ -141,7 +148,7 @@ export function TopBarView({
               {signOutButton("sign-out")}
             </>
           )}
-          {!operator && <LanguageSwitch />}
+          {!opsPage && <LanguageSwitch />}
           {signedIn && (
             <button
               type="button"

@@ -1,6 +1,7 @@
 import { auth } from "../../../auth";
 import {
   accountHasEnterprise,
+  accountIsOperator,
   accountSettings,
   officesForAccount,
 } from "../../../lib/services.server";
@@ -23,7 +24,8 @@ export const dynamic = "force-dynamic";
  * relaxed.
  *
  * The store reads are OPT-IN. The landing page needs the offices and asks with
- * `?offices=1` (and whether the account has an enterprise account); the top bar needs only the account's address and asks with
+ * `?offices=1` (and whether the account has an enterprise account); the top
+ * bar needs the account's address and whether it is an operator, and asks with
  * `?account=1`; the sign-in page's redirect guard needs only the boolean, and
  * charging it a store read it never uses would put a database round trip in
  * front of a redirect. The signed-out branch returns before any store work at
@@ -38,19 +40,29 @@ export async function GET(request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams;
   const wantsOffices = query.get("offices") === "1";
   if (!wantsOffices && query.get("account") !== "1") {
-    return answer({ signedIn: true, email, offices: null, enterprise: null });
+    return answer({
+      signedIn: true,
+      email,
+      offices: null,
+      enterprise: null,
+      operator: null,
+    });
   }
 
   // The top bar and the dashboard show the account's address, which an email
   // change moves after the session was issued; the session keeps the one it
-  // signed in with.
+  // signed in with. The top bar also links an operator to /ops.
   if (!wantsOffices) {
-    const account = await accountSettings(accountId);
+    const [account, operator] = await Promise.all([
+      accountSettings(accountId),
+      accountIsOperator(accountId),
+    ]);
     return answer({
       signedIn: true,
       email: account?.email ?? email,
       offices: null,
       enterprise: null,
+      operator,
     });
   }
   // The landing sends an account with an enterprise account and no Hosted
@@ -72,6 +84,7 @@ export async function GET(request: Request): Promise<Response> {
       plan: office.tier,
     })),
     enterprise,
+    operator: null,
   });
 }
 

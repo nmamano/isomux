@@ -1164,6 +1164,13 @@ export async function acknowledgeOpsInstance(
   );
 }
 
+/** Whether the account holds the operator flag. Only the top bar's link to
+ * /ops uses it; every ops verb checks the flag again on its own. */
+export async function accountIsOperator(accountId: string): Promise<boolean> {
+  const { isOperator } = await import("../../operator");
+  return withStore((store) => isOperator(store, accountId));
+}
+
 // ------------------------------------------------------ critical issues
 //
 // The status pages of an enterprise customer's critical issue (incidents.ts).

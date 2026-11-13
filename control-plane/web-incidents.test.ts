@@ -1,7 +1,8 @@
 // The critical-issue status pages through the web tier, as the deployed web
 // role (WEB_GRANTS, least privilege): the write-key API the support agent and
 // the office reminder use (POST an update, GET ?due=1), the customer's issue
-// page, the update's mail, and the grant that keeps updates append-only.
+// page, the update's mail, and the grant that keeps updates append-only. Also
+// the web role's read of the operator flag, which the top bar's /ops link uses.
 //
 // The rules themselves (numbering, due, late, links) are in incidents.test.ts.
 // The limiter's place in front of these routes is in
@@ -41,7 +42,10 @@ import {
   releaseTestStores,
   testDsn,
 } from "./testing/pg.ts";
-import { statusIncident } from "./web/lib/services.server.ts";
+import {
+  accountIsOperator,
+  statusIncident,
+} from "./web/lib/services.server.ts";
 
 // The app's own React and Next, which the root does not install: a page
 // element is rendered by the React that made it.
@@ -526,6 +530,17 @@ describe("the customer's pages", () => {
 });
 
 describe("the web role", () => {
+  // The top bar's link to /ops asks this (task 639b302f); the seed's operator
+  // is the one account with the flag.
+  test("reads which account is an operator through the facade", async () => {
+    const s = await seed();
+    const customer = (
+      await accountForDevSignIn(s.owner, "customer@example.test")
+    ).id;
+    expect(await accountIsOperator(s.operator)).toBe(true);
+    expect(await accountIsOperator(customer)).toBe(false);
+  });
+
   test("cannot change or delete a posted update, or delete an issue", async () => {
     await seed();
     const client = new pg.Client({

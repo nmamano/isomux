@@ -42,4 +42,8 @@ export type SessionView =
       /** Whether the account has an enterprise account; null when the caller
        * did not ask for the offices. */
       enterprise: boolean | null;
+      /** Whether the account holds the operator flag, which only shows the
+       * top bar's link to /ops: the ops pages check it again. Null when the
+       * caller did not ask for the account. */
+      operator: boolean | null;
     };

@@ -21,6 +21,8 @@ let calls: string[] = [];
 let gate: Promise<void> | null = null;
 // What the stand-in enterprise read answers.
 let enterprise = false;
+// What the stand-in operator read answers.
+let operator = false;
 
 const SESSION_EMAIL = "old@example.com";
 const ACCOUNT_EMAIL = "new@example.com";
@@ -69,6 +71,11 @@ await mock.module("../../../lib/services.server", () => ({
     if (gate) await gate;
     return enterprise;
   },
+  accountIsOperator: async (accountId: string) => {
+    calls.push(`accountIsOperator:${accountId}`);
+    if (gate) await gate;
+    return operator;
+  },
 }));
 afterAll(async () => {
   await mock.module("../../../auth", () => realAuth);
@@ -95,6 +102,7 @@ beforeEach(() => {
   calls = [];
   gate = null;
   enterprise = false;
+  operator = false;
 });
 
 describe("GET /api/session", () => {
@@ -112,6 +120,7 @@ describe("GET /api/session", () => {
       email: SESSION_EMAIL,
       offices: null,
       enterprise: null,
+      operator: null,
     });
     expect(calls).toEqual([]);
   });
@@ -122,8 +131,33 @@ describe("GET /api/session", () => {
       email: ACCOUNT_EMAIL,
       offices: null,
       enterprise: null,
+      operator: false,
     });
-    expect(calls).toEqual(["accountSettings"]);
+    expect(calls.sort()).toEqual([
+      "accountIsOperator:account-1",
+      "accountSettings",
+    ]);
+  });
+
+  // The top bar's link to /ops (task 639b302f): the flag of the signed-in
+  // account, read on the top bar's question only.
+  test("?account=1 says whether the signed-in account is an operator", async () => {
+    expect(await ask("?account=1")).toMatchObject({ operator: false });
+    operator = true;
+    expect(await ask("?account=1")).toMatchObject({ operator: true });
+  });
+
+  test("?account=1 starts both reads before either answers", async () => {
+    let open!: () => void;
+    gate = new Promise<void>((res) => (open = res));
+    const view = ask("?account=1");
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect([...calls].sort()).toEqual([
+      "accountIsOperator:account-1",
+      "accountSettings",
+    ]);
+    open();
+    expect(await view).toMatchObject({ signedIn: true, email: ACCOUNT_EMAIL });
   });
 
   test("?offices=1 lists each office with its plan", async () => {
@@ -142,6 +176,7 @@ describe("GET /api/session", () => {
         },
       ],
       enterprise: false,
+      operator: null,
     });
     expect(calls.sort()).toEqual([
       "accountHasEnterprise:account-1",

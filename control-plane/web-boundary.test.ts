@@ -74,6 +74,7 @@ describe("only one file reaches the store", () => {
     // into the control plane cannot appear as a side effect of writing a page.
     expect(exported).toEqual([
       "accountHasEnterprise",
+      "accountIsOperator",
       "accountSettings",
       "acknowledgeOpsInstance",
       "changeAccountEmailFor",
@@ -186,6 +187,10 @@ describe("only one file reaches the store", () => {
       // clear.
       "../../cancel",
       "../../ops",
+      // The operator flag's READER, for the top bar's link to /ops. It has no
+      // writer (operator-admin stays forbidden below), and ops already reaches
+      // it, so the graph gains nothing.
+      "../../operator",
       // The critical-issue status pages: the customer's link, the operator and
       // the write key are each checked inside the incidents service.
       "../../incidents",

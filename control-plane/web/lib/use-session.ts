@@ -28,6 +28,7 @@ export type SessionProbe =
       email: string | null;
       offices: OfficeCard[] | null;
       enterprise: boolean | null;
+      operator: boolean | null;
     };
 
 /** Long enough for a dropped request or a route cold start, short enough that a
@@ -67,6 +68,7 @@ export function useSessionProbe(options?: {
                   email: view.email,
                   offices: view.offices,
                   enterprise: view.enterprise,
+                  operator: view.operator,
                 }
               : { state: "signed-out" },
           );

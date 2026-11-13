@@ -48,6 +48,7 @@ const SIGNED_IN: SessionProbe = {
   email: EMAIL,
   offices: null,
   enterprise: null,
+  operator: null,
 };
 
 // Element presence is asserted on its tag name, never on the node: a failing
@@ -172,6 +173,34 @@ describe("what the bar shows", () => {
       expect(container.querySelector('a[href="/"]')?.tagName ?? null).toBe("A");
       for (const testId of ["top-bar-nav", "language-switch", "menu-button"])
         expect([testId, tagOf(testId)]).toEqual([testId, null]);
+    },
+  );
+});
+
+// Only an account the server says is an operator gets the way to /ops; the
+// /ops pages check the flag again on their own.
+describe("the link to the ops floor", () => {
+  const opsLinks = (): number =>
+    container.querySelectorAll('a[href="/ops"]').length;
+
+  test("an operator has it in the nav and in the menu", async () => {
+    await render({ ...SIGNED_IN, operator: true }, "/");
+    expect(navLink("/ops")?.tagName ?? null).toBe("A");
+    await realClick(menuButton());
+    expect(openPanel()?.querySelector('a[href="/ops"]')?.tagName ?? null).toBe(
+      "A",
+    );
+  });
+
+  test.each([false, null])(
+    "operator %p: no link to /ops anywhere in the bar",
+    async (operator) => {
+      await render({ ...SIGNED_IN, operator }, "/");
+      // The enabling condition: the nav and the menu are drawn.
+      expect(navLink("/account")?.tagName ?? null).toBe("A");
+      await realClick(menuButton());
+      expect(openPanel()?.tagName ?? null).not.toBeNull();
+      expect(opsLinks()).toBe(0);
     },
   );
 });
