@@ -1250,8 +1250,8 @@ export function LogView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // An ask card's "Discuss in chat" put a prefix in the draft and asks for
-  // focus with the caret after it. React runs this effect inside the click,
+  // An ask card's "Discuss in chat" put the ask at the end of the draft and
+  // asks for focus with the caret after it. React runs this effect inside the click,
   // and a phone opens the keyboard only for a focus in the tap itself, so no
   // frame is waited for. It runs after the effect above, which on a fresh
   // mount puts the caret at the end. The request is spent in every case, so

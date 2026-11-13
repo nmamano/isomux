@@ -2191,45 +2191,64 @@ describe("reducer: Unread badge and turn-end sound", () => {
   });
 });
 
-// "About your ask" (task 715ab3dd): a card's button puts a prefix in front of
-// the agent's chat draft and asks the composer to take focus, with the caret
-// after the prefix.
-describe("reducer: a prefix for the chat draft", () => {
+// "Discuss in chat" on an ask (tasks 715ab3dd, 149064de): a card's button
+// appends the ask's text to the end of the agent's chat draft, after a blank
+// line as Cite does, and asks the composer to take focus with the caret at
+// the end of the draft.
+describe("reducer: an ask appended to the chat draft", () => {
   const P = 'About your ask "Ship it?": ';
-
-  it("puts the prefix in an empty draft and in front of a typed one, and asks for focus after it", () => {
-    let s: AppState = reducer(initialState, {
-      type: "prefix_draft",
-      agentId: "a1",
-      prefix: P,
-    });
-    expect(s.drafts.get("a1")).toBe(P);
-    expect(s.pendingComposerFocus.get("a1")).toBe(P.length);
-
-    s = reducer(
-      { ...initialState, drafts: new Map([["a2", "and the tag?"]]) },
-      { type: "prefix_draft", agentId: "a2", prefix: P },
+  const append = (draft: string, text = P): AppState =>
+    reducer(
+      {
+        ...initialState,
+        drafts: draft ? new Map([["a1", draft]]) : new Map(),
+      },
+      { type: "append_ask_to_draft", agentId: "a1", text },
     );
-    expect(s.drafts.get("a2")).toBe(P + "and the tag?");
-    // The caret goes after the prefix, before the text the draft held.
-    expect(s.pendingComposerFocus.get("a2")).toBe(P.length);
+  // The draft after the action, and the caret the composer is asked for.
+  const result = (s: AppState) => ({
+    draft: s.drafts.get("a1"),
+    caret: s.pendingComposerFocus.get("a1"),
   });
 
-  it("does not add the same prefix twice, but still asks for focus", () => {
-    let s: AppState = {
-      ...initialState,
-      drafts: new Map([["a1", P + "why?"]]),
-    };
-    s = reducer(s, { type: "prefix_draft", agentId: "a1", prefix: P });
-    expect(s.drafts.get("a1")).toBe(P + "why?");
-    expect(s.pendingComposerFocus.get("a1")).toBe(P.length);
+  it("puts the text in an empty draft, with the caret after it", () => {
+    expect(result(append(""))).toEqual({ draft: P, caret: P.length });
+  });
+
+  it("appends the text after a blank line to a typed draft, with the caret at the end", () => {
+    const want = "and the tag?\n\n" + P;
+    expect(result(append("and the tag?"))).toEqual({
+      draft: want,
+      caret: want.length,
+    });
+    // A draft that ends with a line break gets one more, not two: one blank
+    // line between, as Cite.
+    expect(result(append("and the tag?\n"))).toEqual({
+      draft: want,
+      caret: want.length,
+    });
+  });
+
+  it("does not add the same text twice, also after the member typed after it, but still asks for focus at the end", () => {
+    for (const draft of [P, "and the tag?\n\n" + P, "x\n\n" + P + "why?"]) {
+      expect(result(append(draft))).toEqual({ draft, caret: draft.length });
+    }
+  });
+
+  it("appends the text of a different ask after the first one", () => {
+    const Q = 'About your ask "Tag it?": ';
+    const want = P + "why?\n\n" + Q;
+    expect(result(append(P + "why?", Q))).toEqual({
+      draft: want,
+      caret: want.length,
+    });
   });
 
   it("forgets the focus request once the composer took it, or when the agent goes", () => {
     const s = reducer(initialState, {
-      type: "prefix_draft",
+      type: "append_ask_to_draft",
       agentId: "a1",
-      prefix: P,
+      text: P,
     });
     const handled = reducer(s, {
       type: "composer_focus_handled",

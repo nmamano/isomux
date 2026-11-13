@@ -98,6 +98,7 @@ import { createNotificationSound } from "./notification-sound.ts";
 import { syncPanel } from "./elevator-panel-store.ts";
 import { loadLastSavedView } from "./view-persistence.ts";
 import { AsksClosedHere } from "./ask-closed.ts";
+import { appendBlockToDraft } from "./log-view/draft-append.ts";
 import type {
   DraftAttachment,
   DraftAttachmentAction,
@@ -243,8 +244,9 @@ export interface AppState {
   // terminal panel types it without taking keyboard focus.
   quietTerminalCommands: Set<string>;
   // agentId → where the chat input's caret goes when LogView next focuses it.
-  // Set by an ask card's "about this ask" button (prefix_draft); LogView
-  // clears it once it has run (composer_focus_handled).
+  // Set by an ask card's "Discuss in chat" button (append_ask_to_draft) at
+  // the end of the draft; LogView clears it once it has run
+  // (composer_focus_handled).
   pendingComposerFocus: Map<string, number>;
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<
@@ -565,7 +567,7 @@ export type Action =
     }
   | { type: "editor_path_opened"; agentId: string }
   | { type: "terminal_command_handled"; agentId: string }
-  | { type: "prefix_draft"; agentId: string; prefix: string }
+  | { type: "append_ask_to_draft"; agentId: string; text: string }
   | { type: "composer_focus_handled"; agentId: string }
   | {
       type: "slash_commands";
@@ -1479,14 +1481,17 @@ export function reducer(state: AppState, action: Action): AppState {
       quietTerminalCommands.delete(action.agentId);
       return { ...state, pendingTerminalCommands, quietTerminalCommands };
     }
-    // A second tap on the same ask keeps one prefix; focus is asked again.
-    case "prefix_draft": {
+    // The ask's text goes at the end of the draft, as a cite does. A second
+    // tap on the same ask keeps one copy; focus is asked again, at the end.
+    case "append_ask_to_draft": {
       const current = state.drafts.get(action.agentId) ?? "";
+      const next = current.includes(action.text)
+        ? current
+        : appendBlockToDraft(current, action.text);
       const drafts = new Map(state.drafts);
-      if (!current.startsWith(action.prefix))
-        drafts.set(action.agentId, action.prefix + current);
+      drafts.set(action.agentId, next);
       const pendingComposerFocus = new Map(state.pendingComposerFocus);
-      pendingComposerFocus.set(action.agentId, action.prefix.length);
+      pendingComposerFocus.set(action.agentId, next.length);
       return { ...state, drafts, pendingComposerFocus };
     }
     case "composer_focus_handled": {

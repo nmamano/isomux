@@ -1,7 +1,8 @@
-// "About your ask" on a card in the agent's chat (task 715ab3dd): the button
-// puts a prefix that quotes the start of the question in front of the chat
-// draft, focuses the composer with the caret after the prefix, and calls no
-// ask route; the message the member then sends leaves the ask open. The Inbox
+// "Discuss in chat" on a card in the agent's chat (tasks 715ab3dd, 149064de):
+// the button appends a text that quotes the start of the question to the end
+// of the chat draft, after a blank line as Cite does, focuses the composer
+// with the caret at the end, and calls no ask route; the message the member
+// then sends leaves the ask open. The Inbox
 // path, where the chat mounts after the click, is in
 // ui/App.inbox-ask-about.dom.test.tsx.
 import { afterAll, beforeEach, expect, it } from "bun:test";
@@ -181,22 +182,23 @@ function blurComposer(container: HTMLElement) {
   expect(document.activeElement === ta).toBe(false);
 }
 
-// The composer holds a prefix that quotes the excerpt, then `rest`; it has
-// focus, with the caret right after the prefix.
-function expectPrefixed(container: HTMLElement, ask: AskEntry, rest: string) {
+// The composer holds `before`, then (when `before` is not empty) a blank line,
+// then a text that quotes the excerpt; it has focus, with the caret at the end.
+function expectAppended(container: HTMLElement, ask: AskEntry, before: string) {
   const ta = composer(container);
   // A boolean, not toBe on two nodes: a red run would serialise both.
   expect(document.activeElement === ta).toBe(true);
   const value = ta.value;
-  expect(value.endsWith(rest)).toBe(true);
-  const prefix = value.slice(0, value.length - rest.length);
-  expect(prefix).toContain(`"${askExcerpt(ask.prompt)}"`);
-  expect(prefix.endsWith(" ")).toBe(true);
-  expect(ta.selectionStart).toBe(prefix.length);
-  expect(ta.selectionEnd).toBe(prefix.length);
+  const sep = before === "" ? "" : "\n\n";
+  expect(value.startsWith(before + sep)).toBe(true);
+  const added = value.slice(before.length + sep.length);
+  expect(added.startsWith("\n")).toBe(false);
+  expect(added).toContain(`"${askExcerpt(ask.prompt)}"`);
+  expect(ta.selectionStart).toBe(value.length);
+  expect(ta.selectionEnd).toBe(value.length);
 }
 
-it("puts the prefix in front of the typed draft, focuses after it, and calls no ask route", async () => {
+it("appends the text after the typed draft, focuses at the end, and calls no ask route", async () => {
   const { view, latest } = mount("and the tag?");
   // The member was in the reply field, not the composer.
   const reply = view.container.querySelector<HTMLTextAreaElement>(
@@ -206,7 +208,7 @@ it("puts the prefix in front of the typed draft, focuses after it, and calls no 
   expect(document.activeElement === reply).toBe(true);
 
   click(aboutButton(view.container, "ask00001"));
-  expectPrefixed(view.container, REPLY_ASK, "and the tag?");
+  expectAppended(view.container, REPLY_ASK, "and the tag?");
   // The quote is the excerpt, not the whole question.
   expect(composer(view.container).value).not.toContain(REPLY_ASK.prompt);
   // The store holds the same draft, and the focus request is spent.
@@ -219,12 +221,12 @@ it("puts the prefix in front of the typed draft, focuses after it, and calls no 
   view.unmount();
 });
 
-it("sends the prefixed message as a normal chat message, and the ask stays open", async () => {
+it("sends the message with the ask text as a normal chat message, and the ask stays open", async () => {
   const { view, latest } = mount("");
   // The composer does not hold focus before the click.
   blurComposer(view.container);
   click(aboutButton(view.container, "ask00001"));
-  expectPrefixed(view.container, REPLY_ASK, "");
+  expectAppended(view.container, REPLY_ASK, "");
   const ta = composer(view.container);
   const typed = ta.value + "why tonight?";
   fireEvent.change(ta, { target: { value: typed } });
@@ -248,7 +250,7 @@ it("has the button on a secret request too, quoting its own question", async () 
   // The composer does not hold focus before the click.
   blurComposer(view.container);
   click(aboutButton(view.container, "ask00002"));
-  expectPrefixed(view.container, SECRET_ASK, "");
+  expectAppended(view.container, SECRET_ASK, "");
   expect(askCalls()).toEqual([]);
   expect(view.container.querySelector('[data-ask="ask00002"]')).not.toBeNull();
   view.unmount();

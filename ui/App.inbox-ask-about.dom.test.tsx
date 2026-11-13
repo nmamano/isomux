@@ -1,8 +1,9 @@
 // "Discuss in chat" from the Inbox, through the real App and store (tasks
-// 715ab3dd, e3c25581): the button opens the Inbox's chat panel on the agent,
-// with the prefix in front of the draft the member had left in that agent's
-// chat, the composer focused and the caret after the prefix, and the ask still
-// open. The draft is the chat's: the full chat opens on it, and the focus
+// 715ab3dd, e3c25581, 149064de): the button opens the Inbox's chat panel on
+// the agent, with the ask's text after the draft the member had left in that
+// agent's chat (a blank line between, as Cite), the composer focused and the
+// caret at the end, and the ask still open. The draft is the chat's: the full
+// chat opens on it, and the focus
 // request is spent, so the full chat does not move the caret again. A draft
 // Discuss changes after a failed send goes as a new message. The
 // chat-side behaviour is in ui/log-view/ask-about.dom.test.tsx; the setup in
@@ -35,7 +36,7 @@ setUpInboxTests();
 const PROMPT = "Should we move the nightly backups to the desktop box tonight?";
 const DRAFT = "and the tag?";
 
-it("opens the chat panel on the agent with the prefix in front of the draft, the caret after it, and the full chat keeps that draft", async () => {
+it("opens the chat panel on the agent with the ask's text after the draft, the caret at the end, and the full chat keeps that draft", async () => {
   setAsks([{ ...ask("q1", "a1"), prompt: PROMPT }]);
   // The draft the member left in Scout's chat; the store restores it.
   saveDraft("member", "a1", DRAFT);
@@ -64,17 +65,17 @@ it("opens the chat panel on the agent with the prefix in front of the draft, the
   expect(ta).not.toBeNull();
   // A boolean, not toBe on two nodes: a red run would serialise both.
   expect(document.activeElement === ta).toBe(true);
-  expect(ta.value.endsWith(DRAFT)).toBe(true);
-  const prefix = ta.value.slice(0, ta.value.length - DRAFT.length);
-  expect(prefix).toContain(`"${askExcerpt(PROMPT)}"`);
-  // After the prefix, not at the end where a restored draft puts it.
-  expect(ta.selectionStart).toBe(prefix.length);
-  expect(ta.selectionEnd).toBe(prefix.length);
+  expect(ta.value.startsWith(DRAFT + "\n\n")).toBe(true);
+  const added = ta.value.slice(DRAFT.length + 2);
+  expect(added.startsWith("\n")).toBe(false);
+  expect(added).toContain(`"${askExcerpt(PROMPT)}"`);
+  // At the end of the new draft, after the ask's text.
+  expect(ta.selectionStart).toBe(ta.value.length);
+  expect(ta.selectionEnd).toBe(ta.value.length);
   const text = ta.value;
 
-  // The full chat opens on the same draft. The panel spent the focus
-  // request, so the chat's composer has its caret at the end, where a mount
-  // puts it, and not after the prefix a second time.
+  // The full chat opens on the same draft, with the caret at the end where a
+  // mount puts it.
   await openFullChat(view);
   expect(view.container.querySelector("[data-asks-stack]")).not.toBeNull();
   const all = view.container.querySelectorAll("textarea");
@@ -121,7 +122,7 @@ it("sends a draft changed from outside the panel after a failed send as a new me
     ),
   );
   const text = chatComposer(view)!.value;
-  expect(text.endsWith("first")).toBe(true);
+  expect(text.startsWith("first")).toBe(true);
   expect(text).not.toBe("first");
   await act(async () => {
     fireEvent.submit(chatPanel(view)!.querySelector("form")!);
