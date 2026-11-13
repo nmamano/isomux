@@ -1260,6 +1260,9 @@ export function MembersChatPanel({
               <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                 <textarea
                   ref={textareaRef}
+                  // As in an agent chat: opening a chat puts the caret in its
+                  // box, except where focus opens the on-screen keyboard.
+                  autoFocus={!touchPrimary}
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);

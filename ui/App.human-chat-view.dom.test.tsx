@@ -4,7 +4,8 @@
 // peer's chat is read-only, and the live roster, not a stale summary, decides
 // who is removed; each chat keeps its own draft; a failed page load shows the
 // error and Retry loads again, and the error stays with its chat; the header
-// names the peer before any page arrives. The setup is in
+// names the peer before any page arrives; a chat opened from the sidebar puts
+// the caret in its message box. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
@@ -14,6 +15,7 @@ setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
+const { primaryPointer } = await import("./test-support/pointer.ts");
 const {
   boot,
   click,
@@ -229,4 +231,32 @@ it("the live roster decides who is removed, not a stale summary", async () => {
   expect(chatRoot(view)?.getAttribute("data-human-chat")).toBe("u9");
   expect(chatRoot(view)?.querySelector("[data-peer-removed]")).not.toBeNull();
   expect(composer(view)).toBeNull();
+});
+
+// Task e8ab0be5 (Nil, 2026-11-13: clicking a member in the sidebar should
+// focus the input box to start typing). With a mouse, each chat opened from
+// the sidebar takes the caret, so the member types at once. A touch device
+// skips it (ui/touch-focus.dom.test.tsx).
+it("a chat opened from the sidebar puts the caret in its message box", async () => {
+  seedOffice();
+  const undo = primaryPointer(false);
+  try {
+    expect(window.matchMedia("(pointer: coarse)").matches).toBe(false);
+    const view = await boot();
+    const opens: [string, HTMLButtonElement | null][] = [
+      ["u3", memberRow(view, "u3")],
+      ["members", navRow(view, "members-chat")],
+    ];
+    for (const [id, row] of opens) {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      expect(document.activeElement === document.body).toBe(true);
+      await click(row);
+      expect(chatRoot(view)?.getAttribute("data-human-chat")).toBe(id);
+      const box = composer(view);
+      expect(box === null).toBe(false);
+      expect(document.activeElement === box).toBe(true);
+    }
+  } finally {
+    undo();
+  }
 });

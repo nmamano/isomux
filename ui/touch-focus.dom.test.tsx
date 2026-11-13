@@ -4,7 +4,8 @@
 // narrow enough for the mobile layout has a hardware keyboard and gets focus
 // (Nil, 2026-11-04: on half a screen, clicking into an agent left the chat
 // input unfocused). The app widget's composer has its own owner test, in
-// ui/AppWidgetPage.dom.test.tsx.
+// ui/AppWidgetPage.dom.test.tsx. A member's chat opened from the sidebar has
+// its own case in ui/App.human-chat-view.dom.test.tsx.
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
@@ -16,6 +17,8 @@ const { SkillsPopover } = await import("./log-view/SkillsPopover.tsx");
 const { TerminalPanel } = await import("./log-view/TerminalPanel.tsx");
 const { CronjobRunView } = await import("./components/CronjobRunView.tsx");
 const { ElevatorDialog } = await import("./components/ElevatorDialog.tsx");
+const { MembersChatPanel } =
+  await import("./members-chat/MembersChatPanel.tsx");
 const { StateCtx, StoreProvider, useAppState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
 const { setShim, connect } = await import("./ws.ts");
@@ -131,6 +134,19 @@ for (const { device, narrow, coarse } of cases) {
         onBack={() => {}}
         onEditAgent={() => {}}
       />
+    ));
+    const composer = container.querySelector("textarea");
+    expect(composer === null).toBe(false);
+    expect(active === composer).toBe(!coarse);
+    if (coarse) expect(active === document.body).toBe(true);
+  });
+
+  // Task e8ab0be5: a member's chat opens ready to type, as an agent's does.
+  it(`a members chat's message box takes focus on open only off touch (${device})`, async () => {
+    // Pages stay pending: a late answer would update an unmounted panel.
+    setApiShim(() => new Promise(() => {}));
+    const { container, active } = await focusAfterMount(narrow, coarse, () => (
+      <MembersChatPanel />
     ));
     const composer = container.querySelector("textarea");
     expect(composer === null).toBe(false);
