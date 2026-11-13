@@ -1,5 +1,10 @@
 import { afterEach, expect, it } from "bun:test";
-import { askIdForPage, inboxCounts } from "./inbox.ts";
+import {
+  askIdForPage,
+  documentTitle,
+  inboxCounts,
+  syncAppBadge,
+} from "./inbox.ts";
 import { ApiError, setApiShim } from "./api.ts";
 import type { AskMemberWire } from "../shared/types.ts";
 
@@ -65,3 +70,93 @@ it("finds the ask of an old page link, and null for a 404, a failure or no ask",
   expect(await askIdForPage("abcd1234")).toBeNull();
 });
 afterEach(() => setApiShim(null));
+
+// The tab title (task 91a69e4c): the open Inbox count in front, as messaging
+// apps do, the exact number, and today's title when nothing is open.
+it("puts the exact open count in front of the tab title, and no count at 0", () => {
+  for (const label of ["Scout", null]) {
+    const plain = documentTitle(label, 0);
+    expect(plain).toContain("Isomux");
+    if (label) expect(plain).toContain(label);
+    expect(plain.startsWith("(")).toBe(false);
+    for (const n of [1, 3, 120])
+      expect(documentTitle(label, n)).toBe(`(${n}) ${plain}`);
+  }
+  expect(documentTitle("Scout", 0)).not.toBe(documentTitle(null, 0));
+});
+
+// The installed app's icon badge (task 91a69e4c). A fake of the Badging API:
+// the count the icon shows, null for none, and the receiver of each call
+// (a detached method throws Illegal invocation in a browser).
+function fakeBadge(
+  set: (n: number) => Promise<void> = async () => {},
+  clear: () => Promise<void> = async () => {},
+) {
+  const state = { shown: null as number | null, detached: 0 };
+  Object.defineProperty(navigator, "setAppBadge", {
+    configurable: true,
+    value: function (this: unknown, n: number) {
+      if (this !== navigator) state.detached++;
+      state.shown = n === 0 ? null : n;
+      return set(n);
+    },
+  });
+  Object.defineProperty(navigator, "clearAppBadge", {
+    configurable: true,
+    value: function (this: unknown) {
+      if (this !== navigator) state.detached++;
+      state.shown = null;
+      return clear();
+    },
+  });
+  return state;
+}
+const nav = navigator as unknown as Record<string, unknown>;
+afterEach(() => {
+  delete nav.setAppBadge;
+  delete nav.clearAppBadge;
+});
+
+it("shows the open count on the app icon and clears it at 0", () => {
+  const badge = fakeBadge();
+  syncAppBadge(3);
+  expect(badge.shown).toBe(3);
+  syncAppBadge(1);
+  expect(badge.shown).toBe(1);
+  syncAppBadge(0);
+  expect(badge.shown).toBeNull();
+  expect(badge.detached).toBe(0);
+});
+
+it("does nothing without the Badging API", () => {
+  expect("setAppBadge" in navigator).toBe(false);
+  syncAppBadge(2);
+  syncAppBadge(0);
+});
+
+// Chrome rejects outside an installed app, and an embed can throw at the
+// call: neither reaches the page. A throw fails the test, and so does an
+// unhandled rejection (bun names the error below).
+it("swallows a refusal, thrown or rejected", async () => {
+  const refused = new Error("badge refused, and syncAppBadge let it through");
+  fakeBadge(
+    () => Promise.reject(refused),
+    () => Promise.reject(refused),
+  );
+  syncAppBadge(2);
+  syncAppBadge(0);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const badge = fakeBadge(
+    () => {
+      throw refused;
+    },
+    () => {
+      throw refused;
+    },
+  );
+  syncAppBadge(2);
+  expect(badge.shown).toBe(2);
+  syncAppBadge(0);
+  expect(badge.shown).toBeNull();
+});

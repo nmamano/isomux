@@ -137,3 +137,29 @@ export function useInboxNavAction(
     count: open,
   };
 }
+
+/**
+ * The browser tab title: the open Inbox count first, as messaging apps do
+ * ("(3) Isomux PM | Isomux"), and none at 0.
+ */
+export function documentTitle(label: string | null, openAsks: number): string {
+  const title = label ? `${label} | Isomux` : "Isomux";
+  return openAsks > 0 ? `(${openAsks}) ${title}` : title;
+}
+
+/**
+ * The installed app's icon badge (navigator.setAppBadge): the open Inbox
+ * count, cleared at 0. Does nothing where the API is absent or refuses.
+ */
+export function syncAppBadge(count: number): void {
+  if (typeof navigator === "undefined" || !("setAppBadge" in navigator)) return;
+  try {
+    // Called on navigator itself: a detached method throws Illegal invocation.
+    const done =
+      count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge();
+    // Outside an installed app, or in an embed, the browser may refuse.
+    void Promise.resolve(done).catch(() => {});
+  } catch {
+    // Some embeds throw SecurityError at the call.
+  }
+}

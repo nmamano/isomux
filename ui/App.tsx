@@ -50,7 +50,12 @@ import { SidebarSlot } from "./components/SidebarSlot.tsx";
 import { useSidebarPins } from "./sidebar-pins.ts";
 import { newAgentSeat, sidebarStartsOpen } from "./chat-sidebar.ts";
 import { PageLeaveGuard, type LeaveGuard } from "./page-leave-guard.ts";
-import { askIdForPage } from "./inbox.ts";
+import {
+  askIdForPage,
+  documentTitle,
+  syncAppBadge,
+  useInboxCounts,
+} from "./inbox.ts";
 import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
@@ -541,10 +546,16 @@ export function App({ routing = true }: { routing?: boolean }) {
       : lobbyOpen
         ? (office.name ?? null)
         : (currentRoomName ?? office.name ?? null);
+  // Messaging apps put the unanswered count in front of the title, and the
+  // installed app shows it on its icon: every open item of the Inbox.
+  const openInboxCount = useInboxCounts().asks;
   useEffect(() => {
     if (!connected) return;
-    document.title = tabLabel ? `${tabLabel} | Isomux` : "Isomux";
-  }, [connected, tabLabel]);
+    document.title = documentTitle(tabLabel, openInboxCount);
+  }, [connected, tabLabel, openInboxCount]);
+  useEffect(() => {
+    if (connected) syncAppBadge(openInboxCount);
+  }, [connected, openInboxCount]);
 
   // Phone swipes walk the tab bar in order, the Lobby included (Nil): the
   // order lives in swipeTarget. Selecting a room closes the lobby; opening the
