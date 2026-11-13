@@ -43,8 +43,7 @@ export const OUT_OF_ROOT_ORDER: readonly StorageCategoryId[] = [
 // ~/.isomux". Memory borrows common.memory rather than minting a second key
 // for the same word (ruling 15).
 export type StorageCategoryKey =
-  | Extract<MessageKey, `settings.storage.category.${string}`>
-  | "common.memory";
+  Extract<MessageKey, `settings.storage.category.${string}`> | "common.memory";
 
 export const CATEGORY_KEYS: Record<StorageCategoryId, StorageCategoryKey> = {
   transcripts: "settings.storage.category.transcripts",

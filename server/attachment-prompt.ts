@@ -151,8 +151,7 @@ function oneLine(s: string): string {
 // other file is left out. copy: the folder and web stops copy each file into
 // <folder>/attachments/ and the notice names the copy.
 export type AttachmentDelivery =
-  | { kind: "inline-images" }
-  | { kind: "copy"; folder: string };
+  { kind: "inline-images" } | { kind: "copy"; folder: string };
 
 // The Claude API refuses a larger inline image.
 const INLINE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;

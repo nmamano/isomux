@@ -73,8 +73,7 @@ export type RouteLabelKey = Extract<ApiCallKey, PlainMessageKey>;
  * file read is never concealed.
  */
 export type IsomuxCurlBodyNote =
-  | { kind: "jq"; readFiles: string[] }
-  | { kind: "heredoc" };
+  { kind: "jq"; readFiles: string[] } | { kind: "heredoc" };
 
 export type IsomuxCurlRequest = {
   /** Uppercased HTTP method ("GET", "POST", ...). */

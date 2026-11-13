@@ -316,9 +316,7 @@ async function runStep(
     case "room-call":
     case "member-call": {
       const source = step.slice(0, -"-call".length) as
-        | "office"
-        | "room"
-        | "member";
+        "office" | "room" | "member";
       message = `${source} check ${stepCode}`;
       judge = markerJudge(ctx.markers[source]);
       break;

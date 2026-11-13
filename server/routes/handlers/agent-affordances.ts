@@ -49,8 +49,7 @@ import type {
 // agent). The manager may own the `code`, as for PreviewAffordanceResult;
 // without one the handler's fixed per-route code applies.
 type AffordanceResult =
-  | { ok: true }
-  | { ok: false; status: number; code?: string; error: string };
+  { ok: true } | { ok: false; status: number; code?: string; error: string };
 
 // preview-url's richer result: async (headless-browser capture), and the
 // manager owns the per-failure `code` (invalid_request / capture_busy /

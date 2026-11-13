@@ -278,8 +278,7 @@ export interface AppRelayWsData {
 }
 
 type Buffered =
-  | { kind: "text"; text: string }
-  | { kind: "binary"; data: Buffer };
+  { kind: "text"; text: string } | { kind: "binary"; data: Buffer };
 
 // How the browser leg should be ended, decided by whoever is finishing.
 type BrowserEnding =

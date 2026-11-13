@@ -38,18 +38,10 @@ export type AgentState =
 // park the agent at `waiting_for_response`, which is also where an agent that
 // merely finished its turn sits. See AgentInfo.pendingPrompt.
 export type PendingPromptKind =
-  | "permission"
-  | "resume"
-  | "model"
-  | "effort"
-  | "cronjob";
+  "permission" | "resume" | "model" | "effort" | "cronjob";
 
 export type AgentChoiceInteractionKind =
-  | "permission"
-  | "resume"
-  | "model"
-  | "effort"
-  | "cronjob";
+  "permission" | "resume" | "model" | "effort" | "cronjob";
 
 export interface AgentChoiceInteraction {
   id: string;
@@ -87,13 +79,7 @@ export interface AgentOutfit {
   color: string; // shirt color hex
   hair: string; // hair color hex
   hairStyle:
-    | "short"
-    | "long"
-    | "ponytail"
-    | "bun"
-    | "pigtails"
-    | "curly"
-    | "bald";
+    "short" | "long" | "ponytail" | "bun" | "pigtails" | "curly" | "bald";
   skin: string; // skin color hex
   beard: "none" | "stubble" | "full" | "goatee" | "mustache";
   accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
@@ -116,24 +102,16 @@ export const ENGINE_NAMES: Record<AgentBackendType, string> = {
 
 // Claude's 4-mode permission enum.
 export type ClaudePermissionMode =
-  | "default"
-  | "acceptEdits"
-  | "bypassPermissions"
-  | "auto";
+  "default" | "acceptEdits" | "bypassPermissions" | "auto";
 
 // Codex's AskForApproval enum (the four string variants - the experimental
 // `granular` object variant is deferred per the spec).
 export type CodexApprovalPolicy =
-  | "untrusted"
-  | "on-request"
-  | "on-failure"
-  | "never";
+  "untrusted" | "on-request" | "on-failure" | "never";
 
 // Codex's SandboxMode enum.
 export type CodexSandboxMode =
-  | "read-only"
-  | "workspace-write"
-  | "danger-full-access";
+  "read-only" | "workspace-write" | "danger-full-access";
 
 // The sandbox a Codex agent or schedule with no stored codexSandbox runs with.
 export const CODEX_DEFAULT_SANDBOX: CodexSandboxMode = "danger-full-access";
@@ -307,13 +285,7 @@ export function knownModelFamiliesFor(
 // supports. OpenCode variants use the exact matching values from this list;
 // provider-specific names stay hidden. UI filters per backend and model.
 export type EffortLevel =
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max"
-  | "ultra";
+  "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 // Ids only. The words are in the catalog under common.effort.*, reached
 // through EFFORT_KEYS below, so the server's /effort and the UI's dialogs read
@@ -1410,10 +1382,7 @@ export interface TaskItem {
 
 export type GithubIssueState = "open" | "closed";
 export type GithubStateReason =
-  | "completed"
-  | "not_planned"
-  | "duplicate"
-  | "reopened";
+  "completed" | "not_planned" | "duplicate" | "reopened";
 
 // The part of an imported issue that travels with the task everywhere (list,
 // WS, history). It holds no text the issue author wrote: the title, body and
@@ -1435,11 +1404,7 @@ export interface TaskDetailExternal extends TaskExternal {
 }
 
 export type GithubLinkStatusKind =
-  | "pending"
-  | "ok"
-  | "paused"
-  | "waiting"
-  | "error";
+  "pending" | "ok" | "paused" | "waiting" | "error";
 export type GithubLinkStatusReason =
   | "missing" // no office secret with that name
   | "host" // the secret's hosts do not include api.github.com
@@ -1533,11 +1498,7 @@ export type PagerDeliveryState = "not_delivered" | "delivered" | "failed";
 
 // Why the last attempt failed. no_webhook means nothing was sent.
 export type PagerDeliveryFailure =
-  | "no_webhook"
-  | "http_4xx"
-  | "http_5xx"
-  | "rate_limited"
-  | "network";
+  "no_webhook" | "http_4xx" | "http_5xx" | "rate_limited" | "network";
 
 export interface PagerDelivery {
   state: PagerDeliveryState;
@@ -1979,11 +1940,7 @@ export interface AppRecord {
 // `unknown` means there is no unit at all, or systemd could not be asked. One
 // of those is a state somebody chose and the other is a fault.
 export type AppState =
-  | "running"
-  | "starting"
-  | "stopped"
-  | "failed"
-  | "unknown";
+  "running" | "starting" | "stopped" | "failed" | "unknown";
 
 // An app as it goes over the wire: the record plus what only the supervisor
 // knows. Its canonical home is here rather than contract-shapes.ts because
@@ -2139,11 +2096,7 @@ export interface Cronjob {
 export type CronjobListWire = Cronjob & { canManage: boolean };
 
 export type CronjobRunStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "timed_out"
-  | "skipped";
+  "running" | "completed" | "failed" | "timed_out" | "skipped";
 export type CronjobRunTrigger = "scheduled" | "manual" | "webhook";
 
 export interface CronjobRun {
@@ -2710,15 +2663,9 @@ export interface BackendModelWire {
 export type ProviderAccountProvider = "codex" | "claude";
 export type ProviderAccountScope = "office" | "personal";
 export type ProviderAccountStatus =
-  | "connected"
-  | "not_connected"
-  | "unavailable";
+  "connected" | "not_connected" | "unavailable";
 export type ProviderLoginStatus =
-  | "idle"
-  | "waiting_external"
-  | "succeeded"
-  | "failed"
-  | "interrupted";
+  "idle" | "waiting_external" | "succeeded" | "failed" | "interrupted";
 
 // The holder's own sign-in while it holds the directory. Only on the
 // wire of the member who started it: the link and the code are theirs.
@@ -2897,11 +2844,7 @@ export type UnavailableEngines = Partial<
 // Office features this host cannot run. Apps need systemd (server/app-hosting.ts).
 // Why agents do not run in their own PID namespace (server/process-isolation.ts).
 export type ProcessIsolationReason =
-  | "needs_linux"
-  | "no_bwrap"
-  | "denied"
-  | "apparmor"
-  | "turned_off";
+  "needs_linux" | "no_bwrap" | "denied" | "apparmor" | "turned_off";
 
 export type UnavailableFeatures = Partial<Record<"apps", "needs_linux">>;
 

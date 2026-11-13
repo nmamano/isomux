@@ -33,8 +33,7 @@ export interface LimiterOptions {
 }
 
 export type LimitDecision =
-  | { allowed: true }
-  | { allowed: false; retryAfterSeconds: number };
+  { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
 export interface Limiter {
   take: (key: string, now?: number) => LimitDecision;

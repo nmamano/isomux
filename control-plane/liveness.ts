@@ -12,13 +12,7 @@ import * as dns from "node:dns/promises";
 import * as net from "node:net";
 
 export type Rung =
-  | "dns"
-  | "wrong-box"
-  | "tcp"
-  | "tls"
-  | "readyz"
-  | "ok"
-  | "locked";
+  "dns" | "wrong-box" | "tcp" | "tls" | "readyz" | "ok" | "locked";
 
 /**
  * Three consecutive failures before we call an office unreachable (design:

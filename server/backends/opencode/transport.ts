@@ -174,10 +174,7 @@ class OpenCodeFolderSetupFailure extends OpenCodeTurnFailure {}
 class OpenCodeTurnStopped extends Error {}
 
 export type OpenCodeServerProbe =
-  | "healthy"
-  | "unhealthy"
-  | "refused"
-  | "silent";
+  "healthy" | "unhealthy" | "refused" | "silent";
 
 // providerExplains: the provider's own line follows, so this one does not
 // repeat that the provider refused.
@@ -3322,12 +3319,7 @@ export interface OpenCodeStreamFrame {
 // silence, and the turn settles from the replay. ended: the turn ended or
 // was stopped during the recovery. error: the recovery threw.
 export type OpenCodeSilenceOutcome =
-  | "recovered"
-  | "completed"
-  | "failed_alone"
-  | "marked"
-  | "ended"
-  | "error";
+  "recovered" | "completed" | "failed_alone" | "marked" | "ended" | "error";
 
 // A turn's event stream sent nothing until the deadline. Every field is
 // Isomux-authored or an OpenCode name in a fixed shape; no frame body.
@@ -3346,12 +3338,7 @@ export interface OpenCodeStreamSilence {
   // the member has not answered, a running tool, a provider retry, a model
   // step that has not ended, or none of these.
   waitingOn:
-    | "prompt_not_sent"
-    | "permission"
-    | "tool"
-    | "retry"
-    | "model"
-    | "none";
+    "prompt_not_sent" | "permission" | "tool" | "retry" | "model" | "none";
   tools?: string[];
   permissions?: string[];
   // The retry's number: 1 for the first retry.

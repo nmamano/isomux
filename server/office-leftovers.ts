@@ -24,7 +24,7 @@ export function findLeftovers(
 ): number[] {
   const byPid = new Map(procs.map((p) => [p.pid, p]));
   const keep = new Set<number>();
-  for (let pid = opts.selfPid; pid > 0 && !keep.has(pid); ) {
+  for (let pid = opts.selfPid; pid > 0 && !keep.has(pid);) {
     keep.add(pid);
     pid = byPid.get(pid)?.ppid ?? 0;
   }

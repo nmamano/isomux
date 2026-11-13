@@ -13,9 +13,7 @@ import { atomicWriteFileSync } from "./persistence.ts";
 import { MAX_FLOORS, normaliseFloorUrl, type Floor } from "../shared/floors.ts";
 
 export type FloorAddResult =
-  | { kind: "added"; floor: Floor }
-  | { kind: "exists" }
-  | { kind: "full" };
+  { kind: "added"; floor: Floor } | { kind: "exists" } | { kind: "full" };
 
 export interface FloorsStore {
   list(): Floor[];

@@ -107,8 +107,7 @@ export function renderWelcomeMail(
 }
 
 export type WelcomeMailSendResult =
-  | { ok: true }
-  | { ok: false; reason: string };
+  { ok: true } | { ok: false; reason: string };
 
 export interface WelcomeMailSendDeps {
   apiKey: string;

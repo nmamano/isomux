@@ -267,8 +267,7 @@ export interface StepFailure {
 // A step with a link opens an Integrations tab; a step with a route has none:
 // the member runs it from the card.
 export type StepCheck =
-  | { ok: true; step: AskStep; link?: string }
-  | StepFailure;
+  { ok: true; step: AskStep; link?: string } | StepFailure;
 
 // The routes an action step runs now, in order, or why it cannot run (its
 // target is gone). The run stops at the first refusal; the routes are read

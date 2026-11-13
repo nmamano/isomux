@@ -41,8 +41,7 @@ type MintOutcome =
 // honest 404/409; member post-precondition → uniform 403 with the precondition's
 // code), so the handler maps it 1:1 without any role awareness of its own.
 type RevokeOutcome =
-  | { ok: true }
-  | { ok: false; status: HandlerErrorStatus; code: string };
+  { ok: true } | { ok: false; status: HandlerErrorStatus; code: string };
 
 export interface InvitesDeps {
   // Owner mint (officeOwner guard already enforced) - a sign-in link for an

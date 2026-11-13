@@ -104,9 +104,7 @@ export type DiscordReplyMode = "bot" | "read" | "ask";
 
 // Why a route no longer delivers. The same codes as a WhatsApp row.
 export type DiscordRouteDead =
-  | "agent_gone"
-  | "agent_not_yours"
-  | "agent_chat_only";
+  "agent_gone" | "agent_not_yours" | "agent_chat_only";
 
 export interface DiscordRoute {
   id: string;

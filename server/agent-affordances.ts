@@ -405,8 +405,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     agentId: string,
     rawPath: string,
   ):
-    | { ok: true }
-    | { ok: false; status: number; code?: string; error: string } {
+    { ok: true } | { ok: false; status: number; code?: string; error: string } {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
     const probe = probeReadFile(rawPath, managed.info.cwd);

@@ -5,12 +5,7 @@
 import { useSyncExternalStore } from "react";
 
 export type StyleId =
-  | "classical"
-  | "jazz"
-  | "lofi"
-  | "house"
-  | "chip"
-  | "bossa";
+  "classical" | "jazz" | "lofi" | "house" | "chip" | "bossa";
 
 export const STYLES: StyleId[] = [
   "classical",

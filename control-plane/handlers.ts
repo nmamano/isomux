@@ -1148,10 +1148,7 @@ export function revokeAccessHandler(deps: HandlerDeps): Handler {
         };
       }
       let customerObservation:
-        | "present"
-        | "missing"
-        | "duplicate"
-        | "not-supplied";
+        "present" | "missing" | "duplicate" | "not-supplied";
       try {
         customerObservation = await remote(ctx, "revoke_key", () =>
           revokeAccess(ssh, identity, rec.blob, customer?.blob),

@@ -78,7 +78,7 @@ export function recordingRedaction(
     const doc = view.state.doc;
     let lastLine = -1;
     for (const { from, to } of view.visibleRanges) {
-      for (let pos = from; pos <= to; ) {
+      for (let pos = from; pos <= to;) {
         const line = doc.lineAt(pos);
         if (line.number > lastLine) {
           lastLine = line.number;

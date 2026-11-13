@@ -627,8 +627,7 @@ export function fakeOpenCode(options: FakeOptions = {}) {
       return r("session.create", () => {
         const id = options.nextSessionId?.() ?? sessionId;
         const body = bodyOf(init) as
-          | { agent?: unknown; location?: { directory?: unknown } }
-          | undefined;
+          { agent?: unknown; location?: { directory?: unknown } } | undefined;
         const agent = typeof body?.agent === "string" ? body.agent : "build";
         agents.set(id, agent);
         return json({
@@ -696,8 +695,7 @@ export function fakeOpenCode(options: FakeOptions = {}) {
     )
       return r("steer", () => {
         const body = bodyOf(init) as
-          | { id?: unknown; text?: unknown; delivery?: unknown }
-          | undefined;
+          { id?: unknown; text?: unknown; delivery?: unknown } | undefined;
         const inboxId =
           typeof body?.id === "string" && body.id
             ? body.id

@@ -571,9 +571,7 @@ async function checkImage(apply: UpdateApply) {
 // commit mode, and a container image or a Homebrew keg uses release mode with
 // the image action. The platform only picks the guide link.
 export type CheckerMode =
-  | { kind: "commit" }
-  | { kind: "host" }
-  | { kind: "image"; apply: UpdateApply };
+  { kind: "commit" } | { kind: "host" } | { kind: "image"; apply: UpdateApply };
 
 export function pickCheckerMode(
   conf: UpdateConfRead,

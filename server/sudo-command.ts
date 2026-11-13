@@ -6,10 +6,7 @@
 export const SUDO_COMMAND_MAX = 2000;
 
 export type SudoCommandError =
-  | "missing"
-  | "too_long"
-  | "leading_sudo"
-  | "forbidden_character";
+  "missing" | "too_long" | "leading_sudo" | "forbidden_character";
 
 // Control and format characters, the line and paragraph separators, and every
 // space but U+0020.

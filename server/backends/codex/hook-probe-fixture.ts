@@ -12,13 +12,7 @@ import { basename, join } from "path";
 import { createHash } from "crypto";
 
 export type HookBehavior =
-  | "allow"
-  | "deny"
-  | "malformed"
-  | "exit"
-  | "missing"
-  | "hang"
-  | "self-timeout";
+  "allow" | "deny" | "malformed" | "exit" | "missing" | "hang" | "self-timeout";
 
 export interface HookFixture {
   home: string;

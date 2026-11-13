@@ -72,17 +72,10 @@ export interface Fence {
 }
 
 export type ServiceState =
-  | "provisioning"
-  | "live"
-  | "suspended"
-  | "deprovisioned";
+  "provisioning" | "live" | "suspended" | "deprovisioned";
 
 export type OperationStatus =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "ambiguous";
+  "pending" | "running" | "succeeded" | "failed" | "ambiguous";
 
 /** Statuses that hold the one-active slot for an (instance, kind) pair. */
 export const ACTIVE_STATUSES: OperationStatus[] = [
@@ -102,9 +95,7 @@ export type Severity = "info" | "warning" | "critical";
  * not happened.
  */
 export type ReasonClass =
-  | "inactivity_deadline"
-  | "absolute_deadline"
-  | "operation_condition";
+  "inactivity_deadline" | "absolute_deadline" | "operation_condition";
 
 const SEVERITY_RANK: Record<Severity, number> = {
   info: 1,

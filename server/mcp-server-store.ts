@@ -50,9 +50,7 @@ export interface StoredMcpServer {
 }
 
 export type TokenEndpointAuth =
-  | "none"
-  | "client_secret_post"
-  | "client_secret_basic";
+  "none" | "client_secret_post" | "client_secret_basic";
 
 // The client registration and what discovery found. No credential: the
 // client secret and the refresh token are secrets of the same scope, named

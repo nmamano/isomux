@@ -9,7 +9,7 @@ export function normalizeBunRunPath(path: string, cwd: string): string {
   const root = resolve(cwd);
   const own = join(root, "node_modules", ".bin");
   const walk = new Set<string>();
-  for (let dir = root; dirname(dir) !== dir; ) {
+  for (let dir = root; dirname(dir) !== dir;) {
     dir = dirname(dir);
     walk.add(join(dir, "node_modules", ".bin"));
   }

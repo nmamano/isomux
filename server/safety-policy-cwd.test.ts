@@ -771,14 +771,12 @@ const cases: Case[] = [
     "until false; do cd ..; done",
     "select d in a b; do cd ..; done",
     "{ for i in 1 2; do cd ..; done; }",
-  ].map(
-    (loop): Case => ({
-      name: `loop repeats its cd: ${loop.split(";")[0]}`,
-      command: `cd ~/q/r; ${loop}; cd .isomux; cat > x`,
-      denied: true,
-      reason: changedCwd,
-    }),
-  ),
+  ].map((loop): Case => ({
+    name: `loop repeats its cd: ${loop.split(";")[0]}`,
+    command: `cd ~/q/r; ${loop}; cd .isomux; cat > x`,
+    denied: true,
+    reason: changedCwd,
+  })),
   {
     name: "loop without cd keeps writes resolved",
     command: "cd /tmp && cat > a; for i in 1 2; do echo $i; done; cat > b",

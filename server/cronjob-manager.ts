@@ -389,13 +389,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     return {
       type: "weekly",
       weekday: Math.min(6, Math.max(0, Math.floor(schedule.weekday))) as
-        | 0
-        | 1
-        | 2
-        | 3
-        | 4
-        | 5
-        | 6,
+        0 | 1 | 2 | 3 | 4 | 5 | 6,
       hour: Math.min(23, Math.max(0, Math.floor(schedule.hour))),
       minute: Math.min(59, Math.max(0, Math.floor(schedule.minute))),
     };
@@ -1756,8 +1750,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     runId: string,
     rawPath: string,
   ):
-    | { ok: true }
-    | { ok: false; status: number; code?: string; error: string } {
+    { ok: true } | { ok: false; status: number; code?: string; error: string } {
     const active = sessionOwner(runId);
     if (!active || active.jobId !== jobId) {
       return { ok: false, status: 404, error: "active run not found" };

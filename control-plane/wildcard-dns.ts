@@ -21,8 +21,7 @@ export function wildcardProbeHost(
 }
 
 export type WildcardDnsVerdict =
-  | { ready: true }
-  | { ready: false; detail: "missing" | "wrong-a" | "aaaa" };
+  { ready: true } | { ready: false; detail: "missing" | "wrong-a" | "aaaa" };
 
 /** The wildcard is ready only when all traffic goes to the one box we own. */
 export function wildcardDnsVerdict(

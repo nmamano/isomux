@@ -1124,8 +1124,7 @@ describe("across a server restart", () => {
       "at rest",
     );
     const queued = loadMessageQueuesRaw()[info.id] as
-      | { queue: { text: string; fallbackContinue?: boolean }[] }
-      | undefined;
+      { queue: { text: string; fallbackContinue?: boolean }[] } | undefined;
     expect(
       (queued?.queue ?? []).map((m) => [m.text, m.fallbackContinue]),
     ).toEqual([[FALLBACK_CONTINUE_TEXT, true]]);

@@ -615,14 +615,12 @@ export function createSecretStore(
       const secrets = read(scope);
       const added = shapes
         .filter((shape) => !secrets.some((s) => s.name === shape.name))
-        .map(
-          (shape): StoredSecret => ({
-            ...shape,
-            value: null,
-            generation: 1,
-            valueSetAt: 0,
-          }),
-        );
+        .map((shape): StoredSecret => ({
+          ...shape,
+          value: null,
+          generation: 1,
+          valueSetAt: 0,
+        }));
       if (added.length > 0) write(scope, [...secrets, ...added]);
     },
 

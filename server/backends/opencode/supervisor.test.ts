@@ -3441,8 +3441,7 @@ interface ProviderToolCall {
 function heldProvider(
   toolCommand?: string,
   toolCall?:
-    | ProviderToolCall
-    | ((system: string) => ProviderToolCall | undefined),
+    ProviderToolCall | ((system: string) => ProviderToolCall | undefined),
 ) {
   const fixed =
     typeof toolCall === "function"

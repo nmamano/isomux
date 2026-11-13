@@ -31,10 +31,7 @@ export const RESTART_WAKE_INTERVAL_MS = 20_000;
 export const RESTART_WAKE_CLEAR_DELAY_MS = 1_000;
 
 export type RestartWakeDropReason =
-  | "malformed"
-  | "agent gone"
-  | "already woken"
-  | "no conversation";
+  "malformed" | "agent gone" | "already woken" | "no conversation";
 
 export interface RestartWakePlan {
   /** Agents to wake, oldest `since` first. */

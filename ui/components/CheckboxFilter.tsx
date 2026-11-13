@@ -28,7 +28,7 @@ export function prioritySummary(
     (p): p is TaskPriority => p !== "none" && checked.includes(p),
   );
   const parts: string[] = [];
-  for (let i = 0; i < levels.length; ) {
+  for (let i = 0; i < levels.length;) {
     let j = i;
     while (
       j + 1 < levels.length &&

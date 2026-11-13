@@ -33,11 +33,7 @@ type Json = Record<string, unknown>;
 // PreToolUse cwd; 0.164 reported the thread cwd, so a relative write was
 // checked against the wrong folder.
 type ActionKind =
-  | "bash"
-  | "bash_workdir"
-  | "apply_patch"
-  | "dynamic_tool"
-  | "mcp";
+  "bash" | "bash_workdir" | "apply_patch" | "dynamic_tool" | "mcp";
 type SessionMode = "start" | "resume" | "fork" | "one-shot";
 
 interface Reading {

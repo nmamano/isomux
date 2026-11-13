@@ -43,8 +43,7 @@ export type ResumeRefusal =
   | "already_open";
 
 export type ResumeOutcome =
-  | { ok: true; operationId: string }
-  | { ok: false; code: ResumeRefusal };
+  { ok: true; operationId: string } | { ok: false; code: ResumeRefusal };
 
 /**
  * Open the resume for a recovered subscription, at most once per episode.

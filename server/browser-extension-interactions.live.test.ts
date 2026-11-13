@@ -1685,7 +1685,7 @@ function decodePng(png: Buffer) {
   if (png[24] !== 8 || png[28] !== 0 || !channels)
     throw new Error("Unexpected PNG format");
   const data: Buffer[] = [];
-  for (let at = 8; at < png.length; ) {
+  for (let at = 8; at < png.length;) {
     const length = png.readUInt32BE(at);
     if (png.toString("ascii", at + 4, at + 8) === "IDAT")
       data.push(png.subarray(at + 8, at + 8 + length));

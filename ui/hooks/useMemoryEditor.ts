@@ -14,8 +14,7 @@ import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 export type MemoryScope = "office" | "room" | "agent" | "member";
 
 export type MemorySaveResult =
-  | { ok: true }
-  | { ok: false; conflict?: boolean; message: string };
+  { ok: true } | { ok: false; conflict?: boolean; message: string };
 
 export interface MemoryEditor {
   memory: string;

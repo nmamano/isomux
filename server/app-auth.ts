@@ -974,8 +974,7 @@ export function appHostWsAuthGate(
 }
 
 export type AppHostGateResult =
-  | { ok: true; member: AppMember | null }
-  | { ok: false; response: Response };
+  { ok: true; member: AppMember | null } | { ok: false; response: Response };
 
 export function appHostAuthGate(
   req: Request,

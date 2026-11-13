@@ -216,8 +216,7 @@ export function detachedSubagentSteps(
       if (parentAt !== undefined && parentAt < lastMemberAt) {
         const parent = entries[parentAt];
         const input = parent.metadata?.input as
-          | { run_in_background?: unknown }
-          | undefined;
+          { run_in_background?: unknown } | undefined;
         steps.set(entry.id, {
           target: groupOf.get(parent.id) ?? parent.id,
           background: input?.run_in_background === true,

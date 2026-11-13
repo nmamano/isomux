@@ -64,8 +64,7 @@ export const CODEX_KILL_GRACE_MS = 2000;
 const DEFAULT_LAUNCH_GATE_WAIT_MS = 10_000;
 let launchGateWaitMs = DEFAULT_LAUNCH_GATE_WAIT_MS;
 type LaunchGate =
-  | { kind: "opening"; settled: Promise<void> }
-  | { kind: "ready" };
+  { kind: "opening"; settled: Promise<void> } | { kind: "ready" };
 const launchGates = new Map<string, LaunchGate>();
 
 // Tests shorten the wait; null restores the default.

@@ -48,8 +48,7 @@ export interface FolderFilesRequest {
 }
 
 export type FolderFilesResult =
-  | { ok: true; text: string }
-  | { ok: false; error: string };
+  { ok: true; text: string } | { ok: false; error: string };
 
 // The wall-clock limit of one call, child start included.
 export const FOLDER_FILES_TIMEOUT_MS = 10_000;

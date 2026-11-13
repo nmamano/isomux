@@ -212,8 +212,7 @@ export function runSearchInChild(
         release(admission);
         if (killed) return; // already answered with the 504
         let data:
-          | { ok: true; result: SearchResult }
-          | { ok: false; error: string };
+          { ok: true; result: SearchResult } | { ok: false; error: string };
         try {
           data = JSON.parse(out) as typeof data;
         } catch {

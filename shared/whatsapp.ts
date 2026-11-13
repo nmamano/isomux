@@ -33,8 +33,7 @@ export type WhatsAppStatus =
   | { state: "dead"; reason: WhatsAppReason; phone?: string };
 
 export type WhatsAppLinkReq =
-  | { method: "qr" }
-  | { method: "code"; phone: string };
+  { method: "qr" } | { method: "code"; phone: string };
 
 // The phone number a pairing code is requested for: 8 to 15 digits after
 // removing spaces, dashes, dots, parentheses and one leading "+". Null when
@@ -56,9 +55,7 @@ export type WhatsAppRouteTrigger = "mention" | "all";
 //                      is not an office owner
 //   agent_chat_only  - the agent is at Chat stop, so it cannot reply
 export type WhatsAppRouteDead =
-  | "agent_gone"
-  | "agent_not_yours"
-  | "agent_chat_only";
+  "agent_gone" | "agent_not_yours" | "agent_chat_only";
 
 export interface WhatsAppRoute {
   id: string;

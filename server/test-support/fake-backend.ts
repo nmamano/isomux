@@ -379,8 +379,7 @@ export interface FakeBackendConfig {
   forkError?: Error;
   sessionMessages?: NormalizedMessage[];
   storedSessionState?:
-    | StoredSessionState
-    | ((sessionId: string) => StoredSessionState);
+    StoredSessionState | ((sessionId: string) => StoredSessionState);
   sessionResumableError?: string | ((sessionId: string) => string | null);
   // Per-session defaults applied to every created/resumed FakeSession.
   session?: FakeSessionConfig;

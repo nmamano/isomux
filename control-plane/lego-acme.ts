@@ -95,7 +95,7 @@ interface DerNode {
 
 function derNodes(bytes: Uint8Array): DerNode[] {
   const nodes: DerNode[] = [];
-  for (let offset = 0; offset < bytes.length; ) {
+  for (let offset = 0; offset < bytes.length;) {
     const tag = bytes[offset++];
     if (tag === undefined || offset >= bytes.length)
       throw new Error("invalid DER");

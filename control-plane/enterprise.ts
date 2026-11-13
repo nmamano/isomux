@@ -739,8 +739,7 @@ export async function recordSeats(
 }
 
 export type OfficeChangeResult =
-  | { ok: true }
-  | { ok: false; reason: "no_account" | "not_found" | "invalid" };
+  { ok: true } | { ok: false; reason: "no_account" | "not_found" | "invalid" };
 
 /** Lock the caller's account and change one of its offices not removed.
  * `write` gets the enterprise id and the office id. */

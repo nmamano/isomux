@@ -88,8 +88,7 @@ export const STATE_PATH_EXCLUSIONS: Readonly<Record<string, string>> = {
 };
 
 export type PolicyDecision =
-  | { decision: "allow" }
-  | { decision: "deny"; reason: string };
+  { decision: "allow" } | { decision: "deny"; reason: string };
 
 export type ProposedAction =
   | { kind: "shell"; command: unknown }
@@ -493,13 +492,7 @@ type Heredoc = { delimiter: string; stripTabs: boolean; expand: boolean };
  * string, so the scan keeps a stack of these, not one quote character.
  */
 type ShellContext =
-  | "single"
-  | "double"
-  | "ansi"
-  | "command"
-  | "paren"
-  | "brace"
-  | "backtick";
+  "single" | "double" | "ansi" | "command" | "paren" | "brace" | "backtick";
 
 /**
  * The heredocs opened on one line, in the order their bodies follow it, and
@@ -2439,8 +2432,7 @@ type ShellWord = {
 
 /** Optional control-flow view; other policy checks keep their flat command list. */
 type ShellSyntax =
-  | { words: ShellWord[]; substitutions: ShellSyntax[][] }
-  | { operator: string };
+  { words: ShellWord[]; substitutions: ShellSyntax[][] } | { operator: string };
 
 /** A resolved command: the program being run, and the words after it. */
 type EffectiveCommand = { name: string; args: ShellWord[] };

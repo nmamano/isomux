@@ -263,16 +263,14 @@ function isAskPage(v: unknown): boolean {
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
-  if (
-    !(
-      typeof r.id === "string" &&
-      r.id.length > 0 &&
-      typeof r.agentId === "string" &&
-      typeof r.prompt === "string" &&
-      typeof r.createdAt === "number" &&
-      typeof r.updatedAt === "number"
-    )
-  )
+  if (!(
+    typeof r.id === "string" &&
+    r.id.length > 0 &&
+    typeof r.agentId === "string" &&
+    typeof r.prompt === "string" &&
+    typeof r.createdAt === "number" &&
+    typeof r.updatedAt === "number"
+  ))
     return false;
   const hasMember =
     typeof r.memberUserId === "string" && r.memberUserId.length > 0;

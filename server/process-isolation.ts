@@ -24,8 +24,7 @@ export type ProcessIsolationProbe =
     };
 
 export type ProcessIsolationStatus =
-  | { state: "on" }
-  | { state: "off"; reason: ProcessIsolationReason };
+  { state: "on" } | { state: "off"; reason: ProcessIsolationReason };
 
 // How a wrapped spawn shares its namespace: "session" is one agent session
 // (Claude, Codex at danger-full-access); "shared_server" is the OpenCode

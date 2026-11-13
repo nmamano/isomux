@@ -263,10 +263,7 @@ function messageOf(err: unknown): string {
 }
 
 export type RequeueOutcome =
-  | "requeued"
-  | "no_suspension"
-  | "no_notice"
-  | "not_failed";
+  "requeued" | "no_suspension" | "no_notice" | "not_failed";
 
 /**
  * The operator's lever for a held payment deletion: put the office's FAILED

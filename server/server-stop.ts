@@ -61,8 +61,7 @@ export function setStopFinalStep(
 
 /** The final step setStopFinalStep set, or null. */
 export function getStopFinalStep():
-  | ((signalAt: number) => Promise<unknown>)
-  | null {
+  ((signalAt: number) => Promise<unknown>) | null {
   return finalStep;
 }
 

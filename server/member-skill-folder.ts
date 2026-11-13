@@ -113,8 +113,7 @@ export interface MemberSkillFolderInput {
 }
 
 type Planned =
-  | { kind: "link"; target: string }
-  | { kind: "wrapper"; content: string };
+  { kind: "link"; target: string } | { kind: "wrapper"; content: string };
 
 function entries(dir: string): string[] {
   try {

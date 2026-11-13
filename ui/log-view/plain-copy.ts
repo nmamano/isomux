@@ -110,7 +110,7 @@ function backtickRun(text: string, at: number): number {
 
 // The start of the next run of exactly `length` backticks, or -1.
 function closingRun(text: string, from: number, length: number): number {
-  for (let i = from; i < text.length; ) {
+  for (let i = from; i < text.length;) {
     if (text[i] !== "`") {
       i++;
       continue;

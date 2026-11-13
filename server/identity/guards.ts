@@ -36,8 +36,7 @@ export type CeilingManager = Pick<
 // hidden resource and a missing one return the very same FORBIDDEN value, so the
 // guard cannot reveal which.
 export type AuthzOutcome =
-  | { ok: true }
-  | { ok: false; status: 401 | 403 | 404; code: string };
+  { ok: true } | { ok: false; status: 401 | 403 | 404; code: string };
 
 export const ALLOW: AuthzOutcome = Object.freeze({ ok: true });
 

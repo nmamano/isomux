@@ -996,8 +996,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
             (entry) =>
               (
                 entry.metadata?.permissionAudit as
-                  | { event?: string }
-                  | undefined
+                  { event?: string } | undefined
               )?.event === "prompt",
           ).length === 2,
       2000,
@@ -1256,8 +1255,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
         .map(
           (entry) =>
             entry.metadata?.permissionAudit as
-              | { event?: string; outcome?: string }
-              | undefined,
+              { event?: string; outcome?: string } | undefined,
         )
         .filter((audit) => audit !== undefined);
     // The condition under test: the prompt itself reached the disk.

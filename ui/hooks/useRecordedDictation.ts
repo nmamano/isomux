@@ -29,10 +29,7 @@ import { audioExtensionFor, pickRecorderMimeType } from "../voice-input.ts";
 import { voiceFailureOf, type VoiceFailureKind } from "../voice-errors.ts";
 
 export type RecordedDictationState =
-  | "idle"
-  | "recording"
-  | "transcribing"
-  | "failed";
+  "idle" | "recording" | "transcribing" | "failed";
 
 // What went wrong, for the error line. keyMissing, keySecret and keyRejected
 // link to the Variables tab; rejected means Retry cannot help.

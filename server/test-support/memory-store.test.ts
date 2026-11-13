@@ -46,8 +46,7 @@ function freshStore(opts?: { caps?: Record<string, number> }) {
     today: () => DATE,
     now: () => TS,
     caps: opts?.caps as
-      | Record<"office" | "room" | "agent" | "member", number>
-      | undefined,
+      Record<"office" | "room" | "agent" | "member", number> | undefined,
   });
   const store = {
     ...rawStore,

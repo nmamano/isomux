@@ -181,8 +181,7 @@ export interface DecodeFailure {
 export type DeliverMessage = (message: DecodedMessage) => "continue" | "stop";
 
 export type DecodeResult =
-  | { ok: true; stopped: boolean }
-  | { ok: false; failure: DecodeFailure };
+  { ok: true; stopped: boolean } | { ok: false; failure: DecodeFailure };
 
 // Strict UTF-8. `Buffer.toString("utf8")` substitutes U+FFFD for anything
 // malformed, which would turn an app's broken frame into text that looks fine;

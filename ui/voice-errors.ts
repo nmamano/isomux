@@ -3,11 +3,7 @@
 // rejected is a request Retry cannot fix; failed is one it may.
 
 export type VoiceFailureKind =
-  | "keyMissing"
-  | "keyRejected"
-  | "tooLarge"
-  | "rejected"
-  | "failed";
+  "keyMissing" | "keyRejected" | "tooLarge" | "rejected" | "failed";
 
 export async function voiceFailureOf(res: Response): Promise<VoiceFailureKind> {
   let error: { code?: unknown; keyRejected?: unknown } | undefined;

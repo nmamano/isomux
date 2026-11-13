@@ -38,12 +38,7 @@ export interface CommandEntry {
 }
 
 export type GroupKey =
-  | "most-used"
-  | "commands"
-  | "bundled"
-  | "user"
-  | "project"
-  | "plugin";
+  "most-used" | "commands" | "bundled" | "user" | "project" | "plugin";
 
 const GROUP_ORDER: GroupKey[] = [
   "most-used",

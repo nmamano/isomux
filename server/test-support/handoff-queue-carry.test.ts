@@ -159,8 +159,7 @@ function visibleQueue(mgr: Manager, id: string): QueuedMessage[] {
 
 function persistedQueue(id: string): QueuedMessage[] {
   const rec = loadMessageQueuesRaw()[id] as
-    | { queue?: QueuedMessage[] }
-    | undefined;
+    { queue?: QueuedMessage[] } | undefined;
   return rec?.queue ?? [];
 }
 

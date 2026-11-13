@@ -31,8 +31,7 @@ interface Entry {
 }
 
 export type TakeResult =
-  | { found: true; url: string }
-  | { found: false; reason: "absent" | "expired" };
+  { found: true; url: string } | { found: false; reason: "absent" | "expired" };
 
 export class InviteHold {
   private readonly entries = new Map<string, Entry>();

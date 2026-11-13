@@ -72,8 +72,7 @@ export function writeMcpServer(
 // A refused MCP server change as the routes answer it. No message holds the
 // URL, which can carry a token.
 export type McpServerRefusal =
-  | Exclude<McpServerChange, { ok: true }>
-  | { ok: false; kind: "secret_exists" };
+  Exclude<McpServerChange, { ok: true }> | { ok: false; kind: "secret_exists" };
 
 export function mcpServerFailure(change: McpServerRefusal): {
   status: HandlerErrorStatus;

@@ -152,9 +152,8 @@ describe("use cases in the docs", () => {
     expect(posts.length).toBeGreaterThan(0);
     for (const path of posts) {
       const article = docAt(path).querySelector("article")!;
-      const links = Array.from(
-        article.querySelectorAll("a[href]"),
-        (a) => a.getAttribute("href")!,
+      const links = Array.from(article.querySelectorAll("a[href]"), (a) =>
+        a.getAttribute("href")!,
       );
       expect(
         links.some((href) => /^https:\/\/(?!isomux\.com\/)/.test(href)),

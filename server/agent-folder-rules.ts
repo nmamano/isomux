@@ -161,8 +161,7 @@ export function confinedFolderRefusal(
 export function folderOverlapRefusal(
   cwd: string,
   self:
-    | (Pick<FolderRuleAgent, "id" | "roomId"> & { access: AgentAccess })
-    | null,
+    (Pick<FolderRuleAgent, "id" | "roomId"> & { access: AgentAccess }) | null,
   state: Pick<FolderRuleState, "agents" | "roomCwd">,
 ): string | null {
   const dir = real(cwd);

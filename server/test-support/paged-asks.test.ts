@@ -440,8 +440,7 @@ describe("what a paged ask's wire carries", () => {
       (a) => a.id === made.id,
     ) as AskClosedWire;
     const ackEvent = closed.events.find((e) => e.kind === "acked") as
-      | { by?: string | null; byUserId?: string }
-      | undefined;
+      { by?: string | null; byUserId?: string } | undefined;
     expect(ackEvent?.by).toBe(w.pat.username);
     expect(ackEvent?.byUserId).toBeUndefined();
   });

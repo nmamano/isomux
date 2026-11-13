@@ -44,8 +44,7 @@ export type EditFileCheck = { ok: true; file: FilePayload } | PathRefusal;
 // A read-file passes the checks without being read: the copy (the manager's
 // copyReadFile) reads it.
 export type ReadFileCheck =
-  | { ok: true; path: string; size: number }
-  | PathRefusal;
+  { ok: true; path: string; size: number } | PathRefusal;
 
 export function checkTerminalCommand(raw: string): CommandCheck {
   const command = raw.replace(/\s+$/u, "");

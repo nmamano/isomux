@@ -34,8 +34,7 @@ export type CommandDeliveryEvent =
  * reader's language (internal-docs/i18n-loop.md, rulings 7 and 17).
  */
 export type CommandDeliveryIssue =
-  | { kind: "unavailable" }
-  | { kind: "busy"; process: string };
+  { kind: "unavailable" } | { kind: "busy"; process: string };
 
 export type CommandDeliveryResult = {
   state: CommandDeliveryState | null;

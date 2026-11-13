@@ -88,8 +88,7 @@ export async function apiFetch<T = unknown>(
 
   if (!res.ok) {
     const env = data as
-      | { error?: { code?: string; message?: string } }
-      | undefined;
+      { error?: { code?: string; message?: string } } | undefined;
     const code = env?.error?.code ?? `http_${res.status}`;
     const message =
       env?.error?.message || res.statusText || `Request failed (${res.status})`;

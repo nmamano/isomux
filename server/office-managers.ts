@@ -244,8 +244,7 @@ export let providerAccountManager: ProviderAccountManager;
 // systemd" a property of the wiring rather than a promise.
 export let appSupervisor: AppSupervisor;
 export let discoverWelcomeOpenCodeModels:
-  | ((userId: string) => Promise<BackendModelWire[]>)
-  | undefined;
+  ((userId: string) => Promise<BackendModelWire[]>) | undefined;
 // How long a Codex spawn with no model waits for the login's model list
 // before it takes CODEX_MODELS[0].
 export const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;

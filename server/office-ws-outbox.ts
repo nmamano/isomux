@@ -65,8 +65,7 @@ export interface OutboxOptions {
 }
 
 type Item =
-  | { kind: "frame"; data: string }
-  | { kind: "replay"; next: Iterator<string> };
+  { kind: "frame"; data: string } | { kind: "replay"; next: Iterator<string> };
 
 export class OfficeOutbox {
   private readonly items: Item[] = [];

@@ -34,8 +34,7 @@ function httpsUrl(value: unknown): string {
 export class CodexAccountClient {
   private readonly client: JsonRpcLiteClient;
   private completion:
-    | ((value: AccountLoginCompletedNotification) => void)
-    | null = null;
+    ((value: AccountLoginCompletedNotification) => void) | null = null;
   private completed: AccountLoginCompletedNotification | null = null;
 
   constructor(env?: Record<string, string | undefined>) {

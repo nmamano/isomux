@@ -43,10 +43,7 @@ export interface AccountRow {
 }
 
 export type EpisodeState =
-  | "none"
-  | "open"
-  | "coupon_hold"
-  | "suspension_requested";
+  "none" | "open" | "coupon_hold" | "suspension_requested";
 
 export interface SubscriptionRow {
   /** The Stripe subscription id. Stripe's identity is the identity: a local id

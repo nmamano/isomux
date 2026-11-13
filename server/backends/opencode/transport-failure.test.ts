@@ -2146,7 +2146,7 @@ it("stops asking for a catalog that answers 503 at the cap, and names the 503", 
   await settleUntil(() => turn.completions.length > 0);
   expect(turn.notices).toEqual([OPENCODE_EFFORT_CATALOG_UNAVAILABLE]);
   // The load started when the transport acquired its lease, at 0.
-  for (let passed = DEADLINE_MS; passed < cap - 1; ) {
+  for (let passed = DEADLINE_MS; passed < cap - 1;) {
     const step = Math.min(100, cap - 1 - passed);
     turn.clock.advance(step);
     passed += step;

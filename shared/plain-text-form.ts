@@ -21,9 +21,7 @@ import type { MessagingReplyReq } from "./messaging.ts";
 
 // `single`: one value stays a string; only a repeat makes the list.
 export type PlainTextParamKind =
-  | "flag"
-  | "string"
-  | { readonly list: string; readonly single?: true };
+  "flag" | "string" | { readonly list: string; readonly single?: true };
 
 // The query parameters of a plain-text route, keyed by request field: "flag"
 // fills a boolean field (steer=1), "string" a string field, and {list: name}

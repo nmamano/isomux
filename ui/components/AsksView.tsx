@@ -78,8 +78,7 @@ interface AgentRun {
   entries: AskMemberWire[];
 }
 export type AskGroup =
-  | AgentRun
-  | { agent: null; source: string; entries: AskMemberWire[] };
+  AgentRun | { agent: null; source: string; entries: AskMemberWire[] };
 // Two runs with the same key show one name: the age sort's runs split on it,
 // and a run after held cards joins the run before on it.
 const runKey = (run: AskGroup) =>

@@ -41,8 +41,7 @@ export const VOICE_TRANSCRIBE_MODEL = "gpt-transcribe";
 export const VOICE_KEY_NAME = "OPENAI_VOICE_API_KEY";
 export const FALLBACK_VOICE_KEY_NAME = "OPENAI_API_KEY";
 export type VoiceKeyName =
-  | typeof VOICE_KEY_NAME
-  | typeof FALLBACK_VOICE_KEY_NAME;
+  typeof VOICE_KEY_NAME | typeof FALLBACK_VOICE_KEY_NAME;
 
 // Whether a key from this source can reach OpenAI: a secret's value stays
 // with the secret proxy, so the voice routes cannot send it.

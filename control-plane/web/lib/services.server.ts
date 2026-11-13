@@ -168,8 +168,7 @@ function deploymentOrigin(): string | null {
  * builds its Location from configuration and not from the request URL, which
  * behind a proxy is the container's own origin. */
 export type OriginVerdict =
-  | { ok: true; origin: string }
-  | { ok: false; reason: string };
+  { ok: true; origin: string } | { ok: false; reason: string };
 
 /**
  * Refuse a POST that did not come from this deployment's own page.
@@ -226,9 +225,7 @@ export type SignupResult =
   | { ok: false; code?: string; reason: string };
 
 export type SignupPageState =
-  | { kind: "new" }
-  | { kind: "continue"; officeName: string }
-  | { kind: "paid" };
+  { kind: "new" } | { kind: "continue"; officeName: string } | { kind: "paid" };
 
 export async function signupPageState(
   accountId: string,
@@ -1062,8 +1059,7 @@ export async function requestRestart(
 // Stripe" until the projection catches up.
 
 export type CancelResult =
-  | { ok: true }
-  | { ok: false; code?: string; reason: string };
+  { ok: true } | { ok: false; code?: string; reason: string };
 
 async function billingVerb(
   language: SupportedLanguageCode,

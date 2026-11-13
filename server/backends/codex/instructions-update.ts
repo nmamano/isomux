@@ -51,9 +51,7 @@ export async function latestCodexInstructions(
   let latest: string | null = null;
   const read = (item: unknown): void => {
     const message = item as
-      | { type?: unknown; role?: unknown; content?: unknown }
-      | null
-      | undefined;
+      { type?: unknown; role?: unknown; content?: unknown } | null | undefined;
     if (
       message?.type !== "message" ||
       message.role !== "developer" ||

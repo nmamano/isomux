@@ -91,9 +91,7 @@ export function parseClaudeWeekly(raw: unknown): ProbeResult {
   const limits = resp.rate_limits;
   if (!limits || typeof limits !== "object") return { kind: "failed" };
   const week = (limits as Record<string, unknown>).seven_day as
-    | { utilization?: unknown; resets_at?: unknown }
-    | null
-    | undefined;
+    { utilization?: unknown; resets_at?: unknown } | null | undefined;
   if (week === null) return { kind: "no_limit" };
   if (!week || !validPercent(week.utilization)) return { kind: "failed" };
   const resetsAtMs =

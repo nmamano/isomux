@@ -128,8 +128,7 @@ export interface StripePriceConfiguration {
 }
 
 export type StripePriceResolution =
-  | { ok: true; stripePriceId: string }
-  | { ok: false; reason: string };
+  { ok: true; stripePriceId: string } | { ok: false; reason: string };
 
 /** The explicit Entry value wins. The legacy value sells Entry only. */
 export function resolveStripePrice(

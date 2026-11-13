@@ -1812,8 +1812,7 @@ export function loadMessageQueuesRaw(): Record<string, unknown> {
 // unreadable or malformed one is `ok: false` and the caller has to decide -
 // the pruner treats it as fail-closed.
 export type MessageQueuesPeek =
-  | { ok: true; records: Record<string, unknown> }
-  | { ok: false };
+  { ok: true; records: Record<string, unknown> } | { ok: false };
 
 export function peekMessageQueuesRaw(): MessageQueuesPeek {
   if (!existsSync(MESSAGE_QUEUES_FILE)) return { ok: true, records: {} };

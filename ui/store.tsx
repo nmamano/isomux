@@ -202,8 +202,7 @@ export interface AppState {
     agentId: string;
     entryId: string;
     target:
-      | { kind: "editor"; path: string }
-      | { kind: "terminal"; command: string };
+      { kind: "editor"; path: string } | { kind: "terminal"; command: string };
   } | null;
   focusedAgentId: string | null;
   connected: boolean;

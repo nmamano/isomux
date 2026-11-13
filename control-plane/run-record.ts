@@ -15,10 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 export type RunState =
-  | "reinstall_requested"
-  | "reachable"
-  | "first_contact_done"
-  | "revoked";
+  "reinstall_requested" | "reachable" | "first_contact_done" | "revoked";
 
 export interface TimerEvidenceRecord {
   enabled: boolean;
@@ -111,10 +108,7 @@ export function loadAnyRun(dir: string, runId: string): AnyRunRecord | null {
 }
 
 export type ResumeAction =
-  | "wait_for_ssh"
-  | "first_contact"
-  | "provision"
-  | "done";
+  "wait_for_ssh" | "first_contact" | "provision" | "done";
 
 /**
  * What a restart may do with a run it finds on disk.

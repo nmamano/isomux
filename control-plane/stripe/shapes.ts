@@ -60,8 +60,7 @@ export interface SubscriptionSnapshot {
 /** Exactly one item whose price has a unit amount (in the price's own
  * currency, Stripe's lower-case code), or any other shape. */
 export type ItemPrice =
-  | { kind: "single"; unitAmount: number; currency: string }
-  | { kind: "other" };
+  { kind: "single"; unitAmount: number; currency: string } | { kind: "other" };
 
 export interface InvoiceSnapshot {
   id: string;

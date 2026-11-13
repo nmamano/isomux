@@ -12,8 +12,7 @@ export type ComputeDiffResult =
   | { kind: "bad_commit"; cwd: string; attempted: string; message: string };
 
 export type ResolveDirResult =
-  | { kind: "ok"; cwd: string }
-  | { kind: "bad_dir"; attempted: string };
+  { kind: "ok"; cwd: string } | { kind: "bad_dir"; attempted: string };
 
 // Parsed shape of an optional `commit` argument. `single` means show the
 // changes introduced by one commit (rendered as <sha>^..<sha>, with --root
@@ -22,8 +21,7 @@ export type ResolveDirResult =
 // both accepted because git itself supports them and they have distinct
 // semantics for reviewers.
 type CommitSpec =
-  | { kind: "single"; ref: string }
-  | { kind: "range"; raw: string };
+  { kind: "single"; ref: string } | { kind: "range"; raw: string };
 
 // Resolve an optional user-supplied directory against the agent's cwd.
 // `~` expands to the user's home; relative paths resolve against `agentCwd`;
@@ -55,8 +53,7 @@ export interface IsomuxDiffRequest {
 }
 
 export type IsomuxDiffRunResult =
-  | ComputeDiffResult
-  | { kind: "bad_dir"; attempted: string };
+  ComputeDiffResult | { kind: "bad_dir"; attempted: string };
 
 // The whole diff for one request: directory resolution plus computeIsomuxDiff.
 // In split mode the agent runner runs this as the agent user

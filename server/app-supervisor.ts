@@ -383,8 +383,7 @@ export const appHostEnvDirective = (host: string): string =>
 // safe direction here is to notice an assignment and rewrite the unit
 // canonically, never to miss one and leave a wrong value live.
 type InstalledAppEnvAssignment =
-  | { unit: false }
-  | { unit: true; assignment: string | null };
+  { unit: false } | { unit: true; assignment: string | null };
 
 function parseUnitEnvAssignment(
   contents: string | null,

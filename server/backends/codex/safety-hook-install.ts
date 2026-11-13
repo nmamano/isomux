@@ -405,7 +405,7 @@ function rewriteTrustBlocks(
 ): string {
   const lines = text.split("\n");
   const kept: string[] = [];
-  for (let index = 0; index < lines.length; ) {
+  for (let index = 0; index < lines.length;) {
     const owned = ownedKeyPatterns.some((pattern) =>
       pattern.test(lines[index]),
     );
@@ -530,8 +530,7 @@ function verifyConfiguration(
     readFileSync(join(codexHome, "config.toml"), "utf8"),
   ) as Record<string, unknown>;
   const state = (config.hooks as Record<string, unknown> | undefined)?.state as
-    | Record<string, { enabled?: unknown; trusted_hash?: unknown }>
-    | undefined;
+    Record<string, { enabled?: unknown; trusted_hash?: unknown }> | undefined;
   const trust = state?.[trustKey(hooksPath, matcherIndex)];
   if (trust?.enabled !== true || trust.trusted_hash !== trustedHash) {
     throw new Error("post-write trust verification failed");

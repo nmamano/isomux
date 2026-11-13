@@ -880,11 +880,7 @@ export interface MemberVoiceRes extends VoiceStatusRes {
 // that member is gone. `name` is the variable, secret or MCP server name; voice
 // and pager have none. Never a value.
 export type IntegrationChangeKind =
-  | "variable"
-  | "secret"
-  | "mcp"
-  | "voice"
-  | "pager";
+  "variable" | "secret" | "mcp" | "voice" | "pager";
 export interface IntegrationChange {
   time: number;
   by: string | null;
@@ -1358,10 +1354,7 @@ export interface ConnectionTestRes {
 // An OAuth server with no access token: "sign_in" before the first sign-in,
 // "sign_in_again" when its authorization server refused the refresh.
 export type McpServerProblem =
-  | "secret_missing"
-  | "secret_host"
-  | "sign_in"
-  | "sign_in_again";
+  "secret_missing" | "secret_host" | "sign_in" | "sign_in_again";
 
 // `notes` absent keeps the notes of the names that remain.
 export interface UserEnvReplaceReq {
@@ -1502,9 +1495,7 @@ export interface OfficeMcpServerSummaryWire {
 }
 export interface OfficeMcpServerListRes {
   servers:
-    | McpServerWire[]
-    | OfficeMcpServerSummaryWire[]
-    | AgentMcpServerWire[];
+    McpServerWire[] | OfficeMcpServerSummaryWire[] | AgentMcpServerWire[];
 }
 // A server as an agent reads it from the MCP server routes (Lead, 2026-10-14):
 // the host in place of the URL, whose path or query can carry a token. An
@@ -1558,8 +1549,7 @@ export interface PagerSettingsReq {
 }
 
 export type PagerTestRes =
-  | { delivered: true }
-  | { delivered: false; failure: PagerDeliveryFailure };
+  { delivered: true } | { delivered: false; failure: PagerDeliveryFailure };
 
 // Web Push (server/web-push-*.ts). A device where the member turned on
 // notifications; the endpoint never leaves the server.
@@ -1585,8 +1575,7 @@ export interface PushDeviceReq {
 }
 
 export type PushTestRes =
-  | { delivered: true }
-  | { delivered: false; failure: PushDeviceFailure };
+  { delivered: true } | { delivered: false; failure: PushDeviceFailure };
 
 // One line of the member usage cap status: the office sign-in's weekly
 // reading for one provider. A provider with no office sign-in has no line.
@@ -2233,10 +2222,7 @@ export interface UsageReportWire {
 }
 
 export type PruneTarget =
-  | "transcripts"
-  | "attachments"
-  | "token-logs"
-  | "terminal-recordings";
+  "transcripts" | "attachments" | "token-logs" | "terminal-recordings";
 
 export interface PrunePolicy {
   olderThanDays: number;

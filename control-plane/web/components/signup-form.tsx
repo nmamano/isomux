@@ -35,8 +35,7 @@ type FormErrorKey =
   | "signup.refusedError";
 
 type FormError =
-  | { kind: "key"; key: FormErrorKey }
-  | { kind: "text"; text: string };
+  { kind: "key"; key: FormErrorKey } | { kind: "text"; text: string };
 
 const asError = (key: FormErrorKey): FormError => ({ kind: "key", key });
 

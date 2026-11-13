@@ -49,8 +49,7 @@ function profileCliEnvironment(
 // directory it is given, else under its own working directory.
 function exportedDirectory(exported: string): string | null {
   const info = (JSON.parse(exported) as { info?: unknown }).info as
-    | { location?: { directory?: unknown } }
-    | undefined;
+    { location?: { directory?: unknown } } | undefined;
   const directory = info?.location?.directory;
   return typeof directory === "string" && directory ? directory : null;
 }

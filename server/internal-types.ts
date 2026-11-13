@@ -717,10 +717,7 @@ export type AbortResult =
 //     the fresh session.
 //   handoff - a member's /handoff is under way; the same.
 export type SteerDeclineReason =
-  | "multi_step_flow"
-  | "rate_limited"
-  | "auto_handoff"
-  | "handoff";
+  "multi_step_flow" | "rate_limited" | "auto_handoff" | "handoff";
 
 // Result of enqueueMessage. `status` is the HTTP status the WS/HTTP layer
 // should forward for the failure case. `steered` / `steerDeclined` are present
@@ -760,8 +757,7 @@ export type UserSendAcceptance =
 // A cron run-message outcome (task 44872c41). `deduped`: a resend whose
 // clientMessageId matched an accepted attempt; nothing was sent again.
 export type RunSendResult =
-  | { ok: true; deduped?: boolean }
-  | Extract<UserSendAcceptance, { ok: false }>;
+  { ok: true; deduped?: boolean } | Extract<UserSendAcceptance, { ok: false }>;
 
 // ManagedAgent.unsavedDelivery. `sessionId` is the engine's id of the session
 // that accepted the items, null while that session had not reported one.

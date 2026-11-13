@@ -210,14 +210,12 @@ export async function startSudo(opts: SudoStartOptions): Promise<SudoStart> {
       .filter((line) => line !== "");
     return { kind: "auth_failed", reason: lines.at(-1) ?? "" };
   }
-  const done = ended.then(
-    (): SudoRunResult => ({
-      exitCode: proc.exitCode,
-      signal: proc.signalCode === null ? null : String(proc.signalCode),
-      timedOut: supervision.timedOut(),
-      durationMs: Date.now() - t0,
-      output: tail.value(),
-    }),
-  );
+  const done = ended.then((): SudoRunResult => ({
+    exitCode: proc.exitCode,
+    signal: proc.signalCode === null ? null : String(proc.signalCode),
+    timedOut: supervision.timedOut(),
+    durationMs: Date.now() - t0,
+    output: tail.value(),
+  }));
   return { kind: "started", done };
 }

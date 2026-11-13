@@ -186,9 +186,7 @@ function loginInstructions(): LogMessage {
 // usage limits, capacity and Codex's own failures keep their paths.
 export function codexProviderRefusal(
   error:
-    | { message?: string | null; codexErrorInfo?: unknown }
-    | null
-    | undefined,
+    { message?: string | null; codexErrorInfo?: unknown } | null | undefined,
   provider: string,
 ): LogMessage | null {
   if (!error || !isCodexRefusal(error.codexErrorInfo)) return null;
@@ -2790,9 +2788,7 @@ export class CodexSession implements BackendSession {
         // drift - this handler was previously broken by exactly that kind of
         // schema mismatch (was reading `params.usage`, never existed in v2).
         const notif = params as
-          | ThreadTokenUsageUpdatedNotification
-          | null
-          | undefined;
+          ThreadTokenUsageUpdatedNotification | null | undefined;
         const tu = notif?.tokenUsage;
         if (!tu) break;
         // `total` drives the cumulative usage_update event (lifetime billing).
@@ -2922,9 +2918,7 @@ export class CodexSession implements BackendSession {
       // hence mergeRateLimits rather than an assignment.
       case "account/rateLimits/updated": {
         const notif = params as
-          | AccountRateLimitsUpdatedNotification
-          | null
-          | undefined;
+          AccountRateLimitsUpdatedNotification | null | undefined;
         if (notif?.rateLimits) this.mergeRateLimits(notif.rateLimits);
         break;
       }
@@ -4320,8 +4314,7 @@ export const codexBackend: Backend = {
           if (params?.threadId !== threadId) return;
           if (n.method === "item/completed") {
             const item = params?.item as
-              | { type?: string; text?: string }
-              | undefined;
+              { type?: string; text?: string } | undefined;
             if (
               item?.type === "agentMessage" &&
               typeof item.text === "string"
@@ -4330,8 +4323,7 @@ export const codexBackend: Backend = {
             }
           } else if (n.method === "turn/completed") {
             const turn = params?.turn as
-              | { status?: string; error?: TurnErrorLike | null }
-              | undefined;
+              { status?: string; error?: TurnErrorLike | null } | undefined;
             if (turn?.status && turn.status !== "completed") {
               fail(
                 `Codex one-shot turn ${turn.status}: ${turn.error?.message ?? "no detail"}`,

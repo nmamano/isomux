@@ -178,8 +178,7 @@ function harness() {
     threadCalls: [] as string[],
     // Replaces a page answer when set (a hold, a failure or a throw).
     page: null as
-      | null
-      | ((channelId: string) => Promise<DiscordMessagesPage> | null),
+      null | ((channelId: string) => Promise<DiscordMessagesPage> | null),
     // The reactions asked for, and how each one answers (default: ok).
     reactions: [] as {
       token: string;

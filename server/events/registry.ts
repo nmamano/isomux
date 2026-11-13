@@ -66,11 +66,7 @@ import type {
 // The fan-out lattice. A future event must declare its strategy deliberately
 // rather than inherit a default.
 export type AudienceStrategy =
-  | "api-token"
-  | "all"
-  | "owners"
-  | "room-ACL"
-  | "recipient-scoped";
+  "api-token" | "all" | "owners" | "room-ACL" | "recipient-scoped";
 
 // The payload/ctx field(s) from which the emit helper computes recipients. Its
 // presence is what makes an audience AUDITABLE. `path` is a dotted access into

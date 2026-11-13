@@ -44,9 +44,7 @@ export const AGENT_SENDER_PRIVILEGED = "privileged";
 // whoever its manager is.
 export const AGENT_SENDER_LIMITED = "limited";
 export type AgentSenderTrust =
-  | "same-manager"
-  | "same-manager-privileged"
-  | "limited";
+  "same-manager" | "same-manager-privileged" | "limited";
 
 function quoteLabelValue(value: string): string {
   // JSON.stringify leaves the Unicode line and paragraph separators raw, and a

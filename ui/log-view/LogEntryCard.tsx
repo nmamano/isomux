@@ -248,10 +248,7 @@ export function serializeEntries(
 // the last exchange. `self` is the viewer's name; only myMessages reads it.
 // labelSpeakers names who said what and applies `format`.
 export type ChatCopyScope =
-  | "messages"
-  | "myMessages"
-  | "everything"
-  | "lastExchange";
+  "messages" | "myMessages" | "everything" | "lastExchange";
 
 export function chatCopyText(
   i18n: Translator,
@@ -683,8 +680,7 @@ export function describeMessageSender(
   // A member's messaging contact, by the name of the member's row. The member
   // is the row's owner, not the sender.
   const senderMessagingName = metadata?.sender_messaging_route_name as
-    | string
-    | undefined;
+    string | undefined;
   if (senderMessagingName) {
     return {
       label: messagingSenderLabel(
@@ -781,8 +777,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       // A message from another agent: one compact row. From a member: their
       // avatar before the name.
       const senderAgentName = entry.metadata?.sender_agent_name as
-        | string
-        | undefined;
+        string | undefined;
       const sent = senderAgentName ? (
         <PeerMessage
           content={content}
@@ -886,8 +881,7 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "tool_call": {
       const matchingResult = findMatchingToolResult(entry, turnEntries);
       const durationMs = matchingResult?.metadata?.duration_ms as
-        | number
-        | undefined;
+        number | undefined;
       const resultIsError = matchingResult?.metadata?.isError === true;
       return (
         <ToolCall
@@ -989,8 +983,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       // agent-manager's task_lifecycle case). Render with a status dot so
       // settle outcomes scan at a glance; everything else stays SystemMessage.
       const taskEvent = entry.metadata?.taskEvent as
-        | { phase?: string; report?: unknown }
-        | undefined;
+        { phase?: string; report?: unknown } | undefined;
       if (taskEvent) {
         return (
           <TaskBreadcrumb

@@ -17,8 +17,7 @@ import { STATE_ROOT } from "./config.ts";
 import { isCredentialStorePath } from "./credential-store-paths.ts";
 
 export type ResolvePathResult =
-  | { kind: "ok"; path: string }
-  | { kind: "bad_path"; attempted: string };
+  { kind: "ok"; path: string } | { kind: "bad_path"; attempted: string };
 
 export type OpenFileResult =
   | {
@@ -464,8 +463,7 @@ const WATCH_POLL_MS = 1000;
 const DELETE_CONFIRM_POLLS = 2;
 
 export type WatchFileEvent =
-  | { kind: "change"; mtime: number; rev: number }
-  | { kind: "deleted" };
+  { kind: "change"; mtime: number; rev: number } | { kind: "deleted" };
 
 export function watchFile(
   absPath: string,

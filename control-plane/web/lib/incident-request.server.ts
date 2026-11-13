@@ -15,9 +15,7 @@ const NO_STORE = { "cache-control": "no-store" };
  * Authorization header the key is the only way in: a bad key is 401, never a
  * fall-through to the session cookie. */
 export type IncidentCaller =
-  | { key: string }
-  | { accountId: string }
-  | { refused: Response };
+  { key: string } | { accountId: string } | { refused: Response };
 
 export async function incidentCaller(
   request: Request,

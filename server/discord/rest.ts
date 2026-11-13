@@ -28,16 +28,14 @@ export type DiscordRestFailure = {
 };
 
 export type DiscordMe =
-  | { ok: true; id: string; name: string; bot: boolean }
-  | DiscordRestFailure;
+  { ok: true; id: string; name: string; bot: boolean } | DiscordRestFailure;
 
 // The newest messages of a channel or thread, newest first, at most `limit`
 // (1..100), before `before` when given, in the same normalised shape the
 // gateway child gives. botUserId and botRoleIds decide mentionsBot and
 // replyToBot.
 export type DiscordMessagesPage =
-  | { ok: true; messages: DiscordMessage[] }
-  | DiscordRestFailure;
+  { ok: true; messages: DiscordMessage[] } | DiscordRestFailure;
 
 export type DiscordThreadsPage =
   | { ok: true; threads: { id: string; parentId: string }[] }

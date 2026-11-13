@@ -5,9 +5,7 @@
 import type { OfficeCard } from "../shared/floors.ts";
 
 export type OfficeNameLookup =
-  | { kind: "card"; name: string | null }
-  | { kind: "failed" }
-  | { kind: "busy" };
+  { kind: "card"; name: string | null } | { kind: "failed" } | { kind: "busy" };
 
 export interface OfficeNameCacheOptions {
   probe(origin: string): Promise<OfficeCard | "outdated" | null>;

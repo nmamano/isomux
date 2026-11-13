@@ -834,8 +834,7 @@ const agentLinkStyle: React.CSSProperties = {
 type ErrorKey = Extract<MessageKey, `apps.${string}`> & PlainMessageKey;
 
 type PageError =
-  | { kind: "relayed"; message: string }
-  | { kind: "key"; key: ErrorKey };
+  { kind: "relayed"; message: string } | { kind: "key"; key: ErrorKey };
 
 function pageError(err: unknown, key: ErrorKey): PageError {
   return err instanceof ApiError

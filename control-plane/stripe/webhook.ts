@@ -48,11 +48,7 @@ export const HANDLED_EVENT_TYPES = [
 ] as const;
 
 export type WebhookOutcomeKind =
-  | "applied"
-  | "duplicate"
-  | "ignored"
-  | "refused"
-  | "retry";
+  "applied" | "duplicate" | "ignored" | "refused" | "retry";
 
 export interface WebhookOutcome {
   status: number;
@@ -488,8 +484,7 @@ function queueKeyFor(
   }
   if (type === "invoice.payment_failed") {
     const parent = object.parent as
-      | { subscription_details?: { subscription?: unknown } }
-      | undefined;
+      { subscription_details?: { subscription?: unknown } } | undefined;
     return (
       idOf(parent?.subscription_details?.subscription) ??
       idOf(object.subscription) ??

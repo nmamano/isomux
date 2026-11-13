@@ -155,8 +155,8 @@ class FakeCodexTransport implements CodexTransport {
   private serverRequestHandler: ServerRequestHandler | null = null;
   private stderrHandler: ((chunk: string) => void) | null = null;
   private exitHandler:
-    | ((code: number | null, signal: NodeJS.Signals | null) => void)
-    | null = null;
+    ((code: number | null, signal: NodeJS.Signals | null) => void) | null =
+    null;
 
   // ----- CodexTransport (production surface) -----
   // The options of each start (task 8db21c8b: isolate).
@@ -1846,10 +1846,7 @@ describe("Codex one-shot prompt", () => {
     constructor(
       private readonly codexErrorInfo: string,
       private readonly via:
-        | "error"
-        | "turn/completed"
-        | "both"
-        | "both, plain last",
+        "error" | "turn/completed" | "both" | "both, plain last",
     ) {
       super();
     }

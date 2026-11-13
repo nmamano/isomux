@@ -823,8 +823,7 @@ async function shareWithAgent(
 }
 
 let seedWelcomeAgentsForFirstOwner:
-  | ((username: string) => Promise<void>)
-  | null = null;
+  ((username: string) => Promise<void>) | null = null;
 
 const {
   resolveCodexDefaultModel,
@@ -949,13 +948,9 @@ export interface ApiTokenWsData {
   userId: string;
 }
 export type WsData =
-  | OfficeWsData
-  | ApiTokenWsData
-  | AppRelayWsData
-  | ExtensionWsData;
+  OfficeWsData | ApiTokenWsData | AppRelayWsData | ExtensionWsData;
 type EventSocket =
-  | ServerWebSocket<OfficeWsData>
-  | ServerWebSocket<ApiTokenWsData>;
+  ServerWebSocket<OfficeWsData> | ServerWebSocket<ApiTokenWsData>;
 const apiTokenSockets = new Set<ServerWebSocket<ApiTokenWsData>>();
 
 function liveTokenSocket(ws: ServerWebSocket<ApiTokenWsData>): boolean {

@@ -563,8 +563,7 @@ export async function ensureEnterpriseCustomer(
 }
 
 export type HeldInvoiceResult =
-  | { ok: true }
-  | { ok: false; reason: "not_found" | "not_held" | "invalid" };
+  { ok: true } | { ok: false; reason: "not_found" | "not_held" | "invalid" };
 
 async function changeHeld(
   store: Store,

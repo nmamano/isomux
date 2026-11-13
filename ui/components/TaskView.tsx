@@ -41,12 +41,7 @@ import {
 } from "./ExpandableTextarea.tsx";
 
 type SortField =
-  | "status"
-  | "priority"
-  | "title"
-  | "assignee"
-  | "createdBy"
-  | "createdAt";
+  "status" | "priority" | "title" | "assignee" | "createdBy" | "createdAt";
 type SortDir = "asc" | "desc";
 
 // A deferred action to run once the currently-open panel finishes closing

@@ -126,8 +126,7 @@ export type ReinstatementRefused = Refusal & {
 };
 
 export type Eligibility =
-  | { ok: true; operations: OperationRow[] }
-  | ReinstatementRefused;
+  { ok: true; operations: OperationRow[] } | ReinstatementRefused;
 
 function refusal(code: ReinstatementRefusal): ReinstatementRefused {
   return {

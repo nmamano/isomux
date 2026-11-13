@@ -76,8 +76,7 @@ const webEslint = new ESLint({
 /** undefined when ESLint does not lint the file. */
 async function typeAware(file: string, linter: ESLint = eslint) {
   const config = (await linter.calculateConfigForFile(file)) as
-    | ResolvedConfig
-    | undefined;
+    ResolvedConfig | undefined;
   if (config === undefined) return undefined;
   const on = TYPE_AWARE.filter((name) => {
     const entry = config.rules[name];

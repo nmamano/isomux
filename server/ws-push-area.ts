@@ -20,10 +20,7 @@ export interface WsFrame {
 }
 
 export type WsPushArea =
-  | "always"
-  | "none-for-packs"
-  | ApiTokenArea
-  | readonly ApiTokenArea[];
+  "always" | "none-for-packs" | ApiTokenArea | readonly ApiTokenArea[];
 
 export const WS_PUSH_AREA = {
   agent_added: "agents",

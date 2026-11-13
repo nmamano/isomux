@@ -221,9 +221,7 @@ export function setAsksSortDir(dir: AsksSortDir): void {
 // Whose asks the Inbox Asks tab lists for an office owner, remembered on
 // this device: their own, every member's, or one other member's.
 export type AsksMember =
-  | { kind: "mine" }
-  | { kind: "all" }
-  | { kind: "member"; name: string };
+  { kind: "mine" } | { kind: "all" } | { kind: "member"; name: string };
 
 // Stored as "all" or "member:<name>", so a member named "all" or "mine"
 // stays a member; nothing is mine, and so is a value this build does not

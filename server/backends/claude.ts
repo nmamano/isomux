@@ -2050,10 +2050,7 @@ function buildClaudeUserMessage(
         source: {
           type: "base64",
           media_type: image.mediaType as
-            | "image/png"
-            | "image/jpeg"
-            | "image/gif"
-            | "image/webp",
+            "image/png" | "image/jpeg" | "image/gif" | "image/webp",
           data: image.data,
         },
       });
