@@ -273,7 +273,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Pager
 - Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.
-- The Inbox in the office bar has two tabs. Pages lists every page the member can see, with ack and resolve. Asks lists their open asks. A badge counts both. The open count also shows in the tab title, and on the installed app's icon where the browser supports it.
+- The Inbox in the office bar has two tabs. Pages lists every page the member can see, with ack and resolve. Asks lists their open asks. A badge counts both. The badge count also shows in the tab title, and on the installed app's icon where the browser supports it.
 - An agent can open an ask when it needs a member to unblock it. It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
 
 ### Other

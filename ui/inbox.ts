@@ -139,16 +139,16 @@ export function useInboxNavAction(
 }
 
 /**
- * The browser tab title: the open Inbox count first, as messaging apps do
- * ("(3) Isomux PM | Isomux"), and none at 0.
+ * The browser tab title: the unseen Inbox count (the bar's red badge) first,
+ * as messaging apps do ("(3) Isomux PM | Isomux"), and none at 0.
  */
-export function documentTitle(label: string | null, openAsks: number): string {
+export function documentTitle(label: string | null, unseen: number): string {
   const title = label ? `${label} | Isomux` : "Isomux";
-  return openAsks > 0 ? `(${openAsks}) ${title}` : title;
+  return unseen > 0 ? `(${unseen}) ${title}` : title;
 }
 
 /**
- * The installed app's icon badge (navigator.setAppBadge): the open Inbox
+ * The installed app's icon badge (navigator.setAppBadge): the unseen Inbox
  * count, cleared at 0. Does nothing where the API is absent or refuses.
  */
 export function syncAppBadge(count: number): void {

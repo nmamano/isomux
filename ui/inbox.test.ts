@@ -71,9 +71,9 @@ it("finds the ask of an old page link, and null for a 404, a failure or no ask",
 });
 afterEach(() => setApiShim(null));
 
-// The tab title (task 91a69e4c): the open Inbox count in front, as messaging
-// apps do, the exact number, and today's title when nothing is open.
-it("puts the exact open count in front of the tab title, and no count at 0", () => {
+// The tab title (task 91a69e4c): the unseen Inbox count in front, as messaging
+// apps do, the exact number, and today's title at 0.
+it("puts the exact count in front of the tab title, and no count at 0", () => {
   for (const label of ["Scout", null]) {
     const plain = documentTitle(label, 0);
     expect(plain).toContain("Isomux");
@@ -117,7 +117,7 @@ afterEach(() => {
   delete nav.clearAppBadge;
 });
 
-it("shows the open count on the app icon and clears it at 0", () => {
+it("shows the count on the app icon and clears it at 0", () => {
   const badge = fakeBadge();
   syncAppBadge(3);
   expect(badge.shown).toBe(3);

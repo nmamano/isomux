@@ -161,7 +161,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ## Inbox
 
-- **Inbox**: a single place for everything the agents need from you. Its open count shows in the tab title, and on the installed app's icon where the browser supports it. An urgent ask rings through your notifications until you ack it.
+- **Inbox**: a single place for everything the agents need from you. An urgent ask rings through your notifications until you ack it.
 - **Agents that wait for your permission, or that failed**, also show in the Inbox.
 - **Owners see and answer every member's asks.**
 - **Run from the ask**: a command in an ask runs with one tap, in the agent's folder. The card shows its output and exit code.

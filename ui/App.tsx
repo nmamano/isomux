@@ -546,16 +546,17 @@ export function App({ routing = true }: { routing?: boolean }) {
       : lobbyOpen
         ? (office.name ?? null)
         : (currentRoomName ?? office.name ?? null);
-  // Messaging apps put the unanswered count in front of the title, and the
-  // installed app shows it on its icon: every open item of the Inbox.
-  const openInboxCount = useInboxCounts().asks;
+  // Messaging apps put the unread count in front of the title, and the
+  // installed app shows it on its icon: the bar's red badge, the Inbox items
+  // this browser has not shown yet (task 598298ba).
+  const unseenInboxCount = useInboxCounts().newAsks;
   useEffect(() => {
     if (!connected) return;
-    document.title = documentTitle(tabLabel, openInboxCount);
-  }, [connected, tabLabel, openInboxCount]);
+    document.title = documentTitle(tabLabel, unseenInboxCount);
+  }, [connected, tabLabel, unseenInboxCount]);
   useEffect(() => {
-    if (connected) syncAppBadge(openInboxCount);
-  }, [connected, openInboxCount]);
+    if (connected) syncAppBadge(unseenInboxCount);
+  }, [connected, unseenInboxCount]);
 
   // Phone swipes walk the tab bar in order, the Lobby included (Nil): the
   // order lives in swipeTarget. Selecting a room closes the lobby; opening the

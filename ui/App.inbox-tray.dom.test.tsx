@@ -38,7 +38,7 @@ const letters = (view: View) =>
 const trayText = (view: View) => tray(view)!.querySelectorAll("text").length;
 const barBadge = (view: View) =>
   inboxButton(view)?.querySelector(".nav-action-badge")?.textContent ?? null;
-// The tab title without the open count in front (task 91a69e4c; its format
+// The tab title without the unseen count in front (task 91a69e4c; its format
 // is in ui/inbox.test.ts).
 const titleLabel = () => document.title.replace(/^\(\d+\) /, "");
 // The tray is drawn in room r1's walls, under room r1's title.
