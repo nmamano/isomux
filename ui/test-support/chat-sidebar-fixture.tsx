@@ -91,6 +91,7 @@ import { SceneDecorationContext } from "../office/scene-decoration.tsx";
 import { FeaturesProvider, StoreProvider, initialState } from "../store.tsx";
 import type { Features } from "../../shared/features.ts";
 import { setApiShim } from "../api.ts";
+import { resetInboxSeenForTests } from "../inbox-seen.ts";
 import { connect, setShim, shimEmit } from "../ws.ts";
 import { BACK_SEAT_BASE } from "../../shared/desks.ts";
 import { selfUserRecord } from "./language-fixture.tsx";
@@ -369,6 +370,7 @@ export function setUpChatSidebarTests(): void {
     dmFail = false;
     requests.length = 0;
     viewWrites.length = 0;
+    resetInboxSeenForTests();
     window.localStorage.clear();
     // A desktop window wide enough that the sidebar starts open.
     setWindowWidth(1440);

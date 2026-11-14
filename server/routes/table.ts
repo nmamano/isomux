@@ -166,6 +166,7 @@ import type {
   ShownRoomsReq,
   TuckedRoomsReq,
   PinnedReq,
+  InboxSeenReq,
   PushRoomsReq,
   NotifRoomsReq,
   MeRoomsRes,
@@ -1855,6 +1856,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("view:manage", authenticated),
     // The sidebar's pinned agents and members are a private record field,
     // like tucked.
+    emits: ["user_admin_updated", "user_self_updated"],
+  }),
+  // The Inbox seen marks (task 64d3950a): a record field, so user:self, as
+  // on prefs.update.
+  defineRoute<InboxSeenReq, NoContent>({
+    opId: "view.markInboxSeen",
+    tokenArea: "always",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "POST",
+    path: "/api/me/view/inbox-seen",
+    auth: cap("user:self", authenticated),
+    // A private record field, like tucked.
     emits: ["user_admin_updated", "user_self_updated"],
   }),
   defineRoute<PushRoomsReq, NoContent>({

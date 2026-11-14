@@ -216,6 +216,7 @@ export const AUDIT_OPERATIONS = [
   "users.setAccess",
   "users.setInstructions",
   "users.update",
+  "view.markInboxSeen",
   "view.setNotifRooms",
   "view.setOrder",
   "view.setPinned",

@@ -28,6 +28,7 @@ const {
   roomHeader,
   scout,
   setAsks,
+  setSelfUser,
   setUpChatSidebarTests,
 } = await import("./test-support/chat-sidebar-fixture.tsx");
 type View = import("./test-support/chat-sidebar-fixture.tsx").View;
@@ -87,6 +88,8 @@ it("Inbox badge: beside a chat it leaves out that agent's asks, as the chat head
   // The header's Inbox shows only while the sidebar is hidden, so read its
   // count first, then show the sidebar.
   window.localStorage.setItem("isomux-chat-sidebar", "closed");
+  // The member's record, which carries the seen marks (task 64d3950a).
+  setSelfUser({});
   const view = await boot();
   await openFirstDesk(view);
   const badge = () =>

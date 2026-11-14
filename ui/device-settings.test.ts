@@ -34,8 +34,6 @@ const {
   setSettingsGroupOpen,
   getAsksFilter,
   setAsksFilter,
-  getAsksSeen,
-  markAsksSeen,
   getAsksSort,
   setAsksSort,
   getAsksSortDir,
@@ -299,65 +297,6 @@ describe("asks filter", () => {
         priorities: ["P1"],
       });
     }
-  });
-});
-
-// The open asks this browser showed on the Asks tab (task a930c9d6): the
-// Inbox badge counts the open asks not in it. A mark adds the asks shown and
-// keeps only the ids still in the asks slice, so the set stays as small as
-// the open asks.
-describe("asks seen", () => {
-  beforeEach(() => store.clear());
-  const seen = () => [...getAsksSeen()].sort();
-
-  it("adds the shown asks, keeps a seen ask while it is in the slice, and drops it when it leaves", () => {
-    expect(seen()).toEqual([]);
-    markAsksSeen(["a", "b"], ["a", "b", "c"]);
-    expect(seen()).toEqual(["a", "b"]);
-    // "b" is not shown now (its agent's room is hidden), but still open.
-    markAsksSeen(["c"], ["b", "c"]);
-    expect(seen()).toEqual(["b", "c"]);
-  });
-
-  it("writes nothing on an empty slice or when nothing changes", () => {
-    markAsksSeen(["a", "b"], ["a", "b"]);
-    const [key] = [...store.keys()];
-    const stored = store.get(key);
-    // Before GET /api/asks lands the slice is empty: no wipe.
-    markAsksSeen([], []);
-    expect(seen()).toEqual(["a", "b"]);
-    const writes = spyOn(localStorage, "setItem");
-    try {
-      markAsksSeen(["b", "a"], ["a", "b"]);
-      markAsksSeen(["a"], ["b", "a"]);
-      expect(writes).not.toHaveBeenCalled();
-    } finally {
-      writes.mockRestore();
-    }
-    expect(store.get(key)).toBe(stored);
-    // Anchor: a change still writes.
-    markAsksSeen(["c"], ["a", "c"]);
-    expect(seen()).toEqual(["a", "c"]);
-  });
-
-  it("returns the same set while the stored value is unchanged, a new one after a change", () => {
-    markAsksSeen(["a"], ["a"]);
-    const first = getAsksSeen();
-    expect(getAsksSeen()).toBe(first);
-    markAsksSeen(["b"], ["a", "b"]);
-    expect(getAsksSeen()).not.toBe(first);
-    expect(seen()).toEqual(["a", "b"]);
-  });
-
-  it("reads a broken value as nothing seen, and drops ids that are not strings", () => {
-    markAsksSeen(["a"], ["a"]);
-    const [key] = [...store.keys()];
-    for (const raw of ["{not json", '"a"', '{"a":true}', "null"]) {
-      store.set(key, raw);
-      expect(seen(), raw).toEqual([]);
-    }
-    store.set(key, JSON.stringify(["a", 3, null, "b"]));
-    expect(seen()).toEqual(["a", "b"]);
   });
 });
 

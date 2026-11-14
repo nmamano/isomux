@@ -16,6 +16,8 @@ const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim, shimEmit } = await import("../ws.ts");
 const { resetTaskLookupForTests } = await import("../task-lookup.ts");
+const { resetInboxSeenForTests } = await import("../inbox-seen.ts");
+const { selfUserRecord } = await import("./language-fixture.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type AskEntry = import("../../shared/types.ts").AskEntry;
@@ -124,6 +126,30 @@ let role: "member" | "owner" = "member";
 export function setRole(next: "member" | "owner") {
   role = next;
 }
+// The member's own record, which the server sends at connect
+// (user_self_updated): `inboxSeen` holds the marks of the member's devices
+// (task 64d3950a). Absent unless a test sets a list; null sends no record.
+let selfSeen: string[] | undefined | null = undefined;
+export function setSelfSeen(next: string[] | undefined | null) {
+  selfSeen = next;
+}
+export function selfRecord(inboxSeen?: string[]) {
+  return {
+    ...selfUserRecord(null),
+    id: "u1",
+    name: "member",
+    role,
+    ...(inboxSeen ? { inboxSeen } : {}),
+  };
+}
+// The seen marks the client sent (POST /api/me/view/inbox-seen), emptied for
+// each test, and the answer to one: 204 at once unless a test sets its own.
+// The fixture sends no echo: a test emits the record when it needs one.
+export const seenPosts: string[][] = [];
+let seenPost: () => Promise<unknown> = async () => undefined;
+export function setSeenPost(next: () => Promise<unknown>) {
+  seenPost = next;
+}
 // The answer to an ask's POST (reply, dismiss, file as a task); {} at once
 // unless a test sets its own.
 let answerPost: (path: string) => Promise<unknown> = async () => ({});
@@ -207,6 +233,10 @@ export function setUpInboxTests() {
     }
     if (method === "POST" && path.startsWith("/api/asks/"))
       return answerPost(path);
+    if (method === "POST" && path === "/api/me/view/inbox-seen") {
+      seenPosts.push([...(body as { keys: string[] }).keys]);
+      return seenPost();
+    }
     if (method === "POST" && /^\/api\/agents\/[^/]+\/messages$/.test(path)) {
       sentMessages.push({ path, body: body as Record<string, unknown> });
       return messagePost();
@@ -229,7 +259,11 @@ export function setUpInboxTests() {
       return readTasks(path);
     // The pages an ask links to read their own lists; with no fixture they
     // show their error state rather than read a shape they do not expect.
-    if (path.startsWith("/api/me/") || path === "/api/sessions")
+    if (
+      path.startsWith("/api/me/") ||
+      path.startsWith("/api/memory") ||
+      path === "/api/sessions"
+    )
       throw new Error("no fixture");
     return {};
   });
@@ -263,6 +297,10 @@ export function setUpInboxTests() {
     resetTaskLookupForTests();
     sentMessages.length = 0;
     messagePost = async () => ({ messageId: "m", queued: false });
+    selfSeen = undefined;
+    seenPosts.length = 0;
+    seenPost = async () => undefined;
+    resetInboxSeenForTests();
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
     pushState = spyOn(window.history, "pushState");
@@ -306,6 +344,11 @@ export async function boot(path = "/", features = PRODUCTION_FEATURES) {
         type: "session_context",
         context: { username: "member", userId: "u1", role },
       } as never);
+      if (selfSeen !== null)
+        shimEmit({
+          type: "user_self_updated",
+          user: selfRecord(selfSeen),
+        } as never);
       emitFullState();
       hydrated();
     },

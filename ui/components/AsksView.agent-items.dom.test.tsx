@@ -15,7 +15,8 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { setApiShim } = await import("../api.ts");
-const { getAsksSeen } = await import("../device-settings.ts");
+const { resetInboxSeenForTests } = await import("../inbox-seen.ts");
+const { selfUserRecord } = await import("../test-support/language-fixture.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { useInboxCounts } = await import("../inbox.ts");
 const { failureKey } = await import("../inbox-agent-items.ts");
@@ -31,6 +32,7 @@ const ME = "u1";
 let calls: { method: string; path: string; body: unknown }[] = [];
 beforeEach(() => {
   localStorage.clear();
+  resetInboxSeenForTests();
   calls = [];
   setApiShim(async (method, path, body) => {
     calls.push({ method, path, body });
@@ -116,7 +118,16 @@ function place(over: Partial<AppState> = {}): Partial<AppState> {
     } as AppState["sessionContext"],
     // The store keys a record by its lowercased name (ui/user-merge.ts).
     users: new Map([
-      ["mia", { id: ME, name: "Mia", inboxDismissed: dismissed() }],
+      [
+        "mia",
+        {
+          ...selfUserRecord(null),
+          id: ME,
+          name: "Mia",
+          role: "member",
+          inboxDismissed: dismissed(),
+        },
+      ],
     ]) as unknown as AppState["users"],
     ...over,
   };
@@ -202,7 +213,8 @@ describe("agent items on the Asks page", () => {
     );
     expect(allow).toBeTruthy();
     await act(async () => void fireEvent.click(allow!));
-    expect(calls).toEqual([
+    // Leave out the seen marks the page sent when it showed the items.
+    expect(calls.filter((x) => x.path !== "/api/me/view/inbox-seen")).toEqual([
       {
         method: "POST",
         path: "/api/agents/a1/interactions/perm-1/respond",
@@ -270,15 +282,23 @@ describe("agent items on the Inbox badge", () => {
   const counts = (root: HTMLElement) =>
     root.querySelector<HTMLElement>("[data-counts]")!.dataset.counts;
 
-  it("counts the items as new until the Asks page shows them, also with no ask open", () => {
+  it("counts the items as new until the Asks page shows them, also with no ask open", async () => {
     const state = { ...initialState, ...place(), asks: [] } as AppState;
     const probe = render(
       createElement(StateCtx.Provider, { value: state }, createElement(Probe)),
     );
     expect(counts(probe.container)).toBe("3/3");
     const { view } = mount([], place());
+    await act(async () => {});
     expect(itemKeys(view.container)).toHaveLength(3);
-    for (const key of [PERM, F3, F2]) expect(getAsksSeen().has(key)).toBe(true);
+    // Marked on the member's record, by their keys (task 64d3950a).
+    const marks = calls.filter(
+      (x) => x.method === "POST" && x.path === "/api/me/view/inbox-seen",
+    );
+    expect(marks.length).toBe(1);
+    expect([...(marks[0].body as { keys: string[] }).keys].sort()).toEqual(
+      [PERM, F3, F2].sort(),
+    );
     expect(counts(probe.container)).toBe("3/0");
   });
 });

@@ -40,6 +40,7 @@ import { PinnedAsk } from "./PinnedAsk.tsx";
 import { AgentInboxItemCard } from "./AgentInboxItemCard.tsx";
 import { useAgentInboxItems, useInboxDismissed } from "../inbox.ts";
 import { failureKey, type AgentInboxItem } from "../inbox-agent-items.ts";
+import { markInboxSeen, useInboxSeenRecord } from "../inbox-seen.ts";
 import { apiFetch } from "../api.ts";
 import {
   ASKS_SORTS,
@@ -48,9 +49,7 @@ import {
   setAsksMember,
   type AsksMember,
   getAsksSort,
-  getAsksSeen,
   getAsksSortDir,
-  markAsksSeen,
   setAsksFilter,
   setAsksSort,
   setAsksSortDir,
@@ -383,18 +382,20 @@ export function AsksView({
     document.addEventListener("visibilitychange", onChange);
     return () => document.removeEventListener("visibilitychange", onChange);
   }, []);
-  // The agent items are seen as the asks are, by their key. With no ask
-  // loaded the earlier marks are all kept, as markAsksSeen keeps them.
+  // The agent items are seen as the asks are, by their key. The marks go on
+  // the member's record (task 64d3950a), so nothing is sent before it is in.
+  const seenRecord = useInboxSeenRecord();
   useEffect(() => {
-    if (!pageVisible) return;
-    const itemKeys = allItems.map((item) => item.key);
-    markAsksSeen(
-      [...visibleAsks(asks, agents).map((e) => e.id), ...itemKeys],
-      asks.length > 0
-        ? [...asks.map((e) => e.id), ...itemKeys]
-        : [...getAsksSeen(), ...itemKeys],
+    if (!pageVisible || !seenRecord) return;
+    markInboxSeen(
+      seenRecord.memberId,
+      [
+        ...visibleAsks(asks, agents).map((e) => e.id),
+        ...allItems.map((item) => item.key),
+      ],
+      seenRecord.recorded,
     );
-  }, [asks, agents, allItems, pageVisible]);
+  }, [asks, agents, allItems, pageVisible, seenRecord]);
   const [openFilter, setOpenFilter] = useState<
     "room" | "priority" | "agent" | null
   >(null);

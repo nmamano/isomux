@@ -110,7 +110,10 @@ import {
   saveLogRetentionSettings,
   writeLogRetentionState,
 } from "./storage-retention.ts";
-import type { LogRetentionWire } from "../shared/contract-shapes.ts";
+import {
+  INBOX_SEEN_MAX,
+  type LogRetentionWire,
+} from "../shared/contract-shapes.ts";
 import {
   requestBackupTick,
   setBackupPreTick,
@@ -2625,6 +2628,27 @@ function applyPinnedAgents(userId: string, pinned: string[]): boolean {
   return true;
 }
 
+// view.markInboxSeen (task 64d3950a): the keys not stored yet go last, in
+// request order; over INBOX_SEEN_MAX the oldest go. Private like tucked, and
+// sent only on a change.
+function markInboxSeen(userId: string, keys: string[]): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  const before = user.inboxSeen ?? [];
+  const stored = new Set(before);
+  if (keys.every((k) => stored.has(k))) return true;
+  // The Set also drops a key a hand-edited list repeats.
+  const r = updateUserById(userId, {
+    inboxSeen: [...new Set([...before, ...keys])].slice(-INBOX_SEEN_MAX),
+  });
+  if (!r.ok) {
+    console.error(`[view] markInboxSeen failed for ${userId}: ${r.error}`);
+    return false;
+  }
+  emitPrivateUserRecord(r.user);
+  return true;
+}
+
 // The member's own session sent a message to `agentId` (task 5dac6b9b): it
 // moves to the front of their Recent list. Nothing is written or sent when the
 // list stays as it was. A failed write never fails the send it follows.
@@ -5002,6 +5026,7 @@ function buildExecutorDeps(
         return applied;
       },
       applyPinned: applyPinnedAgents,
+      markInboxSeen,
       // Accessible rooms (hidden included) in office order, id+name only -
       // the re-show read for the hide-rooms UI.
       listAccessibleRooms: (userId) => {

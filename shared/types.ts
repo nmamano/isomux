@@ -2503,6 +2503,11 @@ export interface UserRecord {
   // "<agentId>:<since>" keys (ui/inbox-agent-items.ts failureKey). Absent
   // reads as none. Written whole through prefs.update.
   inboxDismissed?: string[];
+  // The ask ids and Inbox item keys the member's Asks tab showed, on any of
+  // their devices (task 64d3950a), oldest first: the Inbox badge counts only
+  // the open ones not in it. Only added to, through view.markInboxSeen, and
+  // capped at INBOX_SEEN_MAX (the oldest go). Absent reads as none.
+  inboxSeen?: string[];
   // The desktop sidebar's Pinned list (task 5dac6b9b), in the member's order,
   // written whole through view.setPinned: pinned agent ids and
   // member:<userId> keys (task b2889127, shared/sidebar-pins.ts). Absent

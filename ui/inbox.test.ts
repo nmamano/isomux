@@ -40,6 +40,10 @@ it("counts as new only the open asks not seen, out of the same asks the tab coun
     new Set(asks.map((a) => a.id)),
   );
   expect([all.asks, all.newAsks]).toEqual([3, 0]);
+  // The member's marks not known yet (task 64d3950a): nothing is new, and
+  // the tab still counts every open ask.
+  const unknown = inboxCounts(asks, agents, answered, null);
+  expect([unknown.asks, unknown.newAsks]).toEqual([3, 0]);
 });
 
 // A Discord or push link from before pages were asks names a page id

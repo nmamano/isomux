@@ -197,6 +197,8 @@ describe("prefs.update - value validation", () => {
       { langauge: "es" },
       { language: "es", nope: 1 },
       { turnEndPush: true },
+      // The Inbox seen marks only add, through view.markInboxSeen.
+      { inboxSeen: ["q1"] },
       {},
     ])
       expect({

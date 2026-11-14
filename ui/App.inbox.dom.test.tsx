@@ -25,10 +25,14 @@ const {
   ranger,
   ask,
   selectedTab,
+  selfRecord,
+  seenPosts,
   setAskRead,
   setPageAsks,
+  setSelfSeen,
   setUpInboxTests,
 } = await import("./test-support/inbox-fixture.tsx");
+type View = import("./test-support/inbox-fixture.tsx").View;
 
 setUpInboxTests();
 
@@ -151,61 +155,97 @@ it("opens the Asks view with no pin for an old page link the office does not kno
   expect(askCards(view)).toBe(2);
 });
 
-// Task a930c9d6: the badge counts the asks this browser has not shown on the
-// Asks view, so a filter left on there never hides an ask from it; the
-// entry's title keeps every open ask. Another tab of the same browser that
-// shows an ask clears it here too.
-it("badges the asks not yet seen, while the title counts every open ask", async () => {
+// Task a930c9d6: the badge counts the asks not yet shown on the Asks view,
+// so a filter left on there never hides an ask from it; the entry's title
+// keeps every open ask. Task 64d3950a: what was shown is on the member's
+// record (inboxSeen), so a mark on one device clears the badge on the others.
+const badgeOf = (view: View) =>
+  inboxButton(view)!.querySelector(".nav-action-badge")?.textContent ?? null;
+const closeInbox = (view: View) =>
+  act(async () => fireEvent.click(view.getByRole("button", { name: "←" })));
+const emitSelf = (inboxSeen: string[]) =>
+  act(async () =>
+    shimEmit({
+      type: "user_self_updated",
+      user: selfRecord(inboxSeen),
+    } as never),
+  );
+
+it("badges the asks no device has shown, sends only the new marks, and follows the marks of another device", async () => {
   const view = await boot();
-  const badge = () =>
-    inboxButton(view)!.querySelector(".nav-action-badge")?.textContent ?? null;
-  const titleCount = () => inboxTitleCount(view);
-  // Nothing seen yet in this browser: every open ask is new.
-  expect(badge()).toBe("2");
+  // Nothing seen yet on any device: every open ask is new.
+  expect(badgeOf(view)).toBe("2");
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(askCards(view)).toBe(2);
-  const close = () =>
-    act(async () => fireEvent.click(view.getByRole("button", { name: "←" })));
-  await close();
-  // Both asks were shown: no badge.
-  expect(badge()).toBeNull();
-  expect(titleCount()).toBe(2);
+  // The hidden-room ask is not on the view, so it is not marked.
+  expect(seenPosts.map((keys) => [...keys].sort())).toEqual([["q1", "q2"]]);
+  await closeInbox(view);
+  // Clear at once, before the record comes back.
+  expect(badgeOf(view)).toBeNull();
+  expect(inboxTitleCount(view)).toBe(2);
+  await emitSelf(["q1", "q2"]);
+  expect(badgeOf(view)).toBeNull();
 
   // A new ask lights it.
   await act(async () =>
     shimEmit({ type: "ask_upserted", entry: ask("q9", "a1") } as never),
   );
-  expect(badge()).toBe("1");
-  expect(titleCount()).toBe(3);
+  expect(badgeOf(view)).toBe("1");
+  expect(inboxTitleCount(view)).toBe(3);
 
-  // Another tab of this browser shows q9: this tab's badge follows.
-  const KEY = "isomux-asks-seen";
-  const shown = [...JSON.parse(localStorage.getItem(KEY)!), "q9"];
-  await act(async () => {
-    localStorage.setItem(KEY, JSON.stringify(shown));
-    window.dispatchEvent(
-      new StorageEvent("storage", {
-        key: KEY,
-        newValue: JSON.stringify(shown),
-      }),
-    );
-  });
-  expect(badge()).toBeNull();
+  // Another device of the member shows q9: the badge here follows, and this
+  // device sends nothing.
+  await emitSelf(["q1", "q2", "q9"]);
+  expect(badgeOf(view)).toBeNull();
+  expect(seenPosts.length).toBe(1);
 
   // The agent of the hidden-room ask reaches the client (its room shown
-  // again): that ask was never on the tab, so it lights the badge.
+  // again): that ask was never on a view, so it lights the badge, and the
+  // next showing sends only its mark.
   await act(async () =>
     shimEmit({
       type: "agent_added",
       agent: { ...ranger, id: "hidden" },
     } as never),
   );
-  expect(badge()).toBe("1");
-  expect(titleCount()).toBe(4);
+  expect(badgeOf(view)).toBe("1");
+  expect(inboxTitleCount(view)).toBe(4);
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(askCards(view)).toBe(4);
-  await close();
-  expect(badge()).toBeNull();
+  expect(seenPosts.slice(1)).toEqual([["q3"]]);
+  await closeInbox(view);
+  expect(badgeOf(view)).toBeNull();
+});
+
+it("a device that loads after another showed an ask does not badge it, and badges nothing before the member's record arrives", async () => {
+  setSelfSeen(null);
+  const view = await boot();
+  // The asks are in, the record is not: no badge yet, the title counts.
+  expect(inboxTitleCount(view)).toBe(2);
+  expect(badgeOf(view)).toBeNull();
+  // The public roster carries no marks: still unknown, so still no badge.
+  await act(async () =>
+    shimEmit({
+      type: "users_list",
+      users: [
+        {
+          id: "u1",
+          name: "member",
+          role: "member",
+          avatarColor: "#4a90d9",
+          avatarVariant: "classic",
+          createdAt: 0,
+        },
+      ],
+    } as never),
+  );
+  expect(badgeOf(view)).toBeNull();
+  // The member's record: another device showed q1.
+  await emitSelf(["q1"]);
+  expect(badgeOf(view)).toBe("1");
+  await emitSelf(["q1", "q2"]);
+  expect(badgeOf(view)).toBeNull();
+  expect(seenPosts.length).toBe(0);
 });
 
 // The old paths: the alias table is pinned in ui/routes.test.ts and the

@@ -1,6 +1,6 @@
 // View-preference resource handlers. The per-user visibility
 // surface (opIds view.{setOrder,setShown,setNotifRooms,setTucked,setPushRooms,
-// setPinned, listRooms}) on the
+// setPinned, markInboxSeen, listRooms}) on the
 // unified REST surface. SELF-scoped: the route table gates every op with
 // view:manage + authenticated, and each handler acts on the CALLER's own userId.
 //
@@ -32,7 +32,11 @@
 // LEAF over the executor + the injected ViewDeps.
 
 import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
-import type { AccessibleRoomWire } from "../../../shared/contract-shapes.ts";
+import {
+  INBOX_DISMISSED_KEY_MAX,
+  INBOX_SEEN_MAX,
+  type AccessibleRoomWire,
+} from "../../../shared/contract-shapes.ts";
 import { PINNED_AGENTS_MAX } from "../../sidebar-agents.ts";
 
 export interface ViewChangeInput {
@@ -54,6 +58,10 @@ export interface ViewDeps {
   // member:<userId> keys (server/sidebar-agents.ts pinnedAgentsToStore) and
   // fans out the private record. false only if the user record vanished.
   applyPinned(userId: string, pinned: string[]): boolean;
+  // view.markInboxSeen (task 64d3950a): adds the keys to the member's Inbox
+  // seen marks and fans out the private record on a change. false only if
+  // the user record vanished.
+  markInboxSeen(userId: string, keys: string[]): boolean;
 }
 
 const isStringArray = (v: unknown): v is string[] =>
@@ -110,6 +118,29 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
         );
       }
       if (!deps.applyPinned(userId, body.pinned)) {
+        return fail(404, "user_not_found");
+      }
+      return noContent();
+    },
+
+    // The Inbox seen marks (task 64d3950a): only the shape and the bounds
+    // are refused.
+    "view.markInboxSeen": (ctx) => {
+      const userId = ctx.identity.userId;
+      if (!userId) return fail(401, "not_a_user", "view is per-user");
+      const keys = ((ctx.body ?? {}) as Record<string, unknown>).keys;
+      if (
+        !isStringArray(keys) ||
+        keys.length > INBOX_SEEN_MAX ||
+        !keys.every((k) => k !== "" && k.length <= INBOX_DISMISSED_KEY_MAX)
+      ) {
+        return fail(
+          422,
+          "invalid_inbox_seen",
+          `keys must be a list of at most ${INBOX_SEEN_MAX} keys of 1 to ${INBOX_DISMISSED_KEY_MAX} characters`,
+        );
+      }
+      if (keys.length > 0 && !deps.markInboxSeen(userId, keys)) {
         return fail(404, "user_not_found");
       }
       return noContent();

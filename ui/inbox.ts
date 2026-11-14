@@ -3,26 +3,29 @@
 // agent items (task ddf02829). This module holds what the bar and the Inbox
 // share.
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { InboxIcon } from "./components/NavIcons.tsx";
 import type { NavAction } from "./components/NavActions.tsx";
 import { openAsks, visibleAsks } from "./asks-sync.ts";
-import { getAsksSeen, subscribeAsksSeen } from "./device-settings.ts";
+import { useInboxSeen } from "./inbox-seen.ts";
 import { apiFetch } from "./api.ts";
 import type { AskMemberWire, PagerEntry } from "../shared/types.ts";
 import { agentInboxItems, type AgentInboxItem } from "./inbox-agent-items.ts";
 
 export interface InboxCounts {
   asks: number;
-  // The open asks not yet shown on the Asks tab (getAsksSeen).
+  // The open asks not yet shown on the Asks tab of any of the member's
+  // devices (ui/inbox-seen.ts).
   newAsks: number;
 }
 
 /**
- * The open asks, and of them those not in `seen`, which this browser has not
- * shown on the Asks tab. The bar's badge is the new asks (task a930c9d6).
+ * The open asks, and of them those not in `seen`, which no device of the
+ * member has shown on the Asks tab (task 64d3950a). The bar's badge is the
+ * new asks (task a930c9d6). With `seen` null (the member's marks not known
+ * yet) none is new.
  * An ask answered on the Inbox (`answered`) no longer counts, nor do the
  * asks of `exceptAgentId`: the chat bar leaves out the asks its chat
  * already shows. The agent items (`items`, task ddf02829) count as asks,
@@ -32,7 +35,7 @@ export function inboxCounts(
   asks: readonly AskMemberWire[],
   agents: readonly { id: string }[],
   answered: ReadonlyMap<string, unknown>,
-  seen: ReadonlySet<string>,
+  seen: ReadonlySet<string> | null,
   exceptAgentId?: string,
   items: readonly AgentInboxItem[] = [],
 ): InboxCounts {
@@ -43,8 +46,10 @@ export function inboxCounts(
   return {
     asks: open.length + shown.length,
     newAsks:
-      open.filter((e) => !seen.has(e.id)).length +
-      shown.filter((i) => !seen.has(i.key)).length,
+      seen === null
+        ? 0
+        : open.filter((e) => !seen.has(e.id)).length +
+          shown.filter((i) => !seen.has(i.key)).length,
   };
 }
 
@@ -96,13 +101,9 @@ export function useAgentInboxItems(): AgentInboxItem[] {
   );
 }
 
-// A server render has seen no ask.
-const NONE_SEEN: ReadonlySet<string> = new Set();
-const serverSeen = () => NONE_SEEN;
-
 export function useInboxCounts(exceptAgentId?: string): InboxCounts {
   const { asks, agents, answeredAsks } = useAppState();
-  const seen = useSyncExternalStore(subscribeAsksSeen, getAsksSeen, serverSeen);
+  const seen = useInboxSeen();
   const items = useAgentInboxItems();
   return useMemo(
     () => inboxCounts(asks, agents, answeredAsks, seen, exceptAgentId, items),

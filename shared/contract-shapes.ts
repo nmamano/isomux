@@ -803,6 +803,19 @@ export interface PinnedReq {
   pinned: string[];
 }
 
+// view.markInboxSeen (task 64d3950a): the ask ids and Inbox item keys the
+// caller's Asks tab showed that their record does not hold yet. The server
+// adds them to UserRecord.inboxSeen; it never removes one, so two devices
+// that mark at once cannot undo each other.
+export interface InboxSeenReq {
+  keys: string[];
+}
+
+// The most keys UserRecord.inboxSeen holds, and one request may send. An add
+// over it drops the oldest. Open asks and items run well under 100 per member;
+// the bound keeps the record small, as it goes out whole on every change.
+export const INBOX_SEEN_MAX = 500;
+
 // prefs.update (PATCH /api/me/preferences). SELF-only personal
 // preferences, deliberately NOT on the selfOrOwner users.update route: the
 // split keeps an owner out of a member's language. The voice part also has a

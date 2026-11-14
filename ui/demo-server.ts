@@ -40,6 +40,7 @@ import type {
   PagerSettingsRes,
   TuckedRoomsReq,
   PinnedReq,
+  InboxSeenReq,
   PushRoomsReq,
   StoragePruneReq,
   StorageCompressReq,
@@ -3478,6 +3479,23 @@ export async function demoApi(
         : undefined;
       if (!existing || !Array.isArray(b.pinned)) return undefined;
       const updated: UserRecord = { ...existing, pinnedAgents: [...b.pinned] };
+      users.set(updated.name.toLowerCase(), updated);
+      shimEmit({ type: "user_self_updated", user: updated });
+      return undefined;
+    }
+    // view.markInboxSeen round-trips too (task 64d3950a), so the Inbox badge
+    // clears once the visitor opens the Asks tab.
+    case "POST /api/me/view/inbox-seen": {
+      const b = (body ?? {}) as InboxSeenReq;
+      const selfId = sessionContext?.userId ?? null;
+      const existing = selfId
+        ? [...users.values()].find((u) => u.id === selfId)
+        : undefined;
+      if (!existing || !Array.isArray(b.keys)) return undefined;
+      const updated: UserRecord = {
+        ...existing,
+        inboxSeen: [...new Set([...(existing.inboxSeen ?? []), ...b.keys])],
+      };
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_self_updated", user: updated });
       return undefined;

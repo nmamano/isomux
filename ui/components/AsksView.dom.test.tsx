@@ -28,12 +28,14 @@ const { AsksView, ASK_UNDO_MS } = await import("./AsksView.tsx");
 const { AsksStack } = await import("../log-view/AsksStack.tsx");
 const { StateCtx, DispatchCtx, initialState } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
-const { getAsksSeen, setAsksFilter } = await import("../device-settings.ts");
+const { setAsksFilter } = await import("../device-settings.ts");
+const { useInboxCounts } = await import("../inbox.ts");
+const { resetInboxSeenForTests } = await import("../inbox-seen.ts");
+const { selfUserRecord } = await import("../test-support/language-fixture.tsx");
 const {
   ask,
   ranked,
   mount,
-  mountSorted,
   groupIds,
   cardIds,
   pageOrder,
@@ -260,16 +262,49 @@ const pendingOf = (view: ReturnType<typeof render>, id: string) => {
 const undoOf = (view: ReturnType<typeof render>, id: string) =>
   cardEl(view, id)!.querySelector<HTMLButtonElement>("[data-ask-undo]")!;
 
-// What this browser has seen (task a930c9d6): while the Asks tab shows on a
-// visible page, every open ask the member can see is marked seen, whatever
-// the filters, so the Inbox badge lights only for what came since. A seen ask
-// stays seen while it is open, even with its agent out of the agents slice.
+// What the member has seen (task a930c9d6, task 64d3950a): while the Asks tab
+// shows on a visible page, every open ask the member can see is marked seen,
+// whatever the filters, so the Inbox badge lights only for what came since.
+// The marks are on the member's record (inboxSeen), so they reach every
+// device: the tab sends the server only the marks the record lacks, once.
 describe("asks seen", () => {
-  beforeEach(() => localStorage.clear());
-  const seen = () => [...getAsksSeen()].sort();
   const ALL_SORT_IDS = SORT_ASKS.map((a) => a.id).sort();
+  const SEEN_PATH = "/api/me/view/inbox-seen";
+  beforeEach(() => {
+    localStorage.clear();
+    resetInboxSeenForTests();
+  });
+  // Each mark the tab sent, its keys sorted.
+  const sent = () =>
+    bodies
+      .filter((_, i) => posts[i] === SEEN_PATH)
+      .map((b) => [...(b as { keys: string[] }).keys].sort());
+  const record = (inboxSeen?: string[]) => ({
+    ...selfUserRecord(null),
+    id: "u1",
+    name: "Mia",
+    role: "member" as const,
+    ...(inboxSeen ? { inboxSeen } : {}),
+  });
+  // The session's member and their record, as the server sends it at connect.
+  const me = (inboxSeen?: string[]): Partial<AppState> => ({
+    sessionContext: {
+      userId: "u1",
+      username: "Mia",
+      role: "member",
+    } as AppState["sessionContext"],
+    // The store keys a record by its lowercased name (ui/user-merge.ts).
+    users: new Map([["mia", record(inboxSeen)]]) as AppState["users"],
+  });
+  const selfUpdated = (inboxSeen: string[]) =>
+    ({
+      type: "user_self_updated",
+      user: record(inboxSeen),
+    }) as unknown as Parameters<
+      ReturnType<typeof mount>["latest"]["dispatch"]
+    >[0];
 
-  it("marks every open ask it can show seen, whatever the filters, and one that arrives or whose agent arrives", async () => {
+  it("sends every open ask it can show that the record lacks, whatever the filters, then only one that arrives or whose agent arrives", async () => {
     setAsksFilter({
       uncheckedRooms: ["r2"],
       uncheckedAgents: [],
@@ -277,23 +312,25 @@ describe("asks seen", () => {
     });
     const { view, latest } = mount(
       [...SORT_ASKS, ranked("ghostAsk", "a9", 3, "P1")],
-      { rooms: SORT_ROOMS, agents: SORT_AGENTS },
+      { rooms: SORT_ROOMS, agents: SORT_AGENTS, ...me(["a1old", "elsewhere"]) },
     );
+    await act(async () => {});
     // The filters are on: only a3's P1 ask in r1 shows.
     expect(pageOrder(view)).toEqual(["a3:a3p1"]);
-    // Every ask of an agent the client has, not the ghost's.
-    expect(seen()).toEqual(ALL_SORT_IDS);
-    // A new ask in the unchecked room: seen at once.
-    act(() =>
+    // Every ask of an agent the client has, not the ghost's, and not a1old,
+    // which another device marked.
+    expect(sent()).toEqual([ALL_SORT_IDS.filter((id) => id !== "a1old")]);
+    // A new ask in the unchecked room: sent at once, alone.
+    await act(async () =>
       latest.dispatch({
         type: "ask_upserted",
         entry: ranked("a2late", "a2", 0, "P2"),
       }),
     );
     expect(pageOrder(view)).toEqual(["a3:a3p1"]);
-    expect(seen()).toEqual([...ALL_SORT_IDS, "a2late"].sort());
+    expect(sent().slice(1)).toEqual([["a2late"]]);
     // The ghost's agent arrives: its ask is now one the member can see.
-    act(() =>
+    await act(async () =>
       latest.setPlace({
         rooms: SORT_ROOMS,
         agents: [
@@ -302,31 +339,92 @@ describe("asks seen", () => {
         ] as AppState["agents"],
       }),
     );
-    expect(seen()).toEqual([...ALL_SORT_IDS, "a2late", "ghostAsk"].sort());
+    expect(sent().slice(2)).toEqual([["ghostAsk"]]);
   });
 
-  it("keeps a seen ask seen while its agent is out of the agents slice, and drops it when it closes", async () => {
-    const { latest } = mountSorted();
-    expect(seen()).toEqual(ALL_SORT_IDS);
-    // a4's room is hidden: a4 leaves the agents slice, its asks stay open.
-    act(() =>
-      latest.setPlace({
-        rooms: SORT_ROOMS,
-        agents: SORT_AGENTS.filter((a) => a.id !== "a4"),
-      }),
+  it("sends a mark once while it is in flight or on the record; a failed mark lights the badge again and goes with the next showing", async () => {
+    // The Inbox badge, in a tree of its own over the same member and asks.
+    function Probe() {
+      const c = useInboxCounts();
+      return createElement("output", {
+        "data-counts": `${c.asks}/${c.newAsks}`,
+      });
+    }
+    const probeState = {
+      ...initialState,
+      asks: SORT_ASKS,
+      rooms: SORT_ROOMS,
+      agents: SORT_AGENTS,
+      ...me([]),
+    } as AppState;
+    const probe = render(
+      createElement(
+        StateCtx.Provider,
+        { value: probeState },
+        createElement(Probe),
+      ),
     );
-    act(() =>
+    const counts = () =>
+      probe.container.querySelector<HTMLElement>("[data-counts]")!.dataset
+        .counts;
+    expect(counts()).toBe("6/6");
+
+    // The server's answer to the first mark, held until the test settles it.
+    const settle = { fail: () => {} };
+    answer = () =>
+      new Promise<unknown>((_resolve, reject) => {
+        settle.fail = () =>
+          reject(new ApiError(503, "unavailable", "Try again."));
+      });
+    const { latest } = mount(SORT_ASKS, {
+      rooms: SORT_ROOMS,
+      agents: SORT_AGENTS,
+      ...me([]),
+    });
+    await act(async () => {});
+    expect(sent()).toEqual([ALL_SORT_IDS]);
+    // In flight: the badge is clear at once.
+    expect(counts()).toBe("6/0");
+    // The agents slice changes while the mark is in flight: nothing again.
+    await act(async () =>
+      latest.setPlace({ rooms: SORT_ROOMS, agents: [...SORT_AGENTS] }),
+    );
+    expect(sent().length).toBe(1);
+
+    // The server refuses it: the badge lights again.
+    await act(async () => settle.fail());
+    expect(counts()).toBe("6/6");
+    // The next showing sends the refused marks again, with the new one.
+    answer = async () => undefined;
+    await act(async () =>
       latest.dispatch({
         type: "ask_upserted",
         entry: ranked("a1late", "a1", 0),
       }),
     );
-    expect(seen()).toEqual([...ALL_SORT_IDS, "a1late"].sort());
-    // A closed ask leaves the set.
-    act(() => latest.dispatch({ type: "ask_removed", id: "a2only" }));
-    expect(seen()).toEqual(
-      [...ALL_SORT_IDS, "a1late"].filter((id) => id !== "a2only").sort(),
+    expect(sent().slice(1)).toEqual([[...ALL_SORT_IDS, "a1late"].sort()]);
+
+    // The record comes back with them: a later change sends nothing.
+    await act(async () =>
+      latest.dispatch(selfUpdated([...ALL_SORT_IDS, "a1late"])),
     );
+    await act(async () =>
+      latest.setPlace({ rooms: SORT_ROOMS, agents: [...SORT_AGENTS] }),
+    );
+    expect(sent().length).toBe(2);
+  });
+
+  it("sends nothing before the member's record is in, then what the record lacks", async () => {
+    const { latest } = mount(SORT_ASKS, {
+      rooms: SORT_ROOMS,
+      agents: SORT_AGENTS,
+      ...me(),
+      users: new Map() as AppState["users"],
+    });
+    await act(async () => {});
+    expect(sent()).toEqual([]);
+    await act(async () => latest.dispatch(selfUpdated(["a2only"])));
+    expect(sent()).toEqual([ALL_SORT_IDS.filter((id) => id !== "a2only")]);
   });
 
   it("marks nothing while the page is hidden, and everything shown once it is visible again", async () => {
@@ -335,24 +433,28 @@ describe("asks seen", () => {
       get: () => "hidden",
     });
     try {
-      const { view, latest } = mountSorted();
+      const { view, latest } = mount(SORT_ASKS, {
+        rooms: SORT_ROOMS,
+        agents: SORT_AGENTS,
+        ...me(),
+      });
       // The tab shows the asks; the page is hidden.
       expect(pageOrder(view)).toEqual(BY_AGENT);
-      act(() =>
+      await act(async () =>
         latest.dispatch({
           type: "ask_upserted",
           entry: ranked("a1late", "a1", 0),
         }),
       );
-      expect(seen()).toEqual([]);
-      act(() => {
+      expect(sent()).toEqual([]);
+      await act(async () => {
         Object.defineProperty(document, "visibilityState", {
           configurable: true,
           get: () => "visible",
         });
         document.dispatchEvent(new Event("visibilitychange"));
       });
-      expect(seen()).toEqual([...ALL_SORT_IDS, "a1late"].sort());
+      expect(sent()).toEqual([[...ALL_SORT_IDS, "a1late"].sort()]);
     } finally {
       delete (document as unknown as Record<string, unknown>).visibilityState;
     }

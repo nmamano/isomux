@@ -142,6 +142,7 @@ it("the routes every pack lets a member call are their own pages", () => {
       "users.delete",
       "users.update",
       "view.listRooms",
+      "view.markInboxSeen",
       "view.setNotifRooms",
       "view.setOrder",
       "view.setPinned",

@@ -159,6 +159,12 @@ function inboxDismissedOf(value: unknown): Pick<UserRecord, "inboxDismissed"> {
   return keys.length > 0 ? { inboxDismissed: keys } : {};
 }
 
+// The Inbox seen marks (task 64d3950a), normalized as the dismiss list is.
+function inboxSeenOf(value: unknown): Pick<UserRecord, "inboxSeen"> {
+  const keys = inboxDismissedOf(value).inboxDismissed;
+  return keys ? { inboxSeen: keys } : {};
+}
+
 // The sidebar's pinned list (agent ids and member:<userId> keys) and recent
 // agents (task 5dac6b9b): absent and [] both mean none, so [] is not stored.
 // A hand-edited list keeps its string entries, first place wins. The rules
@@ -304,6 +310,7 @@ function load(): Record<string, UserRecord> {
         ...voicePreferences(value),
         ...recordingWordsOf(value.recordingWords),
         ...inboxDismissedOf(value.inboxDismissed),
+        ...inboxSeenOf(value.inboxSeen),
         ...agentIdListOf("pinnedAgents", value.pinnedAgents),
         ...agentIdListOf("recentAgents", value.recentAgents),
         ...(value.pendingSignIn === true
@@ -738,6 +745,7 @@ export function updateUserById(
       | "voiceName"
       | "recordingWords"
       | "inboxDismissed"
+      | "inboxSeen"
       | "pinnedAgents"
       | "recentAgents"
     >
@@ -826,6 +834,7 @@ export function updateUserById(
     }),
     ...recordingWordsOf(changes.recordingWords ?? existing.recordingWords),
     ...inboxDismissedOf(changes.inboxDismissed ?? existing.inboxDismissed),
+    ...inboxSeenOf(changes.inboxSeen ?? existing.inboxSeen),
     ...agentIdListOf(
       "pinnedAgents",
       changes.pinnedAgents ?? existing.pinnedAgents,
