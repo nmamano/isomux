@@ -1198,6 +1198,26 @@ describe("options the member can tap", () => {
     expect(
       mark(await edit("", { json: { text: "Keep it?", recommended: "Keep" } })),
     ).toBe("Keep");
+    // recommended= sent alone, with no prompt and no options, removes only
+    // the mark (task 2f7ffc7b): as JSON, and as text/plain with an empty body.
+    const fields = (e: unknown) => {
+      const a = e as AskEntry | undefined;
+      return [a?.prompt, a?.options, mark(a)];
+    };
+    const onlyMark = [
+      ["Keep it?", ["Keep", "Drop"], null],
+      ["Keep it?", ["Keep", "Drop"], null],
+    ];
+    const jsonAlone = await edit("", { json: { recommended: "" } });
+    expect([fields(jsonAlone), fields(stored(w, id))]).toEqual(onlyMark);
+    expect(mark(await edit("", { json: { recommended: "Keep" } }))).toBe(
+      "Keep",
+    );
+    const textAlone = await edit("?recommended=", { text: "" });
+    expect([fields(textAlone), fields(stored(w, id))]).toEqual(onlyMark);
+    expect(mark(await edit("", { json: { recommended: "Keep" } }))).toBe(
+      "Keep",
+    );
     const cleared = await edit("?recommended=", { text: "Keep it?" });
     expect([cleared.options, mark(cleared)]).toEqual([["Keep", "Drop"], null]);
     // Removing the options removes the mark with them.
