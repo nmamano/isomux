@@ -7,8 +7,10 @@
 //   proxy never reads.
 // - A listed host on 443: the proxy ends TLS with an office-CA certificate
 //   and reads each request. It swaps a placeholder for the value only in the
-//   header that the secret's form names, only when the secret lists this
-//   host, and never on TRACE or OPTIONS. A placeholder of a secret that does
+//   header that the secret's form names (or, for a token exchange's query
+//   form, in one named query parameter), only when the secret lists this
+//   host, and never on TRACE or OPTIONS. A secret with a token exchange
+//   sends a token that the proxy gets for it (exchange.ts). A placeholder of a secret that does
 //   not list this host gets 403. CONNECT host, SNI and Host must agree on
 //   every request, or 421. The request is written again to the same host on
 //   443, verified against the system roots. Redirects go back to the client.
@@ -41,6 +43,7 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import {
   isNeverListed,
   isValidSecretHost,
+  type ExchangeSpec,
   type SecretForm,
 } from "../../shared/secret-hosts.ts";
 import {
@@ -59,6 +62,15 @@ import {
 import { peerUid } from "./peer-uid.ts";
 import { scrubPatterns, scrubText, StreamScrubber } from "./scrub.ts";
 import { createLeafIssuer, type LeafIssuer } from "./x509.ts";
+import {
+  createTokenCache,
+  ExchangeError,
+  EXCHANGE_REPLY_CAP,
+  EXCHANGE_TIMEOUT_MS,
+  exchangeFailureText,
+  type ExchangeRequest,
+  type TokenCache,
+} from "./exchange.ts";
 
 export interface ProxySecret {
   // scopeId() of the secret's scope: "office" or "user:<id>".
@@ -69,6 +81,9 @@ export interface ProxySecret {
   value: string;
   hosts: string[];
   form: SecretForm;
+  // The token exchange (exchange.ts): `value` is the client or app secret,
+  // and the proxy sends the token it gets for it.
+  exchange?: ExchangeSpec;
   placeholder: string;
 }
 
@@ -94,6 +109,9 @@ export interface ProxyOptions {
   upstreamRoots?: string;
   // The OS user of a client (peer-uid.ts, peerUid).
   peerUid?: (socket: Socket) => Promise<number | null>;
+  // The clock of the token cache (exchange.ts): lifetimes, refresh margin,
+  // failure backoff and the 401 rule.
+  now?: () => number;
 }
 
 export interface ProxyUse {
@@ -140,6 +158,8 @@ interface State {
   listed: Set<string>;
   // Header names that some secret's form names, lower-case.
   namedHeaders: Set<string>;
+  // Query parameter names that some secret's query form names, as typed.
+  namedParams: Set<string>;
   patterns: string[];
   issuer: LeafIssuer;
   contexts: Map<string, SecureContext>;
@@ -149,14 +169,17 @@ function deriveState(snapshot: ProxySnapshot, options: ProxyOptions): State {
   const byPlaceholder = new Map<string, ProxySecret>();
   const listed = new Set<string>();
   const namedHeaders = new Set<string>();
+  const namedParams = new Set<string>();
   for (const secret of snapshot.secrets) {
     byPlaceholder.set(secret.placeholder, secret);
     for (const host of secret.hosts) listed.add(host);
-    namedHeaders.add(
-      secret.form.kind === "authorization"
-        ? "authorization"
-        : secret.form.header,
-    );
+    if (secret.form.kind === "authorization") namedHeaders.add("authorization");
+    else if (secret.form.kind === "header")
+      namedHeaders.add(secret.form.header);
+    // A query form without an exchange never reaches the proxy (the store
+    // refuses it); it is skipped here too, so a raw value never goes in a
+    // web address.
+    else if (secret.exchange) namedParams.add(secret.form.param);
   }
   const isTerminable = (host: string) =>
     listed.has(host) && isValidSecretHost(host) && !isNeverListed(host);
@@ -166,6 +189,7 @@ function deriveState(snapshot: ProxySnapshot, options: ProxyOptions): State {
     byPlaceholder,
     listed,
     namedHeaders,
+    namedParams,
     patterns: scrubPatterns(snapshot.secrets.map((s) => s.value)),
     issuer: createLeafIssuer(
       { certPem: snapshot.caCertPem, keyPem: snapshot.caKeyPem },
@@ -367,8 +391,17 @@ async function openTls(state: State, host: string): Promise<TLSSocket> {
 // --- requests on a terminated connection ---
 
 type SwapResult =
-  | { kind: "forward"; headers: HeaderList; used: ProxySecret[] }
-  | { kind: "forbidden"; secret: ProxySecret };
+  | {
+      kind: "forward";
+      headers: HeaderList;
+      // The request target's path and query, with a query swap done.
+      path: string;
+      used: ProxySecret[];
+    }
+  | { kind: "forbidden"; secret: ProxySecret }
+  // A request the proxy refuses with 400 and this text. The text names a
+  // secret or a parameter name, never the target.
+  | { kind: "refused"; text: string };
 
 function decodeBasic(token: string): { user: string; pass: string } | null {
   if (!BASE64.test(token)) return null;
@@ -379,33 +412,42 @@ function decodeBasic(token: string): { user: string; pass: string } | null {
 }
 
 function formNames(secret: ProxySecret, header: string): boolean {
-  return secret.form.kind === "authorization"
-    ? header === "authorization"
-    : secret.form.header === header;
+  if (secret.form.kind === "authorization") return header === "authorization";
+  return secret.form.kind === "header" && secret.form.header === header;
 }
 
-// Swaps placeholders in the headers that their secrets' forms name.
+// The value that replaces a placeholder: the stored value, or for a secret
+// with a token exchange its token.
+type ValueOf = (secret: ProxySecret) => string;
+
+// Swaps placeholders in the headers that their secrets' forms name, and in
+// the query parameter a query form names.
 function swapPlaceholders(
   state: State,
   host: string,
   method: string,
   headers: HeaderList,
+  path: string,
+  valueOf: ValueOf,
 ): SwapResult {
   const inject = method !== "TRACE" && method !== "OPTIONS";
   const used: ProxySecret[] = [];
   const out: HeaderList = [];
   // Returns the replacement for `candidate`, or null to leave it, or a
-  // forbidden secret.
+  // forbidden secret. Inside Basic only a secret without an exchange is
+  // swapped: a token is a bearer credential, never a user or password.
   const resolve = (
     header: string,
     candidate: string,
+    inBasic = false,
   ): string | null | { forbidden: ProxySecret } => {
     const secret = state.byPlaceholder.get(candidate);
     if (!secret || !formNames(secret, header)) return null;
+    if (inBasic && secret.exchange) return null;
     if (!secret.hosts.includes(host)) return { forbidden: secret };
     if (!inject) return null;
     used.push(secret);
-    return secret.value;
+    return valueOf(secret);
   };
   for (const [name, value] of headers) {
     const lower = name.toLowerCase();
@@ -425,8 +467,8 @@ function swapPlaceholders(
         if (scheme.toLowerCase() === "basic") {
           const basic = decodeBasic(token);
           if (basic) {
-            const user = resolve(lower, basic.user);
-            const pass = resolve(lower, basic.pass);
+            const user = resolve(lower, basic.user, true);
+            const pass = resolve(lower, basic.pass, true);
             for (const r of [user, pass])
               if (r && typeof r === "object")
                 return { kind: "forbidden", secret: r.forbidden };
@@ -446,7 +488,100 @@ function swapPlaceholders(
     }
     out.push([name, next]);
   }
-  return { kind: "forward", headers: out, used };
+  const query = swapQuery(state, host, inject, path, valueOf);
+  if (query.kind !== "forward") return query;
+  used.push(...query.used);
+  return { kind: "forward", headers: out, path: query.path, used };
+}
+
+function percentDecode(text: string): string | null {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return null;
+  }
+}
+
+// The query swap: a pair whose raw name is a query form's parameter and
+// whose raw value is the placeholder of a query-form secret with that
+// parameter. Nothing is decoded for the swap. A pair that matches only after
+// percent-decoding, or another pair of the same decoded name next to a
+// swapped one, is refused: the agent learns why, and the service never
+// chooses between two values.
+function swapQuery(
+  state: State,
+  host: string,
+  inject: boolean,
+  path: string,
+  valueOf: ValueOf,
+):
+  | { kind: "forward"; path: string; used: ProxySecret[] }
+  | { kind: "forbidden"; secret: ProxySecret }
+  | { kind: "refused"; text: string } {
+  const unchanged = { kind: "forward" as const, path, used: [] };
+  if (state.namedParams.size === 0) return unchanged;
+  const mark = path.indexOf("?");
+  if (mark === -1) return unchanged;
+  const pairs = path
+    .slice(mark + 1)
+    .split("&")
+    .map((part) => {
+      const equals = part.indexOf("=");
+      const name = equals === -1 ? part : part.slice(0, equals);
+      const value = equals === -1 ? null : part.slice(equals + 1);
+      return {
+        name,
+        value,
+        decodedName: percentDecode(name),
+        decodedValue: value === null ? null : percentDecode(value),
+      };
+    });
+  const querySecret = (param: string | null, placeholder: string | null) => {
+    if (param === null || placeholder === null) return null;
+    if (!state.namedParams.has(param)) return null;
+    const secret = state.byPlaceholder.get(placeholder);
+    return secret?.exchange &&
+      secret.form.kind === "query" &&
+      secret.form.param === param
+      ? secret
+      : null;
+  };
+  const swaps: { index: number; secret: ProxySecret }[] = [];
+  for (const [index, pair] of pairs.entries()) {
+    const raw = querySecret(pair.name, pair.value);
+    if (raw) {
+      swaps.push({ index, secret: raw });
+      continue;
+    }
+    const decoded = querySecret(pair.decodedName, pair.decodedValue);
+    if (decoded)
+      return {
+        kind: "refused",
+        text: `the placeholder for ${decoded.name} must not be percent-encoded`,
+      };
+  }
+  if (swaps.length === 0) return unchanged;
+  for (const { index, secret } of swaps) {
+    const param = (secret.form as { param: string }).param;
+    if (
+      pairs.some((pair, other) => other !== index && pair.decodedName === param)
+    )
+      return { kind: "refused", text: `more than one ${param} parameter` };
+  }
+  for (const { secret } of swaps)
+    if (!secret.hosts.includes(host)) return { kind: "forbidden", secret };
+  if (!inject) return unchanged;
+  const parts = pairs.map((pair) =>
+    pair.value === null ? pair.name : `${pair.name}=${pair.value}`,
+  );
+  for (const { index, secret } of swaps)
+    parts[index] =
+      `${pairs[index].name}=${encodeURIComponent(valueOf(secret))}`;
+  return {
+    kind: "forward",
+    path: `${path.slice(0, mark + 1)}${parts.join("&")}`,
+    used: swaps.map(({ secret }) => secret),
+  };
 }
 
 // Accept-Encoding for the upstream: identity when a value was sent (so a
@@ -520,6 +655,8 @@ interface Upstream {
 async function serveTerminated(
   getState: () => State,
   events: ProxyEvents,
+  exchanges: TokenCache,
+  patternsOf: (state: State) => string[],
   client: TLSSocket,
   host: string,
   misdirected: () => boolean,
@@ -577,12 +714,51 @@ async function serveTerminated(
           return fail(400, `more than one ${name} field`);
       const framing = bodyFraming(head.headers, { strict: true });
 
-      const swap = swapPlaceholders(state, host, method, head.headers);
+      // First with the stored values, and an exchange secret's placeholder
+      // left as it is: its stored value is the app secret, which never goes
+      // to the API host. When a secret with a token exchange is used, its
+      // tokens come next (a fetch at most once per secret, and only for a
+      // request that sends one), and the swap runs again with them on the
+      // same snapshot.
+      let swap = swapPlaceholders(
+        state,
+        host,
+        method,
+        head.headers,
+        where.path,
+        (secret) => (secret.exchange ? secret.placeholder : secret.value),
+      );
       if (swap.kind === "forbidden")
         return fail(
           403,
           `the secret ${swap.secret.name} may not be sent to ${host}`,
         );
+      if (swap.kind === "refused") return fail(400, swap.text);
+      const tokens = new Map<ProxySecret, string>();
+      for (const secret of new Set(swap.used)) {
+        if (!secret.exchange) continue;
+        const reply = await exchanges.token(secret);
+        if (!reply.ok)
+          return fail(502, exchangeFailureText(secret.name, reply.reason));
+        tokens.set(secret, reply.token);
+      }
+      if (tokens.size > 0) {
+        swap = swapPlaceholders(
+          state,
+          host,
+          method,
+          head.headers,
+          where.path,
+          (secret) => {
+            if (!secret.exchange) return secret.value;
+            const token = tokens.get(secret);
+            if (token === undefined) throw new Error("no token");
+            return token;
+          },
+        );
+        // The same snapshot and request give the same result.
+        if (swap.kind !== "forward") throw new Error("swap changed");
+      }
 
       // The forwarded head: the client's fields in their order, without the
       // hop-by-hop ones, Host from the CONNECT host, and our own framing.
@@ -626,7 +802,7 @@ async function serveTerminated(
       }
       const up: Upstream = upstream;
       up.socket.write(
-        serializeHead(`${method} ${where.path} HTTP/1.1`, forwarded),
+        serializeHead(`${method} ${swap.path} HTTP/1.1`, forwarded),
       );
       for (const secret of swap.used)
         events.use({
@@ -650,7 +826,17 @@ async function serveTerminated(
       })();
       sendBody.catch(() => {});
 
-      const patterns = state.patterns;
+      // This request's own tokens are in the set whatever the cache did
+      // since the swap.
+      const patterns =
+        tokens.size === 0
+          ? patternsOf(state)
+          : [
+              ...new Set([
+                ...patternsOf(state),
+                ...scrubPatterns(tokens.values()),
+              ]),
+            ].sort((a, b) => b.length - a.length);
       let response = await readHead(up.reader);
       for (;;) {
         if (!response) throw new Error("upstream closed");
@@ -668,6 +854,10 @@ async function serveTerminated(
       }
       const status = Number(response.startLine.split(" ")[1]);
       if (!Number.isInteger(status)) throw new Error("bad status line");
+      // A token the service refuses is fetched again (exchange.ts says when).
+      if (status === 401)
+        for (const [secret, token] of tokens)
+          exchanges.unauthorized(secret, token);
       const noBody = method === "HEAD" || status === 204 || status === 304;
       const responseFraming = bodyFraming(response.headers, {
         strict: false,
@@ -747,6 +937,84 @@ async function serveTerminated(
   }
 }
 
+// One token exchange: an HTTP/1.1 POST to the token address through the same
+// path as a forwarded request (company proxy, stand-ins, roots). A redirect
+// is never followed; the reply is read up to EXCHANGE_REPLY_CAP. Throws a
+// failure reason, never an error with content.
+async function sendExchange(
+  state: State,
+  request: ExchangeRequest,
+): Promise<{ status: number; body: string }> {
+  let socket: TLSSocket | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new ExchangeError("timeout")),
+      EXCHANGE_TIMEOUT_MS,
+    );
+  });
+  const run = async () => {
+    try {
+      socket = await openTls(state, request.host);
+    } catch {
+      throw new ExchangeError("unreachable");
+    }
+    const body = Buffer.from(request.body, "utf8");
+    const reader = new ByteReader(socket);
+    try {
+      socket.write(
+        Buffer.concat([
+          serializeHead(`POST ${request.path} HTTP/1.1`, [
+            ["Host", request.host],
+            ...request.headers,
+            ["Accept-Encoding", "identity"],
+            ["Content-Length", String(body.length)],
+            ["Connection", "close"],
+          ]),
+          body,
+        ]),
+      );
+      let head = await readHead(reader);
+      while (head && /^HTTP\/1\.[01] 1[0-9][0-9]( |$)/.test(head.startLine))
+        head = await readHead(reader);
+      if (!head) throw new ExchangeError("unreachable");
+      const status = Number(head.startLine.split(" ")[1]);
+      if (!Number.isInteger(status)) throw new ExchangeError("unreachable");
+      if (status < 200 || status >= 300) return { status, body: "" };
+      const coding = headerValues(head.headers, "content-encoding")
+        .join(",")
+        .trim()
+        .toLowerCase();
+      if (coding && coding !== "identity") return { status, body: "" };
+      const pieces: Buffer[] = [];
+      let size = 0;
+      for await (const piece of readBody(
+        reader,
+        bodyFraming(head.headers, { strict: false }),
+      )) {
+        size += piece.length;
+        if (size > EXCHANGE_REPLY_CAP) return { status, body: "" };
+        pieces.push(piece);
+      }
+      return { status, body: Buffer.concat(pieces).toString("utf8") };
+    } catch (error) {
+      throw error instanceof ExchangeError
+        ? error
+        : new ExchangeError("unreachable");
+    }
+  };
+  // A run that loses the race to the timeout still settles later: its
+  // rejection must not go unhandled.
+  const running = run();
+  running.catch(() => {});
+  try {
+    return await Promise.race([running, timedOut]);
+  } finally {
+    clearTimeout(timer);
+    (socket as TLSSocket | null)?.destroy();
+  }
+}
+
 // --- the listener ---
 
 const digest = (text: string) => createHash("sha256").update(text).digest();
@@ -783,6 +1051,45 @@ export function createSecretProxy(
 ): SecretProxy {
   let state = deriveState(initial, options);
   const sockets = new Set<Socket>();
+  const exchanges = createTokenCache({
+    now: options.now ?? Date.now,
+    send: (request) => sendExchange(state, request),
+    onExchange: (secret, request) =>
+      events.use({
+        scope: secret.scope,
+        ownerId: secret.ownerId,
+        name: secret.name,
+        host: request.host,
+        method: "POST",
+        path: request.path.split("?")[0],
+      }),
+  });
+  // The scrub patterns: every value, and every live token. Made again only
+  // when the snapshot or the live tokens change; a request takes its set
+  // when its response starts.
+  let patternMemo: {
+    state: State;
+    version: number;
+    patterns: string[];
+  } | null = null;
+  const patternsOf = (current: State): string[] => {
+    const version = exchanges.version();
+    if (patternMemo?.state !== current || patternMemo.version !== version) {
+      const tokens = exchanges.liveTokens();
+      patternMemo = {
+        state: current,
+        version,
+        patterns:
+          tokens.length === 0
+            ? current.patterns
+            : scrubPatterns([
+                ...current.snapshot.secrets.map((s) => s.value),
+                ...tokens,
+              ]),
+      };
+    }
+    return patternMemo.patterns;
+  };
 
   async function handle(socket: Socket) {
     sockets.add(socket);
@@ -912,6 +1219,8 @@ export function createSecretProxy(
       void serveTerminated(
         () => state,
         events,
+        exchanges,
+        patternsOf,
         tls,
         host,
         () => misdirected,

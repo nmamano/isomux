@@ -1137,6 +1137,36 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.secrets.saveFailed": "Could not save the secret.",
   "settings.secrets.formAuthorization": "Authorization header",
   "settings.secrets.formHeaderNamed": "{header} header",
+  "settings.secrets.formQueryNamed": "{param} parameter in the web address",
+  "settings.secrets.error.exchange": "Check the token exchange fields.",
+  "settings.secrets.error.exchangeHost":
+    "Add the token address's host to the addresses.",
+  "settings.connections.list.mcpSecretExchange":
+    "Left out: its secret uses a token exchange",
+  "integrations.secrets.exchange": "Token exchange",
+  "integrations.secrets.exchangeHint":
+    "For services that trade an app id and secret for a short-lived token, such as Feishu.",
+  "integrations.secrets.exchangeUrl": "Token address",
+  "integrations.secrets.exchangeId": "App or client id",
+  "integrations.secrets.exchangeSecret": "App or client secret",
+  "integrations.secrets.exchangeBody": "How the id and secret are sent",
+  "integrations.secrets.exchangeBasic": "OAuth, in the Authorization header",
+  "integrations.secrets.exchangeForm": "OAuth, in the form body",
+  "integrations.secrets.exchangeJson": "As JSON",
+  "integrations.secrets.exchangeIdField": "Id field",
+  "integrations.secrets.exchangeSecretField": "Secret field",
+  "integrations.secrets.exchangeParams":
+    "Extra fields, one name=value per line",
+  "integrations.secrets.exchangeReply":
+    "Token and lifetime fields in the reply",
+  "integrations.secrets.exchangeTokenField": "Token field",
+  "integrations.secrets.exchangeExpiryField": "Lifetime field, in seconds",
+  "integrations.secrets.queryParam": "In a web address parameter",
+  "integrations.secrets.queryParamName": "Parameter name",
+  "integrations.secrets.queryParamPlaceholder":
+    "Parameter name, such as access_token",
+  "integrations.secrets.viaExchange": "token exchange via {host}",
+  "cards.secretRequest.exchange": "Isomux trades it for a token at {host}.",
   "settings.secrets.rotate": "Replace value",
   "settings.secrets.saveValue": "Save value",
   "settings.secrets.reissue": "New stand-in",

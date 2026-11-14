@@ -1152,6 +1152,37 @@ Coses que pots fer per ell:
   "settings.secrets.saveFailed": "No s'ha pogut desar el secret.",
   "settings.secrets.formAuthorization": "Capçalera Authorization",
   "settings.secrets.formHeaderNamed": "Capçalera {header}",
+  "settings.secrets.formQueryNamed": "Paràmetre {param} de l'adreça web",
+  "settings.secrets.error.exchange":
+    "Revisa els camps de l'intercanvi de testimoni.",
+  "settings.secrets.error.exchangeHost":
+    "Afegeix l'amfitrió de l'adreça del testimoni a les adreces.",
+  "settings.connections.list.mcpSecretExchange":
+    "Exclòs: el seu secret fa servir un intercanvi de testimoni",
+  "integrations.secrets.exchange": "Intercanvi de testimoni",
+  "integrations.secrets.exchangeHint":
+    "Per a serveis que canvien un id i un secret d'aplicació per un testimoni de curta durada, com Feishu.",
+  "integrations.secrets.exchangeUrl": "Adreça del testimoni",
+  "integrations.secrets.exchangeId": "Id de l'aplicació o del client",
+  "integrations.secrets.exchangeSecret": "Secret de l'aplicació o del client",
+  "integrations.secrets.exchangeBody": "Com s'envien l'id i el secret",
+  "integrations.secrets.exchangeBasic": "OAuth, a la capçalera Authorization",
+  "integrations.secrets.exchangeForm": "OAuth, al cos del formulari",
+  "integrations.secrets.exchangeJson": "Com a JSON",
+  "integrations.secrets.exchangeIdField": "Camp de l'id",
+  "integrations.secrets.exchangeSecretField": "Camp del secret",
+  "integrations.secrets.exchangeParams":
+    "Camps addicionals, un nom=valor per línia",
+  "integrations.secrets.exchangeReply":
+    "Camps del testimoni i de la durada a la resposta",
+  "integrations.secrets.exchangeTokenField": "Camp del testimoni",
+  "integrations.secrets.exchangeExpiryField": "Camp de la durada, en segons",
+  "integrations.secrets.queryParam": "En un paràmetre de l'adreça web",
+  "integrations.secrets.queryParamName": "Nom del paràmetre",
+  "integrations.secrets.queryParamPlaceholder":
+    "Nom del paràmetre, com access_token",
+  "integrations.secrets.viaExchange": "intercanvi de testimoni via {host}",
+  "cards.secretRequest.exchange": "Isomux el canvia per un testimoni a {host}.",
   "settings.secrets.rotate": "Substituir el valor",
   "settings.secrets.saveValue": "Desar el valor",
   "settings.secrets.reissue": "Nou substitut",

@@ -16,7 +16,16 @@ import {
   type SecretTestKind,
 } from "../shared/contract-shapes.ts";
 import { mcpServerHost } from "../shared/mcp-servers.ts";
-import type { SecretForm } from "../shared/secret-hosts.ts";
+import {
+  exchangeHost,
+  type ExchangeSpec,
+  type SecretForm,
+} from "../shared/secret-hosts.ts";
+import {
+  buildExchangeRequest,
+  EXCHANGE_REPLY_CAP,
+  parseExchangeReply,
+} from "./secret-proxy/exchange.ts";
 import {
   credentialHeader,
   mcpServerSecret,
@@ -200,6 +209,7 @@ function failForStatus(response: Response): never {
 async function readBody(
   response: Response,
   until?: (text: string) => unknown,
+  maxBytes = MAX_BODY_BYTES,
 ): Promise<{ text: string; found?: unknown }> {
   const reader = response.body?.getReader();
   if (!reader) return { text: "" };
@@ -211,7 +221,7 @@ async function readBody(
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > MAX_BODY_BYTES) throw new Failure("unexpected");
+      if (bytes > maxBytes) throw new Failure("unexpected");
       text += decoder.decode(value, { stream: true });
       if (until) {
         const found = until(text);
@@ -263,6 +273,29 @@ async function testSecret(
     host: check.host,
     account: cleanName(named, { value: secret.value, url: null }),
   };
+}
+
+// A secret with a token exchange: the exchange alone, built and read as the
+// proxy does (task 124eb47e). A token in the reply passes; the token never
+// leaves this function.
+async function testExchange(
+  deps: ConnectionTesterDeps,
+  call: Call,
+  exchange: ExchangeSpec,
+  value: string,
+): Promise<ConnectionTestResult> {
+  const request = buildExchangeRequest(exchange, value);
+  const response = await send(deps, call, exchange.url, {
+    method: "POST",
+    headers: request.headers,
+    body: request.body,
+  });
+  if (!response.ok) failForStatus(response);
+  // The proxy's cap: a reply it would refuse fails here too.
+  const { text } = await readBody(response, undefined, EXCHANGE_REPLY_CAP);
+  const reply = parseExchangeReply(exchange, response.status, text);
+  if (!reply.ok) throw new Failure("unexpected");
+  return { ok: true, kind: "secret", host: call.host, account: null };
 }
 
 // One JSON-RPC answer from a Streamable HTTP response: plain JSON, or the SSE
@@ -474,6 +507,15 @@ export function createConnectionTester(deps: ConnectionTesterDeps) {
     ): Promise<ConnectionTestResult> | null => {
       const secret = deps.sources.secrets.readSecretValues(scope, name);
       if (!secret) return null;
+      const exchange = secret.exchange;
+      if (exchange) {
+        const host = exchangeHost(exchange);
+        return once(
+          JSON.stringify([scopeKey(scope), "secret", name]),
+          host,
+          (call) => testExchange(deps, call, exchange, secret.value),
+        );
+      }
       const kind = secretTestKind(secret);
       if (!kind)
         return Promise.resolve({

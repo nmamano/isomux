@@ -1156,6 +1156,39 @@ Cosas que puedes hacer por él:
   "settings.secrets.saveFailed": "No se pudo guardar el secreto.",
   "settings.secrets.formAuthorization": "Cabecera Authorization",
   "settings.secrets.formHeaderNamed": "Cabecera {header}",
+  "settings.secrets.formQueryNamed": "Parámetro {param} de la dirección web",
+  "settings.secrets.error.exchange":
+    "Revisa los campos del intercambio de token.",
+  "settings.secrets.error.exchangeHost":
+    "Añade el host de la dirección del token a las direcciones.",
+  "settings.connections.list.mcpSecretExchange":
+    "Excluido: su secreto usa un intercambio de token",
+  "integrations.secrets.exchange": "Intercambio de token",
+  "integrations.secrets.exchangeHint":
+    "Para servicios que cambian un id y un secreto de aplicación por un token de corta duración, como Feishu.",
+  "integrations.secrets.exchangeUrl": "Dirección del token",
+  "integrations.secrets.exchangeId": "Id de la aplicación o del cliente",
+  "integrations.secrets.exchangeSecret":
+    "Secreto de la aplicación o del cliente",
+  "integrations.secrets.exchangeBody": "Cómo se envían el id y el secreto",
+  "integrations.secrets.exchangeBasic": "OAuth, en la cabecera Authorization",
+  "integrations.secrets.exchangeForm": "OAuth, en el cuerpo del formulario",
+  "integrations.secrets.exchangeJson": "Como JSON",
+  "integrations.secrets.exchangeIdField": "Campo del id",
+  "integrations.secrets.exchangeSecretField": "Campo del secreto",
+  "integrations.secrets.exchangeParams":
+    "Campos adicionales, un nombre=valor por línea",
+  "integrations.secrets.exchangeReply":
+    "Campos del token y de la duración en la respuesta",
+  "integrations.secrets.exchangeTokenField": "Campo del token",
+  "integrations.secrets.exchangeExpiryField":
+    "Campo de la duración, en segundos",
+  "integrations.secrets.queryParam": "En un parámetro de la dirección web",
+  "integrations.secrets.queryParamName": "Nombre del parámetro",
+  "integrations.secrets.queryParamPlaceholder":
+    "Nombre del parámetro, como access_token",
+  "integrations.secrets.viaExchange": "intercambio de token vía {host}",
+  "cards.secretRequest.exchange": "Isomux lo cambia por un token en {host}.",
   "settings.secrets.rotate": "Reemplazar el valor",
   "settings.secrets.saveValue": "Guardar el valor",
   "settings.secrets.reissue": "Nuevo sustituto",

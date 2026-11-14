@@ -15,6 +15,7 @@ import {
   type ValuedSecret,
 } from "../secret-store.ts";
 import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
+import type { ExchangeSpec } from "../../shared/secret-hosts.ts";
 import { placeholderFor, proxyClientToken, scopeId } from "./placeholders.ts";
 import {
   ensureSecretMaterial,
@@ -176,6 +177,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         value: secret.value,
         hosts: secret.hosts,
         form: secret.form,
+        ...(secret.exchange ? { exchange: secret.exchange } : {}),
         placeholder: placeholderFor(
           key(),
           scope,
@@ -337,7 +339,9 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
           );
           (scope.kind === "office" ? office : member)[secret.name] =
             placeholder;
-          if (secret.form.kind === "authorization")
+          // git sends Basic, and the proxy never puts a token inside Basic:
+          // a secret with a token exchange gets no helper entry.
+          if (secret.form.kind === "authorization" && !secret.exchange)
             for (const host of secret.hosts)
               if (!git.has(host)) git.set(host, placeholder);
           state.push([
@@ -417,9 +421,18 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       await supervisor?.stop();
     },
 
-    // Tests only: the scope and name of each secret the proxy snapshot holds.
-    snapshotSecrets(): { scope: string; name: string }[] {
-      return snapshot().secrets.map((s) => ({ scope: s.scope, name: s.name }));
+    // Tests only: the scope, name and exchange of each secret the proxy
+    // snapshot holds.
+    snapshotSecrets(): {
+      scope: string;
+      name: string;
+      exchange?: ExchangeSpec;
+    }[] {
+      return snapshot().secrets.map((s) => ({
+        scope: s.scope,
+        name: s.name,
+        ...(s.exchange ? { exchange: s.exchange } : {}),
+      }));
     },
 
     get proxyPort(): number | null {

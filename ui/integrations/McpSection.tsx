@@ -129,9 +129,9 @@ function problemOf(
   const secret = secrets.find((s) => s.name === server.secret);
   // A restored member's secret without a value is missing to the agents.
   if (!secret || secret.needsValue) return "secret_missing";
-  return secret.hosts.includes(mcpServerHost(server.url))
-    ? null
-    : "secret_host";
+  if (!secret.hosts.includes(mcpServerHost(server.url))) return "secret_host";
+  // Only the secret proxy runs a token exchange (task 124eb47e).
+  return secret.exchange ? "secret_exchange" : null;
 }
 
 function problemText(
@@ -146,6 +146,8 @@ function problemText(
       return rich("settings.connections.list.mcpSecretHost", {
         host: <Data>{host}</Data>,
       });
+    case "secret_exchange":
+      return t("settings.connections.list.mcpSecretExchange");
     case "sign_in":
       return t("settings.connections.list.mcpSignIn");
     default:

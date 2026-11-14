@@ -593,3 +593,257 @@ it("a secret without a value says so, has no Show or Test, and Set value saves o
     fake.requests("PUT", "/api/users/alice/secrets/GH_RESTORED/value")[0].body,
   ).toEqual({ value: FAKE });
 });
+
+// Task 124eb47e: the token exchange in the Add and Edit forms and in the
+// list. The switch is closed by default; a preset fills the exchange and
+// adds its hosts; the web address form is offered only with an exchange.
+describe("a secret with a token exchange", () => {
+  const FEISHU_URL =
+    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
+  const inExchange = (view: ReturnType<typeof render>, selector: string) =>
+    view.container.querySelector(`[data-secret-exchange] ${selector}`);
+  const exchangeSwitch = (view: ReturnType<typeof render>) =>
+    view.container.querySelector<HTMLInputElement>(
+      "[data-secret-exchange-switch]",
+    );
+  async function type(el: Element | null, value: string) {
+    expect(el).not.toBeNull();
+    await act(async () => {
+      fireEvent.change(el!, { target: { value } });
+    });
+  }
+
+  it("adds a Feishu secret from the preset: its host, a name, the exchange; Save waits for the app id", async () => {
+    const view = await mount();
+    await click(view.container.querySelector("[data-integrations-add]"));
+    expect(exchangeSwitch(view)!.checked).toBe(false);
+    expect(
+      view.container.querySelector("[data-secret-exchange-url]"),
+    ).toBeNull();
+    await click(exchangeSwitch(view));
+    await click(inExchange(view, '[data-choice="feishu"]'));
+    const hosts = view.container.querySelector<HTMLTextAreaElement>(
+      "[data-secret-hosts]",
+    )!;
+    expect(hosts.value.split("\n")).toEqual(["open.feishu.cn"]);
+    const name = view.container.querySelector<HTMLInputElement>(
+      "[data-secret-name-input]",
+    )!;
+    expect(name.value).not.toBe("");
+    expect(
+      view.container.querySelector<HTMLInputElement>(
+        "[data-secret-exchange-url]",
+      )!.value,
+    ).toBe(FEISHU_URL);
+    await type(valueInput(view), FAKE);
+    // The app id has no default.
+    expect(saveOff(view)).toBe(true);
+    await type(
+      view.container.querySelector("[data-secret-exchange-id]"),
+      "cli_fake0001",
+    );
+    expect(saveOff(view)).toBe(false);
+    await click(view.container.querySelector("[data-panel-save]"));
+    const post = fake.requests("POST", "/api/users/alice/secrets")[0];
+    expect(post.body).toEqual(
+      expect.objectContaining({
+        name: name.value,
+        value: FAKE,
+        hosts: ["open.feishu.cn"],
+        form: { kind: "authorization" },
+        exchange: {
+          url: FEISHU_URL,
+          body: { kind: "json", idField: "app_id", secretField: "app_secret" },
+          id: "cli_fake0001",
+          params: {},
+          tokenField: "tenant_access_token",
+          expiryField: "expire",
+        },
+      }),
+    );
+  });
+
+  it("keeps a typed name and typed hosts when a preset adds its own", async () => {
+    const view = await mount();
+    await click(view.container.querySelector("[data-integrations-add]"));
+    await type(
+      view.container.querySelector("[data-secret-name-input]"),
+      "MINE",
+    );
+    await type(
+      view.container.querySelector("[data-secret-hosts]"),
+      "api.example.com",
+    );
+    await click(exchangeSwitch(view));
+    await click(inExchange(view, '[data-choice="lark"]'));
+    expect(
+      view.container.querySelector<HTMLInputElement>(
+        "[data-secret-name-input]",
+      )!.value,
+    ).toBe("MINE");
+    expect(
+      view.container
+        .querySelector<HTMLTextAreaElement>("[data-secret-hosts]")!
+        .value.split("\n"),
+    ).toEqual(["api.example.com", "open.larksuite.com"]);
+  });
+
+  it("offers the web address form only with the switch on, and sends its parameter", async () => {
+    const view = await mount();
+    await click(view.container.querySelector("[data-integrations-add]"));
+    await click(view.container.querySelector("[data-more-options]"));
+    expect(view.container.querySelector('[data-choice="query"]')).toBeNull();
+    await click(exchangeSwitch(view));
+    await click(view.container.querySelector('[data-choice="query"]'));
+    await type(
+      view.container.querySelector("[data-secret-query-param]"),
+      "access_token",
+    );
+    await type(
+      view.container.querySelector("[data-secret-name-input]"),
+      "WECOM_APP",
+    );
+    await type(
+      view.container.querySelector("[data-secret-hosts]"),
+      "qyapi.example.com",
+    );
+    await type(
+      view.container.querySelector("[data-secret-exchange-url]"),
+      "https://qyapi.example.com/cgi-bin/gettoken",
+    );
+    await type(
+      view.container.querySelector("[data-secret-exchange-id]"),
+      "corp-1",
+    );
+    await type(
+      view.container.querySelector("[data-secret-exchange-params]"),
+      "scope=msg\nnot a pair",
+    );
+    await type(valueInput(view), FAKE);
+    await click(view.container.querySelector("[data-panel-save]"));
+    const post = fake.requests("POST", "/api/users/alice/secrets")[0];
+    expect(post.body).toEqual(
+      expect.objectContaining({
+        form: { kind: "query", param: "access_token" },
+        exchange: {
+          url: "https://qyapi.example.com/cgi-bin/gettoken",
+          body: { kind: "oauth", clientAuth: "basic" },
+          id: "corp-1",
+          params: { scope: "msg" },
+          tokenField: "access_token",
+          expiryField: "expires_in",
+        },
+      }),
+    );
+    // Switched off again, the form falls back to the Authorization header,
+    // and no exchange goes.
+    await click(view.container.querySelector("[data-integrations-add]"));
+    await click(view.container.querySelector("[data-more-options]"));
+    await click(exchangeSwitch(view));
+    await click(view.container.querySelector('[data-choice="query"]'));
+    await click(exchangeSwitch(view));
+    expect(view.container.querySelector('[data-choice="query"]')).toBeNull();
+  });
+
+  const EXCHANGE = {
+    url: "https://auth.example.com/oauth/token",
+    body: { kind: "oauth", clientAuth: "body" },
+    id: "client-1",
+    params: { scope: "read" },
+    tokenField: "access_token",
+    expiryField: "expires_in",
+  } as const;
+
+  it("lists the token host and the web address parameter, and offers Test", async () => {
+    fake.scope("alice").secrets.push({
+      name: "WECOM_APP",
+      hosts: ["api.example.com", "auth.example.com"],
+      form: { kind: "query", param: "access_token" },
+      exchange: { ...EXCHANGE, params: { ...EXCHANGE.params } },
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+      note: null,
+      apps: [],
+      value: FAKE,
+    });
+    const view = await mount();
+    const row = view.container.querySelector('[data-secret-name="WECOM_APP"]')!;
+    expect(
+      row.querySelector("[data-secret-exchange-row]")?.textContent,
+    ).toContain("auth.example.com");
+    expect(row.textContent).toContain("access_token");
+    // No preset's identity check covers these hosts: the Test is the
+    // exchange's.
+    expect(row.querySelector("[data-connection-test]")).not.toBeNull();
+  });
+
+  it("the demo keeps an exchange and the web address form, with the server's checks", () => {
+    const route = (method: "POST" | "PATCH", path: string, body: unknown) =>
+      demoSecretsRoute(method, path, body, () => "u-demo");
+    const created = route("POST", "/api/office/secrets", {
+      name: "WECOM_APP",
+      value: FAKE,
+      hosts: ["auth.example.com"],
+      form: { kind: "query", param: "access_token" },
+      exchange: EXCHANGE,
+    });
+    const secret = (created?.result as { secret: Record<string, unknown> })
+      .secret;
+    expect(secret.form).toEqual({ kind: "query", param: "access_token" });
+    expect(secret.exchange).toEqual(EXCHANGE);
+    // A token address off the hosts is refused, as on a server.
+    expect(() =>
+      route("POST", "/api/office/secrets", {
+        name: "OTHER_APP",
+        value: FAKE,
+        hosts: ["api.example.com"],
+        form: { kind: "authorization" },
+        exchange: EXCHANGE,
+      }),
+    ).toThrow();
+    // Removing the exchange takes the web address form with it, or is refused.
+    expect(() =>
+      route("PATCH", "/api/office/secrets/WECOM_APP", { exchange: null }),
+    ).toThrow();
+    const removed = route("PATCH", "/api/office/secrets/WECOM_APP", {
+      exchange: null,
+      form: { kind: "authorization" },
+    });
+    expect(
+      (removed?.result as { secret: Record<string, unknown> }).secret.exchange,
+    ).toBeUndefined();
+  });
+
+  it("an edit sends the exchange as it stands, and null once switched off", async () => {
+    fake.scope("alice").secrets.push({
+      name: "OAUTH_APP",
+      hosts: ["auth.example.com"],
+      form: { kind: "authorization" },
+      exchange: { ...EXCHANGE, params: { ...EXCHANGE.params } },
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+      note: null,
+      apps: [],
+      value: FAKE,
+    });
+    const view = await mount();
+    const path = "/api/users/alice/secrets/OAUTH_APP";
+    await click(view.container.querySelector("[data-secret-edit]"));
+    expect(exchangeSwitch(view)!.checked).toBe(true);
+    await click(view.container.querySelector("[data-panel-save]"));
+    expect(fake.requests("PATCH", path)[0].body).toEqual(
+      expect.objectContaining({ exchange: EXCHANGE }),
+    );
+    await click(view.container.querySelector("[data-secret-edit]"));
+    await click(exchangeSwitch(view));
+    await click(view.container.querySelector("[data-panel-save]"));
+    expect(fake.requests("PATCH", path)[1].body).toEqual(
+      expect.objectContaining({
+        exchange: null,
+        form: { kind: "authorization" },
+      }),
+    );
+  });
+});

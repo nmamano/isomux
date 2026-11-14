@@ -7,7 +7,7 @@ Board task b38ddd02. Status: decided, 2026-10-13; the spec for slice loop B ([se
 - **A secret is a credential that the office never gives to an agent.** A member gives a name, a value, the hosts that may receive it and the form it is sent in. In the agent environment the name holds a placeholder.
 - **The server makes the call.** A secret proxy runs as the server user. Agents send HTTPS through it. In a request to a listed host, the proxy replaces the placeholder with the value. `echo`, `printenv`, transcripts and the model context show only the placeholder.
 - **The promise (single-user offices).** Values stay out of agent environments, transcripts, the model context and every route, export, backup and log. An agent that reads the office's files on purpose can read the store, and the Secrets list says so in one sentence (section 4). The design does not depend on the OS-user split, which is on hold.
-- **Coverage.** HTTPS APIs (curl, SDKs), git over HTTPS, and CLIs that send a token from the environment (gh, stripe). A registered app can get a raw value in its environment (section 9). Not covered for agents: flyctl (appendix F), values that a tool uses locally (signing, database passwords, encryption keys), protocols other than HTTPS, and website logins.
+- **Coverage.** HTTPS APIs (curl, SDKs), git over HTTPS, CLIs that send a token from the environment (gh, stripe), and services that trade an app id and secret for a short-lived token (Feishu, OAuth client credentials): the proxy runs that token exchange itself (section 2.7). A registered app can get a raw value in its environment (section 9). Not covered for agents: flyctl (appendix F), values that a tool uses locally (signing, database passwords, encryption keys), protocols other than HTTPS, and website logins.
 - **Who may use a secret.** The two scopes of today's variables: the office (owner-only, as office variables) and a member (the agents that member spawned). No per-agent limits: those would need per-agent sandboxing. A placeholder is a bearer credential inside the office, and each use is logged.
 
 ## 1. What a member defines
@@ -21,7 +21,8 @@ Secrets have their own list next to the variables list, on the office and the pe
 | name | The environment name (`GH_TOKEN`), same rules as a variable. Unique in its scope. A secret with a host cannot use a model sign-in key name (`MODEL_KEY_SECRET_NAMES` in `shared/secret-hosts.ts`: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and the like): the engine would sign in with the placeholder, and the proxy never swaps it on a never-listed host (task f51e4ab9). The rule holds on create, on every edit and on a secret request (400 `invalid_secret`, field `name`, reason `model_key`); a secret stored before it keeps loading and shows a warning on its row. An app-only secret may use the name. |
 | value | Write-only. No route returns it. The list shows "set" and the date of the last value change. A new value has at least 8 characters, because the scrub and the log masking skip shorter values (Nil, 2026-10-13); a shorter value saved before that rule keeps working. |
 | hosts | 1-20 exact DNS host names that may receive it (`api.github.com`). No scheme, port, path, wildcard, IP literal or `localhost`. A host on the never-list (section 2.2) is refused. |
-| form | `authorization`: the `Authorization` header in any scheme (Bearer, `token`, the user or password of Basic after decoding). `header`: the whole value of one named header (`x-api-key`). |
+| form | `authorization`: the `Authorization` header in any scheme (Bearer, `token`, the user or password of Basic after decoding). `header`: the whole value of one named header (`x-api-key`). `query`: the whole value of one named parameter of the web address (`access_token`), only for a secret with a token exchange (section 2.7). |
+| exchange | Optional. How the proxy trades the value (the app or client secret) for a token (section 2.7). |
 | generation | Starts at 1. B2 derives the placeholder from it; reissue raises it. |
 | timestamps | `createdAt`, `valueSetAt`, `updatedAt` (ms). |
 
@@ -69,7 +70,7 @@ A server-user process that the server starts and supervises (`server/secret-prox
 - A `CONNECT` to a host that no secret lists becomes a plain tunnel. The proxy does not read it.
 - **The never-list.** A fixed list of hosts that never get a secret: the hosts that carry engine model traffic, the model provider APIs (including the Bedrock and Vertex endpoints) and the package registries. A domain that a model or registry vendor owns is listed with all its subdomains; on shared platforms only the model endpoints are listed. The proxy keeps these hosts as plain tunnels and never ends TLS for them, so the engines' own traffic never passes the office CA. The create and edit routes refuse them as secret hosts.
 - For a listed host, the proxy ends TLS with an office-CA certificate and reads each request. It looks for a placeholder only in the header that the secret's form names. If the secret lists this host, it puts the value in and forwards. If the placeholder belongs to a secret that does not list this host, it answers 403 with the secret name and host. A placeholder sent to a tunneled host passes as a useless string.
-- It never swaps in a body, a query string or another header, and never on `TRACE` or `OPTIONS` (TRACE reflects the request; Omnigent).
+- It never swaps in a body or another header, and never on `TRACE` or `OPTIONS` (TRACE reflects the request; Omnigent). It swaps in the query string only for a token exchange's query form (section 2.7). The exchange's own request to the token address carries the id and secret in its body, and it is the proxy's request, not the agent's.
 - It injects only when the `CONNECT` target, the TLS SNI and the `Host` header name the same listed host, and it never follows a redirect (appendix D).
 - It removes the exact value, and its Basic and URL encodings, from responses, as the OpenCode broker does with the office token (server/backends/opencode/authority-broker.ts:376,385-403). This is a backstop, not a proof (section 2.5).
 - It logs each use (name, scope, host, method, path, time) in the office audit store.
@@ -96,7 +97,7 @@ Costs:
 | Model API keys (an agent's app calling a model SDK) | The model APIs are on the never-list. | No |
 | The engines' sign-ins (Claude, Codex, OpenCode) | Each CLI reads and refreshes its own sign-in files. | No |
 
-Not covered: values that a tool uses locally (AWS SigV4 and other request signing, webhook signature checks, JWT keys, encryption keys); SSH keys; protocols other than HTTPS (database passwords, SMTP); values in bodies or query strings (OAuth client secrets, `?key=`). Covered values can still be used for anything the token allows on a listed host, including by a prompt-injected agent: narrow tokens and the use log are the mitigation.
+Not covered: values that a tool uses locally (AWS SigV4 and other request signing, webhook signature checks, JWT keys, encryption keys); SSH keys; protocols other than HTTPS (database passwords, SMTP); values in bodies (other than the proxy's own token exchange); a raw value in a query string (`?key=`). A token exchange's query form puts a token in the web address, so it lands in that service's request logs (Nil, 2026-11-14: accepted). Covered values can still be used for anything the token allows on a listed host, including by a prompt-injected agent: narrow tokens and the use log are the mitigation.
 
 ### 2.5 Trust in the listed hosts
 
@@ -108,13 +109,25 @@ A method or path filter does not prove an operation safe. So a secret may go to 
 
 | Change | Proxy | Running processes |
 |---|---|---|
-| Rotate a value | Uses the new value on the next request. | No change: the placeholder is the same. |
+| Rotate a value | Uses the new value on the next request. A token exchange drops its cached token and exchanges the new value. | No change: the placeholder is the same. |
 | Edit hosts or form | Uses them on the next request. | No change. |
 | Delete a secret | Stops at once: the placeholder is then useless. | Keep the dead placeholder until they restart. |
 | Add a secret, reissue a placeholder | Knows the new placeholder at once. | Get it, and the proxy and trust variables, only when they start again. |
 
 - **Moving a variable to a secret does not secure a value that agents already had.** Running processes, Codex shell snapshots, transcripts and any copy keep it. The list tells the member to rotate the value at the provider after the move.
+- **Downgrade.** A server from before the token exchange ignores `exchange`, so after an explicit downgrade it sends the app secret itself in the form's header to the listed hosts. A query-form secret fails its load check, so it reads that whole scope as unreadable until the next upgrade (the file is never rewritten). The file version stays 1, so the other scopes keep working (task 124eb47e).
 - A change of the set of secrets in a scope restarts that scope's agent processes and its OpenCode server on their next turn; a value rotation restarts nothing (appendix D). A change of a scope's variables releases its agents by the same rule.
+
+### 2.7 Token exchange
+
+Some services trade an app id and secret for a short-lived token: Feishu and Lark (`tenant_access_token`), and any OAuth 2.0 client credentials grant (task 124eb47e, Nil, 2026-11-14). A secret with `exchange` stores the app or client secret as its value, and the proxy does the trade:
+
+- `exchange` holds the token address (https on 443, no user info or fragment; its host must be one of the secret's hosts), the body (`oauth`: RFC 6749 4.4, form-encoded, the id and secret in Basic or in the body; `json`: the id and secret under two named fields), the id (not secret, listed in plain), up to 10 extra fields (scope, audience), and dotted paths to the token and its lifetime in seconds in the reply (default `access_token` and `expires_in`). Presets: OAuth client credentials, Feishu, Lark.
+- The proxy fetches a token only for a request that sends the placeholder in the form's place, to a host the secret lists, and not on `TRACE` or `OPTIONS`. It sends one HTTP/1.1 POST through the same path as other requests (company proxy, roots), with a 10 s timeout and a 64 KB reply cap, and never follows a redirect (a 307 would send the secret again). It keeps the token in memory until a tenth of its lifetime is left (at least 60 s, at most half), with a 24 h ceiling and 1 h when the reply gives none. One fetch runs at a time per secret; a failure is answered for 30 s with no fetch; an upstream 401 drops a token that is a minute old or more. A failure reaches the agent as a 502 that names the secret and a fixed reason, never the reply. Each exchange is a use row (POST to the token address's path).
+- The token goes as a whole `Authorization` token or a whole named header, never inside Basic, so git gets no credential helper for such a secret. With the query form, it goes as the value of one named parameter, percent-encoded. The swap compares raw bytes; a placeholder or parameter name that matches only after percent-decoding, or a second parameter of the same decoded name next to a swapped one, gets 400.
+- The scrub knows the live tokens as it knows values.
+- Only a member adds, changes or removes a saved secret's exchange, or moves its token to or from the web address (403 `secret_exchange_change_refused`): a query parameter can be one a service stores and shows. An agent may create a secret with an exchange and may propose one in a secret request. Nobody removes the token address's host while the exchange is set.
+- The connection test is the exchange alone, from the server. An MCP server cannot use such a secret (problem `secret_exchange`): its header would carry the app secret. An app that reads the secret gets the app secret.
 
 ## 3. Caller identity
 
@@ -243,6 +256,7 @@ Measured or read in code, 2026-10-13.
 - **Company proxy.** The server's own `HTTPS_PROXY` is chained with CONNECT, for tunnels and listed hosts alike, and its `NO_PROXY` is honored without CIDR entries. An `https://` company proxy URL is dialled as plain TCP and fails closed (502). A member variable named `HTTPS_PROXY` is replaced, not chained.
 - **Restarts.** A conversation that cannot resume (a Codex thread that is not durable yet) keeps its process and its old environment until `/clear`. An open terminal keeps its environment until it is restarted, and the terminal panel says so.
 - **Protocols.** HTTP/1.1 only to listed hosts; upgrades (WebSocket) to a listed host get 501.
+- **Token exchange.** A token reflected in an encoding the scrub does not know reaches the agent, as a value does. The log masking does not know tokens. A token is cached per proxy process: a proxy restart fetches it again.
 
 Tools (B3, 2026-10-13, stub hosts; `server/secret-proxy/tools.test.ts`):
 

@@ -22,6 +22,7 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { useAppState, useDispatch } from "../store.tsx";
 import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
+import { tokenHostOf } from "../integrations/ExchangeFields.tsx";
 import { mcpServerHost } from "../../shared/mcp-servers.ts";
 import { looksLikeKey } from "../integrations/VariablesSection.tsx";
 import { useMcpErrorText } from "../integrations/McpSection.tsx";
@@ -268,7 +269,15 @@ export function SecretAskCard({
   const form =
     secret.form.kind === "header"
       ? t("settings.secrets.formHeaderNamed", { header: secret.form.header })
-      : t("settings.secrets.formAuthorization");
+      : secret.form.kind === "query"
+        ? t("settings.secrets.formQueryNamed", { param: secret.form.param })
+        : t("settings.secrets.formAuthorization");
+  // A proposed token exchange: its address's host must stay in the hosts, so
+  // the vouch below covers it.
+  const tokenHost =
+    "exchange" in secret && secret.exchange
+      ? tokenHostOf(secret.exchange.url)
+      : null;
   const fontSize = isMobile ? 14 : 13;
 
   return (
@@ -469,6 +478,12 @@ export function SecretAskCard({
                   ? t("cards.secretRequest.office")
                   : t("cards.secretRequest.personal")}{" "}
                 {form}
+                {tokenHost && (
+                  <span data-secret-request-exchange="">
+                    {" "}
+                    {t("cards.secretRequest.exchange", { host: tokenHost })}
+                  </span>
+                )}
               </p>
               <label style={{ display: "block", marginBottom: 4 }}>
                 <span style={dialogLabel}>{t("settings.secrets.hosts")}</span>

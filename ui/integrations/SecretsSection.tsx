@@ -14,6 +14,7 @@ import type {
 import {
   isModelKeySecretName,
   SECRET_PRESETS,
+  type ExchangeSpec,
   type SecretForm,
 } from "../../shared/secret-hosts.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
@@ -63,6 +64,14 @@ import {
   type Target,
 } from "./target.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
+import {
+  ExchangeFields,
+  exchangeDraft,
+  exchangeFilled,
+  exchangeOf,
+  tokenHostOf,
+  type ExchangeDraft,
+} from "./ExchangeFields.tsx";
 
 // A row as the list shows it. A member reading the office's secrets gets the
 // name, the hosts and the note only.
@@ -71,6 +80,8 @@ type SecretRow = {
   hosts: string[];
   note: string | null;
   form?: SecretForm;
+  // The token exchange (task 124eb47e).
+  exchange?: ExchangeSpec;
   valueSetAt?: number;
   // The apps that read the value (task c7007f8b).
   apps: string[];
@@ -119,6 +130,7 @@ function rowsOf(result: unknown): SecretRow[] | null {
       hosts: secret.hosts!,
       note: typeof secret.note === "string" && secret.note ? secret.note : null,
       form: secret.form,
+      ...(secret.exchange ? { exchange: secret.exchange } : {}),
       valueSetAt: secret.valueSetAt,
       apps: Array.isArray(secret.apps) ? secret.apps : [],
       ...(secret.needsValue === true ? { needsValue: true as const } : {}),
@@ -146,6 +158,10 @@ export function useSecretErrorText() {
       if (detail.field === "value") return t("settings.secrets.error.value");
       if (detail.field === "hosts") return t("settings.secrets.error.hosts");
       if (detail.field === "form") return t("settings.secrets.error.header");
+      if (detail.field === "exchange")
+        return detail.reason === "host"
+          ? t("settings.secrets.error.exchangeHost")
+          : t("settings.secrets.error.exchange");
       if (detail.field === "note") return t("settings.connections.error.note");
       if (detail.field === "apps")
         return detail.reason === "clash"
@@ -361,7 +377,23 @@ function SecretItem({
           header: <Data>{secret.form.header}</Data>,
         })}
       </>
+    ) : secret.form?.kind === "query" ? (
+      <>
+        {" · "}
+        {rich("settings.secrets.formQueryNamed", {
+          param: <Data>{secret.form.param}</Data>,
+        })}
+      </>
     ) : null;
+  const tokenHost = secret.exchange ? tokenHostOf(secret.exchange.url) : null;
+  const exchange = tokenHost ? (
+    <span data-secret-exchange-row="">
+      {" · "}
+      {rich("integrations.secrets.viaExchange", {
+        host: <Data>{tokenHost}</Data>,
+      })}
+    </span>
+  ) : null;
   return (
     <ItemRow
       data-secret-name={secret.name}
@@ -370,6 +402,7 @@ function SecretItem({
       detail={
         <>
           {where}
+          {exchange}
           {form}
           {readBy}
         </>
@@ -386,7 +419,8 @@ function SecretItem({
           <>
             {!needsValue &&
               secret.form &&
-              hasSecretTest({ form: secret.form, hosts: secret.hosts }) && (
+              (secret.exchange ||
+                hasSecretTest({ form: secret.form, hosts: secret.hosts })) && (
                 <TestButton test={test} run={() => void run()} />
               )}
             <Btn
@@ -681,19 +715,25 @@ function ReplaceValue({
 }
 
 // How the service expects the value: the Authorization header (Bearer, token
-// or Basic), or the whole value of another header.
+// or Basic), or the whole value of another header. With a token exchange,
+// also one parameter of the web address (`param` and `onParam` given).
 function HowSent({
   form,
   header,
   onForm,
   onHeader,
+  param,
+  onParam,
 }: {
   form: SecretForm["kind"];
   header: string;
   onForm: (form: SecretForm["kind"]) => void;
   onHeader: (header: string) => void;
+  param?: string;
+  onParam?: (param: string) => void;
 }) {
   const { t } = useI18n();
+  const query = onParam !== undefined;
   return (
     <Field label={t("integrations.secrets.howSent")}>
       <Choice
@@ -703,8 +743,27 @@ function HowSent({
         options={[
           { value: "authorization", label: t("integrations.secrets.bearer") },
           { value: "header", label: t("integrations.secrets.customHeader") },
+          ...(query
+            ? [
+                {
+                  value: "query" as const,
+                  label: t("integrations.secrets.queryParam"),
+                },
+              ]
+            : []),
         ]}
       />
+      {query && form === "query" && (
+        <input
+          data-secret-query-param
+          aria-label={t("integrations.secrets.queryParamName")}
+          style={{ ...input, ...mono, marginTop: 6 }}
+          value={param ?? ""}
+          spellCheck={false}
+          placeholder={t("integrations.secrets.queryParamPlaceholder")}
+          onChange={(e) => onParam(e.target.value)}
+        />
+      )}
       {form === "header" && (
         <input
           aria-label={t("settings.secrets.headerName")}
@@ -862,6 +921,20 @@ export { MoreOptions, HowSent };
 
 const OTHER = "other";
 
+// The form as the API takes it. The query form needs a token exchange; with
+// the switch off it falls back to the Authorization header.
+function formOf(
+  kind: SecretForm["kind"],
+  header: string,
+  param: string,
+  exchange: boolean,
+): SecretForm {
+  if (kind === "header") return { kind: "header", header: header.trim() };
+  if (kind === "query" && exchange)
+    return { kind: "query", param: param.trim() };
+  return { kind: "authorization" };
+}
+
 // Says why Save is off when only the address or app is missing.
 function SaveNeedsTarget() {
   const { t } = useI18n();
@@ -896,6 +969,8 @@ function AddSecret({
   const [hosts, setHosts] = useState("");
   const [form, setForm] = useState<SecretForm["kind"]>("authorization");
   const [header, setHeader] = useState("");
+  const [param, setParam] = useState("");
+  const [exchange, setExchange] = useState<ExchangeDraft>(exchangeDraft());
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
   const [apps, setApps] = useState<string[]>([]);
@@ -912,13 +987,25 @@ function AddSecret({
     setHosts(p?.hosts.join("\n") ?? "");
     setForm(p?.form.kind ?? "authorization");
     setHeader(p?.form.kind === "header" ? p.form.header : "");
+    setExchange(exchangeDraft());
     setShowHosts(false);
+  }
+
+  // A token exchange preset adds its hosts, and its name when none is typed.
+  function exchangePreset(p: { name: string; hosts: string[] }) {
+    if (p.name && !name.trim()) setName(p.name);
+    const missing = p.hosts.filter((host) => !hostsOf(hosts).includes(host));
+    if (missing.length > 0)
+      setHosts([...hostsOf(hosts), ...missing].join("\n"));
   }
 
   const hostList = hostsOf(hosts);
   // A secret goes to an address, an app, or both.
   const hasTarget = hostList.length > 0 || apps.length > 0;
-  const filled = name.trim().length > 0 && value.trim().length > 0;
+  const filled =
+    name.trim().length > 0 &&
+    value.trim().length > 0 &&
+    exchangeFilled(exchange);
   const ready = filled && hasTarget;
 
   async function save() {
@@ -929,10 +1016,8 @@ function AddSecret({
         name: name.trim(),
         value: value.trim(),
         hosts: hostList,
-        form:
-          form === "header"
-            ? { kind: "header", header: header.trim() }
-            : { kind: "authorization" },
+        form: formOf(form, header, param, exchange.on),
+        ...(exchange.on ? { exchange: exchangeOf(exchange) } : {}),
         ...(note.trim() ? { note } : {}),
         ...(apps.length > 0 ? { apps } : {}),
       });
@@ -978,7 +1063,13 @@ function AddSecret({
           />
         </Field>
       )}
-      <Field label={t("integrations.secrets.value")}>
+      <Field
+        label={
+          exchange.on
+            ? t("integrations.secrets.exchangeSecret")
+            : t("integrations.secrets.value")
+        }
+      >
         <MaskedInput
           data-secret-value-input
           style={{ ...input, ...mono }}
@@ -1011,12 +1102,18 @@ function AddSecret({
       ) : (
         <>
           <AddressesField value={hosts} onChange={setHosts} />
+          <ExchangeFields
+            value={exchange}
+            onChange={setExchange}
+            onPreset={exchangePreset}
+          />
           <MoreOptions>
             <HowSent
               form={form}
               header={header}
               onForm={setForm}
               onHeader={setHeader}
+              {...(exchange.on ? { param, onParam: setParam } : {})}
             />
           </MoreOptions>
         </>
@@ -1074,20 +1171,29 @@ function EditSecret({
   const [header, setHeader] = useState(
     secret.form.kind === "header" ? secret.form.header : "",
   );
+  const [param, setParam] = useState(
+    secret.form.kind === "query" ? secret.form.param : "",
+  );
+  const [exchange, setExchange] = useState<ExchangeDraft>(
+    exchangeDraft(secret.exchange),
+  );
   const [note, setNote] = useState(secret.note ?? "");
   const [apps, setApps] = useState<string[]>(secret.apps);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasTarget = hostsOf(hosts).length > 0 || apps.length > 0;
+  const ready = hasTarget && exchangeFilled(exchange);
 
   return (
     <Panel heading={heading} data-secret-edit-panel="">
       <AddressesField value={hosts} onChange={setHosts} />
+      <ExchangeFields value={exchange} onChange={setExchange} />
       <HowSent
         form={form}
         header={header}
         onForm={setForm}
         onHeader={setHeader}
+        {...(exchange.on ? { param, onParam: setParam } : {})}
       />
       <AppsField
         target={target}
@@ -1107,7 +1213,7 @@ function EditSecret({
       </div>
       {!hasTarget && <SaveNeedsTarget />}
       <FormButtons
-        ready={hasTarget}
+        ready={ready}
         busy={busy}
         saveLabel={t("common.save")}
         onCancel={onCancel}
@@ -1117,10 +1223,13 @@ function EditSecret({
           try {
             await apiFetch("PATCH", path, {
               hosts: hostsOf(hosts),
-              form:
-                form === "header"
-                  ? { kind: "header", header: header.trim() }
-                  : { kind: "authorization" },
+              form: formOf(form, header, param, exchange.on),
+              // Sent when on; null removes the one the secret has.
+              ...(exchange.on
+                ? { exchange: exchangeOf(exchange) }
+                : secret.exchange
+                  ? { exchange: null }
+                  : {}),
               note,
               // Only a change: the list the secret has goes unsent.
               ...(sameList(apps, secret.apps) ? {} : { apps }),

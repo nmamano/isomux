@@ -922,3 +922,73 @@ describe("secrets that only apps read", () => {
     expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
   });
 });
+
+// Task 124eb47e: a secret with a token exchange is a placeholder like any
+// other, and the proxy gets its exchange. git never gets its placeholder:
+// git sends Basic, and the proxy never puts a token inside Basic.
+describe("secrets with a token exchange", () => {
+  const EXCHANGE = {
+    url: "https://api.example-stub.test/oauth/token",
+    body: { kind: "oauth", clientAuth: "basic" },
+    id: "fake-client-id",
+    params: {},
+    tokenField: "access_token",
+    expiryField: "expires_in",
+  } as const;
+
+  // The test seam with each secret's exchange (snapshotSecrets carries it).
+  const snapshotWithExchange = () =>
+    runtime.snapshotSecrets() as {
+      name: string;
+      exchange?: { id: string };
+    }[];
+
+  function addExchange(name: string, value: string) {
+    const result = store.create(AT_ALICE, {
+      name,
+      value,
+      hosts: ["api.example-stub.test"],
+      form: { kind: "authorization" },
+      exchange: { ...EXCHANGE, params: {} },
+    });
+    if (!result.ok) throw new Error(`create failed: ${result.kind}`);
+  }
+
+  test("reach the proxy snapshot with the exchange, and agents get a placeholder", async () => {
+    await runtime.enable();
+    addExchange("OAUTH_APP", "fake-client-secret-0001");
+    await runtime.changed();
+    const [secret] = snapshotWithExchange();
+    expect(secret.name).toBe("OAUTH_APP");
+    expect(secret.exchange).toEqual(EXCHANGE);
+    const env = buildEnvForUserId(ALICE)!;
+    expect(env.OAUTH_APP).toBe(runtime.placeholderOf(AT_ALICE, "OAUTH_APP")!);
+    expect(envText(env)).not.toContain("fake-client-secret-0001");
+  });
+
+  test("give git no credential helper; a plain secret on the same host does", async () => {
+    await runtime.enable();
+    // The exchange secret sorts first, so without the filter it would take
+    // the host's slot.
+    addExchange("A_OAUTH_APP", "fake-client-secret-0001");
+    add(AT_ALICE, "Z_PLAIN", "fake-plain-same-host-0001");
+    await runtime.changed();
+    const secrets = runtime.environmentFor(ALICE)!;
+    expect(secrets.gitCredentials).toEqual([
+      { host: "api.example-stub.test", placeholder: secrets.member.Z_PLAIN },
+    ]);
+  });
+
+  test("an edit of the exchange marks no restart", async () => {
+    await runtime.enable();
+    addExchange("OAUTH_APP", "fake-client-secret-0001");
+    await runtime.changed();
+    changes = [];
+    store.update(AT_ALICE, "OAUTH_APP", {
+      exchange: { ...EXCHANGE, id: "fake-client-id-2", params: {} },
+    });
+    await runtime.changed();
+    expect(changes).toEqual([]);
+    expect(snapshotWithExchange()[0].exchange?.id).toBe("fake-client-id-2");
+  });
+});

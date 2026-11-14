@@ -33,7 +33,10 @@ import {
   type SecretStore,
 } from "../../secret-store.ts";
 import { hasCredentialShape } from "../../log-redaction.ts";
-import { secretFieldErrorMessage } from "../../../shared/secret-hosts.ts";
+import {
+  SECRET_EXCHANGE_CHANGE_REFUSED,
+  secretFieldErrorMessage,
+} from "../../../shared/secret-hosts.ts";
 import type {
   OfficeSecretSummaryWire,
   SecretWire,
@@ -71,9 +74,17 @@ export interface SecretsDeps {
   ) => { name: string; createdAt: number; userId: string | null } | null;
 }
 
-const CREATE_KEYS = ["name", "value", "hosts", "form", "note", "apps"];
+const CREATE_KEYS = [
+  "name",
+  "value",
+  "hosts",
+  "form",
+  "exchange",
+  "note",
+  "apps",
+];
 const ROTATE_KEYS = ["value"];
-const UPDATE_KEYS = ["hosts", "form", "note", "apps"];
+const UPDATE_KEYS = ["hosts", "form", "exchange", "note", "apps"];
 
 // The body as an object with only the allowed keys, or null.
 function bodyWith(
@@ -164,6 +175,12 @@ function answer(
       );
     case "app_added":
       return appAddRefused();
+    case "exchange_changed":
+      return fail(
+        403,
+        SECRET_EXCHANGE_CHANGE_REFUSED,
+        "only a member can change a saved secret's token exchange, or move its token to or from the web address",
+      );
   }
 }
 
@@ -306,6 +323,7 @@ function scopedHandlers(
               // every other caller (an agent, an app) only narrows them.
               addHosts: isHuman(ctx),
               addApps: isHuman(ctx),
+              changeExchange: isHuman(ctx),
             },
           ),
         ),

@@ -12,7 +12,7 @@ Variables, one at a time:
 
 Secrets:
 
-- `GET /api/users/:username/secrets` lists them. `POST /api/users/:username/secrets` with `{name,value,hosts,form,note?}` saves one.
+- `GET /api/users/:username/secrets` lists them. `POST /api/users/:username/secrets` with `{name,value,hosts,form,exchange?,note?}` saves one (`exchange`: `connections` page).
 - `PUT /api/users/:username/secrets/:name/value` with `{value}` replaces the value. `PATCH /api/users/:username/secrets/:name` with `{hosts?,form?,note?}` edits it. `DELETE /api/users/:username/secrets/:name` removes it.
 - `POST /api/users/:username/secrets/:name/reissue` issues a new placeholder; the old one stops working. `POST /api/users/:username/secrets/:name/test` checks the secret with its service.
 - For the office: `GET /api/office/secrets`, `POST /api/office/secrets`, `PUT /api/office/secrets/:name/value`, `PATCH /api/office/secrets/:name`, `DELETE /api/office/secrets/:name`, `POST /api/office/secrets/:name/reissue` and `POST /api/office/secrets/:name/test`.
@@ -31,6 +31,8 @@ Voice and pager:
 You never read a value. Variable values and a secret's Show stay with members. An MCP server comes back with its `host` in place of its URL. A member signs in to an MCP server that uses OAuth on the Integrations page.
 
 You cannot add a host to a saved secret: 403 `secret_host_add_refused`. You can remove hosts, and you set them when you save a new secret.
+
+On a saved secret you cannot add, change or remove `exchange`, or move its form to or from `query`: 403 `secret_exchange_change_refused`. The host of the token address stays while `exchange` is set (400 `invalid_secret`, field `exchange`).
 
 A secret with a host cannot use a model sign-in key name such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`: the engine signs in with it and fails. The save or edit gets 400 `invalid_secret` with reason `model_key`; set it as a variable.
 

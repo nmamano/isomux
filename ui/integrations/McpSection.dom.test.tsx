@@ -249,10 +249,22 @@ it("shows why a server is left out, and a Test only when it can run", async () =
       server("ok"),
       server("lost", { secret: "GONE" }),
       server("wrong", { secret: "ELSEWHERE" }),
+      server("traded", { secret: "TRADED" }),
     );
-  fake
-    .scope("alice")
-    .secrets.push(secret("ELSEWHERE", { hosts: ["other.example.com"] }));
+  fake.scope("alice").secrets.push(
+    secret("ELSEWHERE", { hosts: ["other.example.com"] }),
+    secret("TRADED", {
+      hosts: ["traded.example.com"],
+      exchange: {
+        url: "https://traded.example.com/oauth/token",
+        body: { kind: "oauth", clientAuth: "basic" },
+        id: "client-1",
+        params: {},
+        tokenField: "access_token",
+        expiryField: "expires_in",
+      },
+    }),
+  );
   const view = await mount();
   const row = (name: string) =>
     view.container.querySelector(`[data-mcp-server-name="${name}"]`)!;
@@ -263,6 +275,12 @@ it("shows why a server is left out, and a Test only when it can run", async () =
     t("settings.connections.list.mcpSecretHost", { host: "wrong.example.com" }),
   );
   expect(row("lost").querySelector("[data-connection-test]")).toBeNull();
+  // Task 124eb47e: a secret with a token exchange cannot serve an MCP
+  // server; the row says why and offers no Test.
+  expect(row("traded").querySelector("[data-mcp-problem]")!.textContent).toBe(
+    t("settings.connections.list.mcpSecretExchange"),
+  );
+  expect(row("traded").querySelector("[data-connection-test]")).toBeNull();
   // The row's Test runs on the row's own route; ConnectionTest.dom.test.tsx
   // owns the result's words.
   await click(row("ok").querySelector("[data-connection-test]"));

@@ -650,3 +650,151 @@ describe("MCP server tests", () => {
     expect(tester.mcpServer(ALICE, "nope")).toBeNull();
   });
 });
+
+// Task 124eb47e: the test of a secret with a token exchange is the exchange
+// alone, sent and read as the proxy does, with no redirect followed (a 307
+// or 308 would send the app secret again).
+describe("token exchange tests", () => {
+  const EXCHANGE = {
+    url: "https://auth.example.com/oauth/token?tenant=t1",
+    body: { kind: "oauth", clientAuth: "body" },
+    id: "fake-client-id",
+    params: { scope: "read" },
+    tokenField: "access_token",
+    expiryField: "expires_in",
+  } as const;
+
+  function addExchangeSecret(
+    sources: ReturnType<typeof createMcpServerSources>,
+    scope: SecretScope,
+  ) {
+    const change = sources.secrets.create(scope, {
+      name: "OAUTH_APP",
+      value: VALUE,
+      hosts: ["auth.example.com", "api.example.com"],
+      form: { kind: "authorization" },
+      exchange: { ...EXCHANGE, params: { ...EXCHANGE.params } },
+    });
+    expect(change.ok).toBe(true);
+  }
+
+  it("posts the exchange to the token address only, and passes on a token", async () => {
+    const { fetch, sent } = fakeFetch(() =>
+      json({ access_token: "fake-exchanged-token-0001", expires_in: 3600 }),
+    );
+    const { sources, tester } = setup(fetch);
+    addExchangeSecret(sources, ALICE);
+    const result = await tester.secret(ALICE, "OAUTH_APP");
+    expect(result).toEqual({
+      ok: true,
+      kind: "secret",
+      host: "auth.example.com",
+      account: null,
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].url).toBe(EXCHANGE.url);
+    expect(sent[0].method).toBe("POST");
+    expect(sent[0].redirect).toBe("manual");
+    expect(Object.fromEntries(new URLSearchParams(sent[0].body ?? ""))).toEqual(
+      {
+        grant_type: "client_credentials",
+        client_id: EXCHANGE.id,
+        client_secret: VALUE,
+        scope: "read",
+      },
+    );
+    // The token is never a result or a log line.
+    expect(JSON.stringify(result) + logs.join("\n")).not.toContain(
+      "fake-exchanged-token-0001",
+    );
+    expectClean(result);
+  });
+
+  it("turns each failure into its reason, never the reply's text, and follows no redirect", async () => {
+    const cases: [() => Response, ConnectionTestResult][] = [
+      [
+        () => json({ error: `invalid_client ${VALUE}` }, 401),
+        { ok: false, host: "auth.example.com", reason: "refused" },
+      ],
+      [
+        () => json({ error: VALUE }, 500),
+        { ok: false, host: "auth.example.com", reason: "status", status: 500 },
+      ],
+      [
+        () =>
+          new Response(null, {
+            status: 307,
+            headers: { location: "https://elsewhere.example/token" },
+          }),
+        { ok: false, host: "auth.example.com", reason: "redirect" },
+      ],
+      [
+        // Feishu's error: 200 with a code and no token.
+        () => json({ code: 10003, msg: `invalid ${VALUE}` }),
+        { ok: false, host: "auth.example.com", reason: "unexpected" },
+      ],
+      [
+        () => json({ access_token: "bad token\r\nX: 1", expires_in: 60 }),
+        { ok: false, host: "auth.example.com", reason: "unexpected" },
+      ],
+      [
+        // Over the proxy's 64 KB reply cap: the proxy would find no token,
+        // so the test must not pass it.
+        () =>
+          json({
+            access_token: "fake-exchanged-token-0001",
+            expires_in: 60,
+            pad: "x".repeat(100 * 1024),
+          }),
+        { ok: false, host: "auth.example.com", reason: "unexpected" },
+      ],
+    ];
+    for (const [answer, expected] of cases) {
+      const { fetch, sent } = fakeFetch(answer);
+      const { sources, tester } = setup(fetch);
+      addExchangeSecret(sources, ALICE);
+      const result = await tester.secret(ALICE, "OAUTH_APP");
+      expect(result).toEqual(expected);
+      expectClean(result);
+      expect(sent.map((s) => s.url)).toEqual([EXCHANGE.url]);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("an MCP server bound to an exchange secret is left out, and has no test", async () => {
+    const { fetch, sent } = fakeFetch(() => json({}));
+    const { sources, tester } = setup(fetch);
+    const change = sources.secrets.create(ALICE, {
+      name: "MCP_APP",
+      value: VALUE,
+      hosts: ["mcp.example.com"],
+      form: { kind: "authorization" },
+      exchange: {
+        ...EXCHANGE,
+        url: "https://mcp.example.com/oauth/token",
+        params: {},
+      },
+    });
+    expect(change.ok).toBe(true);
+    expect(
+      sources.servers.create(ALICE, {
+        name: "linear",
+        url: MCP_URL,
+        secret: "MCP_APP",
+      }).ok,
+    ).toBe(true);
+    // The Test button and the engines' header would send the raw app
+    // secret: only the proxy runs an exchange.
+    expect(
+      mcpServerRows(sources, "alice", false).find(
+        (row) => row.scope === "personal",
+      )?.problem,
+    ).toBe("secret_exchange");
+    expect(await tester.mcpServer(ALICE, "linear")).toEqual({
+      ok: false,
+      host: "mcp.example.com",
+      reason: "not_testable",
+    });
+    expect(sent).toEqual([]);
+  });
+});

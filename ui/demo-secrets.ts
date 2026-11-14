@@ -4,6 +4,7 @@
 
 import {
   checkModelKeyHosts,
+  checkSecretExchange,
   checkSecretForm,
   checkSecretHosts,
   checkSecretName,
@@ -11,6 +12,7 @@ import {
   isAppReservedSecretName,
   SECRET_MAX_APPS,
   secretFieldErrorMessage,
+  type ExchangeSpec,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { checkConnectionNote } from "../shared/connection-notes.ts";
@@ -108,7 +110,13 @@ export function demoSecretsRoute(
     if (modelKey) refuse(modelKey);
     if (apps.length > 0 && isAppReservedSecretName(b.name as string))
       refuse({ field: "name", reason: "reserved" });
-    const form = checkSecretForm(b.form);
+    let exchange: ExchangeSpec | undefined;
+    if (b.exchange !== undefined) {
+      const checked = checkSecretExchange(b.exchange, hosts.hosts);
+      if (!checked.ok) refuse(checked.error);
+      exchange = checked.exchange;
+    }
+    const form = checkSecretForm(b.form, { exchange: exchange !== undefined });
     if (!form.ok) refuse(form.error);
     const note = checkConnectionNote(b.note ?? null);
     if (!note.ok) refuse({ field: "note", reason: note.reason });
@@ -122,6 +130,7 @@ export function demoSecretsRoute(
       name: b.name as string,
       hosts: hosts.hosts,
       form: form.form,
+      ...(exchange ? { exchange } : {}),
       createdAt: now,
       valueSetAt: now,
       updatedAt: now,
@@ -174,13 +183,28 @@ export function demoSecretsRoute(
     refuse({ field: "name", reason: "reserved" });
   const modelKey = checkModelKeyHosts(secret.name, hosts);
   if (modelKey) refuse(modelKey);
+  // The exchange as the server keeps it: null removes it, and its token
+  // address's host stays among the hosts.
+  let exchange = secret.exchange;
+  if (b.exchange === null) exchange = undefined;
+  else if (b.exchange !== undefined || exchange) {
+    const checked = checkSecretExchange(b.exchange ?? exchange, hosts);
+    if (!checked.ok) refuse(checked.error);
+    exchange = checked.exchange;
+  }
+  let form = secret.form;
+  if (b.form !== undefined) {
+    const checked = checkSecretForm(b.form, { exchange: true });
+    if (!checked.ok) refuse(checked.error);
+    form = checked.form;
+  }
+  if (form.kind === "query" && !exchange)
+    refuse({ field: "form", reason: "invalid" });
   secret.hosts = hosts;
   secret.apps = apps;
-  if (b.form !== undefined) {
-    const form = checkSecretForm(b.form);
-    if (!form.ok) refuse(form.error);
-    secret.form = form.form;
-  }
+  secret.form = form;
+  if (exchange) secret.exchange = exchange;
+  else delete secret.exchange;
   if (b.note !== undefined) {
     const note = checkConnectionNote(b.note);
     if (!note.ok) refuse({ field: "note", reason: note.reason });

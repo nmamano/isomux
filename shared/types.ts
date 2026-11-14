@@ -7,7 +7,7 @@ import type { ActionStepRequest } from "./action-steps.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
 import type { PresencePage } from "./presence-pages.ts";
-import type { SecretForm } from "./secret-hosts.ts";
+import type { ExchangeSpec, SecretForm } from "./secret-hosts.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor } from "./room-decor.ts";
 
@@ -1161,6 +1161,9 @@ export interface SecretValueRequest extends ValueAskRequestBase {
   kind?: undefined;
   hosts: string[];
   form: SecretForm;
+  // The token exchange the agent proposes (task 124eb47e); the member can
+  // change it in the form.
+  exchange?: ExchangeSpec;
   // The app that gets the value in its environment (task 315a62c0): the
   // grant's registration, so a re-created app of the same name gets nothing.
   // Absent on a request for the agent's own use.

@@ -167,6 +167,9 @@ export function mcpServerSecret(
   if (!secret) return { ok: false, problem: "secret_missing" };
   if (!secret.hosts.includes(mcpServerHost(server.url)))
     return { ok: false, problem: "secret_host" };
+  // Only the secret proxy runs a token exchange: the engine's header and the
+  // Test button would send the raw app secret.
+  if (secret.exchange) return { ok: false, problem: "secret_exchange" };
   return { ok: true, secret: { value: secret.value, form: secret.form } };
 }
 

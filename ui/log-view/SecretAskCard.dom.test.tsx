@@ -826,3 +826,38 @@ it("draws the request's outside page as a new-tab link above the masked field, a
     other.unmount();
   }
 });
+
+// Task 124eb47e: a request that proposes a token exchange shows where the
+// token goes (the web address parameter) and the token address's host, so
+// the member sees every host the app secret or its token reaches.
+it("a proposed token exchange names its token host and the web address parameter", async () => {
+  const entry: AskEntry = {
+    ...SECRET_ASK,
+    secret: {
+      ...(SECRET_ASK.secret as SecretValueRequest),
+      name: "WECOM_APP",
+      hosts: ["qyapi.example.com", "auth.example.com"],
+      form: { kind: "query", param: "access_token" },
+      exchange: {
+        url: "https://auth.example.com/cgi-bin/gettoken",
+        body: { kind: "oauth", clientAuth: "body" },
+        id: "fake-corp-id",
+        params: {},
+        tokenField: "access_token",
+        expiryField: "expires_in",
+      },
+    },
+  };
+  const view = await mount(false, entry);
+  expect(
+    card(view)?.querySelector("[data-secret-request-exchange]")?.textContent,
+  ).toContain("auth.example.com");
+  expect(card(view)?.textContent).toContain("access_token");
+  view.unmount();
+  // A request without an exchange has no such line.
+  const plain = await mount();
+  expect(
+    card(plain)?.querySelector("[data-secret-request-exchange]"),
+  ).toBeNull();
+  plain.unmount();
+});

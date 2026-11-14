@@ -233,6 +233,7 @@ describe("GET /api/agent-connections", () => {
         name: "OFFICE_GH",
         hosts: ["api.github.com"],
         note: "office secret note",
+        form: { kind: "authorization" },
       },
       {
         kind: "secret",
@@ -240,6 +241,7 @@ describe("GET /api/agent-connections", () => {
         name: "LINEAR",
         hosts: ["mcp.linear.app"],
         note: "my secret note",
+        form: { kind: "authorization" },
       },
       {
         kind: "secret",
@@ -247,6 +249,7 @@ describe("GET /api/agent-connections", () => {
         name: "MOVED",
         hosts: ["elsewhere.example"],
         note: null,
+        form: { kind: "authorization" },
       },
       // The member's linear replaces the office one; moved is left out.
       {
@@ -289,6 +292,50 @@ describe("GET /api/agent-connections", () => {
     ]);
     for (const fake of Object.values(FAKE))
       expect(nobody.text).not.toContain(fake);
+  });
+});
+
+// Task 124eb47e: an agent must know where the placeholder goes (a header or
+// a web address parameter), and that the proxy sends a token for it; never
+// the id, the token address's path or the value.
+describe("a secret with a token exchange", () => {
+  it("lists its form and its token address's host only", async () => {
+    const { srv, member, memberId } = await seeded();
+    const tokenPath = "fake-token-path-segment-0001";
+    await expectStatus(srv, 201, `/api/users/${member.username}/secrets`, {
+      method: "POST",
+      session: member.rawSessionId,
+      body: {
+        name: "WECOM_APP",
+        value: FAKE.mineSecret,
+        hosts: ["qyapi.example.com", "auth.example.com"],
+        form: { kind: "query", param: "access_token" },
+        exchange: {
+          url: `https://auth.example.com/${tokenPath}/gettoken`,
+          body: { kind: "oauth", clientAuth: "body" },
+          id: "fake-corp-id-0002",
+          params: {},
+        },
+        note: "send reports",
+      },
+    });
+    const result = await call(srv, "/api/agent-connections", {
+      bearer: mintAgentToken("agent-connections-exchange", memberId, false),
+    });
+    expect(result.status).toBe(200);
+    expect(
+      connections(result.text).find((c) => c.name === "WECOM_APP"),
+    ).toEqual({
+      kind: "secret",
+      scope: "personal",
+      name: "WECOM_APP",
+      hosts: ["auth.example.com", "qyapi.example.com"],
+      note: "send reports",
+      form: { kind: "query", param: "access_token" },
+      exchange: { host: "auth.example.com" },
+    });
+    for (const hidden of [tokenPath, "fake-corp-id-0002", FAKE.mineSecret])
+      expect(result.text).not.toContain(hidden);
   });
 });
 

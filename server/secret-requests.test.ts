@@ -2268,3 +2268,86 @@ describe("a link to the page where the member gets the value", () => {
     );
   });
 });
+
+// Task 124eb47e: an agent may propose a token exchange, as it proposes
+// hosts. The member sees it in the form and saves it, or changes it there.
+describe("a request with a token exchange", () => {
+  const EXCHANGE = {
+    url: "https://qyapi.example.com/cgi-bin/gettoken",
+    body: { kind: "oauth", clientAuth: "body" },
+    id: "fake-corp-id",
+    params: {},
+    tokenField: "access_token",
+    expiryField: "expires_in",
+  } as const;
+  const EXCHANGE_ASK = {
+    name: "WECOM_APP",
+    hosts: ["qyapi.example.com"],
+    form: { kind: "query", param: "access_token" },
+    exchange: EXCHANGE,
+    reason: "To send the daily report.",
+  };
+  const ALICE = { kind: "user", userId: "u-alice" } as const;
+
+  it("opens an ask that carries the proposed exchange and query form", () => {
+    const { requests, asks } = setup();
+    opened(requests.open("a1", EXCHANGE_ASK));
+    const [entry] = asks.listAll();
+    expect(entry.secret).toMatchObject({
+      name: "WECOM_APP",
+      hosts: ["qyapi.example.com"],
+      form: { kind: "query", param: "access_token" },
+      exchange: EXCHANGE,
+    });
+  });
+
+  it("refuses at open an exchange the store would refuse", () => {
+    const { requests } = setup();
+    expect(
+      requests.open("a1", { ...EXCHANGE_ASK, hosts: ["other.example.com"] }),
+    ).toEqual(
+      expect.objectContaining({
+        ok: false,
+        code: "invalid_secret",
+        detail: { field: "exchange", reason: "host" },
+      }),
+    );
+    const { exchange, ...noExchange } = EXCHANGE_ASK;
+    void exchange;
+    expect(requests.open("a1", noExchange)).toEqual(
+      expect.objectContaining({
+        ok: false,
+        code: "invalid_secret",
+        detail: expect.objectContaining({ field: "form" }),
+      }),
+    );
+  });
+
+  it("the member saves it as proposed, or with the exchange changed in the form", async () => {
+    const t = setup();
+    const first = opened(t.requests.open("a1", EXCHANGE_ASK));
+    expect(
+      await t.requests.save("u-alice", "a1", first, { value: VALUE }),
+    ).toEqual({ ok: true, name: "WECOM_APP" });
+    expect(t.store.readSecretValues(ALICE, "WECOM_APP")).toEqual({
+      value: VALUE,
+      hosts: ["qyapi.example.com"],
+      form: { kind: "query", param: "access_token" },
+      exchange: EXCHANGE,
+    });
+
+    const second = opened(
+      t.requests.open("a1", { ...EXCHANGE_ASK, name: "WECOM_OTHER" }),
+    );
+    const edited = { ...EXCHANGE, id: "fake-corp-id-2" };
+    expect(
+      await t.requests.save("u-alice", "a1", second, {
+        value: VALUE,
+        exchange: edited,
+      }),
+    ).toEqual({ ok: true, name: "WECOM_OTHER" });
+    expect(t.store.readSecretValues(ALICE, "WECOM_OTHER")?.exchange).toEqual(
+      edited,
+    );
+  });
+});

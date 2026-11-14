@@ -18,6 +18,7 @@ import {
   type McpServerSources,
 } from "./mcp-servers.ts";
 import type { SecretScope, SecretStore } from "./secret-store.ts";
+import { exchangeHost } from "../shared/secret-hosts.ts";
 
 export interface AgentConnectionsSources {
   // The managed variables as the spawn merges them (env-loader.ts). Each may
@@ -90,6 +91,12 @@ export function buildAgentConnections(
           name: secret.name,
           hosts: [...secret.hosts],
           note: secret.note,
+          // Where the placeholder goes; for a token exchange, the host the
+          // proxy gets the token from, never the id or the address's path.
+          form: { ...secret.form },
+          ...(secret.exchange
+            ? { exchange: { host: exchangeHost(secret.exchange) } }
+            : {}),
         });
 
   // MCP servers: the registrations the spawn gives the engines, less those

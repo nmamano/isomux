@@ -33,12 +33,14 @@ import {
 } from "./asks.ts";
 import {
   isAppReservedSecretName,
+  checkSecretExchange,
   checkSecretForm,
   checkSecretHosts,
   checkModelKeyHosts,
   checkSecretName,
   checkSecretValue,
   secretFieldErrorMessage,
+  type ExchangeSpec,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { hasCredentialShape } from "./log-redaction.ts";
@@ -226,6 +228,7 @@ const OPEN_KEYS = {
     "name",
     "hosts",
     "form",
+    "exchange",
     "reason",
     "scope",
     "app",
@@ -277,7 +280,9 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     if (valueError) return { ok: false, kind: "invalid", error: valueError };
     const updated = deps.store.update(scope, name, fields);
     if (!updated.ok)
-      return updated.kind === "host_added" || updated.kind === "app_added"
+      return updated.kind === "host_added" ||
+        updated.kind === "app_added" ||
+        updated.kind === "exchange_changed"
         ? {
             ok: false,
             kind: "invalid",
@@ -679,7 +684,16 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       if (!hosts.ok) return fieldFailure(hosts.error);
       const modelKey = checkModelKeyHosts(name, hosts.hosts);
       if (modelKey) return fieldFailure(modelKey);
-      const form = checkSecretForm(body.form ?? { kind: "authorization" });
+      // A proposed token exchange, checked as the store checks it.
+      let exchange: ExchangeSpec | undefined;
+      if (body.exchange !== undefined) {
+        const checked = checkSecretExchange(body.exchange, hosts.hosts);
+        if (!checked.ok) return fieldFailure(checked.error);
+        exchange = checked.exchange;
+      }
+      const form = checkSecretForm(body.form ?? { kind: "authorization" }, {
+        exchange: exchange !== undefined,
+      });
       if (!form.ok) return fieldFailure(form.error);
       // A restored member's secret without a value (task 321e7b8e) is the
       // one name a request may fill.
@@ -696,6 +710,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         name,
         hosts: hosts.hosts,
         form: form.form,
+        ...(exchange ? { exchange } : {}),
         ...(app ? { app: { name: app.name, createdAt: app.createdAt } } : {}),
       };
     } else if (kind === "variable") {
@@ -872,9 +887,13 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         return { ok: true, name: request.name };
       }
       if (
-        !Object.keys(body).every((k) => ["value", "hosts", "form"].includes(k))
+        !Object.keys(body).every((k) =>
+          ["value", "hosts", "form", "exchange"].includes(k),
+        )
       )
-        return invalidRequest("the body takes only value, hosts, form");
+        return invalidRequest(
+          "the body takes only value, hosts, form, exchange",
+        );
       const { name, app } = request;
       if (
         app &&
@@ -900,9 +919,14 @@ export function createSecretRequests(deps: SecretRequestDeps) {
               "the app was removed or replaced since the request; decline it",
           };
       }
+      // The exchange as the member left it in the form: null removes the
+      // proposed one.
+      const exchange =
+        body.exchange === undefined ? request.exchange : body.exchange;
       const fields = {
         hosts: app ? [] : (body.hosts ?? entry.secret.hosts),
         form: body.form ?? entry.secret.form,
+        ...(exchange ? { exchange } : {}),
         ...(app
           ? { apps: [{ name: app.name, createdAt: app.createdAt }] }
           : {}),
@@ -911,7 +935,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         .list(scope)
         .some((secret) => secret.name === name && secret.needsValue);
       const change = needsValue
-        ? fillValue(scope, name, body.value, fields)
+        ? fillValue(scope, name, body.value, {
+            ...fields,
+            exchange: exchange ?? null,
+          })
         : deps.store.create(scope, { name, value: body.value, ...fields });
       if (!change.ok) return changeFailure(change);
       closeSaved(entry, userId as string);

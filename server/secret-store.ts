@@ -31,10 +31,12 @@ import {
   SECRET_MAX_APPS,
   isAppReservedSecretName,
   checkModelKeyHosts,
+  checkSecretExchange,
   checkSecretForm,
   checkSecretHosts,
   checkSecretName,
   checkSecretValue,
+  type ExchangeSpec,
   type SecretFieldError,
   type SecretForm,
 } from "../shared/secret-hosts.ts";
@@ -58,6 +60,9 @@ export interface StoredSecret {
   value: string | null;
   hosts: string[];
   form: SecretForm;
+  // The token exchange (task 124eb47e): the value is the client or app
+  // secret, and the proxy sends the token it gets for it.
+  exchange?: ExchangeSpec;
   generation: number;
   createdAt: number;
   valueSetAt: number;
@@ -74,6 +79,7 @@ export interface SecretShape {
   name: string;
   hosts: string[];
   form: SecretForm;
+  exchange?: ExchangeSpec;
   createdAt: number;
   updatedAt: number;
   note?: string;
@@ -98,11 +104,13 @@ export type SecretChange =
   | { ok: false; kind: "invalid"; error: SecretFieldError }
   | { ok: false; kind: "exists" }
   | { ok: false; kind: "not_found" };
-// An update that would add a host or an app the caller may not add.
+// An update that would add a host or an app the caller may not add, or
+// change a token exchange (or the query form) that the caller may not change.
 export type SecretUpdateChange =
   | SecretChange
   | { ok: false; kind: "host_added" }
-  | { ok: false; kind: "app_added" };
+  | { ok: false; kind: "app_added" }
+  | { ok: false; kind: "exchange_changed" };
 
 export interface SecretStoreOptions {
   // Whether a grant names a live app (same name and creation time). The wire
@@ -120,6 +128,7 @@ function toWire(
     name: secret.name,
     hosts: [...secret.hosts],
     form: { ...secret.form },
+    ...(secret.exchange ? { exchange: copyExchange(secret.exchange) } : {}),
     createdAt: secret.createdAt,
     valueSetAt: secret.valueSetAt,
     updatedAt: secret.updatedAt,
@@ -128,6 +137,39 @@ function toWire(
     ...(secret.value === null ? { needsValue: true as const } : {}),
   };
 }
+
+function copyExchange(exchange: ExchangeSpec): ExchangeSpec {
+  return {
+    ...exchange,
+    body: { ...exchange.body },
+    params: { ...exchange.params },
+  };
+}
+
+// Whole-field comparison of two exchanges as the checker returns them; the
+// order of the params does not count.
+function sameExchange(
+  a: ExchangeSpec | undefined,
+  b: ExchangeSpec | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  const canonical = (e: ExchangeSpec) =>
+    JSON.stringify([
+      e.url,
+      e.body.kind,
+      e.body.kind === "oauth"
+        ? e.body.clientAuth
+        : [e.body.idField, e.body.secretField],
+      e.id,
+      Object.entries(e.params).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)),
+      e.tokenField,
+      e.expiryField,
+    ]);
+  return canonical(a) === canonical(b);
+}
+
+const sameForm = (a: SecretForm, b: SecretForm): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 // A secret that has a value: the only kind the proxy, apps and placeholders
 // see.
@@ -179,7 +221,8 @@ function isStoredSecret(entry: unknown): entry is StoredSecret {
     (typeof s.value === "string" || s.value === null) &&
     Array.isArray(s.hosts) &&
     s.hosts.every((host) => typeof host === "string") &&
-    checkSecretForm(s.form).ok &&
+    checkSecretForm(s.form, { exchange: s.exchange !== undefined }).ok &&
+    (s.exchange === undefined || checkSecretExchange(s.exchange, s.hosts).ok) &&
     Number.isSafeInteger(s.generation) &&
     (s.generation as number) >= 1 &&
     typeof s.createdAt === "number" &&
@@ -262,11 +305,13 @@ export function createSecretStore(
     value: string;
     hosts: string[];
     form: SecretForm;
+    exchange?: ExchangeSpec;
   } {
     return {
       value: secret.value,
       hosts: [...secret.hosts],
       form: { ...secret.form },
+      ...(secret.exchange ? { exchange: copyExchange(secret.exchange) } : {}),
     };
   }
 
@@ -275,7 +320,12 @@ export function createSecretStore(
   function readSecretValues(
     scope: SecretScope,
     name: string,
-  ): { value: string; hosts: string[]; form: SecretForm } | null {
+  ): {
+    value: string;
+    hosts: string[];
+    form: SecretForm;
+    exchange?: ExchangeSpec;
+  } | null {
     const secret = read(scope).find((s) => s.name === name);
     return secret && hasValue(secret) ? valuesOf(secret) : null;
   }
@@ -395,7 +445,16 @@ export function createSecretStore(
         allowEmpty: apps.apps.length > 0,
       });
       if (!hosts.ok) return { ok: false, kind: "invalid", error: hosts.error };
-      const form = checkSecretForm(input.form);
+      let exchange: ExchangeSpec | undefined;
+      if (input.exchange !== undefined) {
+        const checked = checkSecretExchange(input.exchange, hosts.hosts);
+        if (!checked.ok)
+          return { ok: false, kind: "invalid", error: checked.error };
+        exchange = checked.exchange;
+      }
+      const form = checkSecretForm(input.form, {
+        exchange: exchange !== undefined,
+      });
       if (!form.ok) return { ok: false, kind: "invalid", error: form.error };
       const note = checkConnectionNote(input.note ?? null);
       if (!note.ok)
@@ -428,6 +487,7 @@ export function createSecretStore(
         value: input.value as string,
         hosts: hosts.hosts,
         form: form.form,
+        ...(exchange ? { exchange } : {}),
         generation: 1,
         createdAt: now,
         valueSetAt: now,
@@ -475,9 +535,16 @@ export function createSecretStore(
       scope: SecretScope,
       name: string,
       patch: Record<string, unknown>,
-      options: { addHosts: boolean; addApps: boolean } = {
+      options: {
+        addHosts: boolean;
+        addApps: boolean;
+        // false (an agent caller, task 124eb47e): no add, change or removal
+        // of `exchange`, and no switch to or from the query form.
+        changeExchange?: boolean;
+      } = {
         addHosts: true,
         addApps: true,
+        changeExchange: true,
       },
     ): SecretUpdateChange {
       let hosts: string[] | undefined;
@@ -497,7 +564,9 @@ export function createSecretStore(
         hosts = checked.hosts;
       }
       if (patch.form !== undefined) {
-        const checked = checkSecretForm(patch.form);
+        // The shape here; whether the query form may stay is judged below,
+        // against the exchange the secret keeps.
+        const checked = checkSecretForm(patch.form, { exchange: true });
         if (!checked.ok)
           return { ok: false, kind: "invalid", error: checked.error };
         form = checked.form;
@@ -552,6 +621,38 @@ export function createSecretStore(
       // hosts go, so the member meets the error that points to Variables.
       const modelKey = checkModelKeyHosts(name, hosts ?? secret.hosts);
       if (modelKey) return { ok: false, kind: "invalid", error: modelKey };
+      // The exchange the secret keeps, judged against the hosts it keeps: the
+      // token address's host stays listed while the exchange is set.
+      let exchange = secret.exchange;
+      if (patch.exchange === null) exchange = undefined;
+      else if (patch.exchange !== undefined || (exchange && hosts)) {
+        const checked = checkSecretExchange(
+          patch.exchange ?? exchange,
+          hosts ?? secret.hosts,
+        );
+        if (!checked.ok)
+          return { ok: false, kind: "invalid", error: checked.error };
+        exchange = checked.exchange;
+      }
+      const nextForm = form ?? secret.form;
+      if (nextForm.kind === "query" && !exchange)
+        return {
+          ok: false,
+          kind: "invalid",
+          error: { field: "form", reason: "invalid" },
+        };
+      // An agent keeps the exchange as it is, and keeps the token where it
+      // is when either place is the web address: a query parameter can be
+      // one a service shows or stores.
+      if (options.changeExchange === false) {
+        if (!sameExchange(exchange, secret.exchange))
+          return { ok: false, kind: "exchange_changed" };
+        if (
+          (nextForm.kind === "query" || secret.form.kind === "query") &&
+          !sameForm(nextForm, secret.form)
+        )
+          return { ok: false, kind: "exchange_changed" };
+      }
       if (apps && clashes(scope, name, apps))
         return {
           ok: false,
@@ -564,6 +665,8 @@ export function createSecretStore(
         else delete secret.apps;
       }
       if (form) secret.form = form;
+      if (exchange) secret.exchange = exchange;
+      else delete secret.exchange;
       if (note === null) delete secret.note;
       else if (note !== undefined) secret.note = note;
       secret.updatedAt = Date.now();
@@ -601,6 +704,7 @@ export function createSecretStore(
           name: s.name,
           hosts: [...s.hosts],
           form: { ...s.form },
+          ...(s.exchange ? { exchange: copyExchange(s.exchange) } : {}),
           createdAt: s.createdAt,
           updatedAt: s.updatedAt,
           ...(s.note !== undefined ? { note: s.note } : {}),

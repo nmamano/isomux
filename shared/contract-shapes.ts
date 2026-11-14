@@ -12,7 +12,7 @@
 import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor, RoomDecorPatch } from "./room-decor.ts";
-import type { SecretForm } from "./secret-hosts.ts";
+import type { ExchangeSpec, SecretForm } from "./secret-hosts.ts";
 import type {
   VoiceInput,
   VoiceName,
@@ -1283,6 +1283,12 @@ export interface AgentConnectionWire {
   engineName?: string;
   hosts: string[];
   note: string | null;
+  // A secret's form: where the agent puts the placeholder (the header, or
+  // the web address parameter of the query form).
+  form?: SecretForm;
+  // A secret with a token exchange (task 124eb47e): the proxy sends a token
+  // it gets from this host, not the stored value.
+  exchange?: { host: string };
 }
 export interface AgentConnectionsRes {
   connections: AgentConnectionWire[];
@@ -1353,8 +1359,14 @@ export interface ConnectionTestRes {
 // Why a registered server is left out of agent sessions.
 // An OAuth server with no access token: "sign_in" before the first sign-in,
 // "sign_in_again" when its authorization server refused the refresh.
+// "secret_exchange": the server's header is bound to a secret with a token
+// exchange, which only the secret proxy runs.
 export type McpServerProblem =
-  "secret_missing" | "secret_host" | "sign_in" | "sign_in_again";
+  | "secret_missing"
+  | "secret_host"
+  | "secret_exchange"
+  | "sign_in"
+  | "sign_in_again";
 
 // `notes` absent keeps the notes of the names that remain.
 export interface UserEnvReplaceReq {
@@ -1374,6 +1386,8 @@ export interface SecretWire {
   name: string;
   hosts: string[];
   form: SecretForm;
+  // The token exchange (task 124eb47e); absent when the value goes as is.
+  exchange?: ExchangeSpec;
   createdAt: number;
   valueSetAt: number;
   updatedAt: number;
@@ -1393,6 +1407,7 @@ export interface SecretCreateReq {
   value: string;
   hosts: string[];
   form: SecretForm;
+  exchange?: ExchangeSpec;
   note?: string | null;
   // App names. Only a human caller may send them.
   apps?: string[];
@@ -1403,6 +1418,8 @@ export interface SecretRotateReq {
 export interface SecretUpdateReq {
   hosts?: string[];
   form?: SecretForm;
+  // null removes it. Only a human adds, changes or removes it.
+  exchange?: ExchangeSpec | null;
   note?: string | null;
   // The whole new list. Only a human caller may add an app.
   apps?: string[];
