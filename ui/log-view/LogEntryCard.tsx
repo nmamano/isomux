@@ -1854,6 +1854,7 @@ export function EditableUserMessage({
         </button>
         <button
           onClick={() => text.trim() && onSubmit?.(entryId, text.trim())}
+          disabled={!text.trim()}
           style={{
             padding: "4px 14px",
             borderRadius: 6,

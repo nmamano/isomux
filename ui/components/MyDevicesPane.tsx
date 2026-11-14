@@ -14,7 +14,7 @@ import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire } from "../../shared/types.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
-import { dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
+import { dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import {
   InvitesTable,
@@ -124,7 +124,6 @@ function GenerateDeviceLinkForm() {
         style={{
           ...dialogSaveBtn,
           marginTop: 10,
-          ...(pending ? disabledLook : null),
         }}
       >
         {pending

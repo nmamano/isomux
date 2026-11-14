@@ -9,7 +9,6 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  disabledLook,
   filledSecondaryBtn,
   armedConfirmLook,
 } from "./dialog-styles";
@@ -39,14 +38,6 @@ const stepList = {
   display: "grid",
   gap: 8,
 } as const;
-const primary = (disabled: boolean) => ({
-  ...dialogSaveBtn,
-  ...(disabled ? disabledLook : null),
-});
-const secondary = (disabled: boolean) => ({
-  ...filledSecondaryBtn,
-  ...(disabled ? disabledLook : null),
-});
 
 export function BrowserPane() {
   const { t, rich, language } = useI18n();
@@ -261,7 +252,7 @@ export function BrowserPane() {
                       <button
                         key={b.id}
                         data-testid="browser-reload"
-                        style={secondary(busy)}
+                        style={filledSecondaryBtn}
                         disabled={busy}
                         onClick={() => void reload(b.id)}
                       >
@@ -391,7 +382,7 @@ export function BrowserPane() {
                       data-testid="browser-revoke"
                       {...unpairStep.bind(b.id)}
                       style={{
-                        ...secondary(busy),
+                        ...filledSecondaryBtn,
                         ...(unpairStep.armed === b.id ? armedConfirmLook : {}),
                       }}
                       disabled={busy}
@@ -459,7 +450,7 @@ export function BrowserPane() {
                   />
                   <button
                     data-testid="browser-pair"
-                    style={{ ...primary(busy), flexShrink: 0 }}
+                    style={{ ...dialogSaveBtn, flexShrink: 0 }}
                     disabled={busy}
                     onClick={() =>
                       void change("POST", "/api/me/browser/pair", { name })
@@ -486,7 +477,7 @@ export function BrowserPane() {
                         value={expired ? "" : pair.code}
                       />
                       <button
-                        style={{ ...secondary(expired), flexShrink: 0 }}
+                        style={{ ...filledSecondaryBtn, flexShrink: 0 }}
                         disabled={expired}
                         aria-pressed={revealed}
                         onClick={() => setRevealed(!revealed)}
@@ -494,7 +485,7 @@ export function BrowserPane() {
                         {t(revealed ? "browser.hide" : "browser.show")}
                       </button>
                       <button
-                        style={{ ...primary(expired), flexShrink: 0 }}
+                        style={{ ...dialogSaveBtn, flexShrink: 0 }}
                         disabled={expired}
                         onClick={() => {
                           void navigator.clipboard.writeText(pair.code).then(

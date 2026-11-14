@@ -792,7 +792,7 @@ function ReplyAskCard({
     background: filledSecondaryBtn.background,
     color: filledSecondaryBtn.color,
     fontSize: 12,
-    cursor: busy ? "default" : "pointer",
+    cursor: "pointer",
     flexShrink: 0,
   } as const;
   // Show original, a link under the prompt as the office link is.
@@ -867,7 +867,7 @@ function ReplyAskCard({
           type="button"
           data-ask-undo=""
           onClick={undo}
-          style={{ ...secondaryButton, cursor: "pointer" }}
+          style={secondaryButton}
         >
           {t("asks.undo")}
         </button>
@@ -908,8 +908,7 @@ function ReplyAskCard({
           color: "var(--bg-base)",
           fontSize: 12,
           fontWeight: 600,
-          cursor: busy ? "default" : "pointer",
-          opacity: busy ? 0.6 : 1,
+          cursor: "pointer",
           flexShrink: 0,
         }}
       >
@@ -939,10 +938,7 @@ function ReplyAskCard({
         data-ask-simplify=""
         disabled={simplifyOff}
         onClick={() => void simplify()}
-        style={{
-          ...secondaryButton,
-          cursor: simplifyOff ? "default" : "pointer",
-        }}
+        style={secondaryButton}
       >
         {t("asks.simplify")}
       </button>
@@ -1260,7 +1256,6 @@ function ReplyAskCard({
               color: "var(--accent-text)",
               border: "1px solid var(--accent-text)",
               fontWeight: 600,
-              cursor: undoingSimplify ? "default" : "pointer",
             }}
           >
             {t("asks.undo")}
@@ -1317,11 +1312,7 @@ function ReplyAskCard({
                 onClick={() =>
                   sends ? answer("reply", option) : fillOption(option)
                 }
-                style={{
-                  ...style,
-                  cursor: busy ? "default" : "pointer",
-                  opacity: busy ? 0.6 : 1,
-                }}
+                style={{ ...style, cursor: "pointer" }}
               >
                 <span style={{ minWidth: 0 }}>
                   {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}

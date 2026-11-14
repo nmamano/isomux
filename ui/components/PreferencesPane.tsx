@@ -23,7 +23,7 @@ import {
   resolvePreferenceForm,
   type PreferenceEdits,
 } from "../preference-form.ts";
-import { dialogHint, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
+import { dialogHint, dialogSaveBtn } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 
 export function PreferencesPane() {
@@ -118,7 +118,6 @@ export function PreferencesPane() {
           disabled={saving || !canSave}
           style={{
             ...dialogSaveBtn,
-            ...(saving || !canSave ? disabledLook : null),
           }}
         >
           {saving ? t("common.saving") : t("common.save")}

@@ -21,7 +21,6 @@ import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import {
   dialogInput,
   dialogSaveBtn,
-  disabledLook,
   secondaryBorder,
   secondaryFill,
 } from "./dialog-styles.ts";
@@ -296,7 +295,6 @@ function ExternalAccessSection({
           disabled={!loaded || pending || !dirty}
           style={{
             ...dialogSaveBtn,
-            ...(!loaded || pending || !dirty ? disabledLook : null),
           }}
         >
           {pending

@@ -1150,6 +1150,6 @@ function pagerBtn(disabled: boolean): React.CSSProperties {
     background: secondaryFill,
     color: disabled ? "var(--text-ghost)" : "var(--text-dim)",
     fontSize: 11,
-    cursor: disabled ? "default" : "pointer",
+    cursor: "pointer",
   };
 }

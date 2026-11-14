@@ -22,7 +22,6 @@ import {
   armedConfirmLook,
   cardActionBtn,
   dialogHint,
-  disabledLook,
 } from "./dialog-styles.ts";
 import { cardStyle } from "./access-shared.tsx";
 import { getDevice } from "../device-settings.ts";
@@ -208,7 +207,7 @@ export function PushThisDevice({
           void turnOn();
         }}
         disabled={busy}
-        style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
+        style={cardActionBtn}
       >
         {t("settings.room.pushTurnOn")}
       </button>
@@ -271,7 +270,6 @@ export function PushDevicesBlock({ username }: { username: string }) {
                 disabled={busy || !data}
                 style={{
                   ...switchButton,
-                  ...(busy || !data ? disabledLook : null),
                 }}
               >
                 <span
@@ -290,7 +288,7 @@ export function PushDevicesBlock({ username }: { username: string }) {
                   data-testid="push-test"
                   onClick={() => void test()}
                   disabled={busy}
-                  style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
+                  style={cardActionBtn}
                 >
                   {t("push.settings.test")}
                 </button>
@@ -378,7 +376,6 @@ export function PushDevicesBlock({ username }: { username: string }) {
                     style={{
                       ...cardActionBtn,
                       ...(removeStep.armed === d.id ? armedConfirmLook : null),
-                      ...(busy ? disabledLook : null),
                     }}
                   >
                     {t(

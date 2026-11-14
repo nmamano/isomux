@@ -10,7 +10,6 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  disabledLook,
   armedConfirmLook,
 } from "./dialog-styles.ts";
 import {
@@ -333,7 +332,6 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
           style={{
             ...dialogSaveBtn,
             marginTop: 12,
-            ...(pending ? disabledLook : null),
           }}
         >
           {pending

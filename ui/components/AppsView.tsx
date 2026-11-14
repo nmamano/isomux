@@ -47,6 +47,7 @@ import {
   secondaryBorder,
   secondaryFill,
   filledDangerBtn,
+  ownDisabledLook,
 } from "./dialog-styles.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
@@ -513,6 +514,8 @@ function AppThumbnail({
         aria-label={`${t(MENU_LABELS[verb])}: ${app.name}`}
         data-app-thumbnail={verb}
         disabled={disabled}
+        // The thumbnail keeps its picture; its play button dims (below).
+        {...ownDisabledLook}
         onClick={onVerb}
         style={frame}
         {...hoverProps}
@@ -1759,6 +1762,6 @@ function btnStyle(danger: boolean, disabled: boolean): React.CSSProperties {
         ? "var(--red-text)"
         : "var(--text-secondary)",
     fontSize: 11,
-    cursor: disabled ? "default" : "pointer",
+    cursor: "pointer",
   };
 }

@@ -9,7 +9,6 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
   dialogHint,
-  disabledLook,
 } from "./dialog-styles.ts";
 import {
   UnsavedChangesPrompt,
@@ -79,15 +78,11 @@ export function DevicePane({
             setJustSaved(false);
           }}
           disabled={!dirty}
-          style={{ ...cancelBtnStyle, ...(dirty ? null : disabledLook) }}
+          style={cancelBtnStyle}
         >
           {t("common.cancel")}
         </button>
-        <button
-          onClick={handleSave}
-          disabled={!dirty}
-          style={{ ...saveBtnStyle, ...(dirty ? null : disabledLook) }}
-        >
+        <button onClick={handleSave} disabled={!dirty} style={saveBtnStyle}>
           {justSaved && !dirty ? t("common.saved") : t("common.save")}
         </button>
       </div>

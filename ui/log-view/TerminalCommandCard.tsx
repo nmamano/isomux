@@ -104,8 +104,7 @@ export function TerminalCommandCard({
               ...button,
               ...green,
               fontWeight: 600,
-              opacity: disabled ? 0.6 : 1,
-              cursor: disabled ? "default" : "pointer",
+              cursor: "pointer",
             }}
             title={t(
               blocked && !running

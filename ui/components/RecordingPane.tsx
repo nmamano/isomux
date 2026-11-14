@@ -188,7 +188,6 @@ export function RecordingPane() {
             disabled={loading || rows.length >= MAX_RECORDING_WORDS}
             style={{
               ...filledSecondaryBtn,
-              ...(rows.length >= MAX_RECORDING_WORDS ? disabledLook : null),
             }}
           >
             {t("recording.add")}
@@ -205,11 +204,7 @@ export function RecordingPane() {
           flexWrap: "wrap",
         }}
       >
-        <button
-          onClick={save}
-          disabled={!canSave}
-          style={{ ...dialogSaveBtn, ...(canSave ? null : disabledLook) }}
-        >
+        <button onClick={save} disabled={!canSave} style={dialogSaveBtn}>
           {saving ? t("common.saving") : t("common.save")}
         </button>
         {problem !== null && dirty && (

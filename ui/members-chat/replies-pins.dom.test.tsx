@@ -72,6 +72,16 @@ it("quotes plain snapshot text, jumps to a loaded target, sends only its id and 
     view.container.querySelector("[data-members-chat-composer-quote]")
       ?.textContent,
   ).toContain("Testeroriginal");
+  // The composer's quote has nowhere to jump. It is not a disabled button,
+  // which every page greys out (task 5ea0e610): it shows the quote as is.
+  const composerQuote = view.container.querySelector(
+    "[data-members-chat-composer-quote] [data-members-chat-quote]",
+  )!;
+  expect(composerQuote.textContent).toBe("Testeroriginal");
+  expect({
+    tag: composerQuote.tagName,
+    disabled: composerQuote.hasAttribute("disabled"),
+  }).not.toEqual({ tag: "BUTTON", disabled: true });
   fireEvent.change(composer, { target: { value: "my draft" } });
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: en.t("common.send") })),

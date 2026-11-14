@@ -555,3 +555,40 @@ it("speaks the stand-ins while recording mode is on", async () => {
     setRecording(false);
   }
 });
+
+// Task 5ea0e610: a reply with nothing to read aloud (only code or images)
+// disables Speak, on OpenAI and on the browser voices, since a click did
+// nothing. Stop is never taken away: a reply that is speaking keeps it.
+it("disables Speak on a reply with nothing to read aloud, and never disables Stop", async () => {
+  install({ speechSynthesis: true });
+  const codeOnly = "```ts\nconst a = 1;\n```\n\n![shot](https://x.test/a.png)";
+  for (const voiceOutput of ["openai", "browser"] as const) {
+    const view = render(page([codeOnly, "Hello there."], voiceOutput));
+    expect({
+      voiceOutput,
+      silent: buttonOf(view.container, 0).disabled,
+      words: buttonOf(view.container, 1).disabled,
+    }).toEqual({ voiceOutput, silent: true, words: false });
+    // A click on the silent reply reads nothing.
+    fireEvent.click(buttonOf(view.container, 0));
+    await settle();
+    expect({
+      voiceOutput,
+      stop: isStopShown(buttonOf(view.container, 0)),
+    }).toEqual({ voiceOutput, stop: false });
+
+    // The reply that speaks changes to one with nothing to read: Stop stays.
+    fireEvent.click(buttonOf(view.container, 1));
+    await settle();
+    expect(isStopShown(buttonOf(view.container, 1))).toBe(true);
+    view.rerender(page([codeOnly, codeOnly], voiceOutput));
+    await settle();
+    const stop = buttonOf(view.container, 1);
+    expect({
+      voiceOutput,
+      stop: isStopShown(stop),
+      disabled: stop.disabled,
+    }).toEqual({ voiceOutput, stop: true, disabled: false });
+    view.unmount();
+  }
+});

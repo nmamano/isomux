@@ -43,7 +43,6 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  disabledLook,
 } from "./dialog-styles.ts";
 import {
   entryKey,
@@ -1051,7 +1050,6 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                         disabled={!dirty || saving}
                         style={{
                           ...dialogSaveBtn,
-                          ...(!dirty || saving ? disabledLook : {}),
                         }}
                       >
                         {t("common.save")}
@@ -1085,7 +1083,6 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                     style={{
                       ...dialogCancelBtn,
                       color: "var(--red-text)",
-                      ...(saving || deleting ? disabledLook : {}),
                     }}
                   >
                     {t("common.delete")}
@@ -1183,7 +1180,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               color: "var(--green-text)",
               fontSize: 11.5,
               fontWeight: 600,
-              cursor: catalog ? "pointer" : "not-allowed",
+              cursor: "pointer",
             }}
           >
             <PlusIcon />
@@ -1551,7 +1548,6 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                     background: "var(--red-text)",
                     color: "var(--bg-base)",
                     borderColor: "var(--red)",
-                    ...(deleting ? disabledLook : {}),
                   }}
                 >
                   {t("common.delete")}
@@ -1823,7 +1819,6 @@ function NewSkillDialog({
               disabled={!canCreate}
               style={{
                 ...dialogSaveBtn,
-                ...(!canCreate ? disabledLook : {}),
               }}
             >
               {t("skills.create.submit")}

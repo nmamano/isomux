@@ -256,8 +256,7 @@ function AskMcpSignIn({
           color: "var(--bg-base)",
           fontSize: 12,
           fontWeight: 600,
-          cursor: busy ? "default" : "pointer",
-          opacity: busy ? 0.6 : 1,
+          cursor: "pointer",
         }}
       >
         {failure

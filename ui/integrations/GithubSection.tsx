@@ -21,7 +21,6 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  disabledLook,
   armedConfirmLook,
 } from "../components/dialog-styles.ts";
 import { Btn, Placeholder, card, hintText, input } from "./kit.tsx";
@@ -442,7 +441,6 @@ export function RoomGithubLink({
           disabled={busy || !ready}
           style={{
             ...dialogSaveBtn,
-            ...(busy || !ready ? disabledLook : {}),
           }}
         >
           {t(link ? "integrations.github.update" : "integrations.github.link")}
@@ -456,7 +454,6 @@ export function RoomGithubLink({
             style={{
               ...dialogCancelBtn,
               ...(unlinkStep.armed ? armedConfirmLook : {}),
-              ...(busy ? disabledLook : {}),
             }}
           >
             {t(

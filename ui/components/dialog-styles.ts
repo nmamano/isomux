@@ -105,6 +105,28 @@ export const disabledLook: Readonly<CSSProperties> = Object.freeze({
   cursor: "not-allowed",
 });
 
+// Every disabled <button> takes disabledLook from one global rule
+// (disabledButtonCss, mounted with the app CSS), so a new button needs no
+// style of its own. A button that sets this attribute opts out of the rule.
+// Use it only on a control that shows its own disabled state instead (a
+// slider group that dims, a menu row that dims its text, a spinner that
+// spins), never to keep a disabled button looking enabled.
+export const OWN_DISABLED_LOOK_ATTR = "data-own-disabled-look";
+// Spread on such a button: `<button {...ownDisabledLook}>`.
+export const ownDisabledLook = Object.freeze({ [OWN_DISABLED_LOOK_ATTR]: "" });
+
+// The global rule: disabledLook as CSS, each property !important so it wins
+// over the inline style every button sets.
+export function disabledButtonCss(): string {
+  const declarations = Object.entries(disabledLook)
+    .map(
+      ([key, value]) =>
+        `${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}: ${value} !important;`,
+    )
+    .join(" ");
+  return `button:disabled:not([${OWN_DISABLED_LOOK_ATTR}]) { ${declarations} }`;
+}
+
 // A disabled field (read only for this member). A fill change alone is too
 // faint in the dark themes, so the field drops its fill and its border goes
 // dashed: it does not read as a field to type in.

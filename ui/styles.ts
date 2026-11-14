@@ -1,4 +1,5 @@
 import { emitThemesCss } from "./themes.ts";
+import { disabledButtonCss } from "./components/dialog-styles.ts";
 
 export const CSS = `
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -66,6 +67,8 @@ ${emitThemesCss()}
   /* Editable controls need one visible glyph per character. Disable calt too;
      select and button share this rule harmlessly so typography stays centralized. */
   input, select, textarea, button { font-family: inherit; font-variant-ligatures: none; }
+  /* Every disabled button looks disabled (dialog-styles.ts, OWN_DISABLED_LOOK_ATTR). */
+  ${disabledButtonCss()}
   select option, select optgroup { background: var(--bg-base); color: var(--text-primary); }
   /* The browser default is a fixed grey; the floor text colour holds 4.5:1 in every theme. */
   ::placeholder { color: var(--text-hint); opacity: 1; }
@@ -519,7 +522,7 @@ ${emitThemesCss()}
 
   /* Copy buttons. A button that shows a copy outcome keeps its colors under
      the pointer, which is still on it right after the click. */
-  .copy-btn:not([data-copy-outcome]):hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }
+  .copy-btn:not([data-copy-outcome]):not(:disabled):hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }
   .code-copy-btn {
     position: absolute; top: 6px; right: 6px; z-index: 1;
     width: 24px; height: 24px;

@@ -9,7 +9,6 @@ import { useI18n } from "../i18n.tsx";
 import { cardStyle, hint } from "../components/access-shared.tsx";
 import {
   dialogSaveBtn,
-  disabledLook,
   filledSecondaryBtn,
 } from "../components/dialog-styles.ts";
 import { ProviderMark } from "../components/ProviderMark.tsx";
@@ -225,7 +224,7 @@ function FreeLimitCard({
                   data-switch-engine={provider}
                   disabled={busy}
                   onClick={() => void switchTo(provider)}
-                  style={{ ...dialogSaveBtn, ...(busy ? disabledLook : {}) }}
+                  style={dialogSaveBtn}
                 >
                   {switching === provider
                     ? t("logView.freeLimit.switching")
@@ -242,7 +241,6 @@ function FreeLimitCard({
                     onClick={() => setSigningIn(provider)}
                     style={{
                       ...filledSecondaryBtn,
-                      ...(!loaded ? disabledLook : {}),
                     }}
                   >
                     {t("settings.signIn.signIn")}

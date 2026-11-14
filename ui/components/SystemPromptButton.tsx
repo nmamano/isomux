@@ -6,7 +6,6 @@ import {
   cardActionBtn,
   dialogCancelBtn,
   dialogSaveBtn,
-  disabledLook,
 } from "./dialog-styles.ts";
 import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
@@ -247,7 +246,6 @@ function SystemPromptModal({
               onClick={onCopy}
               style={{
                 ...dialogSaveBtn,
-                ...(prompt === null || error ? disabledLook : null),
               }}
             >
               {copied ? t("common.copiedNotice") : t("common.copy")}

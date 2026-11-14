@@ -24,6 +24,7 @@ import {
   isFrontDesk,
   roomSlotCount,
 } from "../../shared/desks.ts";
+import { ownDisabledLook } from "./dialog-styles.ts";
 
 interface ContextMenuProps {
   x: number;
@@ -390,6 +391,8 @@ export function MenuItem({
       data-nav-menu-item={dataNavMenuItem}
       disabled={disabled}
       aria-disabled={disabled || undefined}
+      // A disabled row dims its text; a box would not fit a menu.
+      {...ownDisabledLook}
       onClick={disabled ? undefined : onClick}
       onMouseEnter={(e) => {
         if (!disabled)

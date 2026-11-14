@@ -13,7 +13,6 @@ import {
   dialogCancelBtn,
   filledDangerBtn,
   dialogSaveBtn,
-  disabledLook,
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -620,7 +619,6 @@ export function RoomPane({
                   disabled={disabled}
                   style={{
                     ...saveBtnStyle,
-                    ...(disabled ? disabledLook : null),
                   }}
                 >
                   {saving

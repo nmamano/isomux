@@ -22,7 +22,6 @@ import {
   dialogCancelBtn,
   dialogInput,
   dialogSaveBtn,
-  disabledLook,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 
@@ -327,7 +326,6 @@ export function MemberUsageCard({
           onClick={() => void handleSave()}
           style={{
             ...dialogSaveBtn,
-            ...(loading || saving ? disabledLook : null),
           }}
           disabled={loading || saving}
         >

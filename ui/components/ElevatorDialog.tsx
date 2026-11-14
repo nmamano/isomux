@@ -444,8 +444,7 @@ export function ElevatorDialog({
               color: "var(--bg-base)",
               fontSize: 12,
               fontWeight: 600,
-              cursor: adding || !address.trim() ? "default" : "pointer",
-              opacity: adding || !address.trim() ? 0.5 : 1,
+              cursor: "pointer",
             }}
           >
             {adding ? t("lobby.elevator.adding") : t("lobby.elevator.add")}

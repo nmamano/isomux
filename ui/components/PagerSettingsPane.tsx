@@ -25,7 +25,6 @@ import {
   dialogLabel,
   dialogSaveBtn,
   disabledFieldLook,
-  disabledLook,
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 import { HelpTip } from "../integrations/kit.tsx";
@@ -222,7 +221,6 @@ export function PagerSettingsPane({
             disabled={busy}
             style={{
               ...secondaryBtn,
-              ...(busy ? disabledLook : null),
             }}
           >
             {t("pager.settings.webhookRemove")}
@@ -345,7 +343,6 @@ export function PagerSettingsPane({
                     disabled={busy || !dirty}
                     style={{
                       ...dialogSaveBtn,
-                      ...(busy || !dirty ? disabledLook : null),
                     }}
                   >
                     {busy ? t("common.saving") : t("common.save")}
@@ -354,12 +351,7 @@ export function PagerSettingsPane({
                     data-testid="pager-test"
                     onClick={() => void test()}
                     disabled={busy || dirty || !saved?.webhookUrlMasked}
-                    style={{
-                      ...cardActionBtn,
-                      ...(busy || dirty || !saved?.webhookUrlMasked
-                        ? disabledLook
-                        : null),
-                    }}
+                    style={cardActionBtn}
                   >
                     {t("pager.settings.test")}
                   </button>

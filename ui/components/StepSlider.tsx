@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { ownDisabledLook } from "./dialog-styles.ts";
 
 // A row of steps that grow left to right, the steps up to the chosen one
 // filled, each named under its bar. One radio group: arrows, Home and End
@@ -108,6 +109,8 @@ export function StepSlider<T extends string>({
             {...{ [attr]: step }}
             data-filled={filled ? "true" : "false"}
             data-disabled={stepOff || undefined}
+            // The group dims (opacity above) when the slider is disabled.
+            {...ownDisabledLook}
             tabIndex={step === focusStep ? 0 : -1}
             disabled={disabled}
             onClick={() => pick(step)}

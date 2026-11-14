@@ -1,4 +1,10 @@
-import { useState, useCallback, useEffect, type CSSProperties } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  type CSSProperties,
+} from "react";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
 import {
   isSupportedLanguage,
@@ -85,6 +91,17 @@ const STOP_ICON = (
 function spokenText(getText: () => string): string {
   const text = stripMarkdown(getText());
   return currentRedactor()?.(text) ?? text;
+}
+
+// A reply that is only code or images leaves punctuation at most ("." between
+// two removed blocks): nothing to read aloud, so Speak is disabled.
+function hasWords(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
+// The redactor never empties a text, so the markdown alone decides.
+function useNothingToSpeak(getText: () => string): boolean {
+  return useMemo(() => !hasWords(stripMarkdown(getText())), [getText]);
 }
 
 /** Strip markdown syntax to get plain text for speech */
@@ -200,6 +217,7 @@ function BrowserSpeakButton({
   // English voice, which is what the old unconditional en-only filter did.
   const noVoiceForLanguage = voices.length > 0 && !voice;
   const languageName = spokenLanguageName(i18n, locale);
+  const silent = useNothingToSpeak(getText);
 
   const handleClick = useCallback(() => {
     if (speaking) {
@@ -210,7 +228,7 @@ function BrowserSpeakButton({
     if (noVoiceForLanguage) return;
 
     const text = spokenText(getText);
-    if (!text) return;
+    if (!hasWords(text)) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
     // Set the language even when we picked a voice: it is what the browser
@@ -229,10 +247,11 @@ function BrowserSpeakButton({
   // Never take Stop away from someone mid-utterance: the voice list can change
   // (voiceschanged), or the language preference can, WHILE audio is playing,
   // and a disabled button would leave them with no way to shut it up.
-  const disabled = !speaking && noVoiceForLanguage;
-  const label = disabled
-    ? i18n.t("logView.voice.noVoice", { language: languageName })
-    : i18n.t(speaking ? "logView.voice.stop" : "logView.voice.speak");
+  const disabled = !speaking && (noVoiceForLanguage || silent);
+  const label =
+    !speaking && noVoiceForLanguage
+      ? i18n.t("logView.voice.noVoice", { language: languageName })
+      : i18n.t(speaking ? "logView.voice.stop" : "logView.voice.speak");
 
   // The title lives on a wrapper, not the button: browsers do not reliably show
   // a tooltip for a DISABLED button, which is the one case where the
@@ -252,7 +271,7 @@ function BrowserSpeakButton({
         className="copy-btn"
         disabled={disabled}
         aria-label={label}
-        style={speakButtonStyle(size, speaking, disabled)}
+        style={speakButtonStyle(size, speaking)}
       >
         {speaking ? STOP_ICON : SPEAK_ICON}
       </button>
@@ -275,6 +294,9 @@ function OpenAISpeakButton({
     speech.speaking ? "logView.voice.stop" : "logView.voice.speak",
   );
   const error = speech.error;
+  // Stop stays clickable whatever the reply now holds.
+  const silent = useNothingToSpeak(getText);
+  const disabled = !speech.speaking && silent;
   // A member whose permission pack cannot add variables asks an owner.
   const canAddKey = useCan("environment", "write");
   return (
@@ -288,13 +310,14 @@ function OpenAISpeakButton({
             if (speech.speaking) speech.stop();
             else {
               const text = spokenText(getText);
-              if (text) speech.speak(text, voice);
+              if (hasWords(text)) speech.speak(text, voice);
             }
             (e.target as HTMLElement).blur();
           }}
           className="copy-btn"
+          disabled={disabled}
           aria-label={label}
-          style={speakButtonStyle(size, speech.speaking, false)}
+          style={speakButtonStyle(size, speech.speaking)}
         >
           {speech.speaking ? STOP_ICON : SPEAK_ICON}
         </button>
@@ -356,13 +379,8 @@ function OpenAISpeakButton({
   );
 }
 
-function speakButtonStyle(
-  size: number,
-  speaking: boolean,
-  disabled: boolean,
-): CSSProperties {
+function speakButtonStyle(size: number, speaking: boolean): CSSProperties {
   return {
-    opacity: disabled ? 0.4 : 1,
     width: size,
     height: size,
     display: "flex",
@@ -374,7 +392,7 @@ function speakButtonStyle(
       ? "var(--accent-bg, var(--green-bg))"
       : "var(--btn-surface)",
     color: speaking ? "var(--accent-text)" : "var(--text-dim)",
-    cursor: disabled ? "not-allowed" : "pointer",
+    cursor: "pointer",
     padding: 0,
     flexShrink: 0,
     transition: "color 0.15s, background 0.15s, border-color 0.15s",

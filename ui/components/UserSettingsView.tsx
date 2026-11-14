@@ -63,7 +63,6 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  disabledLook,
   secondaryBorder,
   secondaryFill,
   filledDangerBtn,
@@ -2162,7 +2161,6 @@ function UserEditPanel({
                 disabled={saving || !dirty || !name.trim()}
                 style={{
                   ...saveBtnStyle,
-                  ...(saving || !dirty || !name.trim() ? disabledLook : null),
                 }}
               >
                 {saving

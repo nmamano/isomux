@@ -6,8 +6,8 @@ import { useAppState } from "../store.tsx";
 import type { ConfirmBindings } from "../hooks/useConfirmStep.ts";
 import { useI18n } from "../i18n.tsx";
 import {
-  disabledLook,
   filledDangerBtn,
+  ownDisabledLook,
   secondaryBorder,
   secondaryFill,
 } from "../components/dialog-styles.ts";
@@ -150,8 +150,9 @@ export function Btn({
     ...btnBase,
     ...(small && kind !== "link" ? { padding: "3px 9px", fontSize: 11 } : {}),
     ...look,
-    ...(disabled && kind !== "link"
-      ? { ...disabledLook, cursor: "not-allowed" }
+    // A link has no box for the disabled rule to grey: its text dims.
+    ...(disabled && kind === "link"
+      ? { color: "var(--text-hint)", cursor: "not-allowed" }
       : {}),
     ...style,
   };
@@ -173,6 +174,7 @@ export function Btn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      {...(kind === "link" ? ownDisabledLook : null)}
       {...data}
       {...confirmProps}
       style={full}

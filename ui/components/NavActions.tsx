@@ -9,6 +9,7 @@ import {
 import { Portal } from "./Portal.tsx";
 import { MenuItem } from "./ContextMenu.tsx";
 import { useI18n } from "../i18n.tsx";
+import { ownDisabledLook } from "./dialog-styles.ts";
 
 // A row with `checked` set is a radio choice: it keeps the menu open and
 // shows whether it is the one picked (Copy: Markdown or Plain text).
@@ -193,7 +194,7 @@ function desktopButtonStyle(a: NavAction): CSSProperties {
         ? "var(--green-text)"
         : "var(--text-dim)",
     fontSize: 11,
-    cursor: a.disabled ? "not-allowed" : "pointer",
+    cursor: "pointer",
     // Opacity for a twin that fades with the sidebar (useTwinFade).
     transition:
       "color 0.15s, background 0.15s, border-color 0.15s, opacity 0.2s",
@@ -448,6 +449,8 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                   <button
                     title={a.title ?? a.label}
                     disabled={a.disabled}
+                    // A disabled row dims its text; a box would not fit a menu.
+                    {...ownDisabledLook}
                     aria-expanded={menu ? isExpanded : undefined}
                     onClick={() => {
                       if (menu) {
@@ -514,6 +517,8 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                             aria-checked={item.checked}
                             data-nav-menu-item={item.id}
                             disabled={item.disabled}
+                            // A disabled row dims (opacity below).
+                            {...ownDisabledLook}
                             onClick={() => {
                               if (item.checked === undefined) setOpen(false);
                               item.onClick();

@@ -399,7 +399,7 @@ export function StoragePane({
                   ? "var(--text-primary)"
                   : "var(--text-dim)",
               background: target === choice ? "var(--bg-input)" : "transparent",
-              cursor: busy ? "not-allowed" : "pointer",
+              cursor: "pointer",
             }}
           >
             {categoryLabel(t, choice)}
@@ -459,7 +459,6 @@ export function StoragePane({
           ...dialogCancelBtn,
           marginTop: 14,
           width: "100%",
-          ...(formValid && !busy ? null : disabledLook),
         }}
       >
         {phase.kind === "previewing"
@@ -799,7 +798,7 @@ function BackupSettingsForm({
         <button
           onClick={() => void save()}
           disabled={saving}
-          style={{ ...dialogSaveBtn, ...(saving ? disabledLook : null) }}
+          style={dialogSaveBtn}
         >
           {saving ? t("common.saving") : t("common.save")}
         </button>
@@ -1000,7 +999,6 @@ function RetentionBlock() {
           ...dialogCancelBtn,
           marginTop: 14,
           width: "100%",
-          ...(valid && !saving ? null : disabledLook),
         }}
       >
         {saving ? t("common.saving") : t("common.save")}
@@ -1082,7 +1080,6 @@ function CompressBlock({ onCompressed }: { onCompressed: () => void }) {
           ...dialogCancelBtn,
           marginTop: 14,
           width: "100%",
-          ...(valid && !running ? null : disabledLook),
         }}
       >
         {running
@@ -1275,7 +1272,6 @@ function PlanBlock({
                 ...dangerBtn,
                 marginTop: 0,
                 flex: 1,
-                ...(confirmText === "DELETE" ? null : disabledLook),
               }}
             >
               {phase.kind === "applying"

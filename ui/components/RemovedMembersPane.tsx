@@ -16,11 +16,7 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
-import {
-  dialogSaveBtn,
-  disabledLook,
-  filledDangerBtn,
-} from "./dialog-styles.ts";
+import { dialogSaveBtn, filledDangerBtn } from "./dialog-styles.ts";
 
 // One GET per connection; the event keeps the list current after it.
 export function useRemovedMembersSeed(isOwner: boolean): void {
@@ -160,7 +156,7 @@ function RemovedMemberCard({
         <button
           onClick={restore}
           disabled={pending}
-          style={{ ...dialogSaveBtn, ...(pending ? disabledLook : {}) }}
+          style={dialogSaveBtn}
           data-removed-member-restore=""
         >
           {t("settings.removedMembers.restore")}
@@ -169,7 +165,7 @@ function RemovedMemberCard({
           onClick={purge}
           onBlur={() => setConfirmPurge(false)}
           disabled={pending}
-          style={{ ...filledDangerBtn, ...(pending ? disabledLook : {}) }}
+          style={filledDangerBtn}
           data-removed-member-delete=""
         >
           {confirmPurge

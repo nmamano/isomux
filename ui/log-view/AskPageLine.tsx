@@ -82,10 +82,7 @@ export function AskPageLine({
           title={t("asks.page.ackTitle")}
           disabled={acking}
           onClick={onAck}
-          style={{
-            ...buttonStyle,
-            cursor: acking ? "default" : "pointer",
-          }}
+          style={buttonStyle}
         >
           {t("asks.page.ack")}
         </button>

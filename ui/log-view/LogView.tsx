@@ -131,6 +131,7 @@ import {
 } from "../composer-height.ts";
 import {
   armedConfirmLook,
+  ownDisabledLook,
   secondaryBorder,
   secondaryFill,
   tintedFill,
@@ -2276,6 +2277,8 @@ export function LogView({
                       );
                     }}
                     disabled={topicGenerating}
+                    // It spins while the topic is generated.
+                    {...ownDisabledLook}
                     title={i18n.t("logView.regenerateTopic")}
                     style={{
                       background: "none",

@@ -6,7 +6,7 @@ import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire, UserRecord } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogInput, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
+import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import {
   InvitesTable,
   MintedUrlBox,
@@ -126,7 +126,6 @@ function SignInLinkForm() {
           disabled={pending || !userId}
           style={{
             ...dialogSaveBtn,
-            ...(pending || !userId ? disabledLook : null),
           }}
         >
           {pending
@@ -167,7 +166,7 @@ export function PendingMemberSignInLink({ user }: { user: UserRecord }) {
           data-member-sign-in-link-create=""
           onClick={() => mint(user.id)}
           disabled={disabled}
-          style={{ ...dialogSaveBtn, ...(disabled ? disabledLook : null) }}
+          style={dialogSaveBtn}
         >
           {pending
             ? t("settings.invites.creatingLink")

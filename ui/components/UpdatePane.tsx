@@ -8,7 +8,6 @@ import {
 } from "../../shared/languages.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { UpdateOutcomeNotes } from "./UpdateOverlay.tsx";
-import { disabledLook } from "./dialog-styles.ts";
 import { apiFetch } from "../api.ts";
 import type { UpdateStatusWire } from "../../shared/types.ts";
 import {
@@ -438,7 +437,6 @@ function ReleaseBody({
               disabled={phase === "starting"}
               style={{
                 ...buttonStyle,
-                ...(phase === "starting" ? disabledLook : null),
               }}
             >
               {phase === "starting"

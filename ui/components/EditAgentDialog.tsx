@@ -1761,7 +1761,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
     background: disabled ? "var(--bg-input)" : "var(--btn-surface)",
     color: disabled ? "var(--text-hint)" : "var(--text-dim)",
     fontSize: 12,
-    cursor: disabled ? "not-allowed" : "pointer",
+    cursor: "pointer",
     fontFamily: "var(--font-ui)",
   });
   const moveToRoomBlock = !isSpawn &&
@@ -1916,8 +1916,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                     borderRadius: 8,
                     padding: "12px 14px",
                     textAlign: "left",
-                    cursor:
-                      unavailable || cannotRunStop ? "not-allowed" : "pointer",
+                    cursor: "pointer",
                     color:
                       unavailable || cannotRunStop
                         ? "var(--text-hint)"
@@ -2537,7 +2536,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                   autoFocus={isSpawn}
                   onClick={() => setTemplateListOpen((open) => !open)}
                   style={{
-                    ...templateCardStyle(false, false, chosenTemplate?.group),
+                    ...templateCardStyle(false, chosenTemplate?.group),
                     width: "100%",
                     // One height with or without an avatar.
                     minHeight: 46,
@@ -2623,10 +2622,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                           aria-selected={selectedTemplateKey === null}
                           onClick={() => pickTemplate(null)}
                           style={{
-                            ...templateCardStyle(
-                              selectedTemplateKey === null,
-                              false,
-                            ),
+                            ...templateCardStyle(selectedTemplateKey === null),
                             gridColumn: "1 / -1",
                           }}
                         >
@@ -2651,7 +2647,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                               onClick={() => pickTemplate(template)}
                               style={templateCardStyle(
                                 selected,
-                                false,
                                 template.group,
                               )}
                             >
@@ -2706,13 +2701,12 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {killedAgents.map((killedAgent) => {
                   const isThisReviving = reviving === killedAgent.id;
-                  const disabled = reviving !== null && !isThisReviving;
                   return (
                     <button
                       key={killedAgent.id}
                       {...noTranslate()}
                       type="button"
-                      disabled={disabled}
+                      disabled={reviving !== null}
                       title={
                         killedAgent.topic
                           ? `${killedAgent.lastRoomName} - ${killedAgent.topic}`
@@ -2725,10 +2719,8 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                         borderRadius: 999,
                         padding: "5px 10px",
                         fontSize: 12,
-                        color: disabled
-                          ? "var(--text-hint)"
-                          : "var(--text-primary)",
-                        cursor: disabled ? "not-allowed" : "pointer",
+                        color: "var(--text-primary)",
+                        cursor: "pointer",
                       }}
                     >
                       {isThisReviving
@@ -2859,7 +2851,6 @@ const saveBtnStyle: React.CSSProperties = dialogSaveBtn;
 
 function templateCardStyle(
   selected: boolean,
-  disabled: boolean,
   group?: AgentTemplate["group"],
 ): React.CSSProperties {
   const groupColor = group ? TEMPLATE_GROUP_COLORS[group] : null;
@@ -2873,9 +2864,9 @@ function templateCardStyle(
       : groupColor
         ? `color-mix(in srgb, ${groupColor} 8%, var(--bg-input))`
         : "var(--bg-input)",
-    color: disabled ? "var(--text-hint)" : "var(--text-primary)",
+    color: "var(--text-primary)",
     textAlign: "left",
-    cursor: disabled ? "not-allowed" : "pointer",
+    cursor: "pointer",
     display: "flex",
     alignItems: "center",
     gap: 7,

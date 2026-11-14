@@ -10,11 +10,7 @@ import type {
   ProviderLoginStartRes,
 } from "../../shared/types.ts";
 import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
-import {
-  dialogSaveBtn,
-  disabledLook,
-  filledSecondaryBtn,
-} from "./dialog-styles.ts";
+import { dialogSaveBtn, filledSecondaryBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import { useDispatch } from "../store.tsx";
 import { useCan } from "../hooks/useCan.ts";
@@ -596,7 +592,6 @@ function ProviderScopeConnection({
               data-cancel-shared-login
               style={{
                 ...filledSecondaryBtn,
-                ...(pending ? disabledLook : {}),
               }}
               onClick={() => void cancel()}
               disabled={pending}
@@ -636,7 +631,6 @@ function ProviderScopeConnection({
               style={{
                 ...dialogSaveBtn,
                 marginRight: 8,
-                ...(pending || !claudeCode.trim() ? disabledLook : {}),
               }}
               onClick={() => void submitClaudeCode()}
               disabled={pending || !claudeCode.trim()}
@@ -645,7 +639,7 @@ function ProviderScopeConnection({
             </button>
           )}
           <button
-            style={{ ...filledSecondaryBtn, ...(pending ? disabledLook : {}) }}
+            style={filledSecondaryBtn}
             onClick={() => void cancel()}
             disabled={pending}
           >
@@ -731,7 +725,6 @@ function ProviderScopeConnection({
                 ...filledSecondaryBtn,
                 color: "var(--red-text)",
                 flexShrink: 0,
-                ...(pending ? disabledLook : {}),
               }}
               onClick={() => setConfirmingSignOut(true)}
               disabled={pending}
@@ -750,7 +743,6 @@ function ProviderScopeConnection({
                 autoFocus
                 style={{
                   ...filledSecondaryBtn,
-                  ...(pending ? disabledLook : {}),
                 }}
                 onClick={() => setConfirmingSignOut(false)}
                 disabled={pending}
@@ -761,7 +753,6 @@ function ProviderScopeConnection({
                 style={{
                   ...filledSecondaryBtn,
                   color: "var(--red-text)",
-                  ...(pending ? disabledLook : {}),
                 }}
                 onClick={() => void disconnect()}
                 disabled={pending}

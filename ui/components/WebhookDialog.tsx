@@ -13,7 +13,6 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  disabledLook,
   secondaryBorder,
   secondaryFill,
 } from "./dialog-styles.ts";
@@ -690,11 +689,7 @@ export function WebhookDialog({
               <button
                 onClick={handleSave}
                 disabled={!canSave}
-                style={
-                  canSave
-                    ? dialogSaveBtn
-                    : { ...dialogSaveBtn, ...disabledLook }
-                }
+                style={dialogSaveBtn}
                 data-webhook-save=""
               >
                 {saving
@@ -848,7 +843,7 @@ function iconBtn(disabled: boolean): React.CSSProperties {
     border: secondaryBorder,
     background: secondaryFill,
     color: disabled ? "var(--text-ghost)" : "var(--text-dim)",
-    cursor: disabled ? "default" : "pointer",
+    cursor: "pointer",
     padding: 0,
     flexShrink: 0,
   };

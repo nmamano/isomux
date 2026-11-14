@@ -5,11 +5,12 @@
 import { afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
-const { render } = await import("@testing-library/react");
+const { fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { EditableUserMessage, UserMessage } = await import("./LogEntryCard.tsx");
 const { setRecording, setRecordingRules } =
   await import("../recording-mode.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 afterEach(() => setRecording(false));
 
@@ -69,4 +70,34 @@ it("hides the author's name in the chat label while recording, in the message an
     expect(text).toContain("Member 2");
     view.unmount();
   }
+});
+
+// Task 5ea0e610: Send in the edit form of a sent message did nothing on a
+// blank draft, yet looked enabled. It is disabled while the draft is blank.
+it("disables Send in the edit form while the draft is blank", () => {
+  const sends: string[] = [];
+  const view = render(
+    createElement(EditableUserMessage, {
+      content: "hello",
+      entryId: "e1",
+      onSubmit: (_id: string, text: string) => sends.push(text),
+    }),
+  );
+  const send = view.getByRole("button", {
+    name: translatorFor("en").t("common.send"),
+  }) as HTMLButtonElement;
+  const draft = view.container.querySelector("textarea")!;
+  expect(send.disabled).toBe(false);
+  for (const blank of ["", "  \n "]) {
+    fireEvent.change(draft, { target: { value: blank } });
+    expect({ blank, disabled: send.disabled }).toEqual({
+      blank,
+      disabled: true,
+    });
+  }
+  fireEvent.change(draft, { target: { value: " edited " } });
+  expect(send.disabled).toBe(false);
+  fireEvent.click(send);
+  expect(sends).toEqual(["edited"]);
+  view.unmount();
 });

@@ -1,5 +1,6 @@
 import { useId, useState, useRef, useLayoutEffect } from "react";
 import { useI18n } from "../i18n.tsx";
+import { ownDisabledLook } from "../components/dialog-styles.ts";
 
 export function ThumbsUpReaction({
   active,
@@ -74,6 +75,9 @@ export function ThumbsUpReaction({
         )}
         aria-pressed={active}
         disabled={pending}
+        // Disabled only for the one round trip of a toggle: a box would
+        // flash in the pill at each click.
+        {...ownDisabledLook}
         onClick={() => void toggle()}
         style={buttonStyle}
       >
