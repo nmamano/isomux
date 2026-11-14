@@ -15,7 +15,6 @@ import type {
 } from "../shared/contract-shapes.ts";
 import type { OfficeState } from "../shared/office-state.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
-import { getSessionClaudeConfigDir } from "./persistence.ts";
 import { autoHandoffPossible } from "./auto-handoff.ts";
 import {
   freshTurnFlags,
@@ -41,6 +40,11 @@ export interface UsageReadingsDeps {
   armMemoryNotice: (managed: ManagedAgent) => void;
   // The sign-in the agent runs on (server/session-accounts.ts signInOf).
   signInOf: (managed: ManagedAgent) => SignIn;
+  // The account folder the next turn of an agent with no session runs on,
+  // and what that depends on besides its session and env
+  // (server/session-accounts.ts nextAccountDir, nextAccountStamp).
+  nextAccountDir: (managed: ManagedAgent) => string | null;
+  nextAccountStamp: (managed: ManagedAgent) => string;
   dropLimitResume: (agentId: string, managed: ManagedAgent) => void;
   evaluateAutoHandoff: (
     managed: ManagedAgent,
@@ -412,7 +416,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     managed.subscriptionGen++;
     // The engine's keys go with it; the next use derives the new engine's.
     managed.launchedUsageKey = undefined;
-    managed.idleUsageKey = undefined;
+    forgetIdleAccount(managed);
     clearSubscriptionUsage(managed);
   }
 
@@ -433,9 +437,18 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     { wire: SubscriptionUsageWire | null; atMs: number }
   >();
 
+  // Drop the cached next account and idle usage key: an env change, a
+  // sign-in, or a launch that records the session's folder can change them
+  // with no change to their stamp.
+  function forgetIdleAccount(managed: ManagedAgent): void {
+    managed.idleUsageKey = undefined;
+    managed.idleNextAccount = undefined;
+  }
+
   // The usage account of the agent: the installed session's launch key, else
-  // the account its next session would run under. No side effects and never
-  // throws - buildSessionEnv would probe and pin a session root.
+  // the account its next turn runs on (deps.nextAccountDir), the same one
+  // its sign-in names. No side effects and never throws - buildSessionEnv
+  // would probe and pin a session root.
   function usageKeyOf(managed: ManagedAgent): string | null {
     if (
       managed.sessionManager.session &&
@@ -443,20 +456,24 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     )
       return managed.launchedUsageKey;
     const sessionId = managed.sessionManager.sessionId ?? null;
-    if (managed.idleUsageKey?.sessionId === sessionId)
+    const stamp = deps.nextAccountStamp(managed);
+    if (
+      managed.idleUsageKey?.sessionId === sessionId &&
+      managed.idleUsageKey.stamp === stamp
+    )
       return managed.idleUsageKey.key;
     const agentType = managed.info.agentType;
     let key: string | null;
     try {
       const env =
         buildEnvForUserId(managed.info.userId) ?? getAgentHost().baseEnv();
-      if (agentType === "claude" && sessionId) {
-        // A legacy session with no recorded root resumes on whichever root
-        // holds it: no guess.
-        const dir = getSessionClaudeConfigDir(managed.info.id, sessionId);
-        key = dir
-          ? usageAccountKey(agentType, { ...env, CLAUDE_CONFIG_DIR: dir })
-          : null;
+      if (agentType === "claude" || agentType === "codex") {
+        // A legacy Claude session with no recorded root resumes on whichever
+        // root holds it: no guess.
+        const dir = deps.nextAccountDir(managed);
+        const name =
+          agentType === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+        key = dir ? usageAccountKey(agentType, { ...env, [name]: dir }) : null;
       } else {
         key = usageAccountKey(agentType, env);
       }
@@ -464,13 +481,14 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
       // Not cached: an env that cannot load now is retried at the next use.
       return null;
     }
-    managed.idleUsageKey = { sessionId, key };
+    managed.idleUsageKey = { sessionId, stamp, key };
     return key;
   }
 
   // Point the agent at its current usage account (`key`, default derived).
   // Another account than the one its reading belongs to orphans every read in
-  // flight and shows that account's reading, or none.
+  // flight and shows that account's reading, or none, and refreshes the
+  // sign-in, which names the same account.
   function syncUsageKey(
     managed: ManagedAgent,
     key: string | null = usageKeyOf(managed),
@@ -478,7 +496,10 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     if (managed.subscriptionKey === key) return key;
     const first = managed.subscriptionKey === undefined;
     managed.subscriptionKey = key;
-    if (!first) managed.subscriptionGen++;
+    if (!first) {
+      managed.subscriptionGen++;
+      refreshSignIn(managed);
+    }
     if (key === null) {
       // An engine without shared readings keeps its own.
       if (!first) clearSubscriptionUsage(managed);
@@ -519,7 +540,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     for (const key of [...accountUsage.keys()])
       if (usageKeyOnDirectory(key, provider, dir)) accountUsage.delete(key);
     for (const managed of agents.values()) {
-      managed.idleUsageKey = undefined;
+      forgetIdleAccount(managed);
       const key = syncUsageKey(managed);
       refreshSignIn(managed);
       if (key === null || !usageKeyOnDirectory(key, provider, dir)) continue;
@@ -779,7 +800,9 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
   // reads env files, and that runs for every agent on every sample.
   // Known drift: a fallback entry that ends by time, or the office fallback
   // switched off in settings, changes the answer with no call; the next
-  // launch, read or release corrects it.
+  // launch, read or release corrects it, or a reading's fan-out that moves
+  // the agent's usage key (syncUsageKey), so the label and the reading name
+  // one account.
   function refreshSignIn(managed: ManagedAgent): SignIn | null {
     let signIn: SignIn;
     try {
@@ -802,6 +825,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     refreshContextUsage,
     resetSubscriptionUsage,
     syncUsageKey,
+    forgetIdleAccount,
     providerAccountChanged,
     refreshSubscriptionUsage,
     getAgentSubscriptionUsage,

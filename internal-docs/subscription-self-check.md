@@ -137,9 +137,12 @@ on a sign-in or sign-out in its directory. The key
 (`server/usage-account.ts`) is the provider, the resolved config directory
 and a hash of the variables that select an account without that directory
 (API keys, tokens, cloud switches, base URLs). A live session's key comes
-from its launch env; a session-less agent's from the root its stored
-session recorded (none for a legacy session without one) or the member's
-env. Every agent on one key shows the latest reading any of them took; an
+from its launch env; a session-less agent's from the account its next turn
+runs on (`session-accounts.ts` `nextAccount`, which `signInOf` also reads,
+so the reading and the sign-in name one account; task 98d8e31a): the
+office fallback's move target when a move is pending, else the root its
+stored session recorded (none for a legacy session without one) or the
+member's env. Every agent on one key shows the latest reading any of them took; an
 older observation never replaces a newer one, and an authoritative "no
 allowance" clears the whole key. `ProviderAccountManager.onAccountChanged`
 drops a directory's readings after a sign-in or sign-out there. An external

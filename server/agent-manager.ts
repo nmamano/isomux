@@ -905,6 +905,7 @@ export function createAgentManager(deps: ManagerDeps) {
     refreshContextUsage,
     resetSubscriptionUsage,
     syncUsageKey,
+    forgetIdleAccount,
     providerAccountChanged,
     refreshSubscriptionUsage,
     getAgentSubscriptionUsage,
@@ -917,6 +918,8 @@ export function createAgentManager(deps: ManagerDeps) {
     armMemoryNotice,
     // Arrow: createSessionAccounts, built below, returns it.
     signInOf: (managed) => signInOf(managed),
+    nextAccountDir: (managed) => nextAccountDir(managed),
+    nextAccountStamp: (managed) => nextAccountStamp(managed),
     // Arrows, not shorthand: createHandoffAndWake, built below, returns
     // both, and a shorthand would read them before they exist.
     dropLimitResume: (agentId, managed) => dropLimitResume(agentId, managed),
@@ -1007,12 +1010,15 @@ export function createAgentManager(deps: ManagerDeps) {
     officeWanted,
     alignAccount,
     signInOf,
+    nextAccountDir,
+    nextAccountStamp,
     fallbackStop,
     queueFallbackContinue,
     refreshLimitedClaudeFamilies,
   } = createSessionAccounts({
     agents,
     refreshSignIn,
+    syncUsageKey,
     officeState,
     emit,
     addLogEntry,
@@ -4653,7 +4659,7 @@ export function createAgentManager(deps: ManagerDeps) {
       if (!envChangeReaches(change, managed.info.userId)) continue;
       // The next session may run on another account; a live one moves at
       // its release.
-      managed.idleUsageKey = undefined;
+      forgetIdleAccount(managed);
       if (!managed.sessionManager.session) {
         syncUsageKey(managed);
         refreshSignIn(managed);
@@ -5340,6 +5346,9 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.agentType,
       env ?? getAgentHost().baseEnv(),
     );
+    // The idle answers are derived again at release: a launch can record what
+    // they depend on (a Claude session's folder) with no change to their stamp.
+    forgetIdleAccount(managed);
     syncUsageKey(managed, managed.launchedUsageKey);
     refreshSignIn(managed);
     // The boundary callback is bound to the session it is created with, so a

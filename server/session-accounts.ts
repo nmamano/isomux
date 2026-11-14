@@ -109,6 +109,9 @@ export interface SessionAccountsDeps {
   providerFallback: ManagerDeps["providerFallback"];
   // Puts the sign-in on the agent's info (server/usage-readings.ts).
   refreshSignIn: (managed: ManagedAgent) => void;
+  // Points the agent's reading at its usage account
+  // (server/usage-readings.ts).
+  syncUsageKey: (managed: ManagedAgent) => void;
   fallbackOfficeAccount: ManagerDeps["fallbackOfficeAccount"];
   // After the switch installs the new process: what its close carried (an
   // environment change, ended background work) reaches the agent.
@@ -148,32 +151,12 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     sessionId: string | null = managed.sessionManager.sessionId,
   ): { [key: string]: string | undefined } | undefined {
     const provider = managed.info.agentType;
-    let base =
-      provider === "opencode"
-        ? buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId)
-        : buildEnvForUserId(managed.info.userId);
-    // On the office sign-in (alignAccount): new sessions start there. A
-    // Claude session's pin still wins below, and a Codex thread is looked up
-    // in both homes, so a conversation runs where its files are.
-    if (provider !== "opencode") {
-      const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
-      const office = managed.officeFallback ? officeAccountDir(provider) : null;
-      if (office)
-        base = { ...(base ?? getAgentHost().baseEnv()), [name]: office };
-      if (provider === "codex" && sessionId && fallbackInPlay(managed)) {
-        const chosen = effectiveProviderDirectory(
-          "codex",
-          base ?? getAgentHost().baseEnv(),
-        );
-        const home = codexHomeOfThread(
-          sessionId,
-          [chosen, ...fallbackHomes(managed)].filter(
-            (dir, i, all) => all.indexOf(dir) === i,
-          ),
-        );
-        if (home && home !== chosen)
-          base = { ...(base ?? getAgentHost().baseEnv()), CODEX_HOME: home };
-      }
+    let base = launchEnv(managed);
+    if (provider === "codex" && sessionId) {
+      const env = base ?? getAgentHost().baseEnv();
+      const home = codexThreadHome(managed, sessionId, env);
+      if (home !== effectiveProviderDirectory("codex", env))
+        base = { ...env, CODEX_HOME: home };
     }
     if (provider === "claude" && sessionId) {
       const root = resolveClaudeSessionRoot(
@@ -194,6 +177,44 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     // subprocess keeps PATH/HOME/etc. Redaction tests assert it stays out of
     // prompts, logs, errors, diffs, and the WS.
     return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
+  }
+
+  // The env a session of the agent launches with, before the session's own
+  // folder and the agent token. On the office sign-in (alignAccount): new
+  // sessions start there. A Claude session's pin still wins, and a Codex
+  // thread is looked up in both homes (codexThreadHome), so a conversation
+  // runs where its files are. Throws when an env file cannot load.
+  function launchEnv(
+    managed: ManagedAgent,
+  ): { [key: string]: string | undefined } | undefined {
+    const provider = managed.info.agentType;
+    if (provider === "opencode")
+      return buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId);
+    const base = buildEnvForUserId(managed.info.userId);
+    const office = managed.officeFallback ? officeAccountDir(provider) : null;
+    if (!office) return base;
+    const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    return { ...(base ?? getAgentHost().baseEnv()), [name]: office };
+  }
+
+  // The Codex home thread `sessionId` resumes from with `env`: the one the
+  // env picks, or, while a fallback is in play, the home that holds the
+  // thread.
+  function codexThreadHome(
+    managed: ManagedAgent,
+    sessionId: string,
+    env: { [key: string]: string | undefined },
+  ): string {
+    const chosen = effectiveProviderDirectory("codex", env);
+    if (!fallbackInPlay(managed)) return chosen;
+    return (
+      codexHomeOfThread(
+        sessionId,
+        [chosen, ...fallbackHomes(managed)].filter(
+          (dir, i, all) => all.indexOf(dir) === i,
+        ),
+      ) ?? chosen
+    );
   }
 
   // The env of a Claude or Codex one-shot prompt (topic, conversation
@@ -429,6 +450,93 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     return check;
   }
 
+  // The account the account check moves the agent to, or null when it has
+  // none: the office's while `wanted`, else the member's own.
+  function moveTarget(
+    managed: ManagedAgent,
+    wanted: { office: FallbackAccount } | null,
+  ): FallbackAccount | null {
+    return (
+      wanted?.office ??
+      ownAccount(managed.info.userId, managed.info.agentType)?.account ??
+      null
+    );
+  }
+
+  // The account the agent's next turn runs on when it has no live session:
+  // where the account check at its start moves it (alignAccount), else
+  // where its session launches (buildSessionEnv). Null when that is unknown:
+  // a Claude session with no recorded root, or an env that cannot load.
+  // The sign-in and the usage key both read it, so they name one account.
+  // Cached per session id and nextAccountStamp, because a Codex answer walks
+  // the thread folders; usage-readings.ts forgetIdleAccount clears it where
+  // the answer can change under the same stamp. No side effects but the
+  // cache.
+  function nextAccount(managed: ManagedAgent): FallbackAccount | null {
+    const sessionId = managed.sessionManager.sessionId ?? null;
+    const stamp = nextAccountStamp(managed);
+    const cached = managed.idleNextAccount;
+    if (cached?.sessionId === sessionId && cached.stamp === stamp)
+      return cached.account;
+    let account: FallbackAccount | null;
+    try {
+      account = findNextAccount(managed, sessionId);
+    } catch {
+      // Not cached: an env that cannot load now is retried at the next use.
+      return null;
+    }
+    managed.idleNextAccount = { sessionId, stamp, account };
+    return account;
+  }
+
+  function findNextAccount(
+    managed: ManagedAgent,
+    sessionId: string | null,
+  ): FallbackAccount | null {
+    const { userId, agentType: provider, modelFamily } = managed.info;
+    const wanted = officeWanted(userId, provider, modelFamily);
+    if (wanted || managed.officeFallback) {
+      const target = moveTarget(managed, wanted);
+      if (target) return target;
+    }
+    if (provider === "opencode")
+      return ownAccount(userId, provider)?.account ?? null;
+    const env = launchEnv(managed) ?? getAgentHost().baseEnv();
+    if (provider === "claude") {
+      if (!sessionId) return { dir: effectiveProviderDirectory("claude", env) };
+      const pinned = getSessionClaudeConfigDir(managed.info.id, sessionId);
+      return pinned ? { dir: pinned } : null;
+    }
+    return {
+      dir: sessionId
+        ? codexThreadHome(managed, sessionId, env)
+        : effectiveProviderDirectory("codex", env),
+    };
+  }
+
+  // The folder of nextAccount, for the usage account key of an agent with
+  // no session; null for an API key or an unknown account.
+  function nextAccountDir(managed: ManagedAgent): string | null {
+    const next = nextAccount(managed);
+    return next && "dir" in next ? next.dir : null;
+  }
+
+  // What nextAccount depends on besides the agent's session and env, read
+  // from memory only: a change here can move the next account with no
+  // event (an entry ends by time). The idle usage key is cached under it.
+  function nextAccountStamp(managed: ManagedAgent): string {
+    const { userId, agentType: provider, modelFamily } = managed.info;
+    const state = fallbackState();
+    const enabled = state.isEnabled();
+    const entry = userId && enabled ? state.entry(userId, provider) : null;
+    return JSON.stringify([
+      managed.officeFallback,
+      enabled,
+      entry,
+      modelFamily ?? null,
+    ]);
+  }
+
   async function alignAccountNow(
     agentId: string,
     managed: ManagedAgent,
@@ -436,8 +544,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   ): Promise<"same" | "switched" | "failed"> {
     const provider = managed.info.agentType;
     const toOffice = wanted !== null;
-    const target =
-      wanted?.office ?? ownAccount(managed.info.userId, provider)?.account;
+    const target = moveTarget(managed, wanted);
     if (!target) return "same";
     const sm = managed.sessionManager;
     const live = liveAccount(managed);
@@ -565,9 +672,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   // office's ("office"). Read by GET /api/agents/:id/subscription. A key or
   // token in the env decides first: the CLI uses it over the account folder,
   // and whoever set it pays. Else the live session's account, and with no
-  // live account the one the next turn starts on (alignAccount).
+  // live account the one the next turn runs on (nextAccount).
   function signInOf(managed: ManagedAgent): SignIn {
-    const { userId, agentType: provider, modelFamily } = managed.info;
+    const { userId, agentType: provider } = managed.info;
     if (provider !== "opencode") {
       for (const name of CREDENTIAL_VARIABLES[provider]) {
         let source: ReturnType<typeof envSourceForUserId> = null;
@@ -586,9 +693,8 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     if (!own?.own) return "office";
     const live = liveAccount(managed);
     if (live) return sameAccount(live, own.account) ? "individual" : "office";
-    return officeWanted(userId, provider, modelFamily)
-      ? "office"
-      : "individual";
+    const next = nextAccount(managed);
+    return next && !sameAccount(next, own.account) ? "office" : "individual";
   }
 
   // A usage limit stopped the running turn. On the member's own sign-in,
@@ -616,10 +722,13 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
           : {}),
       });
       // Her agents on this engine with no live session start their next
-      // turn on the office sign-in from now on.
+      // turn on the office sign-in from now on: their reading and label
+      // move together.
       for (const other of agents.values())
-        if (other.info.userId === userId && other.info.agentType === provider)
+        if (other.info.userId === userId && other.info.agentType === provider) {
+          deps.syncUsageKey(other);
           deps.refreshSignIn(other);
+        }
       managed.turnFlags.limitStopFallback = true;
       return today;
     }
@@ -684,6 +793,8 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     officeWanted,
     alignAccount,
     signInOf,
+    nextAccountDir,
+    nextAccountStamp,
     fallbackStop,
     queueFallbackContinue,
     refreshLimitedClaudeFamilies,

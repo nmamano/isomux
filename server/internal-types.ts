@@ -22,6 +22,7 @@ import type { SessionManager } from "./session-manager.ts";
 import type { LogPart } from "../shared/i18n/log-message.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type { BillingAccount } from "./member-usage-cap.ts";
+import type { FallbackAccount } from "./provider-fallback.ts";
 import type { AutoHandoffTrigger } from "./auto-handoff.ts";
 
 // A committed context-fullness sample (design: internal-docs/
@@ -346,8 +347,21 @@ export interface ManagedAgent {
   // captured at its launch.
   launchedUsageKey?: string | null;
   // The key derived for the agent while it has no session, and the stored
-  // session id it was derived for.
-  idleUsageKey?: { sessionId: string | null; key: string | null };
+  // session id and fallback state (session-accounts.ts nextAccountStamp) it
+  // was derived for.
+  idleUsageKey?: {
+    sessionId: string | null;
+    stamp: string;
+    key: string | null;
+  };
+  // The account the agent's next turn runs on while it has no session
+  // (session-accounts.ts nextAccount), cached the same way: its sign-in and
+  // its idle usage key both come from it.
+  idleNextAccount?: {
+    sessionId: string | null;
+    stamp: string;
+    account: FallbackAccount | null;
+  };
   // The key `subscriptionUsage` belongs to. Undefined until first resolved.
   subscriptionKey?: string | null;
   // Monotonic sample-initiation counter plus the highest seq committed, so a

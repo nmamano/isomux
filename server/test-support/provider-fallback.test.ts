@@ -55,6 +55,7 @@ import {
   type FakeBackendConfig,
   type FakeSession,
 } from "./fake-backend.ts";
+import type { SubscriptionUsageResult } from "../backends/types.ts";
 import type { EventHandler } from "../internal-types.ts";
 import type { SignIn } from "../../shared/contract-shapes.ts";
 import {
@@ -214,12 +215,17 @@ function makeHarness(
     realOffice?: boolean;
     capabilities?: Partial<AgentCapabilities>;
     oneShot?: FakeBackendConfig["oneShot"];
+    // Every session's allowance reading, as the backend reports it.
+    subscriptionUsage?: () => Promise<SubscriptionUsageResult>;
   } = {},
 ): Harness {
   const fake = new FakeBackend({
     newSessionId: () => crypto.randomUUID(),
     capabilities: { ...DEFAULT_AGENT_CAPABILITIES, ...opts.capabilities },
     ...(opts.oneShot !== undefined ? { oneShot: opts.oneShot } : {}),
+    ...(opts.subscriptionUsage
+      ? { session: { subscriptionUsage: opts.subscriptionUsage } }
+      : {}),
   });
   const logs: LogEntry[] = [];
   const signIns: Harness["signIns"] = [];
@@ -1711,6 +1717,264 @@ describe("the sign-in an agent runs on", () => {
       });
       const other = await spawn(h, "opencode", { name: "Other" });
       expect(await signIn(h, other.id)).toBe("office");
+    });
+  });
+
+  // An agent with no live session shows the reading of the account its next
+  // turn runs on, and names that sign-in (task 98d8e31a). Each account's
+  // reading is taken by an agent running there.
+  describe("the reading of an agent with no session", () => {
+    const OFFICE_PERCENT = 39;
+    const HER_PERCENT = 12;
+    // The office's own agents run in the office account folders.
+    beforeEach(() =>
+      setTestManagedOfficeEnv({
+        ...NO_CREDENTIAL,
+        CLAUDE_CONFIG_DIR: officeDir("claude"),
+        CODEX_HOME: officeDir("codex"),
+      }),
+    );
+
+    // Every session reads `percent` (null: nothing learned).
+    function readings() {
+      let percent: number | null = null;
+      const subscriptionUsage = async (): Promise<SubscriptionUsageResult> =>
+        percent === null
+          ? { kind: "unknown" }
+          : {
+              kind: "usage",
+              usage: {
+                plan: "max",
+                windows: [
+                  {
+                    label: "Weekly",
+                    shortLabel: "WK",
+                    usedPercent: percent,
+                    resetsAtMs: null,
+                  },
+                ],
+              },
+            };
+      return {
+        opts: { subscriptionUsage },
+        set: (next: number | null) => {
+          percent = next;
+        },
+      };
+    }
+    type Readings = ReturnType<typeof readings>;
+
+    // The reply, and the agent's info after it. `idle`: the reply was served
+    // with no live session.
+    async function view(h: Harness, id: string) {
+      const reply = await h.mgr.getAgentSubscriptionUsage(id);
+      const info = h.mgr.getAgent(id);
+      return {
+        signIn: reply.signIn,
+        percent: reply.available ? reply.windows[0]?.usedPercent : null,
+        notMeasured: !reply.available && reply.reason === "not_yet_measured",
+        idle:
+          reply.available &&
+          reply.freshness === "cached" &&
+          reply.staleReason === "no_session",
+        infoSignIn: info?.signIn,
+        infoPercent: info?.subscriptionUsage?.windows[0]?.usedPercent ?? null,
+      };
+    }
+    const office = {
+      signIn: "office",
+      percent: OFFICE_PERCENT,
+      notMeasured: false,
+      idle: true,
+      infoSignIn: "office",
+      infoPercent: OFFICE_PERCENT,
+    } as const;
+    const hers = {
+      signIn: "individual",
+      percent: HER_PERCENT,
+      notMeasured: false,
+      idle: true,
+      infoSignIn: "individual",
+      infoPercent: HER_PERCENT,
+    } as const;
+
+    // A turn on `owner`'s account that reads `percent`.
+    async function takeReading(
+      h: Harness,
+      r: Readings,
+      engine: Engine,
+      owner: "alice" | null,
+      name = owner ? "Her taker" : "Office taker",
+    ): Promise<void> {
+      const taker = await spawn(h, engine, { name, owner });
+      r.set(owner ? HER_PERCENT : OFFICE_PERCENT);
+      const s = await memberTurn(h, taker.id, `reading ${owner}`, engine);
+      expect(accountOf(s, engine)).toBe(
+        owner ? memberDir(engine) : officeDir(engine),
+      );
+      await endTurn(h, taker.id, s);
+      r.set(null);
+    }
+
+    // An agent of hers stops on her own sign-in, continues on the office's,
+    // and rests with no session.
+    async function restsOnOffice(
+      h: Harness,
+      engine: Engine,
+    ): Promise<{ id: string; sessionId: string; reset: number }> {
+      const info = await spawn(h, engine);
+      const reset = h.office.clock.now() + HOUR;
+      const { after } = await toOffice(h, info.id, engine, reset);
+      expect(accountOf(after, engine)).toBe(officeDir(engine));
+      await endTurn(h, info.id, after);
+      expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+      expect(persisted(info.id)?.officeFallback).toBe(true);
+      // Its conversation is in the office account folder.
+      if (engine === "claude")
+        expect(getSessionClaudeConfigDir(info.id, after.sessionId)).toBe(
+          officeDir("claude"),
+        );
+      expect(
+        conversationAt(engine, officeDir(engine), after.sessionId),
+      ).not.toBeNull();
+      return { id: info.id, sessionId: after.sessionId, reset };
+    }
+
+    for (const engine of ["claude", "codex"] as const) {
+      it(`${engine}: the office's reading while her fallback lasts, and hers when it ends with no event`, async () => {
+        const r = readings();
+        const h = makeHarness(makeOffice(), [], r.opts);
+        await takeReading(h, r, engine, "alice");
+        await takeReading(h, r, engine, null);
+        const { id, sessionId, reset } = await restsOnOffice(h, engine);
+        expect(await view(h, id)).toEqual(office);
+
+        // The entry ends by time alone. The conversation is still in the
+        // office folder; the next turn moves it home.
+        const sent = sentTo(h, id).length;
+        await h.office.clock.advance(reset - h.office.clock.now());
+        expect(h.office.store.entry(aliceId(), engine)).toBeNull();
+        expect(await view(h, id)).toEqual(hers);
+        expect(sentTo(h, id).length).toBe(sent);
+        expect(h.mgr.getCurrentSessionId(id)).toBe(sessionId);
+        expect(persisted(id)?.officeFallback).toBe(true);
+
+        // Her fallback starts and ends again by time. Nobody reads the
+        // agent: a new reading of her account reaches its info, and the
+        // sign-in moves with it.
+        const reset2 = h.office.clock.now() + HOUR;
+        h.office.store.start(aliceId(), engine, { until: reset2 });
+        expect(await view(h, id)).toEqual(office);
+        await h.office.clock.advance(reset2 - h.office.clock.now());
+        await takeReading(h, r, engine, "alice", "Her second taker");
+        expect({
+          signIn: h.mgr.getAgent(id)?.signIn,
+          percent:
+            h.mgr.getAgent(id)?.subscriptionUsage?.windows[0]?.usedPercent,
+        }).toEqual({ signIn: "individual", percent: HER_PERCENT });
+
+        // That next turn runs on her own sign-in.
+        await turn(h, id, "later");
+        expect(
+          accountOf(
+            sessionWith(h, id, (t) => t.endsWith("later")),
+            engine,
+          ),
+        ).toBe(memberDir(engine));
+      });
+
+      it(`${engine}: the office fallback switched off and on with no event moves the reading with it`, async () => {
+        const r = readings();
+        const h = makeHarness(makeOffice(), [], r.opts);
+        await takeReading(h, r, engine, "alice");
+        await takeReading(h, r, engine, null);
+        const { id, sessionId } = await restsOnOffice(h, engine);
+        expect(await view(h, id)).toEqual(office);
+        h.office.store.setEnabled(false);
+        expect(await view(h, id)).toEqual(hers);
+        h.office.store.setEnabled(true);
+        expect(await view(h, id)).toEqual(office);
+        expect(h.mgr.getCurrentSessionId(id)).toBe(sessionId);
+      });
+    }
+
+    it("claude: her own account has no reading yet: not measured, never the office's", async () => {
+      const r = readings();
+      const h = makeHarness(makeOffice(), [], r.opts);
+      await takeReading(h, r, "claude", null);
+      const { id, sessionId, reset } = await restsOnOffice(h, "claude");
+      expect(await view(h, id)).toEqual(office);
+      const sent = sentTo(h, id).length;
+      await h.office.clock.advance(reset - h.office.clock.now());
+      expect(await view(h, id)).toEqual({
+        signIn: "individual",
+        percent: null,
+        notMeasured: true,
+        idle: false,
+        infoSignIn: "individual",
+        infoPercent: null,
+      });
+      expect(sentTo(h, id).length).toBe(sent);
+      expect(h.mgr.getCurrentSessionId(id)).toBe(sessionId);
+    });
+
+    // A conversation born in the office folder before she had her own
+    // sign-in stays there: its pin wins, so its next turn runs on the
+    // office's sign-in.
+    it("claude: a conversation kept in the office folder from before her own sign-in reads the office's", async () => {
+      const r = readings();
+      const h = makeHarness(makeOffice(), [], r.opts);
+      personal.claude = false;
+      const info = await spawn(h, "claude", { name: "Old" });
+      r.set(OFFICE_PERCENT);
+      const s = await memberTurn(h, info.id, "before");
+      expect(accountOf(s)).toBe(officeDir("claude"));
+      await endTurn(h, info.id, s);
+      r.set(null);
+      expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+
+      personal.claude = true;
+      h.mgr.providerAccountChanged("claude", memberDir("claude"));
+      await takeReading(h, r, "claude", "alice");
+      expect(getSessionClaudeConfigDir(info.id, s.sessionId)).toBe(
+        officeDir("claude"),
+      );
+      expect(persisted(info.id)?.officeFallback).toBeFalsy();
+      expect(h.office.store.entry(aliceId(), "claude")).toBeNull();
+      expect(await view(h, info.id)).toEqual(office);
+
+      await turn(h, info.id, "after");
+      expect(
+        accountOf(sessionWith(h, info.id, (t) => t.endsWith("after"))),
+      ).toBe(officeDir("claude"));
+    });
+
+    // Her fallback starts while this agent rests in her own folder: its
+    // next turn moves to the office's sign-in, and its pill shows that at
+    // once.
+    it("claude: an agent resting on her own sign-in shows the office's reading when her fallback starts", async () => {
+      const r = readings();
+      const h = makeHarness(makeOffice(), [], r.opts);
+      await takeReading(h, r, "claude", null);
+      const b = await spawn(h, "claude", { name: "B" });
+      r.set(HER_PERCENT);
+      const s = await memberTurn(h, b.id, "first");
+      await endTurn(h, b.id, s);
+      r.set(null);
+      expect(await h.mgr.demoteToLazy(b.id)).toBe(true);
+      expect(await view(h, b.id)).toEqual(hers);
+
+      const a = await spawn(h, "claude", { name: "A" });
+      await toOffice(h, a.id, "claude", h.office.clock.now() + HOUR);
+      expect(getSessionClaudeConfigDir(b.id, s.sessionId)).toBe(
+        memberDir("claude"),
+      );
+      // Before anyone reads B.
+      expect(h.mgr.getAgent(b.id)?.signIn).toBe("office");
+      expect(
+        h.mgr.getAgent(b.id)?.subscriptionUsage?.windows[0]?.usedPercent,
+      ).toBe(OFFICE_PERCENT);
+      expect(await view(h, b.id)).toEqual(office);
     });
   });
 
