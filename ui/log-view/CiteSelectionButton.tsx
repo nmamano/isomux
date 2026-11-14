@@ -21,7 +21,7 @@ export const PILL_EDGE_PAD = 4;
  *    the selection it would sit under the native selection menu or handles.
  *    "top" (the mobile editor) is the top-right corner; "bottom" (the chat
  *    and asks on iOS touch) is the bottom-right corner, just above the
- *    message box below the container.
+ *    message box (chatCitePinnedBox) or an Inbox ask's reply field.
  *  - Activates on pointerdown, like the terminal's "Send to chat" pill: a
  *    touch blur can otherwise remove the pill before its click fires.
  *    preventDefault keeps the focus and the selection where they are.
@@ -94,10 +94,11 @@ export function CiteSelectionButton({
           justifyContent: "center",
           gap: 4,
           padding: "0 8px",
-          background: "var(--bg-surface)",
-          border: "1px solid var(--border-medium)",
+          // The ask's Reply button look, so the pill stands out (task 3d440170).
+          background: "var(--accent-text)",
+          border: "none",
           borderRadius: 6,
-          color: "var(--text-secondary)",
+          color: "var(--bg-base)",
           cursor: "pointer",
           fontFamily: "var(--font-ui)",
           fontSize: 11,

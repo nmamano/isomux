@@ -1,6 +1,8 @@
 // Cite on an ask card on touch screens (task ad4b51ac, after fe7db5ac, moved
-// by 1e119dfb). On an iPhone the pill is pinned just above the card's reply
-// field at the right, inside the part of the card its scroller shows; it
+// by 1e119dfb). On an iPhone, a card with no chat composer around it (the
+// Inbox) pins the pill just above the card's reply field at the right, inside
+// the part of the card its scroller shows; a card in a chat's asks stack
+// takes the chat's spot instead (LogView.cite-touch.dom.test.tsx). The pill
 // stays on scroll while the card shows, and a tap cites into the agent's chat
 // draft and asks its composer for focus, as "Discuss in chat" does on a phone
 // (task d9a347a6).

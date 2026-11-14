@@ -105,11 +105,13 @@ import {
   setChatCopyFormat,
 } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
+import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import {
-  CiteSelectionButton,
-  PILL_GAP,
-  PILL_HEIGHT,
-} from "./CiteSelectionButton.tsx";
+  chatCitePinnedBox,
+  JUMP_GAP,
+  JUMP_RIGHT,
+  JUMP_SIZE,
+} from "./chat-cite-box.ts";
 import { citeModeHere } from "./cite-mode.ts";
 import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
 import type { TaskMap } from "./task-links.tsx";
@@ -272,12 +274,6 @@ const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
 // far the member drags the panel. Window-resize clamping shrinks the panel
 // rather than letting the chat dip below this floor.
 const CHAT_COLUMN_FLOOR = 300;
-
-// The jump-to-bottom button: a round button at the message box's top-right,
-// over the chat. The pinned Cite pill keeps clear of its place.
-const JUMP_SIZE = 36;
-const JUMP_RIGHT = 32;
-const JUMP_GAP = 12;
 
 function readPanelWidth(kind: "terminal" | "editor", fallback: number): number {
   if (typeof localStorage === "undefined") return fallback;
@@ -776,18 +772,6 @@ function selectionInside(el: HTMLElement): boolean {
   );
 }
 
-// The box the pinned Cite pill takes its bottom-right corner from: the chat's
-// box, cut at the right by the jump-to-bottom button's place, and raised so
-// the pill's centre is on that button's row. The place is kept even while
-// the button is hidden: a scroll shows and hides it, and the pill must not
-// move under the member's finger.
-function citePinnedBox(chat: DOMRect): DOMRect {
-  const jumpCentre = chat.bottom - JUMP_GAP - JUMP_SIZE / 2;
-  const bottom = jumpCentre + PILL_HEIGHT / 2 + PILL_GAP;
-  const right = chat.right - JUMP_RIGHT - JUMP_SIZE;
-  return new DOMRect(chat.left, chat.top, right - chat.left, bottom - chat.top);
-}
-
 export function LogView({
   agent,
   logs: rawLogs,
@@ -831,6 +815,7 @@ export function LogView({
   const inboxAction = useInboxNavAction(onOpenInbox, agent.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const {
     drafts,
     draftAttachments,
@@ -2851,6 +2836,8 @@ export function LogView({
           keeps its content height. The box above keeps the pinned bar's
           height, always, so the bar never covers the stack's toggle. */}
           <div
+            ref={composerRef}
+            data-chat-composer=""
             style={{
               position: "relative",
               display: "flex",
@@ -3109,7 +3096,10 @@ export function LogView({
                 }}
               />
             )}
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div
+              data-chat-input-row=""
+              style={{ display: "flex", alignItems: "flex-start", gap: 8 }}
+            >
               <button
                 onClick={() => fileInputRef.current?.click()}
                 style={{
@@ -3673,9 +3663,10 @@ export function LogView({
         <CiteSelectionButton
           cite={cite}
           containerRect={
-            chatCiteMode === "pinned"
-              ? citePinnedBox(scrollRef.current.getBoundingClientRect())
-              : scrollRef.current.getBoundingClientRect()
+            (chatCiteMode === "pinned" &&
+              composerRef.current &&
+              chatCitePinnedBox(composerRef.current)) ||
+            scrollRef.current.getBoundingClientRect()
           }
           onClick={() => handleCite(cite.text)}
           pinned={chatCiteMode === "pinned" ? "bottom" : undefined}
