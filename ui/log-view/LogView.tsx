@@ -45,6 +45,7 @@ import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { sendFailureText } from "../send-failure.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
+import type { AgentSettingsSection } from "../components/EditAgentDialog.tsx";
 import { isTopicSource } from "../../shared/session-label.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import {
@@ -787,7 +788,8 @@ export function LogView({
   agent: AgentInfo;
   logs: LogEntry[];
   onBack: () => void;
-  onEditAgent: () => void;
+  // Opens the agent's settings, on `section` when given.
+  onEditAgent: (section?: AgentSettingsSection) => void;
   onOpenTasks?: () => void;
   onOpenTask?: (id: string) => void;
   // Absent in fixtures that render the chat without the Inbox.
@@ -2118,7 +2120,7 @@ export function LogView({
             >
               <span
                 {...noTranslate()}
-                onClick={onEditAgent}
+                onClick={() => onEditAgent()}
                 style={{
                   fontWeight: 600,
                   color: "var(--text-primary)",
@@ -2155,7 +2157,7 @@ export function LogView({
                 {agent.goneModel && (
                   <GoneModelMark
                     model={agent.goneModel}
-                    onClick={onEditAgent}
+                    onClick={() => onEditAgent("engine")}
                   />
                 )}
                 {/* The shared predicate keeps the engine cue consistent with
@@ -2464,7 +2466,7 @@ export function LogView({
                   <StatusLight state={agent.state} size={8} />
                   <span
                     {...noTranslate()}
-                    onClick={onEditAgent}
+                    onClick={() => onEditAgent()}
                     style={{
                       fontWeight: 600,
                       color: "var(--text-primary)",
@@ -2481,7 +2483,7 @@ export function LogView({
                   {agent.goneModel && (
                     <GoneModelMark
                       model={agent.goneModel}
-                      onClick={onEditAgent}
+                      onClick={() => onEditAgent("engine")}
                     />
                   )}
                   {STATE_LABEL_KEYS[agent.state] && (
@@ -2592,7 +2594,7 @@ export function LogView({
                   }}
                 />
                 <div
-                  onClick={onEditAgent}
+                  onClick={() => onEditAgent()}
                   style={{
                     width: 62,
                     height: 78,
@@ -2782,7 +2784,9 @@ export function LogView({
                   return (
                     <>
                       {entry.metadata?.pickModel === true && (
-                        <PickModelButton onClick={onEditAgent} />
+                        <PickModelButton
+                          onClick={() => onEditAgent("engine")}
+                        />
                       )}
                       {providers.length > 0 &&
                         (isOwner ? (

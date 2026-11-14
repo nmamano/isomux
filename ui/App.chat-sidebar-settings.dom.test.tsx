@@ -2,9 +2,9 @@
 // sliders directly everywhere"). A room header, an agent row and a member row
 // each show a settings button at the right end, first, before the row's quick
 // action (the room's plus, the pin). One click opens that thing's settings: a
-// room and a member open Settings at that entry, an agent opens the agent
-// dialog. The room menu is gone (drag reorders and tucks rooms), so a
-// right-click on a room header is the browser's own. Only rooms, agents,
+// room and a member open Settings at that entry, an agent opens its settings
+// page (task 59538509). The room menu is gone (drag reorders and tucks rooms),
+// so a right-click on a room header is the browser's own. Only rooms, agents,
 // members and the Office row have a settings button; the Office row's opens
 // Settings on the office section, for owners only (task 4bf1571c). The setup
 // is in ui/test-support/chat-sidebar-fixture.tsx.
@@ -67,10 +67,10 @@ async function openRoom(view: View, roomId: string): Promise<void> {
     await click(roomHeader(view, roomId));
   expect(roomHeader(view, roomId)?.getAttribute("aria-expanded")).toBe("true");
 }
-/** The open agent dialog's name field, or null when no edit dialog shows. */
-const dialogName = (view: View) =>
+/** The agent settings page's name field, or null when no page shows. */
+const pageName = (view: View) =>
   view.baseElement.querySelector<HTMLInputElement>(
-    ".edit-agent-dialog-desktop .agent-identity-section input",
+    "[data-agent-settings-page] .agent-identity-section input",
   )?.value ?? null;
 const officeGear = (view: View) =>
   inSidebar(view, "button[data-sidebar-office-settings]");
@@ -231,7 +231,7 @@ it("only rooms, agents, members and the Office row have a settings button: not t
   expect(others).toEqual([]);
 });
 
-it("an agent row's settings button, before its pin, opens the agent dialog on that agent in one click, in a room, Pinned and Recent", async () => {
+it("an agent row's settings button, before its pin, opens the agent's settings page in one click, in a room, Pinned and Recent", async () => {
   setSelfUser({ pinnedAgents: [faraway.id], recentAgents: [ranger.id] });
   const view = await boot();
   await openRoom(view, "r1");
@@ -257,12 +257,12 @@ it("an agent row's settings button, before its pin, opens the agent dialog on th
     expect({ where, found: button !== null }).toEqual({ where, found: true });
     const order = nextAction(button);
     await click(button);
-    // The dialog, on this agent; its chat does not open.
-    seen[where] = { order, name: dialogName(view), chat: currentRows(view) };
+    // The page, on this agent; its chat does not open.
+    seen[where] = { order, name: pageName(view), chat: currentRows(view) };
     await act(async () =>
       fireEvent.keyDown(document.body, { key: "Escape", bubbles: true }),
     );
-    expect(dialogName(view)).toBeNull();
+    expect(pageName(view)).toBeNull();
   }
   expect(seen).toEqual({
     r1: {

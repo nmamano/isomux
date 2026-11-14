@@ -15,8 +15,7 @@ const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { CronjobDialog } = await import("./CronjobDialog.tsx");
 const { CronjobsPromptDialog } = await import("./CronjobsPromptDialog.tsx");
 const { WebhookDialog } = await import("./WebhookDialog.tsx");
-const { claudeAgent, room } =
-  await import("../test-support/claude-limits-fixture.tsx");
+const { room } = await import("../test-support/claude-limits-fixture.tsx");
 const { hookWire } = await import("../test-support/webhook-fixture.ts");
 
 setApiShim(async () => ({}));
@@ -42,11 +41,18 @@ function expectOneBlurOnTheOverlay(element: ReactElement, state = {}) {
   }
 }
 
-it("the agent dialog blurs only on its overlay", () => {
-  const agent = claudeAgent("opus", "default", []);
+// The new-agent dialog; an agent's settings are a page, not a modal (task
+// 59538509).
+it("the new-agent dialog blurs only on its overlay", () => {
   expectOneBlurOnTheOverlay(
-    <EditAgentDialog onClose={() => {}} agent={agent} />,
-    { rooms: [room], agents: [agent], hasReceivedInitialState: true },
+    <EditAgentDialog
+      onClose={() => {}}
+      deskIndex={0}
+      roomId={room.id}
+      defaultCwd="/srv/new-agent"
+      spawnAgentType="claude"
+    />,
+    { rooms: [room], agents: [], hasReceivedInitialState: true },
   );
 });
 

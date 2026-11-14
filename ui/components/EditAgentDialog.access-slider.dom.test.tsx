@@ -5,8 +5,9 @@
 // EditAgentDialog.access.dom.test.tsx; which stops each engine and model
 // runs is engineRunsAccess, in shared/agent-access.test.ts; how the keys skip
 // a disabled stop in the middle of the row is in StepSlider.dom.test.tsx.
-// The engine and the stops describe is the dialog's wiring of that rule
-// (task e77304b1, merge C1).
+// The engine and the stops describe is the form's wiring of that rule
+// (task e77304b1, merge C1): on the Agent settings page the engine and the
+// model are on Engine, the slider on Access (task 59538509).
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
@@ -20,6 +21,7 @@ const {
   agentAt,
   change,
   cleanup,
+  openSection,
   pick,
   renderEdit,
   save,
@@ -165,24 +167,32 @@ describe("the access slider", () => {
 
 describe("the engine and the stops", () => {
   // Which stops each engine and model runs is engineRunsAccess
-  // (shared/agent-access.test.ts); here, that the dialog asks it with the
+  // (shared/agent-access.test.ts); here, that the form asks it with the
   // engine and the model the member picked.
   it("below Standard, the engines that cannot run the stop are disabled", async () => {
     shim();
-    const view = renderEdit(agentAt("standard"));
+    const view = renderEdit(
+      agentAt("standard"),
+      undefined,
+      undefined,
+      "engine",
+    );
     try {
       await settle();
-      const select = view.container.querySelector<HTMLSelectElement>(
-        ".agent-engine-control select",
-      )!;
       const engines = () =>
         Object.fromEntries(
-          [...select.options].map((o) => [o.value, o.disabled]),
+          [
+            ...view.container.querySelector<HTMLSelectElement>(
+              ".agent-engine-control select",
+            )!.options,
+          ].map((o) => [o.value, o.disabled]),
         );
       expect(engines()).toMatchObject({ claude: false, codex: false });
       // Codex runs every stop on one model.
       for (const stop of ["office", "folder", "web"] as const) {
+        await openSection(view.container, "access");
         await pick(view.container, stop);
+        await openSection(view.container, "engine");
         expect({ stop, engines: engines() }).toMatchObject({
           stop,
           engines: { claude: false, codex: false, opencode: false },
@@ -197,21 +207,30 @@ describe("the engine and the stops", () => {
   // can be picked, and the stops follow the model picked, not the saved one.
   it("below Standard, a Codex model that is not proven is disabled; the stops follow the picked model", async () => {
     shim();
-    const view = renderEdit({
-      ...agentAt("standard", "codex"),
-      modelFamily: "gpt-5.6-sol",
-    });
+    const view = renderEdit(
+      {
+        ...agentAt("standard", "codex"),
+        modelFamily: "gpt-5.6-sol",
+      },
+      undefined,
+      undefined,
+      "engine",
+    );
     try {
       await settle();
       const models = modelSelect(view.container);
       const disabledModels = () =>
         [...models().options].filter((o) => o.disabled).map((o) => o.value);
-      expect(disabledModels()).toEqual([]);
+      expect(disabledModels().length).toBe(0);
+      await openSection(view.container, "access");
       expect(stopDisabled(view.container, "office")).toBe(true);
+      await openSection(view.container, "engine");
       await change(models(), "gpt-5.5");
+      await openSection(view.container, "access");
       expect(stopDisabled(view.container, "office")).toBe(false);
       await pick(view.container, "office");
       expect(stopChecked(view.container, "office")).toBe(true);
+      await openSection(view.container, "engine");
       expect(
         [...models().options].filter((o) => !o.disabled).map((o) => o.value),
       ).toEqual(["gpt-5.5"]);
@@ -222,7 +241,7 @@ describe("the engine and the stops", () => {
 
   it("a switch to Codex at office lands on the proven model", async () => {
     shim();
-    const view = renderEdit(agentAt("office"));
+    const view = renderEdit(agentAt("office"), undefined, undefined, "engine");
     try {
       await settle();
       const engine = view.container.querySelector<HTMLSelectElement>(

@@ -1,6 +1,7 @@
-// The agent dialog's memory box (tasks bf94d714, 39b2c176): whoever can edit
-// the agent's instructions in the dialog also edits its memory, whether or not
-// they manage the agent.
+// The agent settings' memory box (tasks bf94d714, 39b2c176), on the page's
+// Instructions and memory section (task 59538509): whoever can edit the
+// agent's instructions also edits its memory, whether or not they manage the
+// agent.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -50,7 +51,12 @@ describe("the agent dialog's memory box", () => {
         if (path.startsWith("/api/backends/")) return { models: [] };
         return {};
       });
-      const view = renderEdit(agentAt("standard"), () => {}, sessionContext);
+      const view = renderEdit(
+        agentAt("standard"),
+        () => {},
+        sessionContext,
+        "instructions",
+      );
       try {
         await settle();
         await settle();
@@ -82,7 +88,7 @@ describe("the agent dialog's memory box", () => {
       return {};
     });
     const agent = agentAt("standard");
-    const view = renderEdit(agent, () => {}, viewer([]));
+    const view = renderEdit(agent, () => {}, viewer([]), "instructions");
     try {
       await settle();
       await settle();

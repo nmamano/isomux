@@ -1,6 +1,6 @@
 // An engine the office host cannot run (full_state.unavailableEngines; OpenCode
-// off Linux) shows as unavailable in the agent dialog, and its model list is
-// never requested. The context menu and cronjob dialog are covered in
+// off Linux) shows as unavailable in the spawn dialog and on the Agent
+// settings page's Engine section, and its model list is never requested. The context menu and cronjob dialog are covered in
 // engine-availability.dom.test.tsx. Also what a new Codex or Claude agent, or
 // one switched to Codex or Claude, is saved with.
 import { describe, expect, it } from "bun:test";
@@ -113,7 +113,9 @@ function engineCard(container: HTMLElement, engine: string): HTMLButtonElement {
   return card;
 }
 
+// The Agent settings page's Save, or the spawn dialog's last button (Spawn).
 const saveButton = (container: HTMLElement) =>
+  container.querySelector<HTMLButtonElement>("[data-agent-settings-save]") ??
   [...container.querySelectorAll("button")].at(-1)!;
 
 function engineOption(
@@ -160,14 +162,18 @@ describe("spawn dialog", () => {
   });
 });
 
-describe("edit dialog", () => {
+describe("Agent settings page", () => {
   it("a Claude agent cannot switch to an unavailable OpenCode", async () => {
     shimRequests();
     const agent = agentOn("claude");
     const view = render(
       onLanguage(
         "en",
-        <EditAgentDialog onClose={() => {}} agent={agent} />,
+        <EditAgentDialog
+          onClose={() => {}}
+          agent={agent}
+          initialSection="engine"
+        />,
         stateWith(NO_OPENCODE, [agent]),
       ),
     );
@@ -193,7 +199,11 @@ describe("edit dialog", () => {
       const view = render(
         onLanguage(
           "en",
-          <EditAgentDialog onClose={() => {}} agent={agent} />,
+          <EditAgentDialog
+            onClose={() => {}}
+            agent={agent}
+            initialSection="engine"
+          />,
           stateWith(unavailable, [agent]),
         ),
       );
@@ -264,7 +274,11 @@ describe("Codex defaults", () => {
     const view = render(
       onLanguage(
         "en",
-        <EditAgentDialog onClose={() => {}} agent={agent} />,
+        <EditAgentDialog
+          onClose={() => {}}
+          agent={agent}
+          initialSection="engine"
+        />,
         stateWith({}, [agent]),
       ),
     );
@@ -363,7 +377,11 @@ describe("Claude defaults", () => {
       const view = render(
         onLanguage(
           "en",
-          <EditAgentDialog onClose={() => {}} agent={agent} />,
+          <EditAgentDialog
+            onClose={() => {}}
+            agent={agent}
+            initialSection="engine"
+          />,
           stateWith({}, [agent]),
         ),
       );

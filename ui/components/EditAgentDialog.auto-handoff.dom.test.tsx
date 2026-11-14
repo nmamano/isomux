@@ -1,12 +1,12 @@
-// The usage switches in the agent edit dialog: automatic handoff and resume
-// after a usage limit. Each shows for an engine that reports what it needs,
-// and is sent on save.
+// The usage switches on the Agent settings page's Engine section: automatic
+// handoff and resume after a usage limit. Each shows for an engine that
+// reports what it needs, and is sent on save.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { fireEvent } = await import("@testing-library/react");
-const { claudeAgent, renderEdit, settle, shimRequests } =
+const { act, fireEvent } = await import("@testing-library/react");
+const { claudeAgent, openSection, renderEdit, settle, shimRequests } =
   await import("../test-support/claude-limits-fixture.tsx");
 const { AUTO_HANDOFF_DEFAULT_TOKENS } =
   await import("../../shared/auto-handoff.ts");
@@ -18,10 +18,27 @@ const limitResumeToggle = (container: HTMLElement) =>
 const field = (container: HTMLElement) =>
   container.querySelector<HTMLInputElement>("#agent-auto-handoff-tokens");
 
+// The page's Save, or the spawn dialog's last button (Spawn).
 async function save(container: HTMLElement) {
-  fireEvent.click([...container.querySelectorAll("button")].at(-1)!);
+  fireEvent.click(
+    container.querySelector("[data-agent-settings-save]") ??
+      [...container.querySelectorAll("button")].at(-1)!,
+  );
   await settle();
   await settle();
+}
+
+// An edit of another field: the name, on Profile. Back on Engine after.
+async function rename(container: HTMLElement) {
+  await openSection(container, "profile");
+  const name = container.querySelector<HTMLInputElement>(
+    ".agent-identity-section input",
+  );
+  expect(name).not.toBeNull();
+  await act(async () => {
+    fireEvent.change(name!, { target: { value: "Renamed" } });
+  });
+  await openSection(container, "engine");
 }
 
 describe("edit dialog usage switches", () => {
@@ -178,8 +195,7 @@ describe("edit dialog automatic handoff threshold", () => {
     const { view } = renderEdit(withSwitch(123_456), []);
     try {
       await settle();
-      const name = view.container.querySelector("input") as HTMLInputElement;
-      fireEvent.change(name, { target: { value: "Renamed" } });
+      await rename(view.container);
       await save(view.container);
       expect(patches).toHaveLength(1);
       expect(patches[0]).not.toHaveProperty("autoHandoffTokens");
@@ -196,8 +212,7 @@ describe("edit dialog automatic handoff threshold", () => {
     try {
       await settle();
       // A valid edit elsewhere, so a save would otherwise send something.
-      const name = view.container.querySelector("input") as HTMLInputElement;
-      fireEvent.change(name, { target: { value: "Renamed" } });
+      await rename(view.container);
       const invalid = () =>
         field(view.container)?.getAttribute("aria-invalid") ?? null;
       for (const bad of ["", "abc", "49", "10001", "123.4567"]) {

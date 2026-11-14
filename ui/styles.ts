@@ -445,8 +445,7 @@ ${emitThemesCss()}
     .nav-action-label { display: none; }
   }
 
-  /* Spawn/edit agent forms share one responsive layout. */
-  .edit-agent-dialog-desktop,
+  /* The spawn dialog and the Agent settings page share one form. */
   .spawn-agent-dialog-desktop { width: min(640px, 94vw); }
   .spawn-engine-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .agent-dialog-grid { display: block; }
@@ -504,9 +503,15 @@ ${emitThemesCss()}
     color: var(--text-secondary);
   }
   @media (min-width: 1000px) {
-    .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }
     .agent-settings-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  }
+  /* On the page the fields pair up by the section's own width, which the
+     sidebars beside it take from the window's. */
+  .agent-settings-page-body { container-type: inline-size; }
+  .agent-settings-page-body .agent-settings-fields { grid-template-columns: minmax(0, 1fr); }
+  @container (min-width: 640px) {
+    .agent-settings-page-body .agent-settings-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   }
 
   /* Copy buttons. A button that shows a copy outcome keeps its colors under

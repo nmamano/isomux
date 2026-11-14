@@ -69,6 +69,7 @@ import {
   filledDangerBtn,
 } from "./dialog-styles.ts";
 import { DevicePane } from "./DevicePane.tsx";
+import { SidebarPage } from "./SidebarPage.tsx";
 import { OfficePane } from "./OfficePane.tsx";
 import { StoragePane } from "./StoragePane.tsx";
 import { UsagePane } from "./UsagePane.tsx";
@@ -567,552 +568,440 @@ export function UserSettingsView({
       ? { collapsed: !openGroups.has(id), onToggle: () => toggleGroup(id) }
       : {};
 
-  const showSidebar = !isMobile || selection === null;
-  const showDetail = !isMobile || selection !== null;
-
   return (
-    <div
-      style={{
-        height: isMobile
-          ? "calc(100dvh - var(--banner-h, 0px))"
-          : "calc(100vh - var(--banner-h, 0px))",
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--bg-base)",
-        color: "var(--text-primary)",
-      }}
-    >
-      {/* Header - same bar as the Tasks/Cronjobs pages, apart from the
-          labelled back control on phones (see below). minHeight (not
-          height) so the safe-area-inset-top padding extends the bar below
-          the camera notch instead of being squashed into the 44px box. */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
-          minHeight: 44,
-          background: "var(--bg-hud)",
-          backdropFilter: "blur(16px)",
-          borderBottom: "1px solid var(--border-subtle)",
-          flexShrink: 0,
-          zIndex: 500,
-        }}
-      >
-        {/* Closes the page, back to what it was opened over. On a phone the
-            detail pane adds its own back control below, which goes to the
-            sidebar list, so a bare arrow or "Back" here would read as one
-            more "back to Settings" - it says Close instead. Desktop shows no
-            second control and keeps the bare arrow the Tasks and Automations
-            pages use. */}
-        <button
-          onClick={() => leaveEdit(() => onClose())}
-          data-page-close=""
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            // A labelled control carries its own width; at the arrow's 18px
-            // the words would outweigh the page title beside them.
-            fontSize: isMobile ? 13 : 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {isMobile ? <>&larr; {t("common.close")}</> : <>&larr;</>}
-        </button>
-        <span
-          style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
-        >
-          {t("common.settings")}
-        </span>
-      </div>
-
-      {/* Body: sidebar (master) + detail. On mobile exactly one shows. */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {showSidebar && (
-          <div
-            style={{
-              width: isMobile ? "100%" : 260,
-              flexShrink: 0,
-              borderRight: isMobile
-                ? undefined
-                : "1px solid var(--border-subtle)",
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              display: "flex",
-              flexDirection: "column",
-              padding: "12px 0",
-            }}
-          >
-            {/* Groups render in the order of sidebarGroups. The roster group
+    <SidebarPage
+      title={t("common.settings")}
+      onClose={() => leaveEdit(() => onClose())}
+      listShown={selection === null}
+      onBackToList={backToList}
+      backLabel={t("common.settings")}
+      listLabel={t("common.settings")}
+      detailAttrs={{ "data-testid": "settings-content" }}
+      list={
+        <>
+          {/* Groups render in the order of sidebarGroups. The roster group
                 is rendered in place rather than as rows, so the ordering
                 lives in that one array and not here. */}
-            {groupsBeforeRoster.map((group, i) => (
-              <SidebarGroupRows
-                key={group.id}
-                group={group}
-                first={i === 0}
-                onSelect={(target) => select(target)}
-                {...collapsible(group.id)}
-              />
-            ))}
-
-            <SidebarGroupHeader
-              groupId="members"
-              label={rosterGroup?.label ?? t("settings.sidebar.members")}
-              first={groupsBeforeRoster.length === 0}
-              {...collapsible("members")}
+          {groupsBeforeRoster.map((group, i) => (
+            <SidebarGroupRows
+              key={group.id}
+              group={group}
+              first={i === 0}
+              onSelect={(target) => select(target)}
+              {...collapsible(group.id)}
             />
-            {openGroups.has("members") && (
-              <>
-                {userList.map((u) => {
-                  const isMe = sessionContext?.userId === u.id;
-                  const selected =
-                    selection?.kind === "user" && selection.id === u.id;
-                  const editable = canEdit(u);
-                  const online = onlineSet.has(u.id);
-                  // Session count / last-seen are OWNER-only signals (task
-                  // 8e882cd4); non-owner viewers get just the online dot and a
-                  // bare "online". The server already scopes /api/sessions to the
-                  // caller, but the design keeps even a member's own session
-                  // stats off the roster for consistency.
-                  const summary = summarizeRoster(
-                    online,
-                    isOwner ? (sessionStats.get(u.id) ?? null) : null,
-                    isOwner && u.pendingSignIn === true,
-                    i18n,
-                  );
-                  // Editable rows are real <button>s (keyboard-focusable, with
-                  // aria-current marking the selection); rows the session can't
-                  // edit render as plain non-interactive divs.
-                  const Row = editable ? "button" : "div";
-                  return (
-                    <Row
-                      key={u.id}
-                      onClick={
-                        editable
-                          ? () => select({ kind: "user", id: u.id })
-                          : undefined
-                      }
-                      aria-current={selected ? "true" : undefined}
-                      title={
-                        editable ? undefined : t("settings.members.editHint")
-                      }
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        width: "100%",
-                        textAlign: "left",
-                        font: "inherit",
-                        padding: "8px 14px",
-                        border: "none",
-                        cursor: editable ? "pointer" : "default",
-                        background: selected
-                          ? "var(--bg-hover)"
-                          : "transparent",
-                        borderLeft: selected
-                          ? "2px solid var(--accent)"
-                          : "2px solid transparent",
-                        color: editable ? "inherit" : "var(--text-hint)",
-                      }}
-                    >
-                      <span
-                        style={{
-                          position: "relative",
-                          display: "flex",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <GhostGraphic
-                          variant={u.avatarVariant}
-                          color={u.avatarColor}
-                          size={22}
-                        />
-                        {online && (
-                          <span
-                            style={onlineDotStyle}
-                            title={t("settings.members.onlineNow")}
-                          />
-                        )}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: editable
-                              ? "var(--text-primary)"
-                              : "var(--text-hint)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            minWidth: 0,
-                          }}
-                        >
-                          <span
-                            {...noTranslate()}
-                            style={{
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {u.name}
-                          </span>
-                          {isMe && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 400,
-                                color: "var(--text-muted)",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {t("settings.you")}
-                            </span>
-                          )}
-                          <RoleBadge role={u.role} />
-                        </div>
-                        {summary && (
-                          <div
-                            style={{
-                              fontSize: 10,
-                              color: "var(--text-muted)",
-                              fontFamily: "var(--font-ui)",
-                              marginTop: 2,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {summary}
-                          </div>
-                        )}
-                      </div>
-                    </Row>
-                  );
-                })}
-              </>
-            )}
-            {/* Outside the open check: it stays under a collapsed list. */}
-            {isOwner && (
-              <button
-                onClick={() => select({ kind: "newMember" })}
-                aria-current={
-                  selection?.kind === "newMember" ? "true" : undefined
-                }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  width: "100%",
-                  textAlign: "left",
-                  font: "inherit",
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  padding: "8px 14px",
-                  border: "none",
-                  cursor: "pointer",
-                  background:
-                    selection?.kind === "newMember"
-                      ? "var(--bg-hover)"
-                      : "transparent",
-                  borderLeft:
-                    selection?.kind === "newMember"
-                      ? "2px solid var(--accent)"
-                      : "2px solid transparent",
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{ width: 22, textAlign: "center", fontSize: 16 }}
-                >
-                  +
-                </span>
-                {t("settings.members.newMember")}
-              </button>
-            )}
-            {isOwner && removedMembers.length > 0 && (
-              <button
-                onClick={() => select({ kind: "removedMembers" })}
-                aria-current={
-                  selection?.kind === "removedMembers" ? "true" : undefined
-                }
-                data-removed-members-row=""
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  width: "100%",
-                  textAlign: "left",
-                  font: "inherit",
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  padding: "8px 14px",
-                  border: "none",
-                  cursor: "pointer",
-                  background:
-                    selection?.kind === "removedMembers"
-                      ? "var(--bg-hover)"
-                      : "transparent",
-                  borderLeft:
-                    selection?.kind === "removedMembers"
-                      ? "2px solid var(--accent)"
-                      : "2px solid transparent",
-                }}
-              >
-                <span aria-hidden="true" style={{ width: 22 }} />
-                {t("settings.removedMembers.row", {
-                  count: removedMembers.length,
-                })}
-              </button>
-            )}
+          ))}
 
-            {groupsAfterRoster.map((group) => (
-              <SidebarGroupRows
-                key={group.id}
-                group={group}
-                first={false}
-                onSelect={(target) => select(target)}
-                {...collapsible(group.id)}
-              />
-            ))}
-
-            <div style={{ flex: 1 }} />
-
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--text-muted)",
-                margin: "16px 14px 10px",
-                lineHeight: 1.4,
-              }}
-            >
-              {t("settings.profilesNote")}
-            </p>
-
-            {sessionContext && (
-              <div style={{ padding: "0 14px" }}>
-                <button
-                  {...signOutStep.bind("signOut")}
-                  onClick={() =>
-                    signOutStep.confirm("signOut", () => void signOut())
-                  }
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 6,
-                    border: filledDangerBtn.border,
-                    background: filledDangerBtn.background,
-                    color: filledDangerBtn.color,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                  title={t("settings.signOutHint")}
-                >
-                  {t(
-                    signOutStep.armed
-                      ? "common.confirmQuestion"
-                      : "common.signOut",
-                  )}
-                </button>
-                {logoutBlockedReason && (
-                  <p
+          <SidebarGroupHeader
+            groupId="members"
+            label={rosterGroup?.label ?? t("settings.sidebar.members")}
+            first={groupsBeforeRoster.length === 0}
+            {...collapsible("members")}
+          />
+          {openGroups.has("members") && (
+            <>
+              {userList.map((u) => {
+                const isMe = sessionContext?.userId === u.id;
+                const selected =
+                  selection?.kind === "user" && selection.id === u.id;
+                const editable = canEdit(u);
+                const online = onlineSet.has(u.id);
+                // Session count / last-seen are OWNER-only signals (task
+                // 8e882cd4); non-owner viewers get just the online dot and a
+                // bare "online". The server already scopes /api/sessions to the
+                // caller, but the design keeps even a member's own session
+                // stats off the roster for consistency.
+                const summary = summarizeRoster(
+                  online,
+                  isOwner ? (sessionStats.get(u.id) ?? null) : null,
+                  isOwner && u.pendingSignIn === true,
+                  i18n,
+                );
+                // Editable rows are real <button>s (keyboard-focusable, with
+                // aria-current marking the selection); rows the session can't
+                // edit render as plain non-interactive divs.
+                const Row = editable ? "button" : "div";
+                return (
+                  <Row
+                    key={u.id}
+                    onClick={
+                      editable
+                        ? () => select({ kind: "user", id: u.id })
+                        : undefined
+                    }
+                    aria-current={selected ? "true" : undefined}
+                    title={
+                      editable ? undefined : t("settings.members.editHint")
+                    }
                     style={{
-                      margin: "8px 0 0",
-                      padding: "8px 12px",
-                      border: "1px solid #ff6b6b",
-                      borderRadius: 6,
-                      background: "rgba(255,107,107,0.08)",
-                      fontSize: 11,
-                      color: "var(--red-text)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      width: "100%",
+                      textAlign: "left",
+                      font: "inherit",
+                      padding: "8px 14px",
+                      border: "none",
+                      cursor: editable ? "pointer" : "default",
+                      background: selected ? "var(--bg-hover)" : "transparent",
+                      borderLeft: selected
+                        ? "2px solid var(--accent)"
+                        : "2px solid transparent",
+                      color: editable ? "inherit" : "var(--text-hint)",
                     }}
                   >
-                    {logoutBlockedReason}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                    <span
+                      style={{
+                        position: "relative",
+                        display: "flex",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <GhostGraphic
+                        variant={u.avatarVariant}
+                        color={u.avatarColor}
+                        size={22}
+                      />
+                      {online && (
+                        <span
+                          style={onlineDotStyle}
+                          title={t("settings.members.onlineNow")}
+                        />
+                      )}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: editable
+                            ? "var(--text-primary)"
+                            : "var(--text-hint)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          minWidth: 0,
+                        }}
+                      >
+                        <span
+                          {...noTranslate()}
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {u.name}
+                        </span>
+                        {isMe && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 400,
+                              color: "var(--text-muted)",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {t("settings.you")}
+                          </span>
+                        )}
+                        <RoleBadge role={u.role} />
+                      </div>
+                      {summary && (
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "var(--text-muted)",
+                            fontFamily: "var(--font-ui)",
+                            marginTop: 2,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {summary}
+                        </div>
+                      )}
+                    </div>
+                  </Row>
+                );
+              })}
+            </>
+          )}
+          {/* Outside the open check: it stays under a collapsed list. */}
+          {isOwner && (
+            <button
+              onClick={() => select({ kind: "newMember" })}
+              aria-current={
+                selection?.kind === "newMember" ? "true" : undefined
+              }
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                textAlign: "left",
+                font: "inherit",
+                fontSize: 13,
+                color: "var(--text-muted)",
+                padding: "8px 14px",
+                border: "none",
+                cursor: "pointer",
+                background:
+                  selection?.kind === "newMember"
+                    ? "var(--bg-hover)"
+                    : "transparent",
+                borderLeft:
+                  selection?.kind === "newMember"
+                    ? "2px solid var(--accent)"
+                    : "2px solid transparent",
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{ width: 22, textAlign: "center", fontSize: 16 }}
+              >
+                +
+              </span>
+              {t("settings.members.newMember")}
+            </button>
+          )}
+          {isOwner && removedMembers.length > 0 && (
+            <button
+              onClick={() => select({ kind: "removedMembers" })}
+              aria-current={
+                selection?.kind === "removedMembers" ? "true" : undefined
+              }
+              data-removed-members-row=""
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                textAlign: "left",
+                font: "inherit",
+                fontSize: 13,
+                color: "var(--text-muted)",
+                padding: "8px 14px",
+                border: "none",
+                cursor: "pointer",
+                background:
+                  selection?.kind === "removedMembers"
+                    ? "var(--bg-hover)"
+                    : "transparent",
+                borderLeft:
+                  selection?.kind === "removedMembers"
+                    ? "2px solid var(--accent)"
+                    : "2px solid transparent",
+              }}
+            >
+              <span aria-hidden="true" style={{ width: 22 }} />
+              {t("settings.removedMembers.row", {
+                count: removedMembers.length,
+              })}
+            </button>
+          )}
 
-        {showDetail && (
-          <div
-            data-testid="settings-content"
+          {groupsAfterRoster.map((group) => (
+            <SidebarGroupRows
+              key={group.id}
+              group={group}
+              first={false}
+              onSelect={(target) => select(target)}
+              {...collapsible(group.id)}
+            />
+          ))}
+
+          <div style={{ flex: 1 }} />
+
+          <p
             style={{
-              flex: 1,
-              minWidth: 0,
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              display: "flex",
-              flexDirection: "column",
+              fontSize: 10,
+              color: "var(--text-muted)",
+              margin: "16px 14px 10px",
+              lineHeight: 1.4,
             }}
           >
-            {isMobile && selection && (
+            {t("settings.profilesNote")}
+          </p>
+
+          {sessionContext && (
+            <div style={{ padding: "0 14px" }}>
               <button
-                onClick={backToList}
+                {...signOutStep.bind("signOut")}
+                onClick={() =>
+                  signOutStep.confirm("signOut", () => void signOut())
+                }
                 style={{
-                  alignSelf: "flex-start",
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: 13,
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: filledDangerBtn.border,
+                  background: filledDangerBtn.background,
+                  color: filledDangerBtn.color,
+                  fontSize: 12,
+                  fontWeight: 600,
                   cursor: "pointer",
-                  padding: "10px 16px 4px",
                 }}
+                title={t("settings.signOutHint")}
               >
-                &larr; {t("common.settings")}
+                {t(
+                  signOutStep.armed
+                    ? "common.confirmQuestion"
+                    : "common.signOut",
+                )}
               </button>
-            )}
-            {selection?.kind === "section" ? (
-              <div
-                style={{
-                  padding: isMobile ? "0 16px 24px" : "0 24px 24px",
-                  paddingTop:
-                    isMobile &&
-                    (selection.section === "storage" ||
-                      selection.section === "usage")
-                      ? "env(safe-area-inset-top, 16px)"
-                      : undefined,
-                  maxWidth: 720,
-                  width: "100%",
-                  boxSizing: "border-box",
-                }}
-              >
-                {/* Owner-only sections render null for members (unreachable
+              {logoutBlockedReason && (
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    padding: "8px 12px",
+                    border: "1px solid #ff6b6b",
+                    borderRadius: 6,
+                    background: "rgba(255,107,107,0.08)",
+                    fontSize: 11,
+                    color: "var(--red-text)",
+                  }}
+                >
+                  {logoutBlockedReason}
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      }
+    >
+      {selection?.kind === "section" ? (
+        <div
+          style={{
+            padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+            paddingTop:
+              isMobile &&
+              (selection.section === "storage" || selection.section === "usage")
+                ? "env(safe-area-inset-top, 16px)"
+                : undefined,
+            maxWidth: 720,
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          {/* Owner-only sections render null for members (unreachable
                     via the sidebar, which only offers "devices" to them). The
                     External access card holds unsaved form state; it registers
                     into detailCloseRef so navigating away routes through its
                     own discard prompt. */}
-                {selection.section === "access" && isOwner ? (
-                  <ExternalAccessPane closeRef={detailCloseRef} />
-                ) : selection.section === "invites" && isOwner ? (
-                  <InvitesPane />
-                ) : selection.section === "sessions" && isOwner ? (
-                  <SessionsPane />
-                ) : selection.section === "signInLinks" && sessionContext ? (
-                  <MyDevicesPane />
-                ) : selection.section === "prefs" && sessionContext ? (
-                  <PreferencesPane />
-                ) : selection.section === "office" ? (
-                  <OfficePane closeRef={detailCloseRef} />
-                ) : selection.section === "enterprise" && isOwner ? (
-                  <EnterprisePane />
-                ) : selection.section === "usage" ? (
-                  <UsagePane />
-                ) : selection.section === "audit" && isOwner ? (
-                  <AuditPane />
-                ) : selection.section === "storage" && isOwner ? (
-                  <StoragePane closeRef={detailCloseRef} />
-                ) : selection.section === "updates" ? (
-                  <UpdatePane onClose={() => leaveEdit(() => onClose())} />
-                ) : selection.section === "deviceLabel" ? (
-                  <DevicePane closeRef={detailCloseRef} />
-                ) : selection.section === "theme" ? (
-                  <ThemePane />
-                ) : selection.section === "recording" ? (
-                  <RecordingPane />
-                ) : null}
-              </div>
-            ) : selection?.kind === "room" ? (
-              <div
-                style={{
-                  padding: isMobile ? "0 16px 24px" : "0 24px 24px",
-                  maxWidth: 720,
-                  width: "100%",
-                  boxSizing: "border-box",
-                }}
-              >
-                <RoomPane
-                  key={selection.roomId}
-                  roomId={selection.roomId}
-                  closeRef={detailCloseRef}
-                  onDeleted={() => setSelection(null)}
-                />
-              </div>
-            ) : selection?.kind === "removedMembers" && isOwner ? (
-              <div
-                style={{
-                  padding: isMobile ? "0 16px 24px" : "0 24px 24px",
-                  maxWidth: 720,
-                  width: "100%",
-                  boxSizing: "border-box",
-                }}
-              >
-                <RemovedMembersPane
-                  onRestored={(id) => show({ kind: "user", id })}
-                />
-              </div>
-            ) : selection?.kind === "newMember" && isOwner ? (
-              <UserEditPanel
-                key="newMember"
-                user={newMemberDraft}
-                creating
-                isMobile={isMobile}
-                closeRef={detailCloseRef}
-                onClose={() => setSelection(null)}
-                onCreated={(id) => show({ kind: "user", id })}
-              />
-            ) : selectedUser && isFullUserView(selectedUser) ? (
-              <UserEditPanel
-                key={selectedUser.id}
-                user={selectedUser}
-                isMobile={isMobile}
-                closeRef={detailCloseRef}
-                onClose={() => setSelection(null)}
-                onRenamed={(newName) => {
-                  // Selection is id-keyed, so a rename never dangles it.
-                  // If the edited user is the current device's user and they
-                  // renamed (case-changing too), keep localStorage in sync so
-                  // the next claim_user doesn't fork a new empty record.
-                  const localKey = getUsername()?.toLowerCase();
-                  if (
-                    localKey &&
-                    localKey === selectedUser.name.toLowerCase()
-                  ) {
-                    saveLocalUsername(newName);
-                    onSwitchUser(newName);
-                  }
-                }}
-                onDeleted={() => {
-                  // If the deleted user is the current device's user, clear
-                  // localStorage so the picker auto-opens on the next render.
-                  const localKey = getUsername()?.toLowerCase();
-                  if (
-                    localKey &&
-                    localKey === selectedUser.name.toLowerCase()
-                  ) {
-                    saveLocalUsername("");
-                    if (typeof localStorage !== "undefined")
-                      localStorage.removeItem("isomux-username");
-                    onSwitchUser(null);
-                  }
-                  setSelection(null);
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-ghost)",
-                  fontSize: 13,
-                }}
-              >
-                {t("settings.selectHint")}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+          {selection.section === "access" && isOwner ? (
+            <ExternalAccessPane closeRef={detailCloseRef} />
+          ) : selection.section === "invites" && isOwner ? (
+            <InvitesPane />
+          ) : selection.section === "sessions" && isOwner ? (
+            <SessionsPane />
+          ) : selection.section === "signInLinks" && sessionContext ? (
+            <MyDevicesPane />
+          ) : selection.section === "prefs" && sessionContext ? (
+            <PreferencesPane />
+          ) : selection.section === "office" ? (
+            <OfficePane closeRef={detailCloseRef} />
+          ) : selection.section === "enterprise" && isOwner ? (
+            <EnterprisePane />
+          ) : selection.section === "usage" ? (
+            <UsagePane />
+          ) : selection.section === "audit" && isOwner ? (
+            <AuditPane />
+          ) : selection.section === "storage" && isOwner ? (
+            <StoragePane closeRef={detailCloseRef} />
+          ) : selection.section === "updates" ? (
+            <UpdatePane onClose={() => leaveEdit(() => onClose())} />
+          ) : selection.section === "deviceLabel" ? (
+            <DevicePane closeRef={detailCloseRef} />
+          ) : selection.section === "theme" ? (
+            <ThemePane />
+          ) : selection.section === "recording" ? (
+            <RecordingPane />
+          ) : null}
+        </div>
+      ) : selection?.kind === "room" ? (
+        <div
+          style={{
+            padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+            maxWidth: 720,
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          <RoomPane
+            key={selection.roomId}
+            roomId={selection.roomId}
+            closeRef={detailCloseRef}
+            onDeleted={() => setSelection(null)}
+          />
+        </div>
+      ) : selection?.kind === "removedMembers" && isOwner ? (
+        <div
+          style={{
+            padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+            maxWidth: 720,
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          <RemovedMembersPane onRestored={(id) => show({ kind: "user", id })} />
+        </div>
+      ) : selection?.kind === "newMember" && isOwner ? (
+        <UserEditPanel
+          key="newMember"
+          user={newMemberDraft}
+          creating
+          isMobile={isMobile}
+          closeRef={detailCloseRef}
+          onClose={() => setSelection(null)}
+          onCreated={(id) => show({ kind: "user", id })}
+        />
+      ) : selectedUser && isFullUserView(selectedUser) ? (
+        <UserEditPanel
+          key={selectedUser.id}
+          user={selectedUser}
+          isMobile={isMobile}
+          closeRef={detailCloseRef}
+          onClose={() => setSelection(null)}
+          onRenamed={(newName) => {
+            // Selection is id-keyed, so a rename never dangles it.
+            // If the edited user is the current device's user and they
+            // renamed (case-changing too), keep localStorage in sync so
+            // the next claim_user doesn't fork a new empty record.
+            const localKey = getUsername()?.toLowerCase();
+            if (localKey && localKey === selectedUser.name.toLowerCase()) {
+              saveLocalUsername(newName);
+              onSwitchUser(newName);
+            }
+          }}
+          onDeleted={() => {
+            // If the deleted user is the current device's user, clear
+            // localStorage so the picker auto-opens on the next render.
+            const localKey = getUsername()?.toLowerCase();
+            if (localKey && localKey === selectedUser.name.toLowerCase()) {
+              saveLocalUsername("");
+              if (typeof localStorage !== "undefined")
+                localStorage.removeItem("isomux-username");
+              onSwitchUser(null);
+            }
+            setSelection(null);
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--text-ghost)",
+            fontSize: 13,
+          }}
+        >
+          {t("settings.selectHint")}
+        </div>
+      )}
+    </SidebarPage>
   );
 }
 

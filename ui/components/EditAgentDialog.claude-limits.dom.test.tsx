@@ -1,4 +1,4 @@
-// The edit dialog gates effort and Auto on the edited agent's own
+// The Agent settings page gates effort and Auto on the edited agent's own
 // limitedClaudeFamilies (its manager's env), not on the viewer's, in both
 // directions. Spawn reads the viewer's SessionContext list.
 import { describe, expect, it } from "bun:test";
@@ -15,6 +15,7 @@ const {
   hasEffort,
   modeSelect,
   offersAuto,
+  openSection,
   renameAndSave,
   renderEdit,
   room,
@@ -72,7 +73,11 @@ describe("edit dialog on another member's agent", () => {
       // stays and runs as Ask there.
       await renameAndSave(view.container);
       expect(patches).toEqual([{ name: "Renamed", modelFamily: "sonnet" }]);
-      fireEvent.change(model, { target: { value: "fable" } });
+      // The rename left the page on Profile: back to the model.
+      await openSection(view.container, "engine");
+      fireEvent.change(selectWith(view.container, "haiku"), {
+        target: { value: "fable" },
+      });
       await settle();
       expect(offersAuto(view.container)).toBe(true);
       expect(hasEffort(view.container)).toBe(true);

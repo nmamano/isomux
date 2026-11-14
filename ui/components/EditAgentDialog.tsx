@@ -66,6 +66,8 @@ import {
   secondaryFill,
 } from "./dialog-styles.ts";
 import { SystemPromptButton } from "./SystemPromptButton.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { AgentSettingsPage } from "./AgentSettingsPage.tsx";
 import { AccessSlider } from "./AccessSlider.tsx";
 import {
   agentAccessOf,
@@ -274,11 +276,25 @@ function parseAutoHandoffThousands(text: string): number | null {
     : null;
 }
 
+// The sections of the Agent settings page (task 59538509), in sidebar order.
+export const AGENT_SETTINGS_SECTIONS = [
+  "profile",
+  "engine",
+  "instructions",
+  "access",
+] as const;
+export type AgentSettingsSection = (typeof AGENT_SETTINGS_SECTIONS)[number];
+
 type EditAgentDialogProps = {
   onClose: () => void;
 } & (
   | {
       agent: AgentInfo;
+      // The section the Agent settings page opens on. Absent: Profile on a
+      // desktop, the section list on a phone.
+      initialSection?: AgentSettingsSection;
+      // A menu or a dialog is open over the page: Escape is theirs.
+      covered?: boolean;
       deskIndex?: undefined;
       roomId?: undefined;
       defaultCwd?: undefined;
@@ -286,6 +302,8 @@ type EditAgentDialogProps = {
     }
   | {
       agent?: undefined;
+      initialSection?: undefined;
+      covered?: undefined;
       // A front desk, or null for a back room seat (the back screen's
       // "+ New agent").
       deskIndex: number | null;
@@ -295,10 +313,47 @@ type EditAgentDialogProps = {
     }
 );
 
+// The Agent settings page's state that outlives the form: the open section,
+// and a revert, which mounts the form again from the saved agent.
+type PageState = {
+  section: AgentSettingsSection | null;
+  onSection: (section: AgentSettingsSection | null) => void;
+  onRevert: () => void;
+};
+
+// An agent's settings open as a full page; a new agent's form is a dialog
+// (task 59538509).
 export function EditAgentDialog(props: EditAgentDialogProps) {
+  if (props.agent === undefined) return <AgentForm {...props} />;
+  return <AgentSettingsEditor {...props} agent={props.agent} />;
+}
+
+function AgentSettingsEditor(
+  props: EditAgentDialogProps & { agent: AgentInfo },
+) {
+  const { isMobile } = useAppState();
+  // A phone opens on the section list unless the door named a section.
+  const [section, setSection] = useState<AgentSettingsSection | null>(
+    props.initialSection ?? (isMobile ? null : "profile"),
+  );
+  const [formKey, setFormKey] = useState(0);
+  return (
+    <AgentForm
+      key={formKey}
+      {...props}
+      page={{
+        section,
+        onSection: setSection,
+        onRevert: () => setFormKey((key) => key + 1),
+      }}
+    />
+  );
+}
+
+function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const { onClose } = props;
+  const { onClose, page } = props;
   const isSpawn = !props.agent;
   const spawnProps = props.agent === undefined ? props : null;
   const agent = props.agent;
@@ -732,6 +787,20 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   function isDirty(): boolean {
     return agentFormDirty(formSnapshot, baselineRef.current!, mem.dirty);
   }
+  // The seeding effects re-stamp the baseline and set state with it, so this
+  // render-time read sees each change.
+  // eslint-disable-next-line react-hooks/refs
+  const dirty = isDirty();
+
+  // The page's discard prompt (the Settings panes' one). Every exit that goes
+  // through closes the page; a stashed action (Move to Room, a sidebar row)
+  // runs after it, also when a save makes the form clean first.
+  const leavePrompt = useUnsavedChangesPrompt(!isSpawn && dirty, {
+    onLeave: onClose,
+  });
+  // When the last save went through, while nothing changed since: Save says
+  // Saved.
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   // "Discard unsaved changes?" confirmation, same inline-strip convention as
   // the user settings page. `after` runs once the close is committed, so a
@@ -743,7 +812,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // Every dismissal path routes through here: backdrop, Cancel, Escape,
   // Move to Room. Clean form closes immediately; dirty one asks first.
   function requestClose(after?: () => void) {
-    if (isDirty()) {
+    if (!isSpawn) {
+      leavePrompt.request(after);
+      return;
+    }
+    if (dirty) {
       pendingDiscardActionRef.current = after ?? null;
       setConfirmDiscard(true);
     } else {
@@ -816,7 +889,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // An expanded textarea overlay collapses on Escape instead of closing
       // this dialog; our capture listener runs first, so stand down for it.
       if (isExpandedEditorOpen()) return;
+      if (page && props.covered) return;
       e.stopPropagation();
+      if (page) {
+        // The page: the prompt first, then a phone's section goes back to
+        // the list, then the page closes to the view under it.
+        if (leavePrompt.open) leavePrompt.cancel();
+        else if (isMobile && page.section !== null) page.onSection(null);
+        else if (!saving) requestClose();
+        return;
+      }
       if (templateListOpen) {
         closeTemplateList();
         return;
@@ -1069,11 +1151,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetEngine]);
 
-  // A save that went through closes the dialog. A prompt still open (the
+  // A spawn that went through closes the dialog. A prompt still open (the
   // member asked to leave while the save ran, or pressed Save on the prompt)
-  // has nothing left to discard, so its stashed action (Move to Room) runs
-  // now, in the order commitDiscard uses. A stashed revive is dropped: the
-  // member saved this form instead.
+  // has nothing left to discard, so its stashed action runs now, in the order
+  // commitDiscard uses. A stashed revive is dropped: the member saved this
+  // form instead. The page stays open after a save (leavePrompt).
   function closeAfterSave() {
     pendingReviveRef.current = null;
     const next = pendingDiscardActionRef.current;
@@ -1113,16 +1195,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             ? e.message || t("common.saveFailed")
             : t("common.saveFailed");
       const code = e instanceof ApiError ? e.code : null;
-      setSaveError({
-        message: msg,
-        field:
-          code === "name_taken"
-            ? "name"
-            : !setsNoFolder &&
-                (code === "invalid_cwd" || code === FOLDER_NOT_ALLOWED)
-              ? "cwd"
-              : null,
-      });
+      const field =
+        code === "name_taken"
+          ? "name"
+          : !setsNoFolder &&
+              (code === "invalid_cwd" || code === FOLDER_NOT_ALLOWED)
+            ? "cwd"
+            : null;
+      setSaveError({ message: msg, field });
+      // On the page the field may be in another section: open it.
+      if (page && field !== null)
+        page.onSection(field === "name" ? "profile" : "access");
     };
 
     if (isSpawn) {
@@ -1251,10 +1334,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // Access is its OWN user-gated route (PUT /access), never part of the
       // PATCH - it re-mints the token and restarts the session like a model
       // change.
-      if (!hasChanges && !managerChanged && !accessChanged && !mem.dirty) {
-        closeAfterSave();
+      // Nothing to write: the page stays as it is.
+      if (!hasChanges && !managerChanged && !accessChanged && !mem.dirty)
         return;
-      }
+      // What the form held when Save was pressed: once every write went
+      // through, the form is clean against it. An edit made while the save
+      // runs stays unsaved.
+      const savedSnapshot = { ...formSnapshot };
       setCwdError(null);
       setSaveError(null);
       // Thunks, run SEQUENTIALLY (not Promise.all): a cwd/engine PATCH and a
@@ -1283,39 +1369,22 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         );
       const runSeq = () =>
         ops.reduce<Promise<unknown>>((p, op) => p.then(op), Promise.resolve());
-      // Block the dialog (await + surface errors) when something restarts the
-      // session - a cwd change (server cwd validation), an engine switch (fresh
-      // conversation), or a privilege toggle (token re-mint + session-swap) -
-      // or when the edit can meaningfully FAIL: a custom-instructions change is
-      // version-guarded (409 on a concurrent edit), so it must await and
-      // surface the conflict, never fire-and-forget past it. Other edits stay
-      // fire-and-forget with an optimistic close (prior behavior).
-      if (
-        changes.cwd ||
-        changes.agentType ||
-        changes.instructions !== undefined ||
-        managerChanged ||
-        accessChanged ||
-        mem.dirty
-      ) {
-        // A session-swap (cwd/engine/privilege) or a destructive memory REPLACE
-        // must await + surface its error before closing - never fire-and-forget.
-        setSaving(true);
-        runSeq()
-          .then(async () => {
-            const m = await mem.save();
-            if (!m.ok) {
-              setSaveError({ message: m.message, field: null });
-              return;
-            }
-            closeAfterSave();
-          })
-          .catch(showError)
-          .finally(() => setSaving(false));
-      } else {
-        runSeq().catch(() => {});
-        closeAfterSave();
-      }
+      // Every save awaits and shows its refusal: the page stays open, so a
+      // write that fails must not pass for saved. The writes run in order
+      // (above), then the memory's version-guarded REPLACE.
+      setSaving(true);
+      runSeq()
+        .then(async () => {
+          const m = await mem.save();
+          if (!m.ok) {
+            setSaveError({ message: m.message, field: null });
+            return;
+          }
+          baselineRef.current = savedSnapshot;
+          setSavedAt(Date.now());
+        })
+        .catch(showError)
+        .finally(() => setSaving(false));
     }
   }
 
@@ -1792,6 +1861,590 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     </div>
   );
 
+  // The form's sections, built once: the spawn dialog shows them all in one
+  // column, the Agent settings page one at a time (task 59538509).
+  const identitySection = (
+    <section className="agent-settings-group agent-identity-section">
+      <label style={labelStyle}>{t("common.name")}</label>
+      <input
+        {...noTranslate()}
+        ref={nameInputRef}
+        value={name}
+        onChange={(e) => {
+          setName(e.target.value);
+          if (saveError?.field === "name") setSaveError(null);
+        }}
+        placeholder={defaultSpawnName}
+        aria-invalid={saveError?.field === "name" || undefined}
+        style={
+          saveError?.field === "name"
+            ? { ...inputStyle, borderColor: "#ff6b6b" }
+            : inputStyle
+        }
+      />
+    </section>
+  );
+  const engineSection = (
+    <section className="agent-settings-group agent-engine-section">
+      <h4 className="agent-settings-group-title">
+        {t("dialogs.agent.group.engine")}
+      </h4>
+      {isSpawn ? (
+        <div className="agent-engine-control">
+          <label style={labelStyle}>{t("common.field.engine")}</label>
+          <div className="spawn-engine-options">
+            {ENGINE_OPTIONS.map((option) => {
+              const selected = targetEngine === option.agentType;
+              const unavailable =
+                unavailableEngines[option.agentType] !== undefined;
+              const cannotRunStop = !engineRunsAccessOnSomeModel(
+                option.agentType,
+                access,
+              );
+              return (
+                <button
+                  key={option.agentType}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={unavailable || cannotRunStop}
+                  onClick={() => setTargetEngine(option.agentType)}
+                  style={{
+                    background: selected
+                      ? "var(--bg-hover)"
+                      : "var(--bg-surface)",
+                    border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
+                    borderRadius: 8,
+                    padding: "12px 14px",
+                    textAlign: "left",
+                    cursor:
+                      unavailable || cannotRunStop ? "not-allowed" : "pointer",
+                    color:
+                      unavailable || cannotRunStop
+                        ? "var(--text-hint)"
+                        : "var(--text-primary)",
+                    boxShadow: selected ? `0 0 0 1px ${option.accent}` : "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {option.label}
+                  </span>
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      color: "var(--text-dim)",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {unavailable
+                      ? t("dialogs.agent.engineNeedsLinux")
+                      : t(option.blurbKey)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        /* Editable in edit mode: switching starts a fresh conversation
+        on the new engine. The current conversation stays in resume
+        history, and the settings use the new engine's options. */
+        <div className="agent-engine-control">
+          <label style={labelStyle}>{t("common.field.engine")}</label>
+          <select
+            value={targetEngine}
+            onChange={(e) =>
+              setTargetEngine(e.target.value as AgentBackendType)
+            }
+            style={{
+              ...inputStyle,
+              appearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            {ENGINE_OPTIONS.map((option) => {
+              const unavailable =
+                unavailableEngines[option.agentType] !== undefined;
+              return (
+                <option
+                  key={option.agentType}
+                  value={option.agentType}
+                  disabled={
+                    (unavailable && option.agentType !== agentType) ||
+                    !engineRunsAccessOnSomeModel(option.agentType, access)
+                  }
+                >
+                  {unavailable
+                    ? `${option.label} (${t("dialogs.agent.engineNeedsLinux")})`
+                    : option.label}
+                </option>
+              );
+            })}
+          </select>
+          {targetEngine !== agentType && (
+            <p
+              style={{
+                ...dialogHint,
+                margin: "6px 0 0",
+                lineHeight: 1.4,
+              }}
+            >
+              {t("dialogs.agent.engineSwitchHint", {
+                engine:
+                  ENGINE_OPTIONS.find(
+                    (option) => option.agentType === targetEngine,
+                  )?.label ?? targetEngine,
+              })}
+            </p>
+          )}
+        </div>
+      )}
+      {engineSettingsBlock}
+      {showAutoHandoff && (
+        <div className="agent-auto-handoff-field">
+          <label
+            htmlFor="agent-auto-handoff"
+            style={{ ...labelStyle, marginTop: 14 }}
+          >
+            {t("dialogs.agent.autoHandoff")}
+          </label>
+          <label
+            className="agent-auto-handoff-control"
+            htmlFor="agent-auto-handoff"
+          >
+            <input
+              id="agent-auto-handoff"
+              type="checkbox"
+              checked={autoHandoff}
+              onChange={(e) => setAutoHandoff(e.target.checked)}
+              style={{ cursor: "pointer", margin: 0 }}
+            />
+            <span style={dialogHint}>{t("dialogs.agent.autoHandoffHint")}</span>
+          </label>
+          {autoHandoff && (
+            <label
+              className="agent-auto-handoff-tokens"
+              htmlFor="agent-auto-handoff-tokens"
+            >
+              {i18n.rich("dialogs.agent.autoHandoffTokens", {
+                input: (
+                  <input
+                    id="agent-auto-handoff-tokens"
+                    type="text"
+                    inputMode="decimal"
+                    value={autoHandoffTokens}
+                    onChange={(e) => {
+                      setAutoHandoffTokens(e.target.value);
+                      setAutoHandoffTokensError(false);
+                    }}
+                    aria-invalid={autoHandoffTokensError}
+                    style={{ ...inputStyle, width: 90 }}
+                  />
+                ),
+              })}
+            </label>
+          )}
+          {autoHandoff && autoHandoffTokensError && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--red-text)",
+                margin: "4px 0 0",
+              }}
+            >
+              {t("dialogs.agent.autoHandoffTokensError", {
+                min: AUTO_HANDOFF_TOKENS_MIN / 1000,
+                max: AUTO_HANDOFF_TOKENS_MAX / 1000,
+              })}
+            </p>
+          )}
+        </div>
+      )}
+      {showLimitResume && (
+        <div className="agent-limit-resume-field">
+          <label
+            htmlFor="agent-limit-resume"
+            style={{ ...labelStyle, marginTop: 14 }}
+          >
+            {t("dialogs.agent.limitResume")}
+          </label>
+          <label
+            className="agent-auto-handoff-control"
+            htmlFor="agent-limit-resume"
+          >
+            <input
+              id="agent-limit-resume"
+              type="checkbox"
+              checked={limitResume}
+              onChange={(e) => setLimitResume(e.target.checked)}
+              style={{ cursor: "pointer", margin: 0 }}
+            />
+            <span style={dialogHint}>{t("dialogs.agent.limitResumeHint")}</span>
+          </label>
+        </div>
+      )}
+    </section>
+  );
+  const instructionsSection = (
+    <section className="agent-settings-group agent-instructions-section">
+      <h4 className="agent-settings-group-title">
+        {t("common.instructionsAndMemory")}
+      </h4>
+      <div className="agent-settings-fields">
+        <div>
+          <label style={labelStyle}>
+            {t("dialogs.agent.customInstructions")}{" "}
+            <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+              {t("dialogs.agent.optional")}
+            </span>
+          </label>
+          <ExpandableTextarea
+            title={t("dialogs.agent.customInstructions")}
+            hint={t("dialogs.agent.customInstructionsHint")}
+            value={customInstructions}
+            onChange={setCustomInstructions}
+            placeholder={t("dialogs.agent.customInstructionsPlaceholder")}
+            rows={3}
+            style={{ ...inputStyle, resize: "vertical" }}
+            recordingPrivate={`agent:${agent?.id ?? "new"}:instructions`}
+          />
+          <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
+            {t("dialogs.agent.customInstructionsHint")}
+            {!isSpawn && ` ${t("common.restartOrNewConversation")}`}
+          </p>
+        </div>
+        {memoryBlock}
+      </div>
+      <SystemPromptButton
+        preview={{
+          ...(isSpawn ? {} : { agentId: agent!.id }),
+          roomId: isSpawn ? props.roomId : agent!.roomId,
+          name: name.trim() || (isSpawn ? defaultSpawnName! : agent!.name),
+          agentType: targetEngine,
+          instructions: customInstructions,
+          privileged,
+          access,
+          ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
+          permissionMode,
+          ...(targetEngine === "codex" ? { codexSandbox } : {}),
+        }}
+      />
+    </section>
+  );
+  const accessSection = (
+    <section className="agent-settings-group agent-access-section">
+      <h4 className="agent-settings-group-title">
+        {t("dialogs.agent.group.access")}
+      </h4>
+
+      <div className="agent-settings-fields">
+        <div className="agent-directory-field">
+          {" "}
+          <label style={labelStyle}>{t("common.field.workingDirectory")}</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              {...noTranslate()}
+              ref={cwdInputRef}
+              value={cwd}
+              readOnly={setsNoFolder}
+              onChange={(e) => {
+                setCwd(e.target.value);
+                clearCwdErrors();
+              }}
+              aria-invalid={cwdMarked || undefined}
+              style={
+                cwdMarked
+                  ? { ...inputStyle, borderColor: "#ff6b6b" }
+                  : inputStyle
+              }
+            />
+            {recentCwds.length > 0 && !setsNoFolder && (
+              <button
+                type="button"
+                aria-expanded={showRecentCwds}
+                aria-controls="recent-cwd-suggestions"
+                onClick={() => setShowRecentCwds((shown) => !shown)}
+                style={{ ...dialogCancelBtn, padding: "7px 10px" }}
+              >
+                {t("dialogs.agent.recent")}
+              </button>
+            )}
+          </div>
+          {setsNoFolder && (
+            <p style={{ ...dialogHint, margin: "4px 0 0" }}>
+              {t("dialogs.agent.roomFolderOnly")}
+            </p>
+          )}
+          {cwdError && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--red-text)",
+                margin: "4px 0 0",
+              }}
+            >
+              {cwdError}
+            </p>
+          )}
+          {showRecentCwds && recentCwds.length > 0 && (
+            <div
+              id="recent-cwd-suggestions"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 4,
+                marginTop: 6,
+              }}
+            >
+              {recentCwds.map((c) => (
+                <button
+                  key={c}
+                  {...noTranslate()}
+                  onClick={() => {
+                    setCwd(c);
+                    setShowRecentCwds(false);
+                    clearCwdErrors();
+                  }}
+                  style={chipStyle}
+                >
+                  {shortenCwd(c)}
+                </button>
+              ))}
+            </div>
+          )}
+          {!setsNoFolder && (
+            <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+              {t("dialogs.agent.cwdHint")}
+            </p>
+          )}
+          {!isSpawn && (
+            <p
+              style={{
+                ...dialogHint,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              {t("common.nextConversation")}
+            </p>
+          )}
+        </div>
+        <div className="agent-room-field">
+          <label style={labelStyle}>{t("common.rooms")}</label>
+          <p style={dialogHint}>
+            {isSpawn
+              ? rooms.find((room) => room.id === props.roomId)?.name
+              : agentRoomName}
+          </p>
+          {moveToRoomBlock}
+        </div>
+        <div className="agent-manager-field">
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            {t("dialogs.agent.manager")}
+          </label>
+          {canChangeManager ? (
+            <select
+              value={managerUserId}
+              onChange={(e) => setManagerUserId(e.target.value)}
+              style={{
+                ...inputStyle,
+                appearance: "none",
+                cursor: "pointer",
+              }}
+            >
+              {/* No manager, or one who is no longer a member: shown
+                  as chosen until the owner picks a member. */}
+              {!managerChoices.some((u) => u.id === agent!.userId) && (
+                <option value={agent!.userId ?? ""}>
+                  {agent!.manager ?? t("dialogs.agent.managerUnowned")}
+                </option>
+              )}
+              {managerChoices.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div
+              title={isSpawn ? undefined : t("dialogs.agent.managerTitle")}
+              style={{
+                ...inputStyle,
+                display: "flex",
+                alignItems: "center",
+                color: "var(--text-muted)",
+                fontFamily: "var(--font-ui)",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                fontWeight: 600,
+                cursor: "not-allowed",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              {isSpawn
+                ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
+                : (agent!.manager ??
+                  agent!.userId ??
+                  t("dialogs.agent.managerUnowned"))}
+            </div>
+          )}
+          <p
+            style={{
+              ...dialogHint,
+              margin: "3px 0 0",
+            }}
+          >
+            {t("dialogs.agent.managerHint")}
+            {managerChanged && ` ${t("dialogs.agent.managerRestart")}`}
+            {managerLacksRoom &&
+              ` ${t("dialogs.agent.managerNoRoomAccess", {
+                name: chosenManager.name,
+              })}`}
+          </p>
+        </div>
+
+        {/* The access slider: Chat, Office, Folder, Web, Standard,
+      Privileged. Set through the dedicated user-gated route, so a
+      change on a running agent re-mints its token and restarts its
+      session, like a model change. Shown only to a user who may set
+      it (owner, or the agent's manager - see canTogglePrivilege). */}
+        {canTogglePrivilege && (
+          <AccessSlider
+            access={access}
+            onAccess={setAccess}
+            agentType={targetEngine}
+            model={modelFamily}
+            {...(ceiling ? { ceiling } : {})}
+            {...(roomHasNoFolder ? { noFolder: true } : {})}
+            note={
+              !isSpawn && accessChanged
+                ? t("dialogs.agent.privilegedRestart")
+                : undefined
+            }
+          />
+        )}
+      </div>
+    </section>
+  );
+  const appearanceSection = (
+    <section className="agent-settings-group agent-appearance-section">
+      <h4 className="agent-settings-group-title">
+        {t("dialogs.agent.appearance")}
+      </h4>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          marginBottom: 10,
+        }}
+      >
+        <div
+          data-outfit-preview
+          style={{
+            width: 52,
+            height: 70,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Character state="idle" outfit={outfit} />
+        </div>
+        <button
+          onClick={() => setOutfit(randomOutfit())}
+          style={randomBtnStyle}
+        >
+          {t("dialogs.agent.randomize")}
+        </button>
+      </div>
+
+      <OutfitPicker outfit={outfit} onChange={setOutfit} />
+    </section>
+  );
+
+  if (page) {
+    // Where the agent sits, after its name in the page header.
+    const place =
+      agent!.roomId === "lobby"
+        ? t("common.lobby")
+        : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${
+            isBackSeat(agent!.desk)
+              ? t("dialogs.agent.backRoom")
+              : t("dialogs.agent.desk", { desk: agent!.desk + 1 })
+          }`;
+    return (
+      <AgentSettingsPage
+        agentId={agent!.id}
+        title={t("dialogs.agent.titleEdit")}
+        subtitle={
+          <>
+            <span {...noTranslate()}>{agent!.name}</span> &middot; {place}
+          </>
+        }
+        sections={[
+          {
+            id: "profile",
+            label: t("settings.sidebar.profile"),
+            body: (
+              <>
+                {/* The other sections open on their title; Name has none of
+                    its own. */}
+                <h4 className="agent-settings-group-title">
+                  {t("settings.sidebar.profile")}
+                </h4>
+                {identitySection}
+                {appearanceSection}
+              </>
+            ),
+          },
+          {
+            id: "engine",
+            label: t("dialogs.agent.group.engine"),
+            body: engineSection,
+          },
+          {
+            id: "instructions",
+            label: t("common.instructionsAndMemory"),
+            body: instructionsSection,
+          },
+          {
+            id: "access",
+            label: t("dialogs.agent.group.access"),
+            body: accessSection,
+          },
+        ]}
+        section={page.section}
+        onSection={page.onSection}
+        onClose={() => requestClose()}
+        guard={(after) => leavePrompt.request(after)}
+        saveError={
+          saveError && (
+            <>
+              {saveError.message}
+              {saveError.field === "cwd" &&
+                ` ${t("dialogs.agent.chooseAnotherFolder")}`}
+            </>
+          )
+        }
+        leavePrompt={leavePrompt}
+        dirty={dirty}
+        saving={saving}
+        saved={savedAt !== null}
+        saveBlocked={!openCodeModelReady || engineChoiceBlocked}
+        onRevert={page.onRevert}
+        onSave={handleSave}
+      />
+    );
+  }
+
   return (
     <div
       onMouseDown={(e) => {
@@ -1816,13 +2469,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       }}
     >
       <div
-        className={
-          isMobile
-            ? undefined
-            : isSpawn
-              ? "spawn-agent-dialog-desktop"
-              : "edit-agent-dialog-desktop"
-        }
+        className={isMobile ? undefined : "spawn-agent-dialog-desktop"}
         style={{
           background: "var(--bg-overlay)",
           border: isMobile ? "none" : "1px solid var(--border-light)",
@@ -1854,7 +2501,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               display: "flex",
               alignItems: "baseline",
               gap: 8,
-              marginBottom: isSpawn ? 18 : 0,
+              marginBottom: 18,
             }}
           >
             <h3
@@ -1865,720 +2512,185 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 color: "var(--text-primary)",
               }}
             >
-              {isSpawn
-                ? t("dialogs.agent.titleSpawn")
-                : t("dialogs.agent.titleEdit")}
+              {t("dialogs.agent.titleSpawn")}
             </h3>
-            {isSpawn && (
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                {props.deskIndex === null
-                  ? t("dialogs.agent.backRoom")
-                  : t("dialogs.agent.desk", { desk: props.deskIndex + 1 })}
-              </span>
-            )}
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {spawnProps!.deskIndex === null
+                ? t("dialogs.agent.backRoom")
+                : t("dialogs.agent.desk", { desk: spawnProps!.deskIndex + 1 })}
+            </span>
           </div>
-          {!isSpawn && (
-            <p
-              style={{
-                fontSize: 12,
-                color: "var(--text-muted)",
-                margin: "2px 0 18px",
-              }}
-            >
-              {agent!.roomId === "lobby"
-                ? t("common.lobby")
-                : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${
-                    isBackSeat(agent!.desk)
-                      ? t("dialogs.agent.backRoom")
-                      : t("dialogs.agent.desk", { desk: agent!.desk + 1 })
-                  }`}
-            </p>
-          )}
 
           <div className="agent-dialog-grid">
-            {isSpawn && (
-              <section className="agent-settings-group spawn-template-section">
-                <label id="spawn-template-label" style={labelStyle}>
-                  {t("dialogs.agent.group.template")}
-                </label>
-                <div ref={templatePickerRef} style={{ position: "relative" }}>
-                  <button
-                    ref={templateTriggerRef}
-                    type="button"
-                    data-profile-trigger
-                    aria-haspopup="listbox"
-                    aria-expanded={templateListOpen}
-                    aria-labelledby="spawn-template-label spawn-template-value"
-                    autoFocus={isSpawn}
-                    onClick={() => setTemplateListOpen((open) => !open)}
+            <section className="agent-settings-group spawn-template-section">
+              <label id="spawn-template-label" style={labelStyle}>
+                {t("dialogs.agent.group.template")}
+              </label>
+              <div ref={templatePickerRef} style={{ position: "relative" }}>
+                <button
+                  ref={templateTriggerRef}
+                  type="button"
+                  data-profile-trigger
+                  aria-haspopup="listbox"
+                  aria-expanded={templateListOpen}
+                  aria-labelledby="spawn-template-label spawn-template-value"
+                  autoFocus={isSpawn}
+                  onClick={() => setTemplateListOpen((open) => !open)}
+                  style={{
+                    ...templateCardStyle(false, false, chosenTemplate?.group),
+                    width: "100%",
+                    // One height with or without an avatar.
+                    minHeight: 46,
+                    padding: "6px 10px",
+                  }}
+                >
+                  {chosenTemplate && (
+                    <span
+                      style={{ ...templateAvatarStyle, height: 32 }}
+                      aria-hidden="true"
+                    >
+                      <Character
+                        state="idle"
+                        outfit={chosenTemplate.outfit}
+                        portrait
+                        height={30}
+                      />
+                    </span>
+                  )}
+                  <span
+                    id="spawn-template-value"
                     style={{
-                      ...templateCardStyle(false, false, chosenTemplate?.group),
-                      width: "100%",
-                      // One height with or without an avatar.
-                      minHeight: 46,
-                      padding: "6px 10px",
+                      ...templateCardTextStyle,
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "baseline",
+                      gap: 8,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {chosenTemplate && (
-                      <span
-                        style={{ ...templateAvatarStyle, height: 32 }}
-                        aria-hidden="true"
-                      >
-                        <Character
-                          state="idle"
-                          outfit={chosenTemplate.outfit}
-                          portrait
-                          height={30}
-                        />
-                      </span>
-                    )}
+                    <span style={templateCardTitleStyle}>
+                      {chosenTemplate
+                        ? t(chosenTemplate.labelKey)
+                        : t("dialogs.agent.blank")}
+                    </span>
                     <span
-                      id="spawn-template-value"
                       style={{
-                        ...templateCardTextStyle,
-                        flex: 1,
-                        flexDirection: "row",
-                        alignItems: "baseline",
-                        gap: 8,
-                        whiteSpace: "nowrap",
+                        ...templateCardDescriptionStyle,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
-                      <span style={templateCardTitleStyle}>
-                        {chosenTemplate
-                          ? t(chosenTemplate.labelKey)
-                          : t("dialogs.agent.blank")}
-                      </span>
-                      <span
+                      {chosenTemplate
+                        ? t(chosenTemplate.descriptionKey)
+                        : t("dialogs.agent.blankHint")}
+                    </span>
+                  </span>
+                  <FilterChevron />
+                </button>
+                {templateListOpen && (
+                  <>
+                    {isMobile && (
+                      <div
+                        aria-hidden="true"
+                        onClick={closeTemplateList}
+                        style={templateSheetBackdropStyle}
+                      />
+                    )}
+                    <div
+                      data-profile-list
+                      role="listbox"
+                      aria-labelledby="spawn-template-label"
+                      style={
+                        isMobile ? templateSheetStyle : templatePopoverStyle
+                      }
+                    >
+                      <p style={{ ...dialogHint, margin: "0 0 8px" }}>
+                        {t("dialogs.agent.templateHint")}
+                      </p>
+                      <div
                         style={{
-                          ...templateCardDescriptionStyle,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
+                          display: "grid",
+                          gridTemplateColumns: isMobile
+                            ? "minmax(0, 1fr)"
+                            : "repeat(auto-fill, minmax(260px, 1fr))",
+                          gap: 6,
                         }}
                       >
-                        {chosenTemplate
-                          ? t(chosenTemplate.descriptionKey)
-                          : t("dialogs.agent.blankHint")}
-                      </span>
-                    </span>
-                    <FilterChevron />
-                  </button>
-                  {templateListOpen && (
-                    <>
-                      {isMobile && (
-                        <div
-                          aria-hidden="true"
-                          onClick={closeTemplateList}
-                          style={templateSheetBackdropStyle}
-                        />
-                      )}
-                      <div
-                        data-profile-list
-                        role="listbox"
-                        aria-labelledby="spawn-template-label"
-                        style={
-                          isMobile ? templateSheetStyle : templatePopoverStyle
-                        }
-                      >
-                        <p style={{ ...dialogHint, margin: "0 0 8px" }}>
-                          {t("dialogs.agent.templateHint")}
-                        </p>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: isMobile
-                              ? "minmax(0, 1fr)"
-                              : "repeat(auto-fill, minmax(260px, 1fr))",
-                            gap: 6,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            data-profile-option
-                            role="option"
-                            aria-selected={selectedTemplateKey === null}
-                            onClick={() => pickTemplate(null)}
-                            style={{
-                              ...templateCardStyle(
-                                selectedTemplateKey === null,
-                                false,
-                              ),
-                              gridColumn: "1 / -1",
-                            }}
-                          >
-                            <span style={templateCardTextStyle}>
-                              <span style={templateCardTitleStyle}>
-                                {t("dialogs.agent.blank")}
-                              </span>
-                              <span style={templateCardDescriptionStyle}>
-                                {t("dialogs.agent.blankHint")}
-                              </span>
-                            </span>
-                          </button>
-                          {AGENT_TEMPLATES.map((template) => {
-                            const selected =
-                              selectedTemplateKey === template.key;
-                            return (
-                              <button
-                                key={template.key}
-                                type="button"
-                                data-profile-option
-                                role="option"
-                                aria-selected={selected}
-                                onClick={() => pickTemplate(template)}
-                                style={templateCardStyle(
-                                  selected,
-                                  false,
-                                  template.group,
-                                )}
-                              >
-                                <span
-                                  style={templateAvatarStyle}
-                                  aria-hidden="true"
-                                >
-                                  <Character
-                                    state="idle"
-                                    outfit={template.outfit}
-                                    portrait
-                                    height={44}
-                                  />
-                                </span>
-                                <span style={templateCardTextStyle}>
-                                  <span style={templateCardTitleStyle}>
-                                    {t(template.labelKey)}
-                                  </span>
-                                  <span style={templateCardDescriptionStyle}>
-                                    {t(template.descriptionKey)}
-                                  </span>
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </section>
-            )}
-            <section className="agent-settings-group agent-identity-section">
-              <label style={labelStyle}>{t("common.name")}</label>
-              <input
-                {...noTranslate()}
-                ref={nameInputRef}
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (saveError?.field === "name") setSaveError(null);
-                }}
-                placeholder={defaultSpawnName}
-                aria-invalid={saveError?.field === "name" || undefined}
-                style={
-                  saveError?.field === "name"
-                    ? { ...inputStyle, borderColor: "#ff6b6b" }
-                    : inputStyle
-                }
-              />
-            </section>
-            <section className="agent-settings-group agent-engine-section">
-              <h4 className="agent-settings-group-title">
-                {t("dialogs.agent.group.engine")}
-              </h4>
-              {isSpawn ? (
-                <div className="agent-engine-control">
-                  <label style={labelStyle}>{t("common.field.engine")}</label>
-                  <div className="spawn-engine-options">
-                    {ENGINE_OPTIONS.map((option) => {
-                      const selected = targetEngine === option.agentType;
-                      const unavailable =
-                        unavailableEngines[option.agentType] !== undefined;
-                      const cannotRunStop = !engineRunsAccessOnSomeModel(
-                        option.agentType,
-                        access,
-                      );
-                      return (
                         <button
-                          key={option.agentType}
                           type="button"
-                          aria-pressed={selected}
-                          disabled={unavailable || cannotRunStop}
-                          onClick={() => setTargetEngine(option.agentType)}
+                          data-profile-option
+                          role="option"
+                          aria-selected={selectedTemplateKey === null}
+                          onClick={() => pickTemplate(null)}
                           style={{
-                            background: selected
-                              ? "var(--bg-hover)"
-                              : "var(--bg-surface)",
-                            border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
-                            borderRadius: 8,
-                            padding: "12px 14px",
-                            textAlign: "left",
-                            cursor:
-                              unavailable || cannotRunStop
-                                ? "not-allowed"
-                                : "pointer",
-                            color:
-                              unavailable || cannotRunStop
-                                ? "var(--text-hint)"
-                                : "var(--text-primary)",
-                            boxShadow: selected
-                              ? `0 0 0 1px ${option.accent}`
-                              : "none",
+                            ...templateCardStyle(
+                              selectedTemplateKey === null,
+                              false,
+                            ),
+                            gridColumn: "1 / -1",
                           }}
                         >
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              marginBottom: 4,
-                            }}
-                          >
-                            {option.label}
-                          </span>
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: 12,
-                              color: "var(--text-dim)",
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {unavailable
-                              ? t("dialogs.agent.engineNeedsLinux")
-                              : t(option.blurbKey)}
+                          <span style={templateCardTextStyle}>
+                            <span style={templateCardTitleStyle}>
+                              {t("dialogs.agent.blank")}
+                            </span>
+                            <span style={templateCardDescriptionStyle}>
+                              {t("dialogs.agent.blankHint")}
+                            </span>
                           </span>
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                /* Editable in edit mode: switching starts a fresh conversation
-                on the new engine. The current conversation stays in resume
-                history, and the settings use the new engine's options. */
-                <div className="agent-engine-control">
-                  <label style={labelStyle}>{t("common.field.engine")}</label>
-                  <select
-                    value={targetEngine}
-                    onChange={(e) =>
-                      setTargetEngine(e.target.value as AgentBackendType)
-                    }
-                    style={{
-                      ...inputStyle,
-                      appearance: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {ENGINE_OPTIONS.map((option) => {
-                      const unavailable =
-                        unavailableEngines[option.agentType] !== undefined;
-                      return (
-                        <option
-                          key={option.agentType}
-                          value={option.agentType}
-                          disabled={
-                            (unavailable && option.agentType !== agentType) ||
-                            !engineRunsAccessOnSomeModel(
-                              option.agentType,
-                              access,
-                            )
-                          }
-                        >
-                          {unavailable
-                            ? `${option.label} (${t("dialogs.agent.engineNeedsLinux")})`
-                            : option.label}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  {targetEngine !== agentType && (
-                    <p
-                      style={{
-                        ...dialogHint,
-                        margin: "6px 0 0",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {t("dialogs.agent.engineSwitchHint", {
-                        engine:
-                          ENGINE_OPTIONS.find(
-                            (option) => option.agentType === targetEngine,
-                          )?.label ?? targetEngine,
-                      })}
-                    </p>
-                  )}
-                </div>
-              )}
-              {engineSettingsBlock}
-              {showAutoHandoff && (
-                <div className="agent-auto-handoff-field">
-                  <label
-                    htmlFor="agent-auto-handoff"
-                    style={{ ...labelStyle, marginTop: 14 }}
-                  >
-                    {t("dialogs.agent.autoHandoff")}
-                  </label>
-                  <label
-                    className="agent-auto-handoff-control"
-                    htmlFor="agent-auto-handoff"
-                  >
-                    <input
-                      id="agent-auto-handoff"
-                      type="checkbox"
-                      checked={autoHandoff}
-                      onChange={(e) => setAutoHandoff(e.target.checked)}
-                      style={{ cursor: "pointer", margin: 0 }}
-                    />
-                    <span style={dialogHint}>
-                      {t("dialogs.agent.autoHandoffHint")}
-                    </span>
-                  </label>
-                  {autoHandoff && (
-                    <label
-                      className="agent-auto-handoff-tokens"
-                      htmlFor="agent-auto-handoff-tokens"
-                    >
-                      {i18n.rich("dialogs.agent.autoHandoffTokens", {
-                        input: (
-                          <input
-                            id="agent-auto-handoff-tokens"
-                            type="text"
-                            inputMode="decimal"
-                            value={autoHandoffTokens}
-                            onChange={(e) => {
-                              setAutoHandoffTokens(e.target.value);
-                              setAutoHandoffTokensError(false);
-                            }}
-                            aria-invalid={autoHandoffTokensError}
-                            style={{ ...inputStyle, width: 90 }}
-                          />
-                        ),
-                      })}
-                    </label>
-                  )}
-                  {autoHandoff && autoHandoffTokensError && (
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "var(--red-text)",
-                        margin: "4px 0 0",
-                      }}
-                    >
-                      {t("dialogs.agent.autoHandoffTokensError", {
-                        min: AUTO_HANDOFF_TOKENS_MIN / 1000,
-                        max: AUTO_HANDOFF_TOKENS_MAX / 1000,
-                      })}
-                    </p>
-                  )}
-                </div>
-              )}
-              {showLimitResume && (
-                <div className="agent-limit-resume-field">
-                  <label
-                    htmlFor="agent-limit-resume"
-                    style={{ ...labelStyle, marginTop: 14 }}
-                  >
-                    {t("dialogs.agent.limitResume")}
-                  </label>
-                  <label
-                    className="agent-auto-handoff-control"
-                    htmlFor="agent-limit-resume"
-                  >
-                    <input
-                      id="agent-limit-resume"
-                      type="checkbox"
-                      checked={limitResume}
-                      onChange={(e) => setLimitResume(e.target.checked)}
-                      style={{ cursor: "pointer", margin: 0 }}
-                    />
-                    <span style={dialogHint}>
-                      {t("dialogs.agent.limitResumeHint")}
-                    </span>
-                  </label>
-                </div>
-              )}
-            </section>
-            <section className="agent-settings-group agent-instructions-section">
-              <h4 className="agent-settings-group-title">
-                {t("common.instructionsAndMemory")}
-              </h4>
-              <div className="agent-settings-fields">
-                <div>
-                  <label style={labelStyle}>
-                    {t("dialogs.agent.customInstructions")}{" "}
-                    <span
-                      style={{ fontWeight: 400, color: "var(--text-ghost)" }}
-                    >
-                      {t("dialogs.agent.optional")}
-                    </span>
-                  </label>
-                  <ExpandableTextarea
-                    title={t("dialogs.agent.customInstructions")}
-                    hint={t("dialogs.agent.customInstructionsHint")}
-                    value={customInstructions}
-                    onChange={setCustomInstructions}
-                    placeholder={t(
-                      "dialogs.agent.customInstructionsPlaceholder",
-                    )}
-                    rows={3}
-                    style={{ ...inputStyle, resize: "vertical" }}
-                    recordingPrivate={`agent:${agent?.id ?? "new"}:instructions`}
-                  />
-                  <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
-                    {t("dialogs.agent.customInstructionsHint")}
-                    {!isSpawn && ` ${t("common.restartOrNewConversation")}`}
-                  </p>
-                </div>
-                {memoryBlock}
-              </div>
-              <SystemPromptButton
-                preview={{
-                  ...(isSpawn ? {} : { agentId: agent!.id }),
-                  roomId: isSpawn ? props.roomId : agent!.roomId,
-                  name:
-                    name.trim() || (isSpawn ? defaultSpawnName! : agent!.name),
-                  agentType: targetEngine,
-                  instructions: customInstructions,
-                  privileged,
-                  access,
-                  ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
-                  permissionMode,
-                  ...(targetEngine === "codex" ? { codexSandbox } : {}),
-                }}
-              />
-            </section>
-            <section className="agent-settings-group agent-access-section">
-              <h4 className="agent-settings-group-title">
-                {t("dialogs.agent.group.access")}
-              </h4>
-
-              <div className="agent-settings-fields">
-                <div className="agent-directory-field">
-                  {" "}
-                  <label style={labelStyle}>
-                    {t("common.field.workingDirectory")}
-                  </label>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input
-                      {...noTranslate()}
-                      ref={cwdInputRef}
-                      value={cwd}
-                      readOnly={setsNoFolder}
-                      onChange={(e) => {
-                        setCwd(e.target.value);
-                        clearCwdErrors();
-                      }}
-                      aria-invalid={cwdMarked || undefined}
-                      style={
-                        cwdMarked
-                          ? { ...inputStyle, borderColor: "#ff6b6b" }
-                          : inputStyle
-                      }
-                    />
-                    {recentCwds.length > 0 && !setsNoFolder && (
-                      <button
-                        type="button"
-                        aria-expanded={showRecentCwds}
-                        aria-controls="recent-cwd-suggestions"
-                        onClick={() => setShowRecentCwds((shown) => !shown)}
-                        style={{ ...dialogCancelBtn, padding: "7px 10px" }}
-                      >
-                        {t("dialogs.agent.recent")}
-                      </button>
-                    )}
-                  </div>
-                  {setsNoFolder && (
-                    <p style={{ ...dialogHint, margin: "4px 0 0" }}>
-                      {t("dialogs.agent.roomFolderOnly")}
-                    </p>
-                  )}
-                  {cwdError && (
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "var(--red-text)",
-                        margin: "4px 0 0",
-                      }}
-                    >
-                      {cwdError}
-                    </p>
-                  )}
-                  {showRecentCwds && recentCwds.length > 0 && (
-                    <div
-                      id="recent-cwd-suggestions"
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: 4,
-                        marginTop: 6,
-                      }}
-                    >
-                      {recentCwds.map((c) => (
-                        <button
-                          key={c}
-                          {...noTranslate()}
-                          onClick={() => {
-                            setCwd(c);
-                            setShowRecentCwds(false);
-                            clearCwdErrors();
-                          }}
-                          style={chipStyle}
-                        >
-                          {shortenCwd(c)}
-                        </button>
-                      ))}
+                        {AGENT_TEMPLATES.map((template) => {
+                          const selected = selectedTemplateKey === template.key;
+                          return (
+                            <button
+                              key={template.key}
+                              type="button"
+                              data-profile-option
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => pickTemplate(template)}
+                              style={templateCardStyle(
+                                selected,
+                                false,
+                                template.group,
+                              )}
+                            >
+                              <span
+                                style={templateAvatarStyle}
+                                aria-hidden="true"
+                              >
+                                <Character
+                                  state="idle"
+                                  outfit={template.outfit}
+                                  portrait
+                                  height={44}
+                                />
+                              </span>
+                              <span style={templateCardTextStyle}>
+                                <span style={templateCardTitleStyle}>
+                                  {t(template.labelKey)}
+                                </span>
+                                <span style={templateCardDescriptionStyle}>
+                                  {t(template.descriptionKey)}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  )}
-                  {!setsNoFolder && (
-                    <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-                      {t("dialogs.agent.cwdHint")}
-                    </p>
-                  )}
-                  {!isSpawn && (
-                    <p
-                      style={{
-                        ...dialogHint,
-                        color: "var(--text-ghost)",
-                        margin: "3px 0 0",
-                      }}
-                    >
-                      {t("common.nextConversation")}
-                    </p>
-                  )}
-                </div>
-                <div className="agent-room-field">
-                  <label style={labelStyle}>{t("common.rooms")}</label>
-                  <p style={dialogHint}>
-                    {isSpawn
-                      ? rooms.find((room) => room.id === props.roomId)?.name
-                      : agentRoomName}
-                  </p>
-                  {moveToRoomBlock}
-                </div>
-                <div className="agent-manager-field">
-                  <label style={{ ...labelStyle, marginTop: 12 }}>
-                    {t("dialogs.agent.manager")}
-                  </label>
-                  {canChangeManager ? (
-                    <select
-                      value={managerUserId}
-                      onChange={(e) => setManagerUserId(e.target.value)}
-                      style={{
-                        ...inputStyle,
-                        appearance: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {/* No manager, or one who is no longer a member: shown
-                          as chosen until the owner picks a member. */}
-                      {!managerChoices.some((u) => u.id === agent!.userId) && (
-                        <option value={agent!.userId ?? ""}>
-                          {agent!.manager ?? t("dialogs.agent.managerUnowned")}
-                        </option>
-                      )}
-                      {managerChoices.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div
-                      title={
-                        isSpawn ? undefined : t("dialogs.agent.managerTitle")
-                      }
-                      style={{
-                        ...inputStyle,
-                        display: "flex",
-                        alignItems: "center",
-                        color: "var(--text-muted)",
-                        fontFamily: "var(--font-ui)",
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5,
-                        fontWeight: 600,
-                        cursor: "not-allowed",
-                        background: "var(--bg-elevated)",
-                      }}
-                    >
-                      {isSpawn
-                        ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
-                        : (agent!.manager ??
-                          agent!.userId ??
-                          t("dialogs.agent.managerUnowned"))}
-                    </div>
-                  )}
-                  <p
-                    style={{
-                      ...dialogHint,
-                      margin: "3px 0 0",
-                    }}
-                  >
-                    {t("dialogs.agent.managerHint")}
-                    {managerChanged && ` ${t("dialogs.agent.managerRestart")}`}
-                    {managerLacksRoom &&
-                      ` ${t("dialogs.agent.managerNoRoomAccess", {
-                        name: chosenManager.name,
-                      })}`}
-                  </p>
-                </div>
-
-                {/* The access slider: Chat, Office, Folder, Web, Standard,
-              Privileged. Set through the dedicated user-gated route, so a
-              change on a running agent re-mints its token and restarts its
-              session, like a model change. Shown only to a user who may set
-              it (owner, or the agent's manager - see canTogglePrivilege). */}
-                {canTogglePrivilege && (
-                  <AccessSlider
-                    access={access}
-                    onAccess={setAccess}
-                    agentType={targetEngine}
-                    model={modelFamily}
-                    {...(ceiling ? { ceiling } : {})}
-                    {...(roomHasNoFolder ? { noFolder: true } : {})}
-                    note={
-                      !isSpawn && accessChanged
-                        ? t("dialogs.agent.privilegedRestart")
-                        : undefined
-                    }
-                  />
+                  </>
                 )}
               </div>
             </section>
-            <section className="agent-settings-group agent-appearance-section">
-              <h4 className="agent-settings-group-title">
-                {t("dialogs.agent.appearance")}
-              </h4>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 16,
-                  marginBottom: 10,
-                }}
-              >
-                <div
-                  data-outfit-preview
-                  style={{
-                    width: 52,
-                    height: 70,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Character state="idle" outfit={outfit} />
-                </div>
-                <button
-                  onClick={() => setOutfit(randomOutfit())}
-                  style={randomBtnStyle}
-                >
-                  {t("dialogs.agent.randomize")}
-                </button>
-              </div>
-
-              <OutfitPicker outfit={outfit} onChange={setOutfit} />
-            </section>
+            {identitySection}
+            {engineSection}
+            {instructionsSection}
+            {accessSection}
+            {appearanceSection}
           </div>
 
-          {isSpawn && killedAgents.length > 0 && (
+          {killedAgents.length > 0 && (
             <section
               className="agent-settings-group agent-restore-section"
               style={{
@@ -2730,11 +2842,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               style={saveBtnStyle}
               disabled={saving || !openCodeModelReady || engineChoiceBlocked}
             >
-              {saving
-                ? t("common.saving")
-                : isSpawn
-                  ? t("dialogs.agent.spawn")
-                  : t("common.save")}
+              {saving ? t("common.saving") : t("dialogs.agent.spawn")}
             </button>
           </div>
         </div>

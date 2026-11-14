@@ -2,7 +2,9 @@
 // "does nothing" and the dialog still asks to discard). The refusal shows
 // once, as an alert next to Save, so it is in view where the member clicked;
 // the field it is about is marked and scrolled into view, never focused, and
-// carries no second copy. A folder refusal points to the working directory
+// carries no second copy. On the Agent settings page (task 59538509) the
+// refusal is in the footer, so it shows on every section, and Save keeps the
+// page open. A folder refusal points to the working directory
 // when the member may change it.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -13,6 +15,7 @@ const {
   REFUSAL,
   agentAt,
   cleanup,
+  openSection,
   pick,
   renderEdit,
   renderSpawn,
@@ -123,7 +126,7 @@ describe("a refused save", () => {
     }
   });
 
-  it("marks the working directory, scrolls it into view without focus, and points to it; editing the folder clears both, and the next Save stores the pick and closes", async () => {
+  it("marks the working directory, scrolls it into view without focus, and points to it; editing the folder clears both, and the next Save stores the pick and the page stays open", async () => {
     let closed = 0;
     const opts: Parameters<typeof shim>[0] = {
       refuse: { route: "PUT :id/access", code: "folder_not_allowed" },
@@ -173,7 +176,7 @@ describe("a refused save", () => {
         access: (calls.at(-1)?.body as { access?: unknown } | undefined)
           ?.access,
       }).toEqual({
-        closed: 1,
+        closed: 0,
         order: ["PATCH :id", "PUT :id/access"],
         access: "web",
       });
@@ -238,11 +241,17 @@ describe("a refused save", () => {
       await save(view.container);
       const cwd = cwdInput(view.container);
       const [alert] = refusalAlerts(view.container);
-      expect({
+      const onAccess = {
         ...shown(view.container, cwd),
         text: alert?.textContent?.trim(),
         cwd: invalid(cwd),
+      };
+      // The name is on Profile; the refusal stays next to Save there.
+      await openSection(view.container, "profile");
+      expect({
+        ...onAccess,
         name: invalid(nameInput(view.container)),
+        alertsOnProfile: refusalAlerts(view.container).length,
       }).toEqual({
         alerts: 1,
         times: 1,
@@ -250,6 +259,7 @@ describe("a refused save", () => {
         text: REFUSAL,
         cwd: false,
         name: false,
+        alertsOnProfile: 1,
       });
     } finally {
       cleanup(view);
@@ -259,26 +269,27 @@ describe("a refused save", () => {
   it("a taken name: the reason next to Save, the Name field marked and scrolled into view, and editing the name clears it", async () => {
     shim({ refuse: { route: "PATCH :id", code: "name_taken" } });
     const scrolls = watchScrolls();
-    const view = renderEdit(agentAt("standard"));
+    const view = renderEdit(
+      agentAt("standard"),
+      undefined,
+      undefined,
+      "profile",
+    );
     try {
       await settle();
       const name = nameInput(view.container);
+      // A rename alone: every save on the page waits for the server.
       await type(name, "Taken");
-      // A rename alone is fire-and-forget today; a cwd change makes the save
-      // wait for the server, so the refusal can reach the dialog.
-      await type(cwdInput(view.container), "/srv/elsewhere");
       await save(view.container);
       expect({
         ...shown(view.container, name),
         name: invalid(name),
-        cwd: invalid(cwdInput(view.container)),
         scrolled: scrolls.scrolled.includes(name),
       }).toEqual({
         alerts: 1,
         times: 1,
         beside: true,
         name: true,
-        cwd: false,
         scrolled: true,
       });
       await type(name, "Free");
@@ -286,6 +297,9 @@ describe("a refused save", () => {
         name: invalid(name),
         alerts: refusalAlerts(view.container).length,
       }).toEqual({ name: false, alerts: 0 });
+      // Only the name was marked: not the working directory.
+      await openSection(view.container, "access");
+      expect(invalid(cwdInput(view.container))).toBe(false);
     } finally {
       scrolls.restore();
       cleanup(view);

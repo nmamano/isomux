@@ -1,7 +1,8 @@
 // The "Move to room" buttons with back rooms (tasks 5b503e32 and f0af4677):
 // each room offers its front and its back room, each disabled only when that
 // area is full. No button shows an agent count. Every room but the lobby has
-// a back room, with no field for it (task e2fb9fa0).
+// a back room, with no field for it (task e2fb9fa0). They are on the Agent
+// settings page's Access section (task 59538509).
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -10,13 +11,13 @@ const { act, fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
-const { claudeAgent, room, settle, viewer } =
+const { claudeAgent, openSection, room, settle, viewer } =
   await import("../test-support/claude-limits-fixture.tsx");
 const { BACK_ROOM_SEATS, DESK_COUNT, firstFreeBackSeat } =
   await import("../../shared/desks.ts");
 
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-// The dialog loads the agent's memory and checks its folder on mount.
+// The page loads the agent's memory and checks its folder on mount.
 beforeEach(() => setApiShim(async () => ({})));
 afterAll(() => setApiShim(null));
 const EN = translatorFor("en");
@@ -42,11 +43,19 @@ const backFull = { ...room, id: "r4", name: "Back Full" };
 
 function dialog(agent: ReturnType<typeof claudeAgent>, agents: unknown[]) {
   const view = render(
-    onLanguage("en", <EditAgentDialog onClose={() => {}} agent={agent} />, {
-      rooms: [room, frontFull, allFull, backFull],
-      agents: [agent, ...agents] as never,
-      hasReceivedInitialState: true,
-    }),
+    onLanguage(
+      "en",
+      <EditAgentDialog
+        onClose={() => {}}
+        agent={agent}
+        initialSection="access"
+      />,
+      {
+        rooms: [room, frontFull, allFull, backFull],
+        agents: [agent, ...agents] as never,
+        hasReceivedInitialState: true,
+      },
+    ),
   );
   const buttons = [...view.container.querySelectorAll("button")];
   const front = (name: string) =>
@@ -147,8 +156,8 @@ describe("Move to room buttons", () => {
 
 // Task ee577900: Move stays enabled while a save runs. A move asked for then
 // (or from the prompt, before Save) waits on the discard prompt; the save
-// landing closes the dialog AND moves the agent. A failed save keeps the
-// dialog, the prompt and the agent where they are.
+// landing closes the page AND moves the agent. A failed save keeps the
+// page, the prompt and the agent where they are.
 describe("a move that races a save", () => {
   for (const order of ["save first", "move first"] as const)
     for (const outcome of ["saved", "failed"] as const)
@@ -162,7 +171,7 @@ describe("a move that races a save", () => {
           if (path === "/api/validate/cwd") return { ok: true };
           if (path.startsWith("/api/memory"))
             return { text: "", version: "v1", size: 0, cap: 5000 };
-          // An instructions edit is a save the dialog awaits before it closes.
+          // An instructions edit: a save the page awaits.
           if (method === "PATCH" && path === "/api/agents/a1")
             return new Promise((resolve, reject) =>
               held.push({ resolve, reject }),
@@ -175,7 +184,11 @@ describe("a move that races a save", () => {
         const view = render(
           onLanguage(
             "en",
-            <EditAgentDialog onClose={() => closed++} agent={agent} />,
+            <EditAgentDialog
+              onClose={() => closed++}
+              agent={agent}
+              initialSection="instructions"
+            />,
             {
               rooms: [room, backFull],
               agents: [agent],
@@ -197,11 +210,13 @@ describe("a move that races a save", () => {
           const save = async () => {
             await act(async () => {
               fireEvent.click(
-                view.getByRole("button", { name: EN.t("common.save") }),
+                view.container.querySelector("[data-agent-settings-save]")!,
               );
             });
           };
+          // The move buttons are on Access.
           const move = async () => {
+            await openSection(view.container, "access");
             await act(async () => {
               fireEvent.click(view.getByRole("button", { name: "Back Full" }));
             });

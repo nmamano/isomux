@@ -1,4 +1,4 @@
-// The access slider of the agent dialog (task e77304b1, merge B): what a save
+// The access slider of the agent settings (task e77304b1, merge B): what a save
 // sends. A stop change is one PUT /access, never PUT /privileged; it runs
 // before the PATCH when the target is Standard or above, after it when the
 // target is below, and always before a manager transfer. The body is the
@@ -14,6 +14,7 @@ const {
   agentAt,
   change,
   cleanup,
+  openSection,
   pick,
   renderEdit,
   route,
@@ -97,10 +98,13 @@ describe("the access slider saves", () => {
 
   it("a rename at an unchanged stop as the PATCH alone", async () => {
     const calls = shim();
-    const view = renderEdit(agentAt("folder"));
+    const view = renderEdit(agentAt("folder"), undefined, undefined, "profile");
     try {
       await settle();
-      await change(view.container.querySelector("input")!, "Renamed");
+      await change(
+        view.container.querySelector(".agent-identity-section input")!,
+        "Renamed",
+      );
       await save(view.container);
       expect(calls.map(route)).toEqual(["PATCH :id"]);
     } finally {
@@ -136,6 +140,7 @@ describe("the save order", () => {
     try {
       await settle();
       await pick(view.container, "standard");
+      await openSection(view.container, "engine");
       await change(
         view.container.querySelector<HTMLSelectElement>(
           ".agent-engine-control select",
@@ -160,7 +165,12 @@ describe("the save order", () => {
       const view = renderEdit(agentAt("standard"));
       try {
         await settle();
-        await change(view.container.querySelector("input")!, "Renamed");
+        await openSection(view.container, "profile");
+        await change(
+          view.container.querySelector(".agent-identity-section input")!,
+          "Renamed",
+        );
+        await openSection(view.container, "access");
         await change(
           view.container.querySelector<HTMLSelectElement>(
             ".agent-manager-field select",
@@ -176,7 +186,7 @@ describe("the save order", () => {
     }
   });
 
-  it("a refused PUT /access keeps the dialog open with the server's reason", async () => {
+  it("a refused PUT /access keeps the page open with the server's reason", async () => {
     let closed = 0;
     shim({ refuseAccess: true });
     const view = renderEdit(agentAt("standard"), () => closed++);

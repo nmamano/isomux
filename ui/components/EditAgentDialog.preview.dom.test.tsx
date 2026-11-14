@@ -9,6 +9,8 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { DEFAULT_AGENT_CAPABILITIES } = await import("../../shared/types.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { openSection } =
+  await import("../test-support/claude-limits-fixture.tsx");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 const room = {
   id: "r1",
@@ -79,7 +81,7 @@ describe("agent form prompt preview", () => {
           <EditAgentDialog
             onClose={() => {}}
             {...(mode === "edit"
-              ? { agent }
+              ? { agent, initialSection: "instructions" as const }
               : {
                   deskIndex: 0,
                   roomId: room.id,
@@ -110,11 +112,10 @@ describe("agent form prompt preview", () => {
             )?.value,
           ).toBe("Saved memory"),
         );
+      // On the Agent settings page each field is in its own section (task
+      // 59538509): the edit moves between them, and the preview button is
+      // in Instructions and memory.
       await act(async () => {
-        fireEvent.change(
-          view.container.querySelector(".agent-identity-section input")!,
-          { target: { value: "Draft name" } },
-        );
         fireEvent.change(
           view.container.querySelector(".agent-instructions-section textarea")!,
           { target: { value: "Draft instructions" } },
@@ -124,6 +125,16 @@ describe("agent form prompt preview", () => {
             view.container.querySelector(".agent-memory-field textarea")!,
             { target: { value: "" } },
           );
+      });
+      if (mode === "edit") await openSection(view.container, "profile");
+      await act(async () => {
+        fireEvent.change(
+          view.container.querySelector(".agent-identity-section input")!,
+          { target: { value: "Draft name" } },
+        );
+      });
+      if (mode === "edit") await openSection(view.container, "engine");
+      await act(async () => {
         // A mode or sandbox changed in the form and not saved (task
         // 11e311db): the preview shows the form's.
         if (mode === "edit")
@@ -135,6 +146,7 @@ describe("agent form prompt preview", () => {
             target: { value: "read-only" },
           });
       });
+      if (mode === "edit") await openSection(view.container, "instructions");
       await act(async () => {
         fireEvent.click(
           view.getByRole("button", {
@@ -270,7 +282,7 @@ describe("spawn template list", () => {
   });
 });
 
-// Task 379ae5db: the dialog writes the agent's text with the new field names,
+// Task 379ae5db: the form writes the agent's text with the new field names,
 // in its one PATCH, and the spawn POST carries it the same way.
 describe("agent form instructions fields", () => {
   for (const mode of ["spawn", "edit"] as const) {
@@ -292,7 +304,7 @@ describe("agent form instructions fields", () => {
           <EditAgentDialog
             onClose={() => {}}
             {...(mode === "edit"
-              ? { agent }
+              ? { agent, initialSection: "instructions" as const }
               : {
                   deskIndex: 0,
                   roomId: room.id,
@@ -321,8 +333,12 @@ describe("agent form instructions fields", () => {
           { target: { value: "New instructions" } },
         );
       });
+      // The page's Save, or the spawn dialog's last button (Spawn).
       await act(async () => {
-        fireEvent.click([...view.container.querySelectorAll("button")].at(-1)!);
+        fireEvent.click(
+          view.container.querySelector("[data-agent-settings-save]") ??
+            [...view.container.querySelectorAll("button")].at(-1)!,
+        );
       });
       await waitFor(() => expect(writes.length).toBeGreaterThan(0));
       const first = writes[0];

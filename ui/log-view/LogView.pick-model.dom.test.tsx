@@ -1,6 +1,7 @@
 // An OpenCode turn that a model change fixes, and a model OpenCode no longer
 // lists (task 73951c9f): the failed line and the header open the agent
-// settings with the model picker, the same dialog the header's name opens.
+// settings on its Engine section, where the model picker is (task 59538509).
+// The header's name opens the settings with no section named.
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -11,6 +12,7 @@ const { fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { StoreProvider } = await import("../store.tsx");
 const { LogView } = await import("./LogView.tsx");
+const { en } = await import("../../shared/i18n/en.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { setApiShim } = await import("../api.ts");
 setShim(() => {});
@@ -50,7 +52,8 @@ function agent(extra: Partial<Agent> = {}): Agent {
 }
 
 function mount(a: Agent, metadata: Record<string, unknown>[]) {
-  let edits = 0;
+  // The section each door asked for, in click order.
+  const edits: (string | undefined)[] = [];
   const logs = metadata.map((meta, i) => ({
     id: `entry-${i}`,
     agentId: a.id,
@@ -65,8 +68,8 @@ function mount(a: Agent, metadata: Record<string, unknown>[]) {
         agent: a,
         logs,
         onBack: () => {},
-        onEditAgent: () => {
-          edits++;
+        onEditAgent: (section?: string) => {
+          edits.push(section);
         },
       }),
     }),
@@ -75,7 +78,7 @@ function mount(a: Agent, metadata: Record<string, unknown>[]) {
 }
 
 describe("the model picker under a failed turn", () => {
-  it("shows under each entry that asks for it, and opens the agent settings", () => {
+  it("shows under each entry that asks for it, and opens the agent settings on Engine", () => {
     const { view, edits } = mount(agent(), [
       { pickModel: true },
       {},
@@ -85,21 +88,25 @@ describe("the model picker under a failed turn", () => {
     expect(buttons).toHaveLength(2);
     expect(buttons[0].tagName).toBe("BUTTON");
     fireEvent.click(buttons[1]);
-    expect(edits()).toBe(1);
+    expect(edits()).toEqual(["engine"]);
   });
 });
 
 describe("the gone-model mark in the header", () => {
-  it("shows while the agent carries a gone model, names it, and opens the agent settings", () => {
+  it("shows while the agent carries a gone model, names it, and each mark opens the agent settings on Engine; the header's name opens them with no section", () => {
     const { view, edits } = mount(agent({ goneModel: GONE }), []);
-    const marks = view.container.querySelectorAll("[data-gone-model]");
+    const marks = [...view.container.querySelectorAll("[data-gone-model]")];
     expect(marks.length).toBeGreaterThan(0);
-    const mark = marks[0];
-    expect(mark.getAttribute("title") ?? "").toContain(GONE);
+    expect(marks[0].getAttribute("title") ?? "").toContain(GONE);
     // An SVG, not a glyph: iOS draws glyphs through the emoji font.
-    expect(mark.querySelector("svg")).not.toBeNull();
-    fireEvent.click(mark);
-    expect(edits()).toBe(1);
+    expect(marks[0].querySelector("svg")).not.toBeNull();
+    for (const mark of marks) fireEvent.click(mark);
+    const name = view.container.querySelector(
+      `[title="${en["logView.editAgent"]}"]`,
+    );
+    expect(name).not.toBeNull();
+    fireEvent.click(name!);
+    expect(edits()).toEqual([...marks.map(() => "engine"), undefined]);
   });
 
   it("is absent without a gone model", () => {

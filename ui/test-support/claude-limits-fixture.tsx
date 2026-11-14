@@ -3,7 +3,10 @@
 // Imports the dialog and store, so a test loads it with `await import(...)`
 // after setUpDomTestFile(), never statically.
 import { act, fireEvent, render } from "@testing-library/react";
-import { EditAgentDialog } from "../components/EditAgentDialog.tsx";
+import {
+  EditAgentDialog,
+  type AgentSettingsSection,
+} from "../components/EditAgentDialog.tsx";
 import { onLanguage } from "./language-fixture.tsx";
 import { setApiShim } from "../api.ts";
 import {
@@ -116,22 +119,55 @@ export function hasEffort(container: HTMLElement): boolean {
   );
 }
 
-export function renderEdit(agent: AgentInfo, viewerLimited: string[]) {
+// The Agent settings page shows one section at a time (task 59538509): a
+// test renders it on the section it reads, and opens another with
+// openSection.
+export function renderEdit(
+  agent: AgentInfo,
+  viewerLimited: string[],
+  section: AgentSettingsSection = "engine",
+) {
   const element = (current: AgentInfo) =>
-    onLanguage("en", <EditAgentDialog onClose={() => {}} agent={current} />, {
-      rooms: [room],
-      agents: [current],
-      hasReceivedInitialState: true,
-      sessionContext: viewer(viewerLimited),
-    });
+    onLanguage(
+      "en",
+      <EditAgentDialog
+        onClose={() => {}}
+        agent={current}
+        initialSection={section}
+      />,
+      {
+        rooms: [room],
+        agents: [current],
+        hasReceivedInitialState: true,
+        sessionContext: viewer(viewerLimited),
+      },
+    );
   const view = render(element(agent));
   return { view, rerender: (next: AgentInfo) => view.rerender(element(next)) };
 }
 
+/** Opens a section of the Agent settings page through its row. */
+export async function openSection(
+  container: HTMLElement,
+  section: AgentSettingsSection,
+): Promise<void> {
+  const row = container.querySelector<HTMLButtonElement>(
+    `button[data-agent-settings-section="${section}"]`,
+  );
+  if (!row) throw new Error(`no section row ${section}`);
+  await act(async () => {
+    fireEvent.click(row);
+  });
+}
+
+/** Renames the agent on Profile and saves; the page stays on Profile. */
 export async function renameAndSave(container: HTMLElement): Promise<void> {
-  const name = container.querySelector("input") as HTMLInputElement;
+  await openSection(container, "profile");
+  const name = container.querySelector(
+    ".agent-identity-section input",
+  ) as HTMLInputElement;
   fireEvent.change(name, { target: { value: "Renamed" } });
-  fireEvent.click([...container.querySelectorAll("button")].at(-1)!);
+  fireEvent.click(container.querySelector("[data-agent-settings-save]")!);
   await settle();
   await settle();
 }

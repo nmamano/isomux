@@ -66,6 +66,7 @@ import {
   SidebarGroupRows,
   type SidebarGroup,
 } from "../components/SidebarGroups.tsx";
+import { SidebarPage } from "../components/SidebarPage.tsx";
 import {
   INTEGRATIONS_TABS,
   type IntegrationsTab,
@@ -410,258 +411,169 @@ function IntegrationsPage({
     })),
   };
   const intro = TAB_INTRO[tab];
-  const showSidebar = !isMobile || listShown;
-  const showDetail = !isMobile || !listShown;
-
   return (
-    <div
-      data-integrations-page=""
-      style={{
-        height: isMobile
-          ? "calc(100dvh - var(--banner-h, 0px))"
-          : "calc(100vh - var(--banner-h, 0px))",
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--bg-base)",
-        color: "var(--text-primary)",
-      }}
+    <SidebarPage
+      rootAttrs={{ "data-integrations-page": "" }}
+      title={t("common.integrations")}
+      onClose={onClose}
+      listShown={listShown}
+      onBackToList={() => setListShown(true)}
+      backLabel={t("common.integrations")}
+      backAttrs={{ "data-integrations-back": "" }}
+      listLabel={t("common.integrations")}
+      list={
+        <SidebarGroupRows
+          group={group}
+          first
+          onSelect={setTab}
+          rowAttrs={(row) => ({ "data-integrations-tab": row.target })}
+        />
+      }
     >
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
-          minHeight: 44,
-          background: "var(--bg-hud)",
-          backdropFilter: "blur(16px)",
-          borderBottom: "1px solid var(--border-subtle)",
-          flexShrink: 0,
-          zIndex: 500,
+          maxWidth: 900,
+          padding: isMobile ? "14px 14px 40px" : "20px 24px 60px",
         }}
       >
-        {/* On a phone the open tab has its own back row to the list, so
-            this control says Close, as on Settings. */}
-        <button
-          onClick={onClose}
-          data-page-close=""
-          aria-label={isMobile ? undefined : t("common.back")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: isMobile ? 13 : 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {isMobile ? <>&larr; {t("common.close")}</> : <>&larr;</>}
-        </button>
-        <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
-          {t("common.integrations")}
-        </h1>
-      </div>
-
-      {/* Body: sidebar + the open tab, as in Settings. On a phone exactly
-          one shows. */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {showSidebar && (
-          <nav
-            aria-label={t("common.integrations")}
-            style={{
-              width: isMobile ? "100%" : 260,
-              flexShrink: 0,
-              borderRight: isMobile
-                ? undefined
-                : "1px solid var(--border-subtle)",
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              padding: "12px 0",
-            }}
-          >
-            <SidebarGroupRows
-              group={group}
-              first
-              onSelect={setTab}
-              rowAttrs={(row) => ({ "data-integrations-tab": row.target })}
+        {intro !== null && (
+          <>
+            <p style={{ ...hintText, margin: "0 0 16px" }}>
+              {role === "owner"
+                ? t("integrations.ownerIntro")
+                : t("integrations.memberIntro")}
+            </p>
+            <p style={{ ...hintText, margin: "0 0 16px" }}>
+              {t(intro)}
+              {tab === "secrets" && (
+                <>
+                  <br />
+                  {t("integrations.secretsHonesty")}
+                  <br />
+                  <span data-secrets-model-keys="">
+                    {rich("integrations.secrets.modelKeys", {
+                      code: (chunk) => <Data>{chunk}</Data>,
+                      link: (chunk) => (
+                        <Btn
+                          kind="link"
+                          onClick={() => setTab("variables")}
+                          data-go-variables
+                        >
+                          {chunk}
+                        </Btn>
+                      ),
+                    })}
+                  </span>
+                </>
+              )}
+              {tab === "variables" && (
+                <>
+                  <br />
+                  {rich("integrations.variables.modelKeys", {
+                    code: (chunk) => <Data>{chunk}</Data>,
+                  })}
+                </>
+              )}
+            </p>
+          </>
+        )}
+        {/* No note, or none for a card on this page. */}
+        {signIn &&
+          !signInFor(office) &&
+          !signInFor(personal) &&
+          tab === "mcp" && (
+            <SignInNotice
+              code={signIn.code}
+              server={null}
+              style={{ margin: "0 0 14px" }}
             />
-          </nav>
-        )}
-
-        {showDetail && (
-          <div
+          )}
+        {connectionsFailed && tab === "mcp" && (
+          <p
+            role="alert"
+            data-connections-failed
             style={{
-              flex: 1,
-              minWidth: 0,
-              overflowY: "auto",
-              overscrollBehavior: "contain",
+              ...hintText,
+              color: "var(--red-text)",
+              margin: "0 0 14px",
             }}
           >
-            {isMobile && (
-              <button
-                onClick={() => setListShown(true)}
-                data-integrations-back=""
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  cursor: "pointer",
-                  padding: "10px 14px 0",
-                }}
-              >
-                &larr; {t("common.integrations")}
-              </button>
-            )}
-            <div
-              style={{
-                maxWidth: 900,
-                padding: isMobile ? "14px 14px 40px" : "20px 24px 60px",
-              }}
-            >
-              {intro !== null && (
-                <>
-                  <p style={{ ...hintText, margin: "0 0 16px" }}>
-                    {role === "owner"
-                      ? t("integrations.ownerIntro")
-                      : t("integrations.memberIntro")}
-                  </p>
-                  <p style={{ ...hintText, margin: "0 0 16px" }}>
-                    {t(intro)}
-                    {tab === "secrets" && (
-                      <>
-                        <br />
-                        {t("integrations.secretsHonesty")}
-                        <br />
-                        <span data-secrets-model-keys="">
-                          {rich("integrations.secrets.modelKeys", {
-                            code: (chunk) => <Data>{chunk}</Data>,
-                            link: (chunk) => (
-                              <Btn
-                                kind="link"
-                                onClick={() => setTab("variables")}
-                                data-go-variables
-                              >
-                                {chunk}
-                              </Btn>
-                            ),
-                          })}
-                        </span>
-                      </>
-                    )}
-                    {tab === "variables" && (
-                      <>
-                        <br />
-                        {rich("integrations.variables.modelKeys", {
-                          code: (chunk) => <Data>{chunk}</Data>,
-                        })}
-                      </>
-                    )}
-                  </p>
-                </>
-              )}
-              {/* No note, or none for a card on this page. */}
-              {signIn &&
-                !signInFor(office) &&
-                !signInFor(personal) &&
-                tab === "mcp" && (
-                  <SignInNotice
-                    code={signIn.code}
-                    server={null}
-                    style={{ margin: "0 0 14px" }}
-                  />
-                )}
-              {connectionsFailed && tab === "mcp" && (
-                <p
-                  role="alert"
-                  data-connections-failed
-                  style={{
-                    ...hintText,
-                    color: "var(--red-text)",
-                    margin: "0 0 14px",
-                  }}
-                >
-                  {t("integrations.connectionsFailed")}
-                </p>
-              )}
-
-              {MEMBER_TABS.includes(tab) ? (
-                personalCard
-              ) : tab === "browser" ? (
-                // Only a session has its own Chrome to pair.
-                sessionContext && <BrowserPane />
-              ) : tab === "github" ? (
-                <GithubSection onSecrets={() => setTab("secrets")} />
-              ) : tab === "api-tokens" ? (
-                sessionContext && <ApiTokensPane />
-              ) : tab === "messaging" ? (
-                // The viewer's own phone and bots, on a Personal card as on
-                // Voice: never another member's, so the card has no picker.
-                sessionContext && (
-                  <PersonalCard
-                    cardRef={personalRef}
-                    target={selfTarget}
-                    role={role}
-                    others={others.map((user) => user.name)}
-                    gone={null}
-                    onClickCapture={actOn(selfTarget)}
-                    agentScope={false}
-                  >
-                    <WhatsAppSection />
-                    <DiscordSection />
-                  </PersonalCard>
-                )
-              ) : CARD_TABS.includes(tab) ? (
-                <>
-                  <section
-                    data-integrations-card="office"
-                    style={card}
-                    onClickCapture={actOn(office)}
-                  >
-                    <CardHead
-                      icon={BuildingIcon}
-                      title={t("integrations.office")}
-                      sub={
-                        role === "owner"
-                          ? t("integrations.officeWho")
-                          : t("integrations.officeWhoMember")
-                      }
-                      action={
-                        tab === "providers" && environmentWrite ? (
-                          <Btn
-                            small
-                            disabled={accounts.refreshing}
-                            onClick={accounts.refresh}
-                            data-providers-refresh
-                          >
-                            {accounts.refreshing
-                              ? t("settings.connections.refreshing")
-                              : t("settings.connections.refresh")}
-                          </Btn>
-                        ) : undefined
-                      }
-                    />
-                    {section(office)}
-                  </section>
-
-                  {personalCard}
-
-                  {tab === "providers" && (
-                    <ProvidersFooter onVariables={() => setTab("variables")} />
-                  )}
-                  <p style={{ ...hintText, marginTop: 8 }}>
-                    {t("integrations.applies")}
-                  </p>
-                </>
-              ) : null}
-              {hasRequestSupport(tab) && <RequestSupport tab={tab} />}
-            </div>
-          </div>
+            {t("integrations.connectionsFailed")}
+          </p>
         )}
+
+        {MEMBER_TABS.includes(tab) ? (
+          personalCard
+        ) : tab === "browser" ? (
+          // Only a session has its own Chrome to pair.
+          sessionContext && <BrowserPane />
+        ) : tab === "github" ? (
+          <GithubSection onSecrets={() => setTab("secrets")} />
+        ) : tab === "api-tokens" ? (
+          sessionContext && <ApiTokensPane />
+        ) : tab === "messaging" ? (
+          // The viewer's own phone and bots, on a Personal card as on
+          // Voice: never another member's, so the card has no picker.
+          sessionContext && (
+            <PersonalCard
+              cardRef={personalRef}
+              target={selfTarget}
+              role={role}
+              others={others.map((user) => user.name)}
+              gone={null}
+              onClickCapture={actOn(selfTarget)}
+              agentScope={false}
+            >
+              <WhatsAppSection />
+              <DiscordSection />
+            </PersonalCard>
+          )
+        ) : CARD_TABS.includes(tab) ? (
+          <>
+            <section
+              data-integrations-card="office"
+              style={card}
+              onClickCapture={actOn(office)}
+            >
+              <CardHead
+                icon={BuildingIcon}
+                title={t("integrations.office")}
+                sub={
+                  role === "owner"
+                    ? t("integrations.officeWho")
+                    : t("integrations.officeWhoMember")
+                }
+                action={
+                  tab === "providers" && environmentWrite ? (
+                    <Btn
+                      small
+                      disabled={accounts.refreshing}
+                      onClick={accounts.refresh}
+                      data-providers-refresh
+                    >
+                      {accounts.refreshing
+                        ? t("settings.connections.refreshing")
+                        : t("settings.connections.refresh")}
+                    </Btn>
+                  ) : undefined
+                }
+              />
+              {section(office)}
+            </section>
+
+            {personalCard}
+
+            {tab === "providers" && (
+              <ProvidersFooter onVariables={() => setTab("variables")} />
+            )}
+            <p style={{ ...hintText, marginTop: 8 }}>
+              {t("integrations.applies")}
+            </p>
+          </>
+        ) : null}
+        {hasRequestSupport(tab) && <RequestSupport tab={tab} />}
       </div>
-    </div>
+    </SidebarPage>
   );
 }
 

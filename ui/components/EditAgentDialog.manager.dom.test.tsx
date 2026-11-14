@@ -1,4 +1,5 @@
-// The Manager field of the agent edit dialog (task 6a9deaba): an office owner
+// The Manager field of the Agent settings page, on its Access section (task
+// 6a9deaba; the page: task 59538509): an office owner
 // picks any member, a member sees the manager read-only. Saving a new manager
 // is its own PUT, after the PATCH and the access PUT, and a member
 // without access to the agent's room gets a hint, never a block.
@@ -11,7 +12,7 @@ const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { setApiShim } = await import("../api.ts");
 const { onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
-const { claudeAgent, room, settle, viewer } =
+const { claudeAgent, openSection, room, settle, viewer } =
   await import("../test-support/claude-limits-fixture.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const EN = translatorFor("en");
@@ -42,13 +43,21 @@ function renderAs(
       ? viewer([])
       : { ...viewer([]), userId: "member", username: "Member", role };
   return render(
-    onLanguage("en", <EditAgentDialog onClose={onClose} agent={agent} />, {
-      rooms: [room],
-      agents: [agent],
-      users,
-      hasReceivedInitialState: true,
-      sessionContext,
-    }),
+    onLanguage(
+      "en",
+      <EditAgentDialog
+        onClose={onClose}
+        agent={agent}
+        initialSection="access"
+      />,
+      {
+        rooms: [room],
+        agents: [agent],
+        users,
+        hasReceivedInitialState: true,
+        sessionContext,
+      },
+    ),
   );
 }
 
@@ -75,7 +84,7 @@ function hintText(container: HTMLElement): string {
 function shim(): { method: string; path: string; body: unknown }[] {
   const calls: { method: string; path: string; body: unknown }[] = [];
   setApiShim(async (method, path, body) => {
-    // The dialog validates the agent's cwd when it opens; not a save.
+    // The page validates the agent's cwd when it opens; not a save.
     if (method !== "GET" && path !== "/api/validate/cwd")
       calls.push({ method, path, body });
     if (path === "/api/validate/cwd") return { ok: true };
@@ -97,12 +106,12 @@ function pressEscape() {
 }
 
 async function save(container: HTMLElement) {
-  fireEvent.click([...container.querySelectorAll("button")].at(-1)!);
+  fireEvent.click(container.querySelector("[data-agent-settings-save]")!);
   await settle();
   await settle();
 }
 
-describe("edit dialog manager field", () => {
+describe("the agent settings page's manager field", () => {
   it("offers an office owner every member, with the current manager chosen", async () => {
     shim();
     const view = renderAs("owner");
@@ -182,8 +191,12 @@ describe("edit dialog manager field", () => {
     const view = renderAs("owner");
     try {
       await settle();
-      const name = view.container.querySelector("input") as HTMLInputElement;
+      await openSection(view.container, "profile");
+      const name = view.container.querySelector(
+        ".agent-identity-section input",
+      ) as HTMLInputElement;
       fireEvent.change(name, { target: { value: "Renamed" } });
+      await openSection(view.container, "access");
       fireEvent.change(chosen(view.container), {
         target: { value: "peer" },
       });

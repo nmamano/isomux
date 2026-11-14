@@ -4,14 +4,23 @@
 // Imports the dialog, so a test loads it with `await import(...)` after
 // setUpDomTestFile(), never statically.
 import { act, fireEvent, render } from "@testing-library/react";
-import { EditAgentDialog } from "../components/EditAgentDialog.tsx";
+import {
+  EditAgentDialog,
+  type AgentSettingsSection,
+} from "../components/EditAgentDialog.tsx";
 import { ApiError, setApiShim } from "../api.ts";
 import { onLanguage, selfUserRecord } from "./language-fixture.tsx";
-import { claudeAgent, room, settle, viewer } from "./claude-limits-fixture.tsx";
+import {
+  claudeAgent,
+  openSection,
+  room,
+  settle,
+  viewer,
+} from "./claude-limits-fixture.tsx";
 import type { AgentInfo, UserRecord } from "../../shared/types.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
 
-export { settle, viewer };
+export { openSection, settle, viewer };
 
 export const STOPS: AgentAccess[] = [
   "chat",
@@ -97,19 +106,30 @@ const users = new Map(
   ].map((u) => [u.name.toLowerCase(), u]),
 );
 
+// On the Agent settings page's Access section unless a test names another
+// (task 59538509); openSection (claude-limits-fixture) opens one more.
 export function renderEdit(
   agent: AgentInfo,
   onClose: () => void = () => {},
   sessionContext = viewer([]),
+  section: AgentSettingsSection = "access",
 ) {
   return render(
-    onLanguage("en", <EditAgentDialog onClose={onClose} agent={agent} />, {
-      rooms: [room],
-      agents: [agent],
-      users,
-      hasReceivedInitialState: true,
-      sessionContext,
-    }),
+    onLanguage(
+      "en",
+      <EditAgentDialog
+        onClose={onClose}
+        agent={agent}
+        initialSection={section}
+      />,
+      {
+        rooms: [room],
+        agents: [agent],
+        users,
+        hasReceivedInitialState: true,
+        sessionContext,
+      },
+    ),
   );
 }
 
@@ -187,9 +207,13 @@ export async function change(select: HTMLElement, value: string) {
   });
 }
 
+// The page's Save, or the spawn dialog's last button (Spawn).
 export async function save(container: HTMLElement) {
+  const button =
+    container.querySelector("[data-agent-settings-save]") ??
+    [...container.querySelectorAll("button")].at(-1)!;
   await act(async () => {
-    fireEvent.click([...container.querySelectorAll("button")].at(-1)!);
+    fireEvent.click(button);
   });
   await settle();
   await settle();

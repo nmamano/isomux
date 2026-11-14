@@ -22,10 +22,13 @@ files before committing.
 ## Demo-bundle dialog testing
 
 The demo drives the REAL EditAgentDialog: click a desk sprite (the nameplate
-is NOT clickable) to open the log view, then the "Agent" header button opens
-Agent Settings. Fields are inputs/textareas 2..6 in global DOM order (0/1 are
-office search + chat composer). Layout is viewport-dependent - fix the
-viewport before hardcoding any coordinate. An A/B "before" bundle builds
+is NOT clickable) to open the log view, then the agent's name in the header
+opens the Agent settings page. It shows one section at a time: click
+`button[data-agent-settings-section="<id>"]` (profile, engine, instructions,
+access), then find a field inside its section class (`.agent-engine-section`
+and so on) rather than by DOM order. A new agent's form is still a dialog
+(click an empty desk). Layout is viewport-dependent - fix the viewport before
+hardcoding any coordinate. An A/B "before" bundle builds
 straight from the main checkout with `--outdir /tmp` (non-mutating).
 
 ## From a worktree
