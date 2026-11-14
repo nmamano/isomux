@@ -2072,7 +2072,8 @@ Cosas que puedes hacer por él:
   "common.instructionsAndMemory": "Instrucciones y memoria",
   "dialogs.agent.spawnPreviewHint":
     "El ID del agente se asignará al crearlo. Esta vista previa usa «new-agent».",
-  "dialogs.agent.cwdHint":
+  "dialogs.agent.cwdHint": "La carpeta donde el agente empieza a trabajar.",
+  "dialogs.agent.cwdHintWithShell":
     "La carpeta donde el agente empieza a trabajar. El agente también puede acceder a archivos fuera de esta carpeta.",
   "dialogs.agent.memoryStartsEmpty": "La memoria empieza vacía.",
   "dialogs.agent.group.engine": "Modelo y comportamiento",

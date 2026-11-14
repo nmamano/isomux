@@ -2220,7 +2220,11 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
           )}
           {!setsNoFolder && (
             <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-              {t("dialogs.agent.cwdHint")}
+              {t(
+                belowStandard(access)
+                  ? "dialogs.agent.cwdHint"
+                  : "dialogs.agent.cwdHintWithShell",
+              )}
             </p>
           )}
           {!isSpawn && (

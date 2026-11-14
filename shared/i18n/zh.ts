@@ -1832,7 +1832,8 @@ App 的一些原则：
   "common.instructionsAndMemory": "指令和记忆",
   "dialogs.agent.spawnPreviewHint":
     "智能体 ID 将在创建时分配。此预览使用「new-agent」。",
-  "dialogs.agent.cwdHint":
+  "dialogs.agent.cwdHint": "智能体开始工作的文件夹。",
+  "dialogs.agent.cwdHintWithShell":
     "智能体开始工作的文件夹。智能体也可以访问此文件夹之外的文件。",
   "dialogs.agent.memoryStartsEmpty": "初始记忆为空。",
   "dialogs.agent.group.engine": "模型和行为",

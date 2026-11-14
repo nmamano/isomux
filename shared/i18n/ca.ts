@@ -2078,7 +2078,8 @@ Coses que pots fer per ell:
   "common.instructionsAndMemory": "Instruccions i memòria",
   "dialogs.agent.spawnPreviewHint":
     "L’ID de l’agent s’assignarà en crear-lo. Aquesta previsualització fa servir «new-agent».",
-  "dialogs.agent.cwdHint":
+  "dialogs.agent.cwdHint": "La carpeta on l’agent comença a treballar.",
+  "dialogs.agent.cwdHintWithShell":
     "La carpeta on l’agent comença a treballar. L’agent també pot accedir a fitxers fora d’aquesta carpeta.",
   "dialogs.agent.memoryStartsEmpty": "La memòria comença buida.",
   "dialogs.agent.group.engine": "Model i comportament",

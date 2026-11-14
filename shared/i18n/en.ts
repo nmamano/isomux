@@ -2021,7 +2021,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.instructionsAndMemory": "Instructions and memory",
   "dialogs.agent.spawnPreviewHint":
     "The agent ID will be assigned on spawn. This preview uses “new-agent”.",
-  "dialogs.agent.cwdHint":
+  "dialogs.agent.cwdHint": "The folder where the agent starts work.",
+  "dialogs.agent.cwdHintWithShell":
     "The folder where the agent starts work. The agent can also access files outside this folder.",
   "dialogs.agent.memoryStartsEmpty": "Memory starts empty.",
   "dialogs.agent.group.engine": "Model and behavior",

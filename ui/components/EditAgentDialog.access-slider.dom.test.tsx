@@ -8,10 +8,13 @@
 // The engine and the stops describe is the form's wiring of that rule
 // (task e77304b1, merge C1): on the Agent settings page the engine and the
 // model are on Engine, the slider on Access (task 59538509).
+// The folder hint follows the stop the slider shows (task 6c2bb97c).
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { AgentInfo } from "../../shared/types.ts";
+import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
@@ -266,3 +269,82 @@ function modelSelect(container: HTMLElement): () => HTMLSelectElement {
     return select;
   };
 }
+
+// The folder hint follows the stop (task 6c2bb97c): below Standard the agent
+// reaches no file outside its folder, so the hint says only where it starts
+// work; at Standard and Privileged it also says the agent reaches files
+// outside. It follows the live slider, not the saved stop.
+describe("the folder hint", () => {
+  const { t } = translatorFor("en");
+  const WITHOUT_SHELL = t("dialogs.agent.cwdHint");
+  const WITH_SHELL = t("dialogs.agent.cwdHintWithShell");
+  const expected = (stop: AgentAccess) =>
+    BELOW.includes(stop) ? WITHOUT_SHELL : WITH_SHELL;
+
+  // The hint is the folder field's paragraph that shows one of the two
+  // messages; exactly one shows.
+  function folderHint(container: HTMLElement): string {
+    const field = container.querySelector(".agent-directory-field");
+    if (!field) throw new Error("no folder field");
+    const shown = [...field.querySelectorAll("p")]
+      .map((p) => p.textContent ?? "")
+      .filter((text) => text === WITHOUT_SHELL || text === WITH_SHELL);
+    if (shown.length !== 1)
+      throw new Error(`${shown.length} folder hints shown`);
+    return shown[0]!;
+  }
+
+  it("the two messages differ in every language", () => {
+    expect(SUPPORTED_LANGUAGES.length).toBeGreaterThan(1);
+    // The languages whose two messages are the same.
+    const same = SUPPORTED_LANGUAGES.map(({ code }) => code).filter((code) => {
+      const tr = translatorFor(code);
+      return (
+        tr.t("dialogs.agent.cwdHint") === tr.t("dialogs.agent.cwdHintWithShell")
+      );
+    });
+    expect(same).toEqual([]);
+  });
+
+  it("a saved agent at each stop shows the hint of that stop", async () => {
+    const seen: Record<string, string> = {};
+    for (const stop of STOPS) {
+      // cleanup drops the shim: each render gets its own.
+      shim();
+      const view = renderEdit(agentAt(stop));
+      try {
+        await settle();
+        expect(stopChecked(view.container, stop)).toBe(true);
+        seen[stop] = folderHint(view.container);
+      } finally {
+        cleanup(view);
+      }
+    }
+    expect(seen).toEqual(
+      Object.fromEntries(STOPS.map((stop) => [stop, expected(stop)])),
+    );
+  });
+
+  it("the hint changes when the slider crosses Standard, both ways", async () => {
+    shim();
+    const view = renderEdit(agentAt("folder"));
+    try {
+      await settle();
+      const seen: Array<[string, string]> = [
+        ["folder", folderHint(view.container)],
+      ];
+      for (const stop of ["standard", "web", "privileged", "chat"] as const) {
+        await pick(view.container, stop);
+        expect(stopChecked(view.container, stop)).toBe(true);
+        seen.push([stop, folderHint(view.container)]);
+      }
+      expect(seen).toEqual(
+        (["folder", "standard", "web", "privileged", "chat"] as const).map(
+          (stop) => [stop, expected(stop)],
+        ),
+      );
+    } finally {
+      cleanup(view);
+    }
+  });
+});
