@@ -55,8 +55,8 @@
 // member it is for; the owner answers it as their own.
 //
 // Selecting text in the prompt shows the chat's Cite pill where the chat has
-// one (task ad4b51ac): it puts the selection into the reply field as a cite
-// block, in place of the untouched default (AskCitePill).
+// one (task ad4b51ac): it puts the selection into the agent's chat draft as a
+// cite block, as Discuss in chat does (AskCitePill; task d9a347a6).
 
 import {
   createContext,
@@ -108,7 +108,7 @@ import { AskIdChip } from "./AskIdChip.tsx";
 import { AskPageLine } from "./AskPageLine.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
-import { citationBlock, citeIntoAskDraft } from "./cite.ts";
+import { citationBlock, insertCite } from "./cite.ts";
 import { AskCitePill } from "./AskCitePill.tsx";
 import { citeModeHere } from "./cite-mode.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
@@ -433,7 +433,8 @@ function ReplyAskCard({
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
-  const { askDrafts, askErrors, agents, rooms, sessionContext } = useAppState();
+  const { askDrafts, askErrors, agents, rooms, sessionContext, drafts } =
+    useAppState();
   const closedHere = useAsksClosedHere();
   const draft = askDrafts.get(entry.id);
   const untouched = draft === undefined;
@@ -573,40 +574,28 @@ function ReplyAskCard({
   const noAgent = entry.agentId === "";
 
   // Cite (task ad4b51ac): a selection inside the prompt shows the chat's
-  // Cite pill (AskCitePill), which puts the selection into the reply field.
-  // Off with no field to put it in, and where the chat has no Cite
-  // (citeMode).
+  // Cite pill (AskCitePill). It puts the selection into the agent's chat
+  // draft, not the reply field, as Discuss in chat does: a member cites a
+  // part they still have questions about (Nil, 2026-11-14; task d9a347a6).
+  // Off where the chat has no Cite (citeMode).
   // The card as state, not a ref: the pill reads its box while it renders.
   const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null);
   const citeMode = useMemo(() => citeModeHere(), []);
   const citeEnabled =
     citeMode !== null && !noAgent && !rewriting && !held && !busy;
   const { cite, clearCite } = useSelectionCite(promptRef, citeEnabled);
-  // The caret to set once the cited draft is in the field. Set after the
-  // focus: on the untouched default, onFocus still selects the whole field.
-  const citeCaret = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    const caret = citeCaret.current;
-    if (caret === null) return;
-    citeCaret.current = null;
-    const el = inputRef.current;
-    if (!el) return;
-    el.focus({ preventScroll: true });
-    el.setSelectionRange(caret, caret);
-  });
   function handleCite(text: string) {
-    const el = inputRef.current;
-    const { draft: next, caret } = citeIntoAskDraft(
-      draft,
+    const { draft: next, caret } = insertCite(
+      drafts.get(entry.agentId) ?? "",
       citationBlock(text),
-      el && document.activeElement === el
-        ? { start: el.selectionStart, end: el.selectionEnd }
-        : undefined,
     );
-    // On a touch screen the focus opens the keyboard, which moves the
-    // buttons, as for an option tap.
-    if (citeMode === "anchored") citeCaret.current = caret;
-    dispatch({ type: "set_ask_draft", askId: entry.id, text: next });
+    dispatch({
+      type: "set_draft",
+      agentId: entry.agentId,
+      text: next,
+      focusCaret: caret,
+    });
+    (onChatAgent ?? onFocusAgent)?.(entry.agentId);
     clearCite();
     window.getSelection()?.removeAllRanges();
   }

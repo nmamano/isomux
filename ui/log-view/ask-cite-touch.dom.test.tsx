@@ -1,8 +1,9 @@
 // Cite on an ask card on touch screens (task ad4b51ac, after fe7db5ac, moved
 // by 1e119dfb). On an iPhone the pill is pinned just above the card's reply
 // field at the right, inside the part of the card its scroller shows; it
-// stays on scroll while the card shows, and a tap cites into the reply field
-// without focusing it (the keyboard would move the buttons).
+// stays on scroll while the card shows, and a tap cites into the agent's chat
+// draft and asks its composer for focus, as "Discuss in chat" does on a phone
+// (task d9a347a6).
 // On Android there is no pill. Which device gets which mode is the table in
 // cite-mode.test.ts; this file proves AskCard reads the device and places the
 // pill by it. The mouse behavior is ask-cite.dom.test.tsx.
@@ -14,13 +15,15 @@ setUpDomTestFile();
 const { act, render, fireEvent, waitFor, cleanup } =
   await import("@testing-library/react");
 const { useEffect } = await import("react");
-const { StoreProvider, useDispatch } = await import("../store.tsx");
+const { StoreProvider, useAppState, useDispatch } =
+  await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { primaryPointer } = await import("../test-support/pointer.ts");
 const { AskCard } = await import("./AskCard.tsx");
 const { citationBlock } = await import("./cite.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
+type AppState = import("../store.tsx").AppState;
 
 const NOW = Date.now();
 const ASK: AskEntry = {
@@ -130,6 +133,19 @@ function onDevice(device: { userAgent: string; platform: string }) {
   };
 }
 
+// The store as of the last commit.
+const latest: { state: AppState | null } = { state: null };
+function Probe() {
+  const state = useAppState();
+  useEffect(() => {
+    latest.state = state;
+  });
+  return null;
+}
+afterEach(() => {
+  latest.state = null;
+});
+
 function Seed({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
   useEffect(() => {
@@ -165,6 +181,7 @@ async function mount({ scroller = true } = {}) {
   const view = render(
     <StoreProvider>
       <Seed>
+        <Probe />
         {scroller ? (
           <div data-test-scroller="" style={{ overflowY: "auto" }}>
             {cardEl}
@@ -345,7 +362,7 @@ it("on an iPhone, no pill while the card is out of its scroller's view, and the 
   expect(pills(view).length).toBe(0);
 });
 
-it("on an iPhone, a tap cites into the reply field and leaves it unfocused", async () => {
+it("on an iPhone, a tap cites into the agent's chat draft and asks for the composer's focus, leaving the reply field", async () => {
   onDevice(IPHONE);
   const view = await mount();
   const input = view.container.querySelector<HTMLTextAreaElement>(
@@ -358,10 +375,16 @@ it("on an iPhone, a tap cites into the reply field and leaves it unfocused", asy
   await act(async () => {
     fireEvent.pointerDown(pills(view)[0], { button: 0 });
   });
+  const block = citationBlock("First point here.");
   await waitFor(() =>
-    expect(input.value).toBe(citationBlock("First point here.")),
+    expect(latest.state?.drafts.get(ASK.agentId)).toBe(block),
+  );
+  expect(latest.state?.pendingComposerFocus.get(ASK.agentId)).toBe(
+    block.length,
   );
   await settle();
+  expect(latest.state?.askDrafts.has(ASK.id)).toBe(false);
+  expect(input.value).toBe("Approve");
   expect(document.activeElement === input).toBe(false);
   expect(pills(view).length).toBe(0);
   expect(window.getSelection()?.isCollapsed ?? true).toBe(true);

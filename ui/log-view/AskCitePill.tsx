@@ -22,7 +22,7 @@ import type { CiteSelection } from "./useSelectionCite.ts";
 // with the field above the view at the top of the card's visible part. It
 // stays while the selection lasts: a scroll moves it with the card. While
 // the card is out of its scroller's view there is no pill, so a tap never
-// cites into a field the member cannot see.
+// cites text the member cannot see.
 export function AskCitePill({
   card,
   cite,

@@ -72,16 +72,3 @@ export function citedLines(
   const end = to > from && doc.lineAt(to).from === to ? to - 1 : to;
   return { fromLine, toLine: Math.max(fromLine, doc.lineAt(end).number) };
 }
-
-// Put a cite into an ask's reply draft. `draft` undefined is the untouched
-// default (the recommended option, or "done"): the cite replaces it, as
-// typing does. A typed draft takes the block by insertCite's rules.
-export function citeIntoAskDraft(
-  draft: string | undefined,
-  block: string,
-  at?: { start: number; end: number },
-): { draft: string; caret: number } {
-  return draft === undefined
-    ? insertCite("", block)
-    : insertCite(draft, block, at);
-}

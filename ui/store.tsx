@@ -548,7 +548,9 @@ export type Action =
       sessions: SessionInfo[];
       currentSessionId: string | null;
     }
-  | { type: "set_draft"; agentId: string; text: string }
+  // focusCaret also asks LogView to focus the composer there
+  // (pendingComposerFocus), as append_ask_to_draft does.
+  | { type: "set_draft"; agentId: string; text: string; focusCaret?: number }
   | DraftAttachmentAction
   // null deletes the draft.
   | { type: "set_ask_draft"; askId: string; text: string | null }
@@ -1400,7 +1402,10 @@ export function reducer(state: AppState, action: Action): AppState {
       } else {
         drafts.delete(action.agentId);
       }
-      return { ...state, drafts };
+      if (action.focusCaret === undefined) return { ...state, drafts };
+      const pendingComposerFocus = new Map(state.pendingComposerFocus);
+      pendingComposerFocus.set(action.agentId, action.focusCaret);
+      return { ...state, drafts, pendingComposerFocus };
     }
     case "add_draft_attachments":
     case "patch_draft_attachment":

@@ -1,12 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Text } from "@codemirror/state";
 import { translatorFor } from "../../shared/i18n/translate.ts";
-import {
-  citationBlock,
-  citedLines,
-  citeIntoAskDraft,
-  insertCite,
-} from "./cite.ts";
+import { citationBlock, citedLines, insertCite } from "./cite.ts";
 import { dollarMath, renderMarkdown } from "./Markdown.tsx";
 
 const render = (source: string) => renderMarkdown(translatorFor("en"), source);
@@ -180,58 +175,5 @@ describe("insertCite", () => {
     );
     expect(dollarMath(draft)).toEqual([]);
     expect(draft.slice(caret)).toBe("y");
-  });
-});
-
-// An ask's reply field (task ad4b51ac): undefined is the untouched default,
-// which a cite replaces as typing does; a typed draft keeps insertCite's rules.
-describe("citeIntoAskDraft", () => {
-  const block = citationBlock("point one");
-
-  it("replaces the untouched default with the block, caret after it", () => {
-    const { draft, caret } = citeIntoAskDraft(undefined, block);
-    expect(draft).toBe(block);
-    expect(caret).toBe(draft.length);
-  });
-
-  it("ignores a field range on the untouched default", () => {
-    // The field shows the default selected; the range is the default's, not
-    // the draft's, so it must not cut into the block.
-    const { draft, caret } = citeIntoAskDraft(undefined, block, {
-      start: 0,
-      end: 7,
-    });
-    expect(draft).toBe(block);
-    expect(caret).toBe(draft.length);
-  });
-
-  it("appends to a typed draft after a blank line", () => {
-    const { draft, caret } = citeIntoAskDraft("Agreed on all.", block);
-    expect(draft).toBe(`Agreed on all.\n\n${block}`);
-    expect(caret).toBe(draft.length);
-  });
-
-  it("replaces the field's selection in a typed draft", () => {
-    const { draft, caret } = citeIntoAskDraft("keep DROP tail", block, {
-      start: 5,
-      end: 9,
-    });
-    expect(draft).toBe(`keep \n${block}\n tail`);
-    expect(caret).toBe(`keep \n${block}\n`.length);
-  });
-
-  it("escapes dollars that would render as math, from the default too", () => {
-    const cited = citationBlock("echo $HOME/$USER");
-    for (const start of [undefined, "", "ok"]) {
-      const { draft } = citeIntoAskDraft(start, cited);
-      expect(dollarMath(draft)).toEqual([]);
-      expect(draft).toContain("\\$HOME/\\$USER");
-    }
-  });
-
-  it("keeps a lone dollar as typed", () => {
-    const { draft } = citeIntoAskDraft(undefined, citationBlock("costs $9"));
-    expect(draft).toContain("costs $9");
-    expect(draft).not.toContain("\\$");
   });
 });
