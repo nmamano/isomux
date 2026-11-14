@@ -53,6 +53,10 @@
 //
 // Another member's ask, shown to an office owner on the Inbox, names the
 // member it is for; the owner answers it as their own.
+//
+// Selecting text in the prompt shows the chat's Cite pill where the chat has
+// one (task ad4b51ac): it puts the selection into the reply field as a cite
+// block, in place of the untouched default (AskCitePill).
 
 import {
   createContext,
@@ -104,6 +108,10 @@ import { AskIdChip } from "./AskIdChip.tsx";
 import { AskPageLine } from "./AskPageLine.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
+import { citationBlock, citeIntoAskDraft } from "./cite.ts";
+import { AskCitePill } from "./AskCitePill.tsx";
+import { citeModeHere } from "./cite-mode.ts";
+import { useSelectionCite } from "./useSelectionCite.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 import { filledSecondaryBtn } from "../components/dialog-styles.ts";
 
@@ -559,6 +567,50 @@ function ReplyAskCard({
     if (untouched) el.setSelectionRange(0, el.value.length);
   }
 
+  // A rewrite is pending: the banner takes the place of the reply area.
+  const rewriting = entry.simplifyRequestedAt !== undefined;
+  // An ask with no agent: a page from the office or an app (task 74e8fc07).
+  const noAgent = entry.agentId === "";
+
+  // Cite (task ad4b51ac): a selection inside the prompt shows the chat's
+  // Cite pill (AskCitePill), which puts the selection into the reply field.
+  // Off with no field to put it in, and where the chat has no Cite
+  // (citeMode).
+  // The card as state, not a ref: the pill reads its box while it renders.
+  const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null);
+  const citeMode = useMemo(() => citeModeHere(), []);
+  const citeEnabled =
+    citeMode !== null && !noAgent && !rewriting && !held && !busy;
+  const { cite, clearCite } = useSelectionCite(promptRef, citeEnabled);
+  // The caret to set once the cited draft is in the field. Set after the
+  // focus: on the untouched default, onFocus still selects the whole field.
+  const citeCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const caret = citeCaret.current;
+    if (caret === null) return;
+    citeCaret.current = null;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(caret, caret);
+  });
+  function handleCite(text: string) {
+    const el = inputRef.current;
+    const { draft: next, caret } = citeIntoAskDraft(
+      draft,
+      citationBlock(text),
+      el && document.activeElement === el
+        ? { start: el.selectionStart, end: el.selectionEnd }
+        : undefined,
+    );
+    // On a touch screen the focus opens the keyboard, which moves the
+    // buttons, as for an option tap.
+    if (citeMode === "anchored") citeCaret.current = caret;
+    dispatch({ type: "set_ask_draft", askId: entry.id, text: next });
+    clearCite();
+    window.getSelection()?.removeAllRanges();
+  }
+
   // Plain Enter sends with a mouse; a modifier, an IME or a touch screen
   // keeps the browser's Enter.
   function onReplyKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -765,9 +817,6 @@ function ReplyAskCard({
     cursor: "pointer",
   } as const;
   const simplifyOff = busy || simplifying;
-  const rewriting = entry.simplifyRequestedAt !== undefined;
-  // An ask with no agent: a page from the office or an app (task 74e8fc07).
-  const noAgent = entry.agentId === "";
   // An answer's refusal, else a simplify request's, else an ack's.
   const failure = error ?? simplifyError ?? ackError;
   const cardBox = {
@@ -963,7 +1012,16 @@ function ReplyAskCard({
   );
 
   return (
-    <div data-ask={entry.id} style={cardBox}>
+    <div ref={setCardEl} data-ask={entry.id} style={cardBox}>
+      {cite && cardEl && citeMode && (
+        <AskCitePill
+          card={cardEl}
+          cite={cite}
+          mode={citeMode}
+          onCite={() => handleCite(cite.text)}
+          clearCite={clearCite}
+        />
+      )}
       <div>
         {metaAtTop && meta}
         {entry.office && (
