@@ -50,6 +50,19 @@ function sharedLoginQueueMessage(
       });
 }
 
+// Another member's own sign-ins, on an owner's card (task f183fac3): the
+// card calls the member's routes, and since no push reaches the owner, it
+// hands each start's answer to `started` and reads the member's sign-ins
+// again after every other request. Nothing of the member's enters the
+// owner's own store.
+export type MemberSignIns = {
+  username: string;
+  // The member's provider-accounts route.
+  base: string;
+  started: (account: ProviderAccountWire) => void;
+  reread: () => Promise<void>;
+};
+
 // `scopes` picks which of the two sign-in scopes this card shows. The
 // Integrations page renders one scope per card (office sign-ins on the
 // Office-wide card, the viewer's own on the Personal card), while the log
@@ -69,6 +82,7 @@ export function ProviderSignInCard({
   pageLook = false,
   compact = false,
   footer,
+  member,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
@@ -95,6 +109,8 @@ export function ProviderSignInCard({
   compact?: boolean;
   // At the card's end, after the API-key note.
   footer?: ReactNode;
+  // The member whose personal sign-ins an owner's card shows.
+  member?: MemberSignIns;
 }) {
   const { t } = useI18n();
   const title = provider === "codex" ? "Codex" : "Claude";
@@ -133,6 +149,7 @@ export function ProviderSignInCard({
           onGoToOtherHalf={onGoToOtherHalf}
           pageLook={pageLook}
           compact={compact}
+          member={member}
         />
       ))}
       {apiKeyNote && (
@@ -190,6 +207,7 @@ function ProviderScopeConnection({
   hideTopBorder = false,
   pageLook,
   compact,
+  member,
 }: {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
@@ -203,11 +221,12 @@ function ProviderScopeConnection({
   hideTopBorder?: boolean;
   pageLook: boolean;
   compact: boolean;
+  member?: MemberSignIns;
 }) {
   const i18n = useI18n();
   const { t, rich } = i18n;
-  // A pack that gives environment at read: the status only, with no line,
-  // since an owner cannot sign in for a member's own account.
+  // A pack that gives environment at read: the status only, with no sign-in
+  // or sign-out controls.
   const environmentWrite = useCan("environment", "write");
   const dispatch = useDispatch();
   // The request this card runs, and its reason once it failed. The sign-in
@@ -256,21 +275,27 @@ function ProviderScopeConnection({
   const scopeTitle = pageLook
     ? scope === "office"
       ? t("integrations.signIn.office")
-      : t("integrations.signIn.personal")
+      : member
+        ? t("integrations.signIn.member", { member: member.username })
+        : t("integrations.signIn.personal")
     : scope === "office"
       ? t("settings.signIn.scopeOffice")
       : t("settings.signIn.scopePersonal");
   // The office scope's sentence names the other section, so it carries the
   // cross-link rather than plain words - one key, the pointer inside it
   // (ruling 16).
-  const scopeHint =
-    scope === "office"
+  const scopeHint = member
+    ? t("integrations.signIn.memberHint", { member: member.username })
+    : scope === "office"
       ? rich("settings.signIn.officeHint", {
           link: (chunk) => (
             <SettingsLink label={chunk} onGo={onGoToOtherHalf} />
           ),
         })
       : t("settings.signIn.personalHint");
+  const routes = member?.base ?? "/api/me/provider-accounts";
+  // A member's card has no push: it reads the member's sign-ins again.
+  const reread = () => member?.reread() ?? Promise.resolve();
 
   // Ends this card's request, unless a newer one replaced it. Only the push
   // moves the accounts: an answer can be older than a push that overtook it.
@@ -294,11 +319,12 @@ function ProviderScopeConnection({
     try {
       const result = await apiFetch<ProviderAccountsWire>(
         "POST",
-        "/api/me/provider-accounts/refresh",
+        `${routes}/refresh`,
       );
       const tested = result.accounts?.find(
         (entry) => entry.provider === provider && entry.scope === scope,
       );
+      await reread();
       setTest(
         tested?.accountStatus === "connected"
           ? {
@@ -320,7 +346,7 @@ function ProviderScopeConnection({
     try {
       const result = await apiFetch<ProviderLoginStartRes>(
         "POST",
-        `/api/me/provider-accounts/${provider}/login`,
+        `${routes}/${provider}/login`,
         { method, scope },
       );
       if (result.authUrl) {
@@ -331,7 +357,9 @@ function ProviderScopeConnection({
       } else popup?.close();
       // The answer draws the sign-in at once; the next step needs the member
       // to act on its link or code, so no push can be newer.
-      dispatch({ type: "provider_login_started", account: result.account });
+      if (member) member.started(result.account);
+      else
+        dispatch({ type: "provider_login_started", account: result.account });
       settle("signIn");
     } catch (caught) {
       popup?.close();
@@ -355,11 +383,12 @@ function ProviderScopeConnection({
   async function submitClaudeCode() {
     setRequest({ action: "submit" });
     try {
-      await apiFetch("POST", "/api/me/provider-accounts/claude/callback", {
+      await apiFetch("POST", `${routes}/claude/callback`, {
         scope,
         code: claudeCode,
       });
       setClaudeCode("");
+      await reread();
       settle("submit");
     } catch (caught) {
       settle(
@@ -374,9 +403,8 @@ function ProviderScopeConnection({
   async function cancel() {
     setRequest({ action: "cancel" });
     try {
-      await apiFetch("POST", `/api/me/provider-accounts/${provider}/cancel`, {
-        scope,
-      });
+      await apiFetch("POST", `${routes}/${provider}/cancel`, { scope });
+      await reread();
       settle("cancel");
     } catch (caught) {
       settle(
@@ -391,11 +419,8 @@ function ProviderScopeConnection({
   async function disconnect() {
     setRequest({ action: "signOut" });
     try {
-      await apiFetch(
-        "POST",
-        `/api/me/provider-accounts/${provider}/disconnect`,
-        { scope },
-      );
+      await apiFetch("POST", `${routes}/${provider}/disconnect`, { scope });
+      await reread();
       setConfirmingSignOut(false);
       settle("signOut");
     } catch (caught) {
@@ -534,7 +559,9 @@ function ProviderScopeConnection({
       >
         <strong>{t("settings.signIn.status")}</strong> {status}
       </p>
-      {apiKeySource && API_KEY_SOURCE_LINE[apiKeySource] && (
+      {/* The source line speaks to the viewer ("your agents"); a member's
+          card says only that the key is used. */}
+      {!member && apiKeySource && API_KEY_SOURCE_LINE[apiKeySource] && (
         <p
           data-codex-api-key-source={apiKeySource}
           style={{ ...hint, margin: "8px 0 0" }}

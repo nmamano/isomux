@@ -147,38 +147,51 @@ const count = (root: Element, selector: string) =>
   root.querySelectorAll(selector).length;
 
 it("shows the member's own Claude and Codex accounts on Model providers", async () => {
+  const wire = (
+    provider: "claude" | "codex",
+    scope: "office" | "personal",
+    account: string,
+  ) => ({
+    provider,
+    scope,
+    accountStatus: "connected" as const,
+    accountLabel: account,
+    loginStatus: "idle" as const,
+    canBrowserLogin: true,
+  });
+  // The member's sign-ins as the server reads them for the member: their
+  // personal ones and the office's.
+  fake.memberAccounts.set("stephen", [
+    wire("claude", "personal", MEMBER_CLAUDE),
+    wire("codex", "personal", MEMBER_CODEX),
+    wire("claude", "office", OFFICE_ACCOUNT),
+  ]);
   const view = await open();
   await tab(view, "providers");
   await pick(view, "Stephen");
-  expect(
-    fake.requests("GET", "/api/users/Stephen/connections").length,
-  ).toBeGreaterThan(0);
   const theirs = card(view, "personal");
   expect(
-    theirs.querySelector('[data-member-provider="claude"]')!.textContent,
+    theirs.querySelector('[data-provider-card="claude"]')!.textContent,
   ).toContain(MEMBER_CLAUDE);
   expect(
-    theirs.querySelector('[data-member-provider="codex"]')!.textContent,
+    theirs.querySelector('[data-provider-card="codex"]')!.textContent,
   ).toContain(MEMBER_CODEX);
   // Their personal sign-ins only: neither the owner's nor the office's.
   expect(theirs.textContent).not.toContain(OWNER_ACCOUNT);
   expect(theirs.textContent).not.toContain(OFFICE_ACCOUNT);
 
-  // A member with no personal sign-in account, whose agents use the office
-  // sign-in: no account on their rows, neither the office one nor one
-  // borrowed from the owner or another member.
-  fake.memberConnections.set("lena", {
-    ...EMPTY_CONNECTIONS,
-    signIns: [
-      { scope: "office", engine: "claude", account: OFFICE_ACCOUNT },
-      { scope: "office", engine: "codex", account: OFFICE_ACCOUNT },
-    ],
-  });
+  // A member with no personal sign-in, whose agents use the office sign-in:
+  // no account on their cards, neither the office one nor one borrowed from
+  // the owner or another member.
+  fake.memberAccounts.set("lena", [
+    wire("claude", "office", OFFICE_ACCOUNT),
+    wire("codex", "office", OFFICE_ACCOUNT),
+  ]);
   await pick(view, "Lena");
   const lena = card(view, "personal");
   for (const provider of ["claude", "codex"])
     expect(
-      lena.querySelector(`[data-member-provider="${provider}"]`)!.textContent,
+      lena.querySelector(`[data-provider-card="${provider}"]`)!.textContent,
     ).not.toContain("@");
 });
 

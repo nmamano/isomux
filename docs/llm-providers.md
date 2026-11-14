@@ -46,7 +46,7 @@ The `Model providers` tab shows Bedrock as connected when the variables are set;
 
 ## Connection variables and directories
 
-An office owner picks a member on the `Integrations` page and sees the names of that member's variables and the accounts of their Claude and Codex sign-ins. The owner can replace or remove a variable; the values stay with the member.
+An office owner picks a member on the `Integrations` page and sees the names of that member's variables and the accounts of their Claude and Codex sign-ins. The owner can sign the member in or out with the member's own account, and replace or remove a variable; the values stay with the member.
 
 An explicit absolute provider directory in the managed variables still overrides the Isomux-managed personal directory. Isomux does not expand `~` or `$VAR` there.
 

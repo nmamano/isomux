@@ -1,6 +1,6 @@
 // Another member's card, beyond the picker itself: a member who leaves takes
-// the card back to You with a notice, a Test on their secret goes through
-// their route, and their provider status says only what the server knows.
+// the card back to You with a notice, and a Test on their secret goes through
+// their route. Their sign-ins: IntegrationsView.member-sign-in.dom.test.tsx.
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -81,21 +81,4 @@ it("tests a member's secret through the member's route, and a switch clears the 
   expect(
     card(view, "personal").querySelector("[data-connection-test-result]"),
   ).toBeNull();
-});
-
-it("says a member has no personal sign-in, or that the check failed, never more", async () => {
-  fake.providers = [
-    { provider: "claude", status: "unknown" },
-    { provider: "codex", status: "not_connected" },
-  ];
-  const view = await open();
-  await pick(view, "Stephen");
-  const theirs = card(view, "personal");
-  expect(
-    theirs.querySelector('[data-member-provider="claude"]')!.textContent,
-  ).toContain(t("settings.memberConnections.unknown"));
-  expect(
-    theirs.querySelector('[data-member-provider="codex"]')!.textContent,
-  ).toContain(t("integrations.providers.noPersonal"));
-  expect(theirs.textContent).not.toContain(t("settings.signIn.notConnected"));
 });

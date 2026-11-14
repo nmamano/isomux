@@ -81,6 +81,10 @@ export function server(
   };
 }
 
+// The sign-in link of a start the fake runs for a member.
+export const memberSignInLink = (member: string) =>
+  `https://sign-in.example/${member.toLowerCase()}`;
+
 export class IntegrationsFake {
   calls: Call[] = [];
   scopes = new Map<string, Scope>();
@@ -89,6 +93,9 @@ export class IntegrationsFake {
   // by lower-case member name; a member with no entry reads an empty list.
   memberConnections = new Map<string, ConnectionsListRes>();
   accounts: ProviderAccountWire[] = [];
+  // GET /api/users/<name>/provider-accounts: a member's own sign-ins, for an
+  // owner only, by lower-case member name; the writes change them.
+  memberAccounts = new Map<string, ProviderAccountWire[]>();
   providers: MemberProviderStatus[] = [
     { provider: "claude", status: "connected" },
     { provider: "codex", status: "not_connected" },
@@ -278,6 +285,57 @@ export class IntegrationsFake {
     // items: the member, or an owner.
     const mayWrite = who === "office" ? owner : self || owner;
     const scope = this.scope(who);
+
+    // A member's own Claude and Codex sign-ins, for an owner's session only
+    // (task f183fac3). A start makes the member's personal wire wait with a
+    // link, a cancel ends it, a sign-out signs the member out. The answer is
+    // read when the request arrives: a held request answers with that state.
+    const signIns = rest.match(
+      /^\/provider-accounts(?:\/refresh|\/(claude|codex)\/(login|callback|cancel|disconnect))?$/,
+    );
+    if (signIns && who !== "office") {
+      if (!owner) this.forbidden();
+      const key = who.toLowerCase();
+      const accounts = this.memberAccounts.get(key) ?? [];
+      const [, provider, action] = signIns as unknown as [
+        string,
+        "claude" | "codex" | undefined,
+        string | undefined,
+      ];
+      if (!provider) return { accounts };
+      const put = (wire: ProviderAccountWire) => {
+        this.memberAccounts.set(key, [
+          ...accounts.filter(
+            (a) => !(a.provider === provider && a.scope === "personal"),
+          ),
+          wire,
+        ]);
+        return wire;
+      };
+      const base = {
+        provider,
+        scope: "personal" as const,
+        canBrowserLogin: true,
+      };
+      if (action === "login") {
+        const account = put({
+          ...base,
+          accountStatus: "not_connected",
+          loginStatus: "waiting_external",
+          login: { phase: "waiting", authUrl: memberSignInLink(who) },
+        });
+        return { account, authUrl: memberSignInLink(who) };
+      }
+      if (action === "cancel") {
+        put({ ...base, accountStatus: "not_connected", loginStatus: "idle" });
+        return { canceled: true };
+      }
+      if (action === "disconnect") {
+        put({ ...base, accountStatus: "not_connected", loginStatus: "idle" });
+        return { accounts: this.memberAccounts.get(key) };
+      }
+      return { submitted: true };
+    }
 
     // A member's connections list: an owner's session only.
     if (rest === "/connections" && method === "GET" && who !== "office") {

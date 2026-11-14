@@ -1,29 +1,30 @@
 // The Model providers tab: the Claude and Codex sign-ins agents run on, and
 // OpenCode. The sign-in cards are the ones the Connections panes had (Nil:
 // that part worked well), laid flat inside the page's cards. An owner who
-// looks at another member sees that member's sign-ins and their accounts, to
-// help them (Nil, 2026-11-14), but cannot start or end them: the sign-in is
-// the member's own CLI login.
+// picks another member signs that member in to or out of their own accounts,
+// so IT can set them up (Nil, 2026-11-14).
 //
 // OpenCode has no sign-in here: it ships with Isomux, its free models need
 // no key (the default model, OPENCODE_DEFAULT_MODEL, is one), and a key for
 // the paid ones is the OPENCODE_API_KEY variable (OpenCodeSection.tsx).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { UserEnvNamesRes } from "../../shared/contract-shapes.ts";
 import type {
-  MemberProviderStatus,
-  UserEnvNamesRes,
-} from "../../shared/contract-shapes.ts";
-import type { ProviderAccountsWire } from "../../shared/types.ts";
+  ProviderAccountWire,
+  ProviderAccountsWire,
+} from "../../shared/types.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
-import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
-import { ProviderMark } from "../components/ProviderMark.tsx";
+import {
+  ProviderSignInCard,
+  type MemberSignIns,
+} from "../components/ProviderSignInCard.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
 import { OpenCodeSection } from "./OpenCodeSection.tsx";
-import { Data, Empty, ItemRow, Pill, errorText, flatCard } from "./kit.tsx";
-import { useMemberConnections, useMyConnections } from "./my-connections.tsx";
+import { errorText, flatCard } from "./kit.tsx";
+import { useMyConnections } from "./my-connections.tsx";
 import {
   onConnectionsChanged,
   onManagedEnvSaved,
@@ -180,13 +181,11 @@ export function ProvidersSection({
   );
 }
 
-// A member's Claude and Codex status, for an owner, and their OpenCode key
-// (OpenCodeSection.tsx): whether the member has their own sign-in (the same
-// probe as their own sign-in card), read from the owner-only names route,
-// and its account, from the member's connections list (owner session only).
-// Without a personal sign-in the member's agents use an API key variable or
-// the office account, which these routes cannot tell apart, so the row says
-// only what it knows.
+// A member's own Claude and Codex sign-ins, for an owner who sets them up
+// (task f183fac3): the same cards as the member's, on the member's routes,
+// and their OpenCode key (OpenCodeSection.tsx), from the owner-only names
+// route. No push reaches the owner, so the cards read again while a sign-in
+// waits for the member's account.
 function MemberProviders({
   target,
   role,
@@ -199,16 +198,9 @@ function MemberProviders({
   const username = target.username;
   const { t } = useI18n();
   const alive = useAlive();
-  const [providers, setProviders] = useState<MemberProviderStatus[] | null>(
-    null,
-  );
-  const [names, setNames] = useState<string[]>([]);
+  const [names, setNames] = useState<string[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const connections = useMemberConnections(username).list;
-  const accountOf = (provider: MemberProviderStatus["provider"]) =>
-    connections?.signIns.find(
-      (signIn) => signIn.scope === "personal" && signIn.engine === provider,
-    )?.account ?? null;
+  const signIns = useMemberSignIns(target, onGone);
 
   useEffect(() => {
     apiFetch<UserEnvNamesRes>(
@@ -217,10 +209,8 @@ function MemberProviders({
     )
       .then((result) => {
         if (!alive.current) return;
-        if (Array.isArray(result?.providers)) {
-          setProviders(result.providers);
-          setNames(Array.isArray(result.names) ? result.names : []);
-        } else setFailed(true);
+        if (Array.isArray(result?.names)) setNames(result.names);
+        else setFailed(true);
       })
       .catch((caught: unknown) => {
         if (!alive.current) return;
@@ -231,65 +221,111 @@ function MemberProviders({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (failed)
+  if (failed || signIns.failed)
     return (
       <p role="alert" style={errorText}>
         {t("settings.memberConnections.loadFailed")}
       </p>
     );
-  // Until the read answers, the rows hold their places and say so.
-  const rows: {
-    provider: MemberProviderStatus["provider"];
-    status: MemberProviderStatus["status"] | null;
-  }[] = providers ?? [
-    { provider: "claude", status: null },
-    { provider: "codex", status: null },
-  ];
   return (
-    <div data-member-providers aria-busy={!providers}>
-      {rows.map(({ provider, status }) => {
-        const label = provider === "claude" ? "Claude" : "Codex";
-        const account = status === "connected" ? accountOf(provider) : null;
-        return (
-          <ItemRow
-            key={provider}
-            data-member-provider={provider}
-            logo={<ProviderMark provider={provider} size={28} />}
-            title={label}
-            detail={account ? <Data>{account}</Data> : undefined}
-            status={
-              status === null ? (
-                <Pill tone="neutral">{t("common.loading")}</Pill>
-              ) : (
-                <Pill
-                  tone={
-                    status === "connected"
-                      ? "green"
-                      : status === "not_connected"
-                        ? "neutral"
-                        : "orange"
-                  }
-                >
-                  {t(
-                    status === "connected"
-                      ? "settings.signIn.connected"
-                      : status === "not_connected"
-                        ? "integrations.providers.noPersonal"
-                        : "settings.memberConnections.unknown",
-                  )}
-                </Pill>
-              )
-            }
-          />
-        );
-      })}
+    <>
+      {(["codex", "claude"] as const).map((provider) => (
+        <ProviderSignInCard
+          key={provider}
+          provider={provider}
+          accounts={signIns.accounts ?? []}
+          loaded={signIns.accounts !== null}
+          scopes={["personal"]}
+          member={signIns.member}
+          style={flatCard}
+          pageLook
+        />
+      ))}
       <OpenCodeSection
         target={target}
         role={role}
         refreshes={0}
-        keySet={providers ? names.includes(OPENCODE_KEY) : null}
+        keySet={names ? names.includes(OPENCODE_KEY) : null}
       />
-      <Empty>{t("integrations.providers.memberSignsIn")}</Empty>
-    </div>
+    </>
   );
+}
+
+// How often the owner's card reads a member's sign-in that waits for the
+// member's account.
+const MEMBER_SIGN_IN_POLL_MS = 2000;
+
+// A member's sign-ins, as their owner's card reads them. Every read is
+// numbered and only the latest one started may land, so a read sent before
+// an action never undoes what the action's own read showed.
+function useMemberSignIns(
+  target: Target & { kind: "member" },
+  onGone?: () => void,
+) {
+  const username = target.username;
+  const alive = useAlive();
+  const [accounts, setAccounts] = useState<ProviderAccountWire[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const latest = useRef(0);
+  // A read that fails after the first one leaves the cards as they were.
+  const loaded = useRef(false);
+  const path = `/api/users/${encodeURIComponent(username)}/provider-accounts`;
+
+  const read = (): Promise<void> => {
+    const mine = ++latest.current;
+    const current = () => alive.current && mine === latest.current;
+    return apiFetch<ProviderAccountsWire>("GET", path)
+      .then((result) => {
+        if (!current()) return;
+        if (Array.isArray(result?.accounts)) {
+          loaded.current = true;
+          setAccounts(result.accounts);
+        } else if (!loaded.current) setFailed(true);
+      })
+      .catch((caught: unknown) => {
+        if (!current()) return;
+        if (!loaded.current) setFailed(true);
+        if (isGone(caught, target)) onGone?.();
+      });
+  };
+
+  useEffect(() => {
+    void read();
+    // Keyed by the member: a switch mounts a new one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const waiting = (accounts ?? []).some(
+    (account) =>
+      account.scope === "personal" &&
+      (account.login?.phase === "waiting" ||
+        account.login?.phase === "verifying"),
+  );
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => void read(), MEMBER_SIGN_IN_POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
+
+  const member: MemberSignIns = {
+    username,
+    base: path,
+    started: (account) => {
+      // A read sent before the start must not land after it.
+      latest.current++;
+      setAccounts((current) => [
+        ...(current ?? []).filter(
+          (entry) =>
+            !(
+              entry.provider === account.provider &&
+              entry.scope === account.scope
+            ),
+        ),
+        account,
+      ]);
+    },
+    reread: read,
+  };
+  return { accounts, failed, member };
 }

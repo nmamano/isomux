@@ -1499,6 +1499,10 @@ Coses que pots fer per ell:
     "OpenAI fa servir {name} de les variables de {member}.",
   "integrations.voice.key.noneTheirs":
     "Afegeix OPENAI_VOICE_API_KEY a les variables de {member} per fer servir OpenAI.",
+  "integrations.changes.signedOut":
+    "{by} ha tancat la teva sessió de {provider}",
+  "integrations.changes.signedOutUnknown":
+    "Un antic membre ha tancat la teva sessió de {provider}",
   "integrations.changes.title": "Canviat per a tu",
   "integrations.changes.set": "{by} ha desat {name}",
   "integrations.changes.removed": "{by} ha eliminat {name}",
@@ -1548,8 +1552,6 @@ Coses que pots fer per ell:
   "integrations.requestSupport.button": "Sol·licita-ho",
   "integrations.providers.apiKeys":
     "Prefereixes una clau d'API? Afegeix <code>ANTHROPIC_API_KEY</code> o <code>OPENAI_API_KEY</code> a <link>Variables</link>.",
-  "integrations.providers.memberSignsIn":
-    "Els membres inicien la sessió als seus propis comptes.",
   "integrations.status.connected": "Connectat",
   "integrations.status.pending": "Pendent",
   "integrations.status.needsAuth": "Cal iniciar la sessió",
@@ -1603,10 +1605,13 @@ Coses que pots fer per ell:
   "integrations.mcp.addHeading.office":
     "Afegeix un servidor MCP per a tota l'oficina",
   "integrations.mcp.signedIn": "Sessió iniciada.",
-  "integrations.providers.noPersonal": "Sense inici de sessió personal",
   "integrations.signIn.office":
     "Inicia la sessió per a cada agent d'aquesta oficina",
   "integrations.signIn.personal": "Inicia la sessió per als agents que creo",
+  "integrations.signIn.member":
+    "Inicia la sessió per als agents que crea {member}",
+  "integrations.signIn.memberHint":
+    "Inicia la sessió amb el compte de {member}, no amb el teu.",
   "integrations.providers.opencode.pill.freeLimit": "Límit gratuït assolit",
   "integrations.providers.opencode.pill.keySet": "Clau configurada",
   "integrations.providers.opencode.pill.freeOnly": "Només models gratuïts",
@@ -1806,7 +1811,6 @@ Coses que pots fer per ell:
 
   "settings.memberConnections.loadFailed":
     "No s'han pogut carregar les connexions.",
-  "settings.memberConnections.unknown": "No s'ha pogut comprovar l'estat.",
   "settings.memberApiTokens.title": "Tokens d'API",
   "settings.memberApiTokens.hint":
     "Revoca un token per aturar-lo a la seva propera sol·licitud.",

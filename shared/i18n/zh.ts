@@ -1339,6 +1339,9 @@ App 的一些原则：
   "integrations.voice.key.theirs": "OpenAI 使用 {member} 的变量中的 {name}。",
   "integrations.voice.key.noneTheirs":
     "在 {member} 的变量中添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI。",
+  "integrations.changes.signedOut": "{by} 让你退出了 {provider}",
+  "integrations.changes.signedOutUnknown":
+    "一位已离开的成员让你退出了 {provider}",
   "integrations.changes.title": "为你做的更改",
   "integrations.changes.set": "{by} 设置了 {name}",
   "integrations.changes.removed": "{by} 移除了 {name}",
@@ -1383,7 +1386,6 @@ App 的一些原则：
   "integrations.requestSupport.button": "提出请求",
   "integrations.providers.apiKeys":
     "想改用 API 密钥？请在<link>变量</link>中添加 <code>ANTHROPIC_API_KEY</code> 或 <code>OPENAI_API_KEY</code>。",
-  "integrations.providers.memberSignsIn": "成员登录自己的账号。",
   "integrations.status.connected": "已连接",
   "integrations.status.pending": "等待中",
   "integrations.status.needsAuth": "需要登录",
@@ -1433,9 +1435,10 @@ App 的一些原则：
   "integrations.mcp.addHeading.member": "为 {member} 添加 MCP 服务器",
   "integrations.mcp.addHeading.office": "添加办公室通用的 MCP 服务器",
   "integrations.mcp.signedIn": "已登录。",
-  "integrations.providers.noPersonal": "没有个人登录",
   "integrations.signIn.office": "为此办公室中的所有智能体登录",
   "integrations.signIn.personal": "为我创建的智能体登录",
+  "integrations.signIn.member": "为 {member} 创建的智能体登录",
+  "integrations.signIn.memberHint": "用 {member} 的账号登录，不要用你自己的。",
   "integrations.providers.opencode.pill.freeLimit": "已达免费额度上限",
   "integrations.providers.opencode.pill.keySet": "已设置密钥",
   "integrations.providers.opencode.pill.freeOnly": "仅免费模型",
@@ -1604,7 +1607,6 @@ App 的一些原则：
   "settings.env.remove": "移除",
   "settings.env.add": "添加变量",
   "settings.memberConnections.loadFailed": "无法加载连接。",
-  "settings.memberConnections.unknown": "无法检查状态。",
   "settings.memberApiTokens.title": "API 令牌",
   "settings.memberApiTokens.hint": "撤销令牌后，它的下一个请求即被拒绝。",
   "dialogs.textarea.expand": "展开 {title}",

@@ -382,7 +382,11 @@ import {
 import { requestStopForLock } from "./office-lockdown-route.ts";
 import { closeOfficeSockets, resetOfficeLockGate } from "./office-lock-gate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
-import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
+import {
+  memberProviderAccountsHandlers,
+  providerAccountsHandlers,
+  type ProviderAccountsDeps,
+} from "./routes/handlers/provider-accounts.ts";
 import { openCodeHandlers } from "./routes/handlers/opencode.ts";
 import { buildConnectionsList } from "./connections-list.ts";
 import { buildAgentConnections } from "./agent-connections.ts";
@@ -5034,23 +5038,28 @@ function buildExecutorDeps(
       },
     }),
   );
+  const providerAccountsDeps: ProviderAccountsDeps = {
+    list: (userId) => providerAccountManager.list(userId),
+    refresh: async (userId) => {
+      const accounts = await providerAccountManager.list(userId, true);
+      liveEmit("provider_accounts_updated", { accounts }, { userId });
+      stepsChanged();
+      return accounts;
+    },
+    start: (userId, provider, scope, method) =>
+      providerAccountManager.startLogin(userId, provider, scope, method),
+    callback: (userId, provider, scope, code) =>
+      providerAccountManager.submitCode(userId, provider, scope, code),
+    cancel: (userId, provider, scope, allowForeign) =>
+      providerAccountManager.cancel(userId, provider, scope, allowForeign),
+    disconnect: (userId, provider, scope) =>
+      providerAccountManager.disconnect(userId, provider, scope),
+  };
+  register(providerAccountsHandlers(providerAccountsDeps));
   register(
-    providerAccountsHandlers({
-      list: (userId) => providerAccountManager.list(userId),
-      refresh: async (userId) => {
-        const accounts = await providerAccountManager.list(userId, true);
-        liveEmit("provider_accounts_updated", { accounts }, { userId });
-        stepsChanged();
-        return accounts;
-      },
-      start: (userId, provider, scope, method) =>
-        providerAccountManager.startLogin(userId, provider, scope, method),
-      callback: (userId, provider, scope, code) =>
-        providerAccountManager.submitCode(userId, provider, scope, code),
-      cancel: (userId, provider, scope, allowForeign) =>
-        providerAccountManager.cancel(userId, provider, scope, allowForeign),
-      disconnect: (userId, provider, scope) =>
-        providerAccountManager.disconnect(userId, provider, scope),
+    memberProviderAccountsHandlers({
+      ...providerAccountsDeps,
+      userIdForUsername: (username) => getUserByName(username)?.id ?? null,
     }),
   );
   register(

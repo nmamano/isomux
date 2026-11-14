@@ -17,6 +17,7 @@ import { hintText } from "./kit.tsx";
 
 // The kind of change each tab shows.
 const TAB_KIND: Partial<Record<IntegrationsTab, IntegrationChangeKind>> = {
+  providers: "provider",
   mcp: "mcp",
   secrets: "secret",
   variables: "variable",
@@ -45,6 +46,11 @@ export function useIntegrationChanges(
   return items;
 }
 
+const PROVIDER_LABEL: Record<string, string> = {
+  claude: "Claude",
+  codex: "Codex",
+};
+
 export function ChangedForYou({
   tab,
   items,
@@ -58,6 +64,13 @@ export function ChangedForYou({
   if (shown.length === 0) return null;
   const line = (item: IntegrationChange): string => {
     const name = item.name ?? "";
+    // A sign-out names the provider as the server stores it.
+    if (item.kind === "provider") {
+      const provider = PROVIDER_LABEL[name] ?? name;
+      return item.by === null
+        ? t("integrations.changes.signedOutUnknown", { provider })
+        : t("integrations.changes.signedOut", { by: item.by, provider });
+    }
     if (item.by === null) {
       if (!item.name) return t("integrations.changes.changedUnknown");
       return item.action === "removed"

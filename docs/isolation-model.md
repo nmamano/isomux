@@ -43,6 +43,6 @@ A secret on the Integrations page keeps its value out of the model's context and
 
 - Run one office for each trust group.
 - Give office access only to people you trust with a shell on its machine, or give them a permission pack when you invite them.
-- Give the owner role only to the people who run the office. Owners decide who joins, set room access and permission packs, manage the variables, secrets and MCP servers of every member, and can give an agent another manager, which puts it on that member's credentials.
+- Give the owner role only to the people who run the office. Owners decide who joins, set room access and permission packs, manage the variables, secrets, MCP servers and Claude and Codex sign-ins of every member, and can give an agent another manager, which puts it on that member's credentials.
 
 Tip: text from strangers (email, tickets, web pages, WhatsApp or Discord messages) can carry instructions. Keep an agent that reads such text below Standard.

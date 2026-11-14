@@ -862,6 +862,14 @@ describe("privileged agents", () => {
           // A member's connections list, sign-in accounts included: an
           // owner's session only (task b85f4051).
           "memberConnections.list",
+          // A member's own Claude and Codex sign-ins: an owner's session
+          // only (task f183fac3).
+          "memberProviderAccounts.list",
+          "memberProviderAccounts.refresh",
+          "memberProviderAccounts.start",
+          "memberProviderAccounts.callback",
+          "memberProviderAccounts.cancel",
+          "memberProviderAccounts.disconnect",
           "pagerSettings.get",
           "pagerSettings.update",
           "pagerSettings.test",

@@ -1,8 +1,9 @@
 // Who sees and changes what on the Integrations page (Nil and the Lead,
 // 2026-10-13): Show for a secret's own member and for owners on office
-// secrets only; members read the office's items as names; an owner sees a
-// member's provider status and variable names, never their values, and never
-// the caller's own Claude data under the member's name.
+// secrets only; members read the office's items as names; an owner signs a
+// member in or out of their own sign-ins and sees their variable names, never
+// their values, and never the caller's own Claude data under the member's
+// name.
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -158,8 +159,25 @@ describe("a member's view of the office", () => {
 describe("an owner on another member's card", () => {
   beforeEach(() => serve({ username: "Ricky", owner: true }));
 
-  it("shows the member's provider status with no sign-in control", async () => {
+  it("gives the owner the member's personal sign-ins with their controls, and no office sign-in", async () => {
     fake.officeSettings = { memberUsageCap: false, version: "1" };
+    fake.memberAccounts.set("stephen", [
+      {
+        provider: "claude",
+        scope: "personal",
+        accountStatus: "not_connected",
+        loginStatus: "idle",
+        canBrowserLogin: true,
+      },
+      {
+        provider: "codex",
+        scope: "personal",
+        accountStatus: "connected",
+        accountLabel: "stephen@example.com",
+        loginStatus: "idle",
+        canBrowserLogin: true,
+      },
+    ]);
     const view = await open(OWNER);
     // The owner's own card has the sign-in cards.
     expect(
@@ -170,24 +188,23 @@ describe("an owner on another member's card", () => {
     ).not.toBeNull();
     await pick(view, "Stephen");
     const theirs = card(view, "personal");
-    expect(theirs.querySelector("[data-provider-card]")).toBeNull();
+    expect(theirs.querySelectorAll("[data-provider-card]").length).toBe(2);
     expect(
-      theirs.querySelector('[data-member-provider="claude"]')!.textContent,
-    ).toContain(t("settings.signIn.connected"));
+      theirs.querySelectorAll('[data-sign-in-scope="office"]').length,
+    ).toBe(0);
+    // Sign in where the member is signed out, Sign out where they are in.
     expect(
-      theirs.querySelector('[data-member-provider="codex"]')!.textContent,
-    ).toContain(t("integrations.providers.noPersonal"));
-    // No sign-in control: the only buttons go back to yours and add the
-    // member's OpenCode key.
+      theirs
+        .querySelector('[data-provider-card="claude"]')!
+        .querySelectorAll("[data-start-provider-login]").length,
+    ).toBe(1);
     expect(
-      [...theirs.querySelectorAll("button")].map((button) =>
-        button.hasAttribute("data-back-to-yours")
-          ? "back"
-          : button.hasAttribute("data-opencode-key-edit")
-            ? "opencode-key"
-            : button.outerHTML,
-      ),
-    ).toEqual(["back", "opencode-key"]);
+      theirs
+        .querySelector('[data-provider-card="codex"]')!
+        .querySelectorAll("[data-provider-sign-out]").length,
+    ).toBe(1);
+    // The office's usage card stays on the office card.
+    expect(theirs.querySelectorAll("[data-member-usage-card]").length).toBe(0);
     expect(fake.requests("GET", "/api/users/Stephen/env/names")).toHaveLength(
       1,
     );

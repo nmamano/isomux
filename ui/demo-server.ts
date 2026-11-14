@@ -2815,6 +2815,9 @@ function demoSkillRead(path: string): SkillFileRes {
 // The demo's provider sign-ins in progress, by provider and scope. Like the
 // server, each one rides on its account's wire and goes out in a push.
 const demoProviderLogins = new Map<string, ProviderLoginWire>();
+// A member's own sign-ins, by "<user id>:<provider>", as an owner changed
+// them (task f183fac3): a sign-in in progress, or "signedOut".
+const demoMemberSignIns = new Map<string, ProviderLoginWire | "signedOut">();
 
 function demoProviderAccounts(): ProviderAccountWire[] {
   const pairs = [
@@ -4093,6 +4096,78 @@ export async function demoApi(
       mcpServers: demoMcpServerRows(existing.id, false),
       engineMcpServers: [],
     };
+  }
+  // memberProviderAccounts.* - an owner signs a member in to or out of their
+  // own Claude and Codex (task f183fac3). The member's Claude starts signed
+  // in with the account memberConnections.list names; a sign-out or a
+  // sign-in here changes only the demo's memory.
+  const memberSignInMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/provider-accounts(?:\/refresh|\/(claude|codex)\/(login|callback|cancel|disconnect))?$/,
+  );
+  if (memberSignInMatch) {
+    if (sessionContext?.role !== "owner")
+      throw new ApiError(403, "forbidden", "Forbidden");
+    const uname = decodeURIComponent(memberSignInMatch[1]);
+    const existing = users.get(uname.toLowerCase());
+    if (!existing)
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    const selected = memberSignInMatch[2] as "claude" | "codex" | undefined;
+    const action = memberSignInMatch[3];
+    const key = (provider: string) => `${existing.id}:${provider}`;
+    if (selected && action === "login") {
+      demoMemberSignIns.set(key(selected), {
+        phase: "waiting",
+        authUrl:
+          selected === "claude"
+            ? "https://claude.com/"
+            : "https://auth.openai.com/",
+        ...(selected === "codex" ? { userCode: "ABCD-EFGH" } : {}),
+      });
+    } else if (selected && action === "cancel")
+      demoMemberSignIns.delete(key(selected));
+    else if (selected && action === "disconnect")
+      demoMemberSignIns.set(key(selected), "signedOut");
+    // A code finishes the sign-in: the member's Claude reads as signed in.
+    else if (selected && action === "callback")
+      demoMemberSignIns.delete(key(selected));
+    const accounts: ProviderAccountWire[] = (["claude", "codex"] as const).map(
+      (provider) => {
+        const state = demoMemberSignIns.get(key(provider));
+        const base = {
+          provider,
+          scope: "personal" as const,
+          canBrowserLogin: true,
+        };
+        if (state && state !== "signedOut")
+          return {
+            ...base,
+            accountStatus: "not_connected",
+            loginStatus: "waiting_external",
+            login: state,
+          };
+        return provider === "claude" && state !== "signedOut"
+          ? {
+              ...base,
+              accountStatus: "connected",
+              loginStatus: "idle",
+              accountLabel: `${existing.name.toLowerCase()}@example.com`,
+            }
+          : { ...base, accountStatus: "not_connected", loginStatus: "idle" };
+      },
+    );
+    if (action === "login") {
+      const account = accounts.find((entry) => entry.provider === selected);
+      const login = account?.login;
+      return {
+        account,
+        ...(login?.phase === "waiting"
+          ? { authUrl: login.authUrl, userCode: login.userCode }
+          : {}),
+      };
+    }
+    if (action === "callback") return { submitted: true };
+    if (action === "cancel") return { canceled: true };
+    return { accounts };
   }
   // apiTokens.adminList / adminRevoke - an owner's view of a member's tokens.
   const memberTokensMatch = pathname.match(

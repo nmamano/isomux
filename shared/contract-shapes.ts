@@ -880,7 +880,7 @@ export interface MemberVoiceRes extends VoiceStatusRes {
 // that member is gone. `name` is the variable, secret or MCP server name; voice
 // and pager have none. Never a value.
 export type IntegrationChangeKind =
-  "variable" | "secret" | "mcp" | "voice" | "pager";
+  "variable" | "secret" | "mcp" | "voice" | "pager" | "provider";
 export interface IntegrationChange {
   time: number;
   by: string | null;

@@ -1466,6 +1466,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.voice.key.noneTheirs":
     "Add OPENAI_VOICE_API_KEY to {member}'s variables to use OpenAI.",
   "integrations.voice.saveFailed": "The change was not saved.",
+  "integrations.changes.signedOut": "{by} signed you out of {provider}",
+  "integrations.changes.signedOutUnknown":
+    "A former member signed you out of {provider}",
   "integrations.changes.title": "Changed for you",
   "integrations.changes.set": "{by} set {name}",
   "integrations.changes.removed": "{by} removed {name}",
@@ -1515,8 +1518,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.requestSupport.button": "Request it",
   "integrations.providers.apiKeys":
     "Using an API key instead? Add <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> in <link>Variables</link>.",
-  "integrations.providers.memberSignsIn":
-    "Members sign in to their own accounts.",
   "integrations.status.connected": "Connected",
   "integrations.status.pending": "Pending",
   "integrations.status.needsAuth": "Needs sign-in",
@@ -1567,9 +1568,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.mcp.addHeading.member": "Add an MCP server for {member}",
   "integrations.mcp.addHeading.office": "Add an office-wide MCP server",
   "integrations.mcp.signedIn": "Signed in.",
-  "integrations.providers.noPersonal": "No personal sign-in",
   "integrations.signIn.office": "Sign in for every agent in this office",
   "integrations.signIn.personal": "Sign in for agents I spawn",
+  "integrations.signIn.member": "Sign in for agents {member} spawns",
+  "integrations.signIn.memberHint":
+    "Sign in with {member}'s account, not yours.",
   "integrations.providers.opencode.pill.freeLimit": "Free limit reached",
   "integrations.providers.opencode.pill.keySet": "Key set",
   "integrations.providers.opencode.pill.freeOnly": "Free models only",
@@ -1752,7 +1755,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.env.add": "Add variable",
 
   "settings.memberConnections.loadFailed": "Could not load connections.",
-  "settings.memberConnections.unknown": "Could not check status.",
   "settings.memberApiTokens.title": "API Tokens",
   "settings.memberApiTokens.hint":
     "Revoke a token to stop it on its next request.",

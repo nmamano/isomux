@@ -2731,6 +2731,20 @@ export interface ProviderLoginCallbackReq {
   code: string;
 }
 
+// The member routes of an owner (task f183fac3) act on the member's personal
+// sign-in only: a scope, if sent, must be "personal".
+export interface MemberProviderScopeReq {
+  scope?: "personal";
+}
+
+export interface MemberProviderLoginStartReq extends MemberProviderScopeReq {
+  method?: "browser" | "device";
+}
+
+export interface MemberProviderLoginCallbackReq extends MemberProviderScopeReq {
+  code: string;
+}
+
 export interface ProviderLoginCancelReq {
   scope: ProviderAccountScope;
 }

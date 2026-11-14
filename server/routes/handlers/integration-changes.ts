@@ -42,6 +42,9 @@ export const INTEGRATION_CHANGE_OPS: Record<
   "mcpServers.delete": { kind: "mcp", action: "removed" },
   "memberVoice.update": { kind: "voice", action: "set" },
   "pagerSettings.update": { kind: "pager", action: "set" },
+  // An owner's sign-out stops the member's agents. A sign-in start may never
+  // finish, and a finished one shows on the member's card as the account.
+  "memberProviderAccounts.disconnect": { kind: "provider", action: "removed" },
 };
 
 export interface IntegrationChangesDeps {

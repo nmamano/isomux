@@ -1494,6 +1494,9 @@ Cosas que puedes hacer por él:
     "OpenAI usa {name} de las variables de {member}.",
   "integrations.voice.key.noneTheirs":
     "Añade OPENAI_VOICE_API_KEY a las variables de {member} para usar OpenAI.",
+  "integrations.changes.signedOut": "{by} cerró tu sesión de {provider}",
+  "integrations.changes.signedOutUnknown":
+    "Un antiguo miembro cerró tu sesión de {provider}",
   "integrations.changes.title": "Cambiado para ti",
   "integrations.changes.set": "{by} guardó {name}",
   "integrations.changes.removed": "{by} eliminó {name}",
@@ -1543,8 +1546,6 @@ Cosas que puedes hacer por él:
   "integrations.requestSupport.button": "Solicitarlo",
   "integrations.providers.apiKeys":
     "¿Prefieres una clave de API? Añade <code>ANTHROPIC_API_KEY</code> u <code>OPENAI_API_KEY</code> en <link>Variables</link>.",
-  "integrations.providers.memberSignsIn":
-    "Los miembros inician sesión en sus propias cuentas.",
   "integrations.status.connected": "Conectado",
   "integrations.status.pending": "Pendiente",
   "integrations.status.needsAuth": "Requiere inicio de sesión",
@@ -1597,10 +1598,13 @@ Cosas que puedes hacer por él:
   "integrations.mcp.addHeading.office":
     "Añadir un servidor MCP para toda la oficina",
   "integrations.mcp.signedIn": "Sesión iniciada.",
-  "integrations.providers.noPersonal": "Sin inicio de sesión personal",
   "integrations.signIn.office":
     "Inicia sesión para cada agente de esta oficina",
   "integrations.signIn.personal": "Inicia sesión para los agentes que creo",
+  "integrations.signIn.member":
+    "Inicia sesión para los agentes que crea {member}",
+  "integrations.signIn.memberHint":
+    "Inicia sesión con la cuenta de {member}, no con la tuya.",
   "integrations.providers.opencode.pill.freeLimit": "Límite gratuito alcanzado",
   "integrations.providers.opencode.pill.keySet": "Clave configurada",
   "integrations.providers.opencode.pill.freeOnly": "Solo modelos gratuitos",
@@ -1799,7 +1803,6 @@ Cosas que puedes hacer por él:
 
   "settings.memberConnections.loadFailed":
     "No se han podido cargar las conexiones.",
-  "settings.memberConnections.unknown": "No se pudo comprobar el estado.",
   "settings.memberApiTokens.title": "Tokens de API",
   "settings.memberApiTokens.hint":
     "Revoca un token para detenerlo en su próxima solicitud.",

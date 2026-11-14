@@ -1681,6 +1681,29 @@ const SPEC_ROUTE_CONTRACT: Record<
   "connections.list": { caps: ["user:self"], emits: [] },
   "agentConnections.list": { caps: [], emits: [] },
   "memberConnections.list": { caps: ["integration:manage"], emits: [] },
+  // A member's own sign-ins, for an owner (task f183fac3): the manager
+  // pushes to the member, as for the /api/me routes.
+  "memberProviderAccounts.list": { caps: ["integration:manage"], emits: [] },
+  "memberProviderAccounts.refresh": {
+    caps: ["integration:manage"],
+    emits: ["provider_accounts_updated"],
+  },
+  "memberProviderAccounts.start": {
+    caps: ["integration:manage"],
+    emits: ["provider_accounts_updated"],
+  },
+  "memberProviderAccounts.callback": {
+    caps: ["integration:manage"],
+    emits: ["provider_accounts_updated"],
+  },
+  "memberProviderAccounts.cancel": {
+    caps: ["integration:manage"],
+    emits: ["provider_accounts_updated"],
+  },
+  "memberProviderAccounts.disconnect": {
+    caps: ["integration:manage"],
+    emits: ["provider_accounts_updated"],
+  },
   "providerAccounts.start": {
     caps: ["user:self"],
     emits: ["provider_accounts_updated"],
