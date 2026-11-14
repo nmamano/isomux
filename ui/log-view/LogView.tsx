@@ -105,7 +105,11 @@ import {
   setChatCopyFormat,
 } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
-import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
+import {
+  CiteSelectionButton,
+  PILL_GAP,
+  PILL_HEIGHT,
+} from "./CiteSelectionButton.tsx";
 import { citeModeHere } from "./cite-mode.ts";
 import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
 import type { TaskMap } from "./task-links.tsx";
@@ -267,6 +271,12 @@ const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
 // far the member drags the panel. Window-resize clamping shrinks the panel
 // rather than letting the chat dip below this floor.
 const CHAT_COLUMN_FLOOR = 300;
+
+// The jump-to-bottom button: a round button at the message box's top-right,
+// over the chat. The pinned Cite pill keeps clear of its place.
+const JUMP_SIZE = 36;
+const JUMP_RIGHT = 32;
+const JUMP_GAP = 12;
 
 function readPanelWidth(kind: "terminal" | "editor", fallback: number): number {
   if (typeof localStorage === "undefined") return fallback;
@@ -763,6 +773,18 @@ function selectionInside(el: HTMLElement): boolean {
     sel.anchorNode &&
     el.contains(sel.anchorNode)
   );
+}
+
+// The box the pinned Cite pill takes its bottom-right corner from: the chat's
+// box, cut at the right by the jump-to-bottom button's place, and raised so
+// the pill's centre is on that button's row. The place is kept even while
+// the button is hidden: a scroll shows and hides it, and the pill must not
+// move under the member's finger.
+function citePinnedBox(chat: DOMRect): DOMRect {
+  const jumpCentre = chat.bottom - JUMP_GAP - JUMP_SIZE / 2;
+  const bottom = jumpCentre + PILL_HEIGHT / 2 + PILL_GAP;
+  const right = chat.right - JUMP_RIGHT - JUMP_SIZE;
+  return new DOMRect(chat.left, chat.top, right - chat.left, bottom - chat.top);
 }
 
 export function LogView({
@@ -1304,8 +1326,8 @@ export function LogView({
   // Cite-from-selection: when the member highlights text in the chat log, show
   // a floating "Cite" pill that inserts the selection into the draft as a
   // triple-quoted block. citeMode says where the pill goes on this device:
-  // next to the selection with a mouse, pinned below the "last message" bar
-  // on iOS touch, and nowhere on other touch platforms. The
+  // next to the selection with a mouse, pinned just above the message box at
+  // the right on iOS touch, and nowhere on other touch platforms. The
   // hook is a pure observer (no scroll/focus side-effects); the click handler
   // below (handleCite) is the only place we mutate draft / focus / selection.
   // Scroll-hide lives in handleScroll below - keeping the hook
@@ -2859,10 +2881,10 @@ export function LogView({
                 }}
                 style={{
                   position: "absolute",
-                  bottom: "calc(100% + 12px)",
-                  right: 32,
-                  width: 36,
-                  height: 36,
+                  bottom: `calc(100% + ${JUMP_GAP}px)`,
+                  right: JUMP_RIGHT,
+                  width: JUMP_SIZE,
+                  height: JUMP_SIZE,
                   borderRadius: "50%",
                   border: "1px solid var(--border-medium)",
                   background: "var(--bg-surface)",
@@ -3647,12 +3669,13 @@ export function LogView({
       {cite && scrollRef.current && (
         <CiteSelectionButton
           cite={cite}
-          containerRect={scrollRef.current.getBoundingClientRect()}
+          containerRect={
+            chatCiteMode === "pinned"
+              ? citePinnedBox(scrollRef.current.getBoundingClientRect())
+              : scrollRef.current.getBoundingClientRect()
+          }
           onClick={() => handleCite(cite.text)}
-          pinned={chatCiteMode === "pinned"}
-          // Below the "last message" bar, always: the bar comes and goes
-          // during a scroll, and the pill must not jump with it.
-          topInset={PINNED_BAR_HEIGHT}
+          pinned={chatCiteMode === "pinned" ? "bottom" : undefined}
         />
       )}
     </div>

@@ -1,7 +1,8 @@
-// Cite on an ask card on touch screens (task ad4b51ac, after fe7db5ac). On an
-// iPhone the pill is pinned to the top-right of the part of the card its
-// scroller shows, stays on scroll while the card shows, and a tap cites into
-// the reply field without focusing it (the keyboard would move the buttons).
+// Cite on an ask card on touch screens (task ad4b51ac, after fe7db5ac, moved
+// by 1e119dfb). On an iPhone the pill is pinned just above the card's reply
+// field at the right, inside the part of the card its scroller shows; it
+// stays on scroll while the card shows, and a tap cites into the reply field
+// without focusing it (the keyboard would move the buttons).
 // On Android there is no pill. Which device gets which mode is the table in
 // cite-mode.test.ts; this file proves AskCard reads the device and places the
 // pill by it. The mouse behavior is ask-cite.dom.test.tsx.
@@ -46,6 +47,7 @@ const ANDROID = {
 
 // The pill's size and gaps (CiteSelectionButton.tsx).
 const PILL_WIDTH = 64;
+const PILL_HEIGHT = 26;
 const PILL_GAP = 6;
 const PILL_EDGE_PAD = 4;
 
@@ -67,6 +69,11 @@ afterAll(() => setApiShim(null));
 const SELECTION = new DOMRect(30, 200, 100, 20);
 const SCROLLER = new DOMRect(0, 100, 600, 400); // top 100, bottom 500
 const CARD = new DOMRect(20, 150, 500, 300); // top 150, right 520
+// The reply field near the card's bottom, above the Reply row.
+const FIELD_TOP = 230; // from the card's top
+function fieldOf(card: DOMRect) {
+  return new DOMRect(card.left + 10, card.top + FIELD_TOP, card.width - 20, 36);
+}
 let boxes: Record<string, DOMRect> = {};
 
 const rectsDesc = Object.getOwnPropertyDescriptor(
@@ -80,7 +87,8 @@ const boundsDesc = Object.getOwnPropertyDescriptor(
 let undoDevice: (() => void) | null = null;
 
 beforeEach(() => {
-  boxes = { "[data-test-scroller]": SCROLLER, "[data-ask]": CARD };
+  boxes = { "[data-test-scroller]": SCROLLER };
+  setCard(CARD);
   Range.prototype.getClientRects = () =>
     Object.assign([SELECTION], {
       item: () => SELECTION,
@@ -225,13 +233,23 @@ function place(pill: HTMLElement) {
   };
 }
 
-// Where a pinned pill sits for a container whose right edge and top are given.
-function pinnedAt(right: number, top: number) {
-  return { left: right - PILL_WIDTH - PILL_EDGE_PAD, top: top + PILL_GAP };
+// The card and its reply field, which moves with it.
+function setCard(card: DOMRect) {
+  boxes["[data-ask]"] = card;
+  boxes["[data-ask-reply-input]"] = fieldOf(card);
+}
+
+// Where a pinned pill sits for a container whose right edge and bottom are
+// given: its right edge in from the container's, its bottom a gap above.
+function pinnedAbove(right: number, bottom: number) {
+  return {
+    left: right - PILL_WIDTH - PILL_EDGE_PAD,
+    top: bottom - PILL_GAP - PILL_HEIGHT,
+  };
 }
 
 async function scrollTo(view: ReturnType<typeof render>, card: DOMRect) {
-  boxes["[data-ask]"] = card;
+  setCard(card);
   const scroller = view.container.querySelector("[data-test-scroller]")!;
   await act(async () => {
     scroller.dispatchEvent(new Event("scroll", { bubbles: false }));
@@ -239,30 +257,55 @@ async function scrollTo(view: ReturnType<typeof render>, card: DOMRect) {
   await settle();
 }
 
-it("on an iPhone, pins the pill to the card's top-right, not next to the selection", async () => {
+it("on an iPhone, pins the pill just above the reply field at the right, not next to the selection", async () => {
   onDevice(IPHONE);
   const view = await mount();
   await selectInPrompt(view, "First point here.");
   expect(pills(view).length).toBe(1);
-  expect(place(pills(view)[0])).toEqual(pinnedAt(CARD.right, CARD.top));
+  expect(place(pills(view)[0])).toEqual(
+    pinnedAbove(CARD.right, fieldOf(CARD).top),
+  );
 });
 
-it("on an iPhone, a card that starts above its scroller gets the pill at the scroller's top", async () => {
+it("on an iPhone, a reply field below the scroller's view puts the pill at the bottom of the card's visible part", async () => {
   onDevice(IPHONE);
-  boxes["[data-ask]"] = new DOMRect(20, 50, 500, 300); // top 50 < 100
+  const card = new DOMRect(20, 300, 500, 300); // field top 530 > bottom 500
+  setCard(card);
   const view = await mount();
   await selectInPrompt(view, "First point here.");
   expect(pills(view).length).toBe(1);
-  expect(place(pills(view)[0])).toEqual(pinnedAt(CARD.right, SCROLLER.top));
+  expect(place(pills(view)[0])).toEqual(
+    pinnedAbove(card.right, SCROLLER.bottom),
+  );
 });
 
-it("on an iPhone with no scroller around the card, the window's top bounds it", async () => {
+it("on an iPhone with no scroller around the card, the window's bottom bounds it", async () => {
   onDevice(IPHONE);
-  boxes = { "[data-ask]": new DOMRect(20, -50, 500, 300) };
+  // The field starts 30px under the window's bottom.
+  const card = new DOMRect(20, window.innerHeight - FIELD_TOP + 30, 500, 300);
+  boxes = {};
+  setCard(card);
   const view = await mount({ scroller: false });
   await selectInPrompt(view, "First point here.");
   expect(pills(view).length).toBe(1);
-  expect(place(pills(view)[0])).toEqual(pinnedAt(CARD.right, 0));
+  expect(place(pills(view)[0])).toEqual(
+    pinnedAbove(card.right, window.innerHeight),
+  );
+});
+
+it("on an iPhone, a reply field scrolled above the view keeps the pill inside the card's visible part", async () => {
+  onDevice(IPHONE);
+  // Field top 60 is over the scroller's top (100); the card's bottom row
+  // (100 to 130) is still in view.
+  const card = new DOMRect(20, -170, 500, 300);
+  setCard(card);
+  const view = await mount();
+  await selectInPrompt(view, "First point here.");
+  expect(pills(view).length).toBe(1);
+  const { left, top } = place(pills(view)[0]);
+  expect(left).toBe(card.right - PILL_WIDTH - PILL_EDGE_PAD);
+  expect(top).toBeGreaterThanOrEqual(SCROLLER.top);
+  expect(top + PILL_HEIGHT).toBeLessThanOrEqual(card.bottom);
 });
 
 it("on an iPhone, a scroll that moves the card moves the pill and keeps it", async () => {
@@ -270,11 +313,15 @@ it("on an iPhone, a scroll that moves the card moves the pill and keeps it", asy
   const view = await mount();
   await selectInPrompt(view, "First point here.");
   expect(pills(view).length).toBe(1);
-  expect(place(pills(view)[0])).toEqual(pinnedAt(CARD.right, CARD.top));
-  const lower = new DOMRect(20, 230, 500, 300);
+  expect(place(pills(view)[0])).toEqual(
+    pinnedAbove(CARD.right, fieldOf(CARD).top),
+  );
+  const lower = new DOMRect(20, 200, 500, 300); // field top 430, in view
   await scrollTo(view, lower);
   expect(pills(view).length).toBe(1);
-  expect(place(pills(view)[0])).toEqual(pinnedAt(lower.right, lower.top));
+  expect(place(pills(view)[0])).toEqual(
+    pinnedAbove(lower.right, fieldOf(lower).top),
+  );
   // The selection is still there.
   expect(window.getSelection()?.isCollapsed).toBe(false);
 });
@@ -290,7 +337,9 @@ it("on an iPhone, no pill while the card is out of its scroller's view, and the 
   // Back in view, with the same selection.
   await scrollTo(view, CARD);
   expect(pills(view).length).toBe(1);
-  expect(place(pills(view)[0])).toEqual(pinnedAt(CARD.right, CARD.top));
+  expect(place(pills(view)[0])).toEqual(
+    pinnedAbove(CARD.right, fieldOf(CARD).top),
+  );
   // Below the view: the card's top (510) is under the scroller's bottom (500).
   await scrollTo(view, new DOMRect(20, 510, 500, 300));
   expect(pills(view).length).toBe(0);

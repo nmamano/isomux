@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
+import {
+  CiteSelectionButton,
+  PILL_GAP,
+  PILL_HEIGHT,
+} from "./CiteSelectionButton.tsx";
 import type { CiteMode } from "./cite-mode.ts";
 import type { CiteSelection } from "./useSelectionCite.ts";
 
@@ -12,10 +16,13 @@ import type { CiteSelection } from "./useSelectionCite.ts";
 // next line. Any scroll moves the selection away from the pill, so it clears
 // the cite.
 //
-// On iOS touch ("pinned") the pill sits at the top-right of the part of the
-// card in view, and stays while the selection lasts: a scroll moves it with
-// the card. While the card is out of its scroller's view there is no pill,
-// so a tap never cites into a field the member cannot see.
+// On iOS touch ("pinned") the pill sits just above the card's reply field at
+// the right, as in the chat (task 1e119dfb), and never leaves the part of the
+// card in view: with the field below the view it sits at the view's bottom,
+// with the field above the view at the top of the card's visible part. It
+// stays while the selection lasts: a scroll moves it with the card. While
+// the card is out of its scroller's view there is no pill, so a tap never
+// cites into a field the member cannot see.
 export function AskCitePill({
   card,
   cite,
@@ -70,12 +77,18 @@ export function AskCitePill({
   const view = scrollerBox(card);
   if (box.bottom <= view.top || box.top >= view.bottom) return null;
   const top = Math.max(box.top, view.top);
+  const field = card.querySelector("textarea[data-ask-reply-input]");
+  const above = field ? field.getBoundingClientRect().top : box.bottom;
+  const bottom = Math.max(
+    Math.min(above, view.bottom),
+    top + PILL_HEIGHT + PILL_GAP,
+  );
   return (
     <CiteSelectionButton
       cite={cite}
-      containerRect={new DOMRect(box.left, top, box.width, box.bottom - top)}
+      containerRect={new DOMRect(box.left, top, box.width, bottom - top)}
       onClick={onCite}
-      pinned
+      pinned="bottom"
     />
   );
 }

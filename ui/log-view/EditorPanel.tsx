@@ -1773,7 +1773,7 @@ export function EditorPanel({
           cite={citeAt}
           containerRect={citeAt.containerRect}
           onClick={citeSelection}
-          pinned={mobile}
+          pinned={mobile ? "top" : undefined}
         />
       )}
     </div>

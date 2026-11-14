@@ -3,9 +3,9 @@ import { useI18n } from "../i18n.tsx";
 import type { CiteSelection } from "./useSelectionCite.ts";
 
 const PILL_WIDTH = 64;
-const PILL_HEIGHT = 26;
-const PILL_GAP = 6;
-const PILL_EDGE_PAD = 4;
+export const PILL_HEIGHT = 26;
+export const PILL_GAP = 6;
+export const PILL_EDGE_PAD = 4;
 
 /**
  * Floating "Cite" pill rendered above the user's active text selection.
@@ -17,10 +17,11 @@ const PILL_EDGE_PAD = 4;
  *  - Prefers placement above the selection; flips below if there's no room.
  *  - Mounted via a Portal into <body>, so any ancestor with transform /
  *    filter / will-change won't pin us to a smaller containing block.
- *  - `pinned` (the mobile editor, the chat on iOS touch) puts the pill at the
- *    container's top-right corner instead: next to the selection it would
- *    sit under the native selection menu or handles. `topInset` moves the
- *    pinned pill down past an overlay at the container's top.
+ *  - `pinned` puts the pill in a corner of the container instead: next to
+ *    the selection it would sit under the native selection menu or handles.
+ *    "top" (the mobile editor) is the top-right corner; "bottom" (the chat
+ *    and asks on iOS touch) is the bottom-right corner, just above the
+ *    message box below the container.
  *  - Activates on pointerdown, like the terminal's "Send to chat" pill: a
  *    touch blur can otherwise remove the pill before its click fires.
  *    preventDefault keeps the focus and the selection where they are.
@@ -31,23 +32,24 @@ export function CiteSelectionButton({
   cite,
   containerRect,
   onClick,
-  pinned = false,
-  topInset = 0,
+  pinned,
 }: {
   cite: Pick<CiteSelection, "rect">;
   containerRect: DOMRect;
   onClick: () => void;
-  pinned?: boolean;
-  topInset?: number;
+  pinned?: "top" | "bottom";
 }) {
   const { t } = useI18n();
   // Vertical placement: above the selection if room, else below.
   const aboveTop = cite.rect.top - PILL_HEIGHT - PILL_GAP;
-  const placement = pinned
-    ? { top: containerRect.top + topInset + PILL_GAP }
-    : aboveTop >= containerRect.top
-      ? { top: aboveTop }
-      : { top: cite.rect.bottom + PILL_GAP };
+  const placement =
+    pinned === "top"
+      ? { top: containerRect.top + PILL_GAP }
+      : pinned === "bottom"
+        ? { top: containerRect.bottom - PILL_GAP - PILL_HEIGHT }
+        : aboveTop >= containerRect.top
+          ? { top: aboveTop }
+          : { top: cite.rect.bottom + PILL_GAP };
 
   // Horizontal: anchor pill's right edge to the selection's right edge, then
   // clamp inside the container so the pill stays visually attached to the

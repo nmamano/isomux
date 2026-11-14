@@ -1,6 +1,8 @@
-// Task fe7db5ac: the chat's Cite pill on touch screens. On an iPhone it sits
-// in the chat's top-right corner, below the pinned "last message" bar, where
-// it does not fight the native selection menu, and a scroll keeps it. On
+// Task fe7db5ac, moved by 1e119dfb: the chat's Cite pill on touch screens.
+// On an iPhone it sits at the bottom-right of the chat, just above the
+// message box, on the row of the jump-to-bottom button and left of that
+// button's place, so the pill does not move when the button comes or goes.
+// It does not fight the native selection menu, and a scroll keeps it. On
 // Android it is off. With a mouse it stays next to the selection and a scroll
 // hides it. Which device gets which mode is the table in cite-mode.test.ts;
 // this file proves LogView reads the device and places the pill by it.
@@ -11,7 +13,6 @@ setUpDomTestFile();
 
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { LogView } = await import("./LogView.tsx");
-const { PINNED_BAR_HEIGHT } = await import("./pinned-message.ts");
 const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
@@ -87,9 +88,10 @@ const MAC =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 // happy-dom has no layout: the test owns the scroller's box and the
-// selection's box. The selection sits well below the corner, so a pill next
-// to it and a pill in the corner have different positions.
-const SCROLLER = new DOMRect(0, 100, 800, 500); // top 100, right 800
+// selection's box. The selection sits well above the bottom corner, so a pill
+// next to it and a pill in the corner have different positions. The message
+// box starts where the scroller ends.
+const SCROLLER = new DOMRect(0, 100, 800, 500); // top 100, bottom 600, right 800
 const SELECTION = new DOMRect(100, 400, 200, 20); // top 400, right 300
 
 const pill = () =>
@@ -174,30 +176,88 @@ async function selectOn(device: {
   }
 }
 
-it("on an iPhone, pins the pill below the bar band at the right, and a scroll keeps it", async () => {
+const jumpButton = () =>
+  document.body.querySelector<HTMLElement>("[data-jump-to-bottom]");
+
+// The jump button's box, from its own style: it is placed from the message
+// box's top-right corner (bottom: calc(100% + gap), right), and the message
+// box starts at the scroller's bottom.
+function jumpBox(button: HTMLElement) {
+  const gap = /^calc\(100% \+ (\d+(?:\.\d+)?)px\)$/.exec(button.style.bottom);
+  if (!gap) throw new Error(`unexpected jump bottom: ${button.style.bottom}`);
+  const size = parseFloat(button.style.height);
+  const width = parseFloat(button.style.width);
+  const right = SCROLLER.right - parseFloat(button.style.right);
+  const bottom = SCROLLER.bottom - parseFloat(gap[1]);
+  return { left: right - width, right, top: bottom - size, bottom };
+}
+
+function pillBox(shown: HTMLElement) {
+  const top = parseFloat(shown.style.top);
+  const left = parseFloat(shown.style.left);
+  return {
+    top,
+    left,
+    right: left + parseFloat(shown.style.width),
+    bottom: top + parseFloat(shown.style.height),
+  };
+}
+
+// Scrolls the chat up from far below its end, so it stops following the end
+// and shows the jump-to-bottom button. happy-dom has no layout: the test owns
+// the scroll sizes.
+async function scrollUp(scroller: HTMLElement) {
+  for (const [key, value] of Object.entries({
+    scrollHeight: 5000,
+    clientHeight: SCROLLER.height,
+  }))
+    Object.defineProperty(scroller, key, { configurable: true, value });
+  for (const top of [3000, 2500]) {
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: top,
+    });
+    await act(async () => {
+      fireEvent.scroll(scroller);
+    });
+  }
+  await settle();
+}
+
+it("on an iPhone, pins the pill above the message box at the right, beside the jump button's place, and a scroll keeps it there", async () => {
   const { scroller, cleanup } = await selectOn({
     coarse: true,
     userAgent: IPHONE,
     platform: "iPhone",
   });
   try {
+    // At the end of the chat: no jump button yet.
+    expect(jumpButton() === null).toBe(true);
     const shown = pill();
     expect(shown === null).toBe(false);
-    const top = parseFloat(shown!.style.top);
-    const left = parseFloat(shown!.style.left);
-    const width = parseFloat(shown!.style.width);
-    // Below the pinned "last message" bar, near the top of the chat: not
-    // over the bar's arrow, and not next to the selection.
-    expect(top).toBeGreaterThanOrEqual(SCROLLER.top + PINNED_BAR_HEIGHT);
-    expect(top).toBeLessThan(SCROLLER.top + PINNED_BAR_HEIGHT + 20);
-    // At the chat's right edge, right of the selection's end.
-    expect(left + width).toBeGreaterThan(SCROLLER.right - 20);
-    expect(left + width).toBeLessThanOrEqual(SCROLLER.right);
+    const before = pillBox(shown!);
+    // Near the bottom of the chat, above the message box: not next to the
+    // selection (top 400).
+    expect(before.bottom).toBeLessThanOrEqual(SCROLLER.bottom);
+    expect(before.top).toBeGreaterThan(SCROLLER.bottom - 80);
 
-    await act(async () => {
-      fireEvent.scroll(scroller);
-    });
-    expect(pill() === null).toBe(false);
+    await scrollUp(scroller);
+    const jump = jumpButton();
+    expect(jump === null).toBe(false);
+    const after = pill();
+    expect(after === null).toBe(false);
+    // The scroll that brought the jump button did not move the pill.
+    expect(pillBox(after!)).toEqual(before);
+    const j = jumpBox(jump!);
+    // On the jump button's row: the two centres line up.
+    expect(
+      Math.abs((before.top + before.bottom) / 2 - (j.top + j.bottom) / 2),
+    ).toBeLessThanOrEqual(1);
+    // Just left of the jump button, never under it; right of the selection.
+    expect(before.right).toBeLessThanOrEqual(j.left);
+    expect(before.right).toBeGreaterThan(j.left - 16);
+    expect(before.left).toBeGreaterThan(SELECTION.right);
   } finally {
     cleanup();
   }
