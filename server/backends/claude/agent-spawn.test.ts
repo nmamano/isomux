@@ -6,17 +6,17 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 import {
   localAgentHost,
-  setAgentHost,
+  setOfficeAgentHost,
   type SpawnChildOptions,
 } from "../../agent-host.ts";
 import { realV1SdkClient } from "../claude.ts";
 import { withAgentSpawn } from "./agent-spawn.ts";
 
-afterEach(() => setAgentHost(localAgentHost));
+afterEach(() => setOfficeAgentHost(localAgentHost));
 
 function recordingHost() {
   const spawns: SpawnChildOptions[] = [];
-  setAgentHost({
+  setOfficeAgentHost({
     ...localAgentHost,
     spawnChild: (_argv, options = {}) => {
       spawns.push(options);

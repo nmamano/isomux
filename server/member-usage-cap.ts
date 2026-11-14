@@ -39,7 +39,7 @@ import {
 const DAY_MS = WEEK_MS / 7;
 
 import { getUserById, getUserByName } from "./users.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 
 // The account a session bills: its provider and account directory. Null for
 // a backend the cap does not cover (OpenCode).
@@ -69,7 +69,10 @@ export function billingAccountFor(
   if (agentType !== "claude" && agentType !== "codex") return null;
   return {
     provider: agentType,
-    dir: effectiveProviderDirectory(agentType, env ?? getAgentHost().baseEnv()),
+    dir: effectiveProviderDirectory(
+      agentType,
+      env ?? officeAgentHost().baseEnv(),
+    ),
   };
 }
 

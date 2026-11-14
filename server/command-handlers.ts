@@ -10,6 +10,7 @@ import type {
   SessionInfo,
   UserRecord,
 } from "../shared/types.ts";
+import { hostFor } from "./member-hosts.ts";
 import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { ENGINE_NAMES, ordinaryRooms } from "../shared/types.ts";
 import { isTopicSource, sessionResumeLabel } from "../shared/session-label.ts";
@@ -58,7 +59,6 @@ import { recordSkillUse } from "./skill-usage.ts";
 import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
 import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
 import { renderStorageReport, type AgentLabel } from "./storage-report.ts";
-import { getAgentHost } from "./agent-host.ts";
 import {
   resolveEditorPath,
   openFile as openEditorFile,
@@ -1320,7 +1320,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
-      const result = await getAgentHost().isomuxDiff({
+      // git runs the repo's config hooks: the diff runs as the manager's
+      // OS user (an isolated member's own host).
+      const result = await hostFor(managed.info.userId).isomuxDiff({
         dir: args[0],
         agentCwd: managed.info.cwd,
       });

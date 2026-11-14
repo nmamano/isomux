@@ -1,8 +1,9 @@
 import type { AuditActor } from "../shared/audit.ts";
+import { hostFor } from "./member-hosts.ts";
 import { recordAudit } from "./audit-store.ts";
 import { join } from "path";
 import type { ManagedAgent } from "./internal-types.ts";
-import { getAgentHost, type AgentHost } from "./agent-host.ts";
+import type { AgentHost } from "./agent-host.ts";
 import { startTerminalRecording } from "./terminal-recorder.ts";
 
 const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
@@ -32,7 +33,7 @@ export interface TerminalDeps {
   buildEnvForUserId: (
     userId: string | null | undefined,
   ) => Record<string, string | undefined> | undefined;
-  // Defaults to the office's agent host (server/agent-host.ts).
+  // Defaults to the host of the agent's manager (server/member-hosts.ts).
   host?: AgentHost;
   // The office setting "Record terminals", read at each terminal start.
   recordTerminals?: () => boolean;
@@ -60,7 +61,7 @@ export function terminalEnv(
   deps: Pick<TerminalDeps, "buildEnvForUserId" | "host">,
 ): { shell: string; env: Record<string, string> } {
   const managedEnv = deps.buildEnvForUserId(managed.info.userId);
-  const host = deps.host ?? getAgentHost();
+  const host = deps.host ?? hostFor(managed.info.userId);
   const hostEnv = host.baseEnv();
   const shell = hostEnv.SHELL || "/bin/bash";
   const env: Record<string, string> = {
@@ -115,7 +116,7 @@ export function openTerminal(
     ...env.env,
     TERM: "xterm-256color",
   };
-  const host = deps.host ?? getAgentHost();
+  const host = deps.host ?? hostFor(managed.info.userId);
 
   const bunPath = host.bunPath();
   const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);

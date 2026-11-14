@@ -31,7 +31,9 @@ export type CheckId =
   | "share-group"
   | "share-setgid"
   | "share-agent-write"
-  | "share-entry-type";
+  | "share-entry-type"
+  | "member-privileged-group"
+  | "office-home-closed";
 
 export interface CheckFailure {
   check: CheckId;
@@ -133,23 +135,17 @@ export function agentAccess(
   return acl.find((entry) => entry.tag === ACL_OTHER)?.perm ?? 0;
 }
 
-export function runTrustedChecks(input: TrustedCheckInput): CheckFailure[] {
-  const fs = input.fs ?? realFs;
-  const { agent, serverUid } = input;
-  const failures: CheckFailure[] = [];
-  const fail = (check: CheckId, detail: string, path?: string) =>
-    failures.push({ check, path, detail });
+export type FailFn = (check: CheckId, detail: string, path?: string) => void;
 
-  if (agent.uid === 0) fail("agent-not-root", "the agent user is root");
-  if (agent.uid === serverUid)
-    fail("agent-not-server", "the agent user is the server user");
-  if (agent.gid === input.serverGid || agent.groups.includes(input.serverGid))
-    fail(
-      "server-group-private",
-      "the agent user is in the server user's primary group",
-    );
-  if (failures.length > 0) return failures;
-
+// The checks of private paths: owned by root or `ownerUid`, with no write for
+// `agent`. Shared by split mode and the member checks (server/member-hosts.ts).
+export function privateChecks(
+  fs: FsProbe,
+  ownerUid: number,
+  agent: AgentIdentity,
+  fail: FailFn,
+) {
+  const serverUid = ownerUid;
   const facts = (path: string): FileFacts | null => {
     try {
       return fs.lstat(path);
@@ -270,6 +266,29 @@ export function runTrustedChecks(input: TrustedCheckInput): CheckFailure[] {
     for (const name of names)
       walkPrivate(join(real, name), remaining - 1, visited);
   };
+
+  return { facts, acl, agentWrites, resolvePrivate, walkPrivate };
+}
+
+export function runTrustedChecks(input: TrustedCheckInput): CheckFailure[] {
+  const fs = input.fs ?? realFs;
+  const { agent, serverUid } = input;
+  const failures: CheckFailure[] = [];
+  const fail = (check: CheckId, detail: string, path?: string) =>
+    failures.push({ check, path, detail });
+
+  if (agent.uid === 0) fail("agent-not-root", "the agent user is root");
+  if (agent.uid === serverUid)
+    fail("agent-not-server", "the agent user is the server user");
+  if (agent.gid === input.serverGid || agent.groups.includes(input.serverGid))
+    fail(
+      "server-group-private",
+      "the agent user is in the server user's primary group",
+    );
+  if (failures.length > 0) return failures;
+
+  const { facts, acl, agentWrites, resolvePrivate, walkPrivate } =
+    privateChecks(fs, serverUid, agent, fail);
 
   // State root: private, and closed to the agent user entirely.
   const stateReal = resolvePrivate(input.stateRoot);

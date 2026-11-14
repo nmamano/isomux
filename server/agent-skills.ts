@@ -1,6 +1,7 @@
 // The Sk menu and member skill folders of each agent, and the environment of
 // the member's OpenCode server that skill folders and session starts read.
 // Moved out of createAgentManager (server/agent-manager.ts), which wires it.
+import { hostFor } from "./member-hosts.ts";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -11,7 +12,7 @@ import type {
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import { openCodeUserConfigDir } from "./backends/opencode/config-layers.ts";
 import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
@@ -92,7 +93,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     env: { [key: string]: string | undefined } | undefined,
     built?: Map<string, string | null>,
   ): string | null {
-    const host = getAgentHost();
+    const host = hostFor(info.userId);
     if (host.kind === "runner") return null;
     try {
       const engine = info.agentType;
@@ -365,7 +366,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     const wanted = officeWanted(userId, "opencode", undefined);
     if (wanted && "apiKey" in wanted.office)
       return {
-        ...(env ?? getAgentHost().baseEnv()),
+        ...(env ?? officeAgentHost().baseEnv()),
         OPENCODE_API_KEY: wanted.office.apiKey,
       };
     return env;

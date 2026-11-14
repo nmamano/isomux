@@ -8,7 +8,7 @@ import type { RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { buildEnvForUserId } from "../env-loader.ts";
-import { getAgentHost } from "../agent-host.ts";
+import { officeAgentHost } from "../agent-host.ts";
 import { claudeConfigRoot } from "../claude-session-root.ts";
 import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import {
@@ -59,7 +59,7 @@ const drive: Server = {
 const MARKER = "init handled";
 
 const currentDir = () =>
-  claudeConfigRoot(buildEnvForUserId(USER) ?? getAgentHost().baseEnv());
+  claudeConfigRoot(buildEnvForUserId(USER) ?? officeAgentHost().baseEnv());
 
 // What one status read answers: a list, or a function that answers it later.
 type Read = Server[] | (() => Promise<Server[]>);

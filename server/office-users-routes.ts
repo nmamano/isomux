@@ -3,6 +3,7 @@
 // removed members (list, restore, purge). Moved out of buildExecutorDeps in
 // server/isomux-office.ts, which registers them and keeps their
 // userDeleteNotSelfOwner and userDeleteNotLastOwner preconditions.
+import { hasMemberOsUser } from "./member-os-users.ts";
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
 import type { AgentInfo, UserRecord, WebhookRecord } from "../shared/types.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
@@ -51,6 +52,8 @@ import {
   memberNameRefusal,
   deleteUser,
   deleteUserById,
+  ISOLATED_OWNER_ERROR,
+  ISOLATED_REMOVAL_ERROR,
   getUser,
   getUserById,
   listUsers,
@@ -479,6 +482,18 @@ export function createUsersRoutes(
           error: "Only an office owner can change a member's access.",
         };
       }
+      if (
+        changes.role === "owner" &&
+        target.role !== "owner" &&
+        hasMemberOsUser(target.id)
+      ) {
+        return {
+          ok: false,
+          status: 409,
+          code: "member_os_user",
+          error: ISOLATED_OWNER_ERROR,
+        };
+      }
       // Before the session lockout check, so a sole owner gets this answer.
       if (changes.role === "member" && wouldDeleteLeaveNoOwner(target.id)) {
         return {
@@ -838,6 +853,13 @@ export function createUsersRoutes(
       // moves nothing. They run again with the record removal below: the
       // awaits between can let a sign-out or another delete land.
       // owner!=self is enforced by userDeleteNotSelfOwner upstream.
+      if (target && hasMemberOsUser(target.id))
+        return {
+          ok: false as const,
+          status: 409 as const,
+          code: "member_os_user",
+          error: ISOLATED_REMOVAL_ERROR,
+        };
       if (target && wouldDeleteLeaveNoOwner(target.id)) return lastOwnerRecord;
       if (target && (await ownerRemovalWouldStrandOffice(target.id))) {
         return lastOwnerSession;
@@ -989,6 +1011,13 @@ export function createUsersRoutes(
           status: 409,
           code: "name_taken",
           error: `User "${member.user.name}" already exists`,
+        };
+      if (member.user.role === "owner" && hasMemberOsUser(id))
+        return {
+          ok: false,
+          status: 409,
+          code: "member_os_user",
+          error: ISOLATED_OWNER_ERROR,
         };
       // Files first, then the record, then the archive goes: the live
       // record wins at boot, so a crash part way loses nothing. A refused

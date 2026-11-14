@@ -9,7 +9,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   localAgentHost,
-  setAgentHost,
+  setOfficeAgentHost,
   type SpawnChildOptions,
 } from "../../agent-host.ts";
 import { ISOMUX_CODEX_HOME } from "./native-bin.ts";
@@ -27,7 +27,7 @@ const THREAD = "019a0000-0000-7000-8000-000000000000";
 // codex of its own.
 await prepareCodexSafetyHookArtifact();
 
-afterEach(() => setAgentHost(localAgentHost));
+afterEach(() => setOfficeAgentHost(localAgentHost));
 
 describe("Codex session access", () => {
   for (const call of ["getSessionMessages", "forkSessionBeforeMessage"])
@@ -38,7 +38,7 @@ describe("Codex session access", () => {
       mkdirSync(userHome);
       mkdirSync(cwd);
       const spawns: SpawnChildOptions[] = [];
-      setAgentHost({
+      setOfficeAgentHost({
         ...localAgentHost,
         // The recorded options are the oracle, so the child need not be
         // codex: it exits at once and the call fails after the start.
@@ -79,7 +79,7 @@ describe("the Codex app-server at each stop", () => {
       const cwd = join(root, "work");
       mkdirSync(cwd);
       const spawns: SpawnChildOptions[] = [];
-      setAgentHost({
+      setOfficeAgentHost({
         ...localAgentHost,
         spawnChild: (_argv, options = {}) => {
           spawns.push(options);

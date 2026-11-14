@@ -6,7 +6,7 @@ import type {
   SessionStoreEntry,
 } from "@anthropic-ai/claude-agent-sdk";
 import { claudeProjectDir } from "../../cwd-utils.ts";
-import { getAgentHost } from "../../agent-host.ts";
+import { hostForEnv } from "../../member-hosts.ts";
 
 // The SDK's dir option is a cwd, not a storage directory. Its local helpers
 // otherwise use the office process root. A per-call store confines native
@@ -18,7 +18,8 @@ export function claudeSessionStore(
   cwd: string,
   env?: Record<string, string | undefined>,
 ): SessionStore {
-  const host = getAgentHost();
+  // An isolated member's env names its member: their host reads and forks.
+  const host = hostForEnv(env);
   const projectDir = claudeProjectDir(cwd, env ?? host.baseEnv());
   return {
     async load(key) {

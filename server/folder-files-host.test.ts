@@ -15,9 +15,9 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  getAgentHost,
+  officeAgentHost,
   localAgentHost,
-  setAgentHost,
+  setOfficeAgentHost,
   type AgentHost,
 } from "./agent-host.ts";
 import { runFolderFiles } from "./folder-files-host.ts";
@@ -27,7 +27,7 @@ const made: string[] = [];
 afterAll(() => {
   for (const dir of made) rmSync(dir, { recursive: true, force: true });
 });
-afterEach(() => setAgentHost(localAgentHost));
+afterEach(() => setOfficeAgentHost(localAgentHost));
 
 function folder(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "folder-files-host-")));
@@ -125,8 +125,8 @@ describe("runFolderFiles in split mode", () => {
 
   function runner(runEntry: AgentHost["runEntry"]): unknown[][] {
     const calls: unknown[][] = [];
-    setAgentHost({
-      ...getAgentHost(),
+    setOfficeAgentHost({
+      ...officeAgentHost(),
       kind: "runner",
       runEntry: (...args: Parameters<AgentHost["runEntry"]>) => {
         calls.push(args);

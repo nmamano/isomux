@@ -9,7 +9,7 @@ import {
   CODEX_DEFAULT_SANDBOX,
   type AgentBackendType,
 } from "../shared/types.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import {
   probeProcessIsolation,
   processIsolationStatus,
@@ -22,7 +22,7 @@ import {
 let probe: ProcessIsolationProbe | null = null;
 let readSwitch: () => boolean = () => true;
 let probeDeps: () => ProcessIsolationProbeDeps = () => {
-  const host = getAgentHost();
+  const host = officeAgentHost();
   return {
     platform: process.platform,
     env: host.baseEnv(),

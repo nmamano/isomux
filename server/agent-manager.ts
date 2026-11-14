@@ -8,6 +8,7 @@ import {
   releaseHold,
   type FlushRun,
 } from "./queue-flush.ts";
+import { hostFor } from "./member-hosts.ts";
 import { usageLimitStoppedText } from "./limit-resume.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import type { PagerEntry, PagerSource } from "../shared/types.ts";
@@ -171,7 +172,7 @@ import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { usageAccountKey } from "./usage-account.ts";
 import type { BrowserResult } from "./browser-actions.ts";
 import {
@@ -3104,7 +3105,7 @@ export function createAgentManager(deps: ManagerDeps) {
       env,
       account: effectiveProviderDirectory(
         provider,
-        env ?? getAgentHost().baseEnv(),
+        env ?? officeAgentHost().baseEnv(),
       ),
     };
   }
@@ -5337,14 +5338,14 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
     managed.launchedClaudeCloud =
       managed.info.agentType === "claude" &&
-      isClaudeCloudSelected(env ?? getAgentHost().baseEnv());
+      isClaudeCloudSelected(env ?? officeAgentHost().baseEnv());
     managed.claudeApiKeySource = undefined;
     managed.billingAccount = billingAccountFor(managed.info.agentType, env);
     managed.launchedOpenCodeKey =
       managed.info.agentType === "opencode" ? env?.OPENCODE_API_KEY : undefined;
     managed.launchedUsageKey = usageAccountKey(
       managed.info.agentType,
-      env ?? getAgentHost().baseEnv(),
+      env ?? officeAgentHost().baseEnv(),
     );
     // The idle answers are derived again at release: a launch can record what
     // they depend on (a Claude session's folder) with no change to their stamp.
@@ -9677,10 +9678,10 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   const terminalDeps: TerminalDeps = {
-    // The terminal starts from the agent host's environment, so a split
-    // office never copies the server's own environment into the shell.
-    buildEnvForUserId: (userId) =>
-      buildEnvForUserId(userId, getAgentHost().baseEnv()),
+    // The terminal starts from the agent host's environment (the member's
+    // own host for an isolated member), so a split office never copies the
+    // server's own environment into the shell.
+    buildEnvForUserId: (userId) => buildEnvForUserId(userId),
     getAgent: (agentId) => agents.get(agentId),
     emit: (event) => emit(event),
     recordTerminals: () => loadRecordTerminals(),
@@ -9699,11 +9700,13 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (!managed) throw new Error("no such agent");
     const { shell, env } = terminalEnv(managed, terminalDeps);
+    const host = hostFor(managed.info.userId);
     return startAskRun({
       command,
       cwd: managed.info.cwd,
       env: { ...env, TERM: "dumb" },
       shell,
+      spawn: (argv, options) => host.spawnChild(argv, options),
     });
   }
 

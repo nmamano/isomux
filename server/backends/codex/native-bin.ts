@@ -18,6 +18,7 @@
 // internal-docs/isolation-design.md) are honored verbatim and override the
 // isomux default. The default only kicks in when no env source has set it.
 
+import { hostForEnv } from "../../member-hosts.ts";
 import {
   chmodSync,
   existsSync,
@@ -29,7 +30,7 @@ import { join } from "path";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "../../split/roots.ts";
 
 import { errMessage } from "../../../shared/errors.ts";
-import { getAgentHost } from "../../agent-host.ts";
+import { officeAgentHost } from "../../agent-host.ts";
 import { stableBunPath } from "../../stable-bun-path.ts";
 
 const ISOMUX_ROOT = join(import.meta.dir, "..", "..", "..");
@@ -125,7 +126,7 @@ export function getCodexPinnedVersion(): string {
 export function withIsomuxCodexHome(
   baseEnv: { [key: string]: string | undefined } | undefined,
 ): { [key: string]: string | undefined } {
-  const host = getAgentHost();
+  const host = hostForEnv(baseEnv);
   const merged = { ...(baseEnv ?? host.baseEnv()) };
   if (!merged.CODEX_HOME) {
     // The runner host creates it as the agent user (client.ts start()).
@@ -158,7 +159,7 @@ export function withIsomuxCodexHome(
 export function isCodexAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
-  const effective = env ?? getAgentHost().baseEnv();
+  const effective = env ?? officeAgentHost().baseEnv();
   if (effective.OPENAI_API_KEY) return true;
   const codexHome = effective.CODEX_HOME || ISOMUX_CODEX_HOME;
   return existsSync(join(codexHome, "auth.json"));
@@ -172,10 +173,10 @@ export function isCodexAuthenticated(env?: {
 export async function codexEnvApiKeyWins(env?: {
   [key: string]: string | undefined;
 }): Promise<boolean> {
-  const effective = env ?? getAgentHost().baseEnv();
+  const effective = env ?? officeAgentHost().baseEnv();
   if (!effective.OPENAI_API_KEY) return false;
   const codexHome = effective.CODEX_HOME || ISOMUX_CODEX_HOME;
-  return !(await getAgentHost().fs.exists(join(codexHome, "auth.json")));
+  return !(await hostForEnv(env).fs.exists(join(codexHome, "auth.json")));
 }
 
 // Idempotently materialize the `~/.isomux/bin/codex` wrapper script that

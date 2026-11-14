@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { hostForEnv } from "./member-hosts.ts";
 import { unlinkSync } from "node:fs";
 import type { MemberProviderStatus } from "../shared/contract-shapes.ts";
 import { isAbsolute, resolve } from "node:path";
@@ -37,7 +38,7 @@ import {
 import { providerFallback } from "./provider-fallback.ts";
 import { memberUsageCap } from "./member-usage-cap.ts";
 import { clearClaudeConnectors } from "./claude-connectors.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 
 const CLAUDE_CONFIG_INVALID =
   "CLAUDE_CONFIG_DIR must be an absolute directory.";
@@ -96,7 +97,7 @@ export function effectiveProviderDirectory(
   return provider === "claude"
     ? resolve(
         env.CLAUDE_CONFIG_DIR?.trim() ||
-          resolve(getAgentHost().home(), ".claude"),
+          resolve(hostForEnv(env).home(), ".claude"),
       )
     : resolve(withIsomuxCodexHome(env).CODEX_HOME ?? ISOMUX_CODEX_HOME);
 }
@@ -222,7 +223,7 @@ export class ProviderAccountManager {
     provider: ProviderAccountProvider,
   ): EffectiveProviderAccountTarget {
     const office = this.target(userId, provider, "office");
-    const env = this.envForUser(userId) ?? getAgentHost().baseEnv();
+    const env = this.envForUser(userId) ?? officeAgentHost().baseEnv();
     if (provider === "claude" && isClaudeCloudSelected(env)) {
       const target = isClaudeCloudSelected(this.userEnv(userId))
         ? this.target(userId, provider, "personal")
@@ -317,7 +318,7 @@ export class ProviderAccountManager {
           dir: officeDir,
           shared: this.users().length > 1,
           env: {
-            ...(this.envForUser(userId) ?? getAgentHost().baseEnv()),
+            ...(this.envForUser(userId) ?? officeAgentHost().baseEnv()),
             CODEX_HOME: officeDir,
           },
           externalCli: officeDir === resolve(homedir(), ".codex"),
@@ -356,7 +357,7 @@ export class ProviderAccountManager {
         dir,
         shared: false,
         env: {
-          ...(this.envForUser(userId) ?? getAgentHost().baseEnv()),
+          ...(this.envForUser(userId) ?? officeAgentHost().baseEnv()),
           CODEX_HOME: dir,
         },
         autoPersonal,
@@ -412,7 +413,7 @@ export class ProviderAccountManager {
       dir,
       shared: false,
       env: {
-        ...(this.envForUser(userId) ?? getAgentHost().baseEnv()),
+        ...(this.envForUser(userId) ?? officeAgentHost().baseEnv()),
         CLAUDE_CONFIG_DIR: dir,
         // This card measures the member's connection, like its personal home.
         // Office cloud selection belongs to the office card.
@@ -544,7 +545,7 @@ export class ProviderAccountManager {
       if (
         source &&
         !(await codexEnvApiKeyWins(
-          this.envForUser(userId) ?? getAgentHost().baseEnv(),
+          this.envForUser(userId) ?? officeAgentHost().baseEnv(),
         ))
       )
         source = null;

@@ -35,12 +35,17 @@ export interface FolderFilesAgent {
   access: AgentAccess;
   folder: string;
   codexHome?: string;
+  // The agent's manager: the call runs on that member's host.
+  userId?: string | null;
 }
 
 export interface FolderMcpDeps {
   // null: no such agent.
   agentNow(agentId: string): FolderFilesAgent | null;
-  run(req: FolderFilesRequest): Promise<FolderFilesResult>;
+  run(
+    req: FolderFilesRequest,
+    userId?: string | null,
+  ): Promise<FolderFilesResult>;
 }
 
 function errorResponse(status: number, code: string): Response {
@@ -134,13 +139,16 @@ function buildServer(agent: FolderFilesAgent, deps: FolderMcpDeps): McpServer {
         annotations: { readOnlyHint: true },
       },
       async (args): Promise<CallToolResult> => {
-        const result = await deps.run({
-          tool: tool.name,
-          args,
-          folder: agent.folder,
-          access: agent.access,
-          ...(agent.codexHome ? { codexHome: agent.codexHome } : {}),
-        });
+        const result = await deps.run(
+          {
+            tool: tool.name,
+            args,
+            folder: agent.folder,
+            access: agent.access,
+            ...(agent.codexHome ? { codexHome: agent.codexHome } : {}),
+          },
+          agent.userId,
+        );
         return result.ok
           ? { content: [{ type: "text", text: result.text }] }
           : { content: [{ type: "text", text: result.error }], isError: true };

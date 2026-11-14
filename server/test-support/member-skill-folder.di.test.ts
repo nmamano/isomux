@@ -29,7 +29,7 @@ import {
 import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import type { PersistedAgent } from "../persistence.ts";
 import { ISOMUX_CODEX_HOME } from "../backends/codex/native-bin.ts";
-import { getAgentHost, setAgentHost } from "../agent-host.ts";
+import { officeAgentHost, setOfficeAgentHost } from "../agent-host.ts";
 
 type Engine = "claude" | "codex" | "opencode";
 const BUNDLED = ["figure-it-out", "grill-me", "loose-ends", "wrap-session"];
@@ -411,9 +411,9 @@ describe("member skill folder at a session start", () => {
 
   it("builds no folder in split mode", async () => {
     const h = setup("split");
-    const previous = getAgentHost();
-    setAgentHost({ ...previous, kind: "runner" });
-    restore.push(() => setAgentHost(previous));
+    const previous = officeAgentHost();
+    setOfficeAgentHost({ ...previous, kind: "runner" });
+    restore.push(() => setOfficeAgentHost(previous));
     for (const agentType of ["claude", "codex", "opencode"] as const) {
       const agent = await h.start(agentType, "0d1e0007");
       expect([

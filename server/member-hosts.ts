@@ -1,0 +1,501 @@
+// The agent host of each member (internal-docs/member-os-user-design.md,
+// section 1.1). A member with no OS user, and an agent with no manager, use the
+// office host (server/agent-host.ts). A member with an OS user
+// (server/member-os-users.ts) uses the RunnerAgentHost of their runner, which
+// runs as that user; until it is connected and its checks pass, a not-ready
+// host that fails every operation. hostFor never gives such a member the
+// office host.
+
+import { spawn, spawnSync } from "child_process";
+import { realpathSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+import {
+  failedAgentChild,
+  failedAgentProcess,
+  memberEnvOwner,
+  officeAgentHost,
+  type AgentFs,
+  type AgentHost,
+} from "./agent-host.ts";
+import { RunnerAgentHost } from "./agent-runner/client.ts";
+import { STATE_ROOT } from "./config.ts";
+import {
+  memberOsUserIds,
+  memberOsUserState,
+  type MemberOsUser,
+} from "./member-os-users.ts";
+import { CODE_ROOT, readAgentIdentity } from "./split/start.ts";
+import {
+  agentAccess,
+  privateChecks,
+  realFs,
+  type CheckFailure,
+  type CheckId,
+  type FsProbe,
+} from "./split/trusted-checks.ts";
+import { readPeerCredentials } from "./unix-socket-server.ts";
+
+export const MEMBER_HOST_NOT_READY = "MEMBER_HOST_NOT_READY";
+// What home() and bunPath() of a not-ready host return: a path that does not
+// exist, never an office value. username() is "".
+export const NOT_READY_PATH = "/nonexistent/isomux-member-host-not-ready";
+
+const DEFAULT_RUNNER_ROOT = "/run";
+let runnerRoot = DEFAULT_RUNNER_ROOT;
+
+// The member runner's socket: <root>/isomux-runner-<name>/runner.sock, where
+// the unit's RuntimeDirectory puts it. Root is /run; tests set another.
+export function memberRunnerSocketPath(osUserName: string): string {
+  return join(runnerRoot, `isomux-runner-${osUserName}`, "runner.sock");
+}
+
+export function setMemberRunnerRoot(root: string | null): void {
+  runnerRoot = root ?? DEFAULT_RUNNER_ROOT;
+}
+
+interface Connected {
+  osUser: MemberOsUser;
+  host: AgentHost;
+}
+
+const connected = new Map<string, Connected>();
+const retries = new Map<string, ReturnType<typeof setTimeout>>();
+
+// The host for the agents of `userId`.
+export function hostFor(userId: string | null | undefined): AgentHost {
+  const state = memberOsUserState(userId);
+  if (state.kind === "none") return officeAgentHost();
+  if (state.kind === "broken") return createNotReadyHost(userId!, state.reason);
+  const entry = connected.get(userId!);
+  if (
+    entry &&
+    entry.osUser.name === state.osUser.name &&
+    entry.osUser.uid === state.osUser.uid
+  )
+    return entry.host;
+  return createNotReadyHost(userId!, "the member's OS user is not ready");
+}
+
+function notReadyError(reason: string): NodeJS.ErrnoException {
+  return Object.assign(
+    new Error(`the member's OS user is not ready: ${reason}`),
+    { code: MEMBER_HOST_NOT_READY },
+  );
+}
+
+// Every operation fails: spawnChild emits "error" with code
+// MEMBER_HOST_NOT_READY, spawnPipe's exited resolves non-zero, run, fs and
+// runEntry reject, isomuxDiff returns git_error. baseEnv() is {}.
+export function createNotReadyHost(userId: string, reason: string): AgentHost {
+  const reject = () => Promise.reject(notReadyError(reason));
+  const fs: AgentFs = {
+    readText: reject,
+    writeText: reject,
+    mkdir: reject,
+    rm: reject,
+    exists: reject,
+    chmod: reject,
+  };
+  const host: AgentHost = {
+    kind: "runner",
+    member: userId,
+    baseEnv: () => ({}),
+    home: () => NOT_READY_PATH,
+    username: () => "",
+    bunPath: () => NOT_READY_PATH,
+    spawnPipe: () => failedAgentProcess(),
+    spawnChild: () => failedAgentChild(notReadyError(reason)),
+    run: reject,
+    fs,
+    isomuxDiff: async (req) => ({
+      kind: "git_error",
+      cwd: req.dir ?? req.agentCwd,
+      message: notReadyError(reason).message,
+    }),
+    runEntry: reject,
+  };
+  return host;
+}
+
+export interface MemberCheckInput {
+  officeUid: number;
+  // The office user's groups (process.getgroups()).
+  officeGroups: number[];
+  member: { uid: number; gid: number; groups: number[] };
+  // The gids of sudo, wheel, admin, adm and docker that exist on this box.
+  privilegedGroups: number[];
+  officeHome: string;
+  stateRoot: string;
+  codeRoot: string;
+  fs?: FsProbe;
+  // False skips the code-tree walk below codeRoot (its ancestors are still
+  // checked): the connect walks the tree once per member identity, in a child
+  // process (memberCodeTreeChecks).
+  walkCode?: boolean;
+}
+
+const SEARCH = 1;
+
+// Design section 1.2, the part the office user can make: the member's uid,
+// its groups, no effective search on the office home and no effective write
+// on STATE_ROOT, the code tree and their ancestors. "Cannot become root" is
+// the root command's (slice 1b).
+export function memberTrustedChecks(input: MemberCheckInput): CheckFailure[] {
+  const fs = input.fs ?? realFs;
+  const { member, officeUid } = input;
+  const failures: CheckFailure[] = [];
+  const fail = (check: CheckId, detail: string, path?: string) =>
+    failures.push({ check, path, detail });
+  const groups = [member.gid, ...member.groups];
+  if (member.uid === 0) fail("agent-not-root", "the member's OS user is root");
+  if (member.uid === officeUid)
+    fail("agent-not-server", "the member's OS user is the office user");
+  const shared = groups.filter((gid) => input.officeGroups.includes(gid));
+  if (shared.length > 0)
+    fail(
+      "server-group-private",
+      `the member's OS user is in the office user's group ${shared[0]}`,
+    );
+  const privileged = groups.filter((gid) =>
+    input.privilegedGroups.includes(gid),
+  );
+  if (privileged.length > 0)
+    fail(
+      "member-privileged-group",
+      `the member's OS user is in the privileged group ${privileged[0]}`,
+    );
+  if (failures.length > 0) return failures;
+
+  const { facts, acl, resolvePrivate, walkPrivate } = privateChecks(
+    fs,
+    officeUid,
+    member,
+    fail,
+  );
+  // The office home: no search, so nothing below it is reachable by name.
+  const home = resolvePrivate(input.officeHome);
+  const homeFacts = home ? facts(home) : null;
+  if (home && homeFacts) {
+    const access = acl(home, "access");
+    if (access.ok && agentAccess(homeFacts, access.entries, member) & SEARCH)
+      fail(
+        "office-home-closed",
+        `the member's OS user can search it; run chmod o-x ${home} and remove any group or ACL grant`,
+        home,
+      );
+  }
+  // The state root: private and closed, also when it is outside the home.
+  const state = resolvePrivate(input.stateRoot);
+  const stateFacts = state ? facts(state) : null;
+  if (state && stateFacts) {
+    const access = acl(state, "access");
+    if (access.ok && agentAccess(stateFacts, access.entries, member) !== 0)
+      fail(
+        "state-root-closed",
+        "the member's OS user can read, write or search it",
+        state,
+      );
+  }
+  if (input.walkCode === false) resolvePrivate(input.codeRoot);
+  else walkPrivate(input.codeRoot, Infinity, new Map());
+  return failures;
+}
+
+// The whole code walk of the member checks, in a child process: it takes
+// seconds on a full install (12.8 s for 53k entries, measured 2026-11-14) and
+// must not hold the event loop. The verdict is kept per member identity for
+// the life of this process: the code tree changes only with an update, which
+// restarts the server. A child that fails is not kept, and fails closed.
+const codeTreeVerdicts = new Map<string, Promise<CheckFailure[]>>();
+const CODE_CHECK_CHILD = join(import.meta.dir, "member-code-check.ts");
+
+// The child's answer. `kept`: false when the child gave no verdict (it could
+// not start, timed out, crashed or answered no list); the failure then fails
+// closed for this connect only.
+interface CodeCheckAnswer {
+  failures: CheckFailure[];
+  kept: boolean;
+}
+
+function runCodeCheckChild(input: MemberCheckInput): Promise<CodeCheckAnswer> {
+  return new Promise((resolve) => {
+    const { command, timeoutMs } = deps.codeCheck;
+    let settled = false;
+    const settle = (answer: CodeCheckAnswer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(answer);
+    };
+    const failed = (detail: string) =>
+      settle({
+        failures: [
+          {
+            check: "missing",
+            path: input.codeRoot,
+            detail: `the code check gave no verdict: ${detail}`,
+          },
+        ],
+        kept: false,
+      });
+    let child: ReturnType<typeof spawn> | null = null;
+    const timer = setTimeout(() => {
+      if (child?.pid !== undefined)
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {}
+      failed(`no answer within ${timeoutMs} ms`);
+    }, timeoutMs);
+    timer.unref?.();
+    try {
+      // detached: the walk leads its own group, so a time-out ends all of it.
+      child = spawn(command[0], command.slice(1), {
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
+      });
+    } catch (error) {
+      failed((error as Error).message);
+      return;
+    }
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout!.on("data", (chunk: Buffer) => out.push(chunk));
+    child.stderr!.on("data", (chunk: Buffer) => err.push(chunk));
+    child.stdin!.on("error", () => {});
+    child.once("error", (error) => failed(error.message));
+    child.once("close", (code) => {
+      if (code !== 0)
+        return failed(`exit ${code}: ${Buffer.concat(err).toString().trim()}`);
+      try {
+        const parsed = JSON.parse(Buffer.concat(out).toString()) as unknown;
+        if (!Array.isArray(parsed)) throw new Error("not a list");
+        settle({ failures: parsed as CheckFailure[], kept: true });
+      } catch (error) {
+        failed(`no list: ${(error as Error).message}`);
+      }
+    });
+    child.stdin!.end(
+      JSON.stringify({
+        officeUid: input.officeUid,
+        member: input.member,
+        codeRoot: input.codeRoot,
+      }),
+    );
+  });
+}
+
+export function memberCodeTreeChecks(
+  input: MemberCheckInput,
+): Promise<CheckFailure[]> {
+  const key = [
+    input.member.uid,
+    input.member.gid,
+    [...input.member.groups].sort((a, b) => a - b).join(","),
+    input.codeRoot,
+  ].join(":");
+  let verdict = codeTreeVerdicts.get(key);
+  if (!verdict) {
+    verdict = runCodeCheckChild(input).then((answer) => {
+      // A child that gave no verdict is asked again at the next connect.
+      if (!answer.kept) codeTreeVerdicts.delete(key);
+      return answer.failures;
+    });
+    codeTreeVerdicts.set(key, verdict);
+  }
+  return verdict;
+}
+
+// The checks a connect makes: the cheap ones in process, then the code walk
+// (cached, in a child) only when they pass.
+export async function defaultMemberChecks(
+  input: MemberCheckInput,
+): Promise<CheckFailure[]> {
+  const cheap = memberTrustedChecks({ ...input, walkCode: false });
+  if (cheap.length > 0) return cheap;
+  return memberCodeTreeChecks(input);
+}
+
+export interface MemberHostDeps {
+  // The peer uid of a connected client socket's fd (SO_PEERCRED).
+  readPeerUid: (fd: number) => number | null;
+  // The system's user database: uid, primary gid and groups of a name.
+  lookupUser: (name: string) => { uid: number; gid: number; groups: number[] };
+  checks: (input: MemberCheckInput) => CheckFailure[] | Promise<CheckFailure[]>;
+  // Connects the runner at socketPath; all socket work happens here.
+  connectRunner: (
+    socketPath: string,
+    opts: {
+      userId: string;
+      uid: number;
+      readPeerUid: (fd: number) => number | null;
+    },
+  ) => Promise<AgentHost>;
+  retryMs: number;
+  // The code-walk child (server/member-code-check.ts) and its time limit;
+  // after it, the child is killed and the connect fails closed.
+  codeCheck: { command: string[]; timeoutMs: number };
+}
+
+const DEFAULT_DEPS: MemberHostDeps = {
+  readPeerUid: (fd) => readPeerCredentials(fd)?.uid ?? null,
+  lookupUser: readAgentIdentity,
+  checks: defaultMemberChecks,
+  connectRunner: (socketPath, opts) =>
+    RunnerAgentHost.connectMember(socketPath, opts),
+  retryMs: 30_000,
+  codeCheck: {
+    command: [process.execPath, CODE_CHECK_CHILD],
+    timeoutMs: 120_000,
+  },
+};
+let deps: MemberHostDeps = DEFAULT_DEPS;
+
+// Tests: replace some of the dependencies; null restores the defaults.
+export function setMemberHostDeps(over: Partial<MemberHostDeps> | null): void {
+  deps = over ? { ...DEFAULT_DEPS, ...over } : DEFAULT_DEPS;
+}
+
+const PRIVILEGED_GROUP_NAMES = ["sudo", "wheel", "admin", "adm", "docker"];
+
+// The gids of the privileged groups that exist here (getent exits 2 when one
+// is missing; the found lines still count).
+function privilegedGroupIds(): number[] {
+  const result = spawnSync("getent", ["group", ...PRIVILEGED_GROUP_NAMES], {
+    encoding: "utf8",
+  });
+  const gids: number[] = [];
+  for (const line of (result.stdout ?? "").split("\n")) {
+    const gid = Number(line.split(":")[2]);
+    if (line && Number.isSafeInteger(gid)) gids.push(gid);
+  }
+  return gids;
+}
+
+function scheduleRetry(userId: string): void {
+  if (retries.has(userId)) return;
+  const timer = setTimeout(() => {
+    retries.delete(userId);
+    if (memberOsUserState(userId).kind === "isolated")
+      void connectMemberHost(userId);
+  }, deps.retryMs);
+  timer.unref?.();
+  retries.set(userId, timer);
+}
+
+// Connect one member: the runner's peer uid (SO_PEERCRED on our side of the
+// socket) and `id -u <name>` must equal the recorded uid, and the checks must
+// pass. True when registered; else the member stays on the not-ready host,
+// the reason is logged and a retry is set.
+export async function connectMemberHost(userId: string): Promise<boolean> {
+  const state = memberOsUserState(userId);
+  if (state.kind !== "isolated") {
+    connected.delete(userId);
+    if (state.kind === "broken")
+      console.error(`[member-hosts] ${userId}: ${state.reason}`);
+    return false;
+  }
+  const { osUser } = state;
+  const refuse = (reason: string): false => {
+    connected.delete(userId);
+    console.error(
+      `[member-hosts] ${userId} (${osUser.name}) is not ready: ${reason}`,
+    );
+    scheduleRetry(userId);
+    return false;
+  };
+  let identity: { uid: number; gid: number; groups: number[] };
+  try {
+    identity = deps.lookupUser(osUser.name);
+  } catch (error) {
+    return refuse((error as Error).message);
+  }
+  if (identity.uid !== osUser.uid)
+    return refuse(
+      `the record names uid ${osUser.uid}, but ${osUser.name} is uid ${identity.uid}`,
+    );
+  let host: AgentHost;
+  try {
+    host = await deps.connectRunner(memberRunnerSocketPath(osUser.name), {
+      userId,
+      uid: osUser.uid,
+      readPeerUid: deps.readPeerUid,
+    });
+  } catch (error) {
+    return refuse(`cannot reach the runner: ${(error as Error).message}`);
+  }
+  let failures: CheckFailure[];
+  try {
+    failures = await deps.checks({
+      officeUid: process.getuid!(),
+      officeGroups: process.getgroups?.() ?? [process.getgid!()],
+      member: identity,
+      privilegedGroups: privilegedGroupIds(),
+      officeHome: homedir(),
+      stateRoot: STATE_ROOT,
+      codeRoot: realpathSync(CODE_ROOT),
+    });
+  } catch (error) {
+    return refuse(`the trusted checks failed: ${(error as Error).message}`);
+  }
+  if (failures.length > 0)
+    return refuse(
+      failures
+        .map((f) => `${f.check}${f.path ? ` at ${f.path}` : ""}: ${f.detail}`)
+        .join("; "),
+    );
+  // The record may have changed while we connected.
+  const now = memberOsUserState(userId);
+  if (
+    now.kind !== "isolated" ||
+    now.osUser.name !== osUser.name ||
+    now.osUser.uid !== osUser.uid
+  )
+    return refuse("the record changed while connecting");
+  connected.set(userId, { osUser, host });
+  console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
+  return true;
+}
+
+// Boot: connect every member with an OS user.
+export async function connectMemberHosts(): Promise<void> {
+  await Promise.all(memberOsUserIds().map((id) => connectMemberHost(id)));
+}
+
+// Tests: forget every connected host and retry timer.
+export function resetMemberHosts(): void {
+  codeTreeVerdicts.clear();
+  for (const timer of retries.values()) clearTimeout(timer);
+  retries.clear();
+  connected.clear();
+}
+
+// Runner-reply rule (design 1.1): the server never signals a pid that a
+// runner sent; a stop goes through the runner (a signal control message).
+// Audit of the 18 process.kill sites in server/ (tests excluded), 2026-11-14:
+// - server-stop.ts:71, office-lockdown-route.ts:147, hook-live-probe.ts:171,
+//   opencode/process-loss-harness.ts:44: this process's own pid.
+// - agent-host.ts (local child group), preview-capture.ts:314 (its own
+//   Chrome child), process-isolation.ts (signalIsolated: pids of local
+//   children, and inside the runner its own children): pids this process
+//   spawned itself.
+// - agent-runner/runner.ts: the runner's own children, as the member user.
+// - opencode/start-server.ts:174,219,252: runs as the agent's user (through
+//   the host), on records of that user; opencode/server-startup.ts:48: probe
+//   with signal 0 of the helper's child it started. The OpenCode supervisor
+//   only compares a record's pid with /proc (processIdentityMatches) and stops
+//   the server through the helper, on the agent's host.
+// - stop-reap.ts:164, office-lockdown-route.ts:140: pids read from this
+//   office's own systemd cgroup (cgroup.procs), never from a runner.
+// - codex/live-client-reap.ts:15,48, codex/hook-live-probe.ts:121,161: live
+//   tests and probes on the local host only (live-client-reap says so).
+
+// The host of an env's member tag: the member's host for an env that
+// buildEnvForUserId built for an isolated member, else the office host. Use
+// it only where the env arrives from buildEnvForUserId unchanged or spread
+// (a copy that drops the tag lands on the office host, which then runs it as
+// any office env); a site that has the user id uses hostFor.
+export function hostForEnv(env: object | undefined): AgentHost {
+  const owner = memberEnvOwner(env);
+  return owner !== undefined ? hostFor(owner) : officeAgentHost();
+}

@@ -13,7 +13,8 @@
 // mode: if a configured env file is missing or fails to parse, throw - the
 // caller is responsible for surfacing the error to the agent/run log.
 
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost, tagMemberEnv } from "./agent-host.ts";
+import { hostFor } from "./member-hosts.ts";
 import {
   claudeFamilyModels,
   limitedClaudeFamilies,
@@ -121,13 +122,27 @@ function pendingImportError(path: string): Error {
 // starts from: the agent host's own (server/agent-host.ts). In split mode the
 // result is never undefined, so no agent process inherits the server's
 // process.env.
+//
+// An isolated member (own OS user, server/member-hosts.ts): the base is their
+// runner's env, and the result is tagged with the member (tagMemberEnv), so
+// only their host starts a process with it.
 export function buildEnvForUserId(
   userId: string | null | undefined,
-  base: { [key: string]: string | undefined } = getAgentHost().baseEnv(),
+  base?: { [key: string]: string | undefined },
 ): { [key: string]: string | undefined } | undefined {
-  const merge = mergeEnvForUserId(userId, base);
+  const host = hostFor(userId);
+  // A caller's base would be tagged as the member's env and accepted by
+  // their host: an isolated member's env starts only from their runner's.
+  if (host.member !== undefined && base !== undefined)
+    throw new Error(
+      "an isolated member's environment starts from their own host; no base can be given",
+    );
+  const from = base ?? host.baseEnv();
+  const merge = mergeEnvForUserId(userId, from);
+  if (host.member !== undefined)
+    return tagMemberEnv(merge ? merge.env : { ...from }, host.member);
   if (merge) return merge.env;
-  return getAgentHost().kind === "runner" ? { ...base } : undefined;
+  return host.kind === "runner" ? { ...from } : undefined;
 }
 
 // Where the env of `userId`'s agents gets `name` from, by the merge order of
@@ -136,7 +151,7 @@ export function envSourceForUserId(
   userId: string | null | undefined,
   name: string,
 ): EnvVariableSource | null {
-  const base = getAgentHost().baseEnv();
+  const base = hostFor(userId).baseEnv();
   const merge = mergeEnvForUserId(userId, base);
   const value = merge ? merge.env[name] : base[name];
   if (!value) return null;
@@ -256,9 +271,9 @@ function claudeEnvForUserId(userId: string | null | undefined): {
   [key: string]: string | undefined;
 } {
   try {
-    return buildEnvForUserId(userId) ?? getAgentHost().baseEnv();
+    return buildEnvForUserId(userId) ?? hostFor(userId).baseEnv();
   } catch {
-    return getAgentHost().baseEnv();
+    return hostFor(userId).baseEnv();
   }
 }
 
@@ -284,7 +299,7 @@ export function buildOfficeEnv(): {
   [key: string]: string | undefined;
 } {
   const merged: { [key: string]: string | undefined } = {
-    ...getAgentHost().baseEnv(),
+    ...officeAgentHost().baseEnv(),
   };
   const officeEnvFile = resolveOfficeEnvSource();
   if (officeEnvFile) Object.assign(merged, readEnvFile(officeEnvFile));

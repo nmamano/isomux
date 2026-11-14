@@ -2,6 +2,7 @@
 // sign-in (server/provider-fallback.ts): which account a session starts on,
 // and the account check that moves a conversation at a turn start. Moved out
 // of createAgentManager (server/agent-manager.ts), which wires it.
+import { hasMemberOsUser } from "./member-os-users.ts";
 import { resolve } from "path";
 import type {
   AgentBackendType,
@@ -15,7 +16,7 @@ import { errMessage } from "../shared/errors.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
 import type { LimitResumeClock, ManagerDeps } from "./agent-manager.ts";
 import { providerDisplayName } from "./agent-auth.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { isClaudeCodeAuthenticated } from "./backends/claude-install-check.ts";
 import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
 import type { Backend, BackendSession } from "./backends/types.ts";
@@ -136,6 +137,17 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     limitResumeClock,
   } = deps;
 
+  // An isolated member (own OS user, server/member-os-users.ts) gets no
+  // Claude or Codex fallback to the office sign-in: the office account folder
+  // never reaches their agents' env (task b94dfd25, slice 1a; slice 4 brings
+  // the Claude one back with a token).
+  function fallbackOff(
+    userId: string | null | undefined,
+    provider: FallbackProvider,
+  ): boolean {
+    return provider !== "opencode" && hasMemberOsUser(userId);
+  }
+
   // Merge process.env with office variables and the agent owner's managed personal variables.
   // User overrides office; office overrides process.env. Spawn-time failure
   // mode: if a configured env file is missing or fails to parse, throw - the
@@ -153,7 +165,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     const provider = managed.info.agentType;
     let base = launchEnv(managed);
     if (provider === "codex" && sessionId) {
-      const env = base ?? getAgentHost().baseEnv();
+      const env = base ?? officeAgentHost().baseEnv();
       const home = codexThreadHome(managed, sessionId, env);
       if (home !== effectiveProviderDirectory("codex", env))
         base = { ...env, CODEX_HOME: home };
@@ -167,7 +179,10 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
         managed.info.userId,
       );
       ensureSessionClaudeConfigDir(managed.info.id, sessionId, root);
-      base = { ...(base ?? getAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
+      base = {
+        ...(base ?? officeAgentHost().baseEnv()),
+        CLAUDE_CONFIG_DIR: root,
+      };
     }
     const token = getAgentTokenRaw(managed.info.id);
     if (!token) return base;
@@ -176,7 +191,10 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     // persisted/logged; spread process.env when there's no env-file base so the
     // subprocess keeps PATH/HOME/etc. Redaction tests assert it stays out of
     // prompts, logs, errors, diffs, and the WS.
-    return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
+    return {
+      ...(base ?? officeAgentHost().baseEnv()),
+      ISOMUX_AGENT_TOKEN: token,
+    };
   }
 
   // The env a session of the agent launches with, before the session's own
@@ -191,10 +209,13 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     if (provider === "opencode")
       return buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId);
     const base = buildEnvForUserId(managed.info.userId);
-    const office = managed.officeFallback ? officeAccountDir(provider) : null;
+    const office =
+      managed.officeFallback && !fallbackOff(managed.info.userId, provider)
+        ? officeAccountDir(provider)
+        : null;
     if (!office) return base;
     const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
-    return { ...(base ?? getAgentHost().baseEnv()), [name]: office };
+    return { ...(base ?? officeAgentHost().baseEnv()), [name]: office };
   }
 
   // The Codex home thread `sessionId` resumes from with `env`: the one the
@@ -231,12 +252,13 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     const base = buildEnvForUserId(userId);
     if (provider === "opencode") return base;
     const office =
-      managed.officeFallback || officeWanted(userId, provider, modelFamily)
+      !fallbackOff(userId, provider) &&
+      (managed.officeFallback || officeWanted(userId, provider, modelFamily))
         ? officeAccountDir(provider)
         : null;
     if (!office) return base;
     const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
-    return { ...(base ?? getAgentHost().baseEnv()), [name]: office };
+    return { ...(base ?? officeAgentHost().baseEnv()), [name]: office };
   }
 
   // Fallback to the office sign-in (server/provider-fallback.ts). The state
@@ -311,7 +333,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     }
     const dir = effectiveProviderDirectory(
       provider,
-      env ?? getAgentHost().baseEnv(),
+      env ?? officeAgentHost().baseEnv(),
     );
     let own = false;
     try {
@@ -338,6 +360,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     provider: FallbackProvider,
   ): { member: FallbackAccount; office: FallbackAccount } | null {
     if (!userId || !fallbackState().isEnabled()) return null;
+    if (fallbackOff(userId, provider)) return null;
     const own = ownAccount(userId, provider);
     if (!own?.own) return null;
     const office = officeFallbackAccount(provider);
@@ -363,6 +386,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // Whether a Codex thread may be in either home.
   function fallbackInPlay(managed: ManagedAgent): boolean {
+    if (fallbackOff(managed.info.userId, "codex")) return false;
     return managed.officeFallback || fallbackState().isEnabled();
   }
 
@@ -370,7 +394,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   // env picks.
   function fallbackHomes(managed: ManagedAgent): string[] {
     const own = ownAccount(managed.info.userId, "codex");
-    const office = officeAccountDir("codex");
+    const office = fallbackOff(managed.info.userId, "codex")
+      ? null
+      : officeAccountDir("codex");
     return [
       ...(own && "dir" in own.account ? [own.account.dir] : []),
       ...(office ? [office] : []),
@@ -553,7 +579,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     }
     if (provider === "opencode")
       return ownAccount(userId, provider)?.account ?? null;
-    const env = launchEnv(managed) ?? getAgentHost().baseEnv();
+    const env = launchEnv(managed) ?? officeAgentHost().baseEnv();
     if (provider === "claude") {
       if (!sessionId) return { dir: effectiveProviderDirectory("claude", env) };
       const pinned = getSessionClaudeConfigDir(managed.info.id, sessionId);
@@ -575,7 +601,8 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // What nextAccount depends on besides the agent's session and env, read
   // from memory only: a change here can move the next account with no
-  // event (an entry ends by time). The idle usage key is cached under it.
+  // event (an entry ends by time, or the member gets an OS user, which turns
+  // the office fallback off). The idle usage key is cached under it.
   function nextAccountStamp(managed: ManagedAgent): string {
     const { userId, agentType: provider, modelFamily } = managed.info;
     const state = fallbackState();
@@ -587,6 +614,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
       enabled,
       entry,
       modelFamily ?? null,
+      hasMemberOsUser(userId),
       !!sessionId &&
         failedOfficeMoves.has(conversationKey(managed.info.id, sessionId)),
     ]);

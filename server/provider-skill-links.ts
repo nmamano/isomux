@@ -4,7 +4,7 @@ import type { ProviderAccountProvider } from "../shared/types.ts";
 import type { UserSkillRoot } from "./skills.ts";
 import { personalProviderHome } from "./provider-homes.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 
 // The Claude and Codex homes of an engine started with `env`. With no env the
 // engine inherits the host's base env, so CLAUDE_CONFIG_DIR or CODEX_HOME
@@ -13,7 +13,7 @@ export function claudeConfigDirOf(env?: {
   [key: string]: string | undefined;
 }): string {
   return (
-    (env ?? getAgentHost().baseEnv()).CLAUDE_CONFIG_DIR?.trim() ||
+    (env ?? officeAgentHost().baseEnv()).CLAUDE_CONFIG_DIR?.trim() ||
     join(homedir(), ".claude")
   );
 }
@@ -22,7 +22,7 @@ export function codexUserHomeOf(env?: {
   [key: string]: string | undefined;
 }): string {
   return (
-    (env ?? getAgentHost().baseEnv()).CODEX_HOME?.trim() ||
+    (env ?? officeAgentHost().baseEnv()).CODEX_HOME?.trim() ||
     join(homedir(), ".codex")
   );
 }
@@ -113,7 +113,7 @@ export function agentUserSkillRoots(
   );
   // The HOME the engine process gets: a member with no env file runs on the
   // host's base env (os.homedir() does not follow a HOME change).
-  const home = (env ?? getAgentHost().baseEnv()).HOME || homedir();
+  const home = (env ?? officeAgentHost().baseEnv()).HOME || homedir();
   const agentsRoot = { root: join(home, ".agents"), includeCommands: false };
   const roots =
     agentType === "codex"

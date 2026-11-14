@@ -2,6 +2,7 @@
 // call (edit request, terminal command, read file, preview URL, browser,
 // diff, ask outcomes). Moved out of createAgentManager
 // (server/agent-manager.ts), which wires it.
+import { hostFor } from "./member-hosts.ts";
 import { readFileSync } from "fs";
 import { basename } from "path";
 import {
@@ -26,7 +27,6 @@ import {
   type CommandCheck,
   type PathRefusal,
 } from "./affordance-checks.ts";
-import { getAgentHost } from "./agent-host.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
 import { loopbackPort } from "./auth.ts";
 import { CREDENTIAL_PATH_MESSAGE } from "./credential-store-paths.ts";
@@ -562,7 +562,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
   ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
-    const result = await getAgentHost().isomuxDiff({
+    const result = await hostFor(managed.info.userId).isomuxDiff({
       dir,
       agentCwd: managed.info.cwd,
       commit,

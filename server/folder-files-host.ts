@@ -4,7 +4,7 @@
 // the call then answers with an error.
 
 import { join } from "path";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost, type AgentHost } from "./agent-host.ts";
 import {
   FOLDER_FILES_TIMEOUT_MS,
   type FolderFilesRequest,
@@ -67,11 +67,12 @@ async function runLocal(
   }
 }
 
+// `host`: the host of the agent's manager (server/member-hosts.ts).
 export async function runFolderFiles(
   req: FolderFilesRequest,
   timeoutMs: number = FOLDER_FILES_TIMEOUT_MS,
+  host: AgentHost = officeAgentHost(),
 ): Promise<FolderFilesResult> {
-  const host = getAgentHost();
   const deadline = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<"late">((resolve) => {

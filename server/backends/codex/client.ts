@@ -31,7 +31,8 @@
 
 import { resolve } from "path";
 import { errMessage } from "../../../shared/errors.ts";
-import { getAgentHost, type AgentChild } from "../../agent-host.ts";
+import type { AgentChild } from "../../agent-host.ts";
+import { hostForEnv } from "../../member-hosts.ts";
 import {
   codexEnvApiKeyWins,
   ISOMUX_CODEX_HOME,
@@ -195,7 +196,9 @@ export class JsonRpcLiteClient {
       throw new Error("JsonRpcLiteClient is closed");
     }
     this.starting = true;
-    const host = getAgentHost();
+    // An isolated member's env names its member: the App Server starts on
+    // that member's host.
+    const host = hostForEnv(this.opts.env);
     const effectiveEnv = withIsomuxCodexHome(this.opts.env);
     // In split mode the office codex-home is in agent space; the agent user
     // creates it (withIsomuxCodexHome does it in process otherwise).
@@ -235,12 +238,12 @@ export class JsonRpcLiteClient {
       bin = this.opts.codexBin;
       spawnArgs = codexArgs;
     } else {
-      // Default: bundled launcher under process.execPath (Bun runs the JS
+      // Default: bundled launcher under the host's Bun (Bun runs the JS
       // launcher fine - we don't depend on `node` being on PATH). Resolution
       // throws here are translated to a chat-actionable hint via the catch
       // in CodexSession.bootstrap.
       const launcher = resolveCodexLauncherPath();
-      bin = process.execPath;
+      bin = host.bunPath();
       spawnArgs = [launcher, ...codexArgs];
     }
     // Apply the isomux CODEX_HOME default here (not at every adapter

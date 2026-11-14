@@ -18,9 +18,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { CODEX_KILL_GRACE_MS, JsonRpcLiteClient } from "./client.ts";
 import {
-  getAgentHost,
+  officeAgentHost,
   localAgentHost,
-  setAgentHost,
+  setOfficeAgentHost,
   type AgentChild,
   type AgentHost,
 } from "../../agent-host.ts";
@@ -378,8 +378,8 @@ describe("JsonRpcLiteClient.start - close before the spawn", () => {
         return child;
       },
     };
-    const previous = getAgentHost();
-    setAgentHost(host);
+    const previous = officeAgentHost();
+    setOfficeAgentHost(host);
     const client = new JsonRpcLiteClient({
       codexBin: writeFakeLauncher(dir),
       args: ["app-server"],
@@ -412,7 +412,7 @@ describe("JsonRpcLiteClient.start - close before the spawn", () => {
       await client.close();
       // A child that the client did not kill must not outlive the test.
       for (const child of children) child.signalGroup("SIGKILL");
-      setAgentHost(previous);
+      setOfficeAgentHost(previous);
     }
   }
 

@@ -12,7 +12,7 @@ import type {
 import { errMessage } from "../shared/errors.ts";
 import { msg, msgN, type LogText } from "../shared/i18n/log-message.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import {
   claudeSignInState,
   isClaudeCloudSelected,
@@ -476,7 +476,7 @@ export function createAgentAuth(deps: AgentAuthDeps) {
       scope: "office",
       dir: effectiveProviderDirectory(
         provider,
-        env ?? getAgentHost().baseEnv(),
+        env ?? officeAgentHost().baseEnv(),
       ),
     };
   }

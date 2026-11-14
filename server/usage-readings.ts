@@ -30,7 +30,7 @@ import type {
 } from "./backends/types.ts";
 import { buildEnvForUserId } from "./env-loader.ts";
 import { CONTEXT_NOTICE_BANDS } from "./agent-turn.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { usageAccountKey, usageKeyOnDirectory } from "./usage-account.ts";
 
 export interface UsageReadingsDeps {
@@ -466,7 +466,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     let key: string | null;
     try {
       const env =
-        buildEnvForUserId(managed.info.userId) ?? getAgentHost().baseEnv();
+        buildEnvForUserId(managed.info.userId) ?? officeAgentHost().baseEnv();
       if (agentType === "claude" || agentType === "codex") {
         // A legacy Claude session with no recorded root resumes on whichever
         // root holds it: no guess.

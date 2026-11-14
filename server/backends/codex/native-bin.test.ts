@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { existsSync, readFileSync, rmSync, statSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../../config.ts";
-import { getAgentHost } from "../../agent-host.ts";
+import { officeAgentHost } from "../../agent-host.ts";
 import {
   ISOMUX_CODEX_HOME,
   ensureCodexWrapperScript,
@@ -58,7 +58,7 @@ describe("ensure helpers re-create what was deleted after the first ensure", () 
   it("creates the default CODEX_HOME again when the dir is gone", () => {
     // Only a local host creates the dir in process (client.ts start()
     // does it on the runner host).
-    expect(getAgentHost().kind).toBe("local");
+    expect(officeAgentHost().kind).toBe("local");
     // An explicit empty env, so a CODEX_HOME in the host env cannot skip
     // the default branch.
     expect(withIsomuxCodexHome({}).CODEX_HOME).toBe(ISOMUX_CODEX_HOME);

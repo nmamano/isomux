@@ -2,7 +2,13 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
-import { getAgentHost } from "../../agent-host.ts";
+import {
+  memberEnvOwner,
+  officeAgentHost,
+  tagMemberEnv,
+  type AgentHost,
+} from "../../agent-host.ts";
+import { hostForEnv } from "../../member-hosts.ts";
 import { ADMIN_SOCKET_PATH, STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { runAtServerStop } from "../../server-stop.ts";
@@ -290,6 +296,11 @@ export class OpenCodeSupervisor {
   private readonly idleShutdownMs: number;
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
+  // The host of this profile's member: an isolated member's launch env names
+  // them (launchEnvFor keeps the tag), and the profile is theirs alone.
+  private get host(): AgentHost {
+    return hostForEnv(this.launchEnv);
+  }
   // Callers of waitUntilCurrent, woken after each replacement try.
   private currentWaiters = new Set<() => void>();
   private currentMcpServers: AgentMcpServer[];
@@ -516,7 +527,7 @@ export class OpenCodeSupervisor {
     launchEnv: Record<string, string | undefined>,
   ): Record<string, string | undefined> {
     return {
-      ...getAgentHost().baseEnv(),
+      ...this.host.baseEnv(),
       ...launchEnv,
       ISOMUX_AGENT_TOKEN: undefined,
     };
@@ -715,7 +726,7 @@ export class OpenCodeSupervisor {
           // A reload asked for during the stop is met too: the next server
           // starts after it.
           this.reloadRequested = false;
-          await getAgentHost().fs.rm(this.replaceMarkerPath);
+          await this.host.fs.rm(this.replaceMarkerPath);
         }
       } finally {
         this.setServer({ phase: "none" });
@@ -728,7 +739,7 @@ export class OpenCodeSupervisor {
     if (openCodeUnsupportedReason(this.platform)) return;
     // The profile, its record and the helper are agent space (design
     // section 3.2): the agent host does all of it as the agent user.
-    const host = getAgentHost();
+    const host = this.host;
     await host.fs.mkdir(this.profileDir, 0o777);
     await host.run(this.helperCommand(), {
       env: {
@@ -822,7 +833,7 @@ export class OpenCodeSupervisor {
   ): Promise<ServerRecord> {
     const binary = this.binary;
     const isolate = processIsolationNow().state === "on";
-    const host = getAgentHost();
+    const host = this.host;
     await host.fs.mkdir(this.profileDir, 0o777);
     const configPath = openCodeConfigFilePath(this.profileDir);
     await host.fs.writeText(configPath, `${JSON.stringify(this.config)}\n`, {
@@ -949,7 +960,7 @@ export class OpenCodeSupervisor {
       if (!this.replacing()) {
         if (
           !this.replacementRequested() &&
-          !(await getAgentHost().fs.exists(this.replaceMarkerPath))
+          !(await this.host.fs.exists(this.replaceMarkerPath))
         )
           return "none";
       }
@@ -1030,7 +1041,7 @@ export class OpenCodeSupervisor {
   private async readRecord(): Promise<ServerRecord | null> {
     try {
       return JSON.parse(
-        await getAgentHost().fs.readText(this.recordPath),
+        await this.host.fs.readText(this.recordPath),
       ) as ServerRecord;
     } catch {
       return null;
@@ -1042,10 +1053,12 @@ export const openCodeSupervisor = new OpenCodeSupervisor();
 
 const environmentSupervisors = new Map<string, OpenCodeSupervisor>();
 
+// An isolated member's tag (server/agent-host.ts) is kept: it picks the host.
 function launchEnvFor(
   env: Record<string, string | undefined> | undefined,
 ): Record<string, string> {
-  return Object.fromEntries(
+  const owner = memberEnvOwner(env);
+  const out: Record<string, string> = Object.fromEntries(
     Object.entries(env ?? {})
       // Agent tokens are per-agent capabilities. A shared OpenCode server must
       // never inherit one agent's token or use it as a profile discriminator.
@@ -1055,6 +1068,7 @@ function launchEnvFor(
       .filter((entry): entry is [string, string] => entry[1] !== undefined)
       .sort(([a], [b]) => a.localeCompare(b)),
   );
+  return owner === undefined ? out : tagMemberEnv(out, owner);
 }
 
 function supervisorKey(environmentKey: string): string {
@@ -1103,7 +1117,9 @@ export async function reloadOpenCodeServer(
   const supervisor = environmentSupervisors.get(supervisorKey(environmentKey));
   if (supervisor) return supervisor.requestReload();
   const { profileDir } = openCodeProfilePaths(environmentKey);
-  const host = getAgentHost();
+  // The profile folder is in office state until slice 1c of task b94dfd25
+  // moves an isolated member's profiles to their agent space.
+  const host = officeAgentHost();
   if (await host.fs.exists(profileDir))
     await host.fs.writeText(join(profileDir, "server.replace"), "", {
       mode: 0o600,

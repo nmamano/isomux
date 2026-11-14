@@ -10,7 +10,7 @@
 
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { getAgentHost } from "../../agent-host.ts";
+import { officeAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { resolveCodexLauncherPath, withIsomuxCodexHome } from "./native-bin.ts";
 
@@ -53,7 +53,7 @@ export async function runCodexSandboxProbe(
   detail: string;
 }> {
   const timeoutMs = opts.timeoutMs ?? PROBE_TIMEOUT_MS;
-  const host = getAgentHost();
+  const host = officeAgentHost();
   const codexHome = join(AGENT_ROOT, "codex-sandbox-probe", randomUUID());
   await host.fs.mkdir(codexHome, 0o700);
   try {
@@ -75,7 +75,7 @@ async function probeIn(
   argv: string[] | undefined,
   timeoutMs: number,
 ): Promise<{ result: CodexSandboxProbeResult; detail: string }> {
-  const host = getAgentHost();
+  const host = officeAgentHost();
   const env = { ...withIsomuxCodexHome(undefined), CODEX_HOME: codexHome };
   const child = host.spawnChild(
     argv ?? [

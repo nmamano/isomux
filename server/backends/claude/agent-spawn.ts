@@ -9,7 +9,8 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { getAgentHost, type AgentHost } from "../../agent-host.ts";
+import type { AgentHost } from "../../agent-host.ts";
+import { hostForEnv } from "../../member-hosts.ts";
 
 export function spawnClaudeThroughHost(
   host: AgentHost,
@@ -40,7 +41,9 @@ export function withAgentSpawn(
   options: Options,
   { isolate = false }: { isolate?: boolean } = {},
 ): Options {
-  const host = getAgentHost();
+  // An isolated member's env names its member: the CLI starts on that
+  // member's host, which refuses any env not built for them.
+  const host = hostForEnv(options.env);
   if (host.kind !== "runner" && !isolate) return options;
   return {
     ...options,

@@ -1,7 +1,8 @@
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
+import { hostForEnv } from "./member-hosts.ts";
 import { delimiter, dirname, resolve, join } from "path";
 import { homedir } from "os";
-import { STATE_ROOT } from "./config.ts";
+import { AGENT_ROOT } from "./split/roots.ts";
 import {
   closeSync,
   existsSync,
@@ -13,7 +14,6 @@ import {
   statSync,
 } from "fs";
 import { errMessage, errCode } from "../shared/errors.ts";
-import { getAgentHost } from "./agent-host.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
 // The SDK's auto-resolver tries the musl variant first on Linux, which fails
@@ -91,7 +91,7 @@ export function claudeProjectDir(
   env?: { [key: string]: string | undefined },
 ): string {
   const configDir =
-    env?.CLAUDE_CONFIG_DIR || join(getAgentHost().home(), ".claude");
+    env?.CLAUDE_CONFIG_DIR || join(hostForEnv(env).home(), ".claude");
   return join(configDir, "projects", cwd.replace(/[^a-zA-Z0-9-]/g, "-"));
 }
 
@@ -239,7 +239,9 @@ export function claudeStoredSessionState(
 export function codexSessionsDir(env?: {
   [key: string]: string | undefined;
 }): string {
-  const codexHome = env?.CODEX_HOME || join(STATE_ROOT, "codex-home");
+  // The office Codex home is in agent space (ISOMUX_CODEX_HOME), which is not
+  // STATE_ROOT in split mode.
+  const codexHome = env?.CODEX_HOME || join(AGENT_ROOT, "codex-home");
   return join(codexHome, "sessions");
 }
 

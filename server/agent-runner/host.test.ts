@@ -16,7 +16,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import {
   localAgentHost,
-  setAgentHost,
+  setOfficeAgentHost,
   type AgentChild,
 } from "../agent-host.ts";
 import { spawnClaudeThroughHost } from "../backends/claude/agent-spawn.ts";
@@ -47,7 +47,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  setAgentHost(localAgentHost);
+  setOfficeAgentHost(localAgentHost);
   runner?.stop();
   runner = null;
   rmSync(dir, { recursive: true, force: true });
@@ -221,7 +221,7 @@ describe("runner child", () => {
     const script = join(dir, "silent-codex.sh");
     writeFileSync(script, "#!/bin/sh\nexec cat > /dev/null\n");
     chmodSync(script, 0o755);
-    setAgentHost(host);
+    setOfficeAgentHost(host);
     const client = new JsonRpcLiteClient({
       codexBin: script,
       args: [],
@@ -340,7 +340,7 @@ describe("agent-space entries", () => {
     const local = join(dir, "local-home");
     const remote = join(dir, "remote-home");
     const expected = configureCodexHooks(local, hookPath, trustedHash);
-    setAgentHost(host);
+    setOfficeAgentHost(host);
     const result = await host.runEntry("codex-hook-config", {
       codexHome: remote,
       hookPath,
@@ -361,7 +361,7 @@ describe("agent-space entries", () => {
   });
 
   it("inspects OpenCode storage in agent space and returns only the state", async () => {
-    setAgentHost(host);
+    setOfficeAgentHost(host);
     const databasePath = join(dir, "data", "opencode.db");
     mkdirSync(join(dir, "data"));
     expect(

@@ -2,6 +2,7 @@ import {
   claudeConfigRoot,
   resolveClaudeSessionRoot,
 } from "./claude-session-root.ts";
+import { hostFor } from "./member-hosts.ts";
 import { english } from "./i18n.ts";
 import {
   logTextFields,
@@ -81,7 +82,7 @@ import {
   isCredentialStorePath,
   CREDENTIAL_PATH_MESSAGE,
 } from "./credential-store-paths.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
@@ -1059,7 +1060,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       job?.userId ?? null,
     );
     ensureRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId, root);
-    return { ...(env ?? getAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
+    return { ...(env ?? officeAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
   }
 
   function sessionAccessForRun(run: CronjobRun): SessionAccessOptions {
@@ -1441,7 +1442,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     if (job.agentType !== "opencode") {
       const runToken = mintRunToken(jobId, runId, job.userId ?? null);
       environment.env = {
-        ...(environment.env ?? getAgentHost().baseEnv()),
+        ...(environment.env ?? officeAgentHost().baseEnv()),
         ISOMUX_AGENT_TOKEN: runToken,
       };
     }
@@ -1863,7 +1864,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     const run = findRun(jobId, runId);
     if (!run) return { ok: false, status: 404, error: "run not found" };
-    const result = await getAgentHost().isomuxDiff({
+    const job = cronjobs.find((value) => value.id === jobId);
+    const result = await hostFor(job?.userId ?? null).isomuxDiff({
       dir,
       agentCwd: run.cwdSnapshot,
       commit,
@@ -1989,7 +1991,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     if (run.agentTypeSnapshot !== "opencode") {
       const runToken = mintRunToken(run.cronjobId, run.id, job?.userId ?? null);
       environment.env = {
-        ...(environment.env ?? getAgentHost().baseEnv()),
+        ...(environment.env ?? officeAgentHost().baseEnv()),
         ISOMUX_AGENT_TOKEN: runToken,
       };
     }

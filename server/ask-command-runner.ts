@@ -4,13 +4,10 @@
 // the agent's cwd, as the agent host user, with no input and no terminal.
 // The output is masked for secrets before its tail is cut.
 
+import { hostForEnv } from "./member-hosts.ts";
 import { Readable } from "node:stream";
 
-import {
-  getAgentHost,
-  type AgentChild,
-  type SpawnChildOptions,
-} from "./agent-host.ts";
+import type { AgentChild, SpawnChildOptions } from "./agent-host.ts";
 import { createOutputTail, superviseProcess } from "./command-supervisor.ts";
 import { createRedactingTextStream } from "./log-redaction.ts";
 import type { AskCommandRun, AskEntry } from "../shared/types.ts";
@@ -37,7 +34,8 @@ export interface AskRunOptions {
   env: Record<string, string | undefined>;
   // The shell that runs the command with -c: the terminal panel's.
   shell: string;
-  // Defaults to the office's agent host (spawnChild). Tests pass a stand-in.
+  // Defaults to the host of the env's member tag (server/member-hosts.ts).
+  // Tests pass a stand-in.
   spawn?: (argv: string[], options: SpawnChildOptions) => AgentChild;
   timeoutMs?: number;
   killGraceMs?: number;
@@ -63,7 +61,7 @@ export async function startAskRun(
   const spawn =
     opts.spawn ??
     ((argv: string[], options: SpawnChildOptions) =>
-      getAgentHost().spawnChild(argv, options));
+      hostForEnv(options.env).spawnChild(argv, options));
   const t0 = Date.now();
   const child = spawn([opts.shell, "-c", opts.command], {
     cwd: opts.cwd,

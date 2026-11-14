@@ -15,7 +15,13 @@ import type {
   RunResult,
   SpawnChildOptions,
 } from "../agent-host.ts";
-import { notifyIsolationSetupFailure } from "../agent-host.ts";
+import {
+  failedAgentChild,
+  memberEnvRefusal,
+  tagMemberEnv,
+  notifyIsolationSetupFailure,
+} from "../agent-host.ts";
+import { readPeerCredentials } from "../unix-socket-server.ts";
 import { CLAUDE_NATIVE_BIN, pathWithBundledClaude } from "../cwd-utils.ts";
 import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
 import { ISOLATION_SETUP_FAILED } from "../process-isolation.ts";
@@ -44,6 +50,28 @@ function exitStatus(code: number | null, signal: string | null): number {
   return number ? 128 + number : 1;
 }
 
+// Where a runner listens. A member's runner (server/member-hosts.ts) also
+// names the uid that must listen there: each connection reads it from our
+// side of the socket (SO_PEERCRED) and sends nothing before it matches.
+export type RunnerTarget =
+  | string
+  | {
+      path: string;
+      peer: { uid: number; read: (fd: number) => number | null };
+    };
+
+export const RUNNER_PEER_REFUSED = "RUNNER_PEER_REFUSED";
+
+// The fd under a connected net.Socket. Bun keeps it on the handle (checked on
+// 1.4.4); null when that shape changes, and the caller refuses.
+function clientSocketFd(socket: Socket): number | null {
+  const fd: unknown = Reflect.get(
+    (Reflect.get(socket, "_handle") as object | undefined) ?? {},
+    "fd",
+  );
+  return typeof fd === "number" && Number.isInteger(fd) && fd >= 0 ? fd : null;
+}
+
 // One operation on its own connection. Callbacks get the runner's frames; the
 // connection ends after the runner's final control message.
 class RunnerStream {
@@ -55,9 +83,11 @@ class RunnerStream {
   private unackedStdin = 0;
   private outbox: { frame: Buffer; stdinBytes: number; sent?: () => void }[] =
     [];
+  // False until a member runner's peer uid matched: nothing is sent before.
+  private ready: boolean;
 
   constructor(
-    socketPath: string,
+    socketPath: RunnerTarget,
     request: RunnerRequest,
     handlers: {
       control(message: RunnerControl): void;
@@ -104,9 +134,31 @@ class RunnerStream {
       for (const item of this.outbox.splice(0)) item.sent?.();
       handlers.close();
     });
+    const path = typeof socketPath === "string" ? socketPath : socketPath.path;
+    const peer = typeof socketPath === "string" ? null : socketPath.peer;
+    this.ready = peer === null;
+    if (peer) {
+      this.outbox.push({ frame: encodeJson(request), stdinBytes: 0 });
+      this.socket.once("connect", () => {
+        const fd = clientSocketFd(this.socket);
+        const uid = fd === null ? null : peer.read(fd);
+        if (uid !== peer.uid) {
+          handlers.control({
+            type: "error",
+            code: RUNNER_PEER_REFUSED,
+            message: `the runner socket ${path} is not served by uid ${peer.uid}`,
+          });
+          this.outbox = [];
+          this.socket.destroy();
+          return;
+        }
+        this.ready = true;
+        this.pump();
+      });
+    }
     // Handlers first: Bun can report a failed connect inside connect().
-    this.socket.connect(socketPath);
-    this.socket.write(encodeJson(request));
+    this.socket.connect(path);
+    if (!peer) this.socket.write(encodeJson(request));
   }
 
   // Input held back by the window.
@@ -123,6 +175,7 @@ class RunnerStream {
   // Send what the window allows; net queues the bytes meanwhile, including
   // those written before the connection opens.
   private pump(): void {
+    if (!this.ready) return;
     while (
       this.outbox.length > 0 &&
       (this.outbox[0].stdinBytes === 0 ||
@@ -175,7 +228,7 @@ class RunnerStream {
   control(message: ClientControl): void {
     if (this.closed) return;
     // The end of input goes after the input; a signal goes at once.
-    if (message.type === "stdin-end") {
+    if (message.type === "stdin-end" || !this.ready) {
       this.outbox.push({ frame: encodeJson(message), stdinBytes: 0 });
       this.pump();
     } else this.socket.write(encodeJson(message));
@@ -195,7 +248,7 @@ export class RunnerProcess implements AgentProcess {
   readonly stdin: AgentProcess["stdin"];
   private readonly stream: RunnerStream;
 
-  constructor(socketPath: string, argv: string[]) {
+  constructor(socketPath: RunnerTarget, argv: string[]) {
     let output!: ReadableStreamDefaultController<Uint8Array>;
     let stream: RunnerStream | undefined;
     // Backpressure: the socket stops reading while the reader is behind.
@@ -289,7 +342,7 @@ export class RunnerChild extends EventEmitter implements AgentChild {
   private exited = false;
 
   constructor(
-    socketPath: string,
+    socketPath: RunnerTarget,
     argv: string[],
     env: Record<string, string | undefined>,
     options: SpawnChildOptions,
@@ -418,7 +471,7 @@ export class RunnerChild extends EventEmitter implements AgentChild {
 
 // One file operation. readText resolves with the file's bytes.
 export function runnerFs(
-  socketPath: string,
+  socketPath: RunnerTarget,
   request: FsRequest,
   input?: Buffer,
 ): Promise<{ value?: boolean; data: Buffer }> {
@@ -459,7 +512,7 @@ export function runnerFs(
   });
 }
 
-export function runnerAgentFs(socketPath: string): AgentFs {
+export function runnerAgentFs(socketPath: RunnerTarget): AgentFs {
   return {
     readText: async (path) =>
       (await runnerFs(socketPath, { call: "readText", path })).data.toString(
@@ -494,7 +547,7 @@ export interface RunnerInfo {
   env: Record<string, string>;
 }
 
-export function readRunnerInfo(socketPath: string): Promise<RunnerInfo> {
+export function readRunnerInfo(socketPath: RunnerTarget): Promise<RunnerInfo> {
   return new Promise((resolve, reject) => {
     let info: RunnerInfo | null = null;
     let error: string | null = null;
@@ -523,7 +576,7 @@ export function readRunnerInfo(socketPath: string): Promise<RunnerInfo> {
 
 // Run a fixed entry and parse its JSON output.
 export function runRunnerEntry(
-  socketPath: string,
+  socketPath: RunnerTarget,
   name: string,
   input: unknown,
   timeoutMs: number = ENTRY_TIMEOUT_MS,
@@ -584,14 +637,51 @@ export class RunnerAgentHost implements AgentHost {
   readonly fs: AgentFs;
 
   constructor(
-    private readonly socketPath: string,
+    private readonly socketPath: RunnerTarget,
     private readonly info: RunnerInfo,
     private readonly runtimePath: string,
+    // The member this host runs for (server/member-hosts.ts); undefined for
+    // the office runner of split mode.
+    readonly member?: string,
   ) {
     this.fs = runnerAgentFs(socketPath);
   }
 
-  static async connect(socketPath: string): Promise<RunnerAgentHost> {
+  // A member's runner. Every connection checks the listener's uid
+  // (SO_PEERCRED on our side) against `uid`; a reply field is never trusted
+  // for it. The host refuses an env that is not tagged with `userId`.
+  static async connectMember(
+    socketPath: string,
+    opts: {
+      userId: string;
+      uid: number;
+      readPeerUid?: (fd: number) => number | null;
+    },
+  ): Promise<RunnerAgentHost> {
+    const target: RunnerTarget = {
+      path: socketPath,
+      peer: {
+        uid: opts.uid,
+        read:
+          opts.readPeerUid ?? ((fd) => readPeerCredentials(fd)?.uid ?? null),
+      },
+    };
+    const info = await readRunnerInfo(target);
+    const probe = (await runRunnerEntry(target, "bun-path", {})) as {
+      path?: unknown;
+    } | null;
+    if (typeof probe?.path !== "string" || !probe.path)
+      throw new Error("the member's runner did not report its Bun executable");
+    // The uid is the one the peer check proved, never the runner's word.
+    return new RunnerAgentHost(
+      target,
+      { ...info, uid: opts.uid },
+      probe.path,
+      opts.userId,
+    );
+  }
+
+  static async connect(socketPath: RunnerTarget): Promise<RunnerAgentHost> {
     const info = await readRunnerInfo(socketPath);
     // Terminals and agent shells take PATH from the runner's env, as the
     // server's own PATH does at boot.
@@ -610,8 +700,12 @@ export class RunnerAgentHost implements AgentHost {
     return this.info.uid;
   }
 
+  // A member's base env carries the member's tag (server/agent-host.ts), so
+  // an env spread from it starts on this host.
   baseEnv(): Record<string, string | undefined> {
-    return this.info.env;
+    return this.member === undefined
+      ? this.info.env
+      : tagMemberEnv({ ...this.info.env }, this.member);
   }
 
   home(): string {
@@ -631,6 +725,13 @@ export class RunnerAgentHost implements AgentHost {
   }
 
   spawnChild(argv: string[], options: SpawnChildOptions = {}): RunnerChild {
+    const refusal = memberEnvRefusal(this.member, options.env);
+    // Never started: the public shape of a RunnerChild with nothing queued.
+    if (refusal)
+      return Object.assign(failedAgentChild(refusal), {
+        queuedInputBytes: 0,
+        dispose: () => {},
+      }) as unknown as RunnerChild;
     return new RunnerChild(
       this.socketPath,
       argv,

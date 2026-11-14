@@ -13,7 +13,7 @@ import {
   type VoiceKeyName,
   voiceKeySourceUsable,
 } from "../shared/voice.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { buildEnvForUserId, envSourceForUserId } from "./env-loader.ts";
 
 export interface VoiceKey {
@@ -26,7 +26,7 @@ export interface VoiceKey {
 export function voiceKeyForUserId(
   userId: string | null | undefined,
 ): VoiceKey | null {
-  const env = buildEnvForUserId(userId) ?? getAgentHost().baseEnv();
+  const env = buildEnvForUserId(userId) ?? officeAgentHost().baseEnv();
   for (const name of [VOICE_KEY_NAME, FALLBACK_VOICE_KEY_NAME] as const) {
     const value = env[name];
     if (!value) continue;

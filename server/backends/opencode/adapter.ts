@@ -78,7 +78,7 @@ import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
 import type { OpenCodeLimitedSession } from "./transport.ts";
-import { getAgentHost } from "../../agent-host.ts";
+import { officeAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 
 // The folder topic labels run in. The agent's folder would apply its project
@@ -799,7 +799,7 @@ export function createOpenCodeBackend(
       const supervisor = supervisorFor(opts);
       const dir = below ? OPENCODE_LIMITED_ONE_SHOT_DIR : OPENCODE_ONE_SHOT_DIR;
       if (below) await makeEmptyFolder(dir);
-      else await getAgentHost().fs.mkdir(dir, 0o777);
+      else await officeAgentHost().fs.mkdir(dir, 0o777);
       const models = await discoverOpenCodeModels(supervisor, dir);
       // Topic text must use the same selection as a live session. Never pick
       // a default or another discovered model when that selection is missing.

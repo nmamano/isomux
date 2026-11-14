@@ -21,7 +21,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir, tmpdir } from "node:os";
 import { STATE_ROOT } from "../../config.ts";
-import { localAgentHost, setAgentHost } from "../../agent-host.ts";
+import { localAgentHost, setOfficeAgentHost } from "../../agent-host.ts";
 import {
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
   OpenCodeSupervisor,
@@ -1828,7 +1828,7 @@ describe("OpenCode shared server supervisor", () => {
   function holdServerStarts() {
     const held: { run: () => void; done: Promise<void> }[] = [];
     let holding = true;
-    setAgentHost({
+    setOfficeAgentHost({
       ...localAgentHost,
       run: async (argv, options) => {
         if (!holding || options?.env?.OPENCODE_SERVER_ACTION === "stop")
@@ -1889,7 +1889,7 @@ describe("OpenCode shared server supervisor", () => {
     const finished: Record<Kind, number> = { start: 0, stop: 0 };
     let failStarts = false;
     let failStops = false;
-    setAgentHost({
+    setOfficeAgentHost({
       ...localAgentHost,
       run: async (argv, options) => {
         const kind: Kind =
@@ -1971,7 +1971,7 @@ describe("OpenCode shared server supervisor", () => {
       expect(alive(lease.pid)).toBe(true);
       lease.release();
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
     }
   }, 20_000);
 
@@ -2030,7 +2030,7 @@ describe("OpenCode shared server supervisor", () => {
       lease.endTurn();
       lease.release();
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
     }
   }, 20_000);
 
@@ -2060,7 +2060,7 @@ describe("OpenCode shared server supervisor", () => {
       runs.failStarts();
       await expectRejection(supervisor.acquire(), /test start failure/);
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
     }
     expect(alive(pid)).toBe(true);
     expect(
@@ -2096,7 +2096,7 @@ describe("OpenCode shared server supervisor", () => {
       runs.failStops();
       await idle.fire().catch((error: unknown) => (fired = error));
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
     }
     expect(fired, "the idle stop rejected from its timer").toBeNull();
     expect(alive(pid)).toBe(true);
@@ -2562,7 +2562,7 @@ describe("OpenCode shared server supervisor", () => {
       next.endTurn();
       next.release();
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
       long.release();
     }
   }, 20_000);
@@ -2598,7 +2598,7 @@ describe("OpenCode shared server supervisor", () => {
       expect(long.replacementPending).toBe(false);
       long.endTurn();
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
       long.release();
     }
   }, 20_000);
@@ -2660,7 +2660,7 @@ describe("OpenCode shared server supervisor", () => {
       first.release();
       second.release();
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
     }
   }, 20_000);
 
@@ -2703,7 +2703,7 @@ describe("OpenCode shared server supervisor", () => {
       adopter.release();
       replacer.release();
     } finally {
-      setAgentHost(localAgentHost);
+      setOfficeAgentHost(localAgentHost);
       active.endTurn();
       active.release();
     }

@@ -101,7 +101,7 @@ import {
   effortLevelsFor,
 } from "../../shared/types.ts";
 import type { ModelFamily } from "../../shared/types.ts";
-import { getAgentHost } from "../agent-host.ts";
+import { officeAgentHost } from "../agent-host.ts";
 import { loadClaudeIsomuxLabel, saveFile } from "../persistence.ts";
 import {
   resolveAttachmentNotices,
@@ -2085,7 +2085,7 @@ function buildClaudeUserMessage(
 
 function claudeModelForEnvironment(
   modelFamily: string,
-  env: Record<string, string | undefined> = getAgentHost().baseEnv(),
+  env: Record<string, string | undefined> = officeAgentHost().baseEnv(),
 ): string {
   // Passing an alias lets resolved cloud defaults and explicit family pins
   // apply to both turns and topic generation.
@@ -2133,7 +2133,7 @@ function toolBoundaryHooks(take: () => string | null): HookCallbackMatcher[] {
 // The session's refusal lines name the provider its env selects.
 function claudeTranslateOptions(opts: CreateSessionOptions): TranslateOptions {
   return {
-    provider: claudeProviderId(opts.env ?? getAgentHost().baseEnv()),
+    provider: claudeProviderId(opts.env ?? officeAgentHost().baseEnv()),
   };
 }
 
@@ -2176,7 +2176,7 @@ function buildSdkOpts(
   opts: CreateSessionOptions,
   isomuxLabel: boolean,
 ): SdkSessionOptions {
-  const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
+  const env = withCloudModelDefaults(opts.env ?? officeAgentHost().baseEnv());
   const model = claudeModelForEnvironment(opts.modelFamily, env);
   // A limited family (Sonnet 4.5 and Haiku 4.5 on Bedrock and Vertex) takes no
   // effort and no auto mode. Auto runs as default, the stricter mode, never as
@@ -2462,7 +2462,9 @@ export function createClaudeBackend(
       // roleplaying as an agent attempting the conversation's task. The
       // adapter sets tools:[] / thinking:disabled / settingSources:[] /
       // strictMcpConfig / cwd:"/tmp" to keep this a pure single-turn label task.
-      const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
+      const env = withCloudModelDefaults(
+        opts.env ?? officeAgentHost().baseEnv(),
+      );
       const model = claudeModelForEnvironment(opts.modelFamily, env);
       return sdkClient.oneShotPrompt({
         prompt,

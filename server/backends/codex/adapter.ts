@@ -46,7 +46,7 @@ import {
   codexConfinedTools,
   codexConfineEnvValue,
 } from "./confine-env.ts";
-import { getAgentHost } from "../../agent-host.ts";
+import { officeAgentHost } from "../../agent-host.ts";
 import { FOLDER_FILES_MCP_SERVER } from "../../folder-files.ts";
 import { filterMissingToolOutputRepeats } from "../../../shared/codex-diagnostics.ts";
 
@@ -1380,7 +1380,7 @@ export class CodexSession implements BackendSession {
           : opts.cwd,
       env: this.inFolder
         ? {
-            ...(opts.env ?? getAgentHost().baseEnv()),
+            ...(opts.env ?? officeAgentHost().baseEnv()),
             [CODEX_CONFINE_ENV]: codexConfineEnvValue({
               access: opts.access!,
               folder: opts.cwd,

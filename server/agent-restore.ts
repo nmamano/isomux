@@ -24,7 +24,7 @@ import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { rmSync } from "fs";
 import { claudeConfigDirOf } from "./provider-skill-links.ts";
 import { join } from "path";
-import { getAgentHost } from "./agent-host.ts";
+import { officeAgentHost } from "./agent-host.ts";
 import { managerOf } from "./agent-system-prompt.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
 import type { createAgentSkills } from "./agent-skills.ts";
@@ -295,7 +295,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
           );
           ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
           restoreEnv = {
-            ...(restoreEnv ?? getAgentHost().baseEnv()),
+            ...(restoreEnv ?? officeAgentHost().baseEnv()),
             CLAUDE_CONFIG_DIR: root,
           };
         }

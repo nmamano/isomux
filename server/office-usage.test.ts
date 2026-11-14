@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  getAgentHost,
+  officeAgentHost,
   localAgentHost,
-  setAgentHost,
+  setOfficeAgentHost,
   type AgentHost,
 } from "./agent-host.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
@@ -381,8 +381,8 @@ describe("codexOfficeProbe", () => {
         return child;
       },
     };
-    const previous = getAgentHost();
-    setAgentHost(host);
+    const previous = officeAgentHost();
+    setOfficeAgentHost(host);
     try {
       const probe = codexOfficeProbe({
         ...process.env,
@@ -415,7 +415,7 @@ describe("codexOfficeProbe", () => {
       };
     } finally {
       for (const pgid of leaders) killGroup(pgid);
-      setAgentHost(previous);
+      setOfficeAgentHost(previous);
       rmSync(dir, { recursive: true, force: true });
     }
   }

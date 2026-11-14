@@ -1,4 +1,5 @@
 import { readWidgetMetadata } from "./app-widget-metadata.ts";
+import { connectMemberHosts, hostFor } from "./member-hosts.ts";
 import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import {
   appFilesRevision,
@@ -209,7 +210,7 @@ import { MAX_LOG_REQUEST_ID_LENGTH } from "../shared/log-stream.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import {
-  setAgentHost,
+  setOfficeAgentHost,
   setIsolationSetupFailureListener,
 } from "./agent-host.ts";
 import {
@@ -1491,10 +1492,11 @@ const folderMcpDeps: FolderMcpDeps = {
           agentType: agent.agentType,
           access: agentAccessOf(agent),
           folder: agent.cwd,
+          userId: agent.userId,
         }
       : null;
   },
-  run: runFolderFiles,
+  run: (req, userId) => runFolderFiles(req, undefined, hostFor(userId)),
 };
 // The OAuth MCP flow of this boot (integrations A2b) and its refresh timer.
 let mcpOAuth: McpOAuth | null = null;
@@ -6382,10 +6384,14 @@ export async function runOfficeMain(): Promise<void> {
       console.error(`[split] refusing to start: ${reason}`);
     process.exit(1);
   }
-  if (split.mode === "split") setAgentHost(split.host);
+  if (split.mode === "split") setOfficeAgentHost(split.host);
   // Close the state root to other OS users (task fe7619bc). After the split
   // check, which must still see and refuse a root that is not private.
   secureStateRoot();
+  // Members with their own OS user (task b94dfd25): connect each runner
+  // before any agent restores. One that is not ready keeps its agents on a
+  // host that fails every operation, and a retry connects it later.
+  await connectMemberHosts();
   // Before any agent starts: an office with a secret gets its proxy and its
   // placeholders. An office without one changes nothing.
   try {

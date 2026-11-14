@@ -14,7 +14,7 @@ import {
 import { connect, createServer, type Server } from "net";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { getAgentHost, setAgentHost } from "../agent-host.ts";
+import { officeAgentHost, setOfficeAgentHost } from "../agent-host.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   copySessionFilesInAgentSpace,
@@ -399,8 +399,8 @@ describe("agent runner identity and entries", () => {
       fromRoot,
       toRoot,
     };
-    const previous = getAgentHost();
-    setAgentHost(await RunnerAgentHost.connect(socketPath));
+    const previous = officeAgentHost();
+    setOfficeAgentHost(await RunnerAgentHost.connect(socketPath));
     try {
       await copySessionFilesInAgentSpace(move);
       expect(readFileSync(transcript(toRoot), "utf8")).toBe("line\n");
@@ -411,7 +411,7 @@ describe("agent runner identity and entries", () => {
       // Nothing left to copy in the member's folder.
       await expectRejection(copySessionFilesInAgentSpace(move), /./);
     } finally {
-      setAgentHost(previous);
+      setOfficeAgentHost(previous);
     }
   });
 

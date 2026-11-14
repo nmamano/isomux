@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentHost } from "../../agent-host.ts";
+import { officeAgentHost } from "../../agent-host.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import {
   OPENCODE_V2_DATABASE,
@@ -32,7 +32,7 @@ function profileCliEnvironment(
   profileDir: string,
 ): Record<string, string | undefined> {
   return {
-    PATH: getAgentHost().baseEnv().PATH ?? "/usr/bin:/bin",
+    PATH: officeAgentHost().baseEnv().PATH ?? "/usr/bin:/bin",
     LANG: "C.UTF-8",
     HOME: openCodeProfileHome(profileDir),
     XDG_CONFIG_HOME: join(profileDir, "config"),
@@ -62,7 +62,7 @@ function leasePassword(authHeader: string): string {
 
 const openCodeCli: OpenCodeSessionCli = {
   async exportSession(profileDir, sessionId) {
-    const host = getAgentHost();
+    const host = officeAgentHost();
     await host.fs.mkdir(openCodeCliTmpDir(profileDir), 0o700);
     const result = await host.run(
       [resolveOpenCodeBinary(), "session", "export", sessionId, "--standalone"],
@@ -75,7 +75,7 @@ const openCodeCli: OpenCodeSessionCli = {
   },
   async importSession(target, exported) {
     const directory = exportedDirectory(exported);
-    const host = getAgentHost();
+    const host = officeAgentHost();
     const lease = await target.acquire();
     try {
       const tmp = openCodeCliTmpDir(target.profileDir);

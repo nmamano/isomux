@@ -4,12 +4,13 @@ import { buildOfficeEnv } from "./env-loader.ts";
 import { personalProviderHome } from "./provider-homes.ts";
 import { msg } from "../shared/i18n/log-message.ts";
 import { LocalizedError } from "./localized-error.ts";
-import { getAgentHost } from "./agent-host.ts";
+import { hostForEnv } from "./member-hosts.ts";
+import { hasMemberOsUser } from "./member-os-users.ts";
 
 type Env = Record<string, string | undefined>;
 export function claudeConfigRoot(env: Env = process.env): string {
   return resolve(
-    env?.CLAUDE_CONFIG_DIR || join(getAgentHost().home(), ".claude"),
+    env?.CLAUDE_CONFIG_DIR || join(hostForEnv(env).home(), ".claude"),
   );
 }
 
@@ -27,7 +28,8 @@ export function resolveClaudeSessionRoot(
   const roots = [
     ...new Set([
       claudeConfigRoot(currentEnv),
-      claudeConfigRoot(buildOfficeEnv()),
+      // An isolated member never gets the office account's root.
+      ...(hasMemberOsUser(userId) ? [] : [claudeConfigRoot(buildOfficeEnv())]),
       ...(userId ? [personalProviderHome(userId, "claude")] : []),
     ]),
   ];

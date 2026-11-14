@@ -1570,10 +1570,11 @@ describe("Claude Isomux label", () => {
   });
 
   it("labels an env-less caller on the server's whole environment, and keeps the server's own label", async () => {
-    const { getAgentHost, setAgentHost } = await import("../agent-host.ts");
-    const host = getAgentHost();
+    const { officeAgentHost, setOfficeAgentHost } =
+      await import("../agent-host.ts");
+    const host = officeAgentHost();
     let base: Record<string, string> = { PATH: "/srv/bin", HOME: "/srv" };
-    setAgentHost({ ...host, baseEnv: () => base });
+    setOfficeAgentHost({ ...host, baseEnv: () => base });
     try {
       // Options.env replaces the child's environment: the label goes on a
       // copy of the inherited one, never on its own.
@@ -1591,7 +1592,7 @@ describe("Claude Isomux label", () => {
         expect(sent?.[ARTIFACT]).toBeUndefined();
       }
     } finally {
-      setAgentHost(host);
+      setOfficeAgentHost(host);
     }
   });
 
@@ -1772,14 +1773,15 @@ describe("Claude cloud defaults at the SDK boundary", () => {
   }
 
   it("uses the agent host base environment when the caller has no env", async () => {
-    const { getAgentHost, setAgentHost } = await import("../agent-host.ts");
-    const previous = getAgentHost();
+    const { officeAgentHost, setOfficeAgentHost } =
+      await import("../agent-host.ts");
+    const previous = officeAgentHost();
     const env = {
       CLAUDE_CODE_USE_BEDROCK: "1",
       AWS_REGION: "us-west-2",
       RUNNER_ONLY: "kept",
     };
-    setAgentHost({ ...previous, kind: "runner", baseEnv: () => env });
+    setOfficeAgentHost({ ...previous, kind: "runner", baseEnv: () => env });
     try {
       const fake = new FakeSdkClient();
       const backend = createClaudeBackend(fake);
@@ -1810,7 +1812,7 @@ describe("Claude cloud defaults at the SDK boundary", () => {
       created.close();
       resumed.close();
     } finally {
-      setAgentHost(previous);
+      setOfficeAgentHost(previous);
     }
   });
 });

@@ -5,11 +5,11 @@
 // to do the same work as the agent user.
 
 import { spawn } from "child_process";
-import type { EventEmitter } from "events";
+import { EventEmitter } from "events";
 import { existsSync } from "fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
-import type { Readable, Writable } from "stream";
+import { Readable, Writable } from "stream";
 import {
   isolatedArgv,
   ISOLATION_SETUP_FAILED,
@@ -21,6 +21,82 @@ import {
   type IsomuxDiffRequest,
   type IsomuxDiffRunResult,
 } from "./isomux-diff.ts";
+
+// The env tag (internal-docs/member-os-user-design.md, slice 1a). An env
+// built for an isolated member carries MEMBER_ENV = that member's user id, as
+// an enumerable symbol: a spread keeps it, a spawn and JSON drop it. A member
+// host refuses an env that is not tagged with its member, and an office host
+// refuses any tagged env, with an error whose code is MEMBER_ENV_REFUSED: a
+// spawnChild emits it as "error" (as a failed spawn), the rest reject. A net,
+// not the proof.
+export const MEMBER_ENV: unique symbol = Symbol("isomux.member-env");
+export const MEMBER_ENV_REFUSED = "MEMBER_ENV_REFUSED";
+
+export function tagMemberEnv<T extends object>(env: T, userId: string): T {
+  (env as Record<symbol, unknown>)[MEMBER_ENV] = userId;
+  return env;
+}
+
+// The member whose tag `env` carries, else undefined.
+export function memberEnvOwner(env: object | undefined): string | undefined {
+  const owner = env ? (env as Record<symbol, unknown>)[MEMBER_ENV] : undefined;
+  return typeof owner === "string" ? owner : undefined;
+}
+
+// Null when a host whose member is `member` (undefined: an office host) may
+// start a process with `env`; else the refusal. No env: the host's own base
+// env, always allowed.
+export function memberEnvRefusal(
+  member: string | undefined,
+  env: object | undefined,
+): NodeJS.ErrnoException | null {
+  if (env === undefined) return null;
+  const owner = memberEnvOwner(env);
+  if (owner === member) return null;
+  return Object.assign(
+    new Error(
+      member === undefined
+        ? "an isolated member's environment cannot start a process as the office user"
+        : "this environment was not built for the member whose OS user runs it",
+    ),
+    { code: MEMBER_ENV_REFUSED },
+  );
+}
+
+// A child that never started: "error" with `error`, on the next tick, as a
+// failed spawn reports it. No "exit" or "close" follows.
+export function failedAgentChild(error: Error): AgentChild {
+  const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
+  const stdin = new Writable({
+    write: (_chunk, _encoding, done) => done(),
+  });
+  const stdout = new Readable({ read() {} });
+  stdout.push(null);
+  Object.assign(child, {
+    pid: undefined,
+    stdin,
+    stdout,
+    stderr: null,
+    killed: false,
+    exitCode: null,
+    signalCode: null,
+    kill: () => false,
+    signalGroup: () => {},
+  });
+  setTimeout(() => child.emit("error", error), 0);
+  return child as unknown as AgentChild;
+}
+
+// A process that never started: no output, exit status 127.
+export function failedAgentProcess(): AgentProcess {
+  return {
+    pid: undefined,
+    stdin: { write: () => 0, end: () => undefined },
+    stdout: new ReadableStream({ start: (c) => c.close() }),
+    exited: Promise.resolve(127),
+    kill: () => {},
+  };
+}
 
 // The part of a child process that callers use. A Bun Subprocess satisfies it.
 export interface AgentProcess {
@@ -94,6 +170,9 @@ export interface AgentFs {
 
 export interface AgentHost {
   readonly kind: "local" | "runner";
+  // The isolated member whose OS user runs this host
+  // (server/member-hosts.ts); undefined for an office host.
+  readonly member?: string;
   // The environment that agent processes start from: the agent user's own.
   baseEnv(): Record<string, string | undefined>;
   home(): string;
@@ -117,6 +196,8 @@ function spawnLocalChild(
   argv: string[],
   options: SpawnChildOptions = {},
 ): AgentChild {
+  const refusal = memberEnvRefusal(undefined, options.env);
+  if (refusal) return failedAgentChild(refusal);
   if (options.isolate) return spawnIsolatedLocalChild(argv, options);
   // detached: the child leads its own process group, so signalGroup reaches
   // its descendants too.
@@ -220,6 +301,8 @@ async function runLocal(
   argv: string[],
   options: RunOptions = {},
 ): Promise<RunResult> {
+  const refusal = memberEnvRefusal(undefined, options.env);
+  if (refusal) throw refusal;
   const output = options.output ?? "pipe";
   const proc = Bun.spawn(argv, {
     cwd: options.cwd,
@@ -289,12 +372,12 @@ export function inAgentSpace<T>(
     : Promise.resolve().then(local);
 }
 
-export function getAgentHost(): AgentHost {
+export function officeAgentHost(): AgentHost {
   return current;
 }
 
 // Called once at boot by the split-mode start (server/split/start.ts), and by
 // tests that restore the default afterwards.
-export function setAgentHost(host: AgentHost): void {
+export function setOfficeAgentHost(host: AgentHost): void {
   current = host;
 }

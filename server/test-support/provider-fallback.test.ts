@@ -51,6 +51,7 @@ import {
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
 import { removeStateDir } from "./temp-state.ts";
+import { isolateMember } from "./member-host-fixture.ts";
 import {
   FakeBackend,
   type FakeBackendConfig,
@@ -671,6 +672,89 @@ describe("a stop with no fallback", () => {
       expect(sessionsOf(h, info.id).map((x) => accountOf(x))).toEqual([
         account,
       ]);
+    });
+  }
+});
+
+// An isolated member (own OS user, internal-docs/member-os-user-design.md
+// 1.6): no Claude or Codex fallback to the office sign-in in slice 1a. The
+// office account folder must not reach her agents' env in any session.
+describe("an isolated member: no office fallback", () => {
+  for (const engine of ["claude", "codex"] as const) {
+    it(`${engine}: a stop on her own sign-in moves nothing to the office sign-in, and a new agent starts on her own`, async () => {
+      const iso = await isolateMember(aliceId());
+      try {
+        const h = makeHarness();
+        const info = await spawn(h, engine);
+        const reset = h.office.clock.now() + 5 * HOUR;
+        const s = await memberTurn(h, info.id, "work", engine);
+        // The enabling condition: her turn ran on her own sign-in.
+        expect(accountOf(s, engine)).toBe(memberDir(engine));
+        stopTurn(s, engine, { resetsAtMs: reset });
+        await waitUntil(
+          () => lines(h, info.id, STOPPED).length === 1,
+          "stop line",
+        );
+        await settle();
+        expect(continuesTo(h, info.id)).toBe(0);
+        expect(lines(h, info.id, TO_OFFICE)).toEqual([]);
+
+        const c = await spawn(h, engine, { name: "C" });
+        void h.mgr.sendMessage(c.id, "hello", "Alice");
+        await waitUntil(
+          () => !!sessionWith(h, c.id, (t) => t.endsWith("hello")),
+          "C's first turn sent",
+        );
+        for (const session of h.fake.sessions) {
+          expect(accountOf(session, engine)).not.toBe(officeDir(engine));
+          expect(Object.values(session.opts.env ?? {})).not.toContain(
+            officeDir(engine),
+          );
+        }
+      } finally {
+        iso.dispose();
+      }
+    });
+
+    // An agent that went to the office sign-in before its member was
+    // isolated keeps officeFallback = true (and, for Claude, a pin on the
+    // office folder) in its record. Neither may bring the office folder back.
+    it(`${engine}: an agent left on the office sign-in from before the isolation names her own sign-in and runs its next turn there`, async () => {
+      const h = makeHarness();
+      const info = await spawn(h, engine);
+      const reset = h.office.clock.now() + 5 * HOUR;
+      const { after } = await toOffice(h, info.id, engine, reset);
+      await endTurn(h, info.id, after);
+      expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+      // The enabling condition: the record says the office sign-in.
+      expect(persisted(info.id)?.officeFallback).toBe(true);
+      expect(accountOf(after, engine)).toBe(officeDir(engine));
+      if (engine === "claude")
+        expect(getSessionClaudeConfigDir(info.id, after.sessionId)).toBe(
+          officeDir("claude"),
+        );
+
+      const iso = await isolateMember(aliceId());
+      try {
+        expect((await h.mgr.getAgentSubscriptionUsage(info.id)).signIn).toBe(
+          "individual",
+        );
+        const before = h.fake.sessions.length;
+        void h.mgr.sendMessage(info.id, "isolated", "Alice");
+        await waitUntil(
+          () => !!sessionWith(h, info.id, (t) => t.endsWith("isolated")),
+          "the turn after the isolation sent",
+        );
+        const next = sessionWith(h, info.id, (t) => t.endsWith("isolated"))!;
+        expect(h.fake.sessions.indexOf(next)).toBeGreaterThanOrEqual(before);
+        expect(accountOf(next, engine)).toBe(memberDir(engine));
+        expect(Object.values(next.opts.env ?? {})).not.toContain(
+          officeDir(engine),
+        );
+        expect(lines(h, info.id, TO_OFFICE)).toHaveLength(1);
+      } finally {
+        iso.dispose();
+      }
     });
   }
 });
