@@ -34,11 +34,14 @@ function withFakeSocket(run: (sockets: FakeSocket[]) => void) {
       this.url = url;
       sockets.push(this);
     }
+    closed = false;
     send(data: string) {
       if (this.failSend) throw new Error("send on a dead socket");
       this.sent.push(data);
     }
-    close() {}
+    close() {
+      this.closed = true;
+    }
   }
   globalThis.WebSocket = Fake as unknown as typeof WebSocket;
   ws.setShim(null);
@@ -56,6 +59,7 @@ type FakeSocket = {
   readyState: number;
   sent: string[];
   failSend: boolean;
+  closed: boolean;
   onopen?: () => void;
   onmessage?: (e: { data: unknown }) => void;
   onclose?: () => void;
@@ -352,4 +356,67 @@ it("the store shows the office offline from a socket replacement until the new s
   } finally {
     setApiShim(null);
   }
+});
+
+// A store that unmounts disconnects (task c88efa67): ws.ts drops its handler,
+// so no frame, close, timer or 'online' event reaches the unmounted tree.
+const frame = { type: "ask_removed", id: "a1" } as const;
+const deliver = (s: FakeSocket) =>
+  s.onmessage?.({ data: JSON.stringify(frame) });
+
+it("after disconnect, nothing reaches the handler and no socket opens", () => {
+  withFakeSocket((sockets) => {
+    const got: string[] = [];
+    const reports: boolean[] = [];
+    const onMessage = (msg: { type: string }) => got.push(msg.type);
+    ws.connect(onMessage, (up) => reports.push(up));
+    open(sockets[0]);
+    deliver(sockets[0]);
+    // Enabling condition: the socket delivers frames to the handler.
+    expect(got).toEqual(["ask_removed"]);
+    reports.length = 0;
+    ws.disconnect(onMessage);
+    expect(sockets[0].closed).toBe(true);
+    deliver(sockets[0]);
+    ws.shimEmit(frame);
+    // The socket still reads OPEN: the heartbeat would ping it.
+    jest.advanceTimersByTime(30_000);
+    expect(pings(sockets[0])).toBe(0);
+    // With the socket OPEN, 'online' would ping and then replace it.
+    goOnline();
+    jest.advanceTimersByTime(5_000);
+    // The close arrives late: the backoff would open a new socket.
+    sockets[0].readyState = 3;
+    sockets[0].onclose?.();
+    jest.advanceTimersByTime(5_000);
+    expect(sockets).toHaveLength(1);
+    expect(got).toEqual(["ask_removed"]);
+    expect(reports).toEqual([]);
+  });
+});
+
+// React runs an old effect's cleanup after a newer store may have connected.
+it("a disconnect for a replaced handler leaves the newer one connected", () => {
+  withFakeSocket((sockets) => {
+    const older = () => {};
+    ws.connect(older, () => {});
+    const got: string[] = [];
+    const reports: boolean[] = [];
+    ws.connect(
+      (msg: { type: string }) => got.push(msg.type),
+      (up) => reports.push(up),
+    );
+    open(sockets[1]);
+    ws.disconnect(older);
+    expect(sockets[1].closed).toBe(false);
+    deliver(sockets[1]);
+    ws.shimEmit(frame);
+    expect(got).toEqual(["ask_removed", "ask_removed"]);
+    reports.length = 0;
+    sockets[1].readyState = 3;
+    sockets[1].onclose?.();
+    expect(reports).toEqual([false]);
+    jest.advanceTimersByTime(2_000);
+    expect(sockets).toHaveLength(3);
+  });
 });

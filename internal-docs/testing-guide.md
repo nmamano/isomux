@@ -222,15 +222,9 @@ GETs `/api/memory` and reads `text` off the reply, so it needs
 `{ text, version, size, cap }` or the next render throws inside
 `injectedMemorySize`.
 
-A test that mounts `StoreProvider` has a second singleton to hand back:
-`ui/ws.ts` keeps the shim, the MESSAGE handler and the CONNECTION handler in
-module state, and `connect()` has no teardown. Left set, the store the file
-mounted stays wired to `shimEmit` after its DOM is gone, and the next file that
-emits - `ui/demo-server.test.ts` does - dispatches into an unmounted React tree
-and dies on a missing `window`. Re-point all three at no-ops in `afterAll`, and
-pass `connect()` BOTH callbacks: it replaces the connection handler only when it
-is given one, so `connect(() => {})` alone leaves the unmounted store's
-connection callback in place.
+A test that mounts `StoreProvider` has a second singleton: the shim in
+`ui/ws.ts` (`setShim`). Reset it to null in `afterAll`. The store disconnects
+from `ui/ws.ts` when it unmounts, so a later file's `shimEmit` reaches nothing.
 
 Send a key from the element it would really come from, not from `window`. The
 unsaved-edit guards in `ui/components/TaskView.tsx` and

@@ -23,7 +23,7 @@ const { act, render } = await import("@testing-library/react");
 const { App } = await import("./App.tsx");
 const { StoreProvider } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
-const { connect, setShim, shimEmit } = await import("./ws.ts");
+const { setShim, shimEmit } = await import("./ws.ts");
 const { saveView } = await import("./view-persistence.ts");
 const { createElement } = await import("react");
 
@@ -40,18 +40,7 @@ setApiShim(async (_method, path) =>
 
 afterAll(() => {
   setApiShim(null);
-  // ws.ts holds the shim, the MESSAGE handler and the CONNECTION handler in
-  // module state, and StoreProvider's connect() has no teardown - so without
-  // this the store this file mounted stays wired to shimEmit after the DOM is
-  // gone, and the next file that emits (ui/demo-server.test.ts does)
-  // dispatches into an unmounted React tree and dies on a missing `window`.
-  // Both callbacks have to be passed: connect() only replaces the connection
-  // handler when it is given one.
   setShim(
-    () => {},
-    () => {},
-  );
-  connect(
     () => {},
     () => {},
   );

@@ -19,7 +19,7 @@ const { createElement } = await import("react");
 const { App } = await import("./App.tsx");
 const { StoreProvider } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
-const { connect, setShim, shimEmit } = await import("./ws.ts");
+const { setShim, shimEmit } = await import("./ws.ts");
 const { saveView, loadSavedView } = await import("./view-persistence.ts");
 
 type View = ReturnType<typeof render>;
@@ -32,13 +32,7 @@ setApiShim(async (_method, path) =>
 
 afterAll(() => {
   setApiShim(null);
-  // StoreProvider's connect() has no teardown: unhook both ws.ts handlers so
-  // the next file's emits do not reach this file's unmounted tree.
   setShim(
-    () => {},
-    () => {},
-  );
-  connect(
     () => {},
     () => {},
   );

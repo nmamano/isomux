@@ -579,4 +579,57 @@ ${leaveQueued("a1a1a1a1")}`,
       run.output,
     ).toEqual({ first: clean, second: clean });
   }, 30_000);
+
+  // ui/ws.ts keeps the store's message handler (task c88efa67). A store that
+  // unmounted at the end of a DOM file must not take a frame that a later
+  // file emits (the demo fixture does): its dispatch reads a window that is
+  // gone.
+  it("a store that unmounted takes no frame from a later file", async () => {
+    const run = await runInOneProcess("store-handler", [
+      domFixture(
+        "store",
+        `const { act, render } = await import(${pkg("@testing-library/react")});
+const { createElement } = await import(${pkg("react")});
+const { FeaturesProvider, StoreProvider } = await import(${ui("store.tsx")});
+const { PRODUCTION_FEATURES } = await import(${JSON.stringify(join(REPO, "shared/features.ts"))});
+const { setApiShim } = await import(${ui("api.ts")});
+const { setShim } = await import(${ui("ws.ts")});
+it("connects a store", async () => {
+  let connected = false;
+  setShim(() => {}, () => { connected = true; });
+  setApiShim(async () => ({}));
+  try {
+    render(createElement(FeaturesProvider, { features: PRODUCTION_FEATURES,
+      children: createElement(StoreProvider, null) }));
+    await act(async () => { await new Promise((done) => setTimeout(done, 0)); });
+  } finally {
+    setApiShim(null);
+    setShim(null);
+  }
+  expect(connected).toBe(true);
+});`,
+      ),
+      [
+        "emit.test.ts",
+        `import { expect, it } from "bun:test";
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.ORDER_FILE!, "emit\\n");
+const { shimEmit } = await import(${ui("ws.ts")});
+it("emits a frame", () => {
+  expect(typeof (globalThis as Record<string, unknown>).window).toBe("undefined");
+  shimEmit({ type: "ask_removed", id: "a1" });
+});
+`,
+      ],
+    ]);
+    expect(run.order).toEqual(["store", "emit"]);
+    expect(run.file("store.dom.test.ts"), run.output).toEqual({
+      passed: ["connects a store"],
+      failures: [],
+    });
+    expect(run.file("emit.test.ts"), run.output).toEqual({
+      passed: ["emits a frame"],
+      failures: [],
+    });
+  }, 30_000);
 });

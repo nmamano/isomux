@@ -88,7 +88,7 @@ import type {
   PruneTarget,
   RemovedMemberWire,
 } from "../shared/contract-shapes.ts";
-import { connect, socketGeneration } from "./ws.ts";
+import { connect, disconnect, socketGeneration } from "./ws.ts";
 import { acknowledgeAttempts, acknowledgedSendIds } from "./log-view/outbox.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
@@ -2559,58 +2559,58 @@ export function StoreProvider({
 
   useEffect(() => {
     let legacyMigrated = false;
-    connect(
-      (msg: ServerMessage) => {
-        // Before the dispatch: a held answer flushed as its card unmounts
-        // must see that the ask closed.
-        if (msg.type === "ask_removed") closedAsks.add(msg.id);
-        // In the same task as the dispatch, so React renders both in one
-        // commit: the Sending row goes as the message shows.
-        acknowledgeAttempts(acknowledgedSendIds(msg));
-        // A full_state carries the socket it came on (W1, task 9ebe887d).
-        dispatch(
-          msg.type === "full_state"
-            ? { ...msg, socketGen: socketGeneration() }
-            : (msg as Action),
-        );
-        if (msg.type === "full_state") dispatch({ type: "connected" });
-        if (msg.type === "full_state" || msg.type === "floors_updated")
-          syncPanel(msg.floors ?? []);
-        // Once both session_context and users_list have arrived, mirror any
-        // legacy localStorage notifRooms pref into the user record - but only
-        // if the server hasn't recorded a value yet. The session cookie is
-        // authoritative for the username; we don't try to coerce the device's
-        // old localStorage name onto the session. (Legacy defaultRoom prefs are
-        // no longer migrated - the Default Room setting was removed.)
-        if (msg.type === "session_context" && !legacyMigrated) {
-          const legacy = readLegacyUserPrefs();
-          // One-shot localStorage->server migration of legacy view prefs (the
-          // former claim_user). A PRESENT value goes to its self-only view.*
-          // route; an absent/empty value is "nothing to migrate" (no request),
-          // never a clear-to-[], so a reload with no legacy keys can't wipe
-          // server-side prefs. Fire-and-forget; the server clamps to the
-          // caller's accessible rooms.
-          const hasLegacy = legacy.notifRooms.length > 0;
-          if (legacy.notifRooms.length > 0) {
-            apiFetch("PUT", "/api/me/view/notif-rooms", {
-              notifRooms: legacy.notifRooms,
-            }).catch(() => {});
-          }
-          if (hasLegacy) {
-            clearLegacyUserPrefs();
-          }
-          // Keep localStorage's name aligned to the session so other UI bits
-          // that still read getUsername() agree with the cookie identity.
-          try {
-            localStorage.setItem("isomux-username", msg.context.username);
-          } catch {}
-          legacyMigrated = true;
+    const onMessage = (msg: ServerMessage) => {
+      // Before the dispatch: a held answer flushed as its card unmounts
+      // must see that the ask closed.
+      if (msg.type === "ask_removed") closedAsks.add(msg.id);
+      // In the same task as the dispatch, so React renders both in one
+      // commit: the Sending row goes as the message shows.
+      acknowledgeAttempts(acknowledgedSendIds(msg));
+      // A full_state carries the socket it came on (W1, task 9ebe887d).
+      dispatch(
+        msg.type === "full_state"
+          ? { ...msg, socketGen: socketGeneration() }
+          : (msg as Action),
+      );
+      if (msg.type === "full_state") dispatch({ type: "connected" });
+      if (msg.type === "full_state" || msg.type === "floors_updated")
+        syncPanel(msg.floors ?? []);
+      // Once both session_context and users_list have arrived, mirror any
+      // legacy localStorage notifRooms pref into the user record - but only
+      // if the server hasn't recorded a value yet. The session cookie is
+      // authoritative for the username; we don't try to coerce the device's
+      // old localStorage name onto the session. (Legacy defaultRoom prefs are
+      // no longer migrated - the Default Room setting was removed.)
+      if (msg.type === "session_context" && !legacyMigrated) {
+        const legacy = readLegacyUserPrefs();
+        // One-shot localStorage->server migration of legacy view prefs (the
+        // former claim_user). A PRESENT value goes to its self-only view.*
+        // route; an absent/empty value is "nothing to migrate" (no request),
+        // never a clear-to-[], so a reload with no legacy keys can't wipe
+        // server-side prefs. Fire-and-forget; the server clamps to the
+        // caller's accessible rooms.
+        const hasLegacy = legacy.notifRooms.length > 0;
+        if (legacy.notifRooms.length > 0) {
+          apiFetch("PUT", "/api/me/view/notif-rooms", {
+            notifRooms: legacy.notifRooms,
+          }).catch(() => {});
         }
-      },
-      (isConnected: boolean) => {
-        if (!isConnected) dispatch({ type: "disconnected" });
-      },
-    );
+        if (hasLegacy) {
+          clearLegacyUserPrefs();
+        }
+        // Keep localStorage's name aligned to the session so other UI bits
+        // that still read getUsername() agree with the cookie identity.
+        try {
+          localStorage.setItem("isomux-username", msg.context.username);
+        } catch {}
+        legacyMigrated = true;
+      }
+    };
+    connect(onMessage, (isConnected: boolean) => {
+      if (!isConnected) dispatch({ type: "disconnected" });
+    });
+    // An unmounted tree takes no frame (a later test file can still emit).
+    return () => disconnect(onMessage);
   }, [closedAsks]);
 
   // Nothing normally closes a replay window here - the server's

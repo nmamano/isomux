@@ -273,6 +273,28 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   };
 }
 
+// Drops the handlers that connect() set for onMessage, and its socket and
+// timers: the store calls it when it unmounts. A call for a handler that a
+// later connect() replaced does nothing.
+export function disconnect(onMessage: MessageHandler): void {
+  if (handler !== onMessage) return;
+  handler = null;
+  connHandler = null;
+  clearPongTimer();
+  clearReconnectTimer();
+  clearHeartbeat();
+  clearConnectTimer();
+  // The old socket's callbacks check the generation, so its onclose schedules
+  // no reconnect.
+  socketGen++;
+  if (socket) {
+    try {
+      socket.close();
+    } catch {}
+    socket = null;
+  }
+}
+
 // A frame of an open_log replay, sent in the server's background lane (task
 // 9ebe887d): a log_entry or slash_commands with its request id, or a
 // log_open_done that is not a refusal (a refusal is a live frame).
