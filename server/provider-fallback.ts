@@ -68,7 +68,7 @@ export const FALLBACK_CONTINUE_TEXT = "[Isomux: Continue where you stopped.]";
 export const SIGN_IN_NOTICE_TEXT: Record<SignIn, string> = {
   office:
     "This conversation now runs on the office sign-in: your member's own sign-in reached its usage limit.",
-  individual: "This conversation runs on your member's own sign-in again.",
+  individual: "This conversation now runs on your member's own sign-in.",
 };
 
 export interface ProviderFallback {

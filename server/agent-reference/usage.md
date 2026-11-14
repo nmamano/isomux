@@ -4,7 +4,7 @@
 
 `GET /api/agents/:id/subscription` refreshes provider allowance when a live session exists. Available data includes provider windows, reset times, plan, sample and observation times, age, and fresh/cached state. Agents on one provider account share the latest reading. Cached data can survive a released session and starts empty after server restart. Unavailable reasons include `no_session`, `not_yet_measured`, and `provider_unavailable`; OpenCode reports provider unavailable.
 
-Every reply also carries `signIn`: `individual` when the agent runs on its member's own sign-in or key, `office` when it runs on the office's. With no live session, it is the sign-in the next turn starts on. When the fallback moves you to or from the office sign-in, your next turn tells you.
+Every reply also carries `signIn`: `individual` when the agent runs on its member's own sign-in or key, `office` when it runs on the office's. With no live session, it is the sign-in the next turn starts on. When your conversation moves to or from the office sign-in, your next turn tells you.
 
 When a usage limit stops your turn, Isomux sends you a message after the limit resets, unless `limitResume` is off in your settings.
 

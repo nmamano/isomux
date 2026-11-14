@@ -3397,6 +3397,8 @@ App 的一些原则：
     "在 {at}（{relative}）之前，智能体使用办公室通用的 {provider} 登录，因为负责人自己的登录已达到用量限制。",
   "systemEntries.providerFallback.backToOwn":
     "智能体已回到负责人自己的 {provider} 登录。",
+  "systemEntries.providerFallback.toOwn":
+    "智能体现在使用负责人自己的 {provider} 登录。",
   "systemEntries.usageLimit.stopped":
     "已达到用量限制。将于 {at} 重置（{relative}）。",
   "systemEntries.usageCap.pace":

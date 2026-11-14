@@ -21,7 +21,9 @@ The directory selects both login and `projects/<encoded-cwd>/<sessionId>.jsonl`
 (`server/cwd-utils.ts:76`; encoding replaces non-alphanumeric/non-hyphen
 characters with `-`). Sessions now record `claudeConfigDir` in their internal session metadata;
 resume keeps that root after personal sign-in changes, and new conversations
-use the current account root. Legacy sessions check their exact id under the
+use the current account root. One exception: a conversation on the office root
+moves to its member's own root at the next turn start once the member has one
+and no fallback holds it (server/session-accounts.ts onOfficeFolder). Legacy sessions check their exact id under the
 current, office, and owner's personal roots, then record the first match.
 The office-split decision (cbea0f74) remains open for Nil; C is still recommended
 for moving owned history into the office's managed state root. The picker still

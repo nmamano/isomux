@@ -35,6 +35,7 @@ import {
   createProviderFallback,
   FALLBACK_CONTINUE_TEXT,
   OPENCODE_FALLBACK_RETRY_MS,
+  SIGN_IN_NOTICE_TEXT,
   type FallbackAccount,
   type FallbackFamily,
   type FallbackProvider,
@@ -336,7 +337,12 @@ function lines(h: Harness, id: string, key: string): LogEntry[] {
 }
 const TO_OFFICE = "systemEntries.providerFallback.toOffice";
 const BACK = "systemEntries.providerFallback.backToOwn";
+const TO_OWN = "systemEntries.providerFallback.toOwn";
 const STOPPED = "systemEntries.usageLimit.stopped";
+// The bodies of the sign-in blocks in a sent text.
+const BLOCK =
+  /--- begin isomux: sign-in ---\n([\s\S]*?)\n--- end isomux: sign-in ---/g;
+const blocksIn = (t: string) => [...t.matchAll(BLOCK)].map((m) => m[1]);
 // The `at` of a toOffice line: the time the agent goes back.
 function atOf(entry: LogEntry): number | undefined {
   for (const part of entry.message ?? []) {
@@ -957,6 +963,191 @@ describe("back to the member's own sign-in, from a released Codex agent", () => 
   });
 });
 
+// A conversation born in the office account folder before Alice had her own
+// sign-in (task e4de1be4). The office env points at the office folders, so a
+// turn of hers with no own sign-in runs there and its conversation stays
+// there. Once she signs in, its next turn moves it to her own sign-in, as the
+// fallback's way back does, with one line.
+describe("a conversation kept in the office folder from before her own sign-in", () => {
+  // Credentials in the run's env would decide the sign-in for every case.
+  const NO_CREDENTIAL = {
+    ANTHROPIC_API_KEY: "",
+    ANTHROPIC_AUTH_TOKEN: "",
+    CLAUDE_CODE_OAUTH_TOKEN: "",
+    CODEX_API_KEY: "",
+    OPENAI_API_KEY: "",
+  };
+  beforeEach(() =>
+    setTestManagedOfficeEnv({
+      ...NO_CREDENTIAL,
+      CLAUDE_CONFIG_DIR: officeDir("claude"),
+      CODEX_HOME: officeDir("codex"),
+    }),
+  );
+
+  // Her agent's first turn, on the office folder while she has no own
+  // sign-in; then she signs in. `live`: the agent keeps its idle session.
+  async function strandedOnOffice(
+    h: Harness,
+    engine: Engine,
+    live: boolean,
+  ): Promise<{ id: string; sid: string; first: FakeSession }> {
+    personal[engine] = false;
+    const info = await spawn(h, engine, { name: "Old" });
+    const first = await memberTurn(h, info.id, "before", engine);
+    expect(accountOf(first, engine)).toBe(officeDir(engine));
+    await endTurn(h, info.id, first);
+    if (!live) expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+    personal[engine] = true;
+    h.mgr.providerAccountChanged(engine, memberDir(engine));
+    const sid = first.sessionId;
+    expect(conversationAt(engine, officeDir(engine), sid)).not.toBeNull();
+    if (engine === "claude")
+      expect(getSessionClaudeConfigDir(info.id, sid)).toBe(officeDir("claude"));
+    return { id: info.id, sid, first };
+  }
+
+  // A member turn, sent; the session that got it.
+  async function turn(
+    h: Harness,
+    id: string,
+    text: string,
+  ): Promise<{ session: FakeSession; sent: string }> {
+    void h.mgr.sendMessage(id, text, "Alice");
+    await waitUntil(
+      () => !!sessionWith(h, id, (t) => t.endsWith(text)),
+      `"${text}" sent`,
+    );
+    const session = sessionWith(h, id, (t) => t.endsWith(text))!;
+    return { session, sent: texts(session).find((t) => t.endsWith(text))! };
+  }
+  const signIn = async (h: Harness, id: string) =>
+    (await h.mgr.getAgentSubscriptionUsage(id)).signIn;
+
+  const cases: { engine: Engine; live: boolean; switchOn: boolean }[] = [
+    { engine: "claude", live: false, switchOn: true },
+    { engine: "claude", live: false, switchOn: false },
+    { engine: "claude", live: true, switchOn: true },
+    { engine: "codex", live: false, switchOn: true },
+    { engine: "codex", live: false, switchOn: false },
+    { engine: "codex", live: true, switchOn: true },
+  ];
+  for (const { engine, live, switchOn } of cases) {
+    it(`${engine}, ${live ? "with its idle session" : "with no session"}, fallback switch ${switchOn ? "on" : "off"}: the next turn resumes it on her own sign-in, with one line and one notice`, async () => {
+      const h = makeHarness();
+      if (!switchOn) h.office.store.setEnabled(false);
+      const { id, sid, first } = await strandedOnOffice(h, engine, live);
+      // With no session, the sign-in names the account the next turn
+      // starts on.
+      if (!live) expect(await signIn(h, id)).toBe("individual");
+
+      const next = await turn(h, id, "after");
+      expect(first.closed).toBe(true);
+      expect(next.session.sessionId).toBe(sid);
+      expect(next.session.isResume).toBe(true);
+      expect(accountOf(next.session, engine)).toBe(memberDir(engine));
+      expect(conversationAt(engine, memberDir(engine), sid)).toBe(
+        `conversation ${sid}\n`,
+      );
+      expect(conversationAt(engine, officeDir(engine), sid)).toBeNull();
+      if (engine === "claude")
+        expect(getSessionClaudeConfigDir(id, sid)).toBe(memberDir("claude"));
+      expect(lines(h, id, TO_OWN).map((e) => e.kind)).toEqual(["system"]);
+      expect(lines(h, id, BACK)).toEqual([]);
+      expect(lines(h, id, TO_OFFICE)).toEqual([]);
+      expect(blocksIn(next.sent)).toEqual([SIGN_IN_NOTICE_TEXT.individual]);
+      expect(persisted(id)?.officeFallback).toBeFalsy();
+      await endTurn(h, id, next.session);
+
+      // Moved once: the turn after has no line and no notice.
+      const again = await turn(h, id, "again");
+      expect(accountOf(again.session, engine)).toBe(memberDir(engine));
+      expect(blocksIn(again.sent)).toEqual([]);
+      expect(lines(h, id, TO_OWN)).toHaveLength(1);
+    });
+  }
+
+  it("while her fallback lasts, the conversation stays on the office folder", async () => {
+    const h = makeHarness();
+    const { id, sid } = await strandedOnOffice(h, "claude", false);
+    h.office.store.start(aliceId(), "claude", {
+      until: h.office.clock.now() + HOUR,
+    });
+    expect(h.office.store.entry(aliceId(), "claude")).not.toBeNull();
+
+    const next = await turn(h, id, "after");
+    expect(accountOf(next.session)).toBe(officeDir("claude"));
+    expect(getSessionClaudeConfigDir(id, sid)).toBe(officeDir("claude"));
+    expect(conversationAt("claude", officeDir("claude"), sid)).not.toBeNull();
+    expect(lines(h, id, TO_OWN)).toEqual([]);
+  });
+
+  it("a conversation in a folder that is neither hers nor the office's stays there", async () => {
+    const third = join(STATE_ROOT, "third-claude");
+    setTestManagedOfficeEnv({ ...NO_CREDENTIAL, CLAUDE_CONFIG_DIR: third });
+    const h = makeHarness();
+    personal.claude = false;
+    const info = await spawn(h, "claude");
+    const first = await memberTurn(h, info.id, "before");
+    expect(accountOf(first)).toBe(third);
+    await endTurn(h, info.id, first);
+    expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+    personal.claude = true;
+    h.mgr.providerAccountChanged("claude", memberDir("claude"));
+
+    const next = await turn(h, info.id, "after");
+    expect(next.session.sessionId).toBe(first.sessionId);
+    expect(accountOf(next.session)).toBe(third);
+    expect(getSessionClaudeConfigDir(info.id, first.sessionId)).toBe(third);
+    expect(conversationAt("claude", third, first.sessionId)).not.toBeNull();
+    expect(lines(h, info.id, TO_OWN)).toEqual([]);
+  });
+
+  it("a move that fails leaves it on the office folder and is not tried again until the server restarts", async () => {
+    const h = makeHarness();
+    const { id, sid, first } = await strandedOnOffice(h, "claude", true);
+    // A file where her projects folder goes: the copy cannot write there.
+    const projects = dirname(
+      claudeProjectDir(STATE_ROOT, { CLAUDE_CONFIG_DIR: memberDir("claude") }),
+    );
+    mkdirSync(dirname(projects), { recursive: true });
+    writeFileSync(projects, "");
+
+    const next = await turn(h, id, "after");
+    // The check closed the idle session for the move.
+    expect(first.closed).toBe(true);
+    expect(next.session.sessionId).toBe(sid);
+    expect(accountOf(next.session)).toBe(officeDir("claude"));
+    expect(getSessionClaudeConfigDir(id, sid)).toBe(officeDir("claude"));
+    expect(conversationAt("claude", officeDir("claude"), sid)).not.toBeNull();
+    expect(lines(h, id, TO_OWN)).toEqual([]);
+    expect(blocksIn(next.sent)).toEqual([]);
+    await endTurn(h, id, next.session);
+
+    // Not tried again: the idle session is not closed for another try.
+    const sessions = sessionsOf(h, id).length;
+    const again = await turn(h, id, "again");
+    expect(sessionsOf(h, id).length).toBe(sessions);
+    expect(next.session.closed).toBe(false);
+    expect(accountOf(again.session)).toBe(officeDir("claude"));
+    await endTurn(h, id, again.session);
+    // With no session, the sign-in still names the office's.
+    expect(await h.mgr.demoteToLazy(id)).toBe(true);
+    expect(await signIn(h, id)).toBe("office");
+    expect(lines(h, id, TO_OWN)).toEqual([]);
+
+    // The next server tries again, and the move goes through.
+    rmSync(projects);
+    const h2 = makeHarness(h.office, loadAgents());
+    await h2.mgr.restoreAgents();
+    const later = await turn(h2, id, "later");
+    expect(later.session.sessionId).toBe(sid);
+    expect(accountOf(later.session)).toBe(memberDir("claude"));
+    expect(getSessionClaudeConfigDir(id, sid)).toBe(memberDir("claude"));
+    expect(lines(h2, id, TO_OWN)).toHaveLength(1);
+  });
+});
+
 // The office sign-in as the office has it: its variables name the folder,
 // and the folder holds the sign-in. An office variable sets the office key.
 describe("the office's own sign-in", () => {
@@ -1524,10 +1715,6 @@ describe("the sign-in an agent runs on", () => {
   const signIn = async (h: Harness, id: string) =>
     (await h.mgr.getAgentSubscriptionUsage(id)).signIn;
 
-  // The bodies of the sign-in blocks in a sent text.
-  const BLOCK =
-    /--- begin isomux: sign-in ---\n([\s\S]*?)\n--- end isomux: sign-in ---/g;
-  const blocksIn = (t: string) => [...t.matchAll(BLOCK)].map((m) => m[1]);
   const blocksTo = (h: Harness, id: string) => sentTo(h, id).flatMap(blocksIn);
   const sentWith = (h: Harness, id: string, text: string) =>
     sentTo(h, id).find((t) => t.endsWith(text));
@@ -1919,35 +2106,44 @@ describe("the sign-in an agent runs on", () => {
     });
 
     // A conversation born in the office folder before she had her own
-    // sign-in stays there: its pin wins, so its next turn runs on the
-    // office's sign-in.
-    it("claude: a conversation kept in the office folder from before her own sign-in reads the office's", async () => {
-      const r = readings();
-      const h = makeHarness(makeOffice(), [], r.opts);
-      personal.claude = false;
-      const info = await spawn(h, "claude", { name: "Old" });
-      r.set(OFFICE_PERCENT);
-      const s = await memberTurn(h, info.id, "before");
-      expect(accountOf(s)).toBe(officeDir("claude"));
-      await endTurn(h, info.id, s);
-      r.set(null);
-      expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
+    // sign-in (task e4de1be4): once she signs in, its reading is hers, and
+    // its next turn moves it there.
+    for (const engine of ["claude", "codex"] as const) {
+      it(`${engine}: a conversation kept in the office folder from before her own sign-in reads hers, and its next turn moves there`, async () => {
+        const r = readings();
+        const h = makeHarness(makeOffice(), [], r.opts);
+        personal[engine] = false;
+        const info = await spawn(h, engine, { name: "Old" });
+        r.set(OFFICE_PERCENT);
+        const s = await memberTurn(h, info.id, "before", engine);
+        expect(accountOf(s, engine)).toBe(officeDir(engine));
+        await endTurn(h, info.id, s);
+        r.set(null);
+        expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
 
-      personal.claude = true;
-      h.mgr.providerAccountChanged("claude", memberDir("claude"));
-      await takeReading(h, r, "claude", "alice");
-      expect(getSessionClaudeConfigDir(info.id, s.sessionId)).toBe(
-        officeDir("claude"),
-      );
-      expect(persisted(info.id)?.officeFallback).toBeFalsy();
-      expect(h.office.store.entry(aliceId(), "claude")).toBeNull();
-      expect(await view(h, info.id)).toEqual(office);
+        personal[engine] = true;
+        h.mgr.providerAccountChanged(engine, memberDir(engine));
+        await takeReading(h, r, engine, "alice");
+        if (engine === "claude")
+          expect(getSessionClaudeConfigDir(info.id, s.sessionId)).toBe(
+            officeDir("claude"),
+          );
+        expect(
+          conversationAt(engine, officeDir(engine), s.sessionId),
+        ).not.toBeNull();
+        expect(persisted(info.id)?.officeFallback).toBeFalsy();
+        expect(h.office.store.entry(aliceId(), engine)).toBeNull();
+        expect(await view(h, info.id)).toEqual(hers);
 
-      await turn(h, info.id, "after");
-      expect(
-        accountOf(sessionWith(h, info.id, (t) => t.endsWith("after"))),
-      ).toBe(officeDir("claude"));
-    });
+        await turn(h, info.id, "after");
+        expect(
+          accountOf(
+            sessionWith(h, info.id, (t) => t.endsWith("after")),
+            engine,
+          ),
+        ).toBe(memberDir(engine));
+      });
+    }
 
     // Her fallback starts while this agent rests in her own folder: its
     // next turn moves to the office's sign-in, and its pill shows that at

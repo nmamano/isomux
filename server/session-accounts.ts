@@ -442,12 +442,64 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
       managed.info.agentType,
       managed.info.modelFamily,
     );
-    if (!wanted && !managed.officeFallback) return null;
-    const check = alignAccountNow(agentId, managed, wanted).finally(() =>
-      accountChecks.delete(agentId),
+    const stranded = !wanted && onOfficeFolder(managed);
+    if (!wanted && !managed.officeFallback && !stranded) return null;
+    const check = alignAccountNow(agentId, managed, wanted, stranded).finally(
+      () => accountChecks.delete(agentId),
     );
     accountChecks.set(agentId, check);
     return check;
+  }
+
+  // Conversations of this server whose move from the office folder failed
+  // (key: agentId and session id). They stay there until the server
+  // restarts: the failure is often lasting (a pin whose transcript is
+  // gone), and a retry would close the live session at every turn.
+  const failedOfficeMoves = new Set<string>();
+  const conversationKey = (agentId: string, sessionId: string) =>
+    `${agentId}\n${sessionId}`;
+
+  // Whether the agent's conversation sits in the office folder while no
+  // fallback holds it there, and its member now has their own sign-in. The
+  // callers check first that no fallback is wanted (officeWanted). It is a
+  // conversation started before that sign-in, whose session pin keeps it
+  // on the office account at every resume. The account check at the next
+  // turn start moves it to the member's own folder (alignAccount), and the
+  // sign-in names that folder before the turn (findNextAccount). A
+  // conversation in any other folder stays. Cheapest checks first: it runs
+  // at every turn start. An old unpinned Claude session that /resume picks
+  // is pinned at its launch, so it moves one turn later.
+  function onOfficeFolder(managed: ManagedAgent): boolean {
+    const { id: agentId, userId, agentType: provider } = managed.info;
+    if (provider !== "claude" && provider !== "codex") return false;
+    const sessionId = managed.sessionManager.sessionId;
+    if (!sessionId || !userId || managed.officeFallback) return false;
+    if (failedOfficeMoves.has(conversationKey(agentId, sessionId)))
+      return false;
+    let mine: string;
+    try {
+      mine = resolve(personalProviderHome(userId, provider));
+    } catch {
+      return false;
+    }
+    // The folder the conversation is in, when it is known without a walk.
+    let folder: string | null = null;
+    if (managed.sessionManager.session) {
+      const live = liveAccount(managed);
+      if (!live || !("dir" in live)) return false;
+      folder = resolve(live.dir);
+    } else if (provider === "claude") {
+      const pinned = getSessionClaudeConfigDir(agentId, sessionId);
+      if (!pinned) return false;
+      folder = resolve(pinned);
+    }
+    if (folder === mine) return false;
+    const office = officeAccountDir(provider);
+    if (!office || resolve(office) === mine) return false;
+    if (folder !== null && folder !== resolve(office)) return false;
+    if (!ownAccount(userId, provider)?.own) return false;
+    // A Codex thread with no live session: look for it last.
+    return folder !== null || codexHomeOfThread(sessionId, [office]) !== null;
   }
 
   // The account the account check moves the agent to, or null when it has
@@ -495,7 +547,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   ): FallbackAccount | null {
     const { userId, agentType: provider, modelFamily } = managed.info;
     const wanted = officeWanted(userId, provider, modelFamily);
-    if (wanted || managed.officeFallback) {
+    if (wanted || managed.officeFallback || onOfficeFolder(managed)) {
       const target = moveTarget(managed, wanted);
       if (target) return target;
     }
@@ -529,11 +581,14 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     const state = fallbackState();
     const enabled = state.isEnabled();
     const entry = userId && enabled ? state.entry(userId, provider) : null;
+    const sessionId = managed.sessionManager.sessionId;
     return JSON.stringify([
       managed.officeFallback,
       enabled,
       entry,
       modelFamily ?? null,
+      !!sessionId &&
+        failedOfficeMoves.has(conversationKey(managed.info.id, sessionId)),
     ]);
   }
 
@@ -541,6 +596,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     agentId: string,
     managed: ManagedAgent,
     wanted: { office: FallbackAccount; entry: FallbackEntry } | null,
+    // The conversation is in the office folder from before the member's
+    // own sign-in (onOfficeFolder): it moves to that sign-in.
+    stranded: boolean,
   ): Promise<"same" | "switched" | "failed"> {
     const provider = managed.info.agentType;
     const toOffice = wanted !== null;
@@ -550,9 +608,11 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     const live = liveAccount(managed);
     const liveMoves =
       sm.session !== null && !(live && sameAccount(live, target));
-    if (!liveMoves && managed.officeFallback === toOffice) return "same";
+    if (!stranded && !liveMoves && managed.officeFallback === toOffice)
+      return "same";
     if (accountSwitchBlocked(managed)) return "same";
     const sessionId = sm.sessionId;
+    let moved = liveMoves;
     if (liveMoves)
       await sm.closeAndDrainSession(managed, {
         reason: prepareRelease(managed, "idle"),
@@ -585,9 +645,12 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
             `[provider-fallback] ${agentId}: the conversation stays on its account; its move failed:`,
             errMessage(err),
           );
+          if (stranded)
+            failedOfficeMoves.add(conversationKey(agentId, sessionId));
           if (liveMoves) reinstallAfterAccountCheck(managed);
           return "failed";
         }
+        moved = true;
         await removeSessionSourceInAgentSpace(move).catch((err: unknown) =>
           console.error(
             `[provider-fallback] ${agentId}: the moved conversation's old files stay:`,
@@ -617,6 +680,15 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
           : msg("systemEntries.providerFallback.backToOwn", {
               provider: providerName,
             }),
+      );
+    } else if (stranded && moved) {
+      managed.signInNotice = "individual";
+      addLogEntry(
+        agentId,
+        "system",
+        msg("systemEntries.providerFallback.toOwn", {
+          provider: providerDisplayName(provider),
+        }),
       );
     }
     // One OpenCode server serves all of the member's OpenCode work: no turn

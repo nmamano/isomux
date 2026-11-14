@@ -3794,6 +3794,8 @@ Cosas que puedes hacer por él:
     "El agente usa la sesión de {provider} de toda la oficina hasta el {at} ({relative}), mientras la sesión propia del responsable está en su límite de uso.",
   "systemEntries.providerFallback.backToOwn":
     "El agente vuelve a la sesión propia de {provider} del responsable.",
+  "systemEntries.providerFallback.toOwn":
+    "El agente pasa a la sesión propia de {provider} del responsable.",
   "systemEntries.usageLimit.stopped":
     "Se alcanzó el límite de uso. Se reinicia el {at} ({relative}).",
   "systemEntries.usageCap.pace":

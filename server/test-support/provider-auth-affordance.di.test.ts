@@ -1712,6 +1712,13 @@ describe("Claude auth-error status checks", () => {
       expect(oldSession.opts.env?.CLAUDE_CONFIG_DIR).toBe(
         join(STATE_ROOT, "old-office-claude"),
       );
+      // The office moves its sign-in folder: the pin now names a folder that
+      // is neither the office's nor hers, so the conversation stays there.
+      // A conversation in the office's folder moves to hers at the next turn
+      // instead (provider-fallback.test.ts, task e4de1be4).
+      setTestManagedOfficeEnv({
+        CLAUDE_CONFIG_DIR: join(STATE_ROOT, "new-office-claude"),
+      });
       activatePersonalProvider(userId, "claude");
       // A real sign-in leaves credentials in the personal home.
       mkdirSync(personalDir, { recursive: true });

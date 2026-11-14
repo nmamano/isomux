@@ -3716,6 +3716,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The agent uses the office {provider} sign-in until {at} ({relative}), while the manager's own sign-in is at its usage limit.",
   "systemEntries.providerFallback.backToOwn":
     "The agent is back on the manager's own {provider} sign-in.",
+  "systemEntries.providerFallback.toOwn":
+    "The agent is now on the manager's own {provider} sign-in.",
   "systemEntries.usageLimit.stopped":
     "Usage limit reached. Resets {at} ({relative}).",
   "systemEntries.usageCap.pace":

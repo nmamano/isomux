@@ -3800,6 +3800,8 @@ Coses que pots fer per ell:
     "L'agent fa servir la sessió de {provider} de tota l'oficina fins al {at} ({relative}), mentre la sessió pròpia del responsable és al seu límit d'ús.",
   "systemEntries.providerFallback.backToOwn":
     "L'agent torna a la sessió pròpia de {provider} del responsable.",
+  "systemEntries.providerFallback.toOwn":
+    "L'agent passa a la sessió pròpia de {provider} del responsable.",
   "systemEntries.usageLimit.stopped":
     "S'ha arribat al límit d'ús. Es reinicia el {at} ({relative}).",
   "systemEntries.usageCap.pace":
