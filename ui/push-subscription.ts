@@ -35,7 +35,9 @@ export function readPushEnv(): PushEnv {
 }
 
 // iPadOS reports itself as a Mac; the touch points tell them apart.
-export function isIos(env: PushEnv): boolean {
+export function isIos(
+  env: Pick<PushEnv, "userAgent" | "platform" | "maxTouchPoints">,
+): boolean {
   return (
     /iPad|iPhone|iPod/.test(env.userAgent) ||
     (env.platform === "MacIntel" && env.maxTouchPoints > 1)

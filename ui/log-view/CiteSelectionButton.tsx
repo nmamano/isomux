@@ -17,9 +17,10 @@ const PILL_EDGE_PAD = 4;
  *  - Prefers placement above the selection; flips below if there's no room.
  *  - Mounted via a Portal into <body>, so any ancestor with transform /
  *    filter / will-change won't pin us to a smaller containing block.
- *  - `pinned` (the mobile editor) puts the pill at the container's top-right
- *    corner instead: next to the selection it would sit under the native
- *    selection menu or handles.
+ *  - `pinned` (the mobile editor, the chat on iOS touch) puts the pill at the
+ *    container's top-right corner instead: next to the selection it would
+ *    sit under the native selection menu or handles. `topInset` moves the
+ *    pinned pill down past an overlay at the container's top.
  *  - Activates on pointerdown, like the terminal's "Send to chat" pill: a
  *    touch blur can otherwise remove the pill before its click fires.
  *    preventDefault keeps the focus and the selection where they are.
@@ -31,17 +32,19 @@ export function CiteSelectionButton({
   containerRect,
   onClick,
   pinned = false,
+  topInset = 0,
 }: {
   cite: Pick<CiteSelection, "rect">;
   containerRect: DOMRect;
   onClick: () => void;
   pinned?: boolean;
+  topInset?: number;
 }) {
   const { t } = useI18n();
   // Vertical placement: above the selection if room, else below.
   const aboveTop = cite.rect.top - PILL_HEIGHT - PILL_GAP;
   const placement = pinned
-    ? { top: containerRect.top + PILL_GAP }
+    ? { top: containerRect.top + topInset + PILL_GAP }
     : aboveTop >= containerRect.top
       ? { top: aboveTop }
       : { top: cite.rect.bottom + PILL_GAP };

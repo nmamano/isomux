@@ -105,6 +105,7 @@ import {
 } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
+import { citeModeHere } from "./cite-mode.ts";
 import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
 import type { TaskMap } from "./task-links.tsx";
 import { AskLink, askAnswerText } from "./ask-link.tsx";
@@ -1307,14 +1308,16 @@ export function LogView({
 
   // Cite-from-selection: when the member highlights text in the chat log, show
   // a floating "Cite" pill that inserts the selection into the draft as a
-  // triple-quoted block. Gated to pointer-fine devices because mobile scroll
-  // is already finicky and must not regress. The
+  // triple-quoted block. citeMode says where the pill goes on this device:
+  // next to the selection with a mouse, pinned below the "last message" bar
+  // on iOS touch, and nowhere on other touch platforms. The
   // hook is a pure observer (no scroll/focus side-effects); the click handler
   // below (handleCite) is the only place we mutate draft / focus / selection.
   // Scroll-hide lives in handleScroll below - keeping the hook
   // selection-only, with the chat's existing scroll path owning geometry
   // invalidation.
-  const citeEnabled = !touchPrimary && !editingLogEntryId;
+  const chatCiteMode = useMemo(() => citeModeHere(), []);
+  const citeEnabled = chatCiteMode !== null && !editingLogEntryId;
   const { cite, clearCite } = useSelectionCite(scrollRef, citeEnabled);
 
   const lastScrollTopRef = useRef(0);
@@ -1336,7 +1339,8 @@ export function LogView({
     // could listen at document level, but routing through this existing
     // handler avoids a second DOM listener and keeps the hook focused on
     // selection. Guard avoids a redundant render on every scroll event.
-    if (cite) clearCite();
+    // A pinned pill does not follow the selection, so it stays.
+    if (cite && chatCiteMode === "anchored") clearCite();
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
@@ -3648,6 +3652,10 @@ export function LogView({
           cite={cite}
           containerRect={scrollRef.current.getBoundingClientRect()}
           onClick={() => handleCite(cite.text)}
+          pinned={chatCiteMode === "pinned"}
+          // Below the "last message" bar, always: the bar comes and goes
+          // during a scroll, and the pill must not jump with it.
+          topInset={PINNED_BAR_HEIGHT}
         />
       )}
     </div>
