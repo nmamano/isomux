@@ -8,6 +8,7 @@
 // drag to reorder and tuck rooms; App draws the slot around it (its width,
 // the resize edge and the slide). Task c921308f: a room, agent or member row
 // opens its settings with one sliders button, the first of its hover actions.
+// Task 4bf1571c: for an owner, the Office row's one opens the office settings.
 
 import { MEMBERS_CHAT, type HumanChatKey } from "../human-chat.ts";
 import {
@@ -99,6 +100,8 @@ export interface ChatSidebarProps {
   // An owner's sliders on a member row: Settings on that member.
   onOpenMemberSettings: (userId: string) => void;
   onOpenSettings: () => void;
+  // An owner's sliders on the Office row: Settings on the office section.
+  onOfficeSettings: () => void;
   // A room header's sliders: Settings on that room.
   onRoomSettings: (roomId: string) => void;
   // The member's Pinned (agents and members) and Recent agents
@@ -820,6 +823,7 @@ export function ChatSidebar({
   onOpenHumanChat,
   onOpenMemberSettings,
   onOpenSettings,
+  onOfficeSettings,
   onRoomSettings,
   pins,
   closing = false,
@@ -1371,13 +1375,35 @@ export function ChatSidebar({
           current={page === "settings"}
           onClick={onOpenSettings}
         />
-        <NavRow
-          attr="office"
-          icon={BuildingIcon}
-          label={t("sidebar.office")}
-          current={officeShown}
-          onClick={onOffice}
-        />
+        {/* An owner's sliders over the row's right end, on hover; a sibling
+            of the row, as on agent and member rows. */}
+        <div className="chat-sidebar-office">
+          <NavRow
+            attr="office"
+            icon={BuildingIcon}
+            label={t("sidebar.office")}
+            current={officeShown}
+            onClick={onOffice}
+          />
+          {amOwner && (
+            <span
+              className="chat-sidebar-row-actions"
+              data-in-view={officeShown ? "" : undefined}
+            >
+              <button
+                type="button"
+                tabIndex={-1}
+                className="chat-sidebar-row-action"
+                data-sidebar-office-settings=""
+                title={t("sidebar.officeSettings")}
+                aria-label={t("sidebar.officeSettings")}
+                onClick={onOfficeSettings}
+              >
+                {SettingsIcon}
+              </button>
+            </span>
+          )}
+        </div>
         <div
           style={{
             height: 1,

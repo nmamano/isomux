@@ -4,9 +4,10 @@
 // action (the room's plus, the pin). One click opens that thing's settings: a
 // room and a member open Settings at that entry, an agent opens the agent
 // dialog. The room menu is gone (drag reorders and tucks rooms), so a
-// right-click on a room header is the browser's own. Only rooms, agents and
-// members have a settings button. The setup is in
-// ui/test-support/chat-sidebar-fixture.tsx.
+// right-click on a room header is the browser's own. Only rooms, agents,
+// members and the Office row have a settings button; the Office row's opens
+// Settings on the office section, for owners only (task 4bf1571c). The setup
+// is in ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -14,6 +15,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
+const { en } = await import("../shared/i18n/en.ts");
 const {
   ALL_ROOMS,
   boot,
@@ -21,6 +23,9 @@ const {
   currentRows,
   faraway,
   memberWire,
+  navRow,
+  openFirstDesk,
+  press,
   ranger,
   roomHeader,
   scout,
@@ -38,7 +43,10 @@ const inSidebar = (view: View, selector: string) =>
   view.container.querySelector<HTMLButtonElement>(
     `nav[data-chat-sidebar] ${selector}`,
   );
-const settingsIds = (view: View, kind: "room" | "agent" | "member") =>
+const settingsIds = (
+  view: View,
+  kind: "room" | "agent" | "member" | "office",
+) =>
   [
     ...view.container.querySelectorAll(
       `nav[data-chat-sidebar] button[data-sidebar-${kind}-settings]`,
@@ -64,6 +72,19 @@ const dialogName = (view: View) =>
   view.baseElement.querySelector<HTMLInputElement>(
     ".edit-agent-dialog-desktop .agent-identity-section input",
   )?.value ?? null;
+const officeGear = (view: View) =>
+  inSidebar(view, "button[data-sidebar-office-settings]");
+/** The rows Settings' own list marks as selected (not the sidebar's). */
+const settingsSelection = (view: View) =>
+  [...view.baseElement.querySelectorAll('button[aria-current="true"]')]
+    .filter((el) => el.closest("nav[data-chat-sidebar]") === null)
+    .map((el) => el.textContent?.trim());
+/** The Tasks page's discard prompt (ui/components/UnsavedChangesPrompt.tsx):
+ *  its box, or null. Its first button discards. */
+const discardPrompt = (view: View) =>
+  [...view.container.querySelectorAll("span")].find(
+    (span) => span.textContent === en["common.discardPrompt"],
+  )?.parentElement ?? null;
 
 it("a room header's settings button, before the plus, opens Settings on that room in one click; a right-click on the header is the browser's own", async () => {
   setRole("owner");
@@ -99,13 +120,65 @@ it("a room header's settings button, before the plus, opens Settings on that roo
     view.baseElement.querySelector('[data-testid="settings-content"]'),
   ).not.toBeNull();
   // Settings' own list marks the room it opened on.
-  const current = [
-    ...view.baseElement.querySelectorAll('button[aria-current="true"]'),
-  ].filter((el) => el.closest("nav[data-chat-sidebar]") === null);
-  expect(current.map((el) => el.textContent?.trim())).toEqual(["Second room"]);
+  expect(settingsSelection(view)).toEqual(["Second room"]);
 });
 
-it("only rooms, agents and members have a settings button: not the Lobby, a back room, Members, Pinned, Recent or Tucked rooms", async () => {
+it("an owner's Office row has a settings button beside it, shown on a touch screen while the office is in view; it leaves an unsaved page only on discard and opens Settings on the office section", async () => {
+  setRole("owner");
+  setSelfUser({ role: "owner" });
+  const view = await boot();
+  const gear = officeGear(view);
+  const row = navRow(view, "office");
+  expect({ gear: gear !== null, row: row !== null }).toEqual({
+    gear: true,
+    row: true,
+  });
+  // Beside the row, not in it: a button in a button is invalid, and the
+  // row's own click must stay the office.
+  expect(gear!.closest("button[data-sidebar-nav]")).toBeNull();
+  expect(row!.contains(gear)).toBe(false);
+  // With no hover, the buttons of the row in view show (as a room header's).
+  const inView = () =>
+    officeGear(view)!
+      .closest(".chat-sidebar-row-actions")
+      ?.hasAttribute("data-in-view") ?? null;
+  expect(row!.getAttribute("aria-current")).toBe("page");
+  expect(inView()).toBe(true);
+  await openFirstDesk(view);
+  expect(navRow(view, "office")!.getAttribute("aria-current")).toBeNull();
+  expect(inView()).toBe(false);
+
+  // From Tasks with an unsaved new task, the gear asks first.
+  await press("t");
+  const quickAdd = view.getByPlaceholderText(en["tasks.quickAdd"]);
+  await act(async () => {
+    fireEvent.change(quickAdd, { target: { value: "unsaved title" } });
+    fireEvent.keyDown(quickAdd, { key: "Enter", bubbles: true });
+  });
+  expect(view.getByDisplayValue("unsaved title")).toBeDefined();
+  await click(officeGear(view));
+  const settingsOpen = () =>
+    view.baseElement.querySelector('[data-testid="settings-content"]') !== null;
+  expect({
+    prompt: discardPrompt(view) !== null,
+    settings: settingsOpen(),
+  }).toEqual({ prompt: true, settings: false });
+
+  await click(discardPrompt(view)!.querySelector("button"));
+  expect(settingsOpen()).toBe(true);
+  // On the office section, not the default (the member's own entry).
+  expect(settingsSelection(view)).toEqual([en["settings.sidebar.office"]]);
+});
+
+it("a member who is not an owner has the Office row with no settings button", async () => {
+  setRole("member");
+  setSelfUser({ role: "member" });
+  const view = await boot();
+  expect(navRow(view, "office")).not.toBeNull();
+  expect(settingsIds(view, "office").length).toBe(0);
+});
+
+it("only rooms, agents, members and the Office row have a settings button: not the Lobby, a back room, Members, Pinned, Recent or Tucked rooms", async () => {
   setRole("owner");
   setRooms(ALL_ROOMS);
   setSelfUser({
@@ -137,6 +210,7 @@ it("only rooms, agents and members have a settings button: not the Lobby, a back
   expect(settingsIds(view, "agent").sort()).toEqual(agentRows.sort());
   // Ann in Pinned and in Members.
   expect(settingsIds(view, "member")).toEqual(["u2", "u2"]);
+  expect(settingsIds(view, "office")).toEqual([""]);
 
   // No other sidebar button names settings, except the Settings page entry.
   const others = [
@@ -151,7 +225,7 @@ it("only rooms, agents and members have a settings button: not the Lobby, a back
     .filter(
       (attr) =>
         attr.includes("settings") &&
-        !/^data-sidebar-(room|agent|member)-settings=/.test(attr) &&
+        !/^data-sidebar-(room|agent|member|office)-settings=/.test(attr) &&
         attr !== "data-sidebar-nav=settings",
     );
   expect(others).toEqual([]);

@@ -4353,6 +4353,7 @@ Cosas que puedes hacer por él:
   "sidebar.pin": "Fijar en la barra lateral",
   "sidebar.unpin": "Quitar de la barra lateral",
   "sidebar.roomSettings": "Ajustes de la sala",
+  "sidebar.officeSettings": "Ajustes de la oficina",
   "sidebar.agentSettings": "Ajustes del agente",
   "sidebar.resize":
     "Arrastra para cambiar el ancho. Doble clic para restablecerlo.",

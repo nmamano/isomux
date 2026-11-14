@@ -1436,6 +1436,9 @@ export function App({ routing = true }: { routing?: boolean }) {
       onRoomSettings={(roomId) =>
         then(() => openSettings({ kind: "room", roomId }))
       }
+      onOfficeSettings={() =>
+        then(() => openSettings({ kind: "section", section: "office" }))
+      }
       openAgentId={focusedAgent?.id ?? null}
       page={page}
       officeShown={page === null && !focusedAgent && openHumanChat === null}

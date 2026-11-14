@@ -266,8 +266,9 @@ ${emitThemesCss()}
   .chat-sidebar-row:hover {
     background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   }
-  /* Tasks 5dac6b9b, c921308f. A row's actions (room header: sliders and
-     "+"; agent and member row: sliders and pin): over the row's right end on
+  /* Tasks 5dac6b9b, c921308f, 4bf1571c. A row's actions (room header:
+     sliders and "+"; agent and member row: sliders and pin; Office row: an
+     owner's sliders): over the row's right end on
      hover and on keyboard focus, so they take no room in the row and the
      folded summary keeps one right edge.
      Task 4eea73fc: with no hover (touch screens), the open room in view
@@ -285,6 +286,7 @@ ${emitThemesCss()}
   .chat-sidebar-room-row:hover .chat-sidebar-row-actions,
   .chat-sidebar-agent:hover .chat-sidebar-row-actions,
   .chat-sidebar-member:hover .chat-sidebar-row-actions,
+  .chat-sidebar-office:hover .chat-sidebar-row-actions,
   .chat-sidebar-row-actions:has(:focus-visible) {
     opacity: 1;
     pointer-events: auto;
@@ -297,6 +299,7 @@ ${emitThemesCss()}
   }
   .chat-sidebar-agent,
   .chat-sidebar-member,
+  .chat-sidebar-office,
   .chat-sidebar-room-row,
   .chat-sidebar-drop-into { position: relative; border-radius: 7px; }
   /* A drag's drop place: a blue line above or below the row, or a ring on
@@ -335,15 +338,17 @@ ${emitThemesCss()}
     --settings-knob: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface-solid));
     color: var(--text-primary);
   }
-  /* Task c1b3113e. A hovered agent or member row already has the 7%
+  /* Task c1b3113e. A hovered agent, member or Office row already has the 7%
      background, so its buttons take one more step of it to stand out, as
      the room header's do from the bare sidebar. */
   .chat-sidebar-agent .chat-sidebar-row-action,
-  .chat-sidebar-member .chat-sidebar-row-action {
+  .chat-sidebar-member .chat-sidebar-row-action,
+  .chat-sidebar-office .chat-sidebar-row-action {
     --settings-knob: color-mix(in srgb, var(--text-primary) 14%, var(--bg-surface-solid));
   }
   .chat-sidebar-agent .chat-sidebar-row-action:hover,
-  .chat-sidebar-member .chat-sidebar-row-action:hover {
+  .chat-sidebar-member .chat-sidebar-row-action:hover,
+  .chat-sidebar-office .chat-sidebar-row-action:hover {
     --settings-knob: color-mix(in srgb, var(--text-primary) 21%, var(--bg-surface-solid));
   }
   .chat-sidebar-pin[aria-pressed="true"] { color: var(--accent); }

@@ -3890,6 +3890,7 @@ App 的一些原则：
   "sidebar.pin": "固定到侧边栏",
   "sidebar.unpin": "从侧边栏取消固定",
   "sidebar.roomSettings": "房间设置",
+  "sidebar.officeSettings": "办公室设置",
   "sidebar.agentSettings": "智能体设置",
   "sidebar.resize": "拖动以调整宽度，双击恢复默认。",
   "nav.inbox": "收件箱",

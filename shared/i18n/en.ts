@@ -4272,6 +4272,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "sidebar.pin": "Pin to sidebar",
   "sidebar.unpin": "Unpin from sidebar",
   "sidebar.roomSettings": "Room settings",
+  "sidebar.officeSettings": "Office settings",
   "sidebar.agentSettings": "Agent settings",
   "sidebar.resize": "Drag to resize. Double-click to reset.",
   // The Inbox and its nav entry (ui/components/InboxView.tsx).

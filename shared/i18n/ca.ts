@@ -4360,6 +4360,7 @@ Coses que pots fer per ell:
   "sidebar.pin": "Fixa a la barra lateral",
   "sidebar.unpin": "Treu de la barra lateral",
   "sidebar.roomSettings": "Configuració de la sala",
+  "sidebar.officeSettings": "Configuració de l'oficina",
   "sidebar.agentSettings": "Configuració de l'agent",
   "sidebar.resize":
     "Arrossega per canviar l'amplada. Doble clic per restablir-la.",
