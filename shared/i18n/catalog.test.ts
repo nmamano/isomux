@@ -221,6 +221,29 @@ describe("the catalogs", () => {
     ).toBeGreaterThan(0);
   });
 
+  // Nil, 2026-11-14 (task 8b9fac94): Chinese calls an app 应用, one term in
+  // every string; the English loanword read as untranslated in the sidebar. A
+  // file path keeps it (…/App.tsx), and so does a longer name (WhatsApp) or
+  // a placeholder ({apps}).
+  it("calls an app 应用 in Chinese, never the Latin loanword", () => {
+    const prose = (text: string) =>
+      text.replace(/`[^`]*`|<code>[\s\S]*?<\/code>|\{\w+\}/g, "");
+    const loanword = /(?<![\w./@~-])apps?(?![\w/@-]|\.\w)/i;
+    expect(loanword.test("App (a)")).toBe(true);
+    expect(loanword.test("App 已更新")).toBe(true);
+    expect(loanword.test("Isomux App")).toBe(true);
+    expect(loanword.test("…/App.tsx")).toBe(false);
+    expect(loanword.test("WhatsApp")).toBe(false);
+    expect(loanword.test(prose("由 {apps} 读取"))).toBe(false);
+    for (const [key, value] of Object.entries(CATALOGS.zh))
+      expect(prose(value), key).not.toMatch(loanword);
+    const values = Object.values(CATALOGS.zh) as string[];
+    // The exclusion is in use: the catalog has the bytes outside the rule.
+    expect(
+      values.filter((v) => /app/i.test(v) && !loanword.test(prose(v))).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("names keys by surface and meaning, never by the English text", () => {
     for (const key of ENGLISH_KEYS) {
       expect(key).toMatch(/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/);

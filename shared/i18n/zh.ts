@@ -170,7 +170,7 @@ export const zh: Catalog = {
 
   "lobby.moveHere": "移到这里",
   "templates.shared.firstTurn": `首先，了解成员的需求，并提出一个方向。`,
-  "templates.shared.softwareTool": `当软件能有所帮助时（而且*仅在此时*），提出一个小型个性化工具方案，使其符合这位成员的实际工作流程和限制条件。开发软件前，先与成员就范围达成一致。开发完成后，通过 Isomux 注册，并告诉成员它会出现在 App 套件中，任何能访问办公室的设备都可以打开它。`,
+  "templates.shared.softwareTool": `当软件能有所帮助时（而且*仅在此时*），提出一个小型个性化工具方案，使其符合这位成员的实际工作流程和限制条件。开发软件前，先与成员就范围达成一致。开发完成后，通过 Isomux 注册，并告诉成员它会出现在“应用”中，任何能访问办公室的设备都可以打开它。`,
   "templates.shared.plainLanguage": `与成员交谈时不要使用行话。除非已确认成员有技术背景，否则不要使用技术性语言。`,
   "templates.receptionist.instructions": `帮助大家使用 Isomux 和这个办公室，只回答一般性问题。不要做实际工作，例如编写代码、调研或写作：请引导对方去找某个房间里的智能体，并帮助对方找到或添加一个。
 
@@ -224,7 +224,7 @@ export const zh: Catalog = {
 - 面对艰难的选择，帮助成员列出利弊。
 - 提供建议前，先研究有效的习惯养成策略。
 - 留意规律，例如哪些方法对他们有效，哪些无效。
-- 提议为他们制作个性化待办 App（可以在 Isomux 中注册，让他们也能在手机上使用）。开始制作前，先询问他们是否用过这类 App、是否有帮助、为什么没有坚持使用，以及他们理想的使用流程是什么。`,
+- 提议为他们制作个性化待办应用（可以在 Isomux 中注册，让他们也能在手机上使用）。开始制作前，先询问他们是否用过这类应用、是否有帮助、为什么没有坚持使用，以及他们理想的使用流程是什么。`,
   "templates.researchAnalyst.instructions": `你是成员的研究分析师。询问研究需要支持哪项决定，将宽泛的问题转化为有明确重点的研究计划，使用最新的一手、权威来源，比较相互竞争的证据，并产出可用于决策的简报。
 
 在所支持的论断附近引用来源。区分证据、推断和不确定性。如果可复现的笔记、数据集或小型分析工具能帮助成员日后重新审视这项工作，就优先采用。
@@ -240,7 +240,7 @@ export const zh: Catalog = {
 
 根据成员的需求，引导他们选择合适的免费托管方案，例如 GitHub Pages 或 Vercel。
 
-让部署流程易于理解。让成员能方便地在发布前预览更改（可以把本地版本注册为 Isomux App，也可以操控无界面的 Chrome，向他们展示截图）。在可行时，亲自执行部署（需经成员许可）。`,
+让部署流程易于理解。让成员能方便地在发布前预览更改（可以把本地版本注册为 Isomux 应用，也可以操控无界面的 Chrome，向他们展示截图）。在可行时，亲自执行部署（需经成员许可）。`,
   "templates.cityGuide.instructions": `根据成员的喜好、位置、日程、预算和行动能力，帮助他们发现街区、美食、文化、活动和实用的本地服务。
 
 在依据营业时间、价格、关闭情况、预订规则和公共交通详情做建议前，先核实这些信息是否最新。
@@ -250,11 +250,11 @@ export const zh: Catalog = {
 
 目标是建立一个实用的待办系统，符合成员的工作流程和偏好。
 
-与成员反复改进，找出最佳方法。在提出系统方案前，先了解成员习惯如何安排任务。减少维护负担，并在有用时保留成员的原话。个性化待办 App 往往有用，但必须符合成员的工作流程。
+与成员反复改进，找出最佳方法。在提出系统方案前，先了解成员习惯如何安排任务。减少维护负担，并在有用时保留成员的原话。个性化待办应用往往有用，但必须符合成员的工作流程。
 
-如果成员想要，就为他们制作个性化待办 App（可以在 Isomux 中注册，让他们也能在手机上使用）。开始制作前，先询问他们是否用过这类 App、是否有帮助、为什么没有坚持使用，以及他们理想的使用流程是什么。
+如果成员想要，就为他们制作个性化待办应用（可以在 Isomux 中注册，让他们也能在手机上使用）。开始制作前，先询问他们是否用过这类应用、是否有帮助、为什么没有坚持使用，以及他们理想的使用流程是什么。
 
-App 的一些原则：
+应用的一些原则：
 
 - 尽量简化记录任务的操作
 - 让未完成的工作容易找到
@@ -308,7 +308,7 @@ App 的一些原则：
 - 与他们练习答题，并给出建设性的批评。建议他们用语音转文字来回答。告诉他们，有些词没有被正确识别也不用担心；你会找到发音相近的正确词语，或在需要时请他们澄清。
 - 与他们反复修改简历，但告诉他们，为避免被标记为 AI 生成，最终文案应由他们自己定稿。
 - 改进或扩充作品集。
-- 建立本地文件夹来跟踪职位线索和申请，和／或设置一个在 Isomux 中注册的看板 App。
+- 建立本地文件夹来跟踪职位线索和申请，和／或设置一个在 Isomux 中注册的看板应用。
 - 研究他们将要面试的公司，寻找与成员背景的联系。
 
 在撰写或编辑任何文案时，保留成员的表达风格。不要留下 AI 痕迹：不用长破折号，不用「不是 X，而是 Y」句式，不加入主观评述。
@@ -326,7 +326,7 @@ App 的一些原则：
 - 告诉成员目的地有哪些较少人知道的活动。
 - 发现预订详情中的冲突，并在限制条件变化时修改计划。
 - 提出如果成员启用集成，你可以在他们的邮件中查找预订和确认信息。Claude 和 ChatGPT 支持 gmail 集成，指导成员启用，不要自己重新实现集成。
-- 为成员制作个性化行程 App，并在 Isomux 中注册，让他们旅行时可以在手机上使用。如果愿意，他们可以邀请旅伴加入自己的 Isomux 办公室，让旅伴也能查看行程 App，甚至直接向你提问。但应让成员知道，旅伴可能因此获得其可见房间中其他智能体的访问权限（以及通过终端访问整个文件系统的权限）。`,
+- 为成员制作个性化行程应用，并在 Isomux 中注册，让他们旅行时可以在手机上使用。如果愿意，他们可以邀请旅伴加入自己的 Isomux 办公室，让旅伴也能查看行程应用，甚至直接向你提问。但应让成员知道，旅伴可能因此获得其可见房间中其他智能体的访问权限（以及通过终端访问整个文件系统的权限）。`,
   "templates.receptionist.label": "Isomux 接待员",
   "templates.receptionist.description": "提供 Isomux 和本办公室的使用帮助。",
   "lobby.receptionistName": "接待员",
@@ -434,7 +434,7 @@ App 的一些原则：
   "common.delete": "删除",
   "common.confirmQuestion": "确认？",
   "nav.tasksShortcut": "任务 (t)",
-  "nav.appsShortcut": "App (a)",
+  "nav.appsShortcut": "应用 (a)",
   "nav.settingsShortcut": "设置 (s)",
   "common.moreActions": "更多操作",
   "common.settings": "设置",
@@ -455,7 +455,7 @@ App 的一些原则：
   "common.signOut": "退出登录",
   "common.user": "成员",
   "common.automations": "自动化",
-  "common.apps": "App",
+  "common.apps": "应用",
   "common.changeTheme": "更改主题",
   "preferences.intro": "你的语言会同步到你登录的所有设备。",
   "preferences.language": "语言",
@@ -1027,7 +1027,7 @@ App 的一些原则：
   "settings.apiTokens.area.memory": "记忆",
   "settings.apiTokens.area.skills": "技能",
   "settings.apiTokens.area.schedules": "计划",
-  "settings.apiTokens.area.apps": "App",
+  "settings.apiTokens.area.apps": "应用",
   "settings.apiTokens.area.webhooks": "Webhook",
   "settings.apiTokens.area.pager": "呼叫和通知",
   "settings.apiTokens.area.environment": "环境和密钥",
@@ -1095,8 +1095,8 @@ App 的一些原则：
   "settings.secrets.error.neverListed":
     "{host} 永远不会收到密钥：模型主机和软件包注册表主机在禁止列表中。",
   "settings.secrets.error.exists": "已存在同名密钥。",
-  "settings.secrets.error.apps": "某个 App 已不存在或属于其他成员。",
-  "settings.secrets.error.appClash": "其中某个 App 已读取同名密钥。",
+  "settings.secrets.error.apps": "某个应用已不存在或属于其他成员。",
+  "settings.secrets.error.appClash": "其中某个应用已读取同名密钥。",
   "settings.connections.bedrockHint":
     "想连接 Bedrock？请阅读<link>此处</link>。",
   "settings.mcpServers.loadFailed": "无法加载 MCP 服务器。",
@@ -1375,7 +1375,7 @@ App 的一些原则：
   "integrations.changes.removedUnknown": "一位已离开的成员移除了 {name}",
   "integrations.changes.changedUnknown": "一位已离开的成员更改了这些设置",
   "integrations.secretsHonesty":
-    "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件或 App 之间没有严格隔离。",
+    "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件或应用之间没有严格隔离。",
   "integrations.secrets.modelKeys":
     "<code>ANTHROPIC_API_KEY</code> 等模型 API 密钥放在<link>变量</link>中，而不是这里：Isomux 从不把密钥发送给模型提供商。",
   "integrations.office": "办公室通用",
@@ -1525,14 +1525,14 @@ App 的一些原则：
   "integrations.secrets.presetSet": "{service} · {date} 设置",
   "integrations.secrets.goesToSet": "发往 {hosts} · {date} 设置",
   "integrations.secrets.goesTo": "发往 {hosts}",
-  "integrations.secrets.apps": "可读取它的 App",
+  "integrations.secrets.apps": "可读取它的应用",
   "integrations.secrets.appsHint":
-    "App 会在其环境中获得该值，密钥变更时会重启。",
-  "integrations.secrets.noApps": "没有 App。",
+    "应用会在其环境中获得该值，密钥变更时会重启。",
+  "integrations.secrets.noApps": "没有应用。",
   "integrations.secrets.readBy": "由 {apps} 读取",
   "integrations.secrets.readBySet": "由 {apps} 读取 · {date} 设置",
-  "integrations.secrets.reachesNothing": "未发往任何地方。请添加地址或 App。",
-  "integrations.secrets.saveNeedsTarget": "要保存，请添加地址或 App。",
+  "integrations.secrets.reachesNothing": "未发往任何地方。请添加地址或应用。",
+  "integrations.secrets.saveNeedsTarget": "要保存，请添加地址或应用。",
   "integrations.secrets.modelKeyWarning":
     "智能体无法用此密钥登录。请把它移到「变量」中。",
   "integrations.secrets.needsValue": "需要值",
@@ -1996,7 +1996,7 @@ App 的一些原则：
   "asks.action.whatsappNoMatch":
     "还没有与 {name} 匹配的 WhatsApp 聊天。聊天收到下一条消息后会显示在这里。",
   "asks.action.whatsappMoves":
-    "此聊天现在发给 {agent}。应用后将改为发给此智能体。",
+    "此聊天现在发给 {agent}。点击应用后将改为发给此智能体。",
   "asks.action.whatsappManager":
     "{member} 管理着此智能体。能打开它的成员可以读取此聊天。",
   "asks.action.whatsappOtherMember": "只有 {member} 可以选择聊天并应用。",
@@ -2004,7 +2004,7 @@ App 的一些原则：
     "你的 Discord 机器人都看不到与 {name} 匹配的位置。",
   "asks.action.discordPlacePrompt": "选择一个位置",
   "asks.action.discordMoves":
-    "此位置现在发给 {agent}。应用后将改为发给此智能体。",
+    "此位置现在发给 {agent}。点击应用后将改为发给此智能体。",
   "asks.action.discordManager":
     "{member} 管理着此智能体。能打开它的成员可以读取来自此位置的消息。",
   "asks.action.discordOtherMember": "只有 {member} 可以选择位置并应用。",
@@ -2053,7 +2053,7 @@ App 的一些原则：
   "asks.action.tokenOwner": "属于 {member}",
   "asks.action.tokenRevokeHint": "使用此令牌的脚本将停止工作。",
   "asks.action.accessNoAddress": "无",
-  "asks.action.accessRestart": "重启 Isomux 后生效。应用不会重启它。",
+  "asks.action.accessRestart": "重启 Isomux 后生效。点击应用不会重启它。",
   "asks.action.removed": "已移除",
   "asks.action.removePasses":
     "其智能体、计划任务和 Webhook 将转给最早的办公室所有者。",
@@ -2277,20 +2277,20 @@ App 的一些原则：
   "apiCall.cronjobs.triggerRun": "触发定时任务运行",
   "apiCall.cronjobs.readRun": "读取定时任务运行记录",
   "apiCall.cronjobs.listRecentRuns": "列出最近的定时任务运行记录",
-  "apiCall.apps.list": "列出 App",
-  "apiCall.apps.register": "注册 App",
-  "apiCall.apps.read": "读取 App",
-  "apiCall.apps.setThumbnail": "上传 App 缩略图",
-  "apiCall.apps.getThumbnail": "读取 App 缩略图",
-  "apiCall.apps.update": "更新 App",
-  "apiCall.apps.delete": "删除 App",
-  "apiCall.apps.logs": "读取 App 日志",
-  "apiCall.apps.start": "启动 App",
-  "apiCall.apps.stop": "停止 App",
-  "apiCall.apps.restart": "重启 App",
-  "apiCall.apps.reload": "重新加载 App",
-  "apiCall.apps.archive": "归档 App",
-  "apiCall.apps.unarchive": "取消归档 App",
+  "apiCall.apps.list": "列出应用",
+  "apiCall.apps.register": "注册应用",
+  "apiCall.apps.read": "读取应用",
+  "apiCall.apps.setThumbnail": "上传应用缩略图",
+  "apiCall.apps.getThumbnail": "读取应用缩略图",
+  "apiCall.apps.update": "更新应用",
+  "apiCall.apps.delete": "删除应用",
+  "apiCall.apps.logs": "读取应用日志",
+  "apiCall.apps.start": "启动应用",
+  "apiCall.apps.stop": "停止应用",
+  "apiCall.apps.restart": "重启应用",
+  "apiCall.apps.reload": "重新加载应用",
+  "apiCall.apps.archive": "归档应用",
+  "apiCall.apps.unarchive": "取消归档应用",
   "apiCall.webhooks.list": "列出 Webhook",
   "apiCall.webhooks.create": "创建 Webhook",
   "apiCall.messaging.reply": "在消息应用中回复",
@@ -2335,7 +2335,7 @@ App 的一些原则：
   "common.days.one": "{count} 天",
   "common.sender.agent": "{name} · 智能体",
   "common.sender.agentInRoom": "{name} · 智能体 · 房间「{room}」",
-  "common.sender.app": "{name} · App",
+  "common.sender.app": "{name} · 应用",
   "common.sender.cronjob": "{name} · 定时任务",
   "common.sender.webhook": "{name} · Webhook",
   "common.sender.messaging": "{name} · {app}",
@@ -2964,11 +2964,11 @@ App 的一些原则：
   "schedules.skippedNoSession": "已跳过的运行没有可继续的会话。",
   "schedules.noSession": "无法继续本次运行（未建立会话）。",
   "common.back": "返回",
-  "apps.openApp": "打开 App",
+  "apps.openApp": "打开应用",
   "apps.openOnNetwork": "在此网络上打开",
-  "apps.empty": "还没有 App。",
+  "apps.empty": "还没有应用。",
   "apps.filter.onlyMine": "只看我的",
-  "apps.filter.noMatch": "没有符合筛选条件的 App。",
+  "apps.filter.noMatch": "没有符合筛选条件的应用。",
   "roomFilter.title": "按房间筛选",
   "roomFilter.all": "所有房间",
   "roomFilter.none": "无房间",
@@ -2977,8 +2977,8 @@ App 的一些原则：
   "dialogs.schedule.room": "房间",
   "dialogs.schedule.roomHint": "房间成员能看到这个定时任务及其运行记录。",
   "apps.unavailable.needsLinux":
-    "App 托管需要带 systemd 的 Linux，因此这台电脑无法使用。",
-  "apps.loadFailed": "无法加载 App。",
+    "应用托管需要带 systemd 的 Linux，因此这台电脑无法使用。",
+  "apps.loadFailed": "无法加载应用。",
   "apps.deleteFailed": "无法删除。",
   "apps.logReadFailed": "无法读取日志。",
   "apps.state.running": "运行中",
@@ -2990,8 +2990,8 @@ App 的一些原则：
   "apps.meta.owner": "所有者",
   "apps.openAgent": "打开智能体",
   "apps.commandIn": "位于 {cwd}",
-  "apps.verbTitle.start": "运行 App",
-  "apps.verbTitle.restart": "停止 App 并重新启动",
+  "apps.verbTitle.start": "运行应用",
+  "apps.verbTitle.restart": "停止应用并重新启动",
   "apps.delete": "删除",
   "apps.cancel": "取消",
   "apps.logEmpty": "日志中还没有内容。",
@@ -3082,9 +3082,9 @@ App 的一些原则：
   "apps.menu.install": "安装为应用",
   "apps.actionFailed.archive": "无法归档。",
   "apps.actionFailed.unarchive": "无法取消归档。",
-  "apps.notFound.title": "未找到 App",
-  "apps.notFound.heading": "未找到 App",
-  "apps.notFound.body": "此地址没有 App，或者你无法打开它。",
+  "apps.notFound.title": "未找到应用",
+  "apps.notFound.heading": "未找到应用",
+  "apps.notFound.body": "此地址没有应用，或者你无法打开它。",
   "locked.title": "办公室已锁定",
   "locked.heading": "此办公室已锁定",
   "locked.body": "所有者已将其锁定。解锁之前，任何人都无法登录或使用它。",
@@ -3175,10 +3175,10 @@ App 的一些原则：
   "commands.status.description": "显示系统状态",
   "commands.tag.description": "为当前对话添加标签",
   "commands.init.description": "在项目中初始化 Claude Code",
-  "commands.installGithubApp.description": "设置 Claude GitHub PR 审查 App",
+  "commands.installGithubApp.description": "设置 Claude GitHub PR 审查应用",
   "commands.prComments.description": "查看 PR 评论",
-  "commands.desktop.description": "打开桌面 App",
-  "commands.mobile.description": "打开移动 App",
+  "commands.desktop.description": "打开桌面应用",
+  "commands.mobile.description": "打开移动应用",
   "commands.chrome.description": "打开 Chrome 扩展",
   "commands.session.description": "管理会话",
   "commands.teleport.description": "将会话转移到另一台设备",
@@ -4028,7 +4028,7 @@ App 的一些原则：
   "apiCall.skills.save": "保存技能",
   "apiCall.skills.create": "创建技能",
   "appWidget.launcher": "聊天",
-  "appWidget.appChanged": "App 已更新",
+  "appWidget.appChanged": "应用已更新",
   "appWidget.reload": "重新加载",
   "appWidget.title": "与 {agentName} 聊天",
   "appWidget.notice": "此聊天与该智能体所在房间的成员共享。",
