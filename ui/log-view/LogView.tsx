@@ -118,6 +118,7 @@ import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import { choiceCardText } from "../../shared/i18n/log-message.ts";
 import { noTranslate } from "../no-translate.ts";
+import { QueueChipText } from "./QueueChipText.tsx";
 import { useInboxNavAction } from "../inbox.ts";
 import {
   COMPOSER_MOBILE_FONT_SIZE,
@@ -505,18 +506,10 @@ function QueueChips({
                 {/* An answer to an ask says so, as the sent message will. */}
                 {msg.ask && <AskLink ask={msg.ask} isMobile={isMobile} />}
                 {msg.text && (
-                  <div
-                    {...noTranslate()}
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      lineHeight: 1.4,
-                      maxHeight: isMobile ? "4.2em" : "3.5em",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {askAnswerText(i18n.t, msg.ask, msg.text)}
-                  </div>
+                  <QueueChipText
+                    text={askAnswerText(i18n.t, msg.ask, msg.text)}
+                    isMobile={isMobile}
+                  />
                 )}
                 {attachmentCount > 0 && (
                   <div
