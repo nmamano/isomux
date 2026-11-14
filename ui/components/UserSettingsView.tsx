@@ -202,9 +202,9 @@ export function UserSettingsView({
 }: {
   // Live-avatars: when set, the page opens with this user's editor selected
   // (used by ghost click → settings shortcut). Read once on mount; updates to
-  // this prop while the page is mounted do NOT re-sync the selection. The
-  // parent (App.tsx) clears the value on close, so each reopen with a
-  // different initialUserId mounts a fresh page and applies the new target.
+  // this prop while the page is mounted do NOT re-sync the selection. App.tsx
+  // keys the page on each door into Settings, so a door taken while the page
+  // is open mounts a fresh page that applies the new target.
   initialUserId?: string | null;
   // Which sidebar row to open on. Every door into this page carries its own
   // target - the update pill lands on Updates, the bar's Theme button on

@@ -325,6 +325,8 @@ export function setUpChatSidebarTests(): void {
     if (method === "GET" && /^\/api\/rooms\/[^/]+\/settings$/.test(path))
       return { prompt: null, version: "1" };
     if (path === "/api/removed-members") return { members: [] };
+    // An owner's member editor reads the invites (a pending sign-in link).
+    if (path === "/api/invites") return { invites: [] };
     if (method === "GET" && path === "/api/office/instructions")
       return { instructions: null, version: "1" };
     if (method === "GET" && /^\/api\/rooms\/[^/]+\/instructions$/.test(path))

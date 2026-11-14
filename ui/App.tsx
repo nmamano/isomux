@@ -250,6 +250,9 @@ export function App({ routing = true }: { routing?: boolean }) {
   const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(
     null,
   );
+  // Bumped by every door into Settings and used as the page's key, so a door
+  // taken while Settings is open mounts a fresh page on its own target.
+  const [settingsDoor, setSettingsDoor] = useState(0);
   const [taskOpenRequest, setTaskOpenRequest] =
     useState<TaskOpenRequest | null>(null);
   // One-shot: what the Integrations page opens on, beyond its defaults: an
@@ -656,6 +659,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   const openSettings = useCallback(
     (target: SettingsTarget | null) => {
       setSettingsTarget(target);
+      setSettingsDoor((n) => n + 1);
       changePages({ type: "open", page: "settings" });
     },
     [changePages],
@@ -1282,6 +1286,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   const content =
     page === "settings" ? (
       <UserSettingsView
+        key={settingsDoor}
         initialUserId={editingUserId}
         initialTarget={settingsTarget}
         onSwitchUser={(name) => setUsername(name)}
@@ -1364,10 +1369,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           if (canSpawn) setSpawnBackOpen(true);
         }}
         onOpenSettings={() => openSettings(null)}
-        onOpenUserSettingsForUser={(userId) => {
-          setEditingUserId(userId);
-          openSettings(null);
-        }}
+        onOpenUserSettingsForUser={openMemberSettings}
         onEditOfficePrompt={() =>
           openSettings({ kind: "section", section: "office" })
         }
