@@ -149,6 +149,9 @@ ${emitThemesCss()}
   .md-content li { margin: 2px 0; }
   .md-content a { color: var(--accent-text); text-decoration: none; }
   .md-content a:hover { text-decoration: underline; }
+  /* A click opens the image in the lightbox (linked-image.ts). */
+  .md-content img { cursor: zoom-in; }
+  .md-content a img { cursor: pointer; }
   /* An image from an outside site, shown as a link (html-sanitize.ts). */
   .md-content a.md-outside-image::before {
     content: ""; display: inline-block; width: 0.95em; height: 0.95em;

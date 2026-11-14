@@ -1,4 +1,5 @@
 import { ordinaryRooms } from "../shared/types.ts";
+import { LinkedImageLightbox } from "./log-view/attachment-download.tsx";
 import { LogPrefetcher } from "./log-prefetch.ts";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRecordingRules } from "./hooks/useRecordingRules.ts";
@@ -1532,6 +1533,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           <LogPrefetcher backOpen={backRoomOpen} />
           <AskRefsProvider open={openAsk}>
             <style>{CSS + OFFICE_PAGE_CSS}</style>
+            <LinkedImageLightbox />
             <ConnectionBanner />
             <UpdateOverlay />
             <UiBuildNotice />

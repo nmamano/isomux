@@ -1,3 +1,5 @@
+// First: its Escape listener must be added before any other (ui/escape-layer.ts).
+import "./escape-layer.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { startRecordingMode } from "./recording-mode.ts";

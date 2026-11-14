@@ -35,6 +35,7 @@ import {
 } from "./log-view/chat-entries.ts";
 import { isSendNowKey, sendQueueNow } from "./log-view/send-now.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
+import { LinkedImageLightbox } from "./log-view/attachment-download.tsx";
 import { readSafariEnv } from "./safari-link.ts";
 import { BrowserInstall } from "./components/BrowserInstall.tsx";
 import {
@@ -738,6 +739,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       onDrop={(event) => event.preventDefault()}
     >
       <style>{CSS + CHAT_PANEL_CSS + WIDGET_CSS}</style>
+      <LinkedImageLightbox />
       {frameUrl && (
         <iframe
           key={frameKey}

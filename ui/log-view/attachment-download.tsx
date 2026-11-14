@@ -9,6 +9,9 @@ import {
 import { useI18n } from "../i18n.tsx";
 import { Portal } from "../components/Portal.tsx";
 import { homeScreenDownload } from "../home-screen-download.ts";
+import { useAppState } from "../store.tsx";
+import { claimEscape } from "../escape-layer.ts";
+import { lightboxForClick } from "./linked-image.ts";
 import {
   clampScroll,
   clickScale,
@@ -35,8 +38,19 @@ export interface LightboxImage {
   name: string;
 }
 
+// A src can carry a query of its own (an agent's image link): the name joins
+// it, and the src keeps its form (a path on the office's host stays a path).
 export function downloadHref(src: string, originalName: string): string {
-  return `${src}?download=${encodeURIComponent(originalName)}`;
+  const hashAt = src.indexOf("#");
+  const rest = hashAt < 0 ? src : src.slice(0, hashAt);
+  const hash = hashAt < 0 ? "" : src.slice(hashAt);
+  const queryAt = rest.indexOf("?");
+  const path = queryAt < 0 ? rest : rest.slice(0, queryAt);
+  const params = new URLSearchParams(
+    queryAt < 0 ? "" : rest.slice(queryAt + 1),
+  );
+  params.set("download", originalName);
+  return `${path}?${params.toString()}${hash}`;
 }
 
 export function DownloadButton({
@@ -145,6 +159,29 @@ export function ImageCard({
   );
 }
 
+// The lightbox for image links and images in chat text (linked-image.ts):
+// one per page, from a capture-phase click listener on the document.
+// Capture phase: a view on the way up that stops clicks from bubbling must
+// not let the link open as a page.
+export function LinkedImageLightbox() {
+  const { isMobile } = useAppState();
+  const [image, setImage] = useState<LightboxImage | null>(null);
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      const next = lightboxForClick(e);
+      if (!next) return;
+      e.preventDefault();
+      setImage(next);
+    }
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, []);
+  const close = useCallback(() => setImage(null), []);
+  return image ? (
+    <ImageLightbox image={image} isMobile={isMobile} onClose={close} />
+  ) : null;
+}
+
 // Full-size view of a chat image. It renders in a portal on document.body:
 // inside a side panel's stacking context, the office top bar painted over it.
 // The page forbids pinch zoom (ui/index.html; the office view pinches on its
@@ -162,18 +199,13 @@ export function ImageLightbox({
   isMobile?: boolean;
   onClose: () => void;
 }) {
-  // Capture-phase Escape so the global window handler in App.tsx (which navs
-  // back to the room view) doesn't fire while the lightbox is open.
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+  // Escape closes the lightbox and not the page under it (escape-layer.ts).
+  // One claim while open: a new onClose does not move it in the stack.
+  const closeRef = useRef(onClose);
+  useLayoutEffect(() => {
+    closeRef.current = onClose;
+  });
+  useEffect(() => claimEscape(() => closeRef.current()), []);
 
   return (
     <Portal>

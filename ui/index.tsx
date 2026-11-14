@@ -1,3 +1,5 @@
+// First: its Escape listener must be added before any other (ui/escape-layer.ts).
+import "./escape-layer.ts";
 import { createRoot } from "react-dom/client";
 import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
 import { PRODUCTION_FEATURES } from "../shared/features.ts";
