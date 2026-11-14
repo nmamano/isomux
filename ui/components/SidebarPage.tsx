@@ -60,9 +60,9 @@ export function SidebarPage({
       }}
     >
       {/* Header - same bar as the Tasks/Cronjobs pages, apart from the
-          labelled close control on phones (see below). minHeight (not
-          height) so the safe-area-inset-top padding extends the bar below
-          the camera notch instead of being squashed into the 44px box. */}
+          labelled close control (see below). minHeight (not height) so the
+          safe-area-inset-top padding extends the bar below the camera notch
+          instead of being squashed into the 44px box. */}
       <div
         style={{
           display: "flex",
@@ -78,28 +78,26 @@ export function SidebarPage({
           zIndex: 500,
         }}
       >
-        {/* Closes the page, back to what it was opened over. On a phone the
+        {/* Closes the page, back to what it was opened over. It says Close
+            on every device, as Nil asked (task d10f0dbd): on a phone the
             entry has its own back row to the list, so a bare arrow or "Back"
-            here would read as one more "back to the list": it says Close
-            instead. The desktop keeps the bare arrow the Tasks and
-            Automations pages use. */}
+            here would read as one more "back to the list". */}
         <button
           onClick={onClose}
           data-page-close=""
-          aria-label={isMobile ? undefined : t("common.back")}
           style={{
             background: "none",
             border: "none",
             color: "var(--text-muted)",
-            // A labelled control carries its own width; at the arrow's 18px
-            // the words would outweigh the page title beside them.
-            fontSize: isMobile ? 13 : 18,
+            // A labelled control carries its own width; at the 18px of a
+            // bare arrow the words would outweigh the page title beside them.
+            fontSize: 13,
             cursor: "pointer",
             padding: "2px 8px",
             whiteSpace: "nowrap",
           }}
         >
-          {isMobile ? <>&larr; {t("common.close")}</> : <>&larr;</>}
+          &larr; {t("common.close")}
         </button>
         <h1
           style={{
