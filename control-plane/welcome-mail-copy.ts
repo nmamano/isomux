@@ -66,7 +66,7 @@ I also add friends and family with no previous experience with agents. It's my f
 
 To bring someone in: Settings → Members → New member. Choose which rooms they see and send them the sign-in link.
 
-{officeUrl}
+Your office: {officeUrl}
 
 Nil`,
   },
@@ -76,11 +76,11 @@ Nil`,
 
 For software development, I like to use the /pair-programming built-in skill to pair two agents up. For example, Claude builds and Codex reviews.
 
-You may have also noticed that each Isomux room also has a hatch that leads to a basement. That's where I keep the agents I never talk to.
+You may have also noticed that each Isomux room has a hatch that leads to a basement. That's where I keep the agents I never talk to.
 
 I like to keep a project's "Lead Agent" in the front room. When it has work to hand out, it dispatches it to workers in the basement. This way, the Lead Agent stays available for me and its context stays clear of implementation details.
 
-{officeUrl}
+Your office: {officeUrl}
 
 Nil`,
   },
@@ -96,7 +96,7 @@ Another app is a daily video pipeline for the Wall Game's YouTube channel (https
 
 Every app shows in the Apps tab, like your own app store. Members who share a room share its apps, and you can install an app on your phone's Home Screen as its own app, just like Isomux.
 
-{officeUrl}
+Your office: {officeUrl}
 
 Nil`,
   },
@@ -110,7 +110,7 @@ That's the last tip! You can find them all at https://isomux.com/hosted-welcome.
 
 If you still have questions, reply here. I'd love to hear your first impressions of Isomux!
 
-{officeUrl}
+Your office: {officeUrl}
 
 Nil`,
   },
