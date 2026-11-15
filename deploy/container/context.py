@@ -13,7 +13,7 @@ FILES = {
     "LICENSE", "package.json", "bun.lock", "api/chat.ts", "api/_rate-limit.ts", "site/screenshot.png",
     "scripts/build.sh", "scripts/build-browser-extension.ts", "scripts/extension-zip.ts",
     "scripts/publish-ui-dist.ts", "scripts/stamp-ui-build.ts", "scripts/rescue.ts",
-    "deploy/render/Dockerfile", "deploy/render/Dockerfile.dockerignore",
+    "deploy/render/Dockerfile", "deploy/render/Dockerfile.dockerignore", "deploy/isomux-member-user.sh",
 }
 
 

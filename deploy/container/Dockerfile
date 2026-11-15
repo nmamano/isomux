@@ -3,14 +3,18 @@
 FROM buildpack-deps:bookworm@sha256:b22578185ebfdbd9a4050f697638b9c9696b70616d9b01bddfa79145db2b6dfd
 # Preserve the account identity, home and shell used by existing data volumes.
 RUN groupadd --gid 1000 node && useradd --uid 1000 --gid node --shell /bin/bash --create-home node
-RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential ca-certificates git curl procps openssh-client unzip xz-utils tini chromium chromium-sandbox bubblewrap && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential ca-certificates git curl procps openssh-client unzip xz-utils tini chromium chromium-sandbox bubblewrap jq && rm -rf /var/lib/apt/lists/*
 COPY --from=oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /opt/isomux
 COPY package.json bun.lock ./
 RUN ! command -v node && ! command -v npm && ! command -v npx && bun install --frozen-lockfile
 COPY . .
 RUN bun run build:ui && mkdir -p /var/data && chown node:node /var/data \
-    && ln -s "$(bun -e 'import { CLAUDE_NATIVE_BIN } from "./server/cwd-utils.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)')" /usr/local/bin/claude
+    && ln -s "$(bun -e 'import { CLAUDE_NATIVE_BIN } from "./server/cwd-utils.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)')" /usr/local/bin/claude \
+    && install -o root -g root -m 755 deploy/isomux-member-user.sh /usr/local/sbin/isomux-member-user \
+    && install -d -o root -g root -m 755 /etc/isomux \
+    && install -o root -g root -m 644 deploy/container/member-user-container.conf /etc/isomux/member-user-container.conf \
+    && chmod -R go-w /opt/isomux
 ARG ISOMUX_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/nmamano/isomux" org.opencontainers.image.revision=$ISOMUX_REVISION
 EXPOSE 10000

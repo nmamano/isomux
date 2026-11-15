@@ -18,6 +18,7 @@
 !scripts/extension-zip.ts
 !scripts/rescue.ts
 !deploy/container/**
+!deploy/isomux-member-user.sh
 !deploy/render/Dockerfile
 !deploy/render/Dockerfile.dockerignore
 **/node_modules

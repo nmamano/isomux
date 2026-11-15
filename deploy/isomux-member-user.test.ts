@@ -74,6 +74,13 @@ if [[ $path == "$SHARE_ROOT" ]]; then printf '0 %s\\n' "$(command -p stat -c %a 
   atq: `:`,
   atrm: `:`,
   sudo: `echo "User $OS_USER is not allowed to run sudo on box."`,
+  groupadd: `:`,
+  groupdel: `:`,
+  // The container's helper (python3 -I <helper> <verb> ...): next-id prints
+  // $T/next-id, or 1005.
+  python3: `
+[[ $3 == next-id ]] && { cat "$T/next-id" 2>/dev/null || echo 1005; }
+exit 0`,
   // The office: the answer to each verb is $T/answers/<verb> (body, then a
   // line with the status); a verb with no file answers 500.
   curl: `
@@ -158,6 +165,7 @@ function run(...args: string[]) {
       ISOMUX_MEMBER_USER_SHARE_ROOT: join(root, "share"),
       ISOMUX_MEMBER_USER_ETC: join(root, "etc"),
       ISOMUX_MEMBER_USER_SYSTEMD_DIR: join(root, "systemd"),
+      ISOMUX_MEMBER_USER_HELPER: "/helper",
     },
   });
   return { code: result.status, stderr: result.stderr, stdout: result.stdout };
@@ -484,6 +492,195 @@ describe("disable", () => {
   it("refuses a member with no OS user of their own", () => {
     expect(run("disable", "Alice").code).toBe(1);
     expect(sent("disable")).toBeNull();
+  });
+});
+
+// Inside the container (DEPLOYMENT_KIND=inside-container): no systemd, and
+// every change under /var/data/members goes through the helper, which works
+// on checked folder fds; the command itself never makes, chmods or removes a
+// path there, because the office user can replace /var/data/members.
+describe("in the container", () => {
+  const HELPER_CALL = "python3 -I /helper";
+  const HOME = `/var/data/members/home/${OS_USER}`;
+  beforeEach(() => {
+    writeFileSync(
+      join(root, "update.conf"),
+      `SERVICE_USER=office\nSTATE_ROOT=${root}/state\nSERVICE_KIND=system\nDEPLOYMENT_KIND=inside-container\n`,
+    );
+    // No systemd in the container.
+    rmSync(join(root, "systemd"), { recursive: true });
+  });
+
+  // The calls that change the box or the office, in order.
+  const changes = () =>
+    log().filter((line) =>
+      [
+        "python3",
+        "groupadd",
+        "groupdel",
+        "useradd",
+        "userdel",
+        "usermod",
+        "curl",
+        "systemctl",
+        "loginctl",
+        "install",
+        "chmod",
+        "rm",
+        "pkill",
+      ].some((name) => line.startsWith(`${name} `)),
+    );
+  const curl = (verb: string) =>
+    expect.stringMatching(new RegExp(`^curl .*/member-user/${verb}$`));
+
+  it("enables with ids above every record, the helper for the folders, and the loop for the unit", () => {
+    writeFileSync(join(root, "next-id"), "1007\n");
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(0);
+    expect(changes()).toEqual([
+      curl("info"),
+      `${HELPER_CALL} next-id`,
+      `groupadd -g 1007 ${OS_USER}`,
+      `useradd -M -u 1007 -g 1007 -d ${HOME} -s /bin/bash ${OS_USER}`,
+      `${HELPER_CALL} add ${OS_USER} 1007 1007 ${USER_ID}`,
+      curl("prepare"),
+      `${HELPER_CALL} start ${OS_USER}`,
+      curl("go-on"),
+    ]);
+    expect(sent("prepare")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 1007,
+    });
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 1007,
+    });
+    expect(existsSync(share())).toBe(false);
+  });
+
+  it("refuses before any change when the helper gives no number", () => {
+    for (const setup of [
+      () => fail("python3", "next-id"),
+      () => writeFileSync(join(root, "next-id"), "1007; id\n"),
+    ]) {
+      rmSync(join(root, "log"), { force: true });
+      rmSync(join(root, "fail"), { recursive: true, force: true });
+      setup();
+      expect(run("enable", "Alice").code).toBe(1);
+      expect(changes()).toEqual([curl("info"), `${HELPER_CALL} next-id`]);
+    }
+  });
+
+  // What each failing step leaves to undo, in the order of the undo: the
+  // runner first, then the folders and the record, then the user and the
+  // group. userdel never has --remove: the home goes through the helper.
+  const undo = {
+    loop: `${HELPER_CALL} stop ${OS_USER}`,
+    record: `${HELPER_CALL} delete ${OS_USER} ${USER_ID}`,
+    user: `userdel ${OS_USER}`,
+    group: `groupdel ${OS_USER}`,
+  };
+  const all = [undo.loop, undo.record, undo.user, undo.group];
+  const failures: [string, () => void, string[]][] = [
+    ["groupadd fails", () => fail("groupadd"), []],
+    ["useradd fails", () => fail("useradd"), [undo.group]],
+    [
+      "the helper cannot record the user",
+      () => fail("python3", " add "),
+      [undo.user, undo.group],
+    ],
+    [
+      "the office cannot prepare",
+      () => answer("prepare", 500, { ok: false, message: "no" }),
+      [undo.record, undo.user, undo.group],
+    ],
+    ["the loop does not start", () => fail("python3", " start "), all],
+    [
+      "the user can become root",
+      () => writeFileSync(join(root, "groups"), `${OS_USER} sudo\n`),
+      all,
+    ],
+    [
+      "the office does not take the user",
+      () => answer("go-on", 200, { ok: true, ready: false, reason: "no" }),
+      all,
+    ],
+    [
+      "the office does not answer go-on",
+      () => rmSync(join(root, "answers", "go-on")),
+      all,
+    ],
+  ];
+  for (const [name, setup, expected] of failures)
+    it(`undoes in reverse when ${name}`, () => {
+      setup();
+      expect(run("enable", "Alice").code).toBe(1);
+      const undone = changes().filter((line) =>
+        [
+          `${HELPER_CALL} stop`,
+          `${HELPER_CALL} delete`,
+          "userdel",
+          "groupdel",
+        ].some((p) => line.startsWith(p)),
+      );
+      expect(undone).toEqual(expected);
+    });
+
+  function isolatedHere() {
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      slug: "alice",
+      osUser: { name: OS_USER, uid: 1007 },
+    });
+  }
+
+  it("disable asks the office, stops the loop, then keeps the record locked", () => {
+    isolatedHere();
+    expect(run("disable", "Alice").code).toBe(0);
+    expect(changes()).toEqual([
+      curl("info"),
+      curl("disable"),
+      `${HELPER_CALL} stop ${OS_USER}`,
+      `${HELPER_CALL} lock ${OS_USER}`,
+      `usermod --lock --expiredate 1 ${OS_USER}`,
+    ]);
+  });
+
+  it("disable --delete-user checks the mark first, and removes the folders through the helper before the user", () => {
+    isolatedHere();
+    expect(run("disable", "Alice", "--delete-user").code).toBe(0);
+    expect(changes()).toEqual([
+      curl("info"),
+      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+      curl("disable"),
+      `${HELPER_CALL} stop ${OS_USER}`,
+      `${HELPER_CALL} delete ${OS_USER} ${USER_ID}`,
+      `userdel ${OS_USER}`,
+      `groupdel ${OS_USER}`,
+    ]);
+  });
+
+  it("disable --delete-user of a user it did not make changes nothing", () => {
+    isolatedHere();
+    fail("python3", "check-made");
+    expect(run("disable", "Alice", "--delete-user").code).toBe(1);
+    expect(changes()).toEqual([
+      curl("info"),
+      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+    ]);
+  });
+
+  it("the container conf of the host still points to docker exec", () => {
+    writeFileSync(
+      join(root, "update.conf"),
+      `SERVICE_USER=office\nSTATE_ROOT=${root}/state\nSERVICE_KIND=system\nDEPLOYMENT_KIND=container\n`,
+    );
+    expect(run("enable", "Alice").code).toBe(1);
+    expect(changes()).toEqual([]);
   });
 });
 

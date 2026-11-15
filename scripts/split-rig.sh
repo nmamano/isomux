@@ -20,6 +20,20 @@
 # RUNNER is real (default) or stub, a runner that answers EACCES to every
 # diagnostic try.
 #
+# Member mode (internal-docs/member-os-user-design.md, slice 1b): the real
+# image with its real entrypoint and stub engines. The office runs as node;
+# a test claims it (POST /setup, key member-rig-setup-key-0123456789abcdef, origin
+# https://office.example.com), makes members with POST /api/users and gives
+# each its own OS user with docker exec -u 0 NAME isomux-member-user enable
+# <member>.
+#
+#   scripts/split-rig.sh build-member TAG [REVISION]
+#                                               build TAG (and TAG-base)
+#   scripts/split-rig.sh image-check IMAGE      the member files of IMAGE and
+#                                               each parent: root, no link, no
+#                                               group or other write
+#   scripts/split-rig.sh start-member NAME TAG  start one container of TAG
+#
 # Fence a build: systemd-run --user --scope -p MemoryMax=6G scripts/split-rig.sh build
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -555,6 +569,62 @@ Bun.serve({
 EOF
 }
 
+# The files root runs for member users, and each of their parent folders up
+# to /, checked in the image as built: before any rig layer changes a mode.
+image_check() {
+  docker run --rm --entrypoint python3 "$1" -I -c '
+import os, stat, sys
+files = [
+    "/opt/isomux/deploy/container/member-users.py",
+    "/opt/isomux/deploy/container/member-runner-loop.sh",
+    "/usr/local/sbin/isomux-member-user",
+    "/etc/isomux/member-user-container.conf",
+    "/usr/bin/setpriv",
+]
+bad = []
+seen = set()
+for path in files:
+    while path not in seen:
+        seen.add(path)
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            bad.append(f"{path} uid={info.st_uid} mode={oct(info.st_mode)}")
+        if path == "/":
+            break
+        path = os.path.dirname(path)
+print("\n".join(bad) or "ok")
+sys.exit(1 if bad else 0)
+'
+}
+
+build_member() {
+  local tag=$1 revision commit context
+  revision=${2:-HEAD}
+  commit=$(git rev-parse --verify "$revision^{commit}")
+  bash deploy/container/build.sh "$commit" "$tag-base"
+  image_check "$tag-base"
+  context=$(mktemp -d)
+  trap 'rm -rf "$context"' RETURN
+  cat > "$context/Dockerfile" <<EOF
+FROM $tag-base
+RUN apt-get update && apt-get install -y --no-install-recommends acl && rm -rf /var/lib/apt/lists/*
+$(provider_layer)
+LABEL isomux.split-rig.commit=$commit
+EOF
+  mkdir "$context/stubs"
+  [[ -n "$REAL_PROVIDERS" ]] || write_stubs "$context/stubs"
+  docker build -t "$tag" "$context"
+}
+
+start_member() {
+  local name=$1 tag=$2
+  docker run -d --name "$name" --label isomux.split-rig=1 \
+    -e ISOMUX_MEMBER_USERS_RIG=1 -e ISOMUX_RIG_CANARY=member-rig-canary \
+    -e ISOMUX_PUBLIC_URL=https://office.example.com \
+    -e ISOMUX_SETUP_KEY=member-rig-setup-key-0123456789abcdef \
+    -v "$name-data:/var/data" "$tag" > /dev/null
+}
+
 start() {
   local name=$1 brk=${2:-} runner=${3:-real}
   docker run -d --name "$name" --label isomux.split-rig=1 \
@@ -571,5 +641,8 @@ case "${1:-}" in
   build) shift; build "$@" ;;
   start) shift; start "$@" ;;
   stop) shift; stop "$@" ;;
-  *) sed -n '2,20p' "$0" >&2; exit 2 ;;
+  build-member) shift; build_member "$@" ;;
+  image-check) shift; image_check "$@" ;;
+  start-member) shift; start_member "$@" ;;
+  *) sed -n '2,33p' "$0" >&2; exit 2 ;;
 esac

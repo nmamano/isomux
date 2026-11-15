@@ -26,11 +26,16 @@ import {
 } from "./member-share-check.ts";
 import { RUNTIME_ROOT } from "./runtime-root.ts";
 
-const DEFAULT_SHARE_ROOT = "/var/lib/isomux-share";
+// In the container the image keeps no /var/lib: the shares live on the data
+// volume (deploy/container/member-users.py).
+const DEFAULT_SHARE_ROOT =
+  process.env.ISOMUX_APP_SUPERVISOR === "container"
+    ? "/var/data/members/share"
+    : "/var/lib/isomux-share";
 let shareRoot = DEFAULT_SHARE_ROOT;
 
-// The member share: <root>/<osuser>. Root is /var/lib/isomux-share; tests set
-// another.
+// The member share: <root>/<osuser>. Root is /var/lib/isomux-share, or
+// /var/data/members/share in the container; tests set another.
 export function memberSharePath(osUserName: string): string {
   return join(shareRoot, osUserName);
 }

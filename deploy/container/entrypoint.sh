@@ -9,6 +9,9 @@ if [[ "$(id -u)" == 0 ]]; then
   # The mounted disk replaces the image's /var/data permissions. Create only
   # our owned subdirectories, then drop root before any app or agent starts.
   install -d -m 700 -o node -g node "$HOME" /var/data/workspaces
+  # Member OS users: recreate them and start their runners while root. A
+  # failure skips the members, never the office.
+  python3 -I /opt/isomux/deploy/container/member-users.py boot || true
   cd /opt/isomux
   exec runuser -u node --preserve-environment -- bash deploy/container/entrypoint.sh
 fi
