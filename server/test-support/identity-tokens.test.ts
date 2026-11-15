@@ -103,6 +103,9 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "user:create",
       "user:prompt",
       "user:rename",
+      // Any member's sidebar Pinned list, under an owner's reach (task
+      // 35596be5).
+      "user:pins",
       "integration:manage",
       "office:settings",
     ],
@@ -140,6 +143,7 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "user:env",
       "integration:manage",
       "user:admin",
+      "user:pins",
       "office:admin",
       "office:settings",
       "office:rescue",
@@ -175,6 +179,7 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "integration:manage",
       "office:settings",
       "user:prompt",
+      "user:pins",
       "secret:show",
       "api:discover-agents",
       "api:send-message",

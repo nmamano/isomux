@@ -524,6 +524,13 @@ export const integrationOfficeReader: Guard = ({ identity }) =>
 export const officeSettingsOwner: Guard = ({ identity, deps }) =>
   hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
 
+// Any member's sidebar Pinned list (users.readPinned, users.setPinned; task
+// 35596be5): an office owner's reach, so an owner, their privileged agent or
+// their API token. No target lookup: the handler answers an unknown member
+// with 404. A member edits their own list through view.setPinned.
+export const memberPinsOwner: Guard = ({ identity, deps }) =>
+  hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
+
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").
 export const selfOrOwner: Guard = (ctx) =>

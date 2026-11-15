@@ -1791,6 +1791,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.env.add": "Add variable",
 
   "settings.memberConnections.loadFailed": "Could not load connections.",
+  "settings.memberPins.title": "Pinned in sidebar",
+  "settings.memberPins.empty": "Nothing pinned",
+  "settings.memberPins.memberTag": "Member",
+  "settings.memberPins.moveUp": "Move up",
+  "settings.memberPins.moveDown": "Move down",
+  "settings.memberPins.remove": "Unpin",
+  "settings.memberPins.add": "Pin an agent or member",
   "settings.memberApiTokens.title": "API Tokens",
   "settings.memberApiTokens.hint":
     "Revoke a token to stop it on its next request.",
@@ -2417,6 +2424,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.users.readInstructions": "Read member instructions",
   "apiCall.users.readSessions": "Read member sessions",
   "apiCall.users.saveInstructions": "Change member instructions",
+  "apiCall.users.readPinned": "Read member pinned list",
+  "apiCall.users.savePinned": "Change member pinned list",
   "apiCall.cronjobs.readInstructions": "Read schedule instructions",
   "apiCall.cronjobs.saveInstructions": "Change schedule instructions",
   "apiCall.users.create": "Create a member",

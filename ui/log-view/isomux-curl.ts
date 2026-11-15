@@ -881,6 +881,8 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/users/*/instructions", "apiCall.users.readInstructions"],
   ["GET", "/api/users/*/sessions", "apiCall.users.readSessions"],
   ["PUT", "/api/users/*/instructions", "apiCall.users.saveInstructions"],
+  ["GET", "/api/users/*/pinned", "apiCall.users.readPinned"],
+  ["PUT", "/api/users/*/pinned", "apiCall.users.savePinned"],
   ["GET", "/api/cron-instructions", "apiCall.cronjobs.readInstructions"],
   ["PUT", "/api/cron-instructions", "apiCall.cronjobs.saveInstructions"],
   ["GET", "/api/users/*/env", "apiCall.env.readUser"],

@@ -159,6 +159,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "users.create": "members",
   "users.readInstructions": "discovery",
   "users.setInstructions": "members",
+  "users.readPinned": "members",
+  "users.setPinned": "members",
   "users.update": "members",
   "sessions.listForMember": "action-asks",
   "office.getSettings": "office-settings",

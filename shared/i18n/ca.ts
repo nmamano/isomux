@@ -1848,6 +1848,13 @@ Coses que pots fer per ell:
 
   "settings.memberConnections.loadFailed":
     "No s'han pogut carregar les connexions.",
+  "settings.memberPins.title": "Fixats a la barra lateral",
+  "settings.memberPins.empty": "Res fixat",
+  "settings.memberPins.memberTag": "Membre",
+  "settings.memberPins.moveUp": "Puja",
+  "settings.memberPins.moveDown": "Baixa",
+  "settings.memberPins.remove": "Treu",
+  "settings.memberPins.add": "Fixa un agent o membre",
   "settings.memberApiTokens.title": "Tokens d'API",
   "settings.memberApiTokens.hint":
     "Revoca un token per aturar-lo a la seva propera sol·licitud.",
@@ -2494,6 +2501,8 @@ Coses que pots fer per ell:
   "apiCall.users.readInstructions": "Llegir les instruccions del membre",
   "apiCall.users.readSessions": "Llegir les sessions del membre",
   "apiCall.users.saveInstructions": "Canviar les instruccions del membre",
+  "apiCall.users.readPinned": "Llegir la llista de fixats del membre",
+  "apiCall.users.savePinned": "Canviar la llista de fixats del membre",
   "apiCall.cronjobs.readInstructions":
     "Llegir les instruccions de les programacions",
   "apiCall.cronjobs.saveInstructions":

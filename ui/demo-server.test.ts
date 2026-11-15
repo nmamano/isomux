@@ -677,3 +677,53 @@ it("serves a ringing paged ask in the Inbox, and no page list", async () => {
   const pages = await demoApi("GET", "/api/pager", undefined).catch(() => null);
   expect(Array.isArray(pages) && pages.length > 0).toBe(false);
 });
+
+// Task 35596be5: an owner saves a member's Pinned list from that member's
+// Settings page, so the demo serves the route the panel calls.
+it("stores a member's Pinned list on PUT /api/users/:username/pinned and sends the record", async () => {
+  const seen: ServerMessage[] = [];
+  const listen = (data: string) => seen.push(JSON.parse(data));
+  addRawListener(listen);
+  try {
+    sendInitialState();
+    const self = seen.find((m) => m.type === "session_context");
+    if (self?.type !== "session_context") throw new Error("no session");
+    // The condition: the demo's self is not the member we edit.
+    expect(self.context?.username).not.toBe("Stephen");
+    seen.length = 0;
+
+    await demoApi("PUT", "/api/users/Stephen/pinned", {
+      pinned: ["demo-receptionist", "demo-michael"],
+    });
+    const admin = seen.filter((m) => m.type === "user_admin_updated");
+    expect(admin.length).toBe(1);
+    if (admin[0].type !== "user_admin_updated") throw new Error("unreachable");
+    expect(admin[0].user.name).toBe("Stephen");
+    expect(admin[0].user.pinnedAgents).toEqual([
+      "demo-receptionist",
+      "demo-michael",
+    ]);
+    // Another member's list does not reach the self record.
+    expect(seen.filter((m) => m.type === "user_self_updated").length).toBe(0);
+
+    // The demo's self: the self record follows too.
+    seen.length = 0;
+    await demoApi(
+      "PUT",
+      `/api/users/${encodeURIComponent(self.context!.username)}/pinned`,
+      { pinned: ["demo-michael"] },
+    );
+    const own = seen.filter((m) => m.type === "user_self_updated");
+    expect(own.length).toBe(1);
+    if (own[0].type !== "user_self_updated") throw new Error("unreachable");
+    expect(own[0].user.pinnedAgents).toEqual(["demo-michael"]);
+  } finally {
+    removeRawListener(listen);
+  }
+  await expect(
+    demoApi("PUT", "/api/users/Nobody/pinned", { pinned: [] }),
+  ).rejects.toMatchObject({ status: 404, code: "user_not_found" });
+  await expect(
+    demoApi("PUT", "/api/users/Stephen/pinned", { pinned: "x" }),
+  ).rejects.toMatchObject({ status: 422, code: "invalid_pinned" });
+});

@@ -59,6 +59,7 @@ import {
   officeOwner,
   officeOwnerOrOwnersAgent,
   officeSettingsOwner,
+  memberPinsOwner,
   auditOwner,
   officeEnvOwner,
   integrationOfficeOwner,
@@ -166,6 +167,7 @@ import type {
   ShownRoomsReq,
   TuckedRoomsReq,
   PinnedReq,
+  PinnedRes,
   InboxSeenReq,
   PushRoomsReq,
   NotifRoomsReq,
@@ -2954,6 +2956,27 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     tokenArea: { area: "office", level: "write" },
     emits: ["user_updated", "users_list"],
+  }),
+  // Any member's sidebar Pinned list (task 35596be5): an office owner's
+  // reach sets up a member's sidebar, also before they sign in. The PUT
+  // takes view.setPinned's body and store rules for the target member, and
+  // sends the private record events as that route does.
+  defineRoute<void, PinnedRes>({
+    opId: "users.readPinned",
+    method: "GET",
+    path: "/api/users/:username/pinned",
+    auth: cap("user:pins", memberPinsOwner),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  defineRoute<PinnedReq, NoContent>({
+    opId: "users.setPinned",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/users/:username/pinned",
+    auth: cap("user:pins", memberPinsOwner),
+    tokenArea: { area: "office", level: "write" },
+    emits: ["user_admin_updated", "user_self_updated"],
   }),
   // { user: UserSelfWire | UserAdminWire } (same UserRecord shape). A human
   // edits the record; a privileged agent sends only the name (the handler

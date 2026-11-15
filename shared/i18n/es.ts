@@ -1842,6 +1842,13 @@ Cosas que puedes hacer por él:
 
   "settings.memberConnections.loadFailed":
     "No se han podido cargar las conexiones.",
+  "settings.memberPins.title": "Fijados en la barra lateral",
+  "settings.memberPins.empty": "Nada fijado",
+  "settings.memberPins.memberTag": "Miembro",
+  "settings.memberPins.moveUp": "Subir",
+  "settings.memberPins.moveDown": "Bajar",
+  "settings.memberPins.remove": "Quitar",
+  "settings.memberPins.add": "Fijar un agente o miembro",
   "settings.memberApiTokens.title": "Tokens de API",
   "settings.memberApiTokens.hint":
     "Revoca un token para detenerlo en su próxima solicitud.",
@@ -2489,6 +2496,8 @@ Cosas que puedes hacer por él:
   "apiCall.users.readInstructions": "Leer las instrucciones del miembro",
   "apiCall.users.readSessions": "Leer las sesiones del miembro",
   "apiCall.users.saveInstructions": "Cambiar las instrucciones del miembro",
+  "apiCall.users.readPinned": "Leer la lista de fijados del miembro",
+  "apiCall.users.savePinned": "Cambiar la lista de fijados del miembro",
   "apiCall.cronjobs.readInstructions":
     "Leer las instrucciones de las programaciones",
   "apiCall.cronjobs.saveInstructions":

@@ -4248,6 +4248,24 @@ export async function demoApi(
     shimEmit({ type: "users_list", users: [...users.values()] });
     return { user: updated };
   }
+  // users.setPinned (PUT /api/users/:username/pinned; task 35596be5): an
+  // owner sets another member's sidebar Pinned list. Stored as sent; the
+  // private record events, as on the server.
+  const memberPinsMatch = pathname.match(/^\/api\/users\/([^/]+)\/pinned$/);
+  if (memberPinsMatch && method === "PUT") {
+    const key = decodeURIComponent(memberPinsMatch[1]).toLowerCase();
+    const user = users.get(key);
+    if (!user) throw new ApiError(404, "user_not_found", "Member not found.");
+    const b = (body ?? {}) as PinnedReq;
+    if (!Array.isArray(b.pinned))
+      throw new ApiError(422, "invalid_pinned", "pinned must be a list.");
+    const updated: UserRecord = { ...user, pinnedAgents: [...b.pinned] };
+    users.set(key, updated);
+    shimEmit({ type: "user_admin_updated", user: updated });
+    if (updated.id === sessionContext?.userId)
+      shimEmit({ type: "user_self_updated", user: updated });
+    return undefined;
+  }
   // memberChat.update (PATCH /api/users/:username/chat): the member's
   // "Show tool calls", set by an owner on the member's page.
   const memberChatMatch = pathname.match(/^\/api\/users\/([^/]+)\/chat$/);

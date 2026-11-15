@@ -1755,6 +1755,14 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: ["user_updated", "users_list"],
   },
+  // Any member's sidebar Pinned list (task 35596be5): an owner's reach, whose
+  // guard (memberPinsOwner) refuses everyone else. The PUT sends the target's
+  // private record, as view.setPinned does.
+  "users.readPinned": { caps: ["user:pins"], emits: [] },
+  "users.setPinned": {
+    caps: ["user:pins"],
+    emits: ["user_admin_updated", "user_self_updated"],
+  },
   // A privileged agent renames a member (user:rename, name only); no API
   // token edits a member record. Instructions are users.setInstructions.
   "users.update": {
@@ -2669,6 +2677,8 @@ const API_REACHABLE_OPIDS = [
   "apiTokenInbox.drain",
   "users.readInstructions",
   "users.setInstructions",
+  "users.readPinned",
+  "users.setPinned",
   "office.getSettings",
   "office.getMemberUsageStatus",
   "office.setSettings",

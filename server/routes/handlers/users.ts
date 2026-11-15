@@ -1,6 +1,6 @@
 // Users resource handlers. The
 // user-management surface on the unified REST surface (opIds users.{create,
-// update,setAccess,delete}).
+// update,setAccess,delete,readPinned,setPinned}).
 //
 // users.update carries the record fields (name/role/avatar) via
 // UserUpdateReq, and for a human owner caller also a member's pack and
@@ -32,6 +32,7 @@ import {
 import type {
   MemberRestoreReq,
   MemberRestoreRes,
+  PinnedRes,
   RemovedMemberWire,
   UserAdminWire,
   UserCreateReq,
@@ -45,6 +46,7 @@ import {
   refuseOldFields,
 } from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
+import { parsePinnedBody } from "./view.ts";
 import { parseMemberPack, type MemberPack } from "../../../shared/pack-fit.ts";
 
 const INVALID_PACK_MESSAGE =
@@ -128,6 +130,12 @@ export interface UsersDeps {
   // Delete now: the record and everything kept go. Emits removed_members.
   purge(input: { id: string }): Promise<DeleteOutcome>;
   attributionFor(identity: Identity): { createdBy: string };
+  // A member's sidebar Pinned list (task 35596be5). null: no such member.
+  readPinned(username: string): string[] | null;
+  // Store `pinned` as the member's Pinned list through the store rules of
+  // view.setPinned (server/sidebar-agents.ts pinnedAgentsToStore) and send
+  // the private record events on a change. false: no such member.
+  setPinned(username: string, pinned: string[]): boolean;
 }
 
 // Reject a present-but-wrong-typed optional field with 422 BEFORE the core (the
@@ -247,6 +255,23 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           ? instructionsConflict(r.version)
           : fail(r.status, r.code, r.error);
       return ok(instructionsRes(r.user.memberPrompt));
+    },
+
+    // Any member's sidebar Pinned list, for an office owner's reach (task
+    // 35596be5). The PUT takes view.setPinned's body.
+    "users.readPinned": (ctx) => {
+      const pinned = deps.readPinned(ctx.params.username);
+      return pinned
+        ? ok({ pinned } satisfies PinnedRes)
+        : fail(404, "user_not_found");
+    },
+
+    "users.setPinned": (ctx) => {
+      const body = parsePinnedBody(ctx.body);
+      if (!body.ok) return body.result;
+      return deps.setPinned(ctx.params.username, body.pinned)
+        ? noContent()
+        : fail(404, "user_not_found");
     },
 
     "users.update": async (ctx) => {

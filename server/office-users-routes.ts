@@ -115,6 +115,9 @@ export interface UsersRoutesDeps
   // The Enterprise Contract seats (server/enterprise-seats.ts): every add
   // takes a seat first, a removal releases one.
   enterpriseSeats: () => EnterpriseSeats;
+  // view.setPinned's store and fan-out for one member (isomux-office.ts
+  // applyPinnedAgents). false: the record is gone.
+  applyPinnedAgents: (userId: string, pinned: string[]) => boolean;
 }
 
 // A refused seat as the users routes' error shape.
@@ -248,6 +251,7 @@ export function createUsersRoutes(
 ): Record<string, RouteHandler> {
   const {
     accessibleRoomIdsFor,
+    applyPinnedAgents,
     announceAppAudienceChanges,
     announceWebhookAudienceChanges,
     attributionFor,
@@ -367,6 +371,14 @@ export function createUsersRoutes(
   // (selfOrOwner / officeOwner); the two delete preconditions add owner!=self +
   // not-last-owner.
   return usersHandlers({
+    readPinned: (username) => {
+      const user = getUser(username);
+      return user ? (user.pinnedAgents ?? []) : null;
+    },
+    setPinned: (username, pinned) => {
+      const user = getUser(username);
+      return user ? applyPinnedAgents(user.id, pinned) : false;
+    },
     readMemberPrompt: (username) => {
       const user = getUser(username);
       return user ? { memberPrompt: user.memberPrompt } : null;

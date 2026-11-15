@@ -30,10 +30,16 @@ import {
   setUsername as saveLocalUsername,
   getUsername,
 } from "../device-settings.ts";
-import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
+import {
+  LOBBY_ROOM_ID,
+  type NotifRoomsSetting,
+  type UserRecord,
+} from "../../shared/types.ts";
+import { memberPinKey } from "../../shared/sidebar-pins.ts";
 import type {
   InstructionsReq,
   InstructionsRes,
+  PinnedReq,
   ApiTokenListRes,
   ApiTokenWire,
 } from "../../shared/contract-shapes.ts";
@@ -112,6 +118,7 @@ import {
   setSettingsGroupOpen,
 } from "../device-settings.ts";
 import { MemberAccessControl } from "./MemberAccessControl.tsx";
+import { MemberPinnedAgents } from "./MemberPinnedAgents.tsx";
 import type { MemberLevel } from "../member-access.ts";
 import { samePack } from "../../shared/pack-fit.ts";
 import type { MemberPack } from "../../shared/pack-fit.ts";
@@ -1028,6 +1035,7 @@ function newMemberRecord(): UserRecord {
 }
 
 const NO_ROOM_IDS: string[] = [];
+const NO_PINS: string[] = [];
 
 // Rooms table layout, one grid for the header and every room row: an edge
 // gutter, the room name, one track per checkbox column, an edge gutter. A
@@ -1048,6 +1056,11 @@ const roomColumnHeader: React.CSSProperties = {
   textAlign: "center",
   padding: "4px 2px 6px",
 };
+
+// The same ids in the same order.
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
 
 function sameRoomSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -1193,7 +1206,7 @@ function UserEditPanel({
   // Y" / "discard then close the page". Same pattern as TaskView's closeRef.
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
-  const { rooms, allRooms, sessionContext } = useAppState();
+  const { rooms, allRooms, sessionContext, agents, users } = useAppState();
   const { t } = useI18n();
   // Owner-only fields: role and allowedRooms. The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
@@ -1295,6 +1308,33 @@ function UserEditPanel({
       .then((r) => setMeRooms(r.rooms))
       .catch(() => {});
   }, [isOwner, isMe, accessKey]);
+  // An owner sets up another member's sidebar Pinned list (task 35596be5).
+  // Like tucked: a pin the member makes meanwhile lands here when the owner
+  // has not edited the list; once they have, their draft wins at Save.
+  // The lists compare on the entries the owner can name: an owner sees every
+  // agent and member, so another entry is dead, and the server drops it at
+  // the next write. A saved list with a dead entry thus reads clean, and
+  // still adopts a pin the member makes after the save.
+  const editsPins = isOwner && !isMe && !creating;
+  const userPins = user.pinnedAgents ?? NO_PINS;
+  const nameablePins = new Set([
+    ...agents.map((a) => a.id),
+    ...[...users.values()]
+      .filter((u) => u.id !== user.id)
+      .map((u) => memberPinKey(u.id)),
+  ]);
+  const samePins = (a: readonly string[], b: readonly string[]) =>
+    sameList(
+      a.filter((key) => nameablePins.has(key)),
+      b.filter((key) => nameablePins.has(key)),
+    );
+  const [pinsSetting, setPinsSetting] = useState<string[]>(userPins);
+  const [pinsBase, setPinsBase] = useState<string[]>(userPins);
+  if (!sameList(pinsBase, userPins)) {
+    setPinsBase(userPins);
+    if (samePins(pinsSetting, pinsBase)) setPinsSetting(userPins);
+  }
+  const pinsChanged = editsPins && !samePins(pinsSetting, userPins);
   // Rooms whose turn ends push to the member's devices (the Push level).
   // Like tucked: the room settings pane writes the same field, so a change
   // saved there lands here when the member has not edited the column.
@@ -1447,6 +1487,7 @@ function UserEditPanel({
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
     if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
     if (!creating && showToolCallsChanged) return true;
+    if (pinsChanged) return true;
     return false;
   }
 
@@ -1546,6 +1587,15 @@ function UserEditPanel({
           "PATCH",
           `/api/users/${encodeURIComponent(origName)}/chat`,
           { showToolCalls },
+        );
+      }
+      // (1d) The member's Pinned list, against the original name.
+      if (pinsChanged) {
+        const body: PinnedReq = { pinned: pinsSetting };
+        await apiFetch(
+          "PUT",
+          `/api/users/${encodeURIComponent(origName)}/pinned`,
+          body,
         );
       }
       // (2) Record fields (name/avatar), against the original name.
@@ -1927,6 +1977,19 @@ function UserEditPanel({
             </div>
           </>
         ) : null}
+
+        {editsPins && (
+          <MemberPinnedAgents
+            pinned={pinsSetting}
+            targetUserId={user.id}
+            reachableRoomIds={
+              officeOwner ? null : new Set([LOBBY_ROOM_ID, ...allowedSetting])
+            }
+            onChange={setPinsSetting}
+            disabled={saving}
+            headingStyle={sectionTitleStyle}
+          />
+        )}
 
         <h5 style={sectionTitleStyle}>{t("common.instructionsAndMemory")}</h5>
 

@@ -8,13 +8,12 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { AgentOptions } from "./AgentOptions.tsx";
+import { Chevron, Cross, iconBtn } from "./RowIcons.tsx";
 import {
   dialogCancelBtn,
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
-  secondaryBorder,
-  secondaryFill,
 } from "./dialog-styles.ts";
 import type {
   WebhookCreateReq,
@@ -766,42 +765,6 @@ function PairRows({
   );
 }
 
-function Chevron({ up = false }: { up?: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="10"
-      height="10"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ transform: up ? "rotate(180deg)" : undefined }}
-    >
-      <path d="M2.5 4.5 L6 8 L9.5 4.5" />
-    </svg>
-  );
-}
-
-function Cross() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="10"
-      height="10"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-    >
-      <path d="M3 3 L9 9 M9 3 L3 9" />
-    </svg>
-  );
-}
-
 const labelStyle: React.CSSProperties = dialogLabel;
 const inputStyle: React.CSSProperties = dialogInput;
 const hintStyle: React.CSSProperties = {
@@ -832,19 +795,3 @@ const dangerBtn: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
-function iconBtn(disabled: boolean): React.CSSProperties {
-  return {
-    width: 24,
-    height: 24,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 6,
-    border: secondaryBorder,
-    background: secondaryFill,
-    color: disabled ? "var(--text-ghost)" : "var(--text-dim)",
-    cursor: "pointer",
-    padding: 0,
-    flexShrink: 0,
-  };
-}

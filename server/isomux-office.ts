@@ -4547,6 +4547,7 @@ function buildExecutorDeps(
   register(
     createUsersRoutes({
       accessibleRoomIdsFor,
+      applyPinnedAgents,
       enterpriseSeats: () => {
         if (!enterpriseSeats) throw new Error("enterprise seats not started");
         return enterpriseSeats;

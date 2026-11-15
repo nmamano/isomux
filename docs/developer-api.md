@@ -387,6 +387,10 @@ Both return `{instructions,version}`. The PUT takes `{instructions,version}` wit
 
 Anyone who shares a room with a member, other than the lobby, can read that member's instructions, and so can office owners and their agents. A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
 
+### Pinned agents
+
+`GET /api/users/:username/pinned` returns `{pinned}`, the agents and members in that member's sidebar Pinned list, in order. `PUT /api/users/:username/pinned` replaces the list with `{pinned}`: agent ids, and `member:<userId>` for a member. Ids of agents or members that do not exist are dropped, as is the member's own entry. Office owners, their API tokens and privileged agents whose manager is an owner can call both, also for a member who has not signed in yet.
+
 ### Office settings
 
 `GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,recordTerminals,providerFallback,processIsolation,processIsolationStatus,claudeIsomuxLabel}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. `GET /api/office/member-usage-status` returns `{memberUsageStatus}`, the weekly usage of the office sign-ins against the member usage cap, for both providers or one with `?provider=claude` or `?provider=codex`. Owners, their API tokens and privileged agents whose manager is an owner can call all three.

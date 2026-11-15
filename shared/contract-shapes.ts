@@ -803,6 +803,11 @@ export interface PinnedReq {
   pinned: string[];
 }
 
+// users.readPinned (task 35596be5): a member's stored Pinned list, in order.
+export interface PinnedRes {
+  pinned: string[];
+}
+
 // view.markInboxSeen (task 64d3950a): the ask ids and Inbox item keys the
 // caller's Asks tab showed that their record does not hold yet. The server
 // adds them to UserRecord.inboxSeen; it never removes one, so two devices

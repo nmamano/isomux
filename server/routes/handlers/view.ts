@@ -31,7 +31,13 @@
 //
 // LEAF over the executor + the injected ViewDeps.
 
-import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
+import {
+  ok,
+  noContent,
+  fail,
+  type HandlerResult,
+  type RouteHandler,
+} from "../executor.ts";
 import {
   INBOX_DISMISSED_KEY_MAX,
   INBOX_SEEN_MAX,
@@ -67,6 +73,36 @@ export interface ViewDeps {
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
 
+// A Pinned list body (PinnedReq), for view.setPinned and users.setPinned
+// (task 35596be5). Unknown entries drop silently in the store, as unknown
+// rooms do; only the shape and the bound are refused.
+export function parsePinnedBody(
+  body: unknown,
+): { ok: true; pinned: string[] } | { ok: false; result: HandlerResult } {
+  const pinned = ((body ?? {}) as Record<string, unknown>).pinned;
+  if (!isStringArray(pinned)) {
+    return {
+      ok: false,
+      result: fail(
+        422,
+        "invalid_pinned",
+        "pinned must be an array of agent ids and member:<userId> keys",
+      ),
+    };
+  }
+  if (pinned.length > PINNED_AGENTS_MAX) {
+    return {
+      ok: false,
+      result: fail(
+        422,
+        "too_many_pinned",
+        `pinned holds at most ${PINNED_AGENTS_MAX} entries`,
+      ),
+    };
+  }
+  return { ok: true, pinned };
+}
+
 export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
   // Set one view field from a string[] body field. Rejects only a malformed
   // SHAPE; the core silently filters unknown/inaccessible/hidden ids.
@@ -97,26 +133,11 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
     "view.setPushRooms": setIdList("pushRooms", "invalid_push_rooms"),
 
     // The sidebar's pinned agents and members (tasks 5dac6b9b, b2889127).
-    // Unknown entries drop silently, as unknown rooms do above; only the
-    // shape and the bound are refused.
     "view.setPinned": (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user", "view is per-user");
-      const body = (ctx.body ?? {}) as Record<string, unknown>;
-      if (!isStringArray(body.pinned)) {
-        return fail(
-          422,
-          "invalid_pinned",
-          "pinned must be an array of agent ids and member:<userId> keys",
-        );
-      }
-      if (body.pinned.length > PINNED_AGENTS_MAX) {
-        return fail(
-          422,
-          "too_many_pinned",
-          `pinned holds at most ${PINNED_AGENTS_MAX} entries`,
-        );
-      }
+      const body = parsePinnedBody(ctx.body);
+      if (!body.ok) return body.result;
       if (!deps.applyPinned(userId, body.pinned)) {
         return fail(404, "user_not_found");
       }

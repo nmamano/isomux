@@ -68,6 +68,12 @@ export type Capability =
   // set only (so also by an app with a live privileged owner agent). The
   // handler lets any caller that is not a human send only the name.
   | "user:rename"
+  // Read and replace any member's sidebar Pinned list (users.readPinned,
+  // users.setPinned; task 35596be5), so an owner can set up a member's
+  // sidebar before they sign in. Held by USER, API and the PRIVILEGED agent
+  // set; its guard admits only an office owner's reach. A member edits their
+  // own list through view.setPinned.
+  | "user:pins"
   | "office:admin"
   // Read and change the office prompt, the office name, the member usage cap
   // switch and the members' share of the weekly limit, and read the cap's
@@ -233,6 +239,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "user:env",
   "integration:manage",
   "user:admin",
+  "user:pins",
   "office:admin",
   "office:settings",
   "office:rescue",
@@ -315,6 +322,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // user:prompt grants only member-instructions reads and writes through its
 // guards.
 // user:rename grants only a member's name, through users.update.
+// user:pins reaches any member's Pinned list (users.readPinned and
+// users.setPinned), and only while the manager is an office owner.
 // integration:manage changes its manager's variables, secrets and MCP servers
 // (and the office's and other members' while the manager is an owner), and its
 // manager's own Discord bots and routes (never by a raw token); user:env
@@ -341,6 +350,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   "user:create",
   "user:prompt",
   "user:rename",
+  "user:pins",
   "integration:manage",
   "office:settings",
 ];
@@ -433,7 +443,8 @@ export function appCapabilities(
 // owner's token the office ones. office:settings gives an owner's token the
 // office prompt, name and member usage cap, as a privileged agent. user:prompt
 // gives a token its user's special instructions, and an owner's token every
-// member's, as a privileged agent. user:create
+// member's, as a privileged agent. user:pins gives an owner's token every
+// member's Pinned list, as a privileged agent. user:create
 // is the other exception, with the privileged agent's member-only limits. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. Its `log:read` covers
@@ -446,6 +457,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "integration:manage",
   "office:settings",
   "user:prompt",
+  "user:pins",
   "secret:show",
   "api:discover-agents",
   "api:send-message",

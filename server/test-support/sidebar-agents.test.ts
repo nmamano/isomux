@@ -401,3 +401,280 @@ describe("persistence (task 5dac6b9b)", () => {
     expect(recentOf(w.owner.id)).toEqual([a]);
   });
 });
+
+// An owner manages any member's Pinned list (task 35596be5): GET and PUT
+// /api/users/:username/pinned, for an office owner's reach only. The PUT takes
+// view.setPinned's body and store rules for the TARGET member and sends that
+// member's private record.
+describe("users.setPinned / users.readPinned (task 35596be5)", () => {
+  type Caller = { rawSessionId: string } | { bearer: string };
+
+  async function memberPins(
+    srv: TestServer,
+    caller: Caller,
+    username: string,
+    body?: unknown,
+  ): Promise<Response> {
+    return srv.http(`/api/users/${encodeURIComponent(username)}/pinned`, {
+      method: body === undefined ? "GET" : "PUT",
+      headers: {
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...("bearer" in caller
+          ? { Authorization: `Bearer ${caller.bearer}` }
+          : {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...("rawSessionId" in caller
+        ? { rawSessionId: caller.rawSessionId }
+        : {}),
+    });
+  }
+
+  const errorCode = async (res: Response) =>
+    ((await res.json()) as { error?: { code?: string } }).error?.code;
+
+  // An agent managed by `manager`, so its token acts for that member.
+  async function spawnFor(
+    w: World,
+    name: string,
+    manager: { username: string; id: string },
+  ): Promise<string> {
+    const a = await w.srv.agentManager.spawn(
+      name,
+      w.srv.workDir,
+      "default",
+      undefined,
+      undefined,
+      w.srv.agentManager.getRooms()[0].id,
+      undefined,
+      undefined,
+      undefined,
+      manager.username,
+      "claude",
+      undefined,
+      manager.id,
+    );
+    if (!a) throw new Error(`spawn ${name} failed`);
+    return a.id;
+  }
+
+  it("an owner sets a member's list before they sign in, with the store rules, and reads it back", async () => {
+    const w = await setup(["A", "B", "C"]);
+    const [a, b, c] = w.agents.map((x) => x.id);
+    const created = await w.srv.http("/api/users", {
+      method: "POST",
+      rawSessionId: w.owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Pat", role: "member" }),
+    });
+    expect(created.status).toBe(201);
+    const pat = (
+      (await created.json()) as {
+        user: { id: string; name: string };
+      }
+    ).user;
+    // The condition under test: Pat has never signed in.
+    expect(getUserById(pat.id)!.pendingSignIn).toBe(true);
+    const owner = { rawSessionId: w.owner.rawSessionId };
+
+    const res = await memberPins(w.srv, owner, pat.name, {
+      pinned: [
+        c,
+        a,
+        c,
+        "no-such-agent",
+        `member:${pat.id}`,
+        `member:${w.member.id}`,
+        "member:no-such-user",
+        b,
+      ],
+    });
+    expect(res.status).toBe(204);
+    // Deduped (first place wins), unknown agents and members dropped, the
+    // member's own key dropped: view.setPinned's rules, for Pat.
+    const stored = [c, a, `member:${w.member.id}`, b];
+    expect(pinnedOf(pat.id)).toEqual(stored);
+    // The caller's own list is untouched.
+    expect(pinnedOf(w.owner.id)).toEqual([]);
+
+    const read = await memberPins(w.srv, owner, pat.name);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual({ pinned: stored });
+
+    // A shorter list replaces the whole list.
+    expect(
+      (await memberPins(w.srv, owner, pat.name, { pinned: [b] })).status,
+    ).toBe(204);
+    expect(pinnedOf(pat.id)).toEqual([b]);
+  });
+
+  it("sends the target member's own record and the owners' admin record, nothing to the caller's self channel or other members", async () => {
+    const w = await setup(["A"]);
+    const [a] = w.agents.map((x) => x.id);
+    const other = await w.srv.seedMember("Ola");
+    const sock = await connectSettled(w.srv, w.member.rawSessionId);
+    const otherSock = await connectSettled(w.srv, other.rawSessionId);
+    const ownerSock = await connectSettled(w.srv, w.owner.rawSessionId);
+    const marks = [sock, otherSock, ownerSock].map((s) => s.messages.length);
+
+    expect(
+      (
+        await memberPins(
+          w.srv,
+          { rawSessionId: w.owner.rawSessionId },
+          w.member.username,
+          { pinned: [a] },
+        )
+      ).status,
+    ).toBe(204);
+    await waitAfter(sock, marks[0], "user_self_updated");
+    await waitAfter(ownerSock, marks[2], "user_admin_updated");
+    await fence(sock, otherSock, ownerSock);
+
+    const selfNew = framesAfter(sock, marks[0]);
+    expect(selfNew.map((m) => m.type)).toEqual(["user_self_updated"]);
+    expect((selfNew[0].user as Frame).id).toBe(w.member.id);
+    expect((selfNew[0].user as Frame).pinnedAgents).toEqual([a]);
+    expect(framesAfter(otherSock, marks[1]).length).toBe(0);
+    const ownerNew = framesAfter(ownerSock, marks[2]);
+    expect(ownerNew.map((m) => m.type)).toEqual(["user_admin_updated"]);
+    expect((ownerNew[0].user as Frame).id).toBe(w.member.id);
+    expect((ownerNew[0].user as Frame).pinnedAgents).toEqual([a]);
+  });
+
+  it("allows an owner, their privileged agent and their full API token; refuses members, a member's privileged agent, an owner's ordinary agent and a room-limited token", async () => {
+    const w = await setup(["A", "B", "C", "D", "E", "F"]);
+    const [a, b, c, d, e, f] = w.agents.map((x) => x.id);
+    const owner = { username: w.owner.username, id: w.owner.id };
+    const mia = { username: w.member.username, id: w.member.id };
+    const ola = await w.srv.seedMember("Ola");
+    const olaId = getUserByName(ola.username)!.id;
+    const room = w.srv.agentManager.getRooms()[0].id;
+
+    const ownersPrivileged = await spawnFor(w, "OwnerPriv", owner);
+    const ownersOrdinary = await spawnFor(w, "OwnerOrd", owner);
+    const miasPrivileged = await spawnFor(w, "MiaPriv", mia);
+    const fullToken = await mintApiToken({
+      userId: owner.id,
+      name: "Script",
+      expiresInDays: 30,
+    });
+    const roomToken = await mintApiToken({
+      userId: owner.id,
+      name: "Room",
+      expiresInDays: 30,
+      limits: { rooms: [room] },
+    });
+
+    const allowed: Array<[string, Caller, string]> = [
+      ["the owner's session", { rawSessionId: w.owner.rawSessionId }, a],
+      [
+        "the owner's privileged agent",
+        { bearer: mintAgentToken(ownersPrivileged, owner.id, true) },
+        b,
+      ],
+      ["the owner's full API token", { bearer: fullToken.token }, c],
+    ];
+    for (const [label, caller, agentId] of allowed) {
+      const put = await memberPins(w.srv, caller, mia.username, {
+        pinned: [agentId],
+      });
+      expect(put.status, label).toBe(204);
+      expect(pinnedOf(mia.id), label).toEqual([agentId]);
+      const read = await memberPins(w.srv, caller, mia.username);
+      expect(read.status, label).toBe(200);
+      expect(await read.json(), label).toEqual({ pinned: [agentId] });
+    }
+
+    // Each refused caller tries to write a list nobody else wrote.
+    const before = pinnedOf(mia.id);
+    expect(before).toEqual([c]);
+    const refused: Array<[string, Caller, string, string]> = [
+      [
+        "a member on themself",
+        { rawSessionId: w.member.rawSessionId },
+        mia.username,
+        d,
+      ],
+      [
+        "a member on another member",
+        { rawSessionId: w.member.rawSessionId },
+        ola.username,
+        d,
+      ],
+      [
+        "a member's privileged agent on its manager",
+        { bearer: mintAgentToken(miasPrivileged, mia.id, true) },
+        mia.username,
+        e,
+      ],
+      [
+        "an owner's ordinary agent",
+        { bearer: mintAgentToken(ownersOrdinary, owner.id, false) },
+        mia.username,
+        f,
+      ],
+      [
+        "an owner's room-limited token",
+        { bearer: roomToken.token },
+        mia.username,
+        f,
+      ],
+    ];
+    for (const [label, caller, username, agentId] of refused) {
+      const put = await memberPins(w.srv, caller, username, {
+        pinned: [agentId],
+      });
+      expect(put.status, label).toBe(403);
+      const read = await memberPins(w.srv, caller, username);
+      expect(read.status, label).toBe(403);
+    }
+    expect(pinnedOf(mia.id)).toEqual(before);
+    expect(pinnedOf(olaId)).toEqual([]);
+    // A refused caller learns nothing about which names exist.
+    expect(
+      (
+        await memberPins(
+          w.srv,
+          { rawSessionId: w.member.rawSessionId },
+          "nobody-here",
+          { pinned: [] },
+        )
+      ).status,
+    ).toBe(403);
+  });
+
+  it("answers an unknown member with 404 and refuses a malformed or oversized list with 422", async () => {
+    const w = await setup(["A", "B"]);
+    const [a, b] = w.agents.map((x) => x.id);
+    const owner = { rawSessionId: w.owner.rawSessionId };
+
+    const put404 = await memberPins(w.srv, owner, "nobody-here", {
+      pinned: [a],
+    });
+    expect(put404.status).toBe(404);
+    expect(await errorCode(put404)).toBe("user_not_found");
+    const get404 = await memberPins(w.srv, owner, "nobody-here");
+    expect(get404.status).toBe(404);
+    expect(await errorCode(get404)).toBe("user_not_found");
+
+    expect(
+      (await memberPins(w.srv, owner, w.member.username, { pinned: [a] }))
+        .status,
+    ).toBe(204);
+    const oversized = Array.from({ length: PINNED_AGENTS_MAX + 1 }, (_, i) =>
+      i === 0 ? b : `x-${i}`,
+    );
+    for (const [body, code] of [
+      [{ pinned: a }, "invalid_pinned"],
+      [{ pinned: [b, 7] }, "invalid_pinned"],
+      [{}, "invalid_pinned"],
+      [{ pinned: oversized }, "too_many_pinned"],
+    ] as const) {
+      const res = await memberPins(w.srv, owner, w.member.username, body);
+      expect(res.status).toBe(422);
+      expect(await errorCode(res)).toBe(code);
+      expect(pinnedOf(w.member.id)).toEqual([a]);
+    }
+  });
+});

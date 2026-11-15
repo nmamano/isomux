@@ -6,6 +6,8 @@ One member's special instructions can point to another member's instead of copyi
 
 A privileged agent can rename its manager, or any member when its manager is an office owner: `PATCH /api/users/:username` with `{name}`. Instructions, memory and other texts that use the old name keep it.
 
+When your manager is an office owner, you can set up a member's sidebar, also before they sign in. `GET /api/users/:username/pinned` reads their Pinned list; `PUT /api/users/:username/pinned` with `{pinned}` replaces it. An entry is an agent id, or `member:<userId>` for a member. Read first, then send the whole list in order.
+
 Safe example: `GET /api/users/:username/instructions`.
 
 ## Route contract
@@ -13,5 +15,7 @@ Safe example: `GET /api/users/:username/instructions`.
 `POST /api/users` returns `201 {user}`. Another role, or a manager who is not an office owner, returns 403. Invalid bodies return 422. In an office with an Enterprise Contract (see office-settings), the add can be refused: 409 `seats_full` when the license has no free seat, 409 `enterprise_secret_needed` before the secret is set, 403 `enterprise_secret_rejected` or `enterprise_not_signed`, and 429 `enterprise_rate_limited`. Tell the member; IT adds seats on the enterprise account.
 
 `GET /api/users/:username/instructions` and `PUT /api/users/:username/instructions` return `{instructions,version}`. The instructions are a string or null. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Invalid instructions return 422. A read of an unknown member returns 403. A read of a member who shares no room with you also returns 403, unless your manager is an office owner. A write by an ordinary agent, or of a member outside your reach, returns 403.
+
+`GET /api/users/:username/pinned` returns `{pinned}`. `PUT /api/users/:username/pinned` returns 204. The server drops entries for agents and members that do not exist, repeats, and the member's own entry. A body that is not a list of strings returns 422 `invalid_pinned`; more than 200 entries return 422 `too_many_pinned`. An unknown member returns 404 `user_not_found`. An ordinary agent, or one whose manager is not an office owner, gets 403.
 
 `PATCH /api/users/:username` returns `{user}`. A body with any field other than `name` returns 403; a body with no name returns 422. A rename by an ordinary agent, or of a member outside your reach, returns 403. A name that another member has returns 409 `name_taken`.
