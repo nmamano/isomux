@@ -91,7 +91,6 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Markdown rendering** for agent output.
 - **Collapsible thinking and tool-call cards** with timing for each step (errors are expanded automatically).
 - **Structured API-call cards**: when an agent curls the Isomux API, the tool-call row says what the call does in plain language, plus its key payload fields.
-- **Tool calls folded by default**: commands, file reads and searches show as one "N steps" line that you can open; office actions still show. Each person can show them all under Settings → You → Language and chat, and an owner can for a member.
 - **Last user message pinned** at the top of the viewport, so you always see what you asked while the agent is working.
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations.
 - **Conversation lifecycle controls** - end the current conversation from its header, then resume it from the empty state or session picker.
@@ -101,7 +100,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Right-click context menu** - resume past sessions, agent settings, kill.
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Media display** - agents can show images, video and audio inline in the conversation.
-- **Office language** - each person picks a language, like Spanish or Chinese, under Settings → You → Language and chat and the whole office reads in it.
+- **Office language** - each person picks a language, like Spanish or Chinese, under Settings → You → Language and the whole office reads in it.
 - **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost), or via OpenAI. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API, or via OpenAI voices.
 - **Voice settings** in Integrations > Voice: each member picks the browser or OpenAI for the mic and for read aloud. OpenAI gives better accuracy and voices, and a mic in Firefox.

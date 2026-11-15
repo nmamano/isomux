@@ -276,3 +276,46 @@ it("a live run stays one line past the live tail cap, and stays open as it grows
   expect(chat.textContent).toContain("STEP-NEW");
   view.unmount();
 });
+
+// The turn's copy button sits on its last card. A closed run hides what it
+// would copy, so a turn that ends in a closed run has no copy button
+// (task 0d28a00a, Nil at sign-off); once the member opens the run, the last
+// card in it has the button, as every expanded card does.
+it("a turn that ends in a closed run has no copy button until the run opens", () => {
+  const endsInRun = [
+    entry("u1", "user_message", "Go.", { username: "Tester" }),
+    entry("x1", "text", "Starting."),
+    shellCall("c1", "echo HIDE-ONE"),
+    done("r1", "c1"),
+    shellCall("c2", "echo HIDE-TWO"),
+  ];
+  const { view } = mount({}, { agent, logs: endsInRun });
+  const chat = view.container;
+  const copyTitle = en["common.copy"];
+  const copyButtons = (root: ParentNode) =>
+    root.querySelectorAll(`button[title="${copyTitle}"]`);
+  const turnRun = () => chat.querySelector('[data-log-entry-id="c1"]')!;
+  // The run is closed and is the last thing in the agent's turn.
+  expect(runLines(chat).length).toBe(1);
+  expect(turnRun().querySelectorAll("button[data-hidden-steps]").length).toBe(
+    1,
+  );
+  expect(copyButtons(turnRun()).length).toBe(0);
+  // The text before the run is not the turn's last card either.
+  expect(
+    copyButtons(chat.querySelector('[data-log-entry-id="x1"]')!).length,
+  ).toBe(0);
+
+  fireEvent.click(runLines(chat)[0]);
+  expect(shown(chat)).toEqual(MARKERS);
+  expect(copyButtons(turnRun()).length).toBe(1);
+  // It is on the run's last card: the cards follow the open line.
+  const cards = Array.from(
+    turnRun().querySelector("button[data-hidden-steps-open]")!.parentElement!
+      .children,
+  ).slice(1);
+  expect(cards.length).toBe(2);
+  expect(cards[1].textContent).toContain("HIDE-TWO");
+  expect(copyButtons(cards[1]).length).toBe(1);
+  view.unmount();
+});
