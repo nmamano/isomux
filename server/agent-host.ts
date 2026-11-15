@@ -6,8 +6,8 @@
 
 import { spawn } from "child_process";
 import { EventEmitter } from "events";
-import { existsSync } from "fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
+import { constants, existsSync } from "fs";
+import { chmod, mkdir, open, readFile, rm, stat, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 import { Readable, Writable } from "stream";
@@ -158,8 +158,37 @@ export interface RunResult {
 
 // File operations in agent space. A failure rejects with an Error whose code
 // is the errno name (ENOENT, EACCES, ...).
+// A stat that follows links, as statSync does.
+export interface AgentFileStat {
+  type: "file" | "dir" | "other";
+  size: number;
+  mtimeMs: number;
+  ino: number;
+}
+
+// A runner's stat reply is member data: null unless every field is in range.
+export function checkedFileStat(value: unknown): AgentFileStat | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const fine = (n: unknown): n is number =>
+    typeof n === "number" && Number.isFinite(n) && n >= 0;
+  if (v.type !== "file" && v.type !== "dir" && v.type !== "other") return null;
+  if (!fine(v.size) || !fine(v.mtimeMs) || !fine(v.ino)) return null;
+  return { type: v.type, size: v.size, mtimeMs: v.mtimeMs, ino: v.ino };
+}
+
+export function fileTooBig(path: string, max: number): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${path} is larger than ${max} bytes`), {
+    code: "EFBIG",
+  });
+}
+
 export interface AgentFs {
   readText(path: string): Promise<string>;
+  stat(path: string): Promise<AgentFileStat>;
+  // A regular file of at most `max` bytes. The open does not block on a
+  // FIFO; a file that grows past `max` while it is read is refused (EFBIG).
+  readBytes(path: string, max: number): Promise<Buffer>;
   writeText(
     path: string,
     text: string,
@@ -386,8 +415,51 @@ async function runLocal(
   return { exitCode, stdout, stderr };
 }
 
+// At most max bytes from a regular file: max + 1 are read, so a file that
+// grows after the fstat is refused.
+export async function readBoundedFile(
+  path: string,
+  max: number,
+): Promise<Buffer> {
+  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const stats = await file.stat();
+    if (!stats.isFile())
+      throw Object.assign(new Error(`${path} is not a regular file`), {
+        code: "EINVAL",
+      });
+    if (stats.size > max) throw fileTooBig(path, max);
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const want = Math.min(1024 * 1024, max + 1 - total);
+      const buffer = Buffer.alloc(want);
+      const { bytesRead } = await file.read(buffer, 0, want, null);
+      if (bytesRead === 0) break;
+      chunks.push(buffer.subarray(0, bytesRead));
+      total += bytesRead;
+      if (total > max) throw fileTooBig(path, max);
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    await file.close();
+  }
+}
+
+export async function statForAgentFs(path: string): Promise<AgentFileStat> {
+  const stats = await stat(path);
+  return {
+    type: stats.isFile() ? "file" : stats.isDirectory() ? "dir" : "other",
+    size: stats.size,
+    mtimeMs: stats.mtimeMs,
+    ino: stats.ino,
+  };
+}
+
 export const localAgentFs: AgentFs = {
   readText: (path) => readFile(path, "utf8"),
+  stat: statForAgentFs,
+  readBytes: readBoundedFile,
   writeText: (path, text, { mode, exclusive }) =>
     writeFile(path, text, { mode, flag: exclusive ? "wx" : "w" }),
   mkdir: async (path, mode) => {

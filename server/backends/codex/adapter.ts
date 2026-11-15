@@ -45,7 +45,8 @@ import {
   codexConfinedTools,
   codexConfineEnvValue,
 } from "./confine-env.ts";
-import { officeAgentHost } from "../../agent-host.ts";
+import { officeAgentHost, type AgentHost } from "../../agent-host.ts";
+import { MAX_READ_FILE_BYTES } from "../../affordance-checks.ts";
 import { FOLDER_FILES_MCP_SERVER } from "../../folder-files.ts";
 import { filterMissingToolOutputRepeats } from "../../../shared/codex-diagnostics.ts";
 
@@ -159,6 +160,9 @@ import type { IsolationForm } from "../../process-isolation.ts";
 import { OneShotUsageLimitError } from "../one-shot-errors.ts";
 import { hostForEnv, isMemberEnv } from "../../member-hosts.ts";
 import { codexEmptyCwdRoot } from "../empty-folder.ts";
+
+// The longest wait for an image that an isolated member's host reads.
+const CODEX_HOST_IMAGE_MS = 30_000;
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
@@ -1186,6 +1190,9 @@ export class CodexSession implements BackendSession {
   // Steer ids sent with turn/steer that codex has not recorded yet.
   private readonly pendingSteerIds = new Set<string>();
   private buffer: NormalizedEvent[] = [];
+  // Events behind an image that an isolated member's host still reads
+  // (enqueueLater): a slot without evs holds the line.
+  private pendingOut: { evs?: NormalizedEvent[] }[] = [];
   private resolveWake: (() => void) | null = null;
   private ended = false;
   private closed = false;
@@ -1725,7 +1732,7 @@ export class CodexSession implements BackendSession {
       while (this.buffer.length > 0) {
         yield this.buffer.shift()!;
       }
-      if (this.ended) return;
+      if (this.ended && this.pendingOut.length === 0) return;
       await new Promise<void>((resolve) => {
         this.resolveWake = resolve;
       });
@@ -2465,8 +2472,28 @@ export class CodexSession implements BackendSession {
   }
 
   private enqueue(ev: NormalizedEvent): void {
+    // Behind an image that an isolated member's runner still reads: wait in
+    // line, so the events keep their order.
+    if (this.pendingOut.length > 0) {
+      this.pendingOut.push({ evs: [ev] });
+      return;
+    }
     this.buffer.push(ev);
     this.wake();
+  }
+
+  // An event whose content is read first (an image through an isolated
+  // member's host). Its place in the order is kept; the promise never
+  // rejects.
+  private enqueueLater(read: Promise<NormalizedEvent[]>): void {
+    const slot: { evs?: NormalizedEvent[] } = {};
+    this.pendingOut.push(slot);
+    void read.then((evs) => {
+      slot.evs = evs;
+      while (this.pendingOut.length > 0 && this.pendingOut[0].evs)
+        this.buffer.push(...this.pendingOut.shift()!.evs!);
+      this.wake();
+    });
   }
 
   // End a turn a usage limit stopped: the reset time goes ahead of the
@@ -2552,6 +2579,42 @@ export class CodexSession implements BackendSession {
         turnId: this.activeTurnId,
       })
       .catch(() => {});
+  }
+
+  // imageView and imageGeneration of an isolated member's session: the
+  // image is read through their host, at most MAX_READ_FILE_BYTES and within
+  // CODEX_HOST_IMAGE_MS, so the kernel refuses what the member cannot read.
+  private async attachmentFromHost(
+    host: AgentHost,
+    rawPath: unknown,
+  ): Promise<AttachmentSpec | null> {
+    if (typeof rawPath !== "string" || !rawPath.startsWith("/")) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const read = (async () => {
+        const st = await host.fs.stat(rawPath);
+        if (st.type !== "file" || st.size > MAX_READ_FILE_BYTES) return null;
+        return host.fs.readBytes(rawPath, MAX_READ_FILE_BYTES);
+      })();
+      read.catch(() => {});
+      const data = await Promise.race([
+        read,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), CODEX_HOST_IMAGE_MS);
+        }),
+      ]);
+      if (!data) return null;
+      return saveFile(
+        this.opts.agentId,
+        data,
+        mimeTypeForFilename(rawPath),
+        basename(rawPath),
+      );
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private attachmentFromPath(rawPath: unknown): AttachmentSpec | null {
@@ -3239,47 +3302,67 @@ export class CodexSession implements BackendSession {
         break;
       }
       case "imageView": {
-        const att = this.attachmentFromPath(item.path);
-        if (att) {
-          this.enqueue({
-            kind: "file_view",
-            title: att.originalName,
-            attachments: [att],
-          });
-        } else {
-          this.enqueue({
-            kind: "system_text",
-            text: `Codex viewed an image, but Isomux could not display it.`,
-          });
+        const viewed = (att: AttachmentSpec | null): NormalizedEvent =>
+          att
+            ? {
+                kind: "file_view",
+                title: att.originalName,
+                attachments: [att],
+              }
+            : {
+                kind: "system_text",
+                text: `Codex viewed an image, but Isomux could not display it.`,
+              };
+        const host = hostForEnv(this.opts.env);
+        if (host.kind !== "local") {
+          this.enqueueLater(
+            this.attachmentFromHost(host, item.path).then((att) => [
+              viewed(att),
+            ]),
+          );
+          break;
         }
+        this.enqueue(viewed(this.attachmentFromPath(item.path)));
         break;
       }
       case "imageGeneration": {
-        const att = this.attachmentFromPath(item.savedPath);
-        if (att) {
-          const title =
-            typeof item.revisedPrompt === "string" && item.revisedPrompt.trim()
-              ? item.revisedPrompt
-              : att.originalName;
-          this.enqueue({
-            kind: "file_view",
-            title,
-            attachments: [att],
-          });
-        } else if (item.status === "failed") {
-          const result = typeof item.result === "string" ? item.result : "";
-          this.enqueueSignalled({
-            kind: "system_text",
-            text: result
-              ? `Codex image generation failed: ${result}`
-              : `Codex image generation failed.`,
-          });
-        } else {
-          this.enqueue({
-            kind: "system_text",
-            text: `Codex generated an image, but Isomux could not display it.`,
-          });
+        const generated = (att: AttachmentSpec | null): NormalizedEvent[] => {
+          if (att) {
+            const title =
+              typeof item.revisedPrompt === "string" &&
+              item.revisedPrompt.trim()
+                ? item.revisedPrompt
+                : att.originalName;
+            return [{ kind: "file_view", title, attachments: [att] }];
+          }
+          if (item.status === "failed") {
+            const result = typeof item.result === "string" ? item.result : "";
+            return authSignal(
+              {
+                kind: "system_text",
+                text: result
+                  ? `Codex image generation failed: ${result}`
+                  : `Codex image generation failed.`,
+              },
+              detectCodexAuthError,
+            );
+          }
+          return [
+            {
+              kind: "system_text",
+              text: `Codex generated an image, but Isomux could not display it.`,
+            },
+          ];
+        };
+        const host = hostForEnv(this.opts.env);
+        if (host.kind !== "local") {
+          this.enqueueLater(
+            this.attachmentFromHost(host, item.savedPath).then(generated),
+          );
+          break;
         }
+        for (const ev of generated(this.attachmentFromPath(item.savedPath)))
+          this.enqueue(ev);
         break;
       }
       case "contextCompaction":

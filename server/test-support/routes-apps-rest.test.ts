@@ -1951,7 +1951,7 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
       removeRegistration: () => {},
     },
     resolveAgentPath: () => null,
-    readThumbnailFile: () => ({ ok: false }),
+    readThumbnailFile: async () => ({ ok: false }),
     now: () => 1,
     announce: boom,
     announceRemoved: boom,

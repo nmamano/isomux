@@ -49,6 +49,7 @@ import {
   type RouteHandler,
   type HandlerErrorStatus,
 } from "../executor.ts";
+import type { AgentHost } from "../../agent-host.ts";
 import { AppRegistryError } from "../../app-registry.ts";
 import { FOLDER_NOT_ALLOWED } from "../../../shared/agent-access.ts";
 import {
@@ -144,12 +145,16 @@ export interface AppsDeps {
   thumbnails: AppThumbnailStore;
   // The JSON form of the thumbnail upload. resolveAgentPath is the path check
   // of the read-file affordance (resolveEditorPath against the agent's cwd),
-  // null when it refuses; readThumbnailFile is readCappedFile.
-  resolveAgentPath(agentId: string, rawPath: string): string | null;
+  // null when it refuses, with the host of the agent's manager;
+  // readThumbnailFile reads as that host (readCappedFile for the office).
+  resolveAgentPath(
+    agentId: string,
+    rawPath: string,
+  ): { path: string; host: AgentHost } | null;
   readThumbnailFile(
-    path: string,
+    resolved: { path: string; host: AgentHost },
     max: number,
-  ): { ok: true; bytes: Uint8Array } | { ok: false };
+  ): Promise<{ ok: true; bytes: Uint8Array } | { ok: false }>;
   now(): number;
   // Resolve a proposed message target against the APP OWNER's access, not the
   // caller's. An office owner managing somebody else's app must not widen what
@@ -368,8 +373,9 @@ async function thumbnailFromBody(req: Request): Promise<ThumbnailBytes> {
 // The JSON form {path}. Agent-only, and every refusal up to the resolved path
 // answers as POST /api/agents/:id/read-file does: a non-agent caller gets the
 // guard's 403 before its body is read, an empty path the handler's 400, and a
-// path the shared check refuses the manager's 400. There is no directory
-// fence, as in read-file: the agent and the server run as one OS user.
+// path the shared check refuses the manager's 400. The file is read as the
+// host of the agent's manager, as in read-file: an isolated member's agent
+// reads only what that member can read.
 async function thumbnailFromPath(
   deps: AppsDeps,
   ctx: Parameters<RouteHandler>[0],
@@ -413,7 +419,7 @@ async function thumbnailFromPath(
   }
   // One answer for a missing, non-regular, oversize or unreadable file, with
   // no echo of the resolved path.
-  const file = deps.readThumbnailFile(resolved, MAX_APP_THUMBNAIL_BYTES);
+  const file = await deps.readThumbnailFile(resolved, MAX_APP_THUMBNAIL_BYTES);
   if (!file.ok) {
     return {
       ok: false,

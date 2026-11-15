@@ -169,7 +169,9 @@ export interface CronDeps {
     jobId: string,
     runId: string,
     path: string,
-  ): { ok: true } | { ok: false; status: number; code?: string; error: string };
+  ): Promise<
+    { ok: true } | { ok: false; status: number; code?: string; error: string }
+  >;
   emitCronjobRunDiff(
     jobId: string,
     runId: string,
@@ -755,12 +757,12 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
     // RUN-bearer affordances (self:affordance + runParamMustEqualTokenRun). The
     // manager op surfaces the file/diff card into the LIVE run transcript and
     // returns its own active-run 404 / bad-input 400; map it straight through.
-    "cron.runReadFile": (ctx) => {
+    "cron.runReadFile": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<AffordanceReadFileReq>;
       if (typeof body.path !== "string" || body.path.length === 0) {
         return fail(400, "invalid_request", "path is required");
       }
-      const r = deps.emitCronjobRunReadFile(
+      const r = await deps.emitCronjobRunReadFile(
         ctx.params.id,
         ctx.params.runId,
         body.path,

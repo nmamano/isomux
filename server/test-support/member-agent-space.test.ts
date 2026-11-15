@@ -139,6 +139,14 @@ function recordingFs(): AgentFs {
       fsCalls.push({ op: "chmod", path, mode });
       return localAgentFs.chmod(path, mode);
     },
+    stat: (path) => {
+      fsCalls.push({ op: "stat", path });
+      return localAgentFs.stat(path);
+    },
+    readBytes: (path, max) => {
+      fsCalls.push({ op: "readBytes", path });
+      return localAgentFs.readBytes(path, max);
+    },
   };
 }
 

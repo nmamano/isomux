@@ -91,6 +91,7 @@ import {
   CREDENTIAL_PATH_MESSAGE,
 } from "./credential-store-paths.ts";
 import { officeAgentHost } from "./agent-host.ts";
+import { readHostFile } from "./agent-file-read.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
@@ -1698,19 +1699,25 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // don't live in the agents Map, so they need their own lookup path. Only
   // active runs qualify: the entry has to land on a live stream so a reviewer
   // sees it in context.
-  function emitCronjobRunReadFile(
+  async function emitCronjobRunReadFile(
     jobId: string,
     runId: string,
     rawPath: string,
-  ):
-    { ok: true } | { ok: false; status: number; code?: string; error: string } {
+  ): Promise<
+    { ok: true } | { ok: false; status: number; code?: string; error: string }
+  > {
     const active = sessionOwner(runId);
     if (!active || active.jobId !== jobId) {
       return { ok: false, status: 404, error: "active run not found" };
     }
     const run = findRun(jobId, runId);
     if (!run) return { ok: false, status: 404, error: "run not found" };
-    const resolved = resolveEditorPath(rawPath, run.cwdSnapshot);
+    // The run's host is its job's owner's, as its env is (buildRunEnv). No
+    // job: no host to read as.
+    const job = cronjobs.find((value) => value.id === jobId);
+    if (!job) return { ok: false, status: 404, error: "run not found" };
+    const host = hostFor(job.userId ?? null);
+    const resolved = resolveEditorPath(rawPath, run.cwdSnapshot, host.home());
     if (resolved.kind === "bad_path") {
       return { ok: false, status: 400, error: "missing or empty path" };
     }
@@ -1723,7 +1730,37 @@ How to answer questions about Isomux itself: the source lives at https://github.
         error: CREDENTIAL_PATH_MESSAGE,
       };
     }
-    if (!existsSync(absPath)) {
+    // An isolated member's run: read through their runner, at most
+    // MAX_RUN_READ_FILE_BYTES (internal-docs/member-os-user-design.md, 1.4).
+    const onHost =
+      host.kind === "local"
+        ? null
+        : await readHostFile(host, absPath, MAX_RUN_READ_FILE_BYTES);
+    if (onHost && !onHost.ok) {
+      writeLog(
+        active,
+        "system",
+        onHost.kind === "not_found"
+          ? msg("systemEntries.pathRefusal.notFound", { path: absPath })
+          : onHost.kind === "not_file"
+            ? msg("systemEntries.pathRefusal.notFile", { path: absPath })
+            : onHost.kind === "too_large"
+              ? msg("systemEntries.fileTooLargeToDisplay", {
+                  path: absPath,
+                  size: { bytes: onHost.size ?? 0 },
+                  limit: {
+                    number: MAX_RUN_READ_FILE_BYTES / (1024 * 1024),
+                    digits: 0,
+                  },
+                })
+              : msg("systemEntries.fileReadFailed", {
+                  path: absPath,
+                  message: onHost.message ?? "",
+                }),
+      );
+      return { ok: true };
+    }
+    if (!onHost && !existsSync(absPath)) {
       writeLog(
         active,
         "system",
@@ -1731,53 +1768,59 @@ How to answer questions about Isomux itself: the source lives at https://github.
       );
       return { ok: true };
     }
-    let st;
-    try {
-      st = statSync(absPath);
-    } catch (err) {
-      writeLog(
-        active,
-        "system",
-        msg("systemEntries.fileReadFailed", {
-          path: absPath,
-          message: errMessage(err),
-        }),
-      );
-      return { ok: true };
-    }
-    if (!st.isFile()) {
-      writeLog(
-        active,
-        "system",
-        msg("systemEntries.pathRefusal.notFile", { path: absPath }),
-      );
-      return { ok: true };
-    }
-    if (st.size > MAX_RUN_READ_FILE_BYTES) {
-      writeLog(
-        active,
-        "system",
-        msg("systemEntries.fileTooLargeToDisplay", {
-          path: absPath,
-          size: { bytes: st.size },
-          limit: { number: MAX_RUN_READ_FILE_BYTES / (1024 * 1024), digits: 0 },
-        }),
-      );
-      return { ok: true };
-    }
     let data: Buffer;
-    try {
-      data = readFileSync(absPath);
-    } catch (err) {
-      writeLog(
-        active,
-        "system",
-        msg("systemEntries.fileReadFailed", {
-          path: absPath,
-          message: errMessage(err),
-        }),
-      );
-      return { ok: true };
+    if (onHost) data = onHost.data;
+    else {
+      let st;
+      try {
+        st = statSync(absPath);
+      } catch (err) {
+        writeLog(
+          active,
+          "system",
+          msg("systemEntries.fileReadFailed", {
+            path: absPath,
+            message: errMessage(err),
+          }),
+        );
+        return { ok: true };
+      }
+      if (!st.isFile()) {
+        writeLog(
+          active,
+          "system",
+          msg("systemEntries.pathRefusal.notFile", { path: absPath }),
+        );
+        return { ok: true };
+      }
+      if (st.size > MAX_RUN_READ_FILE_BYTES) {
+        writeLog(
+          active,
+          "system",
+          msg("systemEntries.fileTooLargeToDisplay", {
+            path: absPath,
+            size: { bytes: st.size },
+            limit: {
+              number: MAX_RUN_READ_FILE_BYTES / (1024 * 1024),
+              digits: 0,
+            },
+          }),
+        );
+        return { ok: true };
+      }
+      try {
+        data = readFileSync(absPath);
+      } catch (err) {
+        writeLog(
+          active,
+          "system",
+          msg("systemEntries.fileReadFailed", {
+            path: absPath,
+            message: errMessage(err),
+          }),
+        );
+        return { ok: true };
+      }
     }
     const originalName = basename(absPath);
     const mediaType = mimeTypeForFilename(originalName);

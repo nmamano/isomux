@@ -89,9 +89,10 @@ function rig(over: Partial<AsksDeps> = {}) {
     },
     affordances: {
       checkCommand: () => ({ ok: true }) as never,
-      probeEditFile: () => null,
-      probeReadFile: () => null,
-      copyReadFile: () => null,
+      probeEditFile: async () => null,
+      probeReadFile: async () => null,
+      copyReadFile: async () => null,
+      serveInPlace: async () => null,
     },
     filePath: () => null,
     contentTypeFor: () => "application/octet-stream",

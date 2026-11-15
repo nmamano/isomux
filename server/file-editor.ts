@@ -11,7 +11,7 @@ import {
   writeSync,
 } from "fs";
 import { extname, isAbsolute, join, resolve } from "path";
-import { homedir } from "os";
+import type { AgentFileStat, AgentHost } from "./agent-host.ts";
 import { errMessage } from "../shared/errors.ts";
 import { STATE_ROOT } from "./config.ts";
 import { isCredentialStorePath } from "./credential-store-paths.ts";
@@ -217,6 +217,15 @@ function issueRev(): number {
 // watchers and saves converge on one counter without double-bumping. A bump
 // takes a fresh issueRev(), so per-path revs are strictly increasing within a
 // process and never reused across processes.
+// The registry key of a path on a host. The office's key is the bare path,
+// as before; a runner host's path is another file system (its /tmp is the
+// member's PrivateTmp), so its key carries the host.
+function revKey(host: AgentHost, absPath: string): string {
+  return host.kind === "local"
+    ? absPath
+    : `runner:${host.member ?? ""}\0${absPath}`;
+}
+
 function noteSig(absPath: string, sig: string): number {
   const e = revisions.get(absPath);
   if (!e) {
@@ -254,15 +263,18 @@ export function markFileDeleted(absPath: string): void {
 
 // Resolve a user-supplied editor path against the agent's cwd. Mirrors
 // resolveDiffCwd in isomux-diff.ts but yields a file path (not a directory).
-// Existence/type checks happen later in openFile.
+// Existence/type checks happen later in openFile. `home` is the home of the
+// agent's host (hostFor(manager).home()): an isolated member's `~` is their
+// own home, never the office user's.
 export function resolveEditorPath(
   rawPath: string | undefined,
   agentCwd: string,
+  home: string,
 ): ResolvePathResult {
   const trimmed = rawPath?.trim();
   if (!trimmed) return { kind: "bad_path", attempted: trimmed ?? "" };
   const expanded = trimmed.startsWith("~")
-    ? join(homedir(), trimmed.slice(1).replace(/^[/\\]/, ""))
+    ? join(home, trimmed.slice(1).replace(/^[/\\]/, ""))
     : trimmed;
   const abs = isAbsolute(expanded) ? expanded : resolve(agentCwd, expanded);
   return { kind: "ok", path: abs };
@@ -323,7 +335,62 @@ function isBinary(absPath: string, size: number): boolean {
   }
 }
 
-export function openFile(absPath: string): OpenFileResult {
+// `host`: the host of the agent's manager (hostFor). An office host reads
+// with this process's fs, as before; a runner host reads through the
+// member's runner, so the kernel refuses what the member cannot read.
+export async function openFile(
+  absPath: string,
+  host: AgentHost,
+): Promise<OpenFileResult> {
+  if (host.kind === "local") return openOfficeFile(absPath);
+  if (isCredentialStorePath(absPath))
+    return { kind: "credential", path: absPath };
+  const key = revKey(host, absPath);
+  let st: AgentFileStat;
+  try {
+    st = await host.fs.stat(absPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+      noteMissing(key);
+      return { kind: "not_found", path: absPath };
+    }
+    return { kind: "io_error", path: absPath, message: errMessage(err) };
+  }
+  if (st.type !== "file") return { kind: "not_file", path: absPath };
+  if (st.size > MAX_FILE_BYTES)
+    return { kind: "too_large", path: absPath, size: st.size };
+  let data: Buffer;
+  try {
+    data = await host.fs.readBytes(absPath, MAX_FILE_BYTES);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") {
+      noteMissing(key);
+      return { kind: "not_found", path: absPath };
+    }
+    if (code === "EFBIG")
+      return { kind: "too_large", path: absPath, size: MAX_FILE_BYTES + 1 };
+    return { kind: "io_error", path: absPath, message: errMessage(err) };
+  }
+  if (data.subarray(0, 8192).includes(0))
+    return { kind: "binary", path: absPath };
+  const sig = fileSig(st);
+  return {
+    kind: "ok",
+    path: absPath,
+    content: data.toString("utf8"),
+    mtime: Math.floor(st.mtimeMs),
+    language: detectLanguage(absPath),
+    size: st.size,
+    rev: noteSig(key, sig),
+    sig,
+  };
+}
+
+// The office's own read, sync: a file of the office (the skill catalog in
+// STATE_ROOT) or an office agent's file through openFile. A path that an
+// agent names goes through openFile with the host of its manager.
+export function openOfficeFile(absPath: string): OpenFileResult {
   if (isCredentialStorePath(absPath))
     return { kind: "credential", path: absPath };
   // Existence is derived from statSync's ENOENT (no separate existsSync
@@ -379,7 +446,7 @@ export function openFile(absPath: string): OpenFileResult {
   };
 }
 
-export function saveFile(
+export async function saveFile(
   absPath: string,
   content: string,
   expectedMtime: number,
@@ -387,6 +454,56 @@ export function saveFile(
   // guard compares revisions (signature-backed - catches rollbacks and
   // same-tick replaces the mtime guard misses); when absent (an older
   // client), it falls back to the legacy mtime comparison.
+  expectedRev: number | undefined,
+  force: boolean,
+  // The host of the agent's manager, as for openFile.
+  host: AgentHost,
+): Promise<SaveFileResult> {
+  if (host.kind === "local")
+    return saveOfficeFile(absPath, content, expectedMtime, expectedRev, force);
+  if (isCredentialStorePath(absPath))
+    return { kind: "credential", path: absPath };
+  const key = revKey(host, absPath);
+  let st: AgentFileStat | null = null;
+  try {
+    st = await host.fs.stat(absPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT")
+      return { kind: "io_error", path: absPath, message: errMessage(err) };
+    noteMissing(key);
+    if (!force) return { kind: "deleted", path: absPath };
+  }
+  if (st && !force) {
+    const currentMtime = Math.floor(st.mtimeMs);
+    const currentRev = noteSig(key, fileSig(st));
+    if (expectedRev !== undefined) {
+      if (currentRev !== expectedRev)
+        return { kind: "stale", path: absPath, currentMtime, currentRev };
+    } else if (currentMtime > expectedMtime) {
+      return { kind: "stale", path: absPath, currentMtime, currentRev };
+    }
+  }
+  try {
+    // Mode 0666 applies only to a new file (minus the runner's umask), as
+    // writeFileSync's default does: an existing file keeps its mode.
+    await host.fs.writeText(absPath, content, { mode: 0o666 });
+    const st2 = await host.fs.stat(absPath);
+    return {
+      kind: "ok",
+      path: absPath,
+      mtime: Math.floor(st2.mtimeMs),
+      rev: noteSig(key, fileSig(st2)),
+    };
+  } catch (err) {
+    return { kind: "io_error", path: absPath, message: errMessage(err) };
+  }
+}
+
+// The office's own save, sync, as for openOfficeFile.
+export function saveOfficeFile(
+  absPath: string,
+  content: string,
+  expectedMtime: number,
   expectedRev: number | undefined,
   force: boolean,
 ): SaveFileResult {
@@ -450,6 +567,8 @@ export function saveFile(
 // pairs - independent buffers, last-save-wins.
 export interface FileWatcher {
   timer: ReturnType<typeof setInterval>;
+  // A runner host's watch: also drops a stat that is still in flight.
+  stop?: () => void;
 }
 
 const WATCH_POLL_MS = 1000;
@@ -463,7 +582,11 @@ const WATCH_POLL_MS = 1000;
 const DELETE_CONFIRM_POLLS = 2;
 
 export type WatchFileEvent =
-  { kind: "change"; mtime: number; rev: number } | { kind: "deleted" };
+  | { kind: "change"; mtime: number; rev: number }
+  | { kind: "deleted" }
+  // A runner host's stat failed with something other than ENOENT (a host
+  // that is not ready, a runner that went away): the watch stops.
+  | { kind: "failed" };
 
 export function watchFile(
   absPath: string,
@@ -473,7 +596,11 @@ export function watchFile(
   // landing between the read and this install differs from the baseline, so
   // the first poll emits and the client refetches.
   baselineSig: string,
+  // The host of the agent's manager, as for openFile.
+  host: AgentHost,
 ): FileWatcher {
+  if (host.kind !== "local")
+    return watchOnHost(absPath, onEvent, baselineSig, host);
   // mtime polling, NOT fs.watch. `fs.watch` is unusable under
   // Bun for this: most agent tooling saves via atomic write-to-tmp + rename
   // (Claude Code's Edit/Write do, observed: `x.tmp.<pid>.<hash>` renamed over
@@ -523,6 +650,65 @@ export function watchFile(
   return { timer };
 }
 
+// The poll of watchFile through a runner host. One stat at a time: a tick
+// whose stat has not answered is skipped. A rejected stat never escapes the
+// timer (Bun ends the process on an unhandled rejection).
+function watchOnHost(
+  absPath: string,
+  onEvent: (ev: WatchFileEvent) => void,
+  baselineSig: string,
+  host: AgentHost,
+): FileWatcher {
+  const key = revKey(host, absPath);
+  let lastSig = baselineSig;
+  let missedPolls = 0;
+  let busy = false;
+  let stopped = false;
+  const watcher: FileWatcher = {
+    stop: () => {
+      stopped = true;
+    },
+    timer: setInterval(() => {
+      if (busy || stopped) return;
+      busy = true;
+      host.fs.stat(absPath).then(
+        (st) => {
+          busy = false;
+          if (stopped) return;
+          missedPolls = 0;
+          const s = fileSig(st);
+          if (s === lastSig) return;
+          lastSig = s;
+          onEvent({
+            kind: "change",
+            mtime: Math.floor(st.mtimeMs),
+            rev: noteSig(key, s),
+          });
+        },
+        (err: unknown) => {
+          busy = false;
+          if (stopped) return;
+          if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+            stopped = true;
+            clearInterval(watcher.timer);
+            onEvent({ kind: "failed" });
+            return;
+          }
+          missedPolls++;
+          if (missedPolls === DELETE_CONFIRM_POLLS) {
+            noteMissing(key);
+            lastSig = MISSING_SIG;
+            onEvent({ kind: "deleted" });
+          }
+        },
+      );
+    }, WATCH_POLL_MS),
+  };
+  watcher.timer.unref?.();
+  return watcher;
+}
+
 export function stopWatch(w: FileWatcher) {
+  w.stop?.();
   clearInterval(w.timer);
 }

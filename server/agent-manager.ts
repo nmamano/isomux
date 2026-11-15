@@ -172,7 +172,7 @@ import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
-import { officeAgentHost } from "./agent-host.ts";
+import { officeAgentHost, type AgentHost } from "./agent-host.ts";
 import { usageAccountKey } from "./usage-account.ts";
 import type { BrowserResult } from "./browser-actions.ts";
 import {
@@ -9934,43 +9934,59 @@ export function createAgentManager(deps: ManagerDeps) {
   // just resolve paths against the agent's cwd and run the disk ops. Watch
   // lifecycle lives in server/isomux-office.ts where the WS connection is in scope.
 
-  function openEditorFile(
+  // The editor reads and writes as the host of the agent's manager
+  // (internal-docs/member-os-user-design.md, section 1.4).
+  async function openEditorFile(
     agentId: string,
     rawPath: string,
-  ):
-    | { ok: true; result: OpenFileResult }
-    | { ok: false; error: "not_agent" | "bad_path" } {
+  ): Promise<
+    | { ok: true; result: OpenFileResult; host: AgentHost }
+    | { ok: false; error: "not_agent" | "bad_path" }
+  > {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, error: "not_agent" };
-    const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+    const host = hostFor(managed.info.userId);
+    const resolved = resolveEditorPath(rawPath, managed.info.cwd, host.home());
     if (resolved.kind === "bad_path") return { ok: false, error: "bad_path" };
-    return { ok: true, result: openEditorFileImpl(resolved.path) };
+    return {
+      ok: true,
+      result: await openEditorFileImpl(resolved.path, host),
+      host,
+    };
   }
 
-  function saveEditorFile(
-    absPath: string,
+  async function saveEditorFile(
+    agentId: string,
+    rawPath: string,
     content: string,
     expectedMtime: number,
     expectedRev: number | undefined,
     force: boolean,
-  ): SaveFileResult {
+  ): Promise<SaveFileResult | null> {
+    const managed = agents.get(agentId);
+    if (!managed) return null;
+    const host = hostFor(managed.info.userId);
+    const resolved = resolveEditorPath(rawPath, managed.info.cwd, host.home());
+    if (resolved.kind === "bad_path") return null;
     return saveEditorFileImpl(
-      absPath,
+      resolved.path,
       content,
       expectedMtime,
       expectedRev,
       force,
+      host,
     );
   }
 
   function resolveEditorPathForAgent(
     agentId: string,
     rawPath: string,
-  ): string | null {
+  ): { path: string; host: AgentHost } | null {
     const managed = agents.get(agentId);
     if (!managed) return null;
-    const resolved = resolveEditorPath(rawPath, managed.info.cwd);
-    return resolved.kind === "ok" ? resolved.path : null;
+    const host = hostFor(managed.info.userId);
+    const resolved = resolveEditorPath(rawPath, managed.info.cwd, host.home());
+    return resolved.kind === "ok" ? { path: resolved.path, host } : null;
   }
 
   // Explicitly assembled public surface (see AgentManager type above). Mirrors

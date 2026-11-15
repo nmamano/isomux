@@ -214,13 +214,30 @@ export interface AsksDeps {
   // cwd, and the copy of a read file. Null when the agent is gone.
   affordances: {
     checkCommand(raw: string): CommandCheck;
-    probeEditFile(agentId: string, rawPath: string): EditFileCheck | null;
+    probeEditFile(
+      agentId: string,
+      rawPath: string,
+    ): Promise<EditFileCheck | null>;
     probeReadFile(
       agentId: string,
       rawPath: string,
       opts?: { capped?: boolean },
-    ): ReadFileCheck | null;
-    copyReadFile(agentId: string, absPath: string): AskReadFileCopy | null;
+    ): Promise<ReadFileCheck | null>;
+    copyReadFile(
+      agentId: string,
+      absPath: string,
+    ): Promise<AskReadFileCopy | null>;
+    // A file the ask references in place, served as the host of the
+    // agent's manager reads it: the office's file response for an office
+    // agent, the runner's stream for an isolated member's. Null when the
+    // agent is gone.
+    serveInPlace(
+      agentId: string,
+      path: string,
+      contentType: string,
+      headers: Record<string, string>,
+      req: Request,
+    ): Promise<HandlerResult | null>;
   };
   // A file in the agent's files dir (an ask's copy), or null when it is
   // gone. getFilePath owns path traversal.
@@ -444,20 +461,29 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // A read file the ask references in place, probed again: it can be gone or
   // replaced since the ask was made. Served as agents.getFile serves a copy.
   // Null when the probe refuses it.
-  const serveReference = (
+  const serveReference = async (
     entry: AskEntry,
     ref: AskReadFile,
     query: URLSearchParams,
-  ): HandlerResult | null => {
+    req: Request,
+  ): Promise<HandlerResult | null> => {
     if (ref.path === undefined) return null;
-    const probe = deps.affordances.probeReadFile(entry.agentId, ref.path, {
-      capped: false,
-    });
+    const probe = await deps.affordances.probeReadFile(
+      entry.agentId,
+      ref.path,
+      { capped: false },
+    );
     if (!probe?.ok) return null;
-    return file(probe.path, deps.contentTypeFor(ref.filename), {
-      ...deps.untrustedFileHeaders(),
-      ...downloadHeader(query, ref.filename),
-    });
+    return deps.affordances.serveInPlace(
+      entry.agentId,
+      probe.path,
+      deps.contentTypeFor(ref.filename),
+      {
+        ...deps.untrustedFileHeaders(),
+        ...downloadHeader(query, ref.filename),
+      },
+      req,
+    );
   };
 
   // Who answered and their words, for the closed ask's record. A bare
@@ -579,12 +605,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // The chat's checks on every sent item, then the copies of the read
   // files and the references: a refusal before the copies leaves the files
   // dir as it was. A sent empty list becomes null (remove).
-  function resolveAffordances(
+  async function resolveAffordances(
     agentId: string,
     lists: { [K in keyof AskAffordances]?: string[] },
-  ):
+  ): Promise<
     | { ok: true; affordances: AskAffordanceEdit }
-    | { ok: false; result: HandlerResult } {
+    | { ok: false; result: HandlerResult }
+  > {
     const gone = {
       ok: false as const,
       result: fail(404, "not_found", "No such agent."),
@@ -602,7 +629,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
     const editFiles = [];
     for (const raw of lists.editFiles ?? []) {
-      const probe = deps.affordances.probeEditFile(agentId, raw);
+      const probe = await deps.affordances.probeEditFile(agentId, raw);
       if (!probe) return gone;
       if (!probe.ok)
         return { ok: false, result: pathRefused(probe, "invalid_edit_file") };
@@ -610,7 +637,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
     const readPaths: { path: string; size: number }[] = [];
     for (const raw of lists.readFiles ?? []) {
-      const probe = deps.affordances.probeReadFile(agentId, raw, {
+      const probe = await deps.affordances.probeReadFile(agentId, raw, {
         capped: false,
       });
       if (!probe) return gone;
@@ -640,7 +667,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         });
         continue;
       }
-      const copied = deps.affordances.copyReadFile(agentId, path);
+      const copied = await deps.affordances.copyReadFile(agentId, path);
       if (!copied) return gone;
       if (!copied.ok)
         return {
@@ -1151,8 +1178,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
     if (store.listForAgent(agentId).length >= ASK_MAX_OPEN_PER_AGENT)
       return tooManyAsks();
-    const resolved = resolveAffordances(agentId, lists.lists);
+    const resolved = await resolveAffordances(agentId, lists.lists);
     if (!resolved.ok) return resolved.result;
+    // Again after the reads: another ask may have come meanwhile.
+    if (store.listForAgent(agentId).length >= ASK_MAX_OPEN_PER_AGENT)
+      return tooManyAsks();
     const result = store.create({
       agentId,
       memberUserId,
@@ -1189,13 +1219,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   };
 
   // An edit, from an agent or an app: find gives the caller's own entry.
-  const edit = (
+  const edit = async (
     body: Record<string, unknown>,
     askId: string,
     find: () => AskEntry | null,
     // The editing app, for the edit's event; absent when the agent edits.
     actor?: { app: string },
-  ): HandlerResult => {
+  ): Promise<HandlerResult> => {
     // An absent or empty prompt keeps it: an empty text/plain body is "".
     const sent = body.text !== undefined ? body.text : body.prompt;
     let prompt: string | undefined;
@@ -1279,7 +1309,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const lists = affordanceLists(body, prev);
     if (!lists.ok) return lists.result;
     // Paths resolve for the agent that holds the ask.
-    const resolved = resolveAffordances(prev.agentId, lists.lists);
+    const resolved = await resolveAffordances(prev.agentId, lists.lists);
     if (!resolved.ok) return resolved.result;
     const entry = store.edit(
       askId,
@@ -1550,7 +1580,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // only a filename the ask lists. A copy is served from the agent's files
     // dir, a reference as asks.getFile serves it. The prune does not keep a
     // closed ask's copies, so they can be gone.
-    "agents.getAskFile": guarded((ctx) => {
+    "agents.getAskFile": guarded(async (ctx) => {
       const { id: agentId, askId, filename } = ctx.params;
       const entry =
         own(agentId, askId) ?? deps.history.get(agentId, askId)?.entry ?? null;
@@ -1558,7 +1588,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       const noFile = () => fail(404, "not_found", "No such file in this ask.");
       if (!entry || !ref) return noFile();
       if (ref.path !== undefined)
-        return serveReference(entry, ref, ctx.query) ?? noFile();
+        return (
+          (await serveReference(entry, ref, ctx.query, ctx.req)) ?? noFile()
+        );
       const path = deps.filePath(agentId, filename);
       if (!path) return noFile();
       return file(path, deps.contentTypeFor(filename), {
@@ -1815,13 +1847,15 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.simplifyUndo": guarded(simplifyUndo),
     // A file the ask references where it is, for the ask's member. An office
     // owner gets the file of another member's ask too.
-    "asks.getFile": guarded((ctx) => {
+    "asks.getFile": guarded(async (ctx) => {
       const entry = readableBy(ctx.identity, ctx.params.askId);
       const ref = entry?.readFiles?.find(
         (f) => f.filename === ctx.params.filename && f.path !== undefined,
       );
       return (
-        (entry && ref && serveReference(entry, ref, ctx.query)) ??
+        (entry &&
+          ref &&
+          (await serveReference(entry, ref, ctx.query, ctx.req))) ??
         fail(404, "not_found", "No such file in an open ask.")
       );
     }),

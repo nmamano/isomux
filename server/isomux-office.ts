@@ -221,10 +221,12 @@ import {
 import { type McpEndpointDeps } from "./mcp-endpoint.ts";
 import { type FolderMcpDeps } from "./folder-mcp-endpoint.ts";
 import { runFolderFiles } from "./folder-files-host.ts";
+import { hostFileResponse } from "./agent-file-read.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
   authorizeRoute,
   fail,
+  file,
   type ExecutorDeps,
   type RouteHandler,
   type PreconditionFn,
@@ -3391,16 +3393,35 @@ function buildExecutorDeps(
         }).ok,
       affordances: {
         checkCommand: checkTerminalCommand,
-        probeEditFile: (agentId, rawPath) => {
+        // Paths are checked and read as the host of the agent's manager.
+        probeEditFile: async (agentId, rawPath) => {
           const agent = agentManager.getAgent(agentId);
-          return agent ? probeEditFile(rawPath, agent.cwd) : null;
+          return agent
+            ? probeEditFile(rawPath, agent.cwd, hostFor(agent.userId))
+            : null;
         },
-        probeReadFile: (agentId, rawPath, opts) => {
+        probeReadFile: async (agentId, rawPath, opts) => {
           const agent = agentManager.getAgent(agentId);
-          return agent ? probeReadFile(rawPath, agent.cwd, opts) : null;
+          return agent
+            ? probeReadFile(rawPath, agent.cwd, hostFor(agent.userId), opts)
+            : null;
         },
         copyReadFile: (agentId, absPath) =>
           agentManager.copyAskReadFile(agentId, absPath),
+        serveInPlace: async (agentId, path, contentType, headers, req) => {
+          const agent = agentManager.getAgent(agentId);
+          if (!agent) return null;
+          const host = hostFor(agent.userId);
+          if (host.kind === "local") return file(path, contentType, headers);
+          const response = await hostFileResponse(
+            host,
+            path,
+            contentType,
+            headers,
+            req.headers.get("range"),
+          );
+          return response ? { kind: "response", response } : null;
+        },
       },
       filePath: (agentId, filename) => getFilePath(agentId, filename),
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
@@ -3636,7 +3657,13 @@ function buildExecutorDeps(
       thumbnails: appThumbnailStore,
       resolveAgentPath: (agentId, rawPath) =>
         agentManager.resolveEditorPathForAgent(agentId, rawPath),
-      readThumbnailFile: readCappedFile,
+      readThumbnailFile: async ({ path, host }, max) =>
+        host.kind === "local"
+          ? readCappedFile(path, max)
+          : host.fs.readBytes(path, max).then(
+              (bytes) => ({ ok: true as const, bytes }),
+              () => ({ ok: false as const }),
+            ),
       now: () => Date.now(),
       install: (record) => appSupervisor.install(record),
       // Each verb that runs a new process moves the widget's revision, so an

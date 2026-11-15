@@ -256,7 +256,32 @@ const record = (entry) => {
   return uuid;
 };
 
-function report() {
+// A message with "RIG_CALL {method, path, body}" makes one office API call
+// with the agent's own token; its status and body go in the report.
+function rigCall(content) {
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map((b) => (typeof b?.text === "string" ? b.text : "")).join("\n")
+        : "";
+  const at = text.indexOf("RIG_CALL ");
+  if (at < 0) return undefined;
+  const req = JSON.parse(text.slice(at + "RIG_CALL ".length).split("\n")[0]);
+  const r = Bun.spawnSync([
+    "curl", "-s", "-X", req.method, `http://127.0.0.1:10000${req.path}`,
+    "-H", "Host: office.example.com",
+    "-H", `Authorization: Bearer ${process.env.ISOMUX_AGENT_TOKEN ?? ""}`,
+    "-H", "Content-Type: application/json",
+    "--data-binary", JSON.stringify(req.body ?? {}),
+    "-w", "\n%{http_code}",
+  ]);
+  const out = r.stdout.toString();
+  const nl = out.lastIndexOf("\n");
+  return { status: Number(out.slice(nl + 1)), body: out.slice(0, nl) };
+}
+
+function report(call) {
   const uid = Bun.spawnSync(["id", "-u"]).stdout.toString().trim();
   return `RIG_REPORT ${JSON.stringify({
     backend: "claude",
@@ -264,6 +289,7 @@ function report() {
     home: process.env.HOME,
     serverEnv: SERVER_ONLY.filter((name) => name in process.env),
     transcript,
+    ...(call ? { call } : {}),
   })}`;
 }
 
@@ -293,7 +319,7 @@ function init() {
 function answer(content) {
   init();
   record({ type: "user", message: { role: "user", content } });
-  const text = report();
+  const text = report(rigCall(content));
   const message = {
     id: `msg_${crypto.randomUUID()}`,
     type: "message",

@@ -16,7 +16,9 @@ import type {
   SpawnChildOptions,
 } from "../agent-host.ts";
 import {
+  checkedFileStat,
   failedAgentChild,
+  fileTooBig,
   MEMBER_AGENT_DIR,
   memberEnvRefusal,
   officeEnginePaths,
@@ -36,6 +38,7 @@ import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
 import { ISOLATION_SETUP_FAILED } from "../process-isolation.ts";
 import {
   createFrameDecoder,
+  RUNNER_READ_MAX,
   encodeData,
   encodeJson,
   FRAME_JSON,
@@ -50,6 +53,9 @@ import {
 } from "./frames.ts";
 
 const ENTRY_TIMEOUT_MS = 60_000;
+// The longest wait for one fs call. A 256 MiB readText over the local socket
+// takes seconds; a 20 MB readBytes well under one.
+export const FS_TIMEOUT_MS = 60_000;
 
 function exitStatus(code: number | null, signal: string | null): number {
   if (code !== null) return code;
@@ -478,31 +484,61 @@ export class RunnerChild extends EventEmitter implements AgentChild {
   }
 }
 
-// One file operation. readText resolves with the file's bytes.
+// One file operation. readText and readBytes resolve with the file's bytes.
+// The bytes are counted here, not only in the runner: past `maxBytes` the
+// stream is closed and the call rejects with EFBIG (a runner reply is member
+// data, and the socket may be a member's own listener).
+// At `timeoutMs` the stream is closed and the call rejects with ETIMEDOUT:
+// a listener that never answers cannot hold a request of the office.
 export function runnerFs(
   socketPath: RunnerTarget,
   request: FsRequest,
   input?: Buffer,
-): Promise<{ value?: boolean; data: Buffer }> {
+  maxBytes: number = 0,
+  timeoutMs: number = FS_TIMEOUT_MS,
+): Promise<{ value?: boolean; stat?: unknown; data: Buffer }> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    let answer: { value?: boolean } | null = null;
+    let total = 0;
+    let answer: { value?: boolean; stat?: unknown } | null = null;
     let error: NodeJS.ErrnoException | null = null;
-    const stream = new RunnerStream(
+    const timer = setTimeout(() => {
+      answer = null;
+      chunks.length = 0;
+      error = errnoError(
+        "ETIMEDOUT",
+        `the agent runner did not answer ${request.call} of ${request.path} in ${timeoutMs} ms`,
+      );
+      stream.close();
+    }, timeoutMs);
+    const stream: RunnerStream = new RunnerStream(
       socketPath,
       { op: "fs", ...request },
       {
         control: (message) => {
-          if (message.type === "fs") answer = { value: message.value };
+          if (error) return;
+          if (message.type === "fs")
+            answer = { value: message.value, stat: message.stat };
           else if (message.type === "error")
             error = errnoError(message.code, message.message);
         },
         stdout: (chunk) => {
+          if (error) return;
+          total += chunk.length;
+          if (total > maxBytes) {
+            answer = null;
+            chunks.length = 0;
+            error = fileTooBig(request.path, maxBytes);
+            stream.close();
+            return;
+          }
           chunks.push(chunk);
         },
         stderr: () => {},
         close: () => {
-          if (answer) resolve({ ...answer, data: Buffer.concat(chunks) });
+          clearTimeout(timer);
+          if (answer && !error)
+            resolve({ ...answer, data: Buffer.concat(chunks) });
           else
             reject(
               error ??
@@ -521,29 +557,90 @@ export function runnerFs(
   });
 }
 
-export function runnerAgentFs(socketPath: RunnerTarget): AgentFs {
+// `timeoutMs` bounds each call (runnerFs).
+export function runnerAgentFs(
+  socketPath: RunnerTarget,
+  timeoutMs: number = FS_TIMEOUT_MS,
+): AgentFs {
   return {
     readText: async (path) =>
-      (await runnerFs(socketPath, { call: "readText", path })).data.toString(
-        "utf8",
-      ),
+      (
+        await runnerFs(
+          socketPath,
+          { call: "readText", path },
+          undefined,
+          RUNNER_READ_MAX,
+          timeoutMs,
+        )
+      ).data.toString("utf8"),
+    readBytes: async (path, max) =>
+      (
+        await runnerFs(
+          socketPath,
+          { call: "readBytes", path, max },
+          undefined,
+          max,
+          timeoutMs,
+        )
+      ).data,
+    stat: async (path) => {
+      const stat = checkedFileStat(
+        (
+          await runnerFs(
+            socketPath,
+            { call: "stat", path },
+            undefined,
+            0,
+            timeoutMs,
+          )
+        ).stat,
+      );
+      if (!stat)
+        throw errnoError(
+          "EPROTO",
+          `the agent runner sent a bad stat of ${path}`,
+        );
+      return stat;
+    },
     writeText: async (path, text, { mode, exclusive }) => {
       await runnerFs(
         socketPath,
         { call: "writeText", path, mode, exclusive },
         Buffer.from(text),
+        0,
+        timeoutMs,
       );
     },
     mkdir: async (path, mode) => {
-      await runnerFs(socketPath, { call: "mkdir", path, mode });
+      await runnerFs(
+        socketPath,
+        { call: "mkdir", path, mode },
+        undefined,
+        0,
+        timeoutMs,
+      );
     },
     rm: async (path) => {
-      await runnerFs(socketPath, { call: "rm", path });
+      await runnerFs(socketPath, { call: "rm", path }, undefined, 0, timeoutMs);
     },
     exists: async (path) =>
-      (await runnerFs(socketPath, { call: "exists", path })).value === true,
+      (
+        await runnerFs(
+          socketPath,
+          { call: "exists", path },
+          undefined,
+          0,
+          timeoutMs,
+        )
+      ).value === true,
     chmod: async (path, mode) => {
-      await runnerFs(socketPath, { call: "chmod", path, mode });
+      await runnerFs(
+        socketPath,
+        { call: "chmod", path, mode },
+        undefined,
+        0,
+        timeoutMs,
+      );
     },
   };
 }

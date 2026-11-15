@@ -98,12 +98,20 @@ export type RunnerRequest =
   // bundle). Answered with "exiting" before the listener closes.
   | { op: "exit" };
 
+// The largest file a readText returns. The server holds the whole file, and
+// the agent user controls it. The client counts the bytes too: a runner
+// reply is member data.
+export const RUNNER_READ_MAX = 256 * 1024 * 1024;
+
 // File operations in agent space, done by the runner as the agent user. A
-// readText answers with stdout frames; a writeText takes its bytes as stdin
+// readText or readBytes answers with stdout frames, a stat with the fs
+// message's stat; a writeText takes its bytes as stdin
 // frames up to stdin-end. Each answers with an "fs" message or an "error"
 // whose code is the errno name.
 export type FsRequest =
   | { call: "readText"; path: string }
+  | { call: "readBytes"; path: string; max: number }
+  | { call: "stat"; path: string }
   | { call: "writeText"; path: string; mode: number; exclusive?: boolean }
   | { call: "mkdir"; path: string; mode: number }
   | { call: "rm"; path: string }
@@ -120,7 +128,8 @@ export type ClientControl =
 export type RunnerControl =
   | { type: "spawned"; pid: number }
   | { type: "exit"; code: number | null; signal: string | null }
-  | { type: "fs"; value?: boolean }
+  // stat: the fields of AgentFileStat (server/agent-host.ts).
+  | { type: "fs"; value?: boolean; stat?: unknown }
   // This many stdin bytes are in the child's pipe.
   | { type: "stdin-ack"; bytes: number }
   | { type: "error"; code: string; message: string }

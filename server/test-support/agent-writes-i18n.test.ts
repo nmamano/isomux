@@ -81,9 +81,9 @@ describe("the editor-open request", () => {
   it("stores English and words the missing path for each reader", async () => {
     server = await startTestServer();
     const agent = await agentOwnedBySpanishReader(server);
-    expect(server.agentManager.emitAgentEditRequest(agent.id, MISSING)).toEqual(
-      { ok: true },
-    );
+    expect(
+      await server.agentManager.emitAgentEditRequest(agent.id, MISSING),
+    ).toEqual({ ok: true });
     expectWorded(
       lastSystemEntry(server, agent.id),
       "systemEntries.pathRefusal.notFound",
@@ -96,7 +96,9 @@ describe("the read-file request", () => {
   it("stores English and words the missing path for each reader", async () => {
     server = await startTestServer();
     const agent = await agentOwnedBySpanishReader(server);
-    expect(server.agentManager.emitAgentReadFile(agent.id, MISSING)).toEqual({
+    expect(
+      await server.agentManager.emitAgentReadFile(agent.id, MISSING),
+    ).toEqual({
       ok: true,
     });
     expectWorded(

@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { forgetMemberOsUser, recordMemberOsUser } from "./member-os-users.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -2997,3 +2998,31 @@ for (const outcome of ["recovered", "detached"] as const) {
     }
   });
 }
+
+// Slice 2a of task b94dfd25: an upload opens the file as the host of the
+// agent's manager. A manager whose runner is not ready gets a refusal, and
+// the office never opens the file in its place.
+test("an upload of an isolated member's agent is refused while their runner is not ready", async () => {
+  const h = await gateSession();
+  const dir = mkdtempSync(join(tmpdir(), "browser-upload-member-"));
+  const path = join(dir, "office.txt");
+  writeFileSync(path, "office file");
+  const upload = () =>
+    h.sessions.run("agent", { action: "upload", selector: "#f", path });
+  try {
+    await h.warm();
+    // The condition: as the office, the file opens and the upload goes on.
+    const office = await upload();
+    expect(office).not.toMatchObject({ code: "invalid_request" });
+    recordMemberOsUser("member", { name: "isomux-upload-test", uid: 4242 });
+    expect(await upload()).toMatchObject({
+      ok: false,
+      status: 400,
+      code: "invalid_request",
+    });
+  } finally {
+    forgetMemberOsUser("member");
+    h.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

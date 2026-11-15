@@ -1,3 +1,4 @@
+import { hostFor } from "./member-hosts.ts";
 import { selectorSyntaxFailure } from "./browser-selector-errors";
 import {
   addFileChunk,
@@ -959,7 +960,8 @@ export class ExtensionBrowserSessions {
     let upload: BrowserUpload | undefined;
     if (params.action === "upload") {
       try {
-        upload = await openBrowserUpload(params.path!);
+        // Read as the host of the agent's manager.
+        upload = await openBrowserUpload(params.path!, hostFor(member));
       } catch (error) {
         if (!(error instanceof BrowserUploadError)) throw error;
         return {

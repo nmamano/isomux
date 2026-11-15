@@ -12,6 +12,7 @@ import type { FilePayload } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { openFile, resolveEditorPath } from "./file-editor.ts";
 import { isCredentialStorePath } from "./credential-store-paths.ts";
+import type { AgentHost } from "./agent-host.ts";
 
 // Single-line only; an agent joins steps with && or ;.
 export const TERMINAL_COMMAND_MAX_LEN = 4096;
@@ -56,12 +57,17 @@ export function checkTerminalCommand(raw: string): CommandCheck {
 }
 
 // The editor panel's own open, so every refusal the panel would give comes
-// here first.
-export function probeEditFile(rawPath: string, cwd: string): EditFileCheck {
-  const resolved = resolveEditorPath(rawPath, cwd);
+// here first. `host`: the host of the agent's manager (hostFor), so an
+// isolated member's paths are checked as that member.
+export async function probeEditFile(
+  rawPath: string,
+  cwd: string,
+  host: AgentHost,
+): Promise<EditFileCheck> {
+  const resolved = resolveEditorPath(rawPath, cwd, host.home());
   if (resolved.kind === "bad_path")
     return { ok: false, kind: "bad_path", path: resolved.attempted };
-  const probe = openFile(resolved.path);
+  const probe = await openFile(resolved.path, host);
   switch (probe.kind) {
     case "ok":
       return { ok: true, file: { cwd, path: resolved.path } };
@@ -86,26 +92,33 @@ export function probeEditFile(rawPath: string, cwd: string): EditFileCheck {
 
 // `capped: false` drops the MAX_READ_FILE_BYTES cap, for a file an ask
 // references in place instead of copying.
-export function probeReadFile(
+export async function probeReadFile(
   rawPath: string,
   cwd: string,
+  host: AgentHost,
   { capped = true }: { capped?: boolean } = {},
-): ReadFileCheck {
-  const resolved = resolveEditorPath(rawPath, cwd);
+): Promise<ReadFileCheck> {
+  const resolved = resolveEditorPath(rawPath, cwd, host.home());
   if (resolved.kind === "bad_path")
     return { ok: false, kind: "bad_path", path: resolved.attempted };
   const path = resolved.path;
   if (isCredentialStorePath(path))
     return { ok: false, kind: "credential", path };
-  let st;
+  let st: { isFile: boolean; size: number };
   try {
-    st = statSync(path);
+    if (host.kind === "local") {
+      const local = statSync(path);
+      st = { isFile: local.isFile(), size: local.size };
+    } else {
+      const remote = await host.fs.stat(path);
+      st = { isFile: remote.type === "file", size: remote.size };
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === "ENOENT")
       return { ok: false, kind: "not_found", path };
     return { ok: false, kind: "io_error", path, message: errMessage(err) };
   }
-  if (!st.isFile()) return { ok: false, kind: "not_file", path };
+  if (!st.isFile) return { ok: false, kind: "not_file", path };
   if (capped && st.size > MAX_READ_FILE_BYTES)
     return { ok: false, kind: "too_large", path, size: st.size };
   return { ok: true, path, size: st.size };

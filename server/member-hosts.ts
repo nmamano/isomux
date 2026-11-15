@@ -173,6 +173,8 @@ export function createNotReadyHost(userId: string, reason: string): AgentHost {
   const reject = () => Promise.reject(notReadyError(reason));
   const fs: AgentFs = {
     readText: reject,
+    stat: reject,
+    readBytes: reject,
     writeText: reject,
     mkdir: reject,
     rm: reject,

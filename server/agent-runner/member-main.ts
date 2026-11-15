@@ -26,6 +26,7 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "files-done": () => import("./entries/files-done.ts"),
   "files-out": () => import("./entries/files-out.ts"),
   "files-remove": () => import("./entries/files-remove.ts"),
+  "file-read": () => import("./entries/file-read.ts"),
   "claude-cwd-move": () => import("./entries/claude-cwd-move.ts"),
   "folder-files": () => import("./entries/folder-files.ts"),
   "opencode-inspect": () => import("./entries/opencode-inspect.ts"),

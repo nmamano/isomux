@@ -650,7 +650,7 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
       removeRegistration: () => {},
     },
     resolveAgentPath: () => null,
-    readThumbnailFile: () => ({ ok: false }),
+    readThumbnailFile: async () => ({ ok: false }),
     now: () => 1,
     announce: () => {},
     announceRemoved: () => {},

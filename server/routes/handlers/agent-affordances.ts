@@ -73,7 +73,7 @@ type BrowserAffordanceResult =
     };
 
 export interface AgentAffordanceDeps {
-  emitAgentReadFile(agentId: string, path: string): AffordanceResult;
+  emitAgentReadFile(agentId: string, path: string): Promise<AffordanceResult>;
   emitAgentDiff(
     agentId: string,
     dir: string | undefined,
@@ -83,7 +83,7 @@ export interface AgentAffordanceDeps {
     agentId: string,
     path: string,
     opts?: { open?: boolean },
-  ): AffordanceResult;
+  ): Promise<AffordanceResult>;
   emitAgentTerminalCommand(
     agentId: string,
     command: string,
@@ -130,18 +130,18 @@ export function agentAffordanceHandlers(
   deps: AgentAffordanceDeps,
 ): Record<string, RouteHandler> {
   return {
-    "agents.readFile": (ctx) => {
+    "agents.readFile": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<AffordanceReadFileReq>;
       if (typeof body.path !== "string" || body.path.length === 0) {
         return fail(400, "invalid_request", "path is required");
       }
       return mapResult(
-        deps.emitAgentReadFile(ctx.params.id, body.path),
+        await deps.emitAgentReadFile(ctx.params.id, body.path),
         "read_file_failed",
       );
     },
 
-    "agents.editFile": (ctx) => {
+    "agents.editFile": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<AffordanceEditFileReq>;
       if (typeof body.path !== "string" || body.path.length === 0) {
         return fail(400, "invalid_request", "path is required");
@@ -150,7 +150,7 @@ export function agentAffordanceHandlers(
         return fail(400, "invalid_request", "open must be a boolean");
       }
       return mapResult(
-        deps.emitAgentEditRequest(ctx.params.id, body.path, {
+        await deps.emitAgentEditRequest(ctx.params.id, body.path, {
           open: body.open === true,
         }),
         "edit_file_failed",

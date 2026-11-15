@@ -70,6 +70,8 @@ const TERMINAL_COMMAND_ERRORS: Record<
 export type AskReadFileCopy =
   | { ok: true; attachment: Attachment }
   | { ok: false; kind: "io_error"; path: string; message: string }
+  // An isolated member's file that grew past the cap after its probe.
+  | { ok: false; kind: "too_large"; path: string; size: number }
   | { ok: false; kind: "save_failed"; path: string };
 
 export interface AgentAffordancesDeps {
@@ -215,14 +217,20 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
   // live event also asks each client that has this chat on screen to open the
   // file once (task 043bf145); the server never opens a panel itself. The
   // probe makes a typo'd path a system message instead of a dead card.
-  function emitAgentEditRequest(
+  async function emitAgentEditRequest(
     agentId: string,
     rawPath: string,
     opts?: { open?: boolean },
-  ): { ok: true } | { ok: false; status: number; error: string } {
+  ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
-    const probe = probeEditFile(rawPath, managed.info.cwd);
+    const probe = await probeEditFile(
+      rawPath,
+      managed.info.cwd,
+      hostFor(managed.info.userId),
+    );
+    if (!agents.has(agentId))
+      return { ok: false, status: 404, error: "agent not found" };
     if (!probe.ok) {
       if (probe.kind === "bad_path")
         return { ok: false, status: 400, error: "missing or empty path" };
@@ -379,15 +387,29 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
   // (hash-deduped via saveFile). The read-file chip and an ask's read file
   // both show this copy, so the member sees the bytes of the moment the agent
   // sent it. Null when the agent is gone.
-  function copyAskReadFile(
+  // An office agent's file is read with this process's fs, as before; an
+  // isolated member's through their host, at most MAX_READ_FILE_BYTES.
+  async function copyAskReadFile(
     agentId: string,
     absPath: string,
-  ): AskReadFileCopy | null {
-    if (!agents.has(agentId)) return null;
+  ): Promise<AskReadFileCopy | null> {
+    const managed = agents.get(agentId);
+    if (!managed) return null;
+    const host = hostFor(managed.info.userId);
     let data: Buffer;
     try {
-      data = readFileSync(absPath);
+      data =
+        host.kind === "local"
+          ? readFileSync(absPath)
+          : await host.fs.readBytes(absPath, MAX_READ_FILE_BYTES);
     } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "EFBIG")
+        return {
+          ok: false,
+          kind: "too_large",
+          path: absPath,
+          size: MAX_READ_FILE_BYTES + 1,
+        };
       return {
         ok: false,
         kind: "io_error",
@@ -395,6 +417,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
         message: errMessage(err),
       };
     }
+    if (!agents.has(agentId)) return null;
     const originalName = basename(absPath);
     const mediaType = mimeTypeForFilename(originalName);
     const attachment = savePersistedFile(
@@ -414,14 +437,21 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
   // Claude SDK's tool_result image extraction would surface it. Mirrors
   // emitAgentEditRequest's error-surface pattern: path/size/io failures become
   // system messages, not HTTP errors.
-  function emitAgentReadFile(
+  async function emitAgentReadFile(
     agentId: string,
     rawPath: string,
-  ):
-    { ok: true } | { ok: false; status: number; code?: string; error: string } {
+  ): Promise<
+    { ok: true } | { ok: false; status: number; code?: string; error: string }
+  > {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
-    const probe = probeReadFile(rawPath, managed.info.cwd);
+    const probe = await probeReadFile(
+      rawPath,
+      managed.info.cwd,
+      hostFor(managed.info.userId),
+    );
+    if (!agents.has(agentId))
+      return { ok: false, status: 404, error: "agent not found" };
     if (!probe.ok) {
       if (probe.kind === "bad_path")
         return { ok: false, status: 400, error: "missing or empty path" };
@@ -435,7 +465,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
       addLogEntry(agentId, "system", pathRefusalText(probe, "read"));
       return { ok: true };
     }
-    const copied = copyAskReadFile(agentId, probe.path);
+    const copied = await copyAskReadFile(agentId, probe.path);
     if (!copied) return { ok: false, status: 404, error: "agent not found" };
     if (!copied.ok) {
       addLogEntry(

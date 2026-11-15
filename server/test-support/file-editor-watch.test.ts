@@ -28,9 +28,10 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
+import { localAgentHost } from "../agent-host.ts";
 import {
-  openFile,
-  saveFile,
+  openOfficeFile as openFile,
+  saveOfficeFile as saveFile,
   watchFile,
   stopWatch,
   type FileWatcher,
@@ -45,7 +46,7 @@ function openAndWatch(
 ): FileWatcher {
   const r = openFile(path);
   if (r.kind !== "ok") throw new Error(`open failed: ${r.kind}`);
-  return watchFile(path, onEvent, r.sig);
+  return watchFile(path, onEvent, r.sig, localAgentHost);
 }
 
 // The production poll interval. Every watch test runs on fake timers, so one
@@ -127,7 +128,12 @@ describe("watchFile", () => {
     writeFileSync(tmp, "v1");
     renameSync(tmp, file2);
     const gapEvents: WatchFileEvent[] = [];
-    const w = watchFile(file2, (ev) => gapEvents.push(ev), r.sig);
+    const w = watchFile(
+      file2,
+      (ev) => gapEvents.push(ev),
+      r.sig,
+      localAgentHost,
+    );
     try {
       poll();
       expect(kinds(gapEvents, "change")).toBe(1);
@@ -309,14 +315,14 @@ describe("file revisions", () => {
     const r1 = openFile(file);
     if (r1.kind !== "ok") throw new Error("open failed");
     const gen2 = await freshGeneration("gen2");
-    const r2 = gen2.openFile(file);
+    const r2 = gen2.openOfficeFile(file);
     if (r2.kind !== "ok") throw new Error("gen2 open failed");
     // Same unchanged file, but the new generation must not echo the old rev -
     // it has no basis to claim continuity with pre-restart state.
     expect(r2.rev).not.toBe(r1.rev);
     // And the guard side: a pre-restart rev presented to the new generation
     // refuses (benign false conflict, never a silent overwrite).
-    const s = gen2.saveFile(
+    const s = gen2.saveOfficeFile(
       file,
       "post-restart write",
       r1.mtime,
@@ -326,7 +332,7 @@ describe("file revisions", () => {
     expect(s.kind).toBe("stale");
     // A third generation stays collision-free with BOTH predecessors.
     const gen3 = await freshGeneration("gen3");
-    const r3 = gen3.openFile(file);
+    const r3 = gen3.openOfficeFile(file);
     if (r3.kind !== "ok") throw new Error("gen3 open failed");
     expect(r3.rev).not.toBe(r1.rev);
     expect(r3.rev).not.toBe(r2.rev);
@@ -358,12 +364,18 @@ describe("file revisions", () => {
     // sequential generation (in particular not the one r1.rev lives in).
     writeFileSync(genFile, "", "utf8");
     const genA = await freshGeneration("empty");
-    const rA = genA.openFile(file);
+    const rA = genA.openOfficeFile(file);
     if (rA.kind !== "ok") throw new Error("genA open failed");
     expect(generationOf(rA.rev)).toBeGreaterThanOrEqual(GENERATION_SEQ_MAX);
     expect(rA.rev).not.toBe(r1.rev);
     // The guard side: the pre-corruption rev refuses against the new state.
-    const sA = genA.saveFile(file, "post-corruption", r1.mtime, r1.rev, false);
+    const sA = genA.saveOfficeFile(
+      file,
+      "post-corruption",
+      r1.mtime,
+      r1.rev,
+      false,
+    );
     expect(sA.kind).toBe("stale");
     // The degraded boot REPAIRS the file so later boots resume sequentially
     // above its high-range generation.
@@ -372,7 +384,7 @@ describe("file revisions", () => {
     // Corruption case B: non-numeric garbage - same non-low guarantee.
     writeFileSync(genFile, "not a number", "utf8");
     const genB = await freshGeneration("garbage");
-    const rB = genB.openFile(file);
+    const rB = genB.openOfficeFile(file);
     if (rB.kind !== "ok") throw new Error("genB open failed");
     expect(generationOf(rB.rev)).toBeGreaterThanOrEqual(GENERATION_SEQ_MAX);
     expect(rB.rev).not.toBe(r1.rev);

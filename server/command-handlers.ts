@@ -1247,7 +1247,13 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+      // As the host of the agent's manager (member-os-user-design 1.4).
+      const host = hostFor(managed.info.userId);
+      const resolved = resolveEditorPath(
+        rawPath,
+        managed.info.cwd,
+        host.home(),
+      );
       if (resolved.kind === "bad_path") {
         deps.addLogEntry(
           agentId,
@@ -1257,7 +1263,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const probe = openEditorFile(resolved.path);
+      const probe = await openEditorFile(resolved.path, host);
       if (probe.kind === "not_found") {
         deps.addLogEntry(
           agentId,

@@ -9,6 +9,7 @@ import {
   truncate,
 } from "node:fs/promises";
 import { readdirSync } from "node:fs";
+import { localAgentHost } from "./agent-host.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -77,7 +78,7 @@ test("chunks give the file byte-exact in pieces that fit one extension frame", a
     for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7 + (i >> 16)) % 256;
     await writeFile(path, bytes);
     const before = openFds();
-    const upload = await openBrowserUpload(path);
+    const upload = await openBrowserUpload(path, localAgentHost);
     try {
       expect({
         name: upload.name,
@@ -118,7 +119,7 @@ test("the size cap is checked on open", async () => {
     const atCap = join(dir, "at-cap.mp4");
     await writeFile(atCap, "");
     await truncate(atCap, MAX_BROWSER_UPLOAD_BYTES);
-    const upload = await openBrowserUpload(atCap);
+    const upload = await openBrowserUpload(atCap, localAgentHost);
     expect(upload.size).toBe(MAX_BROWSER_UPLOAD_BYTES);
     expect(upload.mimeType).toBe("video/mp4");
     await upload.close();
@@ -126,14 +127,14 @@ test("the size cap is checked on open", async () => {
     await writeFile(over, "");
     await truncate(over, MAX_BROWSER_UPLOAD_BYTES + 1);
     const before = openFds();
-    expect(await refused(openBrowserUpload(over))).toBeInstanceOf(
-      BrowserUploadError,
-    );
+    expect(
+      await refused(openBrowserUpload(over, localAgentHost)),
+    ).toBeInstanceOf(BrowserUploadError);
     // A refused open leaves no descriptor behind.
     expect(openFds()).toBe(before);
     const empty = join(dir, "file.unknown-extension");
     await writeFile(empty, "");
-    const none = await openBrowserUpload(empty);
+    const none = await openBrowserUpload(empty, localAgentHost);
     expect({
       name: none.name,
       mimeType: none.mimeType,
@@ -145,11 +146,11 @@ test("the size cap is checked on open", async () => {
     });
     expect(Buffer.concat(await pieces(none)).length).toBe(0);
     await none.close();
-    expect(await refused(openBrowserUpload(dir))).toBeInstanceOf(
-      BrowserUploadError,
-    );
     expect(
-      await refused(openBrowserUpload(join(dir, "missing"))),
+      await refused(openBrowserUpload(dir, localAgentHost)),
+    ).toBeInstanceOf(BrowserUploadError);
+    expect(
+      await refused(openBrowserUpload(join(dir, "missing"), localAgentHost)),
     ).toBeInstanceOf(BrowserUploadError);
     expect(openFds()).toBe(before);
   } finally {
@@ -164,7 +165,7 @@ test("a file that grows or shrinks after open fails the read", async () => {
     for (const change of ["grow", "shrink"] as const) {
       const path = join(dir, `${change}.bin`);
       await writeFile(path, Buffer.alloc(size, 0x5a));
-      const upload = await openBrowserUpload(path);
+      const upload = await openBrowserUpload(path, localAgentHost);
       try {
         expect(upload.size).toBe(size);
         if (change === "grow") await appendFile(path, "x");
@@ -210,7 +211,7 @@ test("upload rejects sensitive requested names and resolved symlink targets", as
     await mkdir(join(dir, "codex-home"));
     const rejected = async (path: string) =>
       await refused(
-        openBrowserUpload(path).then(async (opened) => {
+        openBrowserUpload(path, localAgentHost).then(async (opened) => {
           await opened.close();
           return opened;
         }),
@@ -240,7 +241,7 @@ test("upload rejects sensitive requested names and resolved symlink targets", as
     await symlink(normal, alias);
     expect(await rejected(alias)).toBeInstanceOf(BrowserUploadError);
     // The control: the same ordinary file under its own name opens.
-    const ok = await openBrowserUpload(normal);
+    const ok = await openBrowserUpload(normal, localAgentHost);
     expect(ok.size).toBe(7);
     await ok.close();
   } finally {

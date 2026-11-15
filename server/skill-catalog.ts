@@ -41,8 +41,8 @@ import {
   type UserSkillRoot,
 } from "./skills.ts";
 import {
-  openFile,
-  saveFile,
+  openOfficeFile,
+  saveOfficeFile,
   markFileDeleted,
   type OpenFileResult,
   type SaveFileResult,
@@ -268,7 +268,7 @@ export function findCatalogEntry(
 }
 
 export function readSkillFile(path: string): OpenFileResult {
-  return openFile(path);
+  return openOfficeFile(path);
 }
 
 export function saveSkillFile(
@@ -278,7 +278,7 @@ export function saveSkillFile(
 ): SaveFileResult {
   // expectedMtime is unused when a revision is sent; force stays off, so a
   // deleted or changed file is reported, never overwritten.
-  return saveFile(path, content, 0, expectedRev, false);
+  return saveOfficeFile(path, content, 0, expectedRev, false);
 }
 
 export type DeleteSkillResult =

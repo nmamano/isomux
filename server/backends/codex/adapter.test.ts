@@ -78,6 +78,10 @@ import { SAFETY_WARNING } from "./safety-hook.ts";
 import { removeStateDir } from "../../test-support/temp-state.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 import { CODEX_EMPTY_CWD_ROOT } from "./access.ts";
+import type { AgentFs } from "../../agent-host.ts";
+import { buildEnvForUserId } from "../../env-loader.ts";
+import { createMember } from "../../users.ts";
+import { isolateMember } from "../../test-support/member-host-fixture.ts";
 import { OneShotUsageLimitError } from "../one-shot-errors.ts";
 import {
   FOLDER_FILES_MCP_PATH,
@@ -4776,6 +4780,57 @@ describe("CodexSession image view", () => {
     fireItem(fake, { type: "imageView", path: "/no/such/file/nope.png" });
     // A notice in place of the file_view, not a hang or a broken card.
     expectKind(await nextEvent(it, "system_text"), "system_text");
+  });
+
+  // Slice 2a of task b94dfd25: an isolated member's image is read through
+  // their host, and the events after it keep their place while it is read.
+  it("an isolated member's image is read through their host, before the events that follow it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-codex-img-"));
+    tempDirs.push(dir);
+    const imgPath = join(dir, "member.png");
+    writeFileSync(imgPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
+    const made = createMember(`CodexImage${Date.now()}`, { role: "member" });
+    if (!made.ok) throw new Error(made.error);
+    const iso = await isolateMember(made.user.id);
+    try {
+      const reads: string[] = [];
+      const host = iso.member.host as unknown as { fs: AgentFs };
+      const base = host.fs;
+      host.fs = {
+        ...base,
+        readBytes: async (path, max) => {
+          reads.push(path);
+          // A slow runner: the message fired after the image arrives first.
+          await Bun.sleep(50);
+          return base.readBytes(path, max);
+        },
+      };
+      const { fake, it } = await bootstrapped(undefined, {
+        env: buildEnvForUserId(made.user.id),
+      });
+      const genPath = join(dir, "generated.png");
+      writeFileSync(genPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0b]));
+      fireItem(fake, { type: "imageView", path: imgPath });
+      fireItem(fake, {
+        type: "imageGeneration",
+        savedPath: genPath,
+        status: "completed",
+      });
+      fireItem(fake, { type: "agentMessage", text: "after the images" });
+      const events = [
+        await nextEvent(it, "file_view"),
+        await nextEvent(it, "generated file_view"),
+        await nextEvent(it, "message"),
+      ];
+      expect(events.map((ev) => ev.kind)).toEqual([
+        "file_view",
+        "file_view",
+        "assistant_text",
+      ]);
+      expect(reads).toEqual([imgPath, genPath]);
+    } finally {
+      iso.dispose();
+    }
   });
 });
 

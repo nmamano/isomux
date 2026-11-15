@@ -23,6 +23,7 @@ import { isCredentialStorePath } from "../credential-store-paths.ts";
 import { appProxyKeyPath } from "../app-proxy-secret.ts";
 import { evaluateProposedAction } from "../safety-policy.ts";
 import { BrowserUploadError, openBrowserUpload } from "../browser-upload.ts";
+import { localAgentHost } from "../agent-host.ts";
 import { createCronjobManager } from "../cronjob-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -148,7 +149,7 @@ describe("the safety hooks and the browser upload", () => {
           { cwd: "/tmp" },
         ).decision,
       ).toBe("deny");
-      const upload = await openBrowserUpload(path).then(
+      const upload = await openBrowserUpload(path, localAgentHost).then(
         async (opened) => {
           await opened.close();
           return null;
@@ -434,7 +435,7 @@ describe("a scheduled run's read-file", () => {
     const run = mgr.runCronjobNow(job.id, "Nil")!;
     try {
       for (const path of [...Object.values(paths), "secrets/office.json"])
-        expect(mgr.emitCronjobRunReadFile(job.id, run.id, path)).toEqual({
+        expect(await mgr.emitCronjobRunReadFile(job.id, run.id, path)).toEqual({
           ok: false,
           status: 403,
           code: "credential_path",
@@ -443,7 +444,7 @@ describe("a scheduled run's read-file", () => {
       // The run itself is live: an ordinary file reads.
       writeFileSync(join(STATE_ROOT, "plain.txt"), "hello");
       expect(
-        mgr.emitCronjobRunReadFile(
+        await mgr.emitCronjobRunReadFile(
           job.id,
           run.id,
           join(STATE_ROOT, "plain.txt"),

@@ -47,8 +47,8 @@ export function createEditorRoutes(
       }
       return false;
     },
-    openFile: (agentId, path, connectionId) => {
-      const probe = agentManager.openEditorFile(agentId, path);
+    openFile: async (agentId, path, connectionId) => {
+      const probe = await agentManager.openEditorFile(agentId, path);
       if (!probe.ok) {
         // not_agent is normally pre-empted by the agentParam guard (403); a miss
         // here is a post-guard race. bad_path -> 400.
@@ -124,7 +124,13 @@ export function createEditorRoutes(
       const watcher = watchFile(
         r.path,
         (ev) => {
-          if (ev.kind === "deleted") {
+          if (ev.kind === "failed") {
+            // A runner host that stopped answering: the watch has ended.
+            // The open editor keeps its text; a save reports the error.
+            if (map.get(key) === watcher) map.delete(key);
+            if (map.size === 0 && editorWatchers.get(connectionId) === map)
+              editorWatchers.delete(connectionId);
+          } else if (ev.kind === "deleted") {
             liveEmit(
               "editor_file_deleted",
               { agentId, path: r.path },
@@ -139,6 +145,7 @@ export function createEditorRoutes(
           }
         },
         r.sig,
+        probe.host,
       );
       map.set(key, watcher);
       return {
@@ -151,22 +158,29 @@ export function createEditorRoutes(
         rev: r.rev,
       };
     },
-    saveFile: (agentId, path, content, expectedMtime, expectedRev, force) => {
-      const abs = agentManager.resolveEditorPathForAgent(agentId, path);
-      if (!abs)
+    saveFile: async (
+      agentId,
+      path,
+      content,
+      expectedMtime,
+      expectedRev,
+      force,
+    ) => {
+      const result = await agentManager.saveEditorFile(
+        agentId,
+        path,
+        content,
+        expectedMtime,
+        expectedRev,
+        force,
+      );
+      if (!result)
         return {
           ok: false,
           status: 404,
           code: "agent_not_found",
           message: "Agent not found.",
         };
-      const result = agentManager.saveEditorFile(
-        abs,
-        content,
-        expectedMtime,
-        expectedRev,
-        force,
-      );
       if (result.kind === "ok")
         return { ok: true, mtime: result.mtime, rev: result.rev };
       if (result.kind === "deleted") return { ok: false, deleted: true };
@@ -196,7 +210,7 @@ export function createEditorRoutes(
       if (!abs) return;
       const map = editorWatchers.get(connectionId);
       if (!map) return;
-      const key = editorKey(agentId, abs);
+      const key = editorKey(agentId, abs.path);
       const w = map.get(key);
       if (w) {
         stopWatch(w);

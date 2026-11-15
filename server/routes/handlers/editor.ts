@@ -73,7 +73,7 @@ export interface EditorDeps {
     agentId: string,
     path: string,
     connectionId: string,
-  ): OpenFileOutcome;
+  ): Promise<OpenFileOutcome>;
   // Save with the revision-conflict guard (mtime-based when the client sent no
   // expectedRev; force bypasses either).
   saveFile(
@@ -83,7 +83,7 @@ export interface EditorDeps {
     expectedMtime: number,
     expectedRev: number | undefined,
     force: boolean,
-  ): SaveFileOutcome;
+  ): Promise<SaveFileOutcome>;
   // Disarm the (connectionId, agentId, path) watch. No-op safe (an already-gone
   // watch - e.g. the socket closed and the WS-close swept it - is harmless).
   closeFile(agentId: string, path: string, connectionId: string): void;
@@ -131,10 +131,14 @@ function bindContext(
 
 export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
   return {
-    "agents.openFile": (ctx) => {
+    "agents.openFile": async (ctx) => {
       const bind = bindContext(ctx, deps);
       if (!bind.ok) return bind.result;
-      const r = deps.openFile(ctx.params.id, bind.path, bind.connectionId);
+      const r = await deps.openFile(
+        ctx.params.id,
+        bind.path,
+        bind.connectionId,
+      );
       if (r.ok) {
         return ok({
           path: r.path,
@@ -148,7 +152,7 @@ export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
       return fail(r.status, r.code, r.message);
     },
 
-    "agents.saveFile": (ctx) => {
+    "agents.saveFile": async (ctx) => {
       const b = (ctx.body ?? {}) as Partial<EditorSaveReq>;
       if (typeof b.path !== "string" || b.path.length === 0) {
         return fail(400, "invalid_path", "path is required");
@@ -187,7 +191,7 @@ export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
           "expectedRev must be a finite number",
         );
       }
-      const r = deps.saveFile(
+      const r = await deps.saveFile(
         ctx.params.id,
         b.path,
         b.content,

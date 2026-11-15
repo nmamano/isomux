@@ -786,6 +786,115 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
   const sessionOf = (transcript: unknown) =>
     /([0-9a-f-]{36})\.jsonl$/.exec(String(transcript))?.[1] ?? "";
 
+  // Slice 2a: a file that the member's agent names is read as the member. A
+  // file only the office can read, in a folder the member can reach by path,
+  // is refused at every surface; the member's own file is read. The agent
+  // calls the office with its own token (the stub's RIG_CALL).
+  it("reads the files that a member's agent names as the member, and never a file only the office can read", async () => {
+    const home = `${MEMBERS}/home/${ALICE}`;
+    const office = "/var/data/rig-files";
+    const SECRET = "member-rig-office-only";
+    root(
+      name,
+      `mkdir -p ${office} && chmod 0755 ${office} && printf ${SECRET} > ${office}/office.txt && printf ${SECRET} > ${office}/office.mp4 && chown -R ${OFFICE_UID} ${office} && chmod 0600 ${office}/office.txt ${office}/office.mp4`,
+    );
+    expect(
+      sh(
+        name,
+        ALICE,
+        `printf mine-notes > ${home}/rig-notes.txt && printf 0123456789 > ${home}/rig-clip.mp4`,
+      ).status,
+    ).toBe(0);
+    // The condition: the member can stat the office's files but not read them.
+    expect(sh(name, ALICE, `cat ${office}/office.txt`).status).not.toBe(0);
+    expect(sh(name, ALICE, `stat -c %s ${office}/office.mp4`).out.trim()).toBe(
+      String(SECRET.length),
+    );
+    const made = api(name, aliceCookie, "POST", "/api/agents", {
+      name: "Rig Alice files",
+      cwd: home,
+      roomId,
+      desk: 5,
+      agentType: "claude",
+    });
+    const agentId = (made.agent as { id: string } | undefined)?.id;
+    if (!agentId) throw new Error(`spawn: ${JSON.stringify(made)}`);
+    let turns = 0;
+    const call = async (path: string, body: unknown) => {
+      api(name, aliceCookie, "POST", `/api/agents/${agentId}/messages`, {
+        text: `RIG_CALL ${JSON.stringify({ method: "POST", path, body })}`,
+      });
+      turns++;
+      const report = (await reportsOf(agentId, turns))[turns - 1];
+      return report?.call as { status: number; body: string } | undefined;
+    };
+    const officeHas = (text: string) =>
+      root(name, `grep -rl ${text} ${STATE} 2>/dev/null | head -1`).out.trim();
+
+    expect(
+      (
+        await call(`/api/agents/${agentId}/read-file`, {
+          path: `${home}/rig-notes.txt`,
+        })
+      )?.status,
+    ).toBe(200);
+    expect(officeHas("mine-notes")).not.toBe("");
+    // Each refusal is a system line of the agent's chat that names the file.
+    const refusals = () =>
+      root(name, `cat ${STATE}/logs/${agentId}/*.jsonl 2>/dev/null`)
+        .out.split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { kind: string; content: unknown })
+        .filter(
+          (l) =>
+            l.kind === "system" &&
+            String(l.content).includes(`${office}/office.txt`),
+        ).length;
+    expect(
+      (
+        await call(`/api/agents/${agentId}/read-file`, {
+          path: `${office}/office.txt`,
+        })
+      )?.status,
+    ).toBe(200);
+    expect(refusals()).toBe(1);
+    expect(
+      (
+        await call(`/api/agents/${agentId}/edit-file`, {
+          path: `${office}/office.txt`,
+        })
+      )?.status,
+    ).toBe(200);
+    expect(refusals()).toBe(2);
+
+    const asked = await call(`/api/agents/${agentId}/asks`, {
+      text: "Look?",
+      readFiles: [`${home}/rig-clip.mp4`, `${office}/office.mp4`],
+    });
+    expect(asked?.status).toBe(201);
+    const ask = JSON.parse(asked!.body) as {
+      id: string;
+      readFiles: { filename: string; path: string }[];
+    };
+    const fetched = (path: string) => {
+      const file = ask.readFiles.find((f) => f.path === path)!;
+      const r = root(
+        name,
+        `curl -s -H 'Host: ${HOST}' -H 'Origin: ${ORIGIN}' -H 'Cookie: ${aliceCookie}' -H 'Range: bytes=3-5' -w '\\n%{http_code}' http://127.0.0.1:10000/api/asks/${ask.id}/files/${file.filename}`,
+      ).out;
+      const nl = r.lastIndexOf("\n");
+      return { status: Number(r.slice(nl + 1)), body: r.slice(0, nl) };
+    };
+    expect(fetched(`${home}/rig-clip.mp4`)).toEqual({
+      status: 206,
+      body: "345",
+    });
+    expect(fetched(`${office}/office.mp4`).status).toBe(404);
+    // Nothing of the office-only file reached the office's state.
+    expect(officeHas(SECRET)).toBe("");
+    root(name, `rm -rf ${office}`);
+  });
+
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {
     const erinUser = "isomux-erin";
     const erinHome = `${MEMBERS}/home/${erinUser}`;

@@ -2,6 +2,12 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { basename, isAbsolute, normalize } from "node:path";
 import { evaluateProposedAction } from "./safety-policy";
+import type { AgentHost } from "./agent-host.ts";
+import {
+  HostFileReadError,
+  openHostFileRange,
+  type HostFileRange,
+} from "./agent-file-read.ts";
 
 // A sanity cap. The deadline it gives (browserUploadExtraMs) must stay under
 // the front door's idle timeout.
@@ -52,15 +58,29 @@ function checkPath(path: string): void {
   )
     throw new BrowserUploadError("Sensitive files cannot be attached");
 }
+function uploadName(path: string): string {
+  return (
+    basename(path)
+      .replace(/[\p{Cc}\u202a-\u202e\u2066-\u2069/\\]/gu, "")
+      .slice(0, 255) || "attachment"
+  );
+}
+
 // Opens one server file for a browser upload. The caller closes it. chunks()
 // reads the open descriptor in order and fails when the file no longer has
-// the size it had at the open.
-export async function openBrowserUpload(path: string): Promise<BrowserUpload> {
+// the size it had at the open. `host`: the host of the agent's manager
+// (hostFor). An isolated member's file is opened by their runner, as the
+// member (internal-docs/member-os-user-design.md, section 1.4).
+export async function openBrowserUpload(
+  path: string,
+  host: AgentHost,
+): Promise<BrowserUpload> {
   if (!validUploadPath(path))
     throw new BrowserUploadError(
       "path must be an absolute office-server file path (max 4096 characters)",
     );
   checkPath(normalize(path));
+  if (host.kind !== "local") return openOnHost(path, host);
   let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
     const resolved = await realpath(path);
@@ -74,10 +94,7 @@ export async function openBrowserUpload(path: string): Promise<BrowserUpload> {
       throw new BrowserUploadError("path must name a regular file");
     if (stat.size > MAX_BROWSER_UPLOAD_BYTES)
       throw new BrowserUploadError(LIMIT_ERROR);
-    const name =
-      basename(path)
-        .replace(/[\p{Cc}\u202a-\u202e\u2066-\u2069/\\]/gu, "")
-        .slice(0, 255) || "attachment";
+    const name = uploadName(path);
     const opened = file;
     const size = stat.size;
     return {
@@ -115,6 +132,70 @@ export async function openBrowserUpload(path: string): Promise<BrowserUpload> {
   }
 }
 const CHANGED_ERROR = "File changed while it was read";
+const UNAVAILABLE_ERROR = "File is unavailable or cannot be read";
+
+// The runner's "file-read" stream for an isolated member's upload. The
+// server runs checkPath on the file the runner says it opened as well: a
+// runner reply is member data, so that check can only refuse more.
+async function openOnHost(
+  path: string,
+  host: AgentHost,
+): Promise<BrowserUpload> {
+  let opened: HostFileRange;
+  try {
+    opened = await openHostFileRange(host, path, {
+      offset: 0,
+      length: MAX_BROWSER_UPLOAD_BYTES,
+      sizeMax: MAX_BROWSER_UPLOAD_BYTES,
+      timeoutMs: browserUploadExtraMs(MAX_BROWSER_UPLOAD_BYTES) + 5 * 60_000,
+    });
+  } catch (error) {
+    if (error instanceof HostFileReadError && error.code === "too_large")
+      throw new BrowserUploadError(LIMIT_ERROR);
+    throw new BrowserUploadError(UNAVAILABLE_ERROR);
+  }
+  try {
+    checkPath(opened.real);
+  } catch (error) {
+    await opened.close();
+    throw error;
+  }
+  const name = uploadName(path);
+  const size = opened.size;
+  return {
+    name,
+    mimeType: Bun.file(name).type || "application/octet-stream",
+    size,
+    async *chunks() {
+      let piece = new Uint8Array(Math.min(BROWSER_UPLOAD_CHUNK_BYTES, size));
+      let filled = 0;
+      let sent = 0;
+      try {
+        for await (const chunk of opened.bytes) {
+          let at = 0;
+          while (at < chunk.length) {
+            const take = Math.min(piece.length - filled, chunk.length - at);
+            piece.set(chunk.subarray(at, at + take), filled);
+            filled += take;
+            at += take;
+            if (filled === piece.length) {
+              sent += filled;
+              yield piece;
+              piece = new Uint8Array(
+                Math.min(BROWSER_UPLOAD_CHUNK_BYTES, size - sent),
+              );
+              filled = 0;
+            }
+          }
+        }
+      } catch {
+        throw new BrowserUploadError(CHANGED_ERROR);
+      }
+      if (sent !== size) throw new BrowserUploadError(CHANGED_ERROR);
+    },
+    close: () => opened.close(),
+  };
+}
 async function readAt(
   file: Awaited<ReturnType<typeof open>>,
   buffer: Uint8Array,

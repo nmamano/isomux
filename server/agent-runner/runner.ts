@@ -11,8 +11,15 @@
 // bundle's path and hash.
 
 import { spawn, type ChildProcess } from "child_process";
-import { chmodSync, existsSync, lstatSync, unlinkSync } from "fs";
-import { chmod, mkdir, open as openFile, rm, writeFile } from "fs/promises";
+import { chmodSync, constants, existsSync, lstatSync, unlinkSync } from "fs";
+import {
+  chmod,
+  mkdir,
+  open as openFile,
+  rm,
+  stat as statFile,
+  writeFile,
+} from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 import type { Readable } from "stream";
@@ -34,6 +41,7 @@ import {
   FRAME_STDERR,
   FRAME_STDIN,
   FRAME_STDOUT,
+  RUNNER_READ_MAX,
   type ClientControl,
   type Frame,
   type FsRequest,
@@ -56,6 +64,7 @@ export const ENTRY_NAMES = new Set([
   "files-done",
   "files-out",
   "files-remove",
+  "file-read",
   "claude-cwd-move",
   "folder-files",
   "opencode-inspect",
@@ -63,9 +72,7 @@ export const ENTRY_NAMES = new Set([
 ]);
 const ENTRY_DIR = join(import.meta.dir, "entries");
 
-// The largest file a readText returns. The server holds the whole file, and
-// the agent user controls it.
-export const RUNNER_READ_MAX = 256 * 1024 * 1024;
+export { RUNNER_READ_MAX };
 let readMax = RUNNER_READ_MAX;
 
 // After the server's connection closes, the process group gets SIGTERM, and
@@ -268,28 +275,38 @@ function validMode(mode: unknown): mode is number {
   );
 }
 
-function tooBig(path: string): NodeJS.ErrnoException {
-  return Object.assign(new Error(`${path} is larger than ${readMax} bytes`), {
+function tooBig(path: string, max: number): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${path} is larger than ${max} bytes`), {
     code: "EFBIG",
   });
 }
 
-// At most readMax bytes, read from the fd: the file can grow after the
-// fstat, so one byte more than the bound is read and refused.
-async function readBounded(path: string): Promise<Buffer> {
-  const file = await openFile(path, "r");
+// At most max bytes, read from the fd: the file can grow after the fstat,
+// so one byte more than the bound is read and refused. The open does not
+// block on a FIFO. regular: refuse what is not a regular file (readBytes).
+async function readBounded(
+  path: string,
+  max: number,
+  regular: boolean,
+): Promise<Buffer> {
+  const file = await openFile(path, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
-    if ((await file.stat()).size > readMax) throw tooBig(path);
+    const stats = await file.stat();
+    if (regular && !stats.isFile())
+      throw Object.assign(new Error(`${path} is not a regular file`), {
+        code: "EINVAL",
+      });
+    if (stats.size > max) throw tooBig(path, max);
     const chunks: Buffer[] = [];
     let total = 0;
     for (;;) {
-      const want = Math.min(1024 * 1024, readMax + 1 - total);
+      const want = Math.min(1024 * 1024, max + 1 - total);
       const buffer = Buffer.alloc(want);
       const { bytesRead } = await file.read(buffer, 0, want, null);
       if (bytesRead === 0) break;
       chunks.push(buffer.subarray(0, bytesRead));
       total += bytesRead;
-      if (total > readMax) throw tooBig(path);
+      if (total > max) throw tooBig(path, max);
     }
     return Buffer.concat(chunks, total);
   } finally {
@@ -305,9 +322,46 @@ async function runFs(
   try {
     switch (request.call) {
       case "readText":
-        send(socket, encodeData(FRAME_STDOUT, await readBounded(request.path)));
+        send(
+          socket,
+          encodeData(
+            FRAME_STDOUT,
+            await readBounded(request.path, readMax, false),
+          ),
+        );
         finish(socket, { type: "fs" });
         return;
+      case "readBytes":
+        send(
+          socket,
+          encodeData(
+            FRAME_STDOUT,
+            await readBounded(
+              request.path,
+              Math.min(request.max, readMax),
+              true,
+            ),
+          ),
+        );
+        finish(socket, { type: "fs" });
+        return;
+      case "stat": {
+        const stats = await statFile(request.path);
+        finish(socket, {
+          type: "fs",
+          stat: {
+            type: stats.isFile()
+              ? "file"
+              : stats.isDirectory()
+                ? "dir"
+                : "other",
+            size: stats.size,
+            mtimeMs: stats.mtimeMs,
+            ino: stats.ino,
+          },
+        });
+        return;
+      }
       case "writeText":
         await writeFile(request.path, data ?? Buffer.alloc(0), {
           mode: request.mode,
@@ -342,10 +396,19 @@ function handleFs(socket: RunnerSocket, request: FsRequest): void {
   if (
     typeof request.path !== "string" ||
     !request.path.startsWith("/") ||
-    !["readText", "writeText", "mkdir", "rm", "exists", "chmod"].includes(
-      request.call,
-    ) ||
-    (needsMode && !validMode((request as { mode?: unknown }).mode))
+    ![
+      "readText",
+      "readBytes",
+      "stat",
+      "writeText",
+      "mkdir",
+      "rm",
+      "exists",
+      "chmod",
+    ].includes(request.call) ||
+    (needsMode && !validMode((request as { mode?: unknown }).mode)) ||
+    (request.call === "readBytes" &&
+      !(Number.isSafeInteger(request.max) && request.max >= 0))
   ) {
     fail(socket, "bad_request", "fs needs a call, an absolute path and a mode");
     return;
