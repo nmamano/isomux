@@ -362,21 +362,25 @@ describe("the preload in a real Node run", () => {
   it("a worker thread writes its own lines with its own limit", async () => {
     const dir = scratch();
     const file = join(dir, "worker.heap");
-    // The worker holds about 8 MB under a 16 MB old space: its share is the
-    // worst, far above the main thread's. No cap flag: --max-old-space-size
-    // overrides a worker's resourceLimits (Node 24), as in ESLint's threads.
+    // The worker's fill holds the 8 MB array and a copy of it, plus the
+    // runtime: about 17 MB of old space on the nodesource Node 24.22.1 of
+    // auntie-2 and 14 MB on the official build (task 4fd11cb5), so a 16 MB
+    // limit ran out of memory on one box. A 64 MB old space is about 4 times
+    // that; the worker's limit is then 256 MiB, its share still far above
+    // the main thread's. No cap flag: --max-old-space-size overrides a
+    // worker's resourceLimits (Node 24), as in ESLint's threads.
     const script = [
       "const { Worker } = require('node:worker_threads');",
       "new Worker(",
       "  'globalThis.keep = new Array(1_000_000).fill(0.5);',",
-      "  { eval: true, resourceLimits: { maxOldGenerationSizeMb: 16 } },",
+      "  { eval: true, resourceLimits: { maxOldGenerationSizeMb: 64 } },",
       ");",
     ].join("\n");
     const run = await runNode(script, heapEnv(file));
     expect(run.code).toBe(0);
     const got = readHeapReport(readFileSync(file, "utf8"))!;
     expect({ heaps: got.heaps, lost: got.lost }).toEqual({ heaps: 2, lost: 0 });
-    // The worker's own limit (16 MB old space plus its young generation),
+    // The worker's own limit (64 MB old space plus its young generation),
     // not the main thread's (several GB).
     expect(got.limitBytes).toBeLessThan(512 * MIB);
     expect(got.peakBytes).toBeGreaterThanOrEqual(1_000_000 * 8);
