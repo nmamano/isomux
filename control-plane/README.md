@@ -234,8 +234,10 @@ The same `write_files` list also writes the installer's SSH hardening file,
 keyboard-interactive logins, root by key only). Contabo's cloud-config turns
 password logins on through `50-cloud-init.conf`; sshd keeps the first value it
 reads, so our `00-` file wins, and SSH refuses that root password from the
-first boot instead of only after the install's harden step. Not yet measured
-on a box: Lead SRE checks `sshd -T` on the release test box before the install.
+first boot instead of only after the install's harden step. Measured on the
+release test box, 2026-11-15, before the install: `sshd -T` shows root by key
+only and no password logins, and SSH refuses root's Contabo password, whose
+hash stays in `/etc/shadow`.
 
 ### Reinstall works on a cancel-scheduled instance, and preserves the term
 
