@@ -199,8 +199,14 @@ if [[ -e ${join(stateRoot, LOCK_MARKER_FILE)} || -e ${join(etc, ROOT_MARKER_FILE
 }
 
 // A real child of this user with no marker in its real environment, listed
-// in the fake /proc with `officePid` in its environ.
-function leftover(r: Rig, officePid: string, uid = userInfo().uid): Subprocess {
+// in the fake /proc with `officePid` in its environ. `padding` bytes of other
+// variables follow the marker.
+function leftover(
+  r: Rig,
+  officePid: string,
+  uid = userInfo().uid,
+  padding = 0,
+): Subprocess {
   const child = Bun.spawn(["sleep", "300"], {
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     stdout: "ignore",
@@ -215,9 +221,15 @@ function leftover(r: Rig, officePid: string, uid = userInfo().uid): Subprocess {
   );
   writeFileSync(
     join(entry, "environ"),
-    `PATH=/usr/bin\0ISOMUX_OFFICE_PID=${officePid}\0`,
+    `PATH=/usr/bin\0ISOMUX_OFFICE_PID=${officePid}\0` + paddingVars(padding),
   );
   return child;
+}
+
+// NUL-separated variables of about `bytes` bytes in total.
+function paddingVars(bytes: number): string {
+  const one = `PAD=${"x".repeat(1019)}\0`;
+  return one.repeat(Math.ceil(bytes / one.length));
 }
 
 function alive(child: Subprocess): boolean {
@@ -244,13 +256,28 @@ test("lockdown as root: both markers, the stop, the audit, this office's leftove
   for (const name of QUARANTINED_FILES)
     writeFileSync(join(r.stateRoot, name), `before ${name}`);
   const ours = leftover(r, OFFICE_PID);
+  // The marker near the start of a 1 MB environ: a reader that stops at the
+  // match must still count it (task 8e6cd05d: `tr | grep -q` under pipefail
+  // read this one as no match).
+  const oursLarge = leftover(r, OFFICE_PID, userInfo().uid, 1 << 20);
+  const largeEnviron = readFileSync(
+    join(r.proc, String(oursLarge.pid), "environ"),
+    "latin1",
+  );
+  expect({
+    markerAt: largeEnviron.indexOf(`ISOMUX_OFFICE_PID=${OFFICE_PID}\0`),
+    overOneMiB: largeEnviron.length > 1 << 20,
+  }).toEqual({ markerAt: "PATH=/usr/bin\0".length, overOneMiB: true });
   // Another office of the same user, and another user's process.
   const other = leftover(r, "987654322");
   const otherUser = leftover(r, OFFICE_PID, userInfo().uid + 1);
   const lock = await r.run(["lockdown", "--reason", "leaked PAT"]);
   if (lock.code !== 0) console.error(lock.out);
   // The kills land before the wrapper returns; give the exit a moment.
-  await Promise.race([ours.exited, Bun.sleep(2_000)]);
+  await Promise.race([
+    Promise.all([ours.exited, oursLarge.exited]),
+    Bun.sleep(2_000),
+  ]);
 
   const state = readLockState(r.stateRoot, r.etc);
   const moved = readdirSync(r.stateRoot).filter((n) =>
@@ -263,6 +290,7 @@ test("lockdown as root: both markers, the stop, the audit, this office's leftove
     calls: r.calls(),
     audits: lockdownAudits(r.stateRoot),
     oursAlive: alive(ours),
+    oursLargeAlive: alive(oursLarge),
     otherAlive: alive(other),
     otherUserAlive: alive(otherUser),
     leftInRoot: QUARANTINED_FILES.filter((n) =>
@@ -278,6 +306,7 @@ test("lockdown as root: both markers, the stop, the audit, this office's leftove
     calls: [`stop ${SERVICE}`, `start ${SERVICE}`],
     audits: ["office.lockdown"],
     oursAlive: false,
+    oursLargeAlive: false,
     otherAlive: true,
     otherUserAlive: true,
     leftInRoot: [],

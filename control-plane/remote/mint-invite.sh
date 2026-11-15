@@ -49,7 +49,7 @@ if [ -z "$owner" ]; then
     owner=$owners
   elif [ -s "$STATE_DIR/owner-name" ]; then
     saved=$(cat "$STATE_DIR/owner-name")
-    printf '%s\n' "$owners" | grep -Fxq "$saved" && owner=$saved
+    grep -Fxq -- "$saved" <<<"$owners" && owner=$saved
   fi
 fi
 [ -n "$owner" ] || die "could not resolve a single office owner"

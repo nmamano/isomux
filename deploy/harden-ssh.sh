@@ -704,7 +704,7 @@ candidate_key_files() {
     printf '%s' "$CONFIG_IDENTITY_FILES"
   } | sort -u | while IFS= read -r f; do
     [[ -f $f ]] || continue
-    if head -c 128 "$f" 2>/dev/null | grep -q -- "-----BEGIN .*PRIVATE KEY-----"; then
+    if grep -q -- "-----BEGIN .*PRIVATE KEY-----" < <(head -c 128 "$f" 2>/dev/null); then
       printf '%s\n' "$f"
     fi
   done

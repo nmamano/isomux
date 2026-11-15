@@ -439,6 +439,31 @@ describe("which commits deploy", () => {
     expect(deployCalls()).toEqual([]);
   });
 
+  // Task 8e6cd05d: the check read `git diff --name-only | grep -qx` under
+  // pipefail. With compose.yaml early in a long list, grep stopped at it, git
+  // died of SIGPIPE, and the commit deployed.
+  test("a compose.yaml change early in a long diff is still left for a manual deploy", async () => {
+    const files: Record<string, string> = {
+      "control-plane/deploy/vps/compose.yaml": "services: {a: {}}\n",
+    };
+    for (let n = 0; n < 2000; n++)
+      files[`zz/${"long-name-".repeat(6)}${n}.txt`] = "x\n";
+    const t = commit(files);
+    const names = git(work, "diff", "--name-only", deployed, t);
+    // The diff the script reads: compose.yaml in the first pipe read, and
+    // more than a pipe buffer after it.
+    expect({
+      composeAt: names.indexOf("control-plane/deploy/vps/compose.yaml"),
+      overPipeBuffer: names.length > 128 * 1024,
+    }).toEqual({ composeAt: 0, overPipeBuffer: true });
+    api.runs = [green(t)];
+    expect(await tick()).toMatchObject({
+      result: "manual_deploy_needed",
+      target: t,
+    });
+    expect(deployCalls()).toEqual([]);
+  });
+
   test("a deployed commit that is not on main deploys nothing", async () => {
     const side = git(
       work,

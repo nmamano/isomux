@@ -157,7 +157,7 @@ leftovers() {
     [[ " ${keep[*]} " == *" $pid "* ]] && continue
     uid=$(awk '/^Uid:/{print $2}' "$d/status" 2>/dev/null) || continue
     [[ " ${uids[*]} " == *" $uid "* ]] || continue
-    tr '\0' '\n' 2>/dev/null <"$d/environ" | grep -qx "ISOMUX_OFFICE_PID=$office_pid" || continue
+    grep -qxzF -- "ISOMUX_OFFICE_PID=$office_pid" "$d/environ" 2>/dev/null || continue
     echo "$pid"
   done
 }

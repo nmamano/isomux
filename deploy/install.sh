@@ -1507,7 +1507,7 @@ leftovers() {
     [[ " ${keep[*]} " == *" $pid "* ]] && continue
     uid=$(awk '/^Uid:/{print $2}' "$d/status" 2>/dev/null) || continue
     [[ " ${uids[*]} " == *" $uid "* ]] || continue
-    tr '\0' '\n' 2>/dev/null <"$d/environ" | grep -qx "ISOMUX_OFFICE_PID=$office_pid" || continue
+    grep -qxzF -- "ISOMUX_OFFICE_PID=$office_pid" "$d/environ" 2>/dev/null || continue
     echo "$pid"
   done
 }
@@ -2961,7 +2961,7 @@ candidate_key_files() {
     printf '%s' "$CONFIG_IDENTITY_FILES"
   } | sort -u | while IFS= read -r f; do
     [[ -f $f ]] || continue
-    if head -c 128 "$f" 2>/dev/null | grep -q -- "-----BEGIN .*PRIVATE KEY-----"; then
+    if grep -q -- "-----BEGIN .*PRIVATE KEY-----" < <(head -c 128 "$f" 2>/dev/null); then
       printf '%s\n' "$f"
     fi
   done
@@ -7196,7 +7196,7 @@ leftovers() {
     [[ " ${keep[*]} " == *" $pid "* ]] && continue
     uid=$(awk '/^Uid:/{print $2}' "$d/status" 2>/dev/null) || continue
     [[ " ${uids[*]} " == *" $uid "* ]] || continue
-    tr '\0' '\n' 2>/dev/null <"$d/environ" | grep -qx "ISOMUX_OFFICE_PID=$office_pid" || continue
+    grep -qxzF -- "ISOMUX_OFFICE_PID=$office_pid" "$d/environ" 2>/dev/null || continue
     echo "$pid"
   done
 }

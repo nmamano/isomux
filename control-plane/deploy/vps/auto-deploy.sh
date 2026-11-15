@@ -207,7 +207,7 @@ tick_error() {
 }
 
 select_target() {
-  local candidates newest
+  local candidates newest changed
   if ! git -C "$src" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null; then
     tick_error fetch "git fetch of main failed"
     return 1
@@ -243,8 +243,13 @@ select_target() {
     result=failed_target phase=select
     return 1
   fi
-  if git -C "$src" diff --name-only --no-renames "$deployed" "$target" |
-    grep -qx 'control-plane/deploy/vps/compose.yaml'; then
+  # A variable, not a pipe: grep -q stops at the first match, and under
+  # pipefail the git it leaves behind dies of SIGPIPE and reads as no match.
+  changed=$(git -C "$src" diff --name-only --no-renames "$deployed" "$target") || {
+    tick_error select "could not diff $deployed..$target"
+    return 1
+  }
+  if grep -qx 'control-plane/deploy/vps/compose.yaml' <<<"$changed"; then
     result=manual_deploy_needed phase=select
     say "$target changes compose.yaml: deploy it by hand"
     return 1
