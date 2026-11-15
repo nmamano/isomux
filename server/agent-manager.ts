@@ -8,7 +8,7 @@ import {
   releaseHold,
   type FlushRun,
 } from "./queue-flush.ts";
-import { hostFor, isMemberEnv } from "./member-hosts.ts";
+import { hostFor, isMemberEnv, onMemberConnected } from "./member-hosts.ts";
 import {
   agentCwdProblem,
   agentHome,
@@ -200,6 +200,7 @@ import {
 } from "./skills.ts";
 import {
   agentUserSkillRoots,
+  memberUserSkillRoots,
   claudeConfigDirOf,
   codexUserHomeOf,
   officeClaudeSourceRoot,
@@ -1070,7 +1071,9 @@ export function createAgentManager(deps: ManagerDeps) {
     userSkillRootsFor,
     discoverSkillsFor,
     projectSkillsFor,
-    refreshMemberProjectSkills,
+    refreshMemberSkills,
+    memberUserSkillInput,
+    memberConnected: memberSkillsConnected,
     forgetMemberProjectSkills,
     listSessionCommands,
     refreshSkillMenu,
@@ -1206,7 +1209,7 @@ export function createAgentManager(deps: ManagerDeps) {
     openCodeEnvironmentRevisionForUserId,
     openCodeSkillPathsForUserId,
     projectSkillsFor,
-    refreshMemberProjectSkills,
+    refreshMemberSkills,
     accessFields,
     accessGrantOf,
     needsInterruptionMarker,
@@ -3462,8 +3465,8 @@ export function createAgentManager(deps: ManagerDeps) {
         // SDK-reported commands are NOT added to autocomplete (per design).
         // Skills are listed in priority order; deduplicate by name (highest priority wins).
         const uniqueSkills = managed ? discoverSkillsFor(managed) : [];
-        // An isolated member's project skills come from their runner.
-        if (managed) refreshMemberProjectSkills(agentId);
+        // An isolated member's skills come from their runner.
+        if (managed) refreshMemberSkills(agentId);
         const configCommands = managed
           ? autocompleteCommands(managed.info.agentType)
           : [];
@@ -5066,6 +5069,8 @@ export function createAgentManager(deps: ManagerDeps) {
     info: Pick<AgentInfo, "agentType" | "userId">,
     env: { [key: string]: string | undefined } | undefined,
   ): UserSkillRoot[] {
+    if (info.userId && memberFolderHost(info.userId))
+      return memberUserSkillRoots(info.agentType, info.userId, env);
     const claudeRoot = claudeConfigDirOf(env);
     const codexRoot = codexUserHomeOf(env);
     return agentUserSkillRoots(
@@ -5664,26 +5669,31 @@ export function createAgentManager(deps: ManagerDeps) {
       info,
       sessionManager,
       slashCommands: autocompleteCommands(info.agentType),
-      skills: deduplicateSkills([
-        ...discoverUserSkills(initialSkillRoots),
-        ...projectSkillsFor(info),
-        // Only Claude loads plugin skills.
-        ...(info.agentType === "claude"
-          ? discoverPluginSkills(
-              claudeConfigDirOf(buildEnvForUserId(info.userId)),
-              resolvedCwd,
-            )
-          : []),
-        ...discoverBundledSkills(),
-        // Account-synced skills are Claude's too.
-        ...(info.agentType === "claude"
-          ? discoverSyncedSkills(
-              claudeConfigDirOf(buildEnvForUserId(info.userId)),
-              null,
-              new Set(),
-            )
-          : []),
-      ]),
+      // An isolated member's agent: the bundled skills until their runner
+      // lists the rest (refreshMemberSkills below); the office reads none of
+      // their files.
+      skills: memberFolderHost(info.userId)
+        ? discoverBundledSkills()
+        : deduplicateSkills([
+            ...discoverUserSkills(initialSkillRoots),
+            ...projectSkillsFor(info),
+            // Only Claude loads plugin skills.
+            ...(info.agentType === "claude"
+              ? discoverPluginSkills(
+                  claudeConfigDirOf(buildEnvForUserId(info.userId)),
+                  resolvedCwd,
+                )
+              : []),
+            ...discoverBundledSkills(),
+            // Account-synced skills are Claude's too.
+            ...(info.agentType === "claude"
+              ? discoverSyncedSkills(
+                  claudeConfigDirOf(buildEnvForUserId(info.userId)),
+                  null,
+                  new Set(),
+                )
+              : []),
+          ]),
       sdkReportedCommands: [],
       reportedPlugins: null,
       reportedSkills: null,
@@ -5745,7 +5755,7 @@ export function createAgentManager(deps: ManagerDeps) {
       savedBackgroundTasks: null,
     };
     agents.set(id, managed);
-    refreshMemberProjectSkills(id);
+    refreshMemberSkills(id);
     // Mint the agent's bearer token before the first createSession (deferred to
     // the first message now) reads it via buildSessionEnv. Revoked in kill()
     // when the agent leaves the map.
@@ -5888,6 +5898,7 @@ export function createAgentManager(deps: ManagerDeps) {
     setTopic,
     regenerateTopic: resetTopic,
     refreshSkillMenu,
+    memberUserSkillInput,
     reloadEnginePlugins: async (managed) => {
       const backend = getBackend(managed.info.agentType);
       if (!backend.reloadPlugins)
@@ -10195,6 +10206,7 @@ export function createAgentManager(deps: ManagerDeps) {
     holdMember,
     releaseMember,
     memberAgents,
+    memberSkillsConnected,
     configureAgentTurnDeps,
     setMemberCeilingClamp,
     setSessionFolderRefusal,
@@ -10426,6 +10438,8 @@ export function createProductionAgentManager(overrides?: {
     releaseMember: manager.releaseMember,
     memberAgents: manager.memberAgents,
   });
+  // A member's runner connected: their agents' skill lists and folders.
+  onMemberConnected(manager.memberSkillsConnected);
   // After the office env provider (the legacy key reads it) and before the
   // cron scheduler or any session reads a key.
   migrateOpenCodeProfileKeys(initialLoadedAgents);

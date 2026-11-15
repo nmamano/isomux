@@ -136,3 +136,30 @@ export function agentUserSkillRoots(
   }
   return unique;
 }
+
+// An isolated member's user roots: their own homes only (part 2d-iii-a).
+// Their ~/.claude and ~/.codex stand in for the box roots, so no office
+// root joins; STATE_ROOT/skills is not a root (userSkillFolders adds it,
+// and no member path calls that). Strings only: the office never stats or
+// reads them; the member's runner does. Empty without a member env or while
+// their host has no home (not ready).
+export function memberUserSkillRoots(
+  agentType: "claude" | "codex" | "opencode",
+  userId: string,
+  env: { [key: string]: string | undefined } | undefined,
+): UserSkillRoot[] {
+  if (!env || !isMemberEnv(env)) return [];
+  let home: string;
+  try {
+    home = hostForEnv(env).home();
+  } catch {
+    return [];
+  }
+  return agentUserSkillRoots(
+    agentType,
+    userId,
+    env,
+    join(home, ".claude"),
+    join(home, ".codex"),
+  );
+}

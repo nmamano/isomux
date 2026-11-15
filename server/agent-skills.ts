@@ -29,9 +29,17 @@ import {
   buildMemberSkillFolder,
   engineNativeSkillDirs,
   memberSkillFolderPath,
+  memberSpaceSkillFolderPath,
 } from "./member-skill-folder.ts";
 import {
+  createMemberSkillFolders,
+  type MemberSkillFolderInput,
+} from "./member-skill-folder-host.ts";
+import type { AgentHost } from "./agent-host.ts";
+import { agentAccessOf, belowStandard } from "../shared/agent-access.ts";
+import {
   claudeConfigDirOf,
+  codexUserHomeOf,
   officeClaudeSourceRoot,
 } from "./provider-skill-links.ts";
 import type { SecretScope } from "./secret-store.ts";
@@ -45,6 +53,7 @@ import {
   discoverProjectSkills,
   discoverSyncedSkills,
   discoverUserSkills,
+  rootSkillFolders,
   userSkillFolders,
   type UserSkillRoot,
 } from "./skills.ts";
@@ -54,6 +63,12 @@ import {
   fetchProjectSkillList,
   projectSkillInfos,
 } from "./member-project-skills.ts";
+import {
+  fetchUserSkillLists,
+  userSkillInfos,
+  type UserSkillLists,
+  type UserSkillScanInput,
+} from "./member-user-skills.ts";
 
 type SessionAccounts = ReturnType<typeof createSessionAccounts>;
 
@@ -99,6 +114,8 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     built?: Map<string, string | null>,
   ): string | null {
     const host = hostFor(info.userId);
+    if (host.member !== undefined)
+      return memberSpaceSkillFolderFor(info, env, host, built !== undefined);
     if (host.kind === "runner") return null;
     try {
       const engine = info.agentType;
@@ -161,6 +178,93 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     }
   }
 
+  // An isolated member's skill folders, built by their runner in their
+  // agent space (member-skill-folder-host.ts).
+  const memberSkillFolders = createMemberSkillFolders();
+
+  // What the member's runner builds the folder from: their own folders and
+  // the engine's, as strings. Null when their host has no home (not ready)
+  // or no env.
+  function memberSkillFolderInput(
+    info: Pick<AgentInfo, "agentType" | "userId">,
+    env: { [key: string]: string | undefined } | undefined,
+    host: AgentHost,
+  ): MemberSkillFolderInput | null {
+    const engine = info.agentType;
+    if (!env || !info.userId) return null;
+    let home: string;
+    let agentRoot: string;
+    try {
+      home = env.HOME || host.home();
+      agentRoot = host.agentRoot();
+    } catch {
+      return null;
+    }
+    const userFolders = rootSkillFolders(userSkillRootsForInfo(info, env));
+    if (engine === "opencode") {
+      // As the office path below: the member's one OpenCode server runs in
+      // their profile; only the runner can see whether their config folder
+      // is there.
+      const launchEnv =
+        buildOpenCodeLaunchEnvironmentForUserId(info.userId) ?? env;
+      const profile = openCodeProfilePaths(
+        environmentSourceKeyForUserId(info.userId),
+      );
+      const configDir = openCodeUserConfigDir(launchEnv);
+      const base = { XDG_CONFIG_HOME: profile.configHome };
+      return {
+        engine,
+        agentRoot,
+        folder: memberSpaceSkillFolderPath(
+          agentRoot,
+          engine,
+          profile.profileDir,
+        ),
+        userFolders,
+        nativeDirs: [],
+        openCodeConfig: {
+          dir: configDir,
+          ifThere: engineNativeSkillDirs(
+            engine,
+            { ...base, OPENCODE_CONFIG_DIR: configDir },
+            profile.home,
+          ),
+          otherwise: engineNativeSkillDirs(engine, base, profile.home),
+        },
+      };
+    }
+    const providerRoot =
+      engine === "claude" ? claudeConfigDirOf(env) : codexUserHomeOf(env);
+    return {
+      engine,
+      agentRoot,
+      folder: memberSpaceSkillFolderPath(agentRoot, engine, providerRoot),
+      userFolders,
+      nativeDirs: engineNativeSkillDirs(
+        engine,
+        engine === "claude"
+          ? { ...env, CLAUDE_CONFIG_DIR: providerRoot }
+          : { ...env, CODEX_HOME: providerRoot },
+        home,
+      ),
+    };
+  }
+
+  // The path of an isolated member's folder for a session: only after their
+  // runner's build for this input answered; else null, and a build starts.
+  // A refresh pass (`rebuild`) builds again, so a skill added since reaches
+  // the folder.
+  function memberSpaceSkillFolderFor(
+    info: Pick<AgentInfo, "agentType" | "userId">,
+    env: { [key: string]: string | undefined } | undefined,
+    host: AgentHost,
+    rebuild: boolean,
+  ): string | null {
+    const input = memberSkillFolderInput(info, env, host);
+    if (!input || !info.userId) return null;
+    return memberSkillFolders.pathFor(host, info.userId, input, rebuild);
+  }
+
   // The skill folders OpenCode's own skill tool reads: the member's skill
   // folder. One OpenCode server serves all of a member's OpenCode work, so
   // only the member's inputs go in, and every path that can start that
@@ -190,6 +294,9 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     agentType: "claude" | "codex",
     userId: string | null | undefined,
   ): string | null {
+    // An isolated member's runs come with slice 3; until then they run as
+    // the office user, who cannot read their agent space.
+    if (memberFolderHost(userId)) return null;
     let env: { [key: string]: string | undefined } | undefined;
     try {
       env = buildEnvForUserId(userId ?? null);
@@ -271,6 +378,121 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
   function forgetMemberProjectSkills(agentId: string): void {
     memberProjectSkills.delete(agentId);
     projectSkillsInFlight.delete(agentId);
+    memberUserSkills.delete(agentId);
+    userSkillsInFlight.delete(agentId);
+  }
+
+  // What an isolated member's runner reads for the agent's user, plugin and
+  // synced skills (member-user-skills.ts): the member's own roots, Claude
+  // root and reported plugins, as strings; the office reads none of them.
+  // Null for an agent of the office or of a member without their own OS
+  // user, and when the member's env cannot be built.
+  function memberUserSkillInput(
+    managed: ManagedAgent,
+  ): UserSkillScanInput | null {
+    if (!memberFolderHost(managed.info.userId)) return null;
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildSessionEnv(managed);
+    } catch {
+      return null;
+    }
+    if (!env) return null;
+    return {
+      engine: managed.info.agentType,
+      cwd: managed.info.cwd,
+      roots: userSkillRootsForInfo(managed.info, env),
+      claudeConfigDir: claudeConfigDirOf(env),
+      plugins: managed.reportedPlugins
+        ? managed.reportedPlugins.map((p) => ({
+            name: p.name,
+            path: p.path,
+            ...(p.source !== undefined ? { source: p.source } : {}),
+          }))
+        : null,
+      synced: !managed.reportedSkills,
+    };
+  }
+
+  // An isolated member's agent: their runner lists its project skills and
+  // its user, plugin and synced skills again.
+  function refreshMemberSkills(agentId: string): void {
+    refreshMemberProjectSkills(agentId);
+    refreshMemberUserSkills(agentId);
+    prepareMemberSkillFolder(agentId);
+  }
+
+  // An isolated member's agent: its skill folder built now when no build
+  // for its input answered yet, so its next session start finds it. An
+  // agent below standard loads no skills.
+  function prepareMemberSkillFolder(agentId: string): void {
+    const managed = agents.get(agentId);
+    if (!managed || !memberFolderHost(managed.info.userId)) return;
+    if (belowStandard(agentAccessOf(managed.info))) return;
+    if (managed.info.agentType === "opencode") {
+      openCodeSkillPathsForUserId(managed.info.userId);
+      return;
+    }
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildSessionEnv(managed);
+    } catch {
+      return;
+    }
+    memberSkillFolderFor(managed.info, env);
+  }
+
+  // A member's runner connected: their agents' lists and folders again.
+  function memberConnected(userId: string): void {
+    for (const [agentId, managed] of agents)
+      if (managed.info.userId === userId) refreshSkillMenu(agentId);
+  }
+
+  // The user, plugin and synced skills of an isolated member's agents, as
+  // their runner last listed them for the input of that moment.
+  const memberUserSkills = new Map<
+    string,
+    { key: string; lists: UserSkillLists }
+  >();
+  const userSkillsInFlight = new Map<string, string>();
+  const NO_USER_SKILLS: UserSkillLists = { user: [], plugin: [], synced: [] };
+
+  function cachedUserSkills(managed: ManagedAgent): UserSkillLists {
+    const input = memberUserSkillInput(managed);
+    const cached = memberUserSkills.get(managed.info.id);
+    return input && cached && cached.key === JSON.stringify(input)
+      ? cached.lists
+      : NO_USER_SKILLS;
+  }
+
+  // Asks an isolated member's runner for the agent's user, plugin and synced
+  // skills, at the moments the office lists its own again (refreshSkillMenu).
+  // A failed call, a runner that does not answer in time or a reply out of
+  // shape leaves empty lists and one log line; an answer for an input the
+  // agent no longer has is dropped.
+  function refreshMemberUserSkills(agentId: string): void {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    const host = memberFolderHost(managed.info.userId);
+    const input = memberUserSkillInput(managed);
+    if (!host || !input) return;
+    const key = JSON.stringify(input);
+    if (userSkillsInFlight.get(agentId) === key) return;
+    userSkillsInFlight.set(agentId, key);
+    void fetchUserSkillLists(host, input).then((lists) => {
+      if (userSkillsInFlight.get(agentId) === key)
+        userSkillsInFlight.delete(agentId);
+      const now = agents.get(agentId);
+      if (now !== managed) return;
+      const nowInput = memberUserSkillInput(now);
+      if (!nowInput || JSON.stringify(nowInput) !== key) return;
+      if (lists === null)
+        console.error(
+          `[skills] ${agentId}: the member runner gave no user skill list for ${input.engine}`,
+        );
+      memberUserSkills.set(agentId, { key, lists: lists ?? NO_USER_SKILLS });
+      applySkillMenu(agentId);
+    });
   }
 
   function userSkillRootsFor(managed: ManagedAgent): UserSkillRoot[] {
@@ -280,6 +502,8 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
   // The agent's skills in priority order, deduplicated by name (highest
   // priority wins). The Sk menu lists these.
   function discoverSkillsFor(managed: ManagedAgent): SkillInfo[] {
+    if (memberFolderHost(managed.info.userId))
+      return discoverMemberSkillsFor(managed);
     const claudeConfigDir = claudeConfigDirFor(managed);
     const found = [
       ...discoverUserSkills(userSkillRootsFor(managed)),
@@ -305,6 +529,32 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
         ? discoverSyncedSkills(claudeConfigDir, managed.reportedSkills, listed)
         : []),
     ]);
+  }
+
+  // The same list for an isolated member's agent, in the same order, with
+  // no office read of the member's files: their user, plugin and synced
+  // skills as their runner listed them, their project skills likewise, and
+  // the bundled skills (our code).
+  function discoverMemberSkillsFor(managed: ManagedAgent): SkillInfo[] {
+    const claude = managed.info.agentType === "claude";
+    const lists = cachedUserSkills(managed);
+    const found = [
+      ...userSkillInfos(lists.user, "user"),
+      ...projectSkillsFor(managed.info),
+      ...(claude ? userSkillInfos(lists.plugin, "plugin") : []),
+      ...discoverBundledSkills(),
+    ];
+    const listed = new Set([
+      ...found.map((skill) => skill.name),
+      ...autocompleteCommands(managed.info.agentType).map((c) => c.name),
+    ]);
+    // Live rows need no read; without them, the runner's synced list.
+    const synced = !claude
+      ? []
+      : managed.reportedSkills
+        ? discoverSyncedSkills("", managed.reportedSkills, listed)
+        : userSkillInfos(lists.synced, "user");
+    return deduplicateSkills([...found, ...synced]);
   }
 
   // The live session's command rows, for the account's skills in the menu.
@@ -344,13 +594,30 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
       return;
     }
     if (!managed.launchedSkillFolder) return;
-    memberSkillFolderFor(managed.info, managed.launchedSkillEnv, built);
-    void session.reloadSkills?.().catch((err: unknown) => {
-      console.error(
-        `[skills] reloadSkills failed for ${managed.info.id}:`,
-        errMessage(err),
+    const reload = () =>
+      session.reloadSkills?.().catch((err: unknown) => {
+        console.error(
+          `[skills] reloadSkills failed for ${managed.info.id}:`,
+          errMessage(err),
+        );
+      });
+    // An isolated member's runner builds the folder: Codex reads it again
+    // only after that build answered.
+    const host = hostFor(managed.info.userId);
+    if (host.member !== undefined) {
+      const input = memberSkillFolderInput(
+        managed.info,
+        managed.launchedSkillEnv,
+        host,
       );
-    });
+      if (!input || !managed.info.userId) return;
+      void memberSkillFolders
+        .build(host, managed.info.userId, input)
+        .then((path) => (path === null ? undefined : reload()));
+      return;
+    }
+    memberSkillFolderFor(managed.info, managed.launchedSkillEnv, built);
+    void reload();
   }
 
   // The agent's Sk menu, discovered again now and sent to clients, and its
@@ -364,7 +631,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     if (!managed) return;
     refreshSkillFolder(managed, built);
     applySkillMenu(agentId);
-    refreshMemberProjectSkills(agentId);
+    refreshMemberSkills(agentId);
   }
 
   // The agent's Sk menu, discovered again now and sent to clients.
@@ -521,7 +788,9 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     userSkillRootsFor,
     discoverSkillsFor,
     projectSkillsFor,
-    refreshMemberProjectSkills,
+    refreshMemberSkills,
+    memberUserSkillInput,
+    memberConnected,
     forgetMemberProjectSkills,
     listSessionCommands,
     refreshSkillMenu,

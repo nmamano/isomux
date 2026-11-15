@@ -2,6 +2,7 @@
 // (restoreOrReviveAgent), the boot restore of every agent (restoreAgents) and
 // the OpenCode profile key moves that run before it. Moved out of
 // createAgentManager (server/agent-manager.ts), which wires it.
+import { memberFolderHost } from "./agent-folder.ts";
 import { newFlushState } from "./queue-flush.ts";
 import type { AgentAccess, AgentAccessGrant } from "../shared/agent-access.ts";
 import { versionOf } from "../shared/blob-version.ts";
@@ -148,7 +149,7 @@ export interface AgentRestoreDeps {
   openCodeEnvironmentRevisionForUserId: AgentSkills["openCodeEnvironmentRevisionForUserId"];
   openCodeSkillPathsForUserId: AgentSkills["openCodeSkillPathsForUserId"];
   projectSkillsFor: AgentSkills["projectSkillsFor"];
-  refreshMemberProjectSkills: AgentSkills["refreshMemberProjectSkills"];
+  refreshMemberSkills: AgentSkills["refreshMemberSkills"];
   accessFields: (src: { access?: AgentAccess }) => { access?: AgentAccess };
   accessGrantOf: (src: {
     access?: AgentAccess;
@@ -425,23 +426,27 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       info,
       sessionManager,
       slashCommands: autocompleteCommands(info.agentType),
-      skills: deduplicateSkills([
-        ...discoverUserSkills(discoverySkillRoots),
-        ...deps.projectSkillsFor(info),
-        // Only Claude loads plugin skills.
-        ...(info.agentType === "claude"
-          ? discoverPluginSkills(claudeConfigDirOf(discoveryEnv), p.cwd)
-          : []),
-        ...discoverBundledSkills(),
-        // Account-synced skills are Claude's too.
-        ...(info.agentType === "claude"
-          ? discoverSyncedSkills(
-              claudeConfigDirOf(discoveryEnv),
-              null,
-              new Set(),
-            )
-          : []),
-      ]),
+      // An isolated member's agent: the bundled skills until their runner
+      // lists the rest (refreshMemberSkills below).
+      skills: memberFolderHost(info.userId)
+        ? discoverBundledSkills()
+        : deduplicateSkills([
+            ...discoverUserSkills(discoverySkillRoots),
+            ...deps.projectSkillsFor(info),
+            // Only Claude loads plugin skills.
+            ...(info.agentType === "claude"
+              ? discoverPluginSkills(claudeConfigDirOf(discoveryEnv), p.cwd)
+              : []),
+            ...discoverBundledSkills(),
+            // Account-synced skills are Claude's too.
+            ...(info.agentType === "claude"
+              ? discoverSyncedSkills(
+                  claudeConfigDirOf(discoveryEnv),
+                  null,
+                  new Set(),
+                )
+              : []),
+          ]),
       sdkReportedCommands: [],
       reportedPlugins: null,
       reportedSkills: null,
@@ -524,7 +529,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
         managed.unsavedDelivery = { ...persisted.unsaved, session: null };
     }
     agents.set(p.id, managed);
-    deps.refreshMemberProjectSkills(p.id);
+    deps.refreshMemberSkills(p.id);
     // Mint (or rotate, on revive) the agent's bearer token before any
     // createSession/resumeSession below reads it via buildSessionEnv. Boot
     // restore and revive both funnel here, so "rotated on revive" is automatic;

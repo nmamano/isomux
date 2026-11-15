@@ -12,6 +12,10 @@ import type {
 } from "../shared/types.ts";
 import { memberFolderHost } from "./agent-folder.ts";
 import { fetchProjectSkillPrompt } from "./member-project-skills.ts";
+import {
+  fetchUserSkillPrompt,
+  type UserSkillScanInput,
+} from "./member-user-skills.ts";
 import { SKILL_NAME } from "./project-skill-scan.ts";
 import { hostFor } from "./member-hosts.ts";
 import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
@@ -56,7 +60,11 @@ import {
   cronjobVisibleTo,
   type CronjobViewer,
 } from "./cronjob-visibility.ts";
-import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
+import {
+  resolveSkillPrompt,
+  type MemberSkillPrompts,
+  type UserSkillRoot,
+} from "./skills.ts";
 import { rewriteOpenCodeOfficeCommands } from "./system-prompt.ts";
 import { recordSkillUse } from "./skill-usage.ts";
 import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
@@ -328,6 +336,9 @@ interface HandlerDeps {
   regenerateTopic: (agentId: string) => void;
   // The agent's Sk menu, discovered again now and sent to clients.
   refreshSkillMenu: (agentId: string) => void;
+  // What an isolated member's runner reads for the agent's user, plugin and
+  // synced skills (agent-skills.ts); null for any other agent.
+  memberUserSkillInput: (managed: ManagedAgent) => UserSkillScanInput | null;
   // Asks the agent's engine to load its plugins and config again. Throws
   // when the engine has no reload.
   reloadEnginePlugins: (
@@ -1705,22 +1716,15 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     }
 
-    // An isolated member's project skill is read now by their runner, so it
-    // runs with its current file, as the office reads its own at invocation.
-    // A file it cannot give (over the bound, a failed call) is one line,
-    // never a skill in the menu that does nothing.
-    let memberProject: { prompt: string | null } | undefined;
+    // An isolated member's skills are read now by their runner, so they run
+    // with their current files, as the office reads its own at invocation;
+    // the office reads none of the member's files (user-skill, then
+    // project-skill). A file it cannot give (over the bound, a failed or
+    // silent call) is one line, never a skill in the menu that does nothing.
+    let member: MemberSkillPrompts | undefined;
     const memberHost = memberFolderHost(managed.info.userId);
     if (memberHost) {
-      const read = SKILL_NAME.test(cmd)
-        ? await fetchProjectSkillPrompt(
-            memberHost,
-            managed.info.cwd,
-            managed.info.agentType,
-            cmd,
-          )
-        : ({ kind: "missing" } as const);
-      if (read.kind === "failed") {
+      const unreadable = () => {
         deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
         deps.emitEphemeralLog(
           agentId,
@@ -1728,8 +1732,29 @@ export function createCommandHandling(deps: HandlerDeps) {
           msg("systemEntries.memberSkillUnreadable", { name: cmd }),
         );
         return true;
-      }
-      memberProject = { prompt: read.kind === "ok" ? read.prompt : null };
+      };
+      const input = deps.memberUserSkillInput(managed);
+      if (!input) return unreadable();
+      const user = await fetchUserSkillPrompt(memberHost, input, cmd);
+      if (user.kind === "failed") return unreadable();
+      const found =
+        user.kind === "ok" && user.from !== "synced" ? user.prompt : null;
+      const project =
+        found === null && SKILL_NAME.test(cmd)
+          ? await fetchProjectSkillPrompt(
+              memberHost,
+              managed.info.cwd,
+              managed.info.agentType,
+              cmd,
+            )
+          : ({ kind: "missing" } as const);
+      if (project.kind === "failed") return unreadable();
+      member = {
+        user: found,
+        project: project.kind === "ok" ? project.prompt : null,
+        synced:
+          user.kind === "ok" && user.from === "synced" ? user.prompt : null,
+      };
     }
     const skillPrompt = resolveSkillPrompt(
       cmd,
@@ -1740,7 +1765,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.claudeConfigDirFor(managed),
       managed.reportedPlugins,
       managed.reportedSkills,
-      memberProject,
+      member,
     );
     if (skillPrompt) {
       countUse();

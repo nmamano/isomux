@@ -73,7 +73,10 @@ export const ENTRY_NAMES = new Set([
   "project-skills",
   "project-skill",
   "session-move",
+  "skill-folder",
   "url-probe",
+  "user-skills",
+  "user-skill",
 ]);
 const ENTRY_DIR = join(import.meta.dir, "entries");
 

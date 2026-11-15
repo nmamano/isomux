@@ -1,22 +1,30 @@
 import type { SkillInfo } from "../shared/types.ts";
 import type { SkillEngine } from "../shared/contract-shapes.ts";
 import type { CommandRow, EnginePlugin } from "./backends/types.ts";
-import { isAbsolute, join } from "path";
+import { join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
 import { projectSkillFolders } from "./project-skill-scan.ts";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
 import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from "fs";
+  locatePluginSkills,
+  locateSyncedSkills as locateSyncedSkillsIn,
+  readSkillPrompt,
+  resolvePluginSkillPrompt,
+  scanCommandsDir,
+  scanSkillsDir as scanSkillsDirIn,
+  toSkillInfo,
+  type LocatedSkill,
+} from "./skill-scan.ts";
 
-// Shape of ~/.claude/plugins/installed_plugins.json that we care about.
-interface PluginManifest {
-  plugins?: Record<string, { installPath?: string }[]>;
-}
+export {
+  extractSkillDescription,
+  locatePluginSkills,
+  pluginDirs,
+  pluginInstallPaths,
+  type LocatedSkill,
+  type PluginDir,
+} from "./skill-scan.ts";
 
 // Bundled skills are available to all users, independent of their config.
 export const BUNDLED_SKILLS_DIR = join(import.meta.dir, "..", "skills");
@@ -31,33 +39,6 @@ function normalizeUserSkillRoots(
   includeCommands = true,
 ): UserSkillRoot[] {
   return typeof roots === "string" ? [{ root: roots, includeCommands }] : roots;
-}
-
-// A frontmatter value as written, minus YAML quoting: the skills page writes a
-// description that YAML would misread as a double-quoted string.
-function unquoteScalar(raw: string): string {
-  const value = raw.trim();
-  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      if (typeof parsed === "string") return parsed;
-    } catch {}
-  }
-  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'"))
-    return value.slice(1, -1).replace(/''/g, "'");
-  return value;
-}
-
-export function extractSkillDescription(filePath: string): string | undefined {
-  try {
-    const content = readFileSync(filePath, "utf-8");
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!fmMatch) return undefined;
-    const descMatch = fmMatch[1].match(/description:\s*(.+)/);
-    return descMatch ? unquoteScalar(descMatch[1]) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // Extract description + optional alias from SKILL.md frontmatter. Only
@@ -81,27 +62,6 @@ function extractBundledSkillFrontmatter(filePath: string): {
   }
 }
 
-// A discovered skill plus the file it was read from. The skills page shows and
-// edits that file; every other caller takes the plain SkillInfo projection.
-export interface LocatedSkill extends SkillInfo {
-  // SKILL.md for a skill folder, <name>.md for a command file.
-  path: string;
-  // The folder that was scanned (…/skills or …/commands).
-  dir: string;
-  // The plugin name, for a plugin skill.
-  plugin?: string;
-}
-
-function toSkillInfo(skill: LocatedSkill): SkillInfo {
-  const info: SkillInfo = {
-    name: skill.name,
-    origin: skill.origin,
-    description: skill.description,
-  };
-  if (skill.aliasFor !== undefined) info.aliasFor = skill.aliasFor;
-  return info;
-}
-
 // A link an older session start made: the bundled skill folder of the same
 // name.
 function isBundledSkillLink(dir: string, name: string): boolean {
@@ -115,69 +75,17 @@ function isBundledSkillLink(dir: string, name: string): boolean {
   }
 }
 
-// Scan disk for user-defined skills and commands that the SDK doesn't report.
-// Backend-agnostic dirs (.isomux) come first so they win on name collisions
-// against Claude-specific dirs (.claude); both are still scanned so existing
-// user setups keep working unchanged.
 function scanSkillsDir(
   dir: string,
   origin: SkillInfo["origin"],
   skills: LocatedSkill[],
 ) {
-  if (!existsSync(dir)) return;
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      let isDirectory = entry.isDirectory();
-      if (!isDirectory && entry.isSymbolicLink()) {
-        try {
-          isDirectory = statSync(join(dir, entry.name)).isDirectory();
-        } catch {}
-      }
-      if (isDirectory) {
-        const skillPath = join(dir, entry.name, "SKILL.md");
-        if (!existsSync(skillPath)) continue;
-        // Older session starts linked the bundled skills into the provider homes;
-        // such a link is the bundled skill, listed once with its own origin.
-        if (origin === "user" && isBundledSkillLink(dir, entry.name)) continue;
-        const description = extractSkillDescription(skillPath);
-        skills.push({
-          name: entry.name,
-          origin,
-          description,
-          path: skillPath,
-          dir,
-        });
-      }
-    }
-  } catch {}
+  scanSkillsDirIn(dir, origin, skills, isBundledSkillLink);
 }
 
-function scanCommandsDir(
-  dir: string,
-  origin: SkillInfo["origin"],
-  skills: LocatedSkill[],
-) {
-  if (!existsSync(dir)) return;
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      let isFile = entry.isFile();
-      if (!isFile && entry.isSymbolicLink()) {
-        try {
-          isFile = statSync(join(dir, entry.name)).isFile();
-        } catch {}
-      }
-      if (isFile && entry.name.endsWith(".md")) {
-        const path = join(dir, entry.name);
-        skills.push({
-          name: entry.name.replace(/\.md$/, ""),
-          origin,
-          description: extractSkillDescription(path),
-          path,
-          dir,
-        });
-      }
-    }
-  } catch {}
+// Account-synced Claude Code skills on disk (skill-scan.ts).
+export function locateSyncedSkills(claudeConfigDir: string): LocatedSkill[] {
+  return locateSyncedSkillsIn(claudeConfigDir, isBundledSkillLink);
 }
 
 // The folders the user skills come from, in priority order. The member skill
@@ -189,13 +97,21 @@ export function userSkillFolders(
 ): { skills: string; commands?: string }[] {
   return [
     { skills: join(STATE_ROOT, "skills") },
-    ...normalizeUserSkillRoots(roots, includeCommands).map((source) => ({
-      skills: join(source.root, "skills"),
-      ...(source.includeCommands
-        ? { commands: join(source.root, "commands") }
-        : {}),
-    })),
+    ...rootSkillFolders(normalizeUserSkillRoots(roots, includeCommands)),
   ];
+}
+
+// The skill and command folders of the roots alone, without the office's
+// STATE_ROOT/skills: an isolated member's agent gets only these.
+export function rootSkillFolders(
+  roots: UserSkillRoot[],
+): { skills: string; commands?: string }[] {
+  return roots.map((source) => ({
+    skills: join(source.root, "skills"),
+    ...(source.includeCommands
+      ? { commands: join(source.root, "commands") }
+      : {}),
+  }));
 }
 
 export function locateUserSkills(
@@ -281,192 +197,6 @@ export function discoverProjectSkills(
   return locateProjectSkills(cwd, engine).map(toSkillInfo);
 }
 
-// Every installed plugin's install folder, whether or not it has a skill a
-// member can run. The skills page keeps files under these read-only.
-export function pluginInstallPaths(
-  claudeConfigDir = join(homedir(), ".claude"),
-): string[] {
-  let manifest: PluginManifest;
-  try {
-    manifest = JSON.parse(
-      readFileSync(
-        join(claudeConfigDir, "plugins", "installed_plugins.json"),
-        "utf-8",
-      ),
-    ) as PluginManifest;
-  } catch {
-    return [];
-  }
-  if (!manifest.plugins || typeof manifest.plugins !== "object") return [];
-  return Object.values(manifest.plugins).flatMap((entries) =>
-    Array.isArray(entries)
-      ? entries.flatMap((e) =>
-          typeof e?.installPath === "string" ? [e.installPath] : [],
-        )
-      : [],
-  );
-}
-
-// A plugin folder whose skills the Sk menu lists and skill lookup reads.
-export interface PluginDir {
-  name: string;
-  // name@marketplace
-  key?: string;
-  path: string;
-}
-
-// The enabledPlugins map of one settings file, or {} when it has none.
-function readEnabledPlugins(path: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
-    const enabled =
-      parsed && typeof parsed === "object"
-        ? (parsed as { enabledPlugins?: unknown }).enabledPlugins
-        : undefined;
-    return enabled && typeof enabled === "object"
-      ? (enabled as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-// The plugins an agent runs. With `reported` (the live Claude process's
-// list) that list is the answer: the CLI's enable rules are richer than a
-// settings read. Without it, the plugins installed_plugins.json lists whose
-// value in the winning settings file (user, then project, then local) is
-// true; a missing key does not load in the CLI either (measured 2026-10-20).
-export function pluginDirs(
-  claudeConfigDir: string,
-  cwd?: string,
-  reported?: EnginePlugin[] | null,
-): PluginDir[] {
-  if (reported) {
-    return reported.flatMap((p) =>
-      isAbsolute(p.path) && existsSync(p.path)
-        ? [{ name: p.name, key: p.source, path: p.path }]
-        : [],
-    );
-  }
-  let manifest: PluginManifest;
-  try {
-    manifest = JSON.parse(
-      readFileSync(
-        join(claudeConfigDir, "plugins", "installed_plugins.json"),
-        "utf-8",
-      ),
-    ) as PluginManifest;
-  } catch {
-    return [];
-  }
-  if (!manifest.plugins || typeof manifest.plugins !== "object") return [];
-  const enabled = Object.assign(
-    {},
-    readEnabledPlugins(join(claudeConfigDir, "settings.json")),
-    ...(cwd
-      ? [
-          readEnabledPlugins(join(cwd, ".claude", "settings.json")),
-          readEnabledPlugins(join(cwd, ".claude", "settings.local.json")),
-        ]
-      : []),
-  ) as Record<string, unknown>;
-  const dirs: PluginDir[] = [];
-  for (const [key, entries] of Object.entries(manifest.plugins)) {
-    if (enabled[key] !== true) continue;
-    if (!Array.isArray(entries) || entries.length === 0) continue;
-    const installPath = entries[0].installPath;
-    if (!installPath || !existsSync(installPath)) continue;
-    dirs.push({ name: key.split("@")[0], key, path: installPath });
-  }
-  return dirs;
-}
-
-// Scan the skills of the plugins an agent runs (pluginDirs).
-export function locatePluginSkills(
-  claudeConfigDir = join(homedir(), ".claude"),
-  cwd?: string,
-  reported?: EnginePlugin[] | null,
-): LocatedSkill[] {
-  const skills: LocatedSkill[] = [];
-  for (const { name: pluginName, path: installPath } of pluginDirs(
-    claudeConfigDir,
-    cwd,
-    reported,
-  )) {
-    // skills/<name>/SKILL.md (check user-invocable frontmatter)
-    const skillsDir = join(installPath, "skills");
-    if (existsSync(skillsDir)) {
-      try {
-        for (const d of readdirSync(skillsDir, { withFileTypes: true })) {
-          if (!d.isDirectory()) continue;
-          const skillMd = join(skillsDir, d.name, "SKILL.md");
-          if (!existsSync(skillMd)) continue;
-          try {
-            const content = readFileSync(skillMd, "utf-8");
-            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fmMatch && /user-invocable:\s*false/i.test(fmMatch[1]))
-              continue;
-          } catch {}
-          const description = extractSkillDescription(skillMd);
-          skills.push({
-            name: `${pluginName}:${d.name}`,
-            origin: "plugin",
-            description,
-            path: skillMd,
-            dir: skillsDir,
-            plugin: pluginName,
-          });
-        }
-      } catch {}
-    }
-
-    // commands/<name>.md (legacy format, always user-invocable)
-    const cmdsDir = join(installPath, "commands");
-    if (existsSync(cmdsDir)) {
-      try {
-        for (const f of readdirSync(cmdsDir, { withFileTypes: true })) {
-          if (f.isFile() && f.name.endsWith(".md")) {
-            const path = join(cmdsDir, f.name);
-            skills.push({
-              name: `${pluginName}:${f.name.replace(/\.md$/, "")}`,
-              origin: "plugin",
-              description: extractSkillDescription(path),
-              path,
-              dir: cmdsDir,
-              plugin: pluginName,
-            });
-          }
-        }
-      } catch {}
-    }
-  }
-  return skills;
-}
-
-// Account-synced Claude Code skills on disk:
-// <claudeConfigDir>/skills/synced/<bucket>/<name>/SKILL.md, by folder name.
-// The first bucket wins a name.
-export function locateSyncedSkills(claudeConfigDir: string): LocatedSkill[] {
-  const syncedDir = join(claudeConfigDir, "skills", "synced");
-  let buckets: string[];
-  try {
-    buckets = readdirSync(syncedDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-  } catch {
-    return [];
-  }
-  const found: LocatedSkill[] = [];
-  for (const bucket of buckets) {
-    const skills: LocatedSkill[] = [];
-    scanSkillsDir(join(syncedDir, bucket), "user", skills);
-    for (const skill of skills)
-      if (!found.some((s) => s.name === skill.name)) found.push(skill);
-  }
-  return found;
-}
-
 // The account's skills that the rest of the menu does not list. With `rows`
 // (the live Claude process's commands) the answer is its non-builtin,
 // non-mcp__ rows whose name and aliases are not in `listed`; without it, the
@@ -512,39 +242,45 @@ export function deduplicateSkills(skills: SkillInfo[]): SkillInfo[] {
   return result;
 }
 
-function readSkillFile(path: string): string | null {
-  if (!existsSync(path)) return null;
-  try {
-    const content = readFileSync(path, "utf-8");
-    const stripped = content.replace(/^---\n[\s\S]*?\n---\n*/, "");
-    return stripped.trim();
-  } catch {
-    return null;
-  }
+// The prompts an isolated member's runner read now for one name
+// (member-user-skills.ts, member-project-skills.ts): the office reads none
+// of the member's files, so these stand in for every read but the bundled
+// skills. Null where the runner found nothing.
+export interface MemberSkillPrompts {
+  // A user skill, or the plugin skill for a plugin name.
+  user: string | null;
+  project: string | null;
+  // A synced skill on disk (only when no live rows replace it).
+  synced: string | null;
 }
 
-// Resolve a plugin-namespaced skill (e.g., "codex:rescue") to its prompt text
-function resolvePluginSkillPrompt(
-  pluginName: string,
-  skillName: string,
-  claudeConfigDir: string,
-  cwd: string,
-  reported?: EnginePlugin[] | null,
-): string | null {
-  const plugin = pluginDirs(claudeConfigDir, cwd, reported).find(
-    (p) => p.name === pluginName,
-  );
-  if (!plugin) return null;
-  return (
-    readSkillFile(join(plugin.path, "skills", skillName, "SKILL.md")) ??
-    readSkillFile(join(plugin.path, "commands", `${skillName}.md`))
-  );
+// A bundled skill's prompt by its name or its alias.
+function bundledSkillPrompt(name: string): string | null {
+  const prompt = readSkillPrompt(join(BUNDLED_SKILLS_DIR, name, "SKILL.md"));
+  if (prompt !== null) return prompt;
+  // Bundled-skill alias fallback: scan SKILL.md frontmatter for `alias: <name>`.
+  if (existsSync(BUNDLED_SKILLS_DIR)) {
+    try {
+      for (const entry of readdirSync(BUNDLED_SKILLS_DIR, {
+        withFileTypes: true,
+      })) {
+        if (!entry.isDirectory()) continue;
+        const skillMd = join(BUNDLED_SKILLS_DIR, entry.name, "SKILL.md");
+        const { alias } = extractBundledSkillFrontmatter(skillMd);
+        if (alias === name) return readSkillPrompt(skillMd);
+      }
+    } catch {}
+  }
+  return null;
 }
 
 // Resolve a skill name to its prompt text. This uses the same ordered user
 // roots as discovery, then the engine's project folders and bundled skills. The first match
 // wins in both paths; plugin-namespaced skills are resolved separately.
 // Plugin-namespaced skills ("pluginName:skillName") short-circuit above the list.
+// An isolated member's agent passes `member` and gets the same order with no
+// office read of their files: user, project, bundled, synced; a plugin name
+// only the runner's plugin read.
 export function resolveSkillPrompt(
   name: string,
   cwd: string,
@@ -556,11 +292,14 @@ export function resolveSkillPrompt(
   pluginRoot?: string,
   reported?: EnginePlugin[] | null,
   reportedSkills?: CommandRow[] | null,
-  // An isolated member's agent: the project skill's prompt as their runner
-  // read it now (member-project-skills.ts), in place of a read of the
-  // project folders, which the office never reads for them.
-  memberProject?: { prompt: string | null },
+  member?: MemberSkillPrompts,
 ): string | null {
+  if (member) {
+    if (name.includes(":")) return engine === "claude" ? member.user : null;
+    return (
+      member.user ?? member.project ?? bundledSkillPrompt(name) ?? member.synced
+    );
+  }
   const normalizedRoots = normalizeUserSkillRoots(roots, includeCommands);
   const claudeConfigDir =
     pluginRoot ?? normalizedRoots[0]?.root ?? join(homedir(), ".claude");
@@ -586,39 +325,17 @@ export function resolveSkillPrompt(
         : []),
     ]),
   ];
-  const projectCandidates = memberProject
-    ? []
-    : projectSkillFolders(cwd, engine).map((folder) =>
-        folder.commands
-          ? join(folder.dir, `${name}.md`)
-          : join(folder.dir, name, "SKILL.md"),
-      );
-  for (const path of userCandidates) {
-    const prompt = readSkillFile(path);
+  const projectCandidates = projectSkillFolders(cwd, engine).map((folder) =>
+    folder.commands
+      ? join(folder.dir, `${name}.md`)
+      : join(folder.dir, name, "SKILL.md"),
+  );
+  for (const path of [...userCandidates, ...projectCandidates]) {
+    const prompt = readSkillPrompt(path);
     if (prompt !== null) return prompt;
   }
-  if (memberProject?.prompt) return memberProject.prompt;
-  for (const path of [
-    ...projectCandidates,
-    join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
-  ]) {
-    const prompt = readSkillFile(path);
-    if (prompt !== null) return prompt;
-  }
-
-  // Bundled-skill alias fallback: scan SKILL.md frontmatter for `alias: <name>`.
-  if (existsSync(BUNDLED_SKILLS_DIR)) {
-    try {
-      for (const entry of readdirSync(BUNDLED_SKILLS_DIR, {
-        withFileTypes: true,
-      })) {
-        if (!entry.isDirectory()) continue;
-        const skillMd = join(BUNDLED_SKILLS_DIR, entry.name, "SKILL.md");
-        const { alias } = extractBundledSkillFrontmatter(skillMd);
-        if (alias === name) return readSkillFile(skillMd);
-      }
-    } catch {}
-  }
+  const bundled = bundledSkillPrompt(name);
+  if (bundled !== null) return bundled;
 
   // Account-synced skills, last as in the menu, and Claude's only. A live
   // process's rows replace this read: its skills run in the process.
@@ -626,7 +343,7 @@ export function resolveSkillPrompt(
     const synced = locateSyncedSkills(claudeConfigDir).find(
       (skill) => skill.name === name,
     );
-    if (synced) return readSkillFile(synced.path);
+    if (synced) return readSkillPrompt(synced.path);
   }
   return null;
 }

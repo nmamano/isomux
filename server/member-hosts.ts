@@ -78,6 +78,17 @@ const retries = new Map<string, ReturnType<typeof setTimeout>>();
 const moving = new Set<string>();
 const MOVING_REASON = "the member's files are moving";
 let connectedHook: ((userId: string) => void) | null = null;
+// Called after each connect of a member who is not moving: the office's
+// own work for a connected member, such as their skill lists and folders.
+const connectedListeners = new Set<(userId: string) => void>();
+
+// Adds a listener; the result removes it.
+export function onMemberConnected(
+  listener: (userId: string) => void,
+): () => void {
+  connectedListeners.add(listener);
+  return () => connectedListeners.delete(listener);
+}
 
 // The secret proxy's side of a member connect (secret-proxy/runtime.ts),
 // set at boot: the tie of the member's uid, and the text of the CA bundle.
@@ -722,6 +733,15 @@ async function connectNow(userId: string): Promise<boolean> {
   // member's agents start.
   if (deps.caBundle() !== bundleWritten) await writeCaBundleTo(userId, share);
   console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
+  if (!moving.has(userId))
+    for (const listener of connectedListeners)
+      try {
+        listener(userId);
+      } catch (error) {
+        console.error(
+          `[member-hosts] ${userId}: a connect listener failed: ${(error as Error).message}`,
+        );
+      }
   if (!moving.has(userId) && connectedHook) {
     try {
       connectedHook(userId);

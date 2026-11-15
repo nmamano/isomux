@@ -1915,6 +1915,110 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
         uid: after[1]?.uid,
       }).toEqual({ listed: true, v1: true, v2: true, uid: aliceUid() });
     }, 400_000);
+
+    // Slice 2d-iii-a: Alice's agent gets her own skills and the bundled ones,
+    // and no office skill (the box ~/.claude or STATE_ROOT/skills), in the
+    // menu or at an invocation. Her skill folder is in her agent space, hers,
+    // and links only below her home.
+    it("gives a member's agent her own and the bundled skills, no office skill, and a skill folder of hers", async () => {
+      const officeSkill = "/var/data/home/.claude/skills/rig-office-only";
+      const stateSkill = `${STATE}/skills/rig-state-only`;
+      root(
+        name,
+        `for d in ${officeSkill} ${stateSkill}; do mkdir -p $d && printf -- '---\\nname: %s\\n---\\nRIG_OFFICE_BODY\\n' $(basename $d) > $d/SKILL.md; done && chown -R ${OFFICE_UID} /var/data/home/.claude ${STATE}/skills`,
+      );
+      const own = `${home}/.claude/skills/rig-alice-own`;
+      expect(
+        sh(
+          name,
+          ALICE,
+          `mkdir -p ${own} && printf -- '---\\nname: rig-alice-own\\ndescription: Alice\\n---\\nRIG_ALICE_BODY\\n' > ${own}/SKILL.md && mkdir -p ${home}/r6-skills`,
+        ).status,
+      ).toBe(0);
+      const id = idOf(
+        spawnAlice("skills own", `${home}/r6-skills`),
+        "skills own",
+      );
+      let listed: string[] = [];
+      await waitFor(
+        "Alice's own skill in the menu",
+        () => {
+          listed = openLog(id).names;
+          return listed.includes("rig-alice-own");
+        },
+        90_000,
+      ).catch(() => undefined);
+      // Her own skill and a bundled one run, each in its own turn.
+      send(id, "/rig-alice-own");
+      const [ownReport] = await reportsOf(id, 1);
+      // An office skill's name is no skill for her: it starts no turn with
+      // its body, and the office answers with a system line (not stored on
+      // disk) that names it. Each is sent once the one before is answered.
+      const refused: Record<string, boolean> = {};
+      for (const skill of ["rig-office-only", "rig-state-only"]) {
+        const since = Date.now();
+        send(id, `/${skill}`);
+        refused[skill] = await waitFor(
+          `the answer to /${skill}`,
+          () => linesOf(id, since).some((l) => l.includes(skill)),
+          30_000,
+        ).then(
+          () => true,
+          () => false,
+        );
+      }
+      send(id, "/wrap-session");
+      // Its turn's report: the second one, after her own skill's.
+      const wrap = (await reportsOf(id, 2)).find((r) =>
+        String(r?.said ?? "").includes("# Wrap Session"),
+      );
+      expect({
+        own: listed.includes("rig-alice-own"),
+        bundled: listed.includes("wrap-session"),
+        office: listed.includes("rig-office-only"),
+        state: listed.includes("rig-state-only"),
+      }).toEqual({ own: true, bundled: true, office: false, state: false });
+      expect(refused).toEqual({
+        "rig-office-only": true,
+        "rig-state-only": true,
+      });
+      expect(String(ownReport?.said ?? "")).toContain("RIG_ALICE_BODY");
+      expect(wrap?.uid).toBe(aliceUid());
+      // The office body is nowhere in her chat log or her Claude transcripts.
+      expect(
+        root(
+          name,
+          `grep -rl RIG_OFFICE_BODY ${STATE}/logs/${id} ${home}/.claude/projects 2>/dev/null | head -1`,
+        ).out.trim(),
+      ).toBe("");
+
+      // Her skill folder: in her agent space, every entry hers, every link
+      // resolving below her home, and closed to Bob.
+      const folders = `${home}/.isomux-agent/skill-folders`;
+      await waitFor(
+        "Alice's skill folder",
+        () => root(name, `ls ${folders}/claude 2>/dev/null`).out.trim() !== "",
+      );
+      const owners = root(
+        name,
+        `find ${folders} -printf '%u\\n' | sort -u`,
+      ).out.trim();
+      expect(owners).toBe(ALICE);
+      const targets = root(
+        name,
+        `find ${folders} -type l -exec readlink -f {} \\;`,
+      )
+        .out.trim()
+        .split("\n")
+        .filter(Boolean);
+      expect(targets.length).toBeGreaterThan(0);
+      expect(targets.filter((t) => !t.startsWith(`${home}/`))).toEqual([]);
+      // Claude reads her ~/.claude/skills by itself: her own skill stays out.
+      expect(targets.some((t) => t.includes("rig-alice-own"))).toBe(false);
+      expect(targets.some((t) => t.includes("/bundled/"))).toBe(true);
+      expect(sh(name, BOB, `ls ${folders}`).status).not.toBe(0);
+      root(name, `rm -rf ${officeSkill} ${stateSkill}`);
+    }, 400_000);
   });
 
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {

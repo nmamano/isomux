@@ -69,12 +69,12 @@ function skillFile(folder: { dir: string; commands?: true }, name: string) {
     : join(folder.dir, name, "SKILL.md");
 }
 
-function utf8Bytes(text: string): number {
+export function utf8Bytes(text: string): number {
   return Buffer.byteLength(text, "utf8");
 }
 
 // `text` cut to at most `max` UTF-8 bytes, on a character boundary.
-function cutToBytes(text: string, max: number): string {
+export function cutToBytes(text: string, max: number): string {
   if (utf8Bytes(text) <= max) return text;
   let out = "";
   let size = 0;
@@ -88,17 +88,20 @@ function cutToBytes(text: string, max: number): string {
 }
 
 // At most `max` bytes of a regular file, opened without following a final
-// link; null when the file is absent or not a regular file. `over` is true
-// when the file has more.
-function readBounded(
+// link unless `follow`; null when the file is absent or not a regular file.
+// `over` is true when the file has more.
+export function readBounded(
   path: string,
   max: number,
+  follow = false,
 ): { text: string; over: boolean } | null {
   let fd: number;
   try {
     fd = openSync(
       path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      constants.O_RDONLY |
+        constants.O_NONBLOCK |
+        (follow ? 0 : constants.O_NOFOLLOW),
     );
   } catch {
     return null;
@@ -122,7 +125,7 @@ function readBounded(
 }
 
 // The description in a skill file's frontmatter, as skills.ts reads it.
-function description(text: string): string | undefined {
+export function description(text: string): string | undefined {
   const fm = text.match(/^---\n([\s\S]*?)\n---/);
   const raw = fm?.[1].match(/description:\s*(.+)/)?.[1];
   if (raw === undefined) return undefined;
