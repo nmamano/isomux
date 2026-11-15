@@ -74,7 +74,7 @@ Other surfaces checked:
   These are covered by the normal log path.
 - Attachments: persistence.ts:saveFile writes the original file bytes.
   The scanner checks attachment metadata on entries, not file contents.
-- Backups: server/backup.ts runs tar on existing state. It copies logs and
+- Backups: server/backup.ts copies existing state as it is. It copies logs and
   backend transcripts without transforming them; old secrets can remain.
 - UI-only entries: emitEphemeralLog bypasses addLogEntry. These entries reach
   the UI but never disk and remain outside this change.

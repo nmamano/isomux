@@ -22,6 +22,7 @@
 import { join } from "path";
 import { sessionIdOfTranscript } from "./transcript-files.ts";
 import { readdirSync, lstatSync } from "fs";
+import { backupFolderUsage } from "./backup-copies.ts";
 import type {
   StorageCategoryId,
   StorageCategoryWire,
@@ -275,7 +276,8 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
       bytes: Math.max(0, total.bytes - claimedBytes),
       files: Math.max(0, total.files - claimedFiles),
     }),
-    cat("backups", backupDir, backupDir ? measureTree(backupDir) : ZERO),
+    // The copies share files: each byte once (backup-copies.ts).
+    cat("backups", backupDir, backupDir ? backupFolderUsage(backupDir) : ZERO),
     cat(
       "update-snapshots",
       snapshotDir,

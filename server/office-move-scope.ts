@@ -5,7 +5,7 @@
 // needs the disk, so the walk and the batch apply it (office-move-pull.ts).
 
 import { isAbsolute, relative, sep } from "node:path";
-import { BACKUP_EXCLUSIONS } from "./backup-exclusions.ts";
+import { BACKUP_EXCLUSIONS, tarGlobSource } from "./backup-exclusions.ts";
 import { BACKEND_CREDENTIAL_PATHS } from "./backend-credential-paths.ts";
 import {
   MOVE_CANCELLED_FILE,
@@ -98,22 +98,6 @@ function relInHome(home: string, path: string | null): string | null {
 }
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-// A glob as tar reads an exclusion (GNU tar --anchored --wildcards): "*"
-// matches any run of characters, "/" too; "?" one character; "\x" a literal
-// x. As tar does not enter an excluded folder, the pattern also covers all
-// it holds.
-function tarGlobSource(glob: string): string {
-  let out = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "\\" && i + 1 < glob.length) out += escapeRegex(glob[++i]);
-    else if (c === "*") out += ".*";
-    else if (c === "?") out += ".";
-    else out += escapeRegex(c);
-  }
-  return out;
-}
 
 const rooted = (source: string) => `^(?:${source})(?:/.*)?$`;
 

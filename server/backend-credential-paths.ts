@@ -52,7 +52,7 @@ export const BACKEND_CREDENTIAL_PATHS: readonly BackendCredentialPath[] = [
   // auth.json is a generic name (locale files, fixtures), so unlike the
   // Claude entry this one matches only the directory shapes Isomux uses. A
   // member who sets CODEX_HOME elsewhere is covered by codexLoginFile in the
-  // safety policy; the backup archive excludes only the shapes below.
+  // safety policy; the backup leaves out only the shapes below.
   {
     id: "codex-login",
     pattern:

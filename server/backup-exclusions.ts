@@ -1,7 +1,7 @@
 // The backup's exclusion list (moved out of server/backup.ts so the office
 // move can share it without loading the backup scheduler; task 78733adf).
 // Each entry is a credential or secret store the daily backup leaves out, as
-// tar globs rooted at the state root's name. The office move leaves out the
+// globs in tar's syntax (tarGlobSource) rooted at the state root's name. The office move leaves out the
 // same entries (server/office-move-scope.ts).
 
 import { readdirSync } from "fs";
@@ -17,6 +17,29 @@ export interface BackupExclusion {
   archivePatterns: (stateRootName: string) => string[];
 }
 
+// A state root named like a glob (".isomux[1]") must match only itself, or
+// its exclusions would miss.
+export function escapeGlob(name: string): string {
+  return name.replace(/[\\*?[\]]/g, "\\$&");
+}
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// A glob as tar reads an exclusion (GNU tar --anchored --wildcards): "*"
+// matches any run of characters, "/" too; "?" one character; "\x" a literal
+// x. The backup and the office move both test paths with it.
+export function tarGlobSource(glob: string): string {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "\\" && i + 1 < glob.length) out += escapeRegex(glob[++i]);
+    else if (c === "*") out += ".*";
+    else if (c === "?") out += ".";
+    else out += escapeRegex(c);
+  }
+  return out;
+}
+
 function rootedDirectory(root: string, path: string): string[] {
   return [`${root}/${path}`, `${root}/${path}/*`];
 }
@@ -26,13 +49,13 @@ function backendExclusions(entry: BackendCredentialPath): BackupExclusion[] {
   return [{ id: entry.id, archivePatterns: entry.archivePatterns }];
 }
 
-// One list drives the tar exclusions. Locations are rooted because GNU
-// tar exclusion wildcards otherwise match the same directory name inside an
+// One list drives the exclusions. Locations are rooted because a glob's "*"
+// (tarGlobSource) otherwise matches the same directory name inside an
 // app's customer-owned data. Backend credential names use the shared matcher
 // from backend-credential-paths.ts and can occur in a configured home at any
 // depth. Transcripts and logs stay: they can incidentally contain user text,
 // but they are not credential stores and removing them would destroy history
-// without making an archive secret-free.
+// without making a copy secret-free.
 export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   {
     id: "app-runtime-credentials",
@@ -150,7 +173,7 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
 // What Isomux or a backend makes again, so the daily backup leaves it out
 // (task 1426371a): package and plugin caches, temp folders and the built
 // Codex safety hook. Paths are relative to the state root and literal: they
-// are read from the disk at each run, because a tar glob's "*" also matches
+// are read from the disk at each run, because a glob's "*" also matches
 // "/" and would drop a folder of the same name deep in an agent's home. Kept
 // apart from BACKUP_EXCLUSIONS, which the office move reports as sign-ins.
 // The move still copies these paths.
@@ -181,15 +204,15 @@ export function regenerableBackupPaths(stateRoot: string): string[] {
 }
 
 // The names in a folder of the state root. A folder that is missing gives
-// none; one that cannot be read is logged and gives none, so the archive is
-// only bigger.
+// none; one that cannot be read is logged and gives none, so the copy is only
+// bigger.
 function subfolders(stateRoot: string, rel: string): string[] {
   try {
     return readdirSync(join(stateRoot, rel));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT")
       console.warn(
-        `[backup] cannot list ${rel}, its caches stay in the archive: ${errMessage(err)}`,
+        `[backup] cannot list ${rel}, its caches stay in the copy: ${errMessage(err)}`,
       );
     return [];
   }

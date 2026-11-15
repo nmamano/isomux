@@ -6196,7 +6196,8 @@ function runBackgroundBoot(
     mcpOAuthTimer = setInterval(refresh, MCP_OAUTH_TICK_MS);
   }
 
-  // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
+  // The daily backup of the state root, as the backup settings say. See
+  // server/backup.ts.
   if (!startOpts.skipBackups) startBackupScheduler();
 
   if (!startOpts.quiet)

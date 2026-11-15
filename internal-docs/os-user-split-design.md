@@ -191,7 +191,7 @@ The `logDir` field of `GET /agents` points into `STATE_ROOT/logs`. In split mode
 
 ### 3.5 Backups
 
-`backup.ts` archives `STATE_ROOT`. App data moves to agent space. Isomux PM ruling (slice 6, 2026-10-06): the runner streams a `tar` of all of `AGENT_ROOT`, with the same credential exclusions rooted there, into the archive; the server's own `tar` takes `STATE_ROOT` and `SHARE_ROOT/files`. A split backup holds what a single-user backup holds, and the restore steps must work or be updated. Since slice 6 was parked, main snapshots the office SQLite database into the archive (`OFFICE_DATABASE`, server/backup.ts), so the split archive must keep that snapshot. `STATE_ROOT/secrets/` joins the credential exclusions (secrets-design.md 1).
+`backup.ts` archives `STATE_ROOT`. Since task 1426371a it writes a folder copy, not a tar, so the runner part below needs a new design. App data moves to agent space. Isomux PM ruling (slice 6, 2026-10-06): the runner streams a `tar` of all of `AGENT_ROOT`, with the same credential exclusions rooted there, into the archive; the server's own `tar` takes `STATE_ROOT` and `SHARE_ROOT/files`. A split backup holds what a single-user backup holds, and the restore steps must work or be updated. Since slice 6 was parked, main snapshots the office SQLite database into the archive (`OFFICE_DATABASE`, server/backup.ts), so the split archive must keep that snapshot. `STATE_ROOT/secrets/` joins the credential exclusions (secrets-design.md 1).
 
 ## 4. The fence (ruling 5)
 
