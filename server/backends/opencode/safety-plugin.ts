@@ -19,9 +19,11 @@ import {
 } from "../../safety-policy.ts";
 import { openCodeAgentStop, openCodeAllowedTools } from "./stop-rules.ts";
 import {
+  OPENCODE_DENIAL_EVENT,
   OPENCODE_SAFETY_PLUGIN_ID,
   OPENCODE_SERVER_ONLY_VARIABLES,
   OPENCODE_SHELL_VARIABLES,
+  type OpenCodeDenialReport,
 } from "./safety-plugin-tool.ts";
 import type { OpenCodeSafetyShell } from "./safety-plugin-build.ts";
 
@@ -161,6 +163,9 @@ interface ToolEvent {
   input: unknown;
   sessionID?: string;
   agent?: string;
+  // The call's assistant message and id: the transport's key of the call.
+  messageID?: string;
+  id?: string;
 }
 
 interface ShellEvent {
@@ -170,6 +175,30 @@ interface ShellEvent {
 interface Registration {
   dispose(): Promise<void>;
 }
+
+// What the RPC registration gives: its events' emitter.
+interface RpcRegistration {
+  events: { emit(name: string, data: unknown): Promise<void> | void };
+}
+
+// The RPC that carries the refusal reports (task fcfffe51). It has no
+// methods; its one event takes any object (a Standard Schema that passes the
+// value through).
+const DENIAL_RPC = {
+  id: OPENCODE_SAFETY_PLUGIN_ID,
+  methods: {},
+  events: {
+    [OPENCODE_DENIAL_EVENT]: {
+      schema: {
+        "~standard": {
+          version: 1,
+          vendor: "isomux",
+          validate: (value: unknown) => ({ value }),
+        },
+      },
+    },
+  },
+};
 
 // The parts of the @opencode/plugin promise context this plugin uses.
 interface PluginContext {
@@ -190,6 +219,46 @@ interface PluginContext {
       callback: (event: ShellEvent) => void,
     ): Promise<Registration>;
   };
+  // Absent before OpenCode 2.2.
+  rpc?: {
+    register(
+      definition: typeof DENIAL_RPC,
+      handlers: Record<string, never>,
+    ): Promise<RpcRegistration>;
+  };
+}
+
+// The RPC's emitter, or null when it cannot be registered (an OpenCode
+// without the API, or a rejection): the refusals then have no card, and the
+// safety hooks still install. A plugin of the same OpenCode instance that
+// registers this id first fails the instance's plugin load instead, which
+// the transport's plugin check refuses (internal-docs/safety-hooks.md).
+async function registerDenialRpc(
+  ctx: PluginContext,
+): Promise<RpcRegistration | null> {
+  try {
+    return (await ctx.rpc?.register(DENIAL_RPC, {})) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Reports a refused call to the transport, which shows its refused card,
+// and settles once the report is out or failed. A call with no key is not
+// reported.
+async function reportDenial(
+  rpc: RpcRegistration | null,
+  event: ToolEvent,
+  reason: string,
+): Promise<void> {
+  const { sessionID, messageID, id } = event;
+  if (!rpc || !sessionID || !messageID || !id) return;
+  const report: OpenCodeDenialReport = { sessionID, messageID, id, reason };
+  try {
+    await rpc.events.emit(OPENCODE_DENIAL_EVENT, report);
+  } catch {
+    // The card is lost; the refusal stands.
+  }
 }
 
 // A tool call of a stop agent below standard: the policy with the folder
@@ -269,15 +338,32 @@ export default {
   // transport sends prompts from then on: setup waits for both hooks.
   async setup(ctx: PluginContext): Promise<void> {
     const directory = ctx.location.directory;
+    const rpc = await registerDenialRpc(ctx);
+    // Every throw is rethrown after its report: a mapping or policy error
+    // throws too, and OpenCode fails the call. A hook that caught and
+    // allowed would fail open.
+    const refuse = async (event: ToolEvent, error: unknown): Promise<never> => {
+      await reportDenial(
+        rpc,
+        event,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    };
     await Promise.all([
-      // No catch: a mapping or policy error throws too, and OpenCode fails
-      // the call. A hook that caught and allowed would fail open.
       ctx.tool.hook("execute.before", (event): void | Promise<void> => {
         // A stop agent below standard (task e77304b1): the session's own
         // rules name its tools; anything else is refused.
         const stop = event.agent ? openCodeAgentStop(event.agent) : null;
-        if (stop) return confinedCall(ctx, directory, stop, event);
-        check(openCodeToolActions(event.tool, event.input, directory) ?? []);
+        if (stop)
+          return confinedCall(ctx, directory, stop, event).catch(
+            (error: unknown) => refuse(event, error),
+          );
+        try {
+          check(openCodeToolActions(event.tool, event.input, directory) ?? []);
+        } catch (error) {
+          return refuse(event, error);
+        }
       }),
       // E2: a shell of a session whose environment Isomux did not set (a
       // subagent's, before its PUT lands) starts from the server's, which

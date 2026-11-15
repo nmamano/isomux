@@ -114,6 +114,7 @@ import {
   type AttachmentDelivery,
 } from "../attachment-prompt.ts";
 import { createSafetyHooksForEnv, type SafetyDenial } from "../safety-hooks.ts";
+import { safetyDenialEvent } from "./safety-denial.ts";
 import type { FolderConfinement } from "../safety-policy.ts";
 import {
   belowStandard,
@@ -1046,20 +1047,6 @@ class SafetyDenials {
   }
 }
 
-// The refused card of a hook refusal: the reason on one line, and its
-// "Reason:" line as the card's text.
-function hookDenialEvent(denial: SafetyDenial): NormalizedEvent {
-  const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
-  const reasonLine = /^Reason: (.+)$/m.exec(denial.reason)?.[1];
-  return {
-    kind: "permission_denied",
-    toolUseId: denial.toolUseId,
-    toolName: denial.toolName,
-    message: oneLine(denial.reason),
-    decisionReason: oneLine(reasonLine ?? denial.reason),
-  };
-}
-
 // Exported for test injection; non-test consumers should go through
 // `claudeBackend.createSession` / `claudeBackend.resumeSession`.
 export class ClaudeSession implements BackendSession {
@@ -1211,7 +1198,7 @@ export class ClaudeSession implements BackendSession {
               : undefined;
           const out =
             denial && ev.kind === "tool_result"
-              ? [hookDenialEvent(denial), ev]
+              ? [safetyDenialEvent(denial), ev]
               : [ev];
           for (const one of out) {
             if (limitSentence) this.heldLimitEvents.push(one);

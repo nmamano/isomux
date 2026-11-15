@@ -39,6 +39,11 @@ import {
 import { runFolderFiles } from "../folder-files-host.ts";
 import type { Identity } from "../identity/index.ts";
 import { prepareCodexSafetyHookArtifact } from "./codex/safety-hook-install.ts";
+import {
+  CODEX_REFUSAL_PREFIX,
+  evaluateCodexHookEnvelope,
+  SAFETY_WARNING,
+} from "./codex/safety-hook.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { NormalizedEvent } from "./types.ts";
 
@@ -215,8 +220,13 @@ beforeAll(async () => {
         return new Response(null, { status: 404 });
       }
       const i = requests.length;
-      requests.push(JSON.parse(await req.text()) as Record<string, unknown>);
-      const next = script[i] ?? "done";
+      const body = JSON.parse(await req.text()) as Record<string, unknown>;
+      // The script answers the session's own requests (the agent's model)
+      // in order. At Standard, Codex's memory pass sends requests on another
+      // model in a thread of its own: those get "done" (task fcfffe51).
+      const turn = requests.filter((r) => r.model === MODEL).length;
+      requests.push(body);
+      const next = body.model === MODEL ? (script[turn] ?? "done") : "done";
       return answer(i, next === "done" ? [DONE(i)] : next);
     },
   });
@@ -325,9 +335,16 @@ let seq = 0;
 async function runTurn(
   access: AgentAccess | undefined,
   answers: Answer[],
-  more: { agentCwd?: string; resumeThreadId?: string } = {},
+  more: {
+    agentCwd?: string;
+    resumeThreadId?: string;
+    // Standard only: the agent's stored sandbox and approval mode.
+    sandbox?: "danger-full-access";
+    permissionMode?: "never";
+  } = {},
 ): Promise<{
   requests: Record<string, unknown>[];
+  events: NormalizedEvent[];
   ends: string[];
   cwd: string;
   agentCwd: string;
@@ -346,9 +363,9 @@ async function runTurn(
     systemPrompt: "",
     modelFamily: MODEL,
     effort: "",
-    permissionMode: "on-request",
+    permissionMode: more.permissionMode ?? "on-request",
     // The widest stored sandbox: below Standard it never reaches the thread.
-    sandbox: access ? "danger-full-access" : "read-only",
+    sandbox: access ? "danger-full-access" : (more.sandbox ?? "read-only"),
     env: { ...process.env, CODEX_HOME: home, OPENAI_API_KEY: "sk-fake-c1" },
     ...(access ? { access } : {}),
     ...(more.resumeThreadId ? { resumeThreadId: more.resumeThreadId } : {}),
@@ -376,6 +393,7 @@ async function runTurn(
   });
   const it = session.stream();
   const ends: string[] = [];
+  const events: NormalizedEvent[] = [];
   let threadId = "";
   try {
     await session.send("hello");
@@ -389,6 +407,7 @@ async function runTurn(
       ]);
       if (!next || next.done) throw new Error("stream ended before the turn");
       const ev: NormalizedEvent = next.value;
+      events.push(ev);
       if (ev.kind === "system_init") threadId = ev.sessionId ?? "";
       if (ev.kind === "turn_completed") {
         ends.push(
@@ -404,6 +423,7 @@ async function runTurn(
   }
   return {
     requests: [...requests],
+    events,
     ends,
     cwd: withFiles ? agentCwd : join(CODEX_EMPTY_CWD_ROOT, agentId),
     agentCwd,
@@ -861,4 +881,117 @@ describe.skipIf(!LIVE)(`Codex ${MODEL} at folder and web (live)`, () => {
       expect(toolsOf(request)).not.toContain("<web_search>");
     }
   }, 120_000);
+});
+
+// Refused cards (task fcfffe51): Codex shows a call the Isomux hook refuses
+// as no item, and reports the hook's run in hook/completed. This pins what
+// the adapter builds on: the run is "blocked" with the hook's report among
+// its entries, the report names the model's call id, and the report never
+// reaches the model.
+describe.skipIf(!LIVE)(`Codex ${MODEL} refused cards (live)`, () => {
+  const COMMAND = "git push --force origin nothing";
+  // The reason the hook gives the model for `command` run in `cwd`.
+  const refusedReason = (command: string, cwd: string) =>
+    (
+      evaluateCodexHookEnvelope({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+        cwd,
+      }) as { hookSpecificOutput: { permissionDecisionReason: string } }
+    ).hookSpecificOutput.permissionDecisionReason;
+  // The outputs the session's own thread sent back (not the memory pass's).
+  const ownOutputs = (run: { requests: Record<string, unknown>[] }) =>
+    outputs({ requests: run.requests.filter((r) => r.model === MODEL) });
+  const refusal = (run: { events: NormalizedEvent[] }) =>
+    run.events.filter(
+      (ev) =>
+        ev.kind === "tool_call" ||
+        ev.kind === "permission_denied" ||
+        ev.kind === "tool_result",
+    );
+
+  test("a refused shell call shows its call, its refused card and its result", async () => {
+    const run = await runTurn(
+      undefined,
+      [
+        [
+          {
+            type: "function_call",
+            id: "fc_d0",
+            call_id: "call_d0",
+            name: "exec_command",
+            arguments: JSON.stringify({ cmd: COMMAND }),
+            status: "completed",
+          },
+        ],
+        "done",
+      ],
+      { sandbox: "danger-full-access", permissionMode: "never" },
+    );
+    expect(run.ends).toEqual(["completed"]);
+    // The condition: the Isomux hook refused the call, and the model got its
+    // reason as the call's output.
+    expect(ownOutputs(run).call_d0).toContain(
+      JSON.stringify(refusedReason(COMMAND, run.agentCwd)).slice(1, -1),
+    );
+    const shown = refusal(run);
+    expect(
+      shown.map((ev) => [ev.kind, "toolUseId" in ev && ev.toolUseId]),
+    ).toEqual([
+      ["tool_call", "call_d0"],
+      ["permission_denied", "call_d0"],
+      ["tool_result", "call_d0"],
+    ]);
+    expect(shown[0]).toMatchObject({
+      name: "Bash",
+      input: { command: COMMAND },
+    });
+    expect(shown[0]).not.toHaveProperty("input.workdir");
+    expect(shown[1]).toMatchObject({ toolName: "Bash" });
+    expect(shown[2]).toMatchObject({ isError: true });
+    // The model reads the refusal, never the report.
+    const text = JSON.stringify(run.requests);
+    expect(text).toContain("call_d0");
+    expect(text).not.toContain(CODEX_REFUSAL_PREFIX);
+    // MUTANT: the report's warning entry still raises the safety warning.
+    expect(
+      run.events.some(
+        (ev) => ev.kind === "system_text" && ev.text === SAFETY_WARNING,
+      ),
+    ).toBe(false);
+  }, 60_000);
+
+  // A1: the hook sees a call's workdir as its cwd; the card names it, so
+  // Run (which runs in the terminal's folder) is not offered.
+  test("a refused call in another folder names that folder", async () => {
+    const elsewhere = mkdtempSync(join(root, "elsewhere-"));
+    const run = await runTurn(
+      undefined,
+      [
+        [
+          {
+            type: "function_call",
+            id: "fc_d1",
+            call_id: "call_d1",
+            name: "exec_command",
+            arguments: JSON.stringify({ cmd: COMMAND, workdir: elsewhere }),
+            status: "completed",
+          },
+        ],
+        "done",
+      ],
+      { sandbox: "danger-full-access", permissionMode: "never" },
+    );
+    expect(run.ends).toEqual(["completed"]);
+    expect(ownOutputs(run).call_d1).toContain(
+      JSON.stringify(refusedReason(COMMAND, elsewhere)).slice(1, -1),
+    );
+    const [call] = refusal(run);
+    expect(call).toMatchObject({
+      kind: "tool_call",
+      toolUseId: "call_d1",
+      input: { command: COMMAND, workdir: elsewhere },
+    });
+  }, 60_000);
 });

@@ -25,17 +25,65 @@ export const MISSING_CWD_WARNING =
   "absolute working directory, so relative paths were checked less " +
   "thoroughly. Tell the office owner.";
 
+// A refusal's report to the Isomux session (task fcfffe51): the deny output's
+// systemMessage, which Codex shows as a warning entry of the hook run's
+// hook/completed and never sends to the model. The prefix, then the JSON of a
+// CodexRefusal.
+export const CODEX_REFUSAL_PREFIX = "isomux-refusal:";
+
+// What the hook reports of a refused call: its id, its tool name and input as
+// the hook received them, and the folder the call runs in (the envelope cwd).
+export interface CodexRefusal {
+  toolUseId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  cwd?: string;
+}
+
+// The refusal in a warning entry's text, or null when the text is no
+// refusal report or does not parse.
+export function parseCodexRefusal(text: string): CodexRefusal | null {
+  if (!text.startsWith(CODEX_REFUSAL_PREFIX)) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(text.slice(CODEX_REFUSAL_PREFIX.length));
+  } catch {
+    return null;
+  }
+  if (!isRecord(value)) return null;
+  const { toolUseId, toolName, toolInput, cwd } = value;
+  if (typeof toolUseId !== "string" || !toolUseId) return null;
+  if (typeof toolName !== "string" || !isRecord(toolInput)) return null;
+  if (cwd !== undefined && typeof cwd !== "string") return null;
+  return { toolUseId, toolName, toolInput, ...(cwd ? { cwd } : {}) };
+}
+
+// The report of a refused call, or undefined when the call has no id.
+function refusalReport(input: CodexHookEnvelope): string | undefined {
+  if (typeof input.tool_use_id !== "string" || !input.tool_use_id) return;
+  const refusal: CodexRefusal = {
+    toolUseId: input.tool_use_id,
+    toolName: input.tool_name,
+    toolInput: input.tool_input,
+    ...(typeof input.cwd === "string" && input.cwd ? { cwd: input.cwd } : {}),
+  };
+  return `${CODEX_REFUSAL_PREFIX}${JSON.stringify(refusal)}`;
+}
+
 interface CodexHookEnvelope {
   hook_event_name: "PreToolUse";
   tool_name: string;
   tool_input: Record<string, unknown>;
   cwd?: unknown;
+  tool_use_id?: unknown;
 }
 
 export type CodexHookOutput =
   | Record<string, never>
   | { systemMessage: string }
   | {
+      // The refusal's report (refusalReport), never sent to the model.
+      systemMessage?: string;
       hookSpecificOutput: {
         hookEventName: "PreToolUse";
         permissionDecision: "deny";
@@ -80,14 +128,17 @@ function codexEnvelopeToAction(value: unknown): ProposedAction {
   };
 }
 
+// `report`: the refusal's report, sent with a deny only.
 function policyDecisionToCodexOutput(
   decision: PolicyDecision,
   systemMessage?: string,
+  report?: string,
 ): CodexHookOutput {
   if (decision.decision === "allow") {
     return systemMessage ? { systemMessage } : {};
   }
   return {
+    ...(report ? { systemMessage: report } : {}),
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
@@ -119,6 +170,7 @@ export function evaluateCodexHookEnvelope(
       ...(confine ? { confine } : {}),
     }),
     cwdValid ? undefined : MISSING_CWD_WARNING,
+    refusalReport(input),
   );
 }
 

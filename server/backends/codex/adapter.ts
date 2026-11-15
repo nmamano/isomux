@@ -133,7 +133,12 @@ import {
   type NotificationHandler,
   type ServerRequestHandler,
 } from "./client.ts";
-import { SAFETY_WARNING } from "./safety-hook.ts";
+import {
+  parseCodexRefusal,
+  SAFETY_WARNING,
+  type CodexRefusal,
+} from "./safety-hook.ts";
+import { safetyDenialEvent } from "../safety-denial.ts";
 import type {
   CodexSafetyHookIdentity,
   CodexSafetyPreflightResult,
@@ -2815,6 +2820,11 @@ export class CodexSession implements BackendSession {
       // surface as subagent tool activity. Everything else from foreign
       // threads - turn lifecycle, token usage, deltas - stays dropped, so
       // parent turn bookkeeping is untouched.
+      // A known child's Isomux hook run: its refused calls get cards too.
+      if (n.method === "hook/completed") {
+        const origin = this.childThreads.get(eventThreadId as string);
+        if (origin) this.handleHookCompleted(params, origin);
+      }
       if (n.method === "item/started" || n.method === "item/completed") {
         const origin = this.childThreads.get(eventThreadId as string);
         if (origin && params?.item) {
@@ -3128,37 +3138,9 @@ export class CodexSession implements BackendSession {
         }
         break;
       }
-      case "hook/completed": {
-        const run = params?.run as
-          | {
-              sourcePath?: unknown;
-              displayOrder?: unknown;
-              status?: unknown;
-              entries?: unknown;
-            }
-          | undefined;
-        const identity = this.safetyHookIdentity;
-        const isIsomuxRun =
-          !!identity &&
-          run?.sourcePath === identity.sourcePath &&
-          Number(run?.displayOrder) === identity.displayOrder;
-        if (!isIsomuxRun) break;
-        const entries = Array.isArray(run?.entries)
-          ? (run.entries as Array<{ kind?: unknown; text?: unknown }>)
-          : [];
-        const caughtFault = entries.some(
-          (entry) => entry.text === SAFETY_WARNING,
-        );
-        const executionFailure =
-          run?.status === "failed" ||
-          entries.some(
-            (entry) => entry.kind === "error" || entry.kind === "warning",
-          );
-        if (caughtFault || executionFailure) {
-          this.enqueue({ kind: "system_text", text: SAFETY_WARNING });
-        }
+      case "hook/completed":
+        this.handleHookCompleted(params);
         break;
-      }
       // Warning/GuardianWarningNotification carry a ready `message`. Route it
       // through the auth-aware funnel: an auth-shaped warning IS the one allowed
       // auth signal for the turn (the coalescing/self-interrupt is intended).
@@ -3222,6 +3204,95 @@ export class CodexSession implements BackendSession {
   }
 
   // Shows the card of a tool item at item/started (CARD_AT_START_ITEMS).
+  // A hook/completed: only the Isomux hook's own run counts (the identity
+  // of its hooks.json entry). A run Codex blocked whose warning entry is the
+  // hook's report (safety-hook.ts) is a refused call, which Codex shows as no
+  // item: the call, its refused card and its result (task fcfffe51). Any
+  // other warning or error entry, or a failed run, is a fault of the check.
+  private handleHookCompleted(
+    params: Record<string, unknown> | null | undefined,
+    subagent?: SubagentOrigin,
+  ): void {
+    const run = params?.run as
+      | {
+          sourcePath?: unknown;
+          displayOrder?: unknown;
+          status?: unknown;
+          entries?: unknown;
+        }
+      | undefined;
+    const identity = this.safetyHookIdentity;
+    const isIsomuxRun =
+      !!identity &&
+      run?.sourcePath === identity.sourcePath &&
+      Number(run?.displayOrder) === identity.displayOrder;
+    if (!isIsomuxRun) return;
+    const entries = Array.isArray(run?.entries)
+      ? (run.entries as Array<{ kind?: unknown; text?: unknown }>)
+      : [];
+    const blocked = run?.status === "blocked";
+    let refusal: CodexRefusal | null = null;
+    let fault = run?.status === "failed";
+    for (const entry of entries) {
+      if (entry.text === SAFETY_WARNING || entry.kind === "error") fault = true;
+      if (entry.kind !== "warning") continue;
+      const parsed: CodexRefusal | null =
+        blocked && typeof entry.text === "string" && !refusal
+          ? parseCodexRefusal(entry.text)
+          : null;
+      if (parsed) refusal = parsed;
+      else fault = true;
+    }
+    if (fault) {
+      this.enqueue({ kind: "system_text", text: SAFETY_WARNING });
+      return;
+    }
+    if (refusal) this.showRefusal(refusal, entries, subagent);
+  }
+
+  // The cards of a call the Isomux hook refused: its call (unless shown),
+  // its refused card, and its result with the reason the model got.
+  private showRefusal(
+    refusal: CodexRefusal,
+    entries: Array<{ kind?: unknown; text?: unknown }>,
+    subagent?: SubagentOrigin,
+  ): void {
+    const reason = entries
+      .filter((entry) => entry.kind === "feedback")
+      .map((entry) => (typeof entry.text === "string" ? entry.text : ""))
+      .join("\n");
+    const { toolUseId, toolName } = refusal;
+    const origin = subagent ? { subagent } : {};
+    if (!this.shownToolCalls.delete(toolUseId)) {
+      // Run runs in the terminal's folder: a call in another folder names
+      // it, and gets no Run (permission-denial.ts).
+      const threadCwd = this.belowStandardThread?.cwd ?? this.opts.cwd;
+      const elsewhere = !!refusal.cwd && refusal.cwd !== threadCwd;
+      this.enqueue({
+        kind: "tool_call",
+        toolUseId,
+        name: toolName,
+        input: elsewhere
+          ? { ...refusal.toolInput, workdir: refusal.cwd }
+          : refusal.toolInput,
+        ...origin,
+      });
+    }
+    this.enqueue(
+      safetyDenialEvent(
+        { toolUseId, toolName, reason },
+        subagent?.parentToolUseId,
+      ),
+    );
+    this.enqueue({
+      kind: "tool_result",
+      toolUseId,
+      content: reason,
+      isError: true,
+      ...origin,
+    });
+  }
+
   // True when it emitted a card.
   private translateStartedItem(
     rawItem: unknown,

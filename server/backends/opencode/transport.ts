@@ -46,7 +46,11 @@ import {
 } from "./profile-paths.ts";
 import { OpenCodeUnsupportedHostError } from "./runtime.ts";
 import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS } from "./server-health.ts";
-import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
+import {
+  OPENCODE_DENIAL_FRAME,
+  OPENCODE_SAFETY_PLUGIN_ID,
+} from "./safety-plugin-tool.ts";
+import { safetyDenialEvent } from "../safety-denial.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import {
   evaluateOpenCodePermission,
@@ -293,6 +297,9 @@ export async function handleOpenCodePermission(
     reply: (reply: "once" | "reject", message?: string) => Promise<void>;
     sink: EventSink;
     evaluate?: typeof evaluateProposedAction;
+    // A refusal of a call the chat shows: its refused card replaces the
+    // system line (task fcfffe51).
+    onRefusal?: (reason: string) => void;
   },
 ): Promise<"answered" | "prompt"> {
   const result = evaluateOpenCodePermission(
@@ -315,6 +322,11 @@ export async function handleOpenCodePermission(
   if (result.decision.decision === "deny") {
     // With a message, 2.1.4 fails only this tool with the reason, and the
     // turn goes on (2026-10-25).
+    if (options.onRefusal) {
+      options.onRefusal(result.decision.reason);
+      await options.reply("reject", result.decision.reason);
+      return "answered";
+    }
     await options.reply("reject", result.decision.reason);
     options.sink({
       kind: "system_text",
@@ -1517,6 +1529,9 @@ export class OpenCodeTransport {
       for (const part of parts.values()) showPart(part);
     };
     const tools = new Map<string, TrackedTool>();
+    // The safety plugin's refusals of this turn's calls (task fcfffe51):
+    // the reason, by the call's key in `tools`.
+    const refusals = new Map<string, string>();
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
     this.subagentSessions.clear();
@@ -2228,6 +2243,19 @@ export class OpenCodeTransport {
                 reasoningStarted.set(`${message}:${ordinal}`, created);
               continue;
             }
+            // The safety plugin refused a call of this session: its refused
+            // card goes before the call's result. The frame only proves the
+            // refusal; the card's tool is the call's own.
+            if (type === OPENCODE_DENIAL_FRAME) {
+              const id = stringField(data, "id");
+              const denied = stringField(data, "messageID");
+              if (id && denied)
+                refusals.set(
+                  `${denied}:${id}`,
+                  stringField(data, "reason") ?? "",
+                );
+              continue;
+            }
             if (type.startsWith("session.tool.")) {
               const id = stringField(data, "id");
               if (!id) continue;
@@ -2287,6 +2315,16 @@ export class OpenCodeTransport {
                 sink(toolCall(tool));
               }
               const success = type === "session.tool.success";
+              const refusal = refusals.get(key);
+              refusals.delete(key);
+              if (!success && refusal !== undefined)
+                sink(
+                  safetyDenialEvent({
+                    toolUseId: tool.callId,
+                    toolName: tool.name,
+                    reason: refusal,
+                  }),
+                );
               // T3: a shell command that exits non-zero is a success frame
               // with its exit code.
               const exit = numberField(asRecord(data.metadata), "exit");
@@ -2348,6 +2386,16 @@ export class OpenCodeTransport {
                 refuseLate();
                 continue;
               }
+              // The call of an ask of this session's own tool: a policy
+              // refusal of it is its refused card, as the plugin's is. A
+              // subagent's calls have no cards, so its refusal stays a line.
+              const source = asRecord(data.source);
+              const sourceMessage = stringField(source, "messageID");
+              const sourceCall = stringField(source, "id");
+              const callKey =
+                own && source.type === "tool" && sourceMessage && sourceCall
+                  ? `${sourceMessage}:${sourceCall}`
+                  : null;
               const handled = await handleOpenCodePermission(envelope, {
                 cwd: this.cwd,
                 autoApprove: !!this.agent,
@@ -2355,6 +2403,12 @@ export class OpenCodeTransport {
                 reply: (reply, message) =>
                   this.replyPermission(frameSessionId, id, reply, message),
                 sink,
+                ...(callKey
+                  ? {
+                      onRefusal: (reason: string) =>
+                        refusals.set(callKey, reason),
+                    }
+                  : {}),
               });
               if (handled === "answered") continue;
               if (signal.aborted) {

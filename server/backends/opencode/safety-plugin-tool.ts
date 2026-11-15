@@ -5,6 +5,22 @@ import { join } from "node:path";
 // row with this id, loaded from openCodeSafetyPluginDir() and active.
 export const OPENCODE_SAFETY_PLUGIN_ID = "isomux.safety";
 
+// A refusal's report to the transport (task fcfffe51): the plugin registers
+// an RPC with this plugin's id and emits this event before it throws. OpenCode
+// puts it on /api/event as OPENCODE_DENIAL_FRAME, before the call's
+// session.tool.failed.
+export const OPENCODE_DENIAL_EVENT = "denied";
+export const OPENCODE_DENIAL_FRAME = `rpc.${OPENCODE_SAFETY_PLUGIN_ID}.${OPENCODE_DENIAL_EVENT}`;
+
+// The event's data: the refused call (its session, its assistant message and
+// its id) and the reason the call failed with.
+export interface OpenCodeDenialReport {
+  sessionID: string;
+  messageID: string;
+  id: string;
+  reason: string;
+}
+
 // What a tool must never see: the server password opens every stored
 // provider secret (GET /api/credential, gate E2), and the config names
 // Isomux's file. The session's tool environment leaves these out

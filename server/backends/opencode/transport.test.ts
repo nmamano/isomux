@@ -1528,7 +1528,25 @@ describe("OpenCode 2 permissions", () => {
       };
       expect(reply.decision).toBe("reject");
       expect(reply.message).toContain("git reset --hard");
-      expect(JSON.stringify(kinds(events, "system_text"))).toContain(
+      // Task fcfffe51: the refusal is the call's refused card, between the
+      // call and its result, with the reason sent; not a system line.
+      const shown = kinds(
+        events,
+        "tool_call",
+        "permission_denied",
+        "tool_result",
+      );
+      expect(shown.map((e) => e.kind)).toEqual([
+        "tool_call",
+        "permission_denied",
+        "tool_result",
+      ]);
+      expect(shown[1]).toMatchObject({
+        toolUseId: (shown[0] as { toolUseId: string }).toolUseId,
+        toolName: "shell",
+        message: reply.message!.replace(/\s+/g, " ").trim(),
+      });
+      expect(JSON.stringify(kinds(events, "system_text"))).not.toContain(
         "git reset --hard",
       );
       expect(end?.status).toBe("completed");

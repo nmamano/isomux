@@ -377,13 +377,16 @@ export type NormalizedEvent =
   // background terminals. OpenCode sends none. Never a turn event: it moves
   // no state and stamps no activity.
   | { kind: "background_tasks"; tasks: ReportedBackgroundTask[] }
-  // A tool call was auto-denied without an interactive prompt (Claude-only at
-  // v1): newer SDKs emit system/permission_denied for the deny short-circuit
-  // in canUseTool - auto-mode classifier, deny rules, dontAsk mode. The
-  // denied tool_result still reaches the model either way; this event just
-  // makes the denial visible natively in the transcript. Older SDKs never
-  // emit the subtype, so absence is normal. `message` and `decisionReason`
-  // are pre-sanitized one-line text from the backend adapter.
+  // A tool call was auto-denied without an interactive prompt: newer Claude
+  // SDKs emit system/permission_denied for the deny short-circuit in
+  // canUseTool - auto-mode classifier, deny rules, dontAsk mode. A refusal
+  // of the Isomux safety hooks is one too, on every backend: Claude's hook
+  // callback, the Codex hook's report in hook/completed, the OpenCode
+  // plugin's denied RPC event (safety-denial.ts, task fcfffe51). The denied
+  // tool_result still reaches the model either way; this event just makes
+  // the denial visible natively in the transcript. Older SDKs never emit the
+  // subtype, so absence is normal. `message` and `decisionReason` are
+  // pre-sanitized one-line text from the backend adapter.
   | {
       kind: "permission_denied";
       toolUseId: string;
@@ -394,8 +397,9 @@ export type NormalizedEvent =
       decisionReason?: string;
       /**
        * Subagent id when the denied tool call originated inside a subagent
-       * (mirrors the SDK's agent_id). Preserved so stored transcripts keep
-       * the origin distinguishable; not displayed at v1.
+       * (mirrors the SDK's agent_id; a Codex child's
+       * SubagentOrigin.parentToolUseId). Preserved so stored transcripts
+       * keep the origin distinguishable; not displayed at v1.
        */
       agentId?: string;
     };

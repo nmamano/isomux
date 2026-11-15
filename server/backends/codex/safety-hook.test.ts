@@ -18,9 +18,11 @@ import {
   type BuiltCodexSafetyHook,
 } from "./safety-hook-build.ts";
 import {
+  CODEX_REFUSAL_PREFIX,
   evaluateCodexHookEnvelope,
   handleCodexHookInput,
   MISSING_CWD_WARNING,
+  parseCodexRefusal,
   SAFETY_WARNING,
 } from "./safety-hook.ts";
 import {
@@ -37,6 +39,7 @@ type Envelope = {
   tool_name: string;
   tool_input: Record<string, unknown>;
   cwd?: unknown;
+  tool_use_id?: unknown;
 };
 
 const root = mkdtempSync(join(tmpdir(), "isomux-codex-safety-hook-test-"));
@@ -89,6 +92,10 @@ const largePatch = envelope("apply_patch", {
 const corpus: Array<{ name: string; input: Envelope }> = [
   { name: "Bash allow", input: envelope("Bash", { command: "git status" }) },
   { name: "Bash deny", input: envelope("Bash", { command: "rm -rf /" }) },
+  {
+    name: "Bash deny with its call id",
+    input: { ...envelope("Bash", { command: "rm -rf /" }), tool_use_id: "c1" },
+  },
   {
     name: "apply_patch allow",
     input: envelope("apply_patch", {
@@ -590,5 +597,142 @@ describe("the Codex hook under a folder confinement", () => {
     } finally {
       if (saved !== undefined) process.env[CODEX_CONFINE_ENV] = saved;
     }
+  });
+});
+
+// A refusal's report to the session (task fcfffe51): the deny output also
+// carries a systemMessage, which Codex keeps out of the model's requests
+// (codex-access.live.test.ts), with the refused call's id, tool, input and
+// folder. The reason the model gets is the same as without it.
+describe("the Codex hook's refusal report", () => {
+  const FORCE_PUSH = { command: "git push --force origin main" };
+  // The envelope with `id` as its tool_use_id; with no tool_use_id key when
+  // `id` is undefined.
+  const withId = (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    id: unknown = "call_d0",
+  ): Envelope => ({ ...envelope(toolName, toolInput), tool_use_id: id });
+  const withIdOrNone = (id: unknown): Envelope =>
+    id === undefined
+      ? envelope("Bash", FORCE_PUSH)
+      : withId("Bash", FORCE_PUSH, id);
+  const denyOf = (output: unknown) =>
+    (
+      output as {
+        hookSpecificOutput?: {
+          permissionDecision?: string;
+          permissionDecisionReason?: string;
+        };
+      }
+    ).hookSpecificOutput;
+  const reportOf = (output: unknown) => {
+    const message = (output as { systemMessage?: unknown }).systemMessage;
+    return typeof message === "string" ? parseCodexRefusal(message) : null;
+  };
+
+  it("reports a refused call with its id, tool, input and folder, and keeps the reason the model gets", () => {
+    const plain = evaluateCodexHookEnvelope(envelope("Bash", FORCE_PUSH));
+    const reported = evaluateCodexHookEnvelope(withId("Bash", FORCE_PUSH));
+    // MUTANT: the deny carries no systemMessage, or one that does not parse.
+    expect(reportOf(reported)).toEqual({
+      toolUseId: "call_d0",
+      toolName: "Bash",
+      toolInput: FORCE_PUSH,
+      cwd: "/tmp/probe",
+    });
+    expect(denyOf(reported)?.permissionDecision).toBe("deny");
+    // MUTANT: the report goes into the reason, which the model reads.
+    expect(denyOf(reported)?.permissionDecisionReason).toBe(
+      denyOf(plain)?.permissionDecisionReason,
+    );
+    expect(denyOf(reported)?.permissionDecisionReason).not.toContain(
+      CODEX_REFUSAL_PREFIX,
+    );
+    // A refused patch reports its tool and input too.
+    const patchInput = {
+      command: `*** Begin Patch\n*** Update File: ${join(STATE_ROOT, "agents.json")}\n@@\n-old\n+new\n*** End Patch`,
+    };
+    expect(
+      reportOf(evaluateCodexHookEnvelope(withId("apply_patch", patchInput))),
+    ).toMatchObject({ toolName: "apply_patch", toolInput: patchInput });
+  });
+
+  it("reports nothing for an allowed call, and nothing without a call id", () => {
+    // MUTANT: every output carries the report.
+    expect(
+      evaluateCodexHookEnvelope(withId("Bash", { command: "git status" })),
+    ).toEqual({});
+    for (const id of [undefined, "", 7, null]) {
+      const output = evaluateCodexHookEnvelope(withIdOrNone(id));
+      expect({ id, deny: denyOf(output)?.permissionDecision }).toEqual({
+        id,
+        deny: "deny",
+      });
+      expect({ id, report: "systemMessage" in output }).toEqual({
+        id,
+        report: false,
+      });
+    }
+  });
+
+  // A5: the missing-folder warning stays in the reason, as before; the
+  // report is the only systemMessage, and it has no folder.
+  it("keeps the missing-folder warning in the reason of a reported refusal", () => {
+    const input = withId("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: .isomux/agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    input.cwd = undefined;
+    const output = evaluateCodexHookEnvelope(input);
+    expect(denyOf(output)?.permissionDecisionReason).toContain(
+      MISSING_CWD_WARNING,
+    );
+    const report = reportOf(output);
+    expect(report?.toolUseId).toBe("call_d0");
+    expect(report && "cwd" in report).toBe(false);
+  });
+
+  it("reports a refusal under a folder confinement", () => {
+    const confined = codexConfineEnvValue({
+      access: "folder",
+      folder: "/tmp/probe",
+      tools: [],
+    });
+    const output = handleCodexHookInput(
+      JSON.stringify(withId("Bash", { command: "ls" })),
+      { [CODEX_CONFINE_ENV]: confined },
+    );
+    expect(denyOf(output)?.permissionDecision).toBe("deny");
+    expect(reportOf(output)).toMatchObject({
+      toolUseId: "call_d0",
+      toolName: "Bash",
+    });
+  });
+
+  it("reads back only a well-formed report", () => {
+    const good = {
+      toolUseId: "call_d0",
+      toolName: "Bash",
+      toolInput: { command: "ls" },
+    };
+    expect(
+      parseCodexRefusal(`${CODEX_REFUSAL_PREFIX}${JSON.stringify(good)}`),
+    ).toEqual(good);
+    for (const text of [
+      SAFETY_WARNING,
+      JSON.stringify(good),
+      `${CODEX_REFUSAL_PREFIX}{`,
+      `${CODEX_REFUSAL_PREFIX}null`,
+      `${CODEX_REFUSAL_PREFIX}${JSON.stringify({ ...good, toolUseId: "" })}`,
+      `${CODEX_REFUSAL_PREFIX}${JSON.stringify({ ...good, toolUseId: 7 })}`,
+      `${CODEX_REFUSAL_PREFIX}${JSON.stringify({ ...good, toolName: 7 })}`,
+      `${CODEX_REFUSAL_PREFIX}${JSON.stringify({ ...good, toolInput: "ls" })}`,
+      `x${CODEX_REFUSAL_PREFIX}${JSON.stringify(good)}`,
+    ])
+      expect({ text, parsed: parseCodexRefusal(text) }).toEqual({
+        text,
+        parsed: null,
+      });
   });
 });

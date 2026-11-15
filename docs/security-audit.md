@@ -266,7 +266,7 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 
 The check reads each command of a shell line, also the commands inside `bash -c`, `eval`, `find -exec` and command substitutions. One blocked command blocks the line.
 
-A refusal of a Claude agent's command shows in the chat as a refused card. A member who can use the agent's terminal can run the command from the card, after a confirm.
+A refusal of an agent's command shows in the chat as a refused card. A member who can use the agent's terminal can run the command from the card, after a confirm.
 
 The safety hooks are a guardrail against mistakes by honest agents. They are not a security boundary:
 

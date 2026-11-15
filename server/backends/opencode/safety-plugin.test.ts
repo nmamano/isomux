@@ -15,7 +15,10 @@ import { evaluateOpenCodePermission } from "./safety-adapter.ts";
 import { OPENCODE_V2_DATABASE } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import safetyPlugin, { openCodeToolAction } from "./safety-plugin.ts";
-import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
+import {
+  OPENCODE_DENIAL_EVENT,
+  OPENCODE_SAFETY_PLUGIN_ID,
+} from "./safety-plugin-tool.ts";
 import { openCodeStopRules } from "./access.ts";
 
 // The context of the @opencode/plugin 2.1.4 promise API that the plugin
@@ -984,5 +987,165 @@ describe("the safety plugin below Standard", () => {
           decision: await decide(hooks, `isomux-${stop}`, tool, input),
         }).toEqual({ stop, label, decision: want });
     }
+  });
+});
+
+// A refusal's report (task fcfffe51): the plugin registers an RPC and emits
+// its denied event, with the refused call and the reason, before it throws.
+// The transport shows the refused card from it (transport.test.ts); the
+// real server's frame and its order: opencode-access.live.test.ts.
+describe("the safety plugin's refusal report", () => {
+  type Emit = (name: string, data: unknown) => Promise<void>;
+  // ctx.rpc of the plugin API: register() gives the RPC's event emitter.
+  function withRpc(
+    directory: string,
+    options: {
+      emit?: Emit;
+      register?: () => unknown;
+      session?: { get(input: { sessionID: string }): Promise<unknown> };
+    } = {},
+  ) {
+    const { ctx, hooks } = fakeContext(directory);
+    const emitted: [string, unknown][] = [];
+    const emit: Emit =
+      options.emit ??
+      (async (name, data) => {
+        emitted.push([name, data]);
+      });
+    const register =
+      options.register ?? (() => Promise.resolve({ events: { emit } }));
+    return {
+      hooks,
+      emitted,
+      ctx: {
+        ...ctx,
+        rpc: { register },
+        ...(options.session ? { session: options.session } : {}),
+      },
+    };
+  }
+
+  it("reports a refused call before the call fails, with the reason it fails with", async () => {
+    const pending: PromiseWithResolvers<void>[] = [];
+    const seen: [string, unknown][] = [];
+    const { ctx, hooks } = withRpc(repo, {
+      emit: (name, data) => {
+        seen.push([name, data]);
+        const deferred = Promise.withResolvers<void>();
+        pending.push(deferred);
+        return deferred.promise;
+      },
+    });
+    await safetyPlugin.setup(ctx as never);
+    let settled = false;
+    const outcome = verdict(hooks, "shell", { command: "rm -rf ~" }).finally(
+      () => {
+        settled = true;
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // MUTANT: the plugin throws first and reports after, or not at all.
+    expect(pending).toHaveLength(1);
+    expect(settled).toBe(false);
+    pending[0].resolve();
+    const reason = await outcome;
+    expect(reason).toStartWith("BLOCKED");
+    expect(seen).toEqual([
+      [
+        OPENCODE_DENIAL_EVENT,
+        { sessionID: "ses_1", messageID: "msg_1", id: "call_1", reason },
+      ],
+    ]);
+  });
+
+  it("reports nothing for a call it lets run", async () => {
+    const { ctx, hooks, emitted } = withRpc(repo);
+    await safetyPlugin.setup(ctx as never);
+    expect(await verdict(hooks, "shell", { command: "ls -la" })).toBe("allow");
+    expect(await verdict(hooks, "isomux-docs_search", {})).toBe("allow");
+    expect(emitted).toEqual([]);
+    // The control: a refusal is reported.
+    expect(await verdict(hooks, "shell", { command: "rm -rf ~" })).not.toBe(
+      "allow",
+    );
+    expect(emitted.map(([name]) => name)).toEqual([OPENCODE_DENIAL_EVENT]);
+  });
+
+  // Fail closed: the report is for the card; the refusal stands without it.
+  it("still refuses when the report fails", async () => {
+    const { ctx, hooks } = withRpc(repo, {
+      emit: () => Promise.reject(new Error("emit failed")),
+    });
+    await safetyPlugin.setup(ctx as never);
+    const reason = await verdict(hooks, "shell", { command: "rm -rf ~" });
+    // MUTANT: the emit's rejection replaces the refusal, or a catch around
+    // it lets the call run.
+    expect(reason).toStartWith("BLOCKED");
+  });
+
+  // A plugin that holds the RPC id, or an OpenCode without the RPC API,
+  // costs the cards only: the safety hooks still install.
+  for (const [label, rpc] of [
+    ["the RPC cannot be registered", () => Promise.reject(new Error("taken"))],
+    [
+      "registering throws",
+      () => {
+        throw new Error("taken");
+      },
+    ],
+  ] as const)
+    it(`installs the safety hooks when ${label}`, async () => {
+      const { ctx, hooks } = withRpc(repo, { register: rpc });
+      const setup = await Promise.resolve(
+        safetyPlugin.setup(ctx as never),
+      ).then(
+        () => "resolved",
+        (error: unknown) => `rejected: ${String(error)}`,
+      );
+      expect(setup).toBe("resolved");
+      expect(
+        await verdict(hooks, "shell", { command: "rm -rf ~" }),
+      ).toStartWith("BLOCKED");
+      expect(await verdict(hooks, "shell", { command: "ls" })).toBe("allow");
+    });
+
+  it("installs the safety hooks on an OpenCode without the RPC API", async () => {
+    const { ctx, hooks } = fakeContext(repo);
+    expect("rpc" in ctx).toBe(false);
+    await safetyPlugin.setup(ctx as never);
+    expect(await verdict(hooks, "shell", { command: "rm -rf ~" })).toStartWith(
+      "BLOCKED",
+    );
+  });
+
+  // A stop agent's refusal (its rules cannot be read) is reported too.
+  it("reports the refusal of a stop agent's call", async () => {
+    const { ctx, hooks, emitted } = withRpc(repo, {
+      session: { get: async () => undefined },
+    });
+    await safetyPlugin.setup(ctx as never);
+    const callback = hooks.get("tool.execute.before")!;
+    const reason = await Promise.resolve()
+      .then(() =>
+        callback({
+          tool: "read",
+          sessionID: "ses_below",
+          agent: "isomux-folder",
+          messageID: "msg_2",
+          id: "call_2",
+          input: { path: join(repo, "notes.md") },
+        }),
+      )
+      .then(
+        () => "allow",
+        (error: unknown) => (error instanceof Error ? error.message : "?"),
+      );
+    expect(reason).not.toBe("allow");
+    expect(emitted).toEqual([
+      [
+        OPENCODE_DENIAL_EVENT,
+        { sessionID: "ses_below", messageID: "msg_2", id: "call_2", reason },
+      ],
+    ]);
   });
 });

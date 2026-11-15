@@ -198,6 +198,35 @@ describe("permission-denied command recovery", () => {
     }
   });
 
+  // Task fcfffe51: OpenCode's shell tool, under both of its names.
+  test("returns the command of an OpenCode shell call", () => {
+    for (const name of ["shell", "bash"]) {
+      const shell = call("sh", name, { command: "bun test", description: "x" });
+      expect({
+        name,
+        command: commandForPermissionDenial({ toolUseId: "sh-tool" }, [shell]),
+      }).toEqual({ name, command: "bun test" });
+    }
+  });
+
+  // Run runs in the terminal panel's folder: a call that ran in another
+  // folder (OpenCode's workdir, a Codex call outside the session's folder)
+  // has no Run.
+  test("rejects a call that names its own folder", () => {
+    for (const name of ["Bash", "shell", "bash"]) {
+      const elsewhere = call("sh", name, {
+        command: "bun test",
+        workdir: "/srv/other",
+      });
+      expect({
+        name,
+        command: commandForPermissionDenial({ toolUseId: "sh-tool" }, [
+          elsewhere,
+        ]),
+      }).toEqual({ name, command: null });
+    }
+  });
+
   test("rejects missing matches and non-Bash calls", () => {
     expect(
       commandForPermissionDenial({ toolUseId: "x" }, [call("a")]),

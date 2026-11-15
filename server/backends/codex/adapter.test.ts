@@ -74,7 +74,7 @@ import {
   codexSandboxProbe,
   resetCodexSandboxProbeForTests,
 } from "./sandbox-probe.ts";
-import { SAFETY_WARNING } from "./safety-hook.ts";
+import { CODEX_REFUSAL_PREFIX, SAFETY_WARNING } from "./safety-hook.ts";
 import { removeStateDir } from "../../test-support/temp-state.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 import { CODEX_EMPTY_CWD_ROOT } from "./access.ts";
@@ -6571,4 +6571,208 @@ describe("CodexSession process isolation", () => {
     }
     expect(starts).toEqual([true, false, false]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Refused cards (task fcfffe51). Codex shows a hook-refused call as no item:
+// the Isomux hook's run reports it in hook/completed (a "blocked" run whose
+// warning entry is the hook's report, safety-hook.ts), and the session shows
+// the call, its refused card and its result, as Claude's do.
+// ---------------------------------------------------------------------------
+describe("CodexSession refused cards", () => {
+  const HOOK = { sourcePath: "/tmp/codex/hooks.json", displayOrder: 1 };
+  const COMMAND = "git push --force origin main";
+  const REASON =
+    "BLOCKED by Isomux safety hooks\n\nReason: Force push can destroy remote history.\n\nCommand: git push --force origin main";
+  const report = (more: Record<string, unknown> = {}) =>
+    `${CODEX_REFUSAL_PREFIX}${JSON.stringify({
+      toolUseId: "call_d0",
+      toolName: "Bash",
+      toolInput: { command: COMMAND },
+      cwd: DEFAULT_OPTS.cwd,
+      ...more,
+    })}`;
+  const run = (
+    entries: unknown[],
+    more: { status?: string; displayOrder?: number; threadId?: string } = {},
+  ) => ({
+    threadId: more.threadId ?? FIXTURE_THREAD_ID,
+    turnId: "t-refused",
+    run: {
+      id: "pre-tool-use:1:/tmp/codex/hooks.json:call_d0",
+      eventName: "preToolUse",
+      sourcePath: HOOK.sourcePath,
+      displayOrder: more.displayOrder ?? HOOK.displayOrder,
+      status: more.status ?? "blocked",
+      entries,
+    },
+  });
+  const blocked = (text = report()) => [
+    { kind: "feedback", text: REASON },
+    { kind: "warning", text },
+  ];
+
+  async function session() {
+    const fake = new FakeCodexTransport();
+    fake.startResult = { warning: null, hookIdentity: HOOK };
+    return bootstrapped(fake);
+  }
+
+  // Every event up to a warning fired after the case's notifications.
+  async function eventsBefore(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<NormalizedEvent[]> {
+    fake.fireNotification("warning", { message: "sentinel" });
+    const seen: NormalizedEvent[] = [];
+    for (;;) {
+      const ev = await nextEvent(it, "the sentinel warning");
+      if (ev.kind === "system_text" && ev.text === "[warning] sentinel")
+        return seen;
+      seen.push(ev);
+    }
+  }
+
+  const refusedCard = {
+    kind: "permission_denied" as const,
+    toolUseId: "call_d0",
+    toolName: "Bash",
+    message: REASON.replace(/\s+/g, " ").trim(),
+    decisionReason: "Force push can destroy remote history.",
+  };
+
+  it("shows the refused call, its refused card and its result, in that order, and no safety warning", async () => {
+    const { fake, it } = await session();
+    fake.fireNotification("hook/completed", run(blocked()));
+    const seen = await eventsBefore(fake, it);
+    // MUTANT: the report's warning entry raises SAFETY_WARNING. MUTANT: no
+    // tool_call, so the card has no command for Run.
+    expect(seen.map((ev) => ev.kind)).toEqual([
+      "tool_call",
+      "permission_denied",
+      "tool_result",
+    ]);
+    expect(seen[0]).toEqual({
+      kind: "tool_call",
+      toolUseId: "call_d0",
+      name: "Bash",
+      input: { command: COMMAND },
+    });
+    expect(seen[1]).toEqual(refusedCard);
+    expect(seen[2]).toMatchObject({
+      kind: "tool_result",
+      toolUseId: "call_d0",
+      content: REASON,
+      isError: true,
+    });
+  });
+
+  // A1: Run runs in the terminal's folder, so the card names the folder
+  // when the call ran elsewhere (permission-denial.ts then offers no Run).
+  it("names the folder of a refused call that ran outside the session's folder", async () => {
+    const { fake, it } = await session();
+    fake.fireNotification(
+      "hook/completed",
+      run(blocked(report({ cwd: "/srv/other" }))),
+    );
+    const [call] = await eventsBefore(fake, it);
+    expect(call).toEqual({
+      kind: "tool_call",
+      toolUseId: "call_d0",
+      name: "Bash",
+      input: { command: COMMAND, workdir: "/srv/other" },
+    });
+  });
+
+  it("shows no second card for a call it already shows", async () => {
+    const { fake, it } = await session();
+    fake.fireNotification("item/started", {
+      item: {
+        type: "commandExecution",
+        id: "call_d0",
+        command: COMMAND,
+        status: "inProgress",
+      },
+    });
+    fake.fireNotification("hook/completed", run(blocked()));
+    const seen = await eventsBefore(fake, it);
+    expect(seen.map((ev) => ev.kind)).toEqual([
+      "tool_call",
+      "permission_denied",
+      "tool_result",
+    ]);
+    expect(seen[1]).toEqual(refusedCard);
+  });
+
+  it("shows the card of a known child thread's refusal with the child's origin", async () => {
+    const { fake, it } = await session();
+    fake.fireNotification("thread/started", {
+      thread: {
+        id: "child-3",
+        parentThreadId: FIXTURE_THREAD_ID,
+        agentNickname: "reviewer",
+        agentRole: null,
+        preview: "review the diff",
+      },
+    });
+    fake.fireNotification(
+      "hook/completed",
+      run(blocked(), { threadId: "child-3" }),
+    );
+    const seen = await eventsBefore(fake, it);
+    const origin = {
+      parentToolUseId: "child-3",
+      type: "reviewer",
+      description: "review the diff",
+    };
+    // MUTANT: a foreign thread's hook/completed is dropped, as before.
+    expect(seen.map((ev) => ev.kind)).toEqual([
+      "tool_call",
+      "permission_denied",
+      "tool_result",
+    ]);
+    expect(seen[0]).toMatchObject({ toolUseId: "call_d0", subagent: origin });
+    expect(seen[1]).toEqual({ ...refusedCard, agentId: "child-3" });
+    expect(seen[2]).toMatchObject({ toolUseId: "call_d0", subagent: origin });
+  });
+
+  // Only the Isomux hook's own run is believed: a user hook can print the
+  // same text, and so can a thread that is not ours.
+  it("shows nothing for a user hook's run or an unknown thread's, whatever they print", async () => {
+    const { fake, it } = await session();
+    fake.fireNotification(
+      "hook/completed",
+      run(blocked(), { displayOrder: 0 }),
+    );
+    fake.fireNotification(
+      "hook/completed",
+      run(blocked(), { threadId: "stranger-thread" }),
+    );
+    expect(await eventsBefore(fake, it)).toEqual([]);
+    // The control: the same notification from the Isomux run is shown.
+    fake.fireNotification("hook/completed", run(blocked()));
+    expect((await eventsBefore(fake, it)).map((ev) => ev.kind)).toEqual([
+      "tool_call",
+      "permission_denied",
+      "tool_result",
+    ]);
+  });
+
+  // A4: a report Codex did not act on, or one that does not read back, is a
+  // fault of the check: the safety warning, and no card.
+  for (const [label, entries, status] of [
+    ["a report in a run Codex did not block", blocked(), "completed"],
+    [
+      "a report that does not parse",
+      blocked(`${CODEX_REFUSAL_PREFIX}{`),
+      "blocked",
+    ],
+    ["a report with no call id", blocked(report({ toolUseId: "" })), "blocked"],
+  ] as const)
+    it(`warns, and shows no card, for ${label}`, async () => {
+      const { fake, it } = await session();
+      fake.fireNotification("hook/completed", run([...entries], { status }));
+      const seen = await eventsBefore(fake, it);
+      expect(seen).toEqual([{ kind: "system_text", text: SAFETY_WARNING }]);
+    });
 });

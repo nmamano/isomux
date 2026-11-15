@@ -654,3 +654,47 @@ describe.skipIf(!LIVE)("OpenCode below Standard, live", () => {
     );
   }, 120_000);
 });
+
+// Refused cards (task fcfffe51): the safety plugin reports a refusal as an
+// RPC event before it throws. This pins what the transport builds on: the
+// real server registers the RPC per folder, puts the event on /api/event
+// with the call's session, message and id, and sends it before the call's
+// session.tool.failed, so the card lands between the call and its result.
+describe.skipIf(!LIVE)("OpenCode refused cards, live", () => {
+  it("shows a refused shell call's card between the call and its result", async () => {
+    const command = "git push --force origin nothing";
+    const { events } = await turn(sessionAt("standard"), [
+      { name: "shell", args: { command, description: "refused" } },
+    ]);
+    expect({
+      completed: completed(events),
+      failures: failures(events),
+    }).toEqual({ completed: true, failures: [] });
+    const shown = events.filter(
+      (e) =>
+        e.kind === "tool_call" ||
+        e.kind === "permission_denied" ||
+        e.kind === "tool_result",
+    );
+    // The condition: the plugin refused the call (its result is an error
+    // that names the command; the command never ran).
+    const result = shown.find((e) => e.kind === "tool_result");
+    expect(result).toMatchObject({ isError: true });
+    expect((result as { content: string }).content).toContain(command);
+    // MUTANT: the transport drops the RPC frame, or the server sends it
+    // after the failed frame.
+    expect(shown.map((e) => e.kind)).toEqual([
+      "tool_call",
+      "permission_denied",
+      "tool_result",
+    ]);
+    const id = (shown[0] as { toolUseId: string }).toolUseId;
+    expect(shown.map((e) => (e as { toolUseId: string }).toolUseId)).toEqual([
+      id,
+      id,
+      id,
+    ]);
+    expect(shown[0]).toMatchObject({ name: "shell", input: { command } });
+    expect(shown[1]).toMatchObject({ toolName: "shell" });
+  }, 120_000);
+});
