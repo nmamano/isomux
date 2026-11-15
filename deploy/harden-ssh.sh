@@ -494,11 +494,14 @@ probe_root_ssh() {
   # Anchored, and success checked first: a server banner is arbitrary text that
   # arrives before authentication finishes, so an unanchored search for
   # "Permission denied" anywhere in the transcript could be fed by the banner.
-  if printf '%s\n' "$out" | grep -qE '^(Authenticated to |debug1: Authentication succeeded)'; then
+  # A here-string, not a pipe: grep -q stops at the first match, and under
+  # pipefail the writer it leaves behind dies of SIGPIPE and turns a match
+  # into "no match".
+  if grep -qE '^(Authenticated to |debug1: Authentication succeeded)' <<<"$out"; then
     PROBE_STATE=IN
-  elif printf '%s\n' "$out" | grep -qE '^root@[^ ]+: Permission denied[ ,(]'; then
+  elif grep -qE '^root@[^ ]+: Permission denied[ ,(]' <<<"$out"; then
     PROBE_STATE=OUT
-  elif printf '%s\n' "$out" | grep -qE '^ssh: connect to host .*: (Connection refused|Connection timed out|No route to host|Network is unreachable)'; then
+  elif grep -qE '^ssh: connect to host .*: (Connection refused|Connection timed out|No route to host|Network is unreachable)' <<<"$out"; then
     # The probe runs as the account under test, from this box: if it cannot
     # open a connection here and now, that account cannot use this endpoint.
     PROBE_STATE=NOREACH
@@ -584,7 +587,7 @@ check_sudo() {
   fi
   local out rc=0
   out=$(LC_ALL=C timeout 15 sudo -n -l -U "$SERVICE_USER" 2>&1) || rc=$?
-  if printf '%s\n' "$out" | grep -q 'NOPASSWD'; then
+  if grep -q 'NOPASSWD' <<<"$out"; then
     SUDO_STATE=FAIL
     SUDO_DETAIL="the $SERVICE_USER account can run commands as root with sudo and no password: $(printf '%s\n' "$out" | grep NOPASSWD | tr -s '[:space:]' ' ')"
     return 0
@@ -603,7 +606,7 @@ check_sudo() {
     SUDO_DETAIL="sudo entries exist for $SERVICE_USER but every one of them asks for a password"
     return 0
   fi
-  if printf '%s\n' "$out" | grep -qE 'not allowed to run sudo|may not run sudo|not in the sudoers file|a password is required'; then
+  if grep -qE 'not allowed to run sudo|may not run sudo|not in the sudoers file|a password is required' <<<"$out"; then
     SUDO_STATE=PASS
     SUDO_DETAIL=""
     return 0

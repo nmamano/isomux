@@ -122,6 +122,7 @@ elif [[ "$target" != *:* && -n "\${STUB_SSH_V4:-}" ]]; then
   printf '%s\\n' "$STUB_SSH_V4" >&2
 else
   printf '%s\\n' "\${STUB_SSH_TRANSCRIPT:-}" >&2
+  [[ -z "\${STUB_SSH_TAIL_LINES:-}" ]] || seq -f 'debug1: filler line %g' "$STUB_SSH_TAIL_LINES" >&2
 fi
 exit "\${STUB_SSH_RC:-0}"`,
   );
@@ -159,12 +160,15 @@ esac`,
   stub("systemctl", `:`);
   // Listening ports for the banner sniff. Empty unless a test asks for one.
   stub("ss", `printf '%s' "\${STUB_SS:-}"`);
-  // Root-side "sudo -n -l -U isomux" answers with STUB_SUDO_LIST/STUB_SUDO_LIST_RC;
-  // the service-user cross-check "sudo -n true" answers with STUB_SUDO_RC.
+  // Root-side "sudo -n -l -U isomux" answers with STUB_SUDO_LIST/STUB_SUDO_LIST_RC,
+  // plus STUB_SUDO_TAIL_LINES more entries (STUB_SSH_TAIL_LINES does the same
+  // for the ssh transcript); the service-user cross-check "sudo -n true"
+  // answers with STUB_SUDO_RC.
   stub(
     "sudo",
     `if [[ "\${1:-}" == -n && "\${2:-}" == -l ]]; then
   printf '%s\\n' "\${STUB_SUDO_LIST:-User isomux is not allowed to run sudo on box.}"
+  [[ -z "\${STUB_SUDO_TAIL_LINES:-}" ]] || seq -f '    (root) /usr/local/bin/tool%g' "$STUB_SUDO_TAIL_LINES"
   exit "\${STUB_SUDO_LIST_RC:-1}"
 fi
 exit "\${STUB_SUDO_RC:-1}"`,
@@ -263,6 +267,10 @@ const DENIED = "root@localhost: Permission denied (publickey,password).";
 const REFUSED = "ssh: connect to host 127.0.0.1 port 22: Connection refused";
 const CLOSED =
   "kex_exchange_identification: Connection closed by remote host\nConnection closed by 127.0.0.1 port 22";
+// Lines after the verdict line: about 700 KB, far more than a pipe (64 KiB)
+// plus grep's read buffer, so a reader that stops at the first match always
+// leaves the writer with text still to write.
+const LONG_TAIL = "30000";
 // A server banner is arbitrary text that arrives before authentication
 // finishes, so it can carry anything - including a fake denial.
 const BANNER_INJECTION = `Permission denied (publickey).
@@ -284,6 +292,26 @@ describe.concurrent("harden-ssh.sh --check", () => {
       // The evidence that makes the failure fixable: root's key list.
       expect(output).toContain("/root/.ssh/authorized_keys");
     }
+  });
+
+  it("a verdict line followed by a long transcript is still read", async () => {
+    // pipefail plus a reader that exits at the first match: the writer dies of
+    // SIGPIPE and the match reads as a miss (task 82c3d396).
+    const [inside, outside] = await Promise.all([
+      check({
+        STUB_SSH_TRANSCRIPT: AUTHENTICATED,
+        STUB_SSH_TAIL_LINES: LONG_TAIL,
+        STUB_SSH_RC: "0",
+      }),
+      check({
+        STUB_SSH_TRANSCRIPT: DENIED,
+        STUB_SSH_TAIL_LINES: LONG_TAIL,
+        STUB_SSH_RC: "255",
+      }),
+    ]);
+    // Both codes in one assertion, so a red run shows each site's verdict.
+    expect({ in: inside.code, out: outside.code }).toEqual({ in: 1, out: 0 });
+    expect(inside.output).toContain("can reach root");
   });
 
   it("a refused login is a PASS, whatever ssh exits with", async () => {
@@ -394,6 +422,22 @@ describe.concurrent("harden-ssh.sh --check", () => {
     expect(code).toBe(1);
     expect(output).toContain("with sudo and no password");
     expect(output).toContain("/bin/bash");
+  });
+
+  it("a NOPASSWD rule followed by a long listing still fails the check", async () => {
+    // The fail-open order of the SIGPIPE race above: a missed NOPASSWD falls
+    // through to "every entry asks for a password".
+    const { code, output } = await check({
+      STUB_SSH_TRANSCRIPT: DENIED,
+      STUB_SSH_RC: "255",
+      STUB_SUDO_RC: "1",
+      STUB_SUDO_LIST_RC: "0",
+      STUB_SUDO_LIST:
+        "User isomux may run the following commands on box:\n    (root) NOPASSWD: /bin/bash",
+      STUB_SUDO_TAIL_LINES: LONG_TAIL,
+    });
+    expect(code).toBe(1);
+    expect(output).toContain("with sudo and no password");
   });
 
   it("entries that all need a password are a PASS", async () => {
@@ -508,8 +552,7 @@ describe.concurrent("harden-ssh.sh --check", () => {
     rmSync(outside, { recursive: true, force: true });
   });
 
-  // Quarantined: flaky in merge CI (task 82c3d396).
-  it.skip("a second SSH daemon on another port is probed too", async () => {
+  it("a second SSH daemon on another port is probed too", async () => {
     // OpenSSH masked, dropbear listening: the OpenSSH endpoints go unreachable
     // and the box would pass without this.
     const banner = Bun.listen({
