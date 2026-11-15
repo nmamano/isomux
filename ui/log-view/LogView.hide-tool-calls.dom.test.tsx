@@ -277,11 +277,11 @@ it("a live run stays one line past the live tail cap, and stays open as it grows
   view.unmount();
 });
 
-// The turn's copy button sits on its last card. A closed run hides what it
-// would copy, so a turn that ends in a closed run has no copy button
-// (task 0d28a00a, Nil at sign-off); once the member opens the run, the last
+// The turn's copy button sits on its last card. A closed run that ends the
+// turn carries it beside its "N steps" line, and it copies the whole turn
+// (Nil at sign-off, task 59aca671); once the member opens the run, the last
 // card in it has the button, as every expanded card does.
-it("a turn that ends in a closed run has no copy button until the run opens", () => {
+it("a turn that ends in a closed run has its copy button beside the steps line, and it copies the whole turn", async () => {
   const endsInRun = [
     entry("u1", "user_message", "Go.", { username: "Tester" }),
     entry("x1", "text", "Starting."),
@@ -289,33 +289,74 @@ it("a turn that ends in a closed run has no copy button until the run opens", ()
     done("r1", "c1"),
     shellCall("c2", "echo HIDE-TWO"),
   ];
-  const { view } = mount({}, { agent, logs: endsInRun });
-  const chat = view.container;
-  const copyTitle = en["common.copy"];
-  const copyButtons = (root: ParentNode) =>
-    root.querySelectorAll(`button[title="${copyTitle}"]`);
-  const turnRun = () => chat.querySelector('[data-log-entry-id="c1"]')!;
-  // The run is closed and is the last thing in the agent's turn.
-  expect(runLines(chat).length).toBe(1);
-  expect(turnRun().querySelectorAll("button[data-hidden-steps]").length).toBe(
-    1,
-  );
-  expect(copyButtons(turnRun()).length).toBe(0);
-  // The text before the run is not the turn's last card either.
-  expect(
-    copyButtons(chat.querySelector('[data-log-entry-id="x1"]')!).length,
-  ).toBe(0);
+  const copied: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        copied.push(text);
+      },
+    },
+  });
+  try {
+    const { view } = mount({}, { agent, logs: endsInRun });
+    const chat = view.container;
+    const copyTitle = en["common.copy"];
+    const copyButtons = (root: ParentNode) =>
+      root.querySelectorAll<HTMLElement>(`button[title="${copyTitle}"]`);
+    const turnRun = () => chat.querySelector('[data-log-entry-id="c1"]')!;
+    const inChat = () => copyButtons(chat).length;
+    // The run is closed and is the last thing in the agent's turn.
+    expect(runLines(chat).length).toBe(1);
+    expect(turnRun().querySelectorAll("button[data-hidden-steps]").length).toBe(
+      1,
+    );
+    expect(copyButtons(turnRun()).length).toBe(1);
+    // The text before the run is not the turn's last card.
+    expect(
+      copyButtons(chat.querySelector('[data-log-entry-id="x1"]')!).length,
+    ).toBe(0);
+    const closedCount = inChat();
 
-  fireEvent.click(runLines(chat)[0]);
-  expect(shown(chat)).toEqual(MARKERS);
-  expect(copyButtons(turnRun()).length).toBe(1);
-  // It is on the run's last card: the cards follow the open line.
-  const cards = Array.from(
-    turnRun().querySelector("button[data-hidden-steps-open]")!.parentElement!
-      .children,
-  ).slice(1);
-  expect(cards.length).toBe(2);
-  expect(cards[1].textContent).toContain("HIDE-TWO");
-  expect(copyButtons(cards[1]).length).toBe(1);
+    // It copies the whole turn, the steps the line hides too, and the click
+    // leaves the run closed.
+    await act(async () => {
+      fireEvent.click(copyButtons(turnRun())[0]);
+    });
+    expect(copied.length).toBe(1);
+    expect(copied[0]).toContain("Starting.");
+    expect(copied[0]).toContain("HIDE-TWO");
+    expect(runLines(chat).length).toBe(1);
+    expect(shown(chat)).toEqual([]);
+
+    fireEvent.click(runLines(chat)[0]);
+    expect(shown(chat)).toEqual(MARKERS);
+    // Still one turn button, now on the run's last card: the cards follow
+    // the open line.
+    expect(inChat()).toBe(closedCount);
+    expect(copyButtons(turnRun()).length).toBe(1);
+    const cards = Array.from(
+      turnRun().querySelector("button[data-hidden-steps-open]")!.parentElement!
+        .children,
+    ).slice(1);
+    expect(cards.length).toBe(2);
+    expect(cards[1].textContent).toContain("HIDE-TWO");
+    expect(copyButtons(cards[1]).length).toBe(1);
+    view.unmount();
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+it("a closed run in the middle of a turn has no copy button", () => {
+  const { view } = mount({});
+  const chat = view.container;
+  const run = chat.querySelector('[data-log-entry-id="c1"]')!;
+  expect(run.querySelectorAll("button[data-hidden-steps]").length).toBe(1);
+  expect(
+    run.querySelectorAll(`button[title="${en["common.copy"]}"]`).length,
+  ).toBe(0);
   view.unmount();
 });
