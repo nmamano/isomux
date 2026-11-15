@@ -4,10 +4,7 @@ import {
   createUnavailableAppSupervisor,
 } from "./app-hosting.ts";
 import { AppSupervisorError } from "./app-supervisor.ts";
-import {
-  appHostingClaudeCaveatTail,
-  appHostingSection,
-} from "./system-prompt.ts";
+import { appHostingSection } from "./system-prompt.ts";
 import type { AppRecord } from "../shared/types.ts";
 
 const record = { name: "hello" } as AppRecord;
@@ -50,10 +47,5 @@ describe("app hosting on a host without systemd", () => {
     const off = appHostingSection(unsupported);
     expect(off).toContain(unsupported);
     expect(off).not.toContain("`apps`");
-  });
-
-  it("points the Claude caveat at the app section only where apps can run", () => {
-    expect(appHostingClaudeCaveatTail(null)).not.toBe("");
-    expect(appHostingClaudeCaveatTail(unsupported)).toBe("");
   });
 });

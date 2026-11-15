@@ -20,13 +20,7 @@ To message an agent instead of running a session, add `target:{kind:"agent",agen
 
 To run a command with no model, add `command` and `cwd` to a job with an agent target. Each run runs the command in `cwd` with the member's shell and variables, for at most 10 minutes. When it exits 0 and prints nothing, nobody is messaged. Otherwise the agent gets the prompt, how the command ended, the command and the end of its output; `prompt` may be `""`. A webhook's data goes into the message, never into the command. The command gets no bearer token. An ordinary agent's command job is limited like a Claude session job: full permissions and its folder. `PATCH {command:null}` makes it a job that only messages, which needs a prompt. Its runs have no transcript; a run read returns `commandResult`.
 
-A run's session ends with the run. When the run's system prompt says that it runs in its own process namespace, every process the run starts stops then, also one started with `setsid`, `nohup` or `systemd-run --scope`. Start work that must outlive the run as a transient service, where `systemctl --user` works:
-
-```sh
-systemd-run --user --unit=<name> --same-dir --collect -E PATH <command>
-```
-
-The service does not get the run's folder, `PATH` or other variables: `--same-dir` keeps the folder, `-E PATH` copies `PATH`, and `-E <VAR>` copies each other variable the command needs. `--collect` frees the name after a failure, so the next run can use it again. Check the service with `systemctl --user is-active <name>`, not `pgrep -f`, which also finds its own shell. Read its output with `journalctl --user -u <name>`. A service that must run all the time is an app (page `apps`): it restarts when it exits.
+A run's session ends with the run. When the run's system prompt says that it runs in its own process namespace, every process the run starts stops then, also a detached one. The `apps` page says how to start work that must outlive the run.
 
 Safe example: `GET /api/cronjobs`.
 

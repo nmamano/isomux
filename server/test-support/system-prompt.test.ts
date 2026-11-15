@@ -3,6 +3,7 @@ import {
   buildSystemPrompt,
   hostedIdentityNote,
   memorySection,
+  processIsolationPromptLine,
 } from "../system-prompt.ts";
 import {
   AGENT_REFERENCE_SUBPAGES,
@@ -122,6 +123,7 @@ describe("system prompt pointer contract", () => {
       "i",
     );
     const historyCheck = /chat history[^.]*`conversation-history`/;
+    const onlyIfFound = /\bonly (?:if|after) you find\b/;
     const privilegedSender = new RegExp(
       `${AGENT_SENDER_PRIVILEGED} agent with the ${AGENT_SENDER_SAME_MANAGER}`,
     );
@@ -153,7 +155,7 @@ describe("system prompt pointer contract", () => {
       }
       const ordinary = build(engine, false);
       const privileged = build(engine, true);
-      expect(ordinary).not.toMatch(/only if you find it/);
+      expect(ordinary).not.toMatch(onlyIfFound);
       const section = privileged.slice(
         privileged.indexOf("## Privileged Operator Capabilities"),
       );
@@ -165,7 +167,7 @@ describe("system prompt pointer contract", () => {
           (s) =>
             /another agent asks/.test(s) &&
             historyCheck.test(s) &&
-            /only if you find it/.test(s),
+            onlyIfFound.test(s),
         ),
       ).toBe(true);
     }
@@ -278,6 +280,11 @@ describe("system prompt pointer contract", () => {
     const caps = { claude: 8_750, codex: 8_250, opencode: 8_750 };
     const privilegedCap = 1_750;
     const over: object[] = [];
+    // Task f7a6f63d (Nil, 2026-11-15): warn at 90% of each cap, as the
+    // reference pages do (task 3e3b0f81). The warning does not fail.
+    const warnAt = 0.9;
+    const largest = { claude: 0, codex: 0, opencode: 0 };
+    let largestAdded = 0;
     setProcessIsolationProbe({ available: true });
     setProcessIsolationSwitch(() => true);
     // Every Codex sandbox mode (the type check fails when one is added),
@@ -323,11 +330,22 @@ describe("system prompt pointer contract", () => {
             );
           const ordinary = bytes(false);
           const added = bytes(true) - ordinary;
+          largest[engine] = Math.max(largest[engine], ordinary);
+          largestAdded = Math.max(largestAdded, added);
           if (ordinary > caps[engine] || added > privilegedCap)
             over.push({ engine, isolation, makesSchedules, ordinary, added });
         }
       }
     }
+    const warn = (what: string, bytes: number, cap: number) => {
+      if (bytes > cap * warnAt && bytes <= cap)
+        console.warn(
+          `${what}: ${bytes} of ${cap} B (${((bytes / cap) * 100).toFixed(1)}%), over ${warnAt * 100}% of the cap. Move how-to detail to a reference page.`,
+        );
+    };
+    for (const engine of ["claude", "codex", "opencode"] as const)
+      warn(`system prompt, ${engine}`, largest[engine], caps[engine]);
+    warn("system prompt, privileged section", largestAdded, privilegedCap);
     expect(over).toEqual([]);
   });
 });
@@ -778,5 +796,33 @@ describe("OpenCode office call rewrite", () => {
         false,
       ]);
     }
+  });
+});
+
+// Task f7a6f63d: the way to keep a process running past the session lives
+// in one place, the apps page, and the isolation line of each form sends
+// the agent there. A later cut that drops it from the page leaves no copy.
+describe("keeping a process past the session", () => {
+  it("each isolation line points to page `apps`, which holds the systemd-run form; the schedules page points there too", () => {
+    const identity: Identity = {
+      scope: "agent",
+      agentId: "a1",
+      userId: "u1",
+      role: "member",
+      capabilities: AGENT_CAPABILITIES,
+    };
+    for (const form of ["session", "shared_server"] as const) {
+      const line = processIsolationPromptLine(form);
+      expect([form, line.includes("`apps`")]).toEqual([form, true]);
+      expect([form, line.includes("systemd-run")]).toEqual([form, false]);
+    }
+    const apps = agentReferenceContent(identity, "apps") ?? "";
+    const form = /systemd-run --user\b[^\n`]*/.exec(apps)?.[0] ?? "";
+    for (const flag of ["--unit=", "--same-dir", "--collect", "-E PATH"])
+      expect([flag, form.includes(flag)]).toEqual([flag, true]);
+    const schedules =
+      agentReferenceContent(identity, "cronjob-management") ?? "";
+    expect(schedules).toContain("`apps`");
+    expect(schedules).not.toContain("systemd-run --user");
   });
 });

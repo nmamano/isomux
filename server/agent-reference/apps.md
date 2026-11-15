@@ -14,6 +14,14 @@ On the short address, the office's Chat button and its other controls sit over t
 
 When a change to an app is ready for the member to see, call `POST /api/apps/:name/reload`: each open short-address page reloads the app once it serves, on the page the member is on. After a change to the server code, restart the app instead; a start or restart also reloads. Do not ask the member to reload. A tab that opened the direct `url` does not reload.
 
+When your system prompt says that you run in your own process namespace, every process you start stops with your session or schedule run, also one started with `setsid`, `nohup` or `systemd-run --scope`. Start work that must outlive it as a transient service, where `systemctl --user` works:
+
+```sh
+systemd-run --user --unit=<name> --same-dir --collect -E PATH <command>
+```
+
+The service does not get your folder, `PATH` or other variables: `--same-dir` keeps the folder, `-E PATH` copies `PATH`, and `-E <VAR>` copies each other variable the command needs. `--collect` frees the name after a failure, so the next run can use it again. Check it with `systemctl --user is-active <name>`, not `pgrep -f`, which also finds its own shell. Read its output with `journalctl --user -u <name>`. A service that must run all the time is an app: it restarts when it exits.
+
 Before you write app code that messages agents, pages, opens asks, or acts for the member behind a request, fetch the `apps-server` page.
 
 Safe example: `GET /api/apps`.
