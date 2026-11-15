@@ -122,7 +122,8 @@ function api(
     ],
     JSON.stringify(body),
   );
-  return JSON.parse(r.out) as Record<string, unknown>;
+  // A 204 has no body.
+  return (r.out ? JSON.parse(r.out) : {}) as Record<string, unknown>;
 }
 
 function member(
@@ -264,6 +265,7 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
   let alice: string;
   let bob: string;
   let roomId: string;
+  let aliceCookie = "";
 
   beforeAll(async () => {
     name = start("main");
@@ -510,12 +512,12 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
       name,
       `curl -s -i -X POST http://127.0.0.1:10000/auth/accept -H 'Host: ${HOST}' -H 'Origin: ${ORIGIN}' --data-urlencode 'token=${token}' --data-urlencode 'name=Alice'`,
     );
-    const aliceCookie =
+    aliceCookie =
       /set-cookie: (__Host-isomux_session_[0-9a-f]{12}=[^;]+)/i.exec(
         accepted.out,
-      )?.[1];
+      )?.[1] ?? "";
     expect(aliceCookie).toBeTruthy();
-    const made = api(name, aliceCookie!, "POST", "/api/agents", {
+    const made = api(name, aliceCookie, "POST", "/api/agents", {
       name: "Rig Alice",
       cwd: `${MEMBERS}/home/${ALICE}`,
       roomId,
@@ -538,6 +540,151 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
       TERMINAL,
     );
     expect(JSON.parse(r.out.trim())).toEqual({ uid: uidOf(name, ALICE) });
+  });
+
+  // Slice 1c-i: the member's engines keep their files in the member's own
+  // space (<home>/.isomux-agent, and ~/.claude in the member's home), Codex
+  // resumes its thread there after a restart, and the office's agent space
+  // gains nothing.
+  it("runs the member's Claude and Codex sessions in their own space, and resumes Codex after a restart", async () => {
+    const home = `${MEMBERS}/home/${ALICE}`;
+    const space = `${home}/.isomux-agent`;
+    const aliceUid = String(uidOf(name, ALICE));
+    // A key in the member's own variables: the stubs need no sign-in, the
+    // office's checks see one.
+    for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
+      api(name, cookie, "PUT", `/api/users/Alice/env/${key}`, {
+        value: "rig-key",
+      });
+    // The office's own OpenCode profiles change at boot (model discovery):
+    // the member's profile is checked by its name below.
+    const officeSpace = [
+      `${STATE}/provider-homes`,
+      `${STATE}/codex-home`,
+      `${STATE}/codex`,
+      "/var/data/home/.claude",
+    ].join(" ");
+    const officeFiles = () =>
+      root(name, `find ${officeSpace} -type f 2>/dev/null | sort`).out;
+    const before = officeFiles();
+    const spawn = (agentType: string, desk: number, modelFamily?: string) => {
+      const made = api(name, aliceCookie, "POST", "/api/agents", {
+        name: `Rig Alice ${agentType}`,
+        cwd: home,
+        roomId,
+        desk,
+        agentType,
+        ...(modelFamily ? { modelFamily } : {}),
+      });
+      const id = (made.agent as { id: string } | undefined)?.id;
+      if (!id) throw new Error(`spawn ${agentType}: ${JSON.stringify(made)}`);
+      return id;
+    };
+    const send = (agentId: string, text: string) =>
+      api(name, aliceCookie, "POST", `/api/agents/${agentId}/messages`, {
+        text,
+      });
+    const reports = async (agentId: string, count: number) => {
+      const deadline = Date.now() + 90_000;
+      for (;;) {
+        const found = root(
+          name,
+          `cat ${STATE}/logs/${agentId}/*.jsonl 2>/dev/null`,
+        )
+          .out.split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string; content: string })
+          .filter(
+            (l) =>
+              l.kind === "text" &&
+              typeof l.content === "string" &&
+              l.content.startsWith("RIG_REPORT "),
+          )
+          .map(
+            (l) =>
+              JSON.parse(l.content.slice("RIG_REPORT ".length)) as Record<
+                string,
+                unknown
+              >,
+          );
+        if (found.length >= count || Date.now() > deadline) return found;
+        await Bun.sleep(250);
+      }
+    };
+
+    const agents = {
+      claude: spawn("claude", 2),
+      codex: spawn("codex", 3, "gpt-rig"),
+    };
+    // The OpenCode stub does not start in this rig, for the office either
+    // (its server fails at startup), so only its profile folder is checked:
+    // the member's, in their space.
+    const openCode = spawn("opencode", 4, "rig/stub");
+    send(openCode, "one");
+    await waitFor(
+      "the member's OpenCode profile",
+      () =>
+        root(
+          name,
+          `stat -c %u ${space}/opencode/profiles/*/opencode.json 2>/dev/null`,
+        ).out.trim() === aliceUid,
+    );
+    for (const id of Object.values(agents)) send(id, "one");
+    const first: Record<string, Record<string, unknown>> = {};
+    for (const [engine, id] of Object.entries(agents)) {
+      [first[engine]] = await reports(id, 1);
+      expect([engine, first[engine]?.uid]).toEqual([engine, aliceUid]);
+    }
+    expect(
+      String(first.claude.transcript).startsWith(`${home}/.claude/projects/`),
+    ).toBe(true);
+    expect(first.codex.codexHome).toBe(`${space}/codex-home`);
+    // Each engine's folders in the member's space are the member's.
+    for (const dir of [
+      `${space}/codex-home`,
+      `${space}/opencode/profiles`,
+      `${home}/.claude/projects`,
+    ])
+      expect([dir, root(name, `stat -c %u ${dir}`).out.trim()]).toEqual([
+        dir,
+        aliceUid,
+      ]);
+    expect(root(name, `stat -c '%u %a' ${space}`).out.trim()).toBe(
+      `${aliceUid} 700`,
+    );
+
+    // A restart: each session resumes from the member's space.
+    const restartedAt = new Date().toISOString();
+    expect(run("docker", ["restart", name]).status).toBe(0);
+    await office(name);
+    await waitFor("Alice connected after the restart", () => {
+      const r = run("docker", ["logs", "--since", restartedAt, name]);
+      return (r.out + r.err).includes(
+        `[member-hosts] ${alice} runs as ${ALICE}`,
+      );
+    });
+    for (const id of Object.values(agents)) send(id, "two");
+    for (const [engine, id] of Object.entries(agents)) {
+      const all = await reports(id, 2);
+      expect([engine, all.length]).toEqual([engine, 2]);
+      expect([engine, all[1].uid]).toEqual([engine, aliceUid]);
+    }
+    // Claude's resume is not proven here: the stub starts a new session
+    // after a restart for an office agent too. Its second turn still runs
+    // in the member's space.
+    const claudeTurns = await reports(agents.claude, 2);
+    for (const turn of claudeTurns)
+      expect(
+        String(turn.transcript).startsWith(`${home}/.claude/projects/`),
+      ).toBe(true);
+    const codexSecond = (await reports(agents.codex, 2))[1];
+    expect(codexSecond.threadId).toBe(first.codex.threadId);
+    expect(officeFiles()).toBe(before);
+    const profile = root(name, `ls ${space}/opencode/profiles`).out.trim();
+    expect(profile).toMatch(/^[0-9a-f]{16}$/);
+    expect(
+      root(name, `test -e ${STATE}/opencode/profiles/${profile}`).status,
+    ).toBe(1);
   });
 
   it("disable --delete-user deletes nothing of a user this command did not make for the member", () => {

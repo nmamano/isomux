@@ -6,17 +6,20 @@ import { lstatSync, mkdirSync, readdirSync } from "fs";
 import { dirname, isAbsolute, join, normalize } from "path";
 import { AGENT_ROOT } from "../split/roots.ts";
 
-// The parent of each engine's empty folders, in agent space.
-export const CODEX_EMPTY_CWD_ROOT = join(AGENT_ROOT, "codex", "no-folder");
-export const OPENCODE_EMPTY_CWD_ROOT = join(
-  AGENT_ROOT,
-  "opencode",
-  "no-folder",
-);
+// The parent of each engine's empty folders, in an agent space: the office's
+// (AGENT_ROOT), or an isolated member's (AgentHost.agentRoot).
+export function codexEmptyCwdRoot(agentRoot: string = AGENT_ROOT): string {
+  return join(agentRoot, "codex", "no-folder");
+}
+export function openCodeEmptyCwdRoot(agentRoot: string = AGENT_ROOT): string {
+  return join(agentRoot, "opencode", "no-folder");
+}
+export const CODEX_EMPTY_CWD_ROOT = codexEmptyCwdRoot();
+export const OPENCODE_EMPTY_CWD_ROOT = openCodeEmptyCwdRoot();
 
 // The parents an empty folder may sit directly under.
-export function emptyFolderRoots(): string[] {
-  return [CODEX_EMPTY_CWD_ROOT, OPENCODE_EMPTY_CWD_ROOT];
+export function emptyFolderRoots(agentRoot: string = AGENT_ROOT): string[] {
+  return [codexEmptyCwdRoot(agentRoot), openCodeEmptyCwdRoot(agentRoot)];
 }
 
 // Makes `dir` (mode 0700) when it is missing and returns it. Throws when

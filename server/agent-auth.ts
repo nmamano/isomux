@@ -17,7 +17,7 @@ import {
   claudeSignInState,
   isClaudeCloudSelected,
 } from "./backends/claude-install-check.ts";
-import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
+import { isCodexAuthenticatedOnHost } from "./backends/codex/native-bin.ts";
 import type { Backend, LoginInstructions } from "./backends/types.ts";
 import { claudeConfigRoot } from "./claude-session-root.ts";
 import {
@@ -159,7 +159,8 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     // An "unknown" Claude answer is not known-unauthenticated.
     if (managed.info.agentType === "claude")
       return (await claudeSignInState(env)) === "signed_out";
-    if (managed.info.agentType === "codex") return !isCodexAuthenticated(env);
+    if (managed.info.agentType === "codex")
+      return !(await isCodexAuthenticatedOnHost(env));
     return false;
   }
   async function agentLoginInstructions(

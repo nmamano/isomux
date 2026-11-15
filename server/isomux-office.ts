@@ -416,7 +416,7 @@ import {
   officeCodexSourceRoot,
 } from "./provider-skill-links.ts";
 import {
-  personalProviderHome,
+  officePersonalProviderHome,
   removePersonalProviderHomes,
   sweepPersonalProviderHomes,
 } from "./provider-homes.ts";
@@ -2263,7 +2263,7 @@ function settleMemberSkillFolders(): void {
       personalHomes: userIds.flatMap((id) =>
         (["claude", "codex"] as const).map((provider) => ({
           provider,
-          root: personalProviderHome(id, provider),
+          root: officePersonalProviderHome(id, provider),
         })),
       ),
       sourceRoots: {

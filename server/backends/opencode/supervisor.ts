@@ -8,13 +8,14 @@ import {
   tagMemberEnv,
   type AgentHost,
 } from "../../agent-host.ts";
-import { hostForEnv } from "../../member-hosts.ts";
+import { hostFor, hostForEnv } from "../../member-hosts.ts";
 import { ADMIN_SOCKET_PATH, STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { runAtServerStop } from "../../server-stop.ts";
 import { openCodeUnsupportedReason } from "./runtime.ts";
 import {
   openCodeConfigFilePath,
+  openCodeProfileOwner,
   openCodeProfilePaths,
 } from "./profile-paths.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
@@ -1113,9 +1114,9 @@ export async function reloadOpenCodeServer(
   const supervisor = environmentSupervisors.get(supervisorKey(environmentKey));
   if (supervisor) return supervisor.requestReload();
   const { profileDir } = openCodeProfilePaths(environmentKey);
-  // The profile folder is in office state until slice 1c of task b94dfd25
-  // moves an isolated member's profiles to their agent space.
-  const host = officeAgentHost();
+  // An isolated member's profile is in their agent space.
+  const owner = openCodeProfileOwner(environmentKey);
+  const host = owner === undefined ? officeAgentHost() : hostFor(owner);
   if (await host.fs.exists(profileDir))
     await host.fs.writeText(join(profileDir, "server.replace"), "", {
       mode: 0o600,

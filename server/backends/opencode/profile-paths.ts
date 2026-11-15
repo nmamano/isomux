@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { AGENT_ROOT } from "../../split/roots.ts";
-import { OPENCODE_V2_DATABASE, openCodeProfileHome } from "./config-layers.ts";
+import { hostFor } from "../../member-hosts.ts";
+import { officeAgentHost, type AgentHost } from "../../agent-host.ts";
+import { memberOsUserIds } from "../../member-os-users.ts";
+import { profileKeyForOwner } from "../../opencode-profile-keys.ts";
+import { openCodeProfileHome } from "./config-layers.ts";
 
 // In config-layers.ts, which start-server.ts can import.
 export { openCodeStartupOutputDir } from "./config-layers.ts";
@@ -25,8 +29,14 @@ export function openCodeProfilePaths(
     .update(environmentKey)
     .digest("hex")
     .slice(0, 16);
-  // Agent space; in split mode the old state root (design section 3.1.2).
-  const profileDir = join(AGENT_ROOT, "opencode", "profiles", key);
+  // Agent space; in split mode the old state root (design section 3.1.2);
+  // an isolated member's own.
+  const profileDir = join(
+    openCodeProfileRoot(environmentKey),
+    "opencode",
+    "profiles",
+    key,
+  );
   return {
     profileDir,
     configPath: openCodeConfigFilePath(profileDir),
@@ -36,6 +46,39 @@ export function openCodeProfilePaths(
     stateHome: join(profileDir, "state"),
     cacheHome: join(profileDir, "cache"),
   };
+}
+
+// The agent space of the owner of a profile key (with or without the
+// limited suffix): an isolated member's, else AGENT_ROOT.
+export function openCodeProfileOwner(
+  environmentKey: string,
+): string | undefined {
+  const ids = memberOsUserIds();
+  if (ids.length === 0) return undefined;
+  return ids.find((id) => {
+    const key = profileKeyForOwner(id);
+    // openCodeProfileKey (access.ts) appends "\0below-standard".
+    return environmentKey === key || environmentKey.startsWith(`${key}\0`);
+  });
+}
+
+// The host whose agent space holds `profileDir`: an isolated member's, else
+// the office's.
+export function openCodeProfileHost(profileDir: string): AgentHost {
+  for (const id of memberOsUserIds()) {
+    const host = hostFor(id);
+    if (
+      host.member !== undefined &&
+      profileDir.startsWith(`${host.agentRoot()}/`)
+    )
+      return host;
+  }
+  return officeAgentHost();
+}
+
+function openCodeProfileRoot(environmentKey: string): string {
+  const owner = openCodeProfileOwner(environmentKey);
+  return owner === undefined ? AGENT_ROOT : hostFor(owner).agentRoot();
 }
 
 // The config file the supervisor writes in a profile and passes as
@@ -50,19 +93,8 @@ export function openCodeLogPath(profileDir: string): string {
   return join(profileDir, "data", "opencode", "log", "opencode.log");
 }
 
-// 2.1.4 runs on opencode-v2.db (OPENCODE_DB), a copy that start-server.ts
-// makes of the version 1 database at a profile's first 2.1.4 start.
-// opencode.db stays as OpenCode 1 left it, for a rollback.
-export function openCodeDatabasePath(
-  profileDir: string,
-  version: "v1" | "v2",
-): string {
-  return join(
-    profileDir,
-    "data",
-    "opencode",
-    version === "v2" ? OPENCODE_V2_DATABASE : "opencode.db",
-  );
-}
+// In config-layers.ts, which storage.ts (and so the runner's entry) imports
+// without this file's owner lookup.
+export { openCodeDatabasePath } from "./config-layers.ts";
 
 export { openCodeSafetyPluginDir } from "./safety-plugin-tool.ts";

@@ -65,10 +65,10 @@ import {
   type AgentAccess,
 } from "../../../shared/agent-access.ts";
 import {
-  OPENCODE_EMPTY_CWD_ROOT,
   OPENCODE_LIMITED_ONE_SHOT_DIR,
   openCodeBelowStandardRefusal,
   openCodeEmptyCwd,
+  openCodeOneShotDirs,
   openCodeLaunchEnvFor,
   openCodeProfileKey,
   openCodeStopAgent,
@@ -78,8 +78,9 @@ import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
 import type { OpenCodeLimitedSession } from "./transport.ts";
-import { officeAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
+import { hostForEnv, isMemberEnv } from "../../member-hosts.ts";
+import { openCodeEmptyCwdRoot } from "../empty-folder.ts";
 
 // The folder topic labels run in. The agent's folder would apply its project
 // config, plugins and AGENTS.md to a labelling call; Claude's one-shot uses a
@@ -524,7 +525,12 @@ export function createOpenCodeBackend(
     const folder = stopHasFolder(access);
     return {
       // Chat and office have no file tools: a folder Isomux makes, empty.
-      cwd: folder ? opts.cwd : join(OPENCODE_EMPTY_CWD_ROOT, opts.agentId),
+      cwd: folder
+        ? opts.cwd
+        : join(
+            openCodeEmptyCwdRoot(hostForEnv(opts.env).agentRoot()),
+            opts.agentId,
+          ),
       // Plan and bypass agents never run below standard.
       agent: openCodeStopAgent(access) ?? undefined,
       limited: {
@@ -537,7 +543,7 @@ export function createOpenCodeBackend(
       prepare: async () => {
         const refusal = openCodeBelowStandardRefusal(access);
         if (refusal) throw new Error(refusal);
-        if (!folder) await openCodeEmptyCwd(opts.agentId);
+        if (!folder) await openCodeEmptyCwd(opts.agentId, opts.env);
         if (sessionId) await moveHere(sessionId, opts);
       },
       delivery: folder
@@ -613,6 +619,10 @@ export function createOpenCodeBackend(
   ): StoredSessionState => {
     if (!opts.environmentKey)
       throw new Error("OpenCode session environment identity is required.");
+    // An isolated member's profile is in their agent space, which this sync
+    // check does not read: trusted, and the server's resume error shows a
+    // missing one.
+    if (isMemberEnv(opts.env)) return "durable";
     const own = sessionState(sessionId, opts.environmentKey, opts.access);
     if (own === "durable") return own;
     return sessionState(
@@ -797,9 +807,17 @@ export function createOpenCodeBackend(
         if (refusal) throw new Error(refusal);
       }
       const supervisor = supervisorFor(opts);
-      const dir = below ? OPENCODE_LIMITED_ONE_SHOT_DIR : OPENCODE_ONE_SHOT_DIR;
-      if (below) await makeEmptyFolder(dir);
-      else await officeAgentHost().fs.mkdir(dir, 0o777);
+      // An isolated member's one-shot folders are in their agent space.
+      const host = hostForEnv(opts.env);
+      const dirs = isMemberEnv(opts.env)
+        ? openCodeOneShotDirs(host.agentRoot())
+        : {
+            plain: OPENCODE_ONE_SHOT_DIR,
+            limited: OPENCODE_LIMITED_ONE_SHOT_DIR,
+          };
+      const dir = below ? dirs.limited : dirs.plain;
+      if (below) await makeEmptyFolder(dir, host);
+      else await host.fs.mkdir(dir, 0o777);
       const models = await discoverOpenCodeModels(supervisor, dir);
       // Topic text must use the same selection as a live session. Never pick
       // a default or another discovered model when that selection is missing.
@@ -814,7 +832,7 @@ export function createOpenCodeBackend(
             agent: openCodeStopAgent("chat") ?? undefined,
             limited: { rules: openCodeStopRules("chat", []), mcpServers: [] },
             prepare: async () => {
-              await makeEmptyFolder(dir);
+              await makeEmptyFolder(dir, host);
             },
           }
         : undefined;

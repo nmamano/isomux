@@ -1,5 +1,5 @@
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
-import { hostForEnv } from "./member-hosts.ts";
+import { hostForEnv, isMemberEnv, refuseMemberEnv } from "./member-hosts.ts";
 import { delimiter, dirname, resolve, join } from "path";
 import { homedir } from "os";
 import { AGENT_ROOT } from "./split/roots.ts";
@@ -96,7 +96,20 @@ export function claudeSessionFileExists(
   sessionId: string,
   env?: { [key: string]: string | undefined },
 ): boolean {
+  refuseMemberEnv(env, "claudeSessionFileExists");
   return existsSync(join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`));
+}
+
+// Either env: an isolated member's transcript is looked up by their host.
+export async function claudeSessionFileExistsOnHost(
+  cwd: string,
+  sessionId: string,
+  env?: { [key: string]: string | undefined },
+): Promise<boolean> {
+  if (!isMemberEnv(env)) return claudeSessionFileExists(cwd, sessionId, env);
+  return hostForEnv(env).fs.exists(
+    join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`),
+  );
 }
 
 // Bytes read from the END of a Claude session .jsonl. Entries are one JSON
@@ -177,6 +190,7 @@ export function claudeStoredSessionState(
   sessionId: string,
   env?: { [key: string]: string | undefined },
 ): "empty" | "durable" {
+  refuseMemberEnv(env, "claudeStoredSessionState");
   const path = join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`);
   let text: string;
   try {
@@ -269,6 +283,7 @@ export function codexRolloutFileExists(
   threadId: string,
   env?: { [key: string]: string | undefined },
 ): boolean {
+  refuseMemberEnv(env, "codexRolloutFileExists");
   return findCodexRolloutPath(threadId, env) !== null;
 }
 
@@ -289,6 +304,7 @@ export function inspectCodexStoredSession(
   threadId: string,
   env?: { [key: string]: string | undefined },
 ): "missing" | "empty" | "durable" {
+  refuseMemberEnv(env, "inspectCodexStoredSession");
   const path = findCodexRolloutPath(threadId, env);
   if (path === null) return "missing";
   if (path === "") return "durable";
@@ -302,6 +318,7 @@ export function findCodexRolloutPath(
   threadId: string,
   env?: { [key: string]: string | undefined },
 ): string | null {
+  refuseMemberEnv(env, "findCodexRolloutPath");
   if (!CODEX_THREAD_ID_PATTERN.test(threadId)) return null;
   const sessionsDir = codexSessionsDir(env);
   if (!existsSync(sessionsDir)) return null;
@@ -426,6 +443,9 @@ export function moveClaudeSessionFile(
   newCwd: string,
   env?: { [key: string]: string | undefined },
 ): { ok: boolean; moved: boolean; error?: string } {
+  // An isolated member's transcripts move through their runner (slice
+  // 1c-ii); until then their cwd change stops here.
+  refuseMemberEnv(env, "moveClaudeSessionFile");
   const oldDir = claudeProjectDir(oldCwd, env);
   const newDir = claudeProjectDir(newCwd, env);
   if (oldDir === newDir || !existsSync(oldDir))
@@ -515,7 +535,12 @@ export function diagnoseProcessExit(
 ): LogMessage | null {
   if (cwdProblem(cwd))
     return msg("systemEntries.claudeExit.cwdMissing", { cwd });
-  if (sessionId && !claudeSessionFileExists(cwd, sessionId, env)) {
+  // An isolated member's transcript is not read here (a sync hint).
+  if (
+    sessionId &&
+    !isMemberEnv(env) &&
+    !claudeSessionFileExists(cwd, sessionId, env)
+  ) {
     return msg("systemEntries.claudeSession.missingAfterExit", {
       session: sessionId.slice(0, 8),
       paths: join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`),

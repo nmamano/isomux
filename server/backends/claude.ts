@@ -1,6 +1,6 @@
 import { claudeSessionStore } from "./claude/session-store.ts";
 import { withAgentSpawn } from "./claude/agent-spawn.ts";
-import { hostForEnv } from "../member-hosts.ts";
+import { hostForEnv, isMemberEnv } from "../member-hosts.ts";
 // `msg` names the SDK message throughout this file.
 import {
   msg as logMsg,
@@ -176,7 +176,7 @@ import { isUsageLimitNotice } from "../stored-session-text.ts";
 // need an install.
 // An isolated member's env runs the CLI of the member's runtime.
 function loginCommand(env?: { [key: string]: string | undefined }): string {
-  if (isClaudeCodeInstalled(env)) return "claude";
+  if (!isMemberEnv(env) && isClaudeCodeInstalled(env)) return "claude";
   const bin = hostForEnv(env).claudeBin();
   return /^[\w@%+=:,./-]+$/.test(bin)
     ? bin
@@ -2357,11 +2357,16 @@ export function createClaudeBackend(
     // first turn) is "empty"; anything else is trusted, and the SDK surfaces
     // any other resume error when it starts. Never "missing": see
     // claudeStoredSessionState.
+    // An isolated member's transcripts are read through their host, which
+    // these sync checks cannot wait for: trusted, and the SDK surfaces a
+    // missing one when it resumes.
     inspectStoredSession(sessionId, opts): StoredSessionState {
+      if (isMemberEnv(opts.env)) return "durable";
       return claudeStoredSessionState(opts.cwd, sessionId, opts.env);
     },
 
     checkSessionResumable(sessionId, opts): LogMessage | null {
+      if (isMemberEnv(opts.env)) return null;
       if (!claudeSessionFileExists(opts.cwd, sessionId, opts.env)) {
         return logMsg("systemEntries.claudeSession.missing", {
           session: sessionId.slice(0, 8),

@@ -139,8 +139,20 @@ export function buildEnvForUserId(
     );
   const from = base ?? host.baseEnv();
   const merge = mergeEnvForUserId(userId, from);
-  if (host.member !== undefined)
-    return tagMemberEnv(merge ? merge.env : { ...from }, host.member);
+  if (host.member !== undefined) {
+    const env = merge ? merge.env : { ...from };
+    // Their Codex home is in their agent space, never the office's
+    // ISOMUX_CODEX_HOME: only a personal sign-in or their own variable
+    // names another.
+    const source = merge?.sources.get("CODEX_HOME");
+    if (
+      source !== "member_variable" &&
+      source !== "member_secret" &&
+      source !== "server"
+    )
+      env.CODEX_HOME = join(host.agentRoot(), "codex-home");
+    return tagMemberEnv(env, host.member);
+  }
   if (merge) return merge.env;
   return host.kind === "runner" ? { ...from } : undefined;
 }

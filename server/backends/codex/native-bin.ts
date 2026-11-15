@@ -18,7 +18,11 @@
 // internal-docs/isolation-design.md) are honored verbatim and override the
 // isomux default. The default only kicks in when no env source has set it.
 
-import { hostForEnv } from "../../member-hosts.ts";
+import {
+  hostForEnv,
+  isMemberEnv,
+  refuseMemberEnv,
+} from "../../member-hosts.ts";
 import {
   chmodSync,
   existsSync,
@@ -160,10 +164,21 @@ export function withIsomuxCodexHome(
 export function isCodexAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
+  refuseMemberEnv(env, "isCodexAuthenticated");
   const effective = env ?? officeAgentHost().baseEnv();
   if (effective.OPENAI_API_KEY) return true;
   const codexHome = effective.CODEX_HOME || ISOMUX_CODEX_HOME;
   return existsSync(join(codexHome, "auth.json"));
+}
+
+// Either env: an isolated member's auth.json is looked up by their host.
+export async function isCodexAuthenticatedOnHost(env?: {
+  [key: string]: string | undefined;
+}): Promise<boolean> {
+  if (!isMemberEnv(env)) return isCodexAuthenticated(env);
+  if (env!.OPENAI_API_KEY) return true;
+  const codexHome = env!.CODEX_HOME || ISOMUX_CODEX_HOME;
+  return hostForEnv(env).fs.exists(join(codexHome, "auth.json"));
 }
 
 // Whether a Codex app-server on `env` signs in with OPENAI_API_KEY: only

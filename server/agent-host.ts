@@ -14,6 +14,7 @@ import { Readable, Writable } from "stream";
 import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
 import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
 import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import { AGENT_ROOT } from "./split/roots.ts";
 import {
   isolatedArgv,
   ISOLATION_SETUP_FAILED,
@@ -180,6 +181,11 @@ export interface AgentHost {
   // The environment that agent processes start from: the agent user's own.
   baseEnv(): Record<string, string | undefined>;
   home(): string;
+  // Agent space: provider homes, the Codex home, OpenCode profiles and the
+  // one-shot folders of this host's agents. AGENT_ROOT on an office host;
+  // <member home>/.isomux-agent on a member host, which its runner makes as
+  // the member (internal-docs/member-os-user-design.md, section 1.3).
+  agentRoot(): string;
   username(): string;
   // The Bun executable used by this host, accessible to the agent user.
   bunPath(): string;
@@ -206,6 +212,9 @@ export interface AgentHost {
   // The OpenCode server helper (server/backends/opencode/start-server.ts).
   openCodeHelperArgv(): string[];
 }
+
+// A member's agent space, in their home (AgentHost.agentRoot).
+export const MEMBER_AGENT_DIR = ".isomux-agent";
 
 export const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
 export const OPENCODE_HELPER_PATH = join(
@@ -377,6 +386,7 @@ export const localAgentHost: AgentHost = {
   kind: "local",
   baseEnv: () => process.env,
   home: () => homedir(),
+  agentRoot: () => AGENT_ROOT,
   username: () => userInfo().username,
   bunPath: () => process.execPath,
   ...officeEnginePaths,
@@ -409,8 +419,9 @@ export function inAgentSpace<T>(
   name: string,
   input: unknown,
   local: () => T | Promise<T>,
+  // An isolated member's host runs the entry in their runner.
+  host: AgentHost = current,
 ): Promise<unknown> {
-  const host = current;
   return host.kind === "runner"
     ? host.runEntry(name, input)
     : Promise.resolve().then(local);

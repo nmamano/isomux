@@ -20,7 +20,12 @@ import { officeAgentHost } from "./agent-host.ts";
 import { isClaudeCodeAuthenticated } from "./backends/claude-install-check.ts";
 import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
 import type { Backend, BackendSession } from "./backends/types.ts";
-import { resolveClaudeSessionRoot } from "./claude-session-root.ts";
+import {
+  isolatedMemberClaudeRoots,
+  claudeSessionRootIsPinnable,
+  resolveClaudeSessionRoot,
+  resolveClaudeSessionRootOnHost,
+} from "./claude-session-root.ts";
 import {
   buildEnvForUserId,
   claudeFamilyModelsForUserId,
@@ -178,7 +183,8 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
         getSessionClaudeConfigDir(managed.info.id, sessionId),
         managed.info.userId,
       );
-      ensureSessionClaudeConfigDir(managed.info.id, sessionId, root);
+      if (claudeSessionRootIsPinnable(managed.info.userId))
+        ensureSessionClaudeConfigDir(managed.info.id, sessionId, root);
       base = {
         ...(base ?? officeAgentHost().baseEnv()),
         CLAUDE_CONFIG_DIR: root,
@@ -458,6 +464,42 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     Promise<"same" | "switched" | "failed">
   >();
   function alignAccount(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<"same" | "switched" | "failed"> | null {
+    const pin = pinIsolatedClaudeRoot(agentId, managed);
+    if (!pin) return alignOfficeAccount(agentId, managed);
+    return pin.then(() => alignOfficeAccount(agentId, managed) ?? "same");
+  }
+
+  // An isolated member's Claude session: the root that holds its transcript,
+  // searched through their host before the turn and pinned, so that
+  // buildSessionEnv (sync) only reads the pin. Null when there is nothing to
+  // search: another engine or member, no session, or a pin that counts. A
+  // failed search pins nothing; buildSessionEnv then uses the current root.
+  function pinIsolatedClaudeRoot(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<void> | null {
+    const { agentType, userId, cwd } = managed.info;
+    const sessionId = managed.sessionManager.sessionId;
+    if (agentType !== "claude" || !sessionId || !hasMemberOsUser(userId))
+      return null;
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = launchEnv(managed);
+    } catch {
+      return null;
+    }
+    const pinned = getSessionClaudeConfigDir(agentId, sessionId);
+    if (pinned && isolatedMemberClaudeRoots(env, userId).includes(pinned))
+      return null;
+    return resolveClaudeSessionRootOnHost(sessionId, cwd, env, pinned, userId)
+      .then((root) => setSessionClaudeConfigDir(agentId, sessionId, root))
+      .catch(() => {});
+  }
+
+  function alignOfficeAccount(
     agentId: string,
     managed: ManagedAgent,
   ): Promise<"same" | "switched" | "failed"> | null {

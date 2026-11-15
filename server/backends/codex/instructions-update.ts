@@ -7,6 +7,7 @@
 
 import { createReadStream } from "fs";
 import { StringDecoder } from "string_decoder";
+import { hostForEnv, isMemberEnv } from "../../member-hosts.ts";
 
 export interface CodexDeveloperMessage {
   type: "message";
@@ -121,4 +122,20 @@ export async function* rolloutLines(path: string): AsyncGenerator<string> {
   }
   pending += decoder.end();
   if (pending) yield pending;
+}
+
+// The lines of a thread's rollout for the agent's env. For an isolated
+// member the path comes from their own app-server, so the office never opens
+// it with its own fs: their host reads it, as them
+// (internal-docs/member-os-user-design.md, section 1.4).
+export async function* codexRolloutLines(
+  path: string,
+  env: object | undefined,
+): AsyncGenerator<string> {
+  if (!isMemberEnv(env)) {
+    yield* rolloutLines(path);
+    return;
+  }
+  const text = await hostForEnv(env).fs.readText(path);
+  yield* text.split("\n");
 }

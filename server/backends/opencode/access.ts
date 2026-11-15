@@ -13,7 +13,11 @@ import {
   belowStandard,
   type AgentAccess,
 } from "../../../shared/agent-access.ts";
-import { OPENCODE_EMPTY_CWD_ROOT } from "../empty-folder.ts";
+import {
+  OPENCODE_EMPTY_CWD_ROOT,
+  openCodeEmptyCwdRoot,
+} from "../empty-folder.ts";
+import { hostForEnv } from "../../member-hosts.ts";
 import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { OPENCODE_CLI_VERSION } from "./runtime.ts";
 export {
@@ -94,8 +98,28 @@ export function openCodeLaunchEnvFor(
 // The empty folder of an agent at chat or office,
 // OPENCODE_EMPTY_CWD_ROOT/<agentId>, made by the server in agent space.
 // Throws when it holds anything.
-export function openCodeEmptyCwd(agentId: string): Promise<string> {
-  return makeEmptyFolder(join(OPENCODE_EMPTY_CWD_ROOT, agentId));
+// An isolated member's env: in their agent space, made by their runner.
+export function openCodeEmptyCwd(
+  agentId: string,
+  env?: object,
+): Promise<string> {
+  const host = hostForEnv(env);
+  return makeEmptyFolder(
+    join(openCodeEmptyCwdRoot(host.agentRoot()), agentId),
+    host,
+  );
+}
+
+// The one-shot folders of an agent space (OPENCODE_ONE_SHOT_DIR and
+// OPENCODE_LIMITED_ONE_SHOT_DIR in the office's).
+export function openCodeOneShotDirs(agentRoot: string): {
+  plain: string;
+  limited: string;
+} {
+  return {
+    plain: join(agentRoot, "opencode", "one-shot"),
+    limited: join(openCodeEmptyCwdRoot(agentRoot), "one-shot"),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

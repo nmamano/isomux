@@ -15,6 +15,7 @@ import { homedir } from "os";
 import { delimiter, join } from "path";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 import { officeAgentHost } from "../agent-host.ts";
+import { hostForEnv, isMemberEnv, refuseMemberEnv } from "../member-hosts.ts";
 import {
   FAMILY_TO_MODEL,
   CLAUDE_CLOUD_MODEL_DEFAULTS,
@@ -26,6 +27,7 @@ import {
 export function isClaudeCodeInstalled(env?: {
   [key: string]: string | undefined;
 }): boolean {
+  refuseMemberEnv(env, "isClaudeCodeInstalled");
   const effective = env ?? officeAgentHost().baseEnv();
   for (const dir of effective.PATH?.split(delimiter) ?? []) {
     if (!dir) continue;
@@ -64,19 +66,38 @@ export function isClaudeCodeInstalled(env?: {
 export function isClaudeCodeAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
+  refuseMemberEnv(env, "isClaudeCodeAuthenticated");
   const effective = env ?? officeAgentHost().baseEnv();
-  if (isClaudeCloudSelected(effective)) return true;
-  if (
-    effective.ANTHROPIC_API_KEY ||
-    effective.CLAUDE_CODE_OAUTH_TOKEN ||
-    effective.ANTHROPIC_AUTH_TOKEN
-  )
-    return true;
+  if (claudeEnvSignedIn(effective)) return true;
   const configured = effective.CLAUDE_CONFIG_DIR;
   const configDir = configured?.trim()
     ? configured
     : join(homedir(), ".claude");
   return existsSync(join(configDir, ".credentials.json"));
+}
+
+function claudeEnvSignedIn(env: { [key: string]: string | undefined }) {
+  return Boolean(
+    isClaudeCloudSelected(env) ||
+    env.ANTHROPIC_API_KEY ||
+    env.CLAUDE_CODE_OAUTH_TOKEN ||
+    env.ANTHROPIC_AUTH_TOKEN,
+  );
+}
+
+// Either env: an isolated member's sign-in is in their own home or config
+// folder, looked up by their host.
+export async function isClaudeCodeAuthenticatedOnHost(env?: {
+  [key: string]: string | undefined;
+}): Promise<boolean> {
+  if (!isMemberEnv(env)) return isClaudeCodeAuthenticated(env);
+  if (claudeEnvSignedIn(env!)) return true;
+  const host = hostForEnv(env);
+  const configured = env!.CLAUDE_CONFIG_DIR;
+  const configDir = configured?.trim()
+    ? configured
+    : join(host.home(), ".claude");
+  return host.fs.exists(join(configDir, ".credentials.json"));
 }
 
 // Claude Code 2.1.257 (bundled SDK 0.3.257), checked 2026-09-10:
@@ -292,6 +313,11 @@ export function claudeSignInState(
   env?: Env,
   deps: ClaudeSignInDeps = {},
 ): Promise<ClaudeSignInState> {
+  if (isMemberEnv(env))
+    return isClaudeCodeAuthenticatedOnHost(env).then(
+      (signedIn) => (signedIn ? "signed_in" : "signed_out"),
+      () => "unknown" as const,
+    );
   const effective = env ?? officeAgentHost().baseEnv();
   if (isClaudeCodeAuthenticated(effective)) return Promise.resolve("signed_in");
   if ((deps.platform ?? process.platform) !== "darwin")

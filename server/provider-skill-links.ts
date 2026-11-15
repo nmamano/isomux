@@ -5,16 +5,23 @@ import type { UserSkillRoot } from "./skills.ts";
 import { personalProviderHome } from "./provider-homes.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
 import { officeAgentHost } from "./agent-host.ts";
+import { hostForEnv, isMemberEnv } from "./member-hosts.ts";
 
 // The Claude and Codex homes of an engine started with `env`. With no env the
 // engine inherits the host's base env, so CLAUDE_CONFIG_DIR or CODEX_HOME
 // there wins over the box ~/.claude or ~/.codex.
+// An isolated member's engine runs in their home; the office's in this
+// box's.
+function engineHome(env: object | undefined): string {
+  return isMemberEnv(env) ? hostForEnv(env).home() : homedir();
+}
+
 export function claudeConfigDirOf(env?: {
   [key: string]: string | undefined;
 }): string {
   return (
     (env ?? officeAgentHost().baseEnv()).CLAUDE_CONFIG_DIR?.trim() ||
-    join(homedir(), ".claude")
+    join(engineHome(env), ".claude")
   );
 }
 
@@ -23,7 +30,7 @@ export function codexUserHomeOf(env?: {
 }): string {
   return (
     (env ?? officeAgentHost().baseEnv()).CODEX_HOME?.trim() ||
-    join(homedir(), ".codex")
+    join(engineHome(env), ".codex")
   );
 }
 

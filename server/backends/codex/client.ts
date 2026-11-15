@@ -203,6 +203,10 @@ export class JsonRpcLiteClient {
     // creates it (withIsomuxCodexHome does it in process otherwise).
     if (host.kind === "runner" && effectiveEnv.CODEX_HOME === ISOMUX_CODEX_HOME)
       await host.fs.mkdir(ISOMUX_CODEX_HOME, 0o700).catch(() => {});
+    // An isolated member's Codex home (in their agent space): their runner
+    // makes it, as the member.
+    else if (host.member !== undefined && effectiveEnv.CODEX_HOME)
+      await host.fs.mkdir(effectiveEnv.CODEX_HOME, 0o700).catch(() => {});
     let safety: CodexSafetyPreflightResult = {
       warning: null,
       hookIdentity: null,

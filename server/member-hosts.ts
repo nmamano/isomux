@@ -112,6 +112,7 @@ export function createNotReadyHost(userId: string, reason: string): AgentHost {
     member: userId,
     baseEnv: () => ({}),
     home: () => NOT_READY_PATH,
+    agentRoot: () => NOT_READY_PATH,
     username: () => "",
     bunPath: () => NOT_READY_PATH,
     spawnPipe: () => failedAgentProcess(),
@@ -592,6 +593,15 @@ async function connectNow(userId: string): Promise<boolean> {
     );
   }
   const host = runner.host;
+  // The member's agent space, made by the runner as the member: the office
+  // never makes files there with its own fs.
+  try {
+    await host.fs.mkdir(host.agentRoot(), 0o700);
+  } catch (error) {
+    return refuse(
+      `cannot make the agent space ${host.agentRoot()}: ${(error as Error).message}`,
+    );
+  }
   // The record may have changed while we connected.
   const now = memberOsUserState(userId);
   if (
@@ -685,4 +695,19 @@ export function resetMemberHosts(): void {
 export function hostForEnv(env: object | undefined): AgentHost {
   const owner = memberEnvOwner(env);
   return owner !== undefined ? hostFor(owner) : officeAgentHost();
+}
+
+// True for an env built for an isolated member.
+export function isMemberEnv(env: object | undefined): boolean {
+  return memberEnvOwner(env) !== undefined;
+}
+
+// A sync read of the office's file system never answers for an isolated
+// member's paths: the caller uses the function's OnHost twin, or skips the
+// check.
+export function refuseMemberEnv(env: object | undefined, what: string): void {
+  if (isMemberEnv(env))
+    throw new Error(
+      `${what} reads the office's files; an isolated member's env goes through their host`,
+    );
 }

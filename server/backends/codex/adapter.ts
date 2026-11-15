@@ -36,7 +36,6 @@ import {
 import { readFileSync, statSync } from "fs";
 import { basename, join } from "path";
 import {
-  CODEX_EMPTY_CWD_ROOT,
   codexBelowStandardDiscovery,
   codexBelowStandardRefusal,
   codexEmptyCwd,
@@ -88,7 +87,7 @@ import {
 } from "../../cwd-utils.ts";
 import {
   codexInstructionsUpdate,
-  rolloutLines,
+  codexRolloutLines,
 } from "./instructions-update.ts";
 
 import type {
@@ -137,6 +136,7 @@ import {
   codexEnvApiKeyWins,
   getCodexLoginCommands,
   isCodexAuthenticated,
+  isCodexAuthenticatedOnHost,
 } from "./native-bin.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
@@ -157,6 +157,8 @@ import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
 import type { PlanType } from "./_generated/PlanType.ts";
 import type { IsolationForm } from "../../process-isolation.ts";
 import { OneShotUsageLimitError } from "../one-shot-errors.ts";
+import { hostForEnv, isMemberEnv } from "../../member-hosts.ts";
+import { codexEmptyCwdRoot } from "../empty-folder.ts";
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
@@ -1174,6 +1176,9 @@ type CodexTurn =
 const IDLE_TURN: CodexTurn = { kind: "idle" };
 const RUNNING_TURN: CodexTurn = { kind: "running" };
 
+// Agents whose skipped instructions check is logged: once per process.
+const unsearchedMemberRollouts = new Set<string>();
+
 export class CodexSession implements BackendSession {
   private client: CodexTransport;
   private threadId: string | null = null;
@@ -1376,7 +1381,10 @@ export class CodexSession implements BackendSession {
     const clientOpts: JsonRpcLiteClientOptions = {
       cwd:
         this.belowStandard && !this.inFolder
-          ? join(CODEX_EMPTY_CWD_ROOT, opts.agentId)
+          ? join(
+              codexEmptyCwdRoot(hostForEnv(opts.env).agentRoot()),
+              opts.agentId,
+            )
           : opts.cwd,
       env: this.inFolder
         ? {
@@ -1413,7 +1421,7 @@ export class CodexSession implements BackendSession {
         if (refusal) throw new Error(refusal);
         threadCwd = this.inFolder
           ? this.opts.cwd
-          : await codexEmptyCwd(this.opts.agentId);
+          : await codexEmptyCwd(this.opts.agentId, this.opts.env);
       }
       safety = await this.client.start(
         this.opts.isolation === "session" ? { isolate: true } : {},
@@ -1576,11 +1584,22 @@ export class CodexSession implements BackendSession {
     threadId: string,
     rolloutPath: string | null,
   ): Promise<void> {
+    // An isolated member's Codex home is searched only through their host,
+    // which has no rollout search yet: without a path, skip the check.
+    if (!rolloutPath && isMemberEnv(this.opts.env)) {
+      if (!unsearchedMemberRollouts.has(this.opts.agentId)) {
+        unsearchedMemberRollouts.add(this.opts.agentId);
+        console.log(
+          `[codex] ${this.opts.agentId}: the resume named no rollout file; the instructions check is skipped`,
+        );
+      }
+      return;
+    }
     try {
       const path = rolloutPath || findCodexRolloutPath(threadId, this.opts.env);
       if (!path) throw new Error("no rollout file for the thread");
       const update = await codexInstructionsUpdate(
-        rolloutLines(path),
+        codexRolloutLines(path, this.opts.env),
         this.opts.systemPrompt,
       );
       if (!update) return;
@@ -4100,11 +4119,16 @@ export const codexBackend: Backend = {
     });
   },
 
+  // An isolated member's rollouts are in their agent space, which these sync
+  // checks do not read: trusted, and Codex's own thread/resume error shows a
+  // missing one.
   inspectStoredSession(sessionId, opts) {
+    if (isMemberEnv(opts.env)) return "durable";
     return inspectCodexStoredSession(sessionId, opts.env);
   },
 
   checkSessionResumable(sessionId, opts): LogMessage | null {
+    if (isMemberEnv(opts.env)) return null;
     // Explicit-resume paths only block on missing-file. Header-only and corrupt
     // rollouts surface through Codex's own thread/resume error with a more
     // specific message.
@@ -4246,7 +4270,7 @@ export const codexBackend: Backend = {
       const refusal = codexBelowStandardRefusal(opts.access!, opts.modelFamily);
       if (refusal) throw new Error(refusal);
       // One folder for every one-shot: nothing writes to it.
-      cwd = await codexEmptyCwd(CODEX_ONE_SHOT_FOLDER);
+      cwd = await codexEmptyCwd(CODEX_ONE_SHOT_FOLDER, opts.env);
     }
     const client = codexOneShotClientFactory({ cwd, env: opts.env });
     try {
@@ -4376,7 +4400,10 @@ export const codexBackend: Backend = {
 
   // Without credentials Codex still takes the turn and retries the provider
   // until it reports a raw 401.
+  // An isolated member's sign-in is read through their host, which this
+  // sync check cannot wait for: unknown, so Codex reports its own failure.
   isKnownSignedOut(env?: { [key: string]: string | undefined }): boolean {
+    if (isMemberEnv(env)) return false;
     return !isCodexAuthenticated(env);
   },
 
@@ -4400,7 +4427,10 @@ export const codexBackend: Backend = {
     // After a rejection auth.json proves nothing: Codex re-reads it before it
     // gives up on a 401, so a failing session already holds what is on disk,
     // and a dead token stays there.
-    if (!opts?.credentialsRejected && isCodexAuthenticated(opts?.env)) {
+    if (
+      !opts?.credentialsRejected &&
+      (await isCodexAuthenticatedOnHost(opts?.env))
+    ) {
       return {
         kind: "already_authed",
         cardEligible: false,

@@ -34,7 +34,10 @@ import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
 import { moveOpenCodeSession } from "./backends/opencode/session-transfer.ts";
 import { openCodeSupervisorForEnvironment } from "./backends/opencode/supervisor.ts";
 import type { BackendSession, StoredSessionState } from "./backends/types.ts";
-import { resolveClaudeSessionRoot } from "./claude-session-root.ts";
+import {
+  claudeSessionRootIsPinnable,
+  resolveClaudeSessionRoot,
+} from "./claude-session-root.ts";
 import { autocompleteCommands } from "./commands.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -293,7 +296,8 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
             getSessionClaudeConfigDir(p.id, p.lastSessionId),
             userId,
           );
-          ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
+          if (claudeSessionRootIsPinnable(userId))
+            ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
           restoreEnv = {
             ...(restoreEnv ?? officeAgentHost().baseEnv()),
             CLAUDE_CONFIG_DIR: root,

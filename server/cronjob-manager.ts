@@ -1,5 +1,6 @@
 import {
   claudeConfigRoot,
+  claudeSessionRootIsPinnable,
   resolveClaudeSessionRoot,
 } from "./claude-session-root.ts";
 import { hostFor } from "./member-hosts.ts";
@@ -1059,7 +1060,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
       getRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId),
       job?.userId ?? null,
     );
-    ensureRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId, root);
+    if (claudeSessionRootIsPinnable(job?.userId ?? null))
+      ensureRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId, root);
     return { ...(env ?? officeAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
   }
 

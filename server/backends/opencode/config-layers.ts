@@ -213,3 +213,18 @@ export function openCodeShellUserValues(
     OPENCODE_DB: null,
   };
 }
+
+// 2.1.4 runs on opencode-v2.db (OPENCODE_DB), a copy that start-server.ts
+// makes of the version 1 database at a profile's first 2.1.4 start.
+// opencode.db stays as OpenCode 1 left it, for a rollback.
+export function openCodeDatabasePath(
+  profileDir: string,
+  version: "v1" | "v2",
+): string {
+  return join(
+    profileDir,
+    "data",
+    "opencode",
+    version === "v2" ? OPENCODE_V2_DATABASE : "opencode.db",
+  );
+}

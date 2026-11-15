@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   localAgentFs,
+  MEMBER_AGENT_DIR,
   localAgentHost,
   officeAgentHost,
   setOfficeAgentHost,
@@ -91,6 +92,11 @@ function recording(
     member: shape.member,
     baseEnv: () => shape.baseEnv ?? base.baseEnv(),
     home: () => shape.home ?? base.home(),
+    // A member's agent space is in its home, as on a member runner.
+    agentRoot: () =>
+      shape.member !== undefined
+        ? join(shape.home ?? base.home(), MEMBER_AGENT_DIR)
+        : base.agentRoot(),
     username: () => shape.username ?? base.username(),
     bunPath: () => (runtime ? runtime.bun : base.bunPath()),
     claudeBin: () => (runtime ? runtime.claudeBin : base.claudeBin()),

@@ -17,6 +17,7 @@ import type {
 } from "../agent-host.ts";
 import {
   failedAgentChild,
+  MEMBER_AGENT_DIR,
   memberEnvRefusal,
   officeEnginePaths,
   tagMemberEnv,
@@ -27,6 +28,7 @@ import {
   type MemberRuntimePaths,
 } from "../member-runtime.ts";
 import { RUNTIME_HASH_PATTERN } from "../member-share-check.ts";
+import { AGENT_ROOT } from "../split/roots.ts";
 import { join } from "path";
 import { readPeerCredentials } from "../unix-socket-server.ts";
 import { CLAUDE_NATIVE_BIN, pathWithBundledClaude } from "../cwd-utils.ts";
@@ -795,6 +797,14 @@ export class RunnerAgentHost implements AgentHost {
 
   home(): string {
     return this.info.home;
+  }
+
+  // The office runner of split mode: AGENT_ROOT. A member's runner: its
+  // agent space in the member's home.
+  agentRoot(): string {
+    return this.member === undefined
+      ? AGENT_ROOT
+      : join(this.info.home, MEMBER_AGENT_DIR);
   }
 
   username(): string {

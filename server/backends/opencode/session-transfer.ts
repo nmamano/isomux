@@ -3,15 +3,18 @@
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { officeAgentHost } from "../../agent-host.ts";
+import { tagMemberEnv } from "../../agent-host.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import {
   OPENCODE_V2_DATABASE,
   openCodeProfileHome,
   openCodeCliTmpDir,
 } from "./config-layers.ts";
-import { openCodeDatabasePath, openCodeProfilePaths } from "./profile-paths.ts";
-import { resolveOpenCodeBinary } from "./runtime.ts";
+import {
+  openCodeDatabasePath,
+  openCodeProfileHost,
+  openCodeProfilePaths,
+} from "./profile-paths.ts";
 import { absent, inspectOpenCodeProfileSession } from "./storage.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
 
@@ -28,11 +31,13 @@ const STEP_LIMIT_MS = 120_000;
 // The CLI's environment on a profile: the profile's own folders and
 // database, as the server has them (config-layers.ts), and no member
 // variables: an export or an import calls no model.
+// On an isolated member's profile it runs as the member, with their tag.
 function profileCliEnvironment(
   profileDir: string,
 ): Record<string, string | undefined> {
-  return {
-    PATH: officeAgentHost().baseEnv().PATH ?? "/usr/bin:/bin",
+  const host = openCodeProfileHost(profileDir);
+  const env = {
+    PATH: host.baseEnv().PATH ?? "/usr/bin:/bin",
     LANG: "C.UTF-8",
     HOME: openCodeProfileHome(profileDir),
     XDG_CONFIG_HOME: join(profileDir, "config"),
@@ -43,6 +48,7 @@ function profileCliEnvironment(
     OPENCODE_DB: OPENCODE_V2_DATABASE,
     OPENCODE_DISABLE_AUTOUPDATE: "1",
   };
+  return host.member === undefined ? env : tagMemberEnv(env, host.member);
 }
 
 // The directory the session ran in. The import files a session under the
@@ -62,10 +68,10 @@ function leasePassword(authHeader: string): string {
 
 const openCodeCli: OpenCodeSessionCli = {
   async exportSession(profileDir, sessionId) {
-    const host = officeAgentHost();
+    const host = openCodeProfileHost(profileDir);
     await host.fs.mkdir(openCodeCliTmpDir(profileDir), 0o700);
     const result = await host.run(
-      [resolveOpenCodeBinary(), "session", "export", sessionId, "--standalone"],
+      [host.openCodeBin(), "session", "export", sessionId, "--standalone"],
       { cwd: profileDir, env: profileCliEnvironment(profileDir) },
     );
     if (result.exitCode !== 0)
@@ -75,7 +81,7 @@ const openCodeCli: OpenCodeSessionCli = {
   },
   async importSession(target, exported) {
     const directory = exportedDirectory(exported);
-    const host = officeAgentHost();
+    const host = openCodeProfileHost(target.profileDir);
     const lease = await target.acquire();
     try {
       const tmp = openCodeCliTmpDir(target.profileDir);
@@ -85,7 +91,7 @@ const openCodeCli: OpenCodeSessionCli = {
       try {
         const result = await host.run(
           [
-            resolveOpenCodeBinary(),
+            host.openCodeBin(),
             "session",
             "import",
             file,

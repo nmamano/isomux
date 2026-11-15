@@ -31,7 +31,7 @@ import type {
 import {
   activatePersonalProvider,
   deactivatePersonalProvider,
-  ensurePersonalProviderHome,
+  ensurePersonalProviderHomeOnHost,
   isPersonalProviderActive,
   personalProviderHome,
 } from "./provider-homes.ts";
@@ -200,7 +200,11 @@ export class ProviderAccountManager {
       name?: string;
     }> = listUsers,
     private readonly personalHome: typeof personalProviderHome = personalProviderHome,
-    private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,
+    // A test may answer at once; the real one is async for a member's host.
+    private readonly ensurePersonalHome: (
+      userId: string,
+      provider: ProviderAccountProvider,
+    ) => string | Promise<string> = ensurePersonalProviderHomeOnHost,
     private readonly personalActive: typeof isPersonalProviderActive = isPersonalProviderActive,
     private readonly activatePersonal: typeof activatePersonalProvider = activatePersonalProvider,
     private readonly deactivatePersonal: typeof deactivatePersonalProvider = deactivatePersonalProvider,
@@ -860,7 +864,7 @@ export class ProviderAccountManager {
     } catch (err) {
       return this.failure(422, "browser_login_unavailable", err);
     }
-    if (target.autoPersonal) this.ensurePersonalHome(userId, provider);
+    if (target.autoPersonal) await this.ensurePersonalHome(userId, provider);
     const existing = this.active.get(target.key);
     if (existing && existing.userId !== userId)
       return {

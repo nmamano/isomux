@@ -8,9 +8,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { inAgentSpace } from "../../agent-host.ts";
+import { inAgentSpace, type AgentHost } from "../../agent-host.ts";
 import type { StoredSessionState } from "../types.ts";
-import { openCodeDatabasePath } from "./profile-paths.ts";
+import { openCodeDatabasePath } from "./config-layers.ts";
 
 // The session_v2 and session_message tables of @opencode/cli 2.1.4 (a fresh
 // 2.1.4 profile, 2026-10-25). 2.1.4 keeps a version 1 database's session and
@@ -165,11 +165,15 @@ export async function inspectOpenCodeDatabaseInAgentSpace(
   databasePath: string,
   sessionId: string,
   schema: OpenCodeDatabaseSchema = "v2",
+  // An isolated member's profile (openCodeProfileHost): their runner
+  // inspects it. Not imported here: the runner's entry imports this file.
+  host?: AgentHost,
 ): Promise<StoredSessionState> {
   const state = await inAgentSpace(
     "opencode-inspect",
     { databasePath, sessionId, schema },
     () => inspectOpenCodeDatabase(databasePath, sessionId, schema),
+    host,
   );
   if (!STORED_STATES.has(state))
     throw new Error("the OpenCode storage inspection returned no state");

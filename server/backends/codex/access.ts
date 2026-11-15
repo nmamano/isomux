@@ -19,7 +19,8 @@ import {
   stopHasFolder,
   type AgentAccess,
 } from "../../../shared/agent-access.ts";
-import { CODEX_EMPTY_CWD_ROOT } from "../empty-folder.ts";
+import { CODEX_EMPTY_CWD_ROOT, codexEmptyCwdRoot } from "../empty-folder.ts";
+import { hostForEnv } from "../../member-hosts.ts";
 import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 
@@ -254,6 +255,14 @@ export { CODEX_EMPTY_CWD_ROOT };
 // CODEX_EMPTY_CWD_ROOT/<agentId>: made for the agent by the server in agent
 // space, mode 0700, outside the agent's own data. Throws when it holds
 // anything.
-export async function codexEmptyCwd(agentId: string): Promise<string> {
-  return makeEmptyFolder(join(CODEX_EMPTY_CWD_ROOT, agentId));
+// An isolated member's env: in their agent space, made by their runner.
+export async function codexEmptyCwd(
+  agentId: string,
+  env?: object,
+): Promise<string> {
+  const host = hostForEnv(env);
+  return makeEmptyFolder(
+    join(codexEmptyCwdRoot(host.agentRoot()), agentId),
+    host,
+  );
 }

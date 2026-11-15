@@ -8,6 +8,7 @@ import {
 import { dirname, join } from "node:path";
 import type { ProviderAccountProvider } from "../shared/types.ts";
 import { STATE_ROOT } from "./config.ts";
+import { hostFor } from "./member-hosts.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 
 const PROVIDER_HOMES_DIR = join(STATE_ROOT, "provider-homes");
@@ -40,7 +41,30 @@ function providerDirName(provider: ProviderAccountProvider): string {
   return provider;
 }
 
+// The member's provider home: in their agent space when they have their own
+// OS user (server/member-hosts.ts), else in STATE_ROOT.
 export function personalProviderHome(
+  userId: string,
+  provider: ProviderAccountProvider,
+): string {
+  if (!SAFE_USER_ID.test(userId)) {
+    throw new Error("Invalid user id for provider home");
+  }
+  const host = hostFor(userId);
+  if (host.member !== undefined)
+    return join(
+      host.agentRoot(),
+      "provider-homes",
+      userId,
+      providerDirName(provider),
+    );
+  return officePersonalProviderHome(userId, provider);
+}
+
+// The provider home in STATE_ROOT, whatever the member's host: what the
+// purge and the boot sweep remove (an isolated member's copy in their agent
+// space goes through their runner, slice 1c-ii).
+export function officePersonalProviderHome(
   userId: string,
   provider: ProviderAccountProvider,
 ): string {
@@ -50,12 +74,32 @@ export function personalProviderHome(
   return join(PROVIDER_HOMES_DIR, userId, providerDirName(provider));
 }
 
+// Either host: an isolated member's folders are made by their runner, as
+// the member.
+export async function ensurePersonalProviderHomeOnHost(
+  userId: string,
+  provider: ProviderAccountProvider,
+): Promise<string> {
+  const host = hostFor(userId);
+  if (host.member === undefined)
+    return ensurePersonalProviderHome(userId, provider);
+  const providerDir = personalProviderHome(userId, provider);
+  await host.fs.mkdir(providerDir, 0o700);
+  return providerDir;
+}
+
+// The office's file system only: refuses an isolated member, whose home
+// only their runner makes (ensurePersonalProviderHomeOnHost).
 export function ensurePersonalProviderHome(
   userId: string,
   provider: ProviderAccountProvider,
 ): string {
-  const userDir = join(PROVIDER_HOMES_DIR, userId);
+  if (hostFor(userId).member !== undefined)
+    throw new Error(
+      "an isolated member's provider home is made through their host",
+    );
   const providerDir = personalProviderHome(userId, provider);
+  const userDir = join(PROVIDER_HOMES_DIR, userId);
   for (const dir of [PROVIDER_HOMES_DIR, userDir, providerDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     chmodSync(dir, 0o700);
@@ -101,7 +145,7 @@ export function deactivatePersonalProvider(
 // The purge of a removed member (task 548d607b): provider-homes/<userId>/,
 // with their conversations, and their entry in provider-account-state.json.
 export function removePersonalProviderHomes(userId: string): void {
-  rmSync(dirname(personalProviderHome(userId, "claude")), {
+  rmSync(dirname(officePersonalProviderHome(userId, "claude")), {
     recursive: true,
     force: true,
   });
