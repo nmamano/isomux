@@ -788,11 +788,16 @@ function CronjobsTable({
                         style={{ fontSize: 10, color: "var(--text-muted)" }}
                         data-cronjob-target={c.target.agentId}
                       >
-                        {t("schedules.messagesAgent", {
-                          agent:
-                            agents.find((a) => a.id === c.target?.agentId)
-                              ?.name ?? c.target.agentId,
-                        })}
+                        {t(
+                          c.command !== undefined
+                            ? "schedules.runsCommand"
+                            : "schedules.messagesAgent",
+                          {
+                            agent:
+                              agents.find((a) => a.id === c.target?.agentId)
+                                ?.name ?? c.target.agentId,
+                          },
+                        )}
                       </div>
                     )}
                   </td>

@@ -2060,12 +2060,20 @@ export type CronjobModel = string;
 // message from the schedule; no session runs.
 export type CronjobTarget = { kind: "agent"; agentId: string };
 
+// The longest command a command job may carry.
+export const CRONJOB_COMMAND_MAX = 8000;
+
 export interface Cronjob {
   id: string; // 8-char hex
   name: string; // free text, not unique
   schedule: Schedule;
   prompt: string; // first user message at each fire
   target?: CronjobTarget;
+  // A command job (task ab6851f2): each fire runs this shell command in cwd,
+  // with no model, and messages the target agent only when the command
+  // prints something, exits non-zero, times out or cannot start. Set only
+  // together with an agent target; prompt, when not empty, heads the message.
+  command?: string;
   cwd: string;
   agentType: AgentBackendType;
   modelFamily: CronjobModel;
@@ -2138,6 +2146,29 @@ export interface CronjobRun {
   // Set on a fire of an agent-target job: the agent and its name at fire time.
   // Such a run has no session and no transcript.
   targetAgentSnapshot?: { agentId: string; agentName: string };
+  // Set on a fire of a command job: the command, and its result once it
+  // ended (absent when it could not start).
+  commandSnapshot?: string;
+  commandResult?: CronjobCommandResult;
+}
+
+// How a command job's command ended. output is the tail of stdout and
+// stderr, escape codes removed and secrets masked.
+export interface CronjobCommandResult {
+  exitCode: number | null;
+  signal: string | null;
+  timedOut: boolean;
+  durationMs: number;
+  output: string;
+}
+
+// Whether a job runs a process in its folder: a session job, or a command
+// job. A job that only messages an agent does not. Every folder, mode and
+// pack check of a schedule reads this.
+export function runsInFolder(
+  job: Pick<Cronjob, "target" | "command">,
+): boolean {
+  return !job.target || job.command !== undefined;
 }
 
 // Cronjob runs piggy-back on the LogEntry.agentId routing by using a

@@ -3244,6 +3244,7 @@ export async function demoApi(
         schedule: b.schedule,
         prompt: b.prompt,
         ...(b.target ? { target: b.target } : {}),
+        ...(b.command ? { command: b.command } : {}),
         // A job that messages an agent may omit the session fields, as on
         // the server.
         cwd: b.cwd ?? "~",
@@ -3861,13 +3862,15 @@ export async function demoApi(
     const idx = cronjobs.findIndex((c) => c.id === id);
     if (method === "PATCH") {
       if (idx < 0) return undefined;
-      const { target, ...changes } = (body ?? {}) as CronUpdateReq;
+      const { target, command, ...changes } = (body ?? {}) as CronUpdateReq;
       const merged: Cronjob = { ...cronjobs[idx], ...changes };
-      // "" clears the room, and a null target goes back to a session, as on
-      // the server.
+      // "" clears the room, a null target goes back to a session, and a null
+      // command removes it, as on the server.
       if (changes.roomId === "") delete merged.roomId;
       if (target === null) delete merged.target;
       else if (target) merged.target = target;
+      if (command === null) delete merged.command;
+      else if (command) merged.command = command;
       if (changes.schedule) {
         const anchor = merged.lastFireAt ?? merged.createdAt;
         merged.nextFireAt = computeNextFireDemo(

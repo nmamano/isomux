@@ -67,6 +67,7 @@ const WEEKDAYS: {
 ];
 
 type ScheduleType = Schedule["type"];
+type TargetKind = "session" | "agent" | "command";
 
 export interface CronjobFormSnapshot {
   name: string;
@@ -76,9 +77,12 @@ export interface CronjobFormSnapshot {
   weekday: number;
   dayStr: string;
   intervalStr: string;
-  // "session": each fire runs a fresh session; "agent": it messages agentId.
-  targetKind: "session" | "agent";
+  // "session": each fire runs a fresh session; "agent": it messages agentId;
+  // "command": it runs command and messages agentId when that is loud.
+  targetKind: TargetKind;
   targetAgentId: string;
+  // Absent: no command.
+  command?: string;
   prompt: string;
   cwd: string;
   agentType: AgentBackendType;
@@ -105,6 +109,7 @@ export function cronjobFormDirty(
     current.intervalStr !== baseline.intervalStr ||
     current.targetKind !== baseline.targetKind ||
     current.targetAgentId !== baseline.targetAgentId ||
+    (current.command ?? "").trim() !== (baseline.command ?? "").trim() ||
     current.prompt.trim() !== baseline.prompt.trim() ||
     current.cwd.trim() !== baseline.cwd.trim() ||
     current.agentType !== baseline.agentType ||
@@ -184,13 +189,20 @@ export function CronjobDialog({
 
   // Where each fire goes. Only a changed target is sent, so an edit of a job
   // whose agent is gone does not send it again.
-  const [targetKind, setTargetKind] = useState<"session" | "agent">(
-    cronjob?.target ? "agent" : "session",
+  const [targetKind, setTargetKind] = useState<TargetKind>(
+    cronjob?.target
+      ? cronjob.command !== undefined
+        ? "command"
+        : "agent"
+      : "session",
   );
   const [targetAgentId, setTargetAgentId] = useState(
     cronjob?.target?.agentId ?? "",
   );
-  const isAgentTarget = targetKind === "agent";
+  const [command, setCommand] = useState(cronjob?.command ?? "");
+  // A command job messages its agent too: both pick an agent.
+  const isAgentTarget = targetKind !== "session";
+  const isCommand = targetKind === "command";
   // A target the viewer cannot pick (gone, or out of reach) stays selected,
   // shown as unavailable, until the member picks another.
   const agentGone =
@@ -246,6 +258,7 @@ export function CronjobDialog({
     intervalStr,
     targetKind,
     targetAgentId,
+    command,
     prompt,
     cwd,
     agentType,
@@ -478,7 +491,12 @@ export function CronjobDialog({
   }
 
   function handleSave() {
-    if (!prompt.trim()) {
+    if (isCommand && !command.trim()) {
+      setError(t("dialogs.schedule.commandEmpty"));
+      return;
+    }
+    // A command job's prompt is optional: it heads the message.
+    if (!isCommand && !prompt.trim()) {
       setError(t("dialogs.schedule.promptEmpty"));
       return;
     }
@@ -502,6 +520,8 @@ export function CronjobDialog({
       const targetChanged =
         (cronjob.target?.agentId ?? "") !==
         (isAgentTarget ? targetAgentId : "");
+      const commandChanged =
+        (cronjob.command ?? "") !== (isCommand ? command : "");
       const body: CronUpdateReq = {
         name: name.trim() || cronjob.name,
         schedule: buildSchedule(),
@@ -513,9 +533,10 @@ export function CronjobDialog({
                 : null,
             }
           : {}),
+        ...(commandChanged ? { command: isCommand ? command : null } : {}),
         // A job that messages an agent runs no session: its session fields
-        // are not shown, so they are not sent.
-        ...(isAgentTarget ? {} : sessionFields()),
+        // are not shown, so they are not sent. A command job sends its folder.
+        ...(isCommand ? { cwd } : isAgentTarget ? {} : sessionFields()),
         enabled,
         // Only a changed room is sent: moving the job is the maker's or an
         // office owner's explicit choice.
@@ -535,6 +556,7 @@ export function CronjobDialog({
         ...(isAgentTarget
           ? { target: { kind: "agent", agentId: targetAgentId } }
           : sessionFields()),
+        ...(isCommand ? { command, cwd } : {}),
         roomId,
       };
       req = apiFetch("POST", "/api/cronjobs", body);
@@ -837,7 +859,7 @@ export function CronjobDialog({
             {t("dialogs.schedule.target")}
           </label>
           <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
-            {(["session", "agent"] as const).map((kind) => (
+            {(["session", "agent", "command"] as const).map((kind) => (
               <label
                 key={kind}
                 style={{
@@ -856,7 +878,9 @@ export function CronjobDialog({
                 />
                 {kind === "agent"
                   ? t("dialogs.schedule.targetAgent")
-                  : t("dialogs.schedule.targetSession")}
+                  : kind === "command"
+                    ? t("dialogs.schedule.targetCommand")
+                    : t("dialogs.schedule.targetSession")}
               </label>
             ))}
           </div>
@@ -879,8 +903,40 @@ export function CronjobDialog({
             </>
           )}
 
+          {isCommand && (
+            <>
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                {t("dialogs.schedule.command")}
+              </label>
+              <textarea
+                {...noTranslate()}
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                rows={3}
+                spellCheck={false}
+                style={{
+                  ...inputStyle,
+                  resize: "vertical",
+                  fontFamily: "var(--font-mono)",
+                }}
+                data-field="command"
+              />
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                  margin: "6px 0 0",
+                }}
+              >
+                {t("dialogs.schedule.commandHint")}
+              </p>
+            </>
+          )}
+
           <label style={{ ...labelStyle, marginTop: 14 }}>
-            {t("dialogs.schedule.prompt")}
+            {isCommand
+              ? t("dialogs.schedule.commandPrompt")
+              : t("dialogs.schedule.prompt")}
           </label>
           <ExpandableTextarea
             value={prompt}
@@ -891,7 +947,7 @@ export function CronjobDialog({
             style={{ ...inputStyle, resize: "vertical" }}
           />
 
-          {!isAgentTarget && (
+          {(!isAgentTarget || isCommand) && (
             <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 {t("common.field.workingDirectory")}
@@ -901,6 +957,7 @@ export function CronjobDialog({
                 value={cwd}
                 onChange={(e) => setCwd(e.target.value)}
                 style={inputStyle}
+                data-field="cwd"
               />
               {recentCwdsFiltered.length > 0 && (
                 <div
@@ -923,7 +980,11 @@ export function CronjobDialog({
                   ))}
                 </div>
               )}
+            </>
+          )}
 
+          {!isAgentTarget && (
+            <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 {t("common.field.engine")}
               </label>

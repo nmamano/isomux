@@ -48,13 +48,17 @@ import {
 } from "../../cron-agent-limits.ts";
 import type { RunSendResult } from "../../internal-types.ts";
 import {
+  COMMAND_NEEDS_TARGET,
+  MESSAGE_NEEDS_PROMPT,
+  parseCronjobCommand,
   parseCronjobTarget,
+  runWithoutSession,
   TARGET_HAS_NO_SESSION,
-  TARGET_RUN_NOT_RESUMABLE,
 } from "../../cron-target.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import {
   MIN_INTERVAL_MINUTES,
+  runsInFolder,
   type Cronjob,
   type CronjobListWire,
   type CronjobRun,
@@ -353,9 +357,25 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         if (!parsed.ok) return fail(422, "invalid_request", parsed.error);
         target = parsed.target ?? undefined;
       }
-      // A job that messages an agent runs no session, so it may omit the
-      // session fields; any it sends are checked as for a session job.
-      if (!target && (typeof body.cwd !== "string" || body.cwd.length === 0)) {
+      let command: string | undefined;
+      if (hasKey(body, "command") && body.command !== undefined) {
+        const parsed = parseCronjobCommand(body.command);
+        if (!parsed.ok || parsed.command === null)
+          return fail(
+            422,
+            "invalid_request",
+            parsed.ok ? "command must be a non-empty string" : parsed.error,
+          );
+        if (!target) return fail(422, "invalid_request", COMMAND_NEEDS_TARGET);
+        command = parsed.command;
+      }
+      // A job that only messages an agent runs nothing, so it may omit the
+      // session fields; any it sends are checked as for a session job. A
+      // command job runs its command in cwd.
+      if (
+        (!target || command !== undefined) &&
+        (typeof body.cwd !== "string" || body.cwd.length === 0)
+      ) {
         return fail(400, "invalid_request", "cwd is required");
       }
       if (
@@ -426,11 +446,12 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
           codexSandbox: body.codexSandbox,
           cwd,
           target,
+          ...(command !== undefined ? { command } : {}),
         },
         room.roomId,
       );
       if (refusal) return refusal;
-      if (!target) {
+      if (runsInFolder({ target, command })) {
         const ceiling = headlessCeilingRefusal(
           ctx.identity,
           ctx.identity.userId,
@@ -446,6 +467,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         prompt: body.prompt,
         cwd,
         ...(target ? { target } : {}),
+        ...(command !== undefined ? { command } : {}),
         agentType: body.agentType,
         modelFamily: body.modelFamily,
         effort: body.effort,
@@ -482,16 +504,40 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         if (!parsed.ok) return fail(422, "invalid_request", parsed.error);
         target = parsed.target;
       }
+      // undefined: the body does not set the command.
+      let command: string | null | undefined;
+      if (hasKey(body, "command")) {
+        const parsed = parseCronjobCommand(body.command);
+        if (!parsed.ok) return fail(422, "invalid_request", parsed.error);
+        command = parsed.command;
+      }
       const room = roomIdFromBody(body, ctx.identity, deps);
       if (!room.ok) return room.response;
       if (room.roomId === "" && tokenRooms(ctx.identity) !== null)
         return fail(422, "invalid_request", TOKEN_NEEDS_ROOM);
       const existing = jobById(deps, ctx.params.id);
-      if (target !== undefined && !existing) return fail(404, "not_found");
-      // The job as it will be has no target agent: it runs at Standard. A
-      // turn-off alone still passes.
+      if ((target !== undefined || command !== undefined) && !existing)
+        return fail(404, "not_found");
+      // The job as it will be, in the fields that decide what it runs.
+      const nextTarget =
+        target === undefined ? existing?.target : (target ?? undefined);
+      const nextCommand =
+        command === undefined ? existing?.command : (command ?? undefined);
+      if (existing && nextCommand !== undefined && !nextTarget)
+        return fail(422, "invalid_request", COMMAND_NEEDS_TARGET);
+      if (
+        existing &&
+        command === null &&
+        existing.command !== undefined &&
+        nextTarget &&
+        (body.prompt ?? existing.prompt).trim() === ""
+      )
+        return fail(422, "invalid_request", MESSAGE_NEEDS_PROMPT);
+      // The job as it will be runs a session or a command: it runs at
+      // Standard. A turn-off alone still passes.
       const headless =
-        target === null || (target === undefined && !existing?.target);
+        existing !== undefined &&
+        runsInFolder({ target: nextTarget, command: nextCommand });
       if (existing && headless && !onlyTurnsOff(body)) {
         const ceiling = headlessCeilingRefusal(
           ctx.identity,
@@ -511,11 +557,17 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       ) {
         return fail(404, "not_found");
       }
-      // Back to a session job: the job as it will be is checked as a session
-      // job, also in the fields this body does not send.
+      // Back to a session job, or a job that only messaged an agent taking a
+      // command: the job as it will be runs in its folder, so it is checked,
+      // also in the fields this body does not send.
       const sessionFrom = target === null && existing?.target ? existing : null;
       const toSession = sessionFrom !== null;
-      const cwdToCheck = sessionFrom ? (body.cwd ?? sessionFrom.cwd) : body.cwd;
+      const commandFrom =
+        existing && existing.command === undefined && nextCommand !== undefined
+          ? existing
+          : null;
+      const folderFrom = sessionFrom ?? commandFrom;
+      const cwdToCheck = folderFrom ? (body.cwd ?? folderFrom.cwd) : body.cwd;
       if (cwdToCheck !== undefined) {
         const cwdErr = deps.validateCwd(cwdToCheck);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
@@ -548,18 +600,24 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
               ? body.codexSandbox
               : existing.codexSandbox,
             cwd: body.cwd ?? existing.cwd,
-            target:
-              target === undefined ? existing.target : (target ?? undefined),
+            target: nextTarget,
+            ...(nextCommand !== undefined ? { command: nextCommand } : {}),
           },
           room.roomId,
         );
         if (refusal) return refusal;
       }
       if (body.cwd !== undefined) deps.saveRecentCwd(body.cwd);
-      const { roomId: _roomId, target: _target, ...rest } = body;
+      const {
+        roomId: _roomId,
+        target: _target,
+        command: _command,
+        ...rest
+      } = body;
       const job = await deps.updateCronjob(ctx.params.id, {
         ...rest,
         ...(target !== undefined ? { target } : {}),
+        ...(command !== undefined ? { command } : {}),
         ...(room.roomId !== undefined ? { roomId: room.roomId } : {}),
       });
       const projected = job ? deps.projectCronjobFor(ctx.identity, job) : null;
@@ -677,8 +735,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       if (!run) return fail(404, "not_found");
       const refusal = runRefusal(ctx.identity, jobId);
       if (refusal) return refusal;
-      if (run.targetAgentSnapshot)
-        return fail(409, "run_not_resumable", TARGET_RUN_NOT_RESUMABLE);
+      const noSession = runWithoutSession(run);
+      if (noSession) return fail(409, "run_not_resumable", noSession);
       const messageId = crypto.randomUUID();
       const { username } = deps.attributionFor(ctx.identity);
       const device = typeof body.device === "string" ? body.device : undefined;

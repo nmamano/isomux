@@ -16,6 +16,7 @@ import {
   type ScheduleLimitJob,
 } from "./cron-agent-limits.ts";
 import { localizeLogParts } from "../shared/i18n/log-message.ts";
+import type { Cronjob } from "../shared/types.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 
@@ -217,6 +218,73 @@ describe("scheduleExceedsAgent: folder", () => {
         ),
       ),
     ).toBe(true);
+  });
+});
+
+// Task ab6851f2: a command job messages an agent, but first runs a shell in
+// its folder with nobody present. It is held to the maker's folder and to
+// full reach, whatever session fields it carries; a job that only messages
+// an agent is held to neither.
+describe("scheduleExceedsAgent: a command job", () => {
+  type CommandJob = ScheduleLimitJob & Pick<Cronjob, "command">;
+  const target = {
+    kind: "agent" as const,
+    agentId: "agent-1700000000000-abcd",
+  };
+
+  it("reaches full access whatever its session fields say: refused for every agent below full, allowed for a full one", () => {
+    const got: string[] = [];
+    const want: string[] = [];
+    for (const [agentName, agent, agentRank] of AGENTS) {
+      for (const [jobName, fields] of JOBS) {
+        const command: CommandJob = {
+          ...fields,
+          cwd: home,
+          target,
+          command: "true",
+        };
+        const plain: CommandJob = { ...fields, cwd: home, target };
+        const reason = scheduleExceedsAgent(command, { ...agent, cwd: home });
+        const label = `${agentName} -> command ${jobName}`;
+        got.push(`${label}: ${refused(reason) ? "refused" : "allowed"}`);
+        want.push(`${label}: ${agentRank < 3 ? "refused" : "allowed"}`);
+        // The contrast: the same job with no command only messages.
+        const plainReason = scheduleExceedsAgent(plain, {
+          ...agent,
+          cwd: home,
+        });
+        got.push(
+          `${agentName} -> message ${jobName}: ${refused(plainReason) ? "refused" : "allowed"}`,
+        );
+        want.push(`${agentName} -> message ${jobName}: allowed`);
+      }
+    }
+    expect(got).toEqual(want);
+  });
+
+  it("must run in the maker's folder or a folder inside it", () => {
+    const agent: ScheduleLimitAgent = {
+      agentType: "claude",
+      permissionMode: "bypassPermissions",
+      cwd: home,
+    };
+    const job = (cwd: string): CommandJob => ({
+      agentType: "claude",
+      cwd,
+      target,
+      command: "true",
+    });
+    expect(scheduleExceedsAgent(job(home), agent)).toBeNull();
+    expect(scheduleExceedsAgent(job(sub), agent)).toBeNull();
+    for (const cwd of [root, sibling, outside, linkOut]) {
+      expect([cwd, refused(scheduleExceedsAgent(job(cwd), agent))]).toEqual([
+        cwd,
+        true,
+      ]);
+      // A job that only messages stores a folder it never uses.
+      const { command: _c, ...plain } = job(cwd);
+      expect([cwd, scheduleExceedsAgent(plain, agent)]).toEqual([cwd, null]);
+    }
   });
 });
 

@@ -59,7 +59,17 @@ export interface DeliveryRun {
   runId: string;
 }
 
-export type RunOwner = SessionRun | DeliveryRun;
+// A command job's run (cron-agent-fire.ts) from the start of its command to
+// the end of its send. Like a session turn, a scheduled one makes the job's
+// next slot a skip.
+export interface CommandRun {
+  kind: "command";
+  jobId: string;
+  runId: string;
+  trigger: CronjobRun["trigger"];
+}
+
+export type RunOwner = SessionRun | DeliveryRun | CommandRun;
 
 type RunSlot = { kind: "starting" } | { kind: "running"; owner: RunOwner };
 
@@ -90,6 +100,16 @@ export function createRunSlots() {
       return [...slots.keys()]
         .map(sessionOwner)
         .filter((a): a is SessionRun => a !== null);
+    },
+    // Whether a scheduled session turn or command of job `jobId` still runs.
+    // A send to an agent never counts.
+    scheduledInFlight(jobId: string): boolean {
+      for (const slot of slots.values()) {
+        if (slot.kind !== "running" || slot.owner.kind === "delivery") continue;
+        if (slot.owner.jobId === jobId && slot.owner.trigger === "scheduled")
+          return true;
+      }
+      return false;
     },
     // A follow-up or an edit may start only on a run with no slot.
     busy: (runId: string): boolean => slots.has(runId),

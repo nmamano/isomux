@@ -58,8 +58,17 @@ export function terminalEnv(
   managed: ManagedAgent,
   deps: Pick<TerminalDeps, "buildEnvForUserId" | "host">,
 ): { shell: string; env: Record<string, string> } {
-  const managedEnv = deps.buildEnvForUserId(managed.info.userId);
-  const host = deps.host ?? hostFor(managed.info.userId);
+  return terminalEnvForUser(managed.info.userId, deps);
+}
+
+// The terminal panel's shell and environment for member `userId`: also a
+// command job's (server/cron-agent-fire.ts).
+export function terminalEnvForUser(
+  userId: string | null | undefined,
+  deps: Pick<TerminalDeps, "buildEnvForUserId" | "host">,
+): { shell: string; env: Record<string, string> } {
+  const managedEnv = deps.buildEnvForUserId(userId);
+  const host = deps.host ?? hostFor(userId);
   const hostEnv = host.baseEnv();
   const shell = hostEnv.SHELL || "/bin/bash";
   const env: Record<string, string> = {

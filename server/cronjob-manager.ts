@@ -69,7 +69,14 @@ import {
   type Schedule,
 } from "../shared/types.ts";
 import { nextScheduledFire } from "../shared/schedule-next-fire.ts";
-import { TARGET_RUN_NOT_RESUMABLE } from "./cron-target.ts";
+import { runWithoutSession } from "./cron-target.ts";
+import {
+  fireCommandJob,
+  fireToAgentJob,
+  startScheduleCommand,
+  type AgentFireDeps,
+  type RunCommand,
+} from "./cron-agent-fire.ts";
 import { cwdProblem, resolveCwd, type CwdProblem } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -150,7 +157,6 @@ import {
 } from "./cronjob-run-state.ts";
 import {
   createRunSlots,
-  type DeliveryRun,
   type RunOwner,
   type SessionRun,
 } from "./cronjob-run-slots.ts";
@@ -242,6 +248,11 @@ export interface CronjobManagerDeps {
   // Null to start. A refusal makes a failed run, like a missing folder.
   // Omitted: no limit.
   limitRefusal?: (job: Cronjob) => LogText | null;
+  // Starts the command of a command job (production: the terminal panel's
+  // shell and environment for the job's member, through the member's host,
+  // with TERM=dumb). Rejects when the command cannot start; `done` resolves
+  // when it ends. Omitted: every command fire fails to start.
+  runCommand?: RunCommand;
   // Sends `text` to the agent target of `job` as a message from the schedule
   // (production: isomux-office.ts). Checks the job owner's reach to the agent
   // again. Omitted: every agent-target fire fails.
@@ -435,6 +446,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     createdByAgentId?: string;
     // Absent: each fire runs a fresh session.
     target?: CronjobTarget;
+    // A command job: set only with a target (the caller checked).
+    command?: string;
   }
 
   // Give a job a new owner (an agent manager transfer, task 6a9deaba).
@@ -476,6 +489,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       ...(input.target
         ? { target: { kind: "agent" as const, agentId: input.target.agentId } }
         : {}),
+      ...(input.command !== undefined ? { command: input.command } : {}),
       cwd: resolveCwd(input.cwd),
       agentType,
       modelFamily,
@@ -526,6 +540,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     > & {
       // null: back to a fresh session at each fire.
       target?: CronjobTarget | null;
+      // null: no command (the caller checked the result).
+      command?: string | null;
     },
   ): Cronjob | null {
     const idx = cronjobs.findIndex((c) => c.id === id);
@@ -575,6 +591,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     if (changes.target === null) delete next.target;
     else if (changes.target !== undefined)
       next.target = { kind: "agent", agentId: changes.target.agentId };
+    if (changes.command === null) delete next.command;
+    else if (changes.command !== undefined) next.command = changes.command;
     if (changes.enabled !== undefined) next.enabled = changes.enabled;
     // "" clears the room; the caller validated any other value.
     if (changes.roomId !== undefined) {
@@ -1318,6 +1336,21 @@ How to answer questions about Isomux itself: the source lives at https://github.
     } catch {}
   }
 
+  // What a fire that messages an agent (cron-agent-fire.ts) uses of this
+  // manager.
+  const agentFireDeps: AgentFireDeps = {
+    now: () => clock.now(),
+    ...(deps.limitRefusal ? { limitRefusal: deps.limitRefusal } : {}),
+    ...(deps.runCommand ? { runCommand: deps.runCommand } : {}),
+    ...(deps.deliverToAgent ? { deliverToAgent: deps.deliverToAgent } : {}),
+    appendRun,
+    announce: (run) => eventHandler({ type: "cronjob_run_updated", run }),
+    hold: (owner) => slots.hold(owner),
+    endRun: (owner, end, extra) => endRun(owner, end, extra),
+    findRun,
+    startCwdText: (problem) => runCwdText(problem, "start"),
+  };
+
   function fire(
     job: Cronjob,
     trigger: CronjobRun["trigger"],
@@ -1335,7 +1368,22 @@ How to answer questions about Isomux itself: the source lives at https://github.
       extra.block === undefined
         ? job.prompt
         : `${job.prompt}\n\n${extra.block}`;
-    if (job.target) return fireToAgent(job, job.target, trigger, extra, prompt);
+    if (job.target && job.command !== undefined)
+      return fireCommandJob(
+        agentFireDeps,
+        { ...job, target: job.target, command: job.command },
+        trigger,
+        extra,
+      );
+    if (job.target)
+      return fireToAgentJob(
+        agentFireDeps,
+        job,
+        job.target,
+        trigger,
+        extra,
+        prompt,
+      );
 
     // Validate cwd before spawning so a moved directory surfaces as a failed
     // run rather than an opaque backend process-exit message. A job that
@@ -1555,102 +1603,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     endRun(active, { status: "timed_out", reason: timedOutText() });
   }
 
-  // A fire of a job with an agent target: the prompt goes to that agent as a
-  // message from the schedule, and no session runs. The row is written before
-  // the send, so Run now and a webhook can answer its id. Its owner is a
-  // delivery, not a session, so a send in flight never makes the next slot a
-  // skip.
-  function fireToAgent(
-    job: Cronjob,
-    target: CronjobTarget,
-    trigger: CronjobRun["trigger"],
-    extra: {
-      triggeredBy?: string;
-      webhook?: NonNullable<CronjobRun["webhook"]>;
-    },
-    prompt: string,
-  ): CronjobRun {
-    const jobId = job.id;
-    const runId = generateCronjobRunId();
-    const now = clock.now();
-    // The maker agent's limits (below Standard) still stop the fire.
-    const refusal = deps.limitRefusal?.(job) ?? null;
-    const startState =
-      refusal === null
-        ? runStartFields()
-        : runEndFields({ status: "failed", reason: refusal }, now);
-    const placeholderSessionId = `message-${runId}`;
-    const run: CronjobRun = {
-      id: runId,
-      cronjobId: jobId,
-      cronjobName: job.name,
-      trigger,
-      startedAt: now,
-      ...startState,
-      promptSnapshot: prompt,
-      agentTypeSnapshot: job.agentType,
-      modelFamilySnapshot: job.modelFamily,
-      effortSnapshot: job.effort,
-      cwdSnapshot: job.cwd,
-      permissionModeSnapshot: job.permissionMode,
-      ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
-      rootSessionId: placeholderSessionId,
-      currentSessionId: placeholderSessionId,
-      previewText: startState.errorReason ?? "",
-      ...(extra.triggeredBy ? { triggeredBy: extra.triggeredBy } : {}),
-      ...(extra.webhook ? { webhook: extra.webhook } : {}),
-      targetAgentSnapshot: { agentId: target.agentId, agentName: "" },
-    };
-    appendRun(jobId, run);
-    eventHandler({ type: "cronjob_run_updated", run });
-    if (refusal !== null) return run;
-
-    const owner: DeliveryRun = { kind: "delivery", jobId, runId };
-    slots.hold(owner);
-    const failWith = (reason: LogText) =>
-      endRun(owner, { status: "failed", reason });
-    const deliver = deps.deliverToAgent;
-    if (!deliver) {
-      failWith(
-        msg("systemEntries.scheduleRun.sendFailed", {
-          error: "this office cannot send schedule messages",
-        }),
-      );
-      return findRun(jobId, runId) ?? run;
-    }
-    void (async () => {
-      try {
-        const result = await deliver({ ...job, target }, prompt);
-        if (!result.ok) {
-          failWith(result.reason);
-          return;
-        }
-        endRun(
-          owner,
-          { status: "completed", reason: null },
-          {
-            previewText: result.agentName,
-            targetAgentSnapshot: {
-              agentId: target.agentId,
-              agentName: result.agentName,
-            },
-          },
-        );
-      } catch (err) {
-        console.error(
-          `Cronjob run ${runId} send to ${target.agentId} failed:`,
-          errMessage(err),
-        );
-        failWith(
-          msg("systemEntries.scheduleRun.sendFailed", {
-            error: errorText(err),
-          }),
-        );
-      }
-    })();
-    return run;
-  }
-
   function recordSkippedRun(job: Cronjob): CronjobRun {
     const runId = generateCronjobRunId();
     const now = clock.now();
@@ -1688,9 +1640,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   function hasInFlightScheduledRun(jobId: string): boolean {
-    return slots
-      .sessionOwners()
-      .some((a) => a.jobId === jobId && a.trigger === "scheduled");
+    return slots.scheduledInFlight(jobId);
   }
 
   function tick() {
@@ -2170,7 +2120,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
         code: "run_not_found",
         message: "No such run.",
       };
-    if (run.targetAgentSnapshot) return notResumable(TARGET_RUN_NOT_RESUMABLE);
+    const noSession = runWithoutSession(run);
+    if (noSession) return notResumable(noSession);
     // Synchronous claim - must happen before any await so a concurrent
     // send/edit for the same runId bails immediately. installResumedActive
     // replaces the claim with the turn; the `finally` below releases a claim
@@ -2429,7 +2380,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const run = findRun(jobId, runId);
     // A run that sent a message to an agent has no session to edit; the
     // route answers 409 before it gets here.
-    if (!run || run.targetAgentSnapshot) return;
+    if (!run || runWithoutSession(run)) return;
     // Every exit that ends the edit without the edited message in the log
     // goes through here: the error entry keeps the edited text
     // (FAILED_EDIT_TEXT_KEY).
@@ -2936,6 +2887,7 @@ export function createProductionCronjobManager(overrides?: {
       ? { resolveOpenCodeLaunch: overrides.resolveOpenCodeLaunch }
       : {}),
     resolveUser: defaultResolveUser,
+    runCommand: startScheduleCommand({ buildEnvForUserId: defaultResolveEnv }),
     persistence: cronPersistence,
     clock: { now: Date.now },
     scheduler: {

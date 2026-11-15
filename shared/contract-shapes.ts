@@ -1931,6 +1931,8 @@ export interface CronCreateReq {
   // Absent: each fire runs a fresh session. With a target, the session
   // fields below may be omitted (the server stores its defaults).
   target?: CronjobTarget;
+  // A command job: needs a target and a cwd; prompt may then be "".
+  command?: string;
   cwd?: string;
   agentType?: Cronjob["agentType"];
   modelFamily?: Cronjob["modelFamily"];
@@ -1948,6 +1950,8 @@ export type CronUpdateReq = Partial<{
   prompt: string;
   // null: back to a fresh session at each fire.
   target: CronjobTarget | null;
+  // null: no command (the job then needs a prompt).
+  command: string | null;
   cwd: string;
   agentType: Cronjob["agentType"];
   modelFamily: Cronjob["modelFamily"];

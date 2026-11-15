@@ -4,12 +4,13 @@
 // An ES live binding can be assigned only by its own module, so the state and
 // its one writer live here together.
 import { join } from "path";
-import type {
-  AgentInfo,
-  AskEntry,
-  BackendModelWire,
-  ServerMessage,
-  UserRecord,
+import {
+  runsInFolder,
+  type AgentInfo,
+  type AskEntry,
+  type BackendModelWire,
+  type ServerMessage,
+  type UserRecord,
 } from "../shared/types.ts";
 import { STATE_ROOT } from "./config.ts";
 import { stateFolderRefusal } from "./agent-folder-rules.ts";
@@ -439,16 +440,16 @@ export function createManagers(
     limitRefusal: (job) => {
       // No schedule works inside the office state (agent-folder-rules.ts).
       if (
-        !job.target &&
+        runsInFolder(job) &&
         stateFolderRefusal(resolveCwd(job.cwd), STATE_ROOT) !== null
       )
         return msg("systemEntries.scheduleRun.startCwd.insideState", {
           path: job.cwd,
         });
-      // A schedule with no target agent runs at Standard, above every agent
-      // ceiling of a member permission pack (task 134b8f77).
+      // A schedule that runs a session or a command runs at Standard, above
+      // every agent ceiling of a member permission pack (task 134b8f77).
       const owner = job.userId ? getUserById(job.userId) : undefined;
-      if (!job.target && owner?.role === "member" && owner.pack)
+      if (runsInFolder(job) && owner?.role === "member" && owner.pack)
         return msg("systemEntries.scheduleRun.aboveMemberCeiling", {
           member: owner.name,
         });

@@ -841,6 +841,86 @@ describe("schedules of a member with a pack", () => {
     await packCasey(o, null);
     expect(await fire(o, job)).toBe("completed");
   });
+
+  // Task ab6851f2: a command schedule messages an agent, but first runs a
+  // shell as the member with nobody present, so a pack refuses it as it
+  // refuses a schedule with no target agent.
+  it("a command schedule is refused at create and edit, and runs nothing at the fire, while the pack holds", async () => {
+    const o = await office();
+    const target = await spawn(o, "Target");
+    await lower(o, target, "office");
+    const folder = freshFolder();
+    const counter = join(folder, "ran");
+    const commandBody = (over: Record<string, unknown> = {}) =>
+      body({
+        name: "Check",
+        cwd: folder,
+        target: { kind: "agent", agentId: target.id },
+        command: "echo x >> ran",
+        ...over,
+      });
+    const ranCount = () => {
+      try {
+        return readFileSync(counter, "utf8").split("\n").filter(Boolean).length;
+      } catch {
+        return 0;
+      }
+    };
+    const created = await asCasey(o, "POST", "/api/cronjobs", commandBody());
+    expect(created.status).toBe(201);
+    const job = created.body as Cronjob;
+    expect(job.command).toBe("echo x >> ran");
+    expect(await fire(o, job)).toBe("completed");
+    expect(ranCount()).toBe(1);
+    const messenger = await asCasey(
+      o,
+      "POST",
+      "/api/cronjobs",
+      commandBody({ name: "Messenger", command: undefined }),
+    );
+    expect(messenger.status).toBe(201);
+
+    await packCasey(o, {
+      areas: { schedules: "write", agents: "write" },
+      agentCeiling: "web",
+    });
+    expect(
+      outcome(
+        await asCasey(o, "POST", "/api/cronjobs", commandBody({ name: "New" })),
+      ),
+    ).toEqual({ status: 403, code: ABOVE_AGENT_CEILING });
+    expect(
+      outcome(
+        await asCasey(o, "PATCH", `/api/cronjobs/${job.id}`, {
+          name: "Renamed",
+        }),
+      ),
+    ).toEqual({ status: 403, code: ABOVE_AGENT_CEILING });
+    // A job that only messages may not take a command either.
+    const messengerJob = messenger.body as Cronjob;
+    expect(
+      outcome(
+        await asCasey(o, "PATCH", `/api/cronjobs/${messengerJob.id}`, {
+          command: "true",
+        }),
+      ),
+    ).toEqual({ status: 403, code: ABOVE_AGENT_CEILING });
+    // The enabling condition: that job still takes an edit of its own.
+    expect(
+      (
+        await asCasey(o, "PATCH", `/api/cronjobs/${messengerJob.id}`, {
+          name: "Messenger 2",
+        })
+      ).status,
+    ).toBe(200);
+    expect(await fire(o, job)).toBe("failed");
+    expect(ranCount()).toBe(1);
+
+    // Read live: without the pack the command runs again.
+    await packCasey(o, null);
+    expect(await fire(o, job)).toBe("completed");
+    expect(ranCount()).toBe(2);
+  });
 });
 
 describe("apps of a member with a pack", () => {

@@ -1937,6 +1937,12 @@ Coses que pots fer per ell:
   "dialogs.schedule.target": "Cada execució",
   "dialogs.schedule.targetSession": "Inicia una sessió nova",
   "dialogs.schedule.targetAgent": "Envia un missatge a un agent",
+  "dialogs.schedule.targetCommand": "Executa una ordre",
+  "dialogs.schedule.command": "Ordre",
+  "dialogs.schedule.commandHint":
+    "S'executa al directori de treball sense model. L'agent rep un missatge només quan l'ordre imprimeix alguna cosa o falla.",
+  "dialogs.schedule.commandEmpty": "L'ordre no pot estar buida.",
+  "dialogs.schedule.commandPrompt": "Prompt (opcional)",
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Prompt de la programació",
   "dialogs.schedule.promptPlaceholder":
@@ -3312,6 +3318,18 @@ Coses que pots fer per ell:
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "Aquesta execució es va ometre.",
   "schedules.messagesAgent": "Envia un missatge a {agent}",
+  "schedules.runsCommand":
+    "Executa una ordre, pot enviar un missatge a {agent}",
+  "schedules.commandLabel": "ORDRE",
+  "schedules.outputLabel": "SORTIDA",
+  "schedules.commandExit": "Codi de sortida {code}",
+  "schedules.commandSignal": "Aturada per {signal}",
+  "schedules.commandTimedOut": "Aturada després de 10 minuts",
+  "schedules.commandQuiet":
+    "Sense sortida, així que no s'ha enviat cap missatge.",
+  "schedules.commandFolder": "S'ha executat a {cwd}",
+  "schedules.commandRunNoSession":
+    "Les execucions d'una ordre no tenen cap sessió per reprendre.",
   "schedules.messageTo": "Missatge per a {agent}",
   "schedules.agentRunNoSession":
     "Les execucions que envien un missatge a un agent no tenen cap sessió per reprendre.",
@@ -4136,6 +4154,8 @@ Coses que pots fer per ell:
   "systemEntries.scheduleRun.jobDeleted":
     "Execució aturada: s'ha eliminat la programació.",
   "systemEntries.scheduleRun.sendFailed": "No s'ha pogut enviar: {error}",
+  "systemEntries.scheduleRun.commandStartFailed":
+    "No es pot iniciar l'ordre: {error}",
   "systemEntries.scheduleRun.agentUnreachable":
     "L'agent ja no existeix, o el propietari de la programació no té accés a la seva sala.",
   "systemEntries.scheduleRun.agentStopped":

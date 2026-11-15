@@ -1931,6 +1931,12 @@ Cosas que puedes hacer por él:
   "dialogs.schedule.target": "Cada ejecución",
   "dialogs.schedule.targetSession": "Inicia una sesión nueva",
   "dialogs.schedule.targetAgent": "Envía un mensaje a un agente",
+  "dialogs.schedule.targetCommand": "Ejecuta un comando",
+  "dialogs.schedule.command": "Comando",
+  "dialogs.schedule.commandHint":
+    "Se ejecuta en el directorio de trabajo sin modelo. El agente recibe un mensaje solo cuando el comando imprime algo o falla.",
+  "dialogs.schedule.commandEmpty": "El comando no puede estar vacío.",
+  "dialogs.schedule.commandPrompt": "Prompt (opcional)",
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Prompt de la programación",
   "dialogs.schedule.promptPlaceholder":
@@ -3305,6 +3311,17 @@ Cosas que puedes hacer por él:
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "Esta ejecución se omitió.",
   "schedules.messagesAgent": "Envía un mensaje a {agent}",
+  "schedules.runsCommand":
+    "Ejecuta un comando, puede enviar un mensaje a {agent}",
+  "schedules.commandLabel": "COMANDO",
+  "schedules.outputLabel": "SALIDA",
+  "schedules.commandExit": "Código de salida {code}",
+  "schedules.commandSignal": "Terminado por {signal}",
+  "schedules.commandTimedOut": "Detenido tras 10 minutos",
+  "schedules.commandQuiet": "Sin salida, así que no se envió ningún mensaje.",
+  "schedules.commandFolder": "Se ejecutó en {cwd}",
+  "schedules.commandRunNoSession":
+    "Las ejecuciones de un comando no tienen ninguna sesión que reanudar.",
   "schedules.messageTo": "Mensaje para {agent}",
   "schedules.agentRunNoSession":
     "Las ejecuciones que envían un mensaje a un agente no tienen sesión que reanudar.",
@@ -4130,6 +4147,8 @@ Cosas que puedes hacer por él:
   "systemEntries.scheduleRun.jobDeleted":
     "Ejecución detenida: se eliminó la programación.",
   "systemEntries.scheduleRun.sendFailed": "No se pudo enviar: {error}",
+  "systemEntries.scheduleRun.commandStartFailed":
+    "No se puede iniciar el comando: {error}",
   "systemEntries.scheduleRun.agentUnreachable":
     "El agente ya no existe, o el propietario de la programación no tiene acceso a su sala.",
   "systemEntries.scheduleRun.agentStopped":

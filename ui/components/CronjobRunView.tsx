@@ -27,6 +27,7 @@ import {
   fitComposer,
 } from "../composer-height.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
+import { CommandRunDetails } from "./CommandRunDetails.tsx";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -284,12 +285,17 @@ export function CronjobRunView({
       agents.find((a) => a.id === sentTo.agentId)?.name ||
       sentTo.agentId
     : null;
+  // A run of a command job ran a command, not a session, whether or not it
+  // messaged its agent.
+  const isCommandRun = run?.commandSnapshot !== undefined;
+  const commandResult = run?.commandResult;
   const canResume =
     mayManage &&
     !!run &&
     !isRunning &&
     run.status !== "skipped" &&
     !sentTo &&
+    !isCommandRun &&
     hasResumableSession;
 
   // Auto-scroll to bottom on new entries when the user hasn't scrolled up.
@@ -582,16 +588,29 @@ export function CronjobRunView({
               fontFamily: "var(--font-ui)",
             }}
           >
-            <div
-              style={{
-                fontSize: 10,
-                color: "var(--text-muted)",
-                marginBottom: 4,
-              }}
-            >
-              {t("schedules.promptLabel")}
-            </div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{run.promptSnapshot}</div>
+            {/* A command job's prompt is optional. */}
+            {(!isCommandRun || run.promptSnapshot.trim() !== "") && (
+              <>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 4,
+                  }}
+                >
+                  {t("schedules.promptLabel")}
+                </div>
+                <div style={{ whiteSpace: "pre-wrap" }}>
+                  {run.promptSnapshot}
+                </div>
+              </>
+            )}
+            {isCommandRun && (
+              <CommandRunDetails
+                command={run.commandSnapshot ?? ""}
+                result={commandResult}
+              />
+            )}
             {sentToName !== null ? (
               <div
                 style={{
@@ -601,6 +620,19 @@ export function CronjobRunView({
                 }}
               >
                 {t("schedules.messageTo", { agent: sentToName })}
+              </div>
+            ) : isCommandRun ? (
+              <div
+                {...noTranslate()}
+                style={{
+                  marginTop: 8,
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                }}
+              >
+                {t("schedules.commandFolder", {
+                  cwd: shortenCwd(run.cwdSnapshot),
+                })}
               </div>
             ) : (
               <div
@@ -634,19 +666,22 @@ export function CronjobRunView({
           </div>
         )}
         {entries.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              color: "var(--text-ghost)",
-              padding: 40,
-            }}
-          >
-            {t(
-              run?.status === "skipped"
-                ? "schedules.runSkipped"
-                : "schedules.noEntries",
-            )}
-          </div>
+          // A command run has no transcript: its details above are the run.
+          isCommandRun ? null : (
+            <div
+              style={{
+                textAlign: "center",
+                color: "var(--text-ghost)",
+                padding: 40,
+              }}
+            >
+              {t(
+                run?.status === "skipped"
+                  ? "schedules.runSkipped"
+                  : "schedules.noEntries",
+              )}
+            </div>
+          )
         ) : (
           entries.map((entry) => {
             const td = turnData.get(entry.id);
@@ -875,15 +910,17 @@ export function CronjobRunView({
             textAlign: "center",
           }}
         >
-          {sentTo
-            ? t("schedules.agentRunNoSession")
-            : isRunning
-              ? t("schedules.waitToFollowUp")
-              : t(
-                  run?.status === "skipped"
-                    ? "schedules.skippedNoSession"
-                    : "schedules.noSession",
-                )}
+          {isCommandRun
+            ? t("schedules.commandRunNoSession")
+            : sentTo
+              ? t("schedules.agentRunNoSession")
+              : isRunning
+                ? t("schedules.waitToFollowUp")
+                : t(
+                    run?.status === "skipped"
+                      ? "schedules.skippedNoSession"
+                      : "schedules.noSession",
+                  )}
         </div>
       )}
     </div>

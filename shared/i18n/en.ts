@@ -1889,6 +1889,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.schedule.target": "Each run",
   "dialogs.schedule.targetSession": "Starts a new session",
   "dialogs.schedule.targetAgent": "Messages an agent",
+  "dialogs.schedule.targetCommand": "Runs a command",
+  "dialogs.schedule.command": "Command",
+  "dialogs.schedule.commandHint":
+    "Runs in the working directory with no model. The agent gets a message only when the command prints something or fails.",
+  "dialogs.schedule.commandEmpty": "Command cannot be empty.",
+  "dialogs.schedule.commandPrompt": "Prompt (optional)",
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Schedule Prompt",
   "dialogs.schedule.promptPlaceholder":
@@ -3213,6 +3219,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "This run was skipped.",
   "schedules.messagesAgent": "Messages {agent}",
+  "schedules.runsCommand": "Runs a command, may message {agent}",
+  "schedules.commandLabel": "COMMAND",
+  "schedules.outputLabel": "OUTPUT",
+  "schedules.commandExit": "Exit code {code}",
+  "schedules.commandSignal": "Ended by {signal}",
+  "schedules.commandTimedOut": "Stopped after 10 minutes",
+  "schedules.commandQuiet": "No output, so nobody was messaged.",
+  "schedules.commandFolder": "Ran in {cwd}",
+  "schedules.commandRunNoSession": "Command runs have no session to resume.",
   "schedules.messageTo": "Message to {agent}",
   "schedules.agentRunNoSession":
     "Runs that message an agent have no session to resume.",
@@ -4044,6 +4059,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.scheduleRun.jobDeleted":
     "Run stopped: the schedule was deleted.",
   "systemEntries.scheduleRun.sendFailed": "Failed to send: {error}",
+  "systemEntries.scheduleRun.commandStartFailed":
+    "Cannot start the command: {error}",
   "systemEntries.scheduleRun.agentUnreachable":
     "The agent no longer exists, or the schedule's owner has no access to its room.",
   "systemEntries.scheduleRun.agentStopped":

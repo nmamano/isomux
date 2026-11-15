@@ -1712,6 +1712,12 @@ export const zh: Catalog = {
   "dialogs.schedule.target": "每次运行",
   "dialogs.schedule.targetSession": "开启新会话",
   "dialogs.schedule.targetAgent": "给智能体发消息",
+  "dialogs.schedule.targetCommand": "运行命令",
+  "dialogs.schedule.command": "命令",
+  "dialogs.schedule.commandHint":
+    "在工作目录中运行，不使用模型。只有当命令有输出或失败时，智能体才会收到消息。",
+  "dialogs.schedule.commandEmpty": "命令不能为空。",
+  "dialogs.schedule.commandPrompt": "提示词（可选）",
   "dialogs.schedule.prompt": "提示词",
   "dialogs.schedule.promptTitle": "定时任务提示词",
   "dialogs.schedule.promptPlaceholder":
@@ -2967,6 +2973,15 @@ export const zh: Catalog = {
   "schedules.errorLine": "错误：{reason}",
   "schedules.runSkipped": "本次运行已跳过。",
   "schedules.messagesAgent": "给 {agent} 发消息",
+  "schedules.runsCommand": "运行命令，可能给 {agent} 发消息",
+  "schedules.commandLabel": "命令",
+  "schedules.outputLabel": "输出",
+  "schedules.commandExit": "退出码 {code}",
+  "schedules.commandSignal": "被 {signal} 终止",
+  "schedules.commandTimedOut": "10 分钟后已停止",
+  "schedules.commandQuiet": "没有输出，因此没有发送消息。",
+  "schedules.commandFolder": "在 {cwd} 中运行",
+  "schedules.commandRunNoSession": "命令运行没有可恢复的会话。",
   "schedules.messageTo": "发给 {agent} 的消息",
   "schedules.agentRunNoSession": "给智能体发消息的运行没有可继续的会话。",
   "schedules.noEntries": "没有日志记录。",
@@ -3684,6 +3699,7 @@ export const zh: Catalog = {
     "无法继续此 OpenCode 运行：其定时任务已删除，共享环境配置文件也无法再解析。",
   "systemEntries.scheduleRun.jobDeleted": "运行已停止：定时任务已删除。",
   "systemEntries.scheduleRun.sendFailed": "发送失败：{error}",
+  "systemEntries.scheduleRun.commandStartFailed": "无法启动命令：{error}",
   "systemEntries.scheduleRun.agentUnreachable":
     "该智能体已不存在，或定时任务的所有者无权访问其房间。",
   "systemEntries.scheduleRun.agentStopped":
