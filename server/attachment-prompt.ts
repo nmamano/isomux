@@ -35,6 +35,8 @@ import {
 } from "fs";
 import { basename, join } from "path";
 import { getFilePath } from "./persistence.ts";
+import type { AgentHost } from "./agent-host.ts";
+import { agentShare, copyToMemberShare } from "./member-share-files.ts";
 import { INLINE_IMAGE_TYPES } from "../shared/agent-access.ts";
 import { formatSize } from "../shared/format-human.ts";
 import type { AttachmentSpec } from "./backends/types.ts";
@@ -60,9 +62,17 @@ export function resolveAttachmentNotices(
   specs: AttachmentSpec[],
 ): AttachmentNotice[] {
   const notices: AttachmentNotice[] = [];
+  const share = agentShare(agentId);
   for (const spec of specs) {
-    const path = getFilePath(agentId, spec.filename);
+    let path = getFilePath(agentId, spec.filename);
     if (!path) continue;
+    // A member's agent cannot read LOGS_DIR: the notice names the copy in
+    // their share (member-share-files.ts). A failed copy is left out.
+    if (share) {
+      const source = path;
+      path = memberShareCopy(share, agentId, spec.filename, source);
+      if (!path) continue;
+    }
     notices.push({
       originalName: spec.originalName,
       mediaType: spec.mediaType,
@@ -150,8 +160,157 @@ function oneLine(s: string): string {
 // stops have no file tools, so an image goes into the message itself and any
 // other file is left out. copy: the folder and web stops copy each file into
 // <folder>/attachments/ and the notice names the copy.
+// member-copy: a member's agent at folder and web, whose folder the office
+// cannot write: prepareDelivery makes the copies through their runner before
+// the message is built, and gives "copied" with their notices.
 export type AttachmentDelivery =
-  { kind: "inline-images" } | { kind: "copy"; folder: string };
+  | { kind: "inline-images" }
+  | { kind: "copy"; folder: string }
+  // `host` is asked at each message: during a move the member's host
+  // refuses, and a host that was not ready at the start may be by now.
+  | { kind: "member-copy"; folder: string; host: () => AgentHost }
+  | { kind: "copied"; notices: AttachmentNotice[] };
+
+// The delivery at folder and web: the office copies, or for a member's
+// agent (`host().member` set) their runner does.
+export function folderDelivery(
+  folder: string,
+  host: () => AgentHost,
+): AttachmentDelivery {
+  return host().member !== undefined
+    ? { kind: "member-copy", folder, host }
+    : { kind: "copy", folder };
+}
+
+// The delivery for one message: member-copy becomes "copied" (async, through
+// the runner); every other kind is returned as it is.
+export async function prepareDelivery(
+  agentId: string,
+  specs: AttachmentSpec[],
+  delivery: AttachmentDelivery,
+): Promise<AttachmentDelivery> {
+  if (delivery.kind !== "member-copy") return delivery;
+  return {
+    kind: "copied",
+    notices: await prepareMemberCopies(
+      agentId,
+      specs,
+      delivery.folder,
+      delivery.host(),
+    ),
+  };
+}
+
+// The notices of one message: none inline (inline-images), the copies, or,
+// with no delivery (at standard), the stored files. A member-copy that was
+// not prepared throws: its notices would name files the agent cannot read.
+export function deliveredNotices(
+  agentId: string,
+  specs: AttachmentSpec[],
+  delivery: AttachmentDelivery | undefined,
+): AttachmentNotice[] {
+  switch (delivery?.kind) {
+    case undefined:
+      return resolveAttachmentNotices(agentId, specs);
+    case "inline-images":
+      return [];
+    case "copy":
+      return copyAttachmentsInto(agentId, specs, delivery.folder);
+    case "copied":
+      return delivery.notices;
+    case "member-copy":
+      throw new Error("a member's copies must be prepared before the message");
+  }
+}
+
+// The share copy of one upload, or null (logged) when it fails.
+function memberShareCopy(
+  share: string,
+  agentId: string,
+  name: string,
+  source: string,
+): string | null {
+  try {
+    return copyToMemberShare(share, agentId, name, source);
+  } catch (error) {
+    console.error(
+      `[attachments] ${agentId}: cannot copy ${name} to the member's share: ${(error as Error).message}`,
+    );
+    return null;
+  }
+}
+
+// The copies in <folder>/attachments/ for a member's agent at folder and
+// web: the office copies each upload to the member's share, and their runner
+// copies it from there into the folder, as the member (the attachment-copy
+// entry), so no file bytes cross the runner's socket. A file that cannot be
+// copied is left out, with a log line.
+export async function prepareMemberCopies(
+  agentId: string,
+  specs: AttachmentSpec[],
+  folder: string,
+  host: AgentHost,
+): Promise<AttachmentNotice[]> {
+  const share = agentShare(agentId);
+  const notices: AttachmentNotice[] = [];
+  for (const spec of specs) {
+    const source = getFilePath(agentId, spec.filename);
+    if (!source || !share) {
+      console.error(
+        `[attachments] ${agentId}: ${spec.filename} left out: ${source ? "no member share" : "no file"}`,
+      );
+      continue;
+    }
+    const shared = memberShareCopy(share, agentId, spec.filename, source);
+    if (!shared) continue;
+    let path: unknown;
+    try {
+      const reply = await host.runEntry("attachment-copy", {
+        source: shared,
+        folder,
+        name: spec.filename,
+      });
+      path = (reply as { path?: unknown } | null)?.path;
+    } catch (error) {
+      console.error(
+        `[attachments] ${agentId}: cannot copy ${spec.filename} into the folder: ${(error as Error).message}`,
+      );
+      continue;
+    }
+    if (typeof path !== "string") {
+      console.error(
+        `[attachments] ${agentId}: the runner's copy of ${spec.filename} gave no path`,
+      );
+      continue;
+    }
+    notices.push({
+      originalName: spec.originalName,
+      mediaType: spec.mediaType,
+      size: spec.size,
+      path,
+    });
+  }
+  return notices;
+}
+
+// Keeps the sends of one session in order when some must wait for an async
+// step first (prepareMemberCopies): each send's step starts after the
+// previous send was handed to the engine.
+export function createSendOrder(): <T>(
+  prepare: () => Promise<T>,
+  deliver: (prepared: T) => Promise<void>,
+) => Promise<void> {
+  let last: Promise<unknown> = Promise.resolve();
+  return (prepare, deliver) => {
+    const prepared = last.then(prepare);
+    const sent = prepared.then(deliver);
+    // The next prepare waits until this deliver was called, not until it
+    // resolved: a deliver that waits for the turn must not hold the next
+    // message back.
+    last = prepared.catch(() => {});
+    return sent;
+  };
+}
 
 // The Claude API refuses a larger inline image.
 const INLINE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;

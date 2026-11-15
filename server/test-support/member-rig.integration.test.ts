@@ -1122,6 +1122,30 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
     if (shot?.status !== 200)
       throw new Error(`preview-url: ${JSON.stringify(shot)}`);
 
+    // Slice 2d-ii-b: the path names the copy in Alice's share, which Alice
+    // can read: folders 02750 and a 0640 file, of the office user and
+    // Alice's group.
+    const shotPath = (JSON.parse(shot.body) as { path: string }).path;
+    const shotDir = `${MEMBERS}/share/${ALICE}/files/${agentId}`;
+    expect(shotPath.startsWith(`${shotDir}/`)).toBe(true);
+    const aliceGid = root(name, `id -g ${ALICE}`).out.trim();
+    expect(
+      root(
+        name,
+        `stat -c '%a %u %g' ${MEMBERS}/share/${ALICE}/files ${shotDir} ${shotPath}`,
+      )
+        .out.trim()
+        .split("\n"),
+    ).toEqual([
+      `2750 ${OFFICE_UID} ${aliceGid}`,
+      `2750 ${OFFICE_UID} ${aliceGid}`,
+      `640 ${OFFICE_UID} ${aliceGid}`,
+    ]);
+    expect(
+      sh(name, ALICE, `head -c 4 ${shotPath} | od -An -tx1`).out.trim(),
+    ).toBe("89 50 4e 47");
+    expect(sh(name, BOB, `cat ${shotPath}`).status).not.toBe(0);
+
     // Both requests to the page, the pre-flight and the browser's, were
     // Alice's.
     const requests = root(name, `cat ${seen}`)
@@ -1170,6 +1194,104 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
       name,
       `pkill -u ${ALICE} -f rig-page.py; rm -f ${home}/rig-page.py ${seen} ${psLog} /tmp/rig-ps-stop`,
     );
+  });
+
+  // Slice 2d-ii-b: an upload to a member's agent. Alice's agent below
+  // standard at folder gets the file from her runner in its folder's
+  // attachments/, as Alice, byte for byte (not UTF-8, so a copy through a
+  // string would show), and the notice names that copy; the share copy it
+  // came from is Alice's to read and not Bob's.
+  it("copies an upload into a member's agent folder as the member, from the copy in their share", async () => {
+    // Its own folder: a folder-stop agent's folder may not overlap Alice's
+    // other agents' (her home).
+    const folder = "/srv/rig-upload-alice";
+    root(
+      name,
+      `mkdir -p ${folder} && chown ${ALICE} ${folder} && chmod 700 ${folder}`,
+    );
+    const made = api(name, aliceCookie, "POST", "/api/agents", {
+      name: "Rig Alice upload",
+      cwd: folder,
+      roomId,
+      desk: null,
+      agentType: "claude",
+      access: "folder",
+    });
+    const agentId = (made.agent as { id: string } | undefined)?.id;
+    if (!agentId) throw new Error(`spawn: ${JSON.stringify(made)}`);
+    root(
+      name,
+      "printf '\\x89PNG\\r\\n\\x1a\\n\\xff\\xfe\\x00\\x80rig' > /tmp/rig-up.png",
+    );
+    const uploaded = root(
+      name,
+      `curl -s -X POST -H 'Host: ${HOST}' -H 'Origin: ${ORIGIN}' -H 'Cookie: ${aliceCookie}' -F 'file=@/tmp/rig-up.png;type=image/png' http://127.0.0.1:10000/api/agents/${agentId}/uploads`,
+    ).out;
+    const attachments = (
+      JSON.parse(uploaded) as { attachments?: { filename: string }[] }
+    ).attachments;
+    if (!attachments?.length) throw new Error(`upload: ${uploaded}`);
+    const file = attachments[0].filename;
+    api(name, aliceCookie, "POST", `/api/agents/${agentId}/messages`, {
+      text: "RIG_UPLOAD",
+      attachments,
+    });
+    const [report] = await reportsOf(agentId, 1);
+    const copy = `${folder}/attachments/${file}`;
+    const shared = `${MEMBERS}/share/${ALICE}/files/${agentId}/${file}`;
+    expect(String(report.said)).toContain(copy);
+    expect(String(report.said)).not.toContain(`${STATE}/logs`);
+    expect(String(report.said)).not.toContain(shared);
+    const aliceUid = root(name, `id -u ${ALICE}`).out.trim();
+    const aliceGid = root(name, `id -g ${ALICE}`).out.trim();
+    expect(
+      root(name, `stat -c '%a %u' ${folder}/attachments ${copy}`)
+        .out.trim()
+        .split("\n"),
+    ).toEqual([`700 ${aliceUid}`, `600 ${aliceUid}`]);
+    expect(root(name, `cmp /tmp/rig-up.png ${copy}`).status).toBe(0);
+    expect(root(name, `stat -c '%a %u %g' ${shared}`).out.trim()).toBe(
+      `640 ${OFFICE_UID} ${aliceGid}`,
+    );
+    expect(sh(name, ALICE, `cmp ${shared} ${copy}`).status).toBe(0);
+    expect(sh(name, BOB, `cat ${shared}`).status).not.toBe(0);
+    root(name, `rm -rf /tmp/rig-up.png ${folder}`);
+
+    // Her OpenCode agent's authority socket, in her share: the office's
+    // socket with her group (the share's setgid bit), which she can reach
+    // and Bob cannot. A message binds the broker; the stub's server then
+    // fails, as for the office.
+    const authority = `${MEMBERS}/share/${ALICE}/authority`;
+    const socket = `${authority}/authority.sock`;
+    const openCode = api(name, aliceCookie, "POST", "/api/agents", {
+      name: "Rig Alice socket",
+      cwd: `${MEMBERS}/home/${ALICE}`,
+      roomId,
+      desk: null,
+      agentType: "opencode",
+      modelFamily: "rig/stub",
+    });
+    const openCodeId = (openCode.agent as { id: string } | undefined)?.id;
+    if (!openCodeId) throw new Error(`spawn: ${JSON.stringify(openCode)}`);
+    api(name, aliceCookie, "POST", `/api/agents/${openCodeId}/messages`, {
+      text: "one",
+    });
+    const reach = (user: string) =>
+      sh(
+        name,
+        user,
+        `curl -s -o /dev/null -w '%{http_code}' --max-time 5 --unix-socket ${socket} http://isomux/api/agents`,
+      ).out.trim();
+    await waitFor("Alice's authority socket", () => reach(ALICE) !== "000");
+    expect(
+      root(name, `stat -c '%a %u %g' ${authority} ${socket}`)
+        .out.trim()
+        .split("\n"),
+    ).toEqual([
+      `2750 ${OFFICE_UID} ${aliceGid}`,
+      `660 ${OFFICE_UID} ${aliceGid}`,
+    ]);
+    expect(reach(BOB)).toBe("000");
   });
 
   // Slice 2b-i: the office's sync session checks cannot read a member's

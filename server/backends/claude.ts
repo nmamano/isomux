@@ -105,10 +105,12 @@ import type { ModelFamily } from "../../shared/types.ts";
 import { officeAgentHost } from "../agent-host.ts";
 import { loadClaudeIsomuxLabel, saveFile } from "../persistence.ts";
 import {
-  resolveAttachmentNotices,
+  createSendOrder,
+  deliveredNotices,
+  folderDelivery,
   formatAttachmentLines,
-  copyAttachmentsInto,
   inlineImages,
+  prepareDelivery,
   type AttachmentDelivery,
 } from "../attachment-prompt.ts";
 import { createSafetyHooksForEnv, type SafetyDenial } from "../safety-hooks.ts";
@@ -1345,13 +1347,32 @@ export class ClaudeSession implements BackendSession {
   }
 
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    // A member's agent at folder and web: every send waits for the one
+    // before it, since a send with uploads first waits for their copies.
+    if (this.attachmentDelivery?.kind === "member-copy") {
+      const delivery = this.attachmentDelivery;
+      return this.sendOrder(
+        () => prepareDelivery(this.agentId, attachments ?? [], delivery),
+        (prepared) => this.sendNow(text, attachments, prepared),
+      );
+    }
+    return this.sendNow(text, attachments, this.attachmentDelivery);
+  }
+
+  private readonly sendOrder = createSendOrder();
+
+  private async sendNow(
+    text: string,
+    attachments: AttachmentSpec[] | undefined,
+    delivery: AttachmentDelivery | undefined,
+  ): Promise<void> {
     if (this.planModeReady) await this.planModeReady;
     if (attachments && attachments.length > 0) {
       const message = buildClaudeUserMessage(
         this.agentId,
         text,
         attachments,
-        this.attachmentDelivery,
+        delivery,
       );
       await this.conversation.send(message);
     } else {
@@ -2123,14 +2144,9 @@ function buildClaudeUserMessage(
         },
       });
   }
-  const lines =
-    delivery?.kind === "inline-images"
-      ? []
-      : formatAttachmentLines(
-          delivery?.kind === "copy"
-            ? copyAttachmentsInto(agentId, attachments, delivery.folder)
-            : resolveAttachmentNotices(agentId, attachments),
-        );
+  const lines = formatAttachmentLines(
+    deliveredNotices(agentId, attachments, delivery),
+  );
   if (lines.length > 0) {
     content.push({ type: "text", text: lines.join("\n") });
   }
@@ -2343,7 +2359,7 @@ function attachmentDeliveryFor(
   const access = opts.access;
   if (!access || !belowStandard(access)) return undefined;
   return stopHasFolder(access)
-    ? { kind: "copy", folder: opts.cwd }
+    ? folderDelivery(opts.cwd, () => hostForEnv(opts.env))
     : { kind: "inline-images" };
 }
 

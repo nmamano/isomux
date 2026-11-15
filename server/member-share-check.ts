@@ -14,7 +14,7 @@ import { dirname, join } from "path";
 export const RUNTIME_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 export interface ShareEntry {
-  type: "file" | "dir" | "symlink" | "other";
+  type: "file" | "dir" | "symlink" | "socket" | "other";
   uid: number;
   gid: number;
   // st_mode & 0o7777.
@@ -44,7 +44,9 @@ export const realShareProbe: ShareProbe = {
         ? "dir"
         : st.isSymbolicLink()
           ? "symlink"
-          : "other";
+          : st.isSocket()
+            ? "socket"
+            : "other";
     return {
       type,
       uid: st.uid,
@@ -105,6 +107,10 @@ export function checkMemberShare(input: ShareCheckInput): ShareVerdict {
 
   const runtime = join(input.share, "runtime");
   const current = join(runtime, "current");
+  // The one entry that is neither a file nor a folder: the member's OpenCode
+  // authority socket (backends/opencode/authority-broker.ts), which their
+  // group may connect to.
+  const authoritySocket = join(input.share, "authority", "authority.sock");
   const scope = input.scope ?? "all";
   const walk = (
     path: string,
@@ -122,6 +128,16 @@ export function checkMemberShare(input: ShareCheckInput): ShareVerdict {
         return refuse(path, "the link names a missing runtime folder");
       return { ok: true };
     }
+    if (path === authoritySocket)
+      return entry.type === "socket" &&
+        entry.uid === input.officeUid &&
+        entry.gid === input.memberGid &&
+        entry.mode === 0o660
+        ? { ok: true }
+        : refuse(
+            path,
+            "not a socket of the office user and the member's group with mode 0660",
+          );
     if (entry.mode & GROUP_OR_OTHER_WRITE)
       return refuse(path, "writable by group or others");
     if (entry.type === "file") {

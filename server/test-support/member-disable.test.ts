@@ -17,7 +17,13 @@ import {
   forgetMemberHost,
   hostFor,
   memberHostConnected,
+  memberShareOf,
+  onMemberHostForgotten,
 } from "../member-hosts.ts";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { setMemberShareRoot } from "../member-runtime.ts";
 import { memberOsUserState } from "../member-os-users.ts";
 import { officeAgentHost, type AgentHost } from "../agent-host.ts";
 import type { MemberMoveOutPlan, MoveOutResult } from "../member-move-out.ts";
@@ -177,5 +183,66 @@ describe("disable", () => {
     expect(second?.body.error).toBe("move_in_progress");
     expect(holdsAsked).toBe(1);
     expect((await first).body).toMatchObject({ ok: true });
+  });
+});
+
+// Slice 2d-ii-b of task b94dfd25: the copies of the member's uploads in their
+// share, and what the forget hooks hold for them (their OpenCode authority
+// broker), go at every disable, also with keepFiles: forgetMemberHost runs
+// while the record still names the share.
+describe("disable and the member's share files", () => {
+  let root: string;
+  const forgotten: string[] = [];
+  let throwing = false;
+  let registered = false;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "disable-share-"));
+    setMemberShareRoot(root);
+    forgotten.length = 0;
+    throwing = false;
+    if (!registered) {
+      registered = true;
+      // A hook that throws first does not stop the next one.
+      onMemberHostForgotten(() => {
+        if (throwing) throw new Error("a hook failed");
+      });
+      onMemberHostForgotten((userId) => void forgotten.push(userId));
+    }
+  });
+
+  afterEach(() => {
+    throwing = false;
+    setMemberShareRoot(null);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function shareFile(): string {
+    const share = memberShareOf(alice);
+    if (!share) throw new Error("no share");
+    const dir = join(share, "files", "agent-1");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "up.png"), "x");
+    return join(share, "files");
+  }
+
+  it("removes them at a disable that moves the files", async () => {
+    moveDeps();
+    const files = shareFile();
+    expect((await disable()).body).toMatchObject({ ok: true });
+    expect(existsSync(files)).toBe(false);
+    expect(forgotten).toEqual([alice]);
+  });
+
+  it("removes them at a disable with keepFiles, and runs every hook when one throws", async () => {
+    moveDeps();
+    const files = shareFile();
+    throwing = true;
+    expect((await disable({ keepFiles: true })).body).toEqual({
+      ok: true,
+      kept: true,
+    });
+    expect(existsSync(files)).toBe(false);
+    expect(forgotten).toEqual([alice]);
   });
 });

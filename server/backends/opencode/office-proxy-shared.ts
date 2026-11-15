@@ -11,3 +11,10 @@ export function openCodeAuthoritySocketPath(): string {
     ? join(SHARE_ROOT, "authority", "authority.sock")
     : join(STATE_ROOT, "opencode", "authority", "authority.sock");
 }
+
+// A member's own socket, in their share (internal-docs/member-os-user-design.md,
+// slice 2d-ii): their OpenCode runs as their OS user, which cannot reach the
+// office's.
+export function memberAuthoritySocketPath(share: string): string {
+  return join(share, "authority", "authority.sock");
+}

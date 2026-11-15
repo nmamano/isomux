@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { openCodeAuthorityBrokerForEnv } from "./authority-broker.ts";
 import {
   logOpenCodeError,
   logOpenCodeStreamSilence,
@@ -89,9 +90,12 @@ import { openCodeEmptyCwdRoot } from "../empty-folder.ts";
 // from writing; in split mode the policy does not cover it.
 export const OPENCODE_ONE_SHOT_DIR = join(AGENT_ROOT, "opencode", "one-shot");
 import {
-  copyAttachmentsInto,
+  createSendOrder,
+  deliveredNotices,
+  folderDelivery,
   formatAttachmentLines,
   inlineImages,
+  prepareDelivery,
   resolveAttachmentNotices,
   type AttachmentDelivery,
 } from "../../attachment-prompt.ts";
@@ -233,6 +237,11 @@ class OpenCodeServerSession implements BackendSession {
       systemPrompt: opts.systemPrompt,
       agentToken: opts.env?.ISOMUX_AGENT_TOKEN,
       agentId: opts.agentId,
+      // The office's broker, or for a member's agent their own
+      // (authority-broker.ts); a member's that cannot be made stops the start.
+      authorityBroker: opts.env?.ISOMUX_AGENT_TOKEN
+        ? openCodeAuthorityBrokerForEnv(opts.env)
+        : undefined,
       agent: setup.agent,
       supervisor,
       sessionId,
@@ -308,9 +317,28 @@ class OpenCodeServerSession implements BackendSession {
   }
 
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    // A member's agent at folder and web: their runner makes the copies, and
+    // every send waits for the one before it.
+    if (this.delivery?.kind === "member-copy") {
+      const delivery = this.delivery;
+      return this.sendOrder(
+        () => prepareDelivery(this.agentId, attachments ?? [], delivery),
+        (prepared) => this.sendNow(text, attachments, prepared),
+      );
+    }
+    return this.sendNow(text, attachments, this.delivery);
+  }
+
+  private readonly sendOrder = createSendOrder();
+
+  private async sendNow(
+    text: string,
+    attachments: AttachmentSpec[] | undefined,
+    delivery: AttachmentDelivery | undefined,
+  ): Promise<void> {
     await this.transport.send(
-      this.delivery
-        ? limitedPromptParts(text, attachments, this.agentId, this.delivery)
+      delivery
+        ? limitedPromptParts(text, attachments, this.agentId, delivery)
         : buildOpenCodePromptParts(text, attachments, this.agentId),
       this.push,
     );
@@ -369,9 +397,9 @@ export function openCodePromptAttachments(
   attachments: AttachmentSpec[],
   delivery: AttachmentDelivery,
 ): { files: OpenCodePromptFile[]; text: string | null } {
-  if (delivery.kind === "copy") {
+  if (delivery.kind !== "inline-images") {
     const lines = formatAttachmentLines(
-      copyAttachmentsInto(agentId, attachments, delivery.folder),
+      deliveredNotices(agentId, attachments, delivery),
     );
     return { files: [], text: lines.length > 0 ? lines.join("\n") : null };
   }
@@ -547,7 +575,7 @@ export function createOpenCodeBackend(
         if (sessionId) await moveHere(sessionId, opts);
       },
       delivery: folder
-        ? { kind: "copy", folder: opts.cwd }
+        ? folderDelivery(opts.cwd, () => hostForEnv(opts.env))
         : { kind: "inline-images" },
     };
   };

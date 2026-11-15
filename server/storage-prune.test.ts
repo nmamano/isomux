@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { removeStateDir } from "./test-support/temp-state.ts";
+import { setMemberShareLister } from "./member-share-files.ts";
 import {
   planPrune,
   applyPrune,
@@ -536,6 +537,43 @@ describe("applyPrune", () => {
       false,
     );
     expect(existsSync(join(logs, "agent-a", "files", "kept.png"))).toBe(true);
+  });
+
+  // Slice 2d-ii-b of task b94dfd25: a member's agent has a copy of each
+  // upload in the member's share; the prune that deletes the upload deletes
+  // the copy, and only that one. The agent may be killed (not in the live
+  // map, its files kept for a revive), so no agent-to-member lookup is set:
+  // the shares come from the lister alone (round 1 F2).
+  it("deletes the share copy of a deleted upload of a member's agent, also a killed one, and only that copy", () => {
+    const logs = agentWithAttachments();
+    const share = tempDir();
+    const otherShare = tempDir();
+    const copies = join(share, "files", "agent-a");
+    mkdirSync(copies, { recursive: true });
+    writeFileSync(join(copies, "orphan.png"), "o");
+    writeFileSync(join(copies, "kept.png"), "k");
+    // Another agent's copy under the same name stays.
+    mkdirSync(join(share, "files", "agent-b"), { recursive: true });
+    writeFileSync(join(share, "files", "agent-b", "orphan.png"), "b");
+    setMemberShareLister(() => [otherShare, share]);
+    try {
+      const d = deps(logs);
+      // A refused candidate (changed since the plan) keeps its copy.
+      const stale = planPrune("attachments", POLICY, d);
+      stale.candidates[0].mtimeMs -= 1;
+      expect(applyPrune(stale, d).deleted).toBe(0);
+      expect(existsSync(join(copies, "orphan.png"))).toBe(true);
+      expect(applyPrune(planPrune("attachments", POLICY, d), d).deleted).toBe(
+        1,
+      );
+      expect(existsSync(join(copies, "orphan.png"))).toBe(false);
+      expect(existsSync(join(copies, "kept.png"))).toBe(true);
+      expect(existsSync(join(share, "files", "agent-b", "orphan.png"))).toBe(
+        true,
+      );
+    } finally {
+      setMemberShareLister(null);
+    }
   });
 });
 

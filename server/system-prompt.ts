@@ -261,6 +261,8 @@ function limitedAttachmentsLine(stop: AgentAccess): string {
 // An OpenCode agent has no bearer token: its office calls go to
 // http://isomux through the authority socket, with the turn header.
 export function rewriteOpenCodeOfficeCommands(prompt: string): string {
+  // The transport puts the turn handle in its place, and for a member's
+  // agent their own socket in place of the office's (opencode/transport.ts).
   const proxyArgs = `--unix-socket ${openCodeAuthoritySocketPath()} -H "X-Isomux-Turn: ${OPENCODE_TURN_HANDLE_PLACEHOLDER}"`;
   const token = String.raw`(?:\$ISOMUX_AGENT_TOKEN|\$\{ISOMUX_AGENT_TOKEN\})`;
   // Not tied to the line that holds "curl ", so a continued command works.

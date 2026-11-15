@@ -34,7 +34,11 @@ import {
   type OpenCodeAuthorityBinding,
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
-import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import {
+  OPENCODE_TURN_HANDLE_PLACEHOLDER,
+  openCodeAuthoritySocketPath,
+} from "./office-proxy-shared.ts";
+
 import {
   openCodeConfigFilePath,
   openCodeLogPath,
@@ -400,6 +404,24 @@ interface TurnInput {
   onId?: () => void;
 }
 
+// The office calls of a text with this binding: the turn handle in its
+// place, and a member's socket in place of the office's (system-prompt.ts
+// writes the office's), so a member's agent never names the office socket.
+// The office's text stays as it is, apart from the handle.
+function fillAuthority(
+  text: string,
+  binding: { handle: string; socketPath: string },
+): string {
+  const filled = text.replaceAll(
+    OPENCODE_TURN_HANDLE_PLACEHOLDER,
+    binding.handle,
+  );
+  const office = openCodeAuthoritySocketPath();
+  return binding.socketPath === office
+    ? filled
+    : filled.replaceAll(office, binding.socketPath);
+}
+
 export class OpenCodeTransport {
   private readonly supervisor: OpenCodeSupervisor;
   private readonly cwd: string;
@@ -498,12 +520,11 @@ export class OpenCodeTransport {
         this.agentToken,
       );
     }
-    this.systemPrompt = this.authorityBinding
-      ? options.systemPrompt?.replaceAll(
-          OPENCODE_TURN_HANDLE_PLACEHOLDER,
-          this.authorityBinding.handle,
-        )
-      : options.systemPrompt;
+    const binding = this.authorityBinding;
+    this.systemPrompt =
+      binding && options.systemPrompt !== undefined
+        ? fillAuthority(options.systemPrompt, binding)
+        : options.systemPrompt;
     this.agent = options.agent;
     this.resumedSessionId = options.sessionId;
     this.toolEnvironment = options.toolEnvironment;
@@ -892,10 +913,7 @@ export class OpenCodeTransport {
         );
         return;
       }
-      turnText = turnText.replaceAll(
-        OPENCODE_TURN_HANDLE_PLACEHOLDER,
-        this.authorityBinding.handle,
-      );
+      turnText = fillAuthority(turnText, this.authorityBinding);
     }
     this.folderSetupNoticeShown = false;
     let settleAcquire = () => {};

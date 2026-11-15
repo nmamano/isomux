@@ -68,6 +68,7 @@
 
 import { join, resolve, sep, dirname } from "path";
 import { readdirSync, lstatSync, realpathSync, unlinkSync } from "fs";
+import { removeMemberShareFile } from "./member-share-files.ts";
 import {
   lstat as lstatAsync,
   readdir as readdirAsync,
@@ -792,6 +793,19 @@ function unlinkTranscriptTwin(abs: string): void {
   }
 }
 
+// The copy in a member's share of the upload at `rel` (<agentId>/files/<name>).
+function removeShareCopy(rel: string): void {
+  const [agentId, folder, name, ...rest] = rel.split(sep);
+  if (folder !== "files" || !name || rest.length > 0) return;
+  try {
+    removeMemberShareFile(agentId, name);
+  } catch (error) {
+    console.error(
+      `[storage-prune] cannot remove the share copy of ${rel}: ${(error as Error).message}`,
+    );
+  }
+}
+
 // Apply a plan. Re-derives every safety property from the live filesystem:
 // a plan is data, and data can be stale, hand-edited, or hostile.
 export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
@@ -895,6 +909,9 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
       // The other form of the same session, left by a crash (planTranscripts
       // counted its bytes in this candidate).
       if (plan.target === "transcripts") unlinkTranscriptTwin(abs);
+      // The copy in a member's share (member-share-files.ts), by the path
+      // that passed the fence: <agentId>/files/<name>.
+      if (plan.target === "attachments") removeShareCopy(candidate.path);
       deleted++;
       bytes += live.bytes;
     } catch (err) {

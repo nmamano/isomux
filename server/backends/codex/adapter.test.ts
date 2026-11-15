@@ -82,6 +82,8 @@ import type { AgentFs } from "../../agent-host.ts";
 import { buildEnvForUserId } from "../../env-loader.ts";
 import { createMember } from "../../users.ts";
 import { isolateMember } from "../../test-support/member-host-fixture.ts";
+import { setAgentShareResolver } from "../../member-share-files.ts";
+import { chmodShare } from "../../split/share-mode.ts";
 import { OneShotUsageLimitError } from "../one-shot-errors.ts";
 import {
   FOLDER_FILES_MCP_PATH,
@@ -1627,6 +1629,96 @@ describe("Codex below Standard", () => {
         expect(text).not.toContain(join(STATE_ROOT, "logs"));
         expect(input.filter((i) => i.type === "localImage")).toHaveLength(1);
       } finally {
+        removeStateDir(join(STATE_ROOT, "logs", id));
+      }
+    });
+
+    // Slice 2d-ii-b of task b94dfd25: a member's agent at folder gets the copy
+    // from their runner (from the share copy, never LOGS_DIR), and a send
+    // without uploads does not pass a send whose copy is still being made.
+    it("a member's agent: their runner copies from the share, and the sends keep their order", async () => {
+      const id = agentId();
+      const files = join(STATE_ROOT, "logs", id, "files");
+      const share = mkdtempSync(join(tmpdir(), "codex-member-share-"));
+      // Setgid, as root makes a share.
+      chmodShare(share, 0o2750);
+      const made = createMember(`CodexAtt${Date.now()}`, { role: "member" });
+      if (!made.ok) throw new Error(made.error);
+      const iso = await isolateMember(made.user.id);
+      setAgentShareResolver((agent) => (agent === id ? share : null));
+      try {
+        mkdirSync(files, { recursive: true });
+        writeFileSync(join(files, "notes.md"), "NOTES 2d-ii-b\n");
+        const entries: { name: string; source: unknown }[] = [];
+        let open = () => {};
+        const gate = new Promise<void>((resolve) => {
+          open = resolve;
+        });
+        (iso.member.host as { runEntry: unknown }).runEntry = async (
+          name: string,
+          input: Record<string, unknown>,
+        ) => {
+          entries.push({ name, source: input.source });
+          await gate;
+          // Not the name the office's own copy would take.
+          const dir = join(input.folder as string, "attachments");
+          mkdirSync(dir, { recursive: true });
+          const target = join(dir, `runner-${input.name as string}`);
+          writeFileSync(target, readFileSync(input.source as string));
+          return { path: target };
+        };
+        const fake = new FakeCodexTransport();
+        memberAt(fake);
+        const ctx = at(
+          "folder",
+          { agentId: id, env: buildEnvForUserId(made.user.id) },
+          fake,
+        );
+        await nextEvent(ctx.it, "system_init");
+        const texts = () =>
+          fake.requests
+            .filter(
+              (r) => r.method === "turn/start" || r.method === "turn/steer",
+            )
+            .map((r) =>
+              (r.params as { input: Record<string, unknown>[] }).input
+                .filter((i) => i.type === "text")
+                .map((i) => i.text)
+                .join("\n"),
+            );
+        const first = ctx.session.send("FIRST", [
+          {
+            filename: "notes.md",
+            originalName: "notes.md",
+            mediaType: "text/markdown",
+            size: 14,
+          },
+        ]);
+        const second = ctx.session.send("SECOND");
+        await Bun.sleep(30);
+        expect(texts()).toEqual([]);
+        open();
+        await Promise.all([first, second]);
+        const sent = texts();
+        expect(sent.map((t) => (t.includes("FIRST") ? 1 : 2))).toEqual([1, 2]);
+        expect(sent[0]).toContain(
+          join(ctx.folder, "attachments", "runner-notes.md"),
+        );
+        // The office made no copy of its own in the member's folder.
+        expect(existsSync(join(ctx.folder, "attachments", "notes.md"))).toBe(
+          false,
+        );
+        expect(sent[0]).not.toContain(join(STATE_ROOT, "logs"));
+        expect(entries).toEqual([
+          {
+            name: "attachment-copy",
+            source: join(share, "files", id, "notes.md"),
+          },
+        ]);
+      } finally {
+        setAgentShareResolver(null);
+        iso.dispose();
+        rmSync(share, { recursive: true, force: true });
         removeStateDir(join(STATE_ROOT, "logs", id));
       }
     });
@@ -4827,7 +4919,10 @@ describe("CodexSession image view", () => {
         "file_view",
         "assistant_text",
       ]);
-      expect(reads).toEqual([imgPath, genPath]);
+      // Both through the member's host. The two reads run at once, so only
+      // the events have an order (task b94dfd25 2d-ii-b: 4 of 15 runs read
+      // the generated image first).
+      expect([...reads].sort()).toEqual([imgPath, genPath].sort());
     } finally {
       iso.dispose();
     }

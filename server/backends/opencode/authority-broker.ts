@@ -6,11 +6,21 @@ import {
   type Identity,
 } from "../../identity/index.ts";
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { SPLIT_CONFIG } from "../../split/roots.ts";
 import { chmodShare } from "../../split/share-mode.ts";
-import { openCodeAuthoritySocketPath } from "./office-proxy-shared.ts";
+import { ensureMemberShareFolder } from "../../member-share-files.ts";
+import {
+  memberAuthoritySocketPath,
+  openCodeAuthoritySocketPath,
+} from "./office-proxy-shared.ts";
+import {
+  hostForEnv,
+  memberShareOf,
+  onMemberHostForgotten,
+} from "../../member-hosts.ts";
+import { memberOsUserState } from "../../member-os-users.ts";
 import { readProcessHop, type ProcessHop } from "./process-identity.ts";
 import {
   httpResponse,
@@ -46,6 +56,8 @@ interface ConnectionData {
 
 export interface OpenCodeAuthorityBinding {
   readonly handle: string;
+  // The broker's socket, which the agent's office calls name.
+  readonly socketPath: string;
   activate(serverPid: number): string;
   deactivate(): void;
   unbind(): void;
@@ -99,6 +111,10 @@ export class OpenCodeAuthorityBroker {
     private readonly upstreamOrigin = `http://127.0.0.1:${PORT}`,
     private readonly readers = HOST_PROCESS_READERS,
     private readonly split = SPLIT_CONFIG !== null,
+    // A member's broker: the share its socket is in. The folder gets the
+    // member's group from the share (member-share-files.ts,
+    // ensureMemberShareFolder), never from the office's chmod.
+    private readonly memberShare: string | null = null,
   ) {}
 
   bind(agentId: string, token: string): OpenCodeAuthorityBinding {
@@ -108,6 +124,7 @@ export class OpenCodeAuthorityBroker {
     let active = false;
     return {
       handle,
+      socketPath: this.socketPath,
       activate: (serverPid) => {
         if (active) this.turns.delete(handle);
         const identity = this.readers.readProcessHop(serverPid);
@@ -137,6 +154,11 @@ export class OpenCodeAuthorityBroker {
     };
   }
 
+  // True when this broker listens (or will) at `socketPath` for `uid`.
+  serves(socketPath: string, uid: number): boolean {
+    return this.socketPath === socketPath && this.expectedUid === uid;
+  }
+
   close(): void {
     this.turns.clear();
     this.server?.stop(true);
@@ -149,9 +171,12 @@ export class OpenCodeAuthorityBroker {
     const directory = dirname(this.socketPath);
     // Split mode: the agent user's group may pass through and connect; only
     // the server can create, rename or remove entries (design 3.1.1).
-    const directoryMode = this.split ? 0o2750 : 0o700;
-    mkdirSync(directory, { recursive: true, mode: directoryMode });
-    chmodShare(directory, directoryMode);
+    if (this.memberShare) ensureMemberShareFolder(this.memberShare, directory);
+    else {
+      const directoryMode = this.split ? 0o2750 : 0o700;
+      mkdirSync(directory, { recursive: true, mode: directoryMode });
+      chmodShare(directory, directoryMode);
+    }
     rmSync(this.socketPath, { force: true });
     this.server = Bun.listen<ConnectionData>({
       unix: this.socketPath,
@@ -281,7 +306,18 @@ export class OpenCodeAuthorityBroker {
     });
     // A process needs write permission on a socket to connect. Until this
     // chmod the socket is closed to the group, the safe direction.
-    if (this.split) chmodSync(this.socketPath, 0o660);
+    if (this.split || this.memberShare) chmodSync(this.socketPath, 0o660);
+    // The member reaches the socket only through its group, which comes from
+    // the folder. Else the share check would refuse it at their next connect.
+    if (
+      this.memberShare &&
+      lstatSync(this.socketPath).gid !== lstatSync(this.memberShare).gid
+    ) {
+      this.close();
+      throw new Error(
+        `${this.socketPath} did not get the group of ${this.memberShare}`,
+      );
+    }
   }
 
   private readPeer(fd: number): PeerIdentity | null {
@@ -448,3 +484,47 @@ function readVerifiedAncestry(
 }
 
 export const openCodeAuthorityBroker = new OpenCodeAuthorityBroker();
+
+// One broker per member with their own OS user: <share>/authority/
+// authority.sock, for their uid only. Its turn handles exist only there, so
+// a handle of another member's agent, or of an office agent, is refused on
+// it. The folder is 2750 with the member's group, from the setgid share, and
+// the socket 0660 with that group.
+const memberBrokers = new Map<string, OpenCodeAuthorityBroker>();
+
+// The broker for an agent with `env`: the office's, or its member's. Throws
+// for a member whose share or OS user is not known: their OpenCode does not
+// start.
+export function openCodeAuthorityBrokerForEnv(
+  env: object | undefined,
+): OpenCodeAuthorityBroker {
+  const userId = hostForEnv(env).member;
+  if (userId === undefined) return openCodeAuthorityBroker;
+  const state = memberOsUserState(userId);
+  const share = memberShareOf(userId);
+  if (state.kind !== "isolated" || !share)
+    throw new Error(`${userId} has no OS user of their own`);
+  const socketPath = memberAuthoritySocketPath(share);
+  const existing = memberBrokers.get(userId);
+  if (existing?.serves(socketPath, state.osUser.uid)) return existing;
+  existing?.close();
+  const broker = new OpenCodeAuthorityBroker(
+    socketPath,
+    state.osUser.uid,
+    undefined,
+    undefined,
+    false,
+    share,
+  );
+  memberBrokers.set(userId, broker);
+  return broker;
+}
+
+// Disable or an undone enable (member-hosts.ts, forgetMemberHost): the
+// member's broker stops, its turn handles go, and its socket file is removed.
+export function closeMemberAuthorityBroker(userId: string): void {
+  memberBrokers.get(userId)?.close();
+  memberBrokers.delete(userId);
+}
+
+onMemberHostForgotten(closeMemberAuthorityBroker);

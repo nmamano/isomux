@@ -45,7 +45,10 @@ import { openCodeAgentRules } from "./supervisor.ts";
 import { openCodeMcpServerConfig } from "./config-layers.ts";
 import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
 import type { OpenCodeAuthorityBroker } from "./authority-broker.ts";
-import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import {
+  OPENCODE_TURN_HANDLE_PLACEHOLDER,
+  openCodeAuthoritySocketPath,
+} from "./office-proxy-shared.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import type { NormalizedEvent } from "../types.ts";
 import { providerRefusal } from "../provider-text.ts";
@@ -364,6 +367,56 @@ describe("OpenCode 2 turn requests", () => {
     expect(h.fake.calls("POST", /\/prompt$/).map((r) => r.body)).toEqual([
       { text: `first ${handle}\n\nsecond ${handle}` },
     ]);
+  });
+
+  // Slice 2d-ii-b of task b94dfd25: system-prompt.ts writes the office's
+  // socket; a member's agent must name their own, in the instructions and in
+  // the turn text, and an office agent's text stays as written.
+  it("puts a member's socket in place of the office's in the instructions and the turn text, and leaves an office agent's as written", async () => {
+    const office = openCodeAuthoritySocketPath();
+    const member = "/srv/share/isomux-alice/authority/authority.sock";
+    for (const socketPath of [member, office]) {
+      const handle = "session-handle";
+      const authorityBroker = {
+        bind: () => ({
+          handle,
+          socketPath,
+          activate: () => "turn-handle",
+          deactivate: () => {},
+          unbind: () => {},
+        }),
+      } as unknown as OpenCodeAuthorityBroker;
+      const h = setup({
+        fake: { turns: [fixtureTurn("text-reasoning")] },
+        transport: {
+          systemPrompt: `curl --unix-socket ${office} -H "X-Isomux-Turn: ${OPENCODE_TURN_HANDLE_PLACEHOLDER}" http://isomux/a ; ${office}`,
+          agentId: "agent-1",
+          agentToken: "token-1",
+          authorityBroker,
+        },
+      });
+      const { end } = await h.turn([
+        {
+          type: "text",
+          text: `curl --unix-socket ${office} -H "X-Isomux-Turn: ${OPENCODE_TURN_HANDLE_PLACEHOLDER}" http://isomux/b`,
+        },
+      ]);
+      expect(end?.status).toBe("completed");
+      expect(h.fake.calls("POST", /\/prompt$/).map((r) => r.body)).toEqual([
+        {
+          text: `curl --unix-socket ${socketPath} -H "X-Isomux-Turn: ${handle}" http://isomux/b`,
+        },
+      ]);
+      const instructions = JSON.stringify(
+        h.fake.requests
+          .filter((r) => r.path.endsWith("/instructions/entries/isomux"))
+          .map((r) => r.body),
+      );
+      expect(instructions).toContain(
+        `curl --unix-socket ${socketPath} -H \\"X-Isomux-Turn: ${handle}\\" http://isomux/a ; ${socketPath}`,
+      );
+      if (socketPath !== office) expect(instructions).not.toContain(office);
+    }
   });
 
   it("refuses a turn whose text names the turn handle when it has no authority binding, before it sends a prompt", async () => {

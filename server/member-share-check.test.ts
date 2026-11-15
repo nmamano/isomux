@@ -6,8 +6,12 @@
 // names the entry the check must refuse. The probe is a table, so owners and
 // set-id bits that a test user cannot make are cases too.
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   checkMemberShare,
+  realShareProbe,
   type ShareEntry,
   type ShareProbe,
 } from "./member-share-check.ts";
@@ -308,6 +312,110 @@ describe("checkMemberShare", () => {
     expect(verdict(tree)).toBe("ok");
     tree.set(deep, file(0o4755));
     expect(verdict(tree)).toBe(deep);
+  });
+});
+
+// Slice 2d-ii-b of task b94dfd25: the share holds the member's uploads
+// (files/, 02750 folders, 0640 files) and their OpenCode authority socket,
+// the one entry that is not a file or a folder.
+describe("checkMemberShare: files and the authority socket", () => {
+  const AUTHORITY = `${SHARE}/authority`;
+  const SOCKET = `${AUTHORITY}/authority.sock`;
+  const socket = (
+    mode = 0o660,
+    uid = OFFICE,
+    gid = MEMBER_GID,
+  ): ShareEntry => ({ type: "socket", uid, gid, mode });
+  function withShareFiles(edit?: (tree: Tree) => void): Tree {
+    const tree = goodTree();
+    tree.set(`${SHARE}/files`, dir(0o2750));
+    tree.set(`${SHARE}/files/agent-1`, dir(0o2750));
+    tree.set(`${SHARE}/files/agent-1/up.png`, file(0o640));
+    tree.set(AUTHORITY, dir(0o2750));
+    tree.set(SOCKET, socket());
+    edit?.(tree);
+    return tree;
+  }
+
+  it("passes the share files and the one socket the office makes", () => {
+    expect(verdict(withShareFiles())).toBe("ok");
+  });
+
+  const cases: Case[] = [
+    ["the socket has mode 0666", (t) => t.set(SOCKET, socket(0o666)), SOCKET],
+    ["the socket has mode 0600", (t) => t.set(SOCKET, socket(0o600)), SOCKET],
+    [
+      "the socket has the office group",
+      (t) => t.set(SOCKET, socket(0o660, OFFICE, OFFICE_GID)),
+      SOCKET,
+    ],
+    [
+      "the socket belongs to the member",
+      (t) => t.set(SOCKET, socket(0o660, MEMBER, MEMBER_GID)),
+      SOCKET,
+    ],
+    [
+      "the socket belongs to root",
+      (t) => t.set(SOCKET, socket(0o660, 0, MEMBER_GID)),
+      SOCKET,
+    ],
+    [
+      "a regular file is at the socket's path",
+      (t) => t.set(SOCKET, file(0o640)),
+      SOCKET,
+    ],
+    [
+      "a folder is at the socket's path",
+      (t) => t.set(SOCKET, dir(0o2750)),
+      SOCKET,
+    ],
+    [
+      "a link is at the socket's path",
+      (t) => t.set(SOCKET, link("/elsewhere")),
+      SOCKET,
+    ],
+    [
+      "a second socket is in the authority folder",
+      (t) => t.set(`${AUTHORITY}/other.sock`, socket()),
+      `${AUTHORITY}/other.sock`,
+    ],
+    [
+      "a socket with the right modes is in files/",
+      (t) => t.set(`${SHARE}/files/agent-1/authority.sock`, socket()),
+      `${SHARE}/files/agent-1/authority.sock`,
+    ],
+    [
+      "a socket is at the share root",
+      (t) => t.set(`${SHARE}/authority.sock`, socket()),
+      `${SHARE}/authority.sock`,
+    ],
+    [
+      "the authority folder is group-writable",
+      (t) => t.set(AUTHORITY, dir(0o2770)),
+      AUTHORITY,
+    ],
+    [
+      "an upload copy is group-writable",
+      (t) => t.set(`${SHARE}/files/agent-1/up.png`, file(0o660)),
+      `${SHARE}/files/agent-1/up.png`,
+    ],
+  ];
+  for (const [name, edit, path] of cases) {
+    it(`refuses when ${name}`, () => {
+      expect(verdict(withShareFiles(edit))).toBe(path);
+    });
+  }
+
+  it("the real probe reads a unix socket as a socket", () => {
+    const at = mkdtempSync(join(tmpdir(), "share-check-socket-"));
+    const path = join(at, "authority.sock");
+    const server = Bun.listen({ unix: path, socket: { data() {} } });
+    try {
+      expect(realShareProbe.lstat(path)?.type).toBe("socket");
+    } finally {
+      server.stop(true);
+      rmSync(at, { recursive: true, force: true });
+    }
   });
 });
 

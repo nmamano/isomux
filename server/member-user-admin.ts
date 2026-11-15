@@ -279,8 +279,8 @@ export async function handleMemberUserAdmin(
     // keepFiles: the owner gives up the member's files in their home (their
     // runner cannot run). A broken record has no runner to move them.
     if (request.keepFiles === true || state.kind === "broken") {
-      forgetMemberOsUser(user.id);
       forgetMemberHost(user.id);
+      forgetMemberOsUser(user.id);
       return json(200, { ok: true, kept: true });
     }
     if (!memberHostConnected(user.id))
@@ -397,8 +397,8 @@ async function disableMove(userId: string): Promise<Response> {
     );
   }
   await moved.removeMemberCopy();
-  forgetMemberOsUser(userId);
   forgetMemberHost(userId);
+  forgetMemberOsUser(userId);
   clearMemberMoving(userId);
   deps.releaseMember(userId);
   moved.done();
@@ -452,8 +452,8 @@ async function goOn(
           ),
         );
     if (made) {
-      forgetMemberOsUser(userId);
       forgetMemberHost(userId);
+      forgetMemberOsUser(userId);
     }
     clearMemberMoving(userId);
     deps.releaseMember(userId);

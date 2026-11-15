@@ -2,6 +2,7 @@
 // call (edit request, terminal command, read file, preview URL, browser,
 // diff, ask outcomes). Moved out of createAgentManager
 // (server/agent-manager.ts), which wires it.
+import { agentShare, copyToMemberShare } from "./member-share-files.ts";
 import { hostFor } from "./member-hosts.ts";
 import { readFileSync } from "fs";
 import { basename } from "path";
@@ -503,8 +504,23 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     filename: string,
   ): { att: Attachment; path: string } | null {
     const att = savePersistedFile(agentId, png, "image/png", filename);
-    const path = att ? getFilePath(agentId, att.filename) : null;
-    return att && path ? { att, path } : null;
+    const stored = att ? getFilePath(agentId, att.filename) : null;
+    if (!att || !stored) return null;
+    // A member's agent cannot read LOGS_DIR: it gets the copy in their share,
+    // under the same name, or the save fails (member-share-files.ts).
+    const share = agentShare(agentId);
+    if (!share) return { att, path: stored };
+    try {
+      return {
+        att,
+        path: copyToMemberShare(share, agentId, att.filename, stored),
+      };
+    } catch (error) {
+      console.error(
+        `[preview] ${agentId}: cannot copy ${att.filename} to the member's share: ${(error as Error).message}`,
+      );
+      return null;
+    }
   }
 
   // Screenshot a URL (headless Chrome CLI via preview-capture.ts)

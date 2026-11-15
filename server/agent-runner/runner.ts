@@ -53,6 +53,7 @@ import {
 // The fixed entries. Each one reads one JSON value on stdin and writes one on
 // stdout.
 export const ENTRY_NAMES = new Set([
+  "attachment-copy",
   "diff",
   "bun-path",
   "diagnose",

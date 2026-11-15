@@ -26,6 +26,7 @@ import {
   runtimeSource,
   writeMemberCaBundle,
 } from "./member-runtime.ts";
+import { removeMemberShareFiles } from "./member-share-files.ts";
 import { checkMemberShare, type ShareVerdict } from "./member-share-check.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -796,11 +797,37 @@ function clearRetry(userId: string): void {
 }
 
 // Drop `userId`'s host, retry and last refusal (disable, or a go-on that
-// is undone). hostFor then follows the record alone.
+// is undone), with the share files of their agents (member-share-files.ts)
+// and what the forgotten hooks hold for them (their authority socket).
+// Called before the record goes; hostFor then follows the record alone.
 export function forgetMemberHost(userId: string): void {
+  const share = memberShareOf(userId);
   connected.delete(userId);
   refusals.delete(userId);
   clearRetry(userId);
+  if (share)
+    try {
+      removeMemberShareFiles(share);
+    } catch (error) {
+      console.error(
+        `[member-hosts] ${userId}: cannot remove the share files: ${(error as Error).message}`,
+      );
+    }
+  for (const hook of forgottenHooks)
+    try {
+      hook(userId);
+    } catch (error) {
+      console.error(
+        `[member-hosts] ${userId}: a forget hook failed: ${(error as Error).message}`,
+      );
+    }
+}
+
+const forgottenHooks = new Set<(userId: string) => void>();
+
+// Runs at forgetMemberHost for each member (the OpenCode authority broker).
+export function onMemberHostForgotten(hook: (userId: string) => void): void {
+  forgottenHooks.add(hook);
 }
 
 // Connect again after an exit, until the runner answers or restartWaitMs

@@ -2,9 +2,15 @@ import { readWidgetMetadata } from "./app-widget-metadata.ts";
 import {
   connectMemberHosts,
   hostFor,
+  memberShareOf,
   setMemberSecretHooks,
   writeMemberCaBundles,
 } from "./member-hosts.ts";
+import {
+  removeMemberShareFiles,
+  setAgentShareResolver,
+  setMemberShareLister,
+} from "./member-share-files.ts";
 import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import {
   appFilesRevision,
@@ -472,7 +478,11 @@ import {
   removePersonalProviderHomes,
   sweepPersonalProviderHomes,
 } from "./provider-homes.ts";
-import { hasMemberOsUser, memberOsUidTies } from "./member-os-users.ts";
+import {
+  hasMemberOsUser,
+  memberOsUidTies,
+  memberOsUserIds,
+} from "./member-os-users.ts";
 import { purgeMemberAgentSpace } from "./member-move-out.ts";
 import { BUNDLED_SKILLS_DIR } from "./skills.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
@@ -751,6 +761,15 @@ setMemberSecretHooks({
   caBundle: () => secretsRuntime.caBundle(),
 });
 setSecretEnvironmentProvider((userId) => secretsRuntime.environmentFor(userId));
+// The share of a member's agent, for the copies of its uploads and
+// screenshots (member-share-files.ts).
+setAgentShareResolver((agentId) => {
+  const userId = agentManager?.getAgent(agentId)?.userId;
+  return userId ? memberShareOf(userId) : null;
+});
+setMemberShareLister(() =>
+  memberOsUserIds().flatMap((userId) => memberShareOf(userId) ?? []),
+);
 // Vault secrets that apps read as raw values (task c7007f8b): the files in
 // STATE_ROOT/secrets/apps, synced after every secret change, app delete and
 // boot. The supervisor is read at call time: startServer assigns it.
@@ -1809,6 +1828,16 @@ function purgeRemovedMember(userId: string): void {
   // Their copy in their own OS user's agent space goes through their runner.
   if (hasMemberOsUser(userId))
     void purgeMemberAgentSpace(userId, hostFor(userId));
+  // Their agents' uploads and screenshots in their share.
+  const share = memberShareOf(userId);
+  if (share)
+    try {
+      removeMemberShareFiles(share);
+    } catch (error) {
+      console.error(
+        `[members] ${userId}: cannot remove the share files: ${(error as Error).message}`,
+      );
+    }
 }
 
 // Boot and the minute sweep: the members removed 30 days ago or more go.

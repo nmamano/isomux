@@ -53,8 +53,12 @@ import { filterMissingToolOutputRepeats } from "../../../shared/codex-diagnostic
 import { saveFile } from "../../persistence.ts";
 import {
   copyAttachmentsInto,
+  createSendOrder,
+  folderDelivery,
+  prepareDelivery,
   resolveAttachmentNotices,
   formatAttachmentLines,
+  type AttachmentNotice,
 } from "../../attachment-prompt.ts";
 import { mimeTypeForFilename } from "../../mime-types.ts";
 import { markdownInlineCode } from "../../../shared/format-human.ts";
@@ -1756,6 +1760,32 @@ export class CodexSession implements BackendSession {
   }
 
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    // A member's agent at folder and web: their runner makes the copies, and
+    // every send waits for the one before it.
+    if (this.inFolder && hostForEnv(this.opts.env).member !== undefined) {
+      const delivery = folderDelivery(this.opts.cwd, () =>
+        hostForEnv(this.opts.env),
+      );
+      return this.sendOrder(
+        () => prepareDelivery(this.opts.agentId, attachments ?? [], delivery),
+        (prepared) =>
+          this.sendNow(
+            text,
+            attachments,
+            prepared.kind === "copied" ? prepared.notices : null,
+          ),
+      );
+    }
+    return this.sendNow(text, attachments, null);
+  }
+
+  private readonly sendOrder = createSendOrder();
+
+  private async sendNow(
+    text: string,
+    attachments: AttachmentSpec[] | undefined,
+    copies: AttachmentNotice[] | null,
+  ): Promise<void> {
     // Wait for bootstrap (initialize + thread/start) to finish so callers
     // who fire send() immediately after a session swap don't race. After
     // bootstrap, threadId is either set (success) or still null (bootstrap
@@ -1788,6 +1818,7 @@ export class CodexSession implements BackendSession {
       this.opts.agentId,
       this.belowStandard,
       this.inFolder ? this.opts.cwd : null,
+      copies,
     );
     this.capacityRetryCount = 0;
     this.capacityErrorThisAttempt = null;
@@ -4013,17 +4044,21 @@ function buildCodexUserInput(
   agentId: string,
   belowStandard = false,
   folder: string | null = null,
+  // The copies a member's runner made (prepareDelivery), in place of the
+  // office's copy into `folder`.
+  copies: AttachmentNotice[] | null = null,
 ): Array<Record<string, unknown>> {
   const inputs: Array<Record<string, unknown>> = [];
   if (text) {
     inputs.push({ type: "text", text, text_elements: [] });
   }
   if (belowStandard && folder !== null) {
-    const copies = copyAttachmentsInto(agentId, attachments ?? [], folder);
-    const lines = formatAttachmentLines(copies);
+    const made =
+      copies ?? copyAttachmentsInto(agentId, attachments ?? [], folder);
+    const lines = formatAttachmentLines(made);
     if (lines.length > 0)
       inputs.push({ type: "text", text: lines.join("\n"), text_elements: [] });
-    for (const copy of copies)
+    for (const copy of made)
       if (INLINE_IMAGE_TYPES.has(copy.mediaType))
         inputs.push({ type: "localImage", path: copy.path });
     if (inputs.length === 0)
