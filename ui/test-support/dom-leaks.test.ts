@@ -46,11 +46,13 @@ function readReport(xml: string): Map<string, FileResult> {
     for (const testcase of suite[2]!.matchAll(
       /<testcase name="([^"]*)"[^>]*?(?:\/>|>([\s\S]*?)<\/testcase>)/g,
     )) {
-      const failure = /<failure([^>]*)>([\s\S]*?)<\/failure>/.exec(
-        testcase[2] ?? "",
-      );
+      // bun writes a hook timeout as a self-closing <failure ... />.
+      const failure =
+        /<failure((?:[^>/]|\/(?!>))*)(?:\/>|>([\s\S]*?)<\/failure>)/.exec(
+          testcase[2] ?? "",
+        );
       if (failure)
-        result.failures.push(unescapeXml(`${failure[1]}\n${failure[2]}`));
+        result.failures.push(unescapeXml(`${failure[1]}\n${failure[2] ?? ""}`));
       else if (!/<skipped/.test(testcase[2] ?? ""))
         result.passed.push(unescapeXml(testcase[1]!));
     }
@@ -84,6 +86,7 @@ async function runInOneProcess(
   name: string,
   fixtures: [string, string][],
   env: Record<string, string> = {},
+  args: string[] = [],
 ) {
   const dir = join(scratch, name);
   mkdirSync(dir);
@@ -101,6 +104,7 @@ async function runInOneProcess(
       "test",
       "--reporter=junit",
       `--reporter-outfile=${report}`,
+      ...args,
       ...paths,
     ],
     {
@@ -631,5 +635,114 @@ it("emits a frame", () => {
       passed: ["emits a frame"],
       failures: [],
     });
+  }, 30_000);
+});
+
+// bun test binds the bare `jest` identifier in each module it transpiles, and
+// @testing-library reads that identifier to detect and advance fake timers. A
+// plain bun process (not bun test) that loads @testing-library/react writes
+// its transpiled modules to bun's runtime transpiler cache WITHOUT that
+// binding, and a later bun test reads them from there (task 3cf06152). The
+// harness puts a global `jest` in place, so the library finds one either way.
+describe("testing-library after a plain bun process filled the transpiler cache", () => {
+  const rtl = JSON.stringify(Bun.resolveSync("@testing-library/react", REPO));
+
+  /** A transpiler cache filled by a plain `bun` that loaded testing-library. */
+  async function seededCache(name: string): Promise<string> {
+    const cache = join(scratch, `${name}-cache`);
+    mkdirSync(cache);
+    const seed = Bun.spawn([process.execPath, "-e", `require(${rtl})`], {
+      cwd: REPO,
+      env: childEnv({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: cache }),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, err] = await Promise.all([
+      seed.exited,
+      new Response(seed.stderr).text(),
+    ]);
+    expect(code, err).toBe(0);
+    return cache;
+  }
+
+  /** One case: a fake-timer waitFor that passes once a 100 ms timer fires. */
+  const firesCase = `it("fires", async () => {
+  jest.useFakeTimers();
+  try {
+    let fired = false;
+    setTimeout(() => { fired = true; }, 100);
+    await waitFor(() => expect(fired).toBe(true));
+  } finally {
+    jest.useRealTimers();
+  }
+});`;
+
+  const fixtureHead = `import { jest } from "bun:test";
+const { createElement } = await import(${JSON.stringify(Bun.resolveSync("react", REPO))});
+const { render, waitFor } = await import(${rtl});
+`;
+
+  it("fake-timer waitFor cases pass, fail by their own error, and leave the next case alone", async () => {
+    const run = await runInOneProcess(
+      "jest-global",
+      [
+        domFixture(
+          "timers",
+          `${fixtureHead}${firesCase}
+it("never ready", async () => {
+  jest.useFakeTimers();
+  try {
+    await waitFor(() => { throw new Error("never-ready-3cf06152"); }, { timeout: 1000 });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+it("renders after", () => {
+  const view = render(createElement("p", null, "after"));
+  expect(view.container.querySelectorAll("p").length).toBe(1);
+});`,
+        ),
+      ],
+      {
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: await seededCache("jest-global"),
+      },
+    );
+    expect(run.order).toEqual(["timers"]);
+    const result = run.file("timers.dom.test.ts");
+    expect(result.passed, run.output).toEqual(["fires", "renders after"]);
+    // Only "never ready" fails, and by the error its waitFor gave up on:
+    // a hung waitFor would end in bun's timeout and fail the cleanup hook too.
+    expect(result.failures.length, run.output).toBe(1);
+    expect(result.failures[0], run.output).toContain("never-ready-3cf06152");
+    expect(result.failures[0], run.output).not.toMatch(/timed out/i);
+  }, 30_000);
+
+  // The condition the case above depends on: on this bun, a cache seeded this
+  // way still loses the binding. If this goes green, bun has fixed it, and
+  // the harness's global jest and this describe may be removed.
+  it("without the global, the seeded cache still breaks a fake-timer waitFor", async () => {
+    const run = await runInOneProcess(
+      "jest-global-canary",
+      [
+        domFixture(
+          "canary",
+          `${fixtureHead}delete (globalThis as Record<string, unknown>).jest;
+${firesCase}`,
+        ),
+      ],
+      {
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH:
+          await seededCache("jest-global-canary"),
+      },
+      // The broken case leaves act's scope open, so the cleanup hook hangs
+      // until the timeout: keep that short.
+      ["--timeout=1000"],
+    );
+    expect(run.order).toEqual(["canary"]);
+    const result = run.file("canary.dom.test.ts");
+    expect(result.passed, run.output).toEqual([]);
+    expect(result.failures.join("\n"), run.output).toMatch(
+      /ReferenceError[^\n]*\bjest\b/,
+    );
   }, 30_000);
 });

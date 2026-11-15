@@ -38,7 +38,7 @@
 // start of each DOM file, so the state an earlier file left (DOM or not) never
 // reaches this one's tests.
 
-import { afterAll, afterEach, beforeAll, expect } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
   type Globals,
@@ -432,6 +432,13 @@ export function setUpDomTestFile({
     stubs: new Map(),
   };
   currentFile = file;
+  // @testing-library reads a bare `jest` for its fake-timer support. bun binds
+  // it per module when it transpiles that module for a test run, but a module
+  // whose transpiler cache entry came from a plain (non-test) bun process has
+  // no binding: `typeof jest` still reads as defined, and the call inside
+  // waitFor throws where nothing catches it, so the test hangs. A real global
+  // is the fallback that resolves either way.
+  stubGlobal("jest", jest);
   // The body call above covers bun's current load-then-run order. This covers a
   // run that loads every file before executing any test, where another file's
   // afterAll would have unregistered in between.

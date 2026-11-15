@@ -197,6 +197,13 @@ registers, so a stub added afterwards survives its unregister and only the
 harness can take it back off. `ui/test-support/dom-leaks.test.ts` checks that
 the next file sees Bun's own globals.
 
+The harness also puts bun's `jest` on `globalThis` for the file (with
+`stubGlobal`). Testing Library's fake-timer support calls a bare `jest`, and bun
+binds that name only in modules it transpiled for a test run: when a plain
+`bun` process filled the transpiler cache entry of a Testing Library module
+first, `waitFor` under `jest.useFakeTimers()` threw where nothing caught it and
+hung every later case in the file (task 3cf06152).
+
 The harness also keeps the window's timers reachable from modules loaded in an
 earlier file. bun evaluates a module once per process, so react-dom keeps the
 `queueMicrotask` and `setTimeout` of the window the first DOM file registered,
