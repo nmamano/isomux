@@ -1,0 +1,24 @@
+# The agent runner of one member's own OS user (%i), installed by
+# deploy/install.sh and started by isomux-member-user enable
+# (internal-docs/member-os-user-design.md, section 1.1). It runs the runtime
+# that the office installs in the member share.
+[Unit]
+Description=Isomux agent runner for the OS user %i
+After=network.target
+# Keep restarting: the office repairs a broken runtime at its next connect.
+StartLimitIntervalSec=0
+
+[Service]
+User=%i
+RuntimeDirectory=isomux-runner-%i
+RuntimeDirectoryMode=0711
+# ISOMUX_OFFICE_UID only, written by root.
+EnvironmentFile=/etc/isomux/member-runner/%i.env
+ExecStart=/var/lib/isomux-share/%i/runtime/current/bun /var/lib/isomux-share/%i/runtime/current/runner.js runner --socket /run/isomux-runner-%i/runner.sock --server-uid ${ISOMUX_OFFICE_UID} --socket-mode 0666
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

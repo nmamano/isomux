@@ -59,6 +59,9 @@ die() { echo "DIE: $*"; exit 1; }
 step() { :; }
 eval "$(sed -n '/^install_updater()/,/^}$/p' "$INSTALL_SH")"
 eval "$(sed -n '/^install_rescue_command()/,/^ISOMUX_RESCUE_ROOT_SH$/p' "$INSTALL_SH"; echo "}")"
+# The member OS user command has its own test; here it only must not stop
+# install_updater.
+install_member_user_command() { :; }
 reroot() { if [[ $1 == /etc/* ]]; then echo "$BASE/root$1"; else echo "$1"; fi; }
 write_file() {
   local path

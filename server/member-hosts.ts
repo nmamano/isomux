@@ -69,6 +69,7 @@ interface Connected {
 }
 
 const connected = new Map<string, Connected>();
+const refusals = new Map<string, string>();
 const retries = new Map<string, ReturnType<typeof setTimeout>>();
 
 // The host for the agents of `userId`.
@@ -299,15 +300,29 @@ function runCodeCheckChild(input: MemberCheckInput): Promise<CodeCheckAnswer> {
   });
 }
 
+function codeVerdictKey(
+  member: { uid: number; gid: number; groups: number[] },
+  codeRoot: string,
+): string {
+  return [
+    member.uid,
+    member.gid,
+    [...member.groups].sort((a, b) => a - b).join(","),
+    codeRoot,
+  ].join(":");
+}
+
+// Forget every kept code verdict of the identity with this uid (a go-on: the
+// user may be new, or its groups changed since the verdict).
+export function forgetMemberCodeVerdicts(uid: number): void {
+  for (const key of codeTreeVerdicts.keys())
+    if (key.startsWith(`${uid}:`)) codeTreeVerdicts.delete(key);
+}
+
 export function memberCodeTreeChecks(
   input: MemberCheckInput,
 ): Promise<CheckFailure[]> {
-  const key = [
-    input.member.uid,
-    input.member.gid,
-    [...input.member.groups].sort((a, b) => a - b).join(","),
-    input.codeRoot,
-  ].join(":");
+  const key = codeVerdictKey(input.member, input.codeRoot);
   let verdict = codeTreeVerdicts.get(key);
   if (!verdict) {
     verdict = runCodeCheckChild(input).then((answer) => {
@@ -467,6 +482,7 @@ async function connectNow(userId: string): Promise<boolean> {
   const { osUser } = state;
   const refuse = (reason: string): false => {
     connected.delete(userId);
+    refusals.set(userId, reason);
     console.error(
       `[member-hosts] ${userId} (${osUser.name}) is not ready: ${reason}`,
     );
@@ -585,8 +601,29 @@ async function connectNow(userId: string): Promise<boolean> {
   )
     return refuse("the record changed while connecting");
   connected.set(userId, { osUser, host, runtimeHash: wanted });
+  refusals.delete(userId);
+  clearRetry(userId);
   console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
   return true;
+}
+
+// Why the last connect of `userId` failed; undefined after a success.
+export function memberHostRefusal(userId: string): string | undefined {
+  return refusals.get(userId);
+}
+
+function clearRetry(userId: string): void {
+  const timer = retries.get(userId);
+  if (timer) clearTimeout(timer);
+  retries.delete(userId);
+}
+
+// Drop `userId`'s host, retry and last refusal (disable, or a go-on that
+// is undone). hostFor then follows the record alone.
+export function forgetMemberHost(userId: string): void {
+  connected.delete(userId);
+  refusals.delete(userId);
+  clearRetry(userId);
 }
 
 // Connect again after an exit, until the runner answers or restartWaitMs
@@ -613,6 +650,7 @@ export async function connectMemberHosts(): Promise<void> {
 // Tests: forget every connected host and retry timer.
 export function resetMemberHosts(): void {
   inflight.clear();
+  refusals.clear();
   codeTreeVerdicts.clear();
   for (const timer of retries.values()) clearTimeout(timer);
   retries.clear();

@@ -88,6 +88,7 @@ const STAGES = [
   "converge_bun",
   "configure_oom_protection",
   "install_rescue_command",
+  "install_member_user_command",
   "backfill_firewall_record",
   "restore_recorded_firewall_rules",
   "install_harden_tool",
@@ -224,6 +225,7 @@ die() { echo "DIE: $*"; case "$*" in *[Cc]addy*) exit 1 ;; esac; }
 install_packages() { echo "install_packages"; ${apt}; ${opts.packagesFail ? "report_failure; exit 1" : "true"}; }
 configure_oom_protection() { echo "configure_oom_protection $*"; echo "configure_oom_protection $*" >> "$STUB_LOG"; :; }
 outcome_add() { echo "OUTCOME: $*"; }
+install_member_user_command() { echo "install_member_user_command"; }
 install_browser() { echo "install_browser"; }
 configure_codex_sandbox() { echo "configure_codex_sandbox"; }
 configure_bwrap_apparmor() { echo "configure_bwrap_apparmor"; }
@@ -306,6 +308,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "converge_bun",
       "configure_oom_protection",
       "install_rescue_command",
+      "install_member_user_command",
       "install_browser",
       "configure_codex_sandbox",
       "configure_bwrap_apparmor",
@@ -332,6 +335,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "converge_bun",
       "configure_oom_protection",
       "install_rescue_command",
+      "install_member_user_command",
       "backfill_firewall_record",
       "restore_recorded_firewall_rules",
       "install_harden_tool",

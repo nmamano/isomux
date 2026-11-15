@@ -32,7 +32,8 @@ export function memberOsUsersPath(): string {
   return join(STATE_ROOT, MEMBER_OS_USERS_FILE);
 }
 
-const NAME = /^[a-z_][a-z0-9_-]{0,31}$/;
+export const OS_USER_NAME_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
+const NAME = OS_USER_NAME_PATTERN;
 
 function validOsUser(value: unknown): value is MemberOsUser {
   if (typeof value !== "object" || value === null || Array.isArray(value))

@@ -20,6 +20,10 @@ import { buildPublicOrigin, mintInvite } from "./auth.ts";
 import { getUserByName, hasOwner } from "./users.ts";
 import { activeSetupKeySource, setupKeyFile } from "./setup-key.ts";
 import {
+  handleMemberUserAdmin,
+  MEMBER_USER_PATH_PREFIX,
+} from "./member-user-admin.ts";
+import {
   httpResponse,
   parseHttpRequest,
   readPeerCredentials,
@@ -161,7 +165,7 @@ export function startAdminSocket(options: AdminSocketOptions = {}): {
             socket.end(jsonBytes(403, { ok: false, error: refusal(allowed) }));
             return;
           }
-          void handleParsed(request)
+          void handleParsed(request, peerUid)
             .then(toHttpAsync)
             .then(
               (bytes) => socket.end(bytes),
@@ -209,7 +213,10 @@ function refusal(allowed: Set<number>): string {
   return `Refused: this socket answers only ${names.join(" and ")}.`;
 }
 
-function handleParsed(request: ParsedRequest): Promise<Response> {
+function handleParsed(
+  request: ParsedRequest,
+  peerUid: number,
+): Promise<Response> {
   const hasBody = request.method !== "GET" && request.body.length > 0;
   return handleAdmin(
     new Request(request.url, {
@@ -217,6 +224,7 @@ function handleParsed(request: ParsedRequest): Promise<Response> {
       headers: request.headers,
       body: hasBody ? request.body.toString("utf8") : undefined,
     }),
+    peerUid,
   );
 }
 
@@ -232,8 +240,27 @@ async function toHttpAsync(response: Response): Promise<Buffer> {
   );
 }
 
-async function handleAdmin(req: Request): Promise<Response> {
+async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
   const url = new URL(req.url);
+  // The member OS user verbs (server/member-user-admin.ts) answer root only,
+  // not the recovery uid: they make and remove OS users' runtimes.
+  if (
+    req.method === "POST" &&
+    url.pathname.startsWith(MEMBER_USER_PATH_PREFIX)
+  ) {
+    if (peerUid !== 0)
+      return jsonResponse(403, {
+        ok: false,
+        error: "Refused: the member OS user commands answer only root.",
+      });
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse(400, { ok: false, error: "invalid JSON body" });
+    }
+    return handleMemberUserAdmin(url.pathname, body);
+  }
   if (req.method !== "POST" || url.pathname !== "/admin/owner-login") {
     return jsonResponse(404, { ok: false, error: "not found" });
   }

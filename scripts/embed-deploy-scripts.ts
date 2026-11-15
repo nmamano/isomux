@@ -76,6 +76,14 @@ export const EMBEDDED = [
   { path: "deploy/harden-ssh.sh", delimiter: "ISOMUX_HARDEN_SSH_SH" },
   { path: "scripts/rescue-root.sh", delimiter: "ISOMUX_RESCUE_ROOT_SH" },
   {
+    path: "deploy/isomux-member-user.sh",
+    delimiter: "ISOMUX_MEMBER_USER_SH",
+  },
+  {
+    path: "deploy/isomux-member-runner@.service",
+    delimiter: "ISOMUX_MEMBER_RUNNER_UNIT",
+  },
+  {
     path: "deploy/verify-hardening.sh",
     delimiter: "ISOMUX_VERIFY_HARDENING_SH",
   },

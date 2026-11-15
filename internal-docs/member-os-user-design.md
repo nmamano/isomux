@@ -100,9 +100,9 @@ Until the last slice ships, the server answers "not ready" on `admin.sock` and t
 Root acts only on the account and on new, empty places it makes:
 
 1. Ask the server about the member over `admin.sock` (it answers uid 0 only).
-2. Create the user (default `isomux-<member slug>`, a home, no password, no extra groups) and make the share. Refuse an owner.
+2. Create the user (default `isomux-<member slug>`, a home, no password, no extra groups) and make the share. Refuse an owner, and refuse a user that exists: the command deletes only a user that it made (it keeps a root-owned mark), so `disable --delete-user` never removes a person's login.
 3. Ask the server over `admin.sock` to install the runtime in the share (1.1); root writes no code. Enable the user's linger, so its apps run without a login, write the runner unit's env file, and start the unit.
-4. Run the trusted checks. Tell the server to go on (`admin.sock`).
+4. Run the trusted checks. Tell the server to go on (`admin.sock`). The server records the OS user and tries to connect for up to 30 seconds (the unit may not listen yet); when it cannot, it removes the record and the command undoes its steps.
 
 The server then does the rest with no root: it stops the member's running turns, as a restart does, and refuses new ones; it streams the member's agent files from `STATE_ROOT` to the runner, which writes them as the member; it deletes its copy after the runner confirms; it records the OS user on the member, rewrites the pinned paths of the moved sessions, makes its own checks and resumes the turns. The command waits for that result and prints each agent folder that the new user cannot reach. If a step fails, the steps before it are undone.
 
