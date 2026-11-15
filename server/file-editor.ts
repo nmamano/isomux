@@ -257,8 +257,8 @@ function noteMissing(absPath: string): void {
 
 // Call after an external delete so recreating even the same linked file cannot
 // reuse an open revision that belonged to the removed catalog entry.
-export function markFileDeleted(absPath: string): void {
-  noteMissing(absPath);
+export function markFileDeleted(absPath: string, host?: AgentHost): void {
+  noteMissing(host ? revKey(host, absPath) : absPath);
 }
 
 // Resolve a user-supplied editor path against the agent's cwd. Mirrors

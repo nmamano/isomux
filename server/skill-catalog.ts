@@ -24,23 +24,25 @@ import {
 } from "fs";
 import { rm } from "fs/promises";
 import { SKILL_NAME } from "./project-skill-scan.ts";
-import { basename, dirname, isAbsolute, join, resolve } from "path";
+import { dirname, isAbsolute, join, resolve } from "path";
 import type {
   SkillCatalogEntry,
   SkillCatalogRes,
   SkillEngine,
-  SkillSource,
 } from "../shared/contract-shapes.ts";
 import {
   BUNDLED_SKILLS_DIR,
   locateBundledSkills,
-  locatePluginSkills,
-  locateProjectSkills,
   locateUserSkills,
   pluginInstallPaths,
-  type LocatedSkill,
-  type UserSkillRoot,
 } from "./skills.ts";
+import {
+  engineCatalog,
+  isInside,
+  realKey,
+  type CatalogSources,
+  type SkillEngineContext,
+} from "./skill-catalog-core.ts";
 import {
   openOfficeFile,
   saveOfficeFile,
@@ -55,13 +57,7 @@ export const SKILL_ENGINES: readonly SkillEngine[] = [
   "opencode",
 ];
 
-export interface SkillEngineContext {
-  engine: SkillEngine;
-  userRoots: UserSkillRoot[];
-  pluginRoot: string;
-  // Working folders of the caller-visible agents on this engine.
-  cwds: string[];
-}
+export type { SkillEngineContext } from "./skill-catalog-core.ts";
 
 // Same limit as the editor panel's open.
 export const MAX_SKILL_BYTES = 1_000_000;
@@ -70,164 +66,13 @@ const MAX_DESCRIPTION = 1024;
 // lowercase letters, digits and hyphens.
 const MAX_NAME = 64;
 
-function realKey(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
-
-// The folder of a skill, or the file of a command: what a link points to.
-function placeOf(skill: LocatedSkill): string {
-  return basename(skill.path) === "SKILL.md" ? dirname(skill.path) : skill.path;
-}
-
-// Where a link points, one hop; null when `path` is not a link.
-function linkTarget(path: string): string | null {
-  try {
-    if (!lstatSync(path).isSymbolicLink()) return null;
-    return resolve(dirname(path), readlinkSync(path));
-  } catch {
-    return null;
-  }
-}
-
-function sourceOf(skill: LocatedSkill): SkillSource {
-  return skill.origin === "claude" ? "isomux" : skill.origin;
-}
-
-// True when `path` is `root` or inside it.
-function isInside(path: string, root: string): boolean {
-  const base = root.replace(/\/+$/, "");
-  return path === base || path.startsWith(`${base}/`);
-}
-
-// The resolver sends a name with a colon straight to the plugins
-// (resolveSkillPrompt), so only a plugin entry can run under such a name.
-function canRunAs(skill: LocatedSkill): boolean {
-  return skill.origin === "plugin" || !skill.name.includes(":");
-}
-
-function engineCatalog(
-  context: SkillEngineContext,
-  counts: Record<string, number>,
-): SkillCatalogEntry[] {
-  const user = locateUserSkills(context.userRoots).filter(canRunAs);
-  // Only Claude loads plugin skills.
-  const plugin =
-    context.engine === "claude" ? locatePluginSkills(context.pluginRoot) : [];
-  const bundled = locateBundledSkills();
-  const cwds = [...new Set(context.cwds.map((cwd) => resolve(cwd)))].sort();
-  const projects = cwds.map((cwd) => ({
-    cwd,
-    skills: locateProjectSkills(cwd, context.engine).filter(canRunAs),
-  }));
-
-  // Built-in and plugin files are read-only by where the file really is, so a
-  // link to one from a user or project folder does not make it editable.
-  const protectedRoots = [
-    realKey(BUNDLED_SKILLS_DIR),
-    ...pluginInstallPaths(context.pluginRoot).map(realKey),
-  ];
-
-  // Winners per context, by name: the first entry in discovery order.
-  const contexts: LocatedSkill[][] =
-    projects.length === 0
-      ? [[...user, ...plugin, ...bundled]]
-      : projects.map((p) => [...user, ...p.skills, ...plugin, ...bundled]);
-  const winners = contexts.map((list) => {
-    const byName = new Map<string, LocatedSkill>();
-    for (const s of list) if (!byName.has(s.name)) byName.set(s.name, s);
-    return byName;
-  });
-
-  // A built-in alias hides its canonical entry, as in the Sk menu.
-  const aliased = new Set(
-    bundled.filter((s) => s.aliasFor).map((s) => s.aliasFor as string),
-  );
-  const own = (name: string): number => {
-    const v = Object.prototype.hasOwnProperty.call(counts, name)
-      ? counts[name]
-      : 0;
-    return typeof v === "number" ? v : 0;
-  };
-
-  const ordered: { skill: LocatedSkill; project?: string }[] = [
-    ...user.map((skill) => ({ skill })),
-    ...projects.flatMap((p) =>
-      p.skills.map((skill) => ({ skill, project: p.cwd })),
-    ),
-    ...plugin.map((skill) => ({ skill })),
-    ...bundled.map((skill) => ({ skill })),
-  ];
-
-  // One entry per name and real file: the same file reached twice (a personal
-  // provider home links the box home's skills, or two projects link one
-  // folder) is one skill. It runs when any of its places runs in any context
-  // that place belongs to. The first place found is the one shown, unless it
-  // is a link to a later place of the same source: then the later one is, so
-  // every engine shows the box home's path and the page lists the skill once
-  // for all agents.
-  const groups = new Map<
-    string,
-    {
-      first: { skill: LocatedSkill; project?: string };
-      runs: boolean;
-      winner?: LocatedSkill;
-    }
-  >();
-  for (const item of ordered) {
-    const { skill, project } = item;
-    if (skill.origin === "isomux" && aliased.has(skill.name)) continue;
-    const memberOf =
-      project === undefined
-        ? winners
-        : winners.filter((_, i) => projects[i].cwd === project);
-    const runs = memberOf.some((w) => w.get(skill.name) === skill);
-    const key = `${skill.name}\0${realKey(skill.path)}`;
-    const group = groups.get(key);
-    if (!group) {
-      groups.set(key, {
-        first: item,
-        runs,
-        winner: memberOf[0]?.get(skill.name),
-      });
-    } else {
-      group.runs ||= runs;
-      if (
-        sourceOf(skill) === sourceOf(group.first.skill) &&
-        linkTarget(placeOf(group.first.skill)) === placeOf(skill)
-      )
-        group.first = item;
-    }
-  }
-
-  const out: SkillCatalogEntry[] = [];
-  for (const { first, runs, winner } of groups.values()) {
-    const { skill, project } = first;
-    const source = sourceOf(skill);
-    const real = realKey(skill.path);
-    const entry: SkillCatalogEntry = {
-      name: skill.name,
-      source,
-      kind: basename(skill.path) === "SKILL.md" ? "skill" : "command",
-      path: skill.path,
-      dir: skill.dir,
-      editable:
-        (source === "user" || source === "project") &&
-        !protectedRoots.some((root) => isInside(real, root)),
-      uses: own(skill.name) + (skill.aliasFor ? own(skill.aliasFor) : 0),
-    };
-    if (skill.description !== undefined) entry.description = skill.description;
-    if (skill.aliasFor !== undefined) entry.aliasFor = skill.aliasFor;
-    if (project !== undefined) entry.project = project;
-    if (skill.plugin !== undefined) entry.plugin = skill.plugin;
-    if (!runs && winner) entry.shadowedBy = winner.path;
-    out.push(entry);
-  }
-  return out;
-}
+const OFFICE_SOURCES: CatalogSources = {
+  locateUser: (roots) => locateUserSkills(roots),
+  get bundled() {
+    return locateBundledSkills();
+  },
+  bundledDir: BUNDLED_SKILLS_DIR,
+};
 
 export function buildSkillCatalog(
   contexts: SkillEngineContext[],
@@ -238,7 +83,7 @@ export function buildSkillCatalog(
   return {
     engines: contexts.map((context) => ({
       engine: context.engine,
-      skills: engineCatalog(context, counts),
+      skills: engineCatalog(context, counts, OFFICE_SOURCES),
     })),
     newSkillDir,
     home,
@@ -373,10 +218,15 @@ export function skillFileContent(
   return `---\nname: ${name}\ndescription: ${frontmatterScalar(description)}\n---\n${body ? `\n${body}\n` : ""}`;
 }
 
-export function createSkill(
-  newSkillDir: string,
-  input: { name: unknown; description: unknown; instructions?: unknown },
-): CreateSkillResult {
+// The fields of a new skill, checked: the office's create and an isolated
+// member's (member-skill-catalog.ts) take the same ones.
+export function validateNewSkill(input: {
+  name: unknown;
+  description: unknown;
+  instructions?: unknown;
+}):
+  | { kind: "ok"; name: string; description: string; instructions: string }
+  | { kind: "invalid"; field: "name" | "description" | "instructions" } {
   const { name, description, instructions = "" } = input;
   if (
     typeof name !== "string" ||
@@ -393,7 +243,17 @@ export function createSkill(
     return { kind: "invalid", field: "description" };
   if (typeof instructions !== "string")
     return { kind: "invalid", field: "instructions" };
-  const content = skillFileContent(name, description.trim(), instructions);
+  return { kind: "ok", name, description: description.trim(), instructions };
+}
+
+export function createSkill(
+  newSkillDir: string,
+  input: { name: unknown; description: unknown; instructions?: unknown },
+): CreateSkillResult {
+  const valid = validateNewSkill(input);
+  if (valid.kind === "invalid") return valid;
+  const { name } = valid;
+  const content = skillFileContent(name, valid.description, valid.instructions);
   if (Buffer.byteLength(content, "utf8") > MAX_SKILL_BYTES)
     return { kind: "invalid", field: "instructions" };
   const folder = join(newSkillDir, name);

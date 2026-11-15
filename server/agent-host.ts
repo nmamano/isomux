@@ -205,8 +205,9 @@ export interface AgentFs {
   ): Promise<void>;
   // Recursive; mode applies to the directories it creates.
   mkdir(path: string, mode: number): Promise<void>;
-  // A missing path is not an error.
-  rm(path: string): Promise<void>;
+  // A missing path is not an error. With `recursive`, a folder goes with
+  // what is in it; a link is removed as a link, never followed.
+  rm(path: string, options?: { recursive?: boolean }): Promise<void>;
   exists(path: string): Promise<boolean>;
   chmod(path: string, mode: number): Promise<void>;
   // Resolves when the agent user can enter the folder (access X_OK, which
@@ -478,7 +479,8 @@ export const localAgentFs: AgentFs = {
   mkdir: async (path, mode) => {
     await mkdir(path, { recursive: true, mode });
   },
-  rm: (path) => rm(path, { force: true }),
+  rm: (path, options) =>
+    rm(path, { force: true, recursive: options?.recursive === true }),
   exists: async (path) => existsSync(path),
   chmod: (path, mode) => chmod(path, mode),
   enter: (path) => access(path, constants.X_OK),

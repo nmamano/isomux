@@ -73,6 +73,7 @@ export const ENTRY_NAMES = new Set([
   "project-skills",
   "project-skill",
   "session-move",
+  "skill-catalog",
   "skill-folder",
   "url-probe",
   "user-skills",
@@ -380,7 +381,10 @@ async function runFs(
         await mkdir(request.path, { recursive: true, mode: request.mode });
         break;
       case "rm":
-        await rm(request.path, { force: true });
+        await rm(request.path, {
+          force: true,
+          recursive: request.recursive === true,
+        });
         break;
       case "exists":
         finish(socket, { type: "fs", value: existsSync(request.path) });
@@ -420,7 +424,10 @@ function handleFs(socket: RunnerSocket, request: FsRequest): void {
     ].includes(request.call) ||
     (needsMode && !validMode((request as { mode?: unknown }).mode)) ||
     (request.call === "readBytes" &&
-      !(Number.isSafeInteger(request.max) && request.max >= 0))
+      !(Number.isSafeInteger(request.max) && request.max >= 0)) ||
+    (request.call === "rm" &&
+      request.recursive !== undefined &&
+      typeof request.recursive !== "boolean")
   ) {
     fail(socket, "bad_request", "fs needs a call, an absolute path and a mode");
     return;

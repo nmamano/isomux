@@ -192,7 +192,12 @@ except OSError as error:
     print(json.dumps({"connect": error.errno}))
     raise SystemExit
 payload = ${JSON.stringify(JSON.stringify(request))}.encode()
-s.sendall(struct.pack(">IB", len(payload) + 1, 1) + payload)
+try:
+    s.sendall(struct.pack(">IB", len(payload) + 1, 1) + payload)
+except OSError:
+    # A refused peer: the runner may close before the request is written.
+    print(json.dumps([]))
+    raise SystemExit
 data = b""
 while True:
     try:
@@ -2019,6 +2024,69 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
       expect(sh(name, BOB, `ls ${folders}`).status).not.toBe(0);
       root(name, `rm -rf ${officeSkill} ${stateSkill}`);
     }, 400_000);
+
+    // Slice 2d-iii-b: her skills page makes, saves and deletes her own
+    // skill through her runner (the files hers, in her ~/.claude/skills),
+    // and neither lists nor reads an office skill.
+    it("lets her create, save and delete her own skill on the skills page, and lists or reads no office skill", async () => {
+      const officeSkill = "/var/data/home/.claude/skills/rig-page-office";
+      root(
+        name,
+        `mkdir -p ${officeSkill} && printf -- '---\\nname: rig-page-office\\ndescription: Office\\n---\\nRIG_PAGE_OFFICE\\n' > ${officeSkill}/SKILL.md && chown -R ${OFFICE_UID} /var/data/home/.claude`,
+      );
+      const path = `${home}/.claude/skills/rig-page-own/SKILL.md`;
+      const made = api(name, aliceCookie, "POST", "/api/skills", {
+        name: "rig-page-own",
+        description: "Mine",
+        instructions: "RIG_PAGE_V1",
+      }) as { path?: string; rev?: number; error?: unknown };
+      expect([made.path, made.error]).toEqual([path, undefined]);
+      const ownerOfFile = () => root(name, `stat -c %U ${path}`).out.trim();
+      expect(ownerOfFile()).toBe(ALICE);
+      const saved = api(name, aliceCookie, "PUT", "/api/skills/file", {
+        path,
+        content:
+          "---\nname: rig-page-own\ndescription: Mine\n---\nRIG_PAGE_V2\n",
+        expectedRev: made.rev,
+      }) as { rev?: number; error?: unknown };
+      expect(saved.error).toBeUndefined();
+      expect(root(name, `cat ${path}`).out).toContain("RIG_PAGE_V2");
+      expect(ownerOfFile()).toBe(ALICE);
+      const catalog = api(name, aliceCookie, "GET", "/api/skills", {}) as {
+        engines?: { skills: { name: string }[] }[];
+      };
+      const names = (catalog.engines ?? []).flatMap((e) =>
+        e.skills.map((s) => s.name),
+      );
+      expect({
+        own: names.includes("rig-page-own"),
+        bundled: names.includes("wrap-session"),
+        office: names.includes("rig-page-office"),
+      }).toEqual({ own: true, bundled: true, office: false });
+      const read = api(
+        name,
+        aliceCookie,
+        "GET",
+        `/api/skills/file?path=${encodeURIComponent(`${officeSkill}/SKILL.md`)}`,
+        {},
+      ) as { error?: { code?: string } };
+      expect(read.error?.code).toBe("skill_not_found");
+      const deleted = api(name, aliceCookie, "DELETE", "/api/skills/file", {
+        path,
+        expectedRev: saved.rev,
+      });
+      expect(deleted).toEqual({});
+      expect(
+        root(
+          name,
+          `test -e ${home}/.claude/skills/rig-page-own; echo $?`,
+        ).out.trim(),
+      ).toBe("1");
+      expect(root(name, `cat ${officeSkill}/SKILL.md`).out).toContain(
+        "RIG_PAGE_OFFICE",
+      );
+      root(name, `rm -rf ${officeSkill}`);
+    }, 200_000);
   });
 
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {

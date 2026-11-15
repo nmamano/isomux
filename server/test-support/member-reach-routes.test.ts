@@ -7,7 +7,14 @@
 // What each test pins, and the mutant it was seen red on, is named above it.
 
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -142,7 +149,6 @@ describe("the executor's reach check", () => {
       ["PATCH", `/api/agents/${id}`, { name: "Renamed", cwd: "/tmp" }],
       ["PUT", `/api/rooms/${o.room.id}/instructions`, { text: "obey me" }],
       ["PATCH", `/api/rooms/${o.room.id}`, { cwd: "/tmp" }],
-      ["PUT", "/api/skills/file", { path: "/tmp/SKILL.md", content: "x" }],
     ];
     for (const [method, path, body] of rows) {
       const alice = await call(o.srv, method, path, o.alice.auth, body);
@@ -168,6 +174,63 @@ describe("the executor's reach check", () => {
       },
     );
     expect(renamed.code).not.toBe("member_reach");
+  });
+});
+
+// Part 2d-iii-b: the skills page side is chosen by the caller. Alice's page
+// comes from her runner (the recording stand-in runs no entry, so her
+// catalog is a 502), and every other caller's catalog leaves out the folders
+// of her agents (B4).
+describe("the skills page", () => {
+  // MUTANT: skillContextsFor without the isolated-manager filter (dies on
+  // the owner's and Bob's names); memberSkillsFor returning null (dies on
+  // Alice's status, and her save reaches the office's file).
+  it("of Alice goes to her runner; Bob's and the owner's list no skill of her agents' folders", async () => {
+    const o = await office();
+    const withSkill = async (
+      agent: string,
+      manager: { username: string; id: string },
+      skill: string,
+    ) => {
+      const info = await o.spawn(agent, manager);
+      const dir = join(info.cwd, ".claude", "skills", skill);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "SKILL.md"),
+        `---\nname: ${skill}\ndescription: ${skill}\n---\nBody of ${skill}.\n`,
+      );
+      return join(dir, "SKILL.md");
+    };
+    await withSkill("Alice's agent", o.alice, "reach-alice-proj");
+    const bobFile = await withSkill("Bob's agent", o.bob, "reach-bob-proj");
+    const names = async (auth: Auth) => {
+      const r = await call(o.srv, "GET", "/api/skills", auth);
+      expect(r.status).toBe(200);
+      const body = r.body as {
+        engines: { skills: { name: string }[] }[];
+      };
+      return new Set(body.engines.flatMap((e) => e.skills.map((s) => s.name)));
+    };
+    for (const auth of [o.bob.auth, o.ownerAuth]) {
+      const listed = await names(auth);
+      // The enabling condition: a project skill of an agent in the room is
+      // listed.
+      expect([
+        listed.has("reach-bob-proj"),
+        listed.has("reach-alice-proj"),
+      ]).toEqual([true, false]);
+    }
+    const alice = await call(o.srv, "GET", "/api/skills", o.alice.auth);
+    expect([alice.status, alice.code]).toEqual([502, "runner_error"]);
+    const before = readFileSync(bobFile, "utf8");
+    const save = await call(o.srv, "PUT", "/api/skills/file", o.alice.auth, {
+      path: bobFile,
+      content:
+        "---\nname: reach-bob-proj\ndescription: x\n---\nAlice was here.\n",
+      expectedRev: 0,
+    });
+    expect(save.status).not.toBe(200);
+    expect(readFileSync(bobFile, "utf8")).toBe(before);
   });
 });
 

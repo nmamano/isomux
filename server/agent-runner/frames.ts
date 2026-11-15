@@ -114,7 +114,7 @@ export type FsRequest =
   | { call: "stat"; path: string }
   | { call: "writeText"; path: string; mode: number; exclusive?: boolean }
   | { call: "mkdir"; path: string; mode: number }
-  | { call: "rm"; path: string }
+  | { call: "rm"; path: string; recursive?: boolean }
   | { call: "exists"; path: string }
   | { call: "enter"; path: string }
   | { call: "chmod"; path: string; mode: number };

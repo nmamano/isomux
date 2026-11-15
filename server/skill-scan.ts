@@ -7,6 +7,13 @@ import type { EnginePlugin } from "./backends/types.ts";
 import { isAbsolute, join } from "path";
 import { homedir } from "os";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import type { SkillEngine } from "../shared/contract-shapes.ts";
+import { projectSkillFolders } from "./project-skill-scan.ts";
+
+export interface UserSkillRoot {
+  root: string;
+  includeCommands: boolean;
+}
 
 // Shape of ~/.claude/plugins/installed_plugins.json that we care about.
 interface PluginManifest {
@@ -345,4 +352,15 @@ export function resolvePluginSkillPrompt(
     readSkillPrompt(join(plugin.path, "skills", skillName, "SKILL.md")) ??
     readSkillPrompt(join(plugin.path, "commands", `${skillName}.md`))
   );
+}
+
+export function locateProjectSkills(
+  cwd: string,
+  engine: SkillEngine,
+): LocatedSkill[] {
+  const skills: LocatedSkill[] = [];
+  for (const folder of projectSkillFolders(cwd, engine))
+    if (folder.commands) scanCommandsDir(folder.dir, "project", skills);
+    else scanSkillsDir(folder.dir, "project", skills);
+  return skills;
 }

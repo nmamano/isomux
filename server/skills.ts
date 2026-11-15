@@ -8,6 +8,7 @@ import { projectSkillFolders } from "./project-skill-scan.ts";
 import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
 import {
   locatePluginSkills,
+  locateProjectSkills,
   locateSyncedSkills as locateSyncedSkillsIn,
   readSkillPrompt,
   resolvePluginSkillPrompt,
@@ -15,24 +16,22 @@ import {
   scanSkillsDir as scanSkillsDirIn,
   toSkillInfo,
   type LocatedSkill,
+  type UserSkillRoot,
 } from "./skill-scan.ts";
 
 export {
   extractSkillDescription,
   locatePluginSkills,
+  locateProjectSkills,
   pluginDirs,
   pluginInstallPaths,
   type LocatedSkill,
   type PluginDir,
+  type UserSkillRoot,
 } from "./skill-scan.ts";
 
 // Bundled skills are available to all users, independent of their config.
 export const BUNDLED_SKILLS_DIR = join(import.meta.dir, "..", "skills");
-
-export interface UserSkillRoot {
-  root: string;
-  includeCommands: boolean;
-}
 
 function normalizeUserSkillRoots(
   roots: UserSkillRoot[] | string,
@@ -177,17 +176,6 @@ export function locateBundledSkills(): LocatedSkill[] {
 
 export function discoverBundledSkills(): SkillInfo[] {
   return locateBundledSkills().map(toSkillInfo);
-}
-
-export function locateProjectSkills(
-  cwd: string,
-  engine: SkillEngine,
-): LocatedSkill[] {
-  const skills: LocatedSkill[] = [];
-  for (const folder of projectSkillFolders(cwd, engine))
-    if (folder.commands) scanCommandsDir(folder.dir, "project", skills);
-    else scanSkillsDir(folder.dir, "project", skills);
-  return skills;
 }
 
 export function discoverProjectSkills(

@@ -34,6 +34,7 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "project-skills": () => import("./entries/project-skills.ts"),
   "project-skill": () => import("./entries/project-skill.ts"),
   "session-move": () => import("./entries/session-move.ts"),
+  "skill-catalog": () => import("./entries/skill-catalog.ts"),
   "skill-folder": () => import("./entries/skill-folder.ts"),
   "user-skills": () => import("./entries/user-skills.ts"),
   "user-skill": () => import("./entries/user-skill.ts"),

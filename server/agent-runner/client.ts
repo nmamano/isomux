@@ -620,8 +620,16 @@ export function runnerAgentFs(
         timeoutMs,
       );
     },
-    rm: async (path) => {
-      await runnerFs(socketPath, { call: "rm", path }, undefined, 0, timeoutMs);
+    rm: async (path, options) => {
+      await runnerFs(
+        socketPath,
+        options?.recursive
+          ? { call: "rm", path, recursive: true }
+          : { call: "rm", path },
+        undefined,
+        0,
+        timeoutMs,
+      );
     },
     exists: async (path) =>
       (

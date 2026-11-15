@@ -125,6 +125,7 @@ import {
 import {
   INBOX_SEEN_MAX,
   type LogRetentionWire,
+  type SkillCatalogEntry,
 } from "../shared/contract-shapes.ts";
 import {
   requestBackupTick,
@@ -324,6 +325,16 @@ import {
   saveSkillFile,
   deleteSkillFile,
 } from "./skill-catalog.ts";
+import {
+  createMemberSkill,
+  deleteMemberSkillFile,
+  fetchMemberSkillCatalog,
+  readMemberSkillFile,
+  saveMemberSkillFile,
+} from "./member-skill-catalog.ts";
+import { locateBundledSkills } from "./skills.ts";
+import { claudeConfigDirOf } from "./provider-skill-links.ts";
+import { openFile } from "./file-editor.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
 import {
@@ -4140,11 +4151,73 @@ function buildExecutorDeps(
 
   // The skills page: the caller's catalog (their user roots, project skills of
   // agents in rooms they can access) and the listed SKILL.md files.
+  // The agents of an isolated member are left out: their folders are read
+  // only through that member's runner, for that member's own page.
   const skillContextsFor = (identity: Identity) => {
     const rooms = accessibleRoomIdsForIdentity(identity);
-    return agentManager.skillEngineContexts(identity.userId ?? null, (info) =>
-      rooms.has(info.roomId),
+    return agentManager.skillEngineContexts(
+      identity.userId ?? null,
+      (info) => rooms.has(info.roomId) && !memberFolderHost(info.userId),
     );
+  };
+  // An isolated caller's own page (member-skill-catalog.ts), chosen by the
+  // caller, not by an agent: their roots, their own agents' folders, their
+  // files through their host.
+  const memberSkillsFor = (identity: Identity) => {
+    const userId = identity.userId;
+    const host = userId ? memberFolderHost(userId) : null;
+    if (!userId || !host) return null;
+    const catalog = () => {
+      const contexts = agentManager.skillEngineContexts(
+        userId,
+        (info) => info.userId === userId,
+      );
+      // Without the member's env the page would name the office's own
+      // folder for a new skill: the catalog fails instead.
+      let env: { [key: string]: string | undefined } | undefined;
+      try {
+        env = agentManager.buildEnvForUserId(userId);
+      } catch (err) {
+        return Promise.reject(
+          new Error(
+            `Your environment could not be loaded: ${errMessage(err)}`,
+            {
+              cause: err,
+            },
+          ),
+        );
+      }
+      if (!env)
+        return Promise.reject(
+          new Error("Your environment could not be loaded."),
+        );
+      let home: string;
+      try {
+        home = host.home();
+      } catch {
+        home = "";
+      }
+      return fetchMemberSkillCatalog(
+        host,
+        { engines: contexts },
+        { skills: locateBundledSkills(), dir: BUNDLED_SKILLS_DIR },
+        getSkillUseCounts(userId),
+        { newSkillDir: join(claudeConfigDirOf(env), "skills"), home },
+      );
+    };
+    return {
+      catalog,
+      readFile: (entry: SkillCatalogEntry) => readMemberSkillFile(host, entry),
+      readPath: (path: string) => openFile(path, host),
+      saveFile: (entry: SkillCatalogEntry, content: string, rev: number) =>
+        saveMemberSkillFile(host, entry, content, rev),
+      deleteFile: (entry: SkillCatalogEntry, rev: number) =>
+        deleteMemberSkillFile(host, entry, rev),
+      createSkill: (
+        dir: string,
+        input: { name: unknown; description: unknown; instructions?: unknown },
+      ) => createMemberSkill(host, dir, input),
+    };
   };
   const skillCatalogFor = (identity: Identity) => {
     const userId = identity.userId ?? null;
@@ -4164,6 +4237,7 @@ function buildExecutorDeps(
         deleteSkillFile(entry, rev, skillContextsFor(identity)),
       createSkill,
       refreshMenus: () => agentManager.refreshSkillMenus(),
+      member: memberSkillsFor,
     }),
   );
 

@@ -35,6 +35,7 @@ import {
 } from "../../skill-catalog.ts";
 import type { OpenFileResult, SaveFileResult } from "../../file-editor.ts";
 import { CREDENTIAL_PATH_MESSAGE } from "../../credential-store-paths.ts";
+import { MemberSkillsNotReady } from "../../member-skill-catalog.ts";
 
 export interface SkillsDeps {
   catalogFor(identity: Identity): SkillCatalogRes;
@@ -51,6 +52,83 @@ export interface SkillsDeps {
   ): CreateSkillResult;
   // Re-read every agent's skills so the Sk menus show the change now.
   refreshMenus(): void;
+  // An isolated caller's own skills page (member-skill-catalog.ts): their
+  // runner's catalog, and their files through their host. Null for every
+  // other caller, who gets the office's.
+  member?(identity: Identity): MemberSkillsDeps | null;
+}
+
+export interface MemberSkillsDeps {
+  catalog(): Promise<SkillCatalogRes>;
+  readFile(entry: SkillCatalogEntry): Promise<OpenFileResult>;
+  readPath(path: string): Promise<OpenFileResult>;
+  saveFile(
+    entry: SkillCatalogEntry,
+    content: string,
+    expectedRev: number,
+  ): Promise<SaveFileResult>;
+  deleteFile(
+    entry: SkillCatalogEntry,
+    expectedRev: number,
+  ): Promise<DeleteSkillResult>;
+  createSkill(
+    newSkillDir: string,
+    input: { name: unknown; description: unknown; instructions?: unknown },
+  ): Promise<CreateSkillResult>;
+}
+
+// One caller's skills: the office's (the deps above) or an isolated
+// member's. A member's catalog paths are found exactly: the office never
+// follows a member's path with its own files.
+interface CallerSkills extends MemberSkillsDeps {
+  exact: boolean;
+}
+
+function callerSkills(deps: SkillsDeps, identity: Identity): CallerSkills {
+  const member = deps.member?.(identity);
+  if (member) return { ...member, exact: true };
+  return {
+    exact: false,
+    catalog: () => Promise.resolve(deps.catalogFor(identity)),
+    readFile: (entry) => Promise.resolve(deps.readFile(entry.path)),
+    readPath: (path) => Promise.resolve(deps.readFile(path)),
+    saveFile: (entry, content, rev) =>
+      Promise.resolve(deps.saveFile(entry.path, content, rev)),
+    deleteFile: (entry, rev) => deps.deleteFile(entry, rev, identity),
+    createSkill: (dir, input) => Promise.resolve(deps.createSkill(dir, input)),
+  };
+}
+
+// The caller's catalog; a member whose runner is not connected gets 409
+// member_os_user, a runner that fails gets 502.
+async function catalogOf(
+  caller: CallerSkills,
+): Promise<SkillCatalogRes | ReturnType<typeof fail>> {
+  try {
+    return await caller.catalog();
+  } catch (err) {
+    return runnerFailure(err);
+  }
+}
+
+function runnerFailure(err: unknown): ReturnType<typeof fail> {
+  if (err instanceof MemberSkillsNotReady)
+    return fail(
+      409,
+      "member_os_user",
+      "Your own OS user is not ready, so your skills cannot be read now.",
+    );
+  return fail(
+    502,
+    "runner_error",
+    err instanceof Error ? err.message : String(err),
+  );
+}
+
+function isCatalog(
+  value: SkillCatalogRes | ReturnType<typeof fail>,
+): value is SkillCatalogRes {
+  return "engines" in value;
 }
 
 function readResult(
@@ -80,18 +158,28 @@ function readResult(
 
 export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
   return {
-    "skills.catalog": (ctx) => ok(deps.catalogFor(ctx.identity)),
-
-    "skills.readFile": (ctx) => {
-      const path = ctx.query.get("path");
-      if (!path) return fail(400, "invalid_path", "path is required");
-      const entry = findCatalogEntry(deps.catalogFor(ctx.identity), path);
-      if (!entry)
-        return fail(404, "skill_not_found", "No skill has that path.");
-      return readResult(deps.readFile(entry.path), entry.editable);
+    "skills.catalog": async (ctx) => {
+      const catalog = await catalogOf(callerSkills(deps, ctx.identity));
+      return isCatalog(catalog) ? ok(catalog) : catalog;
     },
 
-    "skills.saveFile": (ctx) => {
+    "skills.readFile": async (ctx) => {
+      const path = ctx.query.get("path");
+      if (!path) return fail(400, "invalid_path", "path is required");
+      const caller = callerSkills(deps, ctx.identity);
+      const catalog = await catalogOf(caller);
+      if (!isCatalog(catalog)) return catalog;
+      const entry = findCatalogEntry(catalog, path, { exact: caller.exact });
+      if (!entry)
+        return fail(404, "skill_not_found", "No skill has that path.");
+      try {
+        return readResult(await caller.readFile(entry), entry.editable);
+      } catch (err) {
+        return runnerFailure(err);
+      }
+    },
+
+    "skills.saveFile": async (ctx) => {
       const b = (ctx.body ?? {}) as Partial<SkillSaveReq>;
       if (typeof b.path !== "string" || b.path.length === 0)
         return fail(400, "invalid_path", "path is required");
@@ -105,7 +193,10 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
         );
       if (Buffer.byteLength(b.content, "utf8") > MAX_SKILL_BYTES)
         return fail(413, "too_large", "A skill file is at most 1 MB.");
-      const entry = findCatalogEntry(deps.catalogFor(ctx.identity), b.path);
+      const caller = callerSkills(deps, ctx.identity);
+      const catalog = await catalogOf(caller);
+      if (!isCatalog(catalog)) return catalog;
+      const entry = findCatalogEntry(catalog, b.path, { exact: caller.exact });
       if (!entry)
         return fail(404, "skill_not_found", "No skill has that path.");
       if (!entry.editable)
@@ -114,7 +205,12 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
         entry.kind === "skill" ? skillFileProblem(b.content) : null;
       if (problem)
         return fail(422, "invalid_skill", translatorFor("en").t(problem));
-      const r = deps.saveFile(entry.path, b.content, b.expectedRev);
+      let r: SaveFileResult;
+      try {
+        r = await caller.saveFile(entry, b.content, b.expectedRev);
+      } catch (err) {
+        return runnerFailure(err);
+      }
       if (r.kind === "ok") {
         deps.refreshMenus();
         return ok({ path: r.path, rev: r.rev, mtime: r.mtime });
@@ -143,16 +239,22 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
           "invalid_request",
           "expectedRev must be a finite number",
         );
+      const caller = callerSkills(deps, ctx.identity);
+      const catalog = await catalogOf(caller);
+      if (!isCatalog(catalog)) return catalog;
       // Exact path only: a path through links does not say which link to
       // remove when two listed names share one real file.
-      const entry = findCatalogEntry(deps.catalogFor(ctx.identity), b.path, {
-        exact: true,
-      });
+      const entry = findCatalogEntry(catalog, b.path, { exact: true });
       if (!entry)
         return fail(404, "skill_not_found", "No skill has that path.");
       if (!entry.editable)
         return fail(403, "read_only", "This skill is read-only.");
-      const result = await deps.deleteFile(entry, b.expectedRev, ctx.identity);
+      let result: DeleteSkillResult;
+      try {
+        result = await caller.deleteFile(entry, b.expectedRev);
+      } catch (err) {
+        return runnerFailure(err);
+      }
       if (result.kind === "ok") {
         deps.refreshMenus();
         return noContent();
@@ -171,14 +273,21 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
       return fail(500, "io_error", result.message);
     },
 
-    "skills.create": (ctx) => {
+    "skills.create": async (ctx) => {
       const b = (ctx.body ?? {}) as Partial<SkillCreateReq>;
-      const catalog = deps.catalogFor(ctx.identity);
-      const r = deps.createSkill(catalog.newSkillDir, {
-        name: b.name,
-        description: b.description,
-        instructions: b.instructions,
-      });
+      const caller = callerSkills(deps, ctx.identity);
+      const catalog = await catalogOf(caller);
+      if (!isCatalog(catalog)) return catalog;
+      let r: CreateSkillResult;
+      try {
+        r = await caller.createSkill(catalog.newSkillDir, {
+          name: b.name,
+          description: b.description,
+          instructions: b.instructions,
+        });
+      } catch (err) {
+        return runnerFailure(err);
+      }
       if (r.kind === "invalid") {
         const message =
           r.field === "name"
@@ -194,7 +303,12 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
         });
       if (r.kind === "io_error") return fail(500, "io_error", r.message);
       deps.refreshMenus();
-      const file = deps.readFile(r.path);
+      let file: OpenFileResult;
+      try {
+        file = await caller.readPath(r.path);
+      } catch (err) {
+        return runnerFailure(err);
+      }
       if (file.kind !== "ok") return readResult(file, true);
       const body: SkillFileRes = {
         path: file.path,

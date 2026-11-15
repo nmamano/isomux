@@ -115,9 +115,6 @@ describe("the table", () => {
       "agents.setManager",
       "rooms.setInstructions",
       "rooms.rename",
-      "skills.saveFile",
-      "skills.create",
-      "skills.deleteFile",
     ];
     const open = gated.filter(
       (op) =>
@@ -130,6 +127,25 @@ describe("the table", () => {
         ) === null,
     );
     expect(open).toEqual([]);
+    // Her skill writes are open: the skills page sends them to her own
+    // runner (part 2d-iii-b), never to the office's files.
+    const skillWrites = [
+      "skills.saveFile",
+      "skills.create",
+      "skills.deleteFile",
+    ];
+    expect(
+      skillWrites.filter(
+        (op) =>
+          memberReachRefusal(
+            user("alice"),
+            { opId: op },
+            OFFICE_PARAMS,
+            HOSTILE_BODY,
+            deps,
+          ) !== null,
+      ),
+    ).toEqual([]);
     for (const frame of [
       "terminal_open",
       "terminal_input",

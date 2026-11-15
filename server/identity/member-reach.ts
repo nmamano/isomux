@@ -3,8 +3,9 @@
 // cannot make an office-user process or the office's files act on their
 // input: no terminal, editor, command run, folder, instructions, engine or
 // prompt answer on an agent that is not theirs, no room folder or room
-// instructions, no office skill writes, and no agent made for another
-// manager. Messages, logs and the rest stay open (the soft boundary of
+// instructions, and no agent made for another manager. Their skills page
+// reaches only their own skills, through their runner. Messages, logs and
+// the rest stay open (the soft boundary of
 // docs/isolation-model.md).
 //
 // Every route of API_ROUTES has a row, and every client WS frame type: a new
@@ -41,8 +42,6 @@ const NOT_YOURS =
   "This agent runs as another OS user than yours, so you cannot do this.";
 const NO_ROOM_SETTING =
   "You have your own OS user, so you cannot set a room's folder or instructions.";
-const NO_SKILL_WRITE =
-  "You have your own OS user, so you cannot change these skills.";
 const NOT_YOUR_RESULT =
   "You have your own OS user, so you can spawn or revive only agents that you manage.";
 const AGENT_GONE = "The agent that sent this request no longer exists.";
@@ -88,7 +87,10 @@ const MEMORY = open(
   "the prompt frames memory as notes to weigh, which is the message boundary; room instructions are framed as instructions and are refused",
 );
 const SKILL_READ = open(
-  "reads only skill files the catalog lists; slice 2d narrows this for an isolated member to their own catalog through their host",
+  "an isolated member's catalog comes from their runner and lists only their own skills, their agents' and the built-ins; their files are read through their host (member-skill-catalog.ts)",
+);
+const SKILL_WRITE = open(
+  "an isolated member writes only their own skill files, through their runner (member-skill-catalog.ts)",
 );
 const OWN_RESOURCE = open(
   "the actor's own app or schedule (its owner guard); until slice 3 it still runs as the office user, which is safe only because the enable answers not ready until slice 4",
@@ -216,17 +218,9 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
   "skills.usageCounts": DATA,
   "skills.catalog": SKILL_READ,
   "skills.readFile": SKILL_READ,
-  ...Object.fromEntries(
-    ["skills.saveFile", "skills.create", "skills.deleteFile"].map((opId) => [
-      opId,
-      {
-        kind: "refuse",
-        message: NO_SKILL_WRITE,
-        reason:
-          "the catalog lists the project skills of every agent in the member's rooms and the office's own skill folder, written through the office's files; slice 2d gives the member their own folder",
-      } as const,
-    ]),
-  ),
+  "skills.saveFile": SKILL_WRITE,
+  "skills.create": SKILL_WRITE,
+  "skills.deleteFile": SKILL_WRITE,
   // The member's own scope.
   ...Object.fromEntries(
     [
