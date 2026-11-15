@@ -55,6 +55,7 @@ import {
   validSkillName,
 } from "./skills-page.ts";
 import { useCan } from "../hooks/useCan.ts";
+import { phoneTopPad } from "../safe-area.ts";
 
 // CodeMirror loads with the first skill opened for editing, not with the
 // office.
@@ -1137,7 +1138,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           alignItems: "center",
           gap: 8,
           padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          paddingTop: isMobile ? phoneTopPad() : undefined,
           minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",

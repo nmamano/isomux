@@ -30,6 +30,7 @@ import {
 import { Portal } from "./Portal.tsx";
 import { useI18n } from "../i18n.tsx";
 import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
+import { phoneTopPad } from "../safe-area.ts";
 
 // How many expanded editors are currently mounted (0 or 1 in practice; a
 // counter rather than a boolean so an unmount can never zero out a newer one).
@@ -248,7 +249,7 @@ function ExpandedEditor({
           background: "var(--bg-base)",
           display: "flex",
           flexDirection: "column",
-          padding: "env(safe-area-inset-top, 0px) 0 0",
+          padding: `${phoneTopPad()} 0 0`,
         }}
       >
         <div

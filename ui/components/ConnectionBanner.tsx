@@ -1,5 +1,6 @@
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { phoneTopPad } from "../safe-area.ts";
 
 // Brief grace window - covers reconnect blips so the banner doesn't flash on
 // every transient cycle. Implemented as a CSS animation-delay (with fill-mode
@@ -27,7 +28,7 @@ export function ConnectionBanner() {
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
-        paddingTop: "calc(4px + env(safe-area-inset-top, 0px))",
+        paddingTop: `calc(4px + ${phoneTopPad()})`,
         paddingBottom: 4,
         paddingLeft: 16,
         paddingRight: 16,

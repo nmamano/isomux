@@ -100,6 +100,7 @@ import {
 } from "../backend-model-selection.ts";
 import { isFullUserView } from "../user-merge.ts";
 import type { UserRecord } from "../../shared/types.ts";
+import { phoneTopPad } from "../safe-area.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -2494,9 +2495,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             overflowY: "auto",
             overscrollBehavior: "contain",
             flex: 1,
-            padding: isMobile
-              ? "max(24px, env(safe-area-inset-top)) 20px 0"
-              : "24px 28px 0",
+            padding: isMobile ? `${phoneTopPad(24)} 20px 0` : "24px 28px 0",
           }}
         >
           <div

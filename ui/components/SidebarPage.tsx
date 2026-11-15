@@ -7,6 +7,7 @@
 import type { ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { phoneTopPad } from "../safe-area.ts";
 
 export function SidebarPage({
   title,
@@ -69,7 +70,7 @@ export function SidebarPage({
           alignItems: "center",
           gap: 10,
           padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          paddingTop: isMobile ? phoneTopPad() : undefined,
           minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",

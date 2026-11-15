@@ -1,5 +1,6 @@
 import { emitThemesCss } from "./themes.ts";
 import { disabledButtonCss } from "./components/dialog-styles.ts";
+import { phoneTopPad } from "./safe-area.ts";
 
 export const CSS = `
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -407,7 +408,7 @@ ${emitThemesCss()}
     left: 0;
     width: var(--chat-sidebar-w);
     box-sizing: border-box;
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: ${phoneTopPad()};
     padding-bottom: env(safe-area-inset-bottom, 0px);
     background: var(--bg-surface);
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);

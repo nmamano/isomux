@@ -8,6 +8,7 @@ import type {
   InstructionsRes,
 } from "../../shared/contract-shapes.ts";
 import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
+import { phoneTopPad } from "../safe-area.ts";
 
 export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
@@ -109,7 +110,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
           border: "1px solid var(--border-light)",
           borderRadius: 16,
           padding: "24px 28px",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
+          marginTop: isMobile ? phoneTopPad() : undefined,
           marginBottom: isMobile ? 16 : undefined,
           width: isMobile ? "calc(100% - 32px)" : 440,
           maxWidth: isMobile ? "100%" : undefined,
