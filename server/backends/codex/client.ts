@@ -212,7 +212,7 @@ export class JsonRpcLiteClient {
       hookIdentity: null,
     };
     if (!this.opts.skipSafetyPreflightForTestProbe) {
-      safety = await ensureCodexSafetyHook(effectiveEnv.CODEX_HOME!);
+      safety = await ensureCodexSafetyHook(effectiveEnv.CODEX_HOME!, host);
     }
     if (safety.refusal) {
       this.starting = false;

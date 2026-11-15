@@ -701,6 +701,28 @@ async function connectNow(userId: string): Promise<boolean> {
   return true;
 }
 
+// The member's share, or null when they have no OS user.
+export function memberShareOf(userId: string): string | null {
+  const state = memberOsUserState(userId);
+  return state.kind === "isolated" ? memberSharePath(state.osUser.name) : null;
+}
+
+// Install this server's runtime in the member's share again (a no-op when
+// it is there and passes the share check). runtime/current moves; a
+// running runner keeps the runtime folder it started from, and moves to the
+// new one at its next connect.
+export async function reinstallMemberRuntime(userId: string): Promise<void> {
+  const state = memberOsUserState(userId);
+  if (state.kind !== "isolated")
+    throw new Error(`${userId} has no OS user of their own`);
+  const identity = deps.lookupUser(state.osUser.name);
+  if (identity.uid !== state.osUser.uid)
+    throw new Error(
+      `the record names uid ${state.osUser.uid}, but ${state.osUser.name} is uid ${identity.uid}`,
+    );
+  await deps.runtime.install(memberSharePath(state.osUser.name), identity.gid);
+}
+
 // Why the last connect of `userId` failed; undefined after a success.
 export function memberHostRefusal(userId: string): string | undefined {
   return refusals.get(userId);

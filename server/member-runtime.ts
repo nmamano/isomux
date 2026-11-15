@@ -48,6 +48,16 @@ const MEMBER_MAIN = join(import.meta.dir, "agent-runner", "member-main.ts");
 const NODE_MODULES = join(RUNTIME_ROOT, "node_modules");
 export const BUNDLE_NAME = "runner.js";
 export const BUN_NAME = "bun";
+// The Codex safety hook (backends/codex/safety-hook-install.ts), which the
+// member's Codex runs as the member.
+export const CODEX_HOOK_REL = "bin/isomux-codex-safety-hook";
+
+// The hook path that a member's Codex config names: through runtime/current,
+// so the path (and Codex's trust hash of it) stays the same across runtime
+// updates.
+export function memberCodexHookPath(share: string): string {
+  return join(share, "runtime", "current", CODEX_HOOK_REL);
+}
 
 // `path`, an office engine file, relative to the office's node_modules.
 function engineRel(path: string): string {
@@ -132,11 +142,16 @@ export function runtimeHash(input: {
   bundle: Uint8Array;
   bun: Uint8Array;
   manifest: ManifestEntry[];
+  // The sha256 of the Codex safety hook, or null for none.
+  codexHook?: string | null;
 }): string {
   const hash = createHash("sha256");
   hash.update("isomux-member-runtime 1\n");
   hash.update(`bundle ${sha256(input.bundle)}\n`);
   hash.update(`bun ${sha256(input.bun)}\n`);
+  // Absent from the input: the hash of a runtime made before the hook.
+  if (input.codexHook !== undefined)
+    hash.update(`codex-hook ${input.codexHook ?? "none"}\n`);
   for (const entry of [...input.manifest].sort((a, b) =>
     a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0,
   ))
@@ -184,6 +199,14 @@ export interface RuntimeSource {
   // The node_modules folder the manifest is relative to.
   modules: string;
   manifest: ManifestEntry[];
+  // The Codex safety hook artifact, or null when it did not build (then
+  // the member's Codex is refused, and this source is not kept).
+  codexHook: CodexHookArtifact | null;
+}
+
+export interface CodexHookArtifact {
+  path: string;
+  sha256: string;
 }
 
 export async function buildRunnerBundle(): Promise<Uint8Array> {
@@ -206,6 +229,8 @@ export interface MemberRuntimeDeps {
   bunPath: string;
   modules: string;
   packages: () => string[];
+  // The prepared Codex safety hook; rejects while it does not build.
+  codexHook: () => Promise<CodexHookArtifact>;
 }
 
 const DEFAULT_RUNTIME_DEPS: MemberRuntimeDeps = {
@@ -213,6 +238,11 @@ const DEFAULT_RUNTIME_DEPS: MemberRuntimeDeps = {
   bunPath: process.execPath,
   modules: NODE_MODULES,
   packages: enginePackages,
+  // Imported when used: the hook module reaches the member hosts.
+  codexHook: async () =>
+    (
+      await import("./backends/codex/safety-hook-install.ts")
+    ).codexHookArtifact(),
 };
 let runtimeDeps = DEFAULT_RUNTIME_DEPS;
 let source: Promise<RuntimeSource> | null = null;
@@ -229,25 +259,47 @@ export function setMemberRuntimeDeps(
 }
 
 // The runtime this server installs, built once per process. A failure is
-// not kept: the next connect tries again.
+// not kept: the next connect tries again. Neither is a source without the
+// Codex hook (its build failed): the next call builds again, so a member's
+// Codex is refused only while the hook does not build.
 export function runtimeSource(): Promise<RuntimeSource> {
   if (!source) {
     const deps = runtimeDeps;
-    source = (async () => {
+    const made = (async (): Promise<RuntimeSource> => {
       const bundle = await deps.build();
       const manifest = engineManifest(deps.packages(), deps.modules);
       const bun = await Bun.file(deps.bunPath).bytes();
+      let codexHook: CodexHookArtifact | null = null;
+      try {
+        codexHook = await deps.codexHook();
+      } catch (error) {
+        console.error(
+          `[member-runtime] the Codex safety hook is not in this runtime: ${(error as Error).message}`,
+        );
+      }
       return {
-        hash: runtimeHash({ bundle, bun, manifest }),
+        hash: runtimeHash({
+          bundle,
+          bun,
+          manifest,
+          codexHook: codexHook?.sha256 ?? null,
+        }),
         bundle,
         bunPath: deps.bunPath,
         modules: deps.modules,
         manifest,
+        codexHook,
       };
     })();
-    source.catch(() => {
-      source = null;
-    });
+    source = made;
+    made.then(
+      (built) => {
+        if (built.codexHook === null && source === made) source = null;
+      },
+      () => {
+        if (source === made) source = null;
+      },
+    );
   }
   return source;
 }
@@ -379,6 +431,15 @@ async function installNow(
     });
     await fsp.chmod(join(tmp, BUNDLE_NAME), 0o644);
     await place(src.bunPath, join(tmp, BUN_NAME), fs);
+    if (src.codexHook) {
+      // Always a copy: the office's own file is 0700, and a hard link would
+      // share that mode, which the member cannot run. 0755 as the other
+      // executables here; the share (2750) keeps other users out.
+      await makeDir(join(tmp, dirname(CODEX_HOOK_REL)));
+      const hook = join(tmp, CODEX_HOOK_REL);
+      await fsp.copyFile(src.codexHook.path, hook, constants.COPYFILE_EXCL);
+      await fsp.chmod(hook, 0o755);
+    }
     const made = new Set<string>([tmp]);
     const ensure = async (path: string) => {
       if (made.has(path)) return;

@@ -13,6 +13,7 @@ import {
   type PolicyDecision,
   type ProposedAction,
 } from "./safety-policy.ts";
+import { hostForEnv } from "./member-hosts.ts";
 
 function toClaudeDecision(decision: PolicyDecision): HookJSONOutput {
   if (decision.decision === "allow") return {};
@@ -32,12 +33,14 @@ function callbackFor(
   codexHome: string | null | undefined,
   confine?: FolderConfinement,
   onDeny?: (denial: SafetyDenial) => void,
+  shellHome?: string,
 ): HookCallback {
   return async (input) => {
     const hookInput = input as PreToolUseHookInput;
     const decision = evaluateProposedAction(toAction(hookInput), {
       cwd: hookInput.cwd,
       codexHome,
+      ...(shellHome ? { shellHome } : {}),
       ...(confine ? { confine } : {}),
     });
     if (decision.decision === "deny" && onDeny)
@@ -83,29 +86,35 @@ export interface SafetyDenial {
 // confine: an agent below standard (safety-policy.ts FolderConfinement). Its
 // Glob calls are checked too, since Glob takes a path. onDeny hears each
 // refusal.
+// shellHome: where `~` starts for the agent's tools; absent, the server's
+// own home.
 export function createSafetyHooks(
   codexHome?: string | null,
   confine?: FolderConfinement,
   onDeny?: (denial: SafetyDenial) => void,
+  shellHome?: string,
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-  const shell = callbackFor(shellAction, codexHome, confine, onDeny);
+  const shell = callbackFor(shellAction, codexHome, confine, onDeny, shellHome);
   const readFiles = callbackFor(
     fileAction("read-files"),
     codexHome,
     confine,
     onDeny,
+    shellHome,
   );
   const writeFiles = callbackFor(
     fileAction("write-files"),
     codexHome,
     confine,
     onDeny,
+    shellHome,
   );
   const readAndWriteFiles = callbackFor(
     fileAction("read-and-write-files"),
     codexHome,
     confine,
     onDeny,
+    shellHome,
   );
   return {
     // One entry per Claude tool name. The adapter maps provider names to core
@@ -131,4 +140,22 @@ export function createSafetyHooks(
       { matcher: "NotebookEdit", hooks: [readAndWriteFiles] },
     ],
   };
+}
+
+// The hooks of a session started with `env`: its CODEX_HOME, and for an
+// isolated member's agent their home, so `~` in a tool call is theirs
+// (internal-docs/member-os-user-design.md, slice 2d-i). An office agent's
+// `~` stays the server's home.
+export function createSafetyHooksForEnv(
+  env: Record<string, string | undefined>,
+  confine?: FolderConfinement,
+  onDeny?: (denial: SafetyDenial) => void,
+): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+  const host = hostForEnv(env);
+  return createSafetyHooks(
+    env.CODEX_HOME,
+    confine,
+    onDeny,
+    host.member !== undefined ? host.home() : undefined,
+  );
 }

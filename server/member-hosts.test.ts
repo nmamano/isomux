@@ -747,6 +747,7 @@ describe("the connect's runtime", () => {
       bunPath: bun,
       modules,
       packages: () => ["pkg-a"],
+      codexHook: async () => ({ path: bun, sha256: "hook" }),
     });
     const gid = process.getgid!();
     const probe = {

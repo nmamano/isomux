@@ -108,6 +108,7 @@ function source(bundle = "bundle bytes\n"): RuntimeSource {
     bunPath: bunFile,
     modules,
     manifest,
+    codexHook: null,
   };
 }
 
@@ -187,6 +188,15 @@ describe("runtimeHash", () => {
       expect(runtimeHash(changed)).not.toBe(runtimeHash(base()));
     });
   }
+
+  // Slice 2d-i: other hook bytes are another runtime folder, and a runtime
+  // without the hook is not one with it.
+  it("changes with the Codex hook's bytes, and with no hook", () => {
+    const withHook = (codexHook: string | null) =>
+      runtimeHash({ ...base(), codexHook });
+    expect(withHook("a".repeat(64))).not.toBe(withHook("b".repeat(64)));
+    expect(withHook(null)).not.toBe(withHook("a".repeat(64)));
+  });
 });
 
 describe("engineManifest", () => {
@@ -211,6 +221,37 @@ describe("engineManifest", () => {
 });
 
 describe("installMemberRuntime", () => {
+  // Slice 2d-i: the office's hook artifact is 0700, which a link would keep
+  // and the member could not run.
+  it("carries the Codex hook as a copy the member can run, under runtime/current", async () => {
+    const hookFile = join(root, "office", "hook");
+    writeFileSync(hookFile, "hook bytes\n");
+    chmodSync(hookFile, 0o700);
+    const src = { ...source(), codexHook: { path: hookFile, sha256: "h" } };
+    const fs = recordingFs();
+    await install(src, fs);
+    const hook = join(
+      share,
+      "runtime",
+      "current",
+      "bin",
+      "isomux-codex-safety-hook",
+    );
+    expect(lstatSync(hook).isFile()).toBe(true);
+    expect(statSync(hook).ino).not.toBe(ino(hookFile));
+    expect(fs.linked).not.toContain(hookFile);
+    expect(modeOf(hook)).toBe(0o755);
+    expect(readFileSync(hook, "utf8")).toBe("hook bytes\n");
+    expect(
+      checkMemberShare({
+        share,
+        officeUid: process.getuid!(),
+        memberGid: GID,
+        probe,
+      }),
+    ).toEqual({ ok: true });
+  });
+
   it("links the office's files, writes the bundle and points current at the hash", async () => {
     const src = source();
     const fs = recordingFs();
@@ -451,6 +492,7 @@ describe("runtimeSource", () => {
       bunPath: bunFile,
       modules,
       packages: () => PACKAGES,
+      codexHook: async () => ({ path: bunFile, sha256: "hook" }),
     });
     return state;
   }
@@ -474,6 +516,36 @@ describe("runtimeSource", () => {
     await expectRejection(runtimeSource(), /build failed/);
     await expectRejection(runtimeSource(), /build failed/);
     expect(state.builds).toBe(2);
+  });
+
+  // Slice 2d-i: a member's Codex is refused only while the hook does not
+  // build, not until the server restarts.
+  it("does not keep a source without the Codex hook, and keeps the first one with it", async () => {
+    const state = { builds: 0 };
+    let hookBuilds = true;
+    setMemberRuntimeDeps({
+      build: async () => {
+        state.builds++;
+        return new TextEncoder().encode("bundle\n");
+      },
+      bunPath: bunFile,
+      modules,
+      packages: () => PACKAGES,
+      codexHook: async () => {
+        if (hookBuilds) throw new Error("hook build failed");
+        return { path: bunFile, sha256: "hook" };
+      },
+    });
+    const without = await runtimeSource();
+    expect(without.codexHook).toBeNull();
+    expect((await runtimeSource()).codexHook).toBeNull();
+    expect(state.builds).toBe(2);
+    hookBuilds = false;
+    const withHook = await runtimeSource();
+    expect(withHook.codexHook).toEqual({ path: bunFile, sha256: "hook" });
+    expect(withHook.hash).not.toBe(without.hash);
+    expect(await runtimeSource()).toBe(withHook);
+    expect(state.builds).toBe(3);
   });
 
   it("is never built by an office with no isolated member", async () => {

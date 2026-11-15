@@ -111,7 +111,7 @@ import {
   inlineImages,
   type AttachmentDelivery,
 } from "../attachment-prompt.ts";
-import { createSafetyHooks, type SafetyDenial } from "../safety-hooks.ts";
+import { createSafetyHooksForEnv, type SafetyDenial } from "../safety-hooks.ts";
 import type { FolderConfinement } from "../safety-policy.ts";
 import {
   belowStandard,
@@ -2285,10 +2285,10 @@ function buildSdkOpts(
     cwd: opts.cwd,
     hooks: opts.takeToolBoundaryMessage
       ? {
-          ...createSafetyHooks(env.CODEX_HOME, undefined, onDeny),
+          ...createSafetyHooksForEnv(env, undefined, onDeny),
           PostToolBatch: toolBoundaryHooks(opts.takeToolBoundaryMessage),
         }
-      : createSafetyHooks(env.CODEX_HOME, undefined, onDeny),
+      : createSafetyHooksForEnv(env, undefined, onDeny),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
     // shows only "Allow/Deny" without rendering the question text, and the
     // headless tool execution returns empty answers - which the agent then
@@ -2312,7 +2312,7 @@ function buildSdkOpts(
     sdkOpts.strictMcpConfig = true;
     sdkOpts.hooks = {
       ...sdkOpts.hooks,
-      ...createSafetyHooks(env.CODEX_HOME, confined.confine, onDeny),
+      ...createSafetyHooksForEnv(env, confined.confine, onDeny),
     };
   } else if (opts.skillFolder) {
     sdkOpts.additionalDirectories = [opts.skillFolder];

@@ -14,7 +14,13 @@ import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { errMessage } from "../../../shared/errors.ts";
 import { STATE_ROOT } from "../../config.ts";
-import { inAgentSpace } from "../../agent-host.ts";
+import {
+  inAgentSpace,
+  officeAgentHost,
+  type AgentHost,
+} from "../../agent-host.ts";
+import { memberCodexHookPath } from "../../member-runtime.ts";
+import { memberShareOf, reinstallMemberRuntime } from "../../member-hosts.ts";
 import { SHARE_ROOT, SPLIT_CONFIG } from "../../split/roots.ts";
 import { chmodShare } from "../../split/share-mode.ts";
 import {
@@ -38,6 +44,10 @@ const GOLDEN_HOOK_PATH = join(
   "bin/.isomux-codex-safety-hook.golden",
 );
 const TRUST_SENTINEL = "# isomux-managed-codex-safety-hook";
+// A member's Codex does not start without the hook
+// (internal-docs/member-os-user-design.md, slice 2d-i).
+export const MEMBER_HOOK_REFUSAL =
+  "Codex not started: Isomux could not set up its safety check for this agent. Tell the office owner.";
 const HOOK_REFUSAL =
   "Codex not started: the installed safety hook differs from this checkout's source, and only the office server installs it.";
 export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.166.0";
@@ -635,22 +645,159 @@ async function configureInAgentSpace(
     );
     return { warning: SAFETY_WARNING, hookIdentity: null };
   }
-  // Agent-space data: accept only a complete identity.
+  const hookIdentity = completeIdentity(result);
+  return hookIdentity
+    ? { warning: null, hookIdentity }
+    : { warning: SAFETY_WARNING, hookIdentity: null };
+}
+
+// Agent-space data: accept only a complete identity.
+function completeIdentity(result: unknown): CodexSafetyHookIdentity | null {
   const identity = (result as { hookIdentity?: unknown } | null)
     ?.hookIdentity as Partial<CodexSafetyHookIdentity> | null | undefined;
-  if (
-    identity &&
+  return identity &&
     typeof identity.sourcePath === "string" &&
     Number.isInteger(identity.displayOrder)
-  )
-    return {
-      warning: null,
-      hookIdentity: {
+    ? {
         sourcePath: identity.sourcePath,
         displayOrder: identity.displayOrder as number,
+      }
+    : null;
+}
+
+// The prepared hook artifact (its golden copy and sha256), which a member
+// runtime carries (member-runtime.ts).
+export async function codexHookArtifact(): Promise<{
+  path: string;
+  sha256: string;
+}> {
+  const artifact = await preparedArtifact();
+  return { path: artifact.path, sha256: artifact.sha256 };
+}
+
+// What the member preflight reaches; tests replace it.
+export interface MemberHookDeps {
+  artifact(): Promise<{ sha256: string }>;
+  // The member's share, or null when they have no OS user.
+  shareOf(userId: string): string | null;
+  // The sha256 of the hook file in the share; rejects when it is missing.
+  installedHash(path: string): Promise<string>;
+  reinstall(userId: string): Promise<void>;
+  // A runner entry on the member's host (agent-host.ts inAgentSpace).
+  runEntry(name: string, input: unknown, host: AgentHost): Promise<unknown>;
+}
+
+const DEFAULT_MEMBER_HOOK_DEPS: MemberHookDeps = {
+  artifact: codexHookArtifact,
+  shareOf: memberShareOf,
+  installedHash: sha256File,
+  reinstall: reinstallMemberRuntime,
+  runEntry: (name, input, host) =>
+    inAgentSpace(
+      name,
+      input,
+      () => {
+        throw new Error("a member's hook entry runs only in their runner");
       },
-    };
-  return { warning: SAFETY_WARNING, hookIdentity: null };
+      host,
+    ),
+};
+let memberHookDeps = DEFAULT_MEMBER_HOOK_DEPS;
+
+// Tests: replace some of the member preflight's dependencies; null restores
+// the defaults and forgets the trust hashes.
+export function setMemberHookDeps(over: Partial<MemberHookDeps> | null): void {
+  memberHookDeps = over
+    ? { ...DEFAULT_MEMBER_HOOK_DEPS, ...over }
+    : DEFAULT_MEMBER_HOOK_DEPS;
+  memberTrust.clear();
+}
+
+// Codex's trust hash names the hook's command path, so each member's is
+// measured by their own runner, once per path.
+const memberTrust = new Map<string, Promise<string>>();
+
+function memberTrustedHash(hookPath: string, host: AgentHost): Promise<string> {
+  let measured = memberTrust.get(hookPath);
+  if (!measured) {
+    measured = memberHookDeps
+      .runEntry("codex-trust-hash", { commandPath: hookPath }, host)
+      .then((hash) => {
+        if (typeof hash !== "string" || !hash.startsWith("sha256:"))
+          throw new Error("the Codex hook trust measurement returned no hash");
+        return hash;
+      });
+    const kept = measured;
+    kept.catch(() => {
+      if (memberTrust.get(hookPath) === kept) memberTrust.delete(hookPath);
+    });
+    memberTrust.set(hookPath, kept);
+  }
+  return measured;
+}
+
+// The preflight for an isolated member's Codex: the hook in their runtime
+// (member-runtime.ts), configured in their CODEX_HOME by their runner. Every
+// failure refuses: their Codex never runs without the hook. A hook file
+// that is missing or has other bytes than the artifact gets one reinstall
+// of the runtime first.
+async function memberCodexSafetyHook(
+  codexHome: string,
+  host: AgentHost,
+): Promise<CodexSafetyPreflightResult> {
+  const d = memberHookDeps;
+  const member = host.member!;
+  const refuse = (why: string): CodexSafetyPreflightResult => {
+    console.error(`[codex safety] ${member}: ${why}; ${MEMBER_HOOK_REFUSAL}`);
+    return { warning: null, hookIdentity: null, refusal: MEMBER_HOOK_REFUSAL };
+  };
+  try {
+    let artifact: { sha256: string };
+    try {
+      artifact = await d.artifact();
+    } catch (err) {
+      return refuse(`artifact unavailable: ${errMessage(err)}`);
+    }
+    const share = d.shareOf(member);
+    if (!share) return refuse("the member has no share");
+    const hookPath = memberCodexHookPath(share);
+    const installed = () => d.installedHash(hookPath).catch(() => null);
+    let hash = await installed();
+    if (hash !== artifact.sha256) {
+      try {
+        await d.reinstall(member);
+      } catch (err) {
+        return refuse(`runtime reinstall failed: ${errMessage(err)}`);
+      }
+      hash = await installed();
+      if (hash === null) return refuse(`no hook at ${hookPath}`);
+      if (hash !== artifact.sha256)
+        return refuse(
+          `hook content mismatch: expected ${artifact.sha256}, received ${hash}`,
+        );
+    }
+    let trustedHash: string;
+    try {
+      trustedHash = await memberTrustedHash(hookPath, host);
+    } catch (err) {
+      return refuse(`trust measurement failed: ${errMessage(err)}`);
+    }
+    let result: unknown;
+    try {
+      result = await d.runEntry(
+        "codex-hook-config",
+        { codexHome, hookPath, trustedHash },
+        host,
+      );
+    } catch (err) {
+      return refuse(`hook configuration failed: ${errMessage(err)}`);
+    }
+    const hookIdentity = completeIdentity(result);
+    if (!hookIdentity) return refuse("the runner sent an incomplete identity");
+    return { warning: null, hookIdentity };
+  } catch (err) {
+    return refuse(`unexpected preflight failure: ${errMessage(err)}`);
+  }
 }
 
 // Read only: why the live hook does not match this checkout's source, or
@@ -701,9 +848,13 @@ async function compareLiveHook(
   return configureInAgentSpace(codexHome, trustedHash);
 }
 
+// `host`: the host the Codex App Server starts on. An isolated member's
+// takes memberCodexSafetyHook, which refuses where this one warns.
 export async function ensureCodexSafetyHook(
   codexHome: string,
+  host: AgentHost = officeAgentHost(),
 ): Promise<CodexSafetyPreflightResult> {
+  if (host.member !== undefined) return memberCodexSafetyHook(codexHome, host);
   try {
     if (!hookWriter) return await compareLiveHook(codexHome);
     let artifact: PreparedArtifact;

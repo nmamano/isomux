@@ -721,6 +721,31 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
       String(first.claude.transcript).startsWith(`${home}/.claude/projects/`),
     ).toBe(true);
     expect(first.codex.codexHome).toBe(`${space}/codex-home`);
+    // Slice 2d-i: the member's Codex ran the Isomux hook from their runtime
+    // in the share (the stub runs the command hooks.json names), as the
+    // member, and the hook refused the stub's "rm -rf /". The office wrote
+    // the hook and the member cannot change it; their runner wrote the
+    // configuration.
+    const hookPath = `${MEMBERS}/share/${ALICE}/runtime/current/bin/isomux-codex-safety-hook`;
+    const hook = first.codex.hook as {
+      command: string;
+      exitCode: number;
+      stdout: string;
+    } | null;
+    expect(hook?.command).toBe(hookPath);
+    expect(hook?.exitCode).toBe(0);
+    expect(JSON.parse(hook?.stdout ?? "null")).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+    expect(root(name, `stat -L -c '%F %u %a' ${hookPath}`).out.trim()).toBe(
+      `regular file ${OFFICE_UID} 755`,
+    );
+    expect(tryAs(name, ALICE, `open("${hookPath}", "r+")`)).toBe("EACCES");
+    for (const file of ["hooks.json", "config.toml"])
+      expect([
+        file,
+        root(name, `stat -c %u ${space}/codex-home/${file}`).out.trim(),
+      ]).toEqual([file, aliceUid]);
     // Each engine's folders in the member's space are the member's.
     for (const dir of [
       `${space}/codex-home`,
@@ -761,6 +786,9 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
       ).toBe(true);
     const codexSecond = (await reports(agents.codex, 2))[1];
     expect(codexSecond.threadId).toBe(first.codex.threadId);
+    expect((codexSecond.hook as { command?: string } | null)?.command).toBe(
+      hookPath,
+    );
     expect(officeFiles()).toBe(before);
     const profile = root(name, `ls ${space}/opencode/profiles`).out.trim();
     expect(profile).toMatch(/^[0-9a-f]{16}$/);
