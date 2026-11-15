@@ -46,7 +46,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Sign-in links** - an owner creates a member and sends them a one-use sign-in link. No passwords. Members add their own devices from Settings → You → Sign-in links.
 - **Permission packs for members** - owners limit a member to some areas and a highest agent level, for example a contractor who reads tasks only.
 - **Per-member room access** - owners pick which rooms each member sees: when they create the member (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
-- **A member's pinned agents** - owners pin agents in a member's sidebar from `Settings` → `Members`, also before the member signs in.
 - **Per-member room display** - each member picks which of their accessible rooms actually show in their own view.
 - **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, and walk through the door when they change rooms. Click a ghost to open that member's settings.
 - **Direct messages between members** - each member has a 1:1 chat with each other member. There is also a **members chat**, a humans-only, office-wide chat.
