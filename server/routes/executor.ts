@@ -31,6 +31,7 @@ import type { RouteMatch } from "./match.ts";
 import type { Identity } from "../identity/index.ts";
 import { passesRouteStageOne, authorize } from "../identity/dispatch.ts";
 import { agentWriteRefusal } from "../identity/agent-fit.ts";
+import { memberReachRefusal } from "../identity/member-reach.ts";
 import { routeAllowedByLimits } from "../../shared/api-token-limits.ts";
 import {
   ALLOW,
@@ -331,6 +332,10 @@ export function authorizeRoute(
   // (server/identity/agent-fit.ts).
   const refusal = agentWriteRefusal(identity, route, params, body, guardDeps);
   if (refusal) return fail(refusal.status, refusal.code, refusal.message);
+  // A member with their own OS user reaches no office-user process
+  // (server/identity/member-reach.ts).
+  const reach = memberReachRefusal(identity, route, params, body, guardDeps);
+  if (reach) return fail(reach.status, reach.code, reach.message);
   return null;
 }
 

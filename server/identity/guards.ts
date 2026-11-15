@@ -144,6 +144,10 @@ export interface GuardDeps {
   // for any id that is not a run stream; a run whose job is gone is office
   // owners' only.
   cronRunVisibleTo(identity: Identity, streamId: string): boolean;
+  // Whether member `userId` has their own OS user (ready, moving or not
+  // ready): the member reach rule (server/identity/member-reach.ts) applies.
+  // Absent (test fakes): no member has one.
+  memberIsolated?(userId: string): boolean;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer; contract

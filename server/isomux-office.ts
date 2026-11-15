@@ -147,6 +147,10 @@ import {
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
 import { identityFitsAgent } from "./identity/agent-fit.ts";
+import {
+  agentReachRefusal,
+  promptAnswerRefused,
+} from "./identity/member-reach.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
 import {
   cronjobOwnerOrOfficeOwner,
@@ -836,9 +840,20 @@ export function mayUseExtension(member: string, agentId: string): boolean {
 // The terminal frames of a browser socket: the agent's room is visible to the
 // member, and the member has no permission pack, read live (a pack gives no
 // shell).
+// A member with their own OS user opens terminals only on their own agents
+// (server/identity/member-reach.ts WS_REACH): a terminal runs as the agent's
+// user.
 function terminalAllowed(session: SessionLookup, agentId: string): boolean {
-  if (getUserById(session.userId)?.pack) return false;
-  return agentVisibleForSession(session, agentId);
+  const user = getUserById(session.userId);
+  if (user?.pack) return false;
+  if (!agentVisibleForSession(session, agentId)) return false;
+  const identity: Identity = {
+    scope: "user",
+    userId: session.userId,
+    role: user?.role ?? "member",
+    capabilities: [],
+  };
+  return agentReachRefusal(identity, agentId, buildLiveGuardDeps()) === null;
 }
 
 export function mayReachExtension(member: string, agentId: string): boolean {
@@ -2601,6 +2616,7 @@ function buildLiveGuardDeps(): GuardDeps {
         cronjobVisibleTo(cronjobFactsById(jobId), cronjobViewerFor(identity))
       );
     },
+    memberIsolated: (userId) => memberFolderHost(userId) !== null,
     getUserByName: (username) => getUserByName(username) ?? null,
     getUserById: (userId) => getUserById(userId) ?? null,
     // A grant can name a closed room, so only live ordinary rooms count.
@@ -3295,7 +3311,7 @@ function buildExecutorDeps(
   const commandRunRefusal = (
     identity: Identity,
     agentId: string,
-  ): "terminal_forbidden" | "agent_limited" | null => {
+  ): "terminal_forbidden" | "member_reach" | "agent_limited" | null => {
     const agent = agentManager.getAgent(agentId);
     const user = identity.userId ? getUserById(identity.userId) : null;
     if (
@@ -3305,6 +3321,10 @@ function buildExecutorDeps(
       !buildLiveGuardDeps().hasRoomAccess(identity, agent.roomId)
     )
       return "terminal_forbidden";
+    // The command runs as the agent's user: a member with their own OS user
+    // runs commands only on their own agents.
+    if (agentReachRefusal(identity, agentId, buildLiveGuardDeps()))
+      return "member_reach";
     return belowStandard(agentAccessOf(agent)) ? "agent_limited" : null;
   };
   register(
@@ -4988,12 +5008,16 @@ function buildExecutorDeps(
         sendNow,
         clientMessageId,
         limits,
+        refusePromptAnswer,
       ) =>
         sendMemberMessage(agentId, text, username, device, attachments, {
           sendNow,
           clientMessageId,
           limits,
+          refusePromptAnswer,
         }),
+      promptAnswerRefused: (identity, agentId) =>
+        promptAnswerRefused(identity, agentId, buildLiveGuardDeps()),
       identityFitsAgent: (identity, agentId) =>
         identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
       noteRecentAgent,

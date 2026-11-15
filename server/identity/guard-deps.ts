@@ -53,6 +53,9 @@ export interface GuardDepsLiveReaders {
   // The seam owns the stream -> run -> job lookup and the cronjob visibility
   // rule; any id that is not a known run's stream is false.
   cronRunVisibleTo(identity: Identity, streamId: string): boolean;
+  // Whether member `userId` has their own OS user (agent-folder.ts
+  // memberFolderHost).
+  memberIsolated(userId: string): boolean;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
   // The live ordinary rooms (lobby excluded) a member reaches, or [] for an
@@ -234,6 +237,10 @@ export function buildProductionGuardDeps(
 
     cronRunVisibleTo(identity: Identity, streamId: string): boolean {
       return live.cronRunVisibleTo(identity, streamId);
+    },
+
+    memberIsolated(userId: string): boolean {
+      return live.memberIsolated(userId);
     },
   };
 }

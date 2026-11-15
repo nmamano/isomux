@@ -58,6 +58,7 @@ import { basename, extname } from "path";
 import { downloadHeader, mimeTypeForFilename } from "../../mime-types.ts";
 import { actsForAgent, type Identity } from "../../identity/index.ts";
 import { packSenderOf } from "../../identity/agent-fit.ts";
+import { RUN_NOT_YOURS } from "../../identity/member-reach.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
@@ -189,12 +190,14 @@ export interface AsksDeps {
   commandRuns?: {
     // Why the caller may not run the agent's commands now, or null:
     // terminal_forbidden where the terminal panel would refuse the caller
-    // (a member pack, an agent the caller cannot see), agent_limited for an
+    // (a member pack, an agent the caller cannot see), member_reach for a
+    // member with their own OS user on an agent that is not theirs
+    // (server/identity/member-reach.ts), agent_limited for an
     // agent below Standard access.
     refusal(
       identity: Identity,
       agentId: string,
-    ): "terminal_forbidden" | "agent_limited" | null;
+    ): "terminal_forbidden" | "member_reach" | "agent_limited" | null;
     // Starts the command in the agent's terminal environment; rejects when
     // it cannot start.
     start(
@@ -1425,6 +1428,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         refusal,
         "You cannot use this agent's terminal, so you cannot run its commands.",
       );
+    if (refusal === "member_reach") return fail(403, refusal, RUN_NOT_YOURS);
     if (refusal === "agent_limited")
       return fail(403, refusal, "Run is off for agents below Standard access.");
     const command = (ctx.body as { command?: unknown } | null)?.command;

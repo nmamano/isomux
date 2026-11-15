@@ -241,11 +241,11 @@ except OSError as error:
 // An office client in the container: a WebSocket with a member's cookie
 // that opens the terminal panel of an agent and reports the shell's uid.
 const TERMINAL = `
-const [cookie, agentId, host, origin] = JSON.parse(process.env.RIG_ARGS);
+const [cookie, agentId, host, origin, waitMs] = JSON.parse(process.env.RIG_ARGS);
 const ws = new WebSocket("ws://127.0.0.1:10000/ws", { headers: { Cookie: cookie, Host: host, Origin: origin } });
 let out = "";
 const finish = (value) => { console.log(JSON.stringify(value)); process.exit(0); };
-setTimeout(() => finish({ timeout: true, out }), 30000);
+setTimeout(() => finish({ timeout: true, out }), waitMs ?? 30000);
 ws.onopen = () => ws.send(JSON.stringify({ type: "terminal_open", agentId }));
 ws.onmessage = (ev) => {
   const msg = JSON.parse(ev.data);
@@ -565,6 +565,63 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
       TERMINAL,
     );
     expect(JSON.parse(r.out.trim())).toEqual({ uid: uidOf(name, ALICE) });
+  });
+
+  // Slice 2c: Alice reaches no process or file of an agent that runs as the
+  // office user. The owner's terminal on the office agent opens as the
+  // office user (the enabling condition); Alice's gets no output, and her
+  // editor open and save are refused before any file is touched.
+  it("keeps a member out of an office agent's terminal and editor", () => {
+    const made = api(name, cookie, "POST", "/api/agents", {
+      name: "Rig office agent",
+      roomId,
+      desk: 7,
+      agentType: "claude",
+    });
+    const officeAgent = (made.agent as { id: string } | undefined)?.id;
+    if (!officeAgent) throw new Error(`spawn: ${JSON.stringify(made)}`);
+    const terminal = (who: string, waitMs: number) =>
+      JSON.parse(
+        run(
+          "docker",
+          [
+            "exec",
+            "-i",
+            "-e",
+            `RIG_ARGS=${JSON.stringify([who, officeAgent, HOST, ORIGIN, waitMs])}`,
+            name,
+            "bun",
+            "-",
+          ],
+          TERMINAL,
+        ).out.trim(),
+      ) as unknown;
+    expect(terminal(cookie, 30000)).toEqual({ uid: OFFICE_UID });
+    expect(terminal(aliceCookie, 8000)).toEqual({ timeout: true, out: "" });
+
+    const target = "/var/data/rig-reach.txt";
+    const opened = api(
+      name,
+      aliceCookie,
+      "GET",
+      `/api/agents/${officeAgent}/file?path=${encodeURIComponent("/etc/hostname")}`,
+      undefined,
+    );
+    expect((opened.error as { code?: string } | undefined)?.code).toBe(
+      "member_reach",
+    );
+    const saved = api(
+      name,
+      aliceCookie,
+      "PUT",
+      `/api/agents/${officeAgent}/file`,
+      { path: target, content: "alice", mtime: 0 },
+    );
+    expect((saved.error as { code?: string } | undefined)?.code).toBe(
+      "member_reach",
+    );
+    expect(root(name, `test -e ${target}`).status).not.toBe(0);
+    api(name, cookie, "DELETE", `/api/agents/${officeAgent}`, {});
   });
 
   // Slice 1c-i: the member's engines keep their files in the member's own

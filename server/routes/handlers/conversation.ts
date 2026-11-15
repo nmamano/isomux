@@ -140,7 +140,13 @@ export interface ConversationDeps {
     clientMessageId: string | undefined,
     // The sender's limits: a command needs the area of its HTTP twin.
     limits: ApiTokenLimits | undefined,
+    // The text must not answer a pending prompt (promptAnswerRefused).
+    refusePromptAnswer: boolean,
   ): Promise<UserSendAcceptance>;
+  // Whether the sender's text must not answer the agent's pending prompt:
+  // a member with their own OS user writing to an agent that is not theirs
+  // (server/identity/member-reach.ts).
+  promptAnswerRefused(identity: Identity, agentId: string): boolean;
   // A member's own session had a message accepted for the agent: the agent
   // moves to the front of that member's Recent list (task 5dac6b9b).
   noteRecentAgent?(userId: string, agentId: string): void;
@@ -590,7 +596,10 @@ export function conversationHandlers(
           // An outside model's message, or a replies-only token's, never
           // answers a pending prompt.
           {
-            refusePromptAnswer: ctx.via === "mcp" || repliesOnly,
+            refusePromptAnswer:
+              ctx.via === "mcp" ||
+              repliesOnly ||
+              deps.promptAnswerRefused(ctx.identity, ctx.params.id),
             limits: ctx.identity.apiTokenLimits,
             attachments: b.attachments,
           },
@@ -635,6 +644,7 @@ export function conversationHandlers(
         b.sendNow === true,
         b.clientMessageId,
         ctx.identity.apiTokenLimits,
+        deps.promptAnswerRefused(ctx.identity, ctx.params.id),
       );
       if (!r.ok) return refusal(ctx.identity, r);
       // Only a member's own session counts for Recent: not their agents,

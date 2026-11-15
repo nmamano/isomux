@@ -16,6 +16,7 @@ import type { AskCommandRun, LogEntry } from "../../../shared/types.ts";
 import { commandForPermissionDenial } from "../../../shared/permission-denial.ts";
 import { isRunnableCommand } from "../../../shared/runnable-command.ts";
 import type { LogMessage } from "../../../shared/i18n/log-message.ts";
+import { RUN_NOT_YOURS } from "../../identity/member-reach.ts";
 
 export interface DeniedCommandRunDeps {
   // The terminal panel's gate, then the agent's access: the same answer as
@@ -23,7 +24,7 @@ export interface DeniedCommandRunDeps {
   refusal(
     identity: Identity,
     agentId: string,
-  ): "terminal_forbidden" | "agent_limited" | null;
+  ): "terminal_forbidden" | "member_reach" | "agent_limited" | null;
   // The agent's log entries of its current conversation; null when the
   // agent does not exist.
   logEntries(agentId: string): readonly LogEntry[] | null;
@@ -62,6 +63,7 @@ export function deniedCommandRunHandlers(
         refusal,
         "You cannot use this agent's terminal, so you cannot run its commands.",
       );
+    if (refusal === "member_reach") return fail(403, refusal, RUN_NOT_YOURS);
     if (refusal === "agent_limited")
       return fail(403, refusal, "Run is off for agents below Standard access.");
     const body = ctx.body as { toolUseId?: unknown; command?: unknown } | null;

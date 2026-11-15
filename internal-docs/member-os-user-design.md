@@ -139,15 +139,17 @@ A removed member: the office deletes their agent files through the runner (logge
 
 ### 2.4 A change of manager
 
-An owner who gives an agent to a manager on another host (or the reassignment of a deleted member's agents) moves the agent: its running turn stops, and its files move through the runner as in 2.2 or 2.3.
+An owner who gives an agent to a manager on another host (or the reassignment of a deleted member's agents) moves the agent: its running turn stops, and its files move through the runner as in 2.2 or 2.3. When the agent's folder is one that the old host can write, the change is refused or the folder is reset to the new manager's home: an office-user agent must not work in a folder that the member can write.
 
 ## 3. Working together across users
 
-### 3.1 What an isolated member can do to office-user agents (the question for Nil)
+### 3.1 What an isolated member can do to office-user agents
+
+Nil, 2026-11-14, design ask f4e7bf5c, as recorded by Isomux PM in the task description: "Build it; the member loses reach over office agents."
 
 **Owners cannot be isolated.** An owner sets office variables, which reach every office-user agent (`NODE_OPTIONS`, `LD_PRELOAD` or `GIT_CONFIG_*` would run the owner's code as the office user at the next spawn), and manages secrets, Integrations, other members and managers. The enable command and the Members page refuse an owner, and the office refuses to make an isolated member an owner until the owner runs disable.
 
-My pick: no mechanical reach. An isolated member, their API tokens and their agents cannot:
+The rule: no mechanical reach. An isolated member, their API tokens and their agents cannot:
 
 - open a terminal on an agent that runs as the office user (that is a shell as the office user);
 - change the folder, instructions, engine or schedules of an agent on another host, or set the folder of a room;
@@ -156,6 +158,15 @@ My pick: no mechanical reach. An isolated member, their API tokens and their age
 They still see those agents' chat and logs in shared rooms, and can message them. A message is the soft boundary of docs/isolation-model.md ("Agents of another member"): the agent treats it as data and confirms before it acts as its manager.
 
 The other choice is that only the member's agents are isolated, and the member keeps the reach above. Then the member can read every office file through a terminal or a folder change, so the feature protects against the member's agents, not against the member.
+
+As built (slice 2c, `server/identity/member-reach.ts`):
+
+- The actor of a request is the member it acts for: the signed-in member, a token's member, the current manager of an agent (not the member who spawned it), a schedule's owner or an app's owner. An agent token whose agent is gone is refused on every limited route.
+- Every API route and every WebSocket frame type has a rule, and a test fails when a new one has none. For an actor without their own OS user, every rule passes.
+- On an agent that is not theirs, an isolated actor cannot open, save or watch a file, open a terminal, run an ask's command or a refused command, set instructions, access or Privileged, answer a prompt, or change any agent field except the name and the outfit. Their message to such an agent never answers its pending prompt (409 `awaits_member_answer`), also after an edit.
+- An isolated actor cannot set a room's folder or a room's instructions, cannot save, make or delete a skill (slice 2d gives them their own skill folder), and makes or revives agents only for themselves.
+- A moved agent takes the instructions of its new room. Room instructions that a member wrote before they got their own OS user stay in that room.
+- Memory, tasks, messages and reads stay open: agents read them as data.
 
 ### 3.2 Shared folders
 
