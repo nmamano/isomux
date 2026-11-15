@@ -181,6 +181,42 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     expect(getUserByName("Yu")).toBeUndefined();
   });
 
+  // The New member form's "Show agent messages" (task d5c0f33d): the same
+  // shape as showToolCalls.
+  it("takes showAgentMessages: true stores it, false leaves the default (absent), a non-boolean is 422 and creates no one", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    for (const [name, showAgentMessages, want] of [
+      ["Shows", true, true],
+      ["Folds", false, "absent"],
+    ] as const) {
+      const r = await api(srv, "/api/users", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { name, role: "member", showAgentMessages },
+      });
+      expect({ name, status: r.status }).toEqual({ name, status: 201 });
+      const rec = getUserByName(name)!;
+      expect({
+        name,
+        now: "showAgentMessages" in rec ? rec.showAgentMessages : "absent",
+        toolCalls: "showToolCalls" in rec,
+      }).toEqual({ name, now: want, toolCalls: false });
+    }
+    for (const showAgentMessages of ["true", 1, null]) {
+      const r = await api(srv, "/api/users", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { name: "Yu", role: "member", showAgentMessages },
+      });
+      expect({ showAgentMessages, status: r.status }).toEqual({
+        showAgentMessages,
+        status: 422,
+      });
+    }
+    expect(getUserByName("Yu")).toBeUndefined();
+  });
+
   it("refuses: taken name 409, bad name 400, grants on an owner or an unknown room 400, malformed 422 - creating no one", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Morgan");

@@ -1,7 +1,8 @@
-// "Show tool calls" (task e7579473): a member turns it on in their own
-// Settings pane, and an office owner on a member's page or in the New member
-// form, because the member this protects will not go looking for it. Each
-// form sends the choice to its route; the routes are pinned in
+// "Show tool calls" (task e7579473) and "Show agent messages" (task
+// d5c0f33d): a member turns each on in their own Settings pane, and an
+// office owner on a member's page or in the New member form, because the
+// member this protects will not go looking for it. Each form sends the
+// choice to its route; the routes are pinned in
 // server/test-support/routes-member-voice.test.ts and
 // preferences-routes.test.ts.
 
@@ -36,161 +37,168 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
-const BOX = "input[data-show-tool-calls]";
-const box = (root: ParentNode) => {
-  const el = root.querySelector<HTMLInputElement>(BOX);
-  if (!el) throw new Error("no Show tool calls checkbox");
-  return el;
-};
+// Each choice: its checkbox and the record key it writes.
+const CHOICES = [
+  ["input[data-show-tool-calls]", "showToolCalls"],
+  ["input[data-show-agent-messages]", "showAgentMessages"],
+] as const;
 const writes = () => calls.filter((c) => c.method !== "GET");
 
 const self = selfUserRecord("en");
 const users = (record = self, ...more: (typeof self)[]) =>
   new Map([record, ...more].map((u) => [u.name.toLowerCase(), u]));
 
-it("the member's own pane: off by default; ticked and saved, it sends showToolCalls true; unticked, false", async () => {
-  const pane = (record: typeof self) =>
-    onLanguage("en", createElement(PreferencesPane), {
-      users: users(record),
+for (const [BOX, key] of CHOICES) {
+  const box = (root: ParentNode) => {
+    const el = root.querySelector<HTMLInputElement>(BOX);
+    if (!el) throw new Error(`no ${key} checkbox`);
+    return el;
+  };
+
+  it(`${key}, the member's own pane: off by default; ticked and saved, it sends ${key} true; unticked, false`, async () => {
+    const pane = (record: typeof self) =>
+      onLanguage("en", createElement(PreferencesPane), {
+        users: users(record),
+      });
+    const view = render(pane(self));
+    expect(box(view.container).checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(box(view.container));
     });
-  const view = render(pane(self));
-  expect(box(view.container).checked).toBe(false);
-  await act(async () => {
-    fireEvent.click(box(view.container));
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: en["common.save"] }));
+    });
+    expect(writes()).toEqual([
+      {
+        method: "PATCH",
+        path: "/api/me/preferences",
+        body: expect.objectContaining({ [key]: true }),
+      },
+    ]);
+    // The saved record comes back over the socket.
+    view.rerender(pane({ ...self, [key]: true }));
+    expect(box(view.container).checked).toBe(true);
+    calls.length = 0;
+    await act(async () => {
+      fireEvent.click(box(view.container));
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: en["common.save"] }));
+    });
+    expect(writes()).toEqual([
+      {
+        method: "PATCH",
+        path: "/api/me/preferences",
+        body: expect.objectContaining({ [key]: false }),
+      },
+    ]);
+    view.unmount();
   });
-  await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: en["common.save"] }));
-  });
-  expect(writes()).toEqual([
-    {
-      method: "PATCH",
-      path: "/api/me/preferences",
-      body: expect.objectContaining({ showToolCalls: true }),
-    },
-  ]);
-  // The saved record comes back over the socket.
-  view.rerender(pane({ ...self, showToolCalls: true }));
-  expect(box(view.container).checked).toBe(true);
-  calls.length = 0;
-  await act(async () => {
-    fireEvent.click(box(view.container));
-  });
-  await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: en["common.save"] }));
-  });
-  expect(writes()).toEqual([
-    {
-      method: "PATCH",
-      path: "/api/me/preferences",
-      body: expect.objectContaining({ showToolCalls: false }),
-    },
-  ]);
-  view.unmount();
-});
 
-const pia = {
-  ...selfUserRecord(null),
-  id: "u2",
-  name: "Pia",
-  role: "member" as const,
-};
+  const pia = {
+    ...selfUserRecord(null),
+    id: "u2",
+    name: "Pia",
+    role: "member" as const,
+  };
 
-function settings(state: Record<string, unknown>, initialUserId?: string) {
-  return onLanguage(
-    "en",
-    createElement(UserSettingsView, {
-      onSwitchUser: () => {},
-      onClose: () => {},
-      initialUserId,
-    }),
-    state,
-  );
-}
-
-it("an owner on a member's page: the choice saves through the member's chat route, and only when changed", async () => {
-  const view = render(settings({ users: users(self, pia) }, "u2"));
-  await act(async () => {});
-  const detail = view.getByTestId("settings-content");
-  expect(detail.querySelector("h4")?.textContent).toBe("Pia");
-  expect(box(detail).checked).toBe(false);
-  await act(async () => {
-    fireEvent.click(box(detail));
-  });
-  calls.length = 0;
-  await act(async () => {
-    fireEvent.click(
-      within(detail).getByRole("button", { name: en["common.save"] }),
-    );
-  });
-  expect(writes().filter((c) => c.path.endsWith("/chat"))).toEqual([
-    {
-      method: "PATCH",
-      path: "/api/users/Pia/chat",
-      body: { showToolCalls: true },
-    },
-  ]);
-  view.unmount();
-
-  // A save that leaves the choice alone does not send it.
-  const again = render(settings({ users: users(self, pia) }, "u2"));
-  await act(async () => {});
-  const page = again.getByTestId("settings-content");
-  const name = page.querySelector("input")!;
-  fireEvent.change(name, { target: { value: "Pia Two" } });
-  calls.length = 0;
-  await act(async () => {
-    fireEvent.click(
-      within(page).getByRole("button", { name: en["common.save"] }),
-    );
-  });
-  expect(writes().length).toBeGreaterThan(0);
-  expect(writes().filter((c) => c.path.endsWith("/chat")).length).toBe(0);
-  again.unmount();
-});
-
-it("an owner's own page has no checkbox: their own Settings pane holds it", async () => {
-  const view = render(settings({ users: users(self, pia) }, "u1"));
-  await act(async () => {});
-  const detail = view.getByTestId("settings-content");
-  expect(detail.querySelector("h4")?.textContent).toBe("Tester");
-  expect(detail.querySelectorAll(BOX).length).toBe(0);
-  view.unmount();
-});
-
-it("the New member form: ticked, the create body carries showToolCalls true", async () => {
-  const view = render(settings({ users: users(self) }));
-  await act(async () => {});
-  const members = view.container.querySelector(
-    '[data-sidebar-group-toggle="members"][aria-expanded="false"]',
-  );
-  if (members) fireEvent.click(members);
-  await act(async () => {
-    fireEvent.click(
-      view.getByRole("button", { name: en["settings.members.newMember"] }),
-    );
-  });
-  const detail = view.getByTestId("settings-content");
-  fireEvent.change(detail.querySelector("input")!, {
-    target: { value: "Pia" },
-  });
-  expect(box(detail).checked).toBe(false);
-  await act(async () => {
-    fireEvent.click(box(detail));
-  });
-  calls.length = 0;
-  await act(async () => {
-    fireEvent.click(
-      within(detail).getByRole("button", {
-        name: en["settings.members.create"],
+  function settings(state: Record<string, unknown>, initialUserId?: string) {
+    return onLanguage(
+      "en",
+      createElement(UserSettingsView, {
+        onSwitchUser: () => {},
+        onClose: () => {},
+        initialUserId,
       }),
+      state,
     );
+  }
+
+  it(`${key}, an owner on a member's page: the choice saves through the member's chat route, and only when changed`, async () => {
+    const view = render(settings({ users: users(self, pia) }, "u2"));
+    await act(async () => {});
+    const detail = view.getByTestId("settings-content");
+    expect(detail.querySelector("h4")?.textContent).toBe("Pia");
+    expect(box(detail).checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(box(detail));
+    });
+    calls.length = 0;
+    await act(async () => {
+      fireEvent.click(
+        within(detail).getByRole("button", { name: en["common.save"] }),
+      );
+    });
+    expect(writes().filter((c) => c.path.endsWith("/chat"))).toEqual([
+      {
+        method: "PATCH",
+        path: "/api/users/Pia/chat",
+        body: { [key]: true },
+      },
+    ]);
+    view.unmount();
+
+    // A save that leaves the choice alone does not send it.
+    const again = render(settings({ users: users(self, pia) }, "u2"));
+    await act(async () => {});
+    const page = again.getByTestId("settings-content");
+    const name = page.querySelector("input")!;
+    fireEvent.change(name, { target: { value: "Pia Two" } });
+    calls.length = 0;
+    await act(async () => {
+      fireEvent.click(
+        within(page).getByRole("button", { name: en["common.save"] }),
+      );
+    });
+    expect(writes().length).toBeGreaterThan(0);
+    expect(writes().filter((c) => c.path.endsWith("/chat")).length).toBe(0);
+    again.unmount();
   });
-  expect(writes().filter((c) => c.path === "/api/users")).toEqual([
-    {
-      method: "POST",
-      path: "/api/users",
-      body: expect.objectContaining({ name: "Pia", showToolCalls: true }),
-    },
-  ]);
-  view.unmount();
-});
+
+  it(`${key}, an owner's own page has no checkbox: their own Settings pane holds it`, async () => {
+    const view = render(settings({ users: users(self, pia) }, "u1"));
+    await act(async () => {});
+    const detail = view.getByTestId("settings-content");
+    expect(detail.querySelector("h4")?.textContent).toBe("Tester");
+    expect(detail.querySelectorAll(BOX).length).toBe(0);
+    view.unmount();
+  });
+
+  it(`${key}, the New member form: ticked, the create body carries ${key} true`, async () => {
+    const view = render(settings({ users: users(self) }));
+    await act(async () => {});
+    const members = view.container.querySelector(
+      '[data-sidebar-group-toggle="members"][aria-expanded="false"]',
+    );
+    if (members) fireEvent.click(members);
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", { name: en["settings.members.newMember"] }),
+      );
+    });
+    const detail = view.getByTestId("settings-content");
+    fireEvent.change(detail.querySelector("input")!, {
+      target: { value: "Pia" },
+    });
+    expect(box(detail).checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(box(detail));
+    });
+    calls.length = 0;
+    await act(async () => {
+      fireEvent.click(
+        within(detail).getByRole("button", {
+          name: en["settings.members.create"],
+        }),
+      );
+    });
+    expect(writes().filter((c) => c.path === "/api/users")).toEqual([
+      {
+        method: "POST",
+        path: "/api/users",
+        body: expect.objectContaining({ name: "Pia", [key]: true }),
+      },
+    ]);
+    view.unmount();
+  });
+}

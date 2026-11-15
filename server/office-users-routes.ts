@@ -392,6 +392,7 @@ export function createUsersRoutes(
       allowedRooms,
       pack,
       showToolCalls,
+      showAgentMessages,
     }) => {
       // Room grants: members only (owners reach every room by rule, and
       // materialized owner grants are the demotion bomb), live rooms only -
@@ -435,6 +436,7 @@ export function createUsersRoutes(
           allowedRooms: grants,
           ...(pack && role === "member" ? { pack } : {}),
           ...(showToolCalls ? { showToolCalls: true as const } : {}),
+          ...(showAgentMessages ? { showAgentMessages: true as const } : {}),
           // A new owner is notified for every room by default, like the
           // first owner; a member for the rooms granted here.
           ...(role === "owner" ? { notifRooms: roomIds } : {}),

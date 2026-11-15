@@ -3,9 +3,12 @@ import type { LogEntry } from "../../shared/types.ts";
 import { commandForPermissionDenial } from "../../shared/permission-denial.ts";
 import {
   detachedSubagentSteps,
+  findHiddenRuns,
   findHiddenToolRuns,
   findRawToolCallGroups,
-  hiddenRunSteps,
+  hiddenRunCounts,
+  hiddenRunPeers,
+  isAgentMessageEntry,
   isomuxRequestForToolCall,
   liveTailEntryIds,
   MAX_LIVE_TAIL_ENTRIES,
@@ -490,30 +493,6 @@ describe("hidden tool runs", () => {
     expect(runs[0].entries).toHaveLength(MAX_LIVE_TAIL_ENTRIES + 50);
   });
 
-  test("N steps counts the top-level calls, at least 1", () => {
-    const steps = (entries: LogEntry[]) => {
-      const runs = findHiddenToolRuns(entries);
-      expect(runs).toHaveLength(1);
-      return hiddenRunSteps(runs[0].entries);
-    };
-    expect(
-      steps([
-        call("a"),
-        result("a-r", "a"),
-        call("b"),
-        result("b-r", "b", true),
-        sub(call("s1"), "a"),
-        sub(call("s2"), "a"),
-        system("task", { taskEvent: { taskId: "t1", phase: "started" } }),
-      ]),
-    ).toBe(2);
-    // A run with no top-level call still reads as one step.
-    expect(
-      steps([system("task", { taskEvent: { taskId: "t1", phase: "done" } })]),
-    ).toBe(1);
-    expect(steps([sub(call("s1"), "a"), sub(call("s2"), "a")])).toBe(1);
-  });
-
   test("a detached subagent step whose starting call is in a hidden run jumps to the run", () => {
     const start = entry("agent", "tool_call", "Agent", {
       toolId: "agent-tool",
@@ -532,5 +511,329 @@ describe("hidden tool runs", () => {
       target: "a",
       background: true,
     });
+  });
+});
+
+// Messages between agents in the chat (task d5c0f33d, Nil 2026-11-15: "just
+// like we minimized function calls, we should also have a setting for
+// minimizing agent messages"). An agent message is a message another agent
+// sent (a user_message with sender_agent_*), or a card of this agent's that
+// sends, schedules or steers one (POST /api/agents/:id/messages). With the
+// fold on, a run of them is one line; with the tool fold on too, steps and
+// messages share one line. The chat that draws the lines:
+// LogView.hide-tool-calls.dom.test.tsx.
+describe("agent-message runs", () => {
+  const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  // The agent reference's form: the text in a quoted heredoc, options in
+  // the query.
+  const send = (id: string, to: string, query = "", name = "Bash") =>
+    call(id, name, {
+      command: `curl -s -X POST "localhost:4000/api/agents/${to}/messages${query}" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nHello there.\nEOF`,
+    });
+  const office = (id: string, method: string, path: string) =>
+    call(id, "Bash", {
+      command: `curl -s -X ${method} localhost:4000${path} ${AUTH} -d '{}'`,
+    });
+  const peer = (id: string, from: string | undefined = "a2") =>
+    entry(id, "user_message", `From ${from}`, {
+      ...(from ? { sender_agent_id: from } : {}),
+      sender_agent_name: "Peer",
+      sender_agent_room: "Room",
+    });
+  const member = (id: string, metadata: Record<string, unknown> = {}) =>
+    entry(id, "user_message", "go", { username: "Nil", ...metadata });
+  const text = (id: string) => entry(id, "text", "Here it is.");
+  const sub = (e: LogEntry, parent: string) => {
+    e.metadata!.subagent = { parentToolUseId: `${parent}-tool` };
+    return e;
+  };
+
+  // Each run's entries without the results paired to a call in the chat:
+  // those fold into their call's card wherever the run holds them.
+  function shape(
+    entries: LogEntry[],
+    fold: { tools: boolean; messages: boolean },
+  ): string[][] {
+    const callIds = new Set(
+      entries
+        .filter((e) => e.kind === "tool_call")
+        .map((e) => e.metadata?.toolId),
+    );
+    const paired = (e: LogEntry) =>
+      e.kind === "tool_result" &&
+      !e.attachments?.length &&
+      callIds.has(e.metadata?.toolUseId);
+    const runs = findHiddenRuns(entries, fold);
+    for (const run of runs) expect(run.firstId).toBe(run.entries[0].id);
+    return runs.map((run) =>
+      run.entries.filter((e) => !paired(e)).map((e) => e.id),
+    );
+  }
+  const MESSAGES = { tools: false, messages: true };
+  const BOTH = { tools: true, messages: true };
+
+  test("what counts: messages from agents, and cards that send, steer or schedule one, on every engine", () => {
+    const yes: [string, LogEntry][] = [
+      ["a message from another agent", peer("x")],
+      ["a message from an agent with no id on record", peer("x", undefined)],
+      ["a send", send("x", "a2")],
+      ["a steer", send("x", "a2", "?steer=1")],
+      [
+        "a scheduled message",
+        send("x", "a2", "?deliverAt=2026-11-16T10:00:00Z"),
+      ],
+      ["a send with a retry id", send("x", "a2", "?clientMessageId=c1")],
+      ["a send from OpenCode's shell", send("x", "a2", "", "shell")],
+      ["a send from OpenCode's older bash", send("x", "a2", "", "bash")],
+    ];
+    const no: [string, LogEntry][] = [
+      ["a member's message", member("x")],
+      [
+        "a member's message through an API token",
+        member("x", { device: "pat-1" }),
+      ],
+      [
+        "an app's message",
+        entry("x", "user_message", "r", {
+          sender_app_name: "Monitor",
+          username: "Monitor",
+        }),
+      ],
+      [
+        "a schedule's message",
+        entry("x", "user_message", "r", {
+          sender_cronjob_id: "c1",
+          sender_cronjob_name: "Nightly",
+        }),
+      ],
+      [
+        "a webhook's message",
+        entry("x", "user_message", "r", {
+          sender_webhook_id: "w1",
+          sender_webhook_name: "GitHub",
+        }),
+      ],
+      [
+        "a messaging app's message",
+        entry("x", "user_message", "r", {
+          sender_messaging_app: "whatsapp",
+          sender_messaging_route_id: "r1",
+          sender_messaging_route_name: "Pat",
+        }),
+      ],
+      ["a stop", office("x", "POST", "/api/agents/a2/abort")],
+      [
+        "a list of scheduled messages",
+        office("x", "GET", "/api/agents/a2/scheduled-messages"),
+      ],
+      [
+        "a cancel of a scheduled message",
+        office("x", "DELETE", "/api/agents/a2/scheduled-messages/s1"),
+      ],
+      ["an ask", office("x", "POST", "/api/asks")],
+      [
+        "a reply to an API token's inbox",
+        office("x", "POST", "/api/api-token-inboxes/pat-1/messages"),
+      ],
+      [
+        "a reply on a messaging route",
+        office("x", "POST", "/api/messaging/routes/r1/messages"),
+      ],
+      ["a shell command", call("x", "Bash", { command: "ls" })],
+      ["a reply to the member", text("x")],
+    ];
+    for (const [label, e] of yes)
+      expect({ label, is: isAgentMessageEntry(e) }).toEqual({
+        label,
+        is: true,
+      });
+    for (const [label, e] of no)
+      expect({ label, is: isAgentMessageEntry(e) }).toEqual({
+        label,
+        is: false,
+      });
+  });
+
+  // Only messages fold: a step the member sees splits a run, and a run
+  // goes on past the turn a message from another agent starts.
+  test("messages only: a run of messages is one run across turns, and a shown step splits it", () => {
+    const entries = [
+      member("u"),
+      text("x"),
+      send("s1", "a2"),
+      result("s1-r", "s1"),
+      peer("p1", "a2"),
+      peer("p2", "a3"),
+      call("c1", "Bash", { command: "ls" }),
+      result("c1-r", "c1"),
+      send("s2", "a2", "?steer=1"),
+      result("s2-r", "s2"),
+      text("x2"),
+    ];
+    expect(shape(entries, MESSAGES)).toEqual([["s1", "p1", "p2"], ["s2"]]);
+  });
+
+  // The tool fold alone is today's fold, entry for entry.
+  test("tools only: the runs are the tool fold's, and messages split them as before", () => {
+    const entries = [
+      member("u"),
+      call("c1", "Bash", { command: "ls" }),
+      result("c1-r", "c1"),
+      send("s1", "a2"),
+      result("s1-r", "s1"),
+      call("c2"),
+      peer("p1"),
+      call("c3"),
+      text("x"),
+    ];
+    expect(findHiddenRuns(entries, { tools: true, messages: false })).toEqual(
+      findHiddenToolRuns(entries),
+    );
+    expect(shape(entries, { tools: true, messages: false })).toEqual([
+      ["c1"],
+      ["c2"],
+      ["c3"],
+    ]);
+  });
+
+  // Both folds: a reply chain (send, the answer, the steps it led to, the
+  // next send) is one line.
+  test("both: steps and messages share one run, across the turn an agent's message starts", () => {
+    const entries = [
+      member("u"),
+      text("x"),
+      call("c1", "Bash", { command: "ls" }),
+      result("c1-r", "c1"),
+      send("s1", "a2"),
+      result("s1-r", "s1"),
+      peer("p1", "a2"),
+      call("c2"),
+      result("c2-r", "c2"),
+      send("s2", "a2", "?deliverAt=2026-11-16T10:00:00Z"),
+      result("s2-r", "s2"),
+      text("x2"),
+    ];
+    expect(shape(entries, BOTH)).toEqual([["c1", "s1", "p1", "c2", "s2"]]);
+  });
+
+  test("no fold: no runs", () => {
+    const entries = [send("s1", "a2"), peer("p1"), call("c1")];
+    expect(findHiddenRuns(entries, { tools: false, messages: false })).toEqual(
+      [],
+    );
+  });
+
+  // A message that is not from an agent stays in the chat with either fold
+  // on, and splits the run it sits in.
+  test("a member's, API token's, app's, schedule's, webhook's or messaging app's message splits a run", () => {
+    const splitters: [string, LogEntry][] = [
+      ["member", member("X")],
+      ["API token", member("X", { device: "pat-1" })],
+      [
+        "app",
+        entry("X", "user_message", "r", {
+          sender_app_name: "Monitor",
+          username: "Monitor",
+        }),
+      ],
+      [
+        "schedule",
+        entry("X", "user_message", "r", {
+          sender_cronjob_id: "c1",
+          sender_cronjob_name: "Nightly",
+        }),
+      ],
+      [
+        "webhook",
+        entry("X", "user_message", "r", {
+          sender_webhook_id: "w1",
+          sender_webhook_name: "GitHub",
+        }),
+      ],
+      [
+        "messaging app",
+        entry("X", "user_message", "r", {
+          sender_messaging_app: "whatsapp",
+          sender_messaging_route_id: "r1",
+          sender_messaging_route_name: "Pat",
+        }),
+      ],
+    ];
+    for (const [label, splitter] of splitters)
+      for (const fold of [MESSAGES, BOTH])
+        expect({
+          label,
+          fold,
+          runs: shape([peer("a"), splitter, send("b", "a2")], fold),
+        }).toEqual({ label, fold, runs: [["a"], ["b"]] });
+  });
+
+  // An office card that is not a message (a stop, an ask) stays a card.
+  test("an office card that is not a message splits a run", () => {
+    for (const card of [
+      office("X", "POST", "/api/agents/a2/abort"),
+      office("X", "POST", "/api/asks"),
+      office("X", "GET", "/api/agents/a2/scheduled-messages"),
+    ])
+      for (const fold of [MESSAGES, BOTH])
+        expect(shape([peer("a"), card, send("b", "a2")], fold)).toEqual([
+          ["a"],
+          ["b"],
+        ]);
+  });
+
+  // "2 agent messages · 3 steps": messages are the agents' messages and the
+  // top-level cards that send one; steps are the other top-level calls. A
+  // run with no message still reads as at least one step, as before.
+  test("the line counts messages and steps apart", () => {
+    const counts = (entries: LogEntry[], fold = BOTH) => {
+      const runs = findHiddenRuns(entries, fold);
+      expect(runs).toHaveLength(1);
+      return hiddenRunCounts(runs[0].entries);
+    };
+    expect(
+      counts([
+        call("c1"),
+        result("c1-r", "c1"),
+        send("s1", "a2"),
+        result("s1-r", "s1"),
+        peer("p1"),
+        call("c2"),
+        sub(call("sc1"), "c2"),
+        send("s2", "a3", "?steer=1"),
+      ]),
+    ).toEqual({ messages: 3, steps: 2 });
+    expect(counts([peer("p1"), peer("p2")], MESSAGES)).toEqual({
+      messages: 2,
+      steps: 0,
+    });
+    expect(
+      counts([
+        entry("t", "system", "line", {
+          taskEvent: { taskId: "t1", phase: "done" },
+        }),
+      ]),
+    ).toEqual({ messages: 0, steps: 1 });
+  });
+
+  // The line shows who the run talked with: the sender of each message in,
+  // the receiver of each message out, first seen first, each once, three at
+  // most.
+  test("the peers: senders and receivers in order of first appearance, each once, at most 3", () => {
+    const runs = findHiddenRuns(
+      [
+        send("s1", "a2"),
+        peer("p1", "a3"),
+        send("s2", "a2", "?steer=1"),
+        peer("p2", "a3"),
+        peer("p3", undefined),
+        send("s3", "a4", "?deliverAt=2026-11-16T10:00:00Z"),
+        peer("p4", "a5"),
+      ],
+      MESSAGES,
+    );
+    expect(runs).toHaveLength(1);
+    expect(hiddenRunPeers(runs[0].entries)).toEqual(["a2", "a3", "a4"]);
+    expect(hiddenRunPeers([call("c1"), text("x")])).toEqual([]);
   });
 });

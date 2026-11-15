@@ -2108,10 +2108,15 @@ const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
 const CURRENT_SESSION_PREFIX = "a1b2c3d4";
 let activeSessionsList: SessionWire[] = [];
 let invitesListSeed: InviteWire[] = [];
-// true stores the field; false removes it, as server/users.ts does.
-function setShowToolCalls(record: UserRecord, show: boolean): void {
-  if (show) record.showToolCalls = true;
-  else delete record.showToolCalls;
+// The chat choices a body carries: true stores the field; false removes it,
+// as server/users.ts does. A key the body leaves out stays as it was.
+function setChatChoices(record: UserRecord, body: unknown): void {
+  const b = (body ?? {}) as Record<string, unknown>;
+  for (const key of ["showToolCalls", "showAgentMessages"] as const) {
+    if (typeof b[key] !== "boolean") continue;
+    if (b[key]) record[key] = true;
+    else delete record[key];
+  }
 }
 
 let sessionContext: SessionContext | null = null;
@@ -3542,8 +3547,7 @@ export async function demoApi(
           ? { recordingWords: b.recordingWords }
           : {}),
       };
-      if (b.showToolCalls !== undefined)
-        setShowToolCalls(updated, b.showToolCalls);
+      setChatChoices(updated, b);
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_updated", user: updated });
       return undefined;
@@ -4267,17 +4271,15 @@ export async function demoApi(
     return undefined;
   }
   // memberChat.update (PATCH /api/users/:username/chat): the member's
-  // "Show tool calls", set by an owner on the member's page.
+  // "Show tool calls" and "Show messages between agents", set by an owner on
+  // the member's page.
   const memberChatMatch = pathname.match(/^\/api\/users\/([^/]+)\/chat$/);
   if (memberChatMatch && method === "PATCH") {
     const key = decodeURIComponent(memberChatMatch[1]).toLowerCase();
     const user = users.get(key);
     if (!user) throw new ApiError(404, "not_found", "Member not found.");
     const updated: UserRecord = { ...user };
-    setShowToolCalls(
-      updated,
-      (body as { showToolCalls?: unknown } | null)?.showToolCalls === true,
-    );
+    setChatChoices(updated, body);
     users.set(key, updated);
     shimEmit({ type: "user_updated", user: updated });
     return undefined;

@@ -2561,6 +2561,10 @@ export interface UserRecord {
   // default for every member, legacy records included. Written through
   // prefs.update, memberChat.update and users.create.
   showToolCalls?: true;
+  // The chat shows every message between agents (task d5c0f33d). Absent =
+  // the chat folds each run of them into one line, the default for every
+  // member. Written through the same three routes as showToolCalls.
+  showAgentMessages?: true;
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`

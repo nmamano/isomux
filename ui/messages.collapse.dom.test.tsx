@@ -13,7 +13,8 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { LogView } = await import("./log-view/LogView.tsx");
-const { onLanguage } = await import("./test-support/language-fixture.tsx");
+const { onLanguage, selfUserRecord } =
+  await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
 
@@ -149,6 +150,14 @@ const mount = (
       hasReceivedInitialState: true,
       connected: true,
       isMobile,
+      // The viewer shows agent messages (task d5c0f33d): the message card is
+      // the look under test, not the folded line.
+      users: new Map([
+        [
+          "tester",
+          { ...selfUserRecord(language), showAgentMessages: true as const },
+        ],
+      ]),
     },
   );
 function body(button: HTMLElement) {

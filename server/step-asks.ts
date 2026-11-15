@@ -250,6 +250,7 @@ export interface MemberSettings {
   voiceOutput?: VoiceOutput;
   voiceName?: VoiceName;
   showToolCalls?: true;
+  showAgentMessages?: true;
   accessible: readonly string[];
   hidden: readonly string[];
   tucked: readonly string[];
@@ -618,6 +619,7 @@ function effectivePreferences(m: MemberSettings): Record<string, unknown> {
     voiceOutput: m.voiceOutput ?? "browser",
     voiceName: m.voiceName ?? DEFAULT_VOICE_NAME,
     showToolCalls: m.showToolCalls === true,
+    showAgentMessages: m.showAgentMessages === true,
   };
 }
 

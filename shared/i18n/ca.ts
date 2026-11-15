@@ -491,6 +491,9 @@ Coses que pots fer per ell:
   "preferences.showToolCalls": "Mostra les crides a eines",
   "preferences.showToolCallsHint":
     'Ordres, lectures de fitxers i cerques que fan els agents. Si està desactivat, cada sèrie es mostra com una línia, per exemple "4 passos", que pots obrir.',
+  "preferences.showAgentMessages": "Mostra els missatges entre agents",
+  "preferences.showAgentMessagesHint":
+    'Missatges que els agents s\'envien entre ells. Si està desactivat, cada sèrie es mostra com una línia, per exemple "2 missatges entre agents", que pots obrir.',
   "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
@@ -2662,6 +2665,8 @@ Coses que pots fer per ell:
   "cards.toolCall.output": "Sortida",
   "cards.toolCall.denied": "Denegat",
   "cards.toolCall.groupCount": "{count} crides a eines",
+  "cards.toolCall.hiddenMessages.one": "{count} missatge entre agents",
+  "cards.toolCall.hiddenMessages.other": "{count} missatges entre agents",
   "cards.toolCall.hiddenSteps.one": "{count} pas",
   "cards.toolCall.hiddenSteps.other": "{count} passos",
   "cards.toolResult.showMore": "Mostra'n més",

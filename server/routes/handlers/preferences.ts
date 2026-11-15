@@ -168,6 +168,15 @@ export function parsePreferenceChange(
     }
     change.showToolCalls = body.showToolCalls;
   }
+  if ("showAgentMessages" in body) {
+    if (typeof body.showAgentMessages !== "boolean") {
+      return refuse(
+        "invalid_show_agent_messages",
+        "showAgentMessages must be true or false",
+      );
+    }
+    change.showAgentMessages = body.showAgentMessages;
+  }
   if ("voiceInput" in body) {
     if (!isVoiceInput(body.voiceInput)) {
       return refuse(

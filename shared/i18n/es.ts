@@ -491,6 +491,9 @@ Cosas que puedes hacer por él:
   "preferences.showToolCalls": "Mostrar las llamadas a herramientas",
   "preferences.showToolCallsHint":
     'Comandos, lecturas de archivos y búsquedas que hacen los agentes. Si está desactivado, cada serie se muestra como una línea, por ejemplo "4 pasos", que puedes abrir.',
+  "preferences.showAgentMessages": "Mostrar los mensajes entre agentes",
+  "preferences.showAgentMessagesHint":
+    'Mensajes que los agentes se envían entre sí. Si está desactivado, cada serie se muestra como una línea, por ejemplo "2 mensajes entre agentes", que puedes abrir.',
   "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
@@ -2660,6 +2663,8 @@ Cosas que puedes hacer por él:
   "cards.toolCall.output": "Salida",
   "cards.toolCall.denied": "Denegado",
   "cards.toolCall.groupCount": "{count} llamadas a herramientas",
+  "cards.toolCall.hiddenMessages.one": "{count} mensaje entre agentes",
+  "cards.toolCall.hiddenMessages.other": "{count} mensajes entre agentes",
   "cards.toolCall.hiddenSteps.one": "{count} paso",
   "cards.toolCall.hiddenSteps.other": "{count} pasos",
   "cards.toolResult.showMore": "Ver más",

@@ -21,8 +21,10 @@ import type { UserRecord } from "../shared/types.ts";
 /** What the user has TOUCHED in the form. null = "follow the record". */
 export interface PreferenceEdits {
   language: SupportedLanguageCode | null;
-  // "Show tool calls" (task e7579473); absent = follow the record.
+  // "Show tool calls" (task e7579473) and "Show messages between agents"
+  // (task d5c0f33d); absent = follow the record.
   showToolCalls?: boolean;
+  showAgentMessages?: boolean;
 }
 
 export const NO_EDITS: PreferenceEdits = { language: null };
@@ -32,6 +34,8 @@ export interface PreferenceForm {
   language: SupportedLanguageCode;
   /** Whether the "Show tool calls" box is ticked. */
   showToolCalls: boolean;
+  /** Whether the "Show messages between agents" box is ticked. */
+  showAgentMessages: boolean;
   /** Whether Save does anything useful. */
   canSave: boolean;
   /** The body Save would send. */
@@ -65,7 +69,10 @@ export function languageSeed(
 }
 
 export function resolvePreferenceForm(
-  record: Pick<UserRecord, "language" | "showToolCalls"> | null,
+  record: Pick<
+    UserRecord,
+    "language" | "showToolCalls" | "showAgentMessages"
+  > | null,
   navigatorLanguage: string | null | undefined,
   edits: PreferenceEdits,
 ): PreferenceForm {
@@ -77,14 +84,27 @@ export function resolvePreferenceForm(
   // someone on a Spanish browser would see "Español" selected with Save greyed
   // out and no way to commit it.
   const neverChosen = record !== null && record.language === null;
-  const storedShow = record?.showToolCalls === true;
-  const showToolCalls = edits.showToolCalls ?? storedShow;
-  const showChanged = record !== null && showToolCalls !== storedShow;
-  const canSave = neverChosen || language !== shownLanguage || showChanged;
+  const storedTools = record?.showToolCalls === true;
+  const showToolCalls = edits.showToolCalls ?? storedTools;
+  const toolsChanged = record !== null && showToolCalls !== storedTools;
+  const storedMessages = record?.showAgentMessages === true;
+  const showAgentMessages = edits.showAgentMessages ?? storedMessages;
+  const messagesChanged =
+    record !== null && showAgentMessages !== storedMessages;
+  const canSave =
+    neverChosen ||
+    language !== shownLanguage ||
+    toolsChanged ||
+    messagesChanged;
   return {
     language,
     showToolCalls,
+    showAgentMessages,
     canSave,
-    request: showChanged ? { language, showToolCalls } : { language },
+    request: {
+      language,
+      ...(toolsChanged ? { showToolCalls } : {}),
+      ...(messagesChanged ? { showAgentMessages } : {}),
+    },
   };
 }

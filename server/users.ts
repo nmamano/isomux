@@ -320,6 +320,9 @@ function load(): Record<string, UserRecord> {
         ...(value.showToolCalls === true
           ? { showToolCalls: true as const }
           : {}),
+        ...(value.showAgentMessages === true
+          ? { showAgentMessages: true as const }
+          : {}),
         ...loadedPack(value, id),
       };
     }
@@ -446,6 +449,7 @@ export function claimUser(
     // A member's permission pack; dropped for an owner.
     pack?: MemberPack;
     showToolCalls?: true;
+    showAgentMessages?: true;
   },
 ): UserRecord {
   load();
@@ -491,6 +495,7 @@ export function claimUser(
     ...(initial?.pendingSignIn ? { pendingSignIn: true as const } : {}),
     ...(initial?.pack && role === "member" ? { pack: initial.pack } : {}),
     ...(initial?.showToolCalls ? { showToolCalls: true as const } : {}),
+    ...(initial?.showAgentMessages ? { showAgentMessages: true as const } : {}),
   };
   users[id] = record;
   try {
@@ -542,6 +547,7 @@ export function createMember(
     avatarVariant?: string;
     pack?: MemberPack;
     showToolCalls?: true;
+    showAgentMessages?: true;
   },
 ):
   | { ok: true; user: UserRecord }
@@ -788,6 +794,8 @@ export function updateUserById(
     pack?: MemberPack | null;
     // true shows every tool call; false removes the field (the default).
     showToolCalls?: boolean;
+    // true shows every message between agents; false removes the field.
+    showAgentMessages?: boolean;
   },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
@@ -890,6 +898,9 @@ export function updateUserById(
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
     ...((changes.showToolCalls ?? existing.showToolCalls === true)
       ? { showToolCalls: true as const }
+      : {}),
+    ...((changes.showAgentMessages ?? existing.showAgentMessages === true)
+      ? { showAgentMessages: true as const }
       : {}),
   };
   // A pack is a member's only: a promotion to owner drops it. The caller

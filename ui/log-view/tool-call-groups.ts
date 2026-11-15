@@ -199,24 +199,7 @@ export function findRawToolCallGroups(
  * office card never gets an empty line under it.
  */
 export function findHiddenToolRuns(entries: LogEntry[]): RawToolCallGroup[] {
-  const index = buildToolEntryIndex(entries);
-  const groups: RawToolCallGroup[] = [];
-  let run: LogEntry[] = [];
-  const flush = () => {
-    if (run.length > 0) groups.push({ firstId: run[0].id, entries: run });
-    run = [];
-  };
-  for (const entry of entries) {
-    if (isFoldedToolResult(entry, entries, index)) {
-      if (run.length > 0) run.push(entry);
-    } else if (isHiddenToolEntry(entry)) {
-      run.push(entry);
-    } else {
-      flush();
-    }
-  }
-  flush();
-  return groups;
+  return findHiddenRuns(entries, { tools: true, messages: false });
 }
 
 function isHiddenToolEntry(entry: LogEntry): boolean {
@@ -234,14 +217,6 @@ function isHiddenToolEntry(entry: LogEntry): boolean {
     default:
       return false;
   }
-}
-
-/** The "N steps" count of a hidden run: its top-level tool calls, at least 1. */
-export function hiddenRunSteps(run: LogEntry[]): number {
-  const calls = run.filter(
-    (entry) => entry.kind === "tool_call" && !entry.metadata?.subagent,
-  ).length;
-  return Math.max(1, calls);
 }
 
 /**
@@ -303,3 +278,115 @@ export const HideToolCalls = createContext(false);
 export const DetachedSubagentSteps = createContext<
   ReadonlyMap<string, DetachedSubagentStep>
 >(new Map());
+
+// The agent id a card sends a message to: POST /api/agents/:id/messages,
+// with or without a query (steer, deliverAt). Null for any other card.
+function messageRecipient(entry: LogEntry): string | null {
+  if (entry.kind !== "tool_call") return null;
+  const request = isomuxRequestForToolCall(
+    entry.content,
+    entry.metadata?.input,
+  );
+  if (request?.method !== "POST") return null;
+  const match = /^\/api\/agents\/([^/?#]+)\/messages(?:[?#]|$)/.exec(
+    request.path,
+  );
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function isPeerMessage(entry: LogEntry): boolean {
+  return (
+    entry.kind === "user_message" &&
+    (typeof entry.metadata?.sender_agent_name === "string" ||
+      typeof entry.metadata?.sender_agent_id === "string")
+  );
+}
+
+/**
+ * A message between agents (task d5c0f33d): a user_message another agent (or
+ * the agent itself, scheduled) sent, or a tool call that sends one, schedules
+ * one or steers with one (POST /api/agents/:id/messages).
+ */
+export function isAgentMessageEntry(entry: LogEntry): boolean {
+  return isPeerMessage(entry) || messageRecipient(entry) !== null;
+}
+
+/**
+ * The runs a member sees as one folded line. `tools`: the tool-call fold
+ * (findHiddenToolRuns); `messages`: the agent-message fold. With tools false,
+ * a run holds only agent messages and the results that fold into them. A run
+ * may reach past the turn a message from another agent starts.
+ */
+export function findHiddenRuns(
+  entries: LogEntry[],
+  fold: { tools: boolean; messages: boolean },
+): RawToolCallGroup[] {
+  if (!fold.tools && !fold.messages) return [];
+  const index = buildToolEntryIndex(entries);
+  const groups: RawToolCallGroup[] = [];
+  let run: LogEntry[] = [];
+  const flush = () => {
+    if (run.length > 0) groups.push({ firstId: run[0].id, entries: run });
+    run = [];
+  };
+  for (const entry of entries) {
+    if (isFoldedToolResult(entry, entries, index)) {
+      if (run.length > 0) run.push(entry);
+    } else if (
+      (fold.messages && isAgentMessageEntry(entry)) ||
+      (fold.tools && isHiddenToolEntry(entry))
+    ) {
+      run.push(entry);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return groups;
+}
+
+/**
+ * What a folded line counts: agent messages (messages in, and top-level
+ * cards that send one) and top-level steps. A run with no message counts at
+ * least one step.
+ */
+export function hiddenRunCounts(run: LogEntry[]): {
+  messages: number;
+  steps: number;
+} {
+  let messages = 0;
+  let calls = 0;
+  for (const entry of run) {
+    if (isPeerMessage(entry)) messages++;
+    else if (entry.kind === "tool_call" && !entry.metadata?.subagent) {
+      if (messageRecipient(entry) !== null) messages++;
+      else calls++;
+    }
+  }
+  return { messages, steps: messages > 0 ? calls : Math.max(1, calls) };
+}
+
+/**
+ * The agents a run's messages came from or went to, in order of first
+ * appearance, deduplicated, at most 3. The line draws their avatars.
+ */
+export function hiddenRunPeers(run: LogEntry[]): string[] {
+  const peers: string[] = [];
+  for (const entry of run) {
+    const sender = entry.metadata?.sender_agent_id;
+    const id =
+      entry.kind === "user_message"
+        ? typeof sender === "string" && isPeerMessage(entry)
+          ? sender
+          : null
+        : messageRecipient(entry);
+    if (id && !peers.includes(id)) peers.push(id);
+    if (peers.length === 3) break;
+  }
+  return peers;
+}

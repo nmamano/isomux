@@ -194,6 +194,7 @@ const PREFERENCE_LABEL: Record<string, PlainMessageKey> = {
   voiceOutput: "integrations.voice.readAloud",
   voiceName: "integrations.voice.voiceName",
   showToolCalls: "preferences.showToolCalls",
+  showAgentMessages: "preferences.showAgentMessages",
 };
 const BACKUP_LABEL: Record<string, PlainMessageKey> = {
   intervalHours: "settings.storage.backupInterval",
@@ -806,6 +807,7 @@ export function AskActionBlock({
           voiceOutput: self.voiceOutput ?? "browser",
           voiceName: self.voiceName ?? DEFAULT_VOICE_NAME,
           showToolCalls: self.showToolCalls === true,
+          showAgentMessages: self.showAgentMessages === true,
         }
       : null;
     return {

@@ -41,11 +41,12 @@ export function PreferencesPane() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const { language, showToolCalls, canSave, request } = resolvePreferenceForm(
-    self,
-    typeof navigator === "undefined" ? null : navigator.language,
-    edits,
-  );
+  const { language, showToolCalls, showAgentMessages, canSave, request } =
+    resolvePreferenceForm(
+      self,
+      typeof navigator === "undefined" ? null : navigator.language,
+      edits,
+    );
 
   function save() {
     setSaving(true);
@@ -113,10 +114,22 @@ export function PreferencesPane() {
       </div>
 
       <div style={cardStyle}>
-        <ShowToolCallsBox
+        <ChatChoiceBox
+          choice="showToolCalls"
           checked={showToolCalls}
           onChange={(checked) => {
             setEdits((prev) => ({ ...prev, showToolCalls: checked }));
+            setSaved(false);
+          }}
+        />
+      </div>
+
+      <div style={cardStyle}>
+        <ChatChoiceBox
+          choice="showAgentMessages"
+          checked={showAgentMessages}
+          onChange={(checked) => {
+            setEdits((prev) => ({ ...prev, showAgentMessages: checked }));
             setSaved(false);
           }}
         />
@@ -154,16 +167,25 @@ export function PreferencesPane() {
   );
 }
 
-// The "Show tool calls" checkbox and its hint. The owner's member page and
-// New member form use it too.
-export function ShowToolCallsBox({
+// A chat choice's checkbox and its hint: "Show tool calls" (task e7579473)
+// or "Show messages between agents" (task d5c0f33d). The owner's member page
+// and New member form use it too.
+export type ChatChoice = "showToolCalls" | "showAgentMessages";
+
+export function ChatChoiceBox({
+  choice,
   checked,
   onChange,
 }: {
+  choice: ChatChoice;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   const { t } = useI18n();
+  const marker =
+    choice === "showToolCalls"
+      ? { "data-show-tool-calls": "" }
+      : { "data-show-agent-messages": "" };
   return (
     <>
       <label
@@ -177,14 +199,14 @@ export function ShowToolCallsBox({
       >
         <input
           type="checkbox"
-          data-show-tool-calls
+          {...marker}
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}
         />
-        {t("preferences.showToolCalls")}
+        {t(`preferences.${choice}`)}
       </label>
       <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-        {t("preferences.showToolCallsHint")}
+        {t(`preferences.${choice}Hint`)}
       </p>
     </>
   );

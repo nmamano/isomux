@@ -88,7 +88,7 @@ import { useLeaveGuard } from "../page-leave-guard.ts";
 import { InvitesPane, PendingMemberSignInLink } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
-import { PreferencesPane, ShowToolCallsBox } from "./PreferencesPane.tsx";
+import { ChatChoiceBox, PreferencesPane } from "./PreferencesPane.tsx";
 import {
   RemovedMembersPane,
   useRemovedMembersSeed,
@@ -1252,14 +1252,22 @@ function UserEditPanel({
   const [packSetting, setPackSetting] = useState<MemberPack | null>(
     user.pack ?? null,
   );
-  // "Show tool calls" (task e7579473): an owner sets it for another member
-  // and in the New member form; the member's own is in their Settings pane.
+  // "Show tool calls" (task e7579473) and "Show messages between agents"
+  // (task d5c0f33d): an owner sets them for another member and in the New
+  // member form; the member's own are in their Settings pane.
   const editsShowToolCalls = isOwner && !isMe;
   const [showToolCalls, setShowToolCalls] = useState(
     user.showToolCalls === true,
   );
   const showToolCallsChanged =
     editsShowToolCalls && showToolCalls !== (user.showToolCalls === true);
+  const [showAgentMessages, setShowAgentMessages] = useState(
+    user.showAgentMessages === true,
+  );
+  const showAgentMessagesChanged =
+    editsShowToolCalls &&
+    showAgentMessages !== (user.showAgentMessages === true);
+  const chatChanged = showToolCallsChanged || showAgentMessagesChanged;
   // The level the draft left when an edit made it Custom; feeds the legend.
   const [startedFrom, setStartedFrom] = useState<MemberLevel | null>(null);
   // Per-user DISPLAY preference: room ids the user has hidden
@@ -1486,7 +1494,7 @@ function UserEditPanel({
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
     if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
-    if (!creating && showToolCallsChanged) return true;
+    if (!creating && chatChanged) return true;
     if (pinsChanged) return true;
     return false;
   }
@@ -1581,12 +1589,16 @@ function UserEditPanel({
         setPromptVersion(saved.version);
         setPromptConflict(null);
       }
-      // (1c) The member's chat choice, against the original name.
-      if (showToolCallsChanged) {
+      // (1c) The member's chat choices that changed, against the original
+      // name.
+      if (chatChanged) {
         await apiFetch(
           "PATCH",
           `/api/users/${encodeURIComponent(origName)}/chat`,
-          { showToolCalls },
+          {
+            ...(showToolCallsChanged ? { showToolCalls } : {}),
+            ...(showAgentMessagesChanged ? { showAgentMessages } : {}),
+          },
         );
       }
       // (1d) The member's Pinned list, against the original name.
@@ -1722,6 +1734,7 @@ function UserEditPanel({
         ...(!officeOwner && packSetting ? { pack: packSetting } : {}),
         // Unticked is the default, so the body leaves it out.
         ...(showToolCalls ? { showToolCalls: true } : {}),
+        ...(showAgentMessages ? { showAgentMessages: true } : {}),
       });
       onCreated?.(r.user.id);
     } catch (err) {
@@ -2074,10 +2087,18 @@ function UserEditPanel({
         {editsShowToolCalls && (
           <>
             <h5 style={sectionTitleStyle}>{t("settings.profile.chat")}</h5>
-            <ShowToolCallsBox
+            <ChatChoiceBox
+              choice="showToolCalls"
               checked={showToolCalls}
               onChange={setShowToolCalls}
             />
+            <div style={{ marginTop: 12 }}>
+              <ChatChoiceBox
+                choice="showAgentMessages"
+                checked={showAgentMessages}
+                onChange={setShowAgentMessages}
+              />
+            </div>
           </>
         )}
 

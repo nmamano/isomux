@@ -1587,6 +1587,27 @@ describe("a member-preferences ask for showToolCalls", () => {
     expect(getUserById(o.morganId)!.showToolCalls).toBe(true);
     await closesDone(o, asker.id, entry.id);
   });
+
+  // Messages between agents (task d5c0f33d): the same shape.
+  it("showAgentMessages: false on a record without it is 409 step_done; true opens, and the card sets it and closes the ask", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    expect("showAgentMessages" in getUserById(o.morganId)!).toBe(false);
+    expect(
+      outcome(await ask(o, asker.id, prefsStep({ showAgentMessages: false }))),
+    ).toEqual({ status: 409, code: "step_done" });
+    expect(
+      outcome(await ask(o, asker.id, prefsStep({ showAgentMessages: "yes" }))),
+    ).toEqual({ status: 400, code: "invalid_request" });
+    const entry = await opened(
+      o,
+      asker.id,
+      prefsStep({ showAgentMessages: true }),
+    );
+    expect(await run(o, o.morgan, entry.id)).toMatchObject({ status: 204 });
+    expect(getUserById(o.morganId)!.showAgentMessages).toBe(true);
+    await closesDone(o, asker.id, entry.id);
+  });
 });
 
 describe("a member-preferences ask run from the card", () => {

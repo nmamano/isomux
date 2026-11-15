@@ -10,6 +10,7 @@ setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
 const { en } = await import("../shared/i18n/en.ts");
 const { shimEmit } = await import("./ws.ts");
+const { selfUserRecord } = await import("./test-support/language-fixture.tsx");
 const { activeRoom, backScreen, boot, escape, setApps, setUpAgentLinkTests } =
   await import("./test-support/agent-link-fixture.tsx");
 type AppListWire = import("../shared/types.ts").AppListWire;
@@ -65,6 +66,20 @@ it("leaves a chat opened from an agent's name in another room's chat for that ag
   // Scout's chat, in the first room.
   const view = await boot("/agents/a1");
   expect(document.title).toContain("Scout");
+  // The member shows agent messages (task d5c0f33d), so the message is its
+  // card, not a folded line.
+  await act(async () => {
+    shimEmit({
+      type: "user_self_updated",
+      user: {
+        ...selfUserRecord(null),
+        id: "u1",
+        name: "member",
+        role: "member",
+        showAgentMessages: true,
+      },
+    } as never);
+  });
   // A message from Faraway names its sender with a link.
   await act(async () => {
     shimEmit({

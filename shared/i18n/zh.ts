@@ -465,6 +465,9 @@ export const zh: Catalog = {
   "preferences.showToolCalls": "显示工具调用",
   "preferences.showToolCallsHint":
     "智能体运行的命令、文件读取和搜索。关闭后，每一串这样的步骤显示为一行（例如“4 个步骤”），可以展开查看。",
+  "preferences.showAgentMessages": "显示智能体之间的消息",
+  "preferences.showAgentMessagesHint":
+    "智能体之间互相发送的消息。关闭后，每一串这样的消息显示为一行（例如“2 条智能体消息”），可以展开查看。",
   "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
 
@@ -2372,6 +2375,8 @@ export const zh: Catalog = {
   "cards.toolCall.output": "输出",
   "cards.toolCall.denied": "已拒绝",
   "cards.toolCall.groupCount": "{count} 次工具调用",
+  "cards.toolCall.hiddenMessages.one": "{count} 条智能体消息",
+  "cards.toolCall.hiddenMessages.other": "{count} 条智能体消息",
   "cards.toolCall.hiddenSteps.one": "{count} 个步骤",
   "cards.toolCall.hiddenSteps.other": "{count} 个步骤",
   "cards.toolResult.showMore": "显示更多",

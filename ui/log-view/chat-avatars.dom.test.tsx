@@ -61,6 +61,10 @@ function entry(
   return { id, agentId: agent.id, timestamp: 1, kind, content, metadata };
 }
 
+// The viewer shows agent messages (task d5c0f33d): these cards are the look
+// under test, not the folded line.
+const viewer = { ...selfUserRecord(null), showAgentMessages: true as const };
+
 function mount(logs: LogEntry[], agents: AgentInfo[], actions: Action[]) {
   const element = onLanguage(
     null,
@@ -68,7 +72,7 @@ function mount(logs: LogEntry[], agents: AgentInfo[], actions: Action[]) {
     {
       agents,
       users: new Map([
-        [selfName.toLowerCase(), selfUserRecord(null)],
+        [selfName.toLowerCase(), viewer],
         ["stephen", stephen],
       ]),
       rooms: [

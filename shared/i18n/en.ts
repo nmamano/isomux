@@ -497,6 +497,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preferences.showToolCalls": "Show tool calls",
   "preferences.showToolCallsHint":
     'Commands, file reads and searches that agents run. When off, each run of them shows as one line, such as "4 steps", that you can open.',
+  "preferences.showAgentMessages": "Show agent messages",
+  "preferences.showAgentMessagesHint":
+    'Messages that agents send to each other. When off, each run of them shows as one line, such as "2 agent messages", that you can open.',
   "preferences.saved": "Saved.",
   "preferences.saveFailed": "Could not save",
 
@@ -2580,6 +2583,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.toolCall.output": "Output",
   "cards.toolCall.denied": "Denied",
   "cards.toolCall.groupCount": "{count} tool calls",
+  "cards.toolCall.hiddenMessages.one": "{count} agent message",
+  "cards.toolCall.hiddenMessages.other": "{count} agent messages",
   "cards.toolCall.hiddenSteps.one": "{count} step",
   "cards.toolCall.hiddenSteps.other": "{count} steps",
   "cards.toolResult.showMore": "Show more",

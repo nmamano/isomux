@@ -834,6 +834,7 @@ export type PreferencesReq = Partial<{
   recordingWords: RecordingWord[];
   inboxDismissed: string[];
   showToolCalls: boolean;
+  showAgentMessages: boolean;
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
@@ -847,6 +848,7 @@ export const PREFERENCE_KEYS = [
   "recordingWords",
   "inboxDismissed",
   "showToolCalls",
+  "showAgentMessages",
 ] as const;
 
 // The Inbox dismiss list's bounds (UserRecord.inboxDismissed): the keys of
@@ -889,7 +891,10 @@ export type MemberVoiceReq = Pick<
 // memberChat.update (PATCH /api/users/:username/chat): the chat part of the
 // member's preferences, which the member or an office owner sets (task
 // e7579473).
-export const CHAT_PREFERENCE_KEYS = ["showToolCalls"] as const;
+export const CHAT_PREFERENCE_KEYS = [
+  "showToolCalls",
+  "showAgentMessages",
+] as const;
 export type MemberChatReq = Pick<
   PreferencesReq,
   (typeof CHAT_PREFERENCE_KEYS)[number]
@@ -1170,6 +1175,9 @@ export interface UserCreateReq {
   pack?: MemberPack | null;
   // true: the new member's chat shows every tool call (task e7579473).
   showToolCalls?: boolean;
+  // true: the new member's chat shows every message between agents (task
+  // d5c0f33d).
+  showAgentMessages?: boolean;
 }
 
 export interface AccessSettingsReq {

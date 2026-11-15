@@ -19,9 +19,10 @@ import {
 import {
   DetachedSubagentSteps,
   detachedSubagentSteps,
-  findHiddenToolRuns,
+  findHiddenRuns,
   findRawToolCallGroups,
   HideToolCalls,
+  isFoldedToolResult,
   liveTailEntryIds,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
@@ -56,13 +57,26 @@ function secretRequestOutcomes(
   return outcomes;
 }
 
+// Where a folded line takes its turn copy button from: the turn of the run's
+// last entry that is not a message to the agent (such a message starts a turn
+// of its own), and only when nothing shown follows the run in that turn.
+// `lastCardId` is the card that carries the button when the line is open.
+export type HiddenRunTurn = {
+  isLastInTurn: boolean;
+  turnEntries?: LogEntry[];
+  lastCardId?: string;
+};
+
 // Both chat surfaces keep the same turn boundaries and expansion state.
 // hideToolCalls (useHideToolCalls; both surfaces pass it) folds each run of
-// tool steps into one "N steps" line; the HTML export shows them all.
+// tool steps into one "N steps" line; hideAgentMessages (useHideAgentMessages,
+// task d5c0f33d) folds each run of messages between agents the same way, into
+// the same line when both are on. The HTML export shows them all.
 export function useChatTranscript(
   logs: LogEntry[],
   isBusy: boolean,
   hideToolCalls = false,
+  hideAgentMessages = false,
 ) {
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(
     () => new Set(),
@@ -91,6 +105,7 @@ export function useChatTranscript(
   // call shown.
   const [exportView, setExportView] = useState(false);
   const hidden = hideToolCalls && !exportView;
+  const hideMessages = hideAgentMessages && !exportView;
   // Do not collapse the trailing live tool batch: active tool work stays
   // visible as it arrives, while settled history remains stable even when one
   // agent turn runs for hours.
@@ -99,29 +114,37 @@ export function useChatTranscript(
     () => liveTailEntryIds(logs, isBusy && !hidden),
     [isBusy, hidden, logs],
   );
+  // With tool calls shown, the raw groups are as they were and the message
+  // runs come on top: a raw group never holds an office card or a message,
+  // so the two lists never share an entry.
   const rawToolGroups = useMemo(
-    () =>
-      hidden
-        ? findHiddenToolRuns(logs)
-        : findRawToolCallGroups(logs, liveTailIds),
+    () => (hidden ? [] : findRawToolCallGroups(logs, liveTailIds)),
     [hidden, liveTailIds, logs],
+  );
+  const hiddenRuns = useMemo(
+    () => findHiddenRuns(logs, { tools: hidden, messages: hideMessages }),
+    [hidden, hideMessages, logs],
   );
   const rawToolGroupByFirstId = useMemo(
     () => new Map(rawToolGroups.map((group) => [group.firstId, group])),
     [rawToolGroups],
   );
+  const hiddenRunByFirstId = useMemo(
+    () => new Map(hiddenRuns.map((run) => [run.firstId, run])),
+    [hiddenRuns],
+  );
   const detachedSteps = useMemo(
-    () => detachedSubagentSteps(logs, rawToolGroups),
-    [logs, rawToolGroups],
+    () => detachedSubagentSteps(logs, [...rawToolGroups, ...hiddenRuns]),
+    [logs, rawToolGroups, hiddenRuns],
   );
   const groupedChildIds = useMemo(
     () =>
       new Set(
-        rawToolGroups.flatMap((group) =>
+        [...rawToolGroups, ...hiddenRuns].flatMap((group) =>
           group.entries.slice(1).map((entry) => entry.id),
         ),
       ),
-    [rawToolGroups],
+    [rawToolGroups, hiddenRuns],
   );
 
   // Compute agent turns: group entries between user_messages
@@ -185,6 +208,32 @@ export function useChatTranscript(
     return entryMap;
   }, [logs, groupedChildIds]);
 
+  const hiddenRunTurns = useMemo(() => {
+    const anchors = new Map<string, HiddenRunTurn>();
+    for (const run of hiddenRuns) {
+      const agentEntries = run.entries.filter(
+        (entry) => entry.kind !== "user_message",
+      );
+      const last = agentEntries.at(-1);
+      const turnEntries = last && turnData.get(last.id)?.turnEntries;
+      if (!last || !turnEntries) {
+        anchors.set(run.firstId, { isLastInTurn: false });
+        continue;
+      }
+      const lastCard = agentEntries.findLast(
+        (entry) => !isFoldedToolResult(entry, turnEntries),
+      );
+      anchors.set(run.firstId, {
+        isLastInTurn:
+          lastVisibleEntryIndex(turnEntries, groupedChildIds) <=
+          turnEntries.indexOf(last),
+        turnEntries,
+        lastCardId: lastCard?.id,
+      });
+    }
+    return anchors;
+  }, [hiddenRuns, turnData, groupedChildIds]);
+
   return {
     expandedMessages,
     toggleMessage,
@@ -192,6 +241,8 @@ export function useChatTranscript(
     setExportView,
     groupedChildIds,
     rawToolGroupByFirstId,
+    hiddenRunByFirstId,
+    hiddenRunTurns,
     detachedSteps,
     turnData,
     hidden,
@@ -336,6 +387,7 @@ export function ChatTranscript({
                     const rawToolGroup = view.rawToolGroupByFirstId.get(
                       entry.id,
                     );
+                    const hiddenRun = view.hiddenRunByFirstId.get(entry.id);
                     const isUserMsg =
                       entry.kind === "user_message" &&
                       senderIsHuman(entry.metadata);
@@ -352,16 +404,24 @@ export function ChatTranscript({
                         }
                         onCopy={copySelectionAsPlainText}
                       >
-                        {rawToolGroup && view.hidden ? (
+                        {hiddenRun ? (
                           <HiddenToolRunCard
-                            entries={rawToolGroup.entries}
+                            entries={hiddenRun.entries}
                             open={view.openRuns.has(entry.id)}
                             onToggle={() => view.toggleRun(entry.id)}
-                            isLastInTurn={td?.isLastInTurn}
-                            turnEntries={td?.turnEntries}
+                            turn={view.hiddenRunTurns.get(entry.id)}
                             isMobile={isMobile}
-                            onCopyToTerminal={onCopyToTerminal}
-                            onRunDeniedCommand={onRunDeniedCommand}
+                            cardProps={(child) => ({
+                              messageExpanded: view.expandedMessages.has(
+                                child.id,
+                              ),
+                              onToggleMessage: view.toggleMessage,
+                              turnEntries: view.turnData.get(child.id)
+                                ?.turnEntries,
+                              onCopyToTerminal,
+                              onRunDeniedCommand,
+                              ...entryProps?.(child),
+                            })}
                           />
                         ) : rawToolGroup ? (
                           <RawToolCallGroupCard

@@ -208,6 +208,15 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           "invalid_request",
           "showToolCalls must be true or false",
         );
+      if (
+        body.showAgentMessages !== undefined &&
+        typeof body.showAgentMessages !== "boolean"
+      )
+        return fail(
+          422,
+          "invalid_request",
+          "showAgentMessages must be true or false",
+        );
       // A permission pack, in the same write as the member.
       const pack =
         body.pack === undefined || body.pack === null
@@ -225,6 +234,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         allowedRooms: body.allowedRooms,
         ...(pack ? { pack } : {}),
         ...(body.showToolCalls ? { showToolCalls: true } : {}),
+        ...(body.showAgentMessages ? { showAgentMessages: true } : {}),
       });
       return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
     },

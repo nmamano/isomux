@@ -12,6 +12,7 @@ import {
   formatElapsed,
   stateLabelKey,
 } from "./ActivityIndicator.tsx";
+import { useHideAgentMessages } from "../hooks/useHideAgentMessages.ts";
 import { useHideToolCalls } from "../hooks/useHideToolCalls.ts";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
@@ -1359,7 +1360,12 @@ export function LogView({
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
-  const transcript = useChatTranscript(logs, isBusy, useHideToolCalls());
+  const transcript = useChatTranscript(
+    logs,
+    isBusy,
+    useHideToolCalls(),
+    useHideAgentMessages(),
+  );
   // Recent then complete (task 9ebe887d slice 3): the whole-chat Copy
   // choices wait for the whole chat; last exchange needs only a member
   // message in the loaded entries.

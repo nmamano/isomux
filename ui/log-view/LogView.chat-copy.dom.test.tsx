@@ -286,7 +286,8 @@ const htmlLogs: LogEntry[] = [
   ),
   // The office asks the member to pick a model under this notice.
   entry("n1", "system", "No model.", { pickModel: true }),
-  // Collapsed in the chat: its lines join into one row.
+  // A message from another agent: the chat folds it into a line (task
+  // d5c0f33d); the file shows it in full.
   entry("p1", "user_message", "Peer line one\nPeer line two", {
     sender_agent_name: "Helper",
     sender_agent_id: "a2",
@@ -295,6 +296,11 @@ const htmlLogs: LogEntry[] = [
   entry("m1", "user_message", "Report body text.", {
     sender_app_name: "Monitor",
     username: "Monitor",
+  }),
+  // Another one, which the member opens: its message toggle shows.
+  entry("p2", "user_message", "Later peer one\nLater peer two", {
+    sender_agent_name: "Helper",
+    sender_agent_id: "a2",
   }),
   entry("u2", "user_message", "Second ask.", { username: "Tester" }),
   entry("x2", "text", "Second reply."),
@@ -402,9 +408,13 @@ it("with HTML file picked, each choice saves a file of the chat as it shows, not
     expect(checked()).toEqual(["html"]);
     expect(localStorage.getItem(FORMAT_KEY)).toBe("html");
 
-    // The chat as the member left it: both messages collapsed, the second
-    // ask open in its editor with a draft, and the controls a file cannot use.
-    expect(chat.textContent).toContain("Peer line one · Peer line two");
+    // The chat as the member left it: the agent's message folded into its
+    // line, the app's collapsed, the second ask open in its editor with a
+    // draft, and the controls a file cannot use.
+    expect(chat.textContent).not.toContain("Peer line one");
+    expect(
+      chat.querySelector('[data-log-entry-id="p1"] button[data-hidden-steps]'),
+    ).not.toBeNull();
     expect(stylesAround(chat, "Report body text.")).toMatch(MAX_HEIGHT);
     const editButtons = chat.querySelectorAll("[data-edit-message]");
     expect(editButtons.length).toBeGreaterThan(0);
@@ -424,9 +434,16 @@ it("with HTML file picked, each choice saves a file of the chat as it shows, not
     // The viewer's record does not show tool calls (task e7579473): the
     // chat folds the call into a steps line, and the file still holds it.
     expect(chat.textContent).not.toContain("echo one");
-    expect(chat.querySelectorAll("button[data-hidden-steps]").length).toBe(1);
-    // The member opens the run; the export must leave it open.
-    fireEvent.click(chat.querySelector("button[data-hidden-steps]")!);
+    expect(chat.querySelectorAll("button[data-hidden-steps]").length).toBe(3);
+    // The member opens the steps and the later message; the export must
+    // leave them open, and the first message closed.
+    for (const id of ["c1", "p2"])
+      fireEvent.click(
+        chat.querySelector(
+          `[data-log-entry-id="${id}"] button[data-hidden-steps]`,
+        )!,
+      );
+    expect(chat.textContent).toContain("Later peer one · Later peer two");
     expect(chat.textContent).toContain("echo one");
     // Controls of the chat: a code block's copy, the message toggle, the
     // editor's Cancel, the model picker.
@@ -540,13 +557,17 @@ it("with HTML file picked, each choice saves a file of the chat as it shows, not
       true,
     );
 
-    // The chat is as the member left it, with the draft kept.
-    expect(chat.textContent).toContain("Peer line one · Peer line two");
-    // The run the member opened is still open.
+    // The chat is as the member left it, with the draft kept: the agent's
+    // message still folded, the steps the member opened still open.
+    expect(chat.textContent).not.toContain("Peer line one");
+    expect(
+      chat.querySelector('[data-log-entry-id="p1"] button[data-hidden-steps]'),
+    ).not.toBeNull();
     expect(chat.textContent).toContain("echo one");
-    expect(chat.querySelectorAll("button[data-hidden-steps]").length).toBe(0);
+    expect(chat.textContent).toContain("Later peer one · Later peer two");
+    expect(chat.querySelectorAll("button[data-hidden-steps]").length).toBe(1);
     expect(chat.querySelectorAll("button[data-hidden-steps-open]").length).toBe(
-      1,
+      2,
     );
     expect(stylesAround(chat, "Report body text.")).toMatch(MAX_HEIGHT);
     expect(

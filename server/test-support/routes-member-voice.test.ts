@@ -385,6 +385,34 @@ describe("member chat: who sets showToolCalls", () => {
     expect(showsToolCalls(o.member.username)).toBe("absent");
   });
 
+  // Messages between agents (task d5c0f33d): the same route and shape, and
+  // each key leaves the other alone.
+  it("takes showAgentMessages: true stores it, false removes it, and showToolCalls stays as it was; both keys in one body set both", async () => {
+    const o = await office();
+    const path = chatPath(o.member.username);
+    const agentMessages = () => {
+      const rec = getUserByName(o.member.username)!;
+      return "showAgentMessages" in rec ? rec.showAgentMessages : "absent";
+    };
+    for (const [body, toolCalls, messages] of [
+      [{ showAgentMessages: true }, "absent", true],
+      [{ showToolCalls: true }, true, true],
+      [{ showAgentMessages: false }, true, "absent"],
+      [{ showToolCalls: false, showAgentMessages: true }, "absent", true],
+    ] as const) {
+      const r = await call(o.srv, "PATCH", path, {
+        session: o.owner.rawSessionId,
+        body,
+      });
+      expect({
+        body,
+        status: r.status,
+        toolCalls: showsToolCalls(o.member.username),
+        messages: agentMessages(),
+      }).toEqual({ body, status: 204, toolCalls, messages });
+    }
+  });
+
   // A display choice, not an integration: the office area limits a token.
   it("a limited API token needs office write, and the voice area does not reach it", async () => {
     const o = await office();
@@ -423,6 +451,9 @@ describe("member chat: who sets showToolCalls", () => {
       { showToolCalls: "true" },
       { showToolCalls: null },
       { showToolCalls: 1 },
+      { showAgentMessages: "true" },
+      { showAgentMessages: null },
+      { showToolCalls: true, showAgentMessages: 1 },
       { showTools: true },
       {},
       7,
@@ -445,6 +476,7 @@ describe("member chat: who sets showToolCalls", () => {
       { language: "es" },
       { voiceInput: "openai" },
       { showToolCalls: true, voiceInput: "openai" },
+      { showAgentMessages: true, language: "es" },
     ]) {
       const r = await call(o.srv, "PATCH", path, {
         session: o.owner.rawSessionId,
@@ -453,6 +485,9 @@ describe("member chat: who sets showToolCalls", () => {
       expect({ body, status: r.status }).toEqual({ body, status: 422 });
     }
     expect(showsToolCalls(o.member.username)).toBe("absent");
+    expect("showAgentMessages" in getUserByName(o.member.username)!).toBe(
+      false,
+    );
     expect(getUserByName(o.member.username)!.language).toBe(null);
     expect(voiceOf(o.member.username)).toEqual([
       undefined,

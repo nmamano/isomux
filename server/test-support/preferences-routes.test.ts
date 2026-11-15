@@ -151,6 +151,41 @@ describe("prefs.update - persistence", () => {
     expect(rec.language).toBe("es");
   });
 
+  // Messages between agents in the chat (task d5c0f33d): the same shape as
+  // showToolCalls, and each key leaves the other alone.
+  it("round-trips showAgentMessages through a cold restart apart from showToolCalls, and false removes it", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    expect(
+      await putPrefs(server, owner.rawSessionId, { showToolCalls: true }),
+    ).toBe(204);
+    expect("showAgentMessages" in getUserByName("Morgan")!).toBe(false);
+    expect(
+      await putPrefs(server, owner.rawSessionId, { showAgentMessages: true }),
+    ).toBe(204);
+    server = await server.restart();
+    let rec = getUserByName("Morgan")!;
+    expect(rec.showAgentMessages).toBe(true);
+    expect(rec.showToolCalls).toBe(true);
+    expect(
+      await putPrefs(server, owner.rawSessionId, { showAgentMessages: false }),
+    ).toBe(204);
+    server = await server.restart();
+    rec = getUserByName("Morgan")!;
+    expect("showAgentMessages" in rec).toBe(false);
+    expect(rec.showToolCalls).toBe(true);
+    // Both in one body.
+    expect(
+      await putPrefs(server, owner.rawSessionId, {
+        showToolCalls: false,
+        showAgentMessages: true,
+      }),
+    ).toBe(204);
+    rec = getUserByName("Morgan")!;
+    expect("showToolCalls" in rec).toBe(false);
+    expect(rec.showAgentMessages).toBe(true);
+  });
+
   it("language: null clears an earlier pick", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -262,7 +297,7 @@ describe("prefs.update - value validation", () => {
 });
 
 // A truthy string must not read as "show": the field is true or absent.
-it("rejects a showToolCalls that is not a boolean, and writes nothing", async () => {
+it("rejects a showToolCalls or showAgentMessages that is not a boolean, and writes nothing", async () => {
   server = await startTestServer();
   const owner = await server.seedOwner("Morgan");
   for (const body of [
@@ -271,6 +306,10 @@ it("rejects a showToolCalls that is not a boolean, and writes nothing", async ()
     { showToolCalls: null },
     { showToolCalls: {} },
     { language: "es", showToolCalls: "yes" },
+    { showAgentMessages: "true" },
+    { showAgentMessages: 1 },
+    { showAgentMessages: null },
+    { showToolCalls: true, showAgentMessages: "yes" },
   ])
     expect({
       body,
@@ -278,6 +317,7 @@ it("rejects a showToolCalls that is not a boolean, and writes nothing", async ()
     }).toEqual({ body, status: 422 });
   const rec = getUserByName("Morgan")!;
   expect("showToolCalls" in rec).toBe(false);
+  expect("showAgentMessages" in rec).toBe(false);
   expect(rec.language).toBe(null);
 });
 
@@ -417,6 +457,7 @@ describe("prefs.update - live event contract", () => {
       ["inboxDismissed", ["agent-1:1700000000000"]],
       // The member's other devices fold or show tool calls at once.
       ["showToolCalls", true],
+      ["showAgentMessages", true],
     ] as const) {
       // Ignore earlier events; only events caused by this write count.
       const beforeSelf = bag(memberSock, "user_self_updated").length;
