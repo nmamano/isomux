@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
+import { commandForPermissionDenial } from "../../shared/permission-denial.ts";
 import {
-  commandForPermissionDenial,
   detachedSubagentSteps,
   findHiddenToolRuns,
   findRawToolCallGroups,

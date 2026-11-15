@@ -333,6 +333,19 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     emitAgentAskOutcome(agentId, line, { askRun: askId }, memberUserId, notice);
   }
 
+  // The end of a member's Run of a refused command (task 0faacc4e): the
+  // system entry with the run in `metadata`, and `notice` to the agent from
+  // the member who ran it.
+  function emitAgentDeniedCommandRun(
+    agentId: string,
+    line: LogMessage,
+    metadata: Record<string, unknown>,
+    memberUserId: string,
+    notice: string,
+  ): void {
+    emitAgentAskOutcome(agentId, line, metadata, memberUserId, notice);
+  }
+
   // An ask's outcome the agent did not see happen: a system line in its
   // chat (with `metadata`), and the same line to the agent as an office
   // notice from `member`, whose turn and usage cap it is.
@@ -630,6 +643,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     emitAgentSecretRequestSettled,
     emitAgentSudoRequestReport,
     emitAgentAskRunReport,
+    emitAgentDeniedCommandRun,
     emitAgentStepAskDone,
     copyAskReadFile,
     emitAgentReadFile,

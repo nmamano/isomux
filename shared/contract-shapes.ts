@@ -1037,6 +1037,12 @@ export interface AskReplyReq {
 export interface AskRunCommandReq {
   command: string;
 }
+// The member's Run of a refused command (task 0faacc4e): the denial's tool
+// call id, and the command as the refused card shows it, byte for byte.
+export interface DeniedCommandRunReq {
+  toolUseId: string;
+  command: string;
+}
 export interface AskDismissReq {
   // What the member typed, sent as the dismissal's reason. Blank or absent:
   // the agent reads "Dismissed".

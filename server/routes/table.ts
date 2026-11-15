@@ -214,6 +214,7 @@ import type {
   AskEditReq,
   AskReplyReq,
   AskRunCommandReq,
+  DeniedCommandRunReq,
   AskDismissReq,
   AskSimplifyReq,
   AskFileTaskReq,
@@ -1338,6 +1339,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("terminal:use", userScope),
     tokenArea: { area: "asks", level: "write" },
     emits: ["ask_upserted", "others_ask_upserted"],
+    preconditions: ["officeNotEnterpriseLocked"],
+  }),
+  // The member runs a command the agent's tool call was refused (task
+  // 0faacc4e), from the refused card, in the agent's terminal environment.
+  // The same gate as asks.runCommand: a signed-in member only, who may use
+  // that agent's terminal panel. Answers 202 at the start; the run's end
+  // comes as a log_entry in the agent's chat.
+  defineRoute<DeniedCommandRunReq, AskCommandRun>({
+    opId: "agents.runDeniedCommand",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/denied-command-runs",
+    auth: cap("terminal:use", userScope),
+    tokenArea: { area: "asks", level: "write" },
+    emits: ["log_entry"],
     preconditions: ["officeNotEnterpriseLocked"],
   }),
   // A file an ask references in place (a video or audio file), for the

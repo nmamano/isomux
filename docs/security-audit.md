@@ -254,7 +254,7 @@ An agent's access is one stop on a slider: Chat, Office, Folder, Web, Standard a
 Isomux checks each recognized tool call of Claude, Codex and OpenCode agents before it runs. No setting turns the check off. The check blocks:
 
 - destructive git commands, such as `git reset --hard`, `git push --force` and `git clean -f`,
-- `rm -rf` outside `/tmp` and `/var/tmp`, or through a symbolic link there,
+- `rm -rf` of a path that is not written in full in `/tmp` or `/var/tmp`, of a path that a symbolic link takes out of them, and of paths that `xargs` adds,
 - writes into the state directory,
 - reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, OpenCode's databases, and the secrets, managed environment files and app token files (`apps/units/*.env`) in the state directory,
 - recursive searches (`grep -r`, `rg`, the Grep tool) rooted at the secret store or above it, unless they exclude `secrets/`. This rule does not cover the managed environment files, the MCP servers or the app token files,
@@ -265,6 +265,8 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - recognized uses of the owner recovery socket.
 
 The check reads each command of a shell line, also the commands inside `bash -c`, `eval`, `find -exec` and command substitutions. One blocked command blocks the line.
+
+A refusal of a Claude agent's command shows in the chat as a refused card. A member who can use the agent's terminal can run the command from the card, after a confirm.
 
 The safety hooks are a guardrail against mistakes by honest agents. They are not a security boundary:
 

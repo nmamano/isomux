@@ -1448,6 +1448,12 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["terminal:use"],
     emits: ["ask_upserted", "others_ask_upserted"],
   },
+  // The member runs a refused command from its card (task 0faacc4e): the
+  // ask Run's gate. The run's end comes as a log entry after the 202.
+  "agents.runDeniedCommand": {
+    caps: ["terminal:use"],
+    emits: ["log_entry"],
+  },
   // Any agent's ask by its id (task 03f5c534): the reach of its logs,
   // checked in the handler against the ask's agent.
   "asks.get": { caps: ["log:read"], emits: [] },
@@ -2061,6 +2067,7 @@ const SPEC_PRECONDITIONS: Record<string, RoutePrecondition[]> = {
   "asks.simplifyUndo": ["officeNotEnterpriseLocked"],
   "asks.fileTask": ["officeNotEnterpriseLocked"],
   "asks.runCommand": ["officeNotEnterpriseLocked"],
+  "agents.runDeniedCommand": ["officeNotEnterpriseLocked"],
   "cron.runNow": ["officeNotEnterpriseLocked"],
   "cron.runMessage": ["officeNotEnterpriseLocked"],
   "cron.editRunMessage": ["officeNotEnterpriseLocked"],

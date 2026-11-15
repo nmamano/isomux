@@ -2435,6 +2435,10 @@ export const zh: Catalog = {
     "值不会进入聊天。正在运行的应用会重启以读取它。",
   "cards.secretRequest.appGone":
     "智能体提出请求后，该应用已被删除或替换。请拒绝此请求。",
+  "cards.toolCall.runDenied": "运行命令",
+  "cards.toolCall.runDeniedHint": "在智能体的文件夹中运行被拒绝的命令",
+  "cards.toolCall.runDeniedConfirm":
+    "在智能体的文件夹中运行这条被拒绝的命令吗？智能体会收到它的输出。",
   "cards.terminalCommand.copy": "复制到终端",
   "cards.tool.noOutput": "（无输出）",
   "cards.tool.morePaths": "{path} 及另外 {count} 个",
@@ -3460,6 +3464,12 @@ export const zh: Catalog = {
   "systemEntries.askRun.killed":
     "已从请示中运行，已被 {signal} 终止：{command}",
   "systemEntries.askRun.lost": "已从请示中运行，结果未知：{command}",
+  "systemEntries.deniedRun.exited":
+    "已运行被拒绝的命令，退出码 {code}：{command}",
+  "systemEntries.deniedRun.timedOut":
+    "已运行被拒绝的命令，10 分钟后已停止：{command}",
+  "systemEntries.deniedRun.killed":
+    "已运行被拒绝的命令，已被 {signal} 终止：{command}",
   "systemEntries.sudoRequest.lockedOut":
     "sudo 请求已关闭，{attempts} 次尝试均被拒绝：{command}",
   "systemEntries.sudoRequest.declined": "sudo 请求已拒绝：{command}",

@@ -2738,6 +2738,11 @@ Coses que pots fer per ell:
     "El valor no entra al xat. Si l'app està en marxa, es reinicia per llegir-lo.",
   "cards.secretRequest.appGone":
     "L'app s'ha eliminat o substituït després de la sol·licitud de l'agent. Rebutja la sol·licitud.",
+  "cards.toolCall.runDenied": "Executa l'ordre",
+  "cards.toolCall.runDeniedHint":
+    "Executa l'ordre rebutjada a la carpeta de l'agent",
+  "cards.toolCall.runDeniedConfirm":
+    "Vols executar aquesta ordre rebutjada a la carpeta de l'agent? L'agent en rep la sortida.",
   "cards.terminalCommand.copy": "Copia a la terminal",
   "cards.tool.noOutput": "(sense sortida)",
   "cards.tool.morePaths": "{path} +{count} més",
@@ -3874,6 +3879,12 @@ Coses que pots fer per ell:
     "Executat des de la petició, acabat per {signal}: {command}",
   "systemEntries.askRun.lost":
     "Executat des de la petició, resultat desconegut: {command}",
+  "systemEntries.deniedRun.exited":
+    "Executada l'ordre rebutjada, codi de sortida {code}: {command}",
+  "systemEntries.deniedRun.timedOut":
+    "Executada l'ordre rebutjada, aturada després de 10 minuts: {command}",
+  "systemEntries.deniedRun.killed":
+    "Executada l'ordre rebutjada, acabada per {signal}: {command}",
   "systemEntries.sudoRequest.lockedOut":
     "Sol·licitud sudo tancada després de {attempts} intents rebutjats: {command}",
   "systemEntries.sudoRequest.declined": "Sol·licitud sudo rebutjada: {command}",

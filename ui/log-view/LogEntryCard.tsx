@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type {
+  AskCommandRun,
   LogEntry,
   Attachment,
   SubagentOrigin,
@@ -41,8 +42,10 @@ import { IsomuxCurlHeader, IsomuxCurlFields } from "./IsomuxCurlSummary.tsx";
 import { AgentAvatar, AgentLink, MemberAvatar } from "./chat-avatars.tsx";
 import { ChatJump } from "./load-rest.ts";
 import { jumpToLogEntry } from "./jump-to-entry.ts";
+import { commandForPermissionDenial } from "../../shared/permission-denial.ts";
+import { isRunnableCommand } from "../../shared/runnable-command.ts";
+import { AskRunResult } from "./AskRunResult.tsx";
 import {
-  commandForPermissionDenial,
   isFoldedToolResult,
   isomuxRequestForToolCall,
   DetachedSubagentSteps,
@@ -729,6 +732,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   onRestoreFailedEdit,
   onOpenInEditor,
   onCopyToTerminal,
+  onRunDeniedCommand,
   tasks,
   onOpenTask,
   messageExpanded,
@@ -754,6 +758,9 @@ export const LogEntryCard = memo(function LogEntryCard({
   onRestoreFailedEdit?: (text: string) => void;
   onOpenInEditor?: (path: string) => void;
   onCopyToTerminal?: (command: string) => void;
+  // The refused card's Run (task 0faacc4e). Passed only to viewers who may
+  // use the agent's terminal.
+  onRunDeniedCommand?: RunDeniedCommand;
   tasks?: TaskMap;
   onOpenTask?: (id: string) => void;
 }) {
@@ -972,12 +979,33 @@ export const LogEntryCard = memo(function LogEntryCard({
             decisionReason?: string;
           }
         | undefined;
+      // The end of a refused command's Run (task 0faacc4e): the line, and
+      // how the run went, as under an ask's command.
+      const deniedRun = entry.metadata?.deniedCommandRun as
+        AskCommandRun | undefined;
+      if (deniedRun) {
+        return (
+          <div>
+            <SystemMessage content={display} isMobile={isMobile} />
+            <div
+              style={{
+                margin: "0 0 8px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                overflow: "hidden",
+              }}
+            >
+              <AskRunResult run={deniedRun} isMobile={!!isMobile} />
+            </div>
+          </div>
+        );
+      }
       if (permissionDenied) {
         return (
           <PermissionDeniedCard
             denial={permissionDenied}
             turnEntries={turnEntries}
-            onCopyToTerminal={onCopyToTerminal}
+            onRunDeniedCommand={onRunDeniedCommand}
             isMobile={isMobile}
           />
         );
@@ -1190,12 +1218,14 @@ export function RawToolCallGroupCard({
   turnEntries,
   isMobile,
   onCopyToTerminal,
+  onRunDeniedCommand,
 }: {
   entries: LogEntry[];
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
   onCopyToTerminal?: (command: string) => void;
+  onRunDeniedCommand?: RunDeniedCommand;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -1228,6 +1258,7 @@ export function RawToolCallGroupCard({
             turnEntries={turnEntries}
             isMobile={isMobile}
             onCopyToTerminal={onCopyToTerminal}
+            onRunDeniedCommand={onRunDeniedCommand}
           />
         ))}
       </div>
@@ -2638,16 +2669,23 @@ function TaskBreadcrumb({
   );
 }
 
+// The refused card's Run (task 0faacc4e): POSTs the run of the refused
+// command; rejects when the server refuses it.
+export type RunDeniedCommand = (
+  toolUseId: string,
+  command: string,
+) => Promise<void>;
+
 // Compact card for a tool call auto-denied without an interactive prompt
 // (metadata.permissionDenied on a system entry - auto-mode classifier, deny
 // rule, dontAsk). Styled distinctly from both SystemMessage and the error
 // block: a red-edged card, since the denial is a policy outcome the member
 // should notice, not an agent failure. No Unicode glyph for the marker (iOS
 // Safari emoji-renders glyphs, overriding CSS color).
-function PermissionDeniedCard({
+export function PermissionDeniedCard({
   denial,
   turnEntries,
-  onCopyToTerminal,
+  onRunDeniedCommand,
   isMobile,
 }: {
   denial: {
@@ -2657,14 +2695,49 @@ function PermissionDeniedCard({
     decisionReason?: string;
   };
   turnEntries?: LogEntry[];
-  onCopyToTerminal?: (command: string) => void;
+  onRunDeniedCommand?: RunDeniedCommand;
   isMobile?: boolean;
 }) {
   const { t } = useI18n();
   // Prefer the deciding component's human-readable reason; the message (what
   // the model was told) is the fallback and stays available on hover.
   const reason = denial.decisionReason || denial.message;
-  const command = commandForPermissionDenial(denial, turnEntries);
+  const found = commandForPermissionDenial(denial, turnEntries);
+  const command =
+    found !== null && isRunnableCommand(found) && onRunDeniedCommand
+      ? found
+      : null;
+  // The confirm is open; a Run is on its way; the last Run's refusal.
+  const [confirming, setConfirming] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    if (sending || !command || !denial.toolUseId || !onRunDeniedCommand) return;
+    setSending(true);
+    setError(null);
+    try {
+      await onRunDeniedCommand(denial.toolUseId, command);
+      setConfirming(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setConfirming(false);
+    } finally {
+      setSending(false);
+    }
+  };
+  const button = {
+    padding: isMobile ? "6px 14px" : "4px 12px",
+    borderRadius: 6,
+    fontSize: 12,
+    fontFamily: "var(--font-ui)",
+    cursor: "pointer",
+    flexShrink: 0,
+  } as const;
+  const green = {
+    border: "1px solid var(--green-border)",
+    background: "var(--green-bg)",
+    color: "var(--green-text)",
+  } as const;
   return (
     <div
       style={{
@@ -2703,25 +2776,99 @@ function PermissionDeniedCard({
           {reason}
         </span>
       )}
-      {command && onCopyToTerminal && (
+      {command && !confirming && (
         <button
-          onClick={() => onCopyToTerminal(command)}
-          style={{
-            marginLeft: "auto",
-            padding: "4px 12px",
-            borderRadius: 6,
-            border: "1px solid var(--green-border)",
-            background: "var(--green-bg)",
-            color: "var(--green-text)",
-            fontSize: 12,
-            fontFamily: "var(--font-ui)",
-            cursor: "pointer",
-            flexShrink: 0,
+          type="button"
+          data-denied-run="open"
+          onClick={() => {
+            setError(null);
+            setConfirming(true);
           }}
-          title={t("cards.terminalCommand.copyHint")}
+          style={{ ...button, ...green, marginLeft: "auto" }}
+          title={t("cards.toolCall.runDeniedHint")}
         >
-          {t("cards.terminalCommand.copy")}
+          {t("cards.toolCall.runDenied")}
         </button>
+      )}
+      {command && confirming && (
+        <div
+          data-denied-run-confirm=""
+          style={{
+            flexBasis: "100%",
+            marginTop: 4,
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "var(--bg-subtle)",
+            border: "1px solid var(--border)",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span
+            style={{
+              flexBasis: "100%",
+              color: "var(--text-primary)",
+              fontSize: isMobile ? 14 : 12,
+            }}
+          >
+            {t("cards.toolCall.runDeniedConfirm")}
+          </span>
+          <code
+            style={{
+              flex: "1 1 100%",
+              minWidth: 0,
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 13,
+              color: "var(--text-secondary)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {command}
+          </code>
+          <button
+            type="button"
+            data-denied-run="cancel"
+            onClick={() => setConfirming(false)}
+            style={{
+              ...button,
+              marginLeft: "auto",
+              border: "1px solid var(--border-medium)",
+              background: "var(--btn-surface)",
+              color: "var(--text-primary)",
+            }}
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            data-denied-run="confirm"
+            disabled={sending}
+            onClick={() => void run()}
+            style={{ ...button, ...green, fontWeight: 600 }}
+          >
+            {t(
+              sending
+                ? "cards.terminalCommand.running"
+                : "cards.terminalCommand.run",
+            )}
+          </button>
+        </div>
+      )}
+      {error && (
+        <span
+          role="alert"
+          data-denied-run-error=""
+          style={{
+            flexBasis: "100%",
+            color: "var(--red-text)",
+            fontSize: isMobile ? 13 : 12,
+          }}
+        >
+          {error}
+        </span>
       )}
     </div>
   );

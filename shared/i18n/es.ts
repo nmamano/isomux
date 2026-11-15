@@ -2735,6 +2735,11 @@ Cosas que puedes hacer por él:
     "El valor no entra en el chat. Si la app está en marcha, se reinicia para leerlo.",
   "cards.secretRequest.appGone":
     "La app se eliminó o se sustituyó después de la solicitud del agente. Rechaza la solicitud.",
+  "cards.toolCall.runDenied": "Ejecutar comando",
+  "cards.toolCall.runDeniedHint":
+    "Ejecuta el comando rechazado en la carpeta del agente",
+  "cards.toolCall.runDeniedConfirm":
+    "¿Ejecutar este comando rechazado en la carpeta del agente? El agente recibe su salida.",
   "cards.terminalCommand.copy": "Copiar en la terminal",
   "cards.tool.noOutput": "(sin salida)",
   "cards.tool.morePaths": "{path} +{count} más",
@@ -3869,6 +3874,12 @@ Cosas que puedes hacer por él:
     "Ejecutado desde la petición, terminado por {signal}: {command}",
   "systemEntries.askRun.lost":
     "Ejecutado desde la petición, resultado desconocido: {command}",
+  "systemEntries.deniedRun.exited":
+    "Ejecutado el comando rechazado, código de salida {code}: {command}",
+  "systemEntries.deniedRun.timedOut":
+    "Ejecutado el comando rechazado, detenido tras 10 minutos: {command}",
+  "systemEntries.deniedRun.killed":
+    "Ejecutado el comando rechazado, terminado por {signal}: {command}",
   "systemEntries.sudoRequest.lockedOut":
     "Solicitud sudo cerrada tras {attempts} intentos rechazados: {command}",
   "systemEntries.sudoRequest.declined": "Solicitud sudo rechazada: {command}",

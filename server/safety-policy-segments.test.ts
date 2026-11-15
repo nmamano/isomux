@@ -4,10 +4,12 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "fs";
+import { basename } from "path";
 import { evaluateProposedAction } from "./safety-policy.ts";
 
 // These commands are classified only; none of them execute.
@@ -176,18 +178,130 @@ describe("rm is safe in a temp root only when every operand is there", () => {
   });
 });
 
+// The temp exception reads the rm that runs and its operands, not how its
+// flags are spelled (task 0faacc4e). rm has no option that takes a separate
+// value, so flag order and extra flags do not change what it removes.
+describe("rm in a temp root, whatever the flags", () => {
+  it.each([
+    "rm -rf -- /tmp/a",
+    "rm -rf -v /tmp/a",
+    "rm -rf /tmp/a --verbose",
+    "rm -r -f -v -- /tmp/a /var/tmp/b",
+    "rm --recursive --force --one-file-system /tmp/a",
+    "rm -Rf --interactive=never /tmp/a",
+    "sudo rm -rf -- /tmp/a",
+    "env rm -rf -v /tmp/a",
+  ])("allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  it.each([
+    "rm -rf -- /tmp/a ./src",
+    "rm -rf -v /tmp/a ./src",
+    "rm -rf /tmp/a -- ~/x",
+    "rm -rf -v -- /tmp/a /home/u",
+  ])("still needs every operand in a temp root: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+
+  // xargs adds the paths it reads to the rm it runs, so the operands on the
+  // line are not all that rm removes.
+  it.each([
+    "find ~ | xargs rm -rf /tmp/a",
+    "echo ~ | xargs rm -rf -- /tmp/a",
+    "xargs -0 rm -rf /tmp/a < list",
+    "sudo xargs rm -rf /tmp/a",
+    "xargs sudo rm -rf /tmp/a",
+    "find /tmp/a -print0 | xargs -0 rm -rf",
+    "xargs rm -rf",
+  ])("gives an rm that xargs runs no exception: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+});
+
+// bash expands an unquoted brace before rm runs, so every word it yields must
+// be a temp operand; a quoted or escaped brace is one literal word.
+describe("rm of a brace in a temp root", () => {
+  // A trailing slash makes rm follow the entry: a name no host has.
+  const missing = `/tmp/safety-brace-${process.pid}`;
+  it.each([
+    "rm -rf /tmp/{a,b}",
+    "rm -rf /tmp/a{,-old}",
+    `rm -rf ${missing}-{a,b}/`,
+  ])("allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  it.each([
+    ["rm -rf {/tmp/a,/home/u}", "a word outside the temp roots"],
+    ["rm -rf {/tmp/a,~}", "a home word"],
+    ["rm -rf /tmp/{a,/home}", "an empty component"],
+    ["rm -rf /tmp/a{,/..}", "a .. component"],
+    ["rm -rf /tmp/{a,.*}", "a glob that can match .."],
+    ["rm -rf '{/tmp/a,/tmp/b}'", "a quoted brace, one relative word"],
+    ["rm -rf \\{/tmp/a,/tmp/b\\}", "an escaped brace, one relative word"],
+    [
+      `rm -rf /tmp/a${"{b,c}".repeat(9)}`,
+      "more words than the expansion limit",
+    ],
+  ])("denies %p (%s)", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+});
+
+// Every shell refusal tells the agent the route to the member: an ask whose
+// `commands` field holds the command, which the member runs with one tap.
+describe("the refusal names the ask route", () => {
+  it.each(["rm -rf ./build", "rm -rf ~", "git reset --hard", "pkill -f bun"])(
+    "names the ask's commands field: %p",
+    (command) => {
+      expect(reason(command)).toMatch(/\bcommands\b/);
+    },
+  );
+
+  // A Run's output goes to the agent, so a refused read of a secret keeps
+  // its own route: the member provides the value.
+  it.each(["cat ~/.ssh/id_rsa", "cat /proc/1/environ"])(
+    "does not offer a one-tap run for a secret read: %p",
+    (command) => {
+      expect(reason(command)).not.toMatch(/\bcommands\b/);
+    },
+  );
+
+  // A relative operand is refused on purpose (b5194917); the reason says the
+  // absolute path in a temp root passes.
+  it("points a relative rm at an absolute temp path", () => {
+    const tempRoot = /\/tmp\b/;
+    expect(reason("rm -rf real")).toMatch(tempRoot);
+    expect(reason("cd /tmp/x && rm -rf probe")).toMatch(tempRoot);
+    expect(reason("rm -rf /tmp/a/../b")).not.toMatch(tempRoot);
+    expect(reason("rm -rf /home/u/build")).not.toMatch(tempRoot);
+  });
+});
+
 // A path deeper in a temp root can pass through a symlink, so every directory
-// above the entry rm removes is checked on disk: a real directory or a missing
-// one qualifies, a link does not. A line that runs ln can make the link before
-// rm runs, so there only a direct child of the temp root qualifies (4b35d2a1).
+// above the entry rm removes is checked on disk: a real directory, a missing
+// one, or a link whose real path is still in a temp root qualifies. The entry
+// rm removes must stay strictly below a temp root. A line that runs ln can
+// make the link before rm runs, so there only a direct child of the temp root
+// qualifies (4b35d2a1, 0faacc4e).
 describe("rm deeper in a temp root", () => {
   // The literal /tmp, not os.tmpdir(): the exception names /tmp itself.
   const R = mkdtempSync("/tmp/safety-rm-");
   const elsewhere = mkdtempSync("/tmp/safety-rm-target-");
+  // Outside every temp root, and present on every Linux host. Nothing runs:
+  // the hook only reads where the link leads.
+  const OUTSIDE = "/usr";
   mkdirSync(`${R}/real/sub/deep`, { recursive: true });
   mkdirSync(`${R}/locked/sub`, { recursive: true });
-  symlinkSync(elsewhere, `${R}/link`);
-  symlinkSync(elsewhere, `${R}/real/inner`);
+  symlinkSync(OUTSIDE, `${R}/link`);
+  symlinkSync(OUTSIDE, `${R}/real/inner`);
+  symlinkSync(`${R}/link`, `${R}/chain`);
+  symlinkSync(`/home/safety-rm-missing-${process.pid}/d`, `${R}/dangling`);
+  symlinkSync(elsewhere, `${R}/inTmp`);
+  symlinkSync(`../${basename(elsewhere)}`, `${R}/rel`);
+  symlinkSync("/tmp", `${R}/toRoot`);
+  symlinkSync("/var/tmp", `${R}/toVar`);
   writeFileSync(`${elsewhere}/keep`, "");
   chmodSync(`${R}/locked`, 0o000);
   afterAll(() => {
@@ -195,12 +309,28 @@ describe("rm deeper in a temp root", () => {
     rmSync(R, { recursive: true, force: true });
     rmSync(elsewhere, { recursive: true, force: true });
   });
-  const rmReason = () => reason("rm -rf ./build");
+  // The plain rm reason: an absolute operand, so no hint for relative paths.
+  const rmReason = () => reason("rm -rf /tmp/a/../b");
 
   it("starts from the fixture it describes", () => {
     expect(lstatSync(`${R}/real`).isDirectory()).toBe(true);
-    expect(lstatSync(`${R}/link`).isSymbolicLink()).toBe(true);
-    expect(lstatSync(`${R}/real/inner`).isSymbolicLink()).toBe(true);
+    for (const link of [
+      "link",
+      "real/inner",
+      "chain",
+      "dangling",
+      "inTmp",
+      "rel",
+      "toRoot",
+      "toVar",
+    ])
+      expect(lstatSync(`${R}/${link}`).isSymbolicLink()).toBe(true);
+    expect(realpathSync(`${R}/link`)).toBe(OUTSIDE);
+    expect(realpathSync(`${R}/chain`)).toBe(OUTSIDE);
+    expect(realpathSync(`${R}/rel`)).toBe(realpathSync(elsewhere));
+    expect(realpathSync(`${R}/toRoot`)).toBe("/tmp");
+    expect(realpathSync(`${R}/toVar`)).toBe("/var/tmp");
+    expect(() => realpathSync(`${R}/dangling`)).toThrow(/ENOENT/);
     expect(() => lstatSync(`${R}/missing`)).toThrow();
   });
 
@@ -218,6 +348,14 @@ describe("rm deeper in a temp root", () => {
     ],
     [`rm -rf ${R}/real/x ${R}/real/sub/y`, "two deep operands"],
     [`ln -s ~ ${R}/new && rm -rf ${R}`, "a direct child beside ln"],
+    [`rm -rf ${R}/inTmp/x`, "a link parent that leads into /tmp"],
+    [`rm -rf ${R}/inTmp/*`, "a glob under a link that leads into /tmp"],
+    [`rm -rf ${R}/inTmp/`, "a trailing slash on a link that leads into /tmp"],
+    [`rm -rf ${R}/inTmp/missing/x`, "a missing directory under such a link"],
+    [`rm -rf ${R}/rel/x`, "a relative link that leads into /tmp"],
+    [`rm -rf ${R}/toRoot/x`, "a link to /tmp, entry below it"],
+    [`rm -rf ${R}/toVar/x`, "a link from /tmp to /var/tmp"],
+    [`rm -rf ${R}/{real,inTmp}/x`, "a brace whose every word qualifies"],
   ])("allows %p (%s)", (command) => {
     expect(decision(command)).toBe("allow");
   });
@@ -236,11 +374,16 @@ describe("rm deeper in a temp root", () => {
   });
 
   it.each([
-    [`rm -rf ${R}/link/x`, "a link as a parent"],
-    [`rm -rf ${R}/link/*`, "a glob under a link"],
-    [`rm -rf ${R}/link/`, "a trailing slash on a link"],
-    [`rm -rf ${R}/real/inner/x`, "a link two levels down"],
-    [`rm -rf ${R}/real/inner/`, "a trailing slash on a link two levels down"],
+    [`rm -rf ${R}/link/x`, "a link parent that leads out of /tmp"],
+    [`rm -rf ${R}/link/*`, "a glob under such a link"],
+    [`rm -rf ${R}/link/`, "a trailing slash on such a link"],
+    [`rm -rf ${R}/link/missing/x`, "a missing directory under such a link"],
+    [`rm -rf ${R}/real/inner/x`, "such a link two levels down"],
+    [`rm -rf ${R}/real/inner/`, "a trailing slash on it two levels down"],
+    [`rm -rf ${R}/chain/x`, "a link to a link that leads out"],
+    [`rm -rf ${R}/dangling/x`, "a link that leads nowhere yet"],
+    [`rm -rf ${R}/toRoot/`, "a trailing slash on a link to /tmp itself"],
+    [`rm -rf ${R}/{real,link}/x`, "a brace with one word through such a link"],
     [`rm -rf ${R}/re*/x`, "a glob in a parent"],
     [`rm -rf ${R}/real/*/`, "a glob that a trailing slash makes a parent"],
     [`rm -rf ${R}/real/../x`, "a .. component"],
@@ -252,6 +395,7 @@ describe("rm deeper in a temp root", () => {
     [`rm -rf ${R}/real/x ${R}/link/x`, "one good operand, one through a link"],
     [`ln -s ~ ${R}/fresh && rm -rf ${R}/fresh/x`, "ln makes the parent first"],
     [`ln -s ~ ${R}/other; rm -rf ${R}/real/x`, "ln anywhere on the line"],
+    [`ln -s ~ ${R}/other; rm -rf ${R}/inTmp/x`, "ln, and a link parent"],
     [`bash -c "ln -s ~ ${R}/fresh" && rm -rf ${R}/fresh/x`, "ln in bash -c"],
     [`sudo ln -s ~ ${R}/fresh && rm -rf ${R}/fresh/x`, "ln behind a wrapper"],
     [
@@ -276,7 +420,7 @@ describe("rm deeper in a temp root", () => {
   it("reads the disk at each check, not once", () => {
     const command = `rm -rf ${R}/later/x`;
     expect(decision(command)).toBe("allow");
-    symlinkSync(elsewhere, `${R}/later`);
+    symlinkSync(OUTSIDE, `${R}/later`);
     expect(decision(command)).toBe("deny");
   });
 });
@@ -318,6 +462,10 @@ describe("destructive commands in quoted payloads (a447b095)", () => {
     "git reset --hard 'git' 'checkout' '-b' x",
     "git clean -fd -- git clean -n",
     "git push --force origin 'git' 'clean' '-n'",
+    // A word that names rm, which the parser does not resolve to a command:
+    // a SAFE git exception does not pass it (task 0faacc4e kept this).
+    "git clean -n rm -rf /",
+    "git checkout -b x rm -rf ~",
   ])("takes no SAFE exception from operands: denies %p", (command) => {
     expect(decision(command)).toBe("deny");
   });

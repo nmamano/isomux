@@ -12,6 +12,7 @@ import {
 import type { AgentState, LogEntry } from "../../shared/types.ts";
 import {
   LogEntryCard,
+  type RunDeniedCommand,
   RawToolCallGroupCard,
   senderIsHuman,
 } from "./LogEntryCard.tsx";
@@ -216,6 +217,7 @@ export function ChatTranscript({
   getUserMessageRef,
   entryProps,
   onCopyToTerminal,
+  onRunDeniedCommand,
   afterEntry,
   interaction,
   activity,
@@ -227,6 +229,7 @@ export function ChatTranscript({
   getUserMessageRef?: (id: string) => RefCallback<HTMLDivElement>;
   entryProps?: (entry: LogEntry) => EntryOptions;
   onCopyToTerminal?: (command: string) => void;
+  onRunDeniedCommand?: RunDeniedCommand;
   afterEntry?: (entry: LogEntry) => ReactNode;
   interaction?: ReactNode;
   // Recent then complete (task 9ebe887d slice 3): the surface's useLoadRest.
@@ -358,6 +361,7 @@ export function ChatTranscript({
                             turnEntries={td?.turnEntries}
                             isMobile={isMobile}
                             onCopyToTerminal={onCopyToTerminal}
+                            onRunDeniedCommand={onRunDeniedCommand}
                           />
                         ) : rawToolGroup ? (
                           <RawToolCallGroupCard
@@ -366,6 +370,7 @@ export function ChatTranscript({
                             turnEntries={td?.turnEntries}
                             isMobile={isMobile}
                             onCopyToTerminal={onCopyToTerminal}
+                            onRunDeniedCommand={onRunDeniedCommand}
                           />
                         ) : (
                           <LogEntryCard

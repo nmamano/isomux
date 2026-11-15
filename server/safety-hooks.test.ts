@@ -1236,3 +1236,64 @@ describe("sensitive-read guard covers copies and renames", () => {
     deniesWrite("install /tmp/y ~/.isomux/x --mo 600");
   });
 });
+
+// The hooks report each refusal (task 0faacc4e), so the backend shows it as a
+// refused card; the decision the SDK gets stays the same.
+describe("a refusal reaches onDeny", () => {
+  async function run(toolName: string, toolInput: Record<string, unknown>) {
+    const heard: unknown[] = [];
+    const matchers =
+      createSafetyHooks(undefined, undefined, (denial) => heard.push(denial))
+        .PreToolUse ?? [];
+    const outputs: HookJSONOutput[] = [];
+    for (const matcher of matchers.filter((m) => m.matcher === toolName))
+      for (const hook of matcher.hooks)
+        outputs.push(
+          await hook(
+            {
+              hook_event_name: "PreToolUse",
+              tool_name: toolName,
+              tool_input: toolInput,
+              tool_use_id: "toolu-7",
+              cwd: "/tmp/probe",
+            } as unknown as Parameters<HookCallback>[0],
+            "toolu-7",
+            { signal: new AbortController().signal },
+          ),
+        );
+    const denied = outputs
+      .map(
+        (out) =>
+          (out as { hookSpecificOutput?: Record<string, unknown> })
+            .hookSpecificOutput,
+      )
+      .filter((specific) => specific?.permissionDecision === "deny");
+    return { heard, denied };
+  }
+
+  it("hears a refused command with its tool call id and the reason the agent gets", async () => {
+    const { heard, denied } = await run("Bash", { command: "rm -rf ~" });
+    expect(denied.length).toBe(1);
+    expect(heard).toEqual([
+      {
+        toolUseId: "toolu-7",
+        toolName: "Bash",
+        reason: String(denied[0]!.permissionDecisionReason),
+      },
+    ]);
+  });
+
+  it("hears a refused file tool too", async () => {
+    const { heard, denied } = await run("Read", {
+      file_path: "/tmp/isomux-safety-probe/.env",
+    });
+    expect(denied.length).toBe(1);
+    expect(heard).toMatchObject([{ toolUseId: "toolu-7", toolName: "Read" }]);
+  });
+
+  it("hears nothing for an allowed call", async () => {
+    const { heard, denied } = await run("Bash", { command: "ls /tmp" });
+    expect(denied.length).toBe(0);
+    expect(heard.length).toBe(0);
+  });
+});

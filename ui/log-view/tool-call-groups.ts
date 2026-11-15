@@ -303,19 +303,3 @@ export const HideToolCalls = createContext(false);
 export const DetachedSubagentSteps = createContext<
   ReadonlyMap<string, DetachedSubagentStep>
 >(new Map());
-
-export function commandForPermissionDenial(
-  denial: { toolUseId?: string },
-  turnEntries: LogEntry[] | undefined,
-): string | null {
-  if (!denial.toolUseId || !turnEntries) return null;
-  const call = turnEntries.find(
-    (entry) =>
-      entry.kind === "tool_call" && entry.metadata?.toolId === denial.toolUseId,
-  );
-  if (!call || call.content !== "Bash") return null;
-  const command = (call.metadata?.input as { command?: unknown } | undefined)
-    ?.command;
-  if (typeof command !== "string" || /[\r\n]/.test(command)) return null;
-  return command;
-}

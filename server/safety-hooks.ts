@@ -31,15 +31,23 @@ function callbackFor(
   toAction: ToAction,
   codexHome: string | null | undefined,
   confine?: FolderConfinement,
+  onDeny?: (denial: SafetyDenial) => void,
 ): HookCallback {
-  return async (input) =>
-    toClaudeDecision(
-      evaluateProposedAction(toAction(input as PreToolUseHookInput), {
-        cwd: (input as PreToolUseHookInput).cwd,
-        codexHome,
-        ...(confine ? { confine } : {}),
-      }),
-    );
+  return async (input) => {
+    const hookInput = input as PreToolUseHookInput;
+    const decision = evaluateProposedAction(toAction(hookInput), {
+      cwd: hookInput.cwd,
+      codexHome,
+      ...(confine ? { confine } : {}),
+    });
+    if (decision.decision === "deny" && onDeny)
+      onDeny({
+        toolUseId: hookInput.tool_use_id,
+        toolName: hookInput.tool_name,
+        reason: decision.reason,
+      });
+    return toClaudeDecision(decision);
+  };
 }
 
 const uncoveredAction: ToAction = (input) => ({
@@ -63,20 +71,41 @@ function fileAction(
   });
 }
 
+// A refusal of the hooks (task 0faacc4e): the backend shows it as a refused
+// card, as it does the SDK's own permission_denied.
+export interface SafetyDenial {
+  toolUseId: string;
+  toolName: string;
+  reason: string;
+}
+
 // codexHome is the session's CODEX_HOME (safety-policy.ts PolicyContext).
 // confine: an agent below standard (safety-policy.ts FolderConfinement). Its
-// Glob calls are checked too, since Glob takes a path.
+// Glob calls are checked too, since Glob takes a path. onDeny hears each
+// refusal.
 export function createSafetyHooks(
   codexHome?: string | null,
   confine?: FolderConfinement,
+  onDeny?: (denial: SafetyDenial) => void,
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-  const shell = callbackFor(shellAction, codexHome, confine);
-  const readFiles = callbackFor(fileAction("read-files"), codexHome, confine);
-  const writeFiles = callbackFor(fileAction("write-files"), codexHome, confine);
+  const shell = callbackFor(shellAction, codexHome, confine, onDeny);
+  const readFiles = callbackFor(
+    fileAction("read-files"),
+    codexHome,
+    confine,
+    onDeny,
+  );
+  const writeFiles = callbackFor(
+    fileAction("write-files"),
+    codexHome,
+    confine,
+    onDeny,
+  );
   const readAndWriteFiles = callbackFor(
     fileAction("read-and-write-files"),
     codexHome,
     confine,
+    onDeny,
   );
   return {
     // One entry per Claude tool name. The adapter maps provider names to core
@@ -92,7 +121,7 @@ export function createSafetyHooks(
             // Every other tool: the confinement denies a tool off the stop's
             // list, whatever lets it through.
             {
-              hooks: [callbackFor(uncoveredAction, codexHome, confine)],
+              hooks: [callbackFor(uncoveredAction, codexHome, confine, onDeny)],
             },
           ]
         : []),

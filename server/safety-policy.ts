@@ -351,13 +351,25 @@ function allow(): PolicyDecision {
   return ALLOW;
 }
 
-function denyMessage(reason: string, command: string): PolicyDecision {
+// The way to the member a shell refusal names. "ask": an ask that holds the
+// command, which the member runs with one tap (task 0faacc4e). "none": the
+// reason says it, as for a read of secrets, whose output a run would give to
+// the agent.
+type MemberRoute = "ask" | "none";
+
+function denyMessage(
+  reason: string,
+  command: string,
+  route: MemberRoute = "ask",
+): PolicyDecision {
   return deny(
     `BLOCKED by Isomux safety hooks\n\n` +
       `Reason: ${reason}\n\n` +
-      `Command: ${command}\n\n` +
-      `If this operation is truly needed, ask the member for explicit ` +
-      `permission and have them run the command manually.`,
+      `Command: ${command}` +
+      (route === "ask"
+        ? `\n\nIf this command is truly needed, open an ask with it in ` +
+          `\`commands\`: the member can run it with one tap.`
+        : ""),
   );
 }
 
@@ -410,11 +422,11 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   // Specific root/home pattern MUST come before generic pattern
   [
     RM_ROOT_OR_HOME,
-    "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed. Ask the member to run it manually if truly needed.",
+    "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed.",
   ],
   [
     /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*/,
-    "rm -rf is destructive and requires human approval. Explain what you want to delete and why, then ask the member to run the command manually.",
+    "rm -rf is destructive and requires human approval. Tell the member what you want to delete and why.",
   ],
   // Catch rm with separate -r and -f flags (e.g., rm -r -f, rm -f -r)
   [
@@ -445,19 +457,6 @@ const SAFE_PATTERNS: RegExp[] = [
   /^git\s+restore\s+-S\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging short form (safe)
   /^git\s+clean\s+-[a-z]*n[a-z]*/, // Dry run (-n, -fn, -nf, etc.)
   /^git\s+clean\s+--dry-run/, // Dry run (long form)
-  // Allow rm -rf on temp directories (-rf/-Rf and -fr/-fR flag orderings)
-  /^rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/tmp\//,
-  /^rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/var\/tmp\//,
-  // Separate flags on temp directories
-  /^rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/tmp\//,
-  /^rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/tmp\//,
-  /^rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/var\/tmp\//,
-  /^rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/var\/tmp\//,
-  // Long options on temp directories
-  /^rm\s+.*--recursive.*--force\s+\/tmp\//,
-  /^rm\s+.*--force.*--recursive\s+\/tmp\//,
-  /^rm\s+.*--recursive.*--force\s+\/var\/tmp\//,
-  /^rm\s+.*--force.*--recursive\s+\/var\/tmp\//,
 ];
 
 function normalizeAbsolutePaths(cmd: string): string {
@@ -4603,6 +4602,7 @@ function checkBashCommand(
         `agent may not use it. This text check covers recognized command ` +
         `forms only.`,
       command,
+      "none",
     );
   }
 
@@ -4625,7 +4625,7 @@ function checkBashCommand(
 
   const environWord = bashForeignEnvironWord(command, cwd);
   if (environWord !== null || bashPrintsEnvironments(command))
-    return denyMessage(ENVIRON_REASON, command);
+    return denyMessage(ENVIRON_REASON, command, "none");
 
   const procSearch = bashProcSearchRoot(command, cwd);
   if (procSearch !== null) return denyProcSearch(procSearch, "Bash");
@@ -4637,6 +4637,7 @@ function checkBashCommand(
         `to read sensitive files (.env, private keys, credentials, etc.). ` +
         `If you need a value from this file, ask the member to provide it.`,
       command,
+      "none",
     );
   }
 
@@ -4674,19 +4675,32 @@ const TEMP_ROOTS = ["/tmp/", "/var/tmp/"];
  * The operand names a path in a temp root, and rm cannot reach outside it
  * through a symlink. rm does not follow the entry it removes, but it follows
  * every directory above that entry, and the entry too when a trailing slash
- * is written. Each of those must be a real directory on disk, or not exist
- * yet. A line that runs `ln` can make the link before rm runs, so there only
- * one entry directly in the temp root qualifies (task a447b095 kept every
- * deeper path out for that reason).
+ * is written. Each of those must be a real directory, a missing one, or a
+ * link whose real path keeps the entry strictly below a temp root (task
+ * 0faacc4e). A line that runs `ln` can make the link before rm runs, so
+ * there only one entry directly in the temp root qualifies (task a447b095
+ * kept every deeper path out for that reason).
  *
- * An expansion (`$x`, `{a,..}`), an empty part, `.` and `..` never qualify.
- * A glob may stand only in the entry that rm does not follow, and not with a
- * leading dot, where it could match `..`.
+ * An expansion (`$x`), an empty part, `.` and `..` never qualify. A glob may
+ * stand only in the entry that rm does not follow, and not with a leading
+ * dot, where it could match `..`. bash expands an unquoted brace before rm
+ * runs, so each word it yields must qualify.
  */
 function isTempOperand(word: ShellWord, runsLn: boolean): boolean {
-  const root = TEMP_ROOTS.find((r) => word.text.startsWith(r));
+  // raw equal to text: no quote and no escape.
+  if (word.raw === word.text && !/[$`]/.test(word.text)) {
+    const words = expandBraces(word.text);
+    if (words === null) return false;
+    if (words.length > 1 || words[0] !== word.text)
+      return words.every((text) => isTempPath(text, runsLn));
+  }
+  return isTempPath(word.text, runsLn);
+}
+
+function isTempPath(text: string, runsLn: boolean): boolean {
+  const root = TEMP_ROOTS.find((r) => text.startsWith(r));
   if (!root) return false;
-  const rest = word.text.slice(root.length);
+  const rest = text.slice(root.length);
   const trailingSlash = rest.endsWith("/");
   const parts = (trailingSlash ? rest.slice(0, -1) : rest).split("/");
   if (parts.some((p) => !p || p === "." || p === ".." || /[$`{}]/.test(p)))
@@ -4697,24 +4711,56 @@ function isTempOperand(word: ShellWord, runsLn: boolean): boolean {
     return false;
   if (followed.length === 0) return true;
   if (runsLn) return false;
-  return followsOnlyRealDirectories(root, followed);
+  const reached = followedDirectory(root, followed);
+  if (reached === null) return false;
+  if (reached === true) return true;
+  const entry = trailingSlash ? reached : `${reached}/${parts.at(-1)}`;
+  return TEMP_ROOTS.some((temp) => {
+    let real: string;
+    try {
+      real = realpathSync(temp);
+    } catch {
+      return false;
+    }
+    return entry.startsWith(`${real}/`);
+  });
 }
 
 /**
- * Walks down from the temp root. Only ENOENT counts as missing, and then the
- * rest is missing too; any other error fails closed.
+ * Walks the followed directories down from the temp root. true: each is a
+ * real directory or missing (only ENOENT counts as missing, and then the
+ * rest is missing too). A string: a link stands on the way, and this is the
+ * real path the walk reaches, missing parts appended. null: something else,
+ * or any other error; a link that leads nowhere fails closed.
  */
-function followsOnlyRealDirectories(root: string, parts: string[]): boolean {
+function followedDirectory(
+  root: string,
+  parts: string[],
+): string | true | null {
   let path = root.slice(0, -1);
-  for (const part of parts) {
-    path += `/${part}`;
+  let linked = false;
+  let missing: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    path += `/${parts[i]}`;
     try {
-      if (!lstatSync(path).isDirectory()) return false;
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) linked = true;
+      else if (!stat.isDirectory()) return null;
     } catch (error) {
-      return (error as NodeJS.ErrnoException).code === "ENOENT";
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
+      path = path.slice(0, path.length - parts[i].length - 1);
+      missing = parts.slice(i);
+      break;
     }
   }
-  return true;
+  if (!linked) return true;
+  try {
+    const real = realpathSync(path);
+    if (!lstatSync(real).isDirectory()) return null;
+    return [real, ...missing].join("/");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -4800,10 +4846,20 @@ function destructiveReason(words: ShellWord[], runsLn: boolean): string | null {
   const safeText = runs
     ? patternText([{ text: runs.name, quoted: false }, ...runs.args])
     : "";
-  const safe = SAFE_PATTERNS.some((pattern) => pattern.test(safeText));
+  // A word that names rm with no rm the parser resolves fails closed.
   if (
-    safe &&
+    SAFE_PATTERNS.some((pattern) => pattern.test(safeText)) &&
     operands !== null &&
+    operands.length === 0
+  )
+    return null;
+  // rm has no option that takes a separate value, so its flags do not change
+  // what it removes; xargs adds operands the line does not show.
+  if (
+    runs?.name === "rm" &&
+    !runByXargs(plain, runs) &&
+    operands !== null &&
+    operands.length > 0 &&
     operands.every((word) => isTempOperand(word, runsLn))
   )
     return null;
@@ -4816,9 +4872,25 @@ function destructiveReason(words: ShellWord[], runsLn: boolean): string | null {
       !operands.some(isRootOrHomeOperand)
     )
       continue;
-    return reason;
+    // A relative path is refused on purpose (task b5194917): the shell can
+    // move between the check and the run.
+    return operands?.some(isRelativeOperand)
+      ? `${reason} To remove your scratch in /tmp, write its absolute path, ` +
+          `for example \`rm -rf /tmp/<folder>\`.`
+      : reason;
   }
   return null;
+}
+
+/** xargs stands before the command in the wrapper chain. */
+function runByXargs(words: ShellWord[], cmd: EffectiveCommand): boolean {
+  return words
+    .slice(0, words.length - cmd.args.length - 1)
+    .some((word) => word.text.replace(/^.*\//, "") === "xargs");
+}
+
+function isRelativeOperand(word: ShellWord): boolean {
+  return !/^[/~$`]/.test(word.text);
 }
 
 function checkWritePaths(

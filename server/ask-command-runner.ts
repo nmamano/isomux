@@ -197,3 +197,23 @@ export function askRunLine(run: AskCommandRun): LogMessage {
     command,
   });
 }
+
+// A member's Run of a refused command (task 0faacc4e): the notice to the
+// agent and the line in its chat.
+export function deniedRunNotice(member: string, run: AskCommandRun): string {
+  return `[Isomux: ${member} ran your refused command from its card: ${run.command}\n${howItEnded(run)} ${outputOf(run)}]`;
+}
+
+export function deniedRunLine(run: AskCommandRun): LogMessage {
+  const { command } = run;
+  if (run.timedOut) return msg("systemEntries.deniedRun.timedOut", { command });
+  if (run.exitCode !== null && run.exitCode !== undefined)
+    return msg("systemEntries.deniedRun.exited", {
+      code: String(run.exitCode),
+      command,
+    });
+  return msg("systemEntries.deniedRun.killed", {
+    signal: run.signal ?? "a signal",
+    command,
+  });
+}

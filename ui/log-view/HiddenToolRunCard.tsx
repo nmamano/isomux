@@ -9,7 +9,7 @@
 import type { LogEntry } from "../../shared/types.ts";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { useI18n } from "../i18n.tsx";
-import { LogEntryCard } from "./LogEntryCard.tsx";
+import { LogEntryCard, type RunDeniedCommand } from "./LogEntryCard.tsx";
 import { hiddenRunSteps, lastVisibleEntryIndex } from "./tool-call-groups.ts";
 
 const NONE: ReadonlySet<string> = new Set();
@@ -20,6 +20,7 @@ export function HiddenToolRunCard({
   turnEntries,
   isMobile,
   onCopyToTerminal,
+  onRunDeniedCommand,
   open,
   onToggle,
 }: {
@@ -30,6 +31,7 @@ export function HiddenToolRunCard({
   turnEntries?: LogEntry[];
   isMobile?: boolean;
   onCopyToTerminal?: (command: string) => void;
+  onRunDeniedCommand?: RunDeniedCommand;
 }) {
   const { tn } = useI18n();
   const label = tn("cards.toolCall.hiddenSteps", hiddenRunSteps(entries));
@@ -71,6 +73,7 @@ export function HiddenToolRunCard({
             turnEntries={turnEntries}
             isMobile={isMobile}
             onCopyToTerminal={onCopyToTerminal}
+            onRunDeniedCommand={onRunDeniedCommand}
           />
         ))}
       </div>

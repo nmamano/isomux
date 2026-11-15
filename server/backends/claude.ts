@@ -111,7 +111,7 @@ import {
   inlineImages,
   type AttachmentDelivery,
 } from "../attachment-prompt.ts";
-import { createSafetyHooks } from "../safety-hooks.ts";
+import { createSafetyHooks, type SafetyDenial } from "../safety-hooks.ts";
 import type { FolderConfinement } from "../safety-policy.ts";
 import {
   belowStandard,
@@ -1024,6 +1024,40 @@ export function sdkMcpRegistration(
   };
 }
 
+// The refusals of the safety hooks that wait for their tool result (task
+// 0faacc4e). The SDK reports a PreToolUse refusal only as the result's text,
+// so the hook reports it here, and the session shows it as a refused card
+// (permission_denied) before that result. An entry goes at its result, at
+// the SDK's own permission_denied for the call, and at close.
+class SafetyDenials {
+  private readonly byId = new Map<string, SafetyDenial>();
+  readonly record = (denial: SafetyDenial): void => {
+    this.byId.set(denial.toolUseId, denial);
+  };
+  take(toolUseId: string): SafetyDenial | undefined {
+    const denial = this.byId.get(toolUseId);
+    this.byId.delete(toolUseId);
+    return denial;
+  }
+  clear(): void {
+    this.byId.clear();
+  }
+}
+
+// The refused card of a hook refusal: the reason on one line, and its
+// "Reason:" line as the card's text.
+function hookDenialEvent(denial: SafetyDenial): NormalizedEvent {
+  const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+  const reasonLine = /^Reason: (.+)$/m.exec(denial.reason)?.[1];
+  return {
+    kind: "permission_denied",
+    toolUseId: denial.toolUseId,
+    toolName: denial.toolName,
+    message: oneLine(denial.reason),
+    decisionReason: oneLine(reasonLine ?? denial.reason),
+  };
+}
+
 // Exported for test injection; non-test consumers should go through
 // `claudeBackend.createSession` / `claudeBackend.resumeSession`.
 export class ClaudeSession implements BackendSession {
@@ -1073,6 +1107,8 @@ export class ClaudeSession implements BackendSession {
     private readonly translateOptions: TranslateOptions = {},
     // Below standard: how attachments reach the agent (attachment-prompt.ts).
     private readonly attachmentDelivery?: AttachmentDelivery,
+    // Filled by the safety hooks of sdkOpts (buildSdkOpts).
+    private readonly denials: SafetyDenials = new SafetyDenials(),
   ) {
     this.bypassPermissions = sdkOpts.permissionMode === "bypassPermissions";
     this.baseMode = sdkOpts.permissionMode ?? "default";
@@ -1165,8 +1201,20 @@ export class ClaudeSession implements BackendSession {
           this.imageSink,
           this.translateOptions,
         )) {
-          if (limitSentence) this.heldLimitEvents.push(ev);
-          else this.enqueue(ev);
+          // The SDK's own card for the call wins; a hook refusal's card goes
+          // before the call's result.
+          const denial =
+            ev.kind === "permission_denied" || ev.kind === "tool_result"
+              ? this.denials.take(ev.toolUseId)
+              : undefined;
+          const out =
+            denial && ev.kind === "tool_result"
+              ? [hookDenialEvent(denial), ev]
+              : [ev];
+          for (const one of out) {
+            if (limitSentence) this.heldLimitEvents.push(one);
+            else this.enqueue(one);
+          }
         }
         // Background-task lifecycle breadcrumbs ride after the message's
         // translated events (task_started for a tool arrives in a later SDK
@@ -1407,6 +1455,7 @@ export class ClaudeSession implements BackendSession {
       } catch {}
     }
     this.pendingApprovals.clear();
+    this.denials.clear();
     this.conversation.close();
   }
 }
@@ -2178,6 +2227,7 @@ function withIsomuxLabel(
 function buildSdkOpts(
   opts: CreateSessionOptions,
   isomuxLabel: boolean,
+  onDeny?: (denial: SafetyDenial) => void,
 ): SdkSessionOptions {
   const env = withCloudModelDefaults(opts.env ?? officeAgentHost().baseEnv());
   const model = claudeModelForEnvironment(opts.modelFamily, env);
@@ -2219,10 +2269,10 @@ function buildSdkOpts(
     cwd: opts.cwd,
     hooks: opts.takeToolBoundaryMessage
       ? {
-          ...createSafetyHooks(env.CODEX_HOME),
+          ...createSafetyHooks(env.CODEX_HOME, undefined, onDeny),
           PostToolBatch: toolBoundaryHooks(opts.takeToolBoundaryMessage),
         }
-      : createSafetyHooks(env.CODEX_HOME),
+      : createSafetyHooks(env.CODEX_HOME, undefined, onDeny),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
     // shows only "Allow/Deny" without rendering the question text, and the
     // headless tool execution returns empty answers - which the agent then
@@ -2246,7 +2296,7 @@ function buildSdkOpts(
     sdkOpts.strictMcpConfig = true;
     sdkOpts.hooks = {
       ...sdkOpts.hooks,
-      ...createSafetyHooks(env.CODEX_HOME, confined.confine),
+      ...createSafetyHooks(env.CODEX_HOME, confined.confine, onDeny),
     };
   } else if (opts.skillFolder) {
     sdkOpts.additionalDirectories = [opts.skillFolder];
@@ -2325,15 +2375,17 @@ export function createClaudeBackend(
     },
 
     createSession(opts: CreateSessionOptions): BackendSession {
+      const denials = new SafetyDenials();
       return new ClaudeSession(
         opts.agentId,
         sdkClient,
-        buildSdkOpts(opts, isomuxLabel()),
+        buildSdkOpts(opts, isomuxLabel(), denials.record),
         undefined,
         opts.mcpServers,
         opts.planMode,
         claudeTranslateOptions(opts),
         attachmentDeliveryFor(opts),
+        denials,
       );
     },
 
@@ -2341,15 +2393,17 @@ export function createClaudeBackend(
       sessionId: string,
       opts: CreateSessionOptions,
     ): BackendSession {
+      const denials = new SafetyDenials();
       return new ClaudeSession(
         opts.agentId,
         sdkClient,
-        buildSdkOpts(opts, isomuxLabel()),
+        buildSdkOpts(opts, isomuxLabel(), denials.record),
         sessionId,
         opts.mcpServers,
         opts.planMode,
         claudeTranslateOptions(opts),
         attachmentDeliveryFor(opts),
+        denials,
       );
     },
 

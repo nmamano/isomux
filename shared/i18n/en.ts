@@ -2652,6 +2652,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The value stays out of the chat. A running app restarts to read it.",
   "cards.secretRequest.appGone":
     "The app was removed or replaced since the agent asked. Decline the request.",
+  "cards.toolCall.runDenied": "Run command",
+  "cards.toolCall.runDeniedHint":
+    "Run the refused command in the agent's folder",
+  "cards.toolCall.runDeniedConfirm":
+    "Run this refused command in the agent's folder? The agent gets its output.",
   "cards.terminalCommand.copy": "Copy to terminal",
   "cards.tool.noOutput": "(no output)",
   "cards.tool.morePaths": "{path} +{count} more",
@@ -3786,6 +3791,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.askRun.killed":
     "Ran from the ask, ended by {signal}: {command}",
   "systemEntries.askRun.lost": "Ran from the ask, result unknown: {command}",
+  "systemEntries.deniedRun.exited":
+    "Ran the refused command, exit code {code}: {command}",
+  "systemEntries.deniedRun.timedOut":
+    "Ran the refused command, stopped after 10 minutes: {command}",
+  "systemEntries.deniedRun.killed":
+    "Ran the refused command, ended by {signal}: {command}",
   "systemEntries.sudoRequest.lockedOut":
     "Sudo request closed after {attempts} refused attempts: {command}",
   "systemEntries.sudoRequest.declined": "Sudo request declined: {command}",

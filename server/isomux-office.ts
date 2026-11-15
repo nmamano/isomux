@@ -239,6 +239,7 @@ import {
 } from "./pager-compat.ts";
 import { migratePagerAtBoot } from "./pager-migration.ts";
 import { askHandlers } from "./routes/handlers/asks.ts";
+import { deniedCommandRunHandlers } from "./routes/handlers/denied-command-runs.ts";
 import { officeAskHistory } from "./ask-history.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { integrationChangesHandlers } from "./routes/handlers/integration-changes.ts";
@@ -3276,6 +3277,43 @@ function buildExecutorDeps(
       storage,
     }),
   });
+  // The terminal panel's gate (terminalAllowed), then the agent's access:
+  // an ask's Run and a refused command's Run (task 0faacc4e).
+  const commandRunRefusal = (
+    identity: Identity,
+    agentId: string,
+  ): "terminal_forbidden" | "agent_limited" | null => {
+    const agent = agentManager.getAgent(agentId);
+    const user = identity.userId ? getUserById(identity.userId) : null;
+    if (
+      !agent ||
+      !user ||
+      user.pack ||
+      !buildLiveGuardDeps().hasRoomAccess(identity, agent.roomId)
+    )
+      return "terminal_forbidden";
+    return belowStandard(agentAccessOf(agent)) ? "agent_limited" : null;
+  };
+  register(
+    deniedCommandRunHandlers({
+      refusal: commandRunRefusal,
+      logEntries: (agentId) =>
+        agentManager.getAgent(agentId)
+          ? agentManager.getAgentLogs(agentId)
+          : null,
+      start: (agentId, command) => agentManager.runAskCommand(agentId, command),
+      report: (agentId, line, metadata, memberUserId, notice) =>
+        agentManager.emitAgentDeniedCommandRun(
+          agentId,
+          line,
+          metadata,
+          memberUserId,
+          notice,
+        ),
+      memberName: (userId) => getUserById(userId)?.name ?? null,
+      now: () => Date.now(),
+    }),
+  );
   register(
     askHandlers({
       store: askStore!,
@@ -3323,18 +3361,7 @@ function buildExecutorDeps(
       roomMemberIds: askAudience.roomMemberIds,
       // The terminal panel's gate (terminalAllowed), then the agent's access.
       commandRuns: {
-        refusal: (identity, agentId) => {
-          const agent = agentManager.getAgent(agentId);
-          const user = identity.userId ? getUserById(identity.userId) : null;
-          if (
-            !agent ||
-            !user ||
-            user.pack ||
-            !buildLiveGuardDeps().hasRoomAccess(identity, agent.roomId)
-          )
-            return "terminal_forbidden";
-          return belowStandard(agentAccessOf(agent)) ? "agent_limited" : null;
-        },
+        refusal: commandRunRefusal,
         start: (agentId, command) =>
           agentManager.runAskCommand(agentId, command),
         notify: (agentId, text, from) =>

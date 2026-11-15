@@ -1012,6 +1012,16 @@ export function LogView({
       dispatch({ type: "copy_to_terminal", agentId: agent.id, command }),
     [dispatch, agent.id],
   );
+  // The refused card's Run (task 0faacc4e); its end comes as a chat entry.
+  const runDeniedCommand = useCallback(
+    async (toolUseId: string, command: string) => {
+      await apiFetch("POST", `/api/agents/${agent.id}/denied-command-runs`, {
+        toolUseId,
+        command,
+      });
+    },
+    [agent.id],
+  );
   const terminalQuiet = quietTerminalCommands.has(agent.id);
   // An agent's card sent with `open: true` (task 043bf145) does what its
   // button does, once, while this chat is on screen. A request from before
@@ -2755,11 +2765,17 @@ export function LogView({
                   onCopyToTerminal: features.terminal
                     ? copyToTerminal
                     : undefined,
+                  onRunDeniedCommand: features.terminal
+                    ? runDeniedCommand
+                    : undefined,
                   tasks: taskMap,
                   onOpenTask,
                 })}
                 onCopyToTerminal={
                   features.terminal ? copyToTerminal : undefined
+                }
+                onRunDeniedCommand={
+                  features.terminal ? runDeniedCommand : undefined
                 }
                 interaction={
                   interaction && (
