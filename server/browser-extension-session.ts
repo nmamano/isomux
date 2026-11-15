@@ -9,7 +9,14 @@ import {
   type BrowserUpload,
   type UploadedFile,
 } from "./browser-upload";
-import type { Browser, Dialog, Page } from "playwright-core";
+import type {
+  Browser,
+  Dialog,
+  Frame,
+  Page,
+  Request,
+  Response,
+} from "playwright-core";
 import {
   readBrowserFrames,
   MissingSelectorError,
@@ -33,7 +40,7 @@ import {
   type ExtensionConnection,
   type OfflineOffer,
 } from "./browser-extension-bridge";
-import { officePageRefused } from "./browser-office-gate";
+import { httpOrigin, officePageRefused } from "./browser-office-gate";
 import {
   EXTENSION_MUTE_PACKAGE,
   extensionOutdated,
@@ -124,6 +131,18 @@ const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
 // command in flight. Then the page gave Playwright no script context, which
 // a longer wait does not change (task 6950c897).
 export const PAGE_ANSWER_MS = 5000;
+// A page load older than this can no longer make a goto wait (the gap is at
+// most a few seconds), so its record goes.
+const LOAD_RECORD_MS = 60_000;
+// The longest text that fill types key by key.
+const KEYED_FILL_CHARS = 40;
+// What one typed key costs beyond its delay: the round trip of its key events
+// to Chrome, generously.
+const KEY_ROUND_TRIP_MS = 50;
+// An in-page goto that starts no navigation in this time goes through
+// Page.navigate instead: Chrome held the script, or the page cancelled the
+// navigation.
+const IN_PAGE_START_MS = 1000;
 const PAGE_UNANSWERED_ERROR = `The page did not answer within ${PAGE_ANSWER_MS / 1000} s. Control remains on. It may still be loading: try once more. If it fails again, use another tab.`;
 class PageUnansweredError extends Error {}
 // A scoped read whose selector matches no element (task f63edd81).
@@ -227,6 +246,151 @@ const CHECK_SETTLE_MS = 3000;
 const CHECK_POLL_MS = 100;
 const PLAYWRIGHT_CLOSED_TARGET =
   "Target page, context or browser has been closed";
+// Pace and input of a person (task 806eadc5).
+const PAGE_NOT_LOADED = "The page did not load.";
+// A goto to another page of the current origin runs in the page, so that the
+// site sees the headers of a link click (Sec-Fetch-Site same-origin and a
+// Referer). An opaque origin never does, and a hash change on the same
+// document stays with page.goto.
+const inPageGoto = (current: string, url: string): boolean => {
+  const from = httpOrigin(current);
+  if (from === undefined || from !== httpOrigin(url)) return false;
+  const base = (href: string) => {
+    const parsed = new URL(href);
+    parsed.hash = "";
+    return parsed.href;
+  };
+  return base(current) !== base(url) || new URL(url).hash === "";
+};
+// Navigates the page with location.assign and waits for its load. A failed
+// load rejects as page.goto does. A navigation that the page cancels goes
+// through page.goto. False when the page ends on Chrome's error page.
+async function gotoInPage(
+  page: Page,
+  url: string,
+  timeout: number,
+): Promise<boolean> {
+  const main = page.mainFrame();
+  const navigated = main.waitForNavigation({ waitUntil: "load", timeout });
+  navigated.catch(() => {});
+  let started!: () => void;
+  const start = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const onRequest = (request: Request) => {
+    if (request.isNavigationRequest() && request.frame() === main) started();
+  };
+  // A load that finishes with no new document (a 204 or 205) ends the goto
+  // as Chrome ends page.goto: aborted.
+  let committed = false;
+  let abort!: (error: Error) => void;
+  const noCommit = new Promise<never>((_, reject) => {
+    abort = reject;
+  });
+  noCommit.catch(() => {});
+  const onNavigated = (frame: Frame) => {
+    if (frame !== main) return;
+    committed = true;
+    started();
+  };
+  const onFinished = (request: Request) => {
+    if (
+      !committed &&
+      request.isNavigationRequest() &&
+      request.frame() === main &&
+      (status === 204 || status === 205)
+    )
+      abort(new Error("net::ERR_ABORTED"));
+  };
+  // The status of the last main-frame response: an aborted load after a 2xx
+  // with content is a download, which page.goto reports as no page load.
+  let status: number | undefined;
+  const onResponse = (response: Response) => {
+    const request = response.request();
+    if (request.isNavigationRequest() && request.frame() === main)
+      status = response.status();
+  };
+  page.on("request", onRequest);
+  page.on("framenavigated", onNavigated);
+  page.on("response", onResponse);
+  page.on("requestfinished", onFinished);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Chrome can hold the script while another navigation is on its way;
+    // then, and when the page cancels the navigation, page.goto runs. A held
+    // script runs in the old document only.
+    let failed: { error: unknown } | undefined;
+    void page
+      .evaluate((href) => window.location.assign(href), url)
+      .catch((error: unknown) => {
+        // The new document can replace the page before evaluate answers.
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes("Execution context was destroyed")
+        )
+          failed = { error };
+      });
+    const cancelled = await Promise.race([
+      start.then(() => false),
+      navigated.then(
+        () => false,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), IN_PAGE_START_MS);
+      }),
+    ]);
+    if (cancelled && failed) throw failed.error;
+    if (cancelled) await page.goto(url, { waitUntil: "load", timeout });
+    else
+      await Promise.race([
+        noCommit,
+        navigated.catch((error: unknown) => {
+          if (
+            error instanceof Error &&
+            error.message.includes("net::ERR_ABORTED") &&
+            status !== undefined &&
+            status >= 200 &&
+            status < 300 &&
+            status !== 204 &&
+            status !== 205
+          )
+            throw new Error("Download is starting");
+          throw error;
+        }),
+      ]);
+  } finally {
+    page.off("requestfinished", onFinished);
+    clearTimeout(timer);
+    page.off("request", onRequest);
+    page.off("framenavigated", onNavigated);
+    page.off("response", onResponse);
+  }
+  return !page.url().startsWith("chrome-error:");
+}
+// Text that fill types key by key: short, printable ASCII.
+const keyedText = (text: string): boolean =>
+  text.length > 0 &&
+  text.length <= KEYED_FILL_CHARS &&
+  /^[\x20-\x7e]*$/.test(text);
+// Runs in the page: a plain text field with the focus, typed key by key. An
+// autocomplete box would send a request per key.
+function keyedField(element: Element): boolean {
+  if (!element.matches(":focus")) return false;
+  const auto = element.getAttribute("aria-autocomplete");
+  if (
+    element.getAttribute("role") === "combobox" ||
+    (auto !== null && auto !== "none")
+  )
+    return false;
+  if (element instanceof HTMLTextAreaElement) return !element.readOnly;
+  return (
+    element instanceof HTMLInputElement &&
+    !element.readOnly &&
+    !element.hasAttribute("list") &&
+    ["text", "email", "url", "tel", "password"].includes(element.type)
+  );
+}
 const notPerformed = (action: "click" | "select", reason: string) =>
   failure(
     "action_failed",
@@ -282,6 +446,21 @@ export type ExtensionSessionService = Pick<
   "bridge" | "outdatedBrowsers"
 > & { store: Pick<BrowserExtensionStore, "paired"> };
 
+// Human pace for agent input (task 806eadc5). Each value is drawn per use.
+export type BrowserPace = {
+  // Mouse-down to mouse-up of a click.
+  pressMs?: () => number;
+  // The least time from a page load to the next goto on the same origin.
+  gapMs?: () => number;
+  // The time between two keys of a field typed key by key.
+  keyDelayMs?: () => number;
+};
+const DEFAULT_PACE: Required<BrowserPace> = {
+  pressMs: () => 50 + Math.random() * 70,
+  gapMs: () => 2000 + Math.random() * 3000,
+  keyDelayMs: () => 80,
+};
+
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
@@ -292,7 +471,39 @@ export class ExtensionBrowserSessions {
     private actionDeadline: () => number = () => BROWSER_ACTION_DEADLINE_MS,
     private fenceCeiling: () => number = () => FENCE_CEILING_MS,
     private pageAnswer: () => number = () => PAGE_ANSWER_MS,
-  ) {}
+    pace: BrowserPace = {},
+  ) {
+    this.pace = { ...DEFAULT_PACE, ...pace };
+  }
+  private pace: Required<BrowserPace>;
+  // Per offer handle (unique across browsers), each origin's last page load:
+  // the end of an action during which a main-frame navigation request went
+  // to it.
+  private loads = new Map<string, Map<string, number>>();
+  private recordLoads(target: string, origins: Iterable<string>): void {
+    const now = performance.now();
+    for (const [handle, byOrigin] of this.loads) {
+      for (const [origin, at] of byOrigin)
+        if (now - at > LOAD_RECORD_MS) byOrigin.delete(origin);
+      if (!byOrigin.size) this.loads.delete(handle);
+    }
+    for (const origin of origins) {
+      let byOrigin = this.loads.get(target);
+      if (!byOrigin)
+        this.loads.set(target, (byOrigin = new Map<string, number>()));
+      byOrigin.set(origin, now);
+    }
+  }
+  // A goto to the origin of the tab's last page load waits until a gap of
+  // gapMs has passed since that load.
+  private async paceGoto(target: string, url: string): Promise<void> {
+    const origin = httpOrigin(url);
+    const at =
+      origin === undefined ? undefined : this.loads.get(target)?.get(origin);
+    if (at === undefined) return;
+    const wait = at + this.pace.gapMs() - performance.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
   private end(key: string): void {
     const session = this.sessions.get(key);
     if (!session) return;
@@ -515,10 +726,14 @@ export class ExtensionBrowserSessions {
     key: string,
     bound: Resolved | undefined,
   ): Promise<BrowserResult> {
-    const actionMs = this.actionDeadline();
-    const actionStarted = performance.now();
     const params = parseBrowserParams(body);
     if (!params.ok) return params;
+    // The wait comes before the deadline starts, and before every check, so
+    // the checks see the state after it.
+    if (params.action === "goto" && bound)
+      await this.paceGoto(bound.target, params.url!.href);
+    const actionMs = this.actionDeadline();
+    const actionStarted = performance.now();
     if (!bound) {
       const bridge = this.service.bridge;
       // No tab to act on: point the agent to a tab it may open itself
@@ -741,6 +956,10 @@ export class ExtensionBrowserSessions {
       );
     let timer: ReturnType<typeof setTimeout> | undefined;
     let policy: { session: Session; dialogs: ActionDialogs } | undefined;
+    // The origins that got a main-frame navigation request during the
+    // action, whatever its outcome: each is a page load for the pace.
+    const reached = new Set<string>();
+    let stopLoadWatch: (() => void) | undefined;
     let transport: ReturnType<typeof browserExtensionTransport> | undefined;
     let timedOut = false;
     let debuggerDetached = false;
@@ -857,6 +1076,17 @@ export class ExtensionBrowserSessions {
       policy = { session, dialogs };
       const timeout = actionMs;
       const page = session.page;
+      const onRequest = (request: Request) => {
+        if (
+          !request.isNavigationRequest() ||
+          request.frame() !== page.mainFrame()
+        )
+          return;
+        const origin = httpOrigin(request.url());
+        if (origin !== undefined) reached.add(origin);
+      };
+      page.on("request", onRequest);
+      stopLoadWatch = () => page.off("request", onRequest);
       const closedTarget = (error: unknown) =>
         error instanceof Error &&
         error.message.includes(PLAYWRIGHT_CLOSED_TARGET);
@@ -915,7 +1145,10 @@ export class ExtensionBrowserSessions {
         case "goto":
           // After a leave the page is already on its way to the URL.
           if (leaving) await page.waitForLoadState("load", { timeout });
-          else
+          else if (inPageGoto(page.url(), params.url!.href)) {
+            if (!(await gotoInPage(page, params.url!.href, timeout)))
+              return failure("action_failed", PAGE_NOT_LOADED);
+          } else
             await page.goto(params.url!.toString(), {
               waitUntil: "load",
               timeout,
@@ -925,6 +1158,8 @@ export class ExtensionBrowserSessions {
         case "click": {
           const options = {
             noWaitAfter: true,
+            // Mouse-down to mouse-up, as a person holds a press.
+            delay: this.pace.pressMs(),
             timeout: Math.max(
               1,
               deadline - INPUT_RESERVE_MS - performance.now(),
@@ -1132,10 +1367,39 @@ export class ExtensionBrowserSessions {
           }
           break;
         }
-        case "fill":
-          if (element) await element.fill(params.text!, { timeout });
-          else await page.fill(params.selector!, params.text!, { timeout });
+        case "fill": {
+          // A frame selector stays strict; a page selector takes its first
+          // match, as page.fill does.
+          const field = element ?? page.locator(params.selector!).first();
+          const text = params.text!;
+          const keyDelay = this.pace.keyDelayMs();
+          // Keys go to the focused element: a field that cannot take the
+          // focus (disabled, hidden) gets one fill, which waits until it is
+          // editable.
+          if (
+            keyedText(text) &&
+            // Keys that would outlast the deadline give way to one fill.
+            text.length * (keyDelay + KEY_ROUND_TRIP_MS) <=
+              inputBudget() - INPUT_RESERVE_MS &&
+            (await field.focus({ timeout: inputBudget() }).then(() =>
+              field.evaluate(keyedField, undefined, {
+                timeout: inputBudget(),
+              }),
+            ))
+          ) {
+            // Keys replace a selected value; a clear would send a Delete.
+            if (await field.inputValue({ timeout: inputBudget() }))
+              await field.selectText({ timeout: inputBudget() });
+            await field.pressSequentially(text, {
+              delay: keyDelay,
+              timeout: inputBudget(),
+            });
+            // An input mask or a script rewrote the keys: set the text.
+            if ((await field.inputValue({ timeout: inputBudget() })) !== text)
+              await field.fill(text, { timeout: inputBudget() });
+          } else await field.fill(text, { timeout });
           break;
+        }
         case "upload": {
           const file = upload!;
           // The element check keeps the base budget: a missing selector
@@ -1468,6 +1732,8 @@ export class ExtensionBrowserSessions {
         return officeRefused();
       return withDialogs(result);
     } finally {
+      stopLoadWatch?.();
+      if (reached.size) this.recordLoads(target, reached);
       stopGateWatch();
       stopTooLargeWatch();
       watched?.removeEventListener("abort", onEnd);

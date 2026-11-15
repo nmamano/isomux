@@ -6,6 +6,7 @@ import {
 } from "../browser-extension-bridge";
 import {
   ExtensionBrowserSessions,
+  type BrowserPace,
   type ExtensionSessionService,
 } from "../browser-extension-session";
 import {
@@ -128,12 +129,15 @@ export function browserExtensionFixture(
     bridge,
     extensionURL: origin.replace("http:", "ws:") + "/extension",
     starts: () => starts,
-    sessions: (deadlineMs: number) =>
+    sessions: (deadlineMs: number, pace?: BrowserPace) =>
       new ExtensionBrowserSessions(
         service,
         () => "fixture-member",
         () => true,
         () => deadlineMs,
+        undefined,
+        undefined,
+        pace,
       ),
     stop: () => {
       bridge.connections("fixture-member")[0]?.close();

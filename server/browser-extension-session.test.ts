@@ -292,6 +292,10 @@ async function gateSession(actionMs = 5000, opened = false) {
     () => "member",
     () => true,
     () => actionMs,
+    undefined,
+    undefined,
+    // No wait between page loads: these tests are about the gate.
+    { gapMs: () => 0 },
   );
   // Page commands that reached the extension, by CDP method.
   const reached: string[] = [];
@@ -1458,6 +1462,8 @@ async function timeoutSessionFixture(
     () => opts.deadline ?? 20,
     opts.fenceCeiling === undefined ? undefined : () => opts.fenceCeiling!,
     opts.pageAnswer === undefined ? undefined : () => opts.pageAnswer!,
+    // No wait between page loads: these tests are about timeouts.
+    { gapMs: () => 0 },
   );
   const { code } = store.pair("member");
   const { credential } = store.redeem(code, origin, () => true);
@@ -1613,7 +1619,8 @@ async function timeoutSessionFixture(
           pageClosed = true;
         },
         isClosed: () => pageClosed,
-        url: () => "https://example.com/",
+        // Another origin than the gotos', so a goto takes page.goto.
+        url: () => "https://fixture.example/",
         title: () => {
           if (!opts.hangTitle || client !== 1)
             return Promise.resolve("Fixture");
@@ -1627,7 +1634,10 @@ async function timeoutSessionFixture(
           return new Promise<string>(() => {});
         },
         mainFrame: () => mainFrame,
-        fill: timeout,
+        // A field that fill does not type key by key: one fill, the hook.
+        locator: () => ({
+          first: () => ({ evaluate: async () => false, fill: timeout }),
+        }),
         goto: opts.gotoOk ? async () => null : timeout,
         click: async () => {
           calls++;

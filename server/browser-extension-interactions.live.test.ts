@@ -13,6 +13,7 @@ import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
 import {
   ANSWER_TOO_LARGE_ERROR,
+  type BrowserPace,
   type ExtensionBrowserSessions,
 } from "./browser-extension-session";
 import {
@@ -30,7 +31,7 @@ import {
 import { translatorFor } from "../shared/i18n/translate";
 import { writeFileSync } from "node:fs";
 
-type Site = (url: URL) => Response | Promise<Response>;
+type Site = (url: URL, req: Request) => Response | Promise<Response>;
 // Offers one tab of a raw extension Chrome to fixture-agent and drives it
 // through the office action contract only.
 async function withOfferedTab(
@@ -54,13 +55,15 @@ async function withOfferedTab(
   // client is attached to the tab until after the activation: an attached
   // one turns prerendering off.
   prerendered?: { start: string; activated: string },
+  // The agent's pace; the production defaults when left out.
+  pace?: BrowserPace,
 ) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-interactions-"));
   const fixture = browserExtensionFixture();
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch: (req) => site(new URL(req.url)),
+    fetch: (req) => site(new URL(req.url), req),
   });
   console.log("Isolated interaction fixture", {
     profile: join(dir, "profile"),
@@ -121,7 +124,7 @@ async function withOfferedTab(
     await popup.close();
     const connection = fixture.bridge.connections("fixture-member")[0];
     await connection.drain(connection.offered("fixture-agent")!);
-    const owned = fixture.sessions(deadlineMs);
+    const owned = fixture.sessions(deadlineMs, pace);
     sessions = owned;
     const setupBrowser = raw.browser;
     await run({
@@ -1839,4 +1842,401 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     );
   },
   60_000,
+);
+
+// Task 806eadc5: human pace for agent input. Each request the site gets,
+// with the headers that tell a link click from a typed URL.
+type Hit = {
+  origin: string;
+  path: string;
+  site: string | null;
+  user: string | null;
+  referer: string | null;
+  at: number;
+};
+function hitLog() {
+  const hits: Hit[] = [];
+  const record = (url: URL, req: Request) =>
+    hits.push({
+      origin: url.origin,
+      path: url.pathname,
+      site: req.headers.get("sec-fetch-site"),
+      user: req.headers.get("sec-fetch-user"),
+      referer: req.headers.get("referer"),
+      at: performance.now(),
+    });
+  // The last request for this page; the test fails when there is none.
+  const last = (origin: string, path: string) => {
+    const hit = hits.findLast((h) => h.origin === origin && h.path === path);
+    expect(hit, `a request for ${origin}${path}`).toBeDefined();
+    return hit!;
+  };
+  return { hits, record, last };
+}
+// The same server under a second origin: localhost is another site than
+// 127.0.0.1.
+const otherOrigin = (origin: string) =>
+  origin.replace("//127.0.0.1:", "//localhost:");
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a goto on the same site reaches the site as a link click does, and one that commits no page ends as a goto to another site does",
+  async () => {
+    const log = hitLog();
+    // A port with nothing listening on it.
+    const dead = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(),
+    });
+    const deadPort = dead.port;
+    void dead.stop(true);
+    await withOfferedTab(
+      async (url, req) => {
+        log.record(url, req);
+        if (url.pathname === "/download")
+          return new Response("x", {
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Disposition": 'attachment; filename="x.bin"',
+            },
+          });
+        if (url.pathname === "/empty")
+          return new Response(null, { status: 204 });
+        // A redirect to a page that takes a while to answer.
+        if (url.pathname === "/hop")
+          return new Response(null, {
+            status: 302,
+            headers: { Location: "/late" },
+          });
+        if (url.pathname === "/late") await Bun.sleep(1500);
+        if (url.pathname === "/gone")
+          return new Response(null, {
+            status: 302,
+            headers: { Location: `http://127.0.0.1:${deadPort}/` },
+          });
+        // A single-page app: the page routes /spa/route itself.
+        if (url.pathname === "/spa")
+          return html(`<!doctype html><title>Shell</title><script>
+navigation.addEventListener("navigate", (event) => {
+  if (event.canIntercept && new URL(event.destination.url).pathname === "/spa/route")
+    event.intercept({ handler: async () => { document.title = "Routed"; } });
+});</script>`);
+        return html(
+          `<!doctype html><title>Page ${url.pathname}</title><p>${url.pathname}</p>`,
+        );
+      },
+      async ({ origin, act, setupPage }) => {
+        const { ok } = expectations(act);
+        const other = otherOrigin(origin);
+        // A download is refused, so no file lands outside the test folder.
+        const admin = await setupPage
+          .context()
+          .browser()!
+          .newBrowserCDPSession();
+        await admin.send("Browser.setDownloadBehavior", { behavior: "deny" });
+
+        // Same origin: the headers of a link click on the current page.
+        expect(ok(await act({ action: "goto", url: `${origin}/a` })).url).toBe(
+          `${origin}/a`,
+        );
+        const same = log.last(origin, "/a");
+        // Another origin: the headers of a goto, as before.
+        ok(await act({ action: "goto", url: `${other}/a` }));
+        const cross = log.last(other, "/a");
+        console.log("Goto headers:", JSON.stringify({ same, cross }));
+        expect({ site: same.site, referer: same.referer }).toEqual({
+          site: "same-origin",
+          referer: `${origin}/`,
+        });
+        expect({ site: cross.site, referer: cross.referer }).toEqual({
+          site: "cross-site",
+          referer: null,
+        });
+
+        // A reply that commits no page ends the same-site goto as fast as
+        // the goto to another site, with the same result.
+        for (const path of ["/download", "/empty", "/gone"]) {
+          ok(await act({ action: "goto", url: `${origin}/` }));
+          const inPage = await act({ action: "goto", url: `${origin}${path}` });
+          // A failed load commits Chrome's error page after the goto
+          // returns; a goto at once can meet that commit.
+          await Bun.sleep(500);
+          // The same-site goto ran in the page.
+          expect(log.last(origin, path).site).toBe("same-origin");
+          ok(await act({ action: "goto", url: `${origin}/` }));
+          const elsewhere = await act({
+            action: "goto",
+            url: `${other}${path}`,
+          });
+          await Bun.sleep(500);
+          console.log(
+            "No commit:",
+            JSON.stringify({ path, inPage, elsewhere }),
+          );
+          const outcome = ({ result }: Timed) =>
+            result.ok
+              ? { ok: true, url: result.url.replace(other, origin) }
+              : { ok: false, code: result.code, error: result.error };
+          expect(outcome(inPage)).toEqual(outcome(elsewhere));
+          expect(elsewhere.elapsed).toBeLessThan(DEADLINE_MS / 2);
+          expect(inPage.elapsed).toBeLessThan(elsewhere.elapsed + 500);
+        }
+
+        // A redirect hop is no ending: the goto waits for the page it leads
+        // to.
+        ok(await act({ action: "goto", url: `${origin}/` }));
+        const hopped = await act({ action: "goto", url: `${origin}/hop` });
+        expect(log.last(origin, "/hop").site).toBe("same-origin");
+        expect(ok(hopped).url).toBe(`${origin}/late`);
+
+        // A page that routes the URL itself still ends the goto.
+        ok(await act({ action: "goto", url: `${origin}/spa` }));
+        const routed = await act({
+          action: "goto",
+          url: `${origin}/spa/route`,
+        });
+        expect(ok(routed).url).toBe(`${origin}/spa/route`);
+        expect(routed.elapsed).toBeLessThan(DEADLINE_MS / 2);
+      },
+      DEADLINE_MS,
+      undefined,
+      undefined,
+      { gapMs: () => 0 },
+    );
+  },
+  60_000,
+);
+
+// One field per rule of the key-by-key choice. Each keydown is logged with
+// its time, by field id.
+const FIELDS_PAGE = `<!doctype html><title>Fields</title>
+<input id="text" value="old"> <input id="notype"> <input id="email" type="email">
+<input id="url" type="url"> <input id="tel" type="tel"> <input id="password" type="password">
+<textarea id="area"></textarea> <textarea id="lines"></textarea>
+<input id="b40"> <input id="b41"> <input id="accent">
+<input id="search" type="search"> <input id="number" type="number">
+<input id="combo" role="combobox"> <input id="listed" list="choices"><datalist id="choices"><option value="x"></datalist>
+<input id="auto" aria-autocomplete="list"> <input id="autonone" aria-autocomplete="none">
+<div id="edit" contenteditable="true"></div>
+<input id="mask"> <input class="dup" id="dup1"> <input class="dup" id="dup2">
+<input id="arm"> <input id="late" disabled>
+<p><button id="press" style="width:120px;height:40px">Press</button></p>
+<script>
+const keys = (window.keys = {});
+document.addEventListener("keydown", (event) => {
+  (keys[event.target.id] ??= []).push({ at: event.timeStamp, trusted: event.isTrusted });
+}, true);
+// A mask that puts the caret first at each key: typed text comes out reversed.
+document.getElementById("mask").addEventListener("keydown", (event) => event.target.setSelectionRange(0, 0));
+// Typing "go" into #arm enables #late 1 s later.
+document.getElementById("arm").addEventListener("input", (event) => {
+  if (event.target.value === "go") setTimeout(() => (document.getElementById("late").disabled = false), 1000);
+});
+const presses = (window.presses = []);
+let down = 0;
+const press = document.getElementById("press");
+press.addEventListener("mousedown", (event) => { down = event.timeStamp; });
+press.addEventListener("mouseup", (event) => {
+  const box = press.getBoundingClientRect();
+  presses.push({
+    hold: event.timeStamp - down,
+    dx: event.clientX - (box.left + box.width / 2),
+    dy: event.clientY - (box.top + box.height / 2),
+    trusted: event.isTrusted,
+  });
+});
+</script>`;
+
+const FIELDS_DEADLINE_MS = 10_000;
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "fill types short plain text into text fields key by key, keeps one fill elsewhere, and a click holds the press",
+  async () => {
+    await withOfferedTab(
+      () => html(FIELDS_PAGE),
+      async ({ act, setupPage }) => {
+        const { ok } = expectations(act);
+        const forty = "abcdefghij".repeat(4);
+        const rows: [string, string, boolean][] = [
+          ["#text", "hello world", true],
+          ["#notype", "abc", true],
+          ["#email", "a@b.co", true],
+          ["#url", "http://x.test", true],
+          ["#tel", "555 0100", true],
+          ["#password", "s3cret!", true],
+          ["#area", "short note", true],
+          ["#autonone", "abc", true],
+          ["#b40", forty, true],
+          ["#b41", forty + "k", false],
+          ["#accent", "caf\u00e9", false],
+          ["#lines", "a\nb", false],
+          ["#search", "abc", false],
+          ["#number", "42", false],
+          ["#combo", "abc", false],
+          ["#listed", "abc", false],
+          ["#auto", "abc", false],
+          ["#edit", "abc", false],
+        ];
+        for (const [selector, text] of rows)
+          ok(await act({ action: "fill", selector, text }));
+        // The mask reverses typed text: the fill after the keys fixes it.
+        ok(await act({ action: "fill", selector: "#mask", text: "abc" }));
+        // A field that cannot take focus yet gets the text once it can, and
+        // no key goes to the field that has the focus.
+        ok(await act({ action: "fill", selector: "#arm", text: "go" }));
+        ok(await act({ action: "fill", selector: "#late", text: "xyz" }));
+        // A selector with two matches fills the first, as before.
+        ok(await act({ action: "fill", selector: ".dup", text: "abc" }));
+        const seen = await setupPage.evaluate(() => {
+          const value = (id: string) => {
+            const el = document.getElementById(id)!;
+            return el instanceof HTMLInputElement ||
+              el instanceof HTMLTextAreaElement
+              ? el.value
+              : el.textContent;
+          };
+          const keys = (
+            window as unknown as {
+              keys: Record<string, { at: number; trusted: boolean }[]>;
+            }
+          ).keys;
+          const ids = [...document.querySelectorAll("[id]")].map((el) => el.id);
+          return Object.fromEntries(
+            ids.map((id) => [id, { value: value(id), keys: keys[id] ?? [] }]),
+          );
+        });
+        console.log(
+          "Fill keys:",
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(seen).map(([id, f]) => [id, f.keys.length]),
+            ),
+          ),
+        );
+        for (const [selector, text, keyed] of rows) {
+          const field = seen[selector.slice(1)]!;
+          expect({
+            selector,
+            value: field.value,
+            keys: field.keys.length,
+          }).toEqual({
+            selector,
+            value: text,
+            keys: keyed ? text.length : 0,
+          });
+        }
+        expect(seen.mask).toEqual({
+          value: "abc",
+          keys: [expect.anything(), expect.anything(), expect.anything()],
+        });
+        expect({ arm: seen.arm!.value, late: seen.late!.value }).toEqual({
+          arm: "go",
+          late: "xyz",
+        });
+        expect({
+          dup1: seen.dup1!.value,
+          dup1Keys: seen.dup1!.keys.length,
+          dup2: seen.dup2!.value,
+        }).toEqual({ dup1: "abc", dup1Keys: 3, dup2: "" });
+        // Real key events, about 80 ms apart.
+        const typed = seen.text!.keys;
+        expect(typed.every((key) => key.trusted)).toBe(true);
+        const gaps = typed.slice(1).map((key, i) => key.at - typed[i]!.at);
+        console.log("Key gaps:", JSON.stringify(gaps));
+        expect(Math.min(...gaps)).toBeGreaterThanOrEqual(70);
+
+        // Each click holds the press 50 to 120 ms, at the button's centre.
+        for (let i = 0; i < 5; i++)
+          ok(await act({ action: "click", selector: "#press" }));
+        const presses = await setupPage.evaluate(
+          () =>
+            (
+              window as unknown as {
+                presses: {
+                  hold: number;
+                  dx: number;
+                  dy: number;
+                  trusted: boolean;
+                }[];
+              }
+            ).presses,
+        );
+        console.log("Presses:", JSON.stringify(presses));
+        expect(presses).toHaveLength(5);
+        for (const press of presses) {
+          expect(press.trusted).toBe(true);
+          // Event times have coarse steps; the upper bound allows for the
+          // bridge's round trip.
+          expect(press.hold).toBeGreaterThanOrEqual(45);
+          expect(press.hold).toBeLessThan(200);
+          expect(Math.abs(press.dx)).toBeLessThanOrEqual(1);
+          expect(Math.abs(press.dy)).toBeLessThanOrEqual(1);
+        }
+      },
+      // 40 keys take about 5 s; fill types them only when they fit in the
+      // action deadline.
+      FIELDS_DEADLINE_MS,
+    );
+  },
+  60_000,
+);
+
+const PACE_DEADLINE_MS = 4000;
+const SLOW_PAGE_MS = 2500;
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a goto on the site of the last page load waits 2 to 5 s after that load, outside the action deadline",
+  async () => {
+    const log = hitLog();
+    await withOfferedTab(
+      async (url, req) => {
+        log.record(url, req);
+        if (url.pathname === "/empty")
+          return new Response(null, { status: 204 });
+        if (url.pathname === "/slow") await Bun.sleep(SLOW_PAGE_MS);
+        return html(
+          `<!doctype html><title>Page ${url.pathname}</title><a id="next" href="/p4">Next</a>`,
+        );
+      },
+      async ({ origin, act }) => {
+        const { ok } = expectations(act);
+        const other = otherOrigin(origin);
+        // The first goto of the agent waits for nothing.
+        let started = performance.now();
+        ok(await act({ action: "goto", url: `${origin}/p1` }));
+        expect(log.last(origin, "/p1").at - started).toBeLessThan(1500);
+        // The next goto on the same site waits after the first load.
+        ok(await act({ action: "goto", url: `${origin}/p2` }));
+        const gap = log.last(origin, "/p2").at - log.last(origin, "/p1").at;
+        expect(gap).toBeGreaterThanOrEqual(2000);
+        expect(gap).toBeLessThan(6000);
+        // Another site: no wait.
+        started = performance.now();
+        ok(await act({ action: "goto", url: `${other}/p3` }));
+        expect(log.last(other, "/p3").at - started).toBeLessThan(1500);
+        // A click that loads a page counts as a load.
+        expect(ok(await act({ action: "click", selector: "#next" })).url).toBe(
+          `${other}/p4`,
+        );
+        ok(await act({ action: "goto", url: `${other}/p5` }));
+        expect(
+          log.last(other, "/p5").at - log.last(other, "/p4").at,
+        ).toBeGreaterThanOrEqual(2000);
+        // A goto whose request reached the site counts, also with no page.
+        await act({ action: "goto", url: `${other}/empty` });
+        ok(await act({ action: "goto", url: `${other}/p6` }));
+        expect(
+          log.last(other, "/p6").at - log.last(other, "/empty").at,
+        ).toBeGreaterThanOrEqual(2000);
+        // The wait is not taken from the deadline: a load that needs most of
+        // the deadline still ends in time.
+        ok(await act({ action: "goto", url: `${other}/slow` }));
+        expect(
+          log.last(other, "/slow").at - log.last(other, "/p6").at,
+        ).toBeGreaterThanOrEqual(2000);
+      },
+      PACE_DEADLINE_MS,
+    );
+  },
+  90_000,
 );
