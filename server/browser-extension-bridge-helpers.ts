@@ -63,3 +63,13 @@ export function envelope(msg: Fields): Fields {
       : {}),
   };
 }
+
+// After a navigation fails with a network error, Chrome commits its error
+// page, and a goto sent before that commit is interrupted by it. So a failed
+// goto waits for the commit, at most ERROR_PAGE_COMMIT_MS and never past its
+// deadline (a performance.now() time). ERR_ABORTED commits no error page.
+export const ERROR_PAGE_COMMIT_MS = 1000;
+export const commitsErrorPage = (code: string): boolean =>
+  /^net::ERR_/.test(code) && !/^net::ERR_ABORTED\b/.test(code);
+export const errorPageWaitMs = (deadline: number): number =>
+  Math.max(0, Math.min(ERROR_PAGE_COMMIT_MS, deadline - performance.now()));

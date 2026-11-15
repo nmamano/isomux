@@ -40,6 +40,10 @@ import {
   type ExtensionConnection,
   type OfflineOffer,
 } from "./browser-extension-bridge";
+import {
+  commitsErrorPage,
+  errorPageWaitMs,
+} from "./browser-extension-bridge-helpers";
 import { httpOrigin, officePageRefused } from "./browser-office-gate";
 import {
   EXTENSION_MUTE_PACKAGE,
@@ -367,6 +371,44 @@ async function gotoInPage(
     page.off("response", onResponse);
   }
   return !page.url().startsWith("chrome-error:");
+}
+// The network error code on an error's first line.
+const netError = (error: unknown): string | undefined =>
+  error instanceof Error
+    ? /\bnet::ERR_[A-Z0-9_]+/.exec(error.message.split("\n", 1)[0])?.[0]
+    : undefined;
+// Runs a goto. One that fails with a network error returns once Chrome has
+// committed its error page, or at a bound, so that the commit cannot
+// interrupt the next goto.
+async function afterErrorPage<T>(
+  page: Page,
+  deadline: number,
+  goto: () => Promise<T>,
+): Promise<T> {
+  const main = page.mainFrame();
+  const committed = Promise.withResolvers<void>();
+  const onNavigated = (frame: Frame) => {
+    if (frame === main && frame.url().startsWith("chrome-error:"))
+      committed.resolve();
+  };
+  page.on("framenavigated", onNavigated);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await goto();
+  } catch (error) {
+    const code = netError(error);
+    if (code !== undefined && commitsErrorPage(code))
+      await Promise.race([
+        committed.promise,
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, errorPageWaitMs(deadline));
+        }),
+      ]);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    page.off("framenavigated", onNavigated);
+  }
 }
 // Text that fill types key by key: short, printable ASCII.
 const keyedText = (text: string): boolean =>
@@ -1146,13 +1188,19 @@ export class ExtensionBrowserSessions {
           // After a leave the page is already on its way to the URL.
           if (leaving) await page.waitForLoadState("load", { timeout });
           else if (inPageGoto(page.url(), params.url!.href)) {
-            if (!(await gotoInPage(page, params.url!.href, timeout)))
+            const url = params.url!.href;
+            if (
+              !(await afterErrorPage(page, deadline, () =>
+                gotoInPage(page, url, timeout),
+              ))
+            )
               return failure("action_failed", PAGE_NOT_LOADED);
-          } else
-            await page.goto(params.url!.toString(), {
-              waitUntil: "load",
-              timeout,
-            });
+          } else {
+            const url = params.url!.toString();
+            await afterErrorPage(page, deadline, () =>
+              page.goto(url, { waitUntil: "load", timeout }),
+            );
+          }
           session.opened = true;
           break;
         case "click": {
@@ -1695,12 +1743,9 @@ export class ExtensionBrowserSessions {
           ? selectorSyntaxFailure(error)
           : undefined;
         if (syntax) return syntax;
-        const net =
-          params.action === "goto" && error instanceof Error
-            ? /\bnet::ERR_[A-Z0-9_]+/.exec(error.message.split("\n", 1)[0])
-            : null;
+        const net = params.action === "goto" ? netError(error) : undefined;
         if (net)
-          return failure("action_failed", `The page did not load (${net[0]}).`);
+          return failure("action_failed", `The page did not load (${net}).`);
         console.info(
           "[browser-extension] " +
             JSON.stringify({

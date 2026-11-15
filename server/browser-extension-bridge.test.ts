@@ -3225,12 +3225,14 @@ describe("office gate", () => {
   ) {
     const before = navigations(h).length;
     let state: "pending" | "resolved" | "rejected" = "pending";
+    let error: unknown;
     const done = h.connection.leaveOffice(h.assignment, url, deadline).then(
       () => {
         state = "resolved";
       },
-      () => {
+      (reason: unknown) => {
         state = "rejected";
+        error = reason;
       },
     );
     for (let i = 0; i < 50 && navigations(h).length === before; i++)
@@ -3243,6 +3245,7 @@ describe("office gate", () => {
         await Bun.sleep(1);
         return state;
       },
+      error: () => error,
       answer: (result: Fields) =>
         h.connection.receive({
           kind: "result",
@@ -3300,16 +3303,34 @@ describe("office gate", () => {
     }
   });
 
-  for (const [name, result] of [
+  // Task 6bc36bc6: a navigation that failed with a network error commits
+  // Chrome's error page under its loader after Page.navigate answers, and a
+  // goto sent at once met that commit. The leave rejects after the commit,
+  // or at a bound. ERR_ABORTED and a download commit no error page.
+  const ERROR_PAGE = "chrome-error://chromewebdata/";
+  const failed = (errorText: string) => ({
+    frameId: "owned",
+    loaderId: "fail",
+    errorText,
+  });
+  const connRefused = failed("net::ERR_CONNECTION_REFUSED");
+  const download = { frameId: "owned", loaderId: "file", isDownload: true };
+  // How long from the answer to the rejection, at most: never the deadline.
+  const within = { none: 500, first: 500, later: 800, never: 3000 };
+  for (const [name, result, errorPage] of [
+    ["an aborted navigation at once", failed("net::ERR_ABORTED"), "none"],
+    ["a download at once", download, "none"],
+    ["a network error once its error page commits", connRefused, "later"],
     [
-      "a failed navigation",
-      {
-        frameId: "owned",
-        loaderId: "fail",
-        errorText: "net::ERR_NAME_NOT_RESOLVED",
-      },
+      "a network error whose error page came first at once",
+      connRefused,
+      "first",
     ],
-    ["a download", { frameId: "owned", loaderId: "file", isDownload: true }],
+    [
+      "a network error that gets no error page at a bound",
+      connRefused,
+      "never",
+    ],
   ] as const)
     test(`leaveOffice rejects ${name}`, async () => {
       const h = await gateHarness();
@@ -3317,9 +3338,24 @@ describe("office gate", () => {
         event(h, commit(`${OFFICE}/`));
         const l = await leave(h, `${SITE}/file`);
         expect(l.sent).toHaveLength(1);
+        if (errorPage === "first")
+          event(h, commit(ERROR_PAGE, "owned", "fail"));
+        const answered = performance.now();
         l.answer(result);
+        if (errorPage === "later" || errorPage === "never") {
+          // Another loader's commit is not this navigation's error page.
+          event(h, commit(ERROR_PAGE, "owned", "other"));
+          await Bun.sleep(300);
+          expect(await l.state()).toBe("pending");
+        }
+        if (errorPage === "later")
+          event(h, commit(ERROR_PAGE, "owned", "fail"));
+        await Promise.race([l.done, Bun.sleep(3000)]);
         expect(await l.state()).toBe("rejected");
-        expect(h.connection.officeGated(h.assignment)).toBe(true);
+        expect(performance.now() - answered).toBeLessThan(within[errorPage]);
+        if (errorPage === "none")
+          expect(h.connection.officeGated(h.assignment)).toBe(true);
+        else expect(String(l.error())).toContain(connRefused.errorText);
       } finally {
         h.connection.close();
       }

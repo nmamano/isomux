@@ -37,7 +37,9 @@ import {
 } from "./browser-office-gate";
 import {
   clipInDips,
+  commitsErrorPage,
   envelope,
+  errorPageWaitMs,
   extensionCause,
   listen,
 } from "./browser-extension-bridge-helpers";
@@ -1981,7 +1983,8 @@ export class ExtensionConnection {
   /** Navigates the grant's leaf away from a refused office page to url, an
    * open http(s) page. Resolves at the first main-frame commit of this
    * navigation to an open URL; rejects at a refused commit, a failed
-   * navigation, the leaf's end, or deadline (a performance.now() time). */
+   * navigation (a network error once its error page commits), the leaf's
+   * end, or deadline (a performance.now() time). */
   async leaveOffice(
     grant: string,
     url: string,
@@ -1998,8 +2001,11 @@ export class ExtensionConnection {
     // Commits from the send on: the answer and the commit come in any order.
     const commits = new Map<string, string>();
     let loaderId: string | undefined;
+    // A network error rejects at its error page's commit.
+    let failed: Error | undefined;
     const settle = (committed: string) => {
-      if (this.officeRefused(a, committed))
+      if (failed) done.reject(failed);
+      else if (this.officeRefused(a, committed))
         done.reject(new Error("Office page refused"));
       else done.resolve();
     };
@@ -2022,6 +2028,7 @@ export class ExtensionConnection {
       },
       Math.max(0, deadline - performance.now()),
     );
+    let bound: ReturnType<typeof setTimeout> | undefined;
     try {
       this.request(a, "cdp", {
         method: "Page.navigate",
@@ -2029,9 +2036,13 @@ export class ExtensionConnection {
         ...(key === a.session ? {} : { sessionId: key }),
       })
         .then((result) => {
-          if (typeof result.errorText === "string" && result.errorText)
-            throw new Error(`The navigation failed: ${result.errorText}`);
-          if (result.isDownload === true)
+          const text = result.errorText;
+          if (typeof text === "string" && text) {
+            failed = new Error(`The navigation failed: ${text}`);
+            if (!commitsErrorPage(text) || typeof result.loaderId !== "string")
+              throw failed;
+            bound = setTimeout(done.reject, errorPageWaitMs(deadline), failed);
+          } else if (result.isDownload === true)
             throw new Error("The navigation started a download");
           if (typeof result.loaderId !== "string")
             throw new Error("The navigation committed no new document");
@@ -2043,6 +2054,7 @@ export class ExtensionConnection {
       await done.promise;
     } finally {
       clearTimeout(timer);
+      clearTimeout(bound);
       this.leaves.delete(leave);
     }
   }

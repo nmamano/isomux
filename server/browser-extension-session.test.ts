@@ -378,8 +378,10 @@ async function gateSession(actionMs = 5000, opened = false) {
     isClosed() {
       return this.closed;
     }
+    // One main frame, as Playwright's, at the page's URL.
+    readonly frame = { url: () => this.current };
     mainFrame() {
-      return {};
+      return this.frame;
     }
     async opener() {
       return null;
@@ -698,6 +700,49 @@ test("a goto to a known office is refused before any navigation", async () => {
     h.stop();
   }
 });
+
+// Task 6bc36bc6: Chrome commits its error page after page.goto throws a
+// network error, and a goto sent at once met that commit. The failed goto
+// returns after the main frame's commit (an event: page.url() may already be
+// an error page) or at a bound, with its own error. ERR_ABORTED commits none.
+const ERROR_PAGE = "chrome-error://chromewebdata/";
+const REFUSED = "net::ERR_CONNECTION_REFUSED";
+for (const [name, error, from, commitMs, [least, most]] of [
+  ["after its error page", REFUSED, `${SITE}/start`, 200, [190, 700]],
+  ["after a new error page", REFUSED, ERROR_PAGE, 200, [190, 700]],
+  ["at once after an early error page", REFUSED, `${SITE}/start`, 0, [0, 500]],
+  ["at once on ERR_ABORTED", "net::ERR_ABORTED", `${SITE}/start`, -1, [0, 500]],
+  ["at a bound with no error page", REFUSED, `${SITE}/start`, -1, [700, 3000]],
+] as const)
+  test(`a goto that fails with a network error returns ${name}`, async () => {
+    const h = await gateSession();
+    try {
+      h.page.current = from;
+      const commit = () => {
+        h.page.current = ERROR_PAGE;
+        h.page.emit("framenavigated", h.page.mainFrame());
+      };
+      let thrownAt = 0;
+      h.page.onGoto = async () => {
+        // A child frame's error page is not the main frame's.
+        h.page.emit("framenavigated", { url: () => ERROR_PAGE });
+        if (commitMs === 0) commit();
+        else if (commitMs > 0) setTimeout(commit, commitMs);
+        thrownAt = performance.now();
+        throw new Error(`page.goto: ${error} at https://other.test/x`);
+      };
+      const url = "https://other.test/x";
+      const result = await h.sessions.run("agent", { action: "goto", url });
+      const after = performance.now() - thrownAt;
+      expect(h.page.gotos).toEqual([url]);
+      expect(result).toMatchObject({ error: expect.stringContaining(error) });
+      expect(after).toBeGreaterThanOrEqual(least);
+      expect(after).toBeLessThan(most);
+      expect(h.page.listenerCount("framenavigated")).toBe(0);
+    } finally {
+      h.stop();
+    }
+  });
 
 // Agent tabs (task 73a9fb57): open makes a tab in the member's browser and
 // runs a goto on it, as one action.

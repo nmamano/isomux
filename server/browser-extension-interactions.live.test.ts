@@ -1958,17 +1958,14 @@ navigation.addEventListener("navigate", (event) => {
         for (const path of ["/download", "/empty", "/gone"]) {
           ok(await act({ action: "goto", url: `${origin}/` }));
           const inPage = await act({ action: "goto", url: `${origin}${path}` });
-          // A failed load commits Chrome's error page after the goto
-          // returns; a goto at once can meet that commit.
-          await Bun.sleep(500);
           // The same-site goto ran in the page.
           expect(log.last(origin, path).site).toBe("same-origin");
+          // No wait between the gotos (task 6bc36bc6).
           ok(await act({ action: "goto", url: `${origin}/` }));
           const elsewhere = await act({
             action: "goto",
             url: `${other}${path}`,
           });
-          await Bun.sleep(500);
           console.log(
             "No commit:",
             JSON.stringify({ path, inPage, elsewhere }),
@@ -1978,6 +1975,14 @@ navigation.addEventListener("navigate", (event) => {
               ? { ok: true, url: result.url.replace(other, origin) }
               : { ok: false, code: result.code, error: result.error };
           expect(outcome(inPage)).toEqual(outcome(elsewhere));
+          // The enabling condition of the goto at once that follows: the
+          // load failed with a network error, so Chrome commits its error
+          // page.
+          if (path === "/gone")
+            expect(outcome(elsewhere)).toMatchObject({
+              ok: false,
+              error: expect.stringContaining("net::ERR_CONNECTION_REFUSED"),
+            });
           expect(elsewhere.elapsed).toBeLessThan(DEADLINE_MS / 2);
           expect(inPage.elapsed).toBeLessThan(elsewhere.elapsed + 500);
         }
@@ -1997,6 +2002,62 @@ navigation.addEventListener("navigate", (event) => {
         });
         expect(ok(routed).url).toBe(`${origin}/spa/route`);
         expect(routed.elapsed).toBeLessThan(DEADLINE_MS / 2);
+      },
+      DEADLINE_MS,
+      undefined,
+      undefined,
+      { gapMs: () => 0 },
+    );
+  },
+  60_000,
+);
+
+// Task 6bc36bc6: Chrome commits its error page for a load that failed with
+// a network error after Page.navigate answers. A goto sent at once met that
+// commit and failed as interrupted, or took the error page for its own load.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a goto sent at once after a goto that failed with a network error loads",
+  async () => {
+    // A port with nothing listening on it.
+    const dead = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(),
+    });
+    const deadPort = dead.port;
+    void dead.stop(true);
+    await withOfferedTab(
+      (url) =>
+        url.pathname === "/gone"
+          ? new Response(null, {
+              status: 302,
+              headers: { Location: `http://127.0.0.1:${deadPort}/` },
+            })
+          : html(`<!doctype html><title>Page ${url.pathname}</title>`),
+      async ({ origin, act }) => {
+        const { ok } = expectations(act);
+        const other = otherOrigin(origin);
+        const refused = {
+          ok: false,
+          error: expect.stringContaining("net::ERR_CONNECTION_REFUSED"),
+        };
+        // From one site, the failed goto to another site runs through
+        // page.goto; from its own site, it runs in the page. Each is
+        // followed at once by a goto to the other site.
+        for (const [start, failing, next] of [
+          [origin, other, origin],
+          [origin, origin, other],
+        ]) {
+          ok(await act({ action: "goto", url: `${start}/` }));
+          const failed = await act({ action: "goto", url: `${failing}/gone` });
+          const loaded = await act({ action: "goto", url: `${next}/a` });
+          console.log(
+            "Goto at once:",
+            JSON.stringify({ start, failing, next, failed, loaded }),
+          );
+          expect(failed.result).toMatchObject(refused);
+          expect(ok(loaded).url).toBe(`${next}/a`);
+        }
       },
       DEADLINE_MS,
       undefined,
