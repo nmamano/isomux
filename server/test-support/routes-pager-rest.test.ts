@@ -259,7 +259,7 @@ describe("agent pages", () => {
         "Lee",
         "Morgan",
       );
-      expect(moved?.userId).toBe(o.id("Lee"));
+      expect(moved === "other_host" ? moved : moved?.userId).toBe(o.id("Lee"));
       // The move revokes the old token; the new one is bound to Lee.
       const leeToken = mintAgentToken(o.bot.agent.id, o.id("Lee"));
       const forLee = await raise(o.srv, leeToken, {

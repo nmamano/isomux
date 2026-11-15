@@ -21,6 +21,12 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import {
+  forgetMemberOsUser,
+  memberOsUsersPath,
+  recordMemberOsUser,
+  reloadMemberOsUsers,
+} from "../member-os-users.ts";
 import { getUserByName } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
@@ -418,5 +424,142 @@ describe("a pending prompt of the office's agent", () => {
     expect(edited.status).toBe(200);
     await Bun.sleep(300);
     expect(pending(o)).toHaveLength(1);
+  });
+});
+
+// Part 3d: a manager change between hosts (office <-> member, member <->
+// member) is refused with 409 member_os_user and changes nothing; a change
+// on one host still moves the agent.
+describe("a manager change between hosts", () => {
+  const PACK = {
+    areas: { agents: "write", tasks: "read" },
+    agentCeiling: "office",
+  };
+  const setManager = (
+    o: Awaited<ReturnType<typeof office>>,
+    agentId: string,
+    userId: string,
+  ) =>
+    call(o.srv, "PUT", `/api/agents/${agentId}/manager`, o.ownerAuth, {
+      userId,
+    });
+  const stateOf = (o: Awaited<ReturnType<typeof office>>, agentId: string) => {
+    const a = o.srv.agentManager.getAgent(agentId)!;
+    return {
+      userId: a.userId,
+      manager: a.manager,
+      access: a.access,
+      token: getAgentTokenRaw(agentId),
+    };
+  };
+  const refused = async (
+    o: Awaited<ReturnType<typeof office>>,
+    agentId: string,
+    userId: string,
+  ) => {
+    const before = stateOf(o, agentId);
+    const r = await setManager(o, agentId, userId);
+    expect([r.status, r.code]).toEqual([409, "member_os_user"]);
+    expect(stateOf(o, agentId)).toEqual(before);
+  };
+
+  // MUTANT: transferAgentManager and setManager without the host check
+  // (the writer's assertion then throws: 500, not 409); the check after the
+  // clamp (dies on access: the agent moved down to Alice's ceiling).
+  it("is refused office->Alice and Alice->Bob, with no field, token or clamp change; office->Bob moves", async () => {
+    const o = await office();
+    // Alice's pack ceiling would move a Standard agent down: a refused
+    // change must not.
+    const pack = await call(
+      o.srv,
+      "PUT",
+      `/api/users/${o.alice.username}/access`,
+      o.ownerAuth,
+      { allowedRooms: [o.room.id], pack: PACK },
+    );
+    expect(pack.status).toBe(200);
+    const aliceAgent = await o.spawn("Alice's agent", o.alice);
+    // The enabling condition: the clamp would apply to Alice.
+    expect(o.srv.agentManager.getAgent(o.officeAgent.id)!.access).not.toBe(
+      "office",
+    );
+    await refused(o, o.officeAgent.id, o.alice.id);
+    await refused(o, aliceAgent.id, o.bob.id);
+    const moved = await setManager(o, o.officeAgent.id, o.bob.id);
+    expect(moved.status).toBe(200);
+    expect(o.srv.agentManager.getAgent(o.officeAgent.id)!.userId).toBe(
+      o.bob.id,
+    );
+  });
+
+  // MUTANT: agentHostIdentity by "isolated" state only (dies on the
+  // not-ready and malformed entries and on the broken file).
+  it("counts a not-ready, a malformed and an unreadable record as the member's own host", async () => {
+    const o = await office();
+    // Bob gets an entry but no runner: not ready.
+    recordMemberOsUser(o.bob.id, { name: "isomux-test-bob", uid: 4545 });
+    try {
+      await refused(o, o.officeAgent.id, o.bob.id);
+    } finally {
+      forgetMemberOsUser(o.bob.id);
+    }
+    const saved = readFileSync(memberOsUsersPath(), "utf8");
+    try {
+      const entries = JSON.parse(saved) as Record<string, unknown>;
+      writeFileSync(
+        memberOsUsersPath(),
+        JSON.stringify({
+          ...entries,
+          [o.bob.id]: { name: "Bad Name", uid: -1 },
+        }),
+      );
+      reloadMemberOsUsers();
+      await refused(o, o.officeAgent.id, o.bob.id);
+      // An unreadable file: every change between two members is refused,
+      // also between the owner and Bob, who have no OS user. The route
+      // refuses the owner first (2c counts them as isolated), so the
+      // manager's own check is called here.
+      writeFileSync(memberOsUsersPath(), "{");
+      reloadMemberOsUsers();
+      const before = stateOf(o, o.officeAgent.id);
+      expect(
+        await o.srv.agentManager.setManager(
+          o.officeAgent.id,
+          o.bob.id,
+          o.bob.username,
+          "test",
+        ),
+      ).toBe("other_host");
+      expect(stateOf(o, o.officeAgent.id)).toEqual(before);
+    } finally {
+      writeFileSync(memberOsUsersPath(), saved);
+      reloadMemberOsUsers();
+    }
+    // Repaired: the same change moves.
+    expect((await setManager(o, o.officeAgent.id, o.bob.id)).status).toBe(200);
+  });
+
+  // MUTANT: reassignKilledAgents without the host check (the history
+  // writer's assertion throws).
+  it("leaves a killed agent with its manager when the heir is on another host", async () => {
+    const o = await office();
+    const am = o.srv.agentManager;
+    const bobs = await o.spawn("Bob's agent", o.bob);
+    await am.kill(bobs.id);
+    expect(am.killedAgentManagerUserId(bobs.id)).toBe(o.bob.id);
+    expect(
+      am.reassignKilledAgents(o.bob.id, {
+        userId: o.alice.id,
+        manager: o.alice.username,
+      }),
+    ).toEqual([]);
+    expect(am.killedAgentManagerUserId(bobs.id)).toBe(o.bob.id);
+    // On one host it moves.
+    expect(
+      am.reassignKilledAgents(o.bob.id, {
+        userId: getUserByName(o.owner.username)!.id,
+        manager: o.owner.username,
+      }),
+    ).toEqual([bobs.id]);
   });
 });

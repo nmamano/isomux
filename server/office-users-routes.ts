@@ -106,7 +106,9 @@ export interface UsersRoutesDeps
     agentId: string,
     toUserId: string,
     changedBy: string,
-  ) => Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
+  ) => Promise<
+    AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
+  >;
   // The member permission pack's agent ceiling (server/member-ceiling.ts):
   // the agents a pack would leave above it with an engine that cannot run at
   // it, and the moves and app stops after a save.

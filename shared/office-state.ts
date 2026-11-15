@@ -104,6 +104,9 @@ export class OfficeState {
   private _recentCwds: string[] = [];
   // Server persistence commits here before the live board or event stream changes.
   beforeTaskChange?: (change: TaskChange) => void;
+  // The server checks a change of an agent's manager here, before the
+  // change; it throws to refuse (server/member-os-users.ts).
+  beforeManagerChange?: (from: string | null, to: string | null) => void;
 
   private onChangeHandlers = new Set<(event: OfficeEvent) => void>();
 
@@ -481,6 +484,12 @@ export class OfficeState {
   updateAgent(agentId: string, changes: Partial<AgentInfo>): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
+    if (
+      changes.userId !== undefined &&
+      changes.userId !== agent.userId &&
+      this.beforeManagerChange
+    )
+      this.beforeManagerChange(agent.userId, changes.userId);
     const modelChanged =
       (changes.modelFamily !== undefined &&
         changes.modelFamily !== agent.modelFamily) ||

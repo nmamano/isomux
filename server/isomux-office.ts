@@ -491,6 +491,7 @@ import {
 } from "./provider-homes.ts";
 import {
   hasMemberOsUser,
+  sameAgentHost,
   memberOsUidTies,
   memberOsUserIds,
 } from "./member-os-users.ts";
@@ -2957,13 +2958,18 @@ async function transferAgentManager(
   agentId: string,
   toUserId: string,
   changedBy: string,
-): Promise<AgentInfo | null | "unknown_member" | "cannot_move_down"> {
+): Promise<
+  AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
+> {
   const to = getUserById(toUserId);
   if (!to) return "unknown_member";
   const before = agentManager.getAgent(agentId);
   if (!before) return null;
   const from = before.userId;
   if (from === toUserId) return before;
+  // Before the clamp, so a refused change changes nothing
+  // (member-os-user-design.md 2.4).
+  if (!sameAgentHost(from, toUserId)) return "other_host";
   // A member with a permission pack gets the agent at their agent ceiling: it
   // moves down first, so it never runs above it under them.
   const clamp = memberCeiling.clampFor(
@@ -2988,7 +2994,7 @@ async function transferAgentManager(
     to.name,
     changedBy,
   );
-  if (!info) return null;
+  if (!info || info === "other_host") return info;
   try {
     for (const app of appRegistry.list().filter(made))
       appRegistry.update(app.name, {

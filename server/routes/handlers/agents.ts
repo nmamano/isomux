@@ -316,12 +316,15 @@ export interface AgentsDeps {
   // token, a fresh conversation, and the apps, schedules and webhooks it made.
   // Authorization (an office owner by cookie session) is the route guard's
   // job. changedBy: the caller's display name, for the chat line. Null for a
-  // killed or unknown agent; "unknown_member" when no member has that id.
+  // killed or unknown agent; "unknown_member" when no member has that id;
+  // "other_host" when the member's agents run as another OS user.
   setManager(
     agentId: string,
     userId: string,
     changedBy: string,
-  ): Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
+  ): Promise<
+    AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
+  >;
   // Live AgentInfo lookup for the instructions read. The
   // agentParam guard already gated existence + room access, so a miss here is
   // a post-guard race (-> defensive 404).
@@ -841,6 +844,12 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           409,
           AGENTS_CANNOT_MOVE_DOWN,
           `${deps.getAgent(ctx.params.id)?.name ?? "This agent"} cannot run at the highest agent level of this member's permission pack with its engine and model. Change its engine or model first.`,
+        );
+      if (r === "other_host")
+        return fail(
+          409,
+          "member_os_user",
+          `${deps.getAgent(ctx.params.id)?.name ?? "This agent"} runs as another OS user than this member's agents. Spawn a new agent for this member instead.`,
         );
       if (!r) return fail(404, "agent_not_found", "Agent not found");
       return ok({ agent: r });

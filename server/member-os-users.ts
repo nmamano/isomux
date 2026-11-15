@@ -113,6 +113,37 @@ export function hasMemberOsUser(userId: string | null | undefined): boolean {
   return memberOsUserState(userId).kind !== "none";
 }
 
+// The host an agent of `userId` runs on, as a name: "office" for the office
+// user, `member:<id>` for a member with an OS user (also not ready or
+// malformed: the agent never falls back to the office user). While the file
+// is broken every member with an id is `member:<id>`, so every manager change
+// between two members is refused until the file is repaired.
+export function agentHostIdentity(userId: string | null | undefined): string {
+  return hasMemberOsUser(userId) ? `member:${userId}` : "office";
+}
+
+// True when agents of `a` and of `b` run as the same OS user. An agent never
+// gets a manager on another host: the move is task abdb452b.
+export function sameAgentHost(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  return agentHostIdentity(a) === agentHostIdentity(b);
+}
+
+// The last guard in the writers of an agent's manager: each caller checks
+// sameAgentHost first and refuses, so this throws only on a path that skips
+// that check.
+export function assertSameAgentHost(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): void {
+  if (!sameAgentHost(from, to))
+    throw new Error(
+      `an agent of ${agentHostIdentity(from)} cannot get a manager on ${agentHostIdentity(to)}`,
+    );
+}
+
 // The user ids with an entry (valid or not).
 export function memberOsUserIds(): string[] {
   const loaded = load();

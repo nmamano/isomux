@@ -379,6 +379,7 @@ import { memberPackOf } from "./identity/member-pack.ts";
 import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { agentStopRefusal, stopName } from "./identity/agent-fit.ts";
 import { managerRoomsOf } from "../shared/pack-fit.ts";
+import { assertSameAgentHost, sameAgentHost } from "./member-os-users.ts";
 import { serverStopping } from "./server-stop.ts";
 import {
   bindUnsavedSessionId,
@@ -684,6 +685,7 @@ export function createAgentManager(deps: ManagerDeps) {
   const officeState = deps.officeState;
   const taskStore = createTaskStore();
   officeState.beforeTaskChange = taskStore.change;
+  officeState.beforeManagerChange = assertSameAgentHost;
   const initialLoadedAgents = deps.initialRooms;
   const runBrowserAction =
     deps.runBrowserAction ??
@@ -4271,6 +4273,8 @@ export function createAgentManager(deps: ManagerDeps) {
   // route guard authorizes, and the office moves the agent's apps, schedules
   // and webhooks (transferAgentManager). `username` is the member's current
   // name. Returns the updated AgentInfo, or null for a killed/unknown agent.
+  // "other_host" when the new manager's agents run as another OS user
+  // (member-os-user-design.md 2.4): nothing changes.
   //
   // A transfer kills the running session (Nil, 2026-10-20): the conversation
   // resets like /clear and the next message starts a fresh one under the new
@@ -4285,10 +4289,11 @@ export function createAgentManager(deps: ManagerDeps) {
     userId: string,
     manager: string,
     changedBy: string,
-  ): Promise<AgentInfo | null> {
+  ): Promise<AgentInfo | null | "other_host"> {
     const managed = agents.get(agentId);
     if (!managed) return null;
     if (managed.info.userId === userId) return managed.info;
+    if (!sameAgentHost(managed.info.userId, userId)) return "other_host";
     const previousManager = managed.info.manager ?? null;
     stampAgentSessions(
       agentId,
@@ -4352,12 +4357,14 @@ export function createAgentManager(deps: ManagerDeps) {
   // stamps, so a revived agent warns on resume. Call it while the member's
   // record still exists, for the name in the stamps. Returns the ids it
   // changed. `only` limits it to those ids (a restore gives back what the
-  // heir got, task 321e7b8e).
+  // heir got, task 321e7b8e). An agent whose new manager's agents run as
+  // another OS user stays (member-os-user-design.md 2.4).
   function reassignKilledAgents(
     fromUserId: string,
     to: { userId: string; manager: string },
     only?: ReadonlySet<string>,
   ): string[] {
+    if (!sameAgentHost(fromUserId, to.userId)) return [];
     const history = loadAgentHistory();
     const changed: string[] = [];
     for (const [id, entry] of Object.entries(history)) {
@@ -4369,6 +4376,7 @@ export function createAgentManager(deps: ManagerDeps) {
         fromUserId,
         entry.manager ?? null,
       );
+      assertSameAgentHost(entry.userId, to.userId);
       history[id] = { ...entry, userId: to.userId, manager: to.manager };
       changed.push(id);
     }
