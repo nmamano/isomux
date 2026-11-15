@@ -24,6 +24,7 @@ import {
   memberSharePath,
   pruneMemberRuntime,
   runtimeSource,
+  writeMemberCaBundle,
 } from "./member-runtime.ts";
 import { checkMemberShare, type ShareVerdict } from "./member-share-check.ts";
 import { STATE_ROOT } from "./config.ts";
@@ -76,6 +77,18 @@ const retries = new Map<string, ReturnType<typeof setTimeout>>();
 const moving = new Set<string>();
 const MOVING_REASON = "the member's files are moving";
 let connectedHook: ((userId: string) => void) | null = null;
+
+// The secret proxy's side of a member connect (secret-proxy/runtime.ts),
+// set at boot: the tie of the member's uid, and the text of the CA bundle.
+export interface MemberSecretHooks {
+  tie(uid: number): Promise<boolean>;
+  caBundle(): string | null;
+}
+let secretHooks: MemberSecretHooks | null = null;
+
+export function setMemberSecretHooks(hooks: MemberSecretHooks | null): void {
+  secretHooks = hooks;
+}
 
 // The host for the agents of `userId`.
 export function hostFor(userId: string | null | undefined): AgentHost {
@@ -469,6 +482,12 @@ export interface MemberHostDeps {
   // The code-walk child (server/member-code-check.ts) and its time limit;
   // after it, the child is killed and the connect fails closed.
   codeCheck: { command: string[]; timeoutMs: number };
+  // The secret proxy ties `uid` to its member: false when it did not.
+  tieProxyUid: (uid: number) => Promise<boolean>;
+  // The CA bundle's text, or null while the office has no secret material,
+  // and its write to a share (member-runtime.ts, writeMemberCaBundle).
+  caBundle: () => string | null;
+  writeCaBundle: (share: string, pem: string) => Promise<void>;
 }
 
 const DEFAULT_DEPS: MemberHostDeps = {
@@ -494,6 +513,10 @@ const DEFAULT_DEPS: MemberHostDeps = {
     command: [process.execPath, CODE_CHECK_CHILD],
     timeoutMs: 120_000,
   },
+  // No hooks: no secrets runtime in this process, so no proxy to tie.
+  tieProxyUid: (uid) => secretHooks?.tie(uid) ?? Promise.resolve(true),
+  caBundle: () => secretHooks?.caBundle() ?? null,
+  writeCaBundle: writeMemberCaBundle,
 };
 let deps: MemberHostDeps = DEFAULT_DEPS;
 
@@ -611,6 +634,7 @@ async function connectNow(userId: string): Promise<boolean> {
   } catch (error) {
     return refuse(`the member runtime: ${(error as Error).message}`);
   }
+  const bundleWritten = await writeCaBundleTo(userId, share);
   const installedProblem = checkShare("all");
   if (installedProblem) return refuse(installedProblem);
   const socketPath = memberRunnerSocketPath(osUser.name);
@@ -677,6 +701,10 @@ async function connectNow(userId: string): Promise<boolean> {
       `cannot make the agent space ${host.agentRoot()}: ${(error as Error).message}`,
     );
   }
+  // Before the member's agents can start: the proxy must tie their uid to
+  // them, or their agents' proxy password would reach every secret.
+  if (!(await deps.tieProxyUid(osUser.uid)))
+    return refuse("the secret proxy has not tied the member's OS user");
   // The record may have changed while we connected.
   const now = memberOsUserState(userId);
   if (
@@ -688,6 +716,10 @@ async function connectNow(userId: string): Promise<boolean> {
   connected.set(userId, { osUser, host, runtimeHash: wanted });
   refusals.delete(userId);
   clearRetry(userId);
+  // The office's bundle was made since the write above: writeMemberCaBundles
+  // covers only connected members, so this connect writes it, before the
+  // member's agents start.
+  if (deps.caBundle() !== bundleWritten) await writeCaBundleTo(userId, share);
   console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
   if (!moving.has(userId) && connectedHook) {
     try {
@@ -699,6 +731,35 @@ async function connectNow(userId: string): Promise<boolean> {
     }
   }
   return true;
+}
+
+// The CA bundle copy in a member's share; returns the text it tried to
+// write, or null when the office has no bundle. A failure is logged: the
+// member's TLS through the proxy then fails until the next write (their
+// connect, or the office's next bundle).
+async function writeCaBundleTo(
+  userId: string,
+  share: string,
+): Promise<string | null> {
+  const pem = deps.caBundle();
+  if (pem === null) return null;
+  try {
+    await deps.writeCaBundle(share, pem);
+  } catch (error) {
+    console.error(
+      `[member-hosts] ${userId}: cannot write the CA bundle: ${(error as Error).message}`,
+    );
+  }
+  return pem;
+}
+
+// The office's CA bundle was made or read: a copy to each connected member.
+export function writeMemberCaBundles(): Promise<void> {
+  return Promise.all(
+    [...connected].map(([userId, entry]) =>
+      writeCaBundleTo(userId, memberSharePath(entry.osUser.name)),
+    ),
+  ).then(() => {});
 }
 
 // The member's share, or null when they have no OS user.

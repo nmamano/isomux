@@ -1279,3 +1279,203 @@ describe.skipIf(process.platform !== "linux")(
     });
   },
 );
+
+// Slice 2d-ii of task b94dfd25 (internal-docs/member-os-user-design.md): a
+// member with their own OS user. The proxy ties that uid to the member, and
+// a connection from it swaps only office secrets and the member's own, with
+// the password or without it. Another member's placeholder, in any form,
+// gets a 403 that names no secret, and nothing goes upstream.
+describe("a member's own OS user", () => {
+  const ALICE_UID = OWN_UID + 10;
+  const BOB_UID = OWN_UID + 11;
+  const VALUE_BOB = "fake-bob-token-FAKEbbbbFAKEbbbb0004";
+  const PH_BOB = placeholderFor(
+    KEY,
+    { kind: "user", userId: "bob" },
+    "BOB_TOKEN",
+    1,
+    VALUE_BOB,
+  );
+  const BOB_SECRET: ProxySecret = {
+    scope: "user:bob",
+    ownerId: "bob",
+    name: "BOB_TOKEN",
+    value: VALUE_BOB,
+    hosts: ["api.stub.test"],
+    form: { kind: "authorization" },
+    placeholder: PH_BOB,
+  };
+  const MEMBERS = [
+    { uid: ALICE_UID, userId: "alice" },
+    { uid: BOB_UID, userId: "bob" },
+  ];
+  const tied = (members = MEMBERS) =>
+    snapshot({ secrets: [...SECRETS, BOB_SECRET], members });
+  let member: SecretProxy;
+  let memberPort = 0;
+  const memberUses: ProxyUse[] = [];
+  const memberLogs: string[] = [];
+  // What the peer lookup answers, and every answer it gave.
+  let peer: number | null = ALICE_UID;
+  let answered: (number | null)[] = [];
+
+  beforeAll(async () => {
+    member = createSecretProxy(
+      tied(),
+      {
+        use: (u) => memberUses.push(u),
+        log: (code) => memberLogs.push(code),
+      },
+      {
+        standIns: {
+          "api.stub.test:443": https.port,
+          "other.stub.test:443": https.port,
+          "tunnel.stub.test:443": echo.port,
+        },
+        upstreamRoots: https.ca.certPem,
+        peerUid: async () => {
+          answered.push(peer);
+          return peer;
+        },
+      },
+    );
+    memberPort = await member.listen(0);
+  });
+
+  afterAll(() => member.close());
+
+  beforeEach(() => {
+    member.update(tied());
+    peer = ALICE_UID;
+    answered = [];
+    memberUses.length = 0;
+    memberLogs.length = 0;
+  });
+
+  // Requests on one TLS connection through the member proxy.
+  async function on(
+    host: string,
+    raws: string[],
+    auth?: string[],
+  ): Promise<(Awaited<ReturnType<typeof exchange>> | null)[]> {
+    const socket = await tlsThrough(memberPort, host, officeCa, host, auth);
+    const reader = new ByteReader(socket);
+    const out = [];
+    try {
+      for (const raw of raws) out.push(await exchange(socket, reader, raw));
+    } finally {
+      socket.destroy();
+    }
+    return out;
+  }
+
+  // A refusal of another member's placeholder: 403, no secret named,
+  // nothing upstream, no use, its log code.
+  function expectForeign(
+    response: Awaited<ReturnType<typeof exchange>> | null,
+    upstreamBefore = 0,
+  ) {
+    expect(response?.status).toBe(403);
+    expect(response?.body ?? "").not.toContain("BOB_TOKEN");
+    expect(response?.body ?? "").not.toContain(PH_BOB);
+    expect(https.seen).toHaveLength(upstreamBefore);
+    expect(memberUses.filter((u) => u.name === "BOB_TOKEN")).toEqual([]);
+    expect(memberLogs).toContain("request_refused_foreign");
+  }
+
+  test("swaps the member's own secrets and the office's, from their uid", async () => {
+    const [own] = await on("api.stub.test", [
+      get("/a", [`Authorization: Bearer ${PH_A}`]),
+    ]);
+    expect(own?.status).toBe(200);
+    expect(header("authorization")).toBe(`Bearer ${VALUE_A}`);
+    const [office] = await on("other.stub.test", [
+      get("/b", [`X-Api-Key: ${PH_B}`], "other.stub.test"),
+    ]);
+    expect(office?.status).toBe(200);
+    expect(header("x-api-key", https.seen[1])).toBe(VALUE_B);
+    // The tie is what decided: the lookup ran, and it answered Alice's uid.
+    expect(answered).toEqual([ALICE_UID, ALICE_UID]);
+  });
+
+  const forms: [string, string[]][] = [
+    ["a Bearer token", [`Authorization: Bearer ${PH_BOB}`]],
+    [
+      "the user half of Basic",
+      [`Authorization: Basic ${Buffer.from(`${PH_BOB}:x`).toString("base64")}`],
+    ],
+    [
+      "the password half of Basic",
+      [`Authorization: Basic ${Buffer.from(`x:${PH_BOB}`).toString("base64")}`],
+    ],
+    ["another header", [`X-Api-Key: ${PH_BOB}`]],
+  ];
+  for (const [form, headers] of forms)
+    test(`refuses another member's placeholder in ${form}`, async () => {
+      const [response] = await on("api.stub.test", [get("/x", headers)]);
+      expectForeign(response);
+      expect(answered).toEqual([ALICE_UID]);
+    });
+
+  test("refuses it on a later request of a tunnel that began with the member's own", async () => {
+    const [first, second] = await on("api.stub.test", [
+      get("/a", [`Authorization: Bearer ${PH_A}`]),
+      get("/b", [`Authorization: Bearer ${PH_BOB}`]),
+    ]);
+    expect(first?.status).toBe(200);
+    expectForeign(second, 1);
+  });
+
+  // Without the password nothing is swapped (only a browser gets a plain
+  // tunnel to a secret's host); the tie decides who is served at all.
+  test("serves a tied uid without the password, as the office's own uid is, and not an untied one", async () => {
+    const tunnel = async () => {
+      const outcome = await connectThrough(
+        memberPort,
+        "tunnel.stub.test:443",
+        [],
+      );
+      if ("refused" in outcome) return outcome.refused.status;
+      outcome.socket.write("ping");
+      const back = (await outcome.reader.read(16))?.toString();
+      outcome.socket.destroy();
+      return back;
+    };
+    expect(await tunnel()).toBe("ping");
+    peer = OTHER_UID;
+    expect(await tunnel()).toBe(407);
+    expect(answered).toEqual([ALICE_UID, OTHER_UID]);
+  });
+
+  test("leaves an untied uid with the password as it was: every placeholder swaps", async () => {
+    peer = OTHER_UID;
+    const [response] = await on("api.stub.test", [
+      get("/x", [`Authorization: Bearer ${PH_BOB}`]),
+    ]);
+    expect(response?.status).toBe(200);
+    expect(header("authorization")).toBe(`Bearer ${VALUE_BOB}`);
+    expect(answered).toEqual([OTHER_UID]);
+  });
+
+  test("refuses a CONNECT whose uid it cannot read while a uid is tied, also with the password", async () => {
+    peer = null;
+    const outcome = await connectThrough(memberPort, "api.stub.test:443", [
+      proxyBasic(TEST_CLIENT_TOKEN),
+    ]);
+    if (!("refused" in outcome)) {
+      outcome.socket.destroy();
+      throw new Error("the proxy opened a tunnel");
+    }
+    expect(outcome.refused.status).toBe(407);
+    expect(https.seen).toEqual([]);
+  });
+
+  test("with no tied uid, a CONNECT with the password reads no uid", async () => {
+    member.update(tied([]));
+    const [response] = await on("api.stub.test", [
+      get("/x", [`Authorization: Bearer ${PH_BOB}`]),
+    ]);
+    expect(response?.status).toBe(200);
+    expect(answered).toEqual([]);
+  });
+});

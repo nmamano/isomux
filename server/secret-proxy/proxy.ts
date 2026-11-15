@@ -99,6 +99,10 @@ export interface ProxySnapshot {
   // The password a client must send in Proxy-Authorization (Basic) on every
   // CONNECT (placeholders.ts, proxyClientToken).
   clientToken: string;
+  // The OS users of members (internal-docs/member-os-user-design.md, slice
+  // 2d-ii): a connection from one of these uids swaps only office secrets
+  // and that member's. Absent or empty: no member has an OS user.
+  members?: { uid: number; userId: string }[];
 }
 
 // Seams for tests. The production child (main.ts) passes none.
@@ -163,7 +167,46 @@ interface State {
   patterns: string[];
   issuer: LeafIssuer;
   contexts: Map<string, SecureContext>;
+  // uid -> the member that OS user belongs to (snapshot.members).
+  memberOf: Map<number, string>;
 }
+
+// The secrets one connection may swap: every secret, or, for a connection
+// from a member's own OS user, the office's and that member's. Set at the
+// CONNECT, checked at every request in the tunnel.
+type ConnectionSet = { kind: "all" } | { kind: "member"; userId: string };
+
+const ALL: ConnectionSet = { kind: "all" };
+
+// The set of a client with peer uid `uid`.
+function connectionSet(state: State, uid: number | null): ConnectionSet {
+  const userId = uid === null ? undefined : state.memberOf.get(uid);
+  return userId === undefined ? ALL : { kind: "member", userId };
+}
+
+function mayUse(set: ConnectionSet, secret: ProxySecret): boolean {
+  return (
+    set.kind === "all" ||
+    secret.scope === "office" ||
+    secret.scope === `user:${set.userId}`
+  );
+}
+
+// The secret whose placeholder is `candidate`: undefined when none,
+// "foreign" when the connection may not use it.
+function secretOf(
+  state: State,
+  set: ConnectionSet,
+  candidate: string,
+): ProxySecret | "foreign" | undefined {
+  const secret = state.byPlaceholder.get(candidate);
+  if (!secret) return undefined;
+  return mayUse(set, secret) ? secret : "foreign";
+}
+
+// The 403 of a placeholder that the connection may not use. No secret name:
+// it belongs to another member.
+const FOREIGN_TEXT = "this placeholder belongs to another member's secret";
 
 function deriveState(snapshot: ProxySnapshot, options: ProxyOptions): State {
   const byPlaceholder = new Map<string, ProxySecret>();
@@ -196,6 +239,9 @@ function deriveState(snapshot: ProxySnapshot, options: ProxyOptions): State {
       isTerminable,
     ),
     contexts: new Map(),
+    memberOf: new Map(
+      (snapshot.members ?? []).map(({ uid, userId }) => [uid, userId]),
+    ),
   };
 }
 
@@ -399,6 +445,8 @@ type SwapResult =
       used: ProxySecret[];
     }
   | { kind: "forbidden"; secret: ProxySecret }
+  // A placeholder of a secret that the connection may not use.
+  | { kind: "foreign" }
   // A request the proxy refuses with 400 and this text. The text names a
   // secret or a parameter name, never the target.
   | { kind: "refused"; text: string };
@@ -424,6 +472,7 @@ type ValueOf = (secret: ProxySecret) => string;
 // the query parameter a query form names.
 function swapPlaceholders(
   state: State,
+  set: ConnectionSet,
   host: string,
   method: string,
   headers: HeaderList,
@@ -434,17 +483,21 @@ function swapPlaceholders(
   const used: ProxySecret[] = [];
   const out: HeaderList = [];
   // Returns the replacement for `candidate`, or null to leave it, or a
-  // forbidden secret. Inside Basic only a secret without an exchange is
-  // swapped: a token is a bearer credential, never a user or password.
+  // refusal: a forbidden secret, or a placeholder the connection may not
+  // use. Inside Basic only a secret without an exchange is swapped: a token
+  // is a bearer credential, never a user or password.
+  type Refusal =
+    { kind: "forbidden"; secret: ProxySecret } | { kind: "foreign" };
   const resolve = (
     header: string,
     candidate: string,
     inBasic = false,
-  ): string | null | { forbidden: ProxySecret } => {
-    const secret = state.byPlaceholder.get(candidate);
+  ): string | null | Refusal => {
+    const secret = secretOf(state, set, candidate);
+    if (secret === "foreign") return { kind: "foreign" };
     if (!secret || !formNames(secret, header)) return null;
     if (inBasic && secret.exchange) return null;
-    if (!secret.hosts.includes(host)) return { forbidden: secret };
+    if (!secret.hosts.includes(host)) return { kind: "forbidden", secret };
     if (!inject) return null;
     used.push(secret);
     return valueOf(secret);
@@ -457,8 +510,7 @@ function swapPlaceholders(
     }
     let next = value;
     const whole = resolve(lower, value);
-    if (whole && typeof whole === "object")
-      return { kind: "forbidden", secret: whole.forbidden };
+    if (whole && typeof whole === "object") return whole;
     if (typeof whole === "string") next = whole;
     else if (lower === "authorization") {
       const match = /^([^ ]+) +(.+)$/.exec(value);
@@ -470,8 +522,7 @@ function swapPlaceholders(
             const user = resolve(lower, basic.user, true);
             const pass = resolve(lower, basic.pass, true);
             for (const r of [user, pass])
-              if (r && typeof r === "object")
-                return { kind: "forbidden", secret: r.forbidden };
+              if (r && typeof r === "object") return r;
             if (typeof user === "string" || typeof pass === "string") {
               const u = typeof user === "string" ? user : basic.user;
               const p = typeof pass === "string" ? pass : basic.pass;
@@ -480,15 +531,14 @@ function swapPlaceholders(
           }
         } else {
           const r = resolve(lower, token);
-          if (r && typeof r === "object")
-            return { kind: "forbidden", secret: r.forbidden };
+          if (r && typeof r === "object") return r;
           if (typeof r === "string") next = `${scheme} ${r}`;
         }
       }
     }
     out.push([name, next]);
   }
-  const query = swapQuery(state, host, inject, path, valueOf);
+  const query = swapQuery(state, set, host, inject, path, valueOf);
   if (query.kind !== "forward") return query;
   used.push(...query.used);
   return { kind: "forward", headers: out, path: query.path, used };
@@ -510,6 +560,7 @@ function percentDecode(text: string): string | null {
 // chooses between two values.
 function swapQuery(
   state: State,
+  set: ConnectionSet,
   host: string,
   inject: boolean,
   path: string,
@@ -517,6 +568,7 @@ function swapQuery(
 ):
   | { kind: "forward"; path: string; used: ProxySecret[] }
   | { kind: "forbidden"; secret: ProxySecret }
+  | { kind: "foreign" }
   | { kind: "refused"; text: string } {
   const unchanged = { kind: "forward" as const, path, used: [] };
   if (state.namedParams.size === 0) return unchanged;
@@ -536,10 +588,14 @@ function swapQuery(
         decodedValue: value === null ? null : percentDecode(value),
       };
     });
-  const querySecret = (param: string | null, placeholder: string | null) => {
+  const querySecret = (
+    param: string | null,
+    placeholder: string | null,
+  ): ProxySecret | "foreign" | null => {
     if (param === null || placeholder === null) return null;
     if (!state.namedParams.has(param)) return null;
-    const secret = state.byPlaceholder.get(placeholder);
+    const secret = secretOf(state, set, placeholder);
+    if (secret === "foreign") return secret;
     return secret?.exchange &&
       secret.form.kind === "query" &&
       secret.form.param === param
@@ -549,11 +605,13 @@ function swapQuery(
   const swaps: { index: number; secret: ProxySecret }[] = [];
   for (const [index, pair] of pairs.entries()) {
     const raw = querySecret(pair.name, pair.value);
+    if (raw === "foreign") return { kind: "foreign" };
     if (raw) {
       swaps.push({ index, secret: raw });
       continue;
     }
     const decoded = querySecret(pair.decodedName, pair.decodedValue);
+    if (decoded === "foreign") return { kind: "foreign" };
     if (decoded)
       return {
         kind: "refused",
@@ -660,6 +718,7 @@ async function serveTerminated(
   client: TLSSocket,
   host: string,
   misdirected: () => boolean,
+  set: ConnectionSet,
 ): Promise<void> {
   const reader = new ByteReader(client);
   let upstream: Upstream | null = null;
@@ -722,6 +781,7 @@ async function serveTerminated(
       // same snapshot.
       let swap = swapPlaceholders(
         state,
+        set,
         host,
         method,
         head.headers,
@@ -734,6 +794,12 @@ async function serveTerminated(
           `the secret ${swap.secret.name} may not be sent to ${host}`,
         );
       if (swap.kind === "refused") return fail(400, swap.text);
+      if (swap.kind === "foreign") {
+        events.log?.("request_refused_foreign");
+        client.end(errorResponse(403, FOREIGN_TEXT));
+        closeUpstream();
+        return;
+      }
       const tokens = new Map<ProxySecret, string>();
       for (const secret of new Set(swap.used)) {
         if (!secret.exchange) continue;
@@ -745,6 +811,7 @@ async function serveTerminated(
       if (tokens.size > 0) {
         swap = swapPlaceholders(
           state,
+          set,
           host,
           method,
           head.headers,
@@ -1124,16 +1191,25 @@ export function createSecretProxy(
         ),
       );
     const withPassword = authorized(head.headers, state.snapshot.clientToken);
-    if (!withPassword) {
-      let uid: number | null;
+    // A member's own OS user is tied to that member's secrets, with the
+    // password or without it (internal-docs/member-os-user-design.md, slice
+    // 2d-ii). So while any member has one, every CONNECT asks for the peer
+    // uid, and a lookup that fails gets the 407. Without the password, a
+    // member's uid is served as the office's is (their headless Chrome).
+    const tying = state.memberOf.size > 0;
+    let uid: number | null = null;
+    if (!withPassword || tying) {
       try {
         uid = await (options.peerUid ?? peerUid)(socket);
       } catch {
         uid = null;
       }
-      if (uid === null || uid !== process.getuid?.()) return challenge();
+      if (uid === null) return challenge();
       if (socket.destroyed) return;
     }
+    const set = connectionSet(state, uid);
+    if (!withPassword && uid !== process.getuid?.() && set.kind !== "member")
+      return challenge();
     const start = /^([^ ]+) ([^ ]+) HTTP\/1\.[01]$/.exec(head.startLine);
     if (!start) return refuse(400, "invalid request line");
     if (start[1] !== "CONNECT")
@@ -1224,6 +1300,7 @@ export function createSecretProxy(
         tls,
         host,
         () => misdirected,
+        set,
       );
     });
   }

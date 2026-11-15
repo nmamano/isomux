@@ -36,13 +36,16 @@ import {
   createNotReadyHost,
   hostFor,
   MEMBER_HOST_NOT_READY,
+  memberHostRefusal,
   memberRunnerSocketPath,
   memberCodeTreeChecks,
   memberTrustedChecks,
   NOT_READY_PATH,
   resetMemberHosts,
   setMemberHostDeps,
+  setMemberConnectedHook,
   setMemberRunnerRoot,
+  writeMemberCaBundles,
   type MemberCheckInput,
 } from "./member-hosts.ts";
 import {
@@ -501,6 +504,9 @@ describe("the connect's runtime", () => {
       install?: () => Promise<void>;
       exit?: () => Promise<void>;
       wanted?: () => string;
+      // The secret proxy's side (slice 2d-ii).
+      tie?: (uid: number) => Promise<boolean>;
+      bundle?: string | null;
     } = {},
   ) {
     const log: string[] = [];
@@ -560,6 +566,16 @@ describe("the connect's runtime", () => {
       restartWaitMs: 300,
       restartPollMs: 10,
       retryMs: 60_000,
+      // Logged only when the test gives one: the other cases end on the prune.
+      tieProxyUid: async (uid) => {
+        if (!over.tie) return true;
+        log.push(`tie ${uid}`);
+        return over.tie(uid);
+      },
+      caBundle: () => over.bundle ?? null,
+      writeCaBundle: async (_share, pem) => {
+        log.push(`bundle ${pem}`);
+      },
     });
     recordMemberOsUser("u-alice", { name: NAME, uid: UID });
     return { log, hosts };
@@ -580,6 +596,70 @@ describe("the connect's runtime", () => {
     expect(index(log, "share 4242")).toBeLessThan(
       index(log, `connect ${WANTED}`),
     );
+  });
+
+  // Slice 2d-ii of task b94dfd25: the member's agents start only after the
+  // secret proxy ties their uid; their share gets the CA bundle before the
+  // share check that covers it.
+  it("is ready only after the proxy ties the member's uid, and writes the CA bundle before the share check", async () => {
+    const { log } = stand({ bundle: "PEM", tie: async () => true });
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(log.filter((e) => e.startsWith("tie"))).toEqual([`tie ${UID}`]);
+    expect(index(log, "bundle PEM")).toBeGreaterThan(-1);
+    // The share check after the install covers the copy.
+    expect(index(log, "bundle PEM")).toBeLessThan(
+      log.lastIndexOf("share 4242"),
+    );
+  });
+
+  it("stays not ready, with a reason, when the proxy does not tie the uid", async () => {
+    const { log, hosts } = stand({ tie: async () => false });
+    expect(await connectMemberHost("u-alice")).toBe(false);
+    expect(log).toContain(`tie ${UID}`);
+    expect(memberHostRefusal("u-alice")).toBeTruthy();
+    const host = hostFor("u-alice");
+    expect(hosts).toHaveLength(1);
+    expect(host).not.toBe(hosts[0]);
+    expect(await codeOf(host.run(["true"]))).toBe(NOT_READY);
+  });
+
+  it("writes no bundle while the office has no secret material", async () => {
+    const { log } = stand({ bundle: null });
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(log.filter((e) => e.startsWith("bundle"))).toEqual([]);
+  });
+
+  // Round 1 F1: the office makes its material while the member is between
+  // the first write and `connected` (here at the tie). The office's own
+  // write (writeMemberCaBundles) skips a member who is not connected yet, so
+  // the connect itself must write the bundle, before the agents start.
+  it("writes the CA bundle the office made during the connect, before the member's agents start", async () => {
+    const over: { bundle: string | null; tie: () => Promise<boolean> } = {
+      bundle: null,
+      tie: async () => {
+        over.bundle = "PEM";
+        // The office's onBundle, as server/isomux-office.ts wires it.
+        await writeMemberCaBundles();
+        log.push("material made");
+        return true;
+      },
+    };
+    const { log } = stand(over);
+    setMemberConnectedHook(() => log.push("agents start"));
+    try {
+      expect(await connectMemberHost("u-alice")).toBe(true);
+    } finally {
+      setMemberConnectedHook(null);
+    }
+    // The enabling condition: the material came after the first write.
+    expect(index(log, "material made")).toBeGreaterThan(
+      index(log, "share 4242"),
+    );
+    expect(log.filter((e) => e.startsWith("bundle"))).toEqual(["bundle PEM"]);
+    expect(index(log, "bundle PEM")).toBeGreaterThan(
+      index(log, "material made"),
+    );
+    expect(index(log, "bundle PEM")).toBeLessThan(index(log, "agents start"));
   });
 
   it("on another runtime: installs, checks the share again, asks the runner to exit, and takes the restarted runner", async () => {

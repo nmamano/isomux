@@ -1,5 +1,10 @@
 import { readWidgetMetadata } from "./app-widget-metadata.ts";
-import { connectMemberHosts, hostFor } from "./member-hosts.ts";
+import {
+  connectMemberHosts,
+  hostFor,
+  setMemberSecretHooks,
+  writeMemberCaBundles,
+} from "./member-hosts.ts";
 import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import {
   appFilesRevision,
@@ -467,7 +472,7 @@ import {
   removePersonalProviderHomes,
   sweepPersonalProviderHomes,
 } from "./provider-homes.ts";
-import { hasMemberOsUser } from "./member-os-users.ts";
+import { hasMemberOsUser, memberOsUidTies } from "./member-os-users.ts";
 import { purgeMemberAgentSpace } from "./member-move-out.ts";
 import { BUNDLED_SKILLS_DIR } from "./skills.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
@@ -738,6 +743,12 @@ const secretsRuntime = createSecretsRuntime({
       return null;
     }
   },
+  memberUids: memberOsUidTies,
+  onBundle: () => void writeMemberCaBundles(),
+});
+setMemberSecretHooks({
+  tie: (uid) => secretsRuntime.tieMember(uid),
+  caBundle: () => secretsRuntime.caBundle(),
 });
 setSecretEnvironmentProvider((userId) => secretsRuntime.environmentFor(userId));
 // Vault secrets that apps read as raw values (task c7007f8b): the files in

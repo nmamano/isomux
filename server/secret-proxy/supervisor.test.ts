@@ -328,6 +328,73 @@ describe("the supervisor", () => {
     }
   });
 
+  // Slice 2d-ii of task b94dfd25: a member's connect waits until the child
+  // applies a snapshot that ties the member's uid. The ack must mean the tie
+  // is in force: the next request after it is already refused. The child
+  // reads the real peer uid, which only Linux can tell.
+  test.skipIf(process.platform !== "linux")(
+    "whenTied resolves once the child applies the tie, and not before",
+    async () => {
+      const ownUid = process.getuid!();
+      const BOB_VALUE = "fake-bob-FAKEbobFAKEbobFAKEbob0001";
+      const BOB_PLACEHOLDER = "fake_PLACEHOLDER_bob_0001";
+      const base = snapshot();
+      const withBob = (members: ProxySnapshot["members"]) => ({
+        ...base,
+        secrets: [
+          ...base.secrets,
+          {
+            scope: "user:bob",
+            ownerId: "bob",
+            name: "BOB_TOKEN",
+            value: BOB_VALUE,
+            hosts: ["api.stub.test"],
+            form: { kind: "authorization" as const },
+            placeholder: BOB_PLACEHOLDER,
+          },
+        ],
+        members,
+      });
+      let current = withBob([]);
+      const { supervisor } = supervise({
+        snapshot: () => current,
+        seams: {
+          standIns: { "api.stub.test:443": https.port },
+          upstreamRoots: https.ca.certPem,
+        },
+      });
+      const status = async (port: number) => {
+        https.seen.length = 0;
+        const socket = await tlsThrough(port, "api.stub.test", officeCa);
+        const response = await exchange(
+          socket,
+          new ByteReader(socket),
+          `GET /headers HTTP/1.1\r\nHost: api.stub.test\r\nAuthorization: Bearer ${BOB_PLACEHOLDER}\r\n\r\n`,
+        );
+        socket.destroy();
+        return response?.status;
+      };
+      try {
+        // No child yet: the one that starts reads the current snapshot.
+        expect(await supervisor.whenTied(ownUid, 100)).toBe(true);
+        const port = await supervisor.start();
+        expect(await status(port)).toBe(200);
+        // A uid that no snapshot ties: false after the wait.
+        expect(await supervisor.whenTied(ownUid + 5, 300)).toBe(false);
+        current = withBob([{ uid: ownUid, userId: "alice" }]);
+        // The ack takes milliseconds; the wait stays well inside the test's
+        // own time limit, so a missing ack fails here and not by timeout.
+        expect(await supervisor.whenTied(ownUid, 1500)).toBe(true);
+        // No retry: the request right after the ack is Alice's, and Bob's
+        // placeholder is refused.
+        expect(await status(port)).toBe(403);
+        expect(https.seen).toEqual([]);
+      } finally {
+        await supervisor.stop();
+      }
+    },
+  );
+
   test("when the server dies by SIGKILL, the child exits and its listener closes", async () => {
     const parent = Bun.spawn(
       [

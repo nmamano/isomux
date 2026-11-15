@@ -2097,6 +2097,87 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
     expect(root(name, `passwd -S ${BOB}`).out.split(" ")[1]).toBe("L");
   });
 
+  // Slice 2d-ii-a: the secret proxy ties each member OS user's uid to its
+  // member, with the real peer lookup across real users, and the tie stays
+  // after a disable (Bob, disabled above). Alice's share holds the CA
+  // bundle her tools trust. The secret host does not resolve, so a swap the
+  // proxy accepts ends in its 502, and a refused one is its 403.
+  it("ties each member's OS user to their own secrets at the secret proxy, also after a disable", async () => {
+    const HOSTNAME = "rig-secrets.invalid";
+    const VALUES: Record<string, string> = {
+      Alice: "rig-alice-value-FAKE0001",
+      Bob: "rig-bob-value-FAKE0002",
+    };
+    for (const who of ["Alice", "Bob"]) {
+      const made = api(name, cookie, "POST", `/api/users/${who}/secrets`, {
+        name: "RIG_TOKEN",
+        value: VALUES[who],
+        hosts: [HOSTNAME],
+        form: { kind: "authorization" },
+      });
+      expect([who, typeof made.secret]).toEqual([who, "object"]);
+    }
+    const bundle = `${MEMBERS}/share/${ALICE}/secrets/ca-bundle.pem`;
+    await waitFor(
+      "Alice's CA bundle and the proxy port",
+      () =>
+        root(name, `test -f ${bundle} && test -f ${STATE}/secrets/proxy.json`)
+          .status === 0,
+    );
+    // The bundle: Alice reads it, it is the office's, and no key is in it.
+    const officeBundle = root(name, `cat ${STATE}/secrets/ca-bundle.pem`).out;
+    expect(officeBundle).toContain("-----BEGIN CERTIFICATE-----");
+    expect(sh(name, ALICE, `cat ${bundle}`).out).toBe(officeBundle);
+    expect(sh(name, ALICE, `grep -c 'PRIVATE KEY' ${bundle}`).out.trim()).toBe(
+      "0",
+    );
+    // The password and the placeholders, from the office's own code and key.
+    const script = `import { readFileSync } from "fs";
+import { placeholderFor, proxyClientToken } from "/opt/isomux/server/secret-proxy/placeholders.ts";
+const key = readFileSync("${STATE}/secrets/placeholder.key");
+const ph = (userId, value) => placeholderFor(key, { kind: "user", userId }, "RIG_TOKEN", 1, value);
+console.log(JSON.stringify({
+  port: JSON.parse(readFileSync("${STATE}/secrets/proxy.json", "utf8")).port,
+  password: proxyClientToken(key),
+  alice: ph(${JSON.stringify(alice)}, ${JSON.stringify(VALUES.Alice)}),
+  bob: ph(${JSON.stringify(bob)}, ${JSON.stringify(VALUES.Bob)}),
+}));`;
+    const computed = run(
+      "docker",
+      [
+        "exec",
+        "-i",
+        name,
+        "bash",
+        "-c",
+        `cat > /tmp/rig-ph.ts && ${MEMBERS}/share/${ALICE}/runtime/current/bun /tmp/rig-ph.ts`,
+      ],
+      script,
+    );
+    const facts = JSON.parse(computed.out) as {
+      port: number;
+      password: string;
+      alice: string;
+      bob: string;
+    };
+    // The HTTP status of one request through the proxy, as `user`. Alice
+    // trusts the proxy through her share's bundle; the others skip the
+    // check, which is not under test for them.
+    const status = (user: string, placeholder: string) =>
+      sh(
+        name,
+        user,
+        `curl -s -o /dev/null -w '%{http_code}' --max-time 20 --proxy 'http://isomux:${facts.password}@127.0.0.1:${facts.port}' ${user === ALICE ? `--cacert ${bundle}` : "-k"} -H 'Authorization: Bearer ${placeholder}' https://${HOSTNAME}/`,
+      ).out.trim();
+    expect(status(ALICE, facts.alice)).toBe("502");
+    expect(status(ALICE, facts.bob)).toBe("403");
+    // Bob was disabled: his uid keeps its tie, so it gets only his own.
+    expect(status(BOB, facts.alice)).toBe("403");
+    // The office's own uid is not tied: every placeholder swaps.
+    expect(status(String(OFFICE_UID), facts.bob)).toBe("502");
+    root(name, "rm -f /tmp/rig-ph.ts");
+  });
+
   it("starts no member but still the office when users.json can be changed by others", async () => {
     root(name, `chmod 664 ${MEMBERS}/users.json`);
     expect(run("docker", ["restart", name]).status).toBe(0);

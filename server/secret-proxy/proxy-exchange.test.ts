@@ -773,3 +773,126 @@ describe("the query form", () => {
     expect(logs.every((code) => /^[a-z0-9_]+$/.test(code))).toBe(true);
   });
 });
+
+// Slice 2d-ii of task b94dfd25: a connection from a member's own OS user
+// swaps only office secrets and that member's. Another member's exchange
+// secret is never traded for a token, in the header form or the query form
+// (raw or percent-encoded), and nothing reaches the API.
+describe("a member's own OS user", () => {
+  const BOB_UID = (process.getuid?.() ?? 1000) + 21;
+  const ALICE_QUERY_SECRET = "fake-alice-query-secret-0006";
+  const PH_AQ = placeholderFor(
+    KEY,
+    ALICE,
+    "ALICE_QUERY",
+    1,
+    ALICE_QUERY_SECRET,
+  );
+  const ALICE_QUERY: ProxySecret = {
+    scope: "user:alice",
+    ownerId: "alice",
+    name: "ALICE_QUERY",
+    value: ALICE_QUERY_SECRET,
+    hosts: ["qapi.stub.test", "qtoken.stub.test"],
+    form: { kind: "query", param: "access_token" },
+    exchange: OAUTH,
+    placeholder: PH_AQ,
+  };
+  let tiedProxy: SecretProxy;
+  let tiedPort = 0;
+  const tiedLogs: string[] = [];
+  let answered: number[] = [];
+
+  beforeAll(async () => {
+    tiedProxy = createSecretProxy(
+      {
+        ...snapshot([...SECRETS, ALICE_QUERY]),
+        members: [{ uid: BOB_UID, userId: "bob" }],
+      },
+      { use: () => {}, log: (code) => tiedLogs.push(code) },
+      {
+        standIns: Object.fromEntries(NAMES.map((n) => [`${n}:443`, stub.port])),
+        upstreamRoots: stub.ca.certPem,
+        now: () => clock.now,
+        peerUid: async () => {
+          answered.push(BOB_UID);
+          return BOB_UID;
+        },
+      },
+    );
+    tiedPort = await tiedProxy.listen(0);
+  });
+
+  afterAll(() => tiedProxy.close());
+
+  beforeEach(() => {
+    tiedLogs.length = 0;
+    answered = [];
+  });
+
+  async function asBob(host: string, raw: string) {
+    const socket = await tlsThrough(tiedPort, host, officeCa);
+    const reader = new ByteReader(socket);
+    try {
+      return await exchange(socket, reader, raw);
+    } finally {
+      socket.destroy();
+    }
+  }
+
+  function expectForeign(response: Awaited<ReturnType<typeof asBob>>) {
+    expect(response?.status).toBe(403);
+    expect(tokenPosts()).toEqual([]);
+    expect(stub.seen).toEqual([]);
+    expect(tiedLogs).toContain("request_refused_foreign");
+    expect(answered).toEqual([BOB_UID]);
+    expectNothingLeaks([response?.body]);
+    for (const name of ["FEISHU_APP", "ALICE_QUERY"])
+      expect(response?.body ?? "").not.toContain(name);
+  }
+
+  test("trades an office exchange secret, in the query form", async () => {
+    const response = await asBob(
+      "qapi.stub.test",
+      req("GET", `/cgi-bin/send?access_token=${PH_Q}`, "qapi.stub.test"),
+    );
+    expect(response?.status).toBe(200);
+    expect(tokenPosts()).toHaveLength(1);
+    expect(answered).toEqual([BOB_UID]);
+  });
+
+  test("refuses another member's exchange secret in the header form", async () => {
+    expectForeign(
+      await asBob(
+        "open.stub.test",
+        req("GET", "/open-apis/im/v1/chats", "open.stub.test", [
+          `Authorization: Bearer ${PH_F}`,
+        ]),
+      ),
+    );
+  });
+
+  test("refuses another member's exchange secret in the query form", async () => {
+    expectForeign(
+      await asBob(
+        "qapi.stub.test",
+        req("GET", `/cgi-bin/send?access_token=${PH_AQ}`, "qapi.stub.test"),
+      ),
+    );
+  });
+
+  test("refuses it percent-encoded in the query form", async () => {
+    const encoded = [...PH_AQ]
+      .map(
+        (c) =>
+          `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+      )
+      .join("");
+    expectForeign(
+      await asBob(
+        "qapi.stub.test",
+        req("GET", `/cgi-bin/send?access_token=${encoded}`, "qapi.stub.test"),
+      ),
+    );
+  });
+});

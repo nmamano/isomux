@@ -133,6 +133,8 @@ Some services trade an app id and secret for a short-lived token: Feishu and Lar
 
 Agents share one OS user, so each can read the others' environments (`/proc/<pid>/environ`), office tokens and placeholders included. Tools reach `HTTPS_PROXY` over TCP, where the kernel gives no peer pid (only a uid, section 2.2). The proxy password and the uid check keep out other OS users, not other agents, so the proxy knows the scope only from the placeholder: bearer strength, the same as the office token today. Another member's agent can use a member's secret inside this office, but cannot read the value through the office, and each use is logged.
 
+A member whose agents run as their own OS user (internal-docs/member-os-user-design.md) is the exception: the proxy ties that uid to the member, and a connection from it swaps only office secrets and the member's own.
+
 No per-agent boundary exists under one OS user, and this design claims none: an agent can change code or configuration that another agent's processes run (the shared home, shared repositories), and can signal or attach to their processes.
 
 ## 4. The promise in the product

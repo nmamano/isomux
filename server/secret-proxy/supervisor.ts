@@ -44,6 +44,11 @@ export interface ProxySupervisor {
   // Resolves with the port once the first child listens.
   start(): Promise<number>;
   push(): void;
+  // True once the running child uses a snapshot that ties member uid `uid`
+  // (ProxySnapshot.members), after a push; false after `timeoutMs` without
+  // it. True at once when no child runs: the next one starts with the
+  // current snapshot.
+  whenTied(uid: number, timeoutMs: number): Promise<boolean>;
   stop(): Promise<void>;
   readonly port: number | null;
   readonly pid: number | null;
@@ -61,6 +66,9 @@ export function createProxySupervisor(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let started: Promise<number> | null = null;
   let resolveStarted: ((port: number) => void) | null = null;
+  // The member uids of the snapshot the running child last applied.
+  let applied = new Set<number>();
+  const tieWaiters = new Set<() => void>();
 
   function retryLater(startedAt: number) {
     if (Date.now() - startedAt > STABLE_MS) backoff = FIRST_BACKOFF_MS;
@@ -85,6 +93,7 @@ export function createProxySupervisor(
       retryLater(startedAt);
       return;
     }
+    applied = new Set();
     const output = options.onOutput ? "pipe" : "ignore";
     const proc = Bun.spawn([process.execPath, entry], {
       env: options.env ?? { PATH: process.env.PATH ?? "/usr/bin:/bin" },
@@ -114,6 +123,11 @@ export function createProxySupervisor(
           case "log":
             options.log(message.code);
             break;
+          case "applied":
+            if (child !== proc) break;
+            applied = new Set(message.uids);
+            for (const waiter of [...tieWaiters]) waiter();
+            break;
         }
       },
       onExit() {
@@ -135,6 +149,19 @@ export function createProxySupervisor(
     sendTo(proc, { type: "start", port: wanted, snapshot });
   }
 
+  function push() {
+    if (!child) return;
+    let snapshot: ProxySnapshot;
+    try {
+      snapshot = options.snapshot();
+    } catch {
+      // The child keeps the last snapshot; its next start retries.
+      options.log("snapshot_failed");
+      return;
+    }
+    sendTo(child, { type: "snapshot", snapshot });
+  }
+
   function sendTo(proc: Subprocess, message: ToChild) {
     try {
       proc.send(message);
@@ -154,17 +181,23 @@ export function createProxySupervisor(
       }
       return started;
     },
-    push() {
-      if (!child) return;
-      let snapshot: ProxySnapshot;
-      try {
-        snapshot = options.snapshot();
-      } catch {
-        // The child keeps the last snapshot; its next start retries.
-        options.log("snapshot_failed");
-        return;
-      }
-      sendTo(child, { type: "snapshot", snapshot });
+    push,
+    whenTied(uid, timeoutMs) {
+      if (!child) return Promise.resolve(true);
+      if (applied.has(uid)) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        const done = (tied: boolean) => {
+          clearTimeout(timeout);
+          tieWaiters.delete(check);
+          resolve(tied);
+        };
+        const check = () => {
+          if (applied.has(uid)) done(true);
+        };
+        const timeout = setTimeout(() => done(false), timeoutMs);
+        tieWaiters.add(check);
+        push();
+      });
     },
     async stop() {
       stopping = true;

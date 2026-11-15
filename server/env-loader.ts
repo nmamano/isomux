@@ -14,7 +14,9 @@
 // caller is responsible for surfacing the error to the agent/run log.
 
 import { officeAgentHost, tagMemberEnv } from "./agent-host.ts";
-import { hostFor } from "./member-hosts.ts";
+import { hostFor, memberShareOf } from "./member-hosts.ts";
+import { memberCaBundlePath } from "./member-runtime.ts";
+import { CA_BUNDLE_VARIABLES } from "./secret-proxy/material.ts";
 import {
   claudeFamilyModels,
   limitedClaudeFamilies,
@@ -151,6 +153,13 @@ export function buildEnvForUserId(
       source !== "server"
     )
       env.CODEX_HOME = join(host.agentRoot(), "codex-home");
+    // The office's bundle is not readable by the member: their share holds
+    // a copy (member-hosts.ts, writeCaBundleTo).
+    const share = memberShareOf(userId!);
+    if (share)
+      for (const name of CA_BUNDLE_VARIABLES)
+        if (merge?.sources.get(name) === "server")
+          env[name] = memberCaBundlePath(share);
     return tagMemberEnv(env, host.member);
   }
   if (merge) return merge.env;

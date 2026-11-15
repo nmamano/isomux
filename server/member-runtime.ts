@@ -349,6 +349,52 @@ async function makeDir(path: string, mode = 0o755): Promise<void> {
   await fsp.chmod(path, mode);
 }
 
+// The copy of the office's CA bundle in a member's share, which their
+// agents' CA variables name (secret-proxy/runtime.ts, CA_BUNDLE_VARIABLES).
+export function memberCaBundlePath(share: string): string {
+  return join(share, "secrets", "ca-bundle.pem");
+}
+
+// True when `pem` holds certificates and nothing else: no key of the office
+// CA may reach a share.
+export function certificatesOnly(pem: string): boolean {
+  const blocks = pem.match(/-----BEGIN [^\n]*-----/g) ?? [];
+  return (
+    blocks.length > 0 &&
+    blocks.every((line) => line === "-----BEGIN CERTIFICATE-----") &&
+    !/PRIVATE KEY/.test(pem)
+  );
+}
+
+// Writes `pem` to memberCaBundlePath(share), 0644 in secrets/ (0755), both
+// the office's: a temp file, then a rename. Throws, and writes nothing, when
+// `pem` holds anything but certificates.
+export async function writeMemberCaBundle(
+  share: string,
+  pem: string,
+): Promise<void> {
+  if (!certificatesOnly(pem))
+    throw new Error("the CA bundle holds more than certificates");
+  const target = memberCaBundlePath(share);
+  const dir = dirname(target);
+  try {
+    await makeDir(dir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const st = await fsp.lstat(dir);
+  if (!st.isDirectory()) throw new Error(`${dir} is not a folder`);
+  const tmp = join(dir, `.tmp-${randomBytes(8).toString("hex")}`);
+  try {
+    await fsp.writeFile(tmp, pem, { mode: 0o644, flag: "wx" });
+    await fsp.chmod(tmp, 0o644);
+    await fsp.rename(tmp, target);
+  } catch (error) {
+    await fsp.rm(tmp, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 // One install per share at a time.
 const installs = new Map<string, Promise<unknown>>();
 

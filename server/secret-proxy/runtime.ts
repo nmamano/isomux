@@ -18,6 +18,7 @@ import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
 import type { ExchangeSpec } from "../../shared/secret-hosts.ts";
 import { placeholderFor, proxyClientToken, scopeId } from "./placeholders.ts";
 import {
+  CA_BUNDLE_VARIABLES,
   ensureSecretMaterial,
   readProxyPort,
   readSystemRoots,
@@ -66,9 +67,18 @@ export interface SecretsRuntimeDeps {
   systemRootsPem?: string;
   // How long boot and a secret route wait for the child to listen.
   startWaitMs?: number;
+  // The uid of each member OS user and its member
+  // (member-os-users.ts, memberOsUidTies). Default: none.
+  memberUids?: () => { uid: number; userId: string }[];
+  // The secret material was made or read, with the text of its CA bundle:
+  // members' shares get a copy (member-hosts.ts).
+  onBundle?: (bundlePem: string) => void;
+  // How long tieMember waits for the child to apply the tie.
+  tieWaitMs?: number;
 }
 
 const START_WAIT_MS = 5000;
+const TIE_WAIT_MS = 5000;
 
 const NO_PROXY = "localhost,127.0.0.1,::1";
 
@@ -159,6 +169,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         shareRoot: deps.shareRoot,
         systemRootsPem: systemRoots,
       });
+      deps.onBundle?.(material.bundlePem);
     }
     return material;
   }
@@ -227,6 +238,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       rootsPem: systemRoots ?? "",
       upstreamProxy: companyProxy(deps.serverEnv),
       clientToken: proxyClientToken(current.placeholderKey),
+      members: deps.memberUids?.() ?? [],
     };
   }
 
@@ -362,6 +374,9 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       const token = proxyClientToken(material.placeholderKey);
       const proxyUrl = `http://isomux:${token}@127.0.0.1:${proxyPort}`;
       const bundle = material.bundlePath;
+      const ca = Object.fromEntries(
+        CA_BUNDLE_VARIABLES.map((name) => [name, bundle]),
+      );
       const gitCredentials = [...git]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([host, placeholder]) => ({ host, placeholder }));
@@ -373,13 +388,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
           https_proxy: proxyUrl,
           NO_PROXY,
           no_proxy: NO_PROXY,
-          SSL_CERT_FILE: bundle,
-          NODE_EXTRA_CA_CERTS: bundle,
-          CODEX_CA_CERTIFICATE: bundle,
-          REQUESTS_CA_BUNDLE: bundle,
-          CURL_CA_BUNDLE: bundle,
-          GIT_SSL_CAINFO: bundle,
-          CARGO_HTTP_CAINFO: bundle,
+          ...ca,
           NODE_USE_ENV_PROXY: "1",
         },
         gitCredentials,
@@ -393,6 +402,26 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
           ]),
         }),
       };
+    },
+
+    // True once the proxy ties member uid `uid` to its member
+    // (ProxySnapshot.members): a member's agents start only after it. True
+    // at once when no proxy runs (one that starts later reads the current
+    // ties); false when the running child does not apply it in time.
+    async tieMember(uid: number): Promise<boolean> {
+      if (!supervisor) return true;
+      const tied = await supervisor.whenTied(
+        uid,
+        deps.tieWaitMs ?? TIE_WAIT_MS,
+      );
+      if (!tied) deps.log("member_tie_not_applied");
+      return tied;
+    },
+
+    // The text of the CA bundle, or null while the office has no secret
+    // material.
+    caBundle(): string | null {
+      return material?.bundlePem ?? null;
     },
 
     // The placeholder of one secret, for an MCP server's header, or null

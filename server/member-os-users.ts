@@ -138,12 +138,15 @@ function writableEntries(): Record<string, unknown> {
   return loaded.kind === "ok" ? { ...loaded.entries } : {};
 }
 
-// Writes the entry (the admin.sock enable flow of slice 1b calls it).
+// Writes the entry (the admin.sock enable flow of slice 1b calls it). The
+// uid's tie (memberOsUidTies) is written first, so a crash between the two
+// leaves a tie without an entry, never the reverse.
 export function recordMemberOsUser(userId: string, osUser: MemberOsUser): void {
   if (!userId) throw new Error("a member OS user needs a user id");
   if (!validOsUser(osUser))
     throw new Error("an OS user needs a lowercase name and a uid above 0");
   const entries = writableEntries();
+  writeTie(osUser.uid, userId);
   entries[userId] = { name: osUser.name, uid: osUser.uid };
   writeEntries(entries);
 }
@@ -154,6 +157,78 @@ export function forgetMemberOsUser(userId: string): void {
   if (!Object.hasOwn(entries, userId)) return;
   delete entries[userId];
   writeEntries(entries);
+}
+
+// The tie of each member OS user's uid to its member, for the secret proxy
+// (internal-docs/member-os-user-design.md, slice 2d-ii):
+// STATE_ROOT/member-os-uid-ties.json, { "<uid>": "<userId>" }. A tie
+// outlives its entry: disable removes the entry while processes of the uid
+// may still run with the proxy password in their env, and the tie keeps them
+// to their member's secrets. A record of the same uid for another member
+// replaces it.
+export const MEMBER_OS_UID_TIES_FILE = "member-os-uid-ties.json";
+
+export interface MemberUidTie {
+  uid: number;
+  userId: string;
+}
+
+function tiesPath(): string {
+  return join(STATE_ROOT, MEMBER_OS_UID_TIES_FILE);
+}
+
+function readTies(): Record<string, string> {
+  let text: string;
+  try {
+    text = readFileSync(tiesPath(), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
+  }
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new Error(`${tiesPath()} is not a JSON object`);
+  const ties: Record<string, string> = {};
+  for (const [uid, userId] of Object.entries(parsed))
+    if (/^[1-9]\d*$/.test(uid) && typeof userId === "string" && userId)
+      ties[uid] = userId;
+  return ties;
+}
+
+// A file that cannot be read is not rewritten: the write throws, and so
+// does the enable that called it.
+function writeTie(uid: number, userId: string): void {
+  const ties = readTies();
+  if (ties[String(uid)] === userId) return;
+  ties[String(uid)] = userId;
+  const path = tiesPath();
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, JSON.stringify(ties, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  renameSync(temporary, path);
+}
+
+// Every uid tie: the tie file, and each valid entry of the record (an entry
+// wins for its uid). A tie file that cannot be read is logged, and the
+// record's entries still count.
+export function memberOsUidTies(): MemberUidTie[] {
+  const byUid = new Map<number, string>();
+  try {
+    for (const [uid, userId] of Object.entries(readTies()))
+      byUid.set(Number(uid), userId);
+  } catch (error) {
+    console.error(
+      `[member-os-users] the uid ties: ${(error as Error).message}`,
+    );
+  }
+  const loaded = load();
+  if (loaded.kind === "ok")
+    for (const [userId, entry] of Object.entries(loaded.entries))
+      if (validOsUser(entry)) byUid.set(entry.uid, userId);
+  return [...byUid]
+    .sort(([a], [b]) => a - b)
+    .map(([uid, userId]) => ({ uid, userId }));
 }
 
 // Tests: forget the cached file, so the next read loads it from disk.

@@ -4,7 +4,8 @@
 // Messages from the server: {type:"start", port, snapshot} once, then
 // {type:"snapshot", snapshot} on every change. Messages to the server:
 // {type:"listening", port}, {type:"listen_failed"}, {type:"use", use},
-// {type:"log", code}. Codes are fixed text, never request content.
+// {type:"log", code}, and {type:"applied", uids} once a snapshot is in use,
+// with the member uids it ties. Codes are fixed text, never request content.
 
 import {
   createSecretProxy,
@@ -21,7 +22,15 @@ export type FromChild =
   | { type: "listening"; port: number }
   | { type: "listen_failed" }
   | { type: "use"; use: import("./proxy.ts").ProxyUse }
-  | { type: "log"; code: string };
+  | { type: "log"; code: string }
+  | { type: "applied"; uids: number[] };
+
+function appliedOf(snapshot: ProxySnapshot): FromChild {
+  return {
+    type: "applied",
+    uids: (snapshot.members ?? []).map((member) => member.uid),
+  };
+}
 
 export function runProxyChild(options: ProxyOptions): void {
   const send = (message: FromChild) => process.send?.(message);
@@ -47,8 +56,12 @@ export function runProxyChild(options: ProxyOptions): void {
         },
         options,
       );
+      const snapshot = message.snapshot;
       proxy.listen(message.port).then(
-        (port) => send({ type: "listening", port }),
+        (port) => {
+          send({ type: "listening", port });
+          send(appliedOf(snapshot));
+        },
         () => {
           send({ type: "listen_failed" });
           process.exit(2);
@@ -56,6 +69,7 @@ export function runProxyChild(options: ProxyOptions): void {
       );
     } else if (message.type === "snapshot" && proxy) {
       proxy.update(message.snapshot);
+      send(appliedOf(message.snapshot));
     }
   });
 }

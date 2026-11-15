@@ -39,6 +39,7 @@ import {
   runtimeHash,
   runtimeSource,
   setMemberRuntimeDeps,
+  writeMemberCaBundle,
   type ManifestEntry,
   type RuntimeFs,
   type RuntimeSource,
@@ -558,5 +559,54 @@ describe("runtimeSource", () => {
     } finally {
       resetMemberHosts();
     }
+  });
+});
+
+// Slice 2d-ii of task b94dfd25: the copy of the office's CA bundle in a
+// member's share. It holds certificates only: the office CA's key must never
+// reach a share, in any PEM form.
+describe("writeMemberCaBundle", () => {
+  const CERT =
+    "-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----\n";
+  const bundle = () => join(share, "secrets", "ca-bundle.pem");
+
+  it("writes the text, 0644 in a 0755 secrets folder, and the share check passes", async () => {
+    await writeMemberCaBundle(share, CERT + CERT);
+    expect(readFileSync(bundle(), "utf8")).toBe(CERT + CERT);
+    expect(modeOf(bundle())).toBe(0o644);
+    expect(modeOf(dirname(bundle()))).toBe(0o755);
+    expect(readdirSync(dirname(bundle()))).toEqual(["ca-bundle.pem"]);
+    expect(
+      checkMemberShare({
+        share,
+        officeUid: process.getuid!(),
+        memberGid: GID,
+        probe,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  const keys: [string, string][] = [
+    ["a PKCS#8 key", "PRIVATE KEY"],
+    ["an EC key", "EC PRIVATE KEY"],
+    ["an RSA key", "RSA PRIVATE KEY"],
+    ["an encrypted key", "ENCRYPTED PRIVATE KEY"],
+    ["another block", "PUBLIC KEY"],
+  ];
+  for (const [what, label] of keys)
+    it(`writes nothing for a bundle with ${what}, and keeps the copy it had`, async () => {
+      await writeMemberCaBundle(share, CERT);
+      const pem = `${CERT}-----BEGIN ${label}-----\nfake\n-----END ${label}-----\n`;
+      await expectRejection(writeMemberCaBundle(share, pem), /certificates/);
+      expect(readFileSync(bundle(), "utf8")).toBe(CERT);
+      expect(readdirSync(dirname(bundle()))).toEqual(["ca-bundle.pem"]);
+    });
+
+  it("writes nothing for a text with no certificate", async () => {
+    await expectRejection(
+      writeMemberCaBundle(share, "nothing\n"),
+      /certificates/,
+    );
+    expect(existsSync(bundle())).toBe(false);
   });
 });

@@ -70,10 +70,25 @@ function isCertificateAuthority(ca: CertificateAuthority): boolean {
   }
 }
 
+// The variables that name the CA bundle. A member's agents get the copy in
+// their share (env-loader.ts).
+export const CA_BUNDLE_VARIABLES = [
+  "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS",
+  "CODEX_CA_CERTIFICATE",
+  "REQUESTS_CA_BUNDLE",
+  "CURL_CA_BUNDLE",
+  "GIT_SSL_CAINFO",
+  "CARGO_HTTP_CAINFO",
+] as const;
+
 export interface SecretMaterial {
   placeholderKey: Buffer;
   ca: CertificateAuthority;
   bundlePath: string;
+  // The text written to bundlePath: the office CA's certificate and the
+  // system roots. A member's share gets a copy of it.
+  bundlePem: string;
 }
 
 export function secretMaterialPaths(stateRoot: string, shareRoot: string) {
@@ -133,13 +148,10 @@ export function ensureSecretMaterial(input: {
   const sameDir = resolve(paths.bundleDir) === resolve(paths.dir);
   if (!sameDir) ensureDir(paths.bundleDir, 0o755);
   const roots = input.systemRootsPem.trim();
-  writeAtomic(
-    paths.bundle,
-    `${ca.certPem.trim()}\n${roots ? `${roots}\n` : ""}`,
-    sameDir ? 0o600 : 0o644,
-  );
+  const bundlePem = `${ca.certPem.trim()}\n${roots ? `${roots}\n` : ""}`;
+  writeAtomic(paths.bundle, bundlePem, sameDir ? 0o600 : 0o644);
 
-  return { placeholderKey, ca, bundlePath: paths.bundle };
+  return { placeholderKey, ca, bundlePath: paths.bundle, bundlePem };
 }
 
 export function readProxyPort(stateRoot: string): number | null {

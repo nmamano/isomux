@@ -992,3 +992,45 @@ describe("secrets with a token exchange", () => {
     expect(snapshotWithExchange()[0].exchange?.id).toBe("fake-client-id-2");
   });
 });
+
+// Slice 2d-ii of task b94dfd25: the runtime's side of a member OS user. The
+// snapshot carries the uid ties, tieMember waits until the child applies
+// one, and the CA bundle's text reaches the members' shares.
+describe("member OS users", () => {
+  const TIED = 4100;
+
+  test("tieMember is true once the child applies a tie the snapshot carries, and false, logged, for a uid it does not", async () => {
+    await runtime.stop();
+    runtime = makeRuntime({
+      memberUids: () => [{ uid: TIED, userId: ALICE }],
+      tieWaitMs: 300,
+    });
+    // No proxy yet: the one that starts reads the current ties.
+    expect(await runtime.tieMember(TIED + 1)).toBe(true);
+    add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
+    await runtime.enable();
+    expect(runtime.proxyPort).not.toBeNull();
+    expect(await runtime.tieMember(TIED)).toBe(true);
+    expect(logs).not.toContain("member_tie_not_applied");
+    expect(await runtime.tieMember(TIED + 1)).toBe(false);
+    expect(logs).toContain("member_tie_not_applied");
+  });
+
+  test("gives the bundle's text to onBundle and caBundle when it makes the material: certificates, as on disk", async () => {
+    await runtime.stop();
+    const bundles: string[] = [];
+    runtime = makeRuntime({ onBundle: (pem) => bundles.push(pem) });
+    expect(runtime.caBundle()).toBeNull();
+    add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
+    await runtime.enable();
+    expect(bundles).toHaveLength(1);
+    const onDisk = readFileSync(
+      secretMaterialPaths(STATE_ROOT, STATE_ROOT).bundle,
+      "utf8",
+    );
+    expect(bundles[0]).toBe(onDisk);
+    expect(runtime.caBundle()).toBe(onDisk);
+    expect(bundles[0]).toContain("-----BEGIN CERTIFICATE-----");
+    expect(bundles[0]).not.toContain("PRIVATE KEY");
+  });
+});
