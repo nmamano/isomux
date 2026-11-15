@@ -17,6 +17,7 @@ import {
   type LogText,
 } from "../shared/i18n/log-message.ts";
 import type { LimitResumeClock, ManagerDeps } from "./agent-manager.ts";
+import { providerDisplayName } from "./agent-auth.ts";
 import { runAgentTurn } from "./agent-turn.ts";
 import { recordAudit } from "./audit-store.ts";
 import {
@@ -134,6 +135,9 @@ export interface HandoffAndWakeDeps {
   restartWakeClock: ManagerDeps["restartWakeClock"];
   serverStopping: ManagerDeps["serverStopping"];
 }
+
+// Why a setting handoff wrote no brief: picks the member's line only.
+type BriefFailureCause = "signedOut" | "limit" | "stopped" | "failed";
 
 export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   const {
@@ -268,7 +272,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     const phase = managed.autoHandoffPhase;
     if (!phase || phase.kind === "auto" || phase.briefStarted) return;
     if (phase.kind === "setting") {
-      failAutoHandoff(agentId, managed, phase);
+      failAutoHandoff(agentId, managed, phase, { cause: "stopped" });
       return;
     }
     managed.autoHandoffPhase = null;
@@ -692,6 +696,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     managed.autoHandoffCapture = capture;
     let threw = false;
     let temporary = false;
+    let failedErr: unknown = null;
     try {
       // runAgentTurn calls beginTurn before its first await, so the agent is
       // busy before this function yields.
@@ -718,6 +723,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       );
     } catch (err) {
       threw = true;
+      failedErr = err;
       temporary = temporaryBriefTurnError(err);
       if (agents.has(agentId)) briefTurnFailure(agentId, managed, err);
     } finally {
@@ -736,6 +742,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     ) {
       failAutoHandoff(agentId, managed, phase, {
         temporary: temporary || capture.limitStopped,
+        cause: briefFailureCause(managed, failedErr, capture),
       });
       return;
     }
@@ -745,6 +752,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       if (managed.autoHandoffPhase === phase)
         failAutoHandoff(agentId, managed, phase, {
           temporary: TEMPORARY_HANDOFF_ERRORS.has(result.error),
+          cause: result.error === "usage_cap" ? "limit" : "failed",
         });
       return;
     }
@@ -820,6 +828,47 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     );
   }
 
+  // Why a brief turn wrote no brief, for a setting handoff's line. The turn's
+  // flags are still the brief turn's: no other turn ran since.
+  function briefFailureCause(
+    managed: ManagedAgent,
+    err: unknown,
+    capture: NonNullable<ManagedAgent["autoHandoffCapture"]>,
+  ): BriefFailureCause {
+    // An AuthNeededError is thrown only when the flag is set.
+    if (
+      err instanceof BackendNotConfiguredError ||
+      managed.turnFlags.authNeeded
+    )
+      return "signedOut";
+    if (err instanceof UsageCapError || capture.limitStopped) return "limit";
+    // A swap that left the phase in place is the agent's stop (a settings
+    // change or a reset takes the phase).
+    if (err instanceof SessionSwappedError || capture.status === "interrupted")
+      return "stopped";
+    return "failed";
+  }
+
+  // The setting handoff's failure line, by cause. The engine is the one the
+  // brief turn ran on.
+  function settingFailedLine(
+    managed: ManagedAgent,
+    cause: BriefFailureCause,
+  ): LogMessage {
+    switch (cause) {
+      case "signedOut":
+        return msg("systemEntries.settingHandoff.failedSignedOut", {
+          engine: providerDisplayName(managed.info.agentType),
+        });
+      case "limit":
+        return msg("systemEntries.settingHandoff.failedLimit");
+      case "stopped":
+        return msg("systemEntries.settingHandoff.failedStopped");
+      case "failed":
+        return msg("systemEntries.settingHandoff.failed");
+    }
+  }
+
   // No handoff: the conversation continues and the queue flushes to the old
   // session. A failed automatic attempt uses the conversation's attempt, so
   // the fullness notices come back; a failed /handoff leaves it. A temporary
@@ -829,7 +878,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     agentId: string,
     managed: ManagedAgent,
     phase: AutoHandoffPhase,
-    opts: { temporary?: boolean } = {},
+    opts: { temporary?: boolean; cause?: BriefFailureCause } = {},
   ): void {
     managed.autoHandoffPhase = null;
     if (phase.kind === "manual") {
@@ -841,7 +890,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       addLogEntry(
         agentId,
         "system",
-        msg("systemEntries.settingHandoff.failed"),
+        settingFailedLine(managed, opts.cause ?? "failed"),
       );
       managed.autoHandoffNotice = settingHandoffPointerNotice(phase.setting);
     } else if (opts.temporary) {

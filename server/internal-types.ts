@@ -88,6 +88,9 @@ export interface SettingHandoffRequest {
   // The conversation the rules and the open work are in. Two changes in a
   // row keep the first one's source.
   previousSessionId: string;
+  // The change cut a running turn of that conversation: its last request
+  // may be unfinished.
+  cutTurn: boolean;
 }
 
 export interface ManualHandoffRequest {
@@ -328,7 +331,7 @@ export interface ManagedAgent {
   // second change in that window reads the same conversation. Cleared at
   // every conversation boundary (resetContextUsage) and when the failure
   // pointer goes out.
-  settingHandoffSource: string | null;
+  settingHandoffSource: { sessionId: string; cutTurn: boolean } | null;
   // The running turn's flags (TurnFlags). beginTurn replaces the record, so
   // nothing in it outlives its turn. Write through managed.turnFlags, never
   // a local copy: a write to a replaced record is lost.

@@ -3799,7 +3799,13 @@ Coses que pots fer per ell:
   "systemEntries.settingHandoff.writing":
     "S'està escrivint un resum de traspàs a partir de la conversa anterior.",
   "systemEntries.settingHandoff.failed":
-    "No s'ha escrit cap resum de traspàs. Amb el proper missatge, Isomux diu a l'agent on és la seva conversa anterior.",
+    "No s'ha escrit cap resum de traspàs. Envia un missatge i l'agent llegeix la seva conversa anterior.",
+  "systemEntries.settingHandoff.failedSignedOut":
+    "No s'ha escrit cap resum de traspàs: {engine} no té la sessió iniciada o no està configurat. Soluciona-ho, envia un missatge i l'agent llegeix la seva conversa anterior.",
+  "systemEntries.settingHandoff.failedLimit":
+    "No s'ha escrit cap resum de traspàs: s'ha arribat a un límit d'ús. Quan el límit es restableixi, envia un missatge i l'agent llegeix la seva conversa anterior.",
+  "systemEntries.settingHandoff.failedStopped":
+    "S'ha aturat el resum de traspàs. Envia un missatge i l'agent llegeix la seva conversa anterior.",
   "systemEntries.managerChanged":
     "{actor} ha fet responsable {member}. Conversa nova iniciada.",
   "systemEntries.autoHandoff.writingTokens":

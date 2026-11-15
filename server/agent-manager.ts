@@ -8582,7 +8582,7 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoff?: AutoHandoffPhase;
       typed?: boolean;
       notice?: LogText;
-      setting?: Omit<SettingHandoffRequest, "previousSessionId">;
+      setting?: Omit<SettingHandoffRequest, "previousSessionId" | "cutTurn">;
     },
   ) {
     const managed = agents.get(agentId);
@@ -8595,7 +8595,24 @@ export function createAgentManager(deps: ManagerDeps) {
         await managed.sessionManager.swapSettled();
       if (agents.get(agentId) !== managed) return;
     }
+    // Whether the change cuts a running turn of the conversation it ends (a
+    // permission prompt waits inside one). A member's picker between turns
+    // is no turn. The busy test of requestHandoff.
+    const state = managed.info.state;
+    const turnCut =
+      state === "thinking" ||
+      state === "tool_executing" ||
+      managed.sessionManager.pendingTurn !== null;
     cancelChoiceInteraction(agentId);
+    // A permission prompt of the session this reset closes has nothing left
+    // to answer, and while it waits nothing flushes: the next conversation
+    // would wait for a member's message. The outcome goes in the old chat.
+    cancelPermissionRequests(
+      agentId,
+      managed,
+      "canceled",
+      msg("systemEntries.permissionOutcome.sessionChanged"),
+    );
     managed.pendingResumeSessions = [];
     // The queue goes to the fresh session (task df2c820b). It is held aside,
     // in memory only (disk keeps it), until the old session is closed below:
@@ -8610,9 +8627,14 @@ export function createAgentManager(deps: ManagerDeps) {
     // The conversation a setting handoff reads: the one this reset ends, or,
     // when that one was opened by a setting change and ran only its brief
     // turn, the one that change read. Taken before the reset clears both.
-    const settingSource = opts?.setting
-      ? (managed.settingHandoffSource ?? managed.sessionManager.sessionId)
-      : null;
+    const currentSessionId = managed.sessionManager.sessionId;
+    const settingSource: { sessionId: string; cutTurn: boolean } | null =
+      !opts?.setting
+        ? null
+        : (managed.settingHandoffSource ??
+          (currentSessionId
+            ? { sessionId: currentSessionId, cutTurn: turnCut }
+            : null));
     let settingArmed = false;
     let drained: Promise<void>;
     try {
@@ -8756,7 +8778,11 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.autoHandoffPhase = {
           briefStarted: false,
           kind: "setting",
-          setting: { ...opts.setting, previousSessionId: settingSource },
+          setting: {
+            ...opts.setting,
+            previousSessionId: settingSource.sessionId,
+            cutTurn: settingSource.cutTurn,
+          },
         };
         settingArmed = true;
       }

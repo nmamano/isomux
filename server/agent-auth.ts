@@ -9,6 +9,7 @@ import type {
   LogEntry,
   UserRole,
 } from "../shared/types.ts";
+import { ENGINE_NAMES } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { msg, msgN, type LogText } from "../shared/i18n/log-message.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
@@ -56,8 +57,8 @@ export function detectAuthErrorForEnvironment(
  * language (ruling 11); a name is a placeholder in the sentences above rather
  * than two sentences per provider.
  */
-export function providerDisplayName(provider: string): string {
-  return provider === "claude" ? "Claude" : "Codex";
+export function providerDisplayName(provider: AgentBackendType): string {
+  return ENGINE_NAMES[provider];
 }
 
 export interface AgentAuthDeps {

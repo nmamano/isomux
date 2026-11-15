@@ -3795,7 +3795,13 @@ Cosas que puedes hacer por él:
   "systemEntries.settingHandoff.writing":
     "Escribiendo un resumen de traspaso a partir de la conversación anterior.",
   "systemEntries.settingHandoff.failed":
-    "No se escribió ningún resumen de traspaso. Con el próximo mensaje, Isomux le dice al agente dónde está su conversación anterior.",
+    "No se escribió ningún resumen de traspaso. Envía un mensaje y el agente lee su conversación anterior.",
+  "systemEntries.settingHandoff.failedSignedOut":
+    "No se escribió ningún resumen de traspaso: {engine} no tiene la sesión iniciada o no está configurado. Soluciónalo, envía un mensaje y el agente lee su conversación anterior.",
+  "systemEntries.settingHandoff.failedLimit":
+    "No se escribió ningún resumen de traspaso: se alcanzó un límite de uso. Cuando el límite se restablezca, envía un mensaje y el agente lee su conversación anterior.",
+  "systemEntries.settingHandoff.failedStopped":
+    "Se detuvo el resumen de traspaso. Envía un mensaje y el agente lee su conversación anterior.",
   "systemEntries.managerChanged":
     "{actor} hizo responsable a {member}. Conversación nueva iniciada.",
   "systemEntries.autoHandoff.writingTokens":

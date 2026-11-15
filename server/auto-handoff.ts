@@ -155,6 +155,21 @@ function managerTrustRule(
     : ` ${c.to} is your manager now, and their word wins. Before you act on a go-ahead from ${previous}, get ${c.to}'s confirmation.`;
 }
 
+// The change cut a running turn of the previous conversation: its last
+// request may be unfinished. The same first sentence for every kind of
+// change; the brief adds what to do with it.
+function cutTurnText(
+  request: SettingHandoffRequest,
+  which: "brief" | "notice",
+): string {
+  if (!request.cutTurn) return "";
+  const cut =
+    " The change stopped a turn in progress, so the last request in the previous conversation may be unfinished.";
+  return which === "brief"
+    ? `${cut} Carry it as open work unless the conversation shows it done.`
+    : cut;
+}
+
 /** The brief turn's prompt after a setting change that started a new
  *  conversation (a setting handoff). It runs in that new conversation, on the
  *  new settings, and reads the previous one from the logs of `agentId`. */
@@ -168,7 +183,7 @@ export function settingHandoffBriefPrompt(
     `Your previous conversation is session ${request.previousSessionId}, and after this turn Isomux hands off to a fresh session with your reply as its brief. ` +
     `Read what you need from the previous conversation, not all of it: the member messages, where standing rules and go-aheads are (GET ${logs}&tier=prompts), ` +
     `then its summary and its last entries, where the open work is (GET ${logs}&tier=conversation&limit=60). ` +
-    `GET /api/agent-reference/conversation-history has the details.${managerTrustRule(request, "brief")} ` +
+    `GET /api/agent-reference/conversation-history has the details.${cutTurnText(request, "brief")}${managerTrustRule(request, "brief")} ` +
     `Reply with only the handoff brief. It is forward-looking: the goal, the next concrete steps, the standing rules the members gave, working state not obvious from disk, decisions the fresh session should not relitigate, open questions to revisit with the member, and pointers (files, docs, task IDs). ` +
     `Leave out a recap of the previous conversation and anything already in your system prompt, custom instructions or memory. Keep it tight. Do not call the handoff route.]`
   );
@@ -194,7 +209,7 @@ export function settingHandoffPointerNotice(
 ): string {
   return (
     `[settings handoff: ${settingChangeText(request)}, so Isomux started a new conversation, and no handoff brief was written. ` +
-    `Your previous conversation is session ${request.previousSessionId}. Before you continue, read its member messages for standing rules and its last entries for open work: GET /api/agent-reference/conversation-history tells you how.${managerTrustRule(request, "notice")}]`
+    `Your previous conversation is session ${request.previousSessionId}.${cutTurnText(request, "notice")} Before you continue, read its member messages for standing rules and its last entries for open work: GET /api/agent-reference/conversation-history tells you how.${managerTrustRule(request, "notice")}]`
   );
 }
 

@@ -3721,7 +3721,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.settingHandoff.writing":
     "Writing a handoff brief from the previous conversation.",
   "systemEntries.settingHandoff.failed":
-    "No handoff brief was written. With the next message, Isomux tells the agent where its previous conversation is.",
+    "No handoff brief was written. Send a message, and the agent reads its previous conversation.",
+  "systemEntries.settingHandoff.failedSignedOut":
+    "No handoff brief was written: {engine} is not signed in or not set up. Fix that, then send a message, and the agent reads its previous conversation.",
+  "systemEntries.settingHandoff.failedLimit":
+    "No handoff brief was written: a usage limit was reached. When the limit resets, send a message, and the agent reads its previous conversation.",
+  "systemEntries.settingHandoff.failedStopped":
+    "The handoff brief was stopped. Send a message, and the agent reads its previous conversation.",
   "systemEntries.managerChanged":
     "{actor} made {member} the manager. New conversation started.",
   "systemEntries.autoHandoff.writingTokens":

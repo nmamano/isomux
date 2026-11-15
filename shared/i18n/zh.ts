@@ -3397,7 +3397,13 @@ export const zh: Catalog = {
   "systemEntries.handoff.canceled": "交接已取消。",
   "systemEntries.settingHandoff.writing": "正在根据上一个对话撰写交接简报。",
   "systemEntries.settingHandoff.failed":
-    "未写出交接简报。收到下一条消息时，Isomux 会告诉智能体上一个对话在哪里。",
+    "未写出交接简报。发送一条消息，智能体就会阅读它的上一个对话。",
+  "systemEntries.settingHandoff.failedSignedOut":
+    "未写出交接简报：{engine} 未登录或未设置。解决后发送一条消息，智能体就会阅读它的上一个对话。",
+  "systemEntries.settingHandoff.failedLimit":
+    "未写出交接简报：已达到用量上限。上限重置后发送一条消息，智能体就会阅读它的上一个对话。",
+  "systemEntries.settingHandoff.failedStopped":
+    "交接简报已停止。发送一条消息，智能体就会阅读它的上一个对话。",
   "systemEntries.managerChanged":
     "{actor} 将 {member} 设为负责人。新对话已开始。",
   "systemEntries.autoHandoff.writingTokens":
