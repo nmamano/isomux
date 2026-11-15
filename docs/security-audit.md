@@ -324,7 +324,7 @@ All office state is in the state directory: `~/.isomux` of the server's OS user,
 
 ### 8.2 Backups
 
-Backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the pager's Web Push key and devices, the WhatsApp sessions, the Discord bot tokens, the TLS key, the OpenCode server records or the backend sign-in files. They include the OpenCode databases, with their conversations and provider sign-ins, `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the pager's Web Push key and devices, the WhatsApp sessions, the Discord bot tokens, the TLS key, the OpenCode server records, the files of an office move in progress or the backend sign-in files. They include the OpenCode databases, with their conversations and provider sign-ins, `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 

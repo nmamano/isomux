@@ -20,6 +20,7 @@ import {
   type LockdownApps,
 } from "./lockdown.ts";
 import { sweepExportFiles } from "./office-export-jobs.ts";
+import { killMoveForLockdown } from "./office-move.ts";
 
 export interface LockedOfficeOpts {
   stateRoot: string;
@@ -102,8 +103,8 @@ function escapeHtml(s: string): string {
 }
 
 /** What a lock does to the state, at the lockdown route's stop and at every
- *  locked boot: moves the credential files aside, deletes owner exports and
- *  stops apps, in that order. Synchronous; each step logs its own failure and
+ *  locked boot: moves the credential files aside, ends an office move,
+ *  deletes owner exports and stops apps, in that order. Synchronous; each step logs its own failure and
  *  does not skip the next. */
 export function applyLockEffects(opts: {
   stateRoot: string;
@@ -119,6 +120,14 @@ export function applyLockEffects(opts: {
       console.log(`[lockdown] moved ${moved.moved.join(", ")} to ${moved.dir}`);
   } catch (err) {
     console.error("[lockdown] could not move the credentials aside:", err);
+  }
+  // A lock wins over a move (task 78733adf): the move code, its key and the
+  // new office's session go. The units record stays for the unlock's boot.
+  try {
+    if (killMoveForLockdown(opts.stateRoot))
+      console.log("[lockdown] ended the office move");
+  } catch (err) {
+    console.error("[lockdown] could not end the office move:", err);
   }
   // No owner export survives a lock (task cdd7883d, slice 4).
   try {

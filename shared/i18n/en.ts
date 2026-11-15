@@ -62,6 +62,7 @@ export const en = {
   "audit.kind.autoHandoff": "Automatic handoff",
   "audit.kind.githubSync": "GitHub sync",
   "audit.kind.updater": "Updater",
+  "audit.kind.officeMove": "Office move",
   "audit.update.phaseTime": "{phase} {seconds} s",
   "audit.update.ok": "Done",
   "audit.update.okIn": "Done in {seconds} s",
@@ -2397,6 +2398,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.checkEnterprise": "Check enterprise seats",
   "apiCall.office.lockdown": "Lock the office",
   "apiCall.office.startExport": "Start an office export",
+  "apiCall.office.getMove": "Check the office move",
+  "apiCall.office.cancelMove": "Cancel the office move",
   "apiCall.office.exportStatus": "Check an office export",
   "apiCall.rooms.readInstructions": "Read room instructions",
   "apiCall.githubSync.get": "Read a room's GitHub link",
@@ -3346,6 +3349,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.notFound.heading": "App not found",
   "apps.notFound.body":
     "There is no app at this address, or you cannot open it.",
+  "moving.title": "office moving",
+  "moving.heading": "This office is moving to another machine",
+  "moving.body": "It opens on the new machine when the copy is done.",
+  "moving.cancelHint":
+    "To stop the move and keep the office here, enter the move code.",
+  "moving.codeLabel": "Move code",
+  "moving.cancel": "Cancel the move",
+  "moving.wrongCode": "That is not this move's code.",
+  "moving.cancelledHeading": "The move is cancelled",
+  "moving.cancelledBody":
+    "The office starts again here. Reload this page in a minute.",
   "locked.title": "office locked",
   "locked.heading": "This office is locked",
   "locked.body":

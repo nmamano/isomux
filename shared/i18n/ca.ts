@@ -48,6 +48,7 @@ export const ca: Catalog = {
   "audit.kind.autoHandoff": "Traspàs automàtic",
   "audit.kind.githubSync": "Sincronització amb GitHub",
   "audit.kind.updater": "Actualitzador",
+  "audit.kind.officeMove": "Trasllat d'oficina",
   "audit.update.phaseTime": "{phase} {seconds} s",
   "audit.update.ok": "Completat",
   "audit.update.okIn": "Completat en {seconds} s",
@@ -2475,6 +2476,8 @@ Coses que pots fer per ell:
   "apiCall.office.lockdown": "Bloquejar l'oficina",
   "apiCall.office.startExport": "Iniciar una exportació de l'oficina",
   "apiCall.office.exportStatus": "Comprovar una exportació de l'oficina",
+  "apiCall.office.getMove": "Comprovar el trasllat de l'oficina",
+  "apiCall.office.cancelMove": "Cancel·lar el trasllat de l'oficina",
   "apiCall.rooms.readInstructions": "Llegir les instruccions de la sala",
   "apiCall.githubSync.get": "Llegir l'enllaç de GitHub d'una sala",
   "apiCall.githubSync.set": "Enllaçar una sala amb un repositori de GitHub",
@@ -3447,6 +3450,17 @@ Coses que pots fer per ell:
   "apps.notFound.heading": "App no trobada",
   "apps.notFound.body":
     "No hi ha cap app en aquesta adreça, o no la pots obrir.",
+  "moving.title": "oficina en trasllat",
+  "moving.heading": "Aquesta oficina s'està traslladant a una altra màquina",
+  "moving.body": "S'obre a la màquina nova quan acaba la còpia.",
+  "moving.cancelHint":
+    "Per aturar el trasllat i mantenir l'oficina aquí, introdueix el codi de trasllat.",
+  "moving.codeLabel": "Codi de trasllat",
+  "moving.cancel": "Cancel·lar el trasllat",
+  "moving.wrongCode": "Aquest no és el codi d'aquest trasllat.",
+  "moving.cancelledHeading": "El trasllat està cancel·lat",
+  "moving.cancelledBody":
+    "L'oficina torna a arrencar aquí. Torna a carregar aquesta pàgina d'aquí a un minut.",
   "locked.title": "oficina bloquejada",
   "locked.heading": "Aquesta oficina està bloquejada",
   "locked.body":

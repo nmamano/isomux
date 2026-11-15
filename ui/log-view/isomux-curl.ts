@@ -870,6 +870,8 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/office/lockdown", "apiCall.office.lockdown"],
   ["POST", "/api/office/exports", "apiCall.office.startExport"],
   ["GET", "/api/office/exports/*", "apiCall.office.exportStatus"],
+  ["GET", "/api/office/move", "apiCall.office.getMove"],
+  ["DELETE", "/api/office/move", "apiCall.office.cancelMove"],
   ["GET", "/api/rooms/*/github-link", "apiCall.githubSync.get"],
   ["PUT", "/api/rooms/*/github-link", "apiCall.githubSync.set"],
   ["DELETE", "/api/rooms/*/github-link", "apiCall.githubSync.delete"],

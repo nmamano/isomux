@@ -493,6 +493,19 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/provider-homes/*/codex/shell_snapshots/*`,
     ],
   },
+  // An office move in progress (task 78733adf): the move code's key, the
+  // hashes of its token and of the new office's session, and the units the
+  // move stopped (a transient unit's environment can hold a secret). The
+  // temp files are each file in the middle of a write.
+  {
+    id: "office-move",
+    archivePatterns: (root) => [
+      `${root}/office-move.json`,
+      `${root}/office-move.json.tmp`,
+      `${root}/move-units.json`,
+      `${root}/move-units.json.tmp`,
+    ],
+  },
   // Webhook signing secrets (D5). After a restore, the owner rotates once per
   // hook. The temp file is the secrets file in the middle of a write.
   {

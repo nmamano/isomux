@@ -130,19 +130,24 @@ export function requestStopForLock(applyEffects: () => void): void {
   setStopFinalStep(
     lockStopStep({
       previous: getStopFinalStep(),
-      endLeftovers: async () =>
-        (
-          await endLeftovers({
-            officePid: process.pid,
-            uids: [process.getuid?.() ?? -1],
-            selfPid: process.pid,
-            processes: readProcesses,
-            kill: (pid, signal) => process.kill(pid, signal),
-            sleep: (ms) => Bun.sleep(ms),
-          })
-        ).length,
+      endLeftovers: endOfficeLeftovers,
       applyLockEffects: applyEffects,
     }),
   );
   process.kill(process.pid, "SIGTERM");
+}
+
+/** Ends this office's leftover processes (server/office-leftovers.ts);
+ *  resolves to how many it ended. The lock's and the move's stop step. */
+export async function endOfficeLeftovers(): Promise<number> {
+  return (
+    await endLeftovers({
+      officePid: process.pid,
+      uids: [process.getuid?.() ?? -1],
+      selfPid: process.pid,
+      processes: readProcesses,
+      kill: (pid, signal) => process.kill(pid, signal),
+      sleep: (ms) => Bun.sleep(ms),
+    })
+  ).length;
 }

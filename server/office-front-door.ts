@@ -87,6 +87,10 @@ import { neutralNotFound } from "./app-host-responses.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
 import { type AppRelayWsData } from "./app-ws-relay.ts";
 import { officeCardResponse } from "./office-card.ts";
+import {
+  MOVE_API_PREFIX,
+  type OfficeMoveFrontDoor,
+} from "./office-move-routes.ts";
 import { OFFICE_CARD_PATH } from "../shared/floors.ts";
 import {
   TASKS_SUMMARY_WS_PARAM,
@@ -222,6 +226,7 @@ export interface FrontDoorDeps {
     userId: string,
     identity?: Identity,
   ) => boolean;
+  currentOfficeMove: () => OfficeMoveFrontDoor;
   currentWebhookIngress: () => WebhookIngress;
   editorWatchers: Map<string, Map<string, FileWatcher>>;
   executorDeps: () => ExecutorDeps;
@@ -262,6 +267,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
     apiTokenSockets,
     browsers,
     canUserAccessApp,
+    currentOfficeMove,
     currentWebhookIngress,
     editorWatchers,
     executorDeps,
@@ -492,6 +498,14 @@ export function createFrontDoor(deps: FrontDoorDeps) {
               return new Response("rate limited\n", { status: 429 });
             }
             return officeCardResponse(agentManager.getOfficeSettings().name);
+          }
+
+          // /api/move/* - the routes the new box calls when this office moves
+          // (server/office-move-routes.ts; PUBLIC_ROUTES carries them). The
+          // move session or the code is the only gate.
+          if (url.pathname.startsWith(MOVE_API_PREFIX)) {
+            const moved = await currentOfficeMove().handle(req, url, source());
+            if (moved) return moved;
           }
 
           // POST /hooks/:id - the public webhook delivery route

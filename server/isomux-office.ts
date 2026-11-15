@@ -377,6 +377,41 @@ import {
   enterpriseSeatsHandlers,
 } from "./enterprise-seats-routes.ts";
 import { rescueHandlers } from "./routes/handlers/rescue.ts";
+import { officeMoveHandlers } from "./routes/handlers/office-move.ts";
+import {
+  createOfficeMoveFrontDoor,
+  MOVE_AUDIT_ACTOR,
+  requestStopForMove,
+  type OfficeMoveFrontDoor,
+} from "./office-move-routes.ts";
+import {
+  createMovePreflightJobs,
+  spawnPreflightExec,
+  type MovePreflightJobs,
+  type PreflightExec,
+  type TurnInFlight,
+} from "./office-move-preflight.ts";
+import {
+  listAgentUnits,
+  officeRestartPolicy,
+  restoreUnitsAfterMove,
+  stopRecordedUnits,
+  type AgentUnit,
+  type UnitRunner,
+} from "./office-move-units.ts";
+import {
+  clearMoveCancelled,
+  MOVE_STATE_FILE,
+  moveBootMode,
+  readMoveCancelled,
+  readMoveState,
+} from "./office-move.ts";
+import { startMoveLockedOffice } from "./move-locked-office.ts";
+import { createSystemdHost } from "./app-supervisor.ts";
+import { officeUnitFromCgroup, unitPrefixFor } from "./office-units.ts";
+import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
+import { allowMoveRedeemRequest } from "./ready-limiter.ts";
+import { lockOfficeNow } from "./office-lock-gate.ts";
 import {
   createOfficeExportJobs,
   spawnExportChildProcess,
@@ -492,10 +527,11 @@ import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
 import {
-  readLockState,
   restartAppsAfterLock,
+  stopAppsForLock,
   type LockdownApps,
 } from "./lockdown.ts";
+import { readFileSync, rmSync } from "node:fs";
 import { applyLockEffects, startLockedOffice } from "./locked-office.ts";
 import { defaultAppSupervisor } from "./app-supervisor-default.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
@@ -1319,6 +1355,134 @@ function resendSessionContexts(userId?: string): void {
       sendSessionContext(ws);
   }
 }
+// The move routes the new box calls (task 78733adf). Built at the first
+// /api/move/ request, over the seams buildExecutorDeps recorded.
+let officeMoveSeams: MoveSeams = {};
+let officeMoveFrontDoor: OfficeMoveFrontDoor | null = null;
+let officeMovePreflights: MovePreflightJobs | null = null;
+function currentOfficeMove(): OfficeMoveFrontDoor {
+  officeMoveFrontDoor ??= buildOfficeMoveFrontDoor(officeMoveSeams);
+  return officeMoveFrontDoor;
+}
+function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
+  const runUnits: UnitRunner =
+    seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
+  const cgroupText = (): string => {
+    if (seams.cgroupText !== undefined) return seams.cgroupText;
+    try {
+      return readFileSync("/proc/self/cgroup", "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const home = homedir();
+  const listUnits = (): AgentUnit[] =>
+    listAgentUnits(runUnits, {
+      home,
+      appPrefix: unitPrefixFor(AGENT_ROOT, AGENT_ROOT_IS_DEFAULT),
+      officeUnit: officeUnitFromCgroup(cgroupText()),
+      uid: process.getuid?.() ?? -1,
+    });
+  const restartPolicy = () => officeRestartPolicy(cgroupText(), runUnits);
+  const turnsInFlight = (): TurnInFlight[] =>
+    agentManager
+      .getManifest()
+      .filter((a) => a.inFlightTurn)
+      .map((a) => ({
+        agentId: a.id,
+        name: a.name,
+        roomName: a.roomName ?? null,
+      }));
+  // The host names the old office answers on: its public origin and the
+  // origin the code carries. Loopback names would match every local URL.
+  const hosts = (): string[] => {
+    const names = new Set<string>();
+    const add = (origin: string | undefined) => {
+      try {
+        if (origin) names.add(new URL(origin).hostname);
+      } catch {
+        // Not an origin.
+      }
+    };
+    add(buildPublicOrigin().origin);
+    add(readMoveState(STATE_ROOT, new Date()).current?.origin);
+    return [...names].filter(
+      (h) => h !== "localhost" && !/^127\./.test(h) && h !== "[::1]",
+    );
+  };
+  const preflight = createMovePreflightJobs({
+    home,
+    hosts,
+    apps: () =>
+      appRegistry.list().map((a) => ({ name: a.name, folder: a.cwd })),
+    turnsInFlight,
+    listUnits,
+    restartPolicy,
+    exec: seams.exec ?? spawnPreflightExec,
+    osUser: userInfo().username,
+    aptHistoryPath: seams.aptHistoryPath ?? "/var/log/apt/history.log",
+    now: () => Date.now(),
+  });
+  officeMovePreflights = preflight;
+  const version = getVersionInfo();
+  return createOfficeMoveFrontDoor({
+    stateRoot: STATE_ROOT,
+    ours: () => ({
+      release: version.release,
+      commit: version.commit,
+      homePath: home,
+    }),
+    preflight,
+    turnsInFlight,
+    restartPolicy: () => restartPolicy()?.restart ?? null,
+    listUnits,
+    lockProcess: () => {
+      lockOfficeNow();
+      closeOfficeSockets();
+    },
+    audit: ({ operation, actor }) =>
+      recordAudit({ actor, operation, targets: ["office"], fields: [] }),
+    requestStop:
+      seams.requestStop ??
+      ((units) =>
+        requestStopForMove({
+          stopApps: () =>
+            stopAppsForLock(STATE_ROOT, lockdownApps(appSupervisor)),
+          stopUnits: () => stopRecordedUnits(runUnits, units),
+        })),
+    allow: (source) => allowMoveRedeemRequest(source.client, Date.now()),
+    now: () => new Date(),
+  });
+}
+
+/** The first normal boot after a move ended without moving (task 78733adf):
+ *  a cancel by code, or a lockdown that won and was unlocked. Audits the
+ *  cancel and puts the agent-made units back. The apps come back through the
+ *  lock's apps record (restartAppsAfterLock). */
+function finishMoveAtBoot(seams: MoveSeams): void {
+  const cancelled = readMoveCancelled(STATE_ROOT);
+  if (cancelled) {
+    rmSync(join(STATE_ROOT, MOVE_STATE_FILE), { force: true });
+    recordAudit({
+      actor: { ...MOVE_AUDIT_ACTOR, name: "Move code" },
+      operation: "office.cancelMove",
+      targets: ["office"],
+      fields: [],
+    });
+    clearMoveCancelled(STATE_ROOT);
+  }
+  if (readMoveState(STATE_ROOT, new Date()).current?.state === "move") return;
+  const runUnits: UnitRunner =
+    seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
+  const { restored, failed } = restoreUnitsAfterMove(STATE_ROOT, runUnits);
+  if (restored.length > 0)
+    console.log(
+      `[move] put back the units the move stopped: ${restored.join(", ")}`,
+    );
+  for (const f of failed)
+    console.error(`[move] could not put back the unit ${f.name}: ${f.reason}`);
+}
+
 // The public webhook route's state (counters, limits, delivery logs). Built
 // per boot in startServer, before the listener.
 let webhookIngress: WebhookIngress | null = null;
@@ -1521,6 +1685,7 @@ const { buildServer } = createFrontDoor({
   apiTokenSockets,
   browsers,
   canUserAccessApp,
+  currentOfficeMove,
   currentWebhookIngress,
   editorWatchers,
   executorDeps: () => executorDeps,
@@ -2917,6 +3082,22 @@ function buildExecutorDeps(
       byName: lockdownByName,
     }),
   );
+  register(
+    officeMoveHandlers({
+      stateRoot: STATE_ROOT,
+      origin: (req) => {
+        const pub = buildPublicOrigin();
+        return pub.source === "config" ? pub.origin : new URL(req.url).origin;
+      },
+      byName: lockdownByName,
+      clearPreflights: () => officeMovePreflights?.clear(),
+      now: () => new Date(),
+    }),
+  );
+  // Per boot: the harness boots several offices in one process.
+  officeMoveSeams = rescue.move ?? {};
+  officeMoveFrontDoor = null;
+  officeMovePreflights = null;
   register(
     agentDirectoryHandlers({
       originAllowed: checkOrigin,
@@ -5737,6 +5918,11 @@ function runBackgroundBoot(
   } catch (err) {
     console.error("[lockdown] could not start the apps the lock stopped:", err);
   }
+  try {
+    finishMoveAtBoot(officeMoveSeams);
+  } catch (err) {
+    console.error("[move] could not finish the ended move:", err);
+  }
 
   agentsRestored = false;
   const restorePromise = (async () => {
@@ -5824,6 +6010,17 @@ function runBackgroundBoot(
   });
 
   // Resume the repeat of open pages from their saved last attempt.
+  // A move code or a pairing that expires is dropped and audited within a
+  // minute, even when the new office never calls again.
+  if (!startOpts.skipSchedulers) {
+    setInterval(() => {
+      try {
+        currentOfficeMove().sweep();
+      } catch (err) {
+        console.error("[move] the expiry sweep failed:", err);
+      }
+    }, 60_000).unref();
+  }
   if (!startOpts.skipSchedulers) {
     pagerDelivery.start();
     webPushDelivery.start();
@@ -5872,9 +6069,21 @@ function runBackgroundBoot(
 
 export interface RescueSeams {
   requestStop?: () => void;
+  /** The move seams (task 78733adf). Production: the systemd host's run,
+   *  async child processes, requestStopForMove, /proc/self/cgroup and the apt
+   *  history log. */
+  move?: MoveSeams;
   spawnExportChild?: OfficeExportJobsDeps["spawnChild"];
   /** The folder exports/ goes in. Default: the backup folder. */
   exportBaseDir?: string;
+}
+
+export interface MoveSeams {
+  runUnits?: UnitRunner;
+  exec?: PreflightExec;
+  requestStop?: (units: AgentUnit[]) => void;
+  cgroupText?: string;
+  aptHistoryPath?: string;
 }
 
 export interface StartServerOpts {
@@ -6303,6 +6512,23 @@ async function startLockedOfficeFromBoot(): Promise<void> {
   });
 }
 
+// The MOVE-locked server binds where the locked office would.
+async function startMoveLockedOfficeFromBoot(): Promise<void> {
+  const cfg = loadServerConfig();
+  const external = cfg.externalAccess ?? cfg.publicOrigin !== null;
+  const loopback = cfg.networkBind === "loopback" || !external;
+  await startMoveLockedOffice({
+    stateRoot: STATE_ROOT,
+    port: PORT,
+    ...(loopback ? { hostname: "127.0.0.1" } : {}),
+    apps: lockdownApps(defaultAppSupervisor(process.platform)),
+    runUnits: (argv) => createSystemdHost().run(argv),
+    // Restart=always starts the office again, now in a normal boot.
+    requestStop: () => process.kill(process.pid, "SIGTERM"),
+    now: () => new Date(),
+  });
+}
+
 /** The lock effects over this office's state, at the lockdown route's stop. */
 function applyOfficeLockEffects(): void {
   applyLockEffects({
@@ -6359,8 +6585,16 @@ export async function runOfficeMain(): Promise<void> {
   // A locked office (task cdd7883d) starts nothing but the locked page: no
   // auth state, secrets proxy, agent, schedule or bridge. The root marker's
   // dir is the constant, never an override from the environment.
-  if (readLockState(STATE_ROOT).locked) {
+  // A move (task 78733adf) locked for its final copy boots the MOVE-locked
+  // server instead: the move page with its cancel form, nothing else. A lock
+  // marker wins over a move.
+  const bootMode = moveBootMode(STATE_ROOT);
+  if (bootMode === "lockdown") {
     await startLockedOfficeFromBoot();
+    return;
+  }
+  if (bootMode === "move") {
+    await startMoveLockedOfficeFromBoot();
     return;
   }
   // Before anything reads PATH: agents and terminals inherit it.

@@ -22,6 +22,10 @@ export const AUDIT_ACTOR_KINDS = [
   // (operation office.update). The server writes the entry from the
   // updater's progress record.
   "updater",
+  // The new office of a move (task 78733adf), on the old office: the redeem
+  // and the lock it asks for (operations office.pairMove, office.lockForMove).
+  // id is "move", name the new office's origin when known.
+  "office_move",
 ] as const;
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export interface AuditActor {

@@ -36,6 +36,15 @@ import {
 } from "../lockdown.ts";
 import { EXPORTS_SUBDIR, type ExportChild } from "../office-export-jobs.ts";
 import type { AgentInfo } from "../../shared/types.ts";
+import type { MoveSeams } from "../isomux-office.ts";
+import { FakeBackend } from "./fake-backend.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
+import {
+  MOVE_CANCELLED_FILE,
+  MOVE_STATE_FILE,
+  parseMoveCode,
+} from "../office-move.ts";
+import { MOVE_UNITS_FILE, type AgentUnit } from "../office-move-units.ts";
 
 let server: TestServer | null = null;
 let scratch = "";
@@ -60,7 +69,12 @@ interface Bed {
 }
 
 async function boot(
-  opts: { realChild?: boolean; beforeBoot?: (exportBase: string) => void } = {},
+  opts: {
+    realChild?: boolean;
+    beforeBoot?: (exportBase: string) => void;
+    move?: MoveSeams;
+    fakeBackend?: FakeBackend;
+  } = {},
 ): Promise<Bed> {
   scratch = mkdtempSync(join(tmpdir(), "office-rescue-routes-"));
   const exportBase = join(scratch, "backups");
@@ -86,6 +100,7 @@ async function boot(
     };
   };
   const srv = await startTestServer({
+    ...(opts.fakeBackend ? { fakeBackend: opts.fakeBackend } : {}),
     startServer: {
       rescue: {
         requestStop: () => {
@@ -93,6 +108,7 @@ async function boot(
         },
         exportBaseDir: exportBase,
         ...(opts.realChild ? {} : { spawnExportChild }),
+        ...(opts.move ? { move: opts.move } : {}),
       },
     },
   });
@@ -529,4 +545,369 @@ describe("the owner export routes", () => {
     expect(text.status).toBe(0);
     expect(text.stdout).toContain("rescue-export-live-task");
   }, 40_000);
+});
+
+// Moving the office (task 78733adf, slice 1). The owner's routes follow the
+// rescue kit's callers, except the mint: only an owner's browser session gets
+// the code, like the export's bytes. The new box's routes (/api/move/*) are
+// public, before the auth wall: server/office-move-routes.test.ts owns their
+// rules; here they run once through the whole server, for the wiring.
+describe("the move routes", () => {
+  // The office runs as a user unit with Restart=always, has no agent-made
+  // units, and its preflight steps answer at once.
+  function moveSeams(): MoveSeams & {
+    calls: string[][];
+    stops: AgentUnit[][];
+  } {
+    const calls: string[][] = [];
+    const stops: AgentUnit[][] = [];
+    return {
+      calls,
+      stops,
+      runUnits: (argv) => {
+        calls.push(argv);
+        if (argv.includes("show") && argv.some((a) => a.includes("Restart")))
+          return {
+            code: 0,
+            stdout: argv.includes("--value") ? "always\n" : "Restart=always\n",
+            stderr: "",
+          };
+        return { code: 0, stdout: "", stderr: "" };
+      },
+      exec: async () => ({ code: 0, stdout: "0\t.\n", timedOut: false }),
+      requestStop: (units) => {
+        stops.push(units);
+      },
+      cgroupText:
+        "0::/user.slice/user-1001.slice/user@1001.service/app.slice/isomux.service\n",
+      aptHistoryPath: "/nonexistent/apt-history.log",
+    };
+  }
+
+  // The new box's side, as plain HTTP with no cookie: the public routes.
+  async function moveCall(
+    srv: TestServer,
+    method: string,
+    path: string,
+    opts: { session?: string; body?: unknown } = {},
+  ): Promise<Res> {
+    const headers: Record<string, string> = {};
+    if (opts.session) headers.Authorization = `Bearer ${opts.session}`;
+    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+    const res = await srv.http(path, {
+      method,
+      headers,
+      ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
+    });
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let body: unknown = null;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      body = null;
+    }
+    return { status: res.status, body, headers: res.headers, bytes };
+  }
+
+  const moveAudits = () =>
+    [
+      "office.mintMoveCode",
+      "office.pairMove",
+      "office.lockForMove",
+      "office.cancelMove",
+    ].flatMap((operation) =>
+      officeAuditStore()
+        .list({ operation, limit: 10 })
+        .items.map(() => operation),
+    );
+
+  it("only an owner's browser session mints the code: every other caller, an owner's agent included, gets 403 and nothing is written", async () => {
+    const b = await boot({ move: moveSeams() });
+    const c = await cast(b.srv);
+    for (const name of [...REFUSED, "ownerAgent"] as const)
+      expect({
+        name,
+        ...outcome(await call(b.srv, "POST", "/api/office/move/code", c[name])),
+      }).toEqual({ name, status: 403, code: "forbidden" });
+    expect(existsSync(join(b.srv.stateRoot, MOVE_STATE_FILE))).toBe(false);
+
+    const minted = await call(b.srv, "POST", "/api/office/move/code", c.owner);
+    expect(minted.status).toBe(200);
+    const body = minted.body as {
+      code: string;
+      origin: string;
+      expiresAt: number;
+      loopbackOrigin: boolean;
+    };
+    expect(parseMoveCode(body.code)?.origin).toBe(body.origin);
+    // The harness answers on loopback: a new box could not reach it.
+    expect(body.loopbackOrigin).toBe(true);
+    expect(moveAudits()).toEqual(["office.mintMoveCode"]);
+  });
+
+  it("owners and their agents read and cancel the move; the read never shows the code, its key or a hash; the rescue kit's refused callers get 403", async () => {
+    const b = await boot({ move: moveSeams() });
+    const c = await cast(b.srv);
+    const minted = (await call(b.srv, "POST", "/api/office/move/code", c.owner))
+      .body as { code: string };
+    const parts = parseMoveCode(minted.code)!;
+
+    for (const name of REFUSED)
+      for (const method of ["GET", "DELETE"])
+        expect({
+          name,
+          method,
+          ...outcome(await call(b.srv, method, "/api/office/move", c[name])),
+        }).toEqual({ name, method, status: 403, code: "forbidden" });
+
+    const read = await call(b.srv, "GET", "/api/office/move", c.ownerAgent);
+    expect(read.status).toBe(200);
+    expect((read.body as { state: string }).state).toBe("code");
+    const text = JSON.stringify(read.body);
+    for (const secret of [minted.code, parts.token, parts.key])
+      expect(text).not.toContain(secret);
+    expect(text).not.toMatch(/tokenHash|sessionHash|"key"/);
+
+    const cancelled = await call(
+      b.srv,
+      "DELETE",
+      "/api/office/move",
+      c.ownerAgent,
+    );
+    expect([cancelled.status, cancelled.body]).toEqual([
+      200,
+      { cancelled: true },
+    ]);
+    expect(
+      (
+        (await call(b.srv, "GET", "/api/office/move", c.owner)).body as {
+          state: string;
+        }
+      ).state,
+    ).toBe("none");
+  });
+
+  it("the new box pairs, runs the preflight and locks over the public routes with no sign-in; the office locks without quarantining a sign-in, and the stop gets the units", async () => {
+    const seams = moveSeams();
+    const b = await boot({ move: seams });
+    const c = await cast(b.srv);
+    const minted = (await call(b.srv, "POST", "/api/office/move/code", c.owner))
+      .body as { code: string };
+    expect((await moveCall(b.srv, "GET", "/api/move/status")).status).toBe(401);
+
+    // The new box tells its own home path; the redeem refuses another one, so
+    // learn this office's from the refusal first.
+    const probe = await moveCall(b.srv, "POST", "/api/move/redeem", {
+      body: {
+        token: parseMoveCode(minted.code)!.token,
+        newBox: { release: null, commit: null, homePath: "/nowhere" },
+      },
+    });
+    expect(probe.status).toBe(409);
+    const ours = (
+      probe.body as {
+        ours: {
+          release: string | null;
+          commit: string | null;
+          homePath: string;
+        };
+      }
+    ).ours;
+    const paired = await moveCall(b.srv, "POST", "/api/move/redeem", {
+      body: { token: parseMoveCode(minted.code)!.token, newBox: ours },
+    });
+    expect(paired.status).toBe(200);
+    const session = (paired.body as { session: string }).session;
+
+    const started = await moveCall(b.srv, "POST", "/api/move/preflight", {
+      session,
+    });
+    expect(started.status).toBe(202);
+    const id = (started.body as { id: string }).id;
+    let state = "running";
+    const deadline = performance.now() + 5_000;
+    while (state === "running" && performance.now() < deadline) {
+      await Bun.sleep(10);
+      state = (
+        (await moveCall(b.srv, "GET", `/api/move/preflight/${id}`, { session }))
+          .body as { state: string }
+      ).state;
+    }
+    expect(state).toBe("ready");
+
+    const locked = await moveCall(b.srv, "POST", "/api/move/lock", {
+      session,
+      body: { preflightId: id },
+    });
+    expect(locked.status).toBe(202);
+    // The process is locked at once, for the owner too.
+    const after = await call(b.srv, "GET", "/api/tasks", c.owner);
+    expect([after.status, after.headers.get(LOCKED_HEADER)]).toEqual([
+      503,
+      "1",
+    ]);
+    const stopDeadline = performance.now() + 2_000;
+    while (seams.stops.length === 0 && performance.now() < stopDeadline)
+      await Bun.sleep(10);
+    expect(seams.stops).toEqual([[]]);
+    // Nothing quarantined, no lock marker: the sign-ins move with the office.
+    expect(existsSync(join(b.srv.stateRoot, "sessions.json"))).toBe(true);
+    expect(existsSync(join(b.srv.stateRoot, LOCK_MARKER_FILE))).toBe(false);
+    expect(moveAudits()).toEqual([
+      "office.mintMoveCode",
+      "office.pairMove",
+      "office.lockForMove",
+    ]);
+  });
+
+  it("the preflight shows the agents whose turn runs, and the lock refuses when another agent starts one (SRE item 9)", async () => {
+    // A turn that never ends by itself.
+    const parking = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => s.push({ kind: "assistant_text", text: "..." }),
+      },
+    });
+    const b = await boot({ move: moveSeams(), fakeBackend: parking });
+    const c = await cast(b.srv);
+    const worker = await spawn(b.srv, "Mapper", "Morgan");
+    const late = await spawn(b.srv, "Gateway", "Morgan");
+    const startTurn = async (id: string) => {
+      const r = await call(
+        b.srv,
+        "POST",
+        `/api/agents/${id}/messages`,
+        { bearer: getAgentTokenRaw(c.ownerAgent.agentId)! },
+        { text: "work" },
+      );
+      expect(r.status).toBe(200);
+      const deadline = performance.now() + 3_000;
+      while (
+        b.srv.agentManager.getAllAgents().find((a) => a.id === id)?.state !==
+          "thinking" &&
+        performance.now() < deadline
+      )
+        await Bun.sleep(10);
+      expect(
+        b.srv.agentManager.getAllAgents().find((a) => a.id === id)?.state,
+      ).toBe("thinking");
+    };
+    await startTurn(worker.id);
+
+    const minted = (await call(b.srv, "POST", "/api/office/move/code", c.owner))
+      .body as { code: string };
+    const token = parseMoveCode(minted.code)!.token;
+    const probe = await moveCall(b.srv, "POST", "/api/move/redeem", {
+      body: {
+        token,
+        newBox: { release: null, commit: null, homePath: "/nowhere" },
+      },
+    });
+    const ours = (probe.body as { ours: unknown }).ours;
+    const session = (
+      (
+        await moveCall(b.srv, "POST", "/api/move/redeem", {
+          body: { token, newBox: ours },
+        })
+      ).body as { session: string }
+    ).session;
+    const id = (
+      (await moveCall(b.srv, "POST", "/api/move/preflight", { session }))
+        .body as { id: string }
+    ).id;
+    let status: {
+      state: string;
+      result?: { turnsInFlight: { agentId: string }[] };
+    } = {
+      state: "running",
+    };
+    const deadline = performance.now() + 5_000;
+    while (status.state === "running" && performance.now() < deadline) {
+      await Bun.sleep(10);
+      status = (
+        await moveCall(b.srv, "GET", `/api/move/preflight/${id}`, { session })
+      ).body as typeof status;
+    }
+    expect(status.result?.turnsInFlight.map((t) => t.agentId)).toEqual([
+      worker.id,
+    ]);
+
+    await startTurn(late.id);
+    const locked = await moveCall(b.srv, "POST", "/api/move/lock", {
+      session,
+      body: { preflightId: id },
+    });
+    expect(outcome(locked)).toEqual({ status: 409, code: "turns_changed" });
+    expect(JSON.stringify(locked.body)).toContain(late.id);
+    expect((await call(b.srv, "GET", "/api/tasks", c.owner)).status).toBe(200);
+  });
+
+  it("the owner's cancel ends the pairing: the new box's session stops working", async () => {
+    const b = await boot({ move: moveSeams() });
+    const c = await cast(b.srv);
+    const minted = (await call(b.srv, "POST", "/api/office/move/code", c.owner))
+      .body as { code: string };
+    const probe = await moveCall(b.srv, "POST", "/api/move/redeem", {
+      body: {
+        token: parseMoveCode(minted.code)!.token,
+        newBox: { release: null, commit: null, homePath: "/nowhere" },
+      },
+    });
+    const ours = (probe.body as { ours: unknown }).ours;
+    const session = (
+      (
+        await moveCall(b.srv, "POST", "/api/move/redeem", {
+          body: { token: parseMoveCode(minted.code)!.token, newBox: ours },
+        })
+      ).body as { session: string }
+    ).session;
+    expect(
+      (await moveCall(b.srv, "GET", "/api/move/status", { session })).status,
+    ).toBe(200);
+
+    expect(
+      (await call(b.srv, "DELETE", "/api/office/move", c.owner)).status,
+    ).toBe(200);
+    expect(
+      (await moveCall(b.srv, "GET", "/api/move/status", { session })).status,
+    ).toBe(401);
+    expect(moveAudits()).toContain("office.cancelMove");
+  });
+
+  it("the first normal boot after a cancel by code puts the units back, drops the records and audits the cancel", async () => {
+    const seams = moveSeams();
+    const b = await boot({ move: seams });
+    await b.srv.seedOwner("Morgan");
+    const units: AgentUnit[] = [
+      {
+        name: "tailscaled.service",
+        fragmentPath: "/home/isomux/.config/systemd/user/tailscaled.service",
+        unitFileState: "enabled",
+        activeState: "active",
+        transient: false,
+      },
+    ];
+    // What the MOVE-locked server's cancel leaves.
+    writeFileSync(
+      join(b.srv.stateRoot, MOVE_UNITS_FILE),
+      JSON.stringify(units),
+    );
+    writeFileSync(
+      join(b.srv.stateRoot, MOVE_CANCELLED_FILE),
+      JSON.stringify({ at: new Date().toISOString() }),
+    );
+    seams.calls.length = 0;
+    server = await b.srv.restart();
+
+    const touched = seams.calls.filter((a) => a.includes("tailscaled.service"));
+    expect(touched.some((a) => a.includes("enable"))).toBe(true);
+    expect(
+      touched.some(
+        (a) =>
+          a.includes("start") || (a.includes("enable") && a.includes("--now")),
+      ),
+    ).toBe(true);
+    expect(existsSync(join(server.stateRoot, MOVE_UNITS_FILE))).toBe(false);
+    expect(existsSync(join(server.stateRoot, MOVE_CANCELLED_FILE))).toBe(false);
+    expect(moveAudits()).toEqual(["office.cancelMove"]);
+  });
 });

@@ -1814,6 +1814,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   "office.startExport": { caps: ["office:rescue"], emits: [] },
   "office.exportStatus": { caps: ["office:rescue"], emits: [] },
   "office.downloadExport": { caps: ["office:admin"], emits: [] },
+  // Moving the office (task 78733adf): only an owner's session mints the move
+  // code (it gives a full copy of the office); owners and their agents read
+  // and cancel the move before the lock.
+  "office.mintMoveCode": { caps: ["office:admin"], emits: [] },
+  "office.getMove": { caps: ["office:rescue"], emits: [] },
+  "office.cancelMove": { caps: ["office:rescue"], emits: [] },
   // Office settings, validation, backends
   "office.getSettings": { caps: ["office:settings"], emits: [] },
   "office.getMemberUsageStatus": { caps: ["office:settings"], emits: [] },
@@ -2317,6 +2323,9 @@ const APP_REFUSED_OPIDS = [
   "office.lockdown",
   "office.startExport",
   "office.exportStatus",
+  // Nor does it read or cancel a move of the office (task 78733adf).
+  "office.getMove",
+  "office.cancelMove",
 ];
 
 // An ORDINARY agent may also clear its own conversation, and take back its own

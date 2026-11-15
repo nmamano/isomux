@@ -173,6 +173,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "office.lockdown": "rescue",
   "office.startExport": "rescue",
   "office.exportStatus": "rescue",
+  "office.getMove": "rescue",
+  "office.cancelMove": "rescue",
   "apiTokenInbox.send": "messaging",
   "audit.list": "audit",
   "terminalRecordings.list": "audit",

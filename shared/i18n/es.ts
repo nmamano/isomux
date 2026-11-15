@@ -48,6 +48,7 @@ export const es: Catalog = {
   "audit.kind.autoHandoff": "Traspaso automático",
   "audit.kind.githubSync": "Sincronización con GitHub",
   "audit.kind.updater": "Actualizador",
+  "audit.kind.officeMove": "Traslado de oficina",
   "audit.update.phaseTime": "{phase} {seconds} s",
   "audit.update.ok": "Completado",
   "audit.update.okIn": "Completado en {seconds} s",
@@ -2470,6 +2471,8 @@ Cosas que puedes hacer por él:
   "apiCall.office.lockdown": "Bloquear la oficina",
   "apiCall.office.startExport": "Iniciar una exportación de la oficina",
   "apiCall.office.exportStatus": "Comprobar una exportación de la oficina",
+  "apiCall.office.getMove": "Comprobar el traslado de la oficina",
+  "apiCall.office.cancelMove": "Cancelar el traslado de la oficina",
   "apiCall.rooms.readInstructions": "Leer las instrucciones de la sala",
   "apiCall.githubSync.get": "Leer el enlace de GitHub de una sala",
   "apiCall.githubSync.set": "Enlazar una sala con un repositorio de GitHub",
@@ -3441,6 +3444,17 @@ Cosas que puedes hacer por él:
   "apps.notFound.heading": "App no encontrada",
   "apps.notFound.body":
     "No hay ninguna app en esta dirección, o no puedes abrirla.",
+  "moving.title": "oficina en traslado",
+  "moving.heading": "Esta oficina se está trasladando a otra máquina",
+  "moving.body": "Se abre en la máquina nueva cuando termina la copia.",
+  "moving.cancelHint":
+    "Para detener el traslado y mantener la oficina aquí, introduce el código de traslado.",
+  "moving.codeLabel": "Código de traslado",
+  "moving.cancel": "Cancelar el traslado",
+  "moving.wrongCode": "Ese no es el código de este traslado.",
+  "moving.cancelledHeading": "El traslado está cancelado",
+  "moving.cancelledBody":
+    "La oficina vuelve a arrancar aquí. Recarga esta página en un minuto.",
   "locked.title": "oficina bloqueada",
   "locked.heading": "Esta oficina está bloqueada",
   "locked.body":

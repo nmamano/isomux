@@ -468,6 +468,18 @@ const bodyRoom = (name: string): Guard =>
   requiresRoomAccess({ kind: "bodyRoomId", name });
 
 type NoContent = void;
+interface MintMoveCodeRes {
+  code: string;
+  origin: string;
+  expiresAt: number;
+  loopbackOrigin: boolean;
+}
+interface OfficeMoveRes {
+  state: "none" | "code" | "paired" | "move";
+  expiresAt?: number | null;
+  pairedAt?: number;
+  newBox?: { release: string | null; commit: string | null; homePath: string };
+}
 interface OfficeExportStatusRes {
   state: "running" | "ready" | "failed";
   bytes?: number;
@@ -3235,6 +3247,36 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
+  // Moving the office to another machine (task 78733adf). The code gives a
+  // full copy of every member's data, so only an owner's browser session
+  // mints it, like office.downloadExport. Reading and cancelling the move
+  // before the lock are open to the owner's agents too.
+  defineRoute<void, MintMoveCodeRes>({
+    opId: "office.mintMoveCode",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move/code",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<void, OfficeMoveRes>({
+    opId: "office.getMove",
+    method: "GET",
+    path: "/api/office/move",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  defineRoute<void, { cancelled: boolean }>({
+    opId: "office.cancelMove",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "DELETE",
+    path: "/api/office/move",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
+
   defineRoute<void, OfficeSettingsRes>({
     opId: "office.getSettings",
     method: "GET",
@@ -4285,6 +4327,60 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     opId: "system.officeCard",
     method: "GET",
     path: "/.well-known/isomux-office",
+    auth: pub,
+    emits: [],
+  }),
+  // The move routes the new box calls (task 78733adf;
+  // server/office-move-routes.ts). The move session, or the code at the
+  // redeem, is the only gate; the front door answers them before the auth
+  // wall, rate-limited like /readyz.
+  defineRoute({
+    opId: "move.redeem",
+    audit: {
+      owner: "none",
+      reason:
+        "The move routes write their own rows (office.pairMove, office.lockForMove).",
+    },
+    method: "POST",
+    path: "/api/move/redeem",
+    auth: pub,
+    emits: [],
+  }),
+  defineRoute({
+    opId: "move.startPreflight",
+    audit: {
+      owner: "none",
+      reason:
+        "The move routes write their own rows (office.pairMove, office.lockForMove).",
+    },
+    method: "POST",
+    path: "/api/move/preflight",
+    auth: pub,
+    emits: [],
+  }),
+  defineRoute({
+    opId: "move.preflightStatus",
+    method: "GET",
+    path: "/api/move/preflight/:id",
+    auth: pub,
+    emits: [],
+  }),
+  defineRoute({
+    opId: "move.lock",
+    audit: {
+      owner: "none",
+      reason:
+        "The move routes write their own rows (office.pairMove, office.lockForMove).",
+    },
+    method: "POST",
+    path: "/api/move/lock",
+    auth: pub,
+    emits: [],
+  }),
+  defineRoute({
+    opId: "move.status",
+    method: "GET",
+    path: "/api/move/status",
     auth: pub,
     emits: [],
   }),

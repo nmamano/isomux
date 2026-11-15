@@ -49,11 +49,16 @@ function createLimiter() {
 
 const ready = createLimiter();
 const officeCard = createLimiter();
+// The move code's redeem (server/office-move-routes.ts): the one public move
+// route a caller without a session can try.
+const moveRedeem = createLimiter();
 
 export const allowReadyRequest = ready.allow;
 export const allowOfficeCardRequest = officeCard.allow;
+export const allowMoveRedeemRequest = moveRedeem.allow;
 
 export function _resetReadyLimiterForTests(): void {
   ready.reset();
   officeCard.reset();
+  moveRedeem.reset();
 }
