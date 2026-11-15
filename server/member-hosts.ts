@@ -124,6 +124,18 @@ export function memberMoveHost(userId: string): AgentHost | undefined {
   return entry.host;
 }
 
+// The member's runner is connected for their current record.
+export function memberHostConnected(userId: string): boolean {
+  const state = memberOsUserState(userId);
+  const entry = connected.get(userId);
+  return (
+    state.kind === "isolated" &&
+    !!entry &&
+    entry.osUser.name === state.osUser.name &&
+    entry.osUser.uid === state.osUser.uid
+  );
+}
+
 // Called after each connect of a member that is not moving (the check for
 // a move that did not finish, server/member-move.ts). Null removes it.
 export function setMemberConnectedHook(

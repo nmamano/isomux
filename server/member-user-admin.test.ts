@@ -515,14 +515,24 @@ describe("go-on", () => {
 });
 
 describe("disable", () => {
-  it("removes the record and the host, so the member's agents run on the office host", async () => {
+  // Slice 1c-ii-b: a disable of a member whose runner is not connected
+  // moves nothing; with keepFiles it still forgets them (the files stay in
+  // their home). The move itself: test-support/member-disable.test.ts.
+  it("with keepFiles, removes the record and the host, so the member's agents run on the office host", async () => {
     const alice = member("Alice");
     recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
     deps();
     // The enabling condition: isolated, never on the office host.
     expect(hostFor(alice)).not.toBe(officeAgentHost());
-    expect((await call("disable", { member: alice })).body).toEqual({
+    expect((await call("disable", { member: alice })).body.error).toBe(
+      "not_connected",
+    );
+    expect(memberOsUserState(alice).kind).toBe("isolated");
+    expect(
+      (await call("disable", { member: alice, keepFiles: true })).body,
+    ).toEqual({
       ok: true,
+      kept: true,
     });
     expect(memberOsUserState(alice).kind).toBe("none");
     expect(hostFor(alice)).toBe(officeAgentHost());

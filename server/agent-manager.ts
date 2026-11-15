@@ -159,7 +159,7 @@ import {
   type CwdProblem,
   claudeSessionFileExists,
   claudeSessionInterruptedByShutdown,
-  moveClaudeSessionFile,
+  moveClaudeSessionFileOnHost,
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import {
@@ -2011,7 +2011,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // mirror back, reverse any partial move) rather than stamp the session into
       // a cwd it can't be resumed from - keeps source-of-truth metadata honest.
       if (needClaudeFileMove && activeSessionId && targetCwd) {
-        const moved = moveClaudeSessionFile(
+        const moved = await moveClaudeSessionFileOnHost(
           activeSessionId,
           oldCwd,
           targetCwd,
@@ -2026,11 +2026,13 @@ export function createAgentManager(deps: ManagerDeps) {
           // longer matches oldCwd - surface that rather than mislead the user.
           let reversed = true;
           if (moved.moved) {
-            reversed = moveClaudeSessionFile(
-              activeSessionId,
-              targetCwd,
-              oldCwd,
-              cwdMoveEnv,
+            reversed = (
+              await moveClaudeSessionFileOnHost(
+                activeSessionId,
+                targetCwd,
+                oldCwd,
+                cwdMoveEnv,
+              )
             ).ok;
           }
           throw new Error(
@@ -2103,7 +2105,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // otherwise the user sees only the replace error while the file sits in
           // the target cwd.
           if (claudeFileMoved && activeSessionId && targetCwd) {
-            const rev = moveClaudeSessionFile(
+            const rev = await moveClaudeSessionFileOnHost(
               activeSessionId,
               targetCwd,
               oldCwd,

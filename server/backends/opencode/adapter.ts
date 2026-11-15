@@ -54,7 +54,7 @@ import {
 } from "./supervisor.ts";
 import { inspectOpenCodeProfileSession } from "./storage.ts";
 import {
-  findOpenCodeSessionProfile,
+  findOpenCodeSessionProfileOnHost,
   moveOpenCodeSession,
   moveOpenCodeSessionAcross,
 } from "./session-transfer.ts";
@@ -736,7 +736,7 @@ export function createOpenCodeBackend(
     },
     async recoverStoredSession(sessionId, opts): Promise<boolean> {
       if (!opts.environmentKey) return false;
-      const fromProfileDir = findOpenCodeSessionProfile(
+      const fromProfileDir = await findOpenCodeSessionProfileOnHost(
         sessionId,
         opts.environmentKey,
       );

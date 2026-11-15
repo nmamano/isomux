@@ -952,7 +952,7 @@ install_member_user_command() {
 # ISOMUX_MEMBER_USER_HELPER override the paths for tests.
 #
 #   isomux-member-user enable <member> [--user <osuser>]
-#   isomux-member-user disable <member> [--delete-user]
+#   isomux-member-user disable <member> [--delete-user] [--keep-files]
 set -euo pipefail
 
 # Only the image has the container conf. Its update.conf (the host's
@@ -983,7 +983,10 @@ usage() {
   cat >&2 <<'EOF'
 usage: isomux-member-user <command>
   enable <member> [--user <osuser>]   run the member's agents as a new OS user
-  disable <member> [--delete-user]    run them as the office's user again
+  disable <member> [--delete-user] [--keep-files]
+                                      run them as the office's user again
+      --keep-files: when the member's runner cannot run, leave their files
+      in their home and do not move them back to the office
 EOF
   exit 2
 }
@@ -1015,10 +1018,16 @@ read_conf() {
 # in ADMIN_STATUS (globals: a command substitution would lose them). Dies
 # when the office does not answer.
 ADMIN_STATUS= ADMIN_BODY=
+# go-on and disable move the member's files, so they wait for the office's
+# worst path (server/member-move.ts): the connect (30 s), MOVE_IN_TIMEOUT_MS
+# (3600 s), then MOVE_STEP_TIMEOUT_MS twice (place 1800 s, undo 1800 s) =
+# 7230 s, plus a margin.
+MOVE_VERB_LIMIT_S=10800
 admin() {
-  local verb=$1 body=$2 out
+  local verb=$1 body=$2 out limit=120
+  [[ $verb != go-on && $verb != disable ]] || limit=$MOVE_VERB_LIMIT_S
   [[ -S $ADMIN_SOCK ]] || die "$ADMIN_SOCK is missing; is the office running?"
-  out=$(curl -sS --max-time 120 --unix-socket "$ADMIN_SOCK" -X POST \
+  out=$(curl -sS --max-time "$limit" --unix-socket "$ADMIN_SOCK" -X POST \
     -H 'Content-Type: application/json' --data "$body" \
     -w '\n%{http_code}' "http://localhost/admin/member-user/$verb") ||
     die "the office did not answer $verb"
@@ -1198,7 +1207,7 @@ enable_systemd() {
 }
 
 disable() {
-  local member=$1 delete_user=$2 info user_id os_user answer
+  local member=$1 delete_user=$2 keep_files=$3 info user_id os_user answer
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "$(field .message "$info")"
@@ -1210,10 +1219,17 @@ disable() {
     made_by_command "$os_user" "$user_id" ||
       die "this command did not make $os_user, so it does not delete it; run disable without --delete-user."
   fi
-  # The office stops using the member's host first.
-  admin disable "$(jq -n --arg m "$user_id" '{member: $m}')"
+  # The office moves the member's files back and stops using their host
+  # first. With --keep-files it only stops using the host.
+  admin disable "$(jq -n --arg m "$user_id" --arg k "$keep_files" \
+    '{member: $m} + (if $k == "1" then {keepFiles: true} else {} end)')"
   answer=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "the office refused: $(field .message "$answer")"
+  [[ $(field .ok "$answer") == true ]] ||
+    die "the office could not move the files back: $(field .reason "$answer")"
+  if [[ -n $keep_files ]]; then
+    echo "The files of $member stay in the home of $os_user: copy what you need as root before --delete-user deletes them."
+  fi
   if [[ -n $IN_CONTAINER ]]; then
     disable_container "$member" "$user_id" "$os_user" "$delete_user"
   else
@@ -1281,7 +1297,7 @@ disable_systemd() {
 main() {
   [[ $# -ge 2 ]] || usage
   [[ $(id -u) == 0 ]] || die "run this as root."
-  local command=$1 member=$2 os_user= delete_user=
+  local command=$1 member=$2 os_user= delete_user= keep_files=
   shift 2
   while [[ $# -gt 0 ]]; do
     case $command:$1 in
@@ -1294,13 +1310,17 @@ main() {
         delete_user=1
         shift
         ;;
+      disable:--keep-files)
+        keep_files=1
+        shift
+        ;;
       *) usage ;;
     esac
   done
   read_conf
   case $command in
     enable) enable "$member" "$os_user" ;;
-    disable) disable "$member" "$delete_user" ;;
+    disable) disable "$member" "$delete_user" "$keep_files" ;;
     *) usage ;;
   esac
 }

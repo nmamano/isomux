@@ -208,6 +208,14 @@ export interface AgentHost {
     body: AsyncIterable<Uint8Array>,
     timeoutMs: number,
   ): Promise<unknown>;
+  // An entry whose output is a byte stream (files-out, the move back on
+  // disable). Only a runner host has it; it throws after the last chunk
+  // when the entry failed.
+  runEntryOut?(
+    name: string,
+    input: unknown,
+    timeoutMs: number,
+  ): AsyncIterable<Uint8Array>;
   // The engine executables and helper scripts that this host's processes
   // run: the office's on an office host, the member runtime's on a member
   // host (internal-docs/member-os-user-design.md, section 1.1).

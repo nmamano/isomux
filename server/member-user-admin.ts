@@ -3,7 +3,7 @@
 //   POST /admin/member-user/info     {member}
 //   POST /admin/member-user/prepare  {member, osUser, uid}
 //   POST /admin/member-user/go-on    {member, osUser, uid}
-//   POST /admin/member-user/disable  {member}
+//   POST /admin/member-user/disable  {member, keepFiles?}
 // Only a peer with uid 0 reaches them (server/admin-socket.ts). Until the
 // product slice ships, each answers 409 not_ready unless the office started
 // with ISOMUX_MEMBER_USERS_RIG=1 (the test rig).
@@ -15,6 +15,7 @@ import {
   forgetMemberCodeVerdicts,
   forgetMemberHost,
   markMemberMoving,
+  memberHostConnected,
   memberHostRefusal,
   memberMoveHost,
   setMemberConnectedHook,
@@ -29,6 +30,12 @@ import {
   type MemberMovePlan,
   type StagedMove,
 } from "./member-move.ts";
+import {
+  planMemberMoveOut,
+  transferMemberFilesOut,
+  type MemberMoveOutPlan,
+  type MoveOutResult,
+} from "./member-move-out.ts";
 import {
   forgetMemberOsUser,
   memberOsUserIds,
@@ -72,6 +79,16 @@ export interface MemberUserAdminDeps {
   stageMove: (plan: MemberMovePlan, host: AgentHost) => Promise<StagedMove>;
   applyPins: (pins: StagedMove["pins"]) => void;
   moveHost: (userId: string) => AgentHost | undefined;
+  // The move back on disable (server/member-move-out.ts).
+  planMoveOut: (
+    userId: string,
+    agents: MemberMoveAgent[],
+    host: AgentHost,
+  ) => MemberMoveOutPlan;
+  transferOut: (
+    plan: MemberMoveOutPlan,
+    host: AgentHost,
+  ) => Promise<MoveOutResult>;
 }
 
 // What the agent manager gives the move (setMemberMoveWiring, at startup).
@@ -119,6 +136,8 @@ const DEFAULT_DEPS: MemberUserAdminDeps = {
   stageMove: stageMemberMove,
   applyPins: applyMemberMovePins,
   moveHost: memberMoveHost,
+  planMoveOut: planMemberMoveOut,
+  transferOut: transferMemberFilesOut,
 };
 let deps = DEFAULT_DEPS;
 
@@ -244,9 +263,38 @@ export async function handleMemberUserAdmin(
   }
 
   if (verb === "disable") {
-    forgetMemberOsUser(user.id);
-    forgetMemberHost(user.id);
-    return json(200, { ok: true });
+    if (goingOn.has(user.id))
+      return refusal(
+        409,
+        "move_in_progress",
+        `the files of ${user.name} are moving; wait for that call to answer`,
+      );
+    const state = memberOsUserState(user.id);
+    if (state.kind === "none")
+      return refusal(
+        409,
+        "not_isolated",
+        `${user.name} has no OS user of their own`,
+      );
+    // keepFiles: the owner gives up the member's files in their home (their
+    // runner cannot run). A broken record has no runner to move them.
+    if (request.keepFiles === true || state.kind === "broken") {
+      forgetMemberOsUser(user.id);
+      forgetMemberHost(user.id);
+      return json(200, { ok: true, kept: true });
+    }
+    if (!memberHostConnected(user.id))
+      return refusal(
+        409,
+        "not_connected",
+        `the runner of ${user.name} is not connected; start it, or disable with --keep-files`,
+      );
+    goingOn.add(user.id);
+    try {
+      return await disableMove(user.id);
+    } finally {
+      goingOn.delete(user.id);
+    }
   }
 
   const owner = ownerRefusal(user);
@@ -304,8 +352,58 @@ export async function handleMemberUserAdmin(
   }
 }
 
-// The members whose go-on runs.
+// The members whose go-on or disable runs.
 const goingOn = new Set<string>();
+
+// disable (design 2.3): hold the member's agents, mark moving, read their
+// files back through their runner and write them into the office, write
+// the pins, remove the member's copies, then forget the record and
+// release. A failure before the pins undoes the office's side and keeps the
+// record and the member's copy.
+async function disableMove(userId: string): Promise<Response> {
+  const fail = (reason: string): Response => {
+    clearMemberMoving(userId);
+    deps.releaseMember(userId);
+    return json(200, { ok: false, ready: false, reason });
+  };
+  try {
+    await deps.holdMember(userId);
+  } catch (error) {
+    deps.releaseMember(userId);
+    return json(200, {
+      ok: false,
+      ready: false,
+      reason: `cannot stop the member's agents: ${(error as Error).message}`,
+    });
+  }
+  markMemberMoving(userId);
+  const host = deps.moveHost(userId);
+  if (!host) return fail("the member's runner is not connected");
+  let moved: MoveOutResult;
+  try {
+    const plan = deps.planMoveOut(userId, deps.memberAgents(userId), host);
+    moved = await deps.transferOut(plan, host);
+  } catch (error) {
+    return fail(
+      `cannot move the member's files back: ${(error as Error).message}`,
+    );
+  }
+  try {
+    deps.applyPins(moved.pins);
+  } catch (error) {
+    moved.undo();
+    return fail(
+      `cannot record where the moved conversations are: ${(error as Error).message}`,
+    );
+  }
+  await moved.removeMemberCopy();
+  forgetMemberOsUser(userId);
+  forgetMemberHost(userId);
+  clearMemberMoving(userId);
+  deps.releaseMember(userId);
+  moved.done();
+  return json(200, { ok: true });
+}
 
 // go-on (design 2.2): hold the member's agents, plan the move from the
 // office's paths, record and mark moving, connect, move the files through

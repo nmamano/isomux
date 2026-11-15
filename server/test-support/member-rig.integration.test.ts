@@ -786,7 +786,7 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
   const sessionOf = (transcript: unknown) =>
     /([0-9a-f-]{36})\.jsonl$/.exec(String(transcript))?.[1] ?? "";
 
-  it("moves a member's office conversations into their space at enable, and they resume there", async () => {
+  it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {
     const erinUser = "isomux-erin";
     const erinHome = `${MEMBERS}/home/${erinUser}`;
     const space = `${erinHome}/.isomux-agent`;
@@ -871,6 +871,45 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
     ).toBe(true);
     // The same thread resumed: no new one in the sessions map.
     expect(codexThreads()).toEqual([threadId]);
+
+    // Slice 1c-ii-b: disable moves them back to the office, with their pins,
+    // and the next turns run as the office.
+    const sid2 = sessionOf(claudeTwo.transcript);
+    const disabled = command(name, "disable", "Erin");
+    if (disabled.status !== 0) throw new Error(`disable Erin: ${disabled.err}`);
+    const pinsAfter = JSON.parse(
+      root(name, `cat ${STATE}/logs/${agents.claude}/sessions.json`).out,
+    ) as Record<string, { claudeConfigDir?: string }>;
+    for (const id of [sid, sid2]) {
+      expect([
+        id,
+        ownerOf(`/var/data/home/.claude/projects/-tmp/${id}.jsonl`),
+      ]).toEqual([id, OFFICE]);
+      expect([id, pinsAfter[id]?.claudeConfigDir]).toEqual([
+        id,
+        "/var/data/home/.claude",
+      ]);
+      expect([
+        id,
+        root(name, `test -e ${erinHome}/.claude/projects/-tmp/${id}.jsonl`)
+          .status,
+      ]).toEqual([id, 1]);
+    }
+    expect(ownerOf(officeRollout)).toBe(OFFICE);
+    expect(root(name, `test -e ${space}/codex-home/${rolloutRel}`).status).toBe(
+      1,
+    );
+    expect(root(name, `cat ${officeHome}/kept.txt`).out).toBe("ERIN");
+    expect(root(name, `test -e ${landedHome}/kept.txt`).status).toBe(1);
+    for (const agentId of Object.values(agents)) send(agentId, "three");
+    const claudeThree = (await reportsOf(agents.claude, 3))[2];
+    const codexThree = (await reportsOf(agents.codex, 3))[2];
+    expect([claudeThree?.uid, codexThree?.uid]).toEqual([OFFICE, OFFICE]);
+    expect(
+      String(claudeThree.transcript).startsWith(
+        "/var/data/home/.claude/projects/",
+      ),
+    ).toBe(true);
     expect(codexTwo.codexHome).toBe(`${space}/codex-home`);
   });
 

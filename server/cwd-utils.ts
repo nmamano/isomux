@@ -7,14 +7,16 @@ import { RUNTIME_ROOT } from "./runtime-root.ts";
 import {
   closeSync,
   existsSync,
-  mkdirSync,
   openSync,
   readdirSync,
   readSync,
-  renameSync,
   statSync,
 } from "fs";
 import { errMessage, errCode } from "../shared/errors.ts";
+import {
+  claudeProjectDirIn,
+  moveSessionFilesBetween,
+} from "./claude-session-files.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
 // The SDK's auto-resolver tries the musl variant first on Linux, which fails
@@ -88,7 +90,7 @@ export function claudeProjectDir(
 ): string {
   const configDir =
     env?.CLAUDE_CONFIG_DIR || join(hostForEnv(env).home(), ".claude");
-  return join(configDir, "projects", cwd.replace(/[^a-zA-Z0-9-]/g, "-"));
+  return claudeProjectDirIn(configDir, cwd);
 }
 
 export function claudeSessionFileExists(
@@ -443,45 +445,46 @@ export function moveClaudeSessionFile(
   newCwd: string,
   env?: { [key: string]: string | undefined },
 ): { ok: boolean; moved: boolean; error?: string } {
-  // An isolated member's transcripts move through their runner (slice
-  // 1c-ii); until then their cwd change stops here.
+  // An isolated member's transcripts move through their runner
+  // (moveClaudeSessionFileOnHost).
   refuseMemberEnv(env, "moveClaudeSessionFile");
-  const oldDir = claudeProjectDir(oldCwd, env);
-  const newDir = claudeProjectDir(newCwd, env);
-  if (oldDir === newDir || !existsSync(oldDir))
-    return { ok: true, moved: false };
-  const oldJsonl = join(oldDir, `${sessionId}.jsonl`);
-  const newJsonl = join(newDir, `${sessionId}.jsonl`);
-  // Claude CLI also writes a sibling <sessionId>/ dir (tool-results cache, etc.)
-  const oldSib = join(oldDir, sessionId);
-  const newSib = join(newDir, sessionId);
-  const moveJsonl = existsSync(oldJsonl) && !existsSync(newJsonl);
-  const moveSib = existsSync(oldSib) && !existsSync(newSib);
-  if (!moveJsonl && !moveSib) return { ok: true, moved: false };
-  mkdirSync(newDir, { recursive: true });
-  let moved = false;
-  if (moveJsonl) {
-    try {
-      renameSync(oldJsonl, newJsonl);
-      moved = true;
-    } catch (err) {
-      console.error(
-        `[cwd-change] Failed to move ${oldJsonl} -> ${newJsonl}:`,
-        err,
-      );
-      return { ok: false, moved, error: errMessage(err) };
-    }
+  return moveSessionFilesBetween(
+    sessionId,
+    claudeProjectDir(oldCwd, env),
+    claudeProjectDir(newCwd, env),
+  );
+}
+
+// Either user: an isolated member's session files move in their runner, as
+// the member (the claude-cwd-move entry).
+export async function moveClaudeSessionFileOnHost(
+  sessionId: string,
+  oldCwd: string,
+  newCwd: string,
+  env?: { [key: string]: string | undefined },
+): Promise<{ ok: boolean; moved: boolean; error?: string }> {
+  if (!isMemberEnv(env))
+    return moveClaudeSessionFile(sessionId, oldCwd, newCwd, env);
+  const configDir = resolve(
+    env?.CLAUDE_CONFIG_DIR || join(hostForEnv(env).home(), ".claude"),
+  );
+  try {
+    const result = (await hostForEnv(env).runEntry("claude-cwd-move", {
+      sessionId,
+      oldCwd,
+      newCwd,
+      configDir,
+    })) as { ok?: unknown; moved?: unknown; error?: unknown } | null;
+    if (typeof result?.ok !== "boolean" || typeof result.moved !== "boolean")
+      return { ok: false, moved: false, error: "the runner gave no answer" };
+    return {
+      ok: result.ok,
+      moved: result.moved,
+      ...(typeof result.error === "string" ? { error: result.error } : {}),
+    };
+  } catch (err) {
+    return { ok: false, moved: false, error: errMessage(err) };
   }
-  if (moveSib) {
-    try {
-      renameSync(oldSib, newSib);
-      moved = true;
-    } catch (err) {
-      console.error(`[cwd-change] Failed to move ${oldSib} -> ${newSib}:`, err);
-      return { ok: false, moved, error: errMessage(err) };
-    }
-  }
-  return { ok: true, moved };
 }
 
 // Why a cwd cannot be used, or null when it can: the resolved path, and for

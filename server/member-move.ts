@@ -44,8 +44,10 @@ import { AGENT_ROOT } from "./split/roots.ts";
 
 export const MOVE_FILE_MAX = 2 * 1024 * 1024 * 1024;
 export const MOVE_TOTAL_MAX = 32 * 1024 * 1024 * 1024;
-const MOVE_IN_TIMEOUT_MS = 60 * 60 * 1000;
-const MOVE_STEP_TIMEOUT_MS = 30 * 60 * 1000;
+// deploy/isomux-member-user.sh MOVE_VERB_LIMIT_S is above the worst sum of
+// these: change both together.
+export const MOVE_IN_TIMEOUT_MS = 60 * 60 * 1000;
+export const MOVE_STEP_TIMEOUT_MS = 30 * 60 * 1000;
 
 export interface MemberMoveDeps {
   fileMax: number;

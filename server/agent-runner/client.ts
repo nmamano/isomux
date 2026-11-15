@@ -688,6 +688,77 @@ export function runRunnerEntry(
   });
 }
 
+// An entry whose stdout is a byte stream, not one JSON value (files-out):
+// its chunks in order. The socket stops reading while the consumer is
+// behind. Throws after the last chunk when the entry failed.
+export async function* runRunnerEntryOut(
+  socketPath: RunnerTarget,
+  name: string,
+  input: unknown,
+  timeoutMs: number,
+): AsyncGenerator<Uint8Array> {
+  const queue: Buffer[] = [];
+  let ended = false;
+  let paused = false;
+  let status: number | null = null;
+  let error: string | null = null;
+  let wake: (() => void) | null = null;
+  // eslint-disable-next-line prefer-const -- the handlers run after it is set
+  let stream: RunnerStream;
+  const timer = setTimeout(() => {
+    error = "timed out";
+    stream.close();
+  }, timeoutMs);
+  stream = new RunnerStream(
+    socketPath,
+    { op: "entry", name, input },
+    {
+      control: (message) => {
+        if (message.type === "exit")
+          status = exitStatus(message.code, message.signal);
+        else if (message.type === "error") error = message.message;
+      },
+      stdout: (chunk) => {
+        queue.push(chunk);
+        if (queue.length > 64 && !paused) {
+          paused = true;
+          stream.pause();
+        }
+        wake?.();
+      },
+      stderr: (chunk) => process.stderr.write(chunk),
+      close: () => {
+        ended = true;
+        clearTimeout(timer);
+        wake?.();
+      },
+    },
+  );
+  try {
+    for (;;) {
+      const chunk = queue.shift();
+      if (chunk) {
+        if (paused && queue.length < 16) {
+          paused = false;
+          stream.resume();
+        }
+        yield chunk;
+        continue;
+      }
+      if (ended) break;
+      await new Promise<void>((resolve) => (wake = resolve));
+      wake = null;
+    }
+  } finally {
+    if (!ended) stream.close();
+    clearTimeout(timer);
+  }
+  if (error !== null || status !== 0)
+    throw new Error(
+      `agent runner entry ${name} failed: ${error ?? `exit ${status ?? "lost"}`}`,
+    );
+}
+
 const DIFF_KINDS = new Set([
   "ok",
   "clean",
@@ -911,5 +982,13 @@ export class RunnerAgentHost implements AgentHost {
     timeoutMs: number,
   ): Promise<unknown> {
     return runRunnerEntry(this.socketPath, name, input, timeoutMs, body);
+  }
+
+  runEntryOut(
+    name: string,
+    input: unknown,
+    timeoutMs: number,
+  ): AsyncIterable<Uint8Array> {
+    return runRunnerEntryOut(this.socketPath, name, input, timeoutMs);
   }
 }

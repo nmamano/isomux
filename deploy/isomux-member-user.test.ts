@@ -237,6 +237,18 @@ describe("enable", () => {
       osUser: OS_USER,
       uid: 2001,
     });
+    // go-on moves the member's files: it waits above the office's worst
+    // path (30 s + 3600 s + 2 x 1800 s); prepare keeps the short limit.
+    const limit = (verb: string) =>
+      Number(
+        /--max-time (\d+)/.exec(
+          log().find(
+            (l) => l.startsWith("curl ") && l.endsWith(`/member-user/${verb}`),
+          ) ?? "",
+        )?.[1],
+      );
+    expect(limit("prepare")).toBe(120);
+    expect(limit("go-on")).toBeGreaterThan(7230);
     expect(readFileSync(etc(`${OS_USER}.made`), "utf8").trim()).toBe(USER_ID);
     expect(statSync(etc(`${OS_USER}.made`)).mode & 0o777).toBe(0o600);
     expect(readFileSync(etc(`${OS_USER}.env`), "utf8")).toBe(
@@ -451,6 +463,40 @@ describe("disable", () => {
     expect(existsSync(share())).toBe(false);
     expect(existsSync(etc(`${OS_USER}.env`))).toBe(false);
     expect(existsSync(join(root, "users", OS_USER))).toBe(true);
+  });
+
+  // Slice 1c-ii-b: go-on and disable move files and wait for the office's
+  // worst path; the other verbs keep the short limit.
+  const limitOf = (verb: string) =>
+    log()
+      .filter(
+        (l) => l.startsWith("curl ") && l.endsWith(`/member-user/${verb}`),
+      )
+      .map((l) => Number(/--max-time (\d+)/.exec(l)?.[1]));
+
+  it("waits longer for disable than for info, and stops before the OS user when the office cannot move the files back", () => {
+    isolated(USER_ID);
+    answer("disable", 200, { ok: false, reason: "the runner is gone" });
+    const result = run("disable", "Alice");
+    expect(result.code).toBe(1);
+    const [info] = limitOf("info");
+    const [disable] = limitOf("disable");
+    expect(info).toBe(120);
+    // Above the office's worst path: 30 s + 3600 s + 2 x 1800 s.
+    expect(disable).toBeGreaterThan(7230);
+    for (const step of ["systemctl disable", "loginctl", "usermod --lock"])
+      expect([step, called(step)]).toEqual([step, false]);
+    expect(existsSync(share())).toBe(true);
+  });
+
+  it("asks the office to keep the files with --keep-files, and names the home they stay in", () => {
+    isolated(USER_ID);
+    answer("disable", 200, { ok: true, kept: true });
+    const result = run("disable", "Alice", "--keep-files");
+    expect(result.code).toBe(0);
+    expect(sent("disable")).toEqual({ member: USER_ID, keepFiles: true });
+    expect(result.stdout).toContain(OS_USER);
+    expect(called(`usermod --lock`)).toBe(true);
   });
 
   it("deletes the user with --delete-user when this command made it for this member", () => {

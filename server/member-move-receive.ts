@@ -1,8 +1,9 @@
-// The member's side of the file move on enable
-// (internal-docs/member-os-user-design.md, section 2.2): the runner's
-// entries files-in, files-place, files-undo and files-done run this as the
-// member. The office side is server/member-move.ts. Imports nothing with the
-// owner lookup: the runner bundle carries this file.
+// The member's side of the file moves (internal-docs/member-os-user-design.md,
+// sections 2.2 and 2.3): the runner's entries files-in, files-place,
+// files-undo and files-done (enable), files-out and files-remove (disable,
+// the purge) and claude-cwd-move run this as the member. The office sides
+// are server/member-move.ts and server/member-move-out.ts. Imports nothing
+// with the owner lookup: the runner bundle carries this file.
 //
 // files-in writes every file to <agentRoot>/.move-in/<nonce>/<index> and a
 // manifest. files-place links each one to its destination, never replacing
@@ -13,7 +14,9 @@ import { createHash } from "node:crypto";
 import {
   appendFileSync,
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   linkSync,
   lstatSync,
   mkdirSync,
@@ -26,14 +29,28 @@ import {
   unlinkSync,
   writeFileSync,
   writeSync,
+  readdirSync,
+  type Stats,
 } from "node:fs";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative } from "node:path";
+import {
+  claudeProjectDirIn,
+  moveSessionFilesBetween,
+  type SessionFilesMove,
+} from "./claude-session-files.ts";
 
 const MOVE_IN_DIR = ".move-in";
 const NONCE = /^[0-9a-f]{16,64}$/;
 // Free space kept above the planned total: max(1 GiB, 5% of it).
 const SPACE_MARGIN_BYTES = 1024 * 1024 * 1024;
 const SPACE_MARGIN_SHARE = 0.05;
+
+// The free bytes a move of `total` bytes needs on one file system.
+export function spaceNeeded(total: number): number {
+  return (
+    total + Math.max(SPACE_MARGIN_BYTES, Math.ceil(total * SPACE_MARGIN_SHARE))
+  );
+}
 
 export interface MoveInInput {
   nonce: string;
@@ -164,8 +181,7 @@ export async function receiveFiles(
     throw new Error("the move needs the planned total");
   rmSync(join(input.agentRoot, MOVE_IN_DIR), { recursive: true, force: true });
   const free = deps.freeBytes(input.agentRoot);
-  const needed =
-    total + Math.max(SPACE_MARGIN_BYTES, Math.ceil(total * SPACE_MARGIN_SHARE));
+  const needed = spaceNeeded(total);
   if (needed > free)
     throw Object.assign(
       new Error(
@@ -353,4 +369,317 @@ export function undoFiles(input: MoveStepInput): { removed: number } {
 export function doneFiles(input: MoveStepInput): { done: true } {
   rmSync(stagingDir(input), { recursive: true, force: true });
   return { done: true };
+}
+
+// ---------------------------------------------------------------------------
+// Disable: the move back (files-out, files-remove), as the member. The
+// office treats this output as untrusted (server/member-move-out.ts): it
+// picks every destination itself.
+
+export interface MoveOutInput {
+  nonce: string;
+  agentRoot: string;
+  fileMax: number;
+  // Trees sent whole; a single file has rel "".
+  trees: { index: number; path: string }[];
+  files: { index: number; path: string }[];
+  // A rollout found by thread id under `home`; rel is its path under home.
+  codex: { index: number; home: string; threadId: string }[];
+}
+
+interface OutFile {
+  index: number;
+  rel: string;
+  path: string;
+  size: number;
+  mode: number;
+  dev: number;
+  ino: number;
+}
+
+function lstatOrNull(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
+// A regular file with one link on `dev`, within `max`.
+function sendable(stats: Stats, dev: number, max: number): boolean {
+  return (
+    stats.isFile() &&
+    stats.nlink === 1 &&
+    stats.dev === dev &&
+    stats.size <= max
+  );
+}
+
+// The files of a tree, with an lstat walk that enters only real folders
+// on the tree's file system. `folders` gets each folder walked.
+function walkOut(
+  index: number,
+  top: string,
+  max: number,
+  out: OutFile[],
+  folders: string[],
+): void {
+  const topStats = lstatOrNull(top);
+  if (!topStats?.isDirectory()) return;
+  const dev = topStats.dev;
+  folders.push(top);
+  const stack = [""];
+  while (stack.length > 0) {
+    const rel = stack.pop()!;
+    let names: string[];
+    try {
+      names = readdirSync(join(top, rel));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const childRel = rel ? join(rel, name) : name;
+      const path = join(top, childRel);
+      const stats = lstatOrNull(path);
+      if (!stats) continue;
+      if (stats.isDirectory()) {
+        if (stats.dev === dev) {
+          stack.push(childRel);
+          folders.push(path);
+        }
+        continue;
+      }
+      if (sendable(stats, dev, max))
+        out.push({
+          index,
+          rel: childRel,
+          path,
+          size: stats.size,
+          mode: stats.mode & 0o777,
+          dev,
+          ino: stats.ino,
+        });
+    }
+  }
+}
+
+function singleOut(
+  index: number,
+  path: string,
+  rel: string,
+  max: number,
+  out: OutFile[],
+): void {
+  const stats = lstatOrNull(path);
+  const parent = lstatOrNull(dirname(path));
+  if (!stats || !parent?.isDirectory()) return;
+  if (sendable(stats, parent.dev, max))
+    out.push({
+      index,
+      rel,
+      path,
+      size: stats.size,
+      mode: stats.mode & 0o777,
+      dev: parent.dev,
+      ino: stats.ino,
+    });
+}
+
+const THREAD_ID = /^[0-9a-zA-Z-]{8,64}$/;
+
+// sessions/YYYY/MM/DD/rollout-*-<threadId>.jsonl under `home`, by an lstat
+// walk of those three levels; null when there is none.
+function findRolloutOut(home: string, threadId: string): string | null {
+  if (!THREAD_ID.test(threadId)) return null;
+  const suffix = `-${threadId}.jsonl`;
+  const sessions = join(home, "sessions");
+  const level = (dir: string, pattern: RegExp): string[] => {
+    try {
+      return readdirSync(dir)
+        .filter((name) => pattern.test(name))
+        .map((name) => join(dir, name))
+        .filter((path) => lstatOrNull(path)?.isDirectory());
+    } catch {
+      return [];
+    }
+  };
+  for (const year of level(sessions, /^\d{4}$/))
+    for (const month of level(year, /^\d{2}$/))
+      for (const day of level(month, /^\d{2}$/)) {
+        let names: string[];
+        try {
+          names = readdirSync(day);
+        } catch {
+          continue;
+        }
+        const name = names.find(
+          (n) => n.startsWith("rollout-") && n.endsWith(suffix),
+        );
+        if (name) return join(day, name);
+      }
+  return null;
+}
+
+function moveOutDir(input: { nonce: string; agentRoot: string }): string {
+  if (typeof input?.nonce !== "string" || !NONCE.test(input.nonce))
+    throw new Error("the move needs a nonce");
+  return join(absolute(input.agentRoot, "agentRoot"), ".move-out", input.nonce);
+}
+
+// files-out: the requested files as a stream. First one JSON line
+// {totals: {<index>: bytes}}, then for each file u32 BE length, header JSON
+// {index, rel, size, mode} and the bytes, then a zero length. What was sent
+// (path and inode) and the folders walked are kept in
+// <agentRoot>/.move-out/<nonce>/sent.jsonl for files-remove.
+export async function sendFiles(
+  input: MoveOutInput,
+  write: (chunk: Uint8Array) => void | Promise<void>,
+): Promise<void> {
+  const dir = moveOutDir(input);
+  rmSync(join(input.agentRoot, ".move-out"), { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const max = input.fileMax;
+  const files: OutFile[] = [];
+  const folders: string[] = [];
+  for (const tree of input.trees ?? [])
+    walkOut(tree.index, absolute(tree.path, "a tree"), max, files, folders);
+  for (const file of input.files ?? [])
+    singleOut(file.index, absolute(file.path, "a file"), "", max, files);
+  for (const rollout of input.codex ?? []) {
+    const home = absolute(rollout.home, "a Codex home");
+    const path = findRolloutOut(home, rollout.threadId);
+    if (path) singleOut(rollout.index, path, relative(home, path), max, files);
+  }
+  const totals: Record<number, number> = {};
+  for (const file of files)
+    totals[file.index] = (totals[file.index] ?? 0) + file.size;
+  await write(Buffer.from(`${JSON.stringify({ totals })}\n`));
+  const journal = join(dir, "sent.jsonl");
+  for (const folder of folders)
+    appendFileSync(journal, `${JSON.stringify({ dir: folder })}\n`, {
+      mode: 0o600,
+    });
+  for (const file of files) {
+    let fd: number;
+    try {
+      fd = openSync(
+        file.path,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+    } catch {
+      continue;
+    }
+    try {
+      const stats = fstatSync(fd);
+      if (stats.ino !== file.ino || !sendable(stats, file.dev, max)) continue;
+      // The office refuses bytes past the totals sent first.
+      if (stats.size > file.size)
+        throw new Error(`${file.path} grew while the files were sent`);
+      const header = Buffer.from(
+        JSON.stringify({
+          index: file.index,
+          rel: file.rel,
+          size: stats.size,
+          mode: file.mode,
+        }),
+      );
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(header.length, 0);
+      await write(Buffer.concat([length, header]));
+      let left = stats.size;
+      const buffer = Buffer.alloc(1024 * 1024);
+      while (left > 0) {
+        const n = readSync(fd, buffer, 0, Math.min(left, buffer.length), null);
+        if (n === 0)
+          throw new Error(`${file.path} became shorter while it was read`);
+        await write(Buffer.from(buffer.subarray(0, n)));
+        left -= n;
+      }
+      appendFileSync(
+        journal,
+        `${JSON.stringify({ path: file.path, ino: file.ino })}\n`,
+        { mode: 0o600 },
+      );
+    } finally {
+      closeSync(fd);
+    }
+  }
+  await write(Buffer.alloc(4));
+}
+
+// files-remove after a move back: each file sent, when its inode is still
+// the one sent, then the folders walked that are now empty, deepest first.
+// Answers the files it kept. With `trees` (the purge of a removed member):
+// each tree whole, never through a link.
+export function removeSent(
+  input:
+    | { nonce: string; agentRoot: string }
+    | { agentRoot: string; trees: string[] },
+): { kept: string[] } {
+  const agentRoot = absolute(input.agentRoot, "agentRoot");
+  if ("trees" in input) {
+    for (const tree of input.trees) {
+      const path = absolute(tree, "a tree");
+      if (!path.startsWith(`${agentRoot}/`) || normalize(path) !== path)
+        throw new Error(`${path} is not in the agent space`);
+      rmSync(path, { recursive: true, force: true });
+    }
+    return { kept: [] };
+  }
+  const dir = moveOutDir(input);
+  const kept: string[] = [];
+  const folders: string[] = [];
+  const journal = join(dir, "sent.jsonl");
+  const lines = existsSync(journal)
+    ? readFileSync(journal, "utf8").split("\n").filter(Boolean)
+    : [];
+  for (const line of lines) {
+    const entry = JSON.parse(line) as {
+      path?: string;
+      ino?: number;
+      dir?: string;
+    };
+    if (entry.dir) {
+      folders.push(entry.dir);
+      continue;
+    }
+    if (!entry.path) continue;
+    const stats = lstatOrNull(entry.path);
+    if (!stats) continue;
+    if (!stats.isFile() || stats.ino !== entry.ino) {
+      kept.push(entry.path);
+      continue;
+    }
+    try {
+      unlinkSync(entry.path);
+    } catch {
+      kept.push(entry.path);
+    }
+  }
+  folders.sort((a, b) => b.split("/").length - a.split("/").length);
+  for (const folder of folders) {
+    try {
+      rmdirSync(folder);
+    } catch {}
+  }
+  rmSync(dir, { recursive: true, force: true });
+  return { kept };
+}
+
+// claude-cwd-move: a member's session files to the project folder of the
+// new cwd, under their Claude config root.
+export function moveClaudeCwd(input: {
+  sessionId: string;
+  oldCwd: string;
+  newCwd: string;
+  configDir: string;
+}): SessionFilesMove {
+  if (typeof input?.sessionId !== "string" || !THREAD_ID.test(input.sessionId))
+    throw new Error("claude-cwd-move needs a session id");
+  const configDir = absolute(input.configDir, "configDir");
+  return moveSessionFilesBetween(
+    input.sessionId,
+    claudeProjectDirIn(configDir, absolute(input.oldCwd, "oldCwd")),
+    claudeProjectDirIn(configDir, absolute(input.newCwd, "newCwd")),
+  );
 }

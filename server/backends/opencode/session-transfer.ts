@@ -13,9 +13,16 @@ import {
 import {
   openCodeDatabasePath,
   openCodeProfileHost,
+  openCodeProfileOwner,
   openCodeProfilePaths,
 } from "./profile-paths.ts";
-import { absent, inspectOpenCodeProfileSession } from "./storage.ts";
+import { openCodeProfileKey } from "./access.ts";
+import { profileKeyForOwner } from "../../opencode-profile-keys.ts";
+import {
+  absent,
+  inspectOpenCodeDatabaseInAgentSpace,
+  inspectOpenCodeProfileSession,
+} from "./storage.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
 
 export interface OpenCodeSessionCli {
@@ -278,8 +285,41 @@ export async function moveOpenCodeSessionAcross(input: {
   return "moved";
 }
 
+// Either owner: for an isolated member, the only other profile is their
+// own on the other side of the standard line, inspected through their host
+// (their runner reads the database). Others get findOpenCodeSessionProfile.
+export async function findOpenCodeSessionProfileOnHost(
+  sessionId: string,
+  exceptKey: string,
+): Promise<string | null> {
+  const owner = openCodeProfileOwner(exceptKey);
+  if (owner === undefined)
+    return findOpenCodeSessionProfile(sessionId, exceptKey);
+  const memberKey = profileKeyForOwner(owner);
+  const otherKey =
+    exceptKey === memberKey ? openCodeProfileKey(memberKey, "chat") : memberKey;
+  const { profileDir } = openCodeProfilePaths(otherKey);
+  const host = openCodeProfileHost(profileDir);
+  try {
+    const v2 = openCodeDatabasePath(profileDir, "v2");
+    const state = (await host.fs.exists(`${v2}.ready`))
+      ? await inspectOpenCodeDatabaseInAgentSpace(v2, sessionId, "v2", host)
+      : await inspectOpenCodeDatabaseInAgentSpace(
+          openCodeDatabasePath(profileDir, "v1"),
+          sessionId,
+          "v1",
+          host,
+        );
+    return state === "durable" ? profileDir : null;
+  } catch {
+    // An unreadable profile is no source.
+    return null;
+  }
+}
+
 // The other profile dir (not `exceptKey`'s) that stores the session durable,
-// or null.
+// or null. The office's profiles only: an isolated member's are not in
+// this folder (findOpenCodeSessionProfileOnHost).
 export function findOpenCodeSessionProfile(
   sessionId: string,
   exceptKey: string,

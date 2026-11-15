@@ -456,6 +456,8 @@ import {
   removePersonalProviderHomes,
   sweepPersonalProviderHomes,
 } from "./provider-homes.ts";
+import { hasMemberOsUser } from "./member-os-users.ts";
+import { purgeMemberAgentSpace } from "./member-move-out.ts";
 import { BUNDLED_SKILLS_DIR } from "./skills.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import {
@@ -1771,6 +1773,9 @@ function purgeRemovedMember(userId: string): void {
   sources.servers.removeMember(userId);
   removeManagedUserEnv(userId);
   removePersonalProviderHomes(userId);
+  // Their copy in their own OS user's agent space goes through their runner.
+  if (hasMemberOsUser(userId))
+    void purgeMemberAgentSpace(userId, hostFor(userId));
 }
 
 // Boot and the minute sweep: the members removed 30 days ago or more go.
