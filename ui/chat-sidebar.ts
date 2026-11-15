@@ -269,3 +269,124 @@ export function moveRoom(
 /** The pinned order after the member drops pin key `id` before (or after)
  *  pin key `targetId`; same rules as moveRoom. */
 export const movePinned = moveRoom;
+
+/**
+ * The shape of the sidebar's list as it was last drawn on this device (task
+ * 4dcad6bf): while the list loads, placeholders of this shape hold its place,
+ * so nothing moves when the real rows arrive. Each block keeps its height `H`
+ * and its rows' kinds and positions (px, `top` from the block's top).
+ */
+export type ChatSidebarShapeItem = {
+  kind: "nav" | "header" | "row" | "divider";
+  top: number;
+  h: number;
+};
+export type ChatSidebarShapeBlock = {
+  H: number;
+  items: ChatSidebarShapeItem[];
+};
+export type ChatSidebarShape = {
+  // The page rows, the Office row and the divider.
+  top: ChatSidebarShapeBlock;
+  // Pinned, Recent, Members, the rooms, Lobby and Tucked rooms.
+  lists: ChatSidebarShapeBlock;
+};
+
+/** The most items a stored block may hold: a corrupt cache draws no more. */
+export const CHAT_SIDEBAR_SHAPE_MAX_ITEMS = 500;
+/** The largest px value a stored shape may hold. */
+export const CHAT_SIDEBAR_SHAPE_MAX_PX = 20000;
+
+// Row heights close to the real rows', for a device with no stored shape.
+const SHAPE_PX: Record<ChatSidebarShapeItem["kind"], number> = {
+  nav: 28,
+  header: 26,
+  row: 38,
+  divider: 1,
+};
+
+function shapeBlock(
+  kinds: ChatSidebarShapeItem["kind"][],
+): ChatSidebarShapeBlock {
+  const items: ChatSidebarShapeItem[] = [];
+  let top = 0;
+  for (const kind of kinds) {
+    const h = SHAPE_PX[kind];
+    // The divider's margin: 8px above and below.
+    const margin = kind === "divider" ? 8 : 0;
+    items.push({ kind, top: top + margin, h });
+    top += h + 2 * margin + 1;
+  }
+  return { H: Math.max(0, top - 1), items };
+}
+
+/** The shape drawn on a device with no stored one. */
+export const CHAT_SIDEBAR_SHAPE_DEFAULT: ChatSidebarShape = {
+  // Apps, Inbox, Tasks, Automations, Skills, Integrations, Settings, Office.
+  top: shapeBlock([
+    "nav",
+    "nav",
+    "nav",
+    "nav",
+    "nav",
+    "nav",
+    "nav",
+    "nav",
+    "divider",
+  ]),
+  // Pinned, Recent, Members (chat + one member), a room with two agents,
+  // Lobby with its receptionist.
+  lists: shapeBlock([
+    "header",
+    "header",
+    "header",
+    "nav",
+    "row",
+    "header",
+    "row",
+    "row",
+    "header",
+    "row",
+  ]),
+};
+
+/** A stored shape, or null when it is not a valid, sane ChatSidebarShape. */
+export function parseChatSidebarShape(raw: unknown): ChatSidebarShape | null {
+  if (!isRecord(raw)) return null;
+  const top = parseShapeBlock(raw.top);
+  const lists = parseShapeBlock(raw.lists);
+  return top && lists ? { top, lists } : null;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const isShapePx = (v: unknown): v is number =>
+  typeof v === "number" &&
+  Number.isFinite(v) &&
+  v >= 0 &&
+  v <= CHAT_SIDEBAR_SHAPE_MAX_PX;
+
+const SHAPE_KINDS: ReadonlySet<unknown> = new Set(Object.keys(SHAPE_PX));
+
+function parseShapeBlock(raw: unknown): ChatSidebarShapeBlock | null {
+  if (!isRecord(raw) || !isShapePx(raw.H) || !Array.isArray(raw.items))
+    return null;
+  if (raw.items.length > CHAT_SIDEBAR_SHAPE_MAX_ITEMS) return null;
+  const items: ChatSidebarShapeItem[] = [];
+  for (const item of raw.items as unknown[]) {
+    if (
+      !isRecord(item) ||
+      !SHAPE_KINDS.has(item.kind) ||
+      !isShapePx(item.top) ||
+      !isShapePx(item.h)
+    )
+      return null;
+    items.push({
+      kind: item.kind as ChatSidebarShapeItem["kind"],
+      top: item.top,
+      h: item.h,
+    });
+  }
+  return { H: raw.H, items };
+}

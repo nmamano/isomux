@@ -43,8 +43,10 @@ const {
   getChatCopyFormat,
   setChatCopyFormat,
   getChatSidebarSections,
+  getChatSidebarShape,
   getChatSidebarWidth,
   setChatSidebarSections,
+  setChatSidebarShape,
   setChatSidebarWidth,
   getWhatsAppLayout,
   setWhatsAppLayout,
@@ -191,6 +193,51 @@ describe("chat sidebar sections", () => {
       pinned: true,
       recent: true,
     });
+  });
+});
+
+// The shape of the sidebar's list as last drawn (task 4dcad6bf).
+describe("chat sidebar shape", () => {
+  beforeEach(() => store.clear());
+  const shape = {
+    top: { H: 40, items: [{ kind: "nav" as const, top: 0, h: 29 }] },
+    lists: { H: 26, items: [{ kind: "header" as const, top: 0, h: 26 }] },
+  };
+
+  it("reads back what it saved, and none when nothing is saved", () => {
+    expect(getChatSidebarShape()).toBeNull();
+    setChatSidebarShape(shape);
+    expect(getChatSidebarShape()).toEqual(shape);
+  });
+
+  it("reads a broken or insane value as none", () => {
+    for (const raw of [
+      "{not json",
+      "null",
+      JSON.stringify({
+        ...shape,
+        lists: { H: 26, items: [{ kind: "x", top: 0, h: 1 }] },
+      }),
+    ]) {
+      store.set("isomux-chat-sidebar-shape", raw);
+      expect(getChatSidebarShape(), raw).toBeNull();
+    }
+  });
+
+  it("does not throw when the browser refuses storage", () => {
+    const get = spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    const set = spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    try {
+      expect(getChatSidebarShape()).toBeNull();
+      setChatSidebarShape(shape);
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+    }
   });
 });
 

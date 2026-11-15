@@ -6,6 +6,9 @@ import { describe, expect, it } from "bun:test";
 import {
   agentAttention,
   CHAT_SIDEBAR_MIN_OPEN_WIDTH,
+  CHAT_SIDEBAR_SHAPE_DEFAULT,
+  CHAT_SIDEBAR_SHAPE_MAX_ITEMS,
+  CHAT_SIDEBAR_SHAPE_MAX_PX,
   CHAT_SIDEBAR_SECTIONS_DEFAULT,
   CHAT_SIDEBAR_WIDTH_DEFAULT,
   CHAT_SIDEBAR_WIDTH_MAX,
@@ -13,6 +16,7 @@ import {
   clampSidebarWidth,
   moveRoom,
   newAgentSeat,
+  parseChatSidebarShape,
   pinnedRows,
   recentAgentsList,
   roomSummary,
@@ -21,6 +25,7 @@ import {
   sidebarSectionsForAnchor,
   sidebarStartsOpen,
   type ChatSidebarSections,
+  type ChatSidebarShape,
 } from "./chat-sidebar.ts";
 import { BACK_SEAT_BASE, DESK_COUNT } from "../shared/desks.ts";
 import {
@@ -373,5 +378,89 @@ describe("moveRoom", () => {
       moveRoom(order, "r2", "r9", true),
       moveRoom(order, "r2", "r2", false),
     ]).toEqual([order, order, order]);
+  });
+});
+
+// The stored shape of the sidebar's list, for its placeholders while it loads
+// (task 4dcad6bf). The DOM side is in ui/App.chat-sidebar-skeleton.dom.test.tsx.
+describe("parseChatSidebarShape", () => {
+  const shape: ChatSidebarShape = {
+    top: {
+      H: 75,
+      items: [
+        { kind: "nav", top: 0, h: 29 },
+        { kind: "nav", top: 30, h: 29 },
+        { kind: "divider", top: 67, h: 1 },
+      ],
+    },
+    lists: {
+      H: 120,
+      items: [
+        { kind: "header", top: 0, h: 26 },
+        { kind: "row", top: 27, h: 38 },
+        { kind: "nav", top: 66, h: 29 },
+      ],
+    },
+  };
+  const block = (n: number, px = 10) => ({
+    H: px,
+    items: Array.from({ length: n }, () => ({ kind: "row", top: px, h: px })),
+  });
+
+  it("keeps a sane shape as it is, up to the item and px caps", () => {
+    expect(parseChatSidebarShape(JSON.parse(JSON.stringify(shape)))).toEqual(
+      shape,
+    );
+    // An empty block is a shape too: a list with nothing in it.
+    const empty = { top: { H: 0, items: [] }, lists: { H: 0, items: [] } };
+    expect(parseChatSidebarShape(empty)).toEqual(empty);
+    const atCaps = {
+      top: block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS, CHAT_SIDEBAR_SHAPE_MAX_PX),
+      lists: block(1),
+    };
+    expect(parseChatSidebarShape(atCaps)).toEqual(atCaps as ChatSidebarShape);
+    // The default is a sane shape, with the page rows first.
+    expect(parseChatSidebarShape(CHAT_SIDEBAR_SHAPE_DEFAULT)).toEqual(
+      CHAT_SIDEBAR_SHAPE_DEFAULT,
+    );
+  });
+
+  it("reads anything else as none, without throwing", () => {
+    const item = shape.top.items[0];
+    const withTop = (top: unknown) => ({ ...shape, top });
+    const withItem = (over: Record<string, unknown>) =>
+      withTop({ ...shape.top, items: [{ ...item, ...over }] });
+    const bad: [string, unknown][] = [
+      ["null", null],
+      ["a string", "shape"],
+      ["an array", [shape.top, shape.lists]],
+      ["no lists", { top: shape.top }],
+      ["no top", { lists: shape.lists }],
+      ["a block with no items", withTop({ H: 10 })],
+      ["items not a list", withTop({ H: 10, items: {} })],
+      ["a block with no H", withTop({ items: shape.top.items })],
+      ["H a string", withTop({ ...shape.top, H: "75" })],
+      ["H negative", withTop({ ...shape.top, H: -1 })],
+      [
+        "H over the cap",
+        withTop({ ...shape.top, H: CHAT_SIDEBAR_SHAPE_MAX_PX + 1 }),
+      ],
+      ["H infinite", withTop({ ...shape.top, H: Infinity })],
+      ["H NaN", withTop({ ...shape.top, H: NaN })],
+      ["an unknown kind", withItem({ kind: "room" })],
+      ["no kind", withItem({ kind: undefined })],
+      ["an item with no top", withItem({ top: undefined })],
+      ["top negative", withItem({ top: -5 })],
+      ["top over the cap", withItem({ top: CHAT_SIDEBAR_SHAPE_MAX_PX + 1 })],
+      ["h a string", withItem({ h: "29" })],
+      ["h infinite", withItem({ h: Infinity })],
+      ["an item that is null", withTop({ ...shape.top, items: [null] })],
+      [
+        "one item too many",
+        { ...shape, lists: block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS + 1) },
+      ],
+    ];
+    for (const [why, raw] of bad)
+      expect(parseChatSidebarShape(raw), why).toBeNull();
   });
 });

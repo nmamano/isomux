@@ -11,8 +11,10 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import {
   clampSidebarWidth,
+  parseChatSidebarShape,
   type ChatSidebarChoice,
   type ChatSidebarSections,
+  type ChatSidebarShape,
 } from "./chat-sidebar.ts";
 import {
   FILTER_PRIORITIES,
@@ -97,6 +99,26 @@ export function getChatSidebarSections(): ChatSidebarSections | null {
 export function setChatSidebarSections(sections: ChatSidebarSections): void {
   try {
     localStorage.setItem(KEY_CHAT_SIDEBAR_SECTIONS, JSON.stringify(sections));
+  } catch {}
+}
+
+// The shape of the sidebar's list as last drawn on this device (task
+// 4dcad6bf), for its placeholders while it loads.
+const KEY_CHAT_SIDEBAR_SHAPE = "isomux-chat-sidebar-shape";
+
+// Null when nothing is stored or the stored value is not a sane shape.
+export function getChatSidebarShape(): ChatSidebarShape | null {
+  try {
+    return parseChatSidebarShape(
+      JSON.parse(localStorage.getItem(KEY_CHAT_SIDEBAR_SHAPE) ?? "null"),
+    );
+  } catch {}
+  return null;
+}
+
+export function setChatSidebarShape(shape: ChatSidebarShape): void {
+  try {
+    localStorage.setItem(KEY_CHAT_SIDEBAR_SHAPE, JSON.stringify(shape));
   } catch {}
 }
 
