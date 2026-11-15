@@ -188,7 +188,10 @@ describe("applyCompress while the office runs", () => {
     expect(plan.candidates.map((c) => c.sessionId)).toEqual([sid]);
 
     // An agent resumes the old session and writes to it on every turn of the
-    // event loop until the compress is done.
+    // event loop until the compress is done. The first write is synchronous,
+    // right after applyCompress returns at its first await (the gzip): the
+    // .jsonl is already read, the commit has not run, so the order is fixed.
+    // A write before the call would make the file young and skip the gzip.
     const appended: string[] = [];
     let done = false;
     const pump = () => {
@@ -205,11 +208,23 @@ describe("applyCompress while the office runs", () => {
       setImmediate(pump);
     };
     const pending = applyCompress(plan, d);
-    setImmediate(pump);
-    await pending;
+    pump();
+
+    // Keeps serving: the gzip needs a turn of the event loop to finish, so
+    // the compress is still pending after every microtask has run.
+    let settled = false;
+    void pending.then(() => (settled = true));
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+    expect(settled).toBe(false);
+
+    const result = await pending;
     done = true;
 
-    expect(appended.length).toBeGreaterThan(0);
+    // The write hit the gzip window: the commit saw it and kept the .jsonl.
+    expect(result.compressed).toBe(0);
+    expect(result.refused.map((r) => r.reason)).toEqual([
+      "modified-since-plan",
+    ]);
     const ids = new Set(loadLog(AGENT, sid).map((e) => e.id));
     expect(appended.filter((id) => !ids.has(id))).toEqual([]);
     expect(ids.has("e0")).toBe(true);
