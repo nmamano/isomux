@@ -1016,8 +1016,8 @@ measurements. The setup-access boundary is settled by R-2026-08-15-1.
 ## Verify at implementation time
 
 Contabo's `find`/tag semantics and whether it offers a create idempotency key;
-its reboot, power-off and power-on actions; programmatic creation of an SSH-key
-secret, or `userData` on create (either suffices, we only need keys on the box);
+its reboot, power-off and power-on actions; how keys reach the box (settled:
+`userData` on create, not an SSH-key secret; see control-plane/README.md);
 whether a cancellation can be revoked; that Ubuntu 24.04's OpenSSH honours the
 `expiry-time` authorized-keys
 option (it ships 9.6, which is well past the 8.2 that introduced it, but the

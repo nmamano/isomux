@@ -9,16 +9,10 @@ import { loadAnyRun, saveRun } from "./run-record.ts";
 import type { Exec } from "./ssh.ts";
 import type { InstanceRow } from "./store.ts";
 
-export interface SecretFinder {
-  findSshSecret(name: string): Promise<number | null>;
-  createSshSecret(name: string, publicKeyLine: string): Promise<number>;
-}
-
 export interface RunPreparerDeps {
   runsDir: string;
   keysDir: string;
   exec: Exec;
-  secrets: SecretFinder;
   loginUser: LoginUser;
 }
 
@@ -95,18 +89,13 @@ export async function prepareCreateRun(
       );
     }
   }
-  if (rec.secretId === undefined) {
-    const publicKeyLine = fs.readFileSync(rec.publicKeyPath, "utf8").trim();
-    const name = `isomux-cp-${runId}`;
-    rec.secretId =
-      (await deps.secrets.findSshSecret(name)) ??
-      (await deps.secrets.createSshSecret(name, publicKeyLine));
-    saveRun(deps.runsDir, rec);
-  }
+  // The key travels in the create call itself (cloud-init user data), so no
+  // provider-side key store is involved. A secretId on an older record is
+  // ignored.
   return {
     intentId: `intent-${instance.id.replace(/^inst-/, "")}`,
     plan: instance.plan,
     region: instance.region,
-    publicKeys: [rec.secretId],
+    publicKeys: [{ algorithm: rec.algorithm, blob: rec.blob }],
   };
 }
