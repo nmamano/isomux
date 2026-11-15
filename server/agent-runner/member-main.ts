@@ -33,6 +33,7 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "project-skills": () => import("./entries/project-skills.ts"),
   "project-skill": () => import("./entries/project-skill.ts"),
   "session-move": () => import("./entries/session-move.ts"),
+  "url-probe": () => import("./entries/url-probe.ts"),
 };
 
 export const MEMBER_ENTRY_NAMES = Object.keys(ENTRIES);

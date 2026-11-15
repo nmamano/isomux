@@ -31,11 +31,16 @@
 // "browser" via ISOMUX_PREVIEW_BROWSER / findBrowser, so the real spawn, group
 // kill, and temp-dir cleanup paths run deterministically without Chrome).
 
-import { mkdtemp, readFile, rm } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { accessSync, constants } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { pathToFileURL } from "url";
 import { spawn } from "child_process";
+import type { AgentHost } from "./agent-host.ts";
+import { NOT_READY_PATH } from "./member-hosts.ts";
+import { parseUrlProbeReply, type UrlProbeReply } from "./preview-probe.ts";
+import { errCode } from "../shared/errors.ts";
 
 export type PreviewErrorCode =
   | "invalid_request"
@@ -275,6 +280,14 @@ function isCompletePng(data: Buffer): boolean {
 
 const FILE_POLL_INTERVAL_MS = 100;
 
+// The page the browser starts at: it goes on to `url` at once. The URL is
+// a JSON string with "<" escaped, so no URL can end the script element.
+export const START_PAGE = "go.html";
+export function startPage(url: string): string {
+  const target = JSON.stringify(url).replace(/</g, "\\u003c");
+  return `<!doctype html><script>location.replace(${target})</script>`;
+}
+
 type BrowserRunOutcome =
   | { kind: "captured" } // complete PNG on disk; child killed and reaped
   | { kind: "exited"; exitCode: number | null; stderrTail: string }
@@ -408,6 +421,66 @@ function runBrowser(
   });
 }
 
+// The browser's argv for one capture.
+function browserArgs(o: {
+  outPath: string;
+  profileDir: string;
+  startPath: string;
+  width: number;
+  height: number;
+  wait: number;
+}): string[] {
+  return [
+    "--headless=new",
+    `--screenshot=${o.outPath}`,
+    `--window-size=${o.width},${o.height}`,
+    // In --headless=new the page viewport is the window size MINUS an ~87px
+    // virtual browser-UI strip, while --screenshot captures the full
+    // window-sized canvas - pages that paint their background via
+    // viewport-sized elements (100vh containers) get an unpainted white
+    // band at the bottom. Fullscreen removes the virtual UI, but sizes the
+    // window to the virtual SCREEN (default 800x600), not --window-size -
+    // so pin the screen to the requested size too. Result: viewport ==
+    // window == screen == canvas (verified empirically on Chrome 145,
+    // 2026-07-12).
+    `--screen-info={0,0 ${o.width}x${o.height}}`,
+    "--start-fullscreen",
+    "--hide-scrollbars",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-gpu",
+    // Puppeteer-style automation flags: full Chrome otherwise runs its
+    // phone-home background services (optimization-guide model downloads,
+    // component updater, sync/signin) on every fresh profile, which was
+    // observed to stall captures by 20s+ on a box with slow egress - and to
+    // keep WebSocket-heavy pages from ever settling.
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-sync",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-client-side-phishing-detection",
+    "--disable-domain-reliability",
+    "--metrics-recording-only",
+    "--disable-features=OptimizationHints,MediaRouter,Translate",
+    // THE critical pair on headless servers (found by observation on auntie,
+    // 2026-07-12): without them Chrome consults the OS keyring over D-Bus,
+    // and with no desktop session that call hangs until the ~25s D-Bus
+    // method timeout on EVERY capture (measured 25.2s → 0.33s with them).
+    "--password-store=basic",
+    "--use-mock-keychain",
+    // Fresh profile per capture: guarantees a Chrome process we own (no
+    // reuse of a running instance), safe under concurrency.
+    `--user-data-dir=${o.profileDir}`,
+    ...(o.wait > 0 ? [`--virtual-time-budget=${o.wait}`] : []),
+    // Always last: a file:// URL, so it can never be parsed as a flag.
+    // argv holds no page URL. Every user of the box can read a process's
+    // argv, and a URL can carry a token (a grant's sign-in code, a query).
+    // The URL is in the 0600 start page that only the capturing user reads.
+    pathToFileURL(o.startPath).href,
+  ];
+}
+
 function previewFilename(url: URL): string {
   const host = url.hostname
     .replace(/^\[|\]$/g, "")
@@ -418,6 +491,24 @@ function previewFilename(url: URL): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
   return `preview-${host}-${port}${slug ? `-${slug}` : ""}.png`;
+}
+
+function noBrowser(): PreviewFailure {
+  return fail(
+    500,
+    "no_browser",
+    `no Chrome-family browser found (tried ${BROWSER_CANDIDATES.join(", ")} on PATH, ` +
+      `then ${BROWSER_ABSOLUTE_PATHS.join(", ")}); ` +
+      "install one or point ISOMUX_PREVIEW_BROWSER at an executable",
+  );
+}
+
+function captureBusy(): PreviewFailure {
+  return fail(
+    429,
+    "capture_busy",
+    `${MAX_CONCURRENT_CAPTURES} captures already in progress; retry in a few seconds`,
+  );
 }
 
 /**
@@ -444,23 +535,9 @@ export async function capturePreview(
 
   const findBrowser = deps.findBrowser ?? defaultFindBrowser;
   const executable = findBrowser();
-  if (!executable) {
-    return fail(
-      500,
-      "no_browser",
-      `no Chrome-family browser found (tried ${BROWSER_CANDIDATES.join(", ")} on PATH, ` +
-        `then ${BROWSER_ABSOLUTE_PATHS.join(", ")}); ` +
-        "install one or point ISOMUX_PREVIEW_BROWSER at an executable",
-    );
-  }
+  if (!executable) return noBrowser();
 
-  if (activeCaptures >= MAX_CONCURRENT_CAPTURES) {
-    return fail(
-      429,
-      "capture_busy",
-      `${MAX_CONCURRENT_CAPTURES} captures already in progress; retry in a few seconds`,
-    );
-  }
+  if (activeCaptures >= MAX_CONCURRENT_CAPTURES) return captureBusy();
   activeCaptures++;
 
   const fetchFn = deps.fetchFn ?? fetch;
@@ -501,56 +578,23 @@ export async function capturePreview(
 
     tmpDir = await mkdtemp(join(deps.tmpBase ?? tmpdir(), "isomux-preview-"));
     const outPath = join(tmpDir, "shot.png");
-    const args = [
-      "--headless=new",
-      `--screenshot=${outPath}`,
-      `--window-size=${width},${height}`,
-      // In --headless=new the page viewport is the window size MINUS an ~87px
-      // virtual browser-UI strip, while --screenshot captures the full
-      // window-sized canvas - pages that paint their background via
-      // viewport-sized elements (100vh containers) get an unpainted white
-      // band at the bottom. Fullscreen removes the virtual UI, but sizes the
-      // window to the virtual SCREEN (default 800x600), not --window-size -
-      // so pin the screen to the requested size too. Result: viewport ==
-      // window == screen == canvas (verified empirically on Chrome 145,
-      // 2026-07-12).
-      `--screen-info={0,0 ${width}x${height}}`,
-      "--start-fullscreen",
-      "--hide-scrollbars",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-gpu",
-      // Puppeteer-style automation flags: full Chrome otherwise runs its
-      // phone-home background services (optimization-guide model downloads,
-      // component updater, sync/signin) on every fresh profile, which was
-      // observed to stall captures by 20s+ on a box with slow egress - and to
-      // keep WebSocket-heavy pages from ever settling.
-      "--disable-background-networking",
-      "--disable-component-update",
-      "--disable-sync",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-client-side-phishing-detection",
-      "--disable-domain-reliability",
-      "--metrics-recording-only",
-      "--disable-features=OptimizationHints,MediaRouter,Translate",
-      // THE critical pair on headless servers (found by observation on auntie,
-      // 2026-07-12): without them Chrome consults the OS keyring over D-Bus,
-      // and with no desktop session that call hangs until the ~25s D-Bus
-      // method timeout on EVERY capture (measured 25.2s → 0.33s with them).
-      "--password-store=basic",
-      "--use-mock-keychain",
-      // Fresh profile per capture: guarantees a Chrome process we own (no
-      // reuse of a running instance), safe under concurrency.
-      `--user-data-dir=${tmpDir}`,
-      ...(wait > 0 ? [`--virtual-time-budget=${wait}`] : []),
-      // Always last, and always scheme-prefixed (URL.toString()), so it can
-      // never be parsed as a flag. A grant's URL carries a sign-in code, and
-      // argv is visible in ps to the box's user. That is acceptable: the code
-      // is single-use, dies with the capture, and opens only what the agent
-      // may already open.
-      grant?.navigateUrl ?? url.toString(),
-    ];
+    const startPath = join(tmpDir, START_PAGE);
+    await writeFile(
+      startPath,
+      startPage(grant?.navigateUrl ?? url.toString()),
+      {
+        mode: 0o600,
+        flag: "wx",
+      },
+    );
+    const args = browserArgs({
+      outPath,
+      profileDir: tmpDir,
+      startPath,
+      width,
+      height,
+      wait,
+    });
 
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
@@ -636,4 +680,358 @@ export async function capturePreview(
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// A capture for an agent of an isolated member (internal-docs/
+// member-os-user-design.md, part 2b): the pre-flight, the browser and every
+// file of the capture are the member's, through their host. The office makes
+// no request to the URL and never reads a file of the capture with its own
+// fs; the PNG comes only through the host's bounded read.
+
+export interface PreviewHostDeps {
+  findBrowser?: () => string | null;
+  deadlineMs?: number;
+  appGrant?: PreviewCaptureDeps["appGrant"];
+  // The poll interval of the screenshot file. Tests shorten it.
+  pollMs?: number;
+}
+
+type HostRunOutcome =
+  | { kind: "captured"; png: Buffer<ArrayBuffer> }
+  | { kind: "too_big"; size: number }
+  | { kind: "exited"; exitCode: number | null; stderrTail: string }
+  | { kind: "timeout" }
+  | { kind: "spawn_error"; message: string };
+
+// The browser run on a member host. As runBrowser, with these differences:
+// the poll stats the file and reads its bytes only when its (size, mtime,
+// inode) was the same at two polls and is not a file already read and found
+// incomplete; the bytes it returns are the only read of the screenshot; the
+// browser is stopped only through the host (signalGroup), never by a pid,
+// which is member data; and it settles only at the child's "close", so the
+// caller removes the profile when no browser can write to it.
+function runBrowserOnHost(
+  host: AgentHost,
+  executable: string,
+  args: string[],
+  cwd: string,
+  outPath: string,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<HostRunOutcome> {
+  return new Promise((resolve) => {
+    const child = host.spawnChild([executable, ...args], {
+      cwd,
+      env: host.baseEnv(),
+      stderr: "pipe",
+    });
+    // Drained: a runner child's unread stdout pauses its whole stream, the
+    // exit report too (agent-runner/client.ts).
+    child.stdout.on("data", () => {});
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-8192);
+    });
+
+    let settled = false;
+    let timedOut = false;
+    let stopping = false;
+    let png: Buffer<ArrayBuffer> | null = null;
+    let tooBig: number | null = null;
+    let spawnError: string | null = null;
+    let lastKey: string | null = null;
+    let seen = 0;
+    let incompleteKey: string | null = null;
+    let polling = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimers = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      if (killTimer) clearTimeout(killTimer);
+      if (graceTimer) clearTimeout(graceTimer);
+      pollTimer = killTimer = graceTimer = null;
+    };
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+      child.signalGroup("SIGTERM");
+      graceTimer = setTimeout(
+        () => child.signalGroup("SIGKILL"),
+        KILL_GRACE_MS,
+      );
+    };
+    // The bytes of a complete screenshot, or null; "big" over the cap.
+    const readComplete = async (): Promise<
+      Buffer<ArrayBuffer> | "big" | null
+    > => {
+      try {
+        const bytes = await host.fs.readBytes(outPath, MAX_PNG_BYTES);
+        // A copy in a process-owned ArrayBuffer, as PreviewSuccess.png is.
+        return isCompletePng(bytes) ? Buffer.from(bytes) : null;
+      } catch (err) {
+        return errCode(err) === "EFBIG" ? "big" : null;
+      }
+    };
+    const poll = async () => {
+      let stat;
+      try {
+        stat = await host.fs.stat(outPath);
+      } catch {
+        return;
+      }
+      if (stat.type !== "file") return;
+      if (stat.size > MAX_PNG_BYTES) {
+        tooBig = stat.size;
+        return stop();
+      }
+      const key = `${stat.size}:${stat.mtimeMs}:${stat.ino}`;
+      seen = key === lastKey ? seen + 1 : 1;
+      lastKey = key;
+      if (seen < 2 || key === incompleteKey) return;
+      const read = await readComplete();
+      if (settled || timedOut || stopping) return;
+      if (read === "big") {
+        tooBig = stat.size;
+        return stop();
+      }
+      if (read) {
+        png = read;
+        return stop();
+      }
+      incompleteKey = key;
+    };
+    pollTimer = setInterval(() => {
+      if (polling || settled || stopping) return;
+      polling = true;
+      void poll().finally(() => {
+        polling = false;
+      });
+    }, pollMs);
+    killTimer = setTimeout(() => {
+      if (settled || stopping) return;
+      timedOut = true;
+      stop();
+    }, timeoutMs);
+
+    const settle = (outcome: HostRunOutcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolve(outcome);
+    };
+    child.on("error", (err: Error) => {
+      spawnError = err.message;
+      // No process ever ran: nothing can write to the profile.
+      if (child.pid === undefined)
+        settle({ kind: "spawn_error", message: spawnError });
+    });
+    child.on("close", (code: number | null) => {
+      // Priority, as runBrowser: timeout > captured > the rest.
+      if (timedOut) return settle({ kind: "timeout" });
+      if (png) return settle({ kind: "captured", png });
+      if (tooBig !== null) return settle({ kind: "too_big", size: tooBig });
+      if (spawnError !== null)
+        return settle({ kind: "spawn_error", message: spawnError });
+      const tail = stderr
+        .replace(/\s*\n\s*/g, " | ")
+        .trim()
+        .slice(-STDERR_TAIL_CHARS);
+      // A clean exit can race the poll: one last bounded read.
+      void readComplete().then((read) => {
+        if (read === "big")
+          settle({ kind: "too_big", size: MAX_PNG_BYTES + 1 });
+        else if (read) settle({ kind: "captured", png: read });
+        else settle({ kind: "exited", exitCode: code, stderrTail: tail });
+      });
+    });
+  });
+}
+
+// A random name for one capture's profile folder.
+function captureDirName(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * capturePreview for an agent of an isolated member: `host` is the member's
+ * host (hostFor of the agent's manager). The same parse, deadline, busy slot,
+ * results and texts as capturePreview.
+ */
+export async function capturePreviewOnHost(
+  body: unknown,
+  host: AgentHost,
+  deps: PreviewHostDeps = {},
+): Promise<PreviewResult> {
+  const parsed = parsePreviewParams(body);
+  if (!parsed.ok) return parsed;
+  const { url, width, height, wait } = parsed;
+  // Before the busy slot and before any call to the runner.
+  if (host.agentRoot() === NOT_READY_PATH)
+    return fail(
+      500,
+      "capture_failed",
+      "your manager's OS user is not ready; retry later",
+    );
+  const deadlineMs = deps.deadlineMs ?? DEFAULT_DEADLINE_MS;
+  const deadline = Date.now() + deadlineMs;
+  const executable = (deps.findBrowser ?? defaultFindBrowser)();
+  if (!executable) return noBrowser();
+  if (activeCaptures >= MAX_CONCURRENT_CAPTURES) return captureBusy();
+  activeCaptures++;
+
+  let dir: string | null = null;
+  let grant: PreviewAppGrant | null = null;
+  try {
+    // The pre-flight, as the member: the office user makes no request to
+    // the URL. A runner that fails or answers out of shape gets a fixed text.
+    const timeoutMs = Math.max(
+      1,
+      Math.min(PREFLIGHT_TIMEOUT_MS, deadline - Date.now()),
+    );
+    let probe: UrlProbeReply | null = null;
+    try {
+      probe = parseUrlProbeReply(
+        await host.runEntry(
+          "url-probe",
+          { url: url.toString(), timeoutMs },
+          timeoutMs + 1_000,
+        ),
+      );
+    } catch {
+      probe = null;
+    }
+    if (!probe)
+      return fail(
+        500,
+        "unreachable",
+        `could not check whether \`${url}\` responds; retry later`,
+      );
+    if (!probe.reachable)
+      return fail(
+        500,
+        "unreachable",
+        `\`${url}\` is not responding (${probe.error}) - is the server running?`,
+      );
+
+    // After the pre-flight, so the pre-flight never carries the grant.
+    const granted = deps.appGrant?.(url, deadline + KILL_GRACE_MS) ?? null;
+    if (granted === "refused") {
+      return fail(
+        429,
+        "capture_busy",
+        "too many app screenshots from this agent; retry in a minute",
+      );
+    }
+    grant = granted;
+
+    // The member's profile folder, 0700, with the start page (0600): the
+    // URL, and a grant's sign-in code, are in no process's argv.
+    dir = join(host.agentRoot(), "preview", captureDirName());
+    const outPath = join(dir, "shot.png");
+    const startPath = join(dir, START_PAGE);
+    try {
+      await host.fs.mkdir(dir, 0o700);
+      await host.fs.writeText(
+        startPath,
+        startPage(grant?.navigateUrl ?? url.toString()),
+        { mode: 0o600, exclusive: true },
+      );
+    } catch (err) {
+      return fail(
+        500,
+        "capture_failed",
+        `could not make the capture folder (${errCode(err) ?? "error"})`,
+      );
+    }
+    const args = browserArgs({
+      outPath,
+      profileDir: dir,
+      startPath,
+      width,
+      height,
+      wait,
+    });
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return fail(500, "capture_timeout", `capture exceeded ${deadlineMs}ms`);
+    }
+    const outcome = await runBrowserOnHost(
+      host,
+      executable,
+      args,
+      dir,
+      outPath,
+      remaining,
+      deps.pollMs ?? FILE_POLL_INTERVAL_MS,
+    );
+    switch (outcome.kind) {
+      case "timeout":
+        return fail(500, "capture_timeout", `capture exceeded ${deadlineMs}ms`);
+      case "spawn_error":
+        return fail(
+          500,
+          "capture_failed",
+          `failed to launch \`${executable}\`: ${outcome.message}`,
+        );
+      case "too_big":
+        return fail(
+          500,
+          "capture_failed",
+          `screenshot is ${(outcome.size / (1024 * 1024)).toFixed(1)} MB - over the ${MAX_PNG_BYTES / (1024 * 1024)} MB cap`,
+        );
+      case "exited": {
+        const stderrSuffix = outcome.stderrTail
+          ? ` (browser stderr: ${outcome.stderrTail})`
+          : "";
+        if (outcome.exitCode !== 0)
+          return fail(
+            500,
+            "capture_failed",
+            `browser exited with code ${outcome.exitCode ?? "null"}${stderrSuffix}`,
+          );
+        const wroteSomething = await host.fs.exists(outPath).catch(() => false);
+        return fail(
+          500,
+          "capture_failed",
+          wroteSomething
+            ? `browser produced an invalid screenshot${stderrSuffix}`
+            : `browser produced no screenshot${stderrSuffix}`,
+        );
+      }
+    }
+    return {
+      ok: true,
+      png: outcome.png,
+      caption: `${url.origin}${url.pathname}`,
+      filename: previewFilename(url),
+    };
+  } finally {
+    activeCaptures--;
+    grant?.release();
+    // runBrowserOnHost settles only after the browser closed. A fixed argv
+    // with a folder the server named under the member's agent space.
+    if (dir) await removeCaptureDir(host, dir);
+  }
+}
+
+async function removeCaptureDir(host: AgentHost, dir: string): Promise<void> {
+  let left = true;
+  try {
+    await host.run(["rm", "-rf", "--", dir], { output: "ignore" });
+    left = await host.fs.exists(dir);
+  } catch {
+    left = true;
+  }
+  if (left)
+    console.warn(
+      `[preview-capture] failed to remove the member's capture folder ${dir}`,
+    );
 }

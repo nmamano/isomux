@@ -3,7 +3,7 @@
 // profile, so without a grant the app gate sends it to the office sign-in page.
 //
 // The "browser" is a fake script (ISOMUX_PREVIEW_BROWSER). It writes the URL it
-// was told to load and then waits, so this file can act as the browser while
+// was told to load (read from the start page) and then waits, so this file can act as the browser while
 // the capture is in flight: redeem the code, hold the cookie, ask the gate.
 // Pre-flight fetches to anything but loopback are answered by a stub, because
 // office.example does not resolve.
@@ -71,13 +71,15 @@ const savedHandoff = process.env.PREVIEW_GRANT_HANDOFF;
 beforeAll(() => {
   scriptDir = mkdtempSync(join(tmpdir(), "preview-grant-scripts-"));
   const browser = join(scriptDir, "fake-browser.sh");
-  // Records the last argument (the URL), waits for `go`, then writes a PNG
+  // Records the URL it was told to load (from the start page that its last
+  // argument names: argv holds no URL), waits for `go`, then writes a PNG
   // that isCompletePng accepts.
   writeFileSync(
     browser,
     `#!/bin/sh
-out=""; url=""
-for a in "$@"; do case "$a" in --screenshot=*) out="\${a#--screenshot=}";; esac; url="$a"; done
+out=""; start=""
+for a in "$@"; do case "$a" in --screenshot=*) out="\${a#--screenshot=}";; esac; start="$a"; done
+url=$(sed -n 's/.*location.replace("\\(.*\\)").*/\\1/p' "\${start#file://}")
 printf '%s' "$url" > "$PREVIEW_GRANT_HANDOFF/url.tmp"
 mv "$PREVIEW_GRANT_HANDOFF/url.tmp" "$PREVIEW_GRANT_HANDOFF/url"
 while [ ! -e "$PREVIEW_GRANT_HANDOFF/go" ]; do sleep 0.05; done

@@ -920,6 +920,173 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
     root(name, `rm -rf ${office}`);
   });
 
+  // Slice 2b-iii: a member's agent screenshots a page as the member. Alice's
+  // page server writes the uid of every connection (from /proc/net/tcp), so
+  // the pre-flight and the browser must both be Alice's; a root ps loop shows
+  // the browser processes, their uid and their argv, which must hold no part
+  // of the URL. The capture folder is gone after each capture.
+  it("captures a page as the member, with no URL in any argv, and leaves no capture folder", async () => {
+    const home = `${MEMBERS}/home/${ALICE}`;
+    const aliceUid = String(uidOf(name, ALICE));
+    const PORT = 47611;
+    const URL = `http://127.0.0.1:${PORT}/rig-page?token=rig-secret-token`;
+    const seen = "/tmp/rig-page-uids.log";
+    const psLog = "/tmp/rig-ps.log";
+    root(
+      name,
+      `rm -f ${seen} ${psLog} /tmp/rig-ps-stop; touch ${seen} && chmod 0666 ${seen}`,
+    );
+    expect(
+      run(
+        "docker",
+        [
+          "exec",
+          "-i",
+          "-u",
+          ALICE,
+          name,
+          "bash",
+          "-c",
+          `cat > ${home}/rig-page.py`,
+        ],
+        `import http.server, sys
+port = int(sys.argv[1]); log = sys.argv[2]
+def uid_of(client_port):
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            rows = open(table).read().splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            f = row.split()
+            if int(f[1].split(":")[1], 16) == client_port and int(f[2].split(":")[1], 16) == port:
+                return f[7]
+    return "?"
+class Page(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(log, "a") as out:
+            out.write(uid_of(self.client_address[1]) + " " + self.path + "\\n")
+        body = b"<html><body style='background:#0a0'><h1>rig page</h1></body></html>"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        pass
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
+`,
+      ).status,
+    ).toBe(0);
+    run("docker", [
+      "exec",
+      "-d",
+      "-u",
+      ALICE,
+      name,
+      "python3",
+      `${home}/rig-page.py`,
+      String(PORT),
+      seen,
+    ]);
+    await waitFor(
+      "Alice's page server",
+      () =>
+        root(
+          name,
+          `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${PORT}/ready`,
+        ).out === "200",
+    );
+    // The enabling condition of the uid log: root's own request is root's.
+    expect(root(name, `cat ${seen}`).out.trim()).toBe("0 /ready");
+    root(name, `: > ${seen}`);
+
+    const made = api(name, aliceCookie, "POST", "/api/agents", {
+      name: "Rig Alice preview",
+      cwd: home,
+      roomId,
+      desk: 6,
+      agentType: "claude",
+    });
+    const agentId = (made.agent as { id: string } | undefined)?.id;
+    if (!agentId) throw new Error(`spawn: ${JSON.stringify(made)}`);
+    let turns = 0;
+    const call = async (path: string, body: unknown) => {
+      api(name, aliceCookie, "POST", `/api/agents/${agentId}/messages`, {
+        text: `RIG_CALL ${JSON.stringify({ method: "POST", path, body })}`,
+      });
+      turns++;
+      const report = (await reportsOf(agentId, turns))[turns - 1];
+      return report?.call as { status: number; body: string } | undefined;
+    };
+    const captureDirs = () =>
+      root(name, `ls -A ${home}/.isomux-agent/preview 2>/dev/null`).out.trim();
+
+    run("docker", [
+      "exec",
+      "-d",
+      "-u",
+      "0",
+      name,
+      "bash",
+      "-c",
+      `end=$((SECONDS+90)); while [ $SECONDS -lt $end ] && [ ! -e /tmp/rig-ps-stop ]; do ps -eo uid=,args= | grep -F -- '--user-data-dir=' >> ${psLog}; sleep 0.05; done`,
+    ]);
+    const shot = await call(`/api/agents/${agentId}/preview-url`, { url: URL });
+    root(name, "touch /tmp/rig-ps-stop");
+    if (shot?.status !== 200)
+      throw new Error(`preview-url: ${JSON.stringify(shot)}`);
+
+    // Both requests to the page, the pre-flight and the browser's, were
+    // Alice's.
+    const requests = root(name, `cat ${seen}`)
+      .out.trim()
+      .split("\n")
+      .filter(Boolean);
+    const pageLoads = requests.filter((l) =>
+      l.endsWith(" /rig-page?token=rig-secret-token"),
+    );
+    expect(pageLoads.length).toBe(2);
+    expect(
+      requests.map((l) => l.split(" ")[0]).filter((uid) => uid !== aliceUid),
+    ).toEqual([]);
+
+    // The browser ran as Alice, in a folder of her agent space, and no
+    // process's argv held the URL.
+    const browserLines = root(name, `cat ${psLog}`)
+      .out.split("\n")
+      .filter((l) =>
+        l.includes(`--user-data-dir=${home}/.isomux-agent/preview/`),
+      );
+    expect(browserLines.length).toBeGreaterThan(0);
+    expect(
+      browserLines
+        .map((l) => l.trim().split(/\s+/)[0])
+        .filter((uid) => uid !== aliceUid),
+    ).toEqual([]);
+    const leaks = root(name, `cat ${psLog}`)
+      .out.split("\n")
+      .filter(
+        (l) => l.includes(String(PORT)) || l.includes("rig-secret-token"),
+      );
+    expect(leaks).toEqual([]);
+    expect(captureDirs()).toBe("");
+
+    // A page that is not served: unreachable, as Alice's pre-flight finds.
+    const closed = await call(`/api/agents/${agentId}/preview-url`, {
+      url: `http://127.0.0.1:${PORT + 1}/`,
+    });
+    expect(closed?.status).toBe(500);
+    expect(
+      (JSON.parse(closed!.body) as { error?: { code?: string } }).error?.code,
+    ).toBe("unreachable");
+    expect(captureDirs()).toBe("");
+    root(
+      name,
+      `pkill -u ${ALICE} -f rig-page.py; rm -f ${home}/rig-page.py ${seen} ${psLog} /tmp/rig-ps-stop`,
+    );
+  });
+
   // Slice 2b-i: the office's sync session checks cannot read a member's
   // space, so they trust the stored conversation, and recovery must come
   // from the engine's own error. Each conversation is broken in the member's

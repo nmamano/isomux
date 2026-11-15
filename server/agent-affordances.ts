@@ -46,7 +46,12 @@ import {
 import type { createMessageQueue } from "./message-queue.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { getFilePath, saveFile as savePersistedFile } from "./persistence.ts";
-import { capturePreview, type PreviewCaptureDeps } from "./preview-capture.ts";
+import {
+  capturePreview,
+  capturePreviewOnHost,
+  type PreviewCaptureDeps,
+} from "./preview-capture.ts";
+import { memberFolderHost } from "./agent-folder.ts";
 import { getUserById } from "./users.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
 
@@ -526,7 +531,12 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
         code: "not_found",
         error: "agent not found",
       };
-    const result = await capturePreview(body, { appGrant });
+    // An isolated member's agent captures as the member, through the host
+    // of its manager; every other agent as the office user.
+    const memberHost = memberFolderHost(managed.info.userId);
+    const result = memberHost
+      ? await capturePreviewOnHost(body, memberHost, { appGrant })
+      : await capturePreview(body, { appGrant });
     if (!result.ok) return result;
     const saved = saveScreenshot(agentId, result.png, result.filename);
     if (!saved) return SAVE_FAILED;
