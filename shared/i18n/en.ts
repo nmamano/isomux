@@ -489,10 +489,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.changeTheme": "Change theme",
 
   "preferences.intro":
-    "Your language follows you to every device you sign in from.",
+    "Your language and chat settings follow you to every device you sign in from.",
   "preferences.language": "Language",
   "preferences.languageHint":
     "The language of the interface, of what your agents write, and of voice input and playback. Agents pick it up when they restart or start a new conversation.",
+  "preferences.showToolCalls": "Show tool calls",
+  "preferences.showToolCallsHint":
+    'Commands, file reads and searches that agents run. When off, each run of them shows as one line, such as "4 steps", that you can open.',
   "preferences.saved": "Saved.",
   "preferences.saveFailed": "Could not save",
 
@@ -535,6 +538,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.usage": "Usage",
   "settings.sidebar.storage": "Storage",
   "settings.sidebar.language": "Language",
+  "settings.sidebar.languageAndChat": "Language and chat",
   "settings.sidebar.recording": "Recording mode",
   // The group of rare, mostly read-only panes at the end of the Settings
   // sidebar. One string, so a rename is one line.
@@ -600,6 +604,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "(durable member-scoped facts for this member; rewrites the file exactly as shown - one memory per line; {size} / {cap})",
   "settings.profile.memoryTitle": "{user} · Memory",
   "settings.profile.memoryPlaceholder": "Some memory relevant to this member",
+  "settings.profile.chat": "Chat",
   "settings.profile.appearance": "Appearance",
   "settings.profile.avatarHint":
     "(your ghost in the office scene; other members see it next to the agent you're viewing)",
@@ -2556,6 +2561,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.toolCall.output": "Output",
   "cards.toolCall.denied": "Denied",
   "cards.toolCall.groupCount": "{count} tool calls",
+  "cards.toolCall.hiddenSteps.one": "{count} step",
+  "cards.toolCall.hiddenSteps.other": "{count} steps",
   "cards.toolResult.showMore": "Show more",
   "cards.toolResult.showLess": "Show less",
   "cards.reviewFindings.none": "No findings.",
@@ -2688,6 +2695,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Context usage not measured yet. Tap for details.",
   "logView.state.thinking": "Thinking",
   "logView.state.toolExecuting": "Running tool",
+  "logView.state.working": "Working",
   "logView.background.count.one": "{count} in background",
   "logView.background.count.other": "{count} in background",
   "logView.background.agent": "Agent: {label}",
@@ -4324,6 +4332,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.voice.transcribe": "Transcribe a recording",
   "apiCall.voice.speak": "Read text aloud",
   "apiCall.memberVoice.read": "Read voice settings",
+  "apiCall.memberChat.save": "Save chat settings",
   "apiCall.memberVoice.save": "Save voice settings",
   "push.test": "Test notification from Isomux.",
   "push.turnEnd.title": "{agent} finished",

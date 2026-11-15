@@ -3,11 +3,20 @@ import type { LogEntry, SubagentOrigin } from "../../shared/types.ts";
 import { parseIsomuxCurl, type IsomuxCurlRequest } from "./isomux-curl.ts";
 import { isomuxUiPorts } from "./IsomuxCurlSummary.tsx";
 
+// The shell tool of each engine: Claude and Codex "Bash", OpenCode "shell"
+// (and "bash" in its older builds). Each carries input.command.
+const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "Bash",
+  "bash",
+  "shell",
+]);
+
 export function isomuxRequestForToolCall(
   name: string,
   input: unknown,
 ): IsomuxCurlRequest | null {
-  if (name !== "Bash" || !input || typeof input !== "object") return null;
+  if (!SHELL_TOOL_NAMES.has(name) || !input || typeof input !== "object")
+    return null;
   const command = (input as { command?: unknown }).command;
   return typeof command === "string"
     ? parseIsomuxCurl(command, isomuxUiPorts)
@@ -181,6 +190,61 @@ export function findRawToolCallGroups(
 }
 
 /**
+ * The runs a member who does not show tool calls sees as one "N steps" line
+ * (task e7579473): every tool call that is not an office action, every
+ * tool_result without attachments, subagent steps, permission denials,
+ * background-task breadcrumbs and Codex stderr. Errors and subagent changes
+ * do not split a run; anything else does. A run may hold one entry. A result
+ * that folds into its call's card joins a run but never starts one, so an
+ * office card never gets an empty line under it.
+ */
+export function findHiddenToolRuns(entries: LogEntry[]): RawToolCallGroup[] {
+  const index = buildToolEntryIndex(entries);
+  const groups: RawToolCallGroup[] = [];
+  let run: LogEntry[] = [];
+  const flush = () => {
+    if (run.length > 0) groups.push({ firstId: run[0].id, entries: run });
+    run = [];
+  };
+  for (const entry of entries) {
+    if (isFoldedToolResult(entry, entries, index)) {
+      if (run.length > 0) run.push(entry);
+    } else if (isHiddenToolEntry(entry)) {
+      run.push(entry);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return groups;
+}
+
+function isHiddenToolEntry(entry: LogEntry): boolean {
+  switch (entry.kind) {
+    case "tool_call":
+      return !isomuxRequestForToolCall(entry.content, entry.metadata?.input);
+    case "tool_result":
+      return (entry.attachments?.length ?? 0) === 0;
+    case "system":
+      return (
+        !!entry.metadata?.permissionDenied ||
+        !!entry.metadata?.taskEvent ||
+        entry.content.startsWith("[codex stderr]")
+      );
+    default:
+      return false;
+  }
+}
+
+/** The "N steps" count of a hidden run: its top-level tool calls, at least 1. */
+export function hiddenRunSteps(run: LogEntry[]): number {
+  const calls = run.filter(
+    (entry) => entry.kind === "tool_call" && !entry.metadata?.subagent,
+  ).length;
+  return Math.max(1, calls);
+}
+
+/**
  * A subagent step that sits after a member message which came later than the
  * card that started its subagent, so by position it reads as a reply to that
  * message. `target` is the entry id a click on its pill jumps to: the
@@ -228,6 +292,12 @@ export function detachedSubagentSteps(
   });
   return steps;
 }
+
+/**
+ * Whether the chat folds tool calls (task e7579473): a tool result with
+ * images then shows the images alone. False outside ChatTranscript.
+ */
+export const HideToolCalls = createContext(false);
 
 /** The chat's detached subagent steps; empty outside ChatTranscript. */
 export const DetachedSubagentSteps = createContext<

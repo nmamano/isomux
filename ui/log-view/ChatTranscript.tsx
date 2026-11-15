@@ -18,11 +18,14 @@ import {
 import {
   DetachedSubagentSteps,
   detachedSubagentSteps,
+  findHiddenToolRuns,
   findRawToolCallGroups,
+  HideToolCalls,
   liveTailEntryIds,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
 import { SecretRequestOutcomes } from "./SecretRequestCard.tsx";
+import { HiddenToolRunCard } from "./HiddenToolRunCard.tsx";
 import { AskOrigins, askOrigins } from "./ask-link.tsx";
 import { copySelectionAsPlainText } from "./plain-copy.ts";
 import {
@@ -53,7 +56,13 @@ function secretRequestOutcomes(
 }
 
 // Both chat surfaces keep the same turn boundaries and expansion state.
-export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
+// hideToolCalls (useHideToolCalls; both surfaces pass it) folds each run of
+// tool steps into one "N steps" line; the HTML export shows them all.
+export function useChatTranscript(
+  logs: LogEntry[],
+  isBusy: boolean,
+  hideToolCalls = false,
+) {
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(
     () => new Set(),
   );
@@ -65,16 +74,36 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
       return next;
     });
   }, []);
+  // The hidden runs the member opened, by first entry id: held here, not in
+  // the card, so an export (which shows the chat unfolded) keeps them open.
+  const [openRuns, setOpenRuns] = useState<Set<string>>(() => new Set());
+  const toggleRun = useCallback((firstId: string) => {
+    setOpenRuns((previous) => {
+      const next = new Set(previous);
+      if (next.has(firstId)) next.delete(firstId);
+      else next.add(firstId);
+      return next;
+    });
+  }, []);
+  // On only while the HTML export takes its snapshot (chat-export.ts):
+  // every message expanded, a message in edit shown as sent, and every tool
+  // call shown.
+  const [exportView, setExportView] = useState(false);
+  const hidden = hideToolCalls && !exportView;
   // Do not collapse the trailing live tool batch: active tool work stays
   // visible as it arrives, while settled history remains stable even when one
   // agent turn runs for hours.
+  // A hidden run stays one line for its whole length, live or not.
   const liveTailIds = useMemo(
-    () => liveTailEntryIds(logs, isBusy),
-    [isBusy, logs],
+    () => liveTailEntryIds(logs, isBusy && !hidden),
+    [isBusy, hidden, logs],
   );
   const rawToolGroups = useMemo(
-    () => findRawToolCallGroups(logs, liveTailIds),
-    [liveTailIds, logs],
+    () =>
+      hidden
+        ? findHiddenToolRuns(logs)
+        : findRawToolCallGroups(logs, liveTailIds),
+    [hidden, liveTailIds, logs],
   );
   const rawToolGroupByFirstId = useMemo(
     () => new Map(rawToolGroups.map((group) => [group.firstId, group])),
@@ -155,10 +184,6 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
     return entryMap;
   }, [logs, groupedChildIds]);
 
-  // On only while the HTML export takes its snapshot (chat-export.ts):
-  // every message expanded, and a message in edit shown as sent.
-  const [exportView, setExportView] = useState(false);
-
   return {
     expandedMessages,
     toggleMessage,
@@ -168,6 +193,9 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
     rawToolGroupByFirstId,
     detachedSteps,
     turnData,
+    hidden,
+    openRuns,
+    toggleRun,
   };
 }
 
@@ -264,87 +292,104 @@ export function ChatTranscript({
           <SecretRequestOutcomes.Provider value={outcomes}>
             <AskOrigins.Provider value={origins}>
               <DetachedSubagentSteps.Provider value={view.detachedSteps}>
-                {partial && (
-                  <div
-                    data-chat-rest={level}
-                    style={{
-                      display: "flex",
-                      justifyContent: "center",
-                      padding: "6px 0 10px",
-                      fontSize: 12,
-                      color: "var(--text-faint)",
-                    }}
-                  >
-                    {level === "recent" ? (
-                      <button
-                        type="button"
-                        onClick={() => rest?.loadRest()}
-                        style={{
-                          background: "none",
-                          border: "1px solid var(--border-light)",
-                          borderRadius: 12,
-                          padding: "3px 12px",
-                          font: "inherit",
-                          color: "var(--text-secondary)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {t("logView.rest.loadOlder")}
-                      </button>
-                    ) : (
-                      <span>{t("logView.rest.loadingOlder")}</span>
-                    )}
-                  </div>
-                )}
-                {logs.map((entry) => {
-                  if (entry.metadata?.interactionFallback === true) return null;
-                  if (view.groupedChildIds.has(entry.id)) return null;
-                  const td = view.turnData.get(entry.id);
-                  const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
-                  const isUserMsg =
-                    entry.kind === "user_message" &&
-                    senderIsHuman(entry.metadata);
-                  // Only a message reads the export view: every other card keeps
-                  // its props, so the snapshot does not render it again.
-                  const exporting =
-                    view.exportView && entry.kind === "user_message";
-                  return (
+                <HideToolCalls.Provider value={view.hidden}>
+                  {partial && (
                     <div
-                      key={entry.id}
-                      data-log-entry-id={entry.id}
-                      ref={
-                        isUserMsg ? getUserMessageRef?.(entry.id) : undefined
-                      }
-                      onCopy={copySelectionAsPlainText}
+                      data-chat-rest={level}
+                      style={{
+                        display: "flex",
+                        justifyContent: "center",
+                        padding: "6px 0 10px",
+                        fontSize: 12,
+                        color: "var(--text-faint)",
+                      }}
                     >
-                      {rawToolGroup ? (
-                        <RawToolCallGroupCard
-                          entries={rawToolGroup.entries}
-                          isLastInTurn={td?.isLastInTurn}
-                          turnEntries={td?.turnEntries}
-                          isMobile={isMobile}
-                          onCopyToTerminal={onCopyToTerminal}
-                        />
+                      {level === "recent" ? (
+                        <button
+                          type="button"
+                          onClick={() => rest?.loadRest()}
+                          style={{
+                            background: "none",
+                            border: "1px solid var(--border-light)",
+                            borderRadius: 12,
+                            padding: "3px 12px",
+                            font: "inherit",
+                            color: "var(--text-secondary)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {t("logView.rest.loadOlder")}
+                        </button>
                       ) : (
-                        <LogEntryCard
-                          entry={entry}
-                          messageExpanded={
-                            exporting || view.expandedMessages.has(entry.id)
-                          }
-                          exportView={exporting || undefined}
-                          onToggleMessage={view.toggleMessage}
-                          isLastInTurn={td?.isLastInTurn}
-                          turnEntries={td?.turnEntries}
-                          isMobile={isMobile}
-                          {...entryProps?.(entry)}
-                        />
+                        <span>{t("logView.rest.loadingOlder")}</span>
                       )}
-                      {afterEntry?.(entry)}
                     </div>
-                  );
-                })}
-                {interaction}
-                {activity && <ActivityIndicator {...activity} />}
+                  )}
+                  {logs.map((entry) => {
+                    if (entry.metadata?.interactionFallback === true)
+                      return null;
+                    if (view.groupedChildIds.has(entry.id)) return null;
+                    const td = view.turnData.get(entry.id);
+                    const rawToolGroup = view.rawToolGroupByFirstId.get(
+                      entry.id,
+                    );
+                    const isUserMsg =
+                      entry.kind === "user_message" &&
+                      senderIsHuman(entry.metadata);
+                    // Only a message reads the export view: every other card keeps
+                    // its props, so the snapshot does not render it again.
+                    const exporting =
+                      view.exportView && entry.kind === "user_message";
+                    return (
+                      <div
+                        key={entry.id}
+                        data-log-entry-id={entry.id}
+                        ref={
+                          isUserMsg ? getUserMessageRef?.(entry.id) : undefined
+                        }
+                        onCopy={copySelectionAsPlainText}
+                      >
+                        {rawToolGroup && view.hidden ? (
+                          <HiddenToolRunCard
+                            entries={rawToolGroup.entries}
+                            open={view.openRuns.has(entry.id)}
+                            onToggle={() => view.toggleRun(entry.id)}
+                            isLastInTurn={td?.isLastInTurn}
+                            turnEntries={td?.turnEntries}
+                            isMobile={isMobile}
+                            onCopyToTerminal={onCopyToTerminal}
+                          />
+                        ) : rawToolGroup ? (
+                          <RawToolCallGroupCard
+                            entries={rawToolGroup.entries}
+                            isLastInTurn={td?.isLastInTurn}
+                            turnEntries={td?.turnEntries}
+                            isMobile={isMobile}
+                            onCopyToTerminal={onCopyToTerminal}
+                          />
+                        ) : (
+                          <LogEntryCard
+                            entry={entry}
+                            messageExpanded={
+                              exporting || view.expandedMessages.has(entry.id)
+                            }
+                            exportView={exporting || undefined}
+                            onToggleMessage={view.toggleMessage}
+                            isLastInTurn={td?.isLastInTurn}
+                            turnEntries={td?.turnEntries}
+                            isMobile={isMobile}
+                            {...entryProps?.(entry)}
+                          />
+                        )}
+                        {afterEntry?.(entry)}
+                      </div>
+                    );
+                  })}
+                  {interaction}
+                  {activity && (
+                    <ActivityIndicator {...activity} working={view.hidden} />
+                  )}
+                </HideToolCalls.Provider>
               </DetachedSubagentSteps.Provider>
             </AskOrigins.Provider>
           </SecretRequestOutcomes.Provider>

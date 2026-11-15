@@ -3,7 +3,10 @@ import type { LogEntry } from "../../shared/types.ts";
 import {
   commandForPermissionDenial,
   detachedSubagentSteps,
+  findHiddenToolRuns,
   findRawToolCallGroups,
+  hiddenRunSteps,
+  isomuxRequestForToolCall,
   liveTailEntryIds,
   MAX_LIVE_TAIL_ENTRIES,
   lastVisibleEntryIndex,
@@ -295,5 +298,210 @@ describe("detached subagent steps", () => {
   test("a step whose starting call is not in the chat is not detached", () => {
     const entries = [member("u1"), step(call("s1"), "agent")];
     expect(steps(entries).size).toBe(0);
+  });
+});
+
+// The chat of a member who does not show tool calls (task e7579473): every
+// tool step that is not an office action folds into one "N steps" run.
+describe("hidden tool runs", () => {
+  const CURL = "curl -s localhost:4000/api/tasks";
+  const officeCall = (id: string, name = "Bash") =>
+    call(id, name, { command: CURL });
+  const system = (id: string, metadata: Record<string, unknown> = {}) =>
+    entry(id, "system", "line", metadata);
+  const sub = (e: LogEntry, parent: string) => {
+    e.metadata!.subagent = { parentToolUseId: `${parent}-tool` };
+    return e;
+  };
+  const image = (e: LogEntry) => {
+    e.attachments = [
+      {
+        filename: "hash.png",
+        originalName: "shot.png",
+        mediaType: "image/png",
+        size: 10,
+      },
+    ];
+    return e;
+  };
+  // Each run's entries, without the results paired to a call in the chat:
+  // those fold into their call on screen whether or not the run holds them.
+  function shape(entries: LogEntry[]): string[][] {
+    const callIds = new Set(
+      entries
+        .filter((e) => e.kind === "tool_call")
+        .map((e) => e.metadata?.toolId),
+    );
+    const paired = (e: LogEntry) =>
+      e.kind === "tool_result" &&
+      !e.attachments?.length &&
+      callIds.has(e.metadata?.toolUseId);
+    const runs = findHiddenToolRuns(entries);
+    for (const run of runs) expect(run.firstId).toBe(run.entries[0].id);
+    return runs.map((run) =>
+      run.entries.filter((e) => !paired(e)).map((e) => e.id),
+    );
+  }
+
+  test("every hidden kind joins one run: calls, errored calls, subagent steps of two subagents, denials, task breadcrumbs, Codex stderr and an unpaired result", () => {
+    const entries = [
+      entry("u", "user_message", "go"),
+      call("a"),
+      result("a-r", "a"),
+      call("b", "Bash", { command: "ls" }),
+      result("b-r", "b", true),
+      sub(call("s1"), "p1"),
+      sub(result("s1-r", "s1"), "p1"),
+      sub(call("s2"), "p2"),
+      system("denied", {
+        permissionDenied: { toolUseId: "b-tool", toolName: "Bash" },
+      }),
+      system("task", { taskEvent: { taskId: "t1", phase: "started" } }),
+      entry("stderr", "system", "[codex stderr] warning: x"),
+      // Its call sits in an earlier, unloaded part of the chat.
+      entry("orphan", "tool_result", "late", { toolUseId: "gone-tool" }),
+      entry("orphan2", "tool_result", "no id"),
+      entry("x", "text", "Done."),
+    ];
+    expect(shape(entries)).toEqual([
+      ["a", "b", "s1", "s2", "denied", "task", "stderr", "orphan", "orphan2"],
+    ]);
+  });
+
+  const splitters: [string, LogEntry][] = [
+    ["a member message", entry("X", "user_message", "go on")],
+    ["a text reply", entry("X", "text", "Here it is.")],
+    ["thinking", entry("X", "thinking", "hmm")],
+    ["a turn error", entry("X", "error", "The turn failed.")],
+    ["an office action (Claude, Codex)", officeCall("X")],
+    ["an office action (OpenCode shell)", officeCall("X", "shell")],
+    ["an office action (OpenCode bash)", officeCall("X", "bash")],
+    ["a notice", system("X", { notice: "settings" })],
+    ["a plain system line", system("X")],
+    ["a diff", entry("X", "diff", "diff")],
+    ["a file view", entry("X", "file-view", "file")],
+    ["an edit request", entry("X", "edit-request", "edit")],
+    ["a terminal command", entry("X", "terminal-command", "cmd")],
+    ["a secret request", entry("X", "secret-request", "secret")],
+  ];
+  for (const [label, splitter] of splitters)
+    test(`${label} stays out of the runs and splits one`, () => {
+      expect(shape([call("a"), splitter, call("b")])).toEqual([["a"], ["b"]]);
+    });
+
+  test("a result with images stays out of the runs and splits one; the same result without them is hidden", () => {
+    const withImage = [
+      call("a"),
+      image(result("a-r", "a")),
+      call("b"),
+      result("b-r", "b"),
+    ];
+    expect(shape(withImage)).toEqual([["a"], ["b"]]);
+    expect(
+      findHiddenToolRuns(withImage).some((run) =>
+        run.entries.some((e) => e.id === "a-r"),
+      ),
+    ).toBe(false);
+    expect(
+      shape([call("a"), result("a-r", "a"), call("b"), result("b-r", "b")]),
+    ).toEqual([["a", "b"]]);
+  });
+
+  // A result paired with a call in the chat folds into that call's card, so
+  // it neither starts a run nor splits one: a run of folded results alone
+  // would draw an empty "1 step" line.
+  test("a folded result never makes a run of its own", () => {
+    const firstIds = (entries: LogEntry[]) =>
+      findHiddenToolRuns(entries).map((run) => run.firstId);
+    expect(
+      firstIds([
+        officeCall("o"),
+        result("o-r", "o"),
+        entry("x", "text", "Done."),
+      ]),
+    ).toEqual([]);
+    // Parallel calls: both results land after the office card.
+    expect(
+      firstIds([
+        call("a"),
+        officeCall("o"),
+        result("a-r", "a"),
+        result("o-r", "o"),
+        entry("x", "text", "Done."),
+      ]),
+    ).toEqual(["a"]);
+    // An unpaired result is hidden on its own.
+    expect(
+      firstIds([
+        officeCall("o"),
+        result("o-r", "o"),
+        entry("late", "tool_result", "x", { toolUseId: "old-tool" }),
+      ]),
+    ).toEqual(["late"]);
+  });
+
+  test("the shell tool names of every engine reach the office card parser", () => {
+    for (const name of ["Bash", "bash", "shell"])
+      expect({
+        name,
+        office: isomuxRequestForToolCall(name, { command: CURL }) !== null,
+      }).toEqual({ name, office: true });
+    // Not a shell tool, or not an office call.
+    expect(isomuxRequestForToolCall("Read", { command: CURL })).toBeNull();
+    expect(isomuxRequestForToolCall("shell", { command: "ls" })).toBeNull();
+  });
+
+  test("a long run is one run: no live tail cap splits it", () => {
+    const entries = Array.from(
+      { length: MAX_LIVE_TAIL_ENTRIES + 50 },
+      (_, index) => call(`call-${index}`),
+    );
+    const runs = findHiddenToolRuns(entries);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].entries).toHaveLength(MAX_LIVE_TAIL_ENTRIES + 50);
+  });
+
+  test("N steps counts the top-level calls, at least 1", () => {
+    const steps = (entries: LogEntry[]) => {
+      const runs = findHiddenToolRuns(entries);
+      expect(runs).toHaveLength(1);
+      return hiddenRunSteps(runs[0].entries);
+    };
+    expect(
+      steps([
+        call("a"),
+        result("a-r", "a"),
+        call("b"),
+        result("b-r", "b", true),
+        sub(call("s1"), "a"),
+        sub(call("s2"), "a"),
+        system("task", { taskEvent: { taskId: "t1", phase: "started" } }),
+      ]),
+    ).toBe(2);
+    // A run with no top-level call still reads as one step.
+    expect(
+      steps([system("task", { taskEvent: { taskId: "t1", phase: "done" } })]),
+    ).toBe(1);
+    expect(steps([sub(call("s1"), "a"), sub(call("s2"), "a")])).toBe(1);
+  });
+
+  test("a detached subagent step whose starting call is in a hidden run jumps to the run", () => {
+    const start = entry("agent", "tool_call", "Agent", {
+      toolId: "agent-tool",
+      input: { description: "x", run_in_background: true },
+    });
+    const entries = [
+      call("a"),
+      start,
+      result("agent-r", "agent"),
+      entry("u1", "user_message", "go on"),
+      sub(call("s1"), "agent"),
+    ];
+    const runs = findHiddenToolRuns(entries);
+    expect(runs.map((run) => run.firstId)).toEqual(["a", "s1"]);
+    expect(detachedSubagentSteps(entries, runs).get("s1")).toEqual({
+      target: "a",
+      background: true,
+    });
   });
 });

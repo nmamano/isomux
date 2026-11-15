@@ -1273,7 +1273,8 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       JSON.stringify(r.user.recordingWords) !==
         JSON.stringify(user.recordingWords) ||
       JSON.stringify(r.user.inboxDismissed ?? []) !==
-        JSON.stringify(user.inboxDismissed ?? [])
+        JSON.stringify(user.inboxDismissed ?? []) ||
+      r.user.showToolCalls !== user.showToolCalls
     ) {
       emitPrivateUserRecord(r.user);
     }

@@ -11,6 +11,17 @@ export const STATE_LABEL_KEYS: Partial<Record<AgentState, PlainMessageKey>> = {
   tool_executing: "logView.state.toolExecuting",
 };
 
+// The label of a state; `working` (the member does not show tool calls, task
+// e7579473) says "Working" where it would name a tool run.
+export function stateLabelKey(
+  state: AgentState,
+  working: boolean,
+): PlainMessageKey | undefined {
+  return working && state === "tool_executing"
+    ? "logView.state.working"
+    : STATE_LABEL_KEYS[state];
+}
+
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
 const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -32,13 +43,16 @@ export function ActivityIndicator({
   state,
   stateChangedAt,
   onAbort,
+  working = false,
 }: {
+  // The member does not show tool calls: a tool run reads "Working".
+  working?: boolean;
   state: AgentState;
   stateChangedAt?: number;
   onAbort?: () => void;
 }) {
   const { t } = useI18n();
-  const labelKey = STATE_LABEL_KEYS[state];
+  const labelKey = stateLabelKey(state, working);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {

@@ -191,6 +191,15 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           "invalid_request",
           "allowedRooms must be an array of room ids",
         );
+      if (
+        body.showToolCalls !== undefined &&
+        typeof body.showToolCalls !== "boolean"
+      )
+        return fail(
+          422,
+          "invalid_request",
+          "showToolCalls must be true or false",
+        );
       // A permission pack, in the same write as the member.
       const pack =
         body.pack === undefined || body.pack === null
@@ -207,6 +216,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         avatarVariant: body.avatarVariant,
         allowedRooms: body.allowedRooms,
         ...(pack ? { pack } : {}),
+        ...(body.showToolCalls ? { showToolCalls: true } : {}),
       });
       return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
     },

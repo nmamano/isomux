@@ -421,6 +421,12 @@ it("with HTML file picked, each choice saves a file of the chat as it shows, not
     expect(
       chat.querySelectorAll(`button[title="${copyTitle}"]`).length,
     ).toBeGreaterThan(0);
+    // The viewer's record does not show tool calls (task e7579473): the
+    // chat folds the call into a steps line, and the file still holds it.
+    expect(chat.textContent).not.toContain("echo one");
+    expect(chat.querySelectorAll("button[data-hidden-steps]").length).toBe(1);
+    // The member opens the run; the export must leave it open.
+    fireEvent.click(chat.querySelector("button[data-hidden-steps]")!);
     expect(chat.textContent).toContain("echo one");
     // Controls of the chat: a code block's copy, the message toggle, the
     // editor's Cancel, the model picker.
@@ -536,6 +542,12 @@ it("with HTML file picked, each choice saves a file of the chat as it shows, not
 
     // The chat is as the member left it, with the draft kept.
     expect(chat.textContent).toContain("Peer line one · Peer line two");
+    // The run the member opened is still open.
+    expect(chat.textContent).toContain("echo one");
+    expect(chat.querySelectorAll("button[data-hidden-steps]").length).toBe(0);
+    expect(chat.querySelectorAll("button[data-hidden-steps-open]").length).toBe(
+      1,
+    );
     expect(stylesAround(chat, "Report body text.")).toMatch(MAX_HEIGHT);
     expect(
       Array.from(chat.querySelectorAll("textarea")).some(

@@ -21,8 +21,8 @@ afterEach(() => setApiShim(OK));
 afterAll(() => setApiShim(null));
 
 const SAVE = translationsFor("common.save");
-// The pane is named for its one control (task db800fd8).
-const TITLE = translationsFor("settings.sidebar.language");
+// The pane is named for its controls (tasks db800fd8, e7579473).
+const TITLE = translationsFor("settings.sidebar.languageAndChat");
 const LANGUAGE = translationsFor("preferences.language");
 const INTRO = translationsFor("preferences.intro");
 const LANGUAGE_HINT = translationsFor("preferences.languageHint");

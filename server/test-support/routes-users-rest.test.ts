@@ -146,6 +146,41 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     });
   });
 
+  // The New member form's "Show tool calls" (task e7579473): true stores it,
+  // false is the default and stores nothing, anything else creates no one.
+  it("takes showToolCalls: true stores it, false leaves the default (absent), a non-boolean is 422 and creates no one", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    for (const [name, showToolCalls, want] of [
+      ["Shows", true, true],
+      ["Folds", false, "absent"],
+    ] as const) {
+      const r = await api(srv, "/api/users", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { name, role: "member", showToolCalls },
+      });
+      expect({ name, status: r.status }).toEqual({ name, status: 201 });
+      const rec = getUserByName(name)!;
+      expect({
+        name,
+        now: "showToolCalls" in rec ? rec.showToolCalls : "absent",
+      }).toEqual({ name, now: want });
+    }
+    for (const showToolCalls of ["true", 1, null]) {
+      const r = await api(srv, "/api/users", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { name: "Yu", role: "member", showToolCalls },
+      });
+      expect({ showToolCalls, status: r.status }).toEqual({
+        showToolCalls,
+        status: 422,
+      });
+    }
+    expect(getUserByName("Yu")).toBeUndefined();
+  });
+
   it("refuses: taken name 409, bad name 400, grants on an owner or an unknown room 400, malformed 422 - creating no one", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Morgan");

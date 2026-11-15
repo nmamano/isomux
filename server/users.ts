@@ -317,6 +317,9 @@ function load(): Record<string, UserRecord> {
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
+        ...(value.showToolCalls === true
+          ? { showToolCalls: true as const }
+          : {}),
         ...loadedPack(value, id),
       };
     }
@@ -442,6 +445,7 @@ export function claimUser(
     pendingSignIn?: true;
     // A member's permission pack; dropped for an owner.
     pack?: MemberPack;
+    showToolCalls?: true;
   },
 ): UserRecord {
   load();
@@ -486,6 +490,7 @@ export function claimUser(
     language: normalizeLanguage(initial?.language),
     ...(initial?.pendingSignIn ? { pendingSignIn: true as const } : {}),
     ...(initial?.pack && role === "member" ? { pack: initial.pack } : {}),
+    ...(initial?.showToolCalls ? { showToolCalls: true as const } : {}),
   };
   users[id] = record;
   try {
@@ -536,6 +541,7 @@ export function createMember(
     avatarColor?: string;
     avatarVariant?: string;
     pack?: MemberPack;
+    showToolCalls?: true;
   },
 ):
   | { ok: true; user: UserRecord }
@@ -777,7 +783,12 @@ export function updateUserById(
       | "pinnedAgents"
       | "recentAgents"
     >
-  > & { allowedRooms?: string[]; pack?: MemberPack | null },
+  > & {
+    allowedRooms?: string[];
+    pack?: MemberPack | null;
+    // true shows every tool call; false removes the field (the default).
+    showToolCalls?: boolean;
+  },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
   const existing = users[id];
@@ -877,6 +888,9 @@ export function updateUserById(
       changes.recentAgents ?? existing.recentAgents,
     ),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
+    ...((changes.showToolCalls ?? existing.showToolCalls === true)
+      ? { showToolCalls: true as const }
+      : {}),
   };
   // A pack is a member's only: a promotion to owner drops it. The caller
   // refuses a pack for an owner.

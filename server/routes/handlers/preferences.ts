@@ -34,6 +34,7 @@
 
 import { noContent, fail, ok, type RouteHandler } from "../executor.ts";
 import {
+  CHAT_PREFERENCE_KEYS,
   INBOX_DISMISSED_KEY_MAX,
   INBOX_DISMISSED_MAX,
   PREFERENCE_KEYS,
@@ -158,6 +159,15 @@ export function parsePreferenceChange(
     }
     change.inboxDismissed = [...new Set(keys as string[])];
   }
+  if ("showToolCalls" in body) {
+    if (typeof body.showToolCalls !== "boolean") {
+      return refuse(
+        "invalid_show_tool_calls",
+        "showToolCalls must be true or false",
+      );
+    }
+    change.showToolCalls = body.showToolCalls;
+  }
   if ("voiceInput" in body) {
     if (!isVoiceInput(body.voiceInput)) {
       return refuse(
@@ -222,6 +232,22 @@ export function preferencesHandlers(
         words: user.recordingWords ?? defaultRecordingWords(deps.officeName()),
       };
       return ok(res);
+    },
+
+    // The chat part on the member's path (task e7579473): the member or an
+    // office owner, like memberVoice.update.
+    "memberChat.update": (ctx) => {
+      const member = subject(ctx);
+      if (!member) return fail(404, "not_found");
+      const parsed = parsePreferenceChange(
+        ctx.body ?? {},
+        CHAT_PREFERENCE_KEYS,
+      );
+      if (!parsed.ok) return fail(422, parsed.code, parsed.message);
+      if (!deps.applyPreferences(member.userId, parsed.change)) {
+        return fail(404, "not_found");
+      }
+      return noContent();
     },
 
     "memberVoice.update": (ctx) => {

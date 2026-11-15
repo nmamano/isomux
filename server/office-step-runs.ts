@@ -134,6 +134,7 @@ export function officeStepRuns(deps: {
             ...(user.voiceInput ? { voiceInput: user.voiceInput } : {}),
             ...(user.voiceOutput ? { voiceOutput: user.voiceOutput } : {}),
             ...(user.voiceName ? { voiceName: user.voiceName } : {}),
+            ...(user.showToolCalls ? { showToolCalls: true as const } : {}),
             accessible: [...deps.accessibleRoomIdsFor(user)],
             hidden: user.hidden,
             tucked: user.tucked,

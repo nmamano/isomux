@@ -1,5 +1,5 @@
-// Self-scoped "Language" pane on the Settings page (it was "Preferences" while
-// it held more than the language):
+// Self-scoped "Language and chat" pane on the Settings page: the language and
+// whether the chat shows every tool call (task e7579473):
 // the settings that belong to a PERSON rather than to a browser, so they
 // follow them to their phone. Sits next to My devices, which is its opposite
 // number - the device label there stays local on purpose.
@@ -10,7 +10,7 @@
 // (useSelfUser), so a change saved on another device repaints here through the
 // same event that carries the rest of the record.
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useI18n } from "../i18n.tsx";
@@ -29,6 +29,7 @@ import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 export function PreferencesPane() {
   const self = useSelfUser();
   const { t } = useI18n();
+  const languageId = useId();
   // The form holds only what the user has TOUCHED; everything else is derived
   // from the record by resolvePreferenceForm. That way a record arriving late
   // (or a change saved on another device) simply shows up, with no effect
@@ -40,7 +41,7 @@ export function PreferencesPane() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const { language, canSave, request } = resolvePreferenceForm(
+  const { language, showToolCalls, canSave, request } = resolvePreferenceForm(
     self,
     typeof navigator === "undefined" ? null : navigator.language,
     edits,
@@ -68,7 +69,7 @@ export function PreferencesPane() {
   if (!self) {
     return (
       <div style={{ marginTop: 24 }}>
-        <h4 style={sectionHeader}>{t("settings.sidebar.language")}</h4>
+        <h4 style={sectionHeader}>{t("settings.sidebar.languageAndChat")}</h4>
         <p style={hint}>{t("common.loading")}</p>
       </div>
     );
@@ -76,14 +77,20 @@ export function PreferencesPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("settings.sidebar.language")}</h4>
+      <h4 style={sectionHeader}>{t("settings.sidebar.languageAndChat")}</h4>
       <p style={{ ...hint, marginTop: 4 }}>{t("preferences.intro")}</p>
 
       <div style={cardStyle}>
-        {/* The heading names the field, so the select takes the word as
-            its accessible name rather than a second visible label. */}
+        {/* The heading names the pane, which holds more than the language,
+            so the select has its own visible label. */}
+        <label
+          htmlFor={languageId}
+          style={{ display: "block", fontSize: 13, marginBottom: 6 }}
+        >
+          {t("preferences.language")}
+        </label>
         <select
-          aria-label={t("preferences.language")}
+          id={languageId}
           value={language}
           onChange={(e) => {
             setEdits((prev) => ({
@@ -103,6 +110,16 @@ export function PreferencesPane() {
         <p style={{ ...dialogHint, margin: "6px 0 0" }}>
           {t("preferences.languageHint")}
         </p>
+      </div>
+
+      <div style={cardStyle}>
+        <ShowToolCallsBox
+          checked={showToolCalls}
+          onChange={(checked) => {
+            setEdits((prev) => ({ ...prev, showToolCalls: checked }));
+            setSaved(false);
+          }}
+        />
       </div>
 
       <div
@@ -134,6 +151,42 @@ export function PreferencesPane() {
         )}
       </div>
     </div>
+  );
+}
+
+// The "Show tool calls" checkbox and its hint. The owner's member page and
+// New member form use it too.
+export function ShowToolCallsBox({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 13,
+          cursor: "pointer",
+        }}
+      >
+        <input
+          type="checkbox"
+          data-show-tool-calls
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        {t("preferences.showToolCalls")}
+      </label>
+      <p style={{ ...dialogHint, margin: "6px 0 0" }}>
+        {t("preferences.showToolCallsHint")}
+      </p>
+    </>
   );
 }
 

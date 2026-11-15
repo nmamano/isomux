@@ -227,6 +227,7 @@ import type {
   SudoRequestRunReq,
   SudoRequestAnswerRes,
   PagerSettingsReq,
+  MemberChatReq,
   MemberVoiceReq,
   MemberVoiceRes,
   MemberRecordingWordsRes,
@@ -2200,6 +2201,19 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "voice", level: "write" },
     // The same scoped pair as prefs.update: the subject's tabs get their
     // record, owners the admin copy.
+    emits: ["user_admin_updated", "user_self_updated"],
+  }),
+
+  // A member's chat choice (task e7579473): whether the chat shows every tool
+  // call. The voice gate, so the member or an office owner (their API token,
+  // their privileged agent) sets it.
+  defineRoute<MemberChatReq, NoContent>({
+    opId: "memberChat.update",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PATCH",
+    path: "/api/users/:username/chat",
+    auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "office", level: "write" },
     emits: ["user_admin_updated", "user_self_updated"],
   }),
 

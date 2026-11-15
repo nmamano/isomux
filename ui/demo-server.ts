@@ -2108,6 +2108,12 @@ const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
 const CURRENT_SESSION_PREFIX = "a1b2c3d4";
 let activeSessionsList: SessionWire[] = [];
 let invitesListSeed: InviteWire[] = [];
+// true stores the field; false removes it, as server/users.ts does.
+function setShowToolCalls(record: UserRecord, show: boolean): void {
+  if (show) record.showToolCalls = true;
+  else delete record.showToolCalls;
+}
+
 let sessionContext: SessionContext | null = null;
 
 function seedUsers() {
@@ -3535,6 +3541,8 @@ export async function demoApi(
           ? { recordingWords: b.recordingWords }
           : {}),
       };
+      if (b.showToolCalls !== undefined)
+        setShowToolCalls(updated, b.showToolCalls);
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_updated", user: updated });
       return undefined;
@@ -4236,6 +4244,22 @@ export async function demoApi(
     shimEmit({ type: "user_updated", user: updated });
     shimEmit({ type: "users_list", users: [...users.values()] });
     return { user: updated };
+  }
+  // memberChat.update (PATCH /api/users/:username/chat): the member's
+  // "Show tool calls", set by an owner on the member's page.
+  const memberChatMatch = pathname.match(/^\/api\/users\/([^/]+)\/chat$/);
+  if (memberChatMatch && method === "PATCH") {
+    const key = decodeURIComponent(memberChatMatch[1]).toLowerCase();
+    const user = users.get(key);
+    if (!user) throw new ApiError(404, "not_found", "Member not found.");
+    const updated: UserRecord = { ...user };
+    setShowToolCalls(
+      updated,
+      (body as { showToolCalls?: unknown } | null)?.showToolCalls === true,
+    );
+    users.set(key, updated);
+    shimEmit({ type: "user_updated", user: updated });
+    return undefined;
   }
   // users.{read,set}Instructions - the member profile's text.
   const memberInstructionsMatch = pathname.match(

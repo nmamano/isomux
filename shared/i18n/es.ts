@@ -483,10 +483,13 @@ Cosas que puedes hacer por él:
   "common.changeTheme": "Cambiar el tema",
 
   "preferences.intro":
-    "Tu idioma te sigue a todos los dispositivos desde los que inicias sesión.",
+    "Tu idioma y los ajustes del chat te siguen a todos los dispositivos desde los que inicias sesión.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
     "El idioma de la interfaz, de lo que escriben tus agentes y de la entrada de voz y la lectura en voz alta. Los agentes lo aplican cuando se reinician o empiezan una nueva conversación.",
+  "preferences.showToolCalls": "Mostrar las llamadas a herramientas",
+  "preferences.showToolCallsHint":
+    'Comandos, lecturas de archivos y búsquedas que hacen los agentes. Si está desactivado, cada serie se muestra como una línea, por ejemplo "4 pasos", que puedes abrir.',
   "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
@@ -530,6 +533,7 @@ Cosas que puedes hacer por él:
   "settings.sidebar.usage": "Uso",
   "settings.sidebar.storage": "Almacenamiento",
   "settings.sidebar.language": "Idioma",
+  "settings.sidebar.languageAndChat": "Idioma y chat",
   "settings.sidebar.recording": "Modo grabación",
   "settings.sidebar.housekeeping": "Mantenimiento",
   "settings.sidebar.updates": "Actualizaciones",
@@ -594,6 +598,7 @@ Cosas que puedes hacer por él:
   "settings.profile.memoryTitle": "{user} · Memoria",
   "settings.profile.memoryPlaceholder":
     "Alguna memoria relevante para este miembro",
+  "settings.profile.chat": "Chat",
   "settings.profile.appearance": "Apariencia",
   "settings.profile.avatarHint":
     "(tu fantasma en la escena de la oficina; los demás miembros lo ven junto al agente que estás viendo)",
@@ -2636,6 +2641,8 @@ Cosas que puedes hacer por él:
   "cards.toolCall.output": "Salida",
   "cards.toolCall.denied": "Denegado",
   "cards.toolCall.groupCount": "{count} llamadas a herramientas",
+  "cards.toolCall.hiddenSteps.one": "{count} paso",
+  "cards.toolCall.hiddenSteps.other": "{count} pasos",
   "cards.toolResult.showMore": "Ver más",
   "cards.toolResult.showLess": "Ver menos",
   "cards.reviewFindings.none": "Sin hallazgos.",
@@ -2773,6 +2780,7 @@ Cosas que puedes hacer por él:
     "El uso del contexto todavía no se ha medido. Toca para ver los detalles.",
   "logView.state.thinking": "Pensando",
   "logView.state.toolExecuting": "Ejecutando una herramienta",
+  "logView.state.working": "Trabajando",
   "logView.background.count.one": "{count} en segundo plano",
   "logView.background.count.other": "{count} en segundo plano",
   "logView.background.agent": "Agente: {label}",
@@ -4408,6 +4416,7 @@ Cosas que puedes hacer por él:
   "apiCall.voice.transcribe": "Transcribir una grabación",
   "apiCall.voice.speak": "Leer un texto en voz alta",
   "apiCall.memberVoice.read": "Leer los ajustes de voz",
+  "apiCall.memberChat.save": "Guardar los ajustes del chat",
   "apiCall.memberVoice.save": "Guardar los ajustes de voz",
   "push.test": "Notificación de prueba de Isomux.",
   "push.turnEnd.title": "{agent} ha terminado",

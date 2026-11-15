@@ -483,10 +483,13 @@ Coses que pots fer per ell:
   "common.changeTheme": "Canvia el tema",
 
   "preferences.intro":
-    "El teu idioma et segueix a tots els dispositius des dels quals inicies la sessió.",
+    "El teu idioma i els ajustos del xat et segueixen a tots els dispositius des dels quals inicies la sessió.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
     "L'idioma de la interfície, del que escriuen els teus agents i de l'entrada de veu i la lectura en veu alta. Els agents l'apliquen quan es reinicien o comencen una conversa nova.",
+  "preferences.showToolCalls": "Mostra les crides a eines",
+  "preferences.showToolCallsHint":
+    'Ordres, lectures de fitxers i cerques que fan els agents. Si està desactivat, cada sèrie es mostra com una línia, per exemple "4 passos", que pots obrir.',
   "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
@@ -530,6 +533,7 @@ Coses que pots fer per ell:
   "settings.sidebar.usage": "Ús",
   "settings.sidebar.storage": "Emmagatzematge",
   "settings.sidebar.language": "Idioma",
+  "settings.sidebar.languageAndChat": "Idioma i xat",
   "settings.sidebar.recording": "Mode d'enregistrament",
   "settings.sidebar.housekeeping": "Manteniment",
   "settings.sidebar.updates": "Actualitzacions",
@@ -594,6 +598,7 @@ Coses que pots fer per ell:
   "settings.profile.memoryTitle": "{user} · Memòria",
   "settings.profile.memoryPlaceholder":
     "Alguna memòria rellevant per a aquest membre",
+  "settings.profile.chat": "Xat",
   "settings.profile.appearance": "Aparença",
   "settings.profile.avatarHint":
     "(el teu fantasma a l'escena de l'oficina; els altres membres el veuen al costat de l'agent que estàs mirant)",
@@ -2638,6 +2643,8 @@ Coses que pots fer per ell:
   "cards.toolCall.output": "Sortida",
   "cards.toolCall.denied": "Denegat",
   "cards.toolCall.groupCount": "{count} crides a eines",
+  "cards.toolCall.hiddenSteps.one": "{count} pas",
+  "cards.toolCall.hiddenSteps.other": "{count} passos",
   "cards.toolResult.showMore": "Mostra'n més",
   "cards.toolResult.showLess": "Mostra'n menys",
   "cards.reviewFindings.none": "Cap troballa.",
@@ -2777,6 +2784,7 @@ Coses que pots fer per ell:
     "L'ús del context encara no s'ha mesurat. Toca per veure'n els detalls.",
   "logView.state.thinking": "Pensant",
   "logView.state.toolExecuting": "Executant una eina",
+  "logView.state.working": "Treballant",
   "logView.background.count.one": "{count} en segon pla",
   "logView.background.count.other": "{count} en segon pla",
   "logView.background.agent": "Agent: {label}",
@@ -4414,6 +4422,7 @@ Coses que pots fer per ell:
   "apiCall.voice.transcribe": "Transcriure una gravació",
   "apiCall.voice.speak": "Llegir un text en veu alta",
   "apiCall.memberVoice.read": "Llegir els ajustos de veu",
+  "apiCall.memberChat.save": "Desar els ajustos del xat",
   "apiCall.memberVoice.save": "Desar els ajustos de veu",
   "push.test": "Notificació de prova d'Isomux.",
   "push.turnEnd.title": "{agent} ha acabat",

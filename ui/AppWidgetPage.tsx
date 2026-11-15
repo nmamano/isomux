@@ -28,6 +28,7 @@ import {
   ChatTranscript,
   useChatTranscript,
 } from "./log-view/ChatTranscript.tsx";
+import { useHideToolCalls } from "./hooks/useHideToolCalls.ts";
 import { LiveCharacter } from "./office/LiveCharacter.tsx";
 import {
   chatVisibleEntries,
@@ -1044,6 +1045,7 @@ export function WidgetChat({
   const transcript = useChatTranscript(
     logs,
     agent.state === "thinking" || agent.state === "tool_executing",
+    useHideToolCalls(),
   );
   const key = boot
     ? widgetDraftKey(boot, agent.id)

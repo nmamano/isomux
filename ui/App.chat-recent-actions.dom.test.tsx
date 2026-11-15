@@ -2,8 +2,9 @@
 // over a fake socket: what loads the rest besides the row and the scroll. The
 // Copy menu's whole-chat choices wait for the whole chat with a reason on
 // screen; an answer's link to an ask card older than the window loads the
-// rest and scrolls there; a window that starts on a tool result whose call is
-// older shows it alone, then as a whole chat would. A server that keeps the
+// rest and scrolls there; for a member who shows tool calls, a window that
+// starts on a tool result whose call is older shows it alone, then as a whole
+// chat would. A server that keeps the
 // connect replay shows no row. The levels: ui/App.chat-recent.dom.test.tsx.
 // The Copy menu's reason is [data-chat-rest-note].
 
@@ -25,6 +26,7 @@ const {
   setUpLazyChatTests,
   settle,
 } = await import("./test-support/lazy-chat-fixture.tsx");
+const { selfUserRecord } = await import("./test-support/language-fixture.tsx");
 type LogEntry = import("../shared/types.ts").LogEntry;
 
 setUpLazyChatTests();
@@ -223,7 +225,15 @@ it("a window that starts on a tool result whose call is older shows the result a
     (view.container.querySelector(".chat-messages")?.textContent ?? "").split(
       text,
     ).length - 1;
+  // Tool cards show only for a member who shows tool calls (task e7579473);
+  // the default folds them into a steps line.
+  await deliver(socket, {
+    type: "user_self_updated",
+    user: { ...selfUserRecord(null), name: "owner", showToolCalls: true },
+  });
   await finishOpen(socket, ownOpens(socket, A.id)[0], [result, "x1"]);
+  // Enabling condition: no steps line, so the cards below are the shown mode.
+  expect(view.container.querySelectorAll("[data-hidden-steps]").length).toBe(0);
   expect(count("RESULT-OUTPUT")).toBe(1);
   expect(count("CALL-INPUT")).toBe(0);
 
@@ -245,6 +255,7 @@ it("a window that starts on a tool result whose call is older shows the result a
       e.getAttribute("data-log-entry-id"),
     ),
   ).toEqual(["u1", "c1", "r1", "x1"]);
+  expect(view.container.querySelectorAll("[data-hidden-steps]").length).toBe(0);
 });
 
 it("with a server that keeps the connect replay, a chat shows no row and every Copy choice is ready", async () => {

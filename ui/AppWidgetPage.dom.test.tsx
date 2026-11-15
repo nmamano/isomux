@@ -440,7 +440,10 @@ it("keeps oversize and failed images removable without sending them", async () =
   }
 });
 
-it("folds a settled tool group, expands results on demand, and updates the office avatar", () => {
+// The widget's viewer has no record that shows tool calls, so the chat folds
+// them (task e7579473): one steps line, opened on demand, and still one line
+// while the agent works.
+it("folds the tool calls into one steps line, opens it on demand, and updates the office avatar", () => {
   const entries: import("../shared/types.ts").LogEntry[] = [
     {
       id: "c1",
@@ -478,11 +481,11 @@ it("folds a settled tool group, expands results on demand, and updates the offic
   const view = render(<WidgetChat {...props} logs={entries} />);
   const log = view.container.querySelector('[role="log"]')!;
   expect(log.textContent?.includes("first result body")).toBe(false);
-  const group = log.querySelector("button")!;
-  expect(group).not.toBeNull();
-  fireEvent.click(group);
+  expect(log.textContent?.includes("pwd")).toBe(false);
+  expect(log.querySelectorAll("button[data-hidden-steps]").length).toBe(1);
+  fireEvent.click(log.querySelector("button[data-hidden-steps]")!);
   expect(log.textContent?.includes("pwd")).toBe(true);
-  fireEvent.click(log.querySelector("button")!);
+  fireEvent.click(log.querySelector("button[data-hidden-steps-open]")!);
   expect(log.textContent?.includes("pwd")).toBe(false);
   view.rerender(
     <WidgetChat
@@ -498,7 +501,9 @@ it("folds a settled tool group, expands results on demand, and updates the offic
       ?.getAttribute("data-agent-state"),
   ).toBe("thinking");
   expect(view.container.querySelector(".app-widget-avatar svg")).not.toBeNull();
-  expect(log.textContent?.includes("pwd")).toBe(true);
+  // Busy, the run stays one closed line: no live cards open.
+  expect(log.textContent?.includes("pwd")).toBe(false);
+  expect(log.querySelectorAll("button[data-hidden-steps]").length).toBe(1);
   // Only the tool disclosure/copy controls occur in the transcript; no abort.
   expect(
     log.querySelector('button[title="' + en["logView.abortTitle"] + '"]'),

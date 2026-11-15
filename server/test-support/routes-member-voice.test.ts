@@ -10,6 +10,9 @@
 // the SUBJECT's key, never a value. A bad body gets the same answer as
 // prefs.update.
 //
+// The chat part (task e7579473): PATCH /api/users/:username/chat sets
+// whether the member's chat shows every tool call, through the same gate.
+//
 // Seam: startTestServer(). Zero LLM.
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -316,6 +319,149 @@ describe("member voice: a bad body", () => {
   });
 });
 
+const chatPath = (username: string) => `/api/users/${username}/chat`;
+const showsToolCalls = (username: string) => {
+  const rec = getUserByName(username)!;
+  return "showToolCalls" in rec ? rec.showToolCalls : "absent";
+};
+
+describe("member chat: who sets showToolCalls", () => {
+  it("an owner (cookie, API token, privileged agent), the member and their own privileged agent set it; true stores it, false removes it", async () => {
+    const o = await office();
+    const path = chatPath(o.member.username);
+    for (const [who, auth] of [
+      ["owner cookie", { session: o.owner.rawSessionId }],
+      ["owner api token", { bearer: o.ownerApi }],
+      ["owner privileged agent", { bearer: o.privilegedAgent }],
+      ["member cookie", { session: o.member.rawSessionId }],
+      ["member api token", { bearer: o.memberApi }],
+      ["member privileged agent", { bearer: o.memberAgent }],
+    ] as const) {
+      for (const value of [true, false]) {
+        const r = await call(o.srv, "PATCH", path, {
+          ...auth,
+          body: { showToolCalls: value },
+        });
+        expect({ who, value, status: r.status }).toEqual({
+          who,
+          value,
+          status: 204,
+        });
+        expect({ who, value, now: showsToolCalls(o.member.username) }).toEqual({
+          who,
+          value,
+          now: value ? true : "absent",
+        });
+      }
+    }
+    // The caller's own record is not the subject.
+    expect(showsToolCalls(o.owner.username)).toBe("absent");
+  });
+
+  it("refuses an ordinary agent, another member and their proxies (403 forbidden), an unknown member (404), and changes nothing", async () => {
+    const o = await office();
+    const path = chatPath(o.member.username);
+    for (const [who, auth] of [
+      ["owner's ordinary agent", { bearer: o.plainAgent }],
+      ["other member", { session: o.other.rawSessionId }],
+      ["other member's token", { bearer: o.otherApi }],
+      ["other member's privileged agent", { bearer: o.otherAgent }],
+    ] as const) {
+      const r = await call(o.srv, "PATCH", path, {
+        ...auth,
+        body: { showToolCalls: true },
+      });
+      expect({ who, status: r.status, code: code(r) }).toEqual({
+        who,
+        status: 403,
+        code: "forbidden",
+      });
+    }
+    const ghost = await call(o.srv, "PATCH", chatPath("nobody-here"), {
+      session: o.owner.rawSessionId,
+      body: { showToolCalls: true },
+    });
+    expect(ghost.status).toBe(404);
+    expect(showsToolCalls(o.member.username)).toBe("absent");
+  });
+
+  // A display choice, not an integration: the office area limits a token.
+  it("a limited API token needs office write, and the voice area does not reach it", async () => {
+    const o = await office();
+    const ownerId = getUserByName(o.owner.username)!.id;
+    const limited = async (areas: Record<string, "read" | "write">) =>
+      (
+        await mintApiToken({
+          userId: ownerId,
+          name: "Limited",
+          expiresInDays: null,
+          limits: { areas },
+        })
+      ).token;
+    const path = chatPath(o.member.username);
+    const body = { showToolCalls: true };
+    for (const [areas, status] of [
+      [{ voice: "write" }, 403],
+      [{ office: "read" }, 403],
+      [{ office: "write" }, 204],
+    ] as const) {
+      const r = await call(o.srv, "PATCH", path, {
+        bearer: await limited(areas),
+        body,
+      });
+      expect({ areas, status: r.status }).toEqual({ areas, status });
+    }
+    expect(showsToolCalls(o.member.username)).toBe(true);
+  });
+
+  // The same parser as prefs.update for the chat key; every other preference
+  // stays on its own route.
+  it("answers a bad body as prefs.update does, refuses the other preferences, and writes nothing", async () => {
+    const o = await office();
+    const path = chatPath(o.member.username);
+    for (const body of [
+      { showToolCalls: "true" },
+      { showToolCalls: null },
+      { showToolCalls: 1 },
+      { showTools: true },
+      {},
+      7,
+      ["showToolCalls"],
+    ]) {
+      const self = await call(o.srv, "PATCH", "/api/me/preferences", {
+        session: o.member.rawSessionId,
+        body,
+      });
+      const forMember = await call(o.srv, "PATCH", path, {
+        session: o.owner.rawSessionId,
+        body,
+      });
+      expect(self.status).toBe(422);
+      expect({ body, status: forMember.status, code: code(forMember) }).toEqual(
+        { body, status: self.status, code: code(self) },
+      );
+    }
+    for (const body of [
+      { language: "es" },
+      { voiceInput: "openai" },
+      { showToolCalls: true, voiceInput: "openai" },
+    ]) {
+      const r = await call(o.srv, "PATCH", path, {
+        session: o.owner.rawSessionId,
+        body,
+      });
+      expect({ body, status: r.status }).toEqual({ body, status: 422 });
+    }
+    expect(showsToolCalls(o.member.username)).toBe("absent");
+    expect(getUserByName(o.member.username)!.language).toBe(null);
+    expect(voiceOf(o.member.username)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+});
+
 describe("member voice: the member's open tabs", () => {
   const bag = (sock: TestSocket, type: string): Record<string, unknown>[] =>
     (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type);
@@ -369,6 +515,47 @@ describe("member voice: the member's open tabs", () => {
     expect(ownerSelf()).toHaveLength(0);
     expect(ownerAdmin()).toHaveLength(1);
     expect(ownerAdmin()[0].user).toMatchObject({ voiceInput: "openai" });
+    expect(ownerPublic()).toHaveLength(0);
+    expect(memberPublic()).toHaveLength(0);
+    memberSock.close();
+    ownerSock.close();
+  });
+
+  // The member's chat reads showToolCalls from the record in the store: an
+  // owner's write must reach the member's open tabs, or their chat keeps
+  // folding until a reload.
+  it("an owner's chat write reaches the member's socket with the new record, and no public event carries it", async () => {
+    const o = await office();
+    const memberSock = await o.srv.connectWs(o.member.rawSessionId);
+    const ownerSock = await o.srv.connectWs(o.owner.rawSessionId);
+    await memberSock.waitFor("presence_list");
+    await ownerSock.waitFor("presence_list");
+    await fence(memberSock);
+    await fence(ownerSock);
+    const since = (sock: TestSocket, type: string) => {
+      const before = bag(sock, type).length;
+      return () => bag(sock, type).slice(before);
+    };
+    const memberSelf = since(memberSock, "user_self_updated");
+    const ownerAdmin = since(ownerSock, "user_admin_updated");
+    const ownerPublic = since(ownerSock, "user_updated");
+    const memberPublic = since(memberSock, "user_updated");
+    const r = await call(o.srv, "PATCH", chatPath(o.member.username), {
+      session: o.owner.rawSessionId,
+      body: { showToolCalls: true },
+    });
+    expect(r.status).toBe(204);
+    await fence(memberSock);
+    await fence(ownerSock);
+    const selfEvents = memberSelf();
+    expect(selfEvents).toHaveLength(1);
+    expect(selfEvents[0].user).toMatchObject({
+      name: "Mia",
+      showToolCalls: true,
+    });
+    const adminEvents = ownerAdmin();
+    expect(adminEvents).toHaveLength(1);
+    expect(adminEvents[0].user).toMatchObject({ showToolCalls: true });
     expect(ownerPublic()).toHaveLength(0);
     expect(memberPublic()).toHaveLength(0);
     memberSock.close();

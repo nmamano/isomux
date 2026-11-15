@@ -566,6 +566,7 @@ describe("route table: managed env values are self-only", () => {
       "pagerSettings.test",
       "memberVoice.get",
       "memberVoice.update",
+      "memberChat.update",
       "memberRecordingWords.get",
       "pushDevices.list",
       "pushDevices.add",
@@ -668,6 +669,8 @@ describe("route table: managed env values are self-only", () => {
     "memberVoice.get",
     "memberVoice.update",
     "memberRecordingWords.get",
+    // A member's chat choice (task e7579473), behind the same gate.
+    "memberChat.update",
   ];
   const SELF_ONLY = [
     "userEnv.get",
@@ -1625,6 +1628,11 @@ const SPEC_ROUTE_CONTRACT: Record<
   // OCR check of a demo video (task 6e08239a).
   "memberRecordingWords.get": { caps: ["integration:manage"], emits: [] },
   "memberVoice.update": {
+    caps: ["integration:manage"],
+    emits: ["user_admin_updated", "user_self_updated"],
+  },
+  // A member's chat choice, set by the member or an owner (task e7579473).
+  "memberChat.update": {
     caps: ["integration:manage"],
     emits: ["user_admin_updated", "user_self_updated"],
   },
@@ -2602,6 +2610,7 @@ const API_REACHABLE_OPIDS = [
   "memberVoice.get",
   "memberRecordingWords.get",
   "memberVoice.update",
+  "memberChat.update",
   "userEnv.get",
   "userEnv.replace",
   "userEnv.set",

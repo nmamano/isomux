@@ -105,6 +105,7 @@ export const AUDIT_OPERATIONS = [
   "mcpServers.signIn",
   "mcpServers.test",
   "mcpServers.update",
+  "memberChat.update",
   "memberDms.delete",
   "memberDms.edit",
   "memberDms.post",

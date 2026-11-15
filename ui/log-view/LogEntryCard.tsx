@@ -46,6 +46,7 @@ import {
   isFoldedToolResult,
   isomuxRequestForToolCall,
   DetachedSubagentSteps,
+  HideToolCalls,
   type DetachedSubagentStep,
 } from "./tool-call-groups.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
@@ -763,6 +764,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   // is shown reads it; the detectors below keep reading entry.content.
   const display = logEntryText(i18n, entry);
   const detached = useContext(DetachedSubagentSteps).get(entry.id);
+  const hideToolCalls = useContext(HideToolCalls);
   switch (entry.kind) {
     case "user_message": {
       const {
@@ -904,6 +906,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       return (
         <ToolResult
           entry={entry}
+          bare={hideToolCalls && (entry.attachments?.length ?? 0) > 0}
           detached={detached}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
@@ -1283,7 +1286,7 @@ export function RawToolCallGroupCard({
   );
 }
 
-function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
+export function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   const i18n = useI18n();
   const getText = useCallback(
     () => (turnEntries ? serializeEntries(i18n, turnEntries) : ""),
@@ -2234,8 +2237,11 @@ function ToolResult({
   isLastInTurn,
   turnEntries,
   isMobile,
+  bare,
 }: {
   entry: LogEntry;
+  // Only the attachments, for a member who does not show tool calls.
+  bare?: boolean;
   detached?: DetachedSubagentStep;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
@@ -2281,6 +2287,55 @@ function ToolResult({
   // Only unpaired or errored results reach this branch; the rest fold into
   // their tool_call card, which carries the pill itself.
   const subagent = subagentOf(entry);
+
+  // The output text above the attachments, when the card shows it.
+  const textShown = !bare && showText && !!content;
+  const attachments =
+    entry.attachments &&
+    entry.attachments.length > 0 &&
+    (isAttachmentEcho && !echoOpen ? (
+      <button
+        onClick={() => setEchoOpen(true)}
+        title={t("cards.fileView.earlierAttachment")}
+        style={{
+          display: "block",
+          marginTop: textShown ? 6 : 0,
+          padding: "2px 8px",
+          border: "1px solid var(--border-light)",
+          background: "var(--expand-btn)",
+          borderRadius: 4,
+          color: "var(--text-faint)",
+          fontSize: isMobile ? 12 : 10,
+          cursor: "pointer",
+        }}
+      >
+        {/* Two whole frames, one per branch: a named file, or a count of
+            images. Never a sentence joined around the data. */}
+        {entry.attachments.length === 1
+          ? t("cards.fileView.viewedFile", {
+              file: entry.attachments[0].originalName,
+            })
+          : t("cards.fileView.viewedImages", {
+              count: entry.attachments.length,
+            })}
+      </button>
+    ) : (
+      <AttachmentDisplay
+        attachments={entry.attachments}
+        agentId={entry.agentId}
+        isMobile={isMobile}
+        hasContent={textShown}
+      />
+    ));
+  // A member who does not show tool calls sees the images alone (task
+  // e7579473): no tool box, no output text.
+  if (bare)
+    return (
+      <div style={{ margin: "4px 0", position: "relative" }}>
+        {attachments}
+        {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
+      </div>
+    );
 
   return (
     <div
@@ -2339,42 +2394,7 @@ function ToolResult({
             : t("cards.toolResult.showMore")}
         </button>
       )}
-      {entry.attachments &&
-        entry.attachments.length > 0 &&
-        (isAttachmentEcho && !echoOpen ? (
-          <button
-            onClick={() => setEchoOpen(true)}
-            title={t("cards.fileView.earlierAttachment")}
-            style={{
-              display: "block",
-              marginTop: showText && content ? 6 : 0,
-              padding: "2px 8px",
-              border: "1px solid var(--border-light)",
-              background: "var(--expand-btn)",
-              borderRadius: 4,
-              color: "var(--text-faint)",
-              fontSize: isMobile ? 12 : 10,
-              cursor: "pointer",
-            }}
-          >
-            {/* Two whole frames, one per branch: a named file, or a count of
-                images. Never a sentence joined around the data. */}
-            {entry.attachments.length === 1
-              ? t("cards.fileView.viewedFile", {
-                  file: entry.attachments[0].originalName,
-                })
-              : t("cards.fileView.viewedImages", {
-                  count: entry.attachments.length,
-                })}
-          </button>
-        ) : (
-          <AttachmentDisplay
-            attachments={entry.attachments}
-            agentId={entry.agentId}
-            isMobile={isMobile}
-            hasContent={showText && !!content}
-          />
-        ))}
+      {attachments}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
     </div>
   );

@@ -819,6 +819,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/voice/speak", "apiCall.voice.speak"],
   ["GET", "/api/users/*/voice", "apiCall.memberVoice.read"],
   ["PATCH", "/api/users/*/voice", "apiCall.memberVoice.save"],
+  ["PATCH", "/api/users/*/chat", "apiCall.memberChat.save"],
   ["GET", "/api/users/*/pager-settings", "apiCall.pagerSettings.read"],
   ["PATCH", "/api/users/*/pager-settings", "apiCall.pagerSettings.save"],
   ["POST", "/api/users/*/pager-settings/test", "apiCall.pagerSettings.test"],

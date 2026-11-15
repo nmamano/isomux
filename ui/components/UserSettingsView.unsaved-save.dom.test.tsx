@@ -77,7 +77,7 @@ function row(view: View, label: string): HTMLElement {
 const current = (view: View, label: string) =>
   row(view, label).getAttribute("aria-current") === "true";
 const PROFILE = t("settings.sidebar.profile");
-const LANGUAGE = t("settings.sidebar.language");
+const LANGUAGE = t("settings.sidebar.languageAndChat");
 
 const prompt = (view: View) =>
   view.queryByText(t("common.discardPrompt")) !== null;

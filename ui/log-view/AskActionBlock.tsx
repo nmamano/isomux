@@ -193,6 +193,7 @@ const PREFERENCE_LABEL: Record<string, PlainMessageKey> = {
   voiceInput: "integrations.voice.mic",
   voiceOutput: "integrations.voice.readAloud",
   voiceName: "integrations.voice.voiceName",
+  showToolCalls: "preferences.showToolCalls",
 };
 const BACKUP_LABEL: Record<string, PlainMessageKey> = {
   intervalHours: "settings.storage.backupInterval",
@@ -792,6 +793,8 @@ export function AskActionBlock({
             ? "integrations.voice.openai"
             : "integrations.voice.browser",
         );
+      if (typeof value === "boolean")
+        return t(value ? "asks.action.on" : "asks.action.off");
       return String(value);
     };
     // The values as they apply: a record with no voice value has the
@@ -802,6 +805,7 @@ export function AskActionBlock({
           voiceInput: self.voiceInput ?? "browser",
           voiceOutput: self.voiceOutput ?? "browser",
           voiceName: self.voiceName ?? DEFAULT_VOICE_NAME,
+          showToolCalls: self.showToolCalls === true,
         }
       : null;
     return {

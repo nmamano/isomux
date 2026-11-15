@@ -1568,6 +1568,27 @@ describe("a member-preferences ask at create", () => {
   });
 });
 
+// Tool calls in the chat (task e7579473): absent reads as false, so an ask to
+// fold them is already done for a member who never chose, and an ask to show
+// them opens and closes once the card sets the record.
+describe("a member-preferences ask for showToolCalls", () => {
+  it("showToolCalls: false on a record without it is 409 step_done; true opens, and the card sets it and closes the ask", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    expect("showToolCalls" in getUserById(o.morganId)!).toBe(false);
+    expect(
+      outcome(await ask(o, asker.id, prefsStep({ showToolCalls: false }))),
+    ).toEqual({ status: 409, code: "step_done" });
+    expect(
+      outcome(await ask(o, asker.id, prefsStep({ showToolCalls: "yes" }))),
+    ).toEqual({ status: 400, code: "invalid_request" });
+    const entry = await opened(o, asker.id, prefsStep({ showToolCalls: true }));
+    expect(await run(o, o.morgan, entry.id)).toMatchObject({ status: 204 });
+    expect(getUserById(o.morganId)!.showToolCalls).toBe(true);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
 describe("a member-preferences ask run from the card", () => {
   it("sets each key with the member's own session, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
     const o = await office();

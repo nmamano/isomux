@@ -105,7 +105,7 @@ const CA = {
   you: translationsFor("common.you").ca,
   self: translationsFor("settings.you").ca,
   profile: translationsFor("settings.sidebar.profile").ca,
-  language: translationsFor("settings.sidebar.language").ca,
+  language: translationsFor("settings.sidebar.languageAndChat").ca,
   housekeeping: translationsFor("settings.sidebar.housekeeping").ca,
   signInLinks: translationsFor("settings.sidebar.signInLinks").ca,
   device: translationsFor("common.device").ca,

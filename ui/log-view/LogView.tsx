@@ -10,7 +10,9 @@ import {
   STATE_LABEL_KEYS,
   escalationColor,
   formatElapsed,
+  stateLabelKey,
 } from "./ActivityIndicator.tsx";
+import { useHideToolCalls } from "../hooks/useHideToolCalls.ts";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
 import { chatVisibleEntries, chatVisibleQueue } from "./chat-entries.ts";
@@ -586,7 +588,7 @@ function HeaderTimer({
   stateChangedAt?: number;
 }) {
   const { t } = useI18n();
-  const labelKey = STATE_LABEL_KEYS[state];
+  const labelKey = stateLabelKey(state, useHideToolCalls());
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 100);
@@ -1347,7 +1349,7 @@ export function LogView({
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
-  const transcript = useChatTranscript(logs, isBusy);
+  const transcript = useChatTranscript(logs, isBusy, useHideToolCalls());
   // Recent then complete (task 9ebe887d slice 3): the whole-chat Copy
   // choices wait for the whole chat; last exchange needs only a member
   // message in the loaded entries.

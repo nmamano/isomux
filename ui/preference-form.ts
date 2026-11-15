@@ -21,6 +21,8 @@ import type { UserRecord } from "../shared/types.ts";
 /** What the user has TOUCHED in the form. null = "follow the record". */
 export interface PreferenceEdits {
   language: SupportedLanguageCode | null;
+  // "Show tool calls" (task e7579473); absent = follow the record.
+  showToolCalls?: boolean;
 }
 
 export const NO_EDITS: PreferenceEdits = { language: null };
@@ -28,6 +30,8 @@ export const NO_EDITS: PreferenceEdits = { language: null };
 export interface PreferenceForm {
   /** What the picker shows. */
   language: SupportedLanguageCode;
+  /** Whether the "Show tool calls" box is ticked. */
+  showToolCalls: boolean;
   /** Whether Save does anything useful. */
   canSave: boolean;
   /** The body Save would send. */
@@ -61,7 +65,7 @@ export function languageSeed(
 }
 
 export function resolvePreferenceForm(
-  record: Pick<UserRecord, "language"> | null,
+  record: Pick<UserRecord, "language" | "showToolCalls"> | null,
   navigatorLanguage: string | null | undefined,
   edits: PreferenceEdits,
 ): PreferenceForm {
@@ -73,6 +77,14 @@ export function resolvePreferenceForm(
   // someone on a Spanish browser would see "Español" selected with Save greyed
   // out and no way to commit it.
   const neverChosen = record !== null && record.language === null;
-  const canSave = neverChosen || language !== shownLanguage;
-  return { language, canSave, request: { language } };
+  const storedShow = record?.showToolCalls === true;
+  const showToolCalls = edits.showToolCalls ?? storedShow;
+  const showChanged = record !== null && showToolCalls !== storedShow;
+  const canSave = neverChosen || language !== shownLanguage || showChanged;
+  return {
+    language,
+    showToolCalls,
+    canSave,
+    request: showChanged ? { language, showToolCalls } : { language },
+  };
 }

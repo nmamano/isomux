@@ -288,6 +288,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "officeMcpServers.test": "connections-settings",
   "memberVoice.get": "connections-settings",
   "memberVoice.update": "connections-settings",
+  "memberChat.update": "connections-settings",
   "memberRecordingWords.get": "discovery",
   "pagerSettings.get": "connections-settings",
   "pagerSettings.update": "connections-settings",

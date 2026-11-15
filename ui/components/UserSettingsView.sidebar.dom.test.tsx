@@ -174,8 +174,8 @@ describe("the groups", () => {
       expect(r, key).not.toBeNull();
       expect(before(r!, members), key).toBe(true);
     }
-    // The Language row, and no Pager or API tokens row.
-    expect(row(view, t("settings.sidebar.language"))).not.toBeNull();
+    // The Language and chat row, and no Pager or API tokens row.
+    expect(row(view, t("settings.sidebar.languageAndChat"))).not.toBeNull();
     expect(row(view, t("settings.sidebar.pager"))).toBeNull();
     expect(row(view, t("settings.sidebar.apiTokens"))).toBeNull();
     // The You group still holds Sign-in links.

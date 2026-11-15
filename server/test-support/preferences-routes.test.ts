@@ -130,6 +130,27 @@ describe("prefs.update - persistence", () => {
     expect(getUserByName("Morgan")!.inboxDismissed ?? []).toEqual([]);
   });
 
+  // Tool calls in the chat (task e7579473): absent = hidden, the default for
+  // every member, so false removes the field rather than storing false.
+  it("round-trips showToolCalls through a cold restart, and false removes it from the record", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    await putPrefs(server, owner.rawSessionId, { language: "es" });
+    expect("showToolCalls" in getUserByName("Morgan")!).toBe(false);
+    expect(
+      await putPrefs(server, owner.rawSessionId, { showToolCalls: true }),
+    ).toBe(204);
+    server = await server.restart();
+    expect(getUserByName("Morgan")!.showToolCalls).toBe(true);
+    expect(
+      await putPrefs(server, owner.rawSessionId, { showToolCalls: false }),
+    ).toBe(204);
+    server = await server.restart();
+    const rec = getUserByName("Morgan")!;
+    expect("showToolCalls" in rec).toBe(false);
+    expect(rec.language).toBe("es");
+  });
+
   it("language: null clears an earlier pick", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Morgan");
@@ -238,6 +259,26 @@ describe("prefs.update - value validation", () => {
     expect(rec.voiceOutput ?? "browser").toBe("browser");
     expect(rec.voiceName).toBeUndefined();
   });
+});
+
+// A truthy string must not read as "show": the field is true or absent.
+it("rejects a showToolCalls that is not a boolean, and writes nothing", async () => {
+  server = await startTestServer();
+  const owner = await server.seedOwner("Morgan");
+  for (const body of [
+    { showToolCalls: "true" },
+    { showToolCalls: 1 },
+    { showToolCalls: null },
+    { showToolCalls: {} },
+    { language: "es", showToolCalls: "yes" },
+  ])
+    expect({
+      body,
+      status: await putPrefs(server, owner.rawSessionId, body),
+    }).toEqual({ body, status: 422 });
+  const rec = getUserByName("Morgan")!;
+  expect("showToolCalls" in rec).toBe(false);
+  expect(rec.language).toBe(null);
 });
 
 describe("prefs.update - recording mode words", () => {
@@ -374,6 +415,8 @@ describe("prefs.update - live event contract", () => {
       ["recordingWords", [{ word: "Zyxquorp", standIn: "Client" }]],
       // Every device of the member drops a dismissed Inbox item at once.
       ["inboxDismissed", ["agent-1:1700000000000"]],
+      // The member's other devices fold or show tool calls at once.
+      ["showToolCalls", true],
     ] as const) {
       // Ignore earlier events; only events caused by this write count.
       const beforeSelf = bag(memberSock, "user_self_updated").length;

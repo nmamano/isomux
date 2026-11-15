@@ -249,6 +249,7 @@ export interface MemberSettings {
   voiceInput?: VoiceInput;
   voiceOutput?: VoiceOutput;
   voiceName?: VoiceName;
+  showToolCalls?: true;
   accessible: readonly string[];
   hidden: readonly string[];
   tucked: readonly string[];
@@ -616,6 +617,7 @@ function effectivePreferences(m: MemberSettings): Record<string, unknown> {
     voiceInput: m.voiceInput ?? "browser",
     voiceOutput: m.voiceOutput ?? "browser",
     voiceName: m.voiceName ?? DEFAULT_VOICE_NAME,
+    showToolCalls: m.showToolCalls === true,
   };
 }
 

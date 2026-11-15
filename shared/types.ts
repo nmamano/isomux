@@ -2525,6 +2525,11 @@ export interface UserRecord {
   // (session, API tokens, agents, cron runs, apps) is capped to its areas.
   // Absent = a full member. Never on an owner.
   pack?: MemberPack;
+  // The chat shows every tool call (task e7579473). Absent = the chat folds
+  // the tool calls that are not office actions into one "N steps" line, the
+  // default for every member, legacy records included. Written through
+  // prefs.update, memberChat.update and users.create.
+  showToolCalls?: true;
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`

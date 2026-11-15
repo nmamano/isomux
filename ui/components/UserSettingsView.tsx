@@ -82,7 +82,7 @@ import { useLeaveGuard } from "../page-leave-guard.ts";
 import { InvitesPane, PendingMemberSignInLink } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
-import { PreferencesPane } from "./PreferencesPane.tsx";
+import { PreferencesPane, ShowToolCallsBox } from "./PreferencesPane.tsx";
 import {
   RemovedMembersPane,
   useRemovedMembersSeed,
@@ -477,7 +477,7 @@ export function UserSettingsView({
                   },
                 ]
               : []),
-            sectionRow("prefs", t("settings.sidebar.language")),
+            sectionRow("prefs", t("settings.sidebar.languageAndChat")),
             sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
           ],
         },
@@ -1239,6 +1239,14 @@ function UserEditPanel({
   const [packSetting, setPackSetting] = useState<MemberPack | null>(
     user.pack ?? null,
   );
+  // "Show tool calls" (task e7579473): an owner sets it for another member
+  // and in the New member form; the member's own is in their Settings pane.
+  const editsShowToolCalls = isOwner && !isMe;
+  const [showToolCalls, setShowToolCalls] = useState(
+    user.showToolCalls === true,
+  );
+  const showToolCallsChanged =
+    editsShowToolCalls && showToolCalls !== (user.showToolCalls === true);
   // The level the draft left when an edit made it Custom; feeds the legend.
   const [startedFrom, setStartedFrom] = useState<MemberLevel | null>(null);
   // Per-user DISPLAY preference: room ids the user has hidden
@@ -1438,6 +1446,7 @@ function UserEditPanel({
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
     if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
+    if (!creating && showToolCallsChanged) return true;
     return false;
   }
 
@@ -1530,6 +1539,14 @@ function UserEditPanel({
         setPromptBaseline(saved.instructions ?? "");
         setPromptVersion(saved.version);
         setPromptConflict(null);
+      }
+      // (1c) The member's chat choice, against the original name.
+      if (showToolCallsChanged) {
+        await apiFetch(
+          "PATCH",
+          `/api/users/${encodeURIComponent(origName)}/chat`,
+          { showToolCalls },
+        );
       }
       // (2) Record fields (name/avatar), against the original name.
       if (recordChanged) {
@@ -1653,6 +1670,8 @@ function UserEditPanel({
           ? { allowedRooms: allowedSetting }
           : {}),
         ...(!officeOwner && packSetting ? { pack: packSetting } : {}),
+        // Unticked is the default, so the body leaves it out.
+        ...(showToolCalls ? { showToolCalls: true } : {}),
       });
       onCreated?.(r.user.id);
     } catch (err) {
@@ -1985,6 +2004,16 @@ function UserEditPanel({
                 fontFamily: "inherit",
                 lineHeight: 1.45,
               }}
+            />
+          </>
+        )}
+
+        {editsShowToolCalls && (
+          <>
+            <h5 style={sectionTitleStyle}>{t("settings.profile.chat")}</h5>
+            <ShowToolCallsBox
+              checked={showToolCalls}
+              onChange={setShowToolCalls}
             />
           </>
         )}
