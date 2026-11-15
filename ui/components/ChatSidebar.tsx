@@ -30,6 +30,7 @@ import { noTranslate } from "../no-translate.ts";
 import { useInboxCounts } from "../inbox.ts";
 import { askCounts, openAsks } from "../asks-sync.ts";
 import { useCan } from "../hooks/useCan.ts";
+import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { apiFetch } from "../api.ts";
 import type {
   TuckedRoomsReq,
@@ -840,6 +841,7 @@ export function ChatSidebar({
     currentRoomId,
     lobbyOpen: lobbyInView,
     sessionContext,
+    hasReceivedInitialState,
   } = useAppState();
   const memberRows = useMemberChatRows();
   const amOwner = sessionContext?.role === "owner";
@@ -848,6 +850,7 @@ export function ChatSidebar({
   const { t } = useI18n();
   // A member with a permission pack sees only the pages of its areas, as in
   // the office bar.
+  const selfKnown = useSelfUser() !== null;
   const canTasks = useCan("tasks", "read");
   const canSchedules = useCan("schedules", "read");
   const canWebhooks = useCan("webhooks", "read");
@@ -1317,187 +1320,203 @@ export function ChatSidebar({
           gap: 1,
         }}
       >
-        {canApps && (
-          <NavRow
-            attr="apps"
-            icon={AppsIcon}
-            label={t("common.apps")}
-            current={page === "apps"}
-            onClick={() => onOpenPage("apps")}
-          />
-        )}
-        <NavRow
-          attr="asks"
-          icon={InboxIcon}
-          label={t("nav.inbox")}
-          badge={inbox.newAsks}
-          current={page === "asks"}
-          onClick={() => onOpenPage("asks")}
-        />
-        {canTasks && (
-          <NavRow
-            attr="tasks"
-            icon={TasksIcon}
-            label={t("common.tasks")}
-            current={page === "tasks"}
-            onClick={() => onOpenPage("tasks")}
-          />
-        )}
-        {canAutomations && (
-          <NavRow
-            attr="cronjobs"
-            icon={ClockIcon}
-            label={t("common.automations")}
-            current={page === "cronjobs"}
-            onClick={() => onOpenPage("cronjobs")}
-          />
-        )}
-        {canSkills && (
-          <NavRow
-            attr="skills"
-            icon={SkillsIcon}
-            label={t("common.skills")}
-            current={page === "skills"}
-            onClick={() => onOpenPage("skills")}
-          />
-        )}
-        <NavRow
-          attr="integrations"
-          icon={PlugIcon}
-          label={t("common.integrations")}
-          current={page === "integrations"}
-          onClick={() => onOpenPage("integrations")}
-        />
-        <NavRow
-          attr="settings"
-          icon={SettingsIcon}
-          label={t("common.settings")}
-          current={page === "settings"}
-          onClick={onOpenSettings}
-        />
-        {/* An owner's sliders over the row's right end, on hover; a sibling
-            of the row, as on agent and member rows. */}
-        <div className="chat-sidebar-office">
-          <NavRow
-            attr="office"
-            icon={BuildingIcon}
-            label={t("sidebar.office")}
-            current={officeShown}
-            onClick={onOffice}
-          />
-          {amOwner && (
-            <span
-              className="chat-sidebar-row-actions"
-              data-in-view={officeShown ? "" : undefined}
-            >
-              <button
-                type="button"
-                tabIndex={-1}
-                className="chat-sidebar-row-action"
-                data-sidebar-office-settings=""
-                title={t("sidebar.officeSettings")}
-                aria-label={t("sidebar.officeSettings")}
-                onClick={onOfficeSettings}
-              >
-                {SettingsIcon}
-              </button>
-            </span>
-          )}
-        </div>
-        <div
-          style={{
-            height: 1,
-            background: "var(--border-subtle)",
-            margin: "8px 4px",
-            flexShrink: 0,
-          }}
-        />
-        {listSection(
-          "pinned",
-          t("sidebar.pinned"),
-          pinned.map((row) =>
-            row.kind === "agent"
-              ? agentRow(row.agent, "list", pinDrag(row.key))
-              : memberRow(row.member, pinDrag(row.key)),
-          ),
-        )}
-        {listSection(
-          "recent",
-          t("sidebar.recent"),
-          recentAgents.map((a) => agentRow(a, "list")),
-        )}
-        <div>
-          <SectionHeader
-            label={t("sidebar.members")}
-            open={membersOpen}
-            list
-            onToggle={() =>
-              setSections((s) => ({ ...s, members: s.members === false }))
-            }
-            attr={{ "data-sidebar-members": "" }}
-          />
-          {membersOpen && (
-            <>
-              <NavRow
-                attr="members-chat"
-                icon={
-                  <span
-                    style={{
-                      display: "flex",
-                      width: HEAD_SIZE,
-                      justifyContent: "center",
-                    }}
-                  >
-                    {ChatIcon}
-                  </span>
-                }
-                label={t("membersChat.title")}
-                current={humanChatShown?.kind === "members"}
-                badge={membersChat.unread}
-                onClick={() => onOpenHumanChat(MEMBERS_CHAT)}
-              />
-              {memberRows.map((row) => memberRow(row))}
-            </>
-          )}
-        </div>
-        {shown.map(roomSection)}
-        <div>
-          <SectionHeader
-            label={t("common.lobby")}
-            open={sections.lobby}
-            onToggle={() => flip("lobby")}
-            attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
-          />
-          {sections.lobby && receptionist && agentRow(receptionist, "room")}
-        </div>
-        {more.length > 0 && (
+        {/* The page rows wait for the member's own record, the second frame
+            of the socket: before it, every area reads as allowed, and a
+            member with a permission pack would see rows vanish (task
+            09993863). */}
+        {selfKnown && (
           <>
-            <div
-              {...tuckDrop}
-              className="chat-sidebar-drop-into"
-              data-drop={
-                dragging?.kind === "room" && dropAt?.id === null
-                  ? "into"
-                  : undefined
-              }
-            >
-              <SectionHeader
-                label={t("office.tabs.tuckedRooms")}
-                open={sections.more}
-                list
-                onToggle={() => flip("more")}
-                attr={{ "data-sidebar-more-rooms": "" }}
-                right={
-                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-                    {more.length}
-                  </span>
-                }
+            {canApps && (
+              <NavRow
+                attr="apps"
+                icon={AppsIcon}
+                label={t("common.apps")}
+                current={page === "apps"}
+                onClick={() => onOpenPage("apps")}
               />
+            )}
+            <NavRow
+              attr="asks"
+              icon={InboxIcon}
+              label={t("nav.inbox")}
+              badge={inbox.newAsks}
+              current={page === "asks"}
+              onClick={() => onOpenPage("asks")}
+            />
+            {canTasks && (
+              <NavRow
+                attr="tasks"
+                icon={TasksIcon}
+                label={t("common.tasks")}
+                current={page === "tasks"}
+                onClick={() => onOpenPage("tasks")}
+              />
+            )}
+            {canAutomations && (
+              <NavRow
+                attr="cronjobs"
+                icon={ClockIcon}
+                label={t("common.automations")}
+                current={page === "cronjobs"}
+                onClick={() => onOpenPage("cronjobs")}
+              />
+            )}
+            {canSkills && (
+              <NavRow
+                attr="skills"
+                icon={SkillsIcon}
+                label={t("common.skills")}
+                current={page === "skills"}
+                onClick={() => onOpenPage("skills")}
+              />
+            )}
+            <NavRow
+              attr="integrations"
+              icon={PlugIcon}
+              label={t("common.integrations")}
+              current={page === "integrations"}
+              onClick={() => onOpenPage("integrations")}
+            />
+            <NavRow
+              attr="settings"
+              icon={SettingsIcon}
+              label={t("common.settings")}
+              current={page === "settings"}
+              onClick={onOpenSettings}
+            />
+            {/* An owner's sliders over the row's right end, on hover; a sibling
+            of the row, as on agent and member rows. */}
+            <div className="chat-sidebar-office">
+              <NavRow
+                attr="office"
+                icon={BuildingIcon}
+                label={t("sidebar.office")}
+                current={officeShown}
+                onClick={onOffice}
+              />
+              {amOwner && (
+                <span
+                  className="chat-sidebar-row-actions"
+                  data-in-view={officeShown ? "" : undefined}
+                >
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className="chat-sidebar-row-action"
+                    data-sidebar-office-settings=""
+                    title={t("sidebar.officeSettings")}
+                    aria-label={t("sidebar.officeSettings")}
+                    onClick={onOfficeSettings}
+                  >
+                    {SettingsIcon}
+                  </button>
+                </span>
+              )}
             </div>
-            {sections.more && (
-              <div data-sidebar-tucked-rooms="" style={{ paddingLeft: 8 }}>
-                {more.map(roomSection)}
-              </div>
+            <div
+              style={{
+                height: 1,
+                background: "var(--border-subtle)",
+                margin: "8px 4px",
+                flexShrink: 0,
+              }}
+            />
+          </>
+        )}
+        {/* The lists draw at the first full_state, all in one paint: Pinned
+            and Recent need its agents, and the roster and the member's own
+            record come before it on the same socket. Drawn earlier, Members
+            would show first and then move down (task 3010302f). */}
+        {hasReceivedInitialState && (
+          <>
+            {listSection(
+              "pinned",
+              t("sidebar.pinned"),
+              pinned.map((row) =>
+                row.kind === "agent"
+                  ? agentRow(row.agent, "list", pinDrag(row.key))
+                  : memberRow(row.member, pinDrag(row.key)),
+              ),
+            )}
+            {listSection(
+              "recent",
+              t("sidebar.recent"),
+              recentAgents.map((a) => agentRow(a, "list")),
+            )}
+            <div>
+              <SectionHeader
+                label={t("sidebar.members")}
+                open={membersOpen}
+                list
+                onToggle={() =>
+                  setSections((s) => ({ ...s, members: s.members === false }))
+                }
+                attr={{ "data-sidebar-members": "" }}
+              />
+              {membersOpen && (
+                <>
+                  <NavRow
+                    attr="members-chat"
+                    icon={
+                      <span
+                        style={{
+                          display: "flex",
+                          width: HEAD_SIZE,
+                          justifyContent: "center",
+                        }}
+                      >
+                        {ChatIcon}
+                      </span>
+                    }
+                    label={t("membersChat.title")}
+                    current={humanChatShown?.kind === "members"}
+                    badge={membersChat.unread}
+                    onClick={() => onOpenHumanChat(MEMBERS_CHAT)}
+                  />
+                  {memberRows.map((row) => memberRow(row))}
+                </>
+              )}
+            </div>
+            {shown.map(roomSection)}
+            <div>
+              <SectionHeader
+                label={t("common.lobby")}
+                open={sections.lobby}
+                onToggle={() => flip("lobby")}
+                attr={{ "data-sidebar-room": LOBBY_ROOM_ID }}
+              />
+              {sections.lobby && receptionist && agentRow(receptionist, "room")}
+            </div>
+            {more.length > 0 && (
+              <>
+                <div
+                  {...tuckDrop}
+                  className="chat-sidebar-drop-into"
+                  data-drop={
+                    dragging?.kind === "room" && dropAt?.id === null
+                      ? "into"
+                      : undefined
+                  }
+                >
+                  <SectionHeader
+                    label={t("office.tabs.tuckedRooms")}
+                    open={sections.more}
+                    list
+                    onToggle={() => flip("more")}
+                    attr={{ "data-sidebar-more-rooms": "" }}
+                    right={
+                      <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                        {more.length}
+                      </span>
+                    }
+                  />
+                </div>
+                {sections.more && (
+                  <div data-sidebar-tucked-rooms="" style={{ paddingLeft: 8 }}>
+                    {more.map(roomSection)}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

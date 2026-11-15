@@ -191,7 +191,8 @@ export const ask = (id: string, agentId: string): AskEntry => ({
   createdAt: 1_000,
   updatedAt: 1_000,
 });
-// The self record user_self_updated carries after boot, or null for none.
+// The self record user_self_updated carries after boot, or null for the
+// default one (boot() always sends one, as the server does).
 let selfUser: UserRecord | null = null;
 export function setSelfPack(pack: MemberPack): void {
   selfUser = {
@@ -419,8 +420,18 @@ export async function boot(features?: Features, path = "/"): Promise<View> {
           totalOnlineUsers: onlineIds.length,
           onlineUserIds: onlineIds,
         } as never);
-      if (selfUser)
-        shimEmit({ type: "user_self_updated", user: selfUser } as never);
+      // The server always sends the member's own full record; with no
+      // setSelfUser or setSelfPack, a plain one (no pack).
+      shimEmit({
+        type: "user_self_updated",
+        user: selfUser ?? {
+          ...selfUserRecord(null),
+          id: "u1",
+          name: "member",
+          role,
+          allowedRooms: ["r1", "r2", "r3"],
+        },
+      } as never);
       hydrated();
     },
   );

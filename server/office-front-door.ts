@@ -965,29 +965,13 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           // ghost in presence_list - same auth session can be running in
           // multiple tabs and each tab has a distinct connectionId.
           sendSessionContext(ws);
-          // Roster hydration: every socket gets the PUBLIC roster; owners
-          // additionally get the full admin roster; and the caller gets their OWN
-          // full record (user_self_updated) - the now-public users_list can no
-          // longer carry the caller's grants/notif/default/view, which the UI
-          // needs for the current user.
-          officeSend(
-            ws,
-            "users_list",
-            JSON.stringify({
-              type: "users_list",
-              users: listUsers().map(toPublicWire),
-            }),
-          );
-          if (ws.data.session.role === "owner") {
-            officeSend(
-              ws,
-              "users_admin_list",
-              JSON.stringify({
-                type: "users_admin_list",
-                users: listUsers(),
-              }),
-            );
-          }
+          // Roster hydration: the caller gets their OWN full record
+          // (user_self_updated) - the now-public users_list can no longer
+          // carry the caller's grants/notif/default/view, which the UI needs
+          // for the current user. It goes first, so the member's permission
+          // pack is known with the first data and the page rows draw right at
+          // once (tasks 3010302f, 09993863). Then every socket gets the
+          // PUBLIC roster, and owners the full admin roster.
           const selfUserForHydration = getUserById(ws.data.session.userId);
           if (selfUserForHydration) {
             officeSend(
@@ -1055,6 +1039,24 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                     }),
                   );
               });
+          }
+          officeSend(
+            ws,
+            "users_list",
+            JSON.stringify({
+              type: "users_list",
+              users: listUsers().map(toPublicWire),
+            }),
+          );
+          if (ws.data.session.role === "owner") {
+            officeSend(
+              ws,
+              "users_admin_list",
+              JSON.stringify({
+                type: "users_admin_list",
+                users: listUsers(),
+              }),
+            );
           }
           // Send projected full_state (rooms + agents filtered to the
           // session's allowedRooms; sessions whose allowedRooms covers

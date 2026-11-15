@@ -213,6 +213,33 @@ describe("user-wire at connect (3b.5)", () => {
       idxOf(ownerSock, "full_state"),
     );
   });
+
+  // Task 3010302f: the page draws its sidebar rows from the member's own
+  // record (a permission pack hides some), so that record comes right after
+  // session_context, before the rosters.
+  it("connect hydration sends the member's own record before the rosters", async () => {
+    const { srv, owner, mia } = shared;
+    const idxOf = (s: TestSocket, type: string) =>
+      bag(s).findIndex((m) => m.type === type);
+
+    const miaSock = await connectSettled(srv, mia.rawSessionId);
+    expect(idxOf(miaSock, "session_context")).toBeGreaterThanOrEqual(0);
+    expect(idxOf(miaSock, "session_context")).toBeLessThan(
+      idxOf(miaSock, "user_self_updated"),
+    );
+    expect(idxOf(miaSock, "user_self_updated")).toBeLessThan(
+      idxOf(miaSock, "users_list"),
+    );
+
+    const ownerSock = await connectSettled(srv, owner.rawSessionId);
+    expect(idxOf(ownerSock, "user_self_updated")).toBeGreaterThanOrEqual(0);
+    expect(idxOf(ownerSock, "user_self_updated")).toBeLessThan(
+      idxOf(ownerSock, "users_list"),
+    );
+    expect(idxOf(ownerSock, "user_self_updated")).toBeLessThan(
+      idxOf(ownerSock, "users_admin_list"),
+    );
+  });
 });
 
 describe("user-wire projection leak closure (3b.5)", () => {
