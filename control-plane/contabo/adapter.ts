@@ -107,8 +107,22 @@ export interface ContaboAdapterOptions {
 const ROOT_AUTHORIZED_KEYS = "/root/.ssh/authorized_keys";
 
 /**
- * The cloud-init user data that puts our keys on the box at its first boot, or
- * undefined when there are no keys.
+ * The file and lines deploy/harden-ssh.sh writes at install. sshd keeps the
+ * first value it reads, and this name sorts ahead of the 50-cloud-init.conf
+ * that turns password logins on.
+ */
+const SSH_HARDENING_DROPIN = "/etc/ssh/sshd_config.d/00-isomux-hardening.conf";
+const SSH_HARDENING_LINES =
+  "# Written at first boot by the Isomux control plane. The installer's SSH\n" +
+  "# hardening step writes it again.\n" +
+  "PasswordAuthentication no\n" +
+  "KbdInteractiveAuthentication no\n" +
+  "PermitRootLogin prohibit-password\n";
+
+/**
+ * The cloud-init user data that puts our keys on the box at its first boot and
+ * turns off SSH password logins, or undefined when there are no keys (without
+ * a key, no login would be left).
  *
  * The key travels in the create call itself, so no build depends on Contabo's
  * secrets service (task e4eaba24: from 2026-11-14 that service failed every
@@ -121,8 +135,16 @@ const ROOT_AUTHORIZED_KEYS = "/root/.ssh/authorized_keys";
  * content starts with a newline because append is a plain append: a file with
  * no final newline would otherwise swallow our line into its last one. Every
  * scalar is JSON-quoted, which YAML reads as a double-quoted string.
+ *
+ * The SSH hardening drop-in (task 9d95cd14): Contabo's own cloud-config sets a
+ * root password and ssh_pwauth, so without it the box takes root password
+ * logins until the install. write_files runs early in cloud-init's init
+ * modules; set_passwords runs after it, writes 50-cloud-init.conf and restarts
+ * ssh, and that restart already reads our 00- file. Before write_files, root
+ * has no password yet. Both entries stay in one write_files list: that list is
+ * what survives Contabo's merge (task e4eaba24).
  */
-export function renderKeyUserData(
+export function renderUserData(
   loginUser: LoginUser,
   keys: SshPublicKey[],
 ): string | undefined {
@@ -152,7 +174,11 @@ export function renderKeyUserData(
     `    content: ${JSON.stringify(`\n${lines.join("")}`)}\n` +
     '    owner: "root:root"\n' +
     '    permissions: "0600"\n' +
-    "    append: true\n"
+    "    append: true\n" +
+    `  - path: ${JSON.stringify(SSH_HARDENING_DROPIN)}\n` +
+    `    content: ${JSON.stringify(SSH_HARDENING_LINES)}\n` +
+    '    owner: "root:root"\n' +
+    '    permissions: "0644"\n'
   );
 }
 
@@ -160,7 +186,7 @@ function userDataField(
   loginUser: LoginUser,
   keys: SshPublicKey[],
 ): { userData?: string } {
-  const userData = renderKeyUserData(loginUser, keys);
+  const userData = renderUserData(loginUser, keys);
   return userData === undefined ? {} : { userData };
 }
 

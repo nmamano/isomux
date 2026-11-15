@@ -229,6 +229,14 @@ cloud-config, and the key lands in root's file only; the run key logs in, the
 expiry rewrite and revocation work, and the box keeps a root password that
 Contabo's own cloud-config sets.
 
+The same `write_files` list also writes the installer's SSH hardening file,
+`/etc/ssh/sshd_config.d/00-isomux-hardening.conf` (no password or
+keyboard-interactive logins, root by key only). Contabo's cloud-config turns
+password logins on through `50-cloud-init.conf`; sshd keeps the first value it
+reads, so our `00-` file wins, and SSH refuses that root password from the
+first boot instead of only after the install's harden step. Not yet measured
+on a box: Lead SRE checks `sshd -T` on the release test box before the install.
+
 ### Reinstall works on a cancel-scheduled instance, and preserves the term
 
 `PUT /v1/compute/instances/{id}` (imageId, userData, defaultUser) rebuilds in

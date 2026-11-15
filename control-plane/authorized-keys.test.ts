@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { blobOf, composeRemoteScript } from "./driver.ts";
 import type { RuntimeRepoFile } from "./runtime-files.ts";
-import { renderKeyUserData } from "./contabo/adapter.ts";
+import { renderUserData } from "./contabo/adapter.ts";
 
 const OURS = "AAAAC3NzaC1lZDI1NTE5AAAAIourkeyblob";
 
@@ -287,13 +287,13 @@ describe("a key installed by the cloud-init user data", () => {
 
   /** Append the write_files content to the file, as cloud-init does. */
   function cloudInitAppend(existing: string): void {
-    const userData = renderKeyUserData("root", [
-      { algorithm: ALGO, blob: OURS },
-    ]);
+    const userData = renderUserData("root", [{ algorithm: ALGO, blob: OURS }]);
     const doc = Bun.YAML.parse(userData!) as {
       write_files: { path: string; content: string; append: boolean }[];
     };
-    const [entry] = doc.write_files;
+    const entry = doc.write_files.find(
+      (f) => f.path === "/root/.ssh/authorized_keys",
+    )!;
     expect([entry.path, entry.append]).toEqual([
       "/root/.ssh/authorized_keys",
       true,

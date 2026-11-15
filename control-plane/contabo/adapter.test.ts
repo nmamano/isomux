@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   ContaboAdapter,
   IndeterminateFindError,
@@ -310,6 +312,37 @@ describe("create outcome classes", () => {
   });
 });
 
+/**
+ * What deploy/harden-ssh.sh writes and checks, read from the script itself so
+ * the first-boot drop-in and the installer's harden step cannot drift apart:
+ * the drop-in path, and each keyword hardening_is_effective requires with the
+ * values it accepts (sshd -T spellings, lowercase).
+ */
+const HARDENING = (() => {
+  const script = readFileSync(
+    join(import.meta.dir, "../../deploy/harden-ssh.sh"),
+    "utf8",
+  );
+  const configDir = /^SSHD_CONFIG_D=(\S+)$/m.exec(script)?.[1];
+  const dropinName = /^DROPIN=\$SSHD_CONFIG_D\/(\S+)$/m.exec(script)?.[1];
+  const strictRoot = /^STRICT_ROOT_LOGIN="([^"]+)"$/m.exec(script)?.[1];
+  const body = /^hardening_is_effective\(\) \{\n([\s\S]*?)\n\}$/m.exec(
+    script,
+  )?.[1];
+  if (!configDir || !dropinName || !strictRoot || !body) {
+    throw new Error("deploy/harden-ssh.sh no longer has the expected shape");
+  }
+  const required = new Map<string, string[]>();
+  for (const m of body.matchAll(/^\s*"([a-z]+) ([^"]+)"/gm)) {
+    const values = m[2] === "$STRICT_ROOT_LOGIN" ? strictRoot : m[2];
+    required.set(m[1], values.split("|"));
+  }
+  if (required.size < 3) {
+    throw new Error("hardening_is_effective no longer lists its keywords");
+  }
+  return { dropin: `${configDir}/${dropinName}`, required };
+})();
+
 // The run key reaches the box through cloud-init user data in the create (and
 // reinstall) call itself. Contabo's key store (/v1/secrets) is not a build
 // dependency: it was down for days in 2026-11 and blocked every new box.
@@ -362,8 +395,8 @@ describe("the run key travels in cloud-init user data", () => {
     };
   }
 
-  /** The one write_files entry, parsed as cloud-init parses it (YAML). */
-  function keyFileEntry(body: Record<string, unknown> | null) {
+  /** The write_files list, parsed as cloud-init parses it (YAML). */
+  function writtenFiles(body: Record<string, unknown> | null) {
     expect(body).not.toBeNull();
     // Neither field may be present: each one refers to a Contabo secret.
     expect(body).not.toHaveProperty("sshKeys");
@@ -375,11 +408,22 @@ describe("the run key travels in cloud-init user data", () => {
     const doc = Bun.YAML.parse(userData as string) as Record<string, unknown>;
     // Only write_files: top-level ssh_authorized_keys or users would also put
     // the key on the image's default sudo user, where revocation never looks.
+    // A top-level ssh_pwauth would meet Contabo's own in a merge nobody has
+    // checked; the SSH drop-in decides without it.
     expect(Object.keys(doc)).toEqual(["write_files"]);
     const files = doc.write_files as Record<string, unknown>[];
-    expect(files.length).toBe(1);
-    const entry = files[0];
-    expect(entry.path).toBe("/root/.ssh/authorized_keys");
+    // The run key and the SSH hardening, nothing else.
+    expect(files.map((f) => f.path).sort()).toEqual(
+      ["/root/.ssh/authorized_keys", HARDENING.dropin].sort(),
+    );
+    return files;
+  }
+
+  /** The authorized_keys entry's key lines. */
+  function keyFileEntry(body: Record<string, unknown> | null) {
+    const entry = writtenFiles(body).find(
+      (f) => f.path === "/root/.ssh/authorized_keys",
+    )!;
     // Append, never replace: the image may already carry lines there.
     expect(entry.append).toBe(true);
     expect(entry.owner).toBe("root:root");
@@ -391,9 +435,48 @@ describe("the run key travels in cloud-init user data", () => {
     return content.split("\n").filter((line) => line !== "");
   }
 
+  /**
+   * The SSH hardening drop-in must hold from the first boot (task 9d95cd14):
+   * Contabo's cloud-config sets a root password and turns password logins on
+   * through 50-cloud-init.conf, and sshd keeps the first value it reads. So the
+   * file is the one the installer's harden step owns, and it passes that step's
+   * own effectiveness check by itself.
+   */
+  function expectHardeningEntry(body: Record<string, unknown> | null) {
+    const entry = writtenFiles(body).find((f) => f.path === HARDENING.dropin)!;
+    // Replace, not append, and not deferred to the final stage: it has to be
+    // on disk before cloud-init's password step restarts sshd.
+    expect(entry.append ?? false).toBe(false);
+    expect(entry.defer ?? false).toBe(false);
+    expect(entry).not.toHaveProperty("encoding");
+    expect(entry.owner).toBe("root:root");
+    expect(entry.permissions).toBe("0644");
+    expect(typeof entry.content).toBe("string");
+    // sshd keywords are case-insensitive, and the first value read wins, so
+    // only the first line for a keyword counts.
+    const first = new Map<string, string>();
+    for (const raw of (entry.content as string).split("\n")) {
+      const line = raw.trim();
+      if (line === "" || line.startsWith("#")) continue;
+      const [keyword, ...rest] = line.split(/\s+/);
+      const key = keyword.toLowerCase();
+      // One line per keyword: a repeat is dead text that misleads a reader.
+      expect(first.has(key)).toBe(false);
+      first.set(key, rest.join(" "));
+    }
+    // Exactly the keywords the harden step checks: anything more (a
+    // PubkeyAuthentication no, say) could lock the provisioner out.
+    expect([...first.keys()].sort()).toEqual(
+      [...HARDENING.required.keys()].sort(),
+    );
+    for (const [key, accepted] of HARDENING.required) {
+      expect(accepted).toContain(first.get(key)!.toLowerCase());
+    }
+  }
+
   const lineOf = (k: SshPublicKey) => `${k.algorithm} ${k.blob} isomux-cp`;
 
-  test("create sends no key-store reference and writes each key as a bare line in root's authorized_keys", async () => {
+  test("create sends no key-store reference, writes each key as a bare line in root's authorized_keys, and turns off SSH passwords from the first boot", async () => {
     const { adapter, sent } = capturing("root", [
       { status: 201, body: { data: [{ instanceId: 42 }] } },
     ]);
@@ -406,10 +489,11 @@ describe("the run key travels in cloud-init user data", () => {
     expect(out).toEqual({ outcome: "created", providerId: "42" });
     expect(sent.map((s) => s.method)).toEqual(["POST"]);
     expect(keyFileEntry(sent[0].body)).toEqual([lineOf(KEY), lineOf(SK_KEY)]);
+    expectHardeningEntry(sent[0].body);
     expect(sent[0].body!.defaultUser).toBe("root");
   });
 
-  test("reinstall sends the same user data and no key-store reference", async () => {
+  test("reinstall sends the same user data, SSH hardening included, and no key-store reference", async () => {
     const { adapter, sent } = capturing("root", [{ status: 200, body: {} }]);
     await adapter.reinstall("4711", {
       imageId: "image-uuid",
@@ -420,6 +504,7 @@ describe("the run key travels in cloud-init user data", () => {
       ["PUT", "/v1/compute/instances/4711"],
     ]);
     expect(keyFileEntry(sent[0].body)).toEqual([lineOf(KEY)]);
+    expectHardeningEntry(sent[0].body);
   });
 
   test("no keys: the body carries no user data and no key-store reference", async () => {

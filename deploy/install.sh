@@ -2187,6 +2187,8 @@ SSHD_CONFIG_D=/etc/ssh/sshd_config.d
 # directory in name order, so the hardening file has to sort ahead of whatever
 # the provider image shipped. Contabo's cloud-init writes a 50-cloud-init.conf
 # that turns password logins back on, and a 90- file loses to it in silence.
+# The Hosted control plane writes this same file at first boot, through
+# cloud-init, so its boxes refuse passwords before the install runs.
 DROPIN=$SSHD_CONFIG_D/00-isomux-hardening.conf
 # Where the hardening used to live. Removed once the new file is in place and
 # proven effective, so a box installed before this converges on a re-run.
