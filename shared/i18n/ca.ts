@@ -3806,7 +3806,7 @@ Coses que pots fer per ell:
   "systemEntries.settingHandoff.failed":
     "No s'ha escrit cap resum de traspàs. Envia un missatge i l'agent llegeix la seva conversa anterior.",
   "systemEntries.settingHandoff.failedSignedOut":
-    "No s'ha escrit cap resum de traspàs: {engine} no té la sessió iniciada o no està configurat. Soluciona-ho, envia un missatge i l'agent llegeix la seva conversa anterior.",
+    "No s'ha escrit cap resum de traspàs: {engine} no té la sessió iniciada. Inicia la sessió i després envia un missatge.",
   "systemEntries.settingHandoff.failedLimit":
     "No s'ha escrit cap resum de traspàs: s'ha arribat a un límit d'ús. Quan el límit es restableixi, envia un missatge i l'agent llegeix la seva conversa anterior.",
   "systemEntries.settingHandoff.failedStopped":

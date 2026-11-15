@@ -3404,7 +3404,7 @@ export const zh: Catalog = {
   "systemEntries.settingHandoff.failed":
     "未写出交接简报。发送一条消息，智能体就会阅读它的上一个对话。",
   "systemEntries.settingHandoff.failedSignedOut":
-    "未写出交接简报：{engine} 未登录或未设置。解决后发送一条消息，智能体就会阅读它的上一个对话。",
+    "未写出交接简报：{engine} 未登录。登录后发送一条消息。",
   "systemEntries.settingHandoff.failedLimit":
     "未写出交接简报：已达到用量上限。上限重置后发送一条消息，智能体就会阅读它的上一个对话。",
   "systemEntries.settingHandoff.failedStopped":

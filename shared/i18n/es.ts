@@ -3802,7 +3802,7 @@ Cosas que puedes hacer por él:
   "systemEntries.settingHandoff.failed":
     "No se escribió ningún resumen de traspaso. Envía un mensaje y el agente lee su conversación anterior.",
   "systemEntries.settingHandoff.failedSignedOut":
-    "No se escribió ningún resumen de traspaso: {engine} no tiene la sesión iniciada o no está configurado. Soluciónalo, envía un mensaje y el agente lee su conversación anterior.",
+    "No se escribió ningún resumen de traspaso: {engine} no tiene la sesión iniciada. Inicia sesión y luego envía un mensaje.",
   "systemEntries.settingHandoff.failedLimit":
     "No se escribió ningún resumen de traspaso: se alcanzó un límite de uso. Cuando el límite se restablezca, envía un mensaje y el agente lee su conversación anterior.",
   "systemEntries.settingHandoff.failedStopped":

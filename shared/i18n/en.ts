@@ -3728,7 +3728,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.settingHandoff.failed":
     "No handoff brief was written. Send a message, and the agent reads its previous conversation.",
   "systemEntries.settingHandoff.failedSignedOut":
-    "No handoff brief was written: {engine} is not signed in or not set up. Fix that, then send a message, and the agent reads its previous conversation.",
+    "No handoff brief was written: {engine} is not signed in. Sign in, then send a message.",
   "systemEntries.settingHandoff.failedLimit":
     "No handoff brief was written: a usage limit was reached. When the limit resets, send a message, and the agent reads its previous conversation.",
   "systemEntries.settingHandoff.failedStopped":
