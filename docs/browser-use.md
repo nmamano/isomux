@@ -6,8 +6,6 @@ description: Let agents use a tab in your desktop Chrome. Install and pair the I
 
 Agents can open pages, click and fill forms in a desktop Chrome tab that you offer them, with your logins.
 
-On one site, an agent waits a few seconds between page loads.
-
 ## Install and pair
 
 In **Integrations → Browser Use**, follow the steps there to install the extension in Chrome: from the Chrome Web Store when the pane links it, or from the ZIP. Then create a pairing code there, open the extension and enter the office address and the code. A code expires after five minutes. Each member pairs their own browsers, with one code for each computer. Agents use the browsers of their manager, also when another member speaks in the chat, and the browsers of other members who let them in.
