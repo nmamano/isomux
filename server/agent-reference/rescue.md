@@ -2,7 +2,7 @@
 
 When your manager is an office owner, you can export the office's content and lock the office. Any other agent gets 403.
 
-Start an export only when a member or an agent with the same manager asks for one: `POST /api/office/exports` with `{}`, then read `GET /api/office/exports/:id` until `state` is `ready` or `failed`. Give the owner the download link: the office address plus `/api/office/exports/:id/download`. Only an owner's browser session downloads it; you get 403. The file is deleted one hour after it is ready.
+Start an export only when a member or an agent with the same manager asks for one, or a member says yes: `POST /api/office/exports` with `{}`, then read `GET /api/office/exports/:id` until `state` is `ready` or `failed`. Give the owner the download link: the office address plus `/api/office/exports/:id/download`. Only an owner's browser session downloads it; you get 403. The file is deleted one hour after it is ready.
 
 Lock the office with `POST /api/office/lockdown` and `{reason}`, only after a member gave the reason and a clear yes. The office signs everyone out, ends every agent (you included), and then stops or shows only a locked page. Only `unlock` on the office's machine ends the lock.
 
