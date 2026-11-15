@@ -42,9 +42,11 @@ const {
   setAsksMember,
   getChatCopyFormat,
   setChatCopyFormat,
+  getChatSidebarPages,
   getChatSidebarSections,
   getChatSidebarShape,
   getChatSidebarWidth,
+  setChatSidebarPages,
   setChatSidebarSections,
   setChatSidebarShape,
   setChatSidebarWidth,
@@ -196,11 +198,10 @@ describe("chat sidebar sections", () => {
   });
 });
 
-// The shape of the sidebar's list as last drawn (task 4dcad6bf).
+// The shape of the sidebar's lists as last drawn (task 4dcad6bf).
 describe("chat sidebar shape", () => {
   beforeEach(() => store.clear());
   const shape = {
-    top: { H: 40, items: [{ kind: "nav" as const, top: 0, h: 29 }] },
     lists: { H: 26, items: [{ kind: "header" as const, top: 0, h: 26 }] },
   };
 
@@ -234,6 +235,42 @@ describe("chat sidebar shape", () => {
     try {
       expect(getChatSidebarShape()).toBeNull();
       setChatSidebarShape(shape);
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+    }
+  });
+});
+
+// The page rows a permission pack can hide, as last drawn (task f66e07e3).
+describe("chat sidebar pages", () => {
+  beforeEach(() => store.clear());
+
+  it("reads back what it saved, an empty list included, and none when nothing is saved", () => {
+    expect(getChatSidebarPages()).toBeNull();
+    setChatSidebarPages(["tasks", "skills"]);
+    expect([...getChatSidebarPages()!].sort()).toEqual(["skills", "tasks"]);
+    setChatSidebarPages([]);
+    expect(getChatSidebarPages()).toEqual([]);
+  });
+
+  it("reads a stored value through the parse, and broken JSON as none", () => {
+    store.set("isomux-chat-sidebar-pages", "{not json");
+    expect(getChatSidebarPages()).toBeNull();
+    store.set("isomux-chat-sidebar-pages", '["apps","office","x"]');
+    expect(getChatSidebarPages()).toEqual(["apps"]);
+  });
+
+  it("does not throw when the browser refuses storage", () => {
+    const get = spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    const set = spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    try {
+      expect(getChatSidebarPages()).toBeNull();
+      setChatSidebarPages(["tasks"]);
     } finally {
       get.mockRestore();
       set.mockRestore();

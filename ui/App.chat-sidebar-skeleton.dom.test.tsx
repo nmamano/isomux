@@ -1,11 +1,15 @@
-// The desktop sidebar's placeholders while it loads (task 4dcad6bf; Nil,
-// 2026-11-15: "Keep the sidebar's layout while it loads: draw the sections
-// dimmed, or placeholders of the same shape, not an empty space that then
-// fills"). The list has two blocks: the page rows with the Office row and
-// the divider (ready with the member's own record), and the lists below
-// them (ready at full_state). Until a block is ready, placeholders hold its
-// place in the shape it last had on this device, stored when the page hides.
-// The stored shape's checks are in ui/chat-sidebar.test.ts.
+// The desktop sidebar while it loads (task 4dcad6bf; Nil, 2026-11-15: "Keep
+// the sidebar's layout while it loads: draw the sections dimmed, or
+// placeholders of the same shape, not an empty space that then fills"). The
+// list has two blocks: the page rows with the Office row and the divider, and
+// the lists below them (ready at full_state). The page rows draw from the
+// first paint (task f66e07e3; Nil, 2026-11-15: "The deterministic buttons at
+// the top can appear from the very beginning. Only the dynamic region should
+// look like that while loading."). The rows a permission pack hides draw, until
+// the member's own record arrives, as this device last drew them. Until the
+// lists are ready, placeholders hold their place in the shape they last had
+// on this device, stored when the page hides. The parse checks are in
+// ui/chat-sidebar.test.ts.
 //
 // This file sends each frame itself, in the server's order, as
 // ui/App.chat-sidebar-refresh.dom.test.tsx does.
@@ -39,48 +43,67 @@ const {
 } = await import("./test-support/chat-sidebar-fixture.tsx");
 type View = import("./test-support/chat-sidebar-fixture.tsx").View;
 type UserRecord = import("../shared/types.ts").UserRecord;
-type ChatSidebarShape = import("./chat-sidebar.ts").ChatSidebarShape;
 type ChatSidebarShapeBlock = import("./chat-sidebar.ts").ChatSidebarShapeBlock;
 type ChatSidebarShapeItem = import("./chat-sidebar.ts").ChatSidebarShapeItem;
 
 setUpChatSidebarTests();
 
-// The device key: a stored value from an earlier load must keep reading.
+// The device keys: a stored value from an earlier load must keep reading.
 const SHAPE_KEY = "isomux-chat-sidebar-shape";
+const PAGES_KEY = "isomux-chat-sidebar-pages";
+
+// The page rows of the top block, in order, and the ones a pack can hide.
+const ALL_ROWS = [
+  "apps",
+  "asks",
+  "tasks",
+  "cronjobs",
+  "skills",
+  "integrations",
+  "settings",
+  "office",
+];
+const GATED = ["apps", "tasks", "cronjobs", "skills"];
+const rowsWith = (gated: string[]) =>
+  ALL_ROWS.filter((row) => !GATED.includes(row) || gated.includes(row));
 
 const ROOMS = [
   { id: "r1", name: "First room", prompt: null, canCloseWhenEmpty: true },
   { id: "r2", name: "Second room", prompt: null, canCloseWhenEmpty: true },
 ];
 
-type Block = "top" | "lists";
-
 const count = (view: View, selector: string) =>
   view.container.querySelectorAll(`nav[data-chat-sidebar] ${selector}`).length;
 const one = (view: View, selector: string) =>
   view.container.querySelector(`nav[data-chat-sidebar] ${selector}`);
-const wrapper = (view: View, block: Block) =>
+const wrapper = (view: View, block: "top" | "lists") =>
   one(view, `[data-sidebar-block="${block}"]`) as HTMLElement | null;
-const skeleton = (view: View, block: Block) =>
+// The rows the top block draws, by name, in order.
+const pageRows = (view: View) =>
+  [
+    ...(wrapper(view, "top")?.querySelectorAll("button[data-sidebar-nav]") ??
+      []),
+  ].map((el) => el.getAttribute("data-sidebar-nav"));
+const skeleton = (view: View) =>
   one(
     view,
-    `[data-sidebar-block="${block}"] [data-sidebar-skeleton="${block}"]`,
+    `[data-sidebar-block="lists"] [data-sidebar-skeleton="lists"]`,
   ) as HTMLElement | null;
-const skeletonItems = (view: View, block: Block) => [
-  ...(skeleton(view, block)?.querySelectorAll<HTMLElement>(
+const skeletonItems = (view: View) => [
+  ...(skeleton(view)?.querySelectorAll<HTMLElement>(
     "[data-sidebar-skeleton-item]",
   ) ?? []),
 ];
-const skeletonKinds = (view: View, block: Block) =>
-  skeletonItems(view, block).map((el) =>
+const skeletonKinds = (view: View) =>
+  skeletonItems(view).map((el) =>
     el.getAttribute("data-sidebar-skeleton-item"),
   );
 const kinds = (b: ChatSidebarShapeBlock) => b.items.map((i) => i.kind);
 
-// The placeholders as drawn: the block's height and each item's place.
-const drawn = (view: View, block: Block) => ({
-  H: skeleton(view, block)?.style.height,
-  items: skeletonItems(view, block).map((el) => [
+// The lists' placeholders as drawn: the block's height and each item's place.
+const drawn = (view: View) => ({
+  H: skeleton(view)?.style.height,
+  items: skeletonItems(view).map((el) => [
     el.getAttribute("data-sidebar-skeleton-item"),
     el.style.top,
     el.style.height,
@@ -91,9 +114,15 @@ const expected = (b: ChatSidebarShapeBlock) => ({
   items: b.items.map((i) => [i.kind, `${i.top}px`, `${i.h}px`]),
 });
 
-const stored = (): unknown => {
-  const raw = window.localStorage.getItem(SHAPE_KEY);
-  return raw === null ? null : JSON.parse(raw);
+const storedRaw = (key: string) => window.localStorage.getItem(key);
+const storedLists = (): unknown => {
+  const raw = storedRaw(SHAPE_KEY);
+  return raw === null ? null : (JSON.parse(raw) as { lists?: unknown }).lists;
+};
+// The stored page rows as a set (sorted), or null when none is stored.
+const storedPages = (): string[] | null => {
+  const raw = storedRaw(PAGES_KEY);
+  return raw === null ? null : [...(JSON.parse(raw) as string[])].sort();
 };
 
 // Load the office at "/" with the socket open and no frame sent yet.
@@ -145,11 +174,18 @@ const selfFrame = (over: Partial<UserRecord>) => ({
     ...over,
   },
 });
-// A member whose pack hides some page rows (Apps, Tasks, ...).
+// A member whose pack hides every gated page row.
 const packSelf = selfFrame({
   pinnedAgents: [faraway.id],
   recentAgents: [ranger.id],
   pack: { areas: { agentManagement: "read" }, agentCeiling: "web" },
+});
+// A pack with Tasks and webhooks (Automations): two of the gated rows.
+const tasksHooksSelf = selfFrame({
+  pack: {
+    areas: { agentManagement: "read", tasks: "read", webhooks: "read" },
+    agentCeiling: "web",
+  },
 });
 const usersList = {
   type: "users_list",
@@ -184,8 +220,8 @@ function place(el: Element, top: number, height: number): void {
     }) as DOMRect;
 }
 
-// The rows a block's shape lists, in order: each sidebar row that is not
-// inside another, and the divider.
+// The rows the lists' shape holds, in order: each sidebar row that is not
+// inside another.
 const shapeRows = (block: Element) =>
   [
     ...block.querySelectorAll(".chat-sidebar-row, [data-sidebar-divider]"),
@@ -199,29 +235,24 @@ const shapeKind = (el: Element): ChatSidebarShapeItem["kind"] =>
         ? "header"
         : "row";
 
-// Places a ready block's wrapper at `at` and its rows one under the other,
-// `pitch` px apart; the block is `H` px high, or ends 8 px (the divider's
-// margin) under its last row. Returns the shape that layout has.
-function layOut(
+// Places the ready lists' wrapper at `at` and its rows one under the other,
+// `pitch` px apart, in a block `H` px high. Returns the shape that layout has.
+function layOutLists(
   view: View,
-  block: Block,
   at: number,
   pitch: number,
-  H?: number,
+  H: number,
 ): ChatSidebarShapeBlock {
-  const el = wrapper(view, block);
+  const el = wrapper(view, "lists");
   expect(el).not.toBeNull();
   const rows = shapeRows(el!);
   expect(rows.length).toBeGreaterThan(0);
   const items = rows.map((row, i) => {
-    const h = shapeKind(row) === "divider" ? 1 : pitch - 1;
-    place(row, at + i * pitch + 3, h);
-    return { kind: shapeKind(row), top: i * pitch + 3, h };
+    place(row, at + i * pitch + 3, pitch - 1);
+    return { kind: shapeKind(row), top: i * pitch + 3, h: pitch - 1 };
   });
-  const last = items[items.length - 1];
-  const height = H ?? last.top + last.h + 8;
-  place(el!, at, height);
-  return { H: height, items };
+  place(el!, at, H);
+  return { H, items };
 }
 
 const hidePage = () =>
@@ -229,49 +260,55 @@ const hidePage = () =>
     window.dispatchEvent(new Event("pagehide"));
   });
 
-it("holds both blocks' places with the default shape on a device with nothing stored, until each is ready", async () => {
+it("draws the page rows from the first paint, before any frame; only the lists hold placeholders until full_state", async () => {
   const view = await mount();
-  await frame(sessionContext);
 
-  // Before the member's own record: placeholders in both blocks, the page
-  // rows first, and no row a member could click.
-  expect(skeletonKinds(view, "top")).toEqual(
-    kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.top),
+  // Before any frame, on a device with nothing stored: every page row, the
+  // Office row and the divider, real and in their order; no placeholder in
+  // the top block.
+  expect(pageRows(view)).toEqual(ALL_ROWS);
+  expect(count(view, '[data-sidebar-block="top"] [data-sidebar-divider]')).toBe(
+    1,
   );
-  expect(skeletonKinds(view, "lists")).toEqual(
-    kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists),
-  );
-  expect(drawn(view, "top")).toEqual(expected(CHAT_SIDEBAR_SHAPE_DEFAULT.top));
-  for (const block of ["top", "lists"] as const) {
-    const el = skeleton(view, block)!;
-    expect(el.getAttribute("aria-hidden")).toBe("true");
-    expect(el.querySelectorAll("button, a, input, [tabindex]").length).toBe(0);
-  }
+  expect(
+    count(view, '[data-sidebar-block="top"] [data-sidebar-skeleton]'),
+  ).toBe(0);
+  expect(
+    count(view, '[data-sidebar-block="top"] [data-sidebar-skeleton-item]'),
+  ).toBe(0);
+  // The lists: the default placeholders, hidden from assistive tech, with
+  // nothing a member could click, under the page rows.
+  expect(skeletonKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
+  const el = skeleton(view)!;
+  expect(el.getAttribute("aria-hidden")).toBe("true");
+  expect(el.querySelectorAll("button, a, input, [tabindex]").length).toBe(0);
   const follows = (a: Element, b: Element) =>
     (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
   expect(follows(wrapper(view, "top")!, wrapper(view, "lists")!)).toBe(true);
-  expect(count(view, "[data-sidebar-nav]")).toBe(0);
   expect(count(view, "[data-sidebar-section]")).toBe(0);
   expect(count(view, "[data-sidebar-room]")).toBe(0);
   expect(count(view, "[data-sidebar-members]")).toBe(0);
 
-  // The member's own record: the page rows take the top block's place; the
-  // lists still wait for full_state.
-  // Pinned draws only with rows: this member pins an agent.
+  // A page row works before any data: Tasks opens its page.
+  await act(async () => {
+    navRow(view, "tasks")!.click();
+  });
+  expect(navRow(view, "tasks")!.getAttribute("aria-current")).toBe("page");
+
+  // The member's own record (no pack): the same rows; the lists still wait.
+  await frame(sessionContext);
+  expect(pageRows(view)).toEqual(ALL_ROWS);
   await frame(selfFrame({ pinnedAgents: [faraway.id] }));
   await frame(usersList);
-  expect(skeleton(view, "top")).toBeNull();
-  expect(navRow(view, "office")).not.toBeNull();
-  expect(wrapper(view, "top")!.contains(navRow(view, "office"))).toBe(true);
-  expect(skeletonKinds(view, "lists")).toEqual(
-    kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists),
-  );
+  expect(pageRows(view)).toEqual(ALL_ROWS);
+  expect(skeletonKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
   expect(count(view, "[data-sidebar-members]")).toBe(0);
 
   // full_state: no placeholder left, the lists in their block.
   await frame(fullState);
   expect(count(view, "[data-sidebar-skeleton]")).toBe(0);
   expect(count(view, "[data-sidebar-skeleton-item]")).toBe(0);
+  expect(pageRows(view)).toEqual(ALL_ROWS);
   const lists = wrapper(view, "lists")!;
   expect(
     lists.querySelector('button[data-sidebar-section="pinned"]'),
@@ -280,38 +317,98 @@ it("holds both blocks' places with the default shape on a device with nothing st
   expect(lists.querySelector("[data-sidebar-members]")).not.toBeNull();
 });
 
-it("draws the stored shape: each placeholder at its stored place, each block at its stored height", async () => {
-  const shape: ChatSidebarShape = {
-    top: {
-      H: 111,
-      items: [
-        { kind: "nav", top: 0, h: 29 },
-        { kind: "nav", top: 31, h: 29 },
-        { kind: "nav", top: 62, h: 29 },
-        { kind: "divider", top: 101, h: 1 },
-      ],
-    },
-    lists: {
-      H: 205,
-      items: [
-        { kind: "header", top: 0, h: 26 },
-        { kind: "row", top: 27, h: 38 },
-        { kind: "header", top: 80, h: 26 },
-        { kind: "nav", top: 107, h: 29 },
-      ],
-    },
-  };
-  window.localStorage.setItem(SHAPE_KEY, JSON.stringify(shape));
+it("before the member's own record, draws the gated page rows this device stored; the record's permissions then win", async () => {
+  // A pack holder's set from an earlier load: only Tasks.
+  window.localStorage.setItem(PAGES_KEY, JSON.stringify(["tasks"]));
+  let view = await mount();
+  expect(pageRows(view)).toEqual(rowsWith(["tasks"]));
+  // Frames before the record, and a page hide, keep the stored set as it is.
+  await frame(sessionContext);
+  await frame(usersList);
+  await frame(fullState);
+  await hidePage();
+  expect(pageRows(view)).toEqual(rowsWith(["tasks"]));
+  expect(storedRaw(PAGES_KEY)).toBe(JSON.stringify(["tasks"]));
+  // The record's pack gives Tasks and webhooks: Automations joins.
+  await frame(tasksHooksSelf);
+  expect(pageRows(view)).toEqual(rowsWith(["tasks", "cronjobs"]));
+  view.unmount();
+
+  // The same stored set, then a record with no pack: every row.
+  window.localStorage.setItem(PAGES_KEY, JSON.stringify(["tasks"]));
+  view = await mount();
+  expect(pageRows(view)).toEqual(rowsWith(["tasks"]));
+  await frame(sessionContext);
+  await frame(selfFrame({}));
+  expect(pageRows(view)).toEqual(ALL_ROWS);
+  view.unmount();
+
+  // A stored empty set (a pack with none of them) is not "nothing stored".
+  window.localStorage.setItem(PAGES_KEY, JSON.stringify([]));
+  view = await mount();
+  expect(pageRows(view)).toEqual(rowsWith([]));
+});
+
+it("stores the gated page rows when the member's own record sets them, without a page hide, and nothing before it", async () => {
   const view = await mount();
   await frame(sessionContext);
-  expect(drawn(view, "top")).toEqual(expected(shape.top));
-  expect(drawn(view, "lists")).toEqual(expected(shape.lists));
-  expect(count(view, "[data-sidebar-nav]")).toBe(0);
+  await frame(usersList);
+  // No record yet: a page hide stores no page set.
+  await hidePage();
+  expect(storedRaw(PAGES_KEY)).toBeNull();
+
+  // A pack with none of the gated areas: the empty set, stored at once.
+  await frame(packSelf);
+  expect(pageRows(view)).toEqual(rowsWith([]));
+  expect(storedPages()).toEqual([]);
+
+  // A pack change that arrives live is stored at once too.
+  await frame(tasksHooksSelf);
+  expect(storedPages()).toEqual(["cronjobs", "tasks"]);
+  await frame(selfFrame({}));
+  expect(storedPages()).toEqual([...GATED].sort());
+  await frame(tasksHooksSelf);
+  expect(storedPages()).toEqual(["cronjobs", "tasks"]);
+  view.unmount();
+
+  // The next load draws that set before the record, so nothing moves when
+  // the same record arrives.
+  const next = await mount();
+  expect(pageRows(next)).toEqual(rowsWith(["tasks", "cronjobs"]));
+  await frame(sessionContext);
+  await frame(tasksHooksSelf);
+  expect(pageRows(next)).toEqual(rowsWith(["tasks", "cronjobs"]));
+});
+
+it("reads a value stored before this change (with a top block) for its lists, and draws the page rows for real", async () => {
+  const lists: ChatSidebarShapeBlock = {
+    H: 90,
+    items: [
+      { kind: "header", top: 0, h: 26 },
+      { kind: "row", top: 27, h: 38 },
+    ],
+  };
+  const old = {
+    top: {
+      H: 40,
+      items: [
+        { kind: "nav", top: 0, h: 29 },
+        { kind: "divider", top: 37, h: 1 },
+      ],
+    },
+    lists,
+  };
+  window.localStorage.setItem(SHAPE_KEY, JSON.stringify(old));
+  const view = await mount();
+  expect(drawn(view)).toEqual(expected(lists));
+  expect(pageRows(view)).toEqual(ALL_ROWS);
+  expect(
+    count(view, '[data-sidebar-block="top"] [data-sidebar-skeleton]'),
+  ).toBe(0);
 });
 
 it("reads a broken or oversized stored shape as the default, without an error", async () => {
   const tooMany = {
-    top: CHAT_SIDEBAR_SHAPE_DEFAULT.top,
     lists: {
       H: 100,
       items: Array.from({ length: CHAT_SIDEBAR_SHAPE_MAX_ITEMS + 1 }, () => ({
@@ -321,21 +418,19 @@ it("reads a broken or oversized stored shape as the default, without an error", 
       })),
     },
   };
-  for (const raw of ["{not json", "[]", JSON.stringify(tooMany)]) {
+  for (const raw of ["{not json", JSON.stringify(tooMany)]) {
     window.localStorage.setItem(SHAPE_KEY, raw);
     const view = await mount();
     await frame(sessionContext);
-    expect(skeletonKinds(view, "top"), raw.slice(0, 20)).toEqual(
-      kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.top),
-    );
-    expect(skeletonKinds(view, "lists"), raw.slice(0, 20)).toEqual(
+    expect(skeletonKinds(view), raw.slice(0, 20)).toEqual(
       kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists),
     );
+    expect(pageRows(view), raw.slice(0, 20)).toEqual(ALL_ROWS);
     view.unmount();
   }
 });
 
-it("stores the drawn shape when the page hides, and a pack holder's next load holds the place of the rows it had", async () => {
+it("stores the drawn lists shape when the page hides, and the next load holds the place of the rows it had", async () => {
   const view = await mount();
   await frame(sessionContext);
   await frame(packSelf);
@@ -343,81 +438,73 @@ it("stores the drawn shape when the page hides, and a pack holder's next load ho
   await frame(fullState);
   expect(count(view, "[data-sidebar-skeleton]")).toBe(0);
 
-  const top = layOut(view, "top", 50, 30);
-  const lists = layOut(view, "lists", 50 + top.H + 1, 40, 640);
-  // A pack holder has fewer page rows than a device with nothing stored.
-  const navs = top.items.filter((i) => i.kind === "nav").length;
-  expect(navs).toBe(
-    count(view, '[data-sidebar-block="top"] [data-sidebar-nav]'),
-  );
-  expect(navs).toBeLessThan(
-    kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.top).filter((k) => k === "nav").length,
-  );
-  expect(kinds(top).at(-1)).toBe("divider");
-
-  expect(stored()).toBeNull();
+  const lists = layOutLists(view, 200, 40, 640);
+  expect(storedLists()).toBeNull();
   await hidePage();
-  expect(stored()).toEqual({ top, lists });
+  expect(storedLists()).toEqual(lists);
 
   // A closed sidebar stores nothing more.
   view.unmount();
   await hidePage();
-  expect(stored()).toEqual({ top, lists });
+  expect(storedLists()).toEqual(lists);
 
-  // The next load: before the member's own record, the placeholders have
-  // the shape the rows had, so nothing moves when they arrive.
+  // The next load: before full_state, the placeholders have the shape the
+  // rows had, so nothing moves when they arrive.
   const next = await mount();
   await frame(sessionContext);
-  expect(drawn(next, "top")).toEqual(expected(top));
-  expect(drawn(next, "lists")).toEqual(expected(lists));
-  expect(count(next, "[data-sidebar-nav]")).toBe(0);
+  expect(drawn(next)).toEqual(expected(lists));
+  expect(count(next, "[data-sidebar-section]")).toBe(0);
 });
 
-it("when the tab hides, stores only the blocks that are ready; a block still loading keeps its stored shape", async () => {
-  const earlier: ChatSidebarShape = {
-    top: { H: 40, items: [{ kind: "nav", top: 0, h: 29 }] },
-    lists: {
-      H: 90,
-      items: [
-        { kind: "header", top: 0, h: 26 },
-        { kind: "row", top: 27, h: 38 },
-      ],
-    },
+it("when the tab hides, stores the lists only once they are ready and take space", async () => {
+  const earlier: ChatSidebarShapeBlock = {
+    H: 90,
+    items: [
+      { kind: "header", top: 0, h: 26 },
+      { kind: "row", top: 27, h: 38 },
+    ],
   };
-  window.localStorage.setItem(SHAPE_KEY, JSON.stringify(earlier));
+  const raw = JSON.stringify({ lists: earlier });
+  window.localStorage.setItem(SHAPE_KEY, raw);
   const view = await mount();
   await frame(sessionContext);
   await frame(selfFrame({}));
-  // The top block is ready, the lists wait for full_state.
-  expect(skeleton(view, "top")).toBeNull();
-  expect(skeleton(view, "lists")).not.toBeNull();
-  // A sidebar that takes no space (hidden) stores nothing.
-  await hidePage();
-  expect(stored()).toEqual(earlier);
-  const top = layOut(view, "top", 60, 32);
-  // The lists' placeholders take their place too: they are not measured.
-  place(wrapper(view, "lists")!, 60 + top.H + 1, earlier.lists.H);
+  // The lists wait for full_state: their placeholders are not measured.
+  expect(skeleton(view)).not.toBeNull();
+  place(wrapper(view, "lists")!, 300, earlier.H);
 
   const visibility = Object.getOwnPropertyDescriptor(
     document,
     "visibilityState",
   );
-  let state: DocumentVisibilityState = "visible";
+  let state: DocumentVisibilityState = "hidden";
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     get: () => state,
   });
+  const visibilityChange = () =>
+    act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
   try {
+    await visibilityChange();
+    expect(storedLists()).toEqual(earlier);
+
+    await frame(fullState);
+    expect(skeleton(view)).toBeNull();
+    // A sidebar that takes no space (hidden) stores nothing.
+    place(wrapper(view, "lists")!, 0, 0);
+    await visibilityChange();
+    expect(storedLists()).toEqual(earlier);
+
+    const lists = layOutLists(view, 300, 36, 500);
     // Shown again: nothing to store.
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    expect(stored()).toEqual(earlier);
+    state = "visible";
+    await visibilityChange();
+    expect(storedLists()).toEqual(earlier);
     state = "hidden";
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    expect(stored()).toEqual({ top, lists: earlier.lists });
+    await visibilityChange();
+    expect(storedLists()).toEqual(lists);
   } finally {
     if (visibility)
       Object.defineProperty(document, "visibilityState", visibility);

@@ -286,9 +286,8 @@ export type ChatSidebarShapeBlock = {
   items: ChatSidebarShapeItem[];
 };
 export type ChatSidebarShape = {
-  // The page rows, the Office row and the divider.
-  top: ChatSidebarShapeBlock;
-  // Pinned, Recent, Members, the rooms, Lobby and Tucked rooms.
+  // Pinned, Recent, Members, the rooms, Lobby and Tucked rooms. The page
+  // rows above them draw at once (task f66e07e3).
   lists: ChatSidebarShapeBlock;
 };
 
@@ -322,18 +321,6 @@ function shapeBlock(
 
 /** The shape drawn on a device with no stored one. */
 export const CHAT_SIDEBAR_SHAPE_DEFAULT: ChatSidebarShape = {
-  // Apps, Inbox, Tasks, Automations, Skills, Integrations, Settings, Office.
-  top: shapeBlock([
-    "nav",
-    "nav",
-    "nav",
-    "nav",
-    "nav",
-    "nav",
-    "nav",
-    "nav",
-    "divider",
-  ]),
   // Pinned, Recent, Members (chat + one member), a room with two agents,
   // Lobby with its receptionist.
   lists: shapeBlock([
@@ -350,12 +337,34 @@ export const CHAT_SIDEBAR_SHAPE_DEFAULT: ChatSidebarShape = {
   ]),
 };
 
-/** A stored shape, or null when it is not a valid, sane ChatSidebarShape. */
+/**
+ * A page row the member's permissions show or hide (task f66e07e3): until
+ * the member's own record arrives, the sidebar draws the ones this device
+ * last drew, so they do not move when it arrives.
+ */
+export type ChatSidebarPage = "apps" | "tasks" | "cronjobs" | "skills";
+
+/** The page rows the member's permissions decide, in sidebar order. */
+export const CHAT_SIDEBAR_PAGES: readonly ChatSidebarPage[] = [
+  "apps",
+  "tasks",
+  "cronjobs",
+  "skills",
+];
+
+/** The stored page rows, unknown ones dropped; null (all draw) when the
+ *  stored value is not an array. */
+export function parseChatSidebarPages(raw: unknown): ChatSidebarPage[] | null {
+  if (!Array.isArray(raw)) return null;
+  return CHAT_SIDEBAR_PAGES.filter((page) => raw.includes(page));
+}
+
+/** A stored shape, or null when it is not a valid, sane ChatSidebarShape.
+ *  A value stored before task f66e07e3 also has `top`, which is ignored. */
 export function parseChatSidebarShape(raw: unknown): ChatSidebarShape | null {
   if (!isRecord(raw)) return null;
-  const top = parseShapeBlock(raw.top);
   const lists = parseShapeBlock(raw.lists);
-  return top && lists ? { top, lists } : null;
+  return lists ? { lists } : null;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>

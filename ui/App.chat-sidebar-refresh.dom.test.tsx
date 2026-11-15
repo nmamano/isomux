@@ -7,12 +7,13 @@
 // lists below the Office row wait for full_state and then draw at once, in
 // their final order.
 //
-// The page rows and the Office row follow the member's own record (a
-// permission pack hides some rows; Nil, 2026-11-15: "Fix the cause: the page
-// gets the member's own permissions (their self record) with its first data,
-// so the page rows are right from the start and no member waits"). They draw
-// when that record arrives, already right, and later frames do not change
-// them. The header draws at load.
+// The page rows and the Office row draw from the first paint (task f66e07e3).
+// A permission pack hides some rows (Nil, 2026-11-15: "Fix the cause: the
+// page gets the member's own permissions (their self record) with its first
+// data, so the page rows are right from the start and no member waits").
+// Until the member's own record arrives, the rows a pack can hide draw as this
+// device last drew them; the record's permissions then win, and later frames
+// do not change them. The header draws at load.
 //
 // This file sends each frame itself, in the server's order (the fixture's
 // boot() sends full_state first). The setup is in
@@ -176,34 +177,44 @@ it("draws Pinned, Recent and Members together at full_state, Pinned and Recent f
   expect(follows(recent!, members!)).toBe(true);
 });
 
-it("draws the page rows with the member's own record, already right for a pack, and later frames keep them", async () => {
+it("draws the page rows at load, the member's own record sets them for a pack, later frames keep them, and the next load draws them right from the start", async () => {
   const view = await mount();
   // The rows a member sees, by name; Tasks and Apps are outside this pack.
-  const rows = () =>
+  const rows = (v: View) =>
     (["tasks", "apps", "integrations", "settings", "office"] as const).map(
-      (row) => navRow(view, row) !== null,
+      (row) => navRow(v, row) !== null,
     );
+  const all = [true, true, true, true, true];
   const without = [false, false, true, true, true];
+  const pack = selfFrame({
+    pack: { areas: { agentManagement: "read" }, agentCeiling: "web" },
+  });
 
-  await frame(sessionContext);
-  // Before the member's own record: the sidebar, no row.
+  // Before any frame, on a device with nothing stored: every row.
   expect(view.container.querySelectorAll("nav[data-chat-sidebar]").length).toBe(
     1,
   );
-  expect(count(view, "[data-sidebar-nav]")).toBe(0);
+  expect(rows(view)).toEqual(all);
+  await frame(sessionContext);
+  expect(rows(view)).toEqual(all);
 
-  await frame(
-    selfFrame({
-      pack: { areas: { agentManagement: "read" }, agentCeiling: "web" },
-    }),
-  );
-  expect(rows()).toEqual(without);
+  await frame(pack);
+  expect(rows(view)).toEqual(without);
 
   // The public roster does not turn the record back into a public one.
   await frame(usersList);
-  expect(rows()).toEqual(without);
+  expect(rows(view)).toEqual(without);
 
   await frame(fullState);
-  expect(rows()).toEqual(without);
+  expect(rows(view)).toEqual(without);
   expect(count(view, "[data-sidebar-members]")).toBe(1);
+  view.unmount();
+
+  // The next load on this device: right before the record arrives, and
+  // unchanged when it does.
+  const next = await mount();
+  expect(rows(next)).toEqual(without);
+  await frame(sessionContext);
+  await frame(pack);
+  expect(rows(next)).toEqual(without);
 });

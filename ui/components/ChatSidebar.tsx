@@ -38,6 +38,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import {
   agentAttention,
+  CHAT_SIDEBAR_PAGES,
   CHAT_SIDEBAR_SECTIONS_DEFAULT,
   CHAT_SIDEBAR_SHAPE_DEFAULT,
   CHAT_SIDEBAR_SHAPE_MAX_ITEMS,
@@ -51,6 +52,7 @@ import {
   roomSummary,
   sidebarRooms,
   sidebarSectionsForAnchor,
+  type ChatSidebarPage,
   type ChatSidebarSections,
   type ChatSidebarShape,
   type ChatSidebarShapeBlock,
@@ -58,8 +60,10 @@ import {
 } from "../chat-sidebar.ts";
 import { memberPinKey } from "../../shared/sidebar-pins.ts";
 import {
+  getChatSidebarPages,
   getChatSidebarSections,
   getChatSidebarShape,
+  setChatSidebarPages,
   setChatSidebarSections,
   setChatSidebarShape,
 } from "../device-settings.ts";
@@ -817,10 +821,8 @@ const pointerHalf = (e: React.DragEvent) => {
 };
 
 // The two blocks of the sidebar's list (task 4dcad6bf): the page rows with
-// the Office row and the divider, ready with the member's own record; and
-// the lists below them, ready at full_state.
-type SidebarBlock = "top" | "lists";
-
+// the Office row and the divider, drawn at once (task f66e07e3); and the
+// lists below them, ready at full_state, with placeholders until then.
 const blockStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -892,19 +894,13 @@ function SkeletonItem({
   );
 }
 
-// A block's placeholders: its rows' shapes, dimmed, at the places they had
-// on this device's last load, in a box of the block's height; nothing to
+// The lists' placeholders: their rows' shapes, dimmed, at the places they
+// had on this device's last load, in a box of the block's height; nothing to
 // click.
-function SidebarSkeleton({
-  block,
-  shape,
-}: {
-  block: SidebarBlock;
-  shape: ChatSidebarShapeBlock;
-}) {
+function SidebarSkeleton({ shape }: { shape: ChatSidebarShapeBlock }) {
   return (
     <div
-      data-sidebar-skeleton={block}
+      data-sidebar-skeleton="lists"
       aria-hidden="true"
       style={{
         position: "relative",
@@ -993,6 +989,9 @@ export function ChatSidebar({
   const { t } = useI18n();
   // A member with a permission pack sees only the pages of its areas, as in
   // the office bar.
+  // Until the member's own record arrives, the rows draw as this device last
+  // drew them (all of them when nothing is stored), so they do not move when
+  // it arrives (task f66e07e3).
   const selfKnown = useSelfUser() !== null;
   const canTasks = useCan("tasks", "read");
   const canSchedules = useCan("schedules", "read");
@@ -1000,6 +999,25 @@ export function ChatSidebar({
   const canAutomations = canSchedules || canWebhooks;
   const canApps = useCan("apps", "read");
   const canSkills = useCan("skills", "read");
+  const canPages = useMemo(() => {
+    const can: Record<ChatSidebarPage, boolean> = {
+      apps: canApps,
+      tasks: canTasks,
+      cronjobs: canAutomations,
+      skills: canSkills,
+    };
+    return CHAT_SIDEBAR_PAGES.filter((page) => can[page]);
+  }, [canApps, canTasks, canAutomations, canSkills]);
+  const [storedPages] = useState(getChatSidebarPages);
+  const pageShown = (page: ChatSidebarPage) =>
+    (selfKnown ? canPages : (storedPages ?? CHAT_SIDEBAR_PAGES)).includes(page);
+  // The rows the member's record shows, stored as soon as it is known or
+  // changes: a tab closed with no page hide keeps them too.
+  useEffect(() => {
+    if (!selfKnown) return;
+    if (JSON.stringify(getChatSidebarPages()) !== JSON.stringify(canPages))
+      setChatSidebarPages(canPages);
+  }, [selfKnown, canPages]);
   const list = useRoomList();
   // The chat's header pill leaves out the open agent's asks, which its chat
   // already shows; with the chat in view, so does this badge.
@@ -1023,27 +1041,23 @@ export function ChatSidebar({
   const pinned = pinnedRows(pins.pinned, agents, memberRows);
   const recentAgents = recentAgentsList(pins.recent, pins.pinned, agents);
 
-  // The placeholders' shape, as this device last drew the list (task
+  // The lists' placeholder shape, as this device last drew them (task
   // 4dcad6bf). The drawn shape is stored when the page hides: the state a
-  // refresh replaces. A block still loading keeps its stored shape.
+  // refresh replaces. Lists still loading keep their stored shape.
   const [shape] = useState<ChatSidebarShape>(
     () => getChatSidebarShape() ?? CHAT_SIDEBAR_SHAPE_DEFAULT,
   );
-  const topRef = useRef<HTMLDivElement>(null);
   const listsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const store = () => {
-      const before = getChatSidebarShape() ?? CHAT_SIDEBAR_SHAPE_DEFAULT;
-      const ready = (el: HTMLDivElement | null) =>
-        el && !el.querySelector("[data-sidebar-skeleton]")
-          ? measureBlock(el)
-          : null;
-      const next: ChatSidebarShape = {
-        top: ready(topRef.current) ?? before.top,
-        lists: ready(listsRef.current) ?? before.lists,
-      };
-      const json = JSON.stringify(next);
-      if (json !== JSON.stringify(before)) setChatSidebarShape(next);
+      const el = listsRef.current;
+      if (!el || el.querySelector("[data-sidebar-skeleton]")) return;
+      const lists = measureBlock(el);
+      if (!lists) return;
+      const next: ChatSidebarShape = { lists };
+      const before = getChatSidebarShape();
+      if (JSON.stringify(next) !== JSON.stringify(before))
+        setChatSidebarShape(next);
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") store();
@@ -1496,113 +1510,106 @@ export function ChatSidebar({
           gap: 1,
         }}
       >
-        {/* The page rows wait for the member's own record, the second frame
-            of the socket: before it, every area reads as allowed, and a
-            member with a permission pack would see rows vanish (task
-            09993863). Until then, placeholders hold their place. */}
-        <div ref={topRef} data-sidebar-block="top" style={blockStyle}>
-          {selfKnown ? (
-            <>
-              {canApps && (
-                <NavRow
-                  attr="apps"
-                  icon={AppsIcon}
-                  label={t("common.apps")}
-                  current={page === "apps"}
-                  onClick={() => onOpenPage("apps")}
-                />
-              )}
-              <NavRow
-                attr="asks"
-                icon={InboxIcon}
-                label={t("nav.inbox")}
-                badge={inbox.newAsks}
-                current={page === "asks"}
-                onClick={() => onOpenPage("asks")}
-              />
-              {canTasks && (
-                <NavRow
-                  attr="tasks"
-                  icon={TasksIcon}
-                  label={t("common.tasks")}
-                  current={page === "tasks"}
-                  onClick={() => onOpenPage("tasks")}
-                />
-              )}
-              {canAutomations && (
-                <NavRow
-                  attr="cronjobs"
-                  icon={ClockIcon}
-                  label={t("common.automations")}
-                  current={page === "cronjobs"}
-                  onClick={() => onOpenPage("cronjobs")}
-                />
-              )}
-              {canSkills && (
-                <NavRow
-                  attr="skills"
-                  icon={SkillsIcon}
-                  label={t("common.skills")}
-                  current={page === "skills"}
-                  onClick={() => onOpenPage("skills")}
-                />
-              )}
-              <NavRow
-                attr="integrations"
-                icon={PlugIcon}
-                label={t("common.integrations")}
-                current={page === "integrations"}
-                onClick={() => onOpenPage("integrations")}
-              />
-              <NavRow
-                attr="settings"
-                icon={SettingsIcon}
-                label={t("common.settings")}
-                current={page === "settings"}
-                onClick={onOpenSettings}
-              />
-              {/* An owner's sliders over the row's right end, on hover; a sibling
-            of the row, as on agent and member rows. */}
-              <div className="chat-sidebar-office">
-                <NavRow
-                  attr="office"
-                  icon={BuildingIcon}
-                  label={t("sidebar.office")}
-                  current={officeShown}
-                  onClick={onOffice}
-                />
-                {amOwner && (
-                  <span
-                    className="chat-sidebar-row-actions"
-                    data-in-view={officeShown ? "" : undefined}
-                  >
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      className="chat-sidebar-row-action"
-                      data-sidebar-office-settings=""
-                      title={t("sidebar.officeSettings")}
-                      aria-label={t("sidebar.officeSettings")}
-                      onClick={onOfficeSettings}
-                    >
-                      {SettingsIcon}
-                    </button>
-                  </span>
-                )}
-              </div>
-              <div
-                data-sidebar-divider=""
-                style={{
-                  height: 1,
-                  background: "var(--border-subtle)",
-                  margin: "8px 4px",
-                  flexShrink: 0,
-                }}
-              />
-            </>
-          ) : (
-            <SidebarSkeleton block="top" shape={shape.top} />
+        {/* The page rows draw at once; the rows the member's permissions
+            decide draw as stored until their own record arrives (task
+            f66e07e3). */}
+        <div data-sidebar-block="top" style={blockStyle}>
+          {pageShown("apps") && (
+            <NavRow
+              attr="apps"
+              icon={AppsIcon}
+              label={t("common.apps")}
+              current={page === "apps"}
+              onClick={() => onOpenPage("apps")}
+            />
           )}
+          <NavRow
+            attr="asks"
+            icon={InboxIcon}
+            label={t("nav.inbox")}
+            badge={inbox.newAsks}
+            current={page === "asks"}
+            onClick={() => onOpenPage("asks")}
+          />
+          {pageShown("tasks") && (
+            <NavRow
+              attr="tasks"
+              icon={TasksIcon}
+              label={t("common.tasks")}
+              current={page === "tasks"}
+              onClick={() => onOpenPage("tasks")}
+            />
+          )}
+          {pageShown("cronjobs") && (
+            <NavRow
+              attr="cronjobs"
+              icon={ClockIcon}
+              label={t("common.automations")}
+              current={page === "cronjobs"}
+              onClick={() => onOpenPage("cronjobs")}
+            />
+          )}
+          {pageShown("skills") && (
+            <NavRow
+              attr="skills"
+              icon={SkillsIcon}
+              label={t("common.skills")}
+              current={page === "skills"}
+              onClick={() => onOpenPage("skills")}
+            />
+          )}
+          <NavRow
+            attr="integrations"
+            icon={PlugIcon}
+            label={t("common.integrations")}
+            current={page === "integrations"}
+            onClick={() => onOpenPage("integrations")}
+          />
+          <NavRow
+            attr="settings"
+            icon={SettingsIcon}
+            label={t("common.settings")}
+            current={page === "settings"}
+            onClick={onOpenSettings}
+          />
+          {/* An owner's sliders over the row's right end, on hover; a sibling
+        of the row, as on agent and member rows. */}
+          <div className="chat-sidebar-office">
+            <NavRow
+              attr="office"
+              icon={BuildingIcon}
+              label={t("sidebar.office")}
+              current={officeShown}
+              onClick={onOffice}
+            />
+            {amOwner && (
+              <span
+                className="chat-sidebar-row-actions"
+                data-in-view={officeShown ? "" : undefined}
+              >
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="chat-sidebar-row-action"
+                  data-sidebar-office-settings=""
+                  title={t("sidebar.officeSettings")}
+                  aria-label={t("sidebar.officeSettings")}
+                  onClick={onOfficeSettings}
+                >
+                  {SettingsIcon}
+                </button>
+              </span>
+            )}
+          </div>
+          <div
+            data-sidebar-divider=""
+            style={{
+              height: 1,
+              background: "var(--border-subtle)",
+              margin: "8px 4px",
+              flexShrink: 0,
+            }}
+          />
         </div>
         {/* The lists draw at the first full_state, all in one paint: Pinned
             and Recent need its agents, and the roster and the member's own
@@ -1710,7 +1717,7 @@ export function ChatSidebar({
               )}
             </>
           ) : (
-            <SidebarSkeleton block="lists" shape={shape.lists} />
+            <SidebarSkeleton shape={shape.lists} />
           )}
         </div>
       </div>

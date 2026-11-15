@@ -16,6 +16,7 @@ import {
   clampSidebarWidth,
   moveRoom,
   newAgentSeat,
+  parseChatSidebarPages,
   parseChatSidebarShape,
   pinnedRows,
   recentAgentsList,
@@ -25,6 +26,7 @@ import {
   sidebarSectionsForAnchor,
   sidebarStartsOpen,
   type ChatSidebarSections,
+  type ChatSidebarPage,
   type ChatSidebarShape,
 } from "./chat-sidebar.ts";
 import { BACK_SEAT_BASE, DESK_COUNT } from "../shared/desks.ts";
@@ -381,26 +383,18 @@ describe("moveRoom", () => {
   });
 });
 
-// The stored shape of the sidebar's list, for its placeholders while it loads
-// (task 4dcad6bf). The DOM side is in ui/App.chat-sidebar-skeleton.dom.test.tsx.
+// The stored shape of the sidebar's lists, for their placeholders while they
+// load (task 4dcad6bf; since task f66e07e3 the page rows draw at load and
+// only the lists have a shape). The DOM side is in
+// ui/App.chat-sidebar-skeleton.dom.test.tsx.
 describe("parseChatSidebarShape", () => {
-  const shape: ChatSidebarShape = {
-    top: {
-      H: 75,
-      items: [
-        { kind: "nav", top: 0, h: 29 },
-        { kind: "nav", top: 30, h: 29 },
-        { kind: "divider", top: 67, h: 1 },
-      ],
-    },
-    lists: {
-      H: 120,
-      items: [
-        { kind: "header", top: 0, h: 26 },
-        { kind: "row", top: 27, h: 38 },
-        { kind: "nav", top: 66, h: 29 },
-      ],
-    },
+  const lists = {
+    H: 120,
+    items: [
+      { kind: "header" as const, top: 0, h: 26 },
+      { kind: "row" as const, top: 27, h: 38 },
+      { kind: "nav" as const, top: 66, h: 29 },
+    ],
   };
   const block = (n: number, px = 10) => ({
     H: px,
@@ -408,45 +402,57 @@ describe("parseChatSidebarShape", () => {
   });
 
   it("keeps a sane shape as it is, up to the item and px caps", () => {
-    expect(parseChatSidebarShape(JSON.parse(JSON.stringify(shape)))).toEqual(
-      shape,
-    );
+    expect(
+      parseChatSidebarShape(JSON.parse(JSON.stringify({ lists }))),
+    ).toEqual({ lists });
     // An empty block is a shape too: a list with nothing in it.
-    const empty = { top: { H: 0, items: [] }, lists: { H: 0, items: [] } };
+    const empty = { lists: { H: 0, items: [] } };
     expect(parseChatSidebarShape(empty)).toEqual(empty);
     const atCaps = {
-      top: block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS, CHAT_SIDEBAR_SHAPE_MAX_PX),
-      lists: block(1),
+      lists: block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS, CHAT_SIDEBAR_SHAPE_MAX_PX),
     };
     expect(parseChatSidebarShape(atCaps)).toEqual(atCaps as ChatSidebarShape);
-    // The default is a sane shape, with the page rows first.
+    // The default is a sane shape.
     expect(parseChatSidebarShape(CHAT_SIDEBAR_SHAPE_DEFAULT)).toEqual(
       CHAT_SIDEBAR_SHAPE_DEFAULT,
     );
   });
 
+  it("reads a value stored before task f66e07e3 for its lists, whatever its top block holds", () => {
+    const top = {
+      H: 75,
+      items: [
+        { kind: "nav", top: 0, h: 29 },
+        { kind: "divider", top: 67, h: 1 },
+      ],
+    };
+    expect(parseChatSidebarShape({ top, lists })).toEqual({ lists });
+    expect(
+      parseChatSidebarShape({ top: { H: -1, items: "x" }, lists }),
+    ).toEqual({ lists });
+  });
+
   it("reads anything else as none, without throwing", () => {
-    const item = shape.top.items[0];
-    const withTop = (top: unknown) => ({ ...shape, top });
+    const item = lists.items[0];
+    const withLists = (l: unknown) => ({ lists: l });
     const withItem = (over: Record<string, unknown>) =>
-      withTop({ ...shape.top, items: [{ ...item, ...over }] });
+      withLists({ ...lists, items: [{ ...item, ...over }] });
     const bad: [string, unknown][] = [
       ["null", null],
       ["a string", "shape"],
-      ["an array", [shape.top, shape.lists]],
-      ["no lists", { top: shape.top }],
-      ["no top", { lists: shape.lists }],
-      ["a block with no items", withTop({ H: 10 })],
-      ["items not a list", withTop({ H: 10, items: {} })],
-      ["a block with no H", withTop({ items: shape.top.items })],
-      ["H a string", withTop({ ...shape.top, H: "75" })],
-      ["H negative", withTop({ ...shape.top, H: -1 })],
+      ["an array", [lists]],
+      ["no lists", { top: lists }],
+      ["a block with no items", withLists({ H: 10 })],
+      ["items not a list", withLists({ H: 10, items: {} })],
+      ["a block with no H", withLists({ items: lists.items })],
+      ["H a string", withLists({ ...lists, H: "75" })],
+      ["H negative", withLists({ ...lists, H: -1 })],
       [
         "H over the cap",
-        withTop({ ...shape.top, H: CHAT_SIDEBAR_SHAPE_MAX_PX + 1 }),
+        withLists({ ...lists, H: CHAT_SIDEBAR_SHAPE_MAX_PX + 1 }),
       ],
-      ["H infinite", withTop({ ...shape.top, H: Infinity })],
-      ["H NaN", withTop({ ...shape.top, H: NaN })],
+      ["H infinite", withLists({ ...lists, H: Infinity })],
+      ["H NaN", withLists({ ...lists, H: NaN })],
       ["an unknown kind", withItem({ kind: "room" })],
       ["no kind", withItem({ kind: undefined })],
       ["an item with no top", withItem({ top: undefined })],
@@ -454,13 +460,43 @@ describe("parseChatSidebarShape", () => {
       ["top over the cap", withItem({ top: CHAT_SIDEBAR_SHAPE_MAX_PX + 1 })],
       ["h a string", withItem({ h: "29" })],
       ["h infinite", withItem({ h: Infinity })],
-      ["an item that is null", withTop({ ...shape.top, items: [null] })],
-      [
-        "one item too many",
-        { ...shape, lists: block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS + 1) },
-      ],
+      ["an item that is null", withLists({ ...lists, items: [null] })],
+      ["one item too many", withLists(block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS + 1))],
     ];
     for (const [why, raw] of bad)
       expect(parseChatSidebarShape(raw), why).toBeNull();
+  });
+});
+
+// The page rows a permission pack can hide, as this device last drew them
+// (task f66e07e3). The DOM side is in ui/App.chat-sidebar-skeleton.dom.test.tsx.
+describe("parseChatSidebarPages", () => {
+  it("keeps the known page rows, and an empty list as empty", () => {
+    const all: ChatSidebarPage[] = ["apps", "tasks", "cronjobs", "skills"];
+    expect([...parseChatSidebarPages(all)!].sort()).toEqual([...all].sort());
+    expect(parseChatSidebarPages(["tasks"])).toEqual(["tasks"]);
+    // A pack with none of the areas: no row, not "all".
+    expect(parseChatSidebarPages([])).toEqual([]);
+  });
+
+  it("leaves out what is not a page row a pack can hide", () => {
+    expect(
+      parseChatSidebarPages([
+        "tasks",
+        "asks",
+        "office",
+        "settings",
+        "integrations",
+        "Tasks",
+        7,
+        null,
+        { tasks: true },
+      ]),
+    ).toEqual(["tasks"]);
+  });
+
+  it("reads a value that is not a list as none (every row draws), without throwing", () => {
+    for (const raw of [null, undefined, "tasks", 3, { tasks: true }, true])
+      expect(parseChatSidebarPages(raw), String(raw)).toBeNull();
   });
 });

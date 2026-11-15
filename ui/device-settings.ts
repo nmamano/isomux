@@ -11,8 +11,10 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import {
   clampSidebarWidth,
+  parseChatSidebarPages,
   parseChatSidebarShape,
   type ChatSidebarChoice,
+  type ChatSidebarPage,
   type ChatSidebarSections,
   type ChatSidebarShape,
 } from "./chat-sidebar.ts";
@@ -119,6 +121,26 @@ export function getChatSidebarShape(): ChatSidebarShape | null {
 export function setChatSidebarShape(shape: ChatSidebarShape): void {
   try {
     localStorage.setItem(KEY_CHAT_SIDEBAR_SHAPE, JSON.stringify(shape));
+  } catch {}
+}
+
+// The page rows the member's permissions showed at the last self record on
+// this device (task f66e07e3), drawn before the next one arrives.
+const KEY_CHAT_SIDEBAR_PAGES = "isomux-chat-sidebar-pages";
+
+// Null when nothing valid is stored: every page row draws.
+export function getChatSidebarPages(): ChatSidebarPage[] | null {
+  try {
+    return parseChatSidebarPages(
+      JSON.parse(localStorage.getItem(KEY_CHAT_SIDEBAR_PAGES) ?? "null"),
+    );
+  } catch {}
+  return null;
+}
+
+export function setChatSidebarPages(pages: ChatSidebarPage[]): void {
+  try {
+    localStorage.setItem(KEY_CHAT_SIDEBAR_PAGES, JSON.stringify(pages));
   } catch {}
 }
 
