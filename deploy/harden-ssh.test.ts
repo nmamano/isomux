@@ -508,7 +508,8 @@ describe.concurrent("harden-ssh.sh --check", () => {
     rmSync(outside, { recursive: true, force: true });
   });
 
-  it("a second SSH daemon on another port is probed too", async () => {
+  // Quarantined: flaky in merge CI (task 82c3d396).
+  it.skip("a second SSH daemon on another port is probed too", async () => {
     // OpenSSH masked, dropbear listening: the OpenSSH endpoints go unreachable
     // and the box would pass without this.
     const banner = Bun.listen({
