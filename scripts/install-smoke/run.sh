@@ -2,7 +2,9 @@
 # Clean-install smoke test: install one committed revision the way a hosting
 # guide tells a new owner to, in a fresh container, and then run check.ts
 # against the office it produces. Exit 0 is a pass. A failure names the path
-# and the step, and prints the end of that step's log.
+# and the step, prints the end of that step's log and a "cause:" line, and
+# exits 75 when the cause is outside isomux (network or vm: CI runs it once
+# more), or 1.
 #
 #   scripts/install-smoke/run.sh manual|installer|installer-gate|hosted|container|kubernetes [REVISION]
 #
@@ -146,7 +148,55 @@ step() {
     log "End of the office log:"
     office_log 2>&1 | tail -n 60 | sed 's/^/    /' || true
   fi
+  local cause
+  cause=$(failure_cause "$step" "$logs/$step.log")
+  log "cause: $cause"
+  [[ $cause == product* ]] || exit 75
   exit 1
+}
+
+# failure_cause STEP LOG: the cause class of a failed step and its sign, as
+# "<class> (<sign>)". CI runs the stage once more for network and vm (exit
+# 75), never for product (exit 1). The command's own exit code plays no part.
+#   vm       a step that runs before any isomux code (the box, the local
+#            git), or Docker's daemon gone or the disk full.
+#   network  a final message that blames an outside host: install.sh's
+#            GitHub and apt messages, or apt-mirrors.sh's last one. Raw apt
+#            errors are not signs: the second mirror may have repaired them.
+#   product  everything else, and any HTTP 4xx but 408 and 429 (install.sh
+#            counts those two as GitHub being down): a wrong URL or pin.
+# Network signs and the 4xx count only at the failure point: after the last
+# "--- step:" line of install.sh, and never on a "warning:" line, because
+# install.sh prints its advice also for a failure it survives. A survived
+# network failure and a product failure in the same installer step still
+# read as network.
+failure_cause() {
+  local step=$1 file=$2 sign section
+  case $step in
+    machine | boot | ssh | serve-revision)
+      echo "vm (step $step runs before any isomux code)"
+      return
+      ;;
+  esac
+  sign=$(grep -m1 -E 'Cannot connect to the Docker daemon|[Nn]o space left on device' "$file") || sign=""
+  if [[ -n $sign ]]; then
+    echo "vm (${sign:0:200})"
+    return
+  fi
+  section=$(awk '/\[isomux-install\] --- step:/ { n = 0; next } { line[++n] = $0 }
+    END { for (i = 1; i <= n; i++) print line[i] }' "$file" | grep -v 'warning:') || section=""
+  sign=$(grep -oE 'returned error: 4[0-9][0-9]|\(HTTP 4[0-9][0-9]\)|  4[0-9][0-9]  [A-Z][A-Za-z ]*' <<<"$section" |
+    grep -vE '(^|[^0-9])(408|429)([^0-9]|$)' | head -n 1) || sign=""
+  if [[ -n $sign ]]; then
+    echo "product (HTTP ${sign//[!0-9]/} at the failure point: a wrong URL or pin)"
+    return
+  fi
+  sign=$(grep -m1 -E 'GitHub did not answer|The cause is the network or the package mirror, not Isomux|did not get every index with either mirror first' <<<"$section") || sign=""
+  if [[ -n $sign ]]; then
+    echo "network (${sign:0:200})"
+    return
+  fi
+  echo "product (no network or vm sign at the failure point)"
 }
 
 # A bare repository holding only $sha, as branch `smoke`, for the installs to

@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   closeSync,
   fstatSync,
   readSync,
@@ -6,6 +7,7 @@ import {
   openSync,
   readFileSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +46,11 @@ type Stage = {
   peakRss?: number;
   /** A stage that does not pass warns: it never fails CI. */
   warnOnly?: boolean;
+  /**
+   * The stage command's exit code for an infra failure: the stage then runs
+   * once more, with its own ceiling. Its log's cause lines go in the reason.
+   */
+  retryOnExit?: number;
 };
 
 export const stages: Stage[] = [
@@ -84,6 +91,10 @@ export const stages: Stage[] = [
   {
     name: "install smoke",
     command: ["bash", "scripts/install-smoke/run.sh", "installer-gate", "HEAD"],
+    // run.sh exits 75 when a step failed on the network or the box, not on
+    // isomux (its "cause:" line says which); a product failure exits 1 and
+    // a wall-clock kill has no cause, so neither runs again (task d381f3e2).
+    retryOnExit: 75,
   },
   // Critical and high advisories in the runtime dependencies of both
   // lockfiles. It reads the registry's advisory list, which changes with no
@@ -170,26 +181,25 @@ function lastTestLine(log: string): string {
   }
 }
 
-export async function runStage(
-  name: StageName,
+/** One run of a stage command, its output written to `log` (`flags` "w" or "a"). */
+type Try = {
+  exitCode: number;
+  timedOut: boolean;
+  peakRssBytes?: number;
+};
+
+async function runTry(
   command: string[],
   log: string,
-  timeoutMs = ceilingFor(name),
-  waitForExit: (child: ReturnType<typeof Bun.spawn>) => Promise<number> = (
-    child,
-  ) => child.exited,
+  flags: "w" | "a",
+  timeoutMs: number | undefined,
+  waitForExit: (child: ReturnType<typeof Bun.spawn>) => Promise<number>,
   env?: Record<string, string>,
-  warnOnly: boolean = definition(name).warnOnly ?? false,
-): Promise<StageResult> {
-  const fd = openSync(log, "w");
-  const started = performance.now();
-  console.log(`→ ${name}`);
-
+): Promise<Try> {
+  const fd = openSync(log, flags);
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
-  let exitCode: number;
-  let peakRssBytes: number | undefined;
   try {
     child = Bun.spawn(command, {
       stdout: fd,
@@ -216,27 +226,95 @@ export async function runStage(
               }
             }, timeoutMs);
           });
-    exitCode = await Promise.race([waitForExit(child), deadline]);
+    const exitCode = await Promise.race([waitForExit(child), deadline]);
     // wait4 reports the largest of the child and its waited descendants.
-    peakRssBytes = child.resourceUsage()?.maxRSS;
+    return { exitCode, timedOut, peakRssBytes: child.resourceUsage()?.maxRSS };
   } finally {
     clearTimeout(timer);
     if (child) children.delete(child);
     closeSync(fd);
   }
-  const reason = timedOut
-    ? `wall-clock limit ${timeoutMs}ms exceeded; last test line: ${lastTestLine(log)}`
-    : undefined;
+}
+
+// The last cause line in a stage log (scripts/install-smoke/run.sh prints one
+// per failed step) from byte `from` on, without its prefix.
+function causeIn(log: string, from = 0): string | undefined {
+  let text = "";
+  try {
+    text = readFileSync(log).subarray(from).toString("utf8");
+  } catch {
+    return undefined;
+  }
+  const causes = [...text.matchAll(/^\[smoke:[^\]]+\] cause: (.+)$/gm)];
+  return causes.at(-1)?.[1];
+}
+
+export async function runStage(
+  name: StageName,
+  command: string[],
+  log: string,
+  timeoutMs = ceilingFor(name),
+  waitForExit: (child: ReturnType<typeof Bun.spawn>) => Promise<number> = (
+    child,
+  ) => child.exited,
+  env?: Record<string, string>,
+  warnOnly: boolean = definition(name).warnOnly ?? false,
+): Promise<StageResult> {
+  const started = performance.now();
+  const retryOnExit = definition(name).retryOnExit;
+  console.log(`→ ${name}`);
+
+  const limit = () =>
+    `wall-clock limit ${timeoutMs}ms exceeded; last test line: ${lastTestLine(log)}`;
+  // What one try of a stage with cause classes ended with.
+  const outcome = (attempt: Try, cause: string | undefined) =>
+    attempt.timedOut
+      ? `cause: timeout; ${limit()}`
+      : `cause: ${cause ?? "not recorded"}`;
+
+  const first = await runTry(command, log, "w", timeoutMs, waitForExit, env);
+  let last = first;
+  let reason: string | undefined;
+  if (
+    retryOnExit !== undefined &&
+    !first.timedOut &&
+    first.exitCode === retryOnExit &&
+    !interruptedSignal
+  ) {
+    // An infra failure (the stage's own exit code for it): one more try,
+    // with its own ceiling. The log keeps both tries.
+    const firstOutcome = outcome(first, causeIn(log));
+    console.log(`↻ ${name}: infra failure (${firstOutcome}); one more try`);
+    appendFileSync(log, `\n=== ${name}: try 2 (try 1: ${firstOutcome}) ===\n`);
+    // Try 2's cause comes from its own output only.
+    const tryTwoStart = statSync(log).size;
+    last = await runTry(command, log, "a", timeoutMs, waitForExit, env);
+    const secondOutcome = outcome(last, causeIn(log, tryTwoStart));
+    reason =
+      !last.timedOut && last.exitCode === 0
+        ? `passed on try 2; try 1: ${firstOutcome}`
+        : `try 1: ${firstOutcome}; try 2: ${secondOutcome}`;
+  } else if (last.timedOut) {
+    reason = retryOnExit === undefined ? limit() : outcome(last, undefined);
+  } else if (retryOnExit !== undefined && last.exitCode !== 0) {
+    const cause = causeIn(log);
+    if (cause !== undefined) reason = `cause: ${cause}`;
+  }
+  const peakRssBytes =
+    first === last || first.peakRssBytes === undefined
+      ? last.peakRssBytes
+      : Math.max(first.peakRssBytes, last.peakRssBytes ?? 0);
+  const { exitCode, timedOut } = last;
   const seconds = (performance.now() - started) / 1_000;
   const passed = !timedOut && exitCode === 0;
   const mark = warnOnly ? "!" : "✗";
   const verb = warnOnly ? "warned" : "failed";
   console.log(
     passed
-      ? `✓ ${name} ${seconds.toFixed(2)}s`
+      ? `✓ ${name} ${seconds.toFixed(2)}s${reason ? ` (${reason})` : ""}`
       : timedOut
         ? `${mark} ${name} ${verb} (${reason})`
-        : `${mark} ${name} ${verb} (exit ${exitCode}) ${seconds.toFixed(2)}s`,
+        : `${mark} ${name} ${verb} (exit ${exitCode}) ${seconds.toFixed(2)}s${reason ? ` (${reason})` : ""}`,
   );
 
   return {

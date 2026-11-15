@@ -29,9 +29,16 @@ beforeEach(() => {
     );
     chmodSync(join(base, name), 0o755);
   };
+  // A docker call whose arguments match STUB_FAIL_MATCH prints the file
+  // STUB_FAIL_OUT and exits with STUB_FAIL_RC: a step that fails with a
+  // given log.
   stub(
     "docker",
-    `case "$1 $2" in
+    `if [[ -n \${STUB_FAIL_MATCH:-} && "$*" =~ $STUB_FAIL_MATCH ]]; then
+  [[ -z \${STUB_FAIL_OUT:-} ]] || cat "$STUB_FAIL_OUT"
+  exit "\${STUB_FAIL_RC:-1}"
+fi
+case "$1 $2" in
   "build "*) [[ $STUB_MODE == build-fails ]] && exit 17
     [[ $STUB_MODE == build-hangs ]] && { echo "stub-build-progress"; exec sleep 30; }
     cat >/dev/null; exit 0 ;;
@@ -527,5 +534,214 @@ describe("run.sh serve-revision retry", () => {
     expect(r.out).toMatch(/FAIL at step serve-revision/);
     expect(gitCalls(r.calls, "init").length).toBeGreaterThan(0);
     expect(gitCalls(r.calls, "fetch")).toEqual([]);
+  }, 60_000);
+});
+
+// Task d381f3e2: a failed step prints its cause class in run.sh's own
+// output, and run.sh exits 75 (EX_TEMPFAIL) for an infra class (network,
+// vm), so that CI retries only those. A sign counts only at the failure
+// point: the installer prints its network advice also on failures it
+// survives, and box-image keeps apt's errors from a first update that the
+// second one repaired. A product failure must stay exit 1.
+describe("run.sh failure cause", () => {
+  const INSTALL = String.raw`bash /root/install\.sh$`;
+  const BOX_IMAGE = "^build ";
+  const MACHINE = "^run -d ";
+  const CHECKS = String.raw`check\.ts`;
+  const STEP = (name: string) => `[isomux-install] --- step: ${name}`;
+  const GITHUB_DOWN =
+    "[isomux-install] could not download https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.deb. GitHub did not answer after 6 tries. Try again in a few minutes.";
+  const ADVICE =
+    "The cause is the network or the package mirror, not Isomux. Try again later, or switch apt to another mirror.";
+  const MIRRORS_DOWN =
+    "apt-mirrors: apt-get update did not get every index with either mirror first (archive.ubuntu.com and security.ubuntu.com, http://mirrors.edge.kernel.org/ubuntu/). This is outside isomux.";
+  const MIRRORS_RETRY =
+    "apt-mirrors: apt-get update did not get every index (above); trying again in 10s with the fallback mirror first";
+
+  async function failStep(match: string, lines: string[], rc = 1) {
+    const out = join(base, "step-out.txt");
+    writeFileSync(out, `${lines.join("\n")}\n`);
+    const r = await run("passes", "installer-gate", {
+      STUB_FAIL_MATCH: match,
+      STUB_FAIL_OUT: out,
+      STUB_FAIL_RC: String(rc),
+    });
+    // The cause lines run.sh printed, as [class, sign].
+    const causes = r.out
+      .split("\n")
+      .map((l) => /^\[smoke:installer-gate\] cause: (\w+) \((.*)\)$/.exec(l))
+      .filter((m) => m !== null)
+      .map((m) => [m[1], m[2]]);
+    return { ...r, causes };
+  }
+
+  // The enabling condition of every case: the stub failed the step meant.
+  const failedAt = (out: string, step: string) =>
+    expect(out).toMatch(new RegExp(`FAIL at step ${step} `));
+
+  it("classifies GitHub that did not answer in the failing install section as network", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("caddy"),
+      "curl: (22) The requested URL returned error: 504",
+      GITHUB_DOWN,
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes).toHaveLength(1);
+    expect(r.causes[0]![0]).toBe("network");
+    expect(r.causes[0]![1]).not.toBe("");
+  }, 60_000);
+
+  it("keeps a GitHub 4xx red as product, a wrong URL or pin", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("caddy"),
+      "curl: (22) The requested URL returned error: 404",
+      GITHUB_DOWN,
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  it("counts a GitHub 429 or 408 as network, as install.sh does", async () => {
+    for (const code of ["429", "408"]) {
+      const r = await failStep(INSTALL, [
+        STEP("caddy"),
+        `curl: (22) The requested URL returned error: ${code}`,
+        GITHUB_DOWN,
+      ]);
+      failedAt(r.out, "install");
+      expect(r.code, r.out).toBe(75);
+      expect(r.causes.map((c) => c[0])).toEqual(["network"]);
+    }
+  }, 120_000);
+
+  // Every 4xx at the failure point counts, not only the first line that
+  // has one.
+  it("keeps a 4xx red when an earlier line of the section had a 429", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("caddy"),
+      "curl: (22) The requested URL returned error: 429",
+      "curl: (22) The requested URL returned error: 404",
+      GITHUB_DOWN,
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  it("does not read an apt download size as an HTTP 4xx", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("packages"),
+      "Get:5 http://archive.ubuntu.com/ubuntu noble/main amd64 jq amd64 1.7.1-3build1 [404 kB]",
+      "E: Failed to fetch http://archive.ubuntu.com/ubuntu/pool/main/t/tmux/tmux_3.4-1build1_amd64.deb  Could not connect to archive.ubuntu.com:80 (91.189.91.81), connection timed out",
+      `[isomux-install] apt could not download from: archive.ubuntu.com. ${ADVICE}`,
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes.map((c) => c[0])).toEqual(["network"]);
+  }, 60_000);
+
+  it("ignores the network advice on a warning line", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("packages"),
+      `[isomux-install] warning: apt could not download from: archive.ubuntu.com. ${ADVICE}`,
+      "[isomux-install] ERROR: the office did not answer within 60 s",
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  // install.sh survives a failed GitHub CLI install: apt_report_hosts prints
+  // the advice without "warning:", and the install goes on.
+  it("ignores a network sign from an earlier install section", async () => {
+    const r = await failStep(INSTALL, [
+      STEP("github-cli"),
+      `[isomux-install] apt could not download from: cli.github.com. ${ADVICE}`,
+      "[isomux-install] warning: could not install GitHub CLI. The office will continue without it. Install it later with: apt-get install gh",
+      STEP("service"),
+      "[isomux-install] ERROR: isomux.service did not start",
+    ]);
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  it("classifies apt-mirrors failing with both mirrors in box-image as network", async () => {
+    const r = await failStep(BOX_IMAGE, [
+      "#9 [4/5] RUN isomux-smoke-apt-mirrors update && apt-get install -y",
+      MIRRORS_RETRY,
+      MIRRORS_DOWN,
+      'ERROR: failed to solve: process "/bin/sh -c isomux-smoke-apt-mirrors update" did not complete successfully: exit code: 1',
+    ]);
+    failedAt(r.out, "box-image");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes.map((c) => c[0])).toEqual(["network"]);
+  }, 60_000);
+
+  it("keeps a box-image failure red when apt's errors were repaired by the second update", async () => {
+    const r = await failStep(BOX_IMAGE, [
+      "#9 Err:1 http://archive.ubuntu.com/ubuntu noble InRelease",
+      "#9   Temporary failure resolving 'archive.ubuntu.com'",
+      "#9 W: Failed to fetch http://archive.ubuntu.com/ubuntu/dists/noble/InRelease  Temporary failure resolving 'archive.ubuntu.com'",
+      "#9 E: Failed to fetch http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease  503  Service Unavailable [IP: 91.189.91.82 80]",
+      MIRRORS_RETRY,
+      "#9 Hit:1 http://mirrors.edge.kernel.org/ubuntu noble InRelease",
+      "#10 [5/5] RUN test -x /usr/local/bin/missing",
+      'ERROR: failed to solve: process "/bin/sh -c test -x /usr/local/bin/missing" did not complete successfully: exit code: 1',
+    ]);
+    failedAt(r.out, "box-image");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  it("classifies a machine that did not start as vm", async () => {
+    const r = await failStep(
+      MACHINE,
+      [
+        "docker: Error response from daemon: failed to create task for container: stub.",
+      ],
+      125,
+    );
+    failedAt(r.out, "machine");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes.map((c) => c[0])).toEqual(["vm"]);
+  }, 60_000);
+
+  it("classifies a Docker daemon that went away during the checks as vm", async () => {
+    const r = await failStep(CHECKS, [
+      "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+    ]);
+    failedAt(r.out, "office-checks");
+    expect(r.code, r.out).toBe(75);
+    expect(r.causes.map((c) => c[0])).toEqual(["vm"]);
+  }, 60_000);
+
+  it("keeps a failed office check red as product", async () => {
+    const r = await failStep(CHECKS, [
+      "FAIL claim: the invite link answered 500",
+    ]);
+    failedAt(r.out, "office-checks");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+    expect(r.causes[0]![1]).not.toBe("");
+  }, 60_000);
+
+  it("does not pass on a step command's own exit 75 without a sign", async () => {
+    const r = await failStep(
+      INSTALL,
+      [STEP("service"), "[isomux-install] ERROR: isomux.service did not start"],
+      75,
+    );
+    failedAt(r.out, "install");
+    expect(r.code, r.out).toBe(1);
+    expect(r.causes.map((c) => c[0])).toEqual(["product"]);
+  }, 60_000);
+
+  it("prints no cause line when every step passes", async () => {
+    const r = await failStep("^no-such-docker-call$", []);
+    expect(r.code, r.out).toBe(0);
+    expect(r.causes).toEqual([]);
   }, 60_000);
 });

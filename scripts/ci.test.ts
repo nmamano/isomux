@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -542,4 +542,148 @@ it("fails CI only on failed stages and shows the failed and warned logs", () => 
   ]);
   expect(warnedOnly.failed).toHaveLength(0);
   expect(names(warnedOnly.shown)).toEqual(["audit"]);
+});
+
+// Task d381f3e2: run.sh exits 75 for an infra failure (network, vm) and
+// prints its cause line. The install smoke stage then runs once more, with
+// its own ceiling; a product failure (any other exit) and a wall-clock kill
+// are never retried. The stage log keeps both tries.
+describe("install smoke retry", () => {
+  // A stage command whose try N prints "try N output", sleeps SLEEPS[N-1]
+  // seconds, prints the cause line when CAUSES[N-1] is not "-", and exits
+  // with CODES[N-1]. The count of tries is in the counter file.
+  function tries(codes: number[], causes: string[], sleeps: number[] = []) {
+    const root = mkdtempSync(join(tmpdir(), "isomux-ci-retry-"));
+    roots.push(root);
+    const counter = join(root, "tries");
+    const script = `
+      n=$(( $(cat "$1" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$1"
+      shift; codes=($1); causes=($2); sleeps=($3)
+      echo "try $n output"
+      [[ -z \${sleeps[n-1]:-} ]] || sleep "\${sleeps[n-1]}"
+      [[ \${causes[n-1]:--} == - ]] || echo "[smoke:installer-gate] cause: \${causes[n-1]}"
+      exit "\${codes[n-1]}"`;
+    return {
+      command: [
+        "bash",
+        "-c",
+        script,
+        "bash",
+        counter,
+        codes.join(" "),
+        causes.join(" "),
+        sleeps.join(" "),
+      ],
+      count: () => Number(readFileSync(counter, "utf8").trim()),
+    };
+  }
+  const stageLog = (result: { log: string }) =>
+    readFileSync(result.log, "utf8");
+
+  it("passes on a second try after an infra failure and names the first cause", async () => {
+    const t = tries([75, 0], ["network(stub-sign-1)", "-"]);
+    const { result, out } = await fakeStep(
+      t.command,
+      60_000,
+      false,
+      false,
+      "install smoke",
+    );
+    expect(t.count()).toBe(2);
+    expect(result.status).toBe("passed");
+    expect(result.exitCode).toBe(0);
+    expect(result.reason).toContain("network(stub-sign-1)");
+    // CI's own output says that the stage runs again, and why.
+    expect(out).toContain("network(stub-sign-1)");
+    const log = stageLog(result);
+    expect(log.indexOf("try 1 output")).toBeGreaterThanOrEqual(0);
+    expect(log.indexOf("try 2 output")).toBeGreaterThan(
+      log.indexOf("try 1 output"),
+    );
+  }, 15_000);
+
+  it("fails after two infra failures and names both causes", async () => {
+    const t = tries([75, 75], ["network(stub-sign-1)", "vm(stub-sign-2)"]);
+    const { result } = await fakeStep(
+      t.command,
+      60_000,
+      false,
+      false,
+      "install smoke",
+    );
+    expect(t.count()).toBe(2);
+    expect(result.status).toBe("failed");
+    expect(result.exitCode).toBe(75);
+    expect(result.reason).toContain("network(stub-sign-1)");
+    expect(result.reason).toContain("vm(stub-sign-2)");
+    expect(stageLog(result)).toContain("try 2 output");
+  }, 15_000);
+
+  it("retries an exit 75 that printed no cause line, and says so", async () => {
+    const t = tries([75, 0], ["-", "-"]);
+    const { result } = await fakeStep(
+      t.command,
+      60_000,
+      false,
+      false,
+      "install smoke",
+    );
+    expect(t.count()).toBe(2);
+    expect(result.status).toBe("passed");
+    expect(typeof result.reason).toBe("string");
+    expect(result.reason.length).toBeGreaterThan(0);
+    expect(result.reason).not.toContain("undefined");
+  }, 15_000);
+
+  it("never retries a product failure", async () => {
+    const t = tries([1, 0], ["product(stub-sign-1)", "-"]);
+    const { result } = await fakeStep(
+      t.command,
+      60_000,
+      false,
+      false,
+      "install smoke",
+    );
+    expect(t.count()).toBe(1);
+    expect(result.status).toBe("failed");
+    expect(result.exitCode).toBe(1);
+  }, 15_000);
+
+  it("never retries a wall-clock kill, and records it as the cause timeout", async () => {
+    const t = tries([75, 0], ["network(stub-sign-1)", "-"], [30]);
+    const { result } = await fakeStep(
+      t.command,
+      600,
+      false,
+      false,
+      "install smoke",
+    );
+    expect(t.count()).toBe(1);
+    expect(result.status).toBe("failed");
+    expect(result.exitCode).toBe(124);
+    expect(result.reason).toMatch(/cause: timeout\b/);
+  }, 15_000);
+
+  it("gives the second try its own ceiling", async () => {
+    // Each try takes 0.9 s against a 1.5 s ceiling; both together exceed it.
+    const t = tries([75, 0], ["network(stub-sign-1)", "-"], [0.9, 0.9]);
+    const { result } = await fakeStep(
+      t.command,
+      1_500,
+      false,
+      false,
+      "install smoke",
+    );
+    expect(t.count()).toBe(2);
+    expect(result.seconds).toBeGreaterThan(1.5);
+    expect(result.status).toBe("passed");
+  }, 15_000);
+
+  it("retries only the stage that asks for it", async () => {
+    const t = tries([75, 0], ["network(stub-sign-1)", "-"]);
+    const { result } = await fakeStep(t.command, 60_000, false, false, "lint");
+    expect(t.count()).toBe(1);
+    expect(result.status).toBe("failed");
+    expect(result.exitCode).toBe(75);
+  }, 15_000);
 });
