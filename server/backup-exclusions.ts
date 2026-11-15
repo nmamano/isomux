@@ -4,6 +4,9 @@
 // tar globs rooted at the state root's name. The office move leaves out the
 // same entries (server/office-move-scope.ts).
 
+import { readdirSync } from "fs";
+import { join } from "path";
+import { errMessage } from "../shared/errors.ts";
 import {
   BACKEND_CREDENTIAL_PATHS,
   type BackendCredentialPath,
@@ -143,3 +146,51 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   },
   ...BACKEND_CREDENTIAL_PATHS.flatMap(backendExclusions),
 ];
+
+// What Isomux or a backend makes again, so the daily backup leaves it out
+// (task 1426371a): package and plugin caches, temp folders and the built
+// Codex safety hook. Paths are relative to the state root and literal: they
+// are read from the disk at each run, because a tar glob's "*" also matches
+// "/" and would drop a folder of the same name deep in an agent's home. Kept
+// apart from BACKUP_EXCLUSIONS, which the office move reports as sign-ins.
+// The move still copies these paths.
+const OPENCODE_PROFILE_REMADE = [
+  "cache", // XDG_CACHE_HOME (backends/opencode/profile-paths.ts)
+  "tmp", // openCodeCliTmpDir (backends/opencode/config-layers.ts)
+  "home/.npm",
+  // OpenCode installs its plugin package from package.json at start.
+  "config/opencode/node_modules",
+];
+const CODEX_HOME_REMADE = ["cache", ".tmp", "tmp"];
+
+export function regenerableBackupPaths(stateRoot: string): string[] {
+  const paths = [
+    // safety-hook-install.ts builds the golden copy again when it is missing
+    // and installs the hook from it.
+    "bin/isomux-codex-safety-hook",
+    "bin/.isomux-codex-safety-hook.golden",
+    ...CODEX_HOME_REMADE.map((name) => `codex-home/${name}`),
+  ];
+  for (const profile of subfolders(stateRoot, "opencode/profiles"))
+    for (const name of OPENCODE_PROFILE_REMADE)
+      paths.push(`opencode/profiles/${profile}/${name}`);
+  for (const home of subfolders(stateRoot, "provider-homes"))
+    for (const name of CODEX_HOME_REMADE)
+      paths.push(`provider-homes/${home}/codex/${name}`);
+  return paths;
+}
+
+// The names in a folder of the state root. A folder that is missing gives
+// none; one that cannot be read is logged and gives none, so the archive is
+// only bigger.
+function subfolders(stateRoot: string, rel: string): string[] {
+  try {
+    return readdirSync(join(stateRoot, rel));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT")
+      console.warn(
+        `[backup] cannot list ${rel}, its caches stay in the archive: ${errMessage(err)}`,
+      );
+    return [];
+  }
+}

@@ -52,6 +52,24 @@ describe("the move scope", () => {
     expect(file(s, ".isomux/agents.json")).toEqual(IN);
   });
 
+  // The backup leaves these out because Isomux makes them again (task
+  // 1426371a), but they are not sign-ins: the move still copies them.
+  it("copies the state the backup leaves out as remade", () => {
+    const s = scope();
+    for (const p of [
+      ".isomux/opencode/profiles/p1/cache/bun/x.tgz",
+      ".isomux/opencode/profiles/p1/tmp/x",
+      ".isomux/opencode/profiles/p1/home/.npm/_cacache/a",
+      ".isomux/opencode/profiles/p1/config/opencode/node_modules/x/package.json",
+      ".isomux/codex-home/cache/catalog.json",
+      ".isomux/codex-home/.tmp/x",
+      ".isomux/provider-homes/u-alice/codex/tmp/x",
+      ".isomux/bin/isomux-codex-safety-hook",
+      ".isomux/bin/.isomux-codex-safety-hook.golden",
+    ])
+      expect([p, file(s, p)]).toEqual([p, IN]);
+  });
+
   it("leaves out the home's caches, and only at the home's top: a project folder of the same name moves", () => {
     const s = scope();
     for (const p of [

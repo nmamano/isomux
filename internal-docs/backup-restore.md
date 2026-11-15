@@ -41,9 +41,8 @@ restore `agents.json` from a backup.
 ## What the daily backup is
 
 `server/backup.ts` archives the office state once a day by default. It omits persisted
-credential files and regenerable caches that mechanically capture environment
-variables. Each archive carries `RESTORE.txt`, which records what that run
-omitted and the concrete recovery action.
+credential files and what Isomux or a backend makes again (see "What is in the
+archive").
 
 - **Source:** the state root - `~/.isomux` in production, or whatever
   `ISOMUX_HOME` points at. The archive is written with
@@ -128,13 +127,23 @@ not `~/isomux-backups`.
 The archive keeps office state and history, including provider sessions,
 memories, app registrations and app data. It omits known backend login files,
 managed environment files, secrets, app runtime credential files, private legacy TLS
-material, and Codex shell snapshots. `RESTORE.txt` is generated from the same
-exclusion list used by tar; it names only classes present when that backup ran.
+material, and Codex shell snapshots (`server/backup-exclusions.ts`,
+`BACKUP_EXCLUSIONS`).
+It also omits what Isomux or a backend makes again
+(`regenerableBackupPaths`): in each OpenCode profile `cache/`, `tmp/`,
+`home/.npm/` and `config/opencode/node_modules/`; in `codex-home/` and each
+`provider-homes/<id>/codex/` `cache/`, `.tmp/` and `tmp/`; and the built Codex
+safety hook pair in `bin/`. The server builds the hook again at start, and the
+backends download their caches and plugins again when they need them. These
+paths are listed from the disk at each run and passed to tar as literal paths,
+so a folder of the same name elsewhere (a `cache/` in an agent's project)
+stays in the archive. If a folder cannot be listed, the run logs it and keeps
+its caches in the archive.
 The secrets exclusion covers all of `secrets/`, the placeholder key and the
 office CA key included. Secrets put back without those keys get new ones at
 the next start: every placeholder changes, and agents get the new ones when
 their processes start again.
-The report does not claim that an archive is free of secrets. Conversation logs
+An archive is not free of secrets. Conversation logs
 and provider transcripts remain because they are history, even though user text
 can incidentally contain sensitive values.
 
@@ -278,15 +287,10 @@ back. Delete it later, once the office is confirmed healthy.
 tar -xzf ~/isomux-backups/isomux-2026-07-30.tar.gz -C ~
 ```
 
-Read the restore report before starting the service:
-
-```
-cat ~/.isomux/RESTORE.txt
-```
-
-Follow each recovery line. It names affected users whose managed variables or
-provider credentials must be entered again. Archives from older releases do
-not contain this file and may still contain those credentials.
+The archive leaves out the credential files (see "What is in the archive"):
+members enter their managed variables, secrets and provider sign-ins again
+after the restore.
+Archives from older releases may still contain those credentials.
 
 The invariant, which matters if `ISOMUX_HOME` is set and `~` is not the
 right answer: **`-C` takes `dirname(<current state root>)`**, because the
@@ -420,7 +424,7 @@ signed in until that session would have expired anyway.
   app tokens, regenerates their unit files, and restarts only apps that were
   running. Apps that were stopped remain stopped and use the new token when
   started from the Apps page.
-- **Restore the omitted user credentials.** Follow `RESTORE.txt`. Managed
+- **Restore the omitted user credentials.** Managed
   environment variables, provider logins and agent browser logins cannot be
   re-minted by Isomux.
 - **A restore undoes a lockdown's revocations.** A backup taken before
@@ -439,9 +443,8 @@ signed in until that session would have expired anyway.
   code back, roll it back to the release that was running when the backup
   was taken.
   A current release restoring an old archive keeps credentials that archive
-  contains. An older release can extract a current archive and a human can read
-  its plain `RESTORE.txt`, but the omitted credentials remain absent and older
-  app reconciliation may not restart an app onto a re-minted token.
+  contains. An older release can extract a current archive, but the omitted
+  credentials remain absent and older app reconciliation may not restart an app onto a re-minted token.
 - **The next daily backup is unaffected.** The backup directory lives
   outside the state root, so the restore does not touch it and the
   schedule picks up where it was. On a new box it is the exception: see
@@ -457,7 +460,7 @@ Three different things write archives; only the first is the daily backup.
 | Location                                            | Written by                    | What it is                                                                  |
 | --------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
 | `~/isomux-backups/isomux-YYYY-MM-DD.tar.gz`         | `server/backup.ts`            | The daily backup. This runbook.                                              |
-| `/var/lib/isomux-update/snapshots/pre-update-*.tar.gz` | older `scripts/update.sh`   | Full state snapshot an older updater took with the service stopped, before it applied a release. It is not filtered like the daily backup and has no `RESTORE.txt`. The current updater takes none. |
+| `/var/lib/isomux-update/snapshots/pre-update-*.tar.gz` | older `scripts/update.sh`   | Full state snapshot an older updater took with the service stopped, before it applied a release. It is not filtered like the daily backup. The current updater takes none. |
 | `~/.isomux/backups/`                                 | `server/migrations.ts` etc.  | One-off safety copies taken before a schema migration (e.g. `pre-userid-migration-*`). Individual files and directories, not full-office archives. |
 
 `/var/lib/isomux-update/snapshots/broken-*` is the third kind: a state root

@@ -39,7 +39,10 @@ import {
   writeFileSync,
 } from "fs";
 import { errMessage } from "../shared/errors.ts";
-import { BACKUP_EXCLUSIONS } from "./backup-exclusions.ts";
+import {
+  BACKUP_EXCLUSIONS,
+  regenerableBackupPaths,
+} from "./backup-exclusions.ts";
 import { STATE_ROOT } from "./config.ts";
 import { loadBackupSettingsRaw, saveBackupSettingsRaw } from "./persistence.ts";
 
@@ -563,6 +566,20 @@ function archiveExclusionArgs(stateRootName: string): string[] {
   );
 }
 
+// What Isomux makes again, as literal paths. Each segment is escaped, so a
+// name with a glob character matches only itself. bsdtar does not anchor a
+// pattern at the start, so it also drops a deeper path with the same ending:
+// as with the credential exclusions, that only drops more.
+function regenerableExclusionArgs(
+  stateRootParent: string,
+  stateRootName: string,
+): string[] {
+  const root = escapeGlob(stateRootName);
+  return regenerableBackupPaths(join(stateRootParent, stateRootName)).map(
+    (rel) => `--exclude=${root}/${rel.split("/").map(escapeGlob).join("/")}`,
+  );
+}
+
 function prepareBackupDirectory(dir: string): void {
   mkdirSync(dir, { recursive: true });
   // This runs once, before the scheduler can own a partial. A partial can
@@ -797,6 +814,10 @@ async function runBackup(
         // Unanchored at the start, its patterns can only exclude more.
         ...(flavor === "gnu" ? ["--anchored", "--wildcards"] : []),
         ...archiveExclusionArgs(config.stateRootName),
+        ...regenerableExclusionArgs(
+          config.stateRootParent,
+          config.stateRootName,
+        ),
         ...[
           OFFICE_DATABASE,
           OFFICE_DATABASE + "-wal",

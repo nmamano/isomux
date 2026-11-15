@@ -625,6 +625,148 @@ describe("verified backup publication", () => {
     ).toBe(false);
   });
 
+  // Task 1426371a: the backup leaves out what Isomux or a backend makes
+  // again (internal-docs/backup-restore.md, "What is in the archive"). Each
+  // left-out folder is named exactly, so a folder of the same name deeper in
+  // a home or in other state stays: GNU tar and bsdtar both let "*" match
+  // "/" in an exclusion.
+  describe("what Isomux makes again", () => {
+    const remade = (profile: string) => [
+      `opencode/profiles/${profile}/cache/bin/bun/install/cache/pkg.tgz`,
+      `opencode/profiles/${profile}/tmp/run-1/out.txt`,
+      `opencode/profiles/${profile}/home/.npm/_cacache/index-v5/a`,
+      `opencode/profiles/${profile}/config/opencode/node_modules/@opencode-ai/plugin/package.json`,
+    ];
+
+    test("is left out, and the folders of the same name elsewhere stay", async () => {
+      const f = fixture();
+      const excluded = [
+        ...remade("p1"),
+        ...remade("default"),
+        "codex-home/cache/plugins/catalog.json",
+        "codex-home/.tmp/plugin-sync/repo/README.md",
+        "codex-home/tmp/git-1/HEAD",
+        "provider-homes/u-alice/codex/cache/plugins/catalog.json",
+        "provider-homes/u-alice/codex/.tmp/plugin-sync/repo/README.md",
+        "provider-homes/u-alice/codex/tmp/git-1/HEAD",
+        "bin/isomux-codex-safety-hook",
+        "bin/.isomux-codex-safety-hook.golden",
+      ];
+      const kept = [
+        // Each one matches a left-out path if "*" stands for a profile or a
+        // home, or if the name is not anchored to its parent.
+        "opencode/profiles/p1/home/project/cache/keep.txt",
+        "opencode/profiles/p1/home/project/tmp/keep.txt",
+        "opencode/profiles/p1/home/work/home/.npm/keep.txt",
+        "opencode/profiles/p1/data/opencode/cache/keep.txt",
+        "provider-homes/u-alice/claude/projects/codex/cache/keep.txt",
+        "provider-homes/u-alice/claude/projects/codex/tmp/keep.txt",
+        "apps/data/hello/cache/keep.txt",
+        "apps/data/hello/codex-home/cache/keep.txt",
+        // History and set-up beside the left-out folders.
+        "opencode/profiles/p1/data/opencode/opencode.db",
+        "opencode/profiles/p1/config/opencode/package.json",
+        "opencode/profiles/p1/home/.npmrc",
+        "codex-home/sessions/2026/11/14/rollout.jsonl",
+        "codex-home/config.toml",
+        "provider-homes/u-alice/codex/sessions/2026/11/14/rollout.jsonl",
+        "provider-homes/u-alice/claude/projects/proj/session.jsonl",
+        "bin/codex",
+        "bin/opencode-login-runner.ts",
+        "bin/isomux-codex-safety-hook.bak",
+      ];
+      for (const relativePath of excluded)
+        write(f.state, relativePath, `REMADE:${relativePath}\n`);
+      for (const relativePath of kept)
+        write(f.state, relativePath, `KEPT:${relativePath}\n`);
+
+      const file = await runBackupOnceForTest(config(f), realDeps);
+      const restored = extract(f, file);
+
+      expect(
+        excluded.filter((p) => fs.existsSync(path.join(restored, p))),
+      ).toEqual([]);
+      // The left-out folder itself, not only the files in it.
+      for (const folder of [
+        "opencode/profiles/p1/cache",
+        "opencode/profiles/p1/config/opencode/node_modules",
+        "codex-home/.tmp",
+        "provider-homes/u-alice/codex/tmp",
+      ])
+        expect([folder, fs.existsSync(path.join(restored, folder))]).toEqual([
+          folder,
+          false,
+        ]);
+      for (const relativePath of kept)
+        expect([
+          relativePath,
+          fs.readFileSync(path.join(restored, relativePath), "utf8"),
+        ]).toEqual([relativePath, `KEPT:${relativePath}\n`]);
+    });
+
+    test("names with glob characters match only themselves", async () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "isomux-backup-test-"),
+      );
+      roots.push(root);
+      const f = {
+        root,
+        state: path.join(root, "office[1]"),
+        backupDir: path.join(root, "backups"),
+      };
+      write(f.state, "state.txt", "state");
+      // Unescaped, "p*" would match "p1/home/project" and "u-*" would
+      // match "u-alice/claude/projects".
+      for (const relativePath of [
+        ...remade("p*"),
+        "provider-homes/u-*/codex/cache/catalog.json",
+      ])
+        write(f.state, relativePath, `REMADE:${relativePath}\n`);
+      const kept = [
+        "opencode/profiles/p1/home/project/cache/keep.txt",
+        "provider-homes/u-alice/claude/projects/codex/cache/keep.txt",
+      ];
+      for (const relativePath of kept)
+        write(f.state, relativePath, `KEPT:${relativePath}\n`);
+
+      const file = await runBackupOnceForTest(config(f), realDeps);
+      const restored = extract(f, file);
+
+      for (const folder of [
+        "opencode/profiles/p*/cache",
+        "opencode/profiles/p*/tmp",
+        "opencode/profiles/p*/home/.npm",
+        "opencode/profiles/p*/config/opencode/node_modules",
+        "provider-homes/u-*/codex/cache",
+      ])
+        expect([folder, fs.existsSync(path.join(restored, folder))]).toEqual([
+          folder,
+          false,
+        ]);
+      for (const relativePath of kept)
+        expect([
+          relativePath,
+          fs.readFileSync(path.join(restored, relativePath), "utf8"),
+        ]).toEqual([relativePath, `KEPT:${relativePath}\n`]);
+    });
+
+    test("a profiles folder that cannot be listed still gets a backup", async () => {
+      const f = fixture();
+      // A file where the folder should be: listing it fails (ENOTDIR).
+      write(f.state, "opencode/profiles", "not a folder\n");
+
+      const file = await runBackupOnceForTest(config(f), realDeps);
+      const restored = extract(f, file);
+
+      expect(
+        fs.readFileSync(path.join(restored, "opencode/profiles"), "utf8"),
+      ).toBe("not a folder\n");
+      expect(fs.readFileSync(path.join(restored, "state.txt"), "utf8")).toBe(
+        "state",
+      );
+    });
+  });
+
   test("df reads free space for the statfs fallback", () => {
     const available = dfAvailableBytes(os.tmpdir());
     const statfs = fs.statfsSync(os.tmpdir());

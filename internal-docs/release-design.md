@@ -568,8 +568,8 @@ Remaining:
   onto a provider-rebuilt blank Ubuntu 24.04 (fresh `deploy/install.sh`,
   then the backup over it): users, rooms, agents, tasks, memory, chat
   history and sign-in all came back, no code changes needed. Current daily
-  archives omit persisted credentials and carry `RESTORE.txt`; a restore drill
-  must now verify app-token re-minting and the report's recovery instructions.
+  archives omit persisted credentials; a restore drill must now verify
+  app-token re-minting.
   One gap the
   drill exposed is a policy call, not a bug: the daily tarballs only ever
   exist on the box they protect, so "the VPS died" also loses the backups
