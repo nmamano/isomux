@@ -3,7 +3,8 @@
 // member share. The first argument picks what this process is:
 //
 //   runner.js runner --socket <path> --server-uid <uid> [--socket-mode <octal>]
-//   runner.js entry <name>     a fixed entry: one JSON value on stdin, one out
+//   runner.js entry <name>     a fixed entry: one JSON value on stdin (a body
+//                              may follow it), one out
 //   runner.js pty              the terminal sidecar (server/pty-sidecar.ts)
 //   runner.js opencode-helper  the OpenCode server helper
 //                              (server/backends/opencode/start-server.ts)
@@ -19,6 +20,10 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "codex-hook-config": () => import("./entries/codex-hook-config.ts"),
   "codex-trust-hash": () => import("./entries/codex-trust-hash.ts"),
   "empty-folder": () => import("./entries/empty-folder.ts"),
+  "files-in": () => import("./entries/files-in.ts"),
+  "files-place": () => import("./entries/files-place.ts"),
+  "files-undo": () => import("./entries/files-undo.ts"),
+  "files-done": () => import("./entries/files-done.ts"),
   "folder-files": () => import("./entries/folder-files.ts"),
   "opencode-inspect": () => import("./entries/opencode-inspect.ts"),
   "session-move": () => import("./entries/session-move.ts"),

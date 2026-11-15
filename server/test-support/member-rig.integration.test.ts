@@ -687,6 +687,261 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
     ).toBe(1);
   });
 
+  // Slice 1c-ii-a: the move on enable. A member's agents run as the office
+  // first; enable moves their conversations into their space.
+  const cookieOf = (memberId: string, who: string): string => {
+    const invite = api(name, cookie, "POST", "/api/invites", {
+      userId: memberId,
+    });
+    const token = /\/i\/([^/?#"\s]+)/.exec(JSON.stringify(invite))?.[1];
+    if (!token) throw new Error(`no invite for ${who}`);
+    const accepted = root(
+      name,
+      `curl -s -i -X POST http://127.0.0.1:10000/auth/accept -H 'Host: ${HOST}' -H 'Origin: ${ORIGIN}' --data-urlencode 'token=${token}' --data-urlencode 'name=${who}'`,
+    );
+    const found =
+      /set-cookie: (__Host-isomux_session_[0-9a-f]{12}=[^;]+)/i.exec(
+        accepted.out,
+      )?.[1];
+    if (!found) throw new Error(`no cookie for ${who}`);
+    return found;
+  };
+  const reportsOf = async (agentId: string, count: number) => {
+    const deadline = Date.now() + 90_000;
+    for (;;) {
+      const found = root(
+        name,
+        `cat ${STATE}/logs/${agentId}/*.jsonl 2>/dev/null`,
+      )
+        .out.split("\n")
+        .filter(Boolean)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              kind: string;
+              content: string;
+              timestamp: number;
+            },
+        )
+        .filter(
+          (l) =>
+            l.kind === "text" &&
+            typeof l.content === "string" &&
+            l.content.startsWith("RIG_REPORT "),
+        )
+        // An agent's log is one file per session: order by time, not file.
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .map(
+          (l) =>
+            JSON.parse(l.content.slice("RIG_REPORT ".length)) as Record<
+              string,
+              unknown
+            >,
+        );
+      if (found.length >= count || Date.now() > deadline) return found;
+      await Bun.sleep(250);
+    }
+  };
+  // A member with a key in their own variables and an agent per engine, run
+  // once as the office (cwd /tmp: both users reach it).
+  const officeMember = async (who: string, engines: string[]) => {
+    const id = member(name, cookie, who, [roomId]);
+    for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
+      api(name, cookie, "PUT", `/api/users/${who}/env/${key}`, {
+        value: "rig-key",
+      });
+    const theirCookie = cookieOf(id, who);
+    const agents: Record<string, string> = {};
+    engines.forEach((agentType) => {
+      const made = api(name, theirCookie, "POST", "/api/agents", {
+        name: `Rig ${who} ${agentType}`,
+        cwd: "/tmp",
+        roomId,
+        desk: null,
+        agentType,
+        ...(agentType === "codex" ? { modelFamily: "gpt-rig" } : {}),
+      });
+      const agentId = (made.agent as { id: string } | undefined)?.id;
+      if (!agentId)
+        throw new Error(`spawn ${who} ${agentType}: ${JSON.stringify(made)}`);
+      agents[agentType] = agentId;
+    });
+    const send = (agentId: string, text: string) =>
+      api(name, theirCookie, "POST", `/api/agents/${agentId}/messages`, {
+        text,
+      });
+    const first: Record<string, Record<string, unknown>> = {};
+    for (const agentId of Object.values(agents)) send(agentId, "one");
+    for (const [engine, agentId] of Object.entries(agents)) {
+      [first[engine]] = await reportsOf(agentId, 1);
+      expect([who, engine, first[engine]?.uid]).toEqual([
+        who,
+        engine,
+        String(OFFICE_UID),
+      ]);
+    }
+    return { id, agents, send, first };
+  };
+  const OFFICE = String(OFFICE_UID);
+  const sessionOf = (transcript: unknown) =>
+    /([0-9a-f-]{36})\.jsonl$/.exec(String(transcript))?.[1] ?? "";
+
+  it("moves a member's office conversations into their space at enable, and they resume there", async () => {
+    const erinUser = "isomux-erin";
+    const erinHome = `${MEMBERS}/home/${erinUser}`;
+    const space = `${erinHome}/.isomux-agent`;
+    const {
+      id: erin,
+      agents,
+      send,
+      first,
+    } = await officeMember("Erin", ["claude", "codex"]);
+    const sid = sessionOf(first.claude.transcript);
+    expect(String(first.claude.transcript)).toBe(
+      `/var/data/home/.claude/projects/-tmp/${sid}.jsonl`,
+    );
+    // The stub's report has no thread id: the sessions map is keyed by it.
+    const codexThreads = () =>
+      Object.keys(
+        JSON.parse(
+          root(name, `cat ${STATE}/logs/${agents.codex}/sessions.json`).out,
+        ) as object,
+      );
+    const [threadId] = codexThreads();
+    expect(threadId).toMatch(/^[0-9a-f-]{36}$/);
+    // The Codex stub writes no rollout: one where Codex keeps it.
+    const rolloutRel = `sessions/2026/11/15/rollout-2026-11-15T10-00-00-${threadId}.jsonl`;
+    const officeRollout = `${first.codex.codexHome}/${rolloutRel}`;
+    sh(
+      name,
+      OFFICE,
+      `mkdir -p $(dirname ${officeRollout}) && printf '{"rig":"rollout"}\\n' > ${officeRollout}`,
+    );
+    // Erin's personal home in the office: her file, and a link and a hard
+    // link to a file only the office may read.
+    const officeHome = `${STATE}/provider-homes/${erin}/claude`;
+    const secret = `${STATE}/rig-office-only.txt`;
+    sh(
+      name,
+      OFFICE,
+      `printf 'RIG-OFFICE-ONLY' > ${secret} && chmod 600 ${secret} && mkdir -p ${officeHome} && printf 'ERIN' > ${officeHome}/kept.txt && ln -s ${secret} ${officeHome}/leak && ln ${secret} ${officeHome}/hard`,
+    );
+
+    const enabled = command(name, "enable", "Erin");
+    if (enabled.status !== 0) throw new Error(`enable Erin: ${enabled.err}`);
+    const erinUid = String(uidOf(name, erinUser));
+    const ownerOf = (path: string) =>
+      root(name, `stat -c %u ${path}`).out.trim();
+
+    // The Claude transcript is in her root, hers, and pinned there; the
+    // office copy is gone.
+    const moved = `${erinHome}/.claude/projects/-tmp/${sid}.jsonl`;
+    expect(ownerOf(moved)).toBe(erinUid);
+    expect(root(name, `test -e ${first.claude.transcript}`).status).toBe(1);
+    const sessions = JSON.parse(
+      root(name, `cat ${STATE}/logs/${agents.claude}/sessions.json`).out,
+    ) as Record<string, { claudeConfigDir?: string }>;
+    expect(sessions[sid]?.claudeConfigDir).toBe(`${erinHome}/.claude`);
+    // The rollout is in her Codex home; the office copy is gone.
+    expect(ownerOf(`${space}/codex-home/${rolloutRel}`)).toBe(erinUid);
+    expect(root(name, `test -e ${officeRollout}`).status).toBe(1);
+    // Her file moved; neither link carried the office's file, and the
+    // office's file is still there.
+    const landedHome = `${space}/provider-homes/${erin}/claude`;
+    expect(root(name, `cat ${landedHome}/kept.txt`).out).toBe("ERIN");
+    expect(ownerOf(`${landedHome}/kept.txt`)).toBe(erinUid);
+    expect(root(name, `grep -rl RIG-OFFICE-ONLY ${erinHome}`).out).toBe("");
+    expect(
+      root(name, `ls -A ${landedHome}`).out.trim().split("\n").sort(),
+    ).toEqual(["kept.txt"]);
+    expect(root(name, `cat ${secret}`).out).toBe("RIG-OFFICE-ONLY");
+    expect(root(name, `test -e ${officeHome}/kept.txt`).status).toBe(1);
+    expect(root(name, `ls -A ${space}/.move-in 2>/dev/null`).out).toBe("");
+
+    // The same conversations go on as Erin.
+    for (const agentId of Object.values(agents)) send(agentId, "two");
+    const claudeTwo = (await reportsOf(agents.claude, 2))[1];
+    const codexTwo = (await reportsOf(agents.codex, 2))[1];
+    expect([claudeTwo?.uid, codexTwo?.uid]).toEqual([erinUid, erinUid]);
+    // The Claude stub starts a new session after its process ends, for an
+    // office agent too, so the resume of the moved transcript is proven by
+    // its pin above; the new turn runs in her root.
+    expect(
+      String(claudeTwo.transcript).startsWith(`${erinHome}/.claude/projects/`),
+    ).toBe(true);
+    // The same thread resumed: no new one in the sessions map.
+    expect(codexThreads()).toEqual([threadId]);
+    expect(codexTwo.codexHome).toBe(`${space}/codex-home`);
+  });
+
+  it("keeps the office copy and undoes the member's side when the place meets a file of theirs", async () => {
+    const frankUser = "isomux-frank";
+    const frankHome = `${MEMBERS}/home/${frankUser}`;
+    const space = `${frankHome}/.isomux-agent`;
+    const frank = member(name, cookie, "Frank", [roomId]);
+    // An enable with nothing to move makes the user; the admin verb then
+    // drops the record and leaves the user and runner.
+    expect(command(name, "enable", "Frank").status).toBe(0);
+    const frankUid = uidOf(name, frankUser);
+    expect(admin(name, "disable", { member: frank }).ok).toBe(true);
+    // Frank's next conversation runs as the office.
+    for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
+      api(name, cookie, "PUT", `/api/users/Frank/env/${key}`, {
+        value: "rig-key",
+      });
+    const frankCookie = cookieOf(frank, "Frank");
+    const made = api(name, frankCookie, "POST", "/api/agents", {
+      name: "Rig Frank claude",
+      cwd: "/tmp",
+      roomId,
+      desk: null,
+      agentType: "claude",
+    });
+    const agentId = (made.agent as { id: string }).id;
+    api(name, frankCookie, "POST", `/api/agents/${agentId}/messages`, {
+      text: "one",
+    });
+    const [first] = await reportsOf(agentId, 1);
+    expect(first?.uid).toBe(OFFICE);
+    const sid = sessionOf(first.transcript);
+    const officeHome = `${STATE}/provider-homes/${frank}/claude`;
+    sh(
+      name,
+      OFFICE,
+      `mkdir -p ${officeHome} && printf 'X' > ${officeHome}/x.txt`,
+    );
+    // A file of Frank's own where the transcript would go.
+    const dest = `${frankHome}/.claude/projects/-tmp/${sid}.jsonl`;
+    sh(
+      name,
+      frankUser,
+      `mkdir -p $(dirname ${dest}) && printf 'DAVE-OWN' > ${dest}`,
+    );
+
+    const answer = admin(name, "go-on", {
+      member: frank,
+      osUser: frankUser,
+      uid: frankUid,
+    });
+    expect(answer.ok).toBe(false);
+    expect(admin(name, "info", { member: frank }).state).toBe("none");
+    expect(root(name, `cat ${dest}`).out).toBe("DAVE-OWN");
+    // The tree file placed before the conflict is undone; the office keeps
+    // its copies.
+    expect(
+      root(name, `test -e ${space}/provider-homes/${frank}/claude/x.txt`)
+        .status,
+    ).toBe(1);
+    expect(root(name, `cat ${officeHome}/x.txt`).out).toBe("X");
+    expect(root(name, `test -f ${first.transcript}`).status).toBe(0);
+    // Frank's agent runs again, as the office.
+    api(name, frankCookie, "POST", `/api/agents/${agentId}/messages`, {
+      text: "two",
+    });
+    const after = await reportsOf(agentId, 2);
+    expect(after[1]?.uid).toBe(OFFICE);
+  });
+
   it("disable --delete-user deletes nothing of a user this command did not make for the member", () => {
     const mark = `${MEMBERS}/etc/${BOB}.made`;
     const original = root(name, `cat ${mark}`).out;

@@ -71,6 +71,11 @@ interface Connected {
 const connected = new Map<string, Connected>();
 const refusals = new Map<string, string>();
 const retries = new Map<string, ReturnType<typeof setTimeout>>();
+// Members whose files move into their agent space (go-on,
+// server/member-move.ts): their host keeps its paths and starts nothing.
+const moving = new Set<string>();
+const MOVING_REASON = "the member's files are moving";
+let connectedHook: ((userId: string) => void) | null = null;
 
 // The host for the agents of `userId`.
 export function hostFor(userId: string | null | undefined): AgentHost {
@@ -83,8 +88,63 @@ export function hostFor(userId: string | null | undefined): AgentHost {
     entry.osUser.name === state.osUser.name &&
     entry.osUser.uid === state.osUser.uid
   )
-    return entry.host;
-  return createNotReadyHost(userId!, "the member's OS user is not ready");
+    return moving.has(userId!)
+      ? createMovingHost(entry.host, userId!)
+      : entry.host;
+  return createNotReadyHost(
+    userId!,
+    moving.has(userId!) ? MOVING_REASON : "the member's OS user is not ready",
+  );
+}
+
+// While a member's files move: hostFor answers a host with their paths that
+// starts nothing and touches no file, and only the move gets the runner
+// (memberMoveHost).
+export function markMemberMoving(userId: string): void {
+  moving.add(userId);
+}
+
+export function clearMemberMoving(userId: string): void {
+  moving.delete(userId);
+}
+
+// The connected runner host of a member whose files move; undefined when
+// they are not moving or not connected.
+export function memberMoveHost(userId: string): AgentHost | undefined {
+  if (!moving.has(userId)) return undefined;
+  const state = memberOsUserState(userId);
+  const entry = connected.get(userId);
+  if (
+    state.kind !== "isolated" ||
+    !entry ||
+    entry.osUser.name !== state.osUser.name ||
+    entry.osUser.uid !== state.osUser.uid
+  )
+    return undefined;
+  return entry.host;
+}
+
+// Called after each connect of a member that is not moving (the check for
+// a move that did not finish, server/member-move.ts). Null removes it.
+export function setMemberConnectedHook(
+  hook: ((userId: string) => void) | null,
+): void {
+  connectedHook = hook;
+}
+
+function createMovingHost(host: AgentHost, userId: string): AgentHost {
+  const stopped = createNotReadyHost(userId, MOVING_REASON);
+  return {
+    ...stopped,
+    baseEnv: () => host.baseEnv(),
+    home: () => host.home(),
+    agentRoot: () => host.agentRoot(),
+    username: () => host.username(),
+    bunPath: () => host.bunPath(),
+    claudeBin: () => host.claudeBin(),
+    codexLauncher: () => host.codexLauncher(),
+    openCodeBin: () => host.openCodeBin(),
+  };
 }
 
 function notReadyError(reason: string): NodeJS.ErrnoException {
@@ -614,6 +674,15 @@ async function connectNow(userId: string): Promise<boolean> {
   refusals.delete(userId);
   clearRetry(userId);
   console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
+  if (!moving.has(userId) && connectedHook) {
+    try {
+      connectedHook(userId);
+    } catch (error) {
+      console.error(
+        `[member-hosts] ${userId}: the connect hook failed: ${(error as Error).message}`,
+      );
+    }
+  }
   return true;
 }
 
@@ -665,6 +734,7 @@ export function resetMemberHosts(): void {
   for (const timer of retries.values()) clearTimeout(timer);
   retries.clear();
   connected.clear();
+  moving.clear();
 }
 
 // Runner-reply rule (design 1.1): the server never signals a pid that a

@@ -624,14 +624,20 @@ export function runRunnerEntry(
   name: string,
   input: unknown,
   timeoutMs: number = ENTRY_TIMEOUT_MS,
+  // A body for an entry that takes one: its bytes follow the input on the
+  // entry's stdin.
+  body?: AsyncIterable<Uint8Array>,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let status: number | null = null;
     let error: string | null = null;
+    let ended = false;
     const stream = new RunnerStream(
       socketPath,
-      { op: "entry", name, input },
+      body
+        ? { op: "entry", name, input, stream: true }
+        : { op: "entry", name, input },
       {
         control: (message) => {
           if (message.type === "exit")
@@ -643,6 +649,7 @@ export function runRunnerEntry(
         },
         stderr: (chunk) => process.stderr.write(chunk),
         close: () => {
+          ended = true;
           clearTimeout(timer);
           if (error === null && status === 0) {
             try {
@@ -664,6 +671,20 @@ export function runRunnerEntry(
       error = "timed out";
       stream.close();
     }, timeoutMs);
+    if (body)
+      void (async () => {
+        try {
+          for await (const chunk of body) {
+            if (ended) return;
+            const sent = stream.write(FRAME_STDIN, chunk);
+            if (sent) await sent;
+          }
+          stream.control({ type: "stdin-end" });
+        } catch (err) {
+          error = `the body failed: ${(err as Error).message}`;
+          stream.close();
+        }
+      })();
   });
 }
 
@@ -881,5 +902,14 @@ export class RunnerAgentHost implements AgentHost {
 
   runEntry(name: string, input: unknown, timeoutMs?: number): Promise<unknown> {
     return runRunnerEntry(this.socketPath, name, input, timeoutMs);
+  }
+
+  runEntryStream(
+    name: string,
+    input: unknown,
+    body: AsyncIterable<Uint8Array>,
+    timeoutMs: number,
+  ): Promise<unknown> {
+    return runRunnerEntry(this.socketPath, name, input, timeoutMs, body);
   }
 }

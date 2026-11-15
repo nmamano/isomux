@@ -305,7 +305,14 @@ import {
   legacyEnvironmentSourceKeyForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
-import { migrateProfileKeysOnce } from "./opencode-profile-keys.ts";
+import {
+  migrateProfileKeysOnce,
+  profileKeyForOwner,
+} from "./opencode-profile-keys.ts";
+import { stopOpenCodeServers } from "./backends/opencode/supervisor.ts";
+import { openCodeProfileKey } from "./backends/opencode/access.ts";
+import { setMemberMoveWiring } from "./member-user-admin.ts";
+import type { MemberMoveAgent } from "./member-move.ts";
 import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
 import type { SecretSetChange } from "./secret-proxy/runtime.ts";
 
@@ -4674,6 +4681,64 @@ export function createAgentManager(deps: ManagerDeps) {
       // background work running: the next turn start (releaseForEnvNow).
       if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
     }
+  }
+
+  // The move of a member's files to their own OS user
+  // (server/member-user-admin.ts, go-on). holdMember holds each agent's
+  // queue, cuts a running turn, ends each process (and its background work)
+  // and stops the member's OpenCode servers; it resolves once all have
+  // ended. New messages queue. releaseMember lets each queue flush, and the
+  // next turn resumes on the member's host.
+  const memberMoveHolds = new Map<string, Map<string, symbol>>();
+  async function holdMember(userId: string): Promise<void> {
+    const holds = memberMoveHolds.get(userId) ?? new Map<string, symbol>();
+    memberMoveHolds.set(userId, holds);
+    const ends: Promise<unknown>[] = [];
+    for (const [agentId, managed] of agents) {
+      if (managed.info.userId !== userId) continue;
+      if (!holds.has(agentId))
+        holds.set(agentId, holdQueue(managed, "member-move"));
+      ends.push(endProcessForMove(agentId, managed));
+    }
+    await Promise.all(ends);
+    const key = profileKeyForOwner(userId);
+    await stopOpenCodeServers([key, openCodeProfileKey(key, "chat")]);
+  }
+
+  async function endProcessForMove(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<void> {
+    if (
+      managed.sessionManager.pendingTurn ||
+      !isQueueIdleState(managed.info.state)
+    )
+      await abort(agentId);
+    if (!managed.sessionManager.session) return;
+    const reason = prepareRelease(managed, "env");
+    await managed.sessionManager.closeAndDrainSession(managed, { reason });
+  }
+
+  function releaseMember(userId: string): void {
+    const holds = memberMoveHolds.get(userId);
+    if (!holds) return;
+    memberMoveHolds.delete(userId);
+    for (const [agentId, hold] of holds) {
+      const managed = agents.get(agentId);
+      if (!managed) continue;
+      releaseHold(managed, hold);
+      requestFlush(agentId, "member move");
+    }
+  }
+
+  function memberAgents(userId: string): MemberMoveAgent[] {
+    return [...agents.values()]
+      .filter((managed) => managed.info.userId === userId)
+      .map((managed) => ({
+        id: managed.info.id,
+        agentType: managed.info.agentType,
+        cwd: managed.info.cwd,
+      }));
   }
 
   // Periodic sweep: demote every live agent idle past `idleMs`, or past
@@ -9894,6 +9959,9 @@ export function createAgentManager(deps: ManagerDeps) {
     // Ends this manager's writes to the state files, for a server stopped in
     // a process that boots another (the test harness). It closes no session.
     stop: stopPersisting,
+    holdMember,
+    releaseMember,
+    memberAgents,
     configureAgentTurnDeps,
     setMemberCeilingClamp,
     setSessionFolderRefusal,
@@ -10119,6 +10187,11 @@ export function createProductionAgentManager(overrides?: {
   // Production-only global registration (kept out of createAgentManager so DI
   // tests don't clobber this env-loader process-global).
   setOfficeEnvFileProvider(() => officeState.office.envFile);
+  setMemberMoveWiring({
+    holdMember: manager.holdMember,
+    releaseMember: manager.releaseMember,
+    memberAgents: manager.memberAgents,
+  });
   // After the office env provider (the legacy key reads it) and before the
   // cron scheduler or any session reads a key.
   migrateOpenCodeProfileKeys(initialLoadedAgents);

@@ -1159,6 +1159,23 @@ export function openCodeSupervisorForEnvironment(
   return supervisor;
 }
 
+// The servers of these environment keys stop and their supervisors go, so
+// the next acquire starts one where the profile is now (a member's move to
+// their own OS user, server/member-move.ts).
+export async function stopOpenCodeServers(
+  environmentKeys: string[],
+): Promise<void> {
+  await Promise.all(
+    environmentKeys.map(async (environmentKey) => {
+      const key = supervisorKey(environmentKey);
+      const supervisor = environmentSupervisors.get(key);
+      if (!supervisor) return;
+      environmentSupervisors.delete(key);
+      await supervisor.shutdown();
+    }),
+  );
+}
+
 // Reap the OpenCode servers before the office process exits.
 runAtServerStop(() =>
   Promise.all([

@@ -548,17 +548,21 @@ export function ensureSessionClaudeConfigDir(
 }
 
 // A conversation moved to another account folder
-// (server/session-account-move.ts): its pin follows it.
+// (server/session-account-move.ts) or to a member's agent space
+// (server/member-move.ts): its pin follows it. Null removes the pin (the
+// undo of a move that found no pin).
 export function setSessionClaudeConfigDir(
   agentId: string,
   sessionId: string,
-  root: string,
+  root: string | null,
 ): void {
   const map = loadSessionsMap(agentId);
-  map[sessionId] = {
+  const entry = {
     ...(map[sessionId] ?? { topic: null, lastModified: Date.now() }),
-    claudeConfigDir: root,
   };
+  if (root === null) delete entry.claudeConfigDir;
+  else entry.claudeConfigDir = root;
+  map[sessionId] = entry;
   saveSessionsMap(agentId, map);
 }
 

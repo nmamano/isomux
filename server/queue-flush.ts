@@ -9,8 +9,10 @@ import type { ManagedAgent } from "./internal-types.ts";
 // sessions and rewrites the chat, so nothing consumes the queue until the
 // next session can take it (one hold per change). "backend": a send failed
 // for a missing or signed-out backend, so the flush does not retry in a
-// loop; the next message releases it (at most one).
-export type QueueHoldReason = "conversation" | "backend";
+// loop; the next message releases it (at most one). "member-move": the
+// member's files move to their own OS user (server/member-move.ts), so the
+// queue waits for the end of the move.
+export type QueueHoldReason = "conversation" | "backend" | "member-move";
 
 // One flush. Only that flush's own finally clears it from FlushState.running.
 export interface FlushRun {
@@ -42,10 +44,14 @@ export function queueHeld(managed: ManagedAgent): boolean {
   return managed.flush.holds.size > 0;
 }
 
-// A conversation change's hold. The caller releases it with releaseHold.
-export function holdQueue(managed: ManagedAgent): symbol {
+// A conversation change's hold, or a member move's. The caller releases it
+// with releaseHold.
+export function holdQueue(
+  managed: ManagedAgent,
+  reason: "conversation" | "member-move" = "conversation",
+): symbol {
   const hold = Symbol("queue-hold");
-  managed.flush.holds.set(hold, "conversation");
+  managed.flush.holds.set(hold, reason);
   return hold;
 }
 

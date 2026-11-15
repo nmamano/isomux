@@ -572,3 +572,158 @@ it("the record lives under the test state root, and the office host is the local
   expect(memberOsUsersPath()).not.toContain("/.isomux/");
   expect(officeAgentHost()).toBe(localAgentHost as AgentHost);
 });
+
+// Slice 1c-ii-a: go-on moves the member's files. Each step is a dep, so a
+// recording fake shows the order and each step can fail in turn.
+describe("go-on moves the member's files", () => {
+  let steps: string[];
+  // Every pending hold: a second go-on that holds again is released too, so
+  // a red run fails on its assertion and does not hang.
+  let holds: (() => void)[];
+  let releaseHold: () => void;
+  // The record state each step saw.
+  let seen: Record<string, string>;
+  const MOVE_HOST = { kind: "runner" } as unknown as AgentHost;
+  const PLAN = {
+    userId: "",
+    trees: [{ src: "/x", destParts: ["x"] }],
+    codex: [],
+    claude: [],
+  };
+
+  function moveDeps(alice: string, fail?: string, answers: boolean[] = [true]) {
+    steps = [];
+    seen = {};
+    holds = [];
+    releaseHold = () => holds.splice(0).forEach((resolve) => resolve());
+    let tries = 0;
+    const step = (name: string) => {
+      steps.push(name);
+      seen[name] = memberOsUserState(alice).kind;
+      if (name === fail) throw new Error(`${name} failed`);
+    };
+    deps({
+      connect: async () => {
+        step("connect");
+        return answers[Math.min(tries++, answers.length - 1)];
+      },
+      holdMember: async () => {
+        steps.push("hold");
+        await new Promise<void>((resolve) => holds.push(resolve));
+        steps.push("held");
+      },
+      releaseMember: () => void steps.push("release"),
+      memberAgents: () => [],
+      planMove: () => (step("plan"), PLAN),
+      moveHost: () => (
+        step("moveHost"),
+        fail === "noHost" ? undefined : MOVE_HOST
+      ),
+      stageMove: async () => {
+        step("stage");
+        return {
+          pins: [],
+          undo: async () => void steps.push("undo"),
+          done: async () => void steps.push("done"),
+          deleteOfficeCopies: () => step("delete"),
+        };
+      },
+      applyPins: () => step("pins"),
+    });
+  }
+
+  // go-on, with the hold released only after a pause in which nothing may
+  // be planned (D1).
+  async function goOnHeld(alice: string) {
+    const answer = goOn(alice);
+    for (let i = 0; i < 200 && !steps.includes("hold"); i++) await Bun.sleep(1);
+    await Bun.sleep(20);
+    expect(steps).toEqual(["hold"]);
+    releaseHold();
+    return answer;
+  }
+
+  it("holds first, plans after the hold, records before the connect, pins only after the stage, and releases before the delete", async () => {
+    const alice = member("Alice");
+    moveDeps(alice);
+    const answer = await goOnHeld(alice);
+    expect(answer.body).toMatchObject({ ok: true, ready: true });
+    expect(steps).toEqual([
+      "hold",
+      "held",
+      "plan",
+      "connect",
+      "moveHost",
+      "stage",
+      "pins",
+      "done",
+      "release",
+      "delete",
+    ]);
+    expect(seen.plan).toBe("none");
+    for (const name of ["connect", "stage", "pins"])
+      expect([name, seen[name]]).toEqual([name, "isolated"]);
+    expect(memberOsUserState(alice).kind).toBe("isolated");
+  });
+
+  for (const fail of ["plan", "connect", "noHost", "stage", "pins"]) {
+    it(`undoes everything after a failure at ${fail}, and keeps the office copy`, async () => {
+      const alice = member("Alice");
+      moveDeps(
+        alice,
+        fail === "connect" ? undefined : fail,
+        fail === "connect" ? [false] : [true],
+      );
+      const answer = await goOnHeld(alice);
+      expect(answer.body).toMatchObject({ ok: false, ready: false });
+      // A failed stage has undone its own side; a failure after it needs
+      // the staged move's undo.
+      expect(steps.filter((s) => s === "undo")).toHaveLength(
+        fail === "pins" ? 1 : 0,
+      );
+      expect(steps).not.toContain("delete");
+      expect(steps).not.toContain("done");
+      expect(steps.filter((s) => s === "release")).toHaveLength(1);
+      expect(steps.at(-1)).toBe("release");
+      expect(memberOsUserState(alice).kind).toBe("none");
+    });
+  }
+
+  it("keeps the record of a member already isolated as this user when a rerun fails", async () => {
+    const alice = member("Alice");
+    recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
+    moveDeps(alice, "pins");
+    const answer = await goOnHeld(alice);
+    expect(answer.body).toMatchObject({ ok: false });
+    expect(steps).toContain("undo");
+    expect(memberOsUserState(alice).kind).toBe("isolated");
+  });
+
+  it("refuses a second go-on while the member's files move, and holds nothing for it", async () => {
+    const alice = member("Alice");
+    moveDeps(alice);
+    const first = goOn(alice);
+    for (let i = 0; i < 200 && !steps.includes("hold"); i++) await Bun.sleep(1);
+    // A second go-on that waits on a hold of its own answers nothing in time.
+    const second = await Promise.race([
+      goOn(alice),
+      Bun.sleep(300).then(() => null),
+    ]);
+    const holdsAsked = steps.filter((s) => s === "hold").length;
+    releaseHold();
+    expect(second?.body.ok).toBe(false);
+    expect(holdsAsked).toBe(1);
+    expect((await first).body).toMatchObject({ ok: true, ready: true });
+  });
+
+  it("holds nothing when go-on refuses (another OS user, a taken user)", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    recordMemberOsUser(bob, { name: "isomux-alice", uid: MEMBER_UID });
+    moveDeps(alice);
+    expect((await goOn(alice)).body.error).toBe("os_user_taken");
+    recordMemberOsUser(alice, { name: "isomux-other", uid: 2002 });
+    expect((await goOn(alice)).body.error).toBe("already_isolated");
+    expect(steps).toEqual([]);
+  });
+});

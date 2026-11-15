@@ -12,7 +12,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
+import { chmod, mkdir, open as openFile, rm, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 import type { Readable } from "stream";
@@ -50,11 +50,20 @@ export const ENTRY_NAMES = new Set([
   "codex-hook-config",
   "codex-trust-hash",
   "empty-folder",
+  "files-in",
+  "files-place",
+  "files-undo",
+  "files-done",
   "folder-files",
   "opencode-inspect",
   "session-move",
 ]);
 const ENTRY_DIR = join(import.meta.dir, "entries");
+
+// The largest file a readText returns. The server holds the whole file, and
+// the agent user controls it.
+export const RUNNER_READ_MAX = 256 * 1024 * 1024;
+let readMax = RUNNER_READ_MAX;
 
 // After the server's connection closes, the process group gets SIGTERM, and
 // SIGKILL if it is still there after this delay.
@@ -75,6 +84,8 @@ export interface RunnerOptions {
   bundle?: { path: string; hash: string };
   readPeerUid?: (fd: number) => number | null;
   killGraceMs?: number;
+  // Tests: the readText bound in place of RUNNER_READ_MAX.
+  readMax?: number;
   // Called after an "exit" op has closed the listener; default exits 0.
   onExit?: () => void;
 }
@@ -176,6 +187,8 @@ function startChild(
     env: Record<string, string | undefined>;
     stderr: "pipe" | "ignore";
     input?: Buffer;
+    // Keep stdin open after the input: the client's stdin frames follow.
+    stream?: boolean;
     isolate?: boolean;
   },
 ): void {
@@ -201,6 +214,9 @@ function startChild(
   }
   socket.data.child = child;
   socket.data.group = child.pid ?? null;
+  // Before any stdin frame can reach the pipe.
+  if (options.stream && options.input !== undefined)
+    child.stdin?.write(options.input);
   socket.data.isolated = isolate;
   // bwrap's JSON status: without an exit-code line, an outer bwrap that
   // exited on its own failed its setup and never ran the command.
@@ -214,7 +230,8 @@ function startChild(
   });
   child.once("spawn", () => {
     send(socket, [encodeJson({ type: "spawned", pid: child.pid! })]);
-    if (options.input !== undefined) child.stdin?.end(options.input);
+    if (options.input !== undefined && !options.stream)
+      child.stdin?.end(options.input);
   });
   child.stdin?.on("error", () => {});
   const forward = (stream: NodeJS.ReadableStream | null, type: number) => {
@@ -248,6 +265,35 @@ function validMode(mode: unknown): mode is number {
   );
 }
 
+function tooBig(path: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`${path} is larger than ${readMax} bytes`), {
+    code: "EFBIG",
+  });
+}
+
+// At most readMax bytes, read from the fd: the file can grow after the
+// fstat, so one byte more than the bound is read and refused.
+async function readBounded(path: string): Promise<Buffer> {
+  const file = await openFile(path, "r");
+  try {
+    if ((await file.stat()).size > readMax) throw tooBig(path);
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const want = Math.min(1024 * 1024, readMax + 1 - total);
+      const buffer = Buffer.alloc(want);
+      const { bytesRead } = await file.read(buffer, 0, want, null);
+      if (bytesRead === 0) break;
+      chunks.push(buffer.subarray(0, bytesRead));
+      total += bytesRead;
+      if (total > readMax) throw tooBig(path);
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    await file.close();
+  }
+}
+
 async function runFs(
   socket: RunnerSocket,
   request: FsRequest,
@@ -256,7 +302,7 @@ async function runFs(
   try {
     switch (request.call) {
       case "readText":
-        send(socket, encodeData(FRAME_STDOUT, await readFile(request.path)));
+        send(socket, encodeData(FRAME_STDOUT, await readBounded(request.path)));
         finish(socket, { type: "fs" });
         return;
       case "writeText":
@@ -377,11 +423,18 @@ function handleRequest(
       bundle
         ? [process.execPath, bundle.path, "entry", request.name]
         : [process.execPath, join(ENTRY_DIR, `${request.name}.ts`)],
-      {
-        env: process.env,
-        stderr: "pipe",
-        input: Buffer.from(JSON.stringify(request.input ?? null)),
-      },
+      request.stream === true
+        ? {
+            env: process.env,
+            stderr: "pipe",
+            input: Buffer.from(`${JSON.stringify(request.input ?? null)}\n`),
+            stream: true,
+          }
+        : {
+            env: process.env,
+            stderr: "pipe",
+            input: Buffer.from(JSON.stringify(request.input ?? null)),
+          },
     );
     return;
   }
@@ -513,6 +566,7 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
   const readPeerUid =
     options.readPeerUid ?? ((fd) => readPeerCredentials(fd)?.uid ?? null);
   const graceMs = options.killGraceMs ?? KILL_GRACE_MS;
+  readMax = options.readMax ?? RUNNER_READ_MAX;
   const open = new Set<RunnerSocket>();
   let exiting = false;
   // Stop accepting, end every process group this runner started (SIGTERM,

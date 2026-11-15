@@ -8,12 +8,27 @@
 // product slice ships, each answers 409 not_ready unless the office started
 // with ISOMUX_MEMBER_USERS_RIG=1 (the test rig).
 
+import type { AgentHost } from "./agent-host.ts";
 import {
+  clearMemberMoving,
   connectMemberHost,
   forgetMemberCodeVerdicts,
   forgetMemberHost,
+  markMemberMoving,
   memberHostRefusal,
+  memberMoveHost,
+  setMemberConnectedHook,
 } from "./member-hosts.ts";
+import {
+  applyMemberMovePins,
+  memberMovePlanIsEmpty,
+  planMemberMove,
+  stageMemberMove,
+  warnUnfinishedMemberMove,
+  type MemberMoveAgent,
+  type MemberMovePlan,
+  type StagedMove,
+} from "./member-move.ts";
 import {
   forgetMemberOsUser,
   memberOsUserIds,
@@ -47,6 +62,35 @@ export interface MemberUserAdminDeps {
   // How long go-on tries to connect (the unit may not listen yet).
   connectWaitMs: number;
   connectPollMs: number;
+  // The file move (server/member-move.ts). holdMember resolves once every
+  // process of the member's agents has ended; their messages queue until
+  // releaseMember.
+  holdMember: (userId: string) => Promise<void>;
+  releaseMember: (userId: string) => void;
+  memberAgents: (userId: string) => MemberMoveAgent[];
+  planMove: (userId: string, agents: MemberMoveAgent[]) => MemberMovePlan;
+  stageMove: (plan: MemberMovePlan, host: AgentHost) => Promise<StagedMove>;
+  applyPins: (pins: StagedMove["pins"]) => void;
+  moveHost: (userId: string) => AgentHost | undefined;
+}
+
+// What the agent manager gives the move (setMemberMoveWiring, at startup).
+export interface MemberMoveWiring {
+  holdMember: (userId: string) => Promise<void>;
+  releaseMember: (userId: string) => void;
+  memberAgents: (userId: string) => MemberMoveAgent[];
+}
+let wiring: MemberMoveWiring | null = null;
+
+// Startup: the agent manager's side of the move, and the check at each
+// connect for a move that did not finish. Null removes both (tests).
+export function setMemberMoveWiring(next: MemberMoveWiring | null): void {
+  wiring = next;
+  setMemberConnectedHook(
+    next
+      ? (userId) => warnUnfinishedMemberMove(userId, next.memberAgents(userId))
+      : null,
+  );
 }
 
 const DEFAULT_DEPS: MemberUserAdminDeps = {
@@ -68,6 +112,13 @@ const DEFAULT_DEPS: MemberUserAdminDeps = {
   connect: connectMemberHost,
   connectWaitMs: 30_000,
   connectPollMs: 500,
+  holdMember: (userId) => wiring?.holdMember(userId) ?? Promise.resolve(),
+  releaseMember: (userId) => wiring?.releaseMember(userId),
+  memberAgents: (userId) => wiring?.memberAgents(userId) ?? [],
+  planMove: planMemberMove,
+  stageMove: stageMemberMove,
+  applyPins: applyMemberMovePins,
+  moveHost: memberMoveHost,
 };
 let deps = DEFAULT_DEPS;
 
@@ -237,22 +288,118 @@ export async function handleMemberUserAdmin(
       "os_user_taken",
       `another member already runs as ${osUser.name}`,
     );
+  // One go-on per member at a time: a second one (an admin who thinks the
+  // first hung) would hold again and clear the first one's staging.
+  if (goingOn.has(user.id))
+    return refusal(
+      409,
+      "move_in_progress",
+      `the files of ${user.name} are moving; wait for that go-on to answer`,
+    );
+  goingOn.add(user.id);
+  try {
+    return await goOn(user.id, osUser, state.kind === "none");
+  } finally {
+    goingOn.delete(user.id);
+  }
+}
+
+// The members whose go-on runs.
+const goingOn = new Set<string>();
+
+// go-on (design 2.2): hold the member's agents, plan the move from the
+// office's paths, record and mark moving, connect, move the files through
+// the runner, write the pins, then release. A failure before the pins
+// undoes the runner's side and, when this call made the record, removes it;
+// the office copy stays.
+async function goOn(
+  userId: string,
+  osUser: { name: string; uid: number },
   // A re-run for the OS user the member already runs as keeps the record
-  // when the connect fails: only a record this call made is undone.
-  const made = state.kind === "none";
-  recordMemberOsUser(user.id, { name: osUser.name, uid: osUser.uid });
+  // when it fails: only a record this call made is undone.
+  made: boolean,
+): Promise<Response> {
+  try {
+    await deps.holdMember(userId);
+  } catch (error) {
+    deps.releaseMember(userId);
+    return json(200, {
+      ok: false,
+      ready: false,
+      reason: `cannot stop the member's agents: ${(error as Error).message}`,
+    });
+  }
+  let plan: MemberMovePlan;
+  try {
+    plan = deps.planMove(userId, deps.memberAgents(userId));
+  } catch (error) {
+    deps.releaseMember(userId);
+    return json(200, {
+      ok: false,
+      ready: false,
+      reason: `cannot plan the file move: ${(error as Error).message}`,
+    });
+  }
+  markMemberMoving(userId);
+  recordMemberOsUser(userId, { name: osUser.name, uid: osUser.uid });
   forgetMemberCodeVerdicts(osUser.uid);
+  let staged: StagedMove | null = null;
+  const fail = async (reason: string): Promise<Response> => {
+    if (staged)
+      await staged
+        .undo()
+        .catch((error: unknown) =>
+          console.error(
+            `[member-move] ${userId}: the undo failed: ${(error as Error).message}`,
+          ),
+        );
+    if (made) {
+      forgetMemberOsUser(userId);
+      forgetMemberHost(userId);
+    }
+    clearMemberMoving(userId);
+    deps.releaseMember(userId);
+    return json(200, { ok: false, ready: false, reason });
+  };
   const end = Date.now() + deps.connectWaitMs;
+  let connected = false;
   for (;;) {
-    if (await deps.connect(user.id))
-      return json(200, { ok: true, ready: true });
+    if (await deps.connect(userId)) {
+      connected = true;
+      break;
+    }
     if (Date.now() >= end) break;
     await new Promise((r) => setTimeout(r, deps.connectPollMs));
   }
-  const reason = memberHostRefusal(user.id) ?? "the runner did not connect";
-  if (made) {
-    forgetMemberOsUser(user.id);
-    forgetMemberHost(user.id);
+  if (!connected)
+    return fail(memberHostRefusal(userId) ?? "the runner did not connect");
+  if (!memberMovePlanIsEmpty(plan)) {
+    const host = deps.moveHost(userId);
+    if (!host) return fail("the member's runner is not connected");
+    try {
+      staged = await deps.stageMove(plan, host);
+    } catch (error) {
+      return fail(
+        `cannot move the member's files: ${(error as Error).message}`,
+      );
+    }
+    try {
+      deps.applyPins(staged.pins);
+    } catch (error) {
+      return fail(
+        `cannot record where the moved conversations are: ${(error as Error).message}`,
+      );
+    }
+    await staged
+      .done()
+      .catch((error: unknown) =>
+        console.error(
+          `[member-move] ${userId}: cannot remove the staging folder: ${(error as Error).message}`,
+        ),
+      );
   }
-  return json(200, { ok: false, ready: false, reason });
+  clearMemberMoving(userId);
+  deps.releaseMember(userId);
+  staged?.deleteOfficeCopies();
+  return json(200, { ok: true, ready: true });
 }

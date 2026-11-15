@@ -417,3 +417,73 @@ describe("Claude through the agent host", () => {
     expect(listeners.size).toBe(0);
   });
 });
+
+// Slice 1c-ii-a of task b94dfd25: a streamed entry and the readText bound.
+describe("a streamed entry", () => {
+  it("carries a body larger than one frame and than the stdin window to files-in", async () => {
+    const home = join(dir, "home");
+    const agentRoot = join(home, ".isomux-agent");
+    mkdirSync(agentRoot, { recursive: true, mode: 0o700 });
+    const dest = join(home, "big.bin");
+    const data = Buffer.alloc(
+      Math.max(STDIN_WINDOW_BYTES, 1024 * 1024) * 3 + 17,
+    );
+    for (let i = 0; i < data.length; i++) data[i] = i % 251;
+    const header = Buffer.from(
+      JSON.stringify({ dest, size: data.length, mode: 0o600 }),
+    );
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(header.length);
+    async function* body() {
+      yield Buffer.concat([len, header]);
+      for (let i = 0; i < data.length; i += 65536)
+        yield data.subarray(i, i + 65536);
+      yield Buffer.alloc(4);
+    }
+    const nonce = "5717ea5e5717ea5e";
+    expect(
+      await host.runEntryStream(
+        "files-in",
+        { nonce, total: data.length, home, agentRoot },
+        body(),
+        30_000,
+      ),
+    ).toMatchObject({ files: 1, bytes: data.length });
+    await host.runEntry("files-place", { nonce, agentRoot });
+    expect(readFileSync(dest).equals(data)).toBe(true);
+  });
+});
+
+describe("the readText bound", () => {
+  const failure = (p: Promise<unknown>) =>
+    p.then(
+      () => "resolved",
+      (error: NodeJS.ErrnoException) => error.code ?? "rejected",
+    );
+
+  async function bounded(readMax: number): Promise<RunnerAgentHost> {
+    runner?.stop();
+    runner = startRunner({
+      socketPath,
+      serverUid: process.getuid!(),
+      readPeerUid: () => process.getuid!(),
+      killGraceMs: 300,
+      readMax,
+    });
+    return RunnerAgentHost.connect(socketPath);
+  }
+
+  it("reads a file at the bound and refuses one byte over it with EFBIG", async () => {
+    const small = await bounded(1024);
+    writeFileSync(join(dir, "at"), "x".repeat(1024));
+    writeFileSync(join(dir, "over"), "x".repeat(1025));
+    expect(await small.fs.readText(join(dir, "at"))).toHaveLength(1024);
+    expect(await failure(small.fs.readText(join(dir, "over")))).toBe("EFBIG");
+  });
+
+  it("stops at the bound on a file whose size the fstat does not show", async () => {
+    // /dev/zero reports size 0 and never ends: only a bounded read stops.
+    const small = await bounded(1024);
+    expect(await failure(small.fs.readText("/dev/zero"))).not.toBe("resolved");
+  }, 5000);
+});

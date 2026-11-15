@@ -200,6 +200,14 @@ export interface AgentHost {
   // is agent-space data. Only the runner host has entries. `timeoutMs`
   // replaces the default limit, after which the entry is killed.
   runEntry(name: string, input: unknown, timeoutMs?: number): Promise<unknown>;
+  // An entry that takes a body after its input (the member file move,
+  // server/member-move.ts). Only a runner host has it.
+  runEntryStream?(
+    name: string,
+    input: unknown,
+    body: AsyncIterable<Uint8Array>,
+    timeoutMs: number,
+  ): Promise<unknown>;
   // The engine executables and helper scripts that this host's processes
   // run: the office's on an office host, the member runtime's on a member
   // host (internal-docs/member-os-user-design.md, section 1.1).

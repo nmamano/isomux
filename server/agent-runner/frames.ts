@@ -89,7 +89,9 @@ export type RunnerRequest =
       // Wrap argv in its own PID namespace (server/process-isolation.ts).
       isolate?: boolean;
     }
-  | { op: "entry"; name: string; input: unknown }
+  // stream: the input is the first line of the entry's stdin, and the
+  // client's stdin frames follow it (a fixed entry that takes a body).
+  | { op: "entry"; name: string; input: unknown; stream?: boolean }
   | ({ op: "fs" } & FsRequest)
   | { op: "info" }
   // Close the listener and exit 0 (a member runner: its unit starts the new
