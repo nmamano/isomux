@@ -103,16 +103,23 @@ describe("served reference pages", () => {
 
   // Task 215ae677: a page that grows past the cap is cut first, then split
   // into a sub-page. Raising the cap needs Nil.
+  // Task 3e3b0f81 (Nil, 2026-11-15): warn at 90% of the cap. A page went from
+  // 79% to 99.7% in two days and no check said so. The warning does not fail.
   it("keeps every page at most 8 KB as an agent receives it", () => {
-    const over = topics
-      .map((topic) => ({
-        topic,
-        bytes: Buffer.byteLength(
-          agentReferenceContent(privileged, topic) ?? "",
-        ),
-      }))
-      .filter((page) => page.bytes > 8_192);
-    expect(over).toEqual([]);
+    const cap = 8_192;
+    const warnAt = 0.9;
+    const pages = topics.map((topic) => ({
+      topic,
+      bytes: Buffer.byteLength(agentReferenceContent(privileged, topic) ?? ""),
+    }));
+    for (const { topic, bytes } of pages) {
+      if (bytes > cap * warnAt && bytes <= cap) {
+        console.warn(
+          `agent reference page ${topic}: ${bytes} of ${cap} B (${((bytes / cap) * 100).toFixed(1)}%), over ${warnAt * 100}% of the cap. Cut it, then split it into a sub-page.`,
+        );
+      }
+    }
+    expect(pages.filter((page) => page.bytes > cap)).toEqual([]);
   });
 });
 

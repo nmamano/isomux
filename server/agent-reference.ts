@@ -52,6 +52,10 @@ export const AGENT_REFERENCE_TOPICS = {
     "A member dismisses your ask, asks a question about it, or asks you to simplify it",
   "ask-steps":
     "A member must sign in to Claude, Codex or an MCP server, pair Chrome, or set the room's GitHub issue link",
+  "route-asks":
+    "Only a member can route one of their WhatsApp chats or Discord places to an agent",
+  "secret-exchange":
+    "You use or ask for a secret that the proxy trades for a token (`exchange`)",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -74,6 +78,8 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "browser-reads": "browser",
   "ask-replies": "asks",
   "ask-steps": "asks",
+  "route-asks": "asks",
+  "secret-exchange": "connections",
 };
 
 // Pages only a privileged agent sees.
