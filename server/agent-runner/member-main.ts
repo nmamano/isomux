@@ -30,6 +30,8 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "claude-cwd-move": () => import("./entries/claude-cwd-move.ts"),
   "folder-files": () => import("./entries/folder-files.ts"),
   "opencode-inspect": () => import("./entries/opencode-inspect.ts"),
+  "project-skills": () => import("./entries/project-skills.ts"),
+  "project-skill": () => import("./entries/project-skill.ts"),
   "session-move": () => import("./entries/session-move.ts"),
 };
 

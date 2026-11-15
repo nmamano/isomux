@@ -50,7 +50,7 @@ import { storedTopic } from "./stored-session-text.ts";
 import { spawnTreeFields } from "./spawn-agent-limits.ts";
 import { buildUsageReportData, type UsageAudience } from "./usage-report.ts";
 import type { CeilingAgent } from "./member-ceiling.ts";
-import { homedir } from "os";
+import { agentHome } from "./agent-folder.ts";
 
 export interface OfficePersistenceDeps {
   agents: Map<string, ManagedAgent>;
@@ -577,10 +577,18 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     if (agents.has(agentId)) return null;
     const entry = loadAgentHistory()[agentId];
     if (!entry) return null;
+    // A legacy entry without a folder: its manager's home (agent-folder.ts).
+    // A member whose OS user is not ready has none, and the revive refuses.
+    let cwd: string;
+    try {
+      cwd = entry.cwd ?? agentHome(entry.userId);
+    } catch {
+      return null;
+    }
     return {
       id: agentId,
       name: entry.name,
-      cwd: entry.cwd ?? homedir(),
+      cwd,
       // A killed agent has no room until a revive picks one; the revive
       // judges it again in that room.
       roomId: "",

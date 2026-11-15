@@ -536,7 +536,10 @@ export function diagnoseProcessExit(
   sessionId: string | null,
   env?: { [key: string]: string | undefined },
 ): LogMessage | null {
-  if (cwdProblem(cwd))
+  // An isolated member's folder is not statted here, as the office: their
+  // failed turn gets the folder check of member-folder-hint.ts
+  // (agent-manager checkMemberFolder).
+  if (!isMemberEnv(env) && cwdProblem(cwd))
     return msg("systemEntries.claudeExit.cwdMissing", { cwd });
   // An isolated member's transcript is not read here (a sync hint).
   if (

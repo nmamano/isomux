@@ -116,6 +116,7 @@ export type FsRequest =
   | { call: "mkdir"; path: string; mode: number }
   | { call: "rm"; path: string }
   | { call: "exists"; path: string }
+  | { call: "enter"; path: string }
   | { call: "chmod"; path: string; mode: number };
 
 // Control messages after the request.

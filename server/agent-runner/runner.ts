@@ -13,6 +13,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { chmodSync, constants, existsSync, lstatSync, unlinkSync } from "fs";
 import {
+  access,
   chmod,
   mkdir,
   open as openFile,
@@ -68,6 +69,8 @@ export const ENTRY_NAMES = new Set([
   "claude-cwd-move",
   "folder-files",
   "opencode-inspect",
+  "project-skills",
+  "project-skill",
   "session-move",
 ]);
 const ENTRY_DIR = join(import.meta.dir, "entries");
@@ -380,6 +383,9 @@ async function runFs(
       case "chmod":
         await chmod(request.path, request.mode);
         break;
+      case "enter":
+        await access(request.path, constants.X_OK);
+        break;
     }
     finish(socket, { type: "fs" });
   } catch (error) {
@@ -405,6 +411,7 @@ function handleFs(socket: RunnerSocket, request: FsRequest): void {
       "rm",
       "exists",
       "chmod",
+      "enter",
     ].includes(request.call) ||
     (needsMode && !validMode((request as { mode?: unknown }).mode)) ||
     (request.call === "readBytes" &&

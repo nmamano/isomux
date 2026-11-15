@@ -259,6 +259,31 @@ ws.onmessage = (ev) => {
 };
 `;
 
+// An office client in the container: what a member's open_log of an agent
+// replays, from the office's memory (a turn that never started writes no
+// log file): the names in its slash menu, and its error and system lines.
+const OPEN_LOG = `
+const [cookie, agentId, host, origin] = JSON.parse(process.env.RIG_ARGS);
+const ws = new WebSocket("ws://127.0.0.1:10000/ws", { headers: { Cookie: cookie, Host: host, Origin: origin } });
+const names = new Set();
+const entries = [];
+const finish = () => { console.log(JSON.stringify({ names: [...names], entries })); process.exit(0); };
+setTimeout(finish, 10000);
+ws.onopen = () => ws.send(JSON.stringify({ type: "open_log", agentId, requestId: "rig-open-log" }));
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "slash_commands" && msg.agentId === agentId) {
+    for (const c of msg.commands ?? []) names.add(c.name);
+    for (const s of msg.skills ?? []) names.add(s.name);
+  }
+  if (msg.type === "log_entry" && msg.entry?.agentId === agentId && (msg.entry.kind === "error" || msg.entry.kind === "system")) {
+    const e = msg.entry;
+    entries.push({ timestamp: e.timestamp, text: typeof e.content === "string" ? e.content : JSON.stringify(e.message ?? e.content) });
+  }
+  if (msg.type === "log_replay_complete") finish();
+};
+`;
+
 describe.skipIf(!ENABLED)("member OS users in the container", () => {
   let name: string;
   let cookie: string;
@@ -1143,6 +1168,380 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
     // A red run waits out each missing answer (90 s each), so it may take
     // minutes; a green run takes about one.
   }, 900_000);
+
+  // Slice 2b-ii: the agent's folder is the member's (section 3.3). `~` is the
+  // member's home; a folder the member cannot reach fails the turn with the
+  // ACL command (only when the member's own stat confirms it); the room
+  // folder is checked for each member's agent in the room; and a project
+  // skill is listed and read in the member's runner, never by the office.
+  // The checks run as the member: each folder below is one the office user
+  // can read and Alice cannot, or the other way round.
+  describe("the folder of a member's agent", () => {
+    const home = `${MEMBERS}/home/${ALICE}`;
+    const spawnAlice = (label: string, cwd: string, agentType = "claude") =>
+      api(name, aliceCookie, "POST", "/api/agents", {
+        name: `Rig Alice ${label}`,
+        cwd,
+        roomId,
+        desk: null,
+        agentType,
+      });
+    const idOf = (made: Record<string, unknown>, label: string) => {
+      const id = (made.agent as { id: string } | undefined)?.id;
+      if (!id) throw new Error(`spawn ${label}: ${JSON.stringify(made)}`);
+      return id;
+    };
+    const send = (id: string, text: string) =>
+      api(name, aliceCookie, "POST", `/api/agents/${id}/messages`, { text });
+    // What Alice's open_log of the agent replays.
+    const openLog = (
+      id: string,
+    ): { names: string[]; entries: { timestamp: number; text: string }[] } => {
+      const r = run(
+        "docker",
+        [
+          "exec",
+          "-i",
+          "-e",
+          `RIG_ARGS=${JSON.stringify([aliceCookie, id, HOST, ORIGIN])}`,
+          name,
+          "bun",
+          "-",
+        ],
+        OPEN_LOG,
+      );
+      try {
+        return JSON.parse(r.out.trim());
+      } catch {
+        return { names: [], entries: [] };
+      }
+    };
+    // The agent's error and system lines written from `since` on.
+    const linesOf = (id: string, since: number) =>
+      openLog(id)
+        .entries.filter((e) => e.timestamp >= since)
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .map((e) => e.text);
+    // The ACL commands in the agent's lines (a protocol value: the command
+    // the owner runs), one array per line that has any.
+    const aclCommands = (lines: string[]) =>
+      lines
+        .map((l) => l.match(/setfacl [^\n`"\\]+/g) ?? [])
+        .filter((found) => found.length > 0);
+    const aliceUid = () => String(uidOf(name, ALICE));
+
+    // R1. C3: `~` and `~/sub` are the member's home, stored as the cwd and
+    // where the agent runs.
+    it("resolves `~` and `~/sub` to the member's home, stores it and runs there", async () => {
+      expect(sh(name, ALICE, `mkdir -p ${home}/r1-sub`).status).toBe(0);
+      const cases = [
+        ["tilde", "~", home],
+        ["tilde sub", "~/r1-sub", `${home}/r1-sub`],
+      ] as const;
+      const got: Record<string, unknown> = {};
+      for (const [label, cwd, want] of cases) {
+        const made = spawnAlice(`r1 ${label}`, cwd);
+        const id = idOf(made, label);
+        send(id, "one");
+        const [report] = await reportsOf(id, 1);
+        got[label] = {
+          stored: (made.agent as { cwd?: string }).cwd === want,
+          ran: report?.cwd === want,
+          uid: report?.uid === aliceUid(),
+        };
+      }
+      expect(got).toEqual({
+        tilde: { stored: true, ran: true, uid: true },
+        "tilde sub": { stored: true, ran: true, uid: true },
+      });
+    }, 300_000);
+
+    // R2. C1, D3: a folder Alice cannot read (locked after the spawn): the
+    // turn fails with one line that has the ACL command; the owner runs it
+    // and the next message gets an answer. R3: a folder that is gone, or a
+    // file in its place: the existing line, with no ACL command.
+    it("fails a turn in a folder the member cannot reach with the ACL command, and only then", async () => {
+      expect(
+        root(
+          name,
+          "mkdir -p /srv/rig-r2 /srv/rig-r3a /srv/rig-r3b && chmod 755 /srv/rig-r2 /srv/rig-r3a /srv/rig-r3b",
+        ).status,
+      ).toBe(0);
+      const agents = {
+        locked: idOf(spawnAlice("r2 locked", "/srv/rig-r2"), "r2"),
+        gone: idOf(spawnAlice("r3 gone", "/srv/rig-r3a"), "r3a"),
+        file: idOf(spawnAlice("r3 file", "/srv/rig-r3b"), "r3b"),
+      };
+      for (const id of Object.values(agents)) send(id, "one");
+      // The enabling condition: each ran in its folder as Alice.
+      const ran: Record<string, unknown> = {};
+      for (const [key, id] of Object.entries(agents)) {
+        const [r] = await reportsOf(id, 1);
+        ran[key] = [r?.cwd, r?.uid];
+      }
+      expect(ran).toEqual({
+        locked: ["/srv/rig-r2", aliceUid()],
+        gone: ["/srv/rig-r3a", aliceUid()],
+        file: ["/srv/rig-r3b", aliceUid()],
+      });
+
+      expect(
+        root(
+          name,
+          "chmod 700 /srv/rig-r2 && rm -rf /srv/rig-r3a && rm -rf /srv/rig-r3b && echo x > /srv/rig-r3b",
+        ).status,
+      ).toBe(0);
+      // Alice's own view of each folder now.
+      expect([
+        tryAs(name, ALICE, 'os.listdir("/srv/rig-r2")'),
+        tryAs(name, ALICE, 'os.listdir("/srv/rig-r3a")'),
+        tryAs(name, ALICE, 'os.listdir("/srv/rig-r3b")'),
+      ]).toEqual(["EACCES", "ENOENT", "ENOTDIR"]);
+      // A running engine keeps the folder it started in: a new conversation
+      // starts a new process there.
+      for (const id of Object.values(agents))
+        api(
+          name,
+          aliceCookie,
+          "POST",
+          `/api/agents/${id}/new-conversation`,
+          {},
+        );
+      const since = Date.now();
+      for (const id of Object.values(agents)) send(id, "two");
+      // A turn that cannot start writes its lines; the section-2 line comes
+      // after the engine's, so wait for the logs to be quiet.
+      const quiet = async (id: string) => {
+        let last = "";
+        await waitFor(
+          "the failed turn's lines",
+          () => {
+            const now = JSON.stringify(linesOf(id, since));
+            const done = now === last && now !== "[]";
+            last = now;
+            return done;
+          },
+          60_000,
+        ).catch(() => undefined);
+        await Bun.sleep(3000);
+        return linesOf(id, since);
+      };
+      const lines = {
+        locked: await quiet(agents.locked),
+        gone: await quiet(agents.gone),
+        file: await quiet(agents.file),
+      };
+      const acl = {
+        locked: aclCommands(lines.locked).length,
+        gone: aclCommands(lines.gone).length,
+        file: aclCommands(lines.file).length,
+      };
+      // No answer in a folder the agent cannot enter.
+      const answered = {
+        locked: (await reportsOf(agents.locked, 2)).length,
+      };
+      // The gone and file agents name their folder (the existing text).
+      const named = {
+        gone: lines.gone.some((l) => l.includes("/srv/rig-r3a")),
+        file: lines.file.some((l) => l.includes("/srv/rig-r3b")),
+      };
+      const want = {
+        acl: { locked: 1, gone: 0, file: 0 },
+        answered: { locked: 1 },
+        named: { gone: true, file: true },
+      };
+      const got = { acl, answered, named };
+      // A red run shows the lines each agent wrote.
+      expect(Bun.deepEquals(got, want) ? got : { ...got, lines }).toEqual(want);
+
+      // The owner runs the command as given; the next message gets an answer.
+      const [commands] = aclCommands(lines.locked);
+      for (const cmd of commands)
+        expect([cmd, root(name, cmd).status]).toEqual([cmd, 0]);
+      expect(tryAs(name, ALICE, 'os.listdir("/srv/rig-r2")')).toBe("ok");
+      // The message that failed is sent again at the next wake (the office's
+      // delivery of a message no engine took), then "three": each once, in
+      // that order, in the shared folder as Alice. The office may send the
+      // two in one turn or in two.
+      send(agents.locked, "three");
+      // Up to 3 reports (90 s when the two came in one turn), then quiet.
+      await reportsOf(agents.locked, 3);
+      await Bun.sleep(5000);
+      const after = (await reportsOf(agents.locked, 1)).slice(1);
+      const said = after.map((r) => String(r.said ?? "")).join("\n");
+      const count = (word: string) =>
+        (said.match(new RegExp(`\\b${word}\\b`, "g")) ?? []).length;
+      const gotAfter = {
+        two: count("two"),
+        three: count("three"),
+        order: said.search(/\btwo\b/) < said.search(/\bthree\b/),
+        where: [
+          ...new Set(after.map((r) => `${String(r.cwd)} ${String(r.uid)}`)),
+        ],
+      };
+      const wantAfter = {
+        two: 1,
+        three: 1,
+        order: true,
+        where: [`/srv/rig-r2 ${aliceUid()}`],
+      };
+      // A red run shows what each turn was sent.
+      expect(
+        Bun.deepEquals(gotAfter, wantAfter)
+          ? gotAfter
+          : { ...gotAfter, said: after.map((r) => r.said) },
+      ).toEqual(wantAfter);
+    }, 600_000);
+
+    // R6. D7: a /resume to a session that ran in another folder, which Alice
+    // can no longer read: the section-2 line (the sync cwd switch at resume
+    // does not stat as the office for a member).
+    it("gives the ACL line for a /resume into a session whose folder the member cannot reach", async () => {
+      expect(
+        root(name, "mkdir -p /srv/rig-r6 && chmod 755 /srv/rig-r6").status,
+      ).toBe(0);
+      const id = idOf(spawnAlice("r6", "/srv/rig-r6"), "r6");
+      send(id, "one");
+      expect((await reportsOf(id, 1))[0]?.cwd).toBe("/srv/rig-r6");
+      const first = (
+        api(name, aliceCookie, "GET", `/api/agents/${id}/sessions`, {}) as {
+          currentSessionId?: string;
+        }
+      ).currentSessionId;
+      expect(first).toBeTruthy();
+      api(name, aliceCookie, "POST", `/api/agents/${id}/new-conversation`, {});
+      api(name, aliceCookie, "PATCH", `/api/agents/${id}`, { cwd: home });
+      send(id, "two");
+      const second = await reportsOf(id, 2);
+      // The enabling condition: the agent now runs in Alice's home.
+      expect(second[1]?.cwd).toBe(home);
+      expect(root(name, "chmod 700 /srv/rig-r6").status).toBe(0);
+      const since = Date.now();
+      api(name, aliceCookie, "POST", `/api/agents/${id}/resume`, {
+        sessionId: first,
+      });
+      send(id, "three");
+      // Two starts fail, each with one line: the /resume, which starts the
+      // engine at once, and the wake by "three". Read once the log is quiet,
+      // so a loop would show as more.
+      await waitFor(
+        "the ACL lines",
+        () => aclCommands(linesOf(id, since)).length >= 2,
+        90_000,
+      ).catch(() => undefined);
+      await Bun.sleep(10_000);
+      const found = aclCommands(linesOf(id, since));
+      const got = {
+        acl: found.length,
+        same: new Set(found.map((c) => JSON.stringify(c))).size,
+      };
+      const want = { acl: 2, same: 1 };
+      expect(
+        Bun.deepEquals(got, want) ? got : { ...got, lines: linesOf(id, since) },
+      ).toEqual(want);
+    }, 300_000);
+
+    // R4. Q3, C2, D6: a room folder that Alice cannot read, with her agent in
+    // the room, is refused and the room keeps its folder; the refusal names
+    // her agent. The same folder in a room with only office agents is set.
+    it("refuses a room folder that a member's agent in the room cannot reach", () => {
+      expect(
+        root(
+          name,
+          `mkdir -p /srv/rig-r4 && chown ${OFFICE_UID}:${OFFICE_UID} /srv/rig-r4 && chmod 700 /srv/rig-r4`,
+        ).status,
+      ).toBe(0);
+      // The enabling condition: the office can read it, Alice cannot.
+      expect([
+        tryAs(name, String(OFFICE_UID), 'os.listdir("/srv/rig-r4")'),
+        tryAs(name, ALICE, 'os.listdir("/srv/rig-r4")'),
+      ]).toEqual(["ok", "EACCES"]);
+      const agentName = "Rig Alice r4";
+      idOf(spawnAlice("r4", home), "r4");
+      const settings = (room: string) =>
+        api(name, cookie, "GET", `/api/rooms/${room}/settings`, {}) as {
+          cwd?: string | null;
+        };
+      const before = settings(roomId).cwd ?? null;
+      const refused = api(name, cookie, "PATCH", `/api/rooms/${roomId}`, {
+        cwd: "/srv/rig-r4",
+      });
+      const officeRoom = (
+        api(name, cookie, "POST", "/api/rooms", { name: "Rig office r4" })
+          .room as { id: string }
+      ).id;
+      const officeAgent = api(name, cookie, "POST", "/api/agents", {
+        name: "Rig office r4",
+        cwd: "/tmp",
+        roomId: officeRoom,
+        desk: null,
+        agentType: "claude",
+      });
+      expect(JSON.stringify(officeAgent)).toContain('"agent"');
+      const accepted = api(name, cookie, "PATCH", `/api/rooms/${officeRoom}`, {
+        cwd: "/srv/rig-r4",
+      });
+      expect({
+        refusedCode: (refused.error as { code?: string } | undefined)?.code,
+        namesAgent: JSON.stringify(refused).includes(agentName),
+        kept: (settings(roomId).cwd ?? null) === before,
+        acceptedError: accepted.error ?? null,
+        officeSet: settings(officeRoom).cwd,
+      }).toEqual({
+        refusedCode: "invalid_cwd",
+        namesAgent: true,
+        kept: true,
+        acceptedError: null,
+        officeSet: "/srv/rig-r4",
+      });
+    });
+
+    // R5. C5, D5: a project skill in a folder only Alice can read is in her
+    // agent's menu, and runs with its current body after an edit.
+    it("lists and runs a project skill that only the member can read, with its current body", async () => {
+      const proj = `${home}/r5-proj`;
+      const skill = `${proj}/.claude/skills/rig-skill`;
+      expect(
+        sh(
+          name,
+          ALICE,
+          `mkdir -p ${skill} && chmod 700 ${proj} && printf -- '---\\nname: rig-skill\\ndescription: Rig skill\\n---\\nRIG_SKILL_BODY_V1\\n' > ${skill}/SKILL.md`,
+        ).status,
+      ).toBe(0);
+      // The enabling condition: the office user cannot read it.
+      expect(
+        tryAs(name, String(OFFICE_UID), `open("${skill}/SKILL.md").read()`),
+      ).toBe("EACCES");
+      const id = idOf(spawnAlice("r5", proj), "r5");
+      const menu = () => openLog(id).names;
+      let listed: string[] = [];
+      await waitFor(
+        "the skill in the menu",
+        () => {
+          listed = menu();
+          return listed.includes("rig-skill");
+        },
+        90_000,
+      ).catch(() => undefined);
+      send(id, "/rig-skill");
+      const [v1] = await reportsOf(id, 1);
+      expect(
+        sh(
+          name,
+          ALICE,
+          `sed -i 's/RIG_SKILL_BODY_V1/RIG_SKILL_BODY_V2/' ${skill}/SKILL.md`,
+        ).status,
+      ).toBe(0);
+      send(id, "/rig-skill");
+      const after = await reportsOf(id, 2);
+      expect({
+        listed: listed.includes("rig-skill"),
+        v1: String(v1?.said ?? "").includes("RIG_SKILL_BODY_V1"),
+        v2: String(after[1]?.said ?? "").includes("RIG_SKILL_BODY_V2"),
+        uid: after[1]?.uid,
+      }).toEqual({ listed: true, v1: true, v2: true, uid: aliceUid() });
+    }, 400_000);
+  });
 
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {
     const erinUser = "isomux-erin";

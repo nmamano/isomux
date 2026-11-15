@@ -642,6 +642,15 @@ export function runnerAgentFs(
         timeoutMs,
       );
     },
+    enter: async (path) => {
+      await runnerFs(
+        socketPath,
+        { call: "enter", path },
+        undefined,
+        0,
+        timeoutMs,
+      );
+    },
   };
 }
 

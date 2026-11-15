@@ -83,7 +83,6 @@ import {
   deduplicateSkills,
   discoverBundledSkills,
   discoverPluginSkills,
-  discoverProjectSkills,
   discoverSyncedSkills,
   discoverUserSkills,
   type UserSkillRoot,
@@ -148,6 +147,8 @@ export interface AgentRestoreDeps {
   buildOpenCodeLaunchEnvironmentForUserId: AgentSkills["buildOpenCodeLaunchEnvironmentForUserId"];
   openCodeEnvironmentRevisionForUserId: AgentSkills["openCodeEnvironmentRevisionForUserId"];
   openCodeSkillPathsForUserId: AgentSkills["openCodeSkillPathsForUserId"];
+  projectSkillsFor: AgentSkills["projectSkillsFor"];
+  refreshMemberProjectSkills: AgentSkills["refreshMemberProjectSkills"];
   accessFields: (src: { access?: AgentAccess }) => { access?: AgentAccess };
   accessGrantOf: (src: {
     access?: AgentAccess;
@@ -426,7 +427,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       slashCommands: autocompleteCommands(info.agentType),
       skills: deduplicateSkills([
         ...discoverUserSkills(discoverySkillRoots),
-        ...discoverProjectSkills(p.cwd, info.agentType),
+        ...deps.projectSkillsFor(info),
         // Only Claude loads plugin skills.
         ...(info.agentType === "claude"
           ? discoverPluginSkills(claudeConfigDirOf(discoveryEnv), p.cwd)
@@ -523,6 +524,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
         managed.unsavedDelivery = { ...persisted.unsaved, session: null };
     }
     agents.set(p.id, managed);
+    deps.refreshMemberProjectSkills(p.id);
     // Mint (or rotate, on revive) the agent's bearer token before any
     // createSession/resumeSession below reads it via buildSessionEnv. Boot
     // restore and revive both funnel here, so "rotated on revive" is automatic;

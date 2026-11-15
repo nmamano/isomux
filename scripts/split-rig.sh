@@ -280,13 +280,15 @@ const record = (entry) => {
 
 // A message with "RIG_CALL {method, path, body}" makes one office API call
 // with the agent's own token; its status and body go in the report.
+const textOf = (content) =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((b) => (typeof b?.text === "string" ? b.text : "")).join("\n")
+      : "";
+
 function rigCall(content) {
-  const text =
-    typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content.map((b) => (typeof b?.text === "string" ? b.text : "")).join("\n")
-        : "";
+  const text = textOf(content);
   const at = text.indexOf("RIG_CALL ");
   if (at < 0) return undefined;
   const req = JSON.parse(text.slice(at + "RIG_CALL ".length).split("\n")[0]);
@@ -303,12 +305,16 @@ function rigCall(content) {
   return { status: Number(out.slice(nl + 1)), body: out.slice(0, nl) };
 }
 
-function report(call) {
+// `said`: the start of the user message, so a test sees what the office
+// sent (a skill's body).
+function report(call, said) {
   const uid = Bun.spawnSync(["id", "-u"]).stdout.toString().trim();
   return `RIG_REPORT ${JSON.stringify({
     backend: "claude",
     uid,
     home: process.env.HOME,
+    cwd,
+    said: said.slice(0, 4000),
     serverEnv: SERVER_ONLY.filter((name) => name in process.env),
     transcript,
     resumed,
@@ -342,7 +348,7 @@ function init() {
 function answer(content) {
   init();
   record({ type: "user", message: { role: "user", content } });
-  const text = report(rigCall(content));
+  const text = report(rigCall(content), textOf(content));
   const message = {
     id: `msg_${crypto.randomUUID()}`,
     type: "message",

@@ -4157,6 +4157,10 @@ Cosas que puedes hacer por él:
     "El cwd no es válido: no es un directorio: {path}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no es válido: no se puede acceder a {path}: {message}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
+  "systemEntries.memberFolderUnreachable":
+    "Este agente se ejecuta como el usuario del sistema {user}, que no puede abrir su carpeta {path}. Para darle acceso de lectura, ejecuta estas órdenes como root o como propietario de las carpetas: {commands}. O haz clic en el nombre del agente en la cabecera de la vista del registro para elegir otra carpeta.",
+  "systemEntries.memberSkillUnreadable":
+    "No se pudo leer la habilidad de proyecto /{name} de la carpeta de este agente.",
   "systemEntries.folderNotAllowed":
     "Este agente no puede iniciarse en su carpeta. {reason}",
   "systemEntries.resumeFolderNotAllowed":

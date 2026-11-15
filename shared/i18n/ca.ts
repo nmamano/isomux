@@ -4163,6 +4163,10 @@ Coses que pots fer per ell:
     "El cwd no és vàlid: no és un directori: {path}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no és vàlid: no es pot accedir a {path}: {message}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
+  "systemEntries.memberFolderUnreachable":
+    "Aquest agent s'executa com l'usuari del sistema {user}, que no pot obrir la seva carpeta {path}. Per donar-li accés de lectura, executa aquestes ordres com a root o com a propietari de les carpetes: {commands}. O fes clic al nom de l'agent a la capçalera de la vista del registre per triar una altra carpeta.",
+  "systemEntries.memberSkillUnreadable":
+    "No s'ha pogut llegir l'habilitat de projecte /{name} de la carpeta d'aquest agent.",
   "systemEntries.folderNotAllowed":
     "Aquest agent no es pot iniciar a la seva carpeta. {reason}",
   "systemEntries.resumeFolderNotAllowed":

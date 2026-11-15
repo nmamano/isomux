@@ -23,6 +23,7 @@ import {
   writeFileSync,
 } from "fs";
 import { rm } from "fs/promises";
+import { SKILL_NAME } from "./project-skill-scan.ts";
 import { basename, dirname, isAbsolute, join, resolve } from "path";
 import type {
   SkillCatalogEntry,
@@ -65,8 +66,8 @@ export interface SkillEngineContext {
 // Same limit as the editor panel's open.
 export const MAX_SKILL_BYTES = 1_000_000;
 const MAX_DESCRIPTION = 1024;
-// Claude Code's own skill-name rule: lowercase letters, digits and hyphens.
-const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// Claude Code's own skill-name rule (SKILL_NAME, project-skill-scan.ts):
+// lowercase letters, digits and hyphens.
 const MAX_NAME = 64;
 
 function realKey(path: string): string {

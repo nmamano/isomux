@@ -114,6 +114,9 @@ export interface TurnFlags {
   // This turn wrote the OpenCode free usage limit notice, which stands in
   // for its error line.
   freeLimitNotice: boolean;
+  // An isolated member's folder was checked after this turn failed
+  // (member-folder-hint.ts): once per turn.
+  folderChecked: boolean;
 }
 
 export function freshTurnFlags(): TurnFlags {
@@ -122,6 +125,7 @@ export function freshTurnFlags(): TurnFlags {
     limitStopResetsAtMs: null,
     limitStopFallback: false,
     freeLimitNotice: false,
+    folderChecked: false,
   };
 }
 

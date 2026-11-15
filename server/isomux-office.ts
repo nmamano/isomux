@@ -130,8 +130,12 @@ import {
   CLAUDE_NATIVE_BIN,
   pathWithBundledClaude,
   resolveCwd,
-  validateCwd,
 } from "./cwd-utils.ts";
+import {
+  agentCwdProblem,
+  memberFolderHost,
+  validateAgentCwd,
+} from "./agent-folder.ts";
 import { modelFamilyMismatchError } from "./agent-validators.ts";
 import type { Cronjob, CronjobTarget } from "../shared/types.ts";
 import { LOBBY_ROOM_ID, cronjobRunStreamId } from "../shared/types.ts";
@@ -2201,8 +2205,9 @@ async function listBackendModels(input: {
 > {
   try {
     const backend = getBackend(input.agentType as AgentBackendType);
-    // The spawn check: an existing directory. Throws before any backend starts.
-    const cwd = validateCwd(input.cwd);
+    // The spawn check: an existing directory, for the agents of `userId`
+    // (agent-folder.ts). Throws before any backend starts.
+    const cwd = await validateAgentCwd(input.cwd, input.userId);
     const env =
       input.agentType === "opencode"
         ? agentManager.buildOpenCodeLaunchEnvironmentForUserId(input.userId)
@@ -4826,6 +4831,32 @@ function buildExecutorDeps(
           return errMessage(err, "Invalid directory");
         }
       },
+      // One check per isolated manager of an agent in the room, all at once
+      // (a runner that hangs costs its timeout once, not per manager).
+      memberCwdProblem: async (roomId, cwd) => {
+        const byManager = new Map<string, string[]>();
+        for (const agent of agentManager.getAllAgents())
+          if (
+            agent.roomId === roomId &&
+            agent.userId &&
+            memberFolderHost(agent.userId)
+          )
+            byManager.set(agent.userId, [
+              ...(byManager.get(agent.userId) ?? []),
+              agent.name,
+            ]);
+        const blocked = await Promise.all(
+          [...byManager].map(async ([userId, names]) =>
+            (await agentCwdProblem(cwd, userId)) ? names : [],
+          ),
+        );
+        // Each agent that blocks the change, so the owner knows what to move.
+        const names = blocked.flat();
+        if (names.length === 0) return null;
+        return names.length === 1
+          ? `${names[0]} cannot use this folder: the OS user it runs as cannot open it.`
+          : `These agents cannot use this folder, because the OS users they run as cannot open it: ${names.join(", ")}.`;
+      },
       cwdChangeRefusal: roomCwdChangeRefusal,
       // The member's agents of the room at a folder stop that is no longer
       // the room's move to Office (member-ceiling.ts).
@@ -5441,9 +5472,9 @@ function buildExecutorDeps(
   );
   register(
     validateHandlers({
-      validateCwd: (cwd) => {
+      validateCwd: async (cwd, userId) => {
         try {
-          agentManager.validateCwd(cwd);
+          await validateAgentCwd(cwd, userId);
           return null;
         } catch (err) {
           return errMessage(err, "Invalid directory");

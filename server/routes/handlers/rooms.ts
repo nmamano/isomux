@@ -95,6 +95,11 @@ export interface RoomsDeps {
   // Why a folder cannot be a working folder (missing, not a directory, no
   // access), or null when it can. The same check a spawn runs.
   cwdProblem(cwd: string): string | null;
+  // The refusal when an agent in the room whose manager has their own OS
+  // user cannot use the folder, checked through that member's host; it
+  // names the agent, never the member's error. Null when every such agent
+  // can.
+  memberCwdProblem(roomId: string, cwd: string): Promise<string | null>;
   // Sets the folder new agents in the room start in; null clears it. Returns
   // false if the room does not exist (-> 404).
   setCwd(roomId: string, cwd: string | null): boolean;
@@ -169,7 +174,7 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
     // {"pet":...} is legal and carries no name, and running the rename with an
     // absent name would have renamed the room to nothing. Each field is applied
     // only when the body actually carries it.
-    "rooms.rename": (ctx) => {
+    "rooms.rename": async (ctx) => {
       const b = (ctx.body ?? {}) as {
         name?: unknown;
         pet?: unknown;
@@ -266,7 +271,9 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
               'cwd must be an absolute path or start with "~"',
             );
           }
-          const problem = deps.cwdProblem(cwd);
+          const problem =
+            deps.cwdProblem(cwd) ??
+            (await deps.memberCwdProblem(ctx.params.roomId, cwd));
           if (problem) return fail(400, "invalid_cwd", problem);
         }
         const refusal = deps.cwdChangeRefusal(ctx.params.roomId, cwd);

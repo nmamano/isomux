@@ -268,7 +268,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     // waiting_for_response with a durable queue present used to race a queue
     // flush into the revive turn's pre-send window (bogus "Superseded by a
     // new turn." flush error, two concurrent sends). The queued item stays
-    // durable, waits out the revive turn, and delivers exactly once after it.
+    // durable until the recovery, and delivers exactly once.
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Morgan");
     const room = server.agentManager.getRooms()[0];
@@ -313,7 +313,12 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     expect(queueOf(server, a.id).length).toBe(1);
     expect(queueFile(server)[a.id]?.queue?.length).toBe(1); // still durable
 
-    // Human recovery: the wake serializes behind the revive turn.
+    // Human recovery. The engine never saved the kickoff turn (the session
+    // is "missing"), so the wake starts a fresh session and sends the
+    // kickoff again at the head of the queue. The revive waits behind it and
+    // behind the item already queued (task b94dfd25 2b-ii): the fresh
+    // session's first send carries all three, in the order they came, and
+    // no second turn starts beside it.
     await sendHuman(server, owner.rawSessionId, a.id, "revive");
     await waitUntil(
       () => deliveryCount(server!, a.id, "revive") === 1,
@@ -321,21 +326,25 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
       "revive delivered",
     );
     const s2 = server.fakeBackend.sessionForAgent(a.id)!;
-    // The replacement session's FIRST send is the human revive prompt - the
-    // queued item did not jump the line into the pre-send window.
-    expect(s2.sent[0].text).toContain("revive");
-    expect(s2.sent[0].text).not.toContain("queued-later");
-    // And it stays unsent until the revive turn actually completes.
+    expect(s2).not.toBe(s1);
+    expect(s2.sent).toHaveLength(1);
+    const first = s2.sent[0].text;
+    expect(first.indexOf("kickoff")).toBeGreaterThanOrEqual(0);
+    expect(first.indexOf("kickoff")).toBeLessThan(
+      first.indexOf("queued-later"),
+    );
+    expect(first.indexOf("queued-later")).toBeLessThan(first.indexOf("revive"));
+    // Nothing else is sent while that turn runs.
     await sleep(150);
-    expect(deliveryCount(server, a.id, "queued-later")).toBe(0);
+    expect(s2.sent).toHaveLength(1);
 
     s2.completeTurn();
-    await waitUntil(
-      () => deliveryCount(server!, a.id, "queued-later") === 1,
-      3000,
-      "queued item delivered post-recovery",
-    );
     await waitUntil(() => queueOf(server!, a.id).length === 0, 3000, "drained");
+    await sleep(150);
+    // Each delivered once: s1 had the kickoff, s2 has it again.
+    expect(deliveryCount(server, a.id, "kickoff")).toBe(2);
+    expect(deliveryCount(server, a.id, "queued-later")).toBe(1);
+    expect(deliveryCount(server, a.id, "revive")).toBe(1);
 
     // No superseded/flush-error fallout anywhere in the flow: the stream end
     // is still the only error.

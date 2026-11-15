@@ -24,7 +24,9 @@ import { fail, ok, type RouteHandler } from "../executor.ts";
 export interface ValidateDeps {
   // Validate a working directory. Returns null on success, an error string on
   // failure (the manager's validateCwd throws; the seam catches + flattens it).
-  validateCwd(cwd: string): string | null;
+  // For the caller's own agents: a caller with their own OS user gets the
+  // check through their host (agent-folder.ts).
+  validateCwd(cwd: string, userId: string | null): Promise<string | null>;
   // Resolve the scope/user's env-file path and count its keys. AUTH is NOT here
   // (the validateEnvBodySelfSubject precondition owns it); this is resolution
   // only. For scope:"user", an omitted username resolves to the CALLER's own env
@@ -42,7 +44,7 @@ export function validateHandlers(
   deps: ValidateDeps,
 ): Record<string, RouteHandler> {
   return {
-    "validate.cwd": (ctx) => {
+    "validate.cwd": async (ctx) => {
       const cwd =
         typeof (ctx.body as { cwd?: unknown } | undefined)?.cwd === "string"
           ? (ctx.body as { cwd: string }).cwd
@@ -53,7 +55,7 @@ export function validateHandlers(
       if (cwd.trim() === "") {
         return ok({ ok: false, error: "cwd is required" });
       }
-      const error = deps.validateCwd(cwd);
+      const error = await deps.validateCwd(cwd, ctx.identity.userId ?? null);
       return error === null ? ok({ ok: true }) : ok({ ok: false, error });
     },
 

@@ -49,6 +49,11 @@ import {
   type UserSkillRoot,
 } from "./skills.ts";
 import { listUsers } from "./users.ts";
+import { memberFolderHost } from "./agent-folder.ts";
+import {
+  fetchProjectSkillList,
+  projectSkillInfos,
+} from "./member-project-skills.ts";
 
 type SessionAccounts = ReturnType<typeof createSessionAccounts>;
 
@@ -203,6 +208,71 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     return skillPaths ? { skillPaths } : {};
   }
 
+  // The project skills of an isolated member's agent, as their runner last
+  // listed them for the agent's folder and engine (member-project-skills.ts):
+  // the office cannot read the folder, and never reads a path from it.
+  const memberProjectSkills = new Map<
+    string,
+    { cwd: string; engine: AgentBackendType; skills: SkillInfo[] }
+  >();
+  // The list request in flight per agent, by folder and engine.
+  const projectSkillsInFlight = new Map<string, string>();
+
+  // The agent's project skills for the menu. For an isolated member, the
+  // cached list of the agent's current folder and engine, empty until the
+  // runner answers (refreshMemberProjectSkills).
+  function projectSkillsFor(
+    info: Pick<AgentInfo, "id" | "cwd" | "agentType" | "userId">,
+  ): SkillInfo[] {
+    if (!memberFolderHost(info.userId))
+      return discoverProjectSkills(info.cwd, info.agentType);
+    const cached = memberProjectSkills.get(info.id);
+    return cached && cached.cwd === info.cwd && cached.engine === info.agentType
+      ? cached.skills
+      : [];
+  }
+
+  // Asks an isolated member's runner for the agent's project skills; the
+  // answer goes into the cache and the menu. A failed call or a reply out of
+  // shape leaves an empty list and one log line. An answer for a folder or
+  // engine the agent no longer has is dropped.
+  function refreshMemberProjectSkills(agentId: string): void {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    const { cwd, agentType, userId } = managed.info;
+    const host = memberFolderHost(userId);
+    if (!host) return;
+    const key = `${agentType}\0${cwd}`;
+    if (projectSkillsInFlight.get(agentId) === key) return;
+    projectSkillsInFlight.set(agentId, key);
+    void fetchProjectSkillList(host, cwd, agentType).then((list) => {
+      if (projectSkillsInFlight.get(agentId) === key)
+        projectSkillsInFlight.delete(agentId);
+      const now = agents.get(agentId);
+      if (
+        now !== managed ||
+        now.info.cwd !== cwd ||
+        now.info.agentType !== agentType
+      )
+        return;
+      if (list === null)
+        console.error(
+          `[skills] ${agentId}: the member runner gave no project skill list for ${agentType}`,
+        );
+      memberProjectSkills.set(agentId, {
+        cwd,
+        engine: agentType,
+        skills: projectSkillInfos(list ?? []),
+      });
+      applySkillMenu(agentId);
+    });
+  }
+
+  function forgetMemberProjectSkills(agentId: string): void {
+    memberProjectSkills.delete(agentId);
+    projectSkillsInFlight.delete(agentId);
+  }
+
   function userSkillRootsFor(managed: ManagedAgent): UserSkillRoot[] {
     return userSkillRootsForInfo(managed.info, buildSessionEnv(managed));
   }
@@ -213,7 +283,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     const claudeConfigDir = claudeConfigDirFor(managed);
     const found = [
       ...discoverUserSkills(userSkillRootsFor(managed)),
-      ...discoverProjectSkills(managed.info.cwd, managed.info.agentType),
+      ...projectSkillsFor(managed.info),
       // Only Claude loads plugin skills.
       ...(managed.info.agentType === "claude"
         ? discoverPluginSkills(
@@ -293,6 +363,14 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     const managed = agents.get(agentId);
     if (!managed) return;
     refreshSkillFolder(managed, built);
+    applySkillMenu(agentId);
+    refreshMemberProjectSkills(agentId);
+  }
+
+  // The agent's Sk menu, discovered again now and sent to clients.
+  function applySkillMenu(agentId: string): void {
+    const managed = agents.get(agentId);
+    if (!managed) return;
     let skills: SkillInfo[];
     try {
       skills = discoverSkillsFor(managed);
@@ -442,6 +520,9 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     openCodeSkillInput,
     userSkillRootsFor,
     discoverSkillsFor,
+    projectSkillsFor,
+    refreshMemberProjectSkills,
+    forgetMemberProjectSkills,
     listSessionCommands,
     refreshSkillMenu,
     refreshSkillMenus,

@@ -10,6 +10,9 @@ import type {
   SessionInfo,
   UserRecord,
 } from "../shared/types.ts";
+import { memberFolderHost } from "./agent-folder.ts";
+import { fetchProjectSkillPrompt } from "./member-project-skills.ts";
+import { SKILL_NAME } from "./project-skill-scan.ts";
 import { hostFor } from "./member-hosts.ts";
 import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { ENGINE_NAMES, ordinaryRooms } from "../shared/types.ts";
@@ -72,6 +75,7 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
+import { resendWaits } from "./unsaved-delivery.ts";
 import type { SessionPluginReload } from "./backends/types.ts";
 import { directInputCapped } from "./member-usage-cap.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
@@ -1550,7 +1554,12 @@ export function createCommandHandling(deps: HandlerDeps) {
     // /clear or /isomux-diff, but wrong for skills that actually run the
     // model. Multi-step pending flows still take the immediate path: the
     // user's reply during /resume etc. is a pick, not a skill.
-    if (turnRunning(managed) && !inMultiStepFlow(managed)) {
+    // Also when a process died before its engine saved what it accepted:
+    // those messages go first (resendWaits).
+    if (
+      (turnRunning(managed) || resendWaits(managed)) &&
+      !inMultiStepFlow(managed)
+    ) {
       const result = deps.enqueueMessage(agentId, {
         sender: { kind: "user", username, device },
         text: rawText,
@@ -1696,6 +1705,32 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     }
 
+    // An isolated member's project skill is read now by their runner, so it
+    // runs with its current file, as the office reads its own at invocation.
+    // A file it cannot give (over the bound, a failed call) is one line,
+    // never a skill in the menu that does nothing.
+    let memberProject: { prompt: string | null } | undefined;
+    const memberHost = memberFolderHost(managed.info.userId);
+    if (memberHost) {
+      const read = SKILL_NAME.test(cmd)
+        ? await fetchProjectSkillPrompt(
+            memberHost,
+            managed.info.cwd,
+            managed.info.agentType,
+            cmd,
+          )
+        : ({ kind: "missing" } as const);
+      if (read.kind === "failed") {
+        deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          msg("systemEntries.memberSkillUnreadable", { name: cmd }),
+        );
+        return true;
+      }
+      memberProject = { prompt: read.kind === "ok" ? read.prompt : null };
+    }
     const skillPrompt = resolveSkillPrompt(
       cmd,
       managed.info.cwd,
@@ -1705,6 +1740,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.claudeConfigDirFor(managed),
       managed.reportedPlugins,
       managed.reportedSkills,
+      memberProject,
     );
     if (skillPrompt) {
       countUse();

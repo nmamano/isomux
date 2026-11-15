@@ -4067,6 +4067,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "cwd is invalid: Not a directory: {path}. Click the agent name in the log view header to fix it.",
   "systemEntries.cwdInvalid.inaccessible":
     "cwd is invalid: Cannot access {path}: {message}. Click the agent name in the log view header to fix it.",
+  "systemEntries.memberFolderUnreachable":
+    "This agent runs as the OS user {user}, which cannot open its folder {path}. To give it read access, run these commands as root or as the folders' owner: {commands}. Or click the agent name in the log view header to pick another folder.",
+  "systemEntries.memberSkillUnreadable":
+    "The project skill /{name} could not be read from this agent's folder.",
   "systemEntries.folderNotAllowed":
     "This agent cannot start in its folder. {reason}",
   "systemEntries.resumeFolderNotAllowed":

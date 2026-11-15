@@ -16,7 +16,6 @@ import {
   stateFolderRefusal,
 } from "./agent-folder-rules.ts";
 import { STATE_ROOT } from "./config.ts";
-import { homedir } from "os";
 import { SpawnAccessRefusedError } from "./agent-manager.ts";
 import { buildAgentSystemPrompt, managerOf } from "./agent-system-prompt.ts";
 import { hidesManagerData } from "./system-prompt.ts";
@@ -28,7 +27,11 @@ import {
 import { notePromptContent } from "./audit-context.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import { engineRunsAccessHere } from "./backends/access-here.ts";
-import { resolveCwd } from "./cwd-utils.ts";
+import {
+  agentHome,
+  resolveAgentCwd,
+  validateAgentCwd,
+} from "./agent-folder.ts";
 import type { createAccessPolicy } from "./office-access-policy.ts";
 import { agentManager } from "./office-managers.ts";
 import type { createOfficeOnboarding } from "./office-onboarding.ts";
@@ -235,8 +238,11 @@ export function createAgentsRoutes(
     // spawn disambiguates a null return; revive delegates to the core.
     attributionFor,
     spawn: async (input) => {
+      // The new agent's manager's folder: a member's `~` is their home, and
+      // their folder is checked through their host (agent-folder.ts).
+      let resolvedCwd: string;
       try {
-        agentManager.validateCwd(input.cwd);
+        resolvedCwd = await validateAgentCwd(input.cwd, input.userId);
       } catch (err) {
         return {
           ok: false,
@@ -244,7 +250,7 @@ export function createAgentsRoutes(
           message: errMessage(err, "Invalid directory"),
         };
       }
-      const inState = stateFolderRefusal(resolveCwd(input.cwd), STATE_ROOT);
+      const inState = stateFolderRefusal(resolvedCwd, STATE_ROOT);
       if (inState)
         return { ok: false, reason: FOLDER_NOT_ALLOWED, message: inState };
       // A member with a pack spawns in the room's folder; a room with none
@@ -254,11 +260,11 @@ export function createAgentsRoutes(
         input.grant &&
         stopHasFolder(input.grant.access) &&
         roomFolderOnlyFor(input.userId) &&
-        resolveCwd(input.cwd) === homedir()
+        resolvedCwd === agentHome(input.userId)
       )
         input = { ...input, grant: { ...input.grant, access: "office" } };
       const overlap = folderOverlapRefusal(
-        resolveCwd(input.cwd),
+        resolvedCwd,
         {
           id: "",
           roomId: input.roomId,
@@ -434,9 +440,21 @@ export function createAgentsRoutes(
       // A folder change keeps the folder rules (agent-folder-rules.ts).
       if (changes.cwd) {
         const current = agentManager.getAgent(agentId);
-        const refusal = current
-          ? cwdFolderRefusal(current, resolveCwd(changes.cwd))
-          : null;
+        let refusal: string | null = null;
+        if (current) {
+          // The edited agent's manager's folder, never the caller's.
+          let resolved: string;
+          try {
+            resolved = resolveAgentCwd(changes.cwd, current.userId);
+          } catch (err) {
+            return {
+              ok: false,
+              reason: "invalid_cwd",
+              message: errMessage(err, "Invalid directory"),
+            };
+          }
+          refusal = cwdFolderRefusal(current, resolved);
+        }
         if (refusal)
           return {
             ok: false,
@@ -449,7 +467,10 @@ export function createAgentsRoutes(
       // order matches the spawn dep: cwd, then modelFamily.
       if (changes.cwd) {
         try {
-          agentManager.validateCwd(changes.cwd);
+          await validateAgentCwd(
+            changes.cwd,
+            agentManager.getAgent(agentId)?.userId,
+          );
         } catch (err) {
           return {
             ok: false,

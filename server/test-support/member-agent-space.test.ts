@@ -147,6 +147,10 @@ function recordingFs(): AgentFs {
       fsCalls.push({ op: "readBytes", path });
       return localAgentFs.readBytes(path, max);
     },
+    enter: (path) => {
+      fsCalls.push({ op: "enter", path });
+      return localAgentFs.enter(path);
+    },
   };
 }
 

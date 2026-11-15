@@ -180,6 +180,7 @@ export function createNotReadyHost(userId: string, reason: string): AgentHost {
     rm: reject,
     exists: reject,
     chmod: reject,
+    enter: reject,
   };
   const host: AgentHost = {
     kind: "runner",

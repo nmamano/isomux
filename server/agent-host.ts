@@ -7,7 +7,16 @@
 import { spawn } from "child_process";
 import { EventEmitter } from "events";
 import { constants, existsSync } from "fs";
-import { chmod, mkdir, open, readFile, rm, stat, writeFile } from "fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 import { Readable, Writable } from "stream";
@@ -200,6 +209,10 @@ export interface AgentFs {
   rm(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   chmod(path: string, mode: number): Promise<void>;
+  // Resolves when the agent user can enter the folder (access X_OK, which
+  // counts ACLs as chdir does); else rejects with the errno. A stat needs
+  // search access to the parent only, so it cannot tell.
+  enter(path: string): Promise<void>;
 }
 
 export interface AgentHost {
@@ -468,6 +481,7 @@ export const localAgentFs: AgentFs = {
   rm: (path) => rm(path, { force: true }),
   exists: async (path) => existsSync(path),
   chmod: (path, mode) => chmod(path, mode),
+  enter: (path) => access(path, constants.X_OK),
 };
 
 export const localAgentHost: AgentHost = {

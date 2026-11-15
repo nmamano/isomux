@@ -249,12 +249,13 @@ conversation found". Two parts close that:
   session on the next message or `/handoff` instead of refusing it; a
   continue (limit resume, restart wake, office sign-in continue) sent to it
   is not queued, since its conversation is gone.
+- While no process runs and the record holds messages (`resendWaits`), a
+  member's message and a skill run go through the queue, behind the messages
+  the wake sends again.
 
 Known limits: a process killed after the send was accepted but before Claude
 created the file leaves no file, which reads as durable, so its resume still
-fails. A member's direct message that wakes a dropped session goes before the
-messages sent again. Skill runs and message edits pass no resend, so they are
-not recorded.
+fails. Skill runs and message edits pass no resend, so they are not recorded.
 
 ## Task 314ee9fb - out-of-band swap strands a pre-send-cancelled flush
 

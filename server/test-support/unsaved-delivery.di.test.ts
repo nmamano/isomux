@@ -8,6 +8,8 @@
 // What each test pins, and the mutant it was seen red on, is named above it.
 
 import { describe, it, expect } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
@@ -15,6 +17,7 @@ import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { loadMessageQueuesRaw } from "../persistence.ts";
 import type { EventHandler } from "../internal-types.ts";
+import { removeStateDir } from "./temp-state.ts";
 
 type Manager = ReturnType<typeof createAgentManager>;
 
@@ -220,6 +223,81 @@ describe("a session the engine never saved", () => {
     expect(sentText(fresh())).not.toContain("first");
     expect(entriesWithKey(mgr, id, "systemEntries.unsavedResent")).toBe(0);
     fake.sessions.forEach((s) => s.close());
+  });
+
+  // A member's send takes sendMessage, not the queue (task b94dfd25 2b-ii).
+  // The wake puts "first" back at the head of the queue, so "second" waits
+  // behind it and both go in the fresh session's first turn, each once.
+  // MUTANT: sendMessageInner's busy without resendWaits dies on the order
+  // check ("second" went alone as the first turn, "first" in the next).
+  it("a member's send goes after the messages sent again", async () => {
+    const room = "room-unsaved-member";
+    const { fake, first } = backend();
+    const mgr = manager(fake, room);
+    const id = await spawn(mgr, room);
+    await killFirstTurn(mgr, fake, first, id, "empty");
+
+    void mgr.sendMessage(id, "second", "tester").catch(() => {});
+    await waitUntil(
+      () =>
+        sentText(fake.sessions[1]).includes("first") &&
+        sentText(fake.sessions[1]).includes("second"),
+      "fresh session got both messages",
+    );
+    const sends = (fake.sessions[1]?.sent ?? []).map((m) => m.text);
+    const text = sends.join("\n");
+    expect(text.indexOf("first")).toBeLessThan(text.indexOf("second"));
+    expect(text.split("first").length - 1).toBe(1);
+    expect(text.split("second").length - 1).toBe(1);
+    // The chat shows "second" once.
+    const chatSeconds = mgr
+      .getAgentLogs(id)
+      .filter(
+        (e) => e.kind === "user_message" && e.content.includes("second"),
+      ).length;
+    expect(chatSeconds).toBe(1);
+    fake.sessions.forEach((s) => s.close());
+  });
+
+  // The same for a skill the member types: it runs after the messages sent
+  // again. MUTANT: runCommandTurn queueing on turnRunning only dies on the
+  // chat check (the skill's turn starts beside the resend's and its line
+  // comes first).
+  it("a member's skill goes after the messages sent again", async () => {
+    const room = "room-unsaved-skill";
+    const skill = "unsavedresendskill";
+    const skillDir = join(STATE_ROOT, "skills", skill);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "Skill body marker.");
+    try {
+      const { fake, first } = backend();
+      const mgr = manager(fake, room);
+      const id = await spawn(mgr, room);
+      await killFirstTurn(mgr, fake, first, id, "empty");
+
+      void mgr.sendMessage(id, `/${skill}`, "tester").catch(() => {});
+      await waitUntil(
+        () =>
+          sentText(fake.sessions[1]).includes("first") &&
+          sentText(fake.sessions[1]).includes("Skill body marker"),
+        "fresh session got the message and the skill",
+      );
+      // The member's chat shows them in the order they run.
+      const asked = mgr
+        .getAgentLogs(id)
+        .filter((e) => e.kind === "user_message")
+        .map((e) => e.content);
+      expect(asked).toEqual(["first", `/${skill}`]);
+      const text = sentText(fake.sessions[1]);
+      expect(text.indexOf("first")).toBeLessThan(
+        text.indexOf("Skill body marker"),
+      );
+      expect(text.split("first").length - 1).toBe(1);
+      expect(text.split("Skill body marker").length - 1).toBe(1);
+      fake.sessions.forEach((s) => s.close());
+    } finally {
+      removeStateDir(skillDir);
+    }
   });
 
   // Review finding 1: a refused send to an errored agent changes nothing.

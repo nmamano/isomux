@@ -3705,6 +3705,10 @@ export const zh: Catalog = {
     "cwd 无效：不是目录：{path}。点击日志视图标题栏中的智能体名称进行修正。",
   "systemEntries.cwdInvalid.inaccessible":
     "cwd 无效：无法访问 {path}：{message}。点击日志视图标题栏中的智能体名称进行修正。",
+  "systemEntries.memberFolderUnreachable":
+    "此智能体以系统用户 {user} 运行，该用户无法打开其文件夹 {path}。要授予它读取权限，请以 root 或这些文件夹的所有者身份运行以下命令：{commands}。或点击日志视图标题栏中的智能体名称选择其他文件夹。",
+  "systemEntries.memberSkillUnreadable":
+    "无法从此智能体的文件夹读取项目技能 /{name}。",
   "systemEntries.folderNotAllowed": "此智能体无法在其文件夹中启动。{reason}",
   "systemEntries.resumeFolderNotAllowed":
     "不允许使用此对话的文件夹 {path}。{reason}",

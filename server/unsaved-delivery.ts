@@ -82,6 +82,17 @@ export function clearUnsavedDeliveryOnTurnEnd(managed: ManagedAgent): boolean {
   return true;
 }
 
+// No process runs, and the record holds messages that the next wake sends
+// again at the head of the queue. A new message then goes through the queue
+// too, behind them: a direct send would start its turn before the wake puts
+// them back.
+export function resendWaits(managed: ManagedAgent): boolean {
+  return (
+    managed.sessionManager.session === null &&
+    (managed.unsavedDelivery?.items.length ?? 0) > 0
+  );
+}
+
 // The record to send again when a session is dropped (`droppedId`) or
 // replaced with no id (`droppedId` null): the record of that session, or a
 // record whose process never reported an id. Null when there is none.

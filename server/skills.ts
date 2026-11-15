@@ -4,6 +4,7 @@ import type { CommandRow, EnginePlugin } from "./backends/types.ts";
 import { isAbsolute, join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
+import { projectSkillFolders } from "./project-skill-scan.ts";
 import {
   existsSync,
   readdirSync,
@@ -260,34 +261,6 @@ export function locateBundledSkills(): LocatedSkill[] {
 
 export function discoverBundledSkills(): SkillInfo[] {
   return locateBundledSkills().map(toSkillInfo);
-}
-
-// The project folders an engine reads by itself in its working folder, in
-// menu priority order (Codex also reads .agents/skills up to the repository
-// root; the menu reads the working folder only). The Sk menu lists only
-// these, so a project skill in another engine's folder is not offered to an
-// agent whose tool cannot load it.
-function projectSkillFolders(
-  cwd: string,
-  engine: SkillEngine,
-): { dir: string; commands?: true }[] {
-  const at = (...parts: string[]) => join(cwd, ...parts);
-  switch (engine) {
-    case "claude":
-      return [
-        { dir: at(".claude", "skills") },
-        { dir: at(".claude", "commands"), commands: true },
-      ];
-    case "codex":
-      return [{ dir: at(".agents", "skills") }];
-    case "opencode":
-      return [
-        { dir: at(".opencode", "skills") },
-        { dir: at(".opencode", "skill") },
-        { dir: at(".agents", "skills") },
-        { dir: at(".claude", "skills") },
-      ];
-  }
 }
 
 export function locateProjectSkills(
@@ -583,6 +556,10 @@ export function resolveSkillPrompt(
   pluginRoot?: string,
   reported?: EnginePlugin[] | null,
   reportedSkills?: CommandRow[] | null,
+  // An isolated member's agent: the project skill's prompt as their runner
+  // read it now (member-project-skills.ts), in place of a read of the
+  // project folders, which the office never reads for them.
+  memberProject?: { prompt: string | null },
 ): string | null {
   const normalizedRoots = normalizeUserSkillRoots(roots, includeCommands);
   const claudeConfigDir =
@@ -600,7 +577,7 @@ export function resolveSkillPrompt(
     );
   }
 
-  const candidates = [
+  const userCandidates = [
     join(STATE_ROOT, "skills", name, "SKILL.md"),
     ...normalizedRoots.flatMap((source) => [
       join(source.root, "skills", name, "SKILL.md"),
@@ -608,14 +585,23 @@ export function resolveSkillPrompt(
         ? [join(source.root, "commands", `${name}.md`)]
         : []),
     ]),
-    ...projectSkillFolders(cwd, engine).map((folder) =>
-      folder.commands
-        ? join(folder.dir, `${name}.md`)
-        : join(folder.dir, name, "SKILL.md"),
-    ),
-    join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
   ];
-  for (const path of candidates) {
+  const projectCandidates = memberProject
+    ? []
+    : projectSkillFolders(cwd, engine).map((folder) =>
+        folder.commands
+          ? join(folder.dir, `${name}.md`)
+          : join(folder.dir, name, "SKILL.md"),
+      );
+  for (const path of userCandidates) {
+    const prompt = readSkillFile(path);
+    if (prompt !== null) return prompt;
+  }
+  if (memberProject?.prompt) return memberProject.prompt;
+  for (const path of [
+    ...projectCandidates,
+    join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
+  ]) {
     const prompt = readSkillFile(path);
     if (prompt !== null) return prompt;
   }

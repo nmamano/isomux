@@ -9,6 +9,14 @@ import {
   type FlushRun,
 } from "./queue-flush.ts";
 import { hostFor, isMemberEnv } from "./member-hosts.ts";
+import {
+  agentCwdProblem,
+  agentHome,
+  cwdProblemSentence,
+  memberFolderHost,
+  resolveAgentCwd,
+} from "./agent-folder.ts";
+import { memberFolderHint } from "./member-folder-hint.ts";
 import { usageLimitStoppedText } from "./limit-resume.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import type { PagerEntry, PagerSource } from "../shared/types.ts";
@@ -153,7 +161,6 @@ import {
 } from "./session-summary.ts";
 import { statSync } from "fs";
 import {
-  resolveCwd,
   validateCwd,
   cwdProblem,
   type CwdProblem,
@@ -184,7 +191,6 @@ import {
 } from "./file-editor.ts";
 import {
   discoverUserSkills,
-  discoverProjectSkills,
   discoverPluginSkills,
   discoverSyncedSkills,
   discoverBundledSkills,
@@ -377,6 +383,7 @@ import {
   bindUnsavedSessionId,
   clearUnsavedDeliveryOnTurnEnd,
   recordUnsavedDelivery,
+  resendWaits,
 } from "./unsaved-delivery.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
@@ -1062,6 +1069,9 @@ export function createAgentManager(deps: ManagerDeps) {
     openCodeSkillInput,
     userSkillRootsFor,
     discoverSkillsFor,
+    projectSkillsFor,
+    refreshMemberProjectSkills,
+    forgetMemberProjectSkills,
     listSessionCommands,
     refreshSkillMenu,
     refreshSkillMenus,
@@ -1111,10 +1121,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
     // only call it for claude-typed agents. Best-effort env build - see the
     // envForHints note (server/agent-skills.ts).
-    diagnoseProcessExitHints: (managed, sessionId) =>
-      managed.info.agentType === "claude"
+    diagnoseProcessExitHints: (managed, sessionId) => {
+      checkMemberFolder(managed.info.id, managed);
+      return managed.info.agentType === "claude"
         ? diagnoseProcessExit(managed.info.cwd, sessionId, envForHints(managed))
-        : null,
+        : null;
+    },
     authNeededThisTurn: (managed) => managed.turnFlags.authNeeded,
     updateState,
     requestFlush,
@@ -1193,6 +1205,8 @@ export function createAgentManager(deps: ManagerDeps) {
     buildOpenCodeLaunchEnvironmentForUserId,
     openCodeEnvironmentRevisionForUserId,
     openCodeSkillPathsForUserId,
+    projectSkillsFor,
+    refreshMemberProjectSkills,
     accessFields,
     accessGrantOf,
     needsInterruptionMarker,
@@ -1751,7 +1765,8 @@ export function createAgentManager(deps: ManagerDeps) {
     ) {
       const meta: Parameters<typeof officeState.editAgent>[1] = {};
       if (changes.name) meta.name = changes.name;
-      if (changes.cwd) meta.cwd = resolveCwd(changes.cwd);
+      if (changes.cwd)
+        meta.cwd = resolveAgentCwd(changes.cwd, managed.info.userId);
       if (changes.outfit) meta.outfit = changes.outfit;
       if (changes.customInstructions !== undefined)
         meta.customInstructions = changes.customInstructions;
@@ -1798,7 +1813,9 @@ export function createAgentManager(deps: ManagerDeps) {
     const validated: Parameters<typeof officeState.editAgent>[1] = {};
 
     if (changes.name) validated.name = changes.name;
-    if (changes.cwd) validated.cwd = resolveCwd(changes.cwd);
+    // The agent's manager's folder (agent-folder.ts), never the caller's.
+    if (changes.cwd)
+      validated.cwd = resolveAgentCwd(changes.cwd, managed.info.userId);
     if (changes.outfit) validated.outfit = changes.outfit;
     if (changes.customInstructions !== undefined)
       validated.customInstructions = changes.customInstructions;
@@ -2717,6 +2734,7 @@ export function createAgentManager(deps: ManagerDeps) {
       refuseForUsageCap(agentId, managed, err);
       return;
     }
+    checkMemberFolder(agentId, managed);
     if (
       err instanceof StoredSessionNotFoundError &&
       memberSessionGone(managed, err.sessionId)
@@ -3444,6 +3462,8 @@ export function createAgentManager(deps: ManagerDeps) {
         // SDK-reported commands are NOT added to autocomplete (per design).
         // Skills are listed in priority order; deduplicate by name (highest priority wins).
         const uniqueSkills = managed ? discoverSkillsFor(managed) : [];
+        // An isolated member's project skills come from their runner.
+        if (managed) refreshMemberProjectSkills(agentId);
         const configCommands = managed
           ? autocompleteCommands(managed.info.agentType)
           : [];
@@ -3780,6 +3800,8 @@ export function createAgentManager(deps: ManagerDeps) {
             const freeLimitNotice = managed?.turnFlags.freeLimitNotice === true;
             const silentEnd = silentAuthEnd || limitStopped || freeLimitNotice;
             const showFailure = () => {
+              if (managed && ev.status === "failed")
+                checkMemberFolder(agentId, managed);
               if (!silentEnd) {
                 const meta = backendFailureMeta(failure);
                 addLogEntry(
@@ -3993,6 +4015,7 @@ export function createAgentManager(deps: ManagerDeps) {
           backendFailureMeta(failure),
         );
         if (managed) managed.sessionManager.lastBackendFailure = failure.id;
+        if (managed) checkMemberFolder(agentId, managed);
         // diagnoseProcessExit gives Claude-specific hints (CLAUDE_CONFIG_DIR/
         // projects/ path, "session .jsonl missing" wording). Don't run it for
         // non-Claude agents - the message would be wrong and misleading.
@@ -5298,6 +5321,21 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   // Why the agent's cwd cannot start a session.
+  // After a failed turn of an isolated member's agent: one check of its
+  // folder through the member's host (member-folder-hint.ts), whose line
+  // follows the engine's error. Once per turn, whichever failure path calls
+  // first. Nothing for any other agent: the office checks before it starts.
+  function checkMemberFolder(agentId: string, managed: ManagedAgent): void {
+    if (managed.turnFlags.folderChecked) return;
+    if (!memberFolderHost(managed.info.userId)) return;
+    managed.turnFlags.folderChecked = true;
+    const cwd = managed.info.cwd;
+    void memberFolderHint(cwd, managed.info.userId).then((line) => {
+      if (line && agents.get(agentId) === managed && managed.info.cwd === cwd)
+        addLogEntry(agentId, "system", line);
+    });
+  }
+
   function cwdInvalidText(problem: CwdProblem): LogMessage {
     const path = problem.path;
     switch (problem.kind) {
@@ -5351,7 +5389,12 @@ export function createAgentManager(deps: ManagerDeps) {
     );
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
-    const cwdIssue = cwdProblem(managed.info.cwd);
+    // An isolated member's folder is not statted here, as the office: the
+    // engine starts there as the member, and a turn that fails gets the
+    // folder check of member-folder-hint.ts (checkMemberFolder).
+    const cwdIssue = memberFolderHost(managed.info.userId)
+      ? null
+      : cwdProblem(managed.info.cwd);
     if (cwdIssue) throw new LocalizedError(cwdInvalidText(cwdIssue));
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
@@ -5522,8 +5565,6 @@ export function createAgentManager(deps: ManagerDeps) {
     // surface analogously). Keeping the policies symmetric across backends means
     // a user can put an agent at a desk before configuring its backend, and the
     // welcome-agent seed gets one Claude and one Codex desk on every fresh install.
-    const resolvedCwd = resolveCwd(cwd);
-
     // Server-side validation. Anything outside the backend's allowlist falls
     // back to a safe default; the wire shapes are permissive (union types over
     // all backend modes), so a stale UI or hand-crafted client can't pin us to an
@@ -5536,6 +5577,14 @@ export function createAgentManager(deps: ManagerDeps) {
     // if the caller hasn't been migrated.
     const ownerId =
       userId ?? (username ? (getUserByName(username)?.id ?? null) : null);
+    // The new agent's manager's folder (agent-folder.ts): a member's `~` is
+    // their home. Throws for such a path of a member whose OS user is not
+    // ready. A member's folder is checked through their host here, before
+    // the checks and the join below, which have no await between them.
+    const resolvedCwd = resolveAgentCwd(cwd, ownerId);
+    const memberCwdProblem = memberFolderHost(ownerId)
+      ? await agentCwdProblem(resolvedCwd, ownerId)
+      : undefined;
     const limited = limitedClaudeFamiliesForUserId(ownerId);
     const {
       permissionMode: validatedPermissionMode,
@@ -5595,11 +5644,14 @@ export function createAgentManager(deps: ManagerDeps) {
     // The lazy spawn's cwd check (below): a good cwd starts the agent
     // released as a blank conversation.
     let cwdError: string | null = null;
-    try {
-      validateCwd(resolvedCwd);
-    } catch (err) {
-      cwdError = errMessage(err);
-    }
+    if (memberCwdProblem !== undefined)
+      cwdError = memberCwdProblem && cwdProblemSentence(memberCwdProblem);
+    else
+      try {
+        validateCwd(resolvedCwd);
+      } catch (err) {
+        cwdError = errMessage(err);
+      }
     const sessionManager = new SessionManager<ManagedAgent>(
       id,
       sessionManagerDeps,
@@ -5614,7 +5666,7 @@ export function createAgentManager(deps: ManagerDeps) {
       slashCommands: autocompleteCommands(info.agentType),
       skills: deduplicateSkills([
         ...discoverUserSkills(initialSkillRoots),
-        ...discoverProjectSkills(resolvedCwd, info.agentType),
+        ...projectSkillsFor(info),
         // Only Claude loads plugin skills.
         ...(info.agentType === "claude"
           ? discoverPluginSkills(
@@ -5693,6 +5745,7 @@ export function createAgentManager(deps: ManagerDeps) {
       savedBackgroundTasks: null,
     };
     agents.set(id, managed);
+    refreshMemberProjectSkills(id);
     // Mint the agent's bearer token before the first createSession (deferred to
     // the first message now) reads it via buildSessionEnv. Revoked in kill()
     // when the agent leaves the map.
@@ -6745,10 +6798,13 @@ export function createAgentManager(deps: ManagerDeps) {
     // queue for the fresh session. So does a swap that switches the
     // conversation (a /resume pick, an edit): the message is delivered on the
     // conversation it installs, after its chat replay.
+    // So does a message to a process that died before its engine saved what
+    // it accepted: those messages go first (resendWaits).
     const busy =
       turnRunning ||
       managed.autoHandoffPhase !== null ||
-      managed.sessionManager.swapSwitches;
+      managed.sessionManager.swapSwitches ||
+      resendWaits(managed);
     // An ask reply also waits behind a pending prompt: the flush that
     // follows the prompt delivers it, so it is never read as the answer.
     const queueIt = ask
@@ -8175,6 +8231,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const oldConsumer = managed.sessionManager.kill(managed);
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
+    forgetMemberProjectSkills(agentId);
     forgetHeardFrom(agentId);
     dropLimitResume(agentId, managed);
     dropSettledChoiceInteractions(agentId);
@@ -8332,15 +8389,33 @@ export function createAgentManager(deps: ManagerDeps) {
 
     // 6. Resolve cwd; fall back to home if the saved path is gone or
     // missing entirely (legacy entries).
-    let resolvedCwd: string = entry.cwd ?? homedir();
+    // The revived agent's manager's folder (agent-folder.ts): a member's
+    // home is theirs, and their folder is checked through their host. A
+    // member whose OS user is not ready has no home to fall back to.
+    let home: string;
     try {
-      validateCwd(resolvedCwd);
-    } catch {
-      console.warn(
-        `[revive] cwd "${resolvedCwd}" for ${entry.name} is invalid; falling back to ~`,
-      );
-      resolvedCwd = homedir();
+      home = agentHome(entry.userId);
+    } catch (err) {
+      return { ok: false, error: errMessage(err) };
     }
+    const isolated = memberFolderHost(entry.userId) !== null;
+    let resolvedCwd: string = entry.cwd ?? home;
+    if (isolated) {
+      if (await agentCwdProblem(resolvedCwd, entry.userId)) {
+        console.warn(
+          `[revive] cwd "${resolvedCwd}" for ${entry.name} is invalid; falling back to ~`,
+        );
+        resolvedCwd = home;
+      }
+    } else
+      try {
+        validateCwd(resolvedCwd);
+      } catch {
+        console.warn(
+          `[revive] cwd "${resolvedCwd}" for ${entry.name} is invalid; falling back to ~`,
+        );
+        resolvedCwd = homedir();
+      }
 
     // 7. Pick a resume session. Prefer the kill-time lastSessionId; for
     // legacy entries (no stamp), use the most recent .jsonl on disk so the
@@ -8360,11 +8435,15 @@ export function createAgentManager(deps: ManagerDeps) {
     if (resumeFromSession) {
       const sessionCwd = getSessionCwd(agentId, resumeFromSession);
       if (sessionCwd) {
-        try {
-          resolvedCwd = validateCwd(sessionCwd);
-        } catch {
-          // Stored session cwd unavailable - keep the step-6 fallback.
-        }
+        if (isolated) {
+          if (!(await agentCwdProblem(sessionCwd, entry.userId)))
+            resolvedCwd = resolveAgentCwd(sessionCwd, entry.userId);
+        } else
+          try {
+            resolvedCwd = validateCwd(sessionCwd);
+          } catch {
+            // Stored session cwd unavailable - keep the step-6 fallback.
+          }
       }
     }
 
@@ -8446,6 +8525,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // Manual rollback avoids re-stamping killedAt - the chip retains
       // its original kill-time order.
       agents.delete(agentId);
+      forgetMemberProjectSkills(agentId);
       dropSettledChoiceInteractions(agentId);
       // Revive failed and we're removing the just-installed agent; revoke the
       // token minted in restoreOrReviveAgent so a non-live agent has none.
@@ -8915,7 +8995,12 @@ export function createAgentManager(deps: ManagerDeps) {
       return { prevCwd, switched: false, storedCwdInvalid: false };
     let resolvedStored: string;
     try {
-      resolvedStored = validateCwd(storedCwd);
+      // An isolated member's stored folder is absolute and is not statted
+      // here, as the office: a turn that fails there gets the folder check
+      // of member-folder-hint.ts (checkMemberFolder).
+      resolvedStored = memberFolderHost(managed.info.userId)
+        ? resolveAgentCwd(storedCwd, managed.info.userId)
+        : validateCwd(storedCwd);
     } catch (err) {
       // Stored cwd is gone/invalid - resume in the current mirror cwd instead of
       // failing, and tell the user. createSession's own preflight still validates

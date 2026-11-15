@@ -127,7 +127,7 @@ import {
   AGENTS_CANNOT_MOVE_DOWN,
   PACK_SETS_NO_FOLDER,
 } from "../../identity/agent-fit.ts";
-import { resolveCwd } from "../../cwd-utils.ts";
+import { resolveAgentCwd } from "../../agent-folder.ts";
 
 // Discriminated results for the response-driven trio: the index closures own the
 // compound logic (validateCwd / saveRecentCwd / spawn null-disambiguation) and
@@ -602,7 +602,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (
         ctx.identity.memberPack &&
         b.cwd !== undefined &&
-        resolveCwd(b.cwd) !== resolveCwd(roomFolder)
+        !sameAgentFolder(b.cwd, roomFolder, ctx.identity.userId)
       )
         return fail(403, PACK_SETS_NO_FOLDER, NO_FOLDER_MESSAGE);
       const cwd = ctx.identity.memberPack ? roomFolder : (b.cwd ?? roomFolder);
@@ -783,7 +783,10 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       // A member with a permission pack changes no agent's folder.
       if (ctx.identity.memberPack && typeof changes.cwd === "string") {
         const current = deps.getAgent(ctx.params.id);
-        if (current && resolveCwd(changes.cwd) !== resolveCwd(current.cwd))
+        if (
+          current &&
+          !sameAgentFolder(changes.cwd, current.cwd, current.userId)
+        )
           return fail(403, PACK_SETS_NO_FOLDER, NO_FOLDER_MESSAGE);
       }
       if (instructions !== undefined) {
@@ -881,4 +884,20 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       return ok({ agent });
     },
   };
+}
+
+// Whether two folders of an agent managed by `userId` are the same folder,
+// each resolved for that manager (agent-folder.ts). A folder that cannot be
+// resolved (a member whose OS user is not ready) compares as written; the
+// spawn or edit refuses it later.
+function sameAgentFolder(
+  a: string,
+  b: string,
+  userId: string | null | undefined,
+): boolean {
+  try {
+    return resolveAgentCwd(a, userId) === resolveAgentCwd(b, userId);
+  } catch {
+    return a === b;
+  }
 }
