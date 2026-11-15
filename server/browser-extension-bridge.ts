@@ -18,7 +18,6 @@ import {
   httpOrigin,
   trimOversizedEvent,
   BROWSER_ATTACH_FAILURES,
-  BROWSER_DETACH_CAUSES,
   type BrowserAttachFailure,
   type AgentTabsScope,
   type BrowserAccess,
@@ -36,6 +35,12 @@ import {
   officeAppSignIn,
   officePageRefused,
 } from "./browser-office-gate";
+import {
+  clipInDips,
+  envelope,
+  extensionCause,
+  listen,
+} from "./browser-extension-bridge-helpers";
 
 const COMMAND_TIMED_OUT = "Browser command timed out";
 
@@ -112,6 +117,8 @@ type Pending = {
   // For the logs: the CDP method (or the bridge method) and its session.
   method: string;
   session: "main" | "popup" | "child";
+  // The CDP session the command went to; undefined for the tab's own.
+  sessionId?: string;
 };
 interface GrantClock {
   now(): number;
@@ -665,20 +672,6 @@ export type OpenResult =
       browsers?: AgentTabBrowser[];
     };
 
-function listen(
-  map: Map<string, Set<() => void>>,
-  grant: string,
-  listener: () => void,
-): () => void {
-  let listeners = map.get(grant);
-  if (!listeners) map.set(grant, (listeners = new Set()));
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-    if (!listeners.size && map.get(grant) === listeners) map.delete(grant);
-  };
-}
-
 // Why a grant ended, in its grant_released line (task 694e958e).
 type ReleaseCause =
   | "agent_tabs_changed"
@@ -709,52 +702,6 @@ class CommandFailedError extends Error {
     if (BROWSER_ATTACH_FAILURES.some((known) => known === reason))
       this.attachReason = reason as BrowserAttachFailure;
   }
-}
-
-// Playwright sends a screenshot clip in CSS px, but Chrome reads the clip in
-// DIPs (CDP Page.Viewport), which are CSS px times the page zoom (Cmd +).
-// Unscaled, a shot of a zoomed tab showed only part of the view, or the view
-// with a blank band. Scale the clip by the zoom of the capture's own page.
-function clipInDips(params: Fields, metrics: Fields): Fields {
-  const zoom = (metrics.cssVisualViewport as Fields | undefined)?.zoom;
-  const clip = params.clip as Fields;
-  if (
-    typeof zoom !== "number" ||
-    !Number.isFinite(zoom) ||
-    zoom <= 0 ||
-    zoom === 1 ||
-    typeof clip !== "object" ||
-    clip === null
-  )
-    return params;
-  const scaled: Fields = { ...clip };
-  for (const key of ["x", "y", "width", "height"]) {
-    const value = clip[key];
-    if (typeof value === "number") scaled[key] = value * zoom;
-  }
-  return { ...params, clip: scaled };
-}
-
-// The extension's cause in a "detached" event, when it is one from the list.
-function extensionCause(params: unknown): Fields {
-  const cause =
-    params && typeof params === "object" ? (params as Fields).cause : undefined;
-  return BROWSER_DETACH_CAUSES.some((known) => known === cause)
-    ? { extensionCause: cause }
-    : {};
-}
-
-// The routing fields of an extension message, for a log line: never its
-// params or result, which can carry page content.
-function envelope(msg: Fields): Fields {
-  return {
-    ...(typeof msg.kind === "string" ? { kind: msg.kind } : {}),
-    ...(typeof msg.id === "number" ? { id: msg.id } : {}),
-    ...(typeof msg.method === "string" ? { method: msg.method } : {}),
-    ...(typeof msg.assignment === "string"
-      ? { assignment: msg.assignment }
-      : {}),
-  };
 }
 
 export class ExtensionConnection {
@@ -1300,14 +1247,10 @@ export class ExtensionConnection {
           mainFrameMoved: this.pageId(a) !== a.target?.targetId,
         }),
     );
-    for (const [id, pending] of dropped) {
-      clearTimeout(pending.timer);
-      pending.settled();
-      pending.reject(
-        new Error("Browser client retired; pending outcomes may be unknown"),
-      );
-      this.pending.delete(id);
-    }
+    this.dropPending(
+      dropped,
+      "Browser client retired; pending outcomes may be unknown",
+    );
     // The debugger stays attached, so the frames stay; the next client
     // resumes them (as at a retained close).
     const peer = a.peer;
@@ -1390,6 +1333,63 @@ export class ExtensionConnection {
     let live = a.contexts.get(key);
     if (!live) a.contexts.set(key, (live = new Map<number, Fields>()));
     live.set(context.id, params);
+  }
+
+  // Ends a frame or popup session and the frames inside it, whose own
+  // detach may never come: the extension forwards no event from a session
+  // under an ended one. Chrome answers no command still in flight on an
+  // ended session, so its pending commands go too; else they would refuse
+  // every next action until the fence ceiling.
+  private endSession(a: Assignment, key: string): void {
+    const ended = new Set([key]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const [child, frame] of a.children)
+        if (!ended.has(child) && ended.has(frame.parent)) {
+          ended.add(child);
+          grew = true;
+        }
+    }
+    for (const session of ended) {
+      a.children.delete(session);
+      a.childPages.delete(session);
+      a.dialogs.delete(session);
+      this.forgetSession(a, session);
+    }
+    const dropped = [...this.pending].filter(
+      ([, p]) =>
+        p.assignment === a.id &&
+        p.sessionId !== undefined &&
+        ended.has(p.sessionId),
+    );
+    if (!dropped.length) return;
+    console.info(
+      "[browser-extension] " +
+        JSON.stringify({
+          reason: "session_detached",
+          generation: this.generation,
+          assignment: a.id,
+          pending: dropped.map(([, p]) => ({
+            method: p.method,
+            session: p.session,
+          })),
+        }),
+    );
+    this.dropPending(
+      dropped,
+      "Browser session ended; pending outcomes may be unknown",
+    );
+  }
+
+  // Rejects and forgets pending commands. A late answer to one reaches
+  // nobody, and a timed-out one no longer retires the client at the ceiling.
+  private dropPending(entries: [number, Pending][], message: string): void {
+    for (const [id, pending] of entries) {
+      clearTimeout(pending.timer);
+      pending.settled();
+      pending.reject(new Error(message));
+      this.pending.delete(id);
+    }
   }
 
   // Forgets a CDP session that ended: its contexts went with it.
@@ -2127,6 +2127,10 @@ export class ExtensionConnection {
         settled,
         timedOut: false,
         method: this.pendingMethod(method, params),
+        sessionId:
+          typeof sessionId === "string" && sessionId !== a.session
+            ? sessionId
+            : undefined,
         session:
           typeof sessionId !== "string" || sessionId === a.session
             ? "main"
@@ -2389,13 +2393,10 @@ export class ExtensionConnection {
         a.dialogs.clear();
         a.contexts.clear();
         a.announced.clear();
-        for (const [id, pending] of this.pending) {
-          if (pending.assignment !== a.id) continue;
-          clearTimeout(pending.timer);
-          pending.settled();
-          pending.reject(new Error("Chrome debugger detached"));
-          this.pending.delete(id);
-        }
+        this.dropPending(
+          [...this.pending].filter(([, p]) => p.assignment === a.id),
+          "Chrome debugger detached",
+        );
         peer.close();
         return;
       }
@@ -2457,11 +2458,8 @@ export class ExtensionConnection {
         a.popups.delete(params.sessionId);
         a.pages.delete(params.sessionId);
         a.unset.delete(params.sessionId);
-        a.dialogs.delete(params.sessionId);
-        this.forgetSession(a, params.sessionId);
+        this.endSession(a, params.sessionId);
         this.endLeaves(a, params.sessionId);
-        for (const [child, page] of a.childPages)
-          if (page === params.sessionId) a.childPages.delete(child);
         if (a.leafTargetId === popup.targetId)
           a.leafTargetId = popup.openerId as string;
         this.deliver(a, {
@@ -2532,10 +2530,7 @@ export class ExtensionConnection {
         if (typeof params.sessionId !== "string") return;
         const frame = a.children.get(params.sessionId);
         if (!frame) return;
-        a.children.delete(params.sessionId);
-        a.childPages.delete(params.sessionId);
-        a.dialogs.delete(params.sessionId);
-        this.forgetSession(a, params.sessionId);
+        this.endSession(a, params.sessionId);
         if (frame.deliveredTo !== a.peer) return;
       } else if (msg.method.startsWith("Target.")) return;
       this.deliver(a, {
@@ -2928,15 +2923,10 @@ export class ExtensionConnection {
     this.assignments.delete(a.id);
     for (const [id, owner] of this.kicks)
       if (owner === a.id) this.kicks.delete(id);
-    for (const [id, pending] of this.pending) {
-      if (pending.assignment !== a.id) continue;
-      clearTimeout(pending.timer);
-      pending.settled();
-      pending.reject(
-        new Error("Browser control ended; pending outcomes may be unknown"),
-      );
-      this.pending.delete(id);
-    }
+    this.dropPending(
+      [...this.pending].filter(([, p]) => p.assignment === a.id),
+      "Browser control ended; pending outcomes may be unknown",
+    );
     if (this.active) {
       try {
         this.peer.send({

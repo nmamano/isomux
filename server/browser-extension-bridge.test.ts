@@ -3872,6 +3872,307 @@ describe("child frames across clients", () => {
       info.mockRestore();
     }
   });
+
+  // Chrome leaves some commands of a frame or popup session unanswered when
+  // that session detaches. A pending command to a session that ended would
+  // refuse every next action of the grant until the fence ceiling, so the
+  // bridge drops it with the session (task bb64ddbd).
+  describe("commands of a session that ends", () => {
+    const send = (
+      client: Client,
+      id: number,
+      sessionId: unknown,
+      method: string,
+      params: Fields = {},
+    ) => client.receive({ id, sessionId, method, params });
+    const replies = (h: H, id: number) =>
+      h.client.messages.filter((m) => m.id === id);
+    const failedOnce = (h: H, id: number, sessionId: unknown) => {
+      const got = replies(h, id);
+      expect(got.length).toBe(1);
+      expect(got[0].sessionId).toBe(sessionId);
+      expect(got[0].error).toBeDefined();
+      expect(got[0].result).toBeUndefined();
+    };
+    const detachOn = (h: H, child: string, on?: string) =>
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        assignment: h.connection.offered("agent"),
+        method: "Target.detachedFromTarget",
+        ...(on ? { sessionId: on } : {}),
+        params: { sessionId: child, targetId: `${child}-target` },
+      });
+    const popupEvent = (h: H, method: "popup" | "popupDetached") =>
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        assignment: h.connection.offered("agent"),
+        method,
+        params: {
+          sessionId: "popup-session",
+          targetInfo: { type: "page", targetId: "popup", openerId: "owned" },
+        },
+      });
+    // A command to a session the bridge no longer knows is refused before
+    // it reaches the extension.
+    const refusedUnsent = async (h: H, id: number, sessionId: string) => {
+      const sent = h.extension.messages.length;
+      const work = send(h.agent, id, sessionId, "Runtime.evaluate", {
+        expression: "1",
+      });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      // Checked before the await: a command that went out would never settle.
+      expect(h.extension.messages.length).toBe(sent);
+      await work;
+      await Promise.resolve();
+      failedOnce(h, id, sessionId);
+    };
+
+    test("a frame's detach drops its unanswered commands: one error each, a late answer reaches nobody, and the next client can attach", async () => {
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true);
+      try {
+        const { sessionId, assignment } = await create(h);
+        await autoAttach(h, h.agent, sessionId);
+        attachChild(h, "frame", true);
+        const enable = send(h.agent, 11, "frame", "Page.enable");
+        const enableSent = await lastCdp(h, "Page.enable");
+        expect(fields(enableSent.params).sessionId).toBe("frame");
+        const evaluate = send(h.agent, 12, "frame", "Runtime.evaluate", {
+          expression: "private fixture",
+        });
+        const evaluateSent = await lastCdp(h, "Runtime.evaluate");
+        expect(h.connection.pendingCount(assignment)).toBe(2);
+
+        detachChild(h, "frame");
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        await h.connection.drain(assignment);
+        await Promise.all([enable, evaluate]);
+        await Promise.resolve();
+        failedOnce(h, 11, "frame");
+        failedOnce(h, 12, "frame");
+
+        // Chrome's late answers find no command.
+        result(h, enableSent);
+        result(h, evaluateSent);
+        await Promise.resolve();
+        expect(replies(h, 11).length).toBe(1);
+        expect(replies(h, 12).length).toBe(1);
+        expect(h.client.closed).toBe(false);
+        expect(h.connection.offered("agent")).toBe(assignment);
+
+        // Nothing holds the grant: a retained close lets the next client in.
+        h.agent.close();
+        const next = peer();
+        h.connection.assign("agent", next, true);
+        expect(next.closed).toBe(false);
+
+        // One line names what was dropped, never a payload.
+        const lines = logged(info).filter(
+          (l) => l.reason === "session_detached",
+        );
+        expect(lines.length).toBe(1);
+        expect(lines[0].assignment).toBe(assignment);
+        expect(lines[0].pending).toEqual(
+          expect.arrayContaining([
+            { method: "Page.enable", session: "child" },
+            { method: "Runtime.evaluate", session: "child" },
+          ]),
+        );
+        expect((lines[0].pending as unknown[]).length).toBe(2);
+        expect(JSON.stringify(logged(info))).not.toContain("private fixture");
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+    test("a frame's detach leaves the commands of the tab and of a sibling frame pending", async () => {
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true);
+      try {
+        const { sessionId, assignment } = await create(h);
+        await autoAttach(h, h.agent, sessionId);
+        attachChild(h, "frame", false);
+        attachChild(h, "sibling", false);
+        const main = send(h.agent, 21, sessionId, "Input.insertText", {
+          text: "fixture",
+        });
+        const mainSent = await lastCdp(h, "Input.insertText");
+        const sibling = send(h.agent, 22, "sibling", "Runtime.evaluate", {
+          expression: "1",
+        });
+        const siblingSent = await lastCdp(h, "Runtime.evaluate");
+        void send(h.agent, 23, "frame", "Page.enable");
+        await lastCdp(h, "Page.enable");
+        expect(h.connection.pendingCount(assignment)).toBe(3);
+
+        detachChild(h, "frame");
+        expect(h.connection.pendingCount(assignment)).toBe(2);
+        result(h, mainSent);
+        result(h, siblingSent);
+        await Promise.all([main, sibling]);
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        expect(replies(h, 21).map((m) => m.result)).toEqual([{}]);
+        expect(replies(h, 22).map((m) => m.result)).toEqual([{}]);
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+    test("a frame's detach also ends the frames nested in it, which Chrome may never report", async () => {
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true);
+      try {
+        const { sessionId, assignment } = await create(h);
+        await autoAttach(h, h.agent, sessionId);
+        attachChild(h, "outer", false);
+        await autoAttach(h, h.agent, "outer");
+        attachChild(h, "inner", true, "outer");
+        await autoAttach(h, h.agent, "inner");
+        attachChild(h, "innermost", true, "inner");
+        const inner = send(h.agent, 31, "inner", "Page.enable");
+        await lastCdp(h, "Page.enable");
+        const innermost = send(
+          h.agent,
+          32,
+          "innermost",
+          "Page.createIsolatedWorld",
+          { frameId: "innermost-target", worldName: "w" },
+        );
+        await lastCdp(h, "Page.createIsolatedWorld");
+        expect(h.connection.pendingCount(assignment)).toBe(2);
+
+        // The outer frame goes first; the nested detaches never arrive.
+        detachOn(h, "outer");
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        await Promise.all([inner, innermost]);
+        await Promise.resolve();
+        failedOnce(h, 31, "inner");
+        failedOnce(h, 32, "innermost");
+        await refusedUnsent(h, 33, "inner");
+        await refusedUnsent(h, 34, "innermost");
+
+        // A nested detach that comes late, on its gone parent, changes
+        // nothing.
+        detachOn(h, "inner", "outer");
+        expect(h.client.closed).toBe(false);
+        expect(h.connection.offered("agent")).toBe(assignment);
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+    test("a frame the client was not yet told about drops its commands at its detach too", async () => {
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true);
+      try {
+        const { sessionId, assignment } = await create(h);
+        await autoAttach(h, h.agent, sessionId);
+        attachChild(h, "outer", false);
+        // The client has not turned auto-attach on for "outer", so the
+        // bridge holds "held" back from it.
+        attachChild(h, "held", true, "outer");
+        expect(announced(h.client).map((a) => a.child)).toEqual(["outer"]);
+        const work = send(h.agent, 41, "held", "Page.enable");
+        await lastCdp(h, "Page.enable");
+        expect(h.connection.pendingCount(assignment)).toBe(1);
+
+        detachOn(h, "held", "outer");
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        await work;
+        await Promise.resolve();
+        failedOnce(h, 41, "held");
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+    test("a popup's close drops the commands of the popup and of its frames, and leaves the tab's", async () => {
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true);
+      try {
+        const { sessionId, assignment } = await create(h);
+        await autoAttach(h, h.agent, sessionId);
+        popupEvent(h, "popup");
+        attachChild(h, "popup-frame", true, "popup-session");
+        const main = send(h.agent, 51, sessionId, "Input.insertText", {
+          text: "fixture",
+        });
+        const mainSent = await lastCdp(h, "Input.insertText");
+        const popup = send(h.agent, 52, "popup-session", "Runtime.evaluate", {
+          expression: "1",
+        });
+        const popupSent = await lastCdp(h, "Runtime.evaluate");
+        expect(fields(popupSent.params).sessionId).toBe("popup-session");
+        const frame = send(h.agent, 53, "popup-frame", "Page.enable");
+        await lastCdp(h, "Page.enable");
+        expect(h.connection.pendingCount(assignment)).toBe(3);
+
+        popupEvent(h, "popupDetached");
+        expect(h.connection.pendingCount(assignment)).toBe(1);
+        await Promise.all([popup, frame]);
+        await Promise.resolve();
+        failedOnce(h, 52, "popup-session");
+        failedOnce(h, 53, "popup-frame");
+        await refusedUnsent(h, 54, "popup-frame");
+
+        result(h, mainSent);
+        await main;
+        expect(replies(h, 51).map((m) => m.result)).toEqual([{}]);
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        const lines = logged(info).filter(
+          (l) => l.reason === "session_detached",
+        );
+        expect(lines.length).toBe(1);
+        expect(lines[0].pending).toEqual(
+          expect.arrayContaining([
+            { method: "Runtime.evaluate", session: "popup" },
+            { method: "Page.enable", session: "child" },
+          ]),
+        );
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+    test("a timed-out command whose frame detaches stops fencing at once, and its ceiling retires nothing", async () => {
+      const time = fakeTimeline();
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true, time.clock);
+      try {
+        const { sessionId, assignment } = await create(h);
+        await autoAttach(h, h.agent, sessionId);
+        attachChild(h, "frame", true);
+        const work = send(h.agent, 61, "frame", "Page.enable");
+        await lastCdp(h, "Page.enable");
+        await time.advanceTo(30_000);
+        await work;
+        await time.flush();
+        expect(h.connection.pendingTimedOut(assignment)).toBe(true);
+        failedOnce(h, 61, "frame");
+
+        detachChild(h, "frame");
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        await time.advanceTo(30_000 + 2 * FENCE_CEILING_MS);
+        expect(h.client.closed).toBe(false);
+        expect(
+          logged(info).filter((l) => l.reason === "client_retired"),
+        ).toEqual([]);
+        expect(replies(h, 61).length).toBe(1);
+        expect(h.connection.offered("agent")).toBe(assignment);
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+        time.restore();
+      }
+    });
+  });
 });
 
 // A timed-out action's work in flight fences the grant's attached client
