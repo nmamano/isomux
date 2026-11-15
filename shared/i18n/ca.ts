@@ -3509,6 +3509,9 @@ Coses que pots fer per ell:
   "moving.confirmMovedLabel": "Sé que l'oficina funcionarà a les dues màquines",
   "moving.confirmMovedRequired":
     "Marca la casella per tornar a arrencar l'oficina aquí.",
+  "moving.startHereAgain": "Torna a arrencar l'oficina aquí",
+  "moving.restartedHeading": "L'oficina torna a arrencar aquí",
+  "moving.restartedBody": "Torna a carregar aquesta pàgina d'aquí a un minut.",
   "locked.title": "oficina bloquejada",
   "locked.heading": "Aquesta oficina està bloquejada",
   "locked.body":

@@ -45,6 +45,7 @@ import {
   startMoveLockedOffice,
 } from "./move-locked-office.ts";
 import { MOVE_UNITS_FILE, type AgentUnit } from "./office-move-units.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
 import {
   createMoveManifestJobs,
   moveItemsHash,
@@ -841,6 +842,92 @@ describe("MOVED", () => {
       rmSync(dir, { recursive: true, force: true });
       dir = "";
     }
+  });
+
+  // Nil at sign-off (task 527bd515): the move is already done, so the MOVED
+  // page's button starts the office here again, and so does the page after
+  // it; a move still in progress is cancelled. Catalan has an apostrophe,
+  // which the page escapes.
+  const unescape = (s: string) =>
+    s
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+  const submitText = (html: string) =>
+    unescape(
+      /<button\b[^>]*\btype="submit"[^>]*>([^<]*)<\/button>/i.exec(html)?.[1] ??
+        "",
+    ).trim();
+  const heading = (html: string) =>
+    unescape(/<h1>([^<]*)<\/h1>/i.exec(html)?.[1] ?? "").trim();
+  const page = (root: string, language: "en" | "ca") =>
+    respond(
+      root,
+      new Request(url("/"), { headers: { "Accept-Language": language } }),
+      { n: 0 },
+    ).then((r) => r.text());
+
+  it("the MOVED page's button starts the office here again; while the office moves, it cancels the move", async () => {
+    for (const language of ["en", "ca"] as const) {
+      const { t } = translatorFor(language);
+      expect(t("moving.startHereAgain")).not.toBe(t("moving.cancel"));
+      const moving = stateRoot();
+      lockedMove(moving);
+      expect([language, submitText(await page(moving, language))]).toEqual([
+        language,
+        t("moving.cancel"),
+      ]);
+      rmSync(dir, { recursive: true, force: true });
+      const { root } = movedRoot();
+      expect([language, submitText(await page(root, language))]).toEqual([
+        language,
+        t("moving.startHereAgain"),
+      ]);
+      rmSync(dir, { recursive: true, force: true });
+      dir = "";
+    }
+  });
+
+  it("the page after the form says the office starts here again from MOVED, and that the move is cancelled while it moves", async () => {
+    const { t } = translatorFor("ca");
+    const post = (root: string, body: Record<string, string>) =>
+      respond(
+        root,
+        new Request(url("/api/move/cancel"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept-Language": "ca",
+          },
+          body: new URLSearchParams(body).toString(),
+        }),
+        { n: 0 },
+      );
+
+    const moved = movedRoot();
+    const html = await page(moved.root, "ca");
+    const value =
+      /<input\b[^>]*\bname="confirmMoved"[^>]*>/i
+        .exec(html)?.[0]
+        .match(/\bvalue="([^"]*)"/)?.[1] ?? "on";
+    const fromMoved = await post(moved.root, {
+      code: moved.code,
+      confirmMoved: value,
+    });
+    expect(fromMoved.status).toBe(200);
+    expect(readMoveCancelled(moved.root)).not.toBeNull();
+    expect(heading(await fromMoved.text())).toBe(t("moving.restartedHeading"));
+    rmSync(dir, { recursive: true, force: true });
+
+    const moving = stateRoot();
+    const { code } = lockedMove(moving);
+    const fromMoving = await post(moving, { code });
+    expect(fromMoving.status).toBe(200);
+    expect(readMoveCancelled(moving)).not.toBeNull();
+    expect(heading(await fromMoving.text())).toBe(t("moving.cancelledHeading"));
+    expect(t("moving.cancelledHeading")).not.toBe(t("moving.restartedHeading"));
   });
 });
 

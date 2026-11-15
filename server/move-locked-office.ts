@@ -372,7 +372,8 @@ type PageKind =
   | { kind: "moving"; served: boolean }
   | { kind: "moved"; origin: string }
   | { kind: "unreadable" }
-  | { kind: "cancelled" };
+  | { kind: "cancelled" }
+  | { kind: "restarted" };
 
 /** A line the page shows over the cancel form after a refused cancel. */
 type PageError = "wrongCode" | "confirmMoved";
@@ -495,7 +496,11 @@ async function cancel(
   }, STOP_DELAY_MS);
   return isJson
     ? json({ cancelled: true }, 200)
-    : page(req, { kind: "cancelled" }, 200);
+    : page(
+        req,
+        { kind: current?.state === "moved" ? "restarted" : "cancelled" },
+        200,
+      );
 }
 
 function json(body: unknown, status: number): Response {
@@ -530,6 +535,10 @@ function page(
     case "cancelled":
       content = `<h1>${escapeHtml(t("moving.cancelledHeading"))}</h1>\n${p(t("moving.cancelledBody"))}`;
       break;
+    // After MOVED: the move was done, so nothing was cancelled.
+    case "restarted":
+      content = `<h1>${escapeHtml(t("moving.restartedHeading"))}</h1>\n${p(t("moving.restartedBody"))}`;
+      break;
     case "unreadable":
       content = `<h1>${escapeHtml(t("moving.heading"))}</h1>\n${p(t("moving.unreadableBody"))}`;
       break;
@@ -538,7 +547,7 @@ function page(
       content = `<h1>${escapeHtml(t("moving.movedHeading"))}</h1>
 ${p(t("moving.movedBody", { origin: kind.origin }))}${errorLine}<form method="post" action="${MOVE_CANCEL_PATH}">
 ${p(t("moving.movedCancelHint"))}${p(t("moving.movedWarning"), "warning")}${codeField}<label class="check"><input name="confirmMoved" type="checkbox" value="yes" required /> ${escapeHtml(t("moving.confirmMovedLabel"))}</label>
-<button type="submit">${escapeHtml(t("moving.cancel"))}</button>
+<button type="submit">${escapeHtml(t("moving.startHereAgain"))}</button>
 </form>`;
       break;
     case "moving":

@@ -3503,6 +3503,9 @@ Cosas que puedes hacer por él:
     "Sé que la oficina funcionará en las dos máquinas",
   "moving.confirmMovedRequired":
     "Marca la casilla para volver a arrancar la oficina aquí.",
+  "moving.startHereAgain": "Volver a arrancar la oficina aquí",
+  "moving.restartedHeading": "La oficina vuelve a arrancar aquí",
+  "moving.restartedBody": "Recarga esta página en un minuto.",
   "locked.title": "oficina bloqueada",
   "locked.heading": "Esta oficina está bloqueada",
   "locked.body":

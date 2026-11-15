@@ -3404,6 +3404,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The office will then run on both machines, with its agents, schedules, webhooks, Discord bots and WhatsApp links.",
   "moving.confirmMovedLabel": "I know the office will run on both machines",
   "moving.confirmMovedRequired": "Tick the box to start the office here again.",
+  "moving.startHereAgain": "Start the office here again",
+  "moving.restartedHeading": "The office starts here again",
+  "moving.restartedBody": "Reload this page in a minute.",
   "locked.title": "office locked",
   "locked.heading": "This office is locked",
   "locked.body":
