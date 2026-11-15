@@ -1957,7 +1957,7 @@ Cosas que puedes hacer por él:
     "Funciona con los modelos configurados a través de OpenCode.",
   "dialogs.agent.engineNeedsLinux": "Necesita un servidor Linux.",
   "dialogs.agent.engineSwitchHint":
-    "Cambiar a {engine} empieza una conversación nueva. La actual se queda en el historial de sesiones de este agente.",
+    "Cambiar a {engine} empieza una conversación nueva, y el agente le traspasa su trabajo.",
   "dialogs.agent.templateHint":
     "Las plantillas rellenan los campos de abajo. Puedes editar todas las sugerencias.",
   "dialogs.agent.blank": "En blanco",
@@ -2006,7 +2006,8 @@ Cosas que puedes hacer por él:
   "dialogs.agent.manager": "Responsable",
   "dialogs.agent.managerTitle":
     "Solo un propietario de la oficina puede cambiar el responsable.",
-  "dialogs.agent.managerRestart": "Al guardar empieza una conversación nueva.",
+  "dialogs.agent.managerRestart":
+    "Al guardar empieza una conversación nueva, y el agente le traspasa su trabajo.",
   "dialogs.agent.managerNoRoomAccess": "{name} no tiene acceso a esta sala.",
   "dialogs.agent.managerNoUser": "(sin miembro asignado)",
   "dialogs.agent.managerUnowned": "(sin propietario)",
@@ -2984,7 +2985,8 @@ Cosas que puedes hacer por él:
   "logView.freeLimit.switchTo": "Cambiar a {provider}",
   "logView.freeLimit.switching": "Cambiando…",
   "logView.freeLimit.switchFailed": "No se pudo cambiar a {provider}.",
-  "logView.freeLimit.switchHint": "Al cambiar empieza una conversación nueva.",
+  "logView.freeLimit.switchHint":
+    "Al cambiar empieza una conversación nueva, y el agente le traspasa su trabajo.",
   "logView.goneModelTitle": "OpenCode ya no ofrece {model}. Elige otro modelo.",
   "panels.editor.noFileOpen": "Ningún archivo abierto",
   "panels.editor.emptyHint":
@@ -3741,6 +3743,10 @@ Cosas que puedes hacer por él:
   "systemEntries.handoff.failed":
     "El traspaso no se completó. Esta conversación continúa.",
   "systemEntries.handoff.canceled": "Traspaso cancelado.",
+  "systemEntries.settingHandoff.writing":
+    "Escribiendo un resumen de traspaso a partir de la conversación anterior.",
+  "systemEntries.settingHandoff.failed":
+    "No se escribió ningún resumen de traspaso. Con el próximo mensaje, Isomux le dice al agente dónde está su conversación anterior.",
   "systemEntries.managerChanged":
     "{actor} hizo responsable a {member}. Conversación nueva iniciada.",
   "systemEntries.autoHandoff.writingTokens":

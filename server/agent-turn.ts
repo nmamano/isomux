@@ -338,6 +338,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     }
     if (autoHandoffNotice && managed.contextGen === autoHandoffNotice.gen) {
       managed.autoHandoffNotice = null;
+      // A failed setting handoff's pointer went out: this conversation now
+      // has a turn of its own, so a later change reads it.
+      managed.settingHandoffSource = null;
     }
     // Compared by identity as well: an agent's abort during the send re-arms
     // the slot for a stop this turn never explained.

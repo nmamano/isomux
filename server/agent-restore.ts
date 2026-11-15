@@ -470,6 +470,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
+      settingHandoffSource: null,
       turnFlags: freshTurnFlags(),
       limitResumeAt: null,
       ...(p.heardFrom?.length ? { heardFrom: new Set(p.heardFrom) } : {}),

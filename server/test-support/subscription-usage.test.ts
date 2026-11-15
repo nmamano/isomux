@@ -618,7 +618,9 @@ describe("subscription usage", () => {
     await runTurn(mgr, info.id, "two");
     await waitUntil(() => release !== null, "second read in flight");
 
-    await mgr.editAgent(info.id, { agentType: "codex" });
+    // The member's new conversation on another engine: a settings edit would
+    // also run a brief turn on the new engine, whose own reading is new.
+    await mgr.newConversation(info.id, "codex");
     expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
     // The old account's answer finally arrives, after the switch. It must not
     // repopulate a Claude figure onto an agent that now runs Codex.
@@ -651,7 +653,8 @@ describe("subscription usage", () => {
 
     const pending = mgr.getAgentSubscriptionUsage(info.id);
     await waitUntil(() => release !== null, "self-check refresh in flight");
-    await mgr.editAgent(info.id, { agentType: "codex" });
+    // As above: no brief turn, so no reading from the new engine.
+    await mgr.newConversation(info.id, "codex");
     release!(reading(91));
 
     const result = await pending;

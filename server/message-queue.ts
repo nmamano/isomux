@@ -1133,9 +1133,10 @@ export function createMessageQueue(deps: MessageQueueDeps) {
           queued: true,
           messageId: id,
           steered: false,
-          steerDeclined: managed.autoHandoffPhase.manual
-            ? "handoff"
-            : "auto_handoff",
+          steerDeclined:
+            managed.autoHandoffPhase.kind === "manual"
+              ? "handoff"
+              : "auto_handoff",
         };
       }
       // Nothing is interrupted, so the rate limit (which protects the

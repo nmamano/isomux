@@ -1734,7 +1734,7 @@ export const zh: Catalog = {
   "dialogs.agent.engineBlurb.opencode": "使用通过 OpenCode 配置的模型。",
   "dialogs.agent.engineNeedsLinux": "需要 Linux 主机。",
   "dialogs.agent.engineSwitchHint":
-    "切换到 {engine} 会开始新对话。当前对话会保留在此智能体的可恢复历史中。",
+    "切换到 {engine} 会开始新对话，智能体会把工作交接过去。",
   "dialogs.agent.templateHint": "模板会填充下方字段。每项建议都可以编辑。",
   "dialogs.agent.blank": "空白",
   "dialogs.agent.blankHint": "自行设置智能体。",
@@ -1781,7 +1781,8 @@ export const zh: Catalog = {
   "dialogs.agent.recent": "最近使用",
   "dialogs.agent.manager": "负责人",
   "dialogs.agent.managerTitle": "只有办公室所有者可以更改负责人。",
-  "dialogs.agent.managerRestart": "保存后会开始新对话。",
+  "dialogs.agent.managerRestart":
+    "保存后会开始新对话，智能体会把工作交接过去。",
   "dialogs.agent.managerNoRoomAccess": "{name} 无权访问此房间。",
   "dialogs.agent.managerNoUser": "（未指定成员）",
   "dialogs.agent.managerUnowned": "（无所有者）",
@@ -2656,7 +2657,8 @@ export const zh: Catalog = {
   "logView.freeLimit.switchTo": "切换到 {provider}",
   "logView.freeLimit.switching": "正在切换…",
   "logView.freeLimit.switchFailed": "无法切换到 {provider}。",
-  "logView.freeLimit.switchHint": "切换会开始新的对话。",
+  "logView.freeLimit.switchHint":
+    "切换会开始新的对话，智能体会把工作交接过去。",
   "logView.goneModelTitle": "OpenCode 已不再提供 {model}。请选择其他模型。",
   "panels.editor.noFileOpen": "未打开文件",
   "panels.editor.emptyHint":
@@ -3352,6 +3354,9 @@ export const zh: Catalog = {
   "systemEntries.handedOff": "已交接到新会话。",
   "systemEntries.handoff.failed": "交接未完成。此对话继续。",
   "systemEntries.handoff.canceled": "交接已取消。",
+  "systemEntries.settingHandoff.writing": "正在根据上一个对话撰写交接简报。",
+  "systemEntries.settingHandoff.failed":
+    "未写出交接简报。收到下一条消息时，Isomux 会告诉智能体上一个对话在哪里。",
   "systemEntries.managerChanged":
     "{actor} 将 {member} 设为负责人。新对话已开始。",
   "systemEntries.autoHandoff.writingTokens":

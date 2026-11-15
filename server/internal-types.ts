@@ -1,5 +1,6 @@
 import type { FlushState } from "./queue-flush.ts";
 import type {
+  AgentBackendType,
   AgentInfo,
   AgentChoiceInteraction,
   BackgroundTask,
@@ -55,17 +56,39 @@ export type AutoHandoffPhase = {
   briefStarted: boolean;
 } & (
   | {
-      manual?: undefined;
+      // A full context (internal-docs/auto-handoff-design.md sections 2-6).
+      kind: "auto";
       trigger: AutoHandoffTrigger;
       // The sample that armed it, for the prompt and the member's lines.
       totalTokens: number;
       percentage: number;
     }
   | {
+      // A member's /handoff (section 7).
+      kind: "manual";
       // The member who typed /handoff, and the text after the command.
       manual: ManualHandoffRequest;
     }
+  | {
+      // A setting change that started a new conversation (section 8).
+      kind: "setting";
+      setting: SettingHandoffRequest;
+    }
 );
+
+// What a setting handoff names: the change, and the conversation the brief
+// is written from.
+export interface SettingHandoffRequest {
+  change:
+    | { kind: "engine"; from: AgentBackendType; to: AgentBackendType }
+    | { kind: "manager"; from: string | null; to: string }
+    | { kind: "folder"; from: string; to: string };
+  // The member who made the change, when known.
+  changedBy?: string;
+  // The conversation the rules and the open work are in. Two changes in a
+  // row keep the first one's source.
+  previousSessionId: string;
+}
 
 export interface ManualHandoffRequest {
   username?: string;
@@ -293,8 +316,15 @@ export interface ManagedAgent {
   // above the trigger pauses the mode for this conversation (the loop guard).
   autoHandoffOpened: boolean;
   // The fresh session's one-shot notice; consumed by runAgentTurn on the
-  // never-before-send rule, like wakeNotice.
+  // never-before-send rule, like wakeNotice. A failed setting handoff puts
+  // its pointer to the previous conversation here too.
   autoHandoffNotice: string | null;
+  // The conversation a setting handoff reads, while the current conversation
+  // was opened by a setting change and ran no turn but its brief turn. A
+  // second change in that window reads the same conversation. Cleared at
+  // every conversation boundary (resetContextUsage) and when the failure
+  // pointer goes out.
+  settingHandoffSource: string | null;
   // The running turn's flags (TurnFlags). beginTurn replaces the record, so
   // nothing in it outlives its turn. Write through managed.turnFlags, never
   // a local copy: a write to a replaced record is lost.
@@ -727,8 +757,9 @@ export type AbortResult =
 //     in a multi-step flow).
 //   rate_limited - too many interruptions of this receiver in the recent
 //     window; letting them through would keep it from ever finishing a turn.
-//   auto_handoff - an automatic handoff is under way; the message waits for
-//     the fresh session.
+//   auto_handoff - an automatic handoff, or the handoff of a setting change
+//     (auto-handoff-design.md section 8), is under way; the message waits
+//     for the fresh session.
 //   handoff - a member's /handoff is under way; the same.
 export type SteerDeclineReason =
   "multi_step_flow" | "rate_limited" | "auto_handoff" | "handoff";

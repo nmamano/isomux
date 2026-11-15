@@ -224,6 +224,7 @@ import { productionStorageRoots } from "./storage-roots.ts";
 import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
+  settingHandoffFreshNotice,
   autoHandoffPossible,
   autoHandoffTokensOf,
   autoHandoffTrigger,
@@ -263,6 +264,7 @@ import {
   pendingPromptOf,
   type ManagedAgent,
   type AutoHandoffPhase,
+  type SettingHandoffRequest,
   type AgentEvent,
   type EventHandler,
   type EnqueueResult,
@@ -974,6 +976,7 @@ export function createAgentManager(deps: ManagerDeps) {
   const {
     requestHandoff,
     handoffWaiting,
+    cancelWaitingHandoff,
     handoffInProgress,
     evaluateAutoHandoff,
     armAutoHandoffFromEdit,
@@ -1103,12 +1106,6 @@ export function createAgentManager(deps: ManagerDeps) {
       sessionTokens.get(session) === getAgentTokenRaw(managed.info.id),
     processNormalizedEvent,
     addLogEntry,
-    reconcilePendingFixedCwdReset: (managed) => {
-      if (pendingFixedCwdReset.has(managed.info.id)) {
-        pendingFixedCwdReset.delete(managed.info.id);
-        clearStaleAutoResumeState(managed.info.id, managed);
-      }
-    },
     // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
     // only call it for claude-typed agents. Best-effort env build - see the
     // envForHints note (server/agent-skills.ts).
@@ -1127,15 +1124,6 @@ export function createAgentManager(deps: ManagerDeps) {
     },
   };
   const logCache = new Map<string, LogEntry[]>(); // agentId → entries
-  // Agents mid-way through a live fixed-cwd-backend change. The old session is
-  // abandoned, but managed.sessionManager.sessionId stays until the fresh session's system_init
-  // lands, so the success clear-branch runs and a synchronous replace failure can
-  // roll back with the old id intact. Codex bootstraps asynchronously, so a fresh
-  // bootstrap failure emits system_init with an
-  // empty sessionId, which bypasses that clear-branch - leaving the abandoned old
-  // id + stale logCache bound to the already-committed new cwd. The system_init
-  // handler consumes this marker to clear that state on the empty-init path.
-  const pendingFixedCwdReset = new Set<string>(); // agentId
   // Event sink (instance-scoped). isomux-office.ts overrides this via onEvent() after
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: EventHandler = deps.eventSink ?? (() => {});
@@ -1778,12 +1766,25 @@ export function createAgentManager(deps: ManagerDeps) {
       // never rolls the name back, so the tasks follow it before the engine
       // switch, which can fail.
       for (const event of officeState.syncAssigneeName(agentId)) emit(event);
-      await newConversation(agentId, changes.agentType, {
-        modelFamily: changes.modelFamily,
-        effort: changes.effort,
-        permissionMode: changes.permissionMode,
-        codexSandbox: changes.codexSandbox,
-      });
+      // The new conversation hands off from the current one, on the new
+      // engine (auto-handoff-design.md section 8).
+      const from = managed.info.agentType;
+      await newConversation(
+        agentId,
+        changes.agentType,
+        {
+          modelFamily: changes.modelFamily,
+          effort: changes.effort,
+          permissionMode: changes.permissionMode,
+          codexSandbox: changes.codexSandbox,
+        },
+        {
+          setting: {
+            change: { kind: "engine", from, to: changes.agentType },
+            ...(changedBy ? { changedBy } : {}),
+          },
+        },
+      );
       return;
     }
 
@@ -1909,7 +1910,7 @@ export function createAgentManager(deps: ManagerDeps) {
     if (
       managed.info.autoHandoff === false &&
       managed.autoHandoffPhase &&
-      !managed.autoHandoffPhase.manual &&
+      managed.autoHandoffPhase.kind === "auto" &&
       !managed.autoHandoffPhase.briefStarted
     ) {
       managed.autoHandoffPhase = null;
@@ -1920,7 +1921,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const phase = managed.autoHandoffPhase;
     if (
       phase &&
-      !phase.manual &&
+      phase.kind === "auto" &&
       !phase.briefStarted &&
       events[0].type === "agent_updated" &&
       events[0].changes.autoHandoffTokens !== undefined
@@ -1956,36 +1957,31 @@ export function createAgentManager(deps: ManagerDeps) {
     // ran its tool in repo A. Both therefore start fresh after a cwd edit.
     const fixedCwdChange =
       cwdChanging && backendSessionHasFixedCwd(managed.info.agentType);
+    // Such a change with a conversation to carry starts a new conversation
+    // through newConversation, which hands off from the current one
+    // (auto-handoff-design.md section 8), at the end of this edit. The session
+    // is closed there, so no replace runs here: the next session reads the
+    // edited fields. With no conversation, the replace below starts a fresh
+    // session in the new folder.
+    const folderHandoff =
+      fixedCwdChange &&
+      (managed.sessionManager.sessionId !== null ||
+        managed.settingHandoffSource !== null);
     // A cwd change retargets the session. If a live backend process exists it
     // must be replaced (a process's cwd is fixed at spawn); if not, relocating the
     // on-disk session file + restamping its cwd is enough - the next message
     // resumes there (createSession always resumes at managed.info.cwd). Setting
     // changes (model/effort/permission/sandbox) replace regardless, as before.
     const needReplace =
-      settingTriggersReplace ||
-      (cwdChanging && managed.sessionManager.session !== null);
+      !folderHandoff &&
+      (settingTriggersReplace ||
+        (cwdChanging && managed.sessionManager.session !== null));
     // Claude relocates its active session's files on ANY cwd change that has a
     // session id - live or lazily-restored (session null, sessionId set) - so a
     // later resume finds the .jsonl under the new project dir. Matches the
     // pre-per-session-cwd behavior, which moved files gated only on sessionId.
     const needClaudeFileMove =
       cwdChanging && isClaude && managed.sessionManager.sessionId !== null;
-
-    // Fixed-cwd backends cannot carry cwd across a resume, so a cwd change
-    // abandons the session and the next message starts fresh in the new cwd.
-    // Split by whether a replace runs:
-    //   - NO replace (lazy process AND cwd-only change): there's no session-install
-    //     transaction to protect, so drop the id + clear logs NOW. The next message
-    //     spawns fresh in the new cwd.
-    //   - replace WILL run (live process, OR a setting change forces one): DEFER the
-    //     drop into the replace via pendingFixedCwdReset (set below). Dropping now
-    //     would lose the still-valid old id if that replace then fails and the edit
-    //     rolls back - the lazy-cwd+setting foot-gun. Leaving sessionId set also
-    //     lets the success-path system_init clear-branch (new id !== old id) wipe
-    //     the abandoned chat.
-    if (fixedCwdChange && managed.sessionManager.sessionId && !needReplace) {
-      clearStaleAutoResumeState(agentId, managed);
-    }
 
     // What the settings notice names: the applied delta, so a value a
     // validator changed (an effort the new model lacks) shows as applied.
@@ -2069,19 +2065,8 @@ export function createAgentManager(deps: ManagerDeps) {
       // session; Claude passes its active session through and resumes it at the
       // new cwd. Skipped in the lazy case.
       if (needReplace) {
-        // A fixed-cwd change that reaches this replace abandons the old session.
-        // We intentionally do NOT drop managed.sessionManager.sessionId yet: leaving it set means
-        // (a) the success-path system_init clear-branch (new id !== old id) wipes
-        // the abandoned thread's chat without contaminating the fresh thread, and
-        // (b) a SYNCHRONOUS createSession/replaceSession throw rolls back with the
-        // old id intact (so a failed combined cwd+setting edit doesn't lose a
-        // still-valid session pointer). But Codex bootstraps async - a fresh-thread
-        // bootstrap failure lands later as system_init with an empty sessionId,
-        // bypassing that clear-branch. Mark the agent so the empty-init path (and
-        // the consumer's pre-init error path) knows to abandon the old id +
-        // logCache. Cleared in the catch below (replace never installed the fresh
-        // session, so the old one stands and there's nothing to abandon).
-        if (fixedCwdChange) pendingFixedCwdReset.add(agentId);
+        // A fixed-cwd change gets here only with no conversation
+        // (folderHandoff), so there is no session to resume.
         const sessionId = fixedCwdChange
           ? null
           : resumeIdOrDrop(agentId, managed);
@@ -2109,8 +2094,7 @@ export function createAgentManager(deps: ManagerDeps) {
           );
         } catch (err) {
           // replaceSession failed before installing the fresh session: the old
-          // session still stands, so there's no abandoned thread to reconcile.
-          pendingFixedCwdReset.delete(agentId);
+          // session still stands.
           managed.settingsNotice = priorNotice;
           officeState.updateAgent(agentId, snapshot);
           // Roll the Claude file move back so the on-disk session location stays
@@ -2178,6 +2162,13 @@ export function createAgentManager(deps: ManagerDeps) {
     // once the edit can no longer roll back, so a failed rename writes no task.
     events.push(...officeState.syncAssigneeName(agentId));
     for (const event of events) eventHandler(event);
+    if (folderHandoff && targetCwd)
+      await newConversation(agentId, undefined, undefined, {
+        setting: {
+          change: { kind: "folder", from: oldCwd, to: targetCwd },
+          ...(changedBy ? { changedBy } : {}),
+        },
+      });
   }
 
   function emit(event: AgentEvent) {
@@ -3345,10 +3336,6 @@ export function createAgentManager(deps: ManagerDeps) {
         // see backends/codex/adapter.ts bootstrap catch. Slash_commands/skills
         // still land below in either case.
         if (managed && ev.sessionId) {
-          // A live fixed-cwd change is committing: the fresh session bootstrapped.
-          // The clear-branch below (new id !== old id) handles abandoning the old
-          // thread's chat, so just retire the pending-reset marker here.
-          pendingFixedCwdReset.delete(agentId);
           const sessionId = ev.sessionId;
           const hadPreviousSession = !!managed.sessionManager.sessionId;
           // Load prior log history if this session was seen before (walks fork ancestry)
@@ -3421,18 +3408,6 @@ export function createAgentManager(deps: ManagerDeps) {
             // resolved session now so /resume uses the same label as the header.
             persistCurrentSessionTopic(agentId, managed);
           }
-          persistAll();
-        } else if (managed && pendingFixedCwdReset.has(agentId)) {
-          // Empty-sessionId system_init while a live fixed-cwd change was pending:
-          // the fresh thread failed to bootstrap (see backends/codex/adapter.ts).
-          // replaceSession already closed the old process and AgentInfo.cwd is
-          // committed to the new cwd, but managed.sessionManager.sessionId / logCache still point
-          // at the now-abandoned old thread. Drop them so the agent doesn't later
-          // associate the old thread with the new cwd - the next message starts a
-          // genuinely fresh conversation in the new dir. The old thread's
-          // transcript remains on disk under its own id (resumable via /resume).
-          pendingFixedCwdReset.delete(agentId);
-          clearStaleAutoResumeState(agentId, managed);
           persistAll();
         }
         if (managed) recordInitConnectors(managed, ev);
@@ -4253,6 +4228,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (!managed) return null;
     if (managed.info.userId === userId) return managed.info;
+    const previousManager = managed.info.manager ?? null;
     stampAgentSessions(
       agentId,
       managed.sessionManager.sessionId,
@@ -4277,11 +4253,17 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.ptyEnvStale = true;
       terminalStatus(agentId);
     }
+    // The new conversation hands off from the current one, under the new
+    // manager (auto-handoff-design.md section 8).
     await newConversation(agentId, undefined, undefined, {
       notice: msg("systemEntries.managerChanged", {
         actor: changedBy,
         member: manager,
       }),
+      setting: {
+        change: { kind: "manager", from: previousManager, to: manager },
+        changedBy,
+      },
     });
     return managed.info;
   }
@@ -5607,6 +5589,7 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
+      settingHandoffSource: null,
       turnFlags: freshTurnFlags(),
       limitResumeAt: null,
       officeFallback: false,
@@ -7742,11 +7725,8 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.sessionManager.turnCancelToken;
     // A member's /handoff that waits for this turn does not happen: the
     // member wants attention. Before any await, so the stopped turn's end
-    // does not start the brief.
-    if (handoffWaiting(managed)) {
-      managed.autoHandoffPhase = null;
-      addLogEntry(agentId, "system", msg("systemEntries.handoff.canceled"));
-    }
+    // does not start the brief. A setting handoff that waits fails instead.
+    cancelWaitingHandoff(agentId, managed);
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
     // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
@@ -8122,9 +8102,6 @@ export function createAgentManager(deps: ManagerDeps) {
     // revive.
     removeQueueRecord(agentId);
     forgetTurnRecord(agentId);
-    // Drop any pending live fixed-cwd-change marker so a kill during the
-    // sub-second replace window doesn't leave a dangling entry for a dead agent.
-    pendingFixedCwdReset.delete(agentId);
     if (oldConsumer) {
       // Bounded like closeAndDrainSession: a wedged stream must not park the
       // kill() caller forever (the same lost-wakeup hazard).
@@ -8429,11 +8406,14 @@ export function createAgentManager(deps: ManagerDeps) {
     // /handoff (`manual`) gets the handoff line only.
     // `typed` marks the typed /clear: no "New conversation started." line.
     // `notice` replaces that line (a manager transfer says who changed what).
+    // `setting` arms a setting handoff (auto-handoff-design.md section 8):
+    // the change's brief turn runs in the conversation this reset opens.
     opts?: {
       handoff?: boolean;
       autoHandoff?: AutoHandoffPhase;
       typed?: boolean;
       notice?: LogText;
+      setting?: Omit<SettingHandoffRequest, "previousSessionId">;
     },
   ) {
     const managed = agents.get(agentId);
@@ -8458,6 +8438,13 @@ export function createAgentManager(deps: ManagerDeps) {
     // may start another brief turn in the old session.
     if (opts?.autoHandoff && managed.autoHandoffPhase === opts.autoHandoff)
       managed.autoHandoffPhase = null;
+    // The conversation a setting handoff reads: the one this reset ends, or,
+    // when that one was opened by a setting change and ran only its brief
+    // turn, the one that change read. Taken before the reset clears both.
+    const settingSource = opts?.setting
+      ? (managed.settingHandoffSource ?? managed.sessionManager.sessionId)
+      : null;
+    let settingArmed = false;
     let drained: Promise<void>;
     try {
       persistCurrentSessionTopic(agentId, managed);
@@ -8538,10 +8525,15 @@ export function createAgentManager(deps: ManagerDeps) {
       resetContextUsage(managed);
       // Set after the reset, which clears them; before the drain, because the
       // held queue's flush may start during it.
-      if (opts?.autoHandoff && !opts.autoHandoff.manual) {
+      if (opts?.autoHandoff?.kind === "auto") {
         managed.autoHandoffOpened = true;
         managed.autoHandoffNotice = AUTO_HANDOFF_FRESH_NOTICE;
       }
+      if (opts?.autoHandoff?.kind === "setting")
+        managed.autoHandoffNotice = settingHandoffFreshNotice(
+          opts.autoHandoff.setting,
+        );
+
       // Match /clear's behavior: wipe the chat. Without this, the timeline
       // continues across session boundaries and editing an old entry hits the
       // cross-session dead-end.
@@ -8555,7 +8547,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          opts?.autoHandoff && !opts.autoHandoff.manual
+          opts?.autoHandoff?.kind === "auto"
             ? autoHandoffLine(opts.autoHandoff, "done")
             : opts?.handoff
               ? msg("systemEntries.handedOff")
@@ -8575,6 +8567,30 @@ export function createAgentManager(deps: ManagerDeps) {
         reason: "fresh",
         swapReason: "carry",
       });
+      // A setting change hands off (auto-handoff-design.md section 8): the
+      // brief turn runs in the conversation this reset opens, on the new
+      // settings. Armed after resetContextUsage, which clears the phase, and
+      // after the close started: armed before it, the idle transition above
+      // would start the brief turn in the session being closed. Armed before
+      // the drain, so the held queue's flush starts the brief turn instead of
+      // sending to the new conversation. An empty previous conversation has
+      // nothing to carry, and an engine switch that did not happen is no
+      // engine change.
+      if (
+        opts?.setting &&
+        settingSource &&
+        managed.info.capabilities.autoHandoff &&
+        (opts.setting.change.kind !== "engine" ||
+          managed.info.agentType === opts.setting.change.to)
+      ) {
+        managed.settingHandoffSource = settingSource;
+        managed.autoHandoffPhase = {
+          briefStarted: false,
+          kind: "setting",
+          setting: { ...opts.setting, previousSessionId: settingSource },
+        };
+        settingArmed = true;
+      }
     } finally {
       // Back at the head even if the reset threw, so that no later persist
       // writes the queue without these items.
@@ -8585,6 +8601,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // boundary claim of the closed session is stale, so its items are sent
     // again (at-least-once).
     if (heldQueue.length > 0) requestFlush(agentId, "carried queue");
+    else if (settingArmed) requestFlush(agentId, "setting handoff");
     await drained;
   }
 

@@ -64,7 +64,6 @@ function fakeDeps() {
   const logged: LoggedEntry[] = [];
   const stateUpdates: AgentState[] = [];
   const diagnostics = {
-    reconciled: 0,
     diagnosed: 0,
     authAsked: 0,
   };
@@ -101,9 +100,6 @@ function fakeDeps() {
     },
     addLogEntry: (agentId, kind, content, metadata) => {
       logged.push({ agentId, kind, content, metadata });
-    },
-    reconcilePendingFixedCwdReset: () => {
-      diagnostics.reconciled++;
     },
     diagnoseProcessExitHints: () => {
       diagnostics.diagnosed++;
@@ -441,7 +437,6 @@ describe("SessionManager consumer: stream end", () => {
     // diagnostics run on a clean end.
     expect(stateUpdates).toEqual([]);
     expect(diagnostics).toEqual({
-      reconciled: 0,
       diagnosed: 0,
       authAsked: 0,
     });

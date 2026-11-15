@@ -128,6 +128,7 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     managed.autoHandoffSpent = restore ? restore.autoHandoffSpent : false;
     managed.autoHandoffOpened = false;
     managed.autoHandoffNotice = null;
+    managed.settingHandoffSource = null;
     // A resume after a usage limit continues the old conversation, so it
     // goes with it, the edit-fork rollback included. So do the turn's flags.
     // This also runs mid-turn, at a system_init with a new session id, which

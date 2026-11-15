@@ -1964,7 +1964,7 @@ Coses que pots fer per ell:
     "Funciona amb els models configurats a través d'OpenCode.",
   "dialogs.agent.engineNeedsLinux": "Necessita un servidor Linux.",
   "dialogs.agent.engineSwitchHint":
-    "Canviar a {engine} comença una conversa nova. L'actual es queda a l'historial de sessions d'aquest agent.",
+    "Canviar a {engine} comença una conversa nova, i l'agent li traspassa la seva feina.",
   "dialogs.agent.templateHint":
     "Les plantilles omplen els camps de sota. Pots editar totes les propostes.",
   "dialogs.agent.blank": "En blanc",
@@ -2013,7 +2013,8 @@ Coses que pots fer per ell:
   "dialogs.agent.manager": "Responsable",
   "dialogs.agent.managerTitle":
     "Només un propietari de l'oficina pot canviar el responsable.",
-  "dialogs.agent.managerRestart": "En desar comença una conversa nova.",
+  "dialogs.agent.managerRestart":
+    "En desar comença una conversa nova, i l'agent li traspassa la seva feina.",
   "dialogs.agent.managerNoRoomAccess": "{name} no té accés a aquesta sala.",
   "dialogs.agent.managerNoUser": "(cap membre assignat)",
   "dialogs.agent.managerUnowned": "(sense propietari)",
@@ -2989,7 +2990,8 @@ Coses que pots fer per ell:
   "logView.freeLimit.switchTo": "Canvia a {provider}",
   "logView.freeLimit.switching": "S'està canviant…",
   "logView.freeLimit.switchFailed": "No s'ha pogut canviar a {provider}.",
-  "logView.freeLimit.switchHint": "En canviar comença una conversa nova.",
+  "logView.freeLimit.switchHint":
+    "En canviar comença una conversa nova, i l'agent li traspassa la seva feina.",
   "logView.goneModelTitle":
     "OpenCode ja no ofereix {model}. Tria un altre model.",
   "panels.editor.noFileOpen": "Cap fitxer obert",
@@ -3745,6 +3747,10 @@ Coses que pots fer per ell:
   "systemEntries.handoff.failed":
     "El traspàs no s'ha completat. Aquesta conversa continua.",
   "systemEntries.handoff.canceled": "Traspàs cancel·lat.",
+  "systemEntries.settingHandoff.writing":
+    "S'està escrivint un resum de traspàs a partir de la conversa anterior.",
+  "systemEntries.settingHandoff.failed":
+    "No s'ha escrit cap resum de traspàs. Amb el proper missatge, Isomux diu a l'agent on és la seva conversa anterior.",
   "systemEntries.managerChanged":
     "{actor} ha fet responsable {member}. Conversa nova iniciada.",
   "systemEntries.autoHandoff.writingTokens":

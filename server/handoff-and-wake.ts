@@ -1,4 +1,5 @@
-// A member's /handoff, the automatic handoff, the resume after a usage limit
+// A member's /handoff, the automatic handoff, the handoff of a setting change
+// that starts a new conversation, the resume after a usage limit
 // (server/limit-resume.ts) and the wake after a server restart
 // (server/restart-wake.ts), with the turn record the wake reads. Moved out of
 // createAgentManager (server/agent-manager.ts), which wires it.
@@ -21,6 +22,8 @@ import { recordAudit } from "./audit-store.ts";
 import {
   autoHandoffBriefPrompt,
   handoffBriefPrompt,
+  settingHandoffBriefPrompt,
+  settingHandoffPointerNotice,
   autoHandoffMeasureParams,
   autoHandoffTokensOf,
   autoHandoffTrigger,
@@ -188,12 +191,12 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       emitEphemeralLog(agentId, "system", line);
     };
     // One handoff at a time: a running brief turn, a reset, or a /handoff
-    // that waits for the current turn.
+    // or a setting handoff that waits to start.
     const current = managed.autoHandoffPhase;
     if (
       handoffInProgress.has(agentId) ||
       current?.briefStarted ||
-      current?.manual
+      (current && current.kind !== "auto")
     ) {
       refuse(msg("commands.handoff.underWay"));
       return;
@@ -225,7 +228,11 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       state === "thinking" ||
       state === "tool_executing" ||
       managed.sessionManager.pendingTurn !== null;
-    managed.autoHandoffPhase = { briefStarted: false, manual: request };
+    managed.autoHandoffPhase = {
+      briefStarted: false,
+      kind: "manual",
+      manual: request,
+    };
     if (busy) {
       addLogEntry(agentId, "system", msg("commands.handoff.waiting"));
       return;
@@ -247,11 +254,25 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     return `${formatPrefix({ username: request.username, device: request.device })}${handoffBriefPrompt(request.note)}`;
   }
 
-  // A member's /handoff waits for the current turn: the queue gate runs it
-  // even when no message waits.
+  // A member's /handoff waits for the current turn, and a setting handoff
+  // for its wake: the queue gate runs it even when no message waits.
   function handoffWaiting(managed: ManagedAgent): boolean {
     const phase = managed.autoHandoffPhase;
-    return !!phase?.manual && !phase.briefStarted;
+    return !!phase && phase.kind !== "auto" && !phase.briefStarted;
+  }
+
+  // Stop before a waiting handoff's brief turn started (abort). A /handoff
+  // is canceled; a setting handoff fails, so the agent still gets the pointer
+  // to its previous conversation.
+  function cancelWaitingHandoff(agentId: string, managed: ManagedAgent): void {
+    const phase = managed.autoHandoffPhase;
+    if (!phase || phase.kind === "auto" || phase.briefStarted) return;
+    if (phase.kind === "setting") {
+      failAutoHandoff(agentId, managed, phase);
+      return;
+    }
+    managed.autoHandoffPhase = null;
+    addLogEntry(agentId, "system", msg("systemEntries.handoff.canceled"));
   }
 
   // In-flight handoff guard. A SECOND concurrent handoff for the same agent
@@ -266,10 +287,13 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   // Arms from a committed sample (evaluateAutoHandoff), or from a member's
   // /handoff (requestHandoff, with `manual`). The next message to arrive, or
   // for /handoff the end of the current turn, runs one brief turn in the old
-  // session (runAutoHandoff), then hands off through handoffBody. While the phase is set, every send path queues
-  // and flushQueue starts the brief turn instead of sending, so that message
-  // and the rest of the queue go to the fresh session. Every exit clears the
-  // phase and lets the queue flush.
+  // session (runAutoHandoff), then hands off through handoffBody. A setting
+  // change that starts a new conversation arms in newConversation (with
+  // `setting`, section 8), and its brief turn runs at once in the NEW
+  // conversation, which reads the previous one from the logs. While the phase
+  // is set, every send path queues and flushQueue starts the brief turn
+  // instead of sending, so that message and the rest of the queue go to the
+  // fresh session. Every exit clears the phase and lets the queue flush.
 
   // Called on every committed sample. Pauses a conversation an automatic
   // handoff opened above the trigger (the loop guard), and arms on a sample
@@ -328,6 +352,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   ) {
     managed.autoHandoffPhase = {
       briefStarted: false,
+      kind: "auto",
       trigger,
       totalTokens: snap.totalTokens,
       percentage: snap.percentage,
@@ -651,8 +676,14 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     managed: ManagedAgent,
     phase: AutoHandoffPhase,
   ): Promise<void> {
-    if (!phase.manual)
+    if (phase.kind === "auto")
       addLogEntry(agentId, "system", autoHandoffLine(phase, "writing"));
+    else if (phase.kind === "setting")
+      addLogEntry(
+        agentId,
+        "system",
+        msg("systemEntries.settingHandoff.writing"),
+      );
     const capture: NonNullable<ManagedAgent["autoHandoffCapture"]> = {
       chunks: [],
       status: null,
@@ -665,7 +696,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       // runAgentTurn calls beginTurn before its first await, so the agent is
       // busy before this function yields.
       await runAgentTurn(
-        phase.manual
+        phase.kind === "manual"
           ? {
               managed,
               sdkText: manualBriefText(phase.manual),
@@ -675,7 +706,10 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
             }
           : {
               managed,
-              sdkText: autoHandoffBriefPrompt(phase),
+              sdkText:
+                phase.kind === "setting"
+                  ? settingHandoffBriefPrompt(phase.setting, agentId)
+                  : autoHandoffBriefPrompt(phase),
               memberIds: [],
               // No member sent it: capped as the agent's other input no
               // human sends, by its manager (usage-caps-design.md 3b).
@@ -714,8 +748,9 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
         });
       return;
     }
-    // A typed /handoff records nothing, as a typed /clear does.
-    if (phase.manual) return;
+    // A typed /handoff records nothing, as a typed /clear does. A setting
+    // handoff records nothing either: the settings change itself is audited.
+    if (phase.kind !== "auto") return;
     recordAudit({
       actor: {
         kind: "auto_handoff",
@@ -746,7 +781,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   // The member's two lines, the old chat's ("writing") and the fresh chat's
   // first ("done"). Both name the limit that fired, so they give one reason.
   function autoHandoffLine(
-    phase: AutoHandoffPhase & { manual?: undefined },
+    phase: AutoHandoffPhase & { kind: "auto" },
     which: "writing" | "done",
   ): LogMessage {
     const params = autoHandoffMeasureParams(phase.trigger);
@@ -797,8 +832,18 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     opts: { temporary?: boolean } = {},
   ): void {
     managed.autoHandoffPhase = null;
-    if (phase.manual) {
+    if (phase.kind === "manual") {
       addLogEntry(agentId, "system", msg("systemEntries.handoff.failed"));
+    } else if (phase.kind === "setting") {
+      // The conversation the change opened stays. Its next prompt names the
+      // previous conversation, and a second change still reads that one
+      // (settingHandoffSource stays until the pointer goes out).
+      addLogEntry(
+        agentId,
+        "system",
+        msg("systemEntries.settingHandoff.failed"),
+      );
+      managed.autoHandoffNotice = settingHandoffPointerNotice(phase.setting);
     } else if (opts.temporary) {
       addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.retry"));
     } else {
@@ -814,6 +859,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   return {
     requestHandoff,
     handoffWaiting,
+    cancelWaitingHandoff,
     handoffInProgress,
     evaluateAutoHandoff,
     armAutoHandoffFromEdit,

@@ -109,6 +109,37 @@ const completingBackend = () =>
     },
   });
 
+// A manager change hands off (task 1fdda17f): the new conversation's first
+// turn is a brief turn, whose prompt names the agent's logs route with the
+// previous session. Found by that route, a protocol value.
+const isBriefPrompt = (text: string) => /\/logs\?\S*session=/.test(text);
+
+// Every turn completes, except a brief turn, which stays running: the chat
+// the transfer wrote stays on screen, and the test reads the brief turn's
+// session.
+const briefParkingBackend = () =>
+  new FakeBackend({
+    session: {
+      onSend: (text, _a, session) => {
+        if (!isBriefPrompt(text)) session.completeTurn({ text: "ok" });
+      },
+    },
+  });
+
+// The session of the brief turn a manager change started.
+async function briefSession(
+  srv: TestServer,
+  agentId: string,
+): Promise<FakeSession> {
+  const find = () =>
+    srv.fakeBackend.sessions.find(
+      (s) =>
+        s.opts.agentId === agentId && s.sent.some((m) => isBriefPrompt(m.text)),
+    );
+  await waitUntil(() => !!find(), "brief turn sent");
+  return find()!;
+}
+
 const idOf = (name: string): string => {
   const user = getUserByName(name);
   if (!user) throw new Error(`no member ${name}`);
@@ -251,7 +282,7 @@ async function office(backend = completingBackend()) {
 
 describe("agents.setManager: the agent itself", () => {
   it("changes the manager fields and token, keeps privilege, and the next turn is a fresh session", async () => {
-    const { srv, morgan } = await office();
+    const { srv, morgan } = await office(briefParkingBackend());
     const agent = await spawn(srv, "Mover", "Alice");
     await srv.agentManager.setPrivileged(agent.id, true);
     const old = await runTurn(srv, agent.id);
@@ -297,16 +328,17 @@ describe("agents.setManager: the agent itself", () => {
     expect(identity.userId).toBe(idOf("Bea"));
     expect(identityHasCapability(identity, "agent:manage")).toBe(true);
 
-    // The running session is killed and the chat holds one line, which
-    // names the owner who made the change and the new manager.
+    // The running session is killed and one chat line names the owner who
+    // made the change and the new manager.
     expect(old.closed).toBe(true);
-    const lines = systemLines(srv, agent.id);
+    const next = await briefSession(srv, agent.id);
+    const lines = systemLines(srv, agent.id).filter(
+      (l) => l.includes("Morgan") && l.includes("Bea"),
+    );
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("Morgan");
-    expect(lines[0]).toContain("Bea");
 
-    // The next turn starts a new conversation, not a resume of the old one.
-    const next = await runTurn(srv, agent.id);
+    // The next turn (the handoff's brief turn) starts a new conversation,
+    // not a resume of the old one.
     expect(next).not.toBe(old);
     expect(next.isResume).toBe(false);
     expect(next.sessionId).not.toBe(old.sessionId);
@@ -315,12 +347,15 @@ describe("agents.setManager: the agent itself", () => {
 
   it("runs a message queued during the transfer under the new manager's token", async () => {
     // Each turn parks in "thinking": the first message holds the agent busy,
-    // so the second waits in the queue.
+    // so the second waits in the queue. The brief turn of the handoff
+    // completes, so the second goes to the handed-off conversation.
     const { srv, morgan } = await office(
       new FakeBackend({
         session: {
-          onSend: (_t, _a, s) =>
-            s.push({ kind: "assistant_text", text: "..." }),
+          onSend: (text, _a, s) => {
+            if (isBriefPrompt(text)) s.completeTurn({ text: "BRIEF" });
+            else s.push({ kind: "assistant_text", text: "..." });
+          },
         },
       }),
     );
@@ -431,7 +466,7 @@ describe("agents.setManager: the agent itself", () => {
 // the audit row name the agent, the audit row with its manager.
 describe("agents.setManager: an office owner's privileged agent", () => {
   it("moves an agent, and the chat line and audit row name the privileged agent", async () => {
-    const { srv } = await office();
+    const { srv } = await office(briefParkingBackend());
     const ops = await spawn(srv, "Ops", "Morgan");
     await srv.agentManager.setPrivileged(ops.id, true);
     const opsToken = getAgentTokenRaw(ops.id)!;
@@ -459,10 +494,11 @@ describe("agents.setManager: an office owner's privileged agent", () => {
     );
     expect(old.closed).toBe(true);
 
-    const lines = systemLines(srv, target.id);
+    await briefSession(srv, target.id);
+    const lines = systemLines(srv, target.id).filter(
+      (l) => l.includes("Ops") && l.includes("Bea"),
+    );
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("Ops");
-    expect(lines[0]).toContain("Bea");
 
     const rows = officeAuditStore().list({
       operation: "agents.setManager",

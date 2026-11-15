@@ -5,7 +5,7 @@
 // module holds the trigger and the words.
 
 import { AUTO_HANDOFF_DEFAULT_TOKENS } from "../shared/auto-handoff.ts";
-import type { ManagedAgent } from "./internal-types.ts";
+import type { ManagedAgent, SettingHandoffRequest } from "./internal-types.ts";
 
 // Nil, 2026-10-13 and 2026-10-14: hand off at the agent's token value (500k
 // by default) or at 85% of the window, whichever comes first.
@@ -119,6 +119,83 @@ export function autoHandoffBriefPrompt(sample: {
 export function handoffBriefPrompt(note?: string): string {
   const prompt = `[handoff: the member asked for a handoff, and after this turn Isomux hands this session off to a fresh one. ${BRIEF_RULES}]`;
   return note ? `${prompt}\n\nMember's note: ${note}` : prompt;
+}
+
+const ENGINE_NAMES = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+} as const;
+
+/** What changed, in the words the setting handoff's prompt and notices use. */
+function settingChangeText(request: SettingHandoffRequest): string {
+  const by = request.changedBy ? `${request.changedBy} ` : "";
+  const c = request.change;
+  switch (c.kind) {
+    case "engine":
+      return `${by || "a member "}moved you from ${ENGINE_NAMES[c.from]} to ${ENGINE_NAMES[c.to]}`;
+    case "manager":
+      return `${by || "a member "}made ${c.to} your manager${c.from ? ` in place of ${c.from}` : ""}`;
+    case "folder":
+      return `${by || "a member "}moved your working folder from ${c.from} to ${c.to}`;
+  }
+}
+
+// A new manager's word wins over what the previous manager allowed: the
+// brief marks it, and the fresh conversation asks before it acts on it.
+function managerTrustRule(
+  request: SettingHandoffRequest,
+  which: "brief" | "notice",
+): string {
+  const c = request.change;
+  if (c.kind !== "manager") return "";
+  const previous = c.from ?? "the previous manager";
+  return which === "brief"
+    ? ` Mark in the brief what ${previous} asked for or allowed: ${c.to} is your manager now.`
+    : ` ${c.to} is your manager now, and their word wins. Before you act on a go-ahead from ${previous}, get ${c.to}'s confirmation.`;
+}
+
+/** The brief turn's prompt after a setting change that started a new
+ *  conversation (a setting handoff). It runs in that new conversation, on the
+ *  new settings, and reads the previous one from the logs of `agentId`. */
+export function settingHandoffBriefPrompt(
+  request: SettingHandoffRequest,
+  agentId: string,
+): string {
+  const logs = `/api/agents/${agentId}/logs?session=${request.previousSessionId}`;
+  return (
+    `[settings handoff: ${settingChangeText(request)}, so Isomux started this new conversation. ` +
+    `Your previous conversation is session ${request.previousSessionId}, and after this turn Isomux hands off to a fresh session with your reply as its brief. ` +
+    `Read what you need from the previous conversation, not all of it: the member messages, where standing rules and go-aheads are (GET ${logs}&tier=prompts), ` +
+    `then its summary and its last entries, where the open work is (GET ${logs}&tier=conversation&limit=60). ` +
+    `GET /api/agent-reference/conversation-history has the details.${managerTrustRule(request, "brief")} ` +
+    `Reply with only the handoff brief. It is forward-looking: the goal, the next concrete steps, the standing rules the members gave, working state not obvious from disk, decisions the fresh session should not relitigate, open questions to revisit with the member, and pointers (files, docs, task IDs). ` +
+    `Leave out a recap of the previous conversation and anything already in your system prompt, custom instructions or memory. Keep it tight. Do not call the handoff route.]`
+  );
+}
+
+/** The one-shot notice of the conversation a setting handoff opened, sent
+ *  with the brief. */
+export function settingHandoffFreshNotice(
+  request: SettingHandoffRequest,
+): string {
+  return (
+    `[settings handoff: ${settingChangeText(request)}, so Isomux started a new conversation. ` +
+    `The brief below was written from your previous conversation, session ${request.previousSessionId}. ` +
+    `Before an action that depends on earlier work the brief does not cover, look that work up: GET /api/agent-reference/conversation-history tells you how.${managerTrustRule(request, "notice")}]`
+  );
+}
+
+/** The one-shot notice when a setting handoff wrote no brief: sent with the
+ *  next prompt of the conversation the change opened, it names the previous
+ *  conversation. */
+export function settingHandoffPointerNotice(
+  request: SettingHandoffRequest,
+): string {
+  return (
+    `[settings handoff: ${settingChangeText(request)}, so Isomux started a new conversation, and no handoff brief was written. ` +
+    `Your previous conversation is session ${request.previousSessionId}. Before you continue, read its member messages for standing rules and its last entries for open work: GET /api/agent-reference/conversation-history tells you how.${managerTrustRule(request, "notice")}]`
+  );
 }
 
 /** The fresh session's one-shot notice, sent with the brief. */

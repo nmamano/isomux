@@ -495,9 +495,11 @@ describe("conversation changes carry the queue to the next session (df2c820b)", 
     expect(stateOf(mgr, info.id)).toBe("error");
   });
 
-  it("engine switch", async () => {
+  // An engine change in the settings hands off first; its queue goes to
+  // the handed-off conversation after the brief (setting-handoff.test.ts).
+  it("a new conversation on another engine", async () => {
     const { mgr, logs, info, fake, old } = await busyWithTwoQueued();
-    await mgr.editAgent(info.id, { agentType: "codex" });
+    await mgr.newConversation(info.id, "codex");
     const fresh = await freshSession(fake, info.id, old);
     expect(mgr.getAgent(info.id)?.agentType).toBe("codex");
     expectCarriedPrompt(fresh.sent[0].text);

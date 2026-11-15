@@ -224,10 +224,8 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // branch in this order: whether this turn already needed sign-in (the
   // backend's auth_needed; the stream failure text is never sniffed), asked
   // first because the answer picks the turn's rejection (AuthNeededError) and
-  // later the desk state; the pending fixed-cwd reset marker (has / delete /
-  // clear the stale auto-resume state); and the Claude-only process-exit
-  // hints (null for other engines).
-  reconcilePendingFixedCwdReset: (host: H) => void;
+  // later the desk state; and the Claude-only process-exit hints (null for
+  // other engines).
   diagnoseProcessExitHints: (
     host: H,
     sessionId: string | null,
@@ -724,15 +722,6 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       const authNeeded = this.deps.authNeededThisTurn(host);
       if (turn)
         turn.reject(authNeeded ? new AuthNeededError(errMessage(err)) : err);
-
-      // A fresh fixed-cwd session can error before it ever
-      // emits system_init (an out-of-band stream failure; the adapter normally
-      // routes bootstrap failures through an empty-sessionId system_init, which the
-      // handler reconciles). In that case neither system_init reconciliation path
-      // runs, so honor the pending-reset marker here too: abandon the old thread's
-      // id + logCache so the committed new cwd isn't left paired with the dead old
-      // thread. No-op for the common error path (marker absent).
-      this.deps.reconcilePendingFixedCwdReset(host);
 
       this.deps.logger.error(
         `Agent ${this.agentId} stream error:`,

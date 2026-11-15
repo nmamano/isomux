@@ -1913,7 +1913,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Works with models configured through OpenCode.",
   "dialogs.agent.engineNeedsLinux": "Needs a Linux host.",
   "dialogs.agent.engineSwitchHint":
-    "Switching to {engine} starts a new conversation. The current one stays in this agent's resume history.",
+    "Switching to {engine} starts a new conversation, and the agent hands its work over to it.",
   "dialogs.agent.templateHint":
     "Templates fill the fields below. You can edit every suggestion.",
   "dialogs.agent.blank": "Blank",
@@ -1961,7 +1961,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.recent": "Recent",
   "dialogs.agent.manager": "Manager",
   "dialogs.agent.managerTitle": "Only an office owner can change the manager.",
-  "dialogs.agent.managerRestart": "Saving starts a new conversation.",
+  "dialogs.agent.managerRestart":
+    "Saving starts a new conversation, and the agent hands its work over to it.",
   "dialogs.agent.managerNoRoomAccess": "{name} has no access to this room.",
   "dialogs.agent.managerNoUser": "(no member assigned)",
   "dialogs.agent.managerUnowned": "(unowned)",
@@ -2892,7 +2893,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.freeLimit.switchTo": "Switch to {provider}",
   "logView.freeLimit.switching": "Switching…",
   "logView.freeLimit.switchFailed": "Could not switch to {provider}.",
-  "logView.freeLimit.switchHint": "Switching starts a new conversation.",
+  "logView.freeLimit.switchHint":
+    "Switching starts a new conversation, and the agent hands its work over to it.",
   "logView.goneModelTitle":
     "OpenCode no longer lists model {model}. Pick another model.",
   "panels.editor.noFileOpen": "No file open",
@@ -3671,6 +3673,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.handoff.failed":
     "Handoff did not complete. This conversation continues.",
   "systemEntries.handoff.canceled": "Handoff canceled.",
+  "systemEntries.settingHandoff.writing":
+    "Writing a handoff brief from the previous conversation.",
+  "systemEntries.settingHandoff.failed":
+    "No handoff brief was written. With the next message, Isomux tells the agent where its previous conversation is.",
   "systemEntries.managerChanged":
     "{actor} made {member} the manager. New conversation started.",
   "systemEntries.autoHandoff.writingTokens":
