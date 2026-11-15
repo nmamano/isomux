@@ -278,6 +278,12 @@ A killed child throws `RemoteTimeoutError`, which is **ambiguous by default**
 rather than a clean failure: it proves nothing about whether the remote side
 acted. Only read-only probes opt down to a plain retry.
 
+Each retry writes one journal line (`<op id> retry <attempt>: <reason>`) and
+keeps the last reason in the operation evidence as `retry`. A handler's result
+reason is one redacted line: credential shapes, emails, the office name and the
+customer key are removed. A Contabo error reason keeps the provider's body,
+redacted and cut to 300 bytes.
+
 The instance row and its provider asset are created in ONE transaction: a death
 between them would leave an instance with no provider axis, and the restart would
 take the "already exists" branch and never look again - the four-axis model

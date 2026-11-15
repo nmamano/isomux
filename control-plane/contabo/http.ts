@@ -14,6 +14,7 @@
 
 import type { FetchLike } from "./auth.ts";
 import type { TokenProvider } from "./auth.ts";
+import { diagnosticLine } from "../failure-evidence.ts";
 
 export const CONTABO_API_BASE = "https://api.contabo.com";
 
@@ -93,14 +94,14 @@ export class ContaboHttp {
       // and their API does not say which.
       return {
         kind: "ambiguous",
-        reason: `provider returned HTTP ${res.status}`,
+        reason: await failureReason(res, token),
       };
     }
     if (!res.ok) {
       return {
         kind: "rejected",
         status: res.status,
-        reason: `provider returned HTTP ${res.status}`,
+        reason: await failureReason(res, token),
       };
     }
     let parsed: unknown = null;
@@ -128,6 +129,30 @@ export class ContaboHttp {
     throw new Error(`${method} ${path}: ${r.reason}`);
   }
 }
+
+/**
+ * The status, and the provider's error body when it has one: an operator
+ * reading a retry or an attention reason needs the provider's own words. The
+ * body is redacted (the bearer token it may echo, credential shapes, emails)
+ * and cut short, because the reason reaches journals, evidence and audit rows.
+ */
+async function failureReason(
+  res: Awaited<ReturnType<FetchLike>>,
+  token: string,
+): Promise<string> {
+  const reason = `provider returned HTTP ${res.status}`;
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return reason;
+  }
+  if (body === null || body === undefined) return reason;
+  const text = diagnosticLine(JSON.stringify(body), [token], BODY_LIMIT_BYTES);
+  return text ? `${reason}: ${text}` : reason;
+}
+
+const BODY_LIMIT_BYTES = 300;
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

@@ -10,6 +10,7 @@
 
 import * as os from "node:os";
 import {
+  diagnosticLine,
   repeatedInstallerFailure,
   REPEATED_INSTALLER_FAILURE_REASON,
   type FailureEvidence,
@@ -605,6 +606,7 @@ export class Ticker {
     } catch (err) {
       result = this.classifyThrow(err, handler);
     }
+    result = redactReason(result, instance);
 
     const completed = await this.finish(fence, leased, result, failure);
     return completed ? "completed" : "acted";
@@ -672,12 +674,13 @@ export class Ticker {
   ): Promise<boolean> {
     const d = deadlinesFor(op.kind);
     const now = this.now();
+    let completed: boolean;
     try {
       // AWAITED INSIDE THE TRY on purpose. Returning the promise instead would
       // settle it after this frame has left, so the catch below - the arm that
       // turns a rolled-back result into a reported line rather than a dead tick
       // - would never run.
-      return await this.store.tx(async () => {
+      completed = await this.store.tx(async () => {
         const patch: Parameters<Store["casOperation"]>[1] = {
           lease_until: null,
           lease_holder: null,
@@ -744,6 +747,20 @@ export class Ticker {
             result.evidence as { failure?: unknown } | undefined
           )?.failure;
           patch.evidence = { ...evidence, failure: ownFailure ?? failure };
+          patch.evidence_at = now;
+        }
+        if (result.kind === "retry") {
+          // The last retry's reason, so a stuck operation says why. Only the
+          // last: the journal line below keeps the history.
+          const evidence = (patch.evidence ??
+            JSON.parse(current?.evidence ?? op.evidence)) as Record<
+            string,
+            unknown
+          >;
+          patch.evidence = {
+            ...evidence,
+            retry: { reason: result.reason, attempt: op.attempt + 1, at: now },
+          };
           patch.evidence_at = now;
         }
         const live: Fence = {
@@ -880,6 +897,12 @@ export class Ticker {
       this.report(`could not record ${op.id}: ${messageOf(err)}`);
       return false;
     }
+    // After the commit only: a journal line for a rolled-back retry would
+    // claim an attempt the row does not show.
+    if (result.kind === "retry") {
+      this.report(`${op.id} retry ${op.attempt + 1}: ${result.reason}`);
+    }
+    return completed;
   }
 
   // ------------------------------------------------------------- deadlines
@@ -1003,4 +1026,20 @@ export function auditOutcomeOf(err: unknown): AuditOutcome {
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * A result reason reaches the journal, the operation evidence, attention and
+ * the audit trail, and may carry remote output. Make it one redacted line, with
+ * the office name and the customer key removed on top of the shape rules.
+ */
+function redactReason(
+  result: HandlerResult,
+  instance: InstanceRow,
+): HandlerResult {
+  if (!("reason" in result)) return result;
+  const known = [instance.name, instance.customer_ssh_key].filter(
+    (v): v is string => !!v,
+  );
+  return { ...result, reason: diagnosticLine(result.reason, known) };
 }

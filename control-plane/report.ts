@@ -65,7 +65,12 @@ export function redactCredentialShapes(text: string): string {
       // A quoted value goes whole, through its closing quote, or to the end
       // of the text when the quote never closes. A backslash escapes the next
       // character, so an escaped quote does not close the value.
-      /\b([\w-]*(?:token|secret|passw(?:or)?d|key|authorization|credential)[\w-]*)(["']?\s*[:=]\s*)("(?:[^"\\]|\\[\s\S]?)*"?|'(?:[^'\\]|\\[\s\S]?)*'?|[^\s"',;&]+)/gi,
+      //
+      // The name is a whole [\w-] run that contains a keyword. It starts only
+      // where a run starts and the keyword is found by a lookahead, so the
+      // match is linear: a `\b[\w-]*keyword[\w-]*` form backtracks
+      // quadratically on a long run such as "key-key-key-...".
+      /(?<![\w-])(?=[\w-]*?(?:token|secret|passw(?:or)?d|key|authorization|credential))([\w-]+)(["']?\s*[:=]\s*)("(?:[^"\\]|\\[\s\S]?)*"?|'(?:[^'\\]|\\[\s\S]?)*'?|[^\s"',;&]+)/gi,
       `$1$2${SECRET_REDACTION}`,
     )
     .replace(/[A-Za-z0-9_+=-]{20,}/g, (run) =>

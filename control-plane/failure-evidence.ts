@@ -4,6 +4,7 @@ import {
   redactCredentialShapes,
   redactForTranscript,
   redactValues,
+  SECRET_REDACTION,
 } from "./report.ts";
 
 export interface FailureEvidence {
@@ -61,6 +62,39 @@ export function failureEvidence(
     exit,
     logTail: lines.join("\n"),
   };
+}
+
+/** Input kept before the shape passes, some of which cost more than linear time. */
+const LINE_INPUT_CHARS = 16_384;
+
+/**
+ * One redacted line for a journal, operation evidence, an audit detail or an
+ * attention reason: diagnosticText, then email addresses, whitespace collapsed
+ * to single spaces, and a cut to `limit` bytes after the redaction.
+ *
+ * The input can be any size (a provider body, a remote error), so only its head
+ * goes through the shape passes. Known values are redacted before that cut.
+ */
+export function diagnosticLine(
+  text: string,
+  secrets: readonly string[] = [],
+  limit = 512,
+): string {
+  let head = redactValues(text, [...credentialValues(process.env), ...secrets]);
+  const cut = head.length > LINE_INPUT_CHARS;
+  if (cut) head = head.slice(0, LINE_INPUT_CHARS);
+  let line = diagnosticText(head, secrets)
+    // The lookbehind keeps a failed match from rescanning inside the same run:
+    // without it a long dotted run with no @ costs quadratic time.
+    .replace(/(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, SECRET_REDACTION)
+    .replace(/\s+/g, " ")
+    .trim();
+  // The cut can split a token too short for the shape passes to know it. It
+  // is the last token, and it reaches the output only when the line fits.
+  if (cut && Buffer.byteLength(line) <= limit) {
+    line = line.replace(/\S+$/, SECRET_REDACTION);
+  }
+  return bytes(line, limit);
 }
 
 /** Only completed, distinct generations count; a crash has no known exit. */

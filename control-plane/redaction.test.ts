@@ -10,7 +10,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
-import { Reporter, credentialValues, type Sink } from "./report.ts";
+import {
+  Reporter,
+  SECRET_REDACTION,
+  credentialValues,
+  redactCredentialShapes,
+  type Sink,
+} from "./report.ts";
 
 const FAKE_KEY = [
   "-----BEGIN OPENSSH PRIVATE KEY-----",
@@ -108,4 +114,16 @@ test("credentialValues takes the values of credential-named variables only", () 
   expect(values.sort()).toEqual(
     ["v-dsn", "v-dsn-app", "v-password", "v-stripe", "v-token"].sort(),
   );
+});
+
+test("a credential name inside a long [\\w-] run is found in linear time", () => {
+  // The \b[\w-]*keyword[\w-]* form took about 1.1 s on the first run and
+  // over 8 s on 4 KB of the second, on every durable log line.
+  for (const run of ["b-".repeat(10_000), "key-".repeat(500)]) {
+    const start = performance.now();
+    const out = redactCredentialShapes(`${run} ${run}key=hunter2 tail`);
+    expect(performance.now() - start).toBeLessThan(200);
+    expect(out).not.toContain("hunter2");
+    expect(out.endsWith(`${run}key=${SECRET_REDACTION} tail`)).toBe(true);
+  }
 });

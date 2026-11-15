@@ -1954,3 +1954,171 @@ describe("a plan change in the provider's panel", () => {
     });
   });
 });
+
+describe("a retry leaves its reason, redacted, in the evidence and the journal", () => {
+  // Task 2db7c3f5: a provider 500 was retried 11 times and left no trace.
+  const customerKey = "ssh-ed25519 AAAAshortblob maria-laptop";
+  const longToken = "b".repeat(43);
+  const leaky = (marker: string) =>
+    `${marker} at https://cp1.test.isomux.app for ops@example.com\n` +
+    `with ${customerKey} and ${longToken}\n\tsecond line`;
+  const secrets = [
+    "cp1.test.isomux.app",
+    "ops@example.com",
+    "maria-laptop",
+    "AAAAshortblob",
+    longToken,
+  ];
+
+  async function bed(
+    run: (ctx: HandlerContext) => Promise<HandlerResult>,
+    kind: Handler["kind"] = "verify_https",
+  ) {
+    const c = clock();
+    const store = await tempStore(c.now);
+    await store.createInstance({
+      id: "inst-1",
+      run_id: "run-1",
+      name: "cp1.test.isomux.app",
+      plan: "V153",
+      region: "EU",
+      service_state: "provisioning",
+      goal: "live",
+      access_window_expires_at: null,
+      customer_ssh_key: customerKey,
+    });
+    const lines: string[] = [];
+    const ticker = new Ticker({
+      store,
+      handlers: [fakeHandler(kind, run)],
+      holder: "a",
+      report: (line) => lines.push(line),
+    });
+    const op = await ticker.enqueue("inst-1", kind);
+    return { c, store, lines, ticker, op };
+  }
+
+  function expectClean(text: string) {
+    for (const s of secrets) expect(text).not.toContain(s);
+  }
+
+  test("a thrown retry: evidence.retry and one journal line, both redacted, on top of the row's evidence", async () => {
+    let calls = 0;
+    const b = await bed(async () => {
+      calls++;
+      if (calls === 1) return { kind: "progress", evidence: { step: "s1" } };
+      throw new Error(leaky(`boom-${calls}`));
+    });
+    await b.ticker.once();
+    expect(calls).toBe(1);
+    b.c.advance(10 * 60_000);
+    await b.ticker.once();
+    expect(calls).toBe(2);
+    const after = (await b.store.getOperation(b.op.id))!;
+    expect(after.attempt).toBe(1);
+    const ev = JSON.parse(after.evidence) as {
+      step?: string;
+      retry?: { reason: string; attempt: number; at: number };
+    };
+    // The row's evidence is the base when the handler threw.
+    expect(ev.step).toBe("s1");
+    expect(ev.retry?.attempt).toBe(1);
+    expect(ev.retry?.at).toBe(b.c.now());
+    expect(ev.retry?.reason).toContain("boom-2");
+    expect(ev.retry?.reason).toContain("second line");
+    expect(ev.retry?.reason).not.toMatch(/[\n\r\t]/);
+    expectClean(ev.retry!.reason);
+    const mine = b.lines.filter((l) => l.includes("boom-"));
+    expect(mine.length).toBe(1);
+    expect(mine[0]).toContain(b.op.id);
+    expect(mine[0]).not.toMatch(/[\n\r\t]/);
+    expectClean(mine[0]);
+
+    // The next retry replaces the last one in the evidence; the journal
+    // keeps both.
+    b.c.advance(60 * 60_000);
+    await b.ticker.once();
+    expect(calls).toBe(3);
+    const again = (await b.store.getOperation(b.op.id))!;
+    expect(again.attempt).toBe(2);
+    const ev2 = JSON.parse(again.evidence) as typeof ev;
+    expect(ev2.step).toBe("s1");
+    expect(ev2.retry?.attempt).toBe(2);
+    expect(ev2.retry?.reason).toContain("boom-3");
+    expect(ev2.retry?.reason).not.toContain("boom-2");
+    expect(b.lines.filter((l) => l.includes("boom-")).length).toBe(2);
+  });
+
+  test("a returned retry keeps the handler's evidence and adds the redacted reason", async () => {
+    const b = await bed(async () => ({
+      kind: "retry",
+      reason: leaky("returned-marker"),
+      evidence: { marker: "m1" },
+    }));
+    await b.ticker.once();
+    const after = (await b.store.getOperation(b.op.id))!;
+    expect(after.attempt).toBe(1);
+    const ev = JSON.parse(after.evidence) as {
+      marker?: string;
+      retry?: { reason: string; attempt: number };
+    };
+    expect(ev.marker).toBe("m1");
+    expect(ev.retry?.attempt).toBe(1);
+    expect(ev.retry?.reason).toContain("returned-marker");
+    expectClean(ev.retry!.reason);
+    const mine = b.lines.filter((l) => l.includes("returned-marker"));
+    expect(mine.length).toBe(1);
+    expectClean(mine[0]);
+  });
+
+  test("a retry whose result loses the fence writes no journal line", async () => {
+    const b = await bed(async (ctx) => {
+      const live = (await b.store.getOperation(ctx.op.id))!;
+      await b.store.tryLease(
+        live.id,
+        live.version,
+        "other",
+        b.c.now() + LEASE_MS,
+        b.c.now() + LEASE_MS + 1,
+      );
+      return { kind: "retry", reason: "fenced-marker" };
+    });
+    await b.ticker.once();
+    const after = (await b.store.getOperation(b.op.id))!;
+    // The condition this case exists for: the result was not recorded.
+    expect(after.lease_holder).toBe("other");
+    expect(after.attempt).toBe(0);
+    expect(JSON.parse(after.evidence)?.retry).toBeUndefined();
+    expect(b.lines.filter((l) => l.includes("fenced-marker")).length).toBe(0);
+  });
+
+  test("ambiguous and fatal reasons reach attention and the audit trail redacted", async () => {
+    for (const kind of ["ambiguous", "fatal"] as const) {
+      const marker = `${kind}-marker`;
+      const b = await bed(async () => ({ kind, reason: leaky(marker) }));
+      await b.ticker.once();
+      const reasons = (await b.store.openReasons("inst-1")).filter((r) =>
+        r.reason.includes(marker),
+      );
+      // The condition: the reason was raised at all.
+      expect(reasons.length).toBe(1);
+      expectClean(reasons[0].reason);
+      expect(reasons[0].reason).not.toMatch(/[\n\r\t]/);
+      const inst = (await b.store.getInstance("inst-1"))!;
+      expectClean(inst.attention_reason ?? "");
+      const events = await b.store.auditEvents();
+      const details = events
+        .map((e) => e.detail ?? "")
+        .filter((d) => d.includes(marker));
+      expect(details.length).toBeGreaterThan(0);
+      for (const d of details) expectClean(d);
+      if (kind === "fatal") {
+        const failed = events.find(
+          (e) => e.action === "verify_https" && e.outcome === "failed",
+        );
+        expect(failed?.detail ?? "").toContain(marker);
+      }
+      await releaseTestStores();
+    }
+  });
+});
