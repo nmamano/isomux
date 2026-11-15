@@ -703,8 +703,12 @@ describe("harden-ssh.sh listening-port sniff", () => {
   // A quiet port costs the sniff its whole read deadline, so the deadline must
   // be paid once for a box's ports, not once per batch: an office with 60
   // listening ports (agents' servers) dials them all at once. The real
-  // add_sniffed_endpoints runs with a probe that records how many probes had
-  // started, and waits (up to 1 s) for all of them.
+  // add_sniffed_endpoints runs with a probe that waits until all probes have
+  // started and records how many it saw. The wait is a condition, not a fixed
+  // time: 60 forks can take seconds on a loaded box. One deadline (30 s) is
+  // shared by all probes, so a sniff that batches or dials one by one fails
+  // the count near 30 s, not on the test timeout. The poll is a timed read on
+  // a FIFO that gets no data: a builtin, so it forks nothing while it waits.
   it("dials 60 listening ports at once and judges each one", async () => {
     const fix = mkdtempSync(join(dir, "sniff-"));
     mkdirSync(join(fix, "started"));
@@ -733,15 +737,18 @@ ss() { cat "$FIX/ss"; }
 speaks_ssh() {
   : >"$FIX/started/$2"
   shopt -s nullglob
-  local k f
-  for ((k = 0; k < 40; k++)); do
+  local f
+  while :; do
     f=("$FIX"/started/*)
     ((\${#f[@]} >= ${ports.length})) && break
-    sleep 0.025
+    ((\${EPOCHREALTIME//[!0-9]/} < DEADLINE)) || break
+    read -rt 0.05 <>"$FIX/never" || true
   done
   echo "\${#f[@]}" >>"$FIX/seen"
   [[ $2 == 22 ]]
 }
+mkfifo "$FIX/never"
+DEADLINE=$((\${EPOCHREALTIME//[!0-9]/} + 30000000))
 add_sniffed_endpoints
 printf 'ENDPOINTS\\n%sUNIDENTIFIED\\n%s' "$ENDPOINTS" "$UNIDENTIFIED"
 `;
@@ -772,7 +779,7 @@ printf 'ENDPOINTS\\n%sUNIDENTIFIED\\n%s' "$ENDPOINTS" "$UNIDENTIFIED"
     expect(unidentified.split("\n").filter(Boolean)).toHaveLength(
       ports.length - 2,
     );
-  }, 15_000);
+  }, 60_000);
 });
 
 describe("harden-ssh.sh source", () => {
