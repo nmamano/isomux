@@ -532,7 +532,7 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 4.7, the secret: the `webhooks.create`, `webhooks.readSecret` and `webhooks.rotateSecret` routes in `routes/table.ts` and `routes/handlers/webhooks.ts`; `userScope` and `webhookMakerAgent` in `identity/guards.ts`; `transferAgentManager` in `isomux-office.ts`; `SENSITIVE_EXACT` and `SENSITIVE_PATTERNS` in `safety-policy.ts`.
 - Section 5.1: `API_CAPABILITIES` in `identity/index.ts`; `selfUserOrApi`, `selfOrEnvOwner` and `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `toPagerSettingsRes` in `pager-settings.ts`.
 - Section 7, integrations: `selfOrEnvOwner`, `officeEnvReader` and `officeEnvOwner` in `identity/guards.ts`; `secret:show` in `identity/index.ts`; the `secrets.*`, `officeSecrets.*`, `userEnv.*`, `officeEnv.names`, `mcpServers.*` and `officeMcpServers.list` routes in `routes/table.ts`; `memberSubject` in `routes/handlers/member-subject.ts`; `officeSecretSummary` in `routes/handlers/secrets.ts`; `officeServerSummary` in `routes/handlers/mcp-servers.ts`.
-- Section 8.2: `BACKUP_EXCLUSIONS` in `backup.ts`.
+- Section 8.2: `BACKUP_EXCLUSIONS` in `backup-exclusions.ts`.
 - Section 8.5, raise: `pager.raise` and `pager.appRaise` in `routes/handlers/pager.ts`; `parseRaiseFields` in `pager-store.ts`.
 - Section 8.5, who sees a page: `pagerEntryVisible` in `pager-store.ts`; `pager.ack` and `pager.resolve` in `routes/handlers/pager.ts`; `onTransitioned` in `pager-delivery.ts`.
 - Section 8.5, the Discord webhook URL: `createPagerSettingsFilePersistence` and `maskWebhookUrl` in `pager-settings.ts`; `pagerSettingsHandlers` in `routes/handlers/pager-settings.ts`; the `pagerSettings.*` routes in `routes/table.ts`.

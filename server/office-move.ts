@@ -8,6 +8,8 @@
 //   "move"   - the new box locked the office for the move (MOVE lock,
 //              server/move-locked-office.ts). Nothing expires in "move": only
 //              the cancel by code ends it.
+//   "moved"  - the new office confirmed a complete, checked copy (slice 2a).
+//              Terminal: the cancel by code needs confirmMoved.
 // Expiry drops "code" and "paired" only (the auto-unlock of the plan: nothing
 // is locked in those states).
 //
@@ -30,6 +32,10 @@ import { CALVER_RELEASE_RE } from "./version.ts";
 /** The state file in the state root (0600). It holds the code key and the
  *  session hash: the backup and the rescue export leave it out. */
 export const MOVE_STATE_FILE = "office-move.json";
+/** Written by the lock before the state "move", deleted by the cancel by
+ *  code (N1): an unreadable state file with this marker still boots the
+ *  MOVE-locked server. */
+export const MOVE_LOCK_MARKER = "move-locked";
 /** Written by the cancel by code before the state file is deleted. At boot
  *  it means "cancelled", even when the state file is still there. */
 export const MOVE_CANCELLED_FILE = "move-cancelled.json";
@@ -84,9 +90,23 @@ export interface MoveStateMove extends Omit<MoveStatePaired, "state"> {
   lockedAt: number;
   /** The preflight the owner agreed to. */
   preflightId: string;
+  /** Epoch ms of the first batch served (slice 2a): from then on the new
+   *  office may hold a copy. */
+  servedAt?: number;
 }
 
-export type MoveState = MoveStateCode | MoveStatePaired | MoveStateMove;
+/** The new office confirmed a complete, checked copy (slice 2a). Terminal:
+ *  only the cancel by code with confirmMoved ends it. */
+export interface MoveStateMoved extends Omit<MoveStateMove, "state"> {
+  state: "moved";
+  doneAt: number;
+  manifestId: string;
+  /** The new office's origin (an http(s) origin, nothing more). */
+  newOrigin: string;
+}
+
+export type MoveState =
+  MoveStateCode | MoveStatePaired | MoveStateMove | MoveStateMoved;
 
 export interface MintedMoveCode {
   code: string;
@@ -203,7 +223,10 @@ function readStateFile(stateRoot: string): MoveState | null {
     if (!raw || typeof raw !== "object") return null;
     const s = raw as Record<string, unknown>;
     if (
-      (s.state !== "code" && s.state !== "paired" && s.state !== "move") ||
+      (s.state !== "code" &&
+        s.state !== "paired" &&
+        s.state !== "move" &&
+        s.state !== "moved") ||
       typeof s.tokenHash !== "string" ||
       typeof s.key !== "string" ||
       typeof s.redeemBy !== "number"
@@ -358,7 +381,7 @@ export function checkMoveSession(
   stateRoot: string,
   authorization: string | null,
   now: Date,
-): MoveStatePaired | MoveStateMove | null {
+): MoveStatePaired | MoveStateMove | MoveStateMoved | null {
   const m = /^Bearer ([A-Za-z0-9_-]+)$/.exec(authorization?.trim() ?? "");
   if (!m) return null;
   // Reads without dropping: the caller's readMoveState drops and audits an
@@ -384,8 +407,59 @@ export function markMoveLocked(
     lockedAt: input.now.getTime(),
     preflightId: input.preflightId,
   };
+  // The marker first (N1): an unreadable state file with it still boots
+  // locked.
+  writeFileSync(join(stateRoot, MOVE_LOCK_MARKER), "", { mode: 0o600 });
   writeMoveState(stateRoot, moved);
   return moved;
+}
+
+/** Records the first batch served ("move" only; later calls keep the first
+ *  time). Returns true when this call set it (the caller audits
+ *  office.movePulled once). */
+export function markMoveServed(stateRoot: string, now: Date): boolean {
+  const current = readStateFile(stateRoot);
+  if (!current || current.state !== "move" || current.servedAt !== undefined)
+    return false;
+  writeMoveState(stateRoot, { ...current, servedAt: now.getTime() });
+  return true;
+}
+
+/** "move" -> "moved". `newOrigin` must already be a bare http(s) origin
+ *  (moveOriginFrom). Throws MoveStateError("not_locked") otherwise. */
+export function markMoveDone(
+  stateRoot: string,
+  input: { manifestId: string; newOrigin: string; now: Date },
+): MoveStateMoved {
+  const current = readStateFile(stateRoot);
+  if (!current || current.state !== "move")
+    throw new MoveStateError(
+      "not_locked",
+      "The office is not locked for the move.",
+    );
+  const done: MoveStateMoved = {
+    ...current,
+    state: "moved",
+    doneAt: input.now.getTime(),
+    manifestId: input.manifestId,
+    newOrigin: input.newOrigin,
+  };
+  writeMoveState(stateRoot, done);
+  return done;
+}
+
+/** The http(s) origin of a URL the new office sends, or null for anything
+ *  else. */
+export function moveOriginFrom(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  return url.origin;
 }
 
 /** The owner's cancel in "code" or "paired": deletes the state file and
@@ -395,7 +469,7 @@ export function markMoveLocked(
 export function cancelMove(stateRoot: string, now: Date): MoveState | null {
   const { current } = readMoveState(stateRoot, now);
   if (!current) return null;
-  if (current.state === "move")
+  if (current.state === "move" || current.state === "moved")
     throw new MoveStateError(
       "move_locked",
       "The office is locked for the move. Only the move code ends it.",
@@ -404,10 +478,11 @@ export function cancelMove(stateRoot: string, now: Date): MoveState | null {
   return current;
 }
 
-/** The cancel by code in "move": a code whose token hash matches writes
- *  MOVE_CANCELLED_FILE, then deletes the state file. Returns false (and
- *  changes nothing) for a wrong code or a state other than "move". A record
- *  that cannot be written throws, and the move stays. */
+/** The cancel by code in "move" or "moved": a code whose token hash matches
+ *  writes MOVE_CANCELLED_FILE, then deletes the state file and the lock
+ *  marker. Returns false (and changes nothing) for a wrong code or another
+ *  state. A record that cannot be written throws, and the move stays. The
+ *  route asks for confirmMoved in "moved" before it calls this. */
 export function cancelMoveByCode(
   stateRoot: string,
   code: string,
@@ -416,13 +491,15 @@ export function cancelMoveByCode(
   const parts = parseMoveCode(code);
   if (!parts) return false;
   const { current } = readMoveState(stateRoot, now);
-  if (!current || current.state !== "move") return false;
+  if (!current || (current.state !== "move" && current.state !== "moved"))
+    return false;
   if (!hashEquals(sha256(parts.token), current.tokenHash)) return false;
   const path = join(stateRoot, MOVE_CANCELLED_FILE);
   writeFileSync(path, `${JSON.stringify({ at: now.toISOString() })}\n`, {
     mode: 0o600,
   });
   rmSync(join(stateRoot, MOVE_STATE_FILE), { force: true });
+  rmSync(join(stateRoot, MOVE_LOCK_MARKER), { force: true });
   return true;
 }
 
@@ -449,9 +526,11 @@ export function clearMoveCancelled(stateRoot: string): void {
 }
 
 /** A security lockdown wins over a move: deletes the state file (code, key
- *  and session). The units record stays, so the unlock's normal boot
- *  restores the units. Returns whether a file was deleted. */
+ *  and session) and the lock marker. The units record stays, so the
+ *  unlock's normal boot restores the units. Returns whether a state file was
+ *  deleted. */
 export function killMoveForLockdown(stateRoot: string): boolean {
+  rmSync(join(stateRoot, MOVE_LOCK_MARKER), { force: true });
   const path = join(stateRoot, MOVE_STATE_FILE);
   if (!existsSync(path)) return false;
   rmSync(path, { force: true });
@@ -459,9 +538,10 @@ export function killMoveForLockdown(stateRoot: string): boolean {
 }
 
 /** How this process boots. "lockdown" when a lock marker locks it (it wins);
- *  else "move" when the state is "move" and no cancel record exists; else
- *  "normal". A cancel record with a state file still there deletes the state
- *  file (a crash between the two cancel steps). */
+ *  else "move" when the state is "move" or "moved" and no cancel record
+ *  exists, or when the state file does not read and the move's lock marker
+ *  is there (N1); else "normal". A cancel record deletes a state file and a
+ *  marker still there (a crash between the cancel steps). */
 export function moveBootMode(
   stateRoot: string,
   opts: { rootMarkerDir?: string } = {},
@@ -470,20 +550,33 @@ export function moveBootMode(
     return "lockdown";
   if (existsSync(join(stateRoot, MOVE_CANCELLED_FILE))) {
     rmSync(join(stateRoot, MOVE_STATE_FILE), { force: true });
+    rmSync(join(stateRoot, MOVE_LOCK_MARKER), { force: true });
     return "normal";
   }
-  return readStateFile(stateRoot)?.state === "move" ? "move" : "normal";
+  const state = readStateFile(stateRoot);
+  if (state)
+    return state.state === "move" || state.state === "moved"
+      ? "move"
+      : "normal";
+  // N1: a state file that does not read, with the lock marker, stays locked.
+  return existsSync(join(stateRoot, MOVE_STATE_FILE)) &&
+    existsSync(join(stateRoot, MOVE_LOCK_MARKER))
+    ? "move"
+    : "normal";
 }
 
 /** The largest body a public move route reads. */
 export const MOVE_BODY_MAX_BYTES = 64 * 1024;
 
-/** A public move route's body as text, or null over
- *  MOVE_BODY_MAX_BYTES (by Content-Length, or while it streams in), so a
+/** A public move route's body as text, or null over `maxBytes` (default
+ *  MOVE_BODY_MAX_BYTES; by Content-Length, or while it streams in), so a
  *  caller without a code cannot make the office hold a big body. */
-export async function readMoveBody(req: Request): Promise<string | null> {
+export async function readMoveBody(
+  req: Request,
+  maxBytes = MOVE_BODY_MAX_BYTES,
+): Promise<string | null> {
   const declared = Number(req.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > MOVE_BODY_MAX_BYTES) return null;
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
   if (!req.body) return "";
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -492,7 +585,7 @@ export async function readMoveBody(req: Request): Promise<string | null> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MOVE_BODY_MAX_BYTES) {
+    if (size > maxBytes) {
       await reader.cancel().catch(() => {});
       return null;
     }
@@ -503,7 +596,7 @@ export async function readMoveBody(req: Request): Promise<string | null> {
 
 export class MoveStateError extends Error {
   constructor(
-    readonly code: "move_paired" | "not_paired" | "move_locked",
+    readonly code: "move_paired" | "not_paired" | "move_locked" | "not_locked",
     message: string,
   ) {
     super(message);

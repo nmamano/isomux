@@ -3136,6 +3136,16 @@ export const zh: Catalog = {
   "moving.cancelledHeading": "迁移已取消",
   "moving.cancelledBody":
     "办公室正在这台机器上重新启动。请在一分钟后重新加载此页面。",
+  "moving.servedWarning": "新机器可能已经有办公室的完整副本。",
+  "moving.unreadableBody": "这里无法取消迁移。请让管理这台机器的人结束迁移。",
+  "moving.movedTitle": "办公室已迁移",
+  "moving.movedHeading": "此办公室已迁移到另一台机器",
+  "moving.movedBody": "它现在运行在 {origin}。",
+  "moving.movedCancelHint": "要在这里重新启动办公室，请输入迁移代码。",
+  "moving.movedWarning":
+    "届时办公室会在两台机器上同时运行，包括它的智能体、计划任务、Webhook、Discord 机器人和 WhatsApp 关联。",
+  "moving.confirmMovedLabel": "我知道办公室会在两台机器上同时运行",
+  "moving.confirmMovedRequired": "勾选此框以在这里重新启动办公室。",
   "locked.title": "办公室已锁定",
   "locked.heading": "此办公室已锁定",
   "locked.body": "所有者已将其锁定。解锁之前，任何人都无法登录或使用它。",

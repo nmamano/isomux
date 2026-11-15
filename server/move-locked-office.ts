@@ -23,8 +23,25 @@ import {
 import {
   cancelMoveByCode,
   checkMoveSession,
+  markMoveDone,
+  markMoveServed,
+  MOVE_STATE_FILE,
+  moveOriginFrom,
   readMoveBody,
+  readMoveState,
+  type MoveState,
+  type MoveStateMove,
+  type MoveStateMoved,
 } from "./office-move.ts";
+import {
+  MOVE_BATCH_BODY_MAX_BYTES,
+  moveItemsHash,
+  sealMoveStream,
+  writeMoveBatch,
+  type MoveBatchItem,
+  type MoveBatchSource,
+  type MoveManifestJobs,
+} from "./office-move-pull.ts";
 import {
   MOVE_UNITS_FILE,
   stopRecordedUnits,
@@ -48,8 +65,22 @@ const MOVE_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
 };
 
+/** The pull (slice 2a): served only here, in "move". */
+export interface MovePullDeps {
+  manifests: MoveManifestJobs;
+  batch: MoveBatchSource;
+}
+
 export interface MoveLockedOfficeOpts {
   stateRoot: string;
+  /** The pull routes; without it they answer 404. */
+  pull?: MovePullDeps;
+  /** The two audit rows of the pull. Production opens the audit store only
+   *  for the write. */
+  audit?(input: {
+    operation: "office.movePulled" | "office.moveDone";
+    state: MoveState;
+  }): void;
   port: number;
   hostname?: string;
   apps: LockdownApps;
@@ -67,7 +98,10 @@ export interface MoveLockedOfficeHandle {
 /** The answer to a request while the office moves. */
 export async function moveLockedResponse(
   req: Request,
-  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "requestStop" | "now">,
+  opts: Pick<
+    MoveLockedOfficeOpts,
+    "stateRoot" | "requestStop" | "now" | "pull" | "audit"
+  >,
 ): Promise<Response> {
   let path = "";
   try {
@@ -99,7 +133,273 @@ export async function moveLockedResponse(
   }
   if (path === MOVE_CANCEL_PATH && req.method === "POST")
     return cancel(req, opts);
-  return page(req, "moving", 503);
+  const pullRoute = pullRouteOf(req.method, path);
+  if (pullRoute) return pullResponse(req, pullRoute, opts);
+  return page(req, pageKind(opts), 503);
+}
+
+type PullRoute =
+  | { kind: "manifest" }
+  | { kind: "manifestStatus"; id: string }
+  | { kind: "manifestData"; id: string }
+  | { kind: "batch" }
+  | { kind: "done" };
+
+function pullRouteOf(method: string, path: string): PullRoute | null {
+  if (path === "/api/move/manifest" && method === "POST")
+    return { kind: "manifest" };
+  if (path === "/api/move/batch" && method === "POST") return { kind: "batch" };
+  if (path === "/api/move/done" && method === "POST") return { kind: "done" };
+  const m = /^\/api\/move\/manifest\/([^/]+)(\/data)?$/.exec(path);
+  if (m && method === "GET") {
+    let id = "";
+    try {
+      id = decodeURIComponent(m[1]);
+    } catch {
+      // A bad % sequence names no manifest.
+    }
+    return m[2] ? { kind: "manifestData", id } : { kind: "manifestStatus", id };
+  }
+  return null;
+}
+
+const SESSION_INVALID = {
+  code: "move_session_invalid",
+  message: "No move session, or it is wrong or expired.",
+};
+
+function fail(status: number, code: string, message: string): Response {
+  return json({ error: { code, message } }, status);
+}
+
+/** The pull (slice 2a): every route takes the move session, then needs the
+ *  state "move". */
+async function pullResponse(
+  req: Request,
+  route: PullRoute,
+  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now" | "pull" | "audit">,
+): Promise<Response> {
+  const pull = opts.pull;
+  if (!pull) return fail(404, "not_found", "No such move route.");
+  const state = checkMoveSession(
+    opts.stateRoot,
+    req.headers.get("authorization"),
+    opts.now(),
+  );
+  if (!state) return json({ error: SESSION_INVALID }, 401);
+  if (state.state !== "move")
+    return fail(409, "not_locked", "The office is not locked for the move.");
+  const key = Buffer.from(state.key, "base64url");
+  switch (route.kind) {
+    case "manifest": {
+      const started = pull.manifests.start(state.sessionHash);
+      return started.ok
+        ? json({ id: started.id }, 202)
+        : fail(409, "manifest_running", started.message);
+    }
+    case "manifestStatus": {
+      const status = route.id
+        ? pull.manifests.status(route.id, state.sessionHash)
+        : null;
+      return status
+        ? json(status, 200)
+        : fail(404, "not_found", "No such manifest.");
+    }
+    case "manifestData": {
+      const file = route.id
+        ? pull.manifests.dataFile(route.id, state.sessionHash)
+        : null;
+      if (!file) return fail(404, "not_found", "No ready manifest of that id.");
+      const id = route.id;
+      async function* data(): AsyncGenerator<Uint8Array> {
+        for await (const chunk of Bun.file(file!).stream()) yield chunk;
+        pull!.manifests.markServed(id);
+      }
+      return sealed(
+        sealMoveStream(
+          key,
+          { route: "manifest", manifestId: id, batch: 0, itemsHash: "" },
+          data(),
+        ),
+      );
+    }
+    case "batch":
+      return batch(req, state, key, pull, opts);
+    case "done":
+      return done(req, state, pull, opts);
+  }
+}
+
+function sealed(body: ReadableStream<Uint8Array>): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { ...MOVE_HEADERS, "Content-Type": "application/octet-stream" },
+  });
+}
+
+async function readJsonObject(
+  req: Request,
+  maxBytes?: number,
+): Promise<Record<string, unknown> | "too_large" | null> {
+  const text = await readMoveBody(req, maxBytes);
+  if (text === null) return "too_large";
+  try {
+    const v: unknown = JSON.parse(text);
+    return v && typeof v === "object" && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function asItems(v: unknown): MoveBatchItem[] | null {
+  if (!Array.isArray(v)) return null;
+  const items: MoveBatchItem[] = [];
+  for (const raw of v) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const { path, offset, length } = raw as Record<string, unknown>;
+    if (typeof path !== "string") return null;
+    if (offset !== undefined && typeof offset !== "number") return null;
+    if (length !== undefined && typeof length !== "number") return null;
+    items.push({
+      path,
+      ...(offset !== undefined ? { offset } : {}),
+      ...(length !== undefined ? { length } : {}),
+    });
+  }
+  return items;
+}
+
+async function batch(
+  req: Request,
+  state: MoveStateMove,
+  key: Buffer,
+  pull: MovePullDeps,
+  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now" | "audit">,
+): Promise<Response> {
+  // Read only now, after the session check: the cap is larger here.
+  const body = await readJsonObject(req, MOVE_BATCH_BODY_MAX_BYTES);
+  if (body === "too_large")
+    return fail(413, "body_too_large", "The body is larger than 1 MB.");
+  const items = asItems(body?.items);
+  const manifestId = body?.manifestId;
+  const n = body?.batch;
+  if (
+    !body ||
+    !items ||
+    typeof manifestId !== "string" ||
+    typeof n !== "number" ||
+    !Number.isSafeInteger(n) ||
+    n < 0
+  )
+    return fail(
+      400,
+      "invalid_request",
+      "The body must be {manifestId, batch, items: [{path, offset?, length?}]}.",
+    );
+  if (!pull.manifests.dataFile(manifestId, state.sessionHash))
+    return fail(409, "manifest_unknown", "No ready manifest of that id.");
+  try {
+    if (markMoveServed(opts.stateRoot, opts.now()))
+      opts.audit?.({
+        operation: "office.movePulled",
+        state: readMoveState(opts.stateRoot, opts.now()).current ?? state,
+      });
+  } catch (err) {
+    console.error("[move] could not record the first batch:", err);
+  }
+  return sealed(
+    sealMoveStream(
+      key,
+      {
+        route: "batch",
+        manifestId,
+        batch: n,
+        itemsHash: moveItemsHash(items),
+      },
+      writeMoveBatch(pull.batch, items),
+    ),
+  );
+}
+
+async function done(
+  req: Request,
+  state: MoveStateMove,
+  pull: MovePullDeps,
+  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now" | "audit">,
+): Promise<Response> {
+  const body = await readJsonObject(req);
+  if (body === "too_large")
+    return fail(413, "body_too_large", "The body is larger than 64 KB.");
+  const manifestId = body?.manifestId;
+  if (!body || typeof manifestId !== "string")
+    return fail(
+      400,
+      "invalid_request",
+      "The body must be {manifestId, newOrigin}.",
+    );
+  const newOrigin = moveOriginFrom(body.newOrigin);
+  if (!newOrigin)
+    return fail(400, "invalid_origin", "newOrigin must be an http(s) URL.");
+  if (!pull.manifests.served(manifestId, state.sessionHash))
+    return fail(
+      409,
+      "manifest_not_served",
+      "The new office has not pulled that manifest.",
+    );
+  let moved: MoveStateMoved;
+  try {
+    moved = markMoveDone(opts.stateRoot, {
+      manifestId,
+      newOrigin,
+      now: opts.now(),
+    });
+  } catch (err) {
+    console.error("[move] could not record the end of the move:", err);
+    return fail(500, "done_failed", "The office could not record the move.");
+  }
+  try {
+    opts.audit?.({ operation: "office.moveDone", state: moved });
+  } catch (err) {
+    console.error("[move] could not write the audit row:", err);
+  }
+  console.log(`[move] the office moved to ${newOrigin}`);
+  return json({ moved: true }, 200);
+}
+
+type PageKind =
+  | { kind: "moving"; served: boolean }
+  | { kind: "moved"; origin: string }
+  | { kind: "unreadable" }
+  | { kind: "cancelled" };
+
+/** A line the page shows over the cancel form after a refused cancel. */
+type PageError = "wrongCode" | "confirmMoved";
+
+// The page for the state on disk. A state file that does not read (N1)
+// gets a page without the cancel form: the code cannot be checked.
+function pageKind(
+  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now">,
+): PageKind {
+  const current = currentState(opts);
+  if (current?.state === "moved")
+    return { kind: "moved", origin: current.newOrigin };
+  if (current?.state === "move")
+    return { kind: "moving", served: current.servedAt !== undefined };
+  if (!current && existsSync(join(opts.stateRoot, MOVE_STATE_FILE)))
+    return { kind: "unreadable" };
+  return { kind: "moving", served: false };
+}
+
+function currentState(
+  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now">,
+): MoveState | null {
+  try {
+    return readMoveState(opts.stateRoot, opts.now()).current;
+  } catch {
+    return null;
+  }
 }
 
 async function cancel(
@@ -121,18 +421,41 @@ async function cancel(
           },
           413,
         )
-      : page(req, "wrongCode", 413);
+      : page(req, pageKind(opts), 413, "wrongCode");
   let code = "";
+  let confirmMoved = false;
   try {
     if (isJson) {
-      const body = JSON.parse(text) as { code?: unknown } | null;
+      const body = JSON.parse(text) as {
+        code?: unknown;
+        confirmMoved?: unknown;
+      } | null;
       if (typeof body?.code === "string") code = body.code;
+      confirmMoved = body?.confirmMoved === true;
     } else {
-      code = new URLSearchParams(text).get("code") ?? "";
+      const form = new URLSearchParams(text);
+      code = form.get("code") ?? "";
+      confirmMoved = !!form.get("confirmMoved");
     }
   } catch {
     // An unreadable body is a wrong code.
   }
+  // MOVED: the office runs on the new machine. Ending the move here starts
+  // it on both, so the owner must say they know.
+  const current = currentState(opts);
+  if (current?.state === "moved" && !confirmMoved)
+    return isJson
+      ? json(
+          {
+            error: {
+              code: "moved_confirm_required",
+              message:
+                "The office already moved. Send confirmMoved: true to start it here again too.",
+            },
+          },
+          409,
+        )
+      : page(req, pageKind(opts), 409, "confirmMoved");
   let cancelled = false;
   try {
     cancelled = cancelMoveByCode(opts.stateRoot, code, opts.now());
@@ -148,7 +471,7 @@ async function cancel(
           },
           500,
         )
-      : page(req, "moving", 500);
+      : page(req, pageKind(opts), 500);
   }
   if (!cancelled)
     return isJson
@@ -161,7 +484,7 @@ async function cancel(
           },
           403,
         )
-      : page(req, "wrongCode", 403);
+      : page(req, pageKind(opts), 403, "wrongCode");
   console.log("[move] cancelled by code; the office starts again");
   setTimeout(() => {
     try {
@@ -170,7 +493,9 @@ async function cancel(
       console.error("[move] could not stop:", err);
     }
   }, STOP_DELAY_MS);
-  return isJson ? json({ cancelled: true }, 200) : page(req, "cancelled", 200);
+  return isJson
+    ? json({ cancelled: true }, 200)
+    : page(req, { kind: "cancelled" }, 200);
 }
 
 function json(body: unknown, status: number): Response {
@@ -182,30 +507,54 @@ function json(body: unknown, status: number): Response {
 
 function page(
   req: Request,
-  kind: "moving" | "wrongCode" | "cancelled",
+  kind: PageKind,
   status: number,
+  error?: PageError,
 ): Response {
   const i18n = translatorFor(
     languageFromAcceptLanguage(req.headers.get("accept-language")),
   );
   const { t } = i18n;
-  const content =
-    kind === "cancelled"
-      ? `<h1>${escapeHtml(t("moving.cancelledHeading"))}</h1>
-<p>${escapeHtml(t("moving.cancelledBody"))}</p>`
-      : `<h1>${escapeHtml(t("moving.heading"))}</h1>
-<p>${escapeHtml(t("moving.body"))}</p>
-${kind === "wrongCode" ? `<p class="error">${escapeHtml(t("moving.wrongCode"))}</p>\n` : ""}<form method="post" action="${MOVE_CANCEL_PATH}">
-<p>${escapeHtml(t("moving.cancelHint"))}</p>
-<label for="code">${escapeHtml(t("moving.codeLabel"))}</label>
-<input id="code" name="code" type="password" autocomplete="off" required />
+  const p = (text: string, cls?: string) =>
+    `<p${cls ? ` class="${cls}"` : ""}>${escapeHtml(text)}</p>\n`;
+  const errorLine =
+    error === "wrongCode"
+      ? p(t("moving.wrongCode"), "error")
+      : error === "confirmMoved"
+        ? p(t("moving.confirmMovedRequired"), "error")
+        : "";
+  const codeField = `<label for="code">${escapeHtml(t("moving.codeLabel"))}</label>
+<input id="code" name="code" type="password" autocomplete="off" required />\n`;
+  let content: string;
+  switch (kind.kind) {
+    case "cancelled":
+      content = `<h1>${escapeHtml(t("moving.cancelledHeading"))}</h1>\n${p(t("moving.cancelledBody"))}`;
+      break;
+    case "unreadable":
+      content = `<h1>${escapeHtml(t("moving.heading"))}</h1>\n${p(t("moving.unreadableBody"))}`;
+      break;
+    case "moved":
+      // The origin is text, never a link: it comes from the new office.
+      content = `<h1>${escapeHtml(t("moving.movedHeading"))}</h1>
+${p(t("moving.movedBody", { origin: kind.origin }))}${errorLine}<form method="post" action="${MOVE_CANCEL_PATH}">
+${p(t("moving.movedCancelHint"))}${p(t("moving.movedWarning"), "warning")}${codeField}<label class="check"><input name="confirmMoved" type="checkbox" value="yes" required /> ${escapeHtml(t("moving.confirmMovedLabel"))}</label>
 <button type="submit">${escapeHtml(t("moving.cancel"))}</button>
 </form>`;
+      break;
+    case "moving":
+      content = `<h1>${escapeHtml(t("moving.heading"))}</h1>
+${p(t("moving.body"))}${errorLine}<form method="post" action="${MOVE_CANCEL_PATH}">
+${p(t("moving.cancelHint"))}${kind.served ? p(t("moving.servedWarning"), "warning") : ""}${codeField}<button type="submit">${escapeHtml(t("moving.cancel"))}</button>
+</form>`;
+      break;
+  }
+  const title =
+    kind.kind === "moved" ? t("moving.movedTitle") : t("moving.title");
   const body = `<!doctype html>
 <html lang="${i18n.language}">
 <head>
 <meta charset="utf-8" />
-<title>Isomux - ${escapeHtml(t("moving.title"))}</title>
+<title>Isomux - ${escapeHtml(title)}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root { color-scheme: light dark; }
@@ -213,8 +562,11 @@ ${kind === "wrongCode" ? `<p class="error">${escapeHtml(t("moving.wrongCode"))}<
   h1 { font-size: 1.5rem; margin-bottom: 0.5em; }
   form { margin-top: 2em; }
   label { display: block; font-weight: 600; margin-bottom: 0.25em; }
+  label.check { font-weight: normal; margin-bottom: 0.75em; }
   input { box-sizing: border-box; width: 100%; padding: 8px; margin-bottom: 0.75em; }
+  input[type="checkbox"] { width: auto; margin: 0 0.5em 0 0; }
   .error { color: #c62828; }
+  .warning { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -233,7 +585,8 @@ function escapeHtml(s: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /** Applies the move effects again (apps stopped, the recorded units stopped
@@ -274,7 +627,8 @@ export async function startMoveLockedOffice(
   };
 }
 
-function readUnitsRecord(stateRoot: string): AgentUnit[] {
+/** The units the lock recorded (move-units.json); [] without a record. */
+export function readUnitsRecord(stateRoot: string): AgentUnit[] {
   const path = join(stateRoot, MOVE_UNITS_FILE);
   if (!existsSync(path)) return [];
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));

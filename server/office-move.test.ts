@@ -29,13 +29,17 @@ import {
   cancelMoveByCode,
   checkMoveSession,
   killMoveForLockdown,
+  markMoveDone,
   markMoveLocked,
+  markMoveServed,
   mintMoveCode,
   MOVE_CANCELLED_FILE,
+  MOVE_LOCK_MARKER,
   MOVE_CODE_TTL_MS,
   MOVE_SESSION_TTL_MS,
   MOVE_STATE_FILE,
   moveBootMode,
+  moveOriginFrom,
   moveReleaseRefusal,
   MoveStateError,
   parseMoveCode,
@@ -609,5 +613,165 @@ describe("the boot gate", () => {
     expect(existsSync(stateFile(root))).toBe(false);
     // The record stays for the normal boot, which audits the cancel.
     expect(readMoveCancelled(root)).toEqual({ at: at(1_000).toISOString() });
+  });
+});
+
+// Slice 2a: the pull's marks on the state, the MOVED state, and the lock
+// marker that keeps an unreadable state file locked (N1).
+const marker = (root: string) => join(root, MOVE_LOCK_MARKER);
+
+function moved(root: string, now = T0) {
+  const locked = lockMove(root, now);
+  markMoveDone(root, {
+    manifestId: "m-1",
+    newOrigin: "https://new.example.com",
+    now,
+  });
+  return locked;
+}
+
+describe("the pull's marks and MOVED", () => {
+  it("the first batch served is marked once, and only in a locked move", () => {
+    const root = stateRoot();
+    pair(root);
+    expect(markMoveServed(root, at(1_000))).toBe(false);
+    expect(JSON.parse(rawState(root)).servedAt).toBeUndefined();
+
+    markMoveLocked(root, { preflightId: "pf-1", now: at(2_000) });
+    expect(markMoveServed(root, at(3_000))).toBe(true);
+    expect(markMoveServed(root, at(4_000))).toBe(false);
+    expect(JSON.parse(rawState(root))).toMatchObject({
+      state: "move",
+      servedAt: at(3_000).getTime(),
+    });
+  });
+
+  it("done turns a locked move into MOVED with the new origin, keeps the session, and only once", () => {
+    const root = stateRoot();
+    pair(root);
+    expect(() =>
+      markMoveDone(root, {
+        manifestId: "m-1",
+        newOrigin: "https://new.example.com",
+        now: at(1_000),
+      }),
+    ).toThrow(MoveStateError);
+    expect(readMoveState(root, at(1_000)).current?.state).toBe("paired");
+
+    rmSync(stateFile(root));
+    const { session } = lockMove(root, at(2_000));
+    const done = markMoveDone(root, {
+      manifestId: "m-7",
+      newOrigin: "https://new.example.com",
+      now: at(3_000),
+    });
+    expect(done).toMatchObject({
+      state: "moved",
+      manifestId: "m-7",
+      newOrigin: "https://new.example.com",
+      doneAt: at(3_000).getTime(),
+    });
+    expect(JSON.parse(rawState(root)).state).toBe("moved");
+    expect(checkMoveSession(root, `Bearer ${session}`, at(4_000))?.state).toBe(
+      "moved",
+    );
+    let err: unknown = null;
+    try {
+      markMoveDone(root, {
+        manifestId: "m-8",
+        newOrigin: "https://other.example.com",
+        now: at(5_000),
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect((err as MoveStateError | null)?.code).toBe("not_locked");
+    expect(JSON.parse(rawState(root)).manifestId).toBe("m-7");
+  });
+
+  it("MOVED never expires, and neither the owner's cancel nor a new code ends it", () => {
+    const root = stateRoot();
+    moved(root);
+    const later = at(30 * 24 * 60 * 60_000);
+    expect(readMoveState(root, later).current?.state).toBe("moved");
+    expect(() => cancelMove(root, later)).toThrow(MoveStateError);
+    expect(() => mint(root, later)).toThrow(MoveStateError);
+    expect(readMoveState(root, later).current?.state).toBe("moved");
+  });
+
+  it("keeps only the http(s) origin of the new office's URL", () => {
+    expect(moveOriginFrom("https://new.example.com:8443/a/b?c=1#d")).toBe(
+      "https://new.example.com:8443",
+    );
+    expect(moveOriginFrom("http://100.64.0.7:4000")).toBe(
+      "http://100.64.0.7:4000",
+    );
+    for (const bad of [
+      "javascript:alert(1)",
+      "ftp://new.example.com",
+      "data:text/html,x",
+      "new.example.com",
+      "",
+      42,
+      null,
+      { href: "https://new.example.com" },
+    ])
+      expect([bad, moveOriginFrom(bad)]).toEqual([bad, null]);
+  });
+});
+
+describe("the lock marker (N1)", () => {
+  it("the lock writes it; the cancel by code and a lockdown delete it, also from MOVED", () => {
+    const root = stateRoot();
+    pair(root);
+    expect(existsSync(marker(root))).toBe(false);
+    markMoveLocked(root, { preflightId: "pf-1", now: T0 });
+    expect(existsSync(marker(root))).toBe(true);
+    killMoveForLockdown(root);
+    expect(existsSync(marker(root))).toBe(false);
+
+    const second = join(dir, "second", ".isomux");
+    mkdirSync(second, { recursive: true });
+    const { code } = moved(second);
+    expect(existsSync(marker(second))).toBe(true);
+    expect(cancelMoveByCode(second, code, at(1_000))).toBe(true);
+    expect(existsSync(marker(second))).toBe(false);
+    expect(existsSync(stateFile(second))).toBe(false);
+  });
+
+  it("boots MOVED and a marked unreadable state file locked, and an unmarked or missing one normal", () => {
+    const root = stateRoot();
+    const markers = noRootMarkers();
+    const mode = () => moveBootMode(root, { rootMarkerDir: markers });
+    moved(root);
+    expect(mode()).toBe("move");
+
+    writeFileSync(stateFile(root), "{not json");
+    expect(existsSync(marker(root))).toBe(true);
+    expect(mode()).toBe("move");
+    rmSync(marker(root));
+    expect(mode()).toBe("normal");
+
+    // A marker the state file no longer backs: a readable pairing, or no file.
+    writeFileSync(marker(root), "");
+    rmSync(stateFile(root));
+    expect(mode()).toBe("normal");
+    pair(root);
+    expect(mode()).toBe("normal");
+  });
+
+  it("a cancel record wins over a marked unreadable state file, and the boot clears the marker", () => {
+    const root = stateRoot();
+    const markers = noRootMarkers();
+    lockMove(root);
+    expect(existsSync(marker(root))).toBe(true);
+    writeFileSync(stateFile(root), "{not json");
+    writeFileSync(
+      join(root, MOVE_CANCELLED_FILE),
+      JSON.stringify({ at: at(1_000).toISOString() }),
+    );
+    expect(moveBootMode(root, { rootMarkerDir: markers })).toBe("normal");
+    expect(existsSync(stateFile(root))).toBe(false);
+    expect(existsSync(marker(root))).toBe(false);
   });
 });

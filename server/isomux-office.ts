@@ -124,7 +124,7 @@ import {
   saveBackupSettings,
   type BackupStatus,
 } from "./backup.ts";
-import { getVersionInfo } from "./version.ts";
+import { getVersionInfo, PROJECT_ROOT } from "./version.ts";
 import { setTrustedProxy } from "./proxy-trust.ts";
 import {
   CLAUDE_NATIVE_BIN,
@@ -408,6 +408,7 @@ import {
   readMoveState,
 } from "./office-move.ts";
 import { startMoveLockedOffice } from "./move-locked-office.ts";
+import { movePullForBoot } from "./move-pull-boot.ts";
 import { createSystemdHost } from "./app-supervisor.ts";
 import { officeUnitFromCgroup, unitPrefixFor } from "./office-units.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
@@ -6550,15 +6551,23 @@ async function startMoveLockedOfficeFromBoot(): Promise<void> {
   const cfg = loadServerConfig();
   const external = cfg.externalAccess ?? cfg.publicOrigin !== null;
   const loopback = cfg.networkBind === "loopback" || !external;
+  const now = () => new Date();
   await startMoveLockedOffice({
     stateRoot: STATE_ROOT,
+    ...movePullForBoot({
+      stateRoot: STATE_ROOT,
+      home: homedir(),
+      codeDir: PROJECT_ROOT,
+      backupDir: currentBackupDir(),
+      now,
+    }),
     port: PORT,
     ...(loopback ? { hostname: "127.0.0.1" } : {}),
     apps: lockdownApps(defaultAppSupervisor(process.platform)),
     runUnits: (argv) => createSystemdHost().run(argv),
     // Restart=always starts the office again, now in a normal boot.
     requestStop: () => process.kill(process.pid, "SIGTERM"),
-    now: () => new Date(),
+    now,
   });
 }
 

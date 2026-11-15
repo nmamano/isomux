@@ -26,10 +26,13 @@ import {
   lockMarkerBody,
   type LockdownApps,
 } from "./lockdown.ts";
+import { Database } from "bun:sqlite";
 import {
+  markMoveDone,
   markMoveLocked,
   mintMoveCode,
   MOVE_CANCELLED_FILE,
+  MOVE_LOCK_MARKER,
   MOVE_STATE_FILE,
   parseMoveCode,
   readMoveCancelled,
@@ -42,6 +45,16 @@ import {
   startMoveLockedOffice,
 } from "./move-locked-office.ts";
 import { MOVE_UNITS_FILE, type AgentUnit } from "./office-move-units.ts";
+import {
+  createMoveManifestJobs,
+  moveItemsHash,
+  openMoveStream,
+  readMoveRecords,
+  type MoveBatchItem,
+  type MoveSealContext,
+} from "./office-move-pull.ts";
+import { createMoveScope } from "./office-move-scope.ts";
+import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
 const REPO = join(import.meta.dir, "..");
 const ENTRY = join(import.meta.dir, "isomux-office.ts");
@@ -429,5 +442,499 @@ describe("the boot gate of the real entry", () => {
     expect(existsSync(join(root, MOVE_STATE_FILE))).toBe(false);
     expect(existsSync(join(root, MOVE_UNITS_FILE))).toBe(true);
     expect(existsSync(join(root, MOVE_CANCELLED_FILE))).toBe(false);
+  }, 30_000);
+});
+
+// Slice 2a: the pull, served only here, and MOVED.
+
+// The code key the state file holds; the new office has it from the code.
+function keyOf(root: string): Uint8Array {
+  const raw = JSON.parse(readFileSync(join(root, MOVE_STATE_FILE), "utf8")) as {
+    key: string;
+  };
+  return Buffer.from(raw.key, "base64url");
+}
+
+async function opened(
+  root: string,
+  res: Response,
+  ctx: MoveSealContext,
+): Promise<Buffer> {
+  expect(res.status).toBe(200);
+  const parts: Uint8Array[] = [];
+  for await (const c of openMoveStream(
+    keyOf(root),
+    ctx,
+    res.body as unknown as AsyncIterable<Uint8Array>,
+  ))
+    parts.push(c);
+  return Buffer.concat(parts);
+}
+
+// The file contents a batch's record stream carries, by path; errors as
+// "error".
+async function batchFiles(plain: Buffer): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  let path = "";
+  async function* one() {
+    yield plain;
+  }
+  for await (const ev of readMoveRecords(one())) {
+    if (ev.type === "entry") {
+      path = ev.path;
+      out[path] = "";
+    } else if (ev.type === "data")
+      out[path] += Buffer.from(ev.bytes).toString();
+    else if (ev.type === "error") out[ev.path] = "error";
+  }
+  return out;
+}
+
+interface Pull {
+  root: string;
+  audits: string[];
+  stops: { n: number };
+  call(
+    method: string,
+    path: string,
+    opts?: { session?: string; body?: unknown; raw?: string },
+  ): Promise<Response>;
+}
+
+// A home with one member file, and the MOVE-locked server's answers over it
+// with the pull wired as production wires it.
+function pullOffice(root: string): Pull {
+  const home = join(root, "..");
+  mkdirSync(join(home, "docs"), { recursive: true });
+  writeFileSync(join(home, "docs", "a.txt"), "alpha");
+  const scope = createMoveScope({
+    home,
+    stateRoot: root,
+    codeDir: REPO,
+    backupDir: join(dir, "backups"),
+  });
+  const scratch = join(root, "move-pull");
+  mkdirSync(scratch, { recursive: true });
+  const now = () => new Date(T0.getTime() + 60_000);
+  const audits: string[] = [];
+  const stops = { n: 0 };
+  const pull = {
+    manifests: createMoveManifestJobs({
+      scope,
+      dir: scratch,
+      units: () => [],
+      secretCount: () => 0,
+      now,
+    }),
+    batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
+  };
+  return {
+    root,
+    audits,
+    stops,
+    call: (method, path, opts = {}) => {
+      const headers: Record<string, string> = {};
+      if (opts.session) headers.Authorization = `Bearer ${opts.session}`;
+      let body: string | undefined;
+      if (opts.raw !== undefined || opts.body !== undefined) {
+        headers["Content-Type"] = "application/json";
+        body = opts.raw ?? JSON.stringify(opts.body);
+      }
+      return moveLockedResponse(
+        new Request(url(path), { method, headers, body }),
+        {
+          stateRoot: root,
+          requestStop: () => {
+            stops.n++;
+          },
+          now,
+          pull,
+          audit: ({ operation }) => {
+            audits.push(operation);
+          },
+        },
+      );
+    },
+  };
+}
+
+async function readyManifest(p: Pull, session: string): Promise<string> {
+  const start = await p.call("POST", "/api/move/manifest", { session });
+  expect(start.status).toBe(202);
+  const { id } = (await start.json()) as { id: string };
+  const deadline = performance.now() + 10_000;
+  for (;;) {
+    const res = await p.call("GET", `/api/move/manifest/${id}`, { session });
+    const s = (await res.json()) as { state: string };
+    if (s.state !== "running" || performance.now() > deadline) {
+      expect(s.state).toBe("ready");
+      return id;
+    }
+    await Bun.sleep(10);
+  }
+}
+
+async function errorCode(res: Response): Promise<string> {
+  return (
+    ((await res.json()) as { error?: { code?: string } }).error?.code ?? ""
+  );
+}
+
+const DONE_ORIGIN = "https://new.example.com:8443";
+
+describe("the pull", () => {
+  it("serves the manifest and the batches sealed to this move; the first batch marks the move served and audits once", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const p = pullOffice(root);
+    const id = await readyManifest(p, session);
+    const data = await opened(
+      root,
+      await p.call("GET", `/api/move/manifest/${id}/data`, { session }),
+      { route: "manifest", manifestId: id, batch: 0, itemsHash: "" },
+    );
+    const paths = data
+      .toString()
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => (JSON.parse(l) as { p: string }).p);
+    expect(paths).toContain("docs/a.txt");
+    expect(p.audits).toEqual([]);
+
+    const items: MoveBatchItem[] = [{ path: "docs/a.txt" }];
+    for (const n of [1, 2]) {
+      const plain = await opened(
+        root,
+        await p.call("POST", "/api/move/batch", {
+          session,
+          body: { manifestId: id, batch: n, items },
+        }),
+        {
+          route: "batch",
+          manifestId: id,
+          batch: n,
+          itemsHash: moveItemsHash(items),
+        },
+      );
+      expect(await batchFiles(plain)).toEqual({ "docs/a.txt": "alpha" });
+    }
+    expect(p.audits).toEqual(["office.movePulled"]);
+    expect(
+      (readMoveState(root, T0).current as { servedAt?: number } | null)
+        ?.servedAt,
+    ).toBe(T0.getTime() + 60_000);
+  });
+
+  it("every pull route needs the move session, and a batch body is read only after it", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const p = pullOffice(root);
+    for (const [method, path] of [
+      ["POST", "/api/move/manifest"],
+      ["GET", "/api/move/manifest/x"],
+      ["GET", "/api/move/manifest/x/data"],
+      ["POST", "/api/move/batch"],
+      ["POST", "/api/move/done"],
+    ] as const) {
+      const res = await p.call(method, path, { session: "wrong", body: {} });
+      expect([path, res.status]).toEqual([path, 401]);
+    }
+    const big = JSON.stringify({ items: [], pad: "x".repeat(2 * 1024 * 1024) });
+    expect((await p.call("POST", "/api/move/batch", { raw: big })).status).toBe(
+      401,
+    );
+    expect(
+      (await p.call("POST", "/api/move/batch", { session, raw: big })).status,
+    ).toBe(413);
+    expect(p.audits).toEqual([]);
+  });
+
+  it("done needs a manifest whose data was served and an http(s) URL; it keeps only the origin and audits once", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const p = pullOffice(root);
+    const id = await readyManifest(p, session);
+    const done = (body: unknown) =>
+      p.call("POST", "/api/move/done", { session, body });
+
+    const early = await done({ manifestId: id, newOrigin: DONE_ORIGIN });
+    expect(early.status).toBeGreaterThanOrEqual(400);
+    expect(readMoveState(root, T0).current?.state).toBe("move");
+
+    await (
+      await p.call("GET", `/api/move/manifest/${id}/data`, { session })
+    ).arrayBuffer();
+    for (const newOrigin of [
+      "javascript:alert(1)",
+      "ftp://new.example.com",
+      "new.example.com",
+      7,
+    ])
+      expect([
+        newOrigin,
+        (await done({ manifestId: id, newOrigin })).status,
+      ]).toEqual([newOrigin, 400]);
+    expect(
+      (await done({ manifestId: "other", newOrigin: DONE_ORIGIN })).status,
+    ).toBeGreaterThanOrEqual(400);
+    expect(readMoveState(root, T0).current?.state).toBe("move");
+    expect(p.audits).toEqual([]);
+
+    const ok = await done({
+      manifestId: id,
+      newOrigin: `${DONE_ORIGIN}/office?x=1#y`,
+    });
+    expect(ok.status).toBe(200);
+    expect(readMoveState(root, T0).current).toMatchObject({
+      state: "moved",
+      manifestId: id,
+      newOrigin: DONE_ORIGIN,
+    });
+    expect(p.audits).toEqual(["office.moveDone"]);
+  });
+
+  it("outside a locked move the pull answers 409 not_locked: paired, and MOVED", async () => {
+    const paired = stateRoot();
+    const { code } = mintMoveCode(paired, {
+      origin: "https://old.example.com",
+      by: "M",
+      now: T0,
+    });
+    const res = redeemMoveCode(paired, {
+      token: parseMoveCode(code)!.token,
+      newBox: BOX,
+      ours: BOX,
+      now: T0,
+    });
+    if (!res.ok) throw new Error(JSON.stringify(res));
+    const routes = [
+      ["POST", "/api/move/manifest"],
+      ["GET", "/api/move/manifest/x"],
+      ["GET", "/api/move/manifest/x/data"],
+      ["POST", "/api/move/batch"],
+      ["POST", "/api/move/done"],
+    ] as const;
+    const p1 = pullOffice(paired);
+    for (const [method, path] of routes) {
+      const r = await p1.call(method, path, {
+        session: res.session,
+        body: { manifestId: "x", batch: 1, items: [], newOrigin: DONE_ORIGIN },
+      });
+      expect([path, r.status, await errorCode(r)]).toEqual([
+        path,
+        409,
+        "not_locked",
+      ]);
+    }
+    rmSync(dir, { recursive: true, force: true });
+
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    markMoveDone(root, { manifestId: "m-1", newOrigin: DONE_ORIGIN, now: T0 });
+    const p2 = pullOffice(root);
+    for (const [method, path] of routes) {
+      const r = await p2.call(method, path, {
+        session,
+        body: {
+          manifestId: "m-1",
+          batch: 1,
+          items: [{ path: "docs/a.txt" }],
+          newOrigin: DONE_ORIGIN,
+        },
+      });
+      expect([path, r.status, await errorCode(r)]).toEqual([
+        path,
+        409,
+        "not_locked",
+      ]);
+    }
+    const status = await p2.call("GET", "/api/move/status", { session });
+    expect(((await status.json()) as { state: string }).state).toBe("moved");
+    expect(p2.audits).toEqual([]);
+  });
+});
+
+describe("MOVED", () => {
+  function movedRoot(origin = DONE_ORIGIN) {
+    const root = stateRoot();
+    const locked = lockedMove(root);
+    markMoveDone(root, { manifestId: "m-1", newOrigin: origin, now: T0 });
+    return { root, ...locked };
+  }
+
+  it("the page names the new office's origin as text, never a link, with a cancel form that asks to confirm", async () => {
+    const { root } = movedRoot();
+    const p = pullOffice(root);
+    const res = await p.call("GET", "/");
+    const html = await res.text();
+    expect(res.headers.get(LOCKED_HEADER)).toBe("1");
+    expect(res.headers.get("content-type") ?? "").toContain("text/html");
+    expect(html).toContain(DONE_ORIGIN);
+    expect(html).not.toMatch(/href=["']?https?:/i);
+    expect(html).not.toMatch(/<script|<link|src=/i);
+    expect(cancelForm(html)).toEqual({
+      form: true,
+      post: true,
+      codeField: true,
+    });
+    expect(html).toMatch(
+      /<input\b[^>]*\btype="checkbox"[^>]*\bname="confirmMoved"|<input\b[^>]*\bname="confirmMoved"[^>]*\btype="checkbox"/i,
+    );
+  });
+
+  it("escapes an origin the state file holds, whatever it holds", async () => {
+    const { root } = movedRoot();
+    const path = join(root, MOVE_STATE_FILE);
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    raw.newOrigin = 'https://x.example"><script>alert(1)</script>';
+    writeFileSync(path, JSON.stringify(raw));
+    const html = await (await pullOffice(root).call("GET", "/")).text();
+    expect(html).not.toMatch(/<script/i);
+  });
+
+  it("the cancel by code from MOVED needs confirmMoved, from the form or as JSON", async () => {
+    for (const kind of ["form", "json"] as const) {
+      const { root, code } = movedRoot();
+      const p = pullOffice(root);
+      const html = await (await p.call("GET", "/")).text();
+      const value =
+        /<input\b[^>]*\bname="confirmMoved"[^>]*>/i
+          .exec(html)?.[0]
+          .match(/\bvalue="([^"]*)"/)?.[1] ?? "on";
+      const send = (confirm: boolean) =>
+        moveLockedResponse(
+          kind === "form"
+            ? new Request(url("/api/move/cancel"), {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams(
+                  confirm ? { code, confirmMoved: value } : { code },
+                ).toString(),
+              })
+            : new Request(url("/api/move/cancel"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(
+                  confirm ? { code, confirmMoved: true } : { code },
+                ),
+              }),
+          { stateRoot: root, requestStop: () => p.stops.n++, now: () => T0 },
+        );
+      const refused = await send(false);
+      expect([kind, refused.status]).toEqual([kind, 409]);
+      if (kind === "json")
+        expect(await errorCode(refused)).toBe("moved_confirm_required");
+      expect(readMoveState(root, T0).current?.state).toBe("moved");
+      expect(readMoveCancelled(root)).toBeNull();
+
+      const ok = await send(true);
+      expect([kind, ok.status]).toEqual([kind, 200]);
+      expect(existsSync(join(root, MOVE_STATE_FILE))).toBe(false);
+      expect(readMoveCancelled(root)).not.toBeNull();
+      await waitFor(() => p.stops.n > 0);
+      expect(p.stops.n).toBe(1);
+      rmSync(dir, { recursive: true, force: true });
+      dir = "";
+    }
+  });
+});
+
+describe("the pull through the real entry", () => {
+  it("the entry wires the pull and its audit: manifest, batch and done over HTTP, then the MOVED page", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    mkdirSync(join(root, "..", "docs"));
+    writeFileSync(join(root, "..", "docs", "a.txt"), "alpha");
+    const o = await bootEntry(root);
+    const base = `http://127.0.0.1:${o.port}`;
+    const auth = { Authorization: `Bearer ${session}` };
+    const start = await fetch(`${base}/api/move/manifest`, {
+      method: "POST",
+      headers: auth,
+    });
+    if (start.status !== 202) console.error(o.log().slice(-3000));
+    expect(start.status).toBe(202);
+    const { id } = (await start.json()) as { id: string };
+    const deadline = performance.now() + 15_000;
+    let state = "running";
+    while (state === "running" && performance.now() < deadline) {
+      await Bun.sleep(50);
+      const s = await fetch(`${base}/api/move/manifest/${id}`, {
+        headers: auth,
+      });
+      state = ((await s.json()) as { state: string }).state;
+    }
+    expect(state).toBe("ready");
+    const data = await opened(
+      root,
+      await fetch(`${base}/api/move/manifest/${id}/data`, { headers: auth }),
+      { route: "manifest", manifestId: id, batch: 0, itemsHash: "" },
+    );
+    expect(data.toString()).toContain('"docs/a.txt"');
+
+    const items: MoveBatchItem[] = [{ path: "docs/a.txt" }];
+    const plain = await opened(
+      root,
+      await fetch(`${base}/api/move/batch`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ manifestId: id, batch: 1, items }),
+      }),
+      {
+        route: "batch",
+        manifestId: id,
+        batch: 1,
+        itemsHash: moveItemsHash(items),
+      },
+    );
+    expect(await batchFiles(plain)).toEqual({ "docs/a.txt": "alpha" });
+
+    const done = await fetch(`${base}/api/move/done`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ manifestId: id, newOrigin: DONE_ORIGIN }),
+    });
+    expect(done.status).toBe(200);
+    const page = await (await fetch(`${base}/`)).text();
+    expect(page).toContain(DONE_ORIGIN);
+
+    const db = new Database(join(root, "office.sqlite"), { readonly: true });
+    try {
+      const ops = (
+        db
+          .query(
+            "SELECT operation FROM audit WHERE operation LIKE 'office.move%' ORDER BY sequence",
+          )
+          .all() as { operation: string }[]
+      ).map((r) => r.operation);
+      expect(ops).toEqual(["office.movePulled", "office.moveDone"]);
+    } finally {
+      db.close();
+    }
+  }, 45_000);
+
+  it("an unreadable state file with the lock marker boots the MOVE page, where no session works", async () => {
+    const root = stateRoot();
+    lockedMove(root);
+    expect(existsSync(join(root, MOVE_LOCK_MARKER))).toBe(true);
+    writeFileSync(join(root, MOVE_STATE_FILE), "{not json");
+    const o = await bootEntry(root);
+    const page = await fetch(`http://127.0.0.1:${o.port}/`, {
+      redirect: "manual",
+    }).catch(() => null);
+    if (!page) console.error(o.log().slice(-3000));
+    expect(
+      page ? [page.status, page.headers.get(LOCKED_HEADER)] : null,
+    ).toEqual([503, "1"]);
+    expect(existsSync(join(root, "office.sqlite"))).toBe(false);
+    const status = await fetch(`http://127.0.0.1:${o.port}/api/move/status`, {
+      headers: { Authorization: "Bearer anything" },
+    });
+    expect(status.status).toBe(401);
   }, 30_000);
 });

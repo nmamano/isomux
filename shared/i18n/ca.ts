@@ -3495,6 +3495,20 @@ Coses que pots fer per ell:
   "moving.cancelledHeading": "El trasllat està cancel·lat",
   "moving.cancelledBody":
     "L'oficina torna a arrencar aquí. Torna a carregar aquesta pàgina d'aquí a un minut.",
+  "moving.servedWarning":
+    "Pot ser que la màquina nova ja tingui una còpia completa de l'oficina.",
+  "moving.unreadableBody":
+    "Aquí no es pot cancel·lar el trasllat. Demana a qui gestiona aquesta màquina que l'acabi.",
+  "moving.movedTitle": "oficina traslladada",
+  "moving.movedHeading": "Aquesta oficina s'ha traslladat a una altra màquina",
+  "moving.movedBody": "Ara funciona a {origin}.",
+  "moving.movedCancelHint":
+    "Per tornar a arrencar l'oficina aquí, introdueix el codi del trasllat.",
+  "moving.movedWarning":
+    "Aleshores l'oficina funcionarà a les dues màquines, amb els seus agents, programacions, webhooks, bots de Discord i vincles de WhatsApp.",
+  "moving.confirmMovedLabel": "Sé que l'oficina funcionarà a les dues màquines",
+  "moving.confirmMovedRequired":
+    "Marca la casella per tornar a arrencar l'oficina aquí.",
   "locked.title": "oficina bloquejada",
   "locked.heading": "Aquesta oficina està bloquejada",
   "locked.body":

@@ -30,7 +30,7 @@ Secrets have their own list next to the variables list, on the office and the pe
 
 **Vouching (D5).** A secret may go to any host that is not on the never-list. Where hosts are entered, the list says that the member vouches the host does not send the credential back (section 2.5).
 
-**Storage.** `STATE_ROOT/secrets/office.json` and `STATE_ROOT/secrets/users/<userId>.json`, 0600 in 0700 directories, written atomically as the env files are (server/user-env.ts:106-130). Each file is `{"version":1,"secrets":[...]}`, sorted by name. No encryption at rest: a key next to the file adds nothing. An office without secrets has no `secrets/` directory. Backups exclude the directory, as they exclude the env files (server/backup.ts:196-202).
+**Storage.** `STATE_ROOT/secrets/office.json` and `STATE_ROOT/secrets/users/<userId>.json`, 0600 in 0700 directories, written atomically as the env files are (server/user-env.ts:106-130). Each file is `{"version":1,"secrets":[...]}`, sorted by name. No encryption at rest: a key next to the file adds nothing. An office without secrets has no `secrets/` directory. Backups exclude the directory, as they exclude the env files (`BACKUP_EXCLUSIONS`, server/backup-exclusions.ts).
 
 **A removed member.** Removal deletes `secrets/users/<userId>.json`, `user-env/<userId>.env` with its notes, and `mcp-servers/users/<userId>.json` (Nil, 2026-10-13). Since task 321e7b8e (Nil, 2026-11-02) it first keeps, for 30 days in `removed-members/<userId>/`, the variables whole, each secret without its value, and the MCP servers with each sign-in reset. A restore writes the secrets back with no value (`value: null`): such a secret is in no proxy snapshot, gets no placeholder, reaches no app or MCP header, and is not listed to agents, until Rotate or a secret request sets a value. The member's agents keep running; those that had a member secret restart after their turn, without it.
 
@@ -228,7 +228,7 @@ Tool support: [curl](https://curl.se/docs/sslcerts.html) reads `CURL_CA_BUNDLE` 
 | Variable routes: owner-only office, self-only personal | server/routes/table.ts:1061-1102 |
 | The office token is in the agent environment | server/agent-manager.ts:5284 |
 | Broker scrub of the office token | server/backends/opencode/authority-broker.ts:376,385-403 |
-| Backups exclude the env files | server/backup.ts:196-202 |
+| Backups exclude the env files | server/backup-exclusions.ts |
 | Log redaction pattern and scope | server/log-redaction.ts:4-10; docs/security-audit.md:268 |
 
 ## Appendix D. Implementation contract (B2)

@@ -3391,6 +3391,19 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "moving.cancelledHeading": "The move is cancelled",
   "moving.cancelledBody":
     "The office starts again here. Reload this page in a minute.",
+  "moving.servedWarning":
+    "The new machine may already hold a full copy of the office.",
+  "moving.unreadableBody":
+    "The move cannot be cancelled here. Ask the person who runs this machine to end it.",
+  "moving.movedTitle": "office moved",
+  "moving.movedHeading": "This office moved to another machine",
+  "moving.movedBody": "It now runs at {origin}.",
+  "moving.movedCancelHint":
+    "To start the office here again, enter the move code.",
+  "moving.movedWarning":
+    "The office will then run on both machines, with its agents, schedules, webhooks, Discord bots and WhatsApp links.",
+  "moving.confirmMovedLabel": "I know the office will run on both machines",
+  "moving.confirmMovedRequired": "Tick the box to start the office here again.",
   "locked.title": "office locked",
   "locked.heading": "This office is locked",
   "locked.body":

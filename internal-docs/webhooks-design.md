@@ -107,7 +107,7 @@ The secret:
 - A hook that passes to another owner gets a new secret: on an agent manager change (`server/isomux-office.ts`), and on a member delete (`server/office-users-routes.ts`).
 - No other response, log row, event, prompt or delivery message contains the secret. A test checks this for every webhook route.
 - Limit, stated plainly: agents run as the same OS user as the server, and the safety policy allows reads of `~/.isomux/`. So an agent can read `secrets.json` from disk. This is the same limit that `server/app-tokens.ts` states for app tokens ("Cross-app secrecy is NOT enforceable at this layer"). "Never shown to agents" means: the office never gives the secret to an agent. It does not mean the OS stops an agent from reading the file. The planned server OS user (security audit, commit a2fdd887) closes this.
-- Backups exclude `webhooks/secrets.json`, in the same way as `apps/units` and `user-env` (`BACKUP_EXCLUSIONS` in `server/backup.ts`), because backups contain no credentials. After a restore, each hook shows "needs a new secret". The owner rotates the secret once and pastes it into GitHub once. See open decision D5.
+- Backups exclude `webhooks/secrets.json`, in the same way as `apps/units` and `user-env` (`BACKUP_EXCLUSIONS` in `server/backup-exclusions.ts`), because backups contain no credentials. After a restore, each hook shows "needs a new secret". The owner rotates the secret once and pastes it into GitHub once. See open decision D5.
 
 Setup by a human: GitHub needs the URL and the secret in its webhook settings. An agent can create the hook and gets the secret once, but it must not print it, so a member does the last step in the UI (section 8). The UI shows the three GitHub fields: payload URL, content type, secret.
 
@@ -387,7 +387,7 @@ Later: a docs section on a path-only Funnel. Funnel makes a whole port public ("
 | Routes and auth | `server/routes/table.ts`, `server/routes/handlers/webhooks.ts` (new), `server/identity/index.ts`, `server/identity/guards.ts`, `server/identity/guard-deps.ts` |
 | Events | `server/events/registry.ts` |
 | Agent docs | `server/agent-reference/webhooks.md` (new), `server/agent-reference.ts`, `server/system-prompt.ts` |
-| Backup and storage | `server/backup.ts` (exclusion), `shared/storage-labels.ts` (category) |
+| Backup and storage | `server/backup-exclusions.ts` (exclusion), `shared/storage-labels.ts` (category) |
 | UI | `ui/components/WebhooksView.tsx` (new), `ui/components/CronjobsView.tsx`, `ui/components/CronjobRunView.tsx`, `ui/store.tsx`, `ui/App.tsx`, `ui/log-view/isomux-curl.ts`, `shared/i18n/{en,es,ca,zh}.ts`, maybe `ui/demo-server.ts` |
 | Docs | `docs/features.md`, `api/chat.ts` feature list, `/help` in `server/command-handlers.ts` if it lists pages; README and landing only if Nil wants webhooks in the highlights (his copy) |
 

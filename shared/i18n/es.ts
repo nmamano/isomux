@@ -3488,6 +3488,21 @@ Cosas que puedes hacer por él:
   "moving.cancelledHeading": "El traslado está cancelado",
   "moving.cancelledBody":
     "La oficina vuelve a arrancar aquí. Recarga esta página en un minuto.",
+  "moving.servedWarning":
+    "Puede que la nueva máquina ya tenga una copia completa de la oficina.",
+  "moving.unreadableBody":
+    "Aquí no se puede cancelar el traslado. Pide a quien gestiona esta máquina que lo termine.",
+  "moving.movedTitle": "oficina trasladada",
+  "moving.movedHeading": "Esta oficina se ha trasladado a otra máquina",
+  "moving.movedBody": "Ahora funciona en {origin}.",
+  "moving.movedCancelHint":
+    "Para volver a arrancar la oficina aquí, introduce el código del traslado.",
+  "moving.movedWarning":
+    "La oficina funcionará entonces en las dos máquinas, con sus agentes, programaciones, webhooks, bots de Discord y vínculos de WhatsApp.",
+  "moving.confirmMovedLabel":
+    "Sé que la oficina funcionará en las dos máquinas",
+  "moving.confirmMovedRequired":
+    "Marca la casilla para volver a arrancar la oficina aquí.",
   "locked.title": "oficina bloqueada",
   "locked.heading": "Esta oficina está bloqueada",
   "locked.body":

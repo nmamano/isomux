@@ -3,9 +3,12 @@
 import { Database } from "bun:sqlite";
 const [source, destination] = process.argv.slice(2);
 if (!source || !destination) throw new Error("Snapshot paths required");
-const db = new Database(source, { readwrite: true });
+// Read-only: VACUUM INTO needs no write, and a read-only connection never
+// changes the source (an office move snapshots members' databases too, and a
+// rollback-journal file must stay one).
+const db = new Database(source, { readonly: true });
 try {
-  db.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;");
+  db.exec("PRAGMA busy_timeout=5000;");
   db.query("VACUUM INTO ?").run(destination);
 } finally {
   db.close();
