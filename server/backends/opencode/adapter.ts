@@ -620,8 +620,10 @@ export function createOpenCodeBackend(
     if (!opts.environmentKey)
       throw new Error("OpenCode session environment identity is required.");
     // An isolated member's profile is in their agent space, which this sync
-    // check does not read: trusted, and the server's resume error shows a
-    // missing one.
+    // check does not read: trusted. The server's 404 for the session then
+    // drops the id (transport sessionNotFoundIn, agent-manager
+    // recoverGoneMemberSession). The rig cannot run OpenCode:
+    // transport-session-gone.test.ts proves it. An empty session resumes.
     if (isMemberEnv(opts.env)) return "durable";
     const own = sessionState(sessionId, opts.environmentKey, opts.access);
     if (own === "durable") return own;

@@ -7,14 +7,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 build-e
 COPY --from=oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /opt/isomux
 COPY package.json bun.lock ./
-RUN ! command -v node && ! command -v npm && ! command -v npx && bun install --frozen-lockfile
+# bun install leaves group- and other-writable files in node_modules. Drop
+# that write here, in the same layer: a recursive chmod in a later layer
+# copies every file into that layer.
+RUN ! command -v node && ! command -v npm && ! command -v npx && bun install --frozen-lockfile \
+    && chmod -R go-w /opt/isomux
 COPY . .
 RUN bun run build:ui && mkdir -p /var/data && chown node:node /var/data \
     && ln -s "$(bun -e 'import { CLAUDE_NATIVE_BIN } from "./server/cwd-utils.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)')" /usr/local/bin/claude \
     && install -o root -g root -m 755 deploy/isomux-member-user.sh /usr/local/sbin/isomux-member-user \
     && install -d -o root -g root -m 755 /etc/isomux \
     && install -o root -g root -m 644 deploy/container/member-user-container.conf /etc/isomux/member-user-container.conf \
-    && chmod -R go-w /opt/isomux
+    && find /opt/isomux ! -type l -perm /022 -exec chmod go-w {} +
 ARG ISOMUX_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/nmamano/isomux" org.opencontainers.image.revision=$ISOMUX_REVISION
 EXPOSE 10000

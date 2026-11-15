@@ -846,7 +846,13 @@ export class OpenCodeTransport {
       } catch {
         console.error("OpenCode error sink failed.");
       } finally {
-        emit({ kind: "turn_completed", status: "failed", error: failure });
+        const sessionNotFound = stringField(asRecord(error), "sessionNotFound");
+        emit({
+          kind: "turn_completed",
+          status: "failed",
+          error: failure,
+          ...(sessionNotFound ? { sessionNotFound } : {}),
+        });
       }
     };
     // The event stream reports its own failures, whatever step the turn is in.
@@ -2910,11 +2916,15 @@ export class OpenCodeTransport {
       },
     });
     if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
+      const sessionNotFound =
+        response.status === 404
+          ? await sessionNotFoundIn(response)
+          : (await response.body?.cancel().catch(() => undefined), undefined);
       throw Object.assign(
         new Error(`OpenCode HTTP ${response.status} at ${url.pathname}.`),
         {
           statusCode: response.status,
+          ...(sessionNotFound ? { sessionNotFound } : {}),
         },
       );
     }
@@ -3360,6 +3370,39 @@ export type OpenCodeSafeErrorSink = (
 
 // name: the 2.1.4 error type of an OpenCode failure ("provider.auth"), or a
 // reviewed class name of a local one.
+// OpenCode answers a route of a session it does not have with 404 and
+// {"_tag":"SessionNotFoundError","sessionID":...} (2.2.5, measured
+// 2026-11-15): that id. Reads at most 4 KiB of the body.
+const SESSION_NOT_FOUND_BODY_MAX = 4096;
+async function sessionNotFoundIn(
+  response: Response,
+): Promise<string | undefined> {
+  const reader = response.body?.getReader();
+  if (!reader) return undefined;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size <= SESSION_NOT_FOUND_BODY_MAX) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } catch {
+    return undefined;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  if (size > SESSION_NOT_FOUND_BODY_MAX) return undefined;
+  try {
+    const body = asRecord(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    if (body._tag !== "SessionNotFoundError") return undefined;
+    return stringField(body, "sessionID") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface SafeOpenCodeError {
   name?: string;
   code?: string;

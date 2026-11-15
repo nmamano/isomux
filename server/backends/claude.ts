@@ -1755,6 +1755,7 @@ export function* translateSDKMessage(
       } else {
         const { errors } = msg;
         const errorText = `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`;
+        const sessionNotFound = claudeSessionNotFound(errors);
         yield* claudeAuthSignal(
           {
             kind: "turn_completed",
@@ -1762,6 +1763,7 @@ export function* translateSDKMessage(
             usage,
             cost,
             error: errorText,
+            ...(sessionNotFound ? { sessionNotFound } : {}),
           },
           options.provider,
         );
@@ -1775,6 +1777,20 @@ export function* translateSDKMessage(
     default:
       break;
   }
+}
+
+// The CLI's error result for a --resume whose transcript is gone or holds no
+// conversation entry (CLI checked 2026-11-15): the id it names.
+const CLAUDE_SESSION_NOT_FOUND =
+  /^No conversation found with session ID: (\S+)$/;
+function claudeSessionNotFound(
+  errors: readonly string[] | undefined,
+): string | undefined {
+  for (const line of errors ?? []) {
+    const match = CLAUDE_SESSION_NOT_FOUND.exec(line.trim());
+    if (match) return match[1];
+  }
+  return undefined;
 }
 
 // The SDK emits system/task_started, task_updated, and task_notification for
@@ -2412,8 +2428,12 @@ export function createClaudeBackend(
     // any other resume error when it starts. Never "missing": see
     // claudeStoredSessionState.
     // An isolated member's transcripts are read through their host, which
-    // these sync checks cannot wait for: trusted, and the SDK surfaces a
-    // missing one when it resumes.
+    // these sync checks cannot wait for: trusted. The CLI's error at resume
+    // then drops the id (agent-manager recoverGoneMemberSession), for a gone
+    // or an empty transcript. Proved by the rig case in
+    // member-rig.integration.test.ts, "recovers a member's agent whose
+    // stored conversation is gone or empty, and treats a signed-out member
+    // Codex as an office one".
     inspectStoredSession(sessionId, opts): StoredSessionState {
       if (isMemberEnv(opts.env)) return "durable";
       return claudeStoredSessionState(opts.cwd, sessionId, opts.env);

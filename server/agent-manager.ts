@@ -8,7 +8,7 @@ import {
   releaseHold,
   type FlushRun,
 } from "./queue-flush.ts";
-import { hostFor } from "./member-hosts.ts";
+import { hostFor, isMemberEnv } from "./member-hosts.ts";
 import { usageLimitStoppedText } from "./limit-resume.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import type { PagerEntry, PagerSource } from "../shared/types.ts";
@@ -253,6 +253,7 @@ import { OneShotUsageLimitError } from "./backends/one-shot-errors.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
   BackendNotConfiguredError,
+  StoredSessionNotFoundError,
   BackendSignedOutError,
   ProviderCapacityError,
   AuthNeededError,
@@ -2707,10 +2708,24 @@ export function createAgentManager(deps: ManagerDeps) {
       username?: string;
       label: string;
       frame: (error: LogMessage | string) => LogText;
+      // The send the engine refused before taking it goes back to the queue
+      // here, when the caller does not keep it there.
+      requeue?: () => void;
     },
   ): void {
     if (err instanceof UsageCapError) {
       refuseForUsageCap(agentId, managed, err);
+      return;
+    }
+    if (
+      err instanceof StoredSessionNotFoundError &&
+      memberSessionGone(managed, err.sessionId)
+    ) {
+      console.log(
+        `[resume] agent ${agentId}: ${managed.info.agentType} has no stored session ${err.sessionId}: ${errMessage(err)}`,
+      );
+      recoverGoneMemberSession(agentId, managed);
+      if (err.beforeSend) opts.requeue?.();
       return;
     }
     if (err instanceof BackendNotConfiguredError) {
@@ -3609,10 +3624,17 @@ export function createAgentManager(deps: ManagerDeps) {
         // error, so the continue's flush starts at the idle transition.
         const fallbackContinues =
           agents.get(agentId)?.turnFlags.limitStopFallback === true;
-        // The engine ended the turn, so it saved what it accepted.
+        // The engine ended the turn, so it saved what it accepted, unless
+        // it had no conversation to save it in: then the drop in the turn
+        // owner's catch sends it again (ownedTurnFailure).
+        const goneManaged = agents.get(agentId);
+        const sessionGone =
+          goneManaged !== undefined &&
+          ev.status === "failed" &&
+          memberSessionGone(goneManaged, ev.sessionNotFound);
         {
           const m = agents.get(agentId);
-          if (m && clearUnsavedDeliveryOnTurnEnd(m))
+          if (m && !sessionGone && clearUnsavedDeliveryOnTurnEnd(m))
             persistQueueState(agentId, m);
         }
         // Items delivered at this turn's tool boundaries leave the queue now,
@@ -3834,6 +3856,16 @@ export function createAgentManager(deps: ManagerDeps) {
                 ev.error === undefined
                   ? "Codex provider capacity"
                   : renderLogText(english, ev.error),
+              ),
+            );
+          else if (sessionGone && ev.sessionNotFound)
+            turn.reject(
+              new StoredSessionNotFoundError(
+                typeof ev.error === "string"
+                  ? ev.error
+                  : renderLogText(english, ev.error ?? ""),
+                ev.sessionNotFound,
+                false,
               ),
             );
           else turn.resolve();
@@ -5141,23 +5173,28 @@ export function createAgentManager(deps: ManagerDeps) {
   // clearStaleAutoResumeState for a session the auto-resume policy dropped,
   // with its log line and note. The note comes after the clear, which empties
   // the chat, and so do the messages the session had accepted.
+  // `known`: the engine itself reported the session's state, so it is not
+  // inspected again.
   function dropUnresumableSession(
     agentId: string,
     managed: ManagedAgent,
+    known?: StoredSessionState,
   ): boolean {
     const sessionId = managed.sessionManager.sessionId;
     if (!sessionId) return false;
-    let state: StoredSessionState | "unknown" = "unknown";
-    try {
-      state = getBackend(managed.info.agentType).inspectStoredSession(
-        sessionId,
-        {
-          cwd: managed.info.cwd,
-          env: buildSessionEnv(managed),
-          environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-        },
-      );
-    } catch {}
+    let state: StoredSessionState | "unknown" = known ?? "unknown";
+    if (!known) {
+      try {
+        state = getBackend(managed.info.agentType).inspectStoredSession(
+          sessionId,
+          {
+            cwd: managed.info.cwd,
+            env: buildSessionEnv(managed),
+            environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+          },
+        );
+      } catch {}
+    }
     const cleared = clearStaleAutoResumeState(agentId, managed);
     const resent = requeueUnsavedDelivery(agentId, managed, sessionId, false);
     noteUnresumableSession(
@@ -5168,6 +5205,38 @@ export function createAgentManager(deps: ManagerDeps) {
       resent,
     );
     return cleared;
+  }
+
+  // The engine reported at resume that it has no stored conversation for
+  // `reported`. For an isolated member's env the sync checks trust the
+  // stored session without reading it (inspectStoredSession answers
+  // durable), so the office never dropped it: true when `reported` is that
+  // stored session and the env is such an env, the same test the checks
+  // make. Any other agent's checks drop the id first. Not the host's kind:
+  // in split mode the office host is a runner too.
+  function memberSessionGone(
+    managed: ManagedAgent,
+    reported: string | undefined,
+  ): boolean {
+    return (
+      reported !== undefined &&
+      reported === managed.sessionManager.sessionId &&
+      isMemberEnv(envForHints(managed))
+    );
+  }
+
+  // What the auto-resume policy does for an office agent, done after the
+  // engine's own error: drop the stored id (its accepted messages go back to
+  // the queue), then start a new conversation, which sends what waits. The
+  // new conversation resumes no id, so it cannot fail this way again: one
+  // retry, no loop. Proved by the member rig case "recovers a member's agent
+  // whose stored conversation is gone or empty".
+  function recoverGoneMemberSession(
+    agentId: string,
+    managed: ManagedAgent,
+  ): void {
+    dropUnresumableSession(agentId, managed, "missing");
+    claimAutoResume(agentId, managed, null);
   }
 
   // The auto-loaded memory scopes for one agent, in prompt order. Null when the
@@ -7505,6 +7574,23 @@ export function createAgentManager(deps: ManagerDeps) {
         username,
         label: "send",
         frame: (raw) => msg("systemEntries.genericError", { error: raw }),
+        // The drop cleared the chat, so the message is shown again.
+        requeue: () => {
+          const result = enqueueMessage(agentId, {
+            sender: { kind: "user", username, device },
+            text,
+            ...(nativeCommand ? { native: true } : {}),
+            ...(ask ? { ask } : {}),
+            attachments,
+            resend: { echoed: false },
+          });
+          if (!result.ok)
+            addLogEntry(
+              agentId,
+              "system",
+              msg("systemEntries.queueFailed", { error: result.error }),
+            );
+        },
       });
     }
   }

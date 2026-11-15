@@ -312,6 +312,9 @@ export type NormalizedEvent =
       // list, refused, or "Model is unavailable". Not set for a provider
       // that is not connected or a free usage limit.
       modelUnavailable?: true;
+      // A failed turn whose engine has no stored conversation for the id the
+      // session resumed: that id.
+      sessionNotFound?: string;
     }
   | {
       kind: "provider_capacity_retry";

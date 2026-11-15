@@ -656,6 +656,24 @@ export class BackendNotConfiguredError extends Error {
   }
 }
 
+// The engine has no stored conversation for the id the session resumed.
+// Where the sync checks trust a member's stored session, the office drops
+// that id and starts a new conversation (agent-manager
+// recoverGoneMemberSession); elsewhere it reads as its parent class.
+// `beforeSend`: a send threw it before the engine took the message (Codex's
+// thread/resume), so no unsaved-delivery record holds the message. Otherwise
+// the turn failed after the engine took it (agent-manager turn_completed).
+export class StoredSessionNotFoundError extends BackendNotConfiguredError {
+  readonly sessionId: string;
+  readonly beforeSend: boolean;
+  constructor(message: string, sessionId: string, beforeSend: boolean) {
+    super(message);
+    this.name = "StoredSessionNotFoundError";
+    this.sessionId = sessionId;
+    this.beforeSend = beforeSend;
+  }
+}
+
 // Thrown before a send when the agent's engine is known to be signed out, so
 // the message never reaches the provider. The catch sites show the sign-in
 // notice and card instead of `message`.

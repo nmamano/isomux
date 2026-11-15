@@ -895,6 +895,255 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
     root(name, `rm -rf ${office}`);
   });
 
+  // Slice 2b-i: the office's sync session checks cannot read a member's
+  // space, so they trust the stored conversation, and recovery must come
+  // from the engine's own error. Each conversation is broken in the member's
+  // space, the office restarts, and a message must get an answer in a new
+  // conversation, and the next message one more, with no loop. A signed-out
+  // Codex ends its turn as an office agent's does (the stub's 401 gives no
+  // sign-in card in this rig, for the office either), and answers once
+  // signed in again.
+  it("recovers a member's agent whose stored conversation is gone or empty, and treats a signed-out member Codex as an office one", async () => {
+    const home = `${MEMBERS}/home/${ALICE}`;
+    const codexHome = `${home}/.isomux-agent/codex-home`;
+    const aliceUid = String(uidOf(name, ALICE));
+    const spawn = (label: string, agentType: string, desk: number | null) => {
+      const made = api(name, aliceCookie, "POST", "/api/agents", {
+        name: `Rig Alice ${label}`,
+        cwd: home,
+        roomId,
+        desk,
+        agentType,
+        ...(agentType === "codex" ? { modelFamily: "gpt-rig" } : {}),
+      });
+      const id = (made.agent as { id: string } | undefined)?.id;
+      if (!id) throw new Error(`spawn ${label}: ${JSON.stringify(made)}`);
+      return id;
+    };
+    const agents = {
+      claudeGone: spawn("claude gone", "claude", 6),
+      claudeEmpty: spawn("claude empty", "claude", 7),
+      codexGone: spawn("codex gone", "codex", null),
+      codexOut: spawn("codex out", "codex", null),
+    };
+    // The control for the stub's sign-out: an office agent of the owner,
+    // whose Codex home is the office's.
+    api(name, cookie, "PUT", "/api/users/Owner/env/OPENAI_API_KEY", {
+      value: "rig-key",
+    });
+    const officeMade = api(name, cookie, "POST", "/api/agents", {
+      name: "Rig office codex out",
+      cwd: "/tmp",
+      roomId,
+      desk: null,
+      agentType: "codex",
+      modelFamily: "gpt-rig",
+    });
+    const officeOut = (officeMade.agent as { id: string } | undefined)?.id;
+    if (!officeOut)
+      throw new Error(`spawn office: ${JSON.stringify(officeMade)}`);
+    const officeCodexHome = "/var/data/home/.isomux/codex-home";
+    const send = (id: string, text: string) =>
+      api(name, aliceCookie, "POST", `/api/agents/${id}/messages`, { text });
+    const logLines = (id: string) =>
+      root(
+        name,
+        `cat ${STATE}/logs/${id}/*.jsonl 2>/dev/null | wc -l`,
+      ).out.trim();
+    for (const id of Object.values(agents)) send(id, "one");
+    api(name, cookie, "POST", `/api/agents/${officeOut}/messages`, {
+      text: "one",
+    });
+    expect((await reportsOf(officeOut, 1)).length).toBe(1);
+    const first: Record<string, Record<string, unknown>> = {};
+    for (const [key, id] of Object.entries(agents)) {
+      [first[key]] = await reportsOf(id, 1);
+      expect([key, first[key]?.uid]).toEqual([key, aliceUid]);
+    }
+
+    // Break each conversation in the member's space, as the member.
+    const goneTranscript = String(first.claudeGone.transcript);
+    const emptyTranscript = String(first.claudeEmpty.transcript);
+    const goneRollout = root(
+      name,
+      `find ${codexHome}/sessions -name '*-${String(first.codexGone.threadId)}.jsonl'`,
+    ).out.trim();
+    // The condition: each stored conversation exists before it is broken.
+    expect(
+      [goneTranscript, emptyTranscript, goneRollout].map((p) =>
+        p.startsWith(home),
+      ),
+    ).toEqual([true, true, true]);
+    expect(
+      sh(
+        name,
+        ALICE,
+        `rm ${goneTranscript} ${goneRollout} && printf '{"type":"summary","summary":"rig"}\\n' > ${emptyTranscript}`,
+      ).status,
+    ).toBe(0);
+
+    const restartedMs = Date.now();
+    const restartedAt = new Date(restartedMs).toISOString();
+    expect(run("docker", ["restart", name]).status).toBe(0);
+    await office(name);
+    await waitFor("Alice connected after the restart", () => {
+      const r = run("docker", ["logs", "--since", restartedAt, name]);
+      return (r.out + r.err).includes(
+        `[member-hosts] ${alice} runs as ${ALICE}`,
+      );
+    });
+    for (const id of Object.values(agents)) send(id, "two");
+    api(name, cookie, "POST", `/api/agents/${officeOut}/messages`, {
+      text: "two",
+    });
+    // The last error or system lines of an agent, for a red outcome.
+    // `since`: only lines written from then on.
+    const lastLines = (id: string, since = 0) =>
+      root(name, `cat ${STATE}/logs/${id}/*.jsonl 2>/dev/null`)
+        .out.split("\n")
+        .filter(Boolean)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              kind: string;
+              content: unknown;
+              timestamp: number;
+            },
+        )
+        .filter(
+          (l) =>
+            (l.kind === "error" || l.kind === "system") && l.timestamp >= since,
+        )
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .map((l) => String(l.content).slice(0, 160));
+
+    // A new conversation answers each broken one, and the next message too.
+    // Every outcome is collected first, so one red run names each agent.
+    const outcome: Record<string, string> = {};
+    const recovered = {
+      claudeGone: "transcript",
+      claudeEmpty: "transcript",
+      codexGone: "threadId",
+    } as const;
+    for (const [key, field] of Object.entries(recovered)) {
+      const id = agents[key as keyof typeof agents];
+      const second = (await reportsOf(id, 2))[1];
+      if (!second) {
+        outcome[key] = `no answer (${lastLines(id).slice(-2).join(" | ")})`;
+        continue;
+      }
+      if (second.uid !== aliceUid || second[field] === first[key][field]) {
+        outcome[key] =
+          `answered as ${String(second.uid)} in ${String(second[field])}`;
+        continue;
+      }
+      send(id, "three");
+      outcome[key] =
+        (await reportsOf(id, 3)).length === 3
+          ? "recovered"
+          : "no answer to the next message";
+    }
+
+    // The signed-out Codex: no answer, and the sign-out adds to its lines
+    // what it adds to the office agent's; signed in again, the same agent
+    // answers. The sign-out is the member's whole Codex home, so it starts
+    // after codexGone recovered. A turn before it gives each agent's lines
+    // that do not come from the sign-out (the resume note; a member's Codex
+    // safety check, part 2d). The lines are compared as a set: the sign-in
+    // notice is written async, so its place among the 401 lines differs.
+    const signedIn = await Promise.all([
+      reportsOf(agents.codexOut, 2),
+      reportsOf(officeOut, 2),
+    ]);
+    expect(signedIn.map((r) => r.length)).toEqual([2, 2]);
+    const everyTurn = (id: string) => new Set(lastLines(id, restartedMs));
+    const memberEveryTurn = everyTurn(agents.codexOut);
+    const officeEveryTurn = everyTurn(officeOut);
+    const signedOutAt = Date.now();
+    expect(sh(name, ALICE, `touch ${codexHome}/rig-signed-out`).status).toBe(0);
+    expect(
+      sh(name, String(OFFICE_UID), `touch ${officeCodexHome}/rig-signed-out`)
+        .status,
+    ).toBe(0);
+    send(agents.codexOut, "three");
+    api(name, cookie, "POST", `/api/agents/${officeOut}/messages`, {
+      text: "three",
+    });
+    // Each signed-out turn reaches its 401; the lines it ends with are read
+    // once the logs are quiet (below), so a later line is not missed.
+    const reached401 = (id: string) =>
+      waitFor(
+        "the signed-out turn",
+        () =>
+          root(
+            name,
+            `grep -c 401 ${STATE}/logs/${id}/*.jsonl 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'`,
+          ).out.trim() !== "0",
+        30_000,
+      ).then(
+        () => true,
+        () => false,
+      );
+    const member401 = await reached401(agents.codexOut);
+    const office401 = await reached401(officeOut);
+    const answeredOut = (await reportsOf(agents.codexOut, 2)).length === 2;
+    // No loop: no agent writes more to its log once its turn has ended.
+    const settled = Object.fromEntries(
+      Object.values(agents).map((id) => [id, logLines(id)]),
+    );
+    await Bun.sleep(5000);
+    const quiet = Object.fromEntries(
+      Object.entries(agents).map(([key, id]) => [
+        key,
+        logLines(id) === settled[id],
+      ]),
+    );
+    const signedOutLines = (id: string, every: Set<string>) =>
+      JSON.stringify(
+        lastLines(id, signedOutAt)
+          .filter((l) => !every.has(l))
+          .sort(),
+      );
+    const memberOut = signedOutLines(agents.codexOut, memberEveryTurn);
+    const officeOutLine = signedOutLines(officeOut, officeEveryTurn);
+    expect(
+      sh(name, String(OFFICE_UID), `rm ${officeCodexHome}/rig-signed-out`)
+        .status,
+    ).toBe(0);
+    expect(sh(name, ALICE, `rm ${codexHome}/rig-signed-out`).status).toBe(0);
+    send(agents.codexOut, "four");
+    const signedInAgain = (await reportsOf(agents.codexOut, 3)).length === 3;
+    outcome.codexOut =
+      !member401 || !office401
+        ? `no 401 (member ${member401}, office ${office401})`
+        : memberOut === "[]"
+          ? "no line from the sign-out"
+          : memberOut !== officeOutLine
+            ? `${memberOut} where the office agent has ${officeOutLine}`
+            : !answeredOut
+              ? "answered while signed out"
+              : signedInAgain
+                ? "recovered"
+                : "no answer once signed in";
+
+    expect({ outcome, quiet }).toEqual({
+      outcome: {
+        claudeGone: "recovered",
+        claudeEmpty: "recovered",
+        codexGone: "recovered",
+        codexOut: "recovered",
+      },
+      quiet: {
+        claudeGone: true,
+        claudeEmpty: true,
+        codexGone: true,
+        codexOut: true,
+      },
+    });
+    // A red run waits out each missing answer (90 s each), so it may take
+    // minutes; a green run takes about one.
+  }, 900_000);
+
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {
     const erinUser = "isomux-erin";
     const erinHome = `${MEMBERS}/home/${erinUser}`;
@@ -918,7 +1167,8 @@ describe.skipIf(!ENABLED)("member OS users in the container", () => {
       );
     const [threadId] = codexThreads();
     expect(threadId).toMatch(/^[0-9a-f-]{36}$/);
-    // The Codex stub writes no rollout: one where Codex keeps it.
+    // The stub's rollout of the thread, written again by the test so its
+    // bytes are known.
     const rolloutRel = `sessions/2026/11/15/rollout-2026-11-15T10-00-00-${threadId}.jsonl`;
     const officeRollout = `${first.codex.codexHome}/${rolloutRel}`;
     sh(

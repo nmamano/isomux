@@ -61,9 +61,10 @@ build() {
 FROM isomux-split-rig-base:$commit
 RUN apt-get update && apt-get install -y --no-install-recommends acl && rm -rf /var/lib/apt/lists/*
 $(provider_layer)
-# bun install leaves dependency files at mode 0666; no user but root may
-# write the code tree (slice 6 moves this into the image itself).
-RUN chmod -R go-w /opt/isomux
+# The image already drops group and other write on the code tree; this
+# catches what the provider layer adds. Change only those files: a recursive
+# chmod copies every file into this layer.
+RUN find /opt/isomux ! -type l -perm /022 -exec chmod go-w {} +
 RUN groupadd -g $SERVER_ID isomux-server \
  && useradd -u $SERVER_ID -g $SERVER_ID -G node -d /var/data/server -M -s /usr/sbin/nologin isomux-server
 COPY rig-entrypoint.sh stub-runner.ts /opt/split-rig/
@@ -226,20 +227,41 @@ EOF
 // Rig stub for the Claude Code CLI (stream-json over stdio). It answers every
 // control request, reports who runs it on each user message, and keeps a
 // transcript where the real CLI would, so the session store can fork it.
-import { appendFileSync, mkdirSync } from "fs";
+import { appendFileSync, mkdirSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
 const args = process.argv.slice(2);
 const flag = (name) => {
   const at = args.indexOf(name);
-  return at >= 0 ? args[at + 1] : undefined;
+  if (at >= 0) return args[at + 1];
+  // The SDK passes some flags as one argument, "--resume=<id>".
+  const joined = args.find((a) => a.startsWith(`${name}=`));
+  return joined === undefined ? undefined : joined.slice(name.length + 1);
 };
 const sessionId = flag("--resume") ?? flag("--session-id") ?? crypto.randomUUID();
 const cwd = process.cwd();
 const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 const projectDir = join(configDir, "projects", cwd.replace(/[^a-zA-Z0-9-]/g, "-"));
 const transcript = join(projectDir, `${sessionId}.jsonl`);
+// A resume of a transcript that is gone or has no conversation entry fails
+// as the CLI does (checked on CLI 2.x, 2026-11-15): a line on stderr, one
+// error result on stdout, and exit 1.
+const resumed = flag("--resume") ?? null;
+if (resumed) {
+  let lines = [];
+  try {
+    lines = readFileSync(transcript, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  } catch {}
+  if (!lines.some((l) => l.type === "user" || l.type === "assistant")) {
+    const error = `No conversation found with session ID: ${resumed}`;
+    process.stderr.write(`${error}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ type: "result", subtype: "error_during_execution", duration_ms: 0, duration_api_ms: 0, is_error: true, num_turns: 0, stop_reason: null, session_id: resumed, total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, permission_denials: [], uuid: crypto.randomUUID(), errors: [error] })}\n`,
+    );
+    process.exit(1);
+  }
+}
 const SERVER_ONLY = ["SPLIT_RIG_SERVER_SENTINEL", "ISOMUX_HOME", "ISOMUX_AGENT_RUNNER"];
 let parentUuid = null;
 let initSent = false;
@@ -289,6 +311,7 @@ function report(call) {
     home: process.env.HOME,
     serverEnv: SERVER_ONLY.filter((name) => name in process.env),
     transcript,
+    resumed,
     ...(call ? { call } : {}),
   })}`;
 }
@@ -372,9 +395,9 @@ EOF
 // Rig stub for the Codex app-server (JSON-RPC lite over stdio), installed in
 // place of the @openai/codex launcher. On a turn it runs the PreToolUse hook
 // that hooks.json in CODEX_HOME names, and reports who ran what.
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 const SERVER_ONLY = ["SPLIT_RIG_SERVER_SENTINEL", "ISOMUX_HOME", "ISOMUX_AGENT_RUNNER"];
 const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
@@ -410,6 +433,22 @@ function runHook(command) {
   };
 }
 
+// A thread's rollout, where Codex keeps it (one fixed date). thread/resume
+// needs it, as Codex does; with rig-signed-out in CODEX_HOME a turn fails
+// with the provider's 401.
+const rolloutOf = (threadId) =>
+  join(codexHome, "sessions", "2026", "11", "15", `rollout-2026-11-15T10-00-00-${threadId}.jsonl`);
+const hasRollout = (threadId) => {
+  try {
+    return readdirSync(join(codexHome, "sessions"), { recursive: true }).some((p) =>
+      String(p).endsWith(`-${threadId}.jsonl`),
+    );
+  } catch {
+    return false;
+  }
+};
+const signedOut = () => existsSync(join(codexHome, "rig-signed-out"));
+
 const MODEL = {
   id: "gpt-rig",
   model: "gpt-rig",
@@ -442,18 +481,29 @@ function handle(msg) {
       return { data: [MODEL], nextCursor: null };
     case "thread/start": {
       const thread = { id: crypto.randomUUID(), parentThreadId: null };
+      mkdirSync(dirname(rolloutOf(thread.id)), { recursive: true });
+      writeFileSync(rolloutOf(thread.id), `${JSON.stringify({ type: "session_meta", payload: { id: thread.id } })}\n`);
       setTimeout(() => notify("thread/started", { thread }), 0);
       return { thread };
     }
     case "thread/resume":
+      if (!hasRollout(params.threadId))
+        throw { rpc: { code: -32600, message: `no rollout found for thread id ${params.threadId}` } };
       return { thread: { id: params.threadId } };
     case "turn/start": {
       const turn = { id: crypto.randomUUID() };
       const threadId = params.threadId;
       setTimeout(() => {
         notify("turn/started", { threadId, turn });
+        if (signedOut()) {
+          const error = { message: "401 Unauthorized" };
+          notify("error", { error, willRetry: false, threadId, turnId: turn.id });
+          notify("turn/completed", { threadId, turn: { ...turn, status: "failed", error } });
+          return;
+        }
         const text = `RIG_REPORT ${JSON.stringify({
           backend: "codex",
+          threadId,
           uid: uid(),
           home: process.env.HOME,
           serverEnv: SERVER_ONLY.filter((name) => name in process.env),
@@ -484,7 +534,12 @@ for await (const chunk of Bun.stdin.stream()) {
     if (!line) continue;
     const msg = JSON.parse(line);
     if (msg.id === undefined || !msg.method) continue;
-    out({ id: msg.id, result: handle(msg) });
+    try {
+      out({ id: msg.id, result: handle(msg) });
+    } catch (error) {
+      if (!error?.rpc) throw error;
+      out({ id: msg.id, error: error.rpc });
+    }
   }
 }
 EOF

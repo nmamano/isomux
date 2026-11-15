@@ -79,7 +79,10 @@ import {
   type ReportedBackgroundTask,
   type SubagentOrigin,
 } from "../../../shared/types.ts";
-import { BackendNotConfiguredError } from "../../internal-types.ts";
+import {
+  BackendNotConfiguredError,
+  StoredSessionNotFoundError,
+} from "../../internal-types.ts";
 import {
   codexRolloutFileExists,
   codexSessionsDir,
@@ -1183,6 +1186,10 @@ const RUNNING_TURN: CodexTurn = { kind: "running" };
 // Agents whose skipped instructions check is logged: once per process.
 const unsearchedMemberRollouts = new Set<string>();
 
+// codex-rs's thread/resume error for a thread with no rollout file, followed
+// by the thread id (checked in the bundled binary, 2026-11-15).
+const CODEX_ROLLOUT_NOT_FOUND = "no rollout found for thread id ";
+
 export class CodexSession implements BackendSession {
   private client: CodexTransport;
   private threadId: string | null = null;
@@ -1357,6 +1364,9 @@ export class CodexSession implements BackendSession {
   // error state THEN - matches Claude's lazy-auth UX where the agent
   // looks idle from spawn until the user actually messages it.
   private bootstrapError: Error | null = null;
+  // The resumed thread id, when bootstrap failed because Codex has no
+  // rollout for it (thread/resume).
+  private bootstrapSessionNotFound: string | null = null;
   // Exact hooks.json source and matcher position installed for this process.
   // hook/completed does not include the command, so both fields are required
   // to distinguish Isomux's run from a user hook in the same file.
@@ -1570,6 +1580,12 @@ export class CodexSession implements BackendSession {
       // never-started thread (nothing to persist, nothing to resume).
       this.bootstrapError =
         err instanceof Error ? err : new Error(errMessage(err));
+      const resumed = this.opts.resumeThreadId;
+      if (
+        resumed &&
+        errMessage(err).includes(`${CODEX_ROLLOUT_NOT_FOUND}${resumed}`)
+      )
+        this.bootstrapSessionNotFound = resumed;
       this.enqueue({
         kind: "system_init",
         sessionId: "",
@@ -1755,9 +1771,15 @@ export class CodexSession implements BackendSession {
       // that flips the agent to error state. The actionable text (auth prompt,
       // bundled-binary missing hint, etc.) is already in bootstrapError.message
       // and gets surfaced verbatim - no "Error:" wrapping.
-      throw new BackendNotConfiguredError(
-        this.bootstrapError?.message ?? "Codex bootstrap failed; cannot send",
-      );
+      const message =
+        this.bootstrapError?.message ?? "Codex bootstrap failed; cannot send";
+      if (this.bootstrapSessionNotFound)
+        throw new StoredSessionNotFoundError(
+          message,
+          this.bootstrapSessionNotFound,
+          true,
+        );
+      throw new BackendNotConfiguredError(message);
     }
 
     const input = buildCodexUserInput(
@@ -4203,8 +4225,11 @@ export const codexBackend: Backend = {
   },
 
   // An isolated member's rollouts are in their agent space, which these sync
-  // checks do not read: trusted, and Codex's own thread/resume error shows a
-  // missing one.
+  // checks do not read: trusted. Codex's thread/resume error then drops the
+  // id (agent-manager recoverGoneMemberSession). Proved by the rig case in
+  // member-rig.integration.test.ts, "recovers a member's agent whose
+  // stored conversation is gone or empty, and treats a signed-out member
+  // Codex as an office one".
   inspectStoredSession(sessionId, opts) {
     if (isMemberEnv(opts.env)) return "durable";
     return inspectCodexStoredSession(sessionId, opts.env);
@@ -4484,7 +4509,11 @@ export const codexBackend: Backend = {
   // Without credentials Codex still takes the turn and retries the provider
   // until it reports a raw 401.
   // An isolated member's sign-in is read through their host, which this
-  // sync check cannot wait for: unknown, so Codex reports its own failure.
+  // sync check cannot wait for: unknown, so Codex reports its own failure,
+  // as for a signed-out office agent. Proved by the rig case in
+  // member-rig.integration.test.ts, "recovers a member's agent whose
+  // stored conversation is gone or empty, and treats a signed-out member
+  // Codex as an office one".
   isKnownSignedOut(env?: { [key: string]: string | undefined }): boolean {
     if (isMemberEnv(env)) return false;
     return !isCodexAuthenticated(env);
