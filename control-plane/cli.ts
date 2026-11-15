@@ -477,7 +477,6 @@ function makeTicker(
                   runsDir: RUNS_DIR,
                   keysDir: KEYS_DIR,
                   exec,
-                  secrets: adapter,
                   loginUser: adapter.loginUser,
                 },
                 instance,
@@ -653,11 +652,6 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
   );
 
   const pair = await generateKeyPair(KEYS_DIR, runId, exec);
-  const secretId = await adapter.createSshSecret(
-    `isomux-cp-${runId}`,
-    pair.publicKeyLine,
-  );
-  audit.record("create_key_secret", instanceId, "succeeded");
 
   // The recovery record is written and fsynced BEFORE the reinstall, for the
   // same reason the create intent is: a crash after Contabo accepts the request
@@ -676,7 +670,6 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
     algorithm: pair.algorithm,
     blob: pair.blob,
     knownHostsFile: path.join(KEYS_DIR, `${runId}.known_hosts`),
-    secretId,
     state: "reinstall_requested",
   };
   saveRun(rec);
@@ -688,7 +681,7 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
   const startedAt = Date.now();
   await adapter.reinstall(instanceId, {
     imageId: UBUNTU_2404_IMAGE_ID,
-    publicKeys: [secretId],
+    publicKeys: [{ algorithm: pair.algorithm, blob: pair.blob }],
     loginUser: DEFAULT_LOGIN_USER,
   });
   audit.record("reinstall", instanceId, "succeeded");

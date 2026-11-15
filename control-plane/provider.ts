@@ -71,8 +71,14 @@ export interface CreateRequest {
   intentId: string;
   plan: string;
   region: string;
-  /** Provider-side handles for the public keys to inject at build time. */
-  publicKeys: number[];
+  /** The public keys the box carries for the login user from its first boot. */
+  publicKeys: SshPublicKey[];
+}
+
+/** One public key, as its algorithm and exact base64 blob. */
+export interface SshPublicKey {
+  algorithm: string;
+  blob: string;
 }
 
 export interface ProviderAdapter {
@@ -102,7 +108,7 @@ export interface RecyclableProvider {
 
 export interface ReinstallRequest {
   imageId: string;
-  publicKeys: number[];
+  publicKeys: SshPublicKey[];
   /**
    * Which account the injected key lands on. Always sent explicitly: Contabo
    * documents a default that its images do not honour (see contabo/adapter.ts),

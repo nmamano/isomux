@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { blobOf, composeRemoteScript } from "./driver.ts";
 import type { RuntimeRepoFile } from "./runtime-files.ts";
+import { renderKeyUserData } from "./contabo/adapter.ts";
 
 const OURS = "AAAAC3NzaC1lZDI1NTE5AAAAIourkeyblob";
 
@@ -274,4 +275,70 @@ describe("the cleanup backstop refuses to claim success it did not achieve", () 
       '"customerKey": "present"',
     );
   });
+});
+
+// The run key now reaches the box through cloud-init write_files (append to
+// root's authorized_keys) instead of a provider key store. First contact and
+// revocation must work on exactly the bytes cloud-init writes.
+describe("a key installed by the cloud-init user data", () => {
+  const ALGO = "ssh-ed25519";
+  const CUSTOMER =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey customer@laptop";
+
+  /** Append the write_files content to the file, as cloud-init does. */
+  function cloudInitAppend(existing: string): void {
+    const userData = renderKeyUserData("root", [
+      { algorithm: ALGO, blob: OURS },
+    ]);
+    const doc = Bun.YAML.parse(userData!) as {
+      write_files: { path: string; content: string; append: boolean }[];
+    };
+    const [entry] = doc.write_files;
+    expect([entry.path, entry.append]).toEqual([
+      "/root/.ssh/authorized_keys",
+      true,
+    ]);
+    fs.writeFileSync(akFile, existing, { mode: 0o600 });
+    fs.appendFileSync(akFile, entry.content);
+  }
+
+  for (const [label, existing] of [
+    ["an absent file", ""],
+    ["a file that ends in a newline", `${CUSTOMER}\n`],
+    // An image line with no final newline must not swallow our key.
+    ["a file with no final newline", CUSTOMER],
+  ] as const) {
+    test(`first contact rewrites it and revocation removes it, over ${label}`, () => {
+      cloudInitAppend(existing);
+      const rewrite = runComposed(
+        ["authorizedKeys", "rewriteKey"],
+        [akFile, ALGO, OURS, "20991231000000Z"],
+      );
+      expect([rewrite.code, rewrite.stdout]).toEqual([
+        0,
+        expect.stringContaining("RESULT: ok"),
+      ]);
+      const ours = fs
+        .readFileSync(akFile, "utf8")
+        .split("\n")
+        .filter((l) => blobOf(l) === OURS);
+      expect(ours).toEqual([
+        `expiry-time="20991231000000Z" ${ALGO} ${OURS} isomux-cp`,
+      ]);
+
+      const revoke = runComposed(
+        ["authorizedKeys", "revokeKey"],
+        [akFile, OURS],
+      );
+      expect([revoke.code, revoke.stdout]).toEqual([
+        0,
+        expect.stringContaining("RESULT: removed"),
+      ]);
+      const left = fs
+        .readFileSync(akFile, "utf8")
+        .split("\n")
+        .filter((l) => l !== "");
+      expect(left).toEqual(existing === "" ? [] : [CUSTOMER]);
+    });
+  }
 });

@@ -34,7 +34,9 @@ import type {
   ProviderAdapter,
   RecyclableProvider,
   ReinstallRequest,
+  SshPublicKey,
 } from "../provider.ts";
+import { KEY_ALGORITHM_FIELD, KEY_BLOB_FIELD } from "../key-lines.ts";
 import type { ContaboHttp } from "./http.ts";
 
 /**
@@ -93,11 +95,6 @@ interface ContaboListBody {
   _pagination?: { totalElements?: number };
 }
 
-interface ContaboSecretRow {
-  secretId?: number;
-  name?: string;
-}
-
 export interface ContaboAdapterOptions {
   http: ContaboHttp;
   /** Image to build from. Ubuntu 24.04 for this product. */
@@ -105,6 +102,66 @@ export interface ContaboAdapterOptions {
   /** Contract length in months. Contabo has no hourly billing; 1 is the floor. */
   periodMonths?: number;
   loginUser: LoginUser;
+}
+
+const ROOT_AUTHORIZED_KEYS = "/root/.ssh/authorized_keys";
+
+/**
+ * The cloud-init user data that puts our keys on the box at its first boot, or
+ * undefined when there are no keys.
+ *
+ * The key travels in the create call itself, so no build depends on Contabo's
+ * secrets service (task e4eaba24: from 2026-11-14 that service failed every
+ * create while a paying customer waited). It lands as a bare line in root's authorized_keys, the same
+ * line Contabo's sshKeys wrote, so first contact, the expiry rewrite and
+ * revocation see what they always saw.
+ *
+ * write_files, not cloud-init's ssh_authorized_keys: that module also puts the
+ * key on the image's default sudo user, where revocation never looks. The
+ * content starts with a newline because append is a plain append: a file with
+ * no final newline would otherwise swallow our line into its last one. Every
+ * scalar is JSON-quoted, which YAML reads as a double-quoted string.
+ */
+export function renderKeyUserData(
+  loginUser: LoginUser,
+  keys: SshPublicKey[],
+): string | undefined {
+  if (keys.length === 0) return undefined;
+  if (loginUser !== "root") {
+    // /home/<user> does not exist yet when write_files runs, and only root's
+    // file is where revocation looks for it.
+    throw new Error(
+      `the run key can only be installed for root, not ${JSON.stringify(loginUser)}`,
+    );
+  }
+  const lines = keys.map((k) => {
+    if (
+      !KEY_ALGORITHM_FIELD.test(k.algorithm) ||
+      !KEY_BLOB_FIELD.test(k.blob)
+    ) {
+      throw new Error(
+        "a run key must be one supported algorithm and one base64 blob",
+      );
+    }
+    return `${k.algorithm} ${k.blob} isomux-cp\n`;
+  });
+  return (
+    "#cloud-config\n" +
+    "write_files:\n" +
+    `  - path: ${JSON.stringify(ROOT_AUTHORIZED_KEYS)}\n` +
+    `    content: ${JSON.stringify(`\n${lines.join("")}`)}\n` +
+    '    owner: "root:root"\n' +
+    '    permissions: "0600"\n' +
+    "    append: true\n"
+  );
+}
+
+function userDataField(
+  loginUser: LoginUser,
+  keys: SshPublicKey[],
+): { userData?: string } {
+  const userData = renderKeyUserData(loginUser, keys);
+  return userData === undefined ? {} : { userData };
 }
 
 export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
@@ -125,7 +182,7 @@ export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
       imageId: this.imageId,
       productId: req.plan,
       region: req.region,
-      sshKeys: req.publicKeys,
+      ...userDataField(this.loginUser, req.publicKeys),
       period: this.periodMonths,
       displayName: intentStamp(req.intentId),
       defaultUser: this.loginUser,
@@ -274,62 +331,10 @@ export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
       `/v1/compute/instances/${encodeURIComponent(providerId)}`,
       {
         imageId: req.imageId,
-        sshKeys: req.publicKeys,
+        ...userDataField(req.loginUser, req.publicKeys),
         defaultUser: req.loginUser,
       },
     );
-  }
-
-  /**
-   * Upload a public key as a Contabo "secret" so it can be injected at build
-   * time. Contabo-specific: the portable interface takes provider-side key
-   * handles and says nothing about how they got there.
-   */
-  async createSshSecret(name: string, publicKeyLine: string): Promise<number> {
-    const body = await this.http.okOrThrow("POST", "/v1/secrets", {
-      name,
-      value: publicKeyLine,
-      type: "ssh",
-    });
-    const id = (body as { data?: { secretId?: number }[] } | null)?.data?.[0]
-      ?.secretId;
-    if (id === undefined) {
-      throw new Error(
-        "Contabo accepted the key secret but returned no secretId",
-      );
-    }
-    return id;
-  }
-
-  /** Find-first recovery for the free SSH-key upload. Absence is returned only
-   * when the provider proves the filtered response is complete. */
-  async findSshSecret(name: string): Promise<number | null> {
-    const result = await this.http.request(
-      "GET",
-      `/v1/secrets?size=100&name=${encodeURIComponent(name)}`,
-    );
-    if (result.kind !== "ok") {
-      throw new Error(`findSshSecret(${name}) failed: ${result.reason}`);
-    }
-    const body = result.body as {
-      data?: ContaboSecretRow[];
-      _pagination?: { totalElements?: number };
-    } | null;
-    const rows = body?.data ?? [];
-    const matches = rows.filter((row) => row.name === name);
-    const filterHonoured = matches.length === rows.length;
-    const total = body?._pagination?.totalElements;
-    const complete = typeof total === "number" && total <= rows.length;
-    if (!filterHonoured || !complete) {
-      throw new Error(`secret search for ${name} was unfiltered or incomplete`);
-    }
-    if (matches.length === 0) return null;
-    if (matches.length !== 1 || matches[0]?.secretId === undefined) {
-      throw new Error(
-        `secret search for ${name} did not identify exactly one secret`,
-      );
-    }
-    return matches[0].secretId;
   }
 
   async deleteSecret(secretId: number): Promise<void> {

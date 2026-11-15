@@ -53,6 +53,12 @@ export function validateCustomerSshKey(raw: string): CustomerSshKeyValidation {
   return { ok: true, normalized: `${algorithm} ${blob}`, algorithm, blob };
 }
 
+/** One authorized_keys algorithm field, as remote/authorized-keys.sh matches it. */
+export const KEY_ALGORITHM_FIELD =
+  /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+|sk-\S+)$/;
+/** One authorized_keys base64 blob field, as remote/authorized-keys.sh matches it. */
+export const KEY_BLOB_FIELD = /^AAAA[A-Za-z0-9+/=]+$/;
+
 /** Accept options because this parser reads our own expiry-rewritten line. */
 export function parseKeyLine(
   line: string,
@@ -61,10 +67,7 @@ export function parseKeyLine(
   for (let i = 0; i < fields.length - 1; i++) {
     const algorithm = fields[i];
     const blob = fields[i + 1];
-    if (
-      /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+|sk-\S+)$/.test(algorithm) &&
-      /^AAAA[A-Za-z0-9+/=]+$/.test(blob)
-    ) {
+    if (KEY_ALGORITHM_FIELD.test(algorithm) && KEY_BLOB_FIELD.test(blob)) {
       return { algorithm, blob };
     }
   }

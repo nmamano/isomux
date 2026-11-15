@@ -121,7 +121,12 @@ const REQ: CreateRequest = {
   intentId: "intent-1",
   plan: "V153",
   region: "EU",
-  publicKeys: [1],
+  publicKeys: [
+    {
+      algorithm: "ssh-ed25519",
+      blob: "AAAAC3NzaC1lZDI1NTE5AAAAIStubStubStubStubStubStubStubStubStubStub",
+    },
+  ],
 };
 
 describe("the latch", () => {

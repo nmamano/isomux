@@ -212,9 +212,26 @@ Measured on a live reinstall (2026-08-09): requesting `root` is accepted, and
 root is then the sole account carrying the injected key, with no forced-command
 line and no other key present.
 
+### The run key travels in cloud-init user data
+
+Create and reinstall send no `sshKeys` and no `rootPassword`: both take ids
+from Contabo's secrets service, which returned 500 on create and delete from
+2026-11-14 while a paid order waited. The run's public key goes in
+`userData` instead, as a cloud-init `write_files` entry that appends a bare
+`<algorithm> <blob> isomux-cp` line to root's authorized_keys - the line the
+secrets path wrote - so first contact, the expiry rewrite and revocation are
+unchanged. Not `ssh_authorized_keys`: that module also puts the key on the
+image's default user, where revocation never looks.
+
+Measured on a live reinstall (2026-11-15): Contabo accepts a body with
+`userData` and neither secret field, merges our `write_files` entry into its own
+cloud-config, and the key lands in root's file only; the run key logs in, the
+expiry rewrite and revocation work, and the box keeps a root password that
+Contabo's own cloud-config sets.
+
 ### Reinstall works on a cancel-scheduled instance, and preserves the term
 
-`PUT /v1/compute/instances/{id}` (imageId, sshKeys, defaultUser) rebuilds in
+`PUT /v1/compute/instances/{id}` (imageId, userData, defaultUser) rebuilds in
 place. Contabo's documentation says nothing about whether a cancelled instance
 can still be reinstalled; measured 2026-08-09, it can, and `cancelDate` survives
 the rebuild, so recycling inside an already-paid month costs nothing.

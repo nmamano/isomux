@@ -4,7 +4,11 @@ import {
   IndeterminateFindError,
   intentStamp,
 } from "./adapter.ts";
-import { IndeterminateProviderError } from "../provider.ts";
+import {
+  IndeterminateProviderError,
+  type LoginUser,
+  type SshPublicKey,
+} from "../provider.ts";
 import { ContaboHttp } from "./http.ts";
 import { TokenProvider, type FetchLike } from "./auth.ts";
 
@@ -248,7 +252,12 @@ describe("create outcome classes", () => {
         intentId: INTENT,
         plan: "V153",
         region: "EU",
-        publicKeys: [1],
+        publicKeys: [
+          {
+            algorithm: "ssh-ed25519",
+            blob: "AAAAC3NzaC1lZDI1NTE5AAAAIStubStubStubStubStubStubStubStubStubStub",
+          },
+        ],
       });
       expect([reply, out.outcome]).toEqual([reply, outcome]);
     }
@@ -285,7 +294,12 @@ describe("create outcome classes", () => {
       intentId: INTENT,
       plan: "V153",
       region: "EU",
-      publicKeys: [7],
+      publicKeys: [
+        {
+          algorithm: "ssh-ed25519",
+          blob: "AAAAC3NzaC1lZDI1NTE5AAAAIStubStubStubStubStubStubStubStubStubStub",
+        },
+      ],
     });
     expect(out).toEqual({ outcome: "created", providerId: "42" });
     expect(sentBody.displayName).toBe(STAMP);
@@ -293,6 +307,204 @@ describe("create outcome classes", () => {
     // `ubuntu` when it is omitted, so it is never left to the default.
     expect(sentBody.defaultUser).toBe("root");
     expect(sentBody).not.toHaveProperty("addOns");
+  });
+});
+
+// The run key reaches the box through cloud-init user data in the create (and
+// reinstall) call itself. Contabo's key store (/v1/secrets) is not a build
+// dependency: it was down for days in 2026-11 and blocked every new box.
+describe("the run key travels in cloud-init user data", () => {
+  const KEY: SshPublicKey = {
+    algorithm: "ssh-ed25519",
+    blob: "AAAAC3NzaC1lZDI1NTE5AAAAIGj0T9kq1vYb3wH2mXo5sN8rL4pQe7uZcV6aD0fK9xBy",
+  };
+  const SK_KEY: SshPublicKey = {
+    algorithm: "sk-ssh-ed25519@openssh.com",
+    blob: "AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIB3c4dE5f6G7h8I9j0K1l2M3",
+  };
+
+  interface Sent {
+    method: string;
+    url: string;
+    body: Record<string, unknown> | null;
+  }
+
+  function capturing(loginUser: LoginUser, replies: Reply[]) {
+    const t = transport([
+      { status: 200, body: { access_token: "t", expires_in: 3600 } },
+      ...replies,
+    ]);
+    const sent: Sent[] = [];
+    const wrapped: FetchLike = (url, init) => {
+      if (url.includes("/v1/compute/instances")) {
+        sent.push({
+          method: init.method ?? "GET",
+          url,
+          body:
+            typeof init.body === "string"
+              ? (JSON.parse(init.body) as Record<string, unknown>)
+              : null,
+        });
+      }
+      return t.fetchImpl(url, init);
+    };
+    const http = new ContaboHttp({
+      fetchImpl: wrapped,
+      tokens: new TokenProvider(
+        { clientId: "c", clientSecret: "s", apiUser: "u", apiPassword: "p" },
+        wrapped,
+      ),
+    });
+    return {
+      adapter: new ContaboAdapter({ http, imageId: "image-uuid", loginUser }),
+      sent,
+      urls: t.urls,
+    };
+  }
+
+  /** The one write_files entry, parsed as cloud-init parses it (YAML). */
+  function keyFileEntry(body: Record<string, unknown> | null) {
+    expect(body).not.toBeNull();
+    // Neither field may be present: each one refers to a Contabo secret.
+    expect(body).not.toHaveProperty("sshKeys");
+    expect(body).not.toHaveProperty("rootPassword");
+    const userData = body!.userData;
+    expect(typeof userData).toBe("string");
+    // cloud-init ignores user data that does not open with this header.
+    expect((userData as string).split("\n")[0]).toBe("#cloud-config");
+    const doc = Bun.YAML.parse(userData as string) as Record<string, unknown>;
+    // Only write_files: top-level ssh_authorized_keys or users would also put
+    // the key on the image's default sudo user, where revocation never looks.
+    expect(Object.keys(doc)).toEqual(["write_files"]);
+    const files = doc.write_files as Record<string, unknown>[];
+    expect(files.length).toBe(1);
+    const entry = files[0];
+    expect(entry.path).toBe("/root/.ssh/authorized_keys");
+    // Append, never replace: the image may already carry lines there.
+    expect(entry.append).toBe(true);
+    expect(entry.owner).toBe("root:root");
+    expect(entry.permissions).toBe("0600");
+    expect(entry).not.toHaveProperty("defer");
+    expect(entry).not.toHaveProperty("encoding");
+    const content = entry.content as string;
+    expect(content.endsWith("\n")).toBe(true);
+    return content.split("\n").filter((line) => line !== "");
+  }
+
+  const lineOf = (k: SshPublicKey) => `${k.algorithm} ${k.blob} isomux-cp`;
+
+  test("create sends no key-store reference and writes each key as a bare line in root's authorized_keys", async () => {
+    const { adapter, sent } = capturing("root", [
+      { status: 201, body: { data: [{ instanceId: 42 }] } },
+    ]);
+    const out = await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [KEY, SK_KEY],
+    });
+    expect(out).toEqual({ outcome: "created", providerId: "42" });
+    expect(sent.map((s) => s.method)).toEqual(["POST"]);
+    expect(keyFileEntry(sent[0].body)).toEqual([lineOf(KEY), lineOf(SK_KEY)]);
+    expect(sent[0].body!.defaultUser).toBe("root");
+  });
+
+  test("reinstall sends the same user data and no key-store reference", async () => {
+    const { adapter, sent } = capturing("root", [{ status: 200, body: {} }]);
+    await adapter.reinstall("4711", {
+      imageId: "image-uuid",
+      publicKeys: [KEY],
+      loginUser: "root",
+    });
+    expect(sent.map((s) => [s.method, new URL(s.url).pathname])).toEqual([
+      ["PUT", "/v1/compute/instances/4711"],
+    ]);
+    expect(keyFileEntry(sent[0].body)).toEqual([lineOf(KEY)]);
+  });
+
+  test("no keys: the body carries no user data and no key-store reference", async () => {
+    const { adapter, sent } = capturing("root", [
+      { status: 201, body: { data: [{ instanceId: 42 }] } },
+      { status: 200, body: {} },
+    ]);
+    await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [],
+    });
+    await adapter.reinstall("4711", {
+      imageId: "image-uuid",
+      publicKeys: [],
+      loginUser: "root",
+    });
+    expect(sent.length).toBe(2);
+    for (const { body } of sent) {
+      expect(body).not.toHaveProperty("userData");
+      expect(body).not.toHaveProperty("sshKeys");
+      expect(body).not.toHaveProperty("rootPassword");
+    }
+  });
+
+  test("a login user other than root is refused before any paid call", async () => {
+    // Only root's file is ours to revoke from; /home/<user> does not exist yet
+    // when write_files runs.
+    for (const loginUser of ["admin", "administrator"] as const) {
+      const { adapter, sent } = capturing(loginUser, []);
+      const refused: string[] = [];
+      try {
+        await adapter.create({
+          intentId: INTENT,
+          plan: "V153",
+          region: "EU",
+          publicKeys: [KEY],
+        });
+      } catch {
+        refused.push("create");
+      }
+      try {
+        await adapter.reinstall("4711", {
+          imageId: "image-uuid",
+          publicKeys: [KEY],
+          loginUser,
+        });
+      } catch {
+        refused.push("reinstall");
+      }
+      expect([loginUser, refused, sent.length]).toEqual([
+        loginUser,
+        ["create", "reinstall"],
+        0,
+      ]);
+    }
+  });
+
+  test("a key that is not one algorithm and one base64 blob is refused before any paid call", async () => {
+    const bad: SshPublicKey[] = [
+      { algorithm: "ssh-dss", blob: KEY.blob },
+      { algorithm: "ssh-ed25519", blob: "BBBBC3NzaC1lZDI1NTE5" },
+      { algorithm: "ssh-ed25519", blob: `${KEY.blob}\nruncmd: [reboot]` },
+      { algorithm: "ssh-ed25519", blob: `${KEY.blob} extra` },
+      { algorithm: "ssh-ed25519\nruncmd: [reboot]", blob: KEY.blob },
+      { algorithm: 'command="sh" ssh-ed25519', blob: KEY.blob },
+      { algorithm: "", blob: KEY.blob },
+      { algorithm: "ssh-ed25519", blob: "" },
+    ];
+    for (const key of bad) {
+      const { adapter, sent } = capturing("root", []);
+      let threw = false;
+      try {
+        await adapter.create({
+          intentId: INTENT,
+          plan: "V153",
+          region: "EU",
+          publicKeys: [KEY, key],
+        });
+      } catch {
+        threw = true;
+      }
+      expect([key, threw, sent.length]).toEqual([key, true, 0]);
+    }
   });
 });
 
@@ -343,51 +555,5 @@ describe("exactness requires positive evidence of a complete response", () => {
   test("absence with NO pagination metadata is indeterminate, not null", async () => {
     const { adapter } = adapterOver([{ status: 200, body: { data: [] } }]);
     expect(adapter.find(INTENT)).rejects.toThrow(IndeterminateFindError);
-  });
-});
-
-describe("SSH secret recovery", () => {
-  test("reuses exactly one secret from a complete filtered response", async () => {
-    const { adapter } = adapterOver([
-      {
-        status: 200,
-        body: {
-          data: [{ secretId: 42, name: "isomux-cp-run-one" }],
-          _pagination: { totalElements: 1 },
-        },
-      },
-    ]);
-    expect(await adapter.findSshSecret("isomux-cp-run-one")).toBe(42);
-  });
-
-  test("only a complete filtered zero establishes absence", async () => {
-    const sound = adapterOver([
-      { status: 200, body: { data: [], _pagination: { totalElements: 0 } } },
-    ]).adapter;
-    expect(await sound.findSshSecret("isomux-cp-run-one")).toBeNull();
-
-    const incomplete = adapterOver([
-      { status: 200, body: { data: [] } },
-    ]).adapter;
-    expect(incomplete.findSshSecret("isomux-cp-run-one")).rejects.toThrow(
-      /unfiltered or incomplete/,
-    );
-  });
-
-  test("multiple exact matches refuse instead of choosing one", async () => {
-    const name = "isomux-cp-run-one";
-    const { adapter } = adapterOver([
-      {
-        status: 200,
-        body: {
-          data: [
-            { secretId: 1, name },
-            { secretId: 2, name },
-          ],
-          _pagination: { totalElements: 2 },
-        },
-      },
-    ]);
-    expect(adapter.findSshSecret(name)).rejects.toThrow(/exactly one/);
   });
 });
