@@ -2,13 +2,15 @@
 // check runs through an injected uid reader here. The split rig
 // (server/test-support/split-rig.integration.test.ts) checks a real foreign uid.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { execFileSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "fs";
 import { connect, createServer, type Server } from "net";
@@ -22,6 +24,7 @@ import {
 } from "../session-account-move.ts";
 import { runIsomuxDiff } from "../isomux-diff.ts";
 import {
+  exitRunner,
   readRunnerInfo,
   RunnerAgentHost,
   RunnerProcess,
@@ -35,7 +38,7 @@ import {
   FRAME_JSON,
   FRAME_STDOUT,
 } from "./frames.ts";
-import { startRunner } from "./runner.ts";
+import { ENTRY_NAMES, parseRunnerArgs, startRunner } from "./runner.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
 
 let dir: string;
@@ -431,5 +434,231 @@ describe("agent runner identity and entries", () => {
       renameCode: "ok",
       createInShare: "ok",
     });
+  });
+});
+
+// Slice 1b-i of task b94dfd25 (internal-docs/member-os-user-design.md 1.1):
+// the member runner's socket mode, its bundle, and the exit that lets its
+// unit start a new runtime.
+describe("a member runner", () => {
+  const HASH = "c".repeat(64);
+  const MEMBER_MAIN = join(import.meta.dir, "member-main.ts");
+
+  it("makes its socket 0660 by default and the mode it is given otherwise", () => {
+    runner = startRunner({ socketPath, serverUid: process.getuid!() });
+    expect(statSync(socketPath).mode & 0o777).toBe(0o660);
+    runner.stop();
+    rmSync(socketPath, { force: true });
+    runner = startRunner({
+      socketPath,
+      serverUid: process.getuid!(),
+      socketMode: 0o666,
+    });
+    expect(statSync(socketPath).mode & 0o777).toBe(0o666);
+  });
+
+  it("reads --socket-mode as octal and refuses anything else", () => {
+    const base = ["--socket", socketPath, "--server-uid", "1001"];
+    expect(parseRunnerArgs(base).socketMode).toBeUndefined();
+    expect(parseRunnerArgs([...base, "--socket-mode", "0666"]).socketMode).toBe(
+      0o666,
+    );
+    for (const bad of ["666x", "0999", "438", "", "-1"])
+      expect(() => parseRunnerArgs([...base, "--socket-mode", bad])).toThrow();
+  });
+
+  it("reports its bundle's hash, and none when it runs from the code tree", async () => {
+    start();
+    expect((await readRunnerInfo(socketPath)).bundleHash).toBeNull();
+    runner!.stop();
+    rmSync(socketPath, { force: true });
+    runner = startRunner({
+      socketPath,
+      serverUid: process.getuid!(),
+      readPeerUid: () => process.getuid!(),
+      bundle: { path: MEMBER_MAIN, hash: HASH },
+    });
+    expect((await readRunnerInfo(socketPath)).bundleHash).toBe(HASH);
+  });
+
+  it("takes a reported hash only when it is 64 hex characters", async () => {
+    for (const reported of ["../../etc", "c".repeat(63), 7, null]) {
+      await fakeRunner((socket) => {
+        socket.end(
+          encodeJson({
+            type: "info",
+            uid: 1,
+            gid: 1,
+            user: "x",
+            home: "/x",
+            env: {},
+            bundleHash: reported,
+          }),
+        );
+      });
+      expect((await readRunnerInfo(socketPath)).bundleHash).toBeNull();
+      fake!.close();
+      fake = null;
+      rmSync(socketPath, { force: true });
+    }
+  });
+
+  it("starts each entry from its bundle when it has one", async () => {
+    // A stand-in bundle that answers with how it was started.
+    const bundle = join(dir, "bundle.js");
+    writeFileSync(
+      bundle,
+      "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));",
+    );
+    runner = startRunner({
+      socketPath,
+      serverUid: process.getuid!(),
+      readPeerUid: () => process.getuid!(),
+      bundle: { path: bundle, hash: HASH },
+    });
+    expect(await runRunnerEntry(socketPath, "bun-path", {})).toEqual({
+      argv: ["entry", "bun-path"],
+    });
+  });
+
+  it("on exit from the server: answers, stops listening, ends every process group it started, then exits", async () => {
+    let exited = false;
+    runner = startRunner({
+      socketPath,
+      serverUid: process.getuid!(),
+      readPeerUid: () => process.getuid!(),
+      killGraceMs: 300,
+      onExit: () => {
+        exited = true;
+      },
+    });
+    // A child that ignores SIGTERM, with a grandchild in its group.
+    const child = new RunnerProcess(socketPath, [
+      "sh",
+      "-c",
+      '(trap "" TERM; exec sleep 300) </dev/null >/dev/null 2>&1 & echo $!; trap "" TERM; exec sleep 300',
+    ]);
+    const reader = child.stdout.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    const grandchild = Number(first.trim());
+    expect(grandchild).toBeGreaterThan(0);
+    expect(await waitFor(() => (child.pid ?? 0) > 0)).toBe(true);
+    const leader = child.pid!;
+    expect([running(leader), running(grandchild)]).toEqual([true, true]);
+
+    await exitRunner(socketPath);
+    // The listener is closed at once: a new request is not answered.
+    await expectRejection(readRunnerInfo(socketPath), /./);
+    expect(await waitFor(() => !running(leader) && !running(grandchild))).toBe(
+      true,
+    );
+    expect(await waitFor(() => exited)).toBe(true);
+  });
+
+  it("refuses exit from any uid but the server's", async () => {
+    let exited = false;
+    const peers = [process.getuid!() + 1];
+    runner = startRunner({
+      socketPath,
+      serverUid: process.getuid!(),
+      readPeerUid: () => peers.shift() ?? process.getuid!(),
+      killGraceMs: 50,
+      onExit: () => {
+        exited = true;
+      },
+    });
+    await exitRunner(socketPath);
+    await Bun.sleep(200);
+    expect(exited).toBe(false);
+    // Still serving the server.
+    expect((await readRunnerInfo(socketPath)).uid).toBe(process.getuid!());
+  });
+});
+
+// The bundle's one file (member-main.ts): each verb, and the same fixed
+// entries as the runner's table, so an entry the runner offers is never
+// missing from the bundle it starts.
+describe("member-main", () => {
+  const MEMBER_MAIN = join(import.meta.dir, "member-main.ts");
+  const run = (args: string[], input = "{}") =>
+    spawnSync(process.execPath, [MEMBER_MAIN, ...args], {
+      input,
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+
+  it("dispatches every entry of the runner's table", () => {
+    // Exit 2 is the usage exit; an entry may fail on {} with its own code.
+    const codes = Object.fromEntries(
+      [...ENTRY_NAMES].map((name) => [name, run(["entry", name]).status]),
+    );
+    expect(Object.values(codes).filter((code) => code === 2)).toEqual([]);
+    expect(Object.values(codes).every((code) => code !== null)).toBe(true);
+  });
+
+  it("refuses an unknown verb, an unknown entry and extra arguments with the usage exit", () => {
+    for (const args of [
+      [],
+      ["nope"],
+      ["entry"],
+      ["entry", "nope"],
+      ["entry", "../runner"],
+      ["entry", "constructor"],
+      ["entry", "diff", "extra"],
+      ["pty", "extra"],
+      ["opencode-helper", "extra"],
+    ])
+      expect([args.join(" "), run(args).status]).toEqual([args.join(" "), 2]);
+  });
+
+  // The built file, run through runtime/current as its unit runs it: the
+  // dynamic imports are in the one file, the entries run, and the runner
+  // listens with the member mode. The hash it reports needs a real foreign
+  // uid to read (the 1b-ii rig).
+  it("works as one built file run through runtime/current", async () => {
+    const { buildRunnerBundle } = await import("../member-runtime.ts");
+    const hash = "d".repeat(64);
+    const runtime = join(dir, "runtime");
+    mkdirSync(join(runtime, hash), { recursive: true });
+    const bundle = join(runtime, hash, "runner.js");
+    writeFileSync(bundle, await buildRunnerBundle());
+    symlinkSync(hash, join(runtime, "current"));
+    const viaCurrent = join(runtime, "current", "runner.js");
+    const entry = spawnSync(
+      process.execPath,
+      [viaCurrent, "entry", "bun-path"],
+      {
+        input: "{}",
+        encoding: "utf8",
+        timeout: 15_000,
+      },
+    );
+    expect(entry.status).toBe(0);
+    expect(JSON.parse(entry.stdout).path).toBe(process.execPath);
+    expect(
+      spawnSync(process.execPath, [viaCurrent, "nope"], { timeout: 15_000 })
+        .status,
+    ).toBe(2);
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        viaCurrent,
+        "runner",
+        "--socket",
+        socketPath,
+        "--server-uid",
+        String(process.getuid!() + 1),
+        "--socket-mode",
+        "0666",
+      ],
+      { stdout: "ignore", stderr: "ignore" },
+    );
+    try {
+      expect(await waitFor(() => existsSync(socketPath), 10_000)).toBe(true);
+      expect(statSync(socketPath).mode & 0o777).toBe(0o666);
+    } finally {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
   });
 });

@@ -31,12 +31,14 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import {
   carried,
+  FIXTURE_RUNTIME_DIR,
   isolateMember,
   type IsolatedMember,
 } from "./member-host-fixture.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { FOLDER_FILES_MCP_PATH } from "../folder-mcp-endpoint.ts";
+import { memberRuntimePaths } from "../member-runtime.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { createCronjobManager } from "../cronjob-manager.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
@@ -226,6 +228,9 @@ describe("an isolated member's agent through the agent manager", () => {
   });
 });
 
+// The engine paths of the fixture's member runtime (slice 1b-i).
+const runtime = memberRuntimePaths(FIXTURE_RUNTIME_DIR);
+
 describe("each spawn path of an isolated member", () => {
   it("terminal: the sidecar starts on the member host with the member's env", async () => {
     const { alice, iso } = await setup();
@@ -245,6 +250,8 @@ describe("each spawn path of an isolated member", () => {
       const pipes = iso.member.calls.filter((c) => c.op === "spawnPipe");
       expect(pipes).toHaveLength(1);
       expect(iso.office.processCalls()).toEqual([]);
+      // The sidecar of the member's runtime (slice 1b-i).
+      expect(pipes[0].argv).toEqual(runtime.ptySidecarArgv);
       const start = JSON.parse(pipes[0].stdin[0]) as {
         env: Record<string, string>;
       };
@@ -290,6 +297,30 @@ describe("each spawn path of an isolated member", () => {
     expect(spawns.every((c) => memberEnvOwner(c.env) === alice)).toBe(true);
     expect(iso.office.processCalls()).toEqual([]);
     expectNoCanary(carried(spawns));
+    // The CLI of the member's runtime, whatever path the caller gave.
+    expect(spawns.every((c) => c.argv[0] === runtime.claudeBin)).toBe(true);
+  });
+
+  it("Codex: the default launcher is the member runtime's, under its Bun", async () => {
+    const { alice, iso } = await setup();
+    const client = new JsonRpcLiteClient({
+      args: ["app-server"],
+      cwd: folder(),
+      env: buildEnvForUserId(alice),
+      skipSafetyPreflightForTestProbe: true,
+    });
+    try {
+      await client.start().catch(() => {});
+    } finally {
+      await client.close().catch(() => {});
+    }
+    const spawns = iso.member.calls.filter((c) => c.op === "spawnChild");
+    expect(spawns.length).toBeGreaterThan(0);
+    expect(spawns[0].argv.slice(0, 2)).toEqual([
+      runtime.bun,
+      runtime.codexLauncher(),
+    ]);
+    expect(iso.office.processCalls()).toEqual([]);
   });
 
   it("Codex: the App Server starts on the member host", async () => {
@@ -329,6 +360,12 @@ describe("each spawn path of an isolated member", () => {
     ).toBe(true);
     expect(iso.office.processCalls()).toEqual([]);
     expectNoCanary(carried(calls));
+    // The helper of the member's runtime, never the code tree's.
+    const argvs = calls.map((c) => c.argv.join(" "));
+    expect(
+      argvs.some((a) => a.includes(runtime.openCodeHelperArgv.join(" "))),
+    ).toBe(true);
+    expect(argvs.some((a) => a.includes("start-server.ts"))).toBe(false);
   });
 });
 

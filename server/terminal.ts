@@ -1,12 +1,10 @@
 import type { AuditActor } from "../shared/audit.ts";
 import { hostFor } from "./member-hosts.ts";
 import { recordAudit } from "./audit-store.ts";
-import { join } from "path";
 import type { ManagedAgent } from "./internal-types.ts";
 import type { AgentHost } from "./agent-host.ts";
 import { startTerminalRecording } from "./terminal-recorder.ts";
 
-const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
 const MAX_PTY_BUFFER = 100_000;
 
 type TerminalEvent =
@@ -118,8 +116,9 @@ export function openTerminal(
   };
   const host = deps.host ?? hostFor(managed.info.userId);
 
-  const bunPath = host.bunPath();
-  const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);
+  const argv = host.ptySidecarArgv();
+  const bunPath = argv[0];
+  const sidecar = host.spawnPipe(argv);
 
   managed.ptySidecar = sidecar;
   // A new terminal starts with the current environment.

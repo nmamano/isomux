@@ -19,6 +19,13 @@ import {
   type AgentHost,
 } from "./agent-host.ts";
 import { RunnerAgentHost } from "./agent-runner/client.ts";
+import {
+  installMemberRuntime,
+  memberSharePath,
+  pruneMemberRuntime,
+  runtimeSource,
+} from "./member-runtime.ts";
+import { checkMemberShare, type ShareVerdict } from "./member-share-check.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
   memberOsUserIds,
@@ -57,6 +64,8 @@ export function setMemberRunnerRoot(root: string | null): void {
 interface Connected {
   osUser: MemberOsUser;
   host: AgentHost;
+  // The runtime its runner runs.
+  runtimeHash: string;
 }
 
 const connected = new Map<string, Connected>();
@@ -114,6 +123,11 @@ export function createNotReadyHost(userId: string, reason: string): AgentHost {
       message: notReadyError(reason).message,
     }),
     runEntry: reject,
+    claudeBin: () => NOT_READY_PATH,
+    codexLauncher: () => NOT_READY_PATH,
+    openCodeBin: () => NOT_READY_PATH,
+    ptySidecarArgv: () => [NOT_READY_PATH],
+    openCodeHelperArgv: () => [NOT_READY_PATH],
   };
   return host;
 }
@@ -316,6 +330,15 @@ export async function defaultMemberChecks(
   return memberCodeTreeChecks(input);
 }
 
+// A connected member runner (RunnerAgentHost.connectMember).
+export interface MemberRunner {
+  host: AgentHost;
+  // The runtime hash the runner reports: member data, compared only.
+  runtimeHash: string | null;
+  // Ask the runner to exit, so its unit starts runtime/current.
+  exit(): Promise<void>;
+}
+
 export interface MemberHostDeps {
   // The peer uid of a connected client socket's fd (SO_PEERCRED).
   readPeerUid: (fd: number) => number | null;
@@ -328,9 +351,29 @@ export interface MemberHostDeps {
     opts: {
       userId: string;
       uid: number;
+      share: string;
       readPeerUid: (fd: number) => number | null;
     },
-  ) => Promise<AgentHost>;
+  ) => Promise<MemberRunner>;
+  // The member share check (server/member-share-check.ts).
+  checkShare: (input: {
+    share: string;
+    officeUid: number;
+    memberGid: number;
+    scope: "root" | "all";
+  }) => ShareVerdict;
+  // The member runtime (server/member-runtime.ts): the hash this server
+  // installs (built at the first call), its install in a share (a no-op
+  // when it is there and passes the share check), and the prune.
+  runtime: {
+    hash(): Promise<string>;
+    install(share: string, memberGid: number): Promise<void>;
+    prune(share: string, keep: string[]): Promise<void>;
+  };
+  // After an exit, how long the runner has to come back on its new runtime,
+  // and the pause between connect tries.
+  restartWaitMs: number;
+  restartPollMs: number;
   retryMs: number;
   // The code-walk child (server/member-code-check.ts) and its time limit;
   // after it, the child is killed and the connect fails closed.
@@ -343,6 +386,18 @@ const DEFAULT_DEPS: MemberHostDeps = {
   checks: defaultMemberChecks,
   connectRunner: (socketPath, opts) =>
     RunnerAgentHost.connectMember(socketPath, opts),
+  checkShare: (input) => checkMemberShare(input),
+  runtime: {
+    hash: async () => (await runtimeSource()).hash,
+    install: async (share, memberGid) => {
+      await installMemberRuntime(share, await runtimeSource(), { memberGid });
+    },
+    prune: async (share, keep) => {
+      await pruneMemberRuntime(share, keep);
+    },
+  },
+  restartWaitMs: 30_000,
+  restartPollMs: 500,
   retryMs: 30_000,
   codeCheck: {
     command: [process.execPath, CODE_CHECK_CHILD],
@@ -383,11 +438,25 @@ function scheduleRetry(userId: string): void {
   retries.set(userId, timer);
 }
 
-// Connect one member: the runner's peer uid (SO_PEERCRED on our side of the
-// socket) and `id -u <name>` must equal the recorded uid, and the checks must
-// pass. True when registered; else the member stays on the not-ready host,
-// the reason is logged and a retry is set.
-export async function connectMemberHost(userId: string): Promise<boolean> {
+const inflight = new Map<string, Promise<boolean>>();
+
+// Connect one member: `id -u <name>` and the runner's peer uid (SO_PEERCRED
+// on our side of the socket) must equal the recorded uid, the share check
+// and the trusted checks must pass, and the runner must run the runtime this
+// server installs, which is installed first. On another runtime: ask the
+// runner to exit and connect again once (the unit starts runtime/current);
+// the member is not ready meanwhile. True when registered; else the member stays on the
+// not-ready host, the reason is logged and a retry is set. One connect per
+// member at a time.
+export function connectMemberHost(userId: string): Promise<boolean> {
+  const running = inflight.get(userId);
+  if (running) return running;
+  const run = connectNow(userId).finally(() => inflight.delete(userId));
+  inflight.set(userId, run);
+  return run;
+}
+
+async function connectNow(userId: string): Promise<boolean> {
   const state = memberOsUserState(userId);
   if (state.kind !== "isolated") {
     connected.delete(userId);
@@ -414,20 +483,62 @@ export async function connectMemberHost(userId: string): Promise<boolean> {
     return refuse(
       `the record names uid ${osUser.uid}, but ${osUser.name} is uid ${identity.uid}`,
     );
-  let host: AgentHost;
+  const officeUid = process.getuid!();
+  const share = memberSharePath(osUser.name);
+  const checkShare = (scope: "root" | "all"): string | null => {
+    let verdict: ShareVerdict;
+    try {
+      verdict = deps.checkShare({
+        share,
+        officeUid,
+        memberGid: identity.gid,
+        scope,
+      });
+    } catch (error) {
+      return `the member share check failed: ${(error as Error).message}`;
+    }
+    return verdict.ok
+      ? null
+      : `the member share at ${verdict.path}: ${verdict.reason}`;
+  };
+  // Before the install, only what the server does not make: a runtime that
+  // is broken (runtime/current names a folder that is gone) is what the
+  // install repairs.
+  const shareProblem = checkShare("root");
+  if (shareProblem) return refuse(shareProblem);
+  // Before the runner: a share whose runtime is missing or broken has no
+  // runner to answer, and only this install repairs it. A no-op when
+  // runtime/<hash> is there and passes the share check.
+  let wanted: string;
   try {
-    host = await deps.connectRunner(memberRunnerSocketPath(osUser.name), {
+    wanted = await deps.runtime.hash();
+    // A connected runner on another runtime is not used from the install
+    // (runtime/current moves) to its restart.
+    if (connected.get(userId)?.runtimeHash !== wanted) connected.delete(userId);
+    await deps.runtime.install(share, identity.gid);
+  } catch (error) {
+    return refuse(`the member runtime: ${(error as Error).message}`);
+  }
+  const installedProblem = checkShare("all");
+  if (installedProblem) return refuse(installedProblem);
+  const socketPath = memberRunnerSocketPath(osUser.name);
+  const connectRunner = () =>
+    deps.connectRunner(socketPath, {
       userId,
       uid: osUser.uid,
+      share,
       readPeerUid: deps.readPeerUid,
     });
+  let runner: MemberRunner;
+  try {
+    runner = await connectRunner();
   } catch (error) {
     return refuse(`cannot reach the runner: ${(error as Error).message}`);
   }
   let failures: CheckFailure[];
   try {
     failures = await deps.checks({
-      officeUid: process.getuid!(),
+      officeUid,
       officeGroups: process.getgroups?.() ?? [process.getgid!()],
       member: identity,
       privilegedGroups: privilegedGroupIds(),
@@ -444,6 +555,27 @@ export async function connectMemberHost(userId: string): Promise<boolean> {
         .map((f) => `${f.check}${f.path ? ` at ${f.path}` : ""}: ${f.detail}`)
         .join("; "),
     );
+  if (runner.runtimeHash !== wanted) {
+    // Not ready from here to the reconnect: the runner runs another
+    // runtime than runtime/current.
+    connected.delete(userId);
+    await runner.exit().catch(() => {});
+    const next = await reconnectRunner(connectRunner);
+    if (!next) return refuse("the runner did not come back after its update");
+    runner = next;
+    if (runner.runtimeHash !== wanted)
+      return refuse(
+        `the runner runs runtime ${runner.runtimeHash ?? "none"}, not ${wanted}`,
+      );
+  }
+  try {
+    await deps.runtime.prune(share, [wanted]);
+  } catch (error) {
+    console.error(
+      `[member-hosts] ${userId}: cannot prune old runtimes: ${(error as Error).message}`,
+    );
+  }
+  const host = runner.host;
   // The record may have changed while we connected.
   const now = memberOsUserState(userId);
   if (
@@ -452,9 +584,25 @@ export async function connectMemberHost(userId: string): Promise<boolean> {
     now.osUser.uid !== osUser.uid
   )
     return refuse("the record changed while connecting");
-  connected.set(userId, { osUser, host });
+  connected.set(userId, { osUser, host, runtimeHash: wanted });
   console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
   return true;
+}
+
+// Connect again after an exit, until the runner answers or restartWaitMs
+// ends. Null when it does not come back.
+async function reconnectRunner(
+  connect: () => Promise<MemberRunner>,
+): Promise<MemberRunner | null> {
+  const end = Date.now() + deps.restartWaitMs;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, deps.restartPollMs));
+    try {
+      return await connect();
+    } catch {
+      if (Date.now() >= end) return null;
+    }
+  }
 }
 
 // Boot: connect every member with an OS user.
@@ -464,6 +612,7 @@ export async function connectMemberHosts(): Promise<void> {
 
 // Tests: forget every connected host and retry timer.
 export function resetMemberHosts(): void {
+  inflight.clear();
   codeTreeVerdicts.clear();
   for (const timer of retries.values()) clearTimeout(timer);
   retries.clear();

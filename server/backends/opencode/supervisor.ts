@@ -12,7 +12,7 @@ import { hostForEnv } from "../../member-hosts.ts";
 import { ADMIN_SOCKET_PATH, STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { runAtServerStop } from "../../server-stop.ts";
-import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
+import { openCodeUnsupportedReason } from "./runtime.ts";
 import {
   openCodeConfigFilePath,
   openCodeProfilePaths,
@@ -758,11 +758,7 @@ export class OpenCodeSupervisor {
   // flock(1) on Linux, and the helper's own flock(2) on macOS, which has no
   // flock CLI.
   private helperCommand(): string[] {
-    const helper = [
-      process.execPath,
-      "run",
-      join(import.meta.dir, "start-server.ts"),
-    ];
+    const helper = this.host.openCodeHelperArgv();
     return this.platform === "darwin"
       ? helper
       : ["flock", "--exclusive", this.recordPath, ...helper];
@@ -775,7 +771,7 @@ export class OpenCodeSupervisor {
   }
 
   private get binary(): string {
-    this.resolvedBinary ??= resolveOpenCodeBinary(this.platform);
+    this.resolvedBinary ??= this.host.openCodeBin(this.platform);
     return this.resolvedBinary;
   }
 

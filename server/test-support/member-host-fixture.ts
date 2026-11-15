@@ -22,6 +22,20 @@ import {
   setMemberHostDeps,
 } from "../member-hosts.ts";
 import { forgetMemberOsUser, recordMemberOsUser } from "../member-os-users.ts";
+import { memberRuntimePaths, memberSharePath } from "../member-runtime.ts";
+
+// The runtime hash the recording member runner reports and the fixture's
+// runtime deps install: the connect takes it as current.
+export const FIXTURE_RUNTIME_HASH = "f".repeat(64);
+const FIXTURE_OS_USER = "isomux-test-member";
+
+// The member runtime folder the recording member host names in its engine
+// paths (no file is there).
+export const FIXTURE_RUNTIME_DIR = join(
+  memberSharePath(FIXTURE_OS_USER),
+  "runtime",
+  FIXTURE_RUNTIME_HASH,
+);
 
 export interface HostCall {
   op: string;
@@ -55,8 +69,13 @@ function recording(
     baseEnv?: Record<string, string | undefined>;
     home?: string;
     username?: string;
+    // A member runtime folder: the engine paths under it.
+    runtimeDir?: string;
   },
 ): RecordingHost {
+  const runtime = shape.runtimeDir
+    ? memberRuntimePaths(shape.runtimeDir)
+    : null;
   const calls: HostCall[] = [];
   const record = (
     op: string,
@@ -73,7 +92,16 @@ function recording(
     baseEnv: () => shape.baseEnv ?? base.baseEnv(),
     home: () => shape.home ?? base.home(),
     username: () => shape.username ?? base.username(),
-    bunPath: () => base.bunPath(),
+    bunPath: () => (runtime ? runtime.bun : base.bunPath()),
+    claudeBin: () => (runtime ? runtime.claudeBin : base.claudeBin()),
+    codexLauncher: () =>
+      runtime ? runtime.codexLauncher() : base.codexLauncher(),
+    openCodeBin: (platform?: NodeJS.Platform) =>
+      runtime ? runtime.openCodeBin(platform) : base.openCodeBin(platform),
+    ptySidecarArgv: () =>
+      runtime ? [...runtime.ptySidecarArgv] : base.ptySidecarArgv(),
+    openCodeHelperArgv: () =>
+      runtime ? [...runtime.openCodeHelperArgv] : base.openCodeHelperArgv(),
     spawnPipe: (argv: string[]) => {
       const call = record("spawnPipe", argv);
       const proc = localAgentHost.spawnPipe(["false"]);
@@ -153,15 +181,26 @@ export async function isolateMember(userId: string): Promise<IsolatedMember> {
       SHELL: "/bin/sh",
     },
     home,
-    username: "isomux-test-member",
+    username: FIXTURE_OS_USER,
+    runtimeDir: FIXTURE_RUNTIME_DIR,
   });
   const uid = process.getuid!();
-  recordMemberOsUser(userId, { name: "isomux-test-member", uid });
+  recordMemberOsUser(userId, { name: FIXTURE_OS_USER, uid });
   setMemberHostDeps({
     readPeerUid: () => uid,
     lookupUser: () => ({ uid, gid: 4242, groups: [4242] }),
     checks: () => [],
-    connectRunner: async () => member.host,
+    checkShare: () => ({ ok: true }),
+    runtime: {
+      hash: async () => FIXTURE_RUNTIME_HASH,
+      install: async () => {},
+      prune: async () => {},
+    },
+    connectRunner: async () => ({
+      host: member.host,
+      runtimeHash: FIXTURE_RUNTIME_HASH,
+      exit: async () => {},
+    }),
     retryMs: 60_000,
   } as Parameters<typeof setMemberHostDeps>[0]);
   if (!(await connectMemberHost(userId)))

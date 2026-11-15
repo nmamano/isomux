@@ -36,7 +36,6 @@ import { hostForEnv } from "../../member-hosts.ts";
 import {
   codexEnvApiKeyWins,
   ISOMUX_CODEX_HOME,
-  resolveCodexLauncherPath,
   withIsomuxCodexHome,
 } from "./native-bin.ts";
 import {
@@ -242,7 +241,7 @@ export class JsonRpcLiteClient {
       // launcher fine - we don't depend on `node` being on PATH). Resolution
       // throws here are translated to a chat-actionable hint via the catch
       // in CodexSession.bootstrap.
-      const launcher = resolveCodexLauncherPath();
+      const launcher = host.codexLauncher();
       bin = host.bunPath();
       spawnArgs = [launcher, ...codexArgs];
     }

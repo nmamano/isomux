@@ -91,7 +91,10 @@ export type RunnerRequest =
     }
   | { op: "entry"; name: string; input: unknown }
   | ({ op: "fs" } & FsRequest)
-  | { op: "info" };
+  | { op: "info" }
+  // Close the listener and exit 0 (a member runner: its unit starts the new
+  // bundle). Answered with "exiting" before the listener closes.
+  | { op: "exit" };
 
 // File operations in agent space, done by the runner as the agent user. A
 // readText answers with stdout frames; a writeText takes its bytes as stdin
@@ -119,6 +122,7 @@ export type RunnerControl =
   // This many stdin bytes are in the child's pipe.
   | { type: "stdin-ack"; bytes: number }
   | { type: "error"; code: string; message: string }
+  | { type: "exiting" }
   | {
       type: "info";
       uid: number;
@@ -126,4 +130,7 @@ export type RunnerControl =
       user: string;
       home: string;
       env: Record<string, string>;
+      // The sha256 of the runtime this runner runs (member-runtime.ts); null
+      // when it runs from the code tree.
+      bundleHash: string | null;
     };

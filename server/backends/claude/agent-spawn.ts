@@ -47,6 +47,8 @@ export function withAgentSpawn(
   if (host.kind !== "runner" && !isolate) return options;
   return {
     ...options,
+    // The host's own CLI: a member host runs the member runtime's copy.
+    pathToClaudeCodeExecutable: host.claudeBin(),
     env: options.env ?? host.baseEnv(),
     spawnClaudeCodeProcess: (spawn) =>
       spawnClaudeThroughHost(host, spawn, isolate),

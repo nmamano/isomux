@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { RUNTIME_ROOT } from "../../runtime-root.ts";
 
 export const OPENCODE_CLI_VERSION = "2.2.5";
 
@@ -51,8 +52,8 @@ function resolveDarwinBinary(arch: "arm64" | "x64"): string {
 function firstInstalledBinary(variants: string[]): string {
   for (const packageName of variants) {
     const path = join(
-      import.meta.dir,
-      "../../../node_modules",
+      RUNTIME_ROOT,
+      "node_modules",
       packageName,
       "bin",
       "opencode",

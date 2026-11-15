@@ -9,7 +9,11 @@ import { EventEmitter } from "events";
 import { existsSync } from "fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
+import { join } from "path";
 import { Readable, Writable } from "stream";
+import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
+import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
+import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
 import {
   isolatedArgv,
   ISOLATION_SETUP_FAILED,
@@ -190,7 +194,46 @@ export interface AgentHost {
   // is agent-space data. Only the runner host has entries. `timeoutMs`
   // replaces the default limit, after which the entry is killed.
   runEntry(name: string, input: unknown, timeoutMs?: number): Promise<unknown>;
+  // The engine executables and helper scripts that this host's processes
+  // run: the office's on an office host, the member runtime's on a member
+  // host (internal-docs/member-os-user-design.md, section 1.1).
+  claudeBin(): string;
+  codexLauncher(): string;
+  // Throws where OpenCode has no binary (openCodeUnsupportedReason).
+  openCodeBin(platform?: NodeJS.Platform): string;
+  // The terminal sidecar (server/pty-sidecar.ts).
+  ptySidecarArgv(): string[];
+  // The OpenCode server helper (server/backends/opencode/start-server.ts).
+  openCodeHelperArgv(): string[];
 }
+
+export const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
+export const OPENCODE_HELPER_PATH = join(
+  import.meta.dir,
+  "backends",
+  "opencode",
+  "start-server.ts",
+);
+
+// The office's engine paths, for the local host and the split runner, which
+// both run from the code tree. The terminal sidecar runs under the host's
+// own Bun (`this.bunPath()`).
+export const officeEnginePaths: Pick<
+  AgentHost,
+  | "claudeBin"
+  | "codexLauncher"
+  | "openCodeBin"
+  | "ptySidecarArgv"
+  | "openCodeHelperArgv"
+> = {
+  claudeBin: () => CLAUDE_NATIVE_BIN,
+  codexLauncher: () => resolveCodexLauncherPath(),
+  openCodeBin: (platform) => resolveOpenCodeBinary(platform),
+  ptySidecarArgv(this: AgentHost) {
+    return [this.bunPath(), PTY_SIDECAR_PATH];
+  },
+  openCodeHelperArgv: () => [process.execPath, "run", OPENCODE_HELPER_PATH],
+};
 
 function spawnLocalChild(
   argv: string[],
@@ -336,6 +379,7 @@ export const localAgentHost: AgentHost = {
   home: () => homedir(),
   username: () => userInfo().username,
   bunPath: () => process.execPath,
+  ...officeEnginePaths,
   spawnPipe: (argv) =>
     Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "inherit" }),
   spawnChild: spawnLocalChild,

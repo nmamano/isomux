@@ -1,5 +1,6 @@
 import { claudeSessionStore } from "./claude/session-store.ts";
 import { withAgentSpawn } from "./claude/agent-spawn.ts";
+import { hostForEnv } from "../member-hosts.ts";
 // `msg` names the SDK message throughout this file.
 import {
   msg as logMsg,
@@ -173,11 +174,13 @@ import { isUsageLimitNotice } from "../stored-session-text.ts";
 // The terminal sign-in and sign-out run `claude` when the member has it on
 // PATH, and otherwise the binary bundled with the Agent SDK, so they never
 // need an install.
+// An isolated member's env runs the CLI of the member's runtime.
 function loginCommand(env?: { [key: string]: string | undefined }): string {
   if (isClaudeCodeInstalled(env)) return "claude";
-  return /^[\w@%+=:,./-]+$/.test(CLAUDE_NATIVE_BIN)
-    ? CLAUDE_NATIVE_BIN
-    : `'${CLAUDE_NATIVE_BIN.replaceAll("'", `'"'"'`)}'`;
+  const bin = hostForEnv(env).claudeBin();
+  return /^[\w@%+=:,./-]+$/.test(bin)
+    ? bin
+    : `'${bin.replaceAll("'", `'"'"'`)}'`;
 }
 
 // A 403 is the provider refusing the request, not a sign-in failure

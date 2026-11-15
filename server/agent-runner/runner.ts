@@ -5,6 +5,10 @@
 // user's identity and environment. It never runs a shell of its own.
 //
 //   bun server/agent-runner/runner.ts --socket <path> --server-uid <uid>
+//     [--socket-mode <octal>]
+//
+// A member runner runs from its bundle (member-main.ts), which passes the
+// bundle's path and hash.
 
 import { spawn, type ChildProcess } from "child_process";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "fs";
@@ -61,8 +65,18 @@ const HIGH_WATER_BYTES = 4 * 1024 * 1024;
 export interface RunnerOptions {
   socketPath: string;
   serverUid: number;
+  // Default 0660: the server user reaches the split runner through its
+  // group. A member runner uses 0666 in its 0711 directory; the peer check
+  // refuses every uid but the server's.
+  socketMode?: number;
+  // The runner's bundle (member-main.ts): entries start as
+  // [bun, bundle, "entry", name], and info reports bundleHash. Absent: the
+  // .ts entries of the code tree.
+  bundle?: { path: string; hash: string };
   readPeerUid?: (fd: number) => number | null;
   killGraceMs?: number;
+  // Called after an "exit" op has closed the listener; default exits 0.
+  onExit?: () => void;
 }
 
 interface Connection {
@@ -294,7 +308,20 @@ function handleFs(socket: RunnerSocket, request: FsRequest): void {
   void runFs(socket, request);
 }
 
-function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
+function handleRequest(
+  socket: RunnerSocket,
+  request: RunnerRequest,
+  options: RunnerOptions,
+  exit: () => void,
+): void {
+  if (request.op === "exit") {
+    send(socket, [encodeJson({ type: "exiting" })]);
+    socket.data.ended = true;
+    socket.data.drainWaiters.push(() => socket.end());
+    flush(socket);
+    exit();
+    return;
+  }
   if (request.op === "info") {
     const user = userInfo();
     finish(socket, {
@@ -308,6 +335,7 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
           (entry): entry is [string, string] => typeof entry[1] === "string",
         ),
       ),
+      bundleHash: options.bundle?.hash ?? null,
     });
     return;
   }
@@ -343,9 +371,12 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
       fail(socket, "unknown_entry", "no such entry");
       return;
     }
+    const bundle = options.bundle;
     startChild(
       socket,
-      [process.execPath, join(ENTRY_DIR, `${request.name}.ts`)],
+      bundle
+        ? [process.execPath, bundle.path, "entry", request.name]
+        : [process.execPath, join(ENTRY_DIR, `${request.name}.ts`)],
       {
         env: process.env,
         stderr: "pipe",
@@ -357,7 +388,12 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
   fail(socket, "bad_request", "unknown operation");
 }
 
-function handleFrame(socket: RunnerSocket, frame: Frame): void {
+function handleFrame(
+  socket: RunnerSocket,
+  frame: Frame,
+  options: RunnerOptions,
+  exit: () => void,
+): void {
   const data = socket.data;
   if (!data.started) {
     data.started = true;
@@ -372,7 +408,7 @@ function handleFrame(socket: RunnerSocket, frame: Frame): void {
       fail(socket, "bad_request", "the request is not JSON");
       return;
     }
-    handleRequest(socket, request);
+    handleRequest(socket, request, options, exit);
     return;
   }
   const pendingWrite = data.pendingWrite;
@@ -477,6 +513,18 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
   const readPeerUid =
     options.readPeerUid ?? ((fd) => readPeerCredentials(fd)?.uid ?? null);
   const graceMs = options.killGraceMs ?? KILL_GRACE_MS;
+  const open = new Set<RunnerSocket>();
+  let exiting = false;
+  // Stop accepting, end every process group this runner started (SIGTERM,
+  // SIGKILL after the grace), then exit: no process of the old runtime
+  // outlives it. The "exiting" answer still drains on its connection.
+  const exit = () => {
+    if (exiting) return;
+    exiting = true;
+    listener.stop(false);
+    for (const socket of open) stopGroup(socket.data, graceMs);
+    setTimeout(options.onExit ?? (() => process.exit(0)), graceMs + 100);
+  };
   if (existsSync(options.socketPath)) {
     if (!lstatSync(options.socketPath).isSocket())
       throw new Error(`${options.socketPath} exists and is not a socket`);
@@ -503,6 +551,7 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
           groupStopped: false,
           pendingWrite: null,
         };
+        open.add(socket);
         const fd = socketFileDescriptor(socket);
         const uid = fd === null ? null : readPeerUid(fd);
         if (uid !== options.serverUid) {
@@ -523,16 +572,18 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
           socket.terminate();
           return;
         }
-        for (const frame of frames) handleFrame(socket, frame);
+        for (const frame of frames) handleFrame(socket, frame, options, exit);
       },
       drain(socket) {
         flush(socket);
       },
       close(socket) {
+        open.delete(socket);
         socket.data.ended = true;
         stopGroup(socket.data, graceMs);
       },
       error(socket) {
+        open.delete(socket);
         socket.data.ended = true;
         stopGroup(socket.data, graceMs);
       },
@@ -540,11 +591,11 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
   });
   // Group access lets the server user connect; the peer check refuses every
   // other uid in that group.
-  chmodSync(options.socketPath, 0o660);
+  chmodSync(options.socketPath, options.socketMode ?? 0o660);
   return { stop: () => listener.stop(true) };
 }
 
-function parseArgs(argv: string[]): RunnerOptions {
+export function parseRunnerArgs(argv: string[]): RunnerOptions {
   const value = (flag: string): string => {
     const at = argv.indexOf(flag);
     const found = at >= 0 ? argv[at + 1] : undefined;
@@ -553,11 +604,24 @@ function parseArgs(argv: string[]): RunnerOptions {
   };
   const uidText = value("--server-uid");
   if (!/^\d+$/.test(uidText)) throw new Error("--server-uid must be a uid");
-  return { socketPath: value("--socket"), serverUid: Number(uidText) };
+  const options: RunnerOptions = {
+    socketPath: value("--socket"),
+    serverUid: Number(uidText),
+  };
+  if (argv.includes("--socket-mode")) {
+    const modeText = value("--socket-mode");
+    if (!/^0?[0-7]{3}$/.test(modeText))
+      throw new Error("--socket-mode must be an octal mode");
+    options.socketMode = parseInt(modeText, 8);
+  }
+  return options;
 }
 
-if (import.meta.main) {
-  const options = parseArgs(process.argv.slice(2));
+export function runnerMain(
+  argv: string[],
+  bundle?: { path: string; hash: string },
+): void {
+  const options = { ...parseRunnerArgs(argv), bundle };
   if (options.serverUid === process.getuid?.()) {
     console.error(
       "[agent-runner] the server uid is this process's own uid; refusing to start.",
@@ -567,3 +631,5 @@ if (import.meta.main) {
   startRunner(options);
   console.log(`[agent-runner] listening on ${options.socketPath}`);
 }
+
+if (import.meta.main) runnerMain(process.argv.slice(2));

@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readlinkSync,
   rmSync,
   writeFileSync,
 } from "fs";
@@ -50,6 +51,17 @@ import {
   reloadMemberOsUsers,
 } from "./member-os-users.ts";
 import { STATE_ROOT } from "./config.ts";
+import {
+  memberRuntimePaths,
+  memberSharePath,
+  runtimeSource,
+  setMemberRuntimeDeps,
+  setMemberShareRoot,
+} from "./member-runtime.ts";
+import { checkMemberShare, realShareProbe } from "./member-share-check.ts";
+import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
+import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
 import { _testResetUsers, claimUser, deleteUserById } from "./users.ts";
 import {
   ACL_GROUP_OBJ,
@@ -74,6 +86,18 @@ async function codeOf(p: Promise<unknown>): Promise<string | undefined> {
 const NOT_READY = MEMBER_HOST_NOT_READY;
 
 const UID = process.getuid!();
+// The runtime hash the test runners report and the test runtime deps
+// install (slice 1b-i): a connect takes their runtime as current.
+const TEST_RUNTIME_HASH = "e".repeat(64);
+const MEMBER_MAIN = join(import.meta.dir, "agent-runner", "member-main.ts");
+const TEST_RUNTIME_DEPS = {
+  checkShare: () => ({ ok: true }) as const,
+  runtime: {
+    hash: async () => TEST_RUNTIME_HASH,
+    install: async () => {},
+    prune: async () => {},
+  },
+};
 let dir: string;
 let runners: { stop(): void }[] = [];
 
@@ -132,6 +156,7 @@ function startMemberRunner(socketPath: string): void {
       serverUid: UID,
       readPeerUid: () => UID,
       killGraceMs: 300,
+      bundle: { path: MEMBER_MAIN, hash: TEST_RUNTIME_HASH },
     }),
   );
 }
@@ -332,11 +357,13 @@ describe("a member's runner host", () => {
   ): Promise<RunnerAgentHost> {
     const socketPath = join(dir, `alice-${++runnerCount}`, "runner.sock");
     startMemberRunner(socketPath);
-    return RunnerAgentHost.connectMember(socketPath, {
+    const runner = await RunnerAgentHost.connectMember(socketPath, {
       userId: "u-alice",
       uid: UID,
+      share: join(dir, "share"),
       readPeerUid,
     });
+    return runner.host;
   }
 
   it("refuses an env not built for its member: an office env and another member's", async () => {
@@ -381,6 +408,41 @@ describe("a member's runner host", () => {
     );
   });
 
+  // Slice 1b-i: the member host runs the engines of its runtime folder in
+  // the share, named by the hash the runner reports, never the office's.
+  it("names the engines, the sidecar and Bun of runtime/<reported hash>, and turns the engine updaters off", async () => {
+    const host = await aliceHost();
+    const runtime = join(dir, "share", "runtime", TEST_RUNTIME_HASH);
+    const paths = memberRuntimePaths(runtime);
+    expect(host.bunPath()).toBe(join(runtime, "bun"));
+    expect(host.claudeBin()).toBe(paths.claudeBin);
+    expect(
+      host.claudeBin().startsWith(join(runtime, "node_modules") + "/"),
+    ).toBe(true);
+    expect(host.codexLauncher()).toBe(paths.codexLauncher());
+    expect(
+      host.codexLauncher().startsWith(join(runtime, "node_modules") + "/"),
+    ).toBe(true);
+    expect(host.ptySidecarArgv()).toEqual([
+      join(runtime, "bun"),
+      join(runtime, "runner.js"),
+      "pty",
+    ]);
+    expect(host.openCodeHelperArgv()).toEqual([
+      join(runtime, "bun"),
+      join(runtime, "runner.js"),
+      "opencode-helper",
+    ]);
+    if (process.platform === "linux")
+      expect(
+        host.openCodeBin().startsWith(join(runtime, "node_modules") + "/"),
+      ).toBe(true);
+    const env = host.baseEnv();
+    expect(env.DISABLE_AUTOUPDATER).toBe("1");
+    expect(env.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
+    expect((env.PATH ?? "").split(":")).toContain(dirname(paths.claudeBin));
+  });
+
   it("checks the peer uid on every connection, not only the first", async () => {
     let peer = UID;
     const host = await aliceHost(() => peer);
@@ -396,6 +458,380 @@ describe("a member's runner host", () => {
     expect(await codeOf(host.fs.readText(join(dir, "x")))).not.toBe("resolved");
     await Bun.sleep(100);
     expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("the office host's engines (slice 1b-i)", () => {
+  it("are today's values: the code tree's engines and sidecar, under the office's Bun", () => {
+    expect(localAgentHost.claudeBin()).toBe(CLAUDE_NATIVE_BIN);
+    expect(localAgentHost.codexLauncher()).toBe(resolveCodexLauncherPath());
+    expect(localAgentHost.ptySidecarArgv()).toEqual([
+      process.execPath,
+      join(import.meta.dir, "pty-sidecar.ts"),
+    ]);
+    expect(localAgentHost.openCodeHelperArgv()).toEqual([
+      process.execPath,
+      "run",
+      join(import.meta.dir, "backends", "opencode", "start-server.ts"),
+    ]);
+    if (process.platform === "linux")
+      expect(localAgentHost.openCodeBin()).toBe(resolveOpenCodeBinary());
+    // A host with its own Bun keeps its own Bun for the sidecar.
+    const other = { ...localAgentHost, bunPath: () => "/other/bun" };
+    expect(other.ptySidecarArgv()[0]).toBe("/other/bun");
+  });
+});
+
+// Slice 1b-i: the connect puts the member on the runtime this server
+// installs. The runner and the runtime are recorded stand-ins; each event is
+// logged in order.
+describe("the connect's runtime", () => {
+  const NAME = "isomux-alice";
+  const WANTED = "1".repeat(64);
+  const OLD = "2".repeat(64);
+
+  function stand(
+    over: {
+      // The hash each successive runner reports; the last repeats.
+      reports?: (string | null)[];
+      // How many connects fail before one succeeds (from the first).
+      unreachable?: number;
+      // Share check verdicts in order; the last repeats.
+      shares?: boolean[];
+      install?: () => Promise<void>;
+      exit?: () => Promise<void>;
+      wanted?: () => string;
+    } = {},
+  ) {
+    const log: string[] = [];
+    const hosts: AgentHost[] = [];
+    const reports = over.reports ?? [WANTED];
+    const shares = over.shares ?? [true];
+    let unreachable = over.unreachable ?? 0;
+    let connects = 0;
+    let shareChecks = 0;
+    setMemberHostDeps({
+      readPeerUid: () => UID,
+      lookupUser: () => ({ uid: UID, gid: 4242, groups: [4242] }),
+      checks: async () => {
+        log.push("checks");
+        return [];
+      },
+      checkShare: (input) => {
+        log.push(`share ${input.memberGid}`);
+        const ok = shares[Math.min(shareChecks++, shares.length - 1)];
+        return ok
+          ? { ok: true }
+          : { ok: false, path: input.share, reason: "test" };
+      },
+      runtime: {
+        hash: async () => (over.wanted ? over.wanted() : WANTED),
+        install: async (_share, gid) => {
+          log.push(`install ${gid}`);
+          await over.install?.();
+        },
+        prune: async (_share, keep) => {
+          log.push(`prune ${keep.join(",")}`);
+        },
+      },
+      connectRunner: async () => {
+        if (unreachable > 0) {
+          unreachable--;
+          log.push("connect failed");
+          throw new Error("no runner");
+        }
+        const hash = reports[Math.min(connects++, reports.length - 1)];
+        log.push(`connect ${hash ?? "none"}`);
+        const host = {
+          ...localAgentHost,
+          kind: "runner",
+          member: "u-alice",
+        } as AgentHost;
+        hosts.push(host);
+        return {
+          host,
+          runtimeHash: hash,
+          exit: async () => {
+            log.push("exit");
+            await over.exit?.();
+          },
+        };
+      },
+      restartWaitMs: 300,
+      restartPollMs: 10,
+      retryMs: 60_000,
+    });
+    recordMemberOsUser("u-alice", { name: NAME, uid: UID });
+    return { log, hosts };
+  }
+  const index = (log: string[], event: string, from = 0) =>
+    log.indexOf(event, from);
+
+  it("takes a runner on the wanted runtime as it is, and prunes the rest", async () => {
+    const { log, hosts } = stand();
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(hostFor("u-alice")).toBe(hosts[0]);
+    expect(log).not.toContain("exit");
+    expect(log.filter((e) => e.startsWith("connect"))).toEqual([
+      `connect ${WANTED}`,
+    ]);
+    expect(log.at(-1)).toBe(`prune ${WANTED}`);
+    // The share check comes before any runner op.
+    expect(index(log, "share 4242")).toBeLessThan(
+      index(log, `connect ${WANTED}`),
+    );
+  });
+
+  it("on another runtime: installs, checks the share again, asks the runner to exit, and takes the restarted runner", async () => {
+    const { log, hosts } = stand({ reports: [OLD, WANTED] });
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(hostFor("u-alice")).toBe(hosts[1]);
+    const install = index(log, "install 4242");
+    const exit = index(log, "exit");
+    expect(install).toBeGreaterThanOrEqual(0);
+    // A share check after the install, before the exit.
+    const recheck = log.findIndex((e, i) => i > install && e === "share 4242");
+    expect(recheck).toBeGreaterThan(install);
+    expect(exit).toBeGreaterThan(recheck);
+    expect(index(log, `connect ${WANTED}`)).toBeGreaterThan(exit);
+    // The prune comes only after the runner runs the wanted runtime.
+    expect(log.filter((e) => e.startsWith("prune"))).toEqual([
+      `prune ${WANTED}`,
+    ]);
+    expect(index(log, `prune ${WANTED}`)).toBeGreaterThan(
+      index(log, `connect ${WANTED}`),
+    );
+  });
+
+  it("refuses a runner that still reports another runtime after its restart: one install, one exit, no prune", async () => {
+    const { log } = stand({ reports: [OLD] });
+    expect(await connectMemberHost("u-alice")).toBe(false);
+    expect(hostFor("u-alice")).not.toBeInstanceOf(RunnerAgentHost);
+    expect(await codeOf(hostFor("u-alice").run(["true"]))).toBe(NOT_READY);
+    expect(log.filter((e) => e.startsWith("install"))).toHaveLength(1);
+    expect(log.filter((e) => e === "exit")).toHaveLength(1);
+    expect(log.filter((e) => e.startsWith("connect "))).toHaveLength(2);
+    expect(log.filter((e) => e.startsWith("prune"))).toEqual([]);
+  });
+
+  it("refuses when the runner does not come back after its exit, and prunes nothing", async () => {
+    let calls = 0;
+    const { log } = stand({ reports: [OLD] });
+    // Every connect after the first fails.
+    setMemberHostDeps({
+      readPeerUid: () => UID,
+      lookupUser: () => ({ uid: UID, gid: 4242, groups: [4242] }),
+      checks: async () => [],
+      checkShare: () => ({ ok: true }),
+      runtime: {
+        hash: async () => WANTED,
+        install: async () => {},
+        prune: async () => {
+          log.push("prune");
+        },
+      },
+      connectRunner: async () => {
+        if (calls++ > 0) throw new Error("no runner");
+        return {
+          host: { ...localAgentHost, kind: "runner" } as AgentHost,
+          runtimeHash: OLD,
+          exit: async () => {},
+        };
+      },
+      restartWaitMs: 100,
+      restartPollMs: 10,
+      retryMs: 60_000,
+    });
+    expect(await connectMemberHost("u-alice")).toBe(false);
+    expect(calls).toBeGreaterThan(2);
+    expect(log).not.toContain("prune");
+  });
+
+  it("is not ready from the install to the restarted runner: no spawn reaches the old runner", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let wanted = OLD;
+    const { log, hosts } = stand({
+      reports: [OLD, OLD, WANTED],
+      wanted: () => wanted,
+      install: () => (wanted === WANTED ? gate : Promise.resolve()),
+    });
+    // Connected on the old runtime.
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(hostFor("u-alice")).toBe(hosts[0]);
+    // The server now installs a new runtime.
+    wanted = WANTED;
+    const second = connectMemberHost("u-alice");
+    const deadline = Date.now() + 2000;
+    // The first connect installs too: wait for the second connect's install.
+    const installs = () => log.filter((e) => e === "install 4242").length;
+    while (installs() < 2 && Date.now() < deadline) await Bun.sleep(5);
+    expect(installs()).toBe(2);
+    const during = hostFor("u-alice");
+    expect(hosts).not.toContain(during);
+    expect(await codeOf(during.run(["true"]))).toBe(NOT_READY);
+    release();
+    expect(await second).toBe(true);
+    expect(hostFor("u-alice")).toBe(hosts.at(-1)!);
+  });
+
+  it("drops a connected runner that now reports another runtime until its restart matches", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let held = false;
+    const { log, hosts } = stand({
+      reports: [WANTED, OLD, WANTED],
+      exit: () => (held ? gate : Promise.resolve()),
+    });
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(hostFor("u-alice")).toBe(hosts[0]);
+    held = true;
+    const second = connectMemberHost("u-alice");
+    const deadline = Date.now() + 2000;
+    while (!log.includes("exit") && Date.now() < deadline) await Bun.sleep(5);
+    expect(log).toContain("exit");
+    const during = hostFor("u-alice");
+    expect(hosts).not.toContain(during);
+    expect(await codeOf(during.run(["true"]))).toBe(NOT_READY);
+    release();
+    expect(await second).toBe(true);
+    expect(hostFor("u-alice")).toBe(hosts.at(-1)!);
+  });
+
+  it("writes nothing and sends no runner op when the share check fails", async () => {
+    const { log } = stand({ shares: [false] });
+    expect(await connectMemberHost("u-alice")).toBe(false);
+    // The server never writes into a share whose root it does not trust.
+    expect(log.some((e) => e.startsWith("install"))).toBe(false);
+    expect(log.some((e) => e.startsWith("connect"))).toBe(false);
+    expect(log).not.toContain("exit");
+  });
+
+  it("does not restart the runner when the installed runtime fails the share check", async () => {
+    const { log } = stand({ reports: [OLD, WANTED], shares: [true, false] });
+    expect(await connectMemberHost("u-alice")).toBe(false);
+    expect(log).toContain("install 4242");
+    expect(log).not.toContain("exit");
+    expect(log.some((e) => e.startsWith("prune"))).toBe(false);
+  });
+
+  // A share whose runtime is missing or broken has no runner to answer
+  // (the unit cannot start it): the connect must install anyway, or the
+  // member stays not ready for good.
+  it("installs the runtime when no runner answers", async () => {
+    const { log } = stand({ unreachable: 1_000 });
+    expect(await connectMemberHost("u-alice")).toBe(false);
+    expect(log).toContain("connect failed");
+    expect(log).toContain("install 4242");
+  });
+
+  // The real share check and the real install on a share in a temp folder;
+  // the probe reports the share's parent as root's, which a test user
+  // cannot make. The runner is a stand-in on the wanted runtime.
+  async function realShare() {
+    const shares = join(dir, "shares");
+    mkdirSync(shares);
+    chmodSync(shares, 0o755);
+    setMemberShareRoot(shares);
+    const share = memberSharePath(NAME);
+    mkdirSync(share);
+    chmodSync(share, 0o2750);
+    const modules = join(dir, "office", "node_modules");
+    mkdirSync(join(modules, "pkg-a"), { recursive: true });
+    writeFileSync(join(modules, "pkg-a", "tool"), "tool\n");
+    const bun = join(dir, "office", "bun");
+    writeFileSync(bun, "bun\n");
+    chmodSync(bun, 0o755);
+    setMemberRuntimeDeps({
+      build: async () => new TextEncoder().encode("bundle\n"),
+      bunPath: bun,
+      modules,
+      packages: () => ["pkg-a"],
+    });
+    const gid = process.getgid!();
+    const probe = {
+      lstat: (path: string) => {
+        const entry = realShareProbe.lstat(path);
+        return entry && path === shares ? { ...entry, uid: 0 } : entry;
+      },
+      readdir: (path: string) => realShareProbe.readdir(path),
+    };
+    const wanted = (await runtimeSource()).hash;
+    const runnerOps: string[] = [];
+    setMemberHostDeps({
+      readPeerUid: () => UID,
+      lookupUser: () => ({ uid: UID, gid, groups: [gid] }),
+      checks: async () => [],
+      checkShare: (input) => checkMemberShare({ ...input, probe }),
+      connectRunner: async () => {
+        runnerOps.push("connect");
+        return {
+          host: { ...localAgentHost, kind: "runner" } as AgentHost,
+          runtimeHash: wanted,
+          exit: async () => {
+            runnerOps.push("exit");
+          },
+        };
+      },
+      retryMs: 60_000,
+    });
+    recordMemberOsUser("u-alice", { name: NAME, uid: UID });
+    return { share, wanted, runnerOps };
+  }
+  const forgetRealShare = () => {
+    setMemberRuntimeDeps(null);
+    setMemberShareRoot(null);
+  };
+
+  // A runtime folder removed by hand leaves runtime/current naming nothing:
+  // the unit cannot start the runner, so only the connect's install repairs
+  // it.
+  it("repairs a share whose runtime/current names a runtime that is gone", async () => {
+    try {
+      const { share, wanted } = await realShare();
+      expect(await connectMemberHost("u-alice")).toBe(true);
+      const folder = join(share, "runtime", wanted);
+      expect(existsSync(folder)).toBe(true);
+      // Removed by hand.
+      rmSync(folder, { recursive: true, force: true });
+      resetMemberHosts();
+      expect(await connectMemberHost("u-alice")).toBe(true);
+      expect(existsSync(join(folder, "runner.js"))).toBe(true);
+      expect(readlinkSync(join(share, "runtime", "current"))).toBe(wanted);
+    } finally {
+      forgetRealShare();
+    }
+  });
+
+  // The install repairs only the wanted runtime; anything else wrong in the
+  // share is still refused after it, before any runner op.
+  it("refuses, after the install, a share with a bad old runtime folder, and sends the runner nothing", async () => {
+    try {
+      const { share, runnerOps } = await realShare();
+      // The enabling condition: the same share connects without it.
+      expect(await connectMemberHost("u-alice")).toBe(true);
+      expect(runnerOps).toEqual(["connect"]);
+      const old = join(share, "runtime", "9".repeat(64));
+      mkdirSync(old);
+      chmodSync(old, 0o755);
+      writeFileSync(join(old, "x"), "x\n");
+      chmodSync(join(old, "x"), 0o666);
+      resetMemberHosts();
+      expect(await connectMemberHost("u-alice")).toBe(false);
+      expect(runnerOps).toEqual(["connect"]);
+    } finally {
+      forgetRealShare();
+    }
+  });
+
+  it("runs one connect per member at a time", async () => {
+    const { log } = stand();
+    const [a, b] = await Promise.all([
+      connectMemberHost("u-alice"),
+      connectMemberHost("u-alice"),
+    ]);
+    expect([a, b]).toEqual([true, true]);
+    expect(log.filter((e) => e.startsWith("connect "))).toHaveLength(1);
   });
 });
 
@@ -417,6 +853,7 @@ describe("connectMemberHost", () => {
         groups: [4242],
       }),
       checks: () => (over.failures ?? []) as never,
+      ...TEST_RUNTIME_DEPS,
       retryMs: 50,
     });
   }
@@ -479,6 +916,7 @@ describe("connectMemberHost", () => {
     setMemberHostDeps({
       readPeerUid: () => UID,
       lookupUser: () => ({ uid: UID, gid: 4242, groups: [4242] }),
+      ...TEST_RUNTIME_DEPS,
       retryMs: 60_000,
     });
     expect(await connectMemberHost("u-alice")).toBe(false);

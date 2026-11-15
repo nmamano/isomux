@@ -32,6 +32,7 @@ import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "../../split/roots.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import { officeAgentHost } from "../../agent-host.ts";
 import { stableBunPath } from "../../stable-bun-path.ts";
+import { RUNTIME_ROOT } from "../../runtime-root.ts";
 
 const ISOMUX_ROOT = join(import.meta.dir, "..", "..", "..");
 
@@ -68,7 +69,7 @@ export function resolveCodexLauncherPath(): string {
   if (cachedLauncherPath) return cachedLauncherPath;
   let resolved: string;
   try {
-    resolved = Bun.resolveSync("@openai/codex/bin/codex.js", ISOMUX_ROOT);
+    resolved = Bun.resolveSync("@openai/codex/bin/codex.js", RUNTIME_ROOT);
   } catch (err) {
     throw new Error(
       `Bundled @openai/codex launcher could not be resolved (${errMessage(err)}). ` +

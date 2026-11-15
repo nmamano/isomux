@@ -3,6 +3,7 @@ import { hostForEnv } from "./member-hosts.ts";
 import { delimiter, dirname, resolve, join } from "path";
 import { homedir } from "os";
 import { AGENT_ROOT } from "./split/roots.ts";
+import { RUNTIME_ROOT } from "./runtime-root.ts";
 import {
   closeSync,
   existsSync,
@@ -21,12 +22,7 @@ import { errMessage, errCode } from "../shared/errors.ts";
 // We resolve explicitly and pass it as pathToClaudeCodeExecutable so every
 // libc gets the right binary.
 function resolveClaudeNativeBinary(): string {
-  const anthropicDir = join(
-    import.meta.dir,
-    "..",
-    "node_modules",
-    "@anthropic-ai",
-  );
+  const anthropicDir = join(RUNTIME_ROOT, "node_modules", "@anthropic-ai");
   const binName = process.platform === "win32" ? "claude.exe" : "claude";
   if (process.platform === "linux") {
     const muslArch = process.arch === "arm64" ? "aarch64" : "x86_64";

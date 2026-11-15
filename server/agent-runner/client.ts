@@ -18,9 +18,16 @@ import type {
 import {
   failedAgentChild,
   memberEnvRefusal,
+  officeEnginePaths,
   tagMemberEnv,
   notifyIsolationSetupFailure,
 } from "../agent-host.ts";
+import {
+  memberRuntimePaths,
+  type MemberRuntimePaths,
+} from "../member-runtime.ts";
+import { RUNTIME_HASH_PATTERN } from "../member-share-check.ts";
+import { join } from "path";
 import { readPeerCredentials } from "../unix-socket-server.ts";
 import { CLAUDE_NATIVE_BIN, pathWithBundledClaude } from "../cwd-utils.ts";
 import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
@@ -545,6 +552,9 @@ export interface RunnerInfo {
   user: string;
   home: string;
   env: Record<string, string>;
+  // The runtime hash the runner says it runs (member data: a member can put
+  // its own listener on the socket); null from the code tree.
+  bundleHash: string | null;
 }
 
 export function readRunnerInfo(socketPath: RunnerTarget): Promise<RunnerInfo> {
@@ -558,7 +568,18 @@ export function readRunnerInfo(socketPath: RunnerTarget): Promise<RunnerInfo> {
         control: (message) => {
           if (message.type === "info") {
             const { uid, gid, user, home, env } = message;
-            info = { uid, gid, user, home, env };
+            const hash = message.bundleHash;
+            info = {
+              uid,
+              gid,
+              user,
+              home,
+              env,
+              bundleHash:
+                typeof hash === "string" && RUNTIME_HASH_PATTERN.test(hash)
+                  ? hash
+                  : null,
+            };
           } else if (message.type === "error") error = message.message;
         },
         stdout: () => {},
@@ -571,6 +592,27 @@ export function readRunnerInfo(socketPath: RunnerTarget): Promise<RunnerInfo> {
               ),
       },
     );
+  });
+}
+
+// Ask the runner to exit (its unit starts the runtime that runtime/current
+// names). Resolves when the runner closes the connection; never rejects.
+export function exitRunner(socketPath: RunnerTarget): Promise<void> {
+  return new Promise((resolve) => {
+    const stream = new RunnerStream(
+      socketPath,
+      { op: "exit" },
+      {
+        control: () => {},
+        stdout: () => {},
+        stderr: () => {},
+        close: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+      },
+    );
+    const timer = setTimeout(() => stream.close(), ENTRY_TIMEOUT_MS);
   });
 }
 
@@ -636,6 +678,12 @@ export class RunnerAgentHost implements AgentHost {
   readonly kind = "runner" as const;
   readonly fs: AgentFs;
 
+  readonly claudeBin: AgentHost["claudeBin"];
+  readonly codexLauncher: AgentHost["codexLauncher"];
+  readonly openCodeBin: AgentHost["openCodeBin"];
+  readonly ptySidecarArgv: AgentHost["ptySidecarArgv"];
+  readonly openCodeHelperArgv: AgentHost["openCodeHelperArgv"];
+
   constructor(
     private readonly socketPath: RunnerTarget,
     private readonly info: RunnerInfo,
@@ -643,21 +691,46 @@ export class RunnerAgentHost implements AgentHost {
     // The member this host runs for (server/member-hosts.ts); undefined for
     // the office runner of split mode.
     readonly member?: string,
+    // A member's runtime (server/member-runtime.ts); the office runner runs
+    // the engines of the code tree.
+    runtime?: MemberRuntimePaths,
   ) {
     this.fs = runnerAgentFs(socketPath);
+    const engines = runtime
+      ? {
+          claudeBin: () => runtime.claudeBin,
+          codexLauncher: () => runtime.codexLauncher(),
+          openCodeBin: (platform?: NodeJS.Platform) =>
+            runtime.openCodeBin(platform),
+          ptySidecarArgv: () => [...runtime.ptySidecarArgv],
+          openCodeHelperArgv: () => [...runtime.openCodeHelperArgv],
+        }
+      : officeEnginePaths;
+    this.claudeBin = engines.claudeBin;
+    this.codexLauncher = engines.codexLauncher;
+    this.openCodeBin = engines.openCodeBin;
+    this.ptySidecarArgv = engines.ptySidecarArgv;
+    this.openCodeHelperArgv = engines.openCodeHelperArgv;
   }
 
   // A member's runner. Every connection checks the listener's uid
   // (SO_PEERCRED on our side) against `uid`; a reply field is never trusted
-  // for it. The host refuses an env that is not tagged with `userId`.
+  // for it. The host refuses an env that is not tagged with `userId`. Its
+  // engines are those of <share>/runtime/<the hash the runner reports>; the
+  // caller registers the host only when that hash is the installed one.
   static async connectMember(
     socketPath: string,
     opts: {
       userId: string;
       uid: number;
+      share: string;
       readPeerUid?: (fd: number) => number | null;
     },
-  ): Promise<RunnerAgentHost> {
+  ): Promise<{
+    host: RunnerAgentHost;
+    runtimeHash: string | null;
+    exit(): Promise<void>;
+  }> {
     const target: RunnerTarget = {
       path: socketPath,
       peer: {
@@ -667,18 +740,30 @@ export class RunnerAgentHost implements AgentHost {
       },
     };
     const info = await readRunnerInfo(target);
-    const probe = (await runRunnerEntry(target, "bun-path", {})) as {
-      path?: unknown;
-    } | null;
-    if (typeof probe?.path !== "string" || !probe.path)
-      throw new Error("the member's runner did not report its Bun executable");
-    // The uid is the one the peer check proved, never the runner's word.
-    return new RunnerAgentHost(
-      target,
-      { ...info, uid: opts.uid },
-      probe.path,
-      opts.userId,
+    const runtime = memberRuntimePaths(
+      join(opts.share, "runtime", info.bundleHash ?? "none"),
     );
+    const env: Record<string, string> = {
+      ...info.env,
+      // The runtime is the office's: an engine never updates its own copy.
+      DISABLE_AUTOUPDATER: "1",
+      OPENCODE_DISABLE_AUTOUPDATE: "1",
+    };
+    // `claude` in the member's terminals and shells is the runtime's.
+    env.PATH = pathWithBundledClaude(info.env.PATH ?? "", runtime.claudeBin);
+    // The uid is the one the peer check proved, never the runner's word.
+    const host = new RunnerAgentHost(
+      target,
+      { ...info, env, uid: opts.uid },
+      runtime.bun,
+      opts.userId,
+      runtime,
+    );
+    return {
+      host,
+      runtimeHash: info.bundleHash,
+      exit: () => exitRunner(target),
+    };
   }
 
   static async connect(socketPath: RunnerTarget): Promise<RunnerAgentHost> {
