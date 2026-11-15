@@ -6,7 +6,6 @@ import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { useInboxCounts } from "../inbox.ts";
 import { CHAT_PANEL_RIGHT, CHAT_PANEL_WIDTH } from "../AppWidgetPage.tsx";
-import { INBOX_CHAT_PHONE_SHARE } from "./AgentChatPanel.tsx";
 import { phoneTopPad } from "../safe-area.ts";
 
 export function InboxView({
@@ -24,18 +23,14 @@ export function InboxView({
   // Every open ask, whatever the Asks filters: the number the bar's title
   // gives, which a phone never shows (task 760818d5).
   const { asks: openAsks } = useInboxCounts();
-  // The open chat panel sits over the bottom right corner. The content keeps
-  // clear of it: on a desktop the content ends left of the panel, with a
-  // 20px gap; on a phone it ends above the panel (its share of the height,
-  // above the larger of its two bottom insets, usePhonePanelBox and
-  // .agent-chat-panel), with an 8px gap.
-  const chatRoom = !chatOpen
-    ? undefined
-    : isMobile
-      ? {
-          paddingBottom: `calc(${INBOX_CHAT_PHONE_SHARE * 100}dvh + max(20px, env(safe-area-inset-bottom)) + 8px)`,
-        }
-      : { paddingRight: CHAT_PANEL_WIDTH + CHAT_PANEL_RIGHT + 20 };
+  // The open chat panel sits over the bottom right corner. On a desktop the
+  // content keeps clear of it and ends left of the panel, with a 20px gap. On
+  // a phone the panel covers the content (AgentChatPanel), which keeps its
+  // height, so the asks keep their scroll for when it closes.
+  const chatRoom =
+    chatOpen && !isMobile
+      ? { paddingRight: CHAT_PANEL_WIDTH + CHAT_PANEL_RIGHT + 20 }
+      : undefined;
 
   return (
     <div

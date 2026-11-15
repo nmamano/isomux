@@ -206,19 +206,14 @@ function BackIcon() {
 // fell to zero height there and the chat seemed to close. The visible area is
 // held inside the window, and the page scroll iOS adds is undone, as LogView
 // does. With no dock (the office's Inbox panel) the box ends 8px above the
-// visible bottom. `inset` is the box's bottom edge as a distance from the
-// window's bottom, for a panel placed by its bottom (AgentChatPanel).
+// visible bottom.
 export function usePhonePanelBox(
   active: boolean,
   open: boolean,
   dock: RefObject<HTMLDivElement | null> | null,
   share = 0.8,
-): { top: number; height: number; inset: number } | null {
-  const [box, setBox] = useState<{
-    top: number;
-    height: number;
-    inset: number;
-  } | null>(null);
+): { top: number; height: number } | null {
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null);
   // Before paint, so the panel never shows at the old box.
   useLayoutEffect(() => {
     const vv = window.visualViewport;
@@ -240,11 +235,7 @@ export function usePhonePanelBox(
         dockEdge <= visibleBottom + 1;
       const bottom = dockShown ? layout - dockClear : visibleBottom - 8;
       const top = Math.max(visibleTop + 8, bottom - share * layout);
-      setBox({
-        top,
-        height: Math.max(0, bottom - top),
-        inset: layout - bottom,
-      });
+      setBox({ top, height: Math.max(0, bottom - top) });
     };
     update();
     vv.addEventListener("resize", update);

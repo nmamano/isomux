@@ -21,17 +21,24 @@ import {
 } from "../AppWidgetPage.tsx";
 import { CloseIcon } from "./install-icons.tsx";
 import { AgentOptions } from "./AgentOptions.tsx";
+import { phoneTopPad } from "../safe-area.ts";
 
-// On a phone the panel takes this share of the window's height, so the asks
-// keep the rest (InboxView).
-export const INBOX_CHAT_PHONE_SHARE = 0.5;
+// The top of the phone panel in the office's box: never under the status bar.
+// The site demo puts the office in a transformed box under its banner
+// (ui/demo-entry.tsx), so a fixed top counts from the banner's bottom.
+function phoneTop(windowTop: number): string {
+  return `max(${windowTop}px - var(--banner-h, 0px), ${phoneTopPad(8)})`;
+}
 
 // The panel has no dock under it, as the app page has: it sits at the bottom.
+// On a phone it fills the visible area (task f2e2e953): the whole window with
+// the keyboard down, the part above the keyboard with it up. Over the Inbox's
+// header (zIndex 500) and under the phone sidebar drawer (styles.ts).
 // In the header, "Open full chat" goes under the title, so the select has the
 // title's whole line for the agent's name, and Close stays in the corner.
 const PANEL_CSS = `
 .agent-chat-panel { bottom:max(20px,env(safe-area-inset-bottom)); }
-.agent-chat-panel.app-widget-panel-phone { height:${INBOX_CHAT_PHONE_SHARE * 100}dvh; }
+.agent-chat-panel.app-widget-panel-phone { top:${phoneTop(8)}; height:auto; z-index:600; }
 .agent-chat-panel .app-widget-header { display:grid; grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"avatar title close" "avatar links close"; column-gap:12px; row-gap:4px; }
 .agent-chat-panel .app-widget-header .app-widget-avatar { grid-area:avatar; }
 .agent-chat-panel .app-widget-header h1 { grid-area:title; display:flex; align-items:center; gap:6px; white-space:nowrap; }
@@ -60,12 +67,7 @@ export function AgentChatPanel({
   useAgentLog(agentId);
   const agentLogs = state.logs.get(agentId);
   const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);
-  const phoneBox = usePhonePanelBox(
-    state.isMobile,
-    true,
-    null,
-    INBOX_CHAT_PHONE_SHARE,
-  );
+  const phoneBox = usePhonePanelBox(state.isMobile, true, null, 1);
   // The choices, grouped by room (AgentOptions): the front-desk agents. A
   // back-room agent is a choice only while the panel is on it (its ask
   // opened the panel), after its room's front desks.
@@ -118,13 +120,17 @@ export function AgentChatPanel({
       }
       role="dialog"
       aria-label={t("appWidget.title", { agentName: agent.name })}
-      // Placed by its bottom edge: the site demo wraps the office in a
-      // transformed box under its banner (ui/demo-entry.tsx), which moves a
-      // top placement down by the banner and puts Send off screen; the box
-      // ends at the window's bottom, so a bottom placement holds.
+      // Placed by its top edge, as the app page's panel: in the iPhone Home
+      // Screen app the keyboard shrinks innerHeight but not the box fixed
+      // elements sit in, so a bottom placement put the panel behind the
+      // keyboard (task f2e2e953).
       style={
         phoneBox
-          ? { bottom: phoneBox.inset, height: phoneBox.height, top: "auto" }
+          ? {
+              top: `calc(${phoneTop(phoneBox.top)})`,
+              height: `calc(${phoneBox.top + phoneBox.height}px - var(--banner-h, 0px) - ${phoneTop(phoneBox.top)})`,
+              bottom: "auto",
+            }
           : undefined
       }
       onKeyDown={(event) => {
