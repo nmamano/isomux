@@ -6775,4 +6775,189 @@ describe("CodexSession refused cards", () => {
       const seen = await eventsBefore(fake, it);
       expect(seen).toEqual([{ kind: "system_text", text: SAFETY_WARNING }]);
     });
+
+  // Codex's raw line of a refused call (task 0cdfd44b): its tracing record on
+  // stderr, with the hook's reason verbatim. The refused card says the same,
+  // so the record goes out only when no card claims it. stderr and the
+  // hook/completed come on different pipes, so either can come first.
+  const CONFINED = "Bash reaches only files inside your folder.";
+  const OTHER_COMMAND = "git reset --hard origin/main";
+  const OTHER = REASON.replace(COMMAND, OTHER_COMMAND);
+  const KEEP = "2026-11-15T19:28:24Z WARN codex_core::other: keep me";
+  const record = (
+    reason = REASON,
+    {
+      phrasing = "Command",
+      time = "2026-11-15T19:28:23Z",
+      command = reason === OTHER ? OTHER_COMMAND : COMMAND,
+    } = {},
+  ) =>
+    `${time} ERROR codex_core::tools::router: error=${phrasing} blocked by PreToolUse hook: ${reason}. Command: ${command}`;
+  const line = (text: string) => ({
+    kind: "system_text" as const,
+    text: `[codex stderr] ${text}`,
+  });
+  const isRecordLine = (ev: NormalizedEvent) =>
+    ev.kind === "system_text" &&
+    typeof ev.text === "string" &&
+    ev.text.includes("blocked by PreToolUse hook");
+
+  async function inTurn() {
+    const ctx = await session();
+    await ctx.session.send("push it");
+    ctx.fake.fireNotification("turn/started", { turn: { id: "t-refused" } });
+    return ctx;
+  }
+
+  // Every event up to and with the turn's turn_completed.
+  async function throughTurnEnd(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<NormalizedEvent[]> {
+    fake.fireNotification("turn/completed", {
+      turn: { status: "completed", error: null },
+    });
+    const seen: NormalizedEvent[] = [];
+    for (;;) {
+      const ev = await nextEvent(it, "turn_completed");
+      seen.push(ev);
+      if (ev.kind === "turn_completed") return seen;
+    }
+  }
+
+  // Both orders, for a shell refusal and for a confinement refusal (whose
+  // reason has no "BLOCKED by Isomux" head, and Codex's other phrasing).
+  for (const [label, reason, phrasing] of [
+    ["a shell refusal", REASON, "Command"],
+    ["a confinement refusal", CONFINED, "Tool call"],
+  ] as const)
+    for (const stderrFirst of [true, false])
+      it(`drops the raw line of ${label} whose card shows (${stderrFirst ? "stderr" : "card"} first), and keeps the chunk's other lines`, async () => {
+        const { fake, it } = await inTurn();
+        // Codex colors its records; the color must not hide one.
+        const colored = record(reason, { phrasing }).replace(
+          " ERROR ",
+          " \x1b[31mERROR\x1b[0m ",
+        );
+        const fireRecord = () => fake.fireStderr(`${colored}\n${KEEP}\n`);
+        const fireCard = () =>
+          fake.fireNotification(
+            "hook/completed",
+            run([
+              { kind: "feedback", text: reason },
+              { kind: "warning", text: report() },
+            ]),
+          );
+        if (stderrFirst) {
+          fireRecord();
+          fireCard();
+        } else {
+          fireCard();
+          fireRecord();
+        }
+        const seen = await throughTurnEnd(fake, it);
+        const cards: NormalizedEvent["kind"][] = [
+          "tool_call",
+          "permission_denied",
+          "tool_result",
+        ];
+        // MUTANT: the record goes out as today ([codex stderr] + record).
+        // MUTANT: the whole chunk is dropped with the record.
+        expect(seen.map((ev) => ev.kind)).toEqual(
+          stderrFirst
+            ? ["system_text", ...cards, "turn_completed"]
+            : [...cards, "system_text", "turn_completed"],
+        );
+        expect(seen.find((ev) => ev.kind === "system_text")).toEqual(
+          line(KEEP),
+        );
+      });
+
+  for (const stderrFirst of [true, false])
+    it(`shows at the turn end, as today, a raw line no card claims (${stderrFirst ? "stderr" : "card"} first)`, async () => {
+      const { fake, it } = await inTurn();
+      // A card for another call does not claim it, held or still to come.
+      const fireRecord = () => fake.fireStderr(`${record(OTHER)}\n`);
+      if (stderrFirst) fireRecord();
+      fake.fireNotification("hook/completed", run(blocked()));
+      if (!stderrFirst) fireRecord();
+      const seen = await throughTurnEnd(fake, it);
+      // MUTANT: every blocked record is dropped, card or not. MUTANT: a card
+      // claims any record, whatever its reason (stderr first: any held one).
+      expect(seen.map((ev) => ev.kind)).toEqual([
+        "tool_call",
+        "permission_denied",
+        "tool_result",
+        "system_text",
+        "turn_completed",
+      ]);
+      expect(seen[3]).toEqual(line(record(OTHER)));
+    });
+
+  it("lets one card claim one raw line only", async () => {
+    const { fake, it } = await inTurn();
+    fake.fireNotification("hook/completed", run(blocked()));
+    fake.fireStderr(`${record()}\n`);
+    fake.fireStderr(`${record(REASON, { time: "2026-11-15T19:28:25Z" })}\n`);
+    const seen = await throughTurnEnd(fake, it);
+    // MUTANT: a claimed reason is never used up, so it drops both.
+    expect(seen.filter(isRecordLine)).toEqual([
+      line(record(REASON, { time: "2026-11-15T19:28:25Z" })),
+    ]);
+  });
+
+  it("claims no raw line with a card whose reason is empty", async () => {
+    const { fake, it } = await inTurn();
+    const before = record();
+    fake.fireStderr(`${before}\n`);
+    // No feedback entry: the card's reason is "".
+    fake.fireNotification(
+      "hook/completed",
+      run([{ kind: "warning", text: report() }]),
+    );
+    fake.fireStderr(`${record(OTHER)}\n`);
+    const seen = await throughTurnEnd(fake, it);
+    // MUTANT: "" claims the held record (record.includes("")). MUTANT: ""
+    // is kept and claims the next record.
+    expect(seen.filter(isRecordLine)).toEqual([
+      line(before),
+      line(record(OTHER)),
+    ]);
+    expect(seen.at(-1)?.kind).toBe("turn_completed");
+  });
+
+  it("drops a raw line that comes after the turn end when its card showed, and shows one no card claims at once", async () => {
+    const { fake, it } = await inTurn();
+    fake.fireNotification("hook/completed", run(blocked()));
+    expect((await throughTurnEnd(fake, it)).map((ev) => ev.kind)).toEqual([
+      "tool_call",
+      "permission_denied",
+      "tool_result",
+      "turn_completed",
+    ]);
+    fake.fireStderr(`${record()}\n`);
+    fake.fireStderr(`${record(OTHER)}\n`);
+    // MUTANT: the turn end forgets the card, so its late record shows.
+    // MUTANT: a record with no turn in flight is held for a later turn end.
+    expect(await eventsBefore(fake, it)).toEqual([line(record(OTHER))]);
+  });
+
+  it("shows a held raw line before the failed turn when Codex exits", async () => {
+    const { fake, it } = await inTurn();
+    fake.fireStderr(`${record()}\n`);
+    fake.fireExit(1);
+    const seen: NormalizedEvent[] = [];
+    for (;;) {
+      const ev = await nextEvent(it, "turn_completed");
+      seen.push(ev);
+      if (ev.kind === "turn_completed") break;
+    }
+    // MUTANT: the exit drops the held record.
+    expect(seen.filter(isRecordLine)).toEqual([line(record())]);
+    expect(seen.map((ev) => ev.kind)).toEqual([
+      "system_text",
+      "turn_completed",
+    ]);
+    expect(seen.at(-1)).toMatchObject({ status: "failed" });
+  });
 });

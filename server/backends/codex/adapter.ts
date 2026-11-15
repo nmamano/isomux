@@ -272,6 +272,27 @@ const BENIGN_STDERR_LINES = [
   /could not create PATH aliases/i,
 ];
 
+// Codex logs a call a PreToolUse hook blocked as a tracing record on stderr,
+// with the hook's reason verbatim ("Command blocked by ..." or "Tool call
+// blocked by ..."). A refused card says the same, so the record goes out only
+// when no card claims it (task 0cdfd44b). A record starts at a line with a
+// timestamp and a level, and takes the lines after it that start none.
+const HOOK_BLOCKED_RECORD = "blocked by PreToolUse hook: ";
+const TRACING_RECORD_START =
+  /^\d{4}-\d{2}-\d{2}T\S*\s+(?:ERROR|WARN|INFO|DEBUG|TRACE)\s/;
+// Reasons of cards whose record has not come yet, oldest first.
+const MAX_CLAIMED_REFUSAL_REASONS = 32;
+
+function tracingRecords(lines: string[]): string[] {
+  const records: string[][] = [];
+  for (const line of lines) {
+    const last = records.at(-1);
+    if (last && !TRACING_RECORD_START.test(line)) last.push(line);
+    else records.push([line]);
+  }
+  return records.map((record) => record.join("\n"));
+}
+
 // A 403 is the provider refusing the request, not a sign-in failure (task
 // 2bd836d5): Codex logs it on stderr, and a match there would interrupt the
 // turn before the refusal reaches the member. A 401 stands alone: Codex's
@@ -1264,6 +1285,12 @@ export class CodexSession implements BackendSession {
   // replaces it: its sentence names the server's time zone, and agent-manager
   // words the reset for each reader (endUsageLimitedTurn).
   private heldLimitEvents: NormalizedEvent[] = [];
+  // Hook-blocked stderr records of this turn that no refused card claimed
+  // yet, and the reasons of cards whose record has not come yet. stderr and
+  // hook/completed come on different pipes, so either can come first. A
+  // claimed reason outlives the turn: its record can come after the turn end.
+  private heldRefusalRecords: string[] = [];
+  private claimedRefusalReasons: string[] = [];
   // Items of this attempt the chat already shows: completed items and tool
   // cards shown at item/started. A capacity retry runs only while it is 0.
   private shownItemsThisAttempt = 0;
@@ -2032,6 +2059,7 @@ export class CodexSession implements BackendSession {
     error: string,
   ): boolean {
     if (this.turn.kind !== "backoff") return false;
+    this.flushHeldRefusalRecords();
     this.endTurn();
     this.clearCapacityRetry();
     this.clearTurnWatchdog();
@@ -2715,6 +2743,8 @@ export class CodexSession implements BackendSession {
     const capacityError = this.capacityErrorThisAttempt;
     const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
     this.terminalErrorThisAttempt = null;
+    // hook/completed comes before turn/completed: no card claims these now.
+    this.flushHeldRefusalRecords();
     // The turn ends in any state, even before turn/start returned.
     this.endTurn();
     this.lateToolResultNoticeArmed = true;
@@ -3263,6 +3293,7 @@ export class CodexSession implements BackendSession {
       .join("\n");
     const { toolUseId, toolName } = refusal;
     const origin = subagent ? { subagent } : {};
+    this.claimRefusalRecord(reason);
     if (!this.shownToolCalls.delete(toolUseId)) {
       // Run runs in the terminal's folder: a call in another folder names
       // it, and gets no Run (permission-denial.ts).
@@ -3756,14 +3787,59 @@ export class CodexSession implements BackendSession {
     );
     // A chunk is one pipe read and can carry several lines, so drop the
     // benign ones line by line and keep the rest.
-    const kept = text
+    const lines = text
       .split("\n")
-      .filter((line) => !BENIGN_STDERR_LINES.some((re) => re.test(line)))
+      .filter((line) => !BENIGN_STDERR_LINES.some((re) => re.test(line)));
+    const kept = tracingRecords(lines)
+      .filter((record) => !this.holdRefusalRecord(record))
       .join("\n");
     if (!kept.trim()) return;
     // Route through the auth-aware gate so codex's websocket retry burst
     // produces at most one user-visible signal per turn (Claude-SDK parity).
     this.enqueueAuthAwareSystemText(`[codex stderr] ${kept}`);
+  }
+
+  // True when a hook-blocked record leaves the chunk: a card claimed it, or
+  // it waits for one until the turn end. With no turn in flight, an
+  // unclaimed record goes out at once.
+  private holdRefusalRecord(record: string): boolean {
+    if (!record.includes(HOOK_BLOCKED_RECORD)) return false;
+    const claimed = this.claimedRefusalReasons.findIndex((reason) =>
+      record.includes(reason),
+    );
+    if (claimed >= 0) {
+      this.claimedRefusalReasons.splice(claimed, 1);
+      return true;
+    }
+    if (!this.owesTurnEnd()) return false;
+    this.heldRefusalRecords.push(record);
+    return true;
+  }
+
+  // A refused card claims one record with its reason: a held one, else the
+  // next that comes. An empty reason claims none.
+  private claimRefusalRecord(reason: string): void {
+    if (!reason) return;
+    const held = this.heldRefusalRecords.findIndex((record) =>
+      record.includes(reason),
+    );
+    if (held >= 0) {
+      this.heldRefusalRecords.splice(held, 1);
+      return;
+    }
+    this.claimedRefusalReasons.push(reason);
+    if (this.claimedRefusalReasons.length > MAX_CLAIMED_REFUSAL_REASONS) {
+      this.claimedRefusalReasons.shift();
+    }
+  }
+
+  // Records no card claimed go out as any other stderr.
+  private flushHeldRefusalRecords(): void {
+    const held = this.heldRefusalRecords;
+    this.heldRefusalRecords = [];
+    for (const record of held) {
+      this.enqueueAuthAwareSystemText(`[codex stderr] ${record}`);
+    }
   }
 
   private handleSubprocessExit(
@@ -3772,6 +3848,8 @@ export class CodexSession implements BackendSession {
   ): void {
     if (this.closed) return;
     this.flushHeldLimitEvents();
+    this.flushHeldRefusalRecords();
+    this.claimedRefusalReasons = [];
     if (
       this.finishCapacityBackoff(
         "failed",
