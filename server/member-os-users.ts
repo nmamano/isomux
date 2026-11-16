@@ -59,28 +59,7 @@ let cache: Loaded | null = null;
 
 function load(): Loaded {
   if (cache) return cache;
-  const path = memberOsUsersPath();
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    cache =
-      code === "ENOENT"
-        ? { kind: "absent" }
-        : { kind: "broken", reason: `cannot read ${path}: ${code}` };
-    return cache;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    parsed = undefined;
-  }
-  cache =
-    typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? { kind: "ok", entries: parsed as Record<string, unknown> }
-      : { kind: "broken", reason: `${path} is not a JSON object` };
+  cache = readRecord(memberOsUsersPath());
   if (cache.kind === "broken")
     console.error(
       `[member-os-users] ${cache.reason}; isolated members stay stopped`,
@@ -88,12 +67,35 @@ function load(): Loaded {
   return cache;
 }
 
-// The state of `userId`. Null or undefined: "none" (an agent with no manager).
-export function memberOsUserState(
+// The file at `path` as read, with no cache.
+function readRecord(path: string): Loaded {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT"
+      ? { kind: "absent" }
+      : { kind: "broken", reason: `cannot read ${path}: ${code}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  const loaded: Loaded =
+    typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? { kind: "ok", entries: parsed as Record<string, unknown> }
+      : { kind: "broken", reason: `${path} is not a JSON object` };
+  return loaded;
+}
+
+function stateIn(
+  loaded: Loaded,
   userId: string | null | undefined,
 ): MemberOsUserState {
   if (!userId) return { kind: "none" };
-  const loaded = load();
   if (loaded.kind === "absent") return { kind: "none" };
   if (loaded.kind === "broken")
     return { kind: "broken", reason: loaded.reason };
@@ -105,6 +107,22 @@ export function memberOsUserState(
       reason: `the OS user entry of ${userId} is malformed`,
     };
   return { kind: "isolated", osUser: { name: entry.name, uid: entry.uid } };
+}
+
+// The state of `userId`. Null or undefined: "none" (an agent with no manager).
+export function memberOsUserState(
+  userId: string | null | undefined,
+): MemberOsUserState {
+  return stateIn(load(), userId);
+}
+
+// memberOsUserState over the record of another state root, read once now
+// (the host rescue command, scripts/rescue.ts).
+export function memberOsUserStateAt(
+  stateRoot: string,
+): (userId: string | null | undefined) => MemberOsUserState {
+  const loaded = readRecord(join(stateRoot, MEMBER_OS_USERS_FILE));
+  return (userId) => stateIn(loaded, userId);
 }
 
 // True when the member's agents must not run as the office user: an entry, a

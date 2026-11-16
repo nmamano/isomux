@@ -19,8 +19,8 @@ cat > /usr/local/sbin/isomux-rescue.new <<'ISOMUX_CONTAINER_RESCUE_ROOT_SH'
 # writes the state root (see scripts/rescue.ts): no code from the checkout
 # runs as root, because the service user can edit it. It reads its settings
 # from /etc/isomux/update.conf without sourcing it; ISOMUX_RESCUE_CONF,
-# ISOMUX_RESCUE_ROOT_MARKER_DIR and ISOMUX_RESCUE_PROC override the paths for
-# tests. Every external
+# ISOMUX_RESCUE_ROOT_MARKER_DIR, ISOMUX_RESCUE_PROC, ISOMUX_RESCUE_MEMBER_ETC
+# and ISOMUX_RESCUE_LINGER_DIR override the paths for tests. Every external
 # command is called by name through PATH.
 #
 #   isomux-rescue status | lockdown [--stop] [--reason <text>] | unlock | restart
@@ -32,6 +32,13 @@ CONF=${ISOMUX_RESCUE_CONF:-/etc/isomux/update.conf}
 MARKER_DIR=${ISOMUX_RESCUE_ROOT_MARKER_DIR:-/etc/isomux}
 MARKER=$MARKER_DIR/lockdown
 PROC=${ISOMUX_RESCUE_PROC:-/proc}
+# The member OS users of this office: the .env files isomux-member-user
+# enable writes (deploy/isomux-member-user.sh ETC_DIR), and their linger.
+MEMBER_ETC=${ISOMUX_RESCUE_MEMBER_ETC:-/etc/isomux/member-runner}
+LINGER_DIR=${ISOMUX_RESCUE_LINGER_DIR:-/var/lib/systemd/linger}
+# The member OS users whose linger lockdown --stop turned off, one name per
+# line, for the unlock to turn it on again.
+MEMBER_RECORD=$MARKER_DIR/lockdown-members
 # The agent subcommand runs the coding agent as this user, never as root, the
 # service user or the person behind sudo: it reads what the office's members
 # wrote, and this user has no rights.
@@ -199,6 +206,102 @@ write_root_marker() {
   mv -f "$tmp" "$MARKER"
 }
 
+# A user name isomux-member-user accepts (deploy/isomux-member-user.sh
+# NAME_RE). It also keeps a name from reading as an option.
+MEMBER_NAME_RE='^[a-z_][a-z0-9_-]{0,31}$'
+
+# The uid of `user` when it is a member OS user of this office, else exit 1:
+# a valid name, a .env in MEMBER_ETC whose ISOMUX_OFFICE_UID (read, never
+# sourced) is the service user's uid, and a passwd entry.
+member_uid() {
+  local user=$1 env line office_uid="" entry name uid
+  [[ $user =~ $MEMBER_NAME_RE ]] || return 1
+  env=$MEMBER_ETC/$user.env
+  [[ -f $env && ! -L $env ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ ^ISOMUX_OFFICE_UID=([0-9]+)$ ]]; then
+      office_uid=${BASH_REMATCH[1]}
+    fi
+  done <"$env"
+  [[ -n $office_uid && $office_uid == "$(id -u "$SERVICE_USER")" ]] || return 1
+  entry=$(getent passwd "$user") || return 1
+  IFS=: read -r name _ uid _ <<<"$entry"
+  [[ $name == "$user" && $uid =~ ^[0-9]+$ && $uid -gt 0 ]] || return 1
+  printf '%s' "$uid"
+}
+
+# Adds the names to MEMBER_RECORD (a second lockdown --stop finds their linger
+# already off and must keep the first one's names).
+write_member_record() {
+  local -A names=()
+  local name body="" tmp=""
+  if [[ -f $MEMBER_RECORD ]]; then
+    while IFS= read -r name || [[ -n $name ]]; do
+      if [[ $name =~ $MEMBER_NAME_RE ]]; then names[$name]=1; fi
+    done <"$MEMBER_RECORD"
+  fi
+  for name in "$@"; do names[$name]=1; done
+  for name in "${!names[@]}"; do body+=$name$'\n'; done
+  if install -d -m 755 "$MARKER_DIR" &&
+    tmp=$(mktemp "$MARKER_DIR/.lockdown-members.XXXXXXXXXX") &&
+    printf '%s' "$body" >"$tmp" && chmod 644 "$tmp" &&
+    mv -f "$tmp" "$MEMBER_RECORD"; then
+    return 0
+  fi
+  [[ -z $tmp ]] || rm -f "$tmp"
+  return 1
+}
+
+# lockdown --stop: the apps of this office's member OS users run under each
+# one's own user manager, which their linger starts at every boot, and no
+# locked office starts to stop them. Turns their linger off (recorded first,
+# for the unlock) and stops every member's manager. A failure is named and
+# does not stop the lockdown.
+stop_member_managers() {
+  [[ -d $MEMBER_ETC ]] || return 0
+  local env user uid i users=() uids=() lingering=() stopped=0
+  for env in "$MEMBER_ETC"/*.env; do
+    [[ -e $env ]] || continue
+    user=${env##*/}
+    user=${user%.env}
+    uid=$(member_uid "$user") || continue
+    users+=("$user")
+    uids+=("$uid")
+    if [[ -e $LINGER_DIR/$user ]]; then lingering+=("$user"); fi
+  done
+  ((${#users[@]})) || return 0
+  if ((${#lingering[@]})) && ! write_member_record "${lingering[@]}"; then
+    echo "isomux-rescue: could not record the member OS users whose apps this lock stops. After the unlock, run:" >&2
+    for user in "${lingering[@]}"; do echo "  loginctl enable-linger $user" >&2; done
+  fi
+  for user in "${lingering[@]}"; do
+    loginctl disable-linger "$user" ||
+      echo "isomux-rescue: could not turn off linger for $user, so their apps start again after a reboot." >&2
+  done
+  for i in "${!users[@]}"; do
+    if systemctl stop "user@${uids[i]}.service"; then
+      stopped=$((stopped + 1))
+    else
+      echo "isomux-rescue: could not stop the apps of ${users[i]}." >&2
+    fi
+  done
+  ((stopped == 0)) || echo "Stopped the apps of $stopped member OS user(s)."
+}
+
+# unlock: turns linger on again for each recorded member still of this
+# office, then removes the record. A failure prints the command to run.
+start_member_managers() {
+  [[ -f $MEMBER_RECORD ]] || return 0
+  local user users=()
+  mapfile -t users <"$MEMBER_RECORD"
+  for user in "${users[@]}"; do
+    member_uid "$user" >/dev/null || continue
+    loginctl enable-linger "$user" ||
+      echo "isomux-rescue: could not turn on linger for $user, so their apps stay stopped. Run: loginctl enable-linger $user" >&2
+  done
+  rm -f "$MEMBER_RECORD"
+}
+
 cmd_lockdown() {
   local stop=0 reason=""
   while (($#)); do
@@ -239,13 +342,21 @@ cmd_lockdown() {
     wait_inactive || die "the office did not stop within ${STOP_TIMEOUT_S} s. It stays locked; run lockdown again."
     as_service _step audit lockdown --reason "$reason"
     kill_leftovers
-    # The lock's effects: credentials, move, exports, and the apps stopped and
-    # disabled, since a lock with --stop starts no locked office to do it.
-    # A failure must not stop the lockdown before the office is disabled.
-    as_service _step lock-effects >/dev/null ||
-      echo "isomux-rescue: part of the lock did not finish; see the lines above." >&2
+    if ((stop)); then
+      # The lock's effects: credentials, move, exports, and the apps stopped
+      # and disabled, since no locked office starts to do it. A failure must
+      # not stop the lockdown before the office is disabled.
+      as_service _step lock-effects >/dev/null ||
+        echo "isomux-rescue: part of the lock did not finish; see the lines above." >&2
+    else
+      # The locked boot applies every effect through the router of the locked
+      # office, which also stops an isolated member's apps and records them
+      # for the unlock (the first record wins). Only the credentials go now.
+      as_service _step quarantine >/dev/null
+    fi
     echo "Revoked every sign-in, API token, invite and browser extension pairing."
     if ((stop)); then
+      stop_member_managers
       systemctl disable "$SERVICE_NAME"
       echo "The office is stopped and stays stopped after a reboot."
     else
@@ -287,6 +398,7 @@ cmd_unlock() {
     rm -f "$MARKER"
     as_service _step remove-state-marker
     as_service _step audit unlock
+    start_member_managers
     start_again
   fi
   if wait_ready >/dev/null; then

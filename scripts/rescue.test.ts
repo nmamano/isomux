@@ -31,6 +31,7 @@ import {
   writeStateMarker,
 } from "../server/lockdown.ts";
 import { EXPORTS_SUBDIR } from "../server/office-export-jobs.ts";
+import { MEMBER_OS_USERS_FILE } from "../server/member-os-users.ts";
 import { MOVE_LOCK_MARKER, MOVE_STATE_FILE } from "../server/office-move.ts";
 import { unitNameFor, unitPrefixFor } from "../server/office-units.ts";
 import {
@@ -153,6 +154,8 @@ function bed(
     apps?: Record<string, AppUnit>;
     /** Apps whose unit refuses to disable. */
     refuseDisable?: string[];
+    /** The owner (user id) of an app; the others have none. */
+    owners?: Record<string, string>;
   } = {},
 ): Bed {
   dir = mkdtempSync(join(tmpdir(), "rescue-test-"));
@@ -178,7 +181,7 @@ function bed(
         name,
         command: "true",
         cwd: dir,
-        userId: null,
+        userId: opts.owners?.[name] ?? null,
         username: null,
         createdBy: "test",
       });
@@ -683,6 +686,76 @@ describe("lockdown: the lock's effects at the host", () => {
       disabled: ["board"],
       named: true,
       verbs: [],
+    });
+  });
+
+  // An isolated member's app is a unit of their own user manager, never of
+  // the office's: the lock stops it through their runner (a locked boot) or
+  // their manager (root, lockdown --stop). The host step must not stop,
+  // disable or record it on the office's manager, where the first normal
+  // boot would re-enable it (task 367596bc part 2).
+  // New unit objects for each bed: the bed changes them in place.
+  const owned = () => ({
+    apps: {
+      board: { active: true, enabled: true },
+      plain: { active: true, enabled: true },
+      iso: { active: true, enabled: true },
+    },
+    owners: { plain: "u-plain", iso: "u-iso" },
+  });
+
+  test("the root step lock-effects leaves out the apps of a member with an OS user of their own, and still stops, disables and records the office's, also those of a member without one", async () => {
+    const b = effectsBed(owned());
+    writeFileSync(
+      join(b.stateRoot, MEMBER_OS_USERS_FILE),
+      JSON.stringify({ "u-iso": { name: "mem-iso", uid: 60001 } }),
+    );
+    const isoUnit = unitNameFor(unitPrefixFor(b.stateRoot, false), "iso");
+    const code = await b.run(["_step", "lock-effects"]);
+    if (code !== 0) console.error(b.out);
+    const e = effects(b);
+    expect({
+      code,
+      apps: e.apps,
+      stopped: e.stopped,
+      disabled: e.disabled,
+      isoCalls: b.appCalls.filter((c) => c.includes(isoUnit)),
+    }).toEqual({
+      code: 0,
+      apps: {
+        board: { active: false, enabled: false },
+        plain: { active: false, enabled: false },
+        iso: { active: true, enabled: true },
+      },
+      stopped: ["board", "plain"],
+      disabled: ["board", "plain"],
+      isoCalls: [],
+    });
+  });
+
+  // Fail closed: a record that does not parse may hide an owner with no OS
+  // user, whose app is a unit of the office's manager. Acting on it costs at
+  // worst a call on a unit the office's manager does not have.
+  test("a member OS user record that does not parse: the root step lock-effects treats every app as the office's", async () => {
+    const b = effectsBed(owned());
+    writeFileSync(join(b.stateRoot, MEMBER_OS_USERS_FILE), "{");
+    const code = await b.run(["_step", "lock-effects"]);
+    if (code !== 0) console.error(b.out);
+    const e = effects(b);
+    expect({
+      code,
+      apps: e.apps,
+      stopped: e.stopped,
+      disabled: e.disabled,
+    }).toEqual({
+      code: 0,
+      apps: {
+        board: { active: false, enabled: false },
+        plain: { active: false, enabled: false },
+        iso: { active: false, enabled: false },
+      },
+      stopped: ["board", "iso", "plain"],
+      disabled: ["board", "iso", "plain"],
     });
   });
 });

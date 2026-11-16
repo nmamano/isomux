@@ -30,8 +30,11 @@ import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { createAppRegistry } from "../server/app-registry.ts";
+import { MEMBER_OS_USERS_FILE } from "../server/member-os-users.ts";
+import { applyLockEffects } from "../server/locked-office.ts";
 import {
   LOCK_MARKER_FILE,
+  LOCKDOWN_APPS_FILE,
   LOCKDOWN_DIR_PREFIX,
   QUARANTINED_FILES,
   ROOT_MARKER_FILE,
@@ -48,6 +51,9 @@ const WRAPPER = join(import.meta.dir, "rescue-root.sh");
 const SERVICE = "isomux-t-rescue-root";
 // A main pid no live office has. Every leftover carries it.
 const OFFICE_PID = "987654321";
+// The root-owned record of the member OS users whose linger lockdown --stop
+// turned off, next to the root marker: the protocol between lock and unlock.
+const MEMBER_RECORD = "lockdown-members";
 
 let dir = "";
 const children: Subprocess[] = [];
@@ -68,9 +74,20 @@ interface Rig {
   conf: string;
   log: string;
   unitFile: string;
+  /** isomux-member-user's etc dir: one <user>.env per member OS user. */
+  memberEtc: string;
+  /** systemd's linger dir: one empty file per user whose linger is on. */
+  linger: string;
+  /** The passwd entries `getent` knows besides the service user. */
+  passwd: string;
+  /** Lines "<verb> <user>" (or "stop user@<uid>.service") that fail. */
+  failFile: string;
   env: Record<string, string>;
   run(args: string[]): Promise<{ code: number; out: string }>;
   calls(): string[];
+  /** Every loginctl call, as "<args> recorded=<yes|no>": whether the user
+   *  was in the member record at the call. */
+  loginctl(): string[];
 }
 
 function stub(binDir: string, name: string, body: string): void {
@@ -79,7 +96,9 @@ function stub(binDir: string, name: string, body: string): void {
   chmodSync(path, 0o755);
 }
 
-function rig(opts: { uid?: number; compromised?: boolean } = {}): Rig {
+function rig(
+  opts: { uid?: number; compromised?: boolean; failRecordWrite?: boolean } = {},
+): Rig {
   dir = mkdtempSync(join(tmpdir(), "rescue-root-test-"));
   const bin = join(dir, "bin");
   const proc = join(dir, "proc");
@@ -89,9 +108,17 @@ function rig(opts: { uid?: number; compromised?: boolean } = {}): Rig {
   const conf = join(dir, "update.conf");
   const log = join(dir, "calls.log");
   const unitFile = join(dir, "unit");
-  for (const d of [bin, stateRoot, etc]) mkdirSync(d, { recursive: true });
+  const memberEtc = join(dir, "member-runner");
+  const linger = join(dir, "linger");
+  const passwd = join(dir, "passwd");
+  const failFile = join(dir, "fail");
+  const record = join(etc, MEMBER_RECORD);
+  for (const d of [bin, stateRoot, etc, memberEtc, linger])
+    mkdirSync(d, { recursive: true });
   writeFileSync(unitFile, "active enabled\n");
   writeFileSync(log, "");
+  writeFileSync(passwd, "");
+  writeFileSync(failFile, "");
   const me = userInfo();
   writeFileSync(
     conf,
@@ -112,11 +139,41 @@ function rig(opts: { uid?: number; compromised?: boolean } = {}): Rig {
     "id",
     `if [[ "$1" == -u && $# -eq 1 ]]; then echo ${uid}; else exec /usr/bin/id "$@"; fi`,
   );
+  // The service user, and the member OS users of the fixture's passwd.
   stub(
     bin,
     "getent",
-    `[[ "$1" == passwd ]] && echo "$2:x:${me.uid}:${me.gid}::${join(dir, "home")}:/bin/bash"`,
+    `[[ "$1" == passwd ]] || exit 2
+if [[ "$2" == ${JSON.stringify(me.username)} ]]; then
+  echo "$2:x:${me.uid}:${me.gid}::${join(dir, "home")}:/bin/bash"; exit 0
+fi
+awk -F: -v n="$2" '$1 == n { print; found = 1 } END { exit !found }' ${passwd} || exit 2`,
   );
+  // loginctl enable-linger/disable-linger <user>: the linger file, as logind
+  // keeps it. Each call is logged with whether the user was in the member
+  // record at that moment.
+  stub(
+    bin,
+    "loginctl",
+    `recorded=no
+[[ -f ${record} ]] && grep -qxF -- "$2" ${record} && recorded=yes
+echo "loginctl $* recorded=$recorded" >> ${log}
+grep -qxF -- "$*" ${failFile} && { echo "loginctl: failed" >&2; exit 1; }
+case $1 in
+  enable-linger) touch ${linger}/"$2" ;;
+  disable-linger) rm -f ${linger}/"$2" ;;
+esac
+exit 0`,
+  );
+  if (opts.failRecordWrite)
+    // Every write that lands on the member record fails, as on a full disk.
+    stub(
+      bin,
+      "mv",
+      `for last; do :; done
+[[ $last == ${record} ]] && { echo "mv: no space left" >&2; exit 1; }
+exec /usr/bin/mv "$@"`,
+    );
   // runuser -u <user> -- <command...>: the command, as this user. With
   // `compromised`, the checkout's code is an attacker's: every step it runs
   // does nothing, succeeds, and prints a marker body for another state root.
@@ -146,6 +203,12 @@ if [[ " $* " == *" isomux-app-"* ]]; then
       *" show "*) printf 'Id=%s\\nLoadState=loaded\\nActiveState=active\\nSubState=running\\nNRestarts=0\\n\\n' "$a" ;;
     esac
   done
+  exit 0
+fi
+# A member OS user's manager (user@<uid>.service): logged, never the office.
+if [[ " $* " == *" user@"* ]]; then
+  echo "systemctl $*" >> ${log}
+  grep -qxF -- "$*" ${failFile} && { echo "systemctl: failed" >&2; exit 1; }
   exit 0
 fi
 echo "systemctl $*" >> ${log}
@@ -180,6 +243,9 @@ if [[ -e ${join(stateRoot, LOCK_MARKER_FILE)} || -e ${join(etc, ROOT_MARKER_FILE
     ISOMUX_RESCUE_CONF: conf,
     ISOMUX_RESCUE_ROOT_MARKER_DIR: etc,
     ISOMUX_RESCUE_PROC: proc,
+    // Never the box's own /etc/isomux/member-runner or linger dir.
+    ISOMUX_RESCUE_MEMBER_ETC: memberEtc,
+    ISOMUX_RESCUE_LINGER_DIR: linger,
   };
   return {
     stateRoot,
@@ -188,7 +254,16 @@ if [[ -e ${join(stateRoot, LOCK_MARKER_FILE)} || -e ${join(etc, ROOT_MARKER_FILE
     conf,
     log,
     unitFile,
+    memberEtc,
+    linger,
+    passwd,
+    failFile,
     env,
+    loginctl: () =>
+      readFileSync(log, "utf8")
+        .split("\n")
+        .filter((l) => l.startsWith("loginctl "))
+        .map((l) => l.replace(/^loginctl /, "")),
     calls: () =>
       readFileSync(log, "utf8")
         .split("\n")
@@ -423,6 +498,294 @@ test("unlock as root removes both markers, audits and starts the office", async 
     locked: false,
     unit: "active enabled",
     audits: ["office.lockdown", "office.unlock"],
+  });
+});
+
+// An isolated member's apps run under their own user manager, which their
+// linger starts at every boot and which starts every enabled unit of theirs.
+// lockdown --stop runs no locked office to stop them through their runner, so
+// root turns their linger off and stops the manager, and the unlock turns the
+// linger on again (task 367596bc part 2).
+describe("lockdown --stop and the member OS users' apps", () => {
+  // A member OS user as isomux-member-user enable leaves one: the .env that
+  // ties them to an office, a passwd entry, and linger on.
+  function member(
+    r: Rig,
+    name: string,
+    uid: number,
+    opts: { officeUid?: number; linger?: boolean; passwd?: boolean } = {},
+  ): void {
+    writeFileSync(
+      join(r.memberEtc, `${name}.env`),
+      `ISOMUX_OFFICE_UID=${opts.officeUid ?? userInfo().uid}\n`,
+    );
+    if (opts.passwd ?? true)
+      writeFileSync(
+        r.passwd,
+        readFileSync(r.passwd, "utf8") +
+          `${name}:x:${uid}:${uid}::/home/${name}:/bin/bash\n`,
+      );
+    if (opts.linger ?? true) writeFileSync(join(r.linger, name), "");
+  }
+
+  const record = (r: Rig): string[] | null => {
+    const path = join(r.etc, MEMBER_RECORD);
+    return existsSync(path)
+      ? readFileSync(path, "utf8").split("\n").filter(Boolean).sort()
+      : null;
+  };
+  const lingering = (r: Rig): string[] => readdirSync(r.linger).sort();
+  const managerStops = (r: Rig): string[] =>
+    r
+      .calls()
+      .filter((c) => c.includes("user@"))
+      .sort();
+  const officeCalls = (r: Rig): string[] =>
+    r.calls().filter((c) => !c.includes("user@"));
+  const fail = (r: Rig, ...lines: string[]) =>
+    writeFileSync(r.failFile, lines.map((l) => `${l}\n`).join(""));
+
+  test("turns off the linger of this office's members whose linger is on, after it recorded them, stops the user manager of every member of this office, and still disables the office", async () => {
+    const r = rig();
+    member(r, "mem-ann", 60001);
+    // A member with linger off: a session can still hold their manager up.
+    member(r, "mem-cat", 60003, { linger: false });
+    // Another office's member, a user passwd does not know, and names that
+    // are no user name (the second would read as an option).
+    member(r, "mem-other", 60004, { officeUid: userInfo().uid + 1 });
+    member(r, "mem-ghost", 60005, { passwd: false });
+    member(r, "Bad.Name", 60006);
+    member(r, "-x", 60007);
+    const lock = await r.run(["lockdown", "--stop", "--reason", "x"]);
+    if (lock.code !== 0) console.error(lock.out);
+    const recordMode = existsSync(join(r.etc, MEMBER_RECORD))
+      ? statSync(join(r.etc, MEMBER_RECORD)).mode & 0o777
+      : null;
+    expect({
+      code: lock.code,
+      loginctl: r.loginctl(),
+      managerStops: managerStops(r),
+      record: record(r),
+      recordMode,
+      lingering: lingering(r),
+      office: officeCalls(r),
+      unit: readFileSync(r.unitFile, "utf8").trim(),
+    }).toEqual({
+      code: 0,
+      loginctl: ["disable-linger mem-ann recorded=yes"],
+      managerStops: ["stop user@60001.service", "stop user@60003.service"],
+      record: ["mem-ann"],
+      recordMode: 0o644,
+      lingering: ["-x", "Bad.Name", "mem-ghost", "mem-other"].sort(),
+      office: [`stop ${SERVICE}`, `disable ${SERVICE}`],
+      unit: "inactive disabled",
+    });
+  });
+
+  test("a second lockdown --stop keeps the members the first one recorded and adds the new ones", async () => {
+    const r = rig();
+    member(r, "mem-ann", 60001);
+    expect((await r.run(["lockdown", "--stop", "--reason", "x"])).code).toBe(0);
+    expect(record(r)).toEqual(["mem-ann"]);
+    member(r, "mem-bob", 60002);
+    const again = await r.run(["lockdown", "--stop", "--reason", "y"]);
+    if (again.code !== 0) console.error(again.out);
+    expect({
+      code: again.code,
+      record: record(r),
+      loginctl: r.loginctl(),
+      lingering: lingering(r),
+    }).toEqual({
+      code: 0,
+      record: ["mem-ann", "mem-bob"],
+      loginctl: [
+        "disable-linger mem-ann recorded=yes",
+        "disable-linger mem-bob recorded=yes",
+      ],
+      lingering: [],
+    });
+  });
+
+  test("lockdown without --stop leaves the members' linger and managers alone: the locked office stops their apps through their runners", async () => {
+    const r = rig();
+    member(r, "mem-ann", 60001);
+    const lock = await r.run(["lockdown", "--reason", "x"]);
+    if (lock.code !== 0) console.error(lock.out);
+    expect({
+      code: lock.code,
+      loginctl: r.loginctl(),
+      managerStops: managerStops(r),
+      record: record(r),
+      lingering: lingering(r),
+    }).toEqual({
+      code: 0,
+      loginctl: [],
+      managerStops: [],
+      record: null,
+      lingering: ["mem-ann"],
+    });
+  });
+
+  test("a member whose linger or manager does not stop is named, and the lock stops the others and still disables the office", async () => {
+    const r = rig();
+    member(r, "mem-ann", 60001);
+    member(r, "mem-bob", 60002);
+    member(r, "mem-cat", 60003);
+    fail(r, "disable-linger mem-ann", "stop user@60002.service");
+    const lock = await r.run(["lockdown", "--stop", "--reason", "x"]);
+    if (lock.code !== 0) console.error(lock.out);
+    expect({
+      code: lock.code,
+      annNamed: lock.out.includes("mem-ann"),
+      bobNamed: lock.out.includes("mem-bob"),
+      managerStops: managerStops(r),
+      // All three had linger on: the unlock turns it on for each.
+      record: record(r),
+      lingering: lingering(r),
+      unit: readFileSync(r.unitFile, "utf8").trim(),
+    }).toEqual({
+      code: 0,
+      annNamed: true,
+      bobNamed: true,
+      managerStops: [
+        "stop user@60001.service",
+        "stop user@60002.service",
+        "stop user@60003.service",
+      ],
+      record: ["mem-ann", "mem-bob", "mem-cat"],
+      lingering: ["mem-ann"],
+      unit: "inactive disabled",
+    });
+  });
+
+  test("a member record that does not write: the members are still stopped, and the output names the command that turns each one's linger on again", async () => {
+    const r = rig({ failRecordWrite: true });
+    member(r, "mem-ann", 60001);
+    const lock = await r.run(["lockdown", "--stop", "--reason", "x"]);
+    if (lock.code !== 0) console.error(lock.out);
+    expect({
+      code: lock.code,
+      // The write did fail: no record.
+      record: record(r),
+      loginctl: r.loginctl(),
+      managerStops: managerStops(r),
+      command: lock.out.includes("loginctl enable-linger mem-ann"),
+      unit: readFileSync(r.unitFile, "utf8").trim(),
+    }).toEqual({
+      code: 0,
+      record: null,
+      loginctl: ["disable-linger mem-ann recorded=no"],
+      managerStops: ["stop user@60001.service"],
+      command: true,
+      unit: "inactive disabled",
+    });
+  });
+
+  test("unlock turns linger on again for each recorded member still of this office, removes the record and starts the office", async () => {
+    const r = rig();
+    member(r, "mem-ann", 60001);
+    member(r, "mem-bob", 60002);
+    expect((await r.run(["lockdown", "--stop", "--reason", "x"])).code).toBe(0);
+    expect(record(r)).toEqual(["mem-ann", "mem-bob"]);
+    // isomux-member-user disable during the lock: bob's .env is gone, and
+    // the unlock must not give him linger back.
+    rmSync(join(r.memberEtc, "mem-bob.env"));
+    writeFileSync(r.log, "");
+    const unlock = await r.run(["unlock"]);
+    if (unlock.code !== 0) console.error(unlock.out);
+    expect({
+      code: unlock.code,
+      loginctl: r.loginctl(),
+      lingering: lingering(r),
+      record: record(r),
+      unit: readFileSync(r.unitFile, "utf8").trim(),
+    }).toEqual({
+      code: 0,
+      loginctl: ["enable-linger mem-ann recorded=yes"],
+      lingering: ["mem-ann"],
+      record: null,
+      unit: "active enabled",
+    });
+  });
+
+  test("an unlock whose enable-linger fails names the command to run, and still removes the record and starts the office", async () => {
+    const r = rig();
+    member(r, "mem-ann", 60001);
+    member(r, "mem-bob", 60002);
+    expect((await r.run(["lockdown", "--stop", "--reason", "x"])).code).toBe(0);
+    fail(r, "enable-linger mem-ann");
+    writeFileSync(r.log, "");
+    const unlock = await r.run(["unlock"]);
+    if (unlock.code !== 0) console.error(unlock.out);
+    expect({
+      code: unlock.code,
+      command: unlock.out.includes("loginctl enable-linger mem-ann"),
+      // The other member is still tried.
+      lingering: lingering(r),
+      record: record(r),
+      unit: readFileSync(r.unitFile, "utf8").trim(),
+    }).toEqual({
+      code: 0,
+      command: true,
+      lingering: ["mem-bob"],
+      record: null,
+      unit: "active enabled",
+    });
+  });
+});
+
+// Without --stop the locked office's boot stops an isolated member's apps
+// through their runner (server/locked-member-apps.ts) and records them, so
+// the first normal boot after the unlock starts them again. Whatever the host
+// command does first must leave that record to the locked boot for her apps
+// (task 367596bc part 2).
+test("lockdown without --stop: the locked boot that follows records the isolated member's app it stops, with the office's, for the unlock", async () => {
+  const r = rig();
+  const registry = createAppRegistry({
+    dir: join(r.stateRoot, "apps"),
+    probePort: () => true,
+  });
+  for (const [name, userId] of [
+    ["board", null],
+    ["iso", "u-iso"],
+  ] as const)
+    registry.register({
+      name,
+      command: "true",
+      cwd: r.stateRoot,
+      userId,
+      username: null,
+      createdBy: "test",
+    });
+  writeFileSync(
+    join(r.stateRoot, MEMBER_OS_USERS_FILE),
+    JSON.stringify({ "u-iso": { name: "mem-iso", uid: 60001 } }),
+  );
+  const lock = await r.run(["lockdown", "--reason", "x"]);
+  if (lock.code !== 0) console.error(lock.out);
+  expect(lock.code).toBe(0);
+  // The locked boot (startLockedOffice): its router reaches both apps, the
+  // office's through the office's manager and hers through her runner, and
+  // both run (the box boot or her manager may have started them).
+  const stopped: string[] = [];
+  applyLockEffects({
+    stateRoot: r.stateRoot,
+    apps: {
+      list: () => ["board", "iso"],
+      isActive: (name) => !stopped.includes(name),
+      stop: (name) => void stopped.push(name),
+      start: () => {},
+    },
+    exportBaseDir: null,
+    now: new Date(),
+  });
+  const path = join(r.stateRoot, LOCKDOWN_APPS_FILE);
+  const recorded = existsSync(path)
+    ? (JSON.parse(readFileSync(path, "utf8")) as string[]).sort()
+    : null;
+  expect({ stopped: stopped.sort(), recorded }).toEqual({
+    stopped: ["board", "iso"],
+    recorded: ["board", "iso"],
   });
 });
 

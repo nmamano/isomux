@@ -21,14 +21,18 @@
 //   _step state-marker --reason <text> --by <who>   write <state>/LOCKDOWN
 //   _step remove-state-marker                       quarantine, then remove the marker
 //   _step audit lockdown|unlock [--reason <text>]   only while the unit is down
-//   _step lock-effects                              the lock's effects on the state and the apps
-//   _step quarantine                                (a wrapper from an older release)
+//   _step lock-effects                              the lock's effects on the state and the apps (--stop)
+//   _step quarantine                                the credentials only (a lock without --stop)
 //   _step report <file>|- [--journal-stdin] [--release <tag>] [--previous <tag>]
 //         [--update-result <text>] [--note <text>]
 //
-// Lockdown order: marker, stop, wait inactive, audit, kill leftovers, lock
-// effects (quarantine, move, exports, apps stopped and disabled), start. A
-// cut at any point leaves the office stopped or locked.
+// Lockdown order: marker, stop, wait inactive, audit, kill leftovers, then
+// with --stop the lock effects (quarantine, move, exports, apps stopped and
+// disabled) and disable. Without --stop the user flow does the same and
+// starts the office; the root wrapper moves only the credentials aside
+// (quarantine) and starts the locked office, whose boot applies the rest,
+// also to an isolated member's apps. A cut at any point leaves the office
+// stopped or locked.
 
 import {
   closeSync,
@@ -65,6 +69,7 @@ import {
   type LockEffectsResult,
 } from "../server/locked-office.ts";
 import { createAppRegistry } from "../server/app-registry.ts";
+import { memberOsUserStateAt } from "../server/member-os-users.ts";
 import {
   createAppSupervisor,
   createSystemdHost,
@@ -117,10 +122,25 @@ export function renameInstructionFiles(dir: string): string[] {
   return renamed;
 }
 
+/** Whether an app of `owner` runs under the office's own user manager, as
+ *  the office's app router decides it (server/app-supervisor-router.ts): no
+ *  owner, or an owner with no OS user of their own in the member OS user
+ *  record of `stateRoot` (server/member-os-users.ts). Unlike the router, a
+ *  record that does not parse counts as the office's (fail closed for a
+ *  lock: a stop of a unit the office's manager does not have does nothing). */
+export function officeAppOwner(
+  stateRoot: string,
+): (owner: string | null | undefined) => boolean {
+  const stateOf = memberOsUserStateAt(stateRoot);
+  return (owner) => stateOf(owner).kind !== "isolated";
+}
+
 /** The office's apps as a lock stops and disables them, read from
  *  `stateRoot` (never the module STATE_ROOT): its app registry, and the
  *  systemd supervisor with the unit prefix of that root, whose systemctl
- *  calls go through `host`. */
+ *  calls go through `host`. An isolated member's apps are left out: they are
+ *  units of their own user manager, which root stops at lockdown --stop
+ *  (scripts/rescue-root.sh), and a locked boot through their runner. */
 export function hostLockdownApps(
   stateRoot: string,
   home: string,
@@ -140,7 +160,10 @@ export function hostLockdownApps(
       },
     },
   });
-  return lockdownApps(supervisor, registry);
+  const officeApp = officeAppOwner(root);
+  return lockdownApps(supervisor, {
+    list: () => registry.list().filter((app) => officeApp(app.userId)),
+  });
 }
 
 /** The backup folder of the office at `stateRoot`, as server/backup.ts
