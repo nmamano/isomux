@@ -1,7 +1,8 @@
 // A reply that is only the no-update keyword (task 51c187f4; Nil
 // 2026-11-16: "let's designate a special keyword"). The chat draws no card
-// for it: it folds into the line of the agent traffic around it, which says
-// that nothing is for the member, and the keyword never shows as text. The
+// for it: it folds into the line of the agent traffic before it, which says
+// that nothing is for the member, and the keyword never shows as text. It
+// ends that line: traffic after it is a line of its own (task c9479484). The
 // phrase of older logs folds the same. Which entries a run holds:
 // tool-call-groups.test.ts; what a copy holds: LogEntryCard.test.ts.
 
@@ -201,6 +202,48 @@ it("back-to-back turns that end with the keyword are one closed line that says n
   view.unmount();
 });
 
+// Task c9479484, Nil 2026-11-16: "why does it say nothing new for you and
+// then your message follows?" A quiet turn, then a turn whose traffic leads
+// into a real reply.
+it("the line right above a real reply never says nothing is for the member; the quiet turn's line above it does", () => {
+  const logs = [
+    member("u1", "Keep an eye on Helper."),
+    entry("x1", "text", "Watching."),
+    peerMessage("p1"),
+    shellCall("c1", "echo STEP-ONE"),
+    done("r1", "c1"),
+    quiet("q1"),
+    peerMessage("p2"),
+    shellCall("c2", "echo STEP-TWO"),
+    done("r2", "c2"),
+    entry("y1", "text", "REPLY-y1"),
+  ];
+  const view = mount(withPeer, logs);
+  const chat = view.container;
+  expect(drawn(chat, logs)).toEqual(["u1", "x1", "p1", "p2", "y1"]);
+  expect(toggles(chat).length).toBe(2);
+  const quietLine = toggles(wrapOf(chat, "p1"))[0];
+  const replyLine = toggles(wrapOf(chat, "p2"))[0];
+  expect(quietLine.textContent).toContain(QUIET);
+  expect(replyLine.textContent).not.toContain(QUIET);
+  // The line above the reply counts the second turn's traffic.
+  expect(replyLine.textContent).toContain(
+    EN.tn("cards.toolCall.hiddenMessages", 1),
+  );
+  expect(replyLine.textContent).toContain(
+    EN.tn("cards.toolCall.hiddenSteps", 1),
+  );
+  expect(wrapOf(chat, "y1").textContent).toContain("REPLY-y1");
+  // Open, each line holds its own turn's steps.
+  fireEvent.click(quietLine);
+  expect(wrapOf(chat, "p1").textContent).toContain("STEP-ONE");
+  expect(wrapOf(chat, "p1").textContent).not.toContain("STEP-TWO");
+  fireEvent.click(toggles(wrapOf(chat, "p2"))[0]);
+  expect(wrapOf(chat, "p2").textContent).toContain("STEP-TWO");
+  expect(keywordShown(chat)).toEqual(HIDDEN);
+  view.unmount();
+});
+
 // What the copy buttons in `root` copy, without the button each message
 // from another agent carries for its own text ("PEER-<id>"): what is left is
 // the turn's copy.
@@ -233,12 +276,15 @@ it("the open line shows the traffic and still no keyword, and a line that ends w
   expect(keywordShown(chat)).toEqual(HIDDEN);
   expect(await turnCopies(wrap)).toEqual([]);
   view.unmount();
-  // The same line without the closing keyword ends the turn with a step:
-  // closed and open, it carries the turn's copy button, which copies the turn.
+  // Without the closing keyword, the second turn ends with a step: its
+  // traffic is a line of its own (task c9479484), and closed and open, that
+  // line carries the turn's copy button, which copies the turn. The first
+  // line still ends with the keyword and has none.
   const without = traffic.filter((e) => e.id !== "q2");
   const control = mount(withPeer, without);
-  const controlWrap = wrapOf(control.container, "p1");
-  expect(drawn(control.container, without)).toEqual(["u1", "x1", "p1"]);
+  const controlWrap = wrapOf(control.container, "p2");
+  expect(drawn(control.container, without)).toEqual(["u1", "x1", "p1", "p2"]);
+  expect(copyButtons(wrapOf(control.container, "p1")).length).toBe(0);
   expect(copyButtons(controlWrap).length).toBe(1);
   const closed = await turnCopies(controlWrap);
   expect(closed.length).toBe(1);
@@ -357,8 +403,10 @@ const restart = (id: string) => ({
 });
 const RESTARTED = EN.t("systemEntries.restartWake.resumed");
 
-it("a restart between quiet turns of agent traffic shows between two lines, each with nothing new for you, and no copy button", async () => {
+it("a restart between quiet turns of agent traffic shows between their lines, and only the lines of quiet turns say nothing new for you", async () => {
   // Nil's sign-off image: three turns, the server restarted in the third.
+  // The third turn's traffic before the restart did not end quiet, so it is
+  // a line of its own, without the words (task c9479484).
   const logs = [
     member("u1", "Restart the server when Main asks."),
     entry("x1", "text", "OK."),
@@ -377,33 +425,42 @@ it("a restart between quiet turns of agent traffic shows between two lines, each
   ];
   const view = mount(withPeer, logs);
   const chat = view.container;
-  expect(drawn(chat, logs)).toEqual(["u1", "x1", "p1", "R", "q3"]);
-  // The restart line shows while both lines are closed.
-  expect(toggles(chat).length).toBe(1);
-  expect(toggles(wrapOf(chat, "p1"))[0].getAttribute("aria-expanded")).toBe(
-    "false",
-  );
+  expect(drawn(chat, logs)).toEqual(["u1", "x1", "p1", "p3", "R", "q3"]);
+  // The restart line shows while the lines are closed.
+  expect(toggles(chat).length).toBe(2);
+  for (const id of ["p1", "p3"])
+    expect({
+      id,
+      expanded: toggles(wrapOf(chat, id))[0].getAttribute("aria-expanded"),
+    }).toEqual({ id, expanded: "false" });
   expect(wrapOf(chat, "R").textContent).toContain(RESTARTED);
-  // Each line says that nothing is for the member.
+  // The lines of the quiet turns say that nothing is for the member; the
+  // third turn's line before the restart does not.
   expect(toggles(wrapOf(chat, "p1"))[0].textContent).toContain(QUIET);
+  expect(toggles(wrapOf(chat, "p3"))[0].textContent).not.toContain(QUIET);
   expect(
     wrapOf(chat, "q3").querySelectorAll("[data-hidden-quiet]").length,
   ).toBe(1);
   expect(wrapOf(chat, "q3").textContent).toContain(QUIET_ONLY);
-  // The turn ends with nothing for the member: no copy button on either
-  // line or on the restart line.
-  for (const id of ["p1", "R", "q3"])
+  // The turn ends with nothing for the member: no copy button on any line
+  // or on the restart line.
+  for (const id of ["p1", "p3", "R", "q3"])
     expect({ id, copies: copyButtons(wrapOf(chat, id)).length }).toEqual({
       id,
       copies: 0,
     });
-  // Open, the first line holds the steps before the restart, and the restart
-  // line is not in it.
+  // Open, each line holds its own steps, and the restart line is in neither.
   const wrap = wrapOf(chat, "p1");
   fireEvent.click(toggles(wrap)[0]);
-  expect(wrap.textContent).toContain("STEP-THREE");
+  expect(wrap.textContent).toContain("STEP-TWO");
+  expect(wrap.textContent).not.toContain("STEP-THREE");
   expect(wrap.textContent).not.toContain(RESTARTED);
   expect(await turnCopies(wrap)).toEqual([]);
+  const third = wrapOf(chat, "p3");
+  fireEvent.click(toggles(third)[0]);
+  expect(third.textContent).toContain("STEP-THREE");
+  expect(third.textContent).not.toContain(RESTARTED);
+  expect(await turnCopies(third)).toEqual([]);
   expect(chat.textContent!.split(RESTARTED).length - 1).toBe(1);
   expect(keywordShown(chat)).toEqual(HIDDEN);
   view.unmount();

@@ -892,8 +892,10 @@ describe("agent-message runs", () => {
 });
 
 // A reply that is only the no-update keyword (task 51c187f4): it shows no
-// card. It folds into the line around it, whatever the member shows, so
-// back-to-back turns of agent traffic that end with it read as one line.
+// card. It folds into the line before it, whatever the member shows, so
+// back-to-back turns of agent traffic that end with it read as one line. It
+// ends that line (task c9479484): what comes after it leads into the next
+// reply, so it is a line of its own, without the no-update words.
 describe("no-update replies", () => {
   const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
   const send = (id: string, to: string) =>
@@ -944,12 +946,12 @@ describe("no-update replies", () => {
     ]);
   });
 
-  test("it never breaks a run, and it can start one, on every fold", () => {
-    // The run each fold makes of [a step, a message, the keyword, a step].
+  test("it ends a run, and it can start one, on every fold", () => {
+    // The runs each fold makes of [a step, a message, the keyword, a step].
     const entries = [call("c1"), peer("p1"), quiet("q1"), call("c2")];
     expect(FOLDS.map((fold) => ids(entries, fold))).toEqual([
-      [["c1", "p1", "q1", "c2"]],
-      [["c1"], ["q1", "c2"]],
+      [["c1", "p1", "q1"], ["c2"]],
+      [["c1"], ["q1"], ["c2"]],
       [["p1", "q1"]],
       [["q1"]],
     ]);
@@ -1003,6 +1005,151 @@ describe("no-update replies", () => {
     // A run without it keeps today's counts, with no quiet mark.
     expect(counts([call("c1")])).toEqual({ messages: 0, steps: 1 });
     expect(counts([peer("p1")])).toEqual({ messages: 1, steps: 0 });
+  });
+
+  // Task c9479484, Nil 2026-11-16: "why does it say nothing new for you and
+  // then your message follows?"
+  const quietMarks = (entries: LogEntry[], fold: (typeof FOLDS)[number]) =>
+    findHiddenRuns(entries, fold).map(
+      (run) => hiddenRunCounts(run.entries).quiet === true,
+    );
+  // A quiet turn, then a turn whose traffic leads into a real reply.
+  const quietThenReply = [
+    member("u"),
+    reply("x"),
+    peer("p1"),
+    call("c1"),
+    result("c1-r", "c1"),
+    quiet("q1"),
+    peer("p2"),
+    call("c2"),
+    result("c2-r", "c2"),
+    reply("y", "Office calls now fold into the line."),
+  ];
+
+  test("the next turn's traffic before a real reply is a run of its own, and only the quiet run is marked, on every fold", () => {
+    expect(FOLDS.map((fold) => ids(quietThenReply, fold))).toEqual([
+      [
+        ["p1", "c1", "c1-r", "q1"],
+        ["p2", "c2", "c2-r"],
+      ],
+      [
+        ["c1", "c1-r", "q1"],
+        ["c2", "c2-r"],
+      ],
+      [["p1"], ["q1"], ["p2"]],
+      [["q1"]],
+    ]);
+    expect(FOLDS.map((fold) => quietMarks(quietThenReply, fold))).toEqual([
+      [true, false],
+      [true, false],
+      [false, true, false],
+      [true],
+    ]);
+    // The line above the reply counts its own traffic.
+    const runs = findHiddenRuns(quietThenReply, FOLDS[0]);
+    expect(hiddenRunCounts(runs[1].entries)).toEqual({
+      messages: 1,
+      steps: 1,
+    });
+  });
+
+  test("a result written after the keyword stays in the quiet run; one written after the next turn starts goes with that turn", () => {
+    // The result of c1 comes right after the keyword.
+    const late = [
+      peer("p1"),
+      call("c1"),
+      quiet("q1"),
+      result("c1-r", "c1"),
+      peer("p2"),
+      call("c2"),
+      reply("y"),
+    ];
+    expect(ids(late, FOLDS[0])).toEqual([
+      ["p1", "c1", "q1", "c1-r"],
+      ["p2", "c2"],
+    ]);
+    expect(quietMarks(late, FOLDS[0])).toEqual([true, false]);
+    // Only results after the keyword: nothing leads past it, so one run.
+    expect(ids(late.slice(0, 4), FOLDS[0])).toEqual([
+      ["p1", "c1", "q1", "c1-r"],
+    ]);
+    // The result of c1 comes after the next turn's first entry.
+    const later = [
+      peer("p1"),
+      call("c1"),
+      quiet("q1"),
+      peer("p2"),
+      result("c1-r", "c1"),
+      call("c2"),
+      reply("y"),
+    ];
+    expect(ids(later, FOLDS[0])).toEqual([
+      ["p1", "c1", "q1"],
+      ["p2", "c1-r", "c2"],
+    ]);
+    expect(quietMarks(later, FOLDS[0])).toEqual([true, false]);
+  });
+
+  test("a cut in one run does not cut the next run", () => {
+    // The first run is cut after q1; the run after the member's message
+    // holds no keyword and stays whole, on every fold that folds steps.
+    const entries = [
+      quiet("q1"),
+      call("c1"),
+      member("u"),
+      call("c2"),
+      call("c3"),
+      call("c4"),
+    ];
+    for (const fold of FOLDS.slice(0, 2))
+      expect({ fold, runs: ids(entries, fold) }).toEqual({
+        fold,
+        runs: [["q1"], ["c1"], ["c2", "c3", "c4"]],
+      });
+  });
+
+  test("live, the next turn is its own run until it ends: with the keyword it joins the quiet run, with a reply it stays apart", () => {
+    const running = quietThenReply.slice(0, 8);
+    expect(running.at(-1)!.id).toBe("c2");
+    expect(ids(running, FOLDS[0])).toEqual([
+      ["p1", "c1", "c1-r", "q1"],
+      ["p2", "c2"],
+    ]);
+    expect(quietMarks(running, FOLDS[0])).toEqual([true, false]);
+    const endsQuiet = [...running, result("c2-r", "c2"), quiet("q2")];
+    expect(ids(endsQuiet, FOLDS[0])).toEqual([
+      ["p1", "c1", "c1-r", "q1", "p2", "c2", "c2-r", "q2"],
+    ]);
+    expect(quietMarks(endsQuiet, FOLDS[0])).toEqual([true]);
+    // The same as the finished log: the line stays, without the mark.
+    expect(quietMarks(quietThenReply, FOLDS[0])).toEqual([true, false]);
+  });
+
+  test("a run is marked only when the keyword is its last entry other than folded results, on every fold", () => {
+    const logs = [
+      quietThenReply,
+      [call("c1"), peer("p1"), quiet("q1"), call("c2")],
+      [peer("p1"), quiet("q1"), peer("p2"), quiet("q2"), peer("p3")],
+      [call("c1"), quiet("q1"), result("c1-r", "c1"), call("c2"), member("u")],
+      [quiet("q1"), legacy("q2"), send("s1", "a2"), result("s1-r", "s1")],
+    ];
+    for (const fold of FOLDS)
+      for (const log of logs)
+        for (const run of findHiddenRuns(log, fold)) {
+          const last = run.entries
+            .filter((e) => e.kind !== "tool_result")
+            .at(-1)!;
+          expect({
+            fold,
+            run: run.entries.map((e) => e.id),
+            quiet: hiddenRunCounts(run.entries).quiet === true,
+          }).toEqual({
+            fold,
+            run: run.entries.map((e) => e.id),
+            quiet: last.id.startsWith("q"),
+          });
+        }
   });
 });
 
@@ -1061,8 +1208,11 @@ describe("the restart line in a run", () => {
       restart("R"),
       quiet("q3"),
     ];
+    // The third turn's traffic before the restart did not end quiet, so it
+    // is a run of its own (task c9479484).
     expect(ids(entries, FOLDS[0])).toEqual([
-      ["p1", "c1", "c1-r", "q1", "p2", "c2", "q2", "p3", "c3"],
+      ["p1", "c1", "c1-r", "q1", "p2", "c2", "q2"],
+      ["p3", "c3"],
       ["q3"],
     ]);
     // A run of only no-update replies splits too.

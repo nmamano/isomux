@@ -324,8 +324,10 @@ export function isAgentMessageEntry(entry: LogEntry): boolean {
  * (findHiddenToolRuns); `messages`: the agent-message fold. With tools false,
  * a run holds only agent messages and the results that fold into them. A run
  * may reach past the turn a message from another agent starts. A reply that
- * is only the no-update keyword (task 51c187f4) joins a run, or starts one,
- * with either fold or neither: it never shows as a card.
+ * is only the no-update keyword (task 51c187f4) folds with either fold or
+ * neither: it never shows as a card. A run is cut after its last such reply
+ * (task c9479484), so the line that says nothing is new never also holds the
+ * traffic that leads into the next reply; back-to-back quiet turns stay one.
  */
 export function findHiddenRuns(
   entries: LogEntry[],
@@ -334,19 +336,34 @@ export function findHiddenRuns(
   const index = buildToolEntryIndex(entries);
   const groups: RawToolCallGroup[] = [];
   let run: LogEntry[] = [];
+  // Whether `run` holds a no-update reply, and the index of the first entry
+  // after its last one that is not a folded result: the run is cut there.
+  let quiet = false;
+  let cut = -1;
+  const push = (entry: LogEntry, folded: boolean) => {
+    if (isNoUpdateReply(entry)) {
+      quiet = true;
+      cut = -1;
+    } else if (!folded && quiet && cut < 0) cut = run.length;
+    run.push(entry);
+  };
   const flush = () => {
-    if (run.length > 0) groups.push({ firstId: run[0].id, entries: run });
+    const parts = cut > 0 ? [run.slice(0, cut), run.slice(cut)] : [run];
+    for (const part of parts)
+      if (part.length > 0) groups.push({ firstId: part[0].id, entries: part });
     run = [];
+    quiet = false;
+    cut = -1;
   };
   for (const entry of entries) {
     if (isFoldedToolResult(entry, entries, index)) {
-      if (run.length > 0) run.push(entry);
+      if (run.length > 0) push(entry, true);
     } else if (
       isNoUpdateReply(entry) ||
       (fold.messages && isAgentMessageEntry(entry)) ||
       (fold.tools && isHiddenToolEntry(entry))
     ) {
-      run.push(entry);
+      push(entry, false);
     } else {
       flush();
     }
