@@ -341,6 +341,12 @@ describe("hidden tool runs", () => {
   const CURL = "curl -s localhost:4000/api/tasks";
   const officeCall = (id: string, name = "Bash") =>
     call(id, name, { command: CURL });
+  // A message to another agent: the one office card the tool fold leaves on
+  // its own (the agent-message fold has its own setting).
+  const send = (id: string) =>
+    call(id, "Bash", {
+      command: `curl -s -X POST "localhost:4000/api/agents/a2/messages" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nHi.\nEOF`,
+    });
   const system = (id: string, metadata: Record<string, unknown> = {}) =>
     entry(id, "system", "line", metadata);
   const sub = (e: LogEntry, parent: string) => {
@@ -407,9 +413,7 @@ describe("hidden tool runs", () => {
     ["a text reply", entry("X", "text", "Here it is.")],
     ["thinking", entry("X", "thinking", "hmm")],
     ["a turn error", entry("X", "error", "The turn failed.")],
-    ["an office action (Claude, Codex)", officeCall("X")],
-    ["an office action (OpenCode shell)", officeCall("X", "shell")],
-    ["an office action (OpenCode bash)", officeCall("X", "bash")],
+    ["a message to another agent", send("X")],
     ["a notice", system("X", { notice: "settings" })],
     ["a plain system line", system("X")],
     ["a diff", entry("X", "diff", "diff")],
@@ -441,6 +445,38 @@ describe("hidden tool runs", () => {
     ).toEqual([["a", "b"]]);
   });
 
+  // Office calls (task 17fb1a29, Nil 2026-11-16): a task filed, an ask, a
+  // stop, a list of scheduled messages fold into the line like any other
+  // step, on every engine's shell tool. What the member must see is in the
+  // agent's reply.
+  test("an office call joins the run on every engine, and is a step on the line", () => {
+    for (const name of ["Bash", "shell", "bash"]) {
+      const entries = [
+        call("a"),
+        officeCall("o", name),
+        result("o-r", "o"),
+        call("b"),
+      ];
+      expect({ name, runs: shape(entries) }).toEqual({
+        name,
+        runs: [["a", "o", "b"]],
+      });
+      expect(hiddenRunCounts(findHiddenToolRuns(entries)[0].entries)).toEqual({
+        messages: 0,
+        steps: 3,
+      });
+    }
+    // An office call alone is a run of its own.
+    expect(
+      shape([
+        entry("u", "user_message", "go"),
+        officeCall("o"),
+        result("o-r", "o"),
+        entry("x", "text", "Done."),
+      ]),
+    ).toEqual([["o"]]);
+  });
+
   // A result paired with a call in the chat folds into that call's card, so
   // it neither starts a run nor splits one: a run of folded results alone
   // would draw an empty "1 step" line.
@@ -448,27 +484,34 @@ describe("hidden tool runs", () => {
     const firstIds = (entries: LogEntry[]) =>
       findHiddenToolRuns(entries).map((run) => run.firstId);
     expect(
-      firstIds([
-        officeCall("o"),
-        result("o-r", "o"),
-        entry("x", "text", "Done."),
-      ]),
+      firstIds([send("m"), result("m-r", "m"), entry("x", "text", "Done.")]),
     ).toEqual([]);
-    // Parallel calls: both results land after the office card.
+    // Parallel calls: both results land after the message card.
     expect(
       firstIds([
         call("a"),
-        officeCall("o"),
+        send("m"),
         result("a-r", "a"),
-        result("o-r", "o"),
+        result("m-r", "m"),
+        entry("x", "text", "Done."),
+      ]),
+    ).toEqual(["a"]);
+    // Parallel calls, and the first result shows (an image): the second
+    // result, after it, starts no run.
+    expect(
+      firstIds([
+        call("a"),
+        call("b"),
+        image(result("a-r", "a")),
+        result("b-r", "b"),
         entry("x", "text", "Done."),
       ]),
     ).toEqual(["a"]);
     // An unpaired result is hidden on its own.
     expect(
       firstIds([
-        officeCall("o"),
-        result("o-r", "o"),
+        send("m"),
+        result("m-r", "m"),
         entry("late", "tool_result", "x", { toolUseId: "old-tool" }),
       ]),
     ).toEqual(["late"]);
@@ -681,9 +724,12 @@ describe("agent-message runs", () => {
       member("u"),
       call("c1", "Bash", { command: "ls" }),
       result("c1-r", "c1"),
+      office("o1", "POST", "/api/tasks"),
+      result("o1-r", "o1"),
       send("s1", "a2"),
       result("s1-r", "s1"),
       call("c2"),
+      office("o2", "POST", "/api/agents/a2/abort"),
       peer("p1"),
       call("c3"),
       text("x"),
@@ -692,8 +738,8 @@ describe("agent-message runs", () => {
       findHiddenToolRuns(entries),
     );
     expect(shape(entries, { tools: true, messages: false })).toEqual([
-      ["c1"],
-      ["c2"],
+      ["c1", "o1"],
+      ["c2", "o2"],
       ["c3"],
     ]);
   });
@@ -770,18 +816,23 @@ describe("agent-message runs", () => {
         }).toEqual({ label, fold, runs: [["a"], ["b"]] });
   });
 
-  // An office card that is not a message (a stop, an ask) stays a card.
-  test("an office card that is not a message splits a run", () => {
+  // An office card that is not a message (a stop, an ask) is a step: with
+  // the tool fold on it joins the run, with only the message fold it stays a
+  // card and splits it.
+  test("an office card that is not a message is a step: it joins a run with the tool fold, and splits one without", () => {
     for (const card of [
-      office("X", "POST", "/api/agents/a2/abort"),
+      office("X", "POST", "/api/agents/a9/abort"),
       office("X", "POST", "/api/asks"),
-      office("X", "GET", "/api/agents/a2/scheduled-messages"),
-    ])
-      for (const fold of [MESSAGES, BOTH])
-        expect(shape([peer("a"), card, send("b", "a2")], fold)).toEqual([
-          ["a"],
-          ["b"],
-        ]);
+      office("X", "GET", "/api/agents/a9/scheduled-messages"),
+    ]) {
+      const entries = [peer("a"), card, send("b", "a2")];
+      expect(shape(entries, MESSAGES)).toEqual([["a"], ["b"]]);
+      expect(shape(entries, BOTH)).toEqual([["a", "X", "b"]]);
+      const run = findHiddenRuns(entries, BOTH)[0].entries;
+      expect(hiddenRunCounts(run)).toEqual({ messages: 2, steps: 1 });
+      // A stop names an agent, but it is no message: no avatar.
+      expect(hiddenRunPeers(run)).toEqual(["a2"]);
+    }
   });
 
   // "2 agent messages · 3 steps": messages are the agents' messages and the

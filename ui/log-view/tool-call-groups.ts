@@ -192,12 +192,13 @@ export function findRawToolCallGroups(
 
 /**
  * The runs a member who does not show tool calls sees as one "N steps" line
- * (task e7579473): every tool call that is not an office action, every
- * tool_result without attachments, subagent steps, permission denials,
- * background-task breadcrumbs and Codex stderr. Errors and subagent changes
- * do not split a run; anything else does. A run may hold one entry. A result
- * that folds into its call's card joins a run but never starts one, so an
- * office card never gets an empty line under it.
+ * (task e7579473): every tool call, office calls included (task 17fb1a29),
+ * except one that sends a message to another agent, every tool_result
+ * without attachments, subagent steps, permission denials, background-task
+ * breadcrumbs and Codex stderr. Errors and subagent changes do not split a
+ * run; anything else does. A run may hold one entry. A result that folds
+ * into its call's card joins a run but never starts one, so a card that
+ * stays never gets an empty line under it.
  */
 export function findHiddenToolRuns(entries: LogEntry[]): RawToolCallGroup[] {
   return findHiddenRuns(entries, { tools: true, messages: false });
@@ -206,7 +207,8 @@ export function findHiddenToolRuns(entries: LogEntry[]): RawToolCallGroup[] {
 function isHiddenToolEntry(entry: LogEntry): boolean {
   switch (entry.kind) {
     case "tool_call":
-      return !isomuxRequestForToolCall(entry.content, entry.metadata?.input);
+      // A message to another agent is the agent-message fold's.
+      return messageRecipient(entry) === null;
     case "tool_result":
       return (entry.attachments?.length ?? 0) === 0;
     case "system":

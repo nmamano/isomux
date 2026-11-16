@@ -4,6 +4,8 @@
 // target that is not loaded loads the rest (the surface's ChatRest), and the
 // surface scrolls to it once a whole load has brought it; a whole load
 // without it drops the jump. Through the real App: App.chat-recent.dom.test.tsx.
+// A card folded into a closed "N steps" line (task 17fb1a29): the jump opens
+// that line and scrolls to the card.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -52,15 +54,24 @@ const later: LogEntry = {
   content: "more",
 } as LogEntry;
 
-function Surface({ entries, rest }: { entries: LogEntry[]; rest: ChatRest }) {
-  const view = useChatTranscript(entries, false);
+function Surface({
+  entries,
+  rest,
+  fold = false,
+}: {
+  entries: LogEntry[];
+  rest: ChatRest;
+  fold?: boolean;
+}) {
+  const view = useChatTranscript(entries, false, fold, fold);
   return (
     <ChatTranscript logs={entries} view={view} isMobile={false} rest={rest} />
   );
 }
 
-// Two surfaces that show the same chat, each with its own loadRest.
-function rig() {
+// Two surfaces that show the same chat, each with its own loadRest. `fold`
+// folds tool calls and agent messages, as a member's default does.
+function rig(fold = false) {
   const loads = { one: 0, two: 0 };
   const rest = (name: "one" | "two", level: ChatLevel | null): ChatRest => ({
     level,
@@ -73,10 +84,10 @@ function rig() {
       "en",
       <>
         <div data-surface="one">
-          <Surface entries={entries} rest={rest("one", level)} />
+          <Surface entries={entries} rest={rest("one", level)} fold={fold} />
         </div>
         <div data-surface="two">
-          <Surface entries={entries} rest={rest("two", level)} />
+          <Surface entries={entries} rest={rest("two", level)} fold={fold} />
         </div>
       </>,
     );
@@ -170,4 +181,82 @@ it("a complete chat with no card shows the link as text, as before", () => {
   ).not.toBeNull();
   expect(linkIn("one")).toBeNull();
   view.unmount();
+});
+
+// The ask's card is the second step of a run: closed, the run draws only its
+// line, which carries the first step's id.
+const step: LogEntry = {
+  id: "step",
+  agentId: "a1",
+  timestamp: 0,
+  kind: "tool_call",
+  content: "Bash",
+  metadata: { toolId: "t0", input: { command: "ls" } },
+} as LogEntry;
+const stepDone: LogEntry = {
+  id: "step-done",
+  agentId: "a1",
+  timestamp: 0,
+  kind: "tool_result",
+  content: "ok",
+  metadata: { toolUseId: "t0" },
+} as LogEntry;
+const openLines = (surface: string) =>
+  document.querySelectorAll(
+    `[data-surface="${surface}"] button[data-hidden-steps-open]`,
+  ).length;
+
+it("a card folded into a closed steps line: the jump opens the line, in that surface only, and scrolls to the card", async () => {
+  await withScrolls(async (scrolled) => {
+    const { loads, tree } = rig(true);
+    const view = render(
+      tree([step, stepDone, call, result, reply], "complete"),
+    );
+    // The condition: the card is folded, and the line is closed.
+    expect(
+      document.querySelector('[data-surface="two"] [data-log-entry-id="call"]'),
+    ).toBeNull();
+    expect(openLines("two")).toBe(0);
+    await act(async () => fireEvent.click(linkIn("two")!));
+    expect(openLines("two")).toBe(1);
+    expect(openLines("one")).toBe(0);
+    expect(scrolled).toEqual(["two:call"]);
+    expect(loads).toEqual({ one: 0, two: 0 });
+    view.unmount();
+  });
+});
+
+it("a folded card older than the window: after the load, the jump opens its line and scrolls to it", async () => {
+  await withScrolls(async (scrolled) => {
+    const { loads, tree } = rig(true);
+    const view = render(tree([reply], "recent"));
+    await act(async () => fireEvent.click(linkIn("two")!));
+    expect(loads).toEqual({ one: 0, two: 1 });
+    view.rerender(tree([reply], "loadingRest"));
+    await act(async () => {
+      view.rerender(tree([step, stepDone, call, result, reply], "complete"));
+    });
+    expect(openLines("two")).toBe(1);
+    expect(openLines("one")).toBe(0);
+    expect(scrolled).toEqual(["two:call"]);
+    view.unmount();
+  });
+});
+
+it("a card that is the first step of a closed line: the jump opens the line too", async () => {
+  await withScrolls(async (scrolled) => {
+    const { tree } = rig(true);
+    const view = render(tree([call, result, reply], "complete"));
+    expect(openLines("two")).toBe(0);
+    expect(
+      document.querySelectorAll(
+        '[data-surface="two"] button[data-hidden-steps]',
+      ).length,
+    ).toBe(1);
+    await act(async () => fireEvent.click(linkIn("two")!));
+    expect(openLines("two")).toBe(1);
+    expect(openLines("one")).toBe(0);
+    expect(scrolled).toEqual(["two:call"]);
+    view.unmount();
+  });
 });

@@ -20,7 +20,11 @@ import { useI18n } from "../i18n.tsx";
 import { AgentAvatar } from "./chat-avatars.tsx";
 import type { HiddenRunTurn } from "./ChatTranscript.tsx";
 import { LogEntryCard, TurnCopyButton } from "./LogEntryCard.tsx";
-import { hiddenRunCounts, hiddenRunPeers } from "./tool-call-groups.ts";
+import {
+  hiddenRunCounts,
+  hiddenRunPeers,
+  isFoldedToolResult,
+} from "./tool-call-groups.ts";
 
 export function HiddenToolRunCard({
   entries,
@@ -102,15 +106,32 @@ export function HiddenToolRunCard({
           {avatars}
           {label}
         </button>
-        {entries.map((entry) => (
-          <LogEntryCard
-            key={entry.id}
-            entry={entry}
-            isMobile={isMobile}
-            {...cardProps(entry)}
-            isLastInTurn={!!turn?.isLastInTurn && entry.id === turn.lastCardId}
-          />
-        ))}
+        {entries.map((entry, at) => {
+          const props = cardProps(entry);
+          const card = (
+            <LogEntryCard
+              key={entry.id}
+              entry={entry}
+              isMobile={isMobile}
+              {...props}
+              isLastInTurn={
+                !!turn?.isLastInTurn && entry.id === turn.lastCardId
+              }
+            />
+          );
+          // The chat's jumps find a card by its id. The line's wrapper
+          // already carries the first one's, and an entry that draws nothing
+          // gets no anchor.
+          return at === 0 ||
+            isNoUpdateReply(entry) ||
+            isFoldedToolResult(entry, props.turnEntries) ? (
+            card
+          ) : (
+            <div key={entry.id} data-log-entry-id={entry.id}>
+              {card}
+            </div>
+          );
+        })}
       </div>
     );
   }

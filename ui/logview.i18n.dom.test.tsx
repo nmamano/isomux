@@ -370,6 +370,13 @@ describe("the log view chrome", () => {
 describe("the cards", () => {
   it("read the language too, including the API-call card's parsed label", () => {
     const view = render(logView("ca", SEEDED));
+    // The API call folds into a closed steps line by default (task
+    // 17fb1a29): open it, and it stays open across the language changes.
+    const line = view.container.querySelectorAll<HTMLElement>(
+      "button[data-hidden-steps]",
+    );
+    expect(line.length).toBe(1);
+    fireEvent.click(line[0]);
     shows(view, ANCHOR.apiCall.ca);
     shows(view, ANCHOR.terminalCard.ca);
     titled(view, ANCHOR.copy.ca);

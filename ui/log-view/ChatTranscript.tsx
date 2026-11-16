@@ -102,6 +102,11 @@ export function useChatTranscript(
       return next;
     });
   }, []);
+  const openRun = useCallback((firstId: string) => {
+    setOpenRuns((previous) =>
+      previous.has(firstId) ? previous : new Set(previous).add(firstId),
+    );
+  }, []);
   // On only while the HTML export takes its snapshot (chat-export.ts):
   // every message expanded, a message in edit shown as sent, and every tool
   // call shown.
@@ -133,6 +138,16 @@ export function useChatTranscript(
   );
   const hiddenRunByFirstId = useMemo(
     () => new Map(hiddenRuns.map((run) => [run.firstId, run])),
+    [hiddenRuns],
+  );
+  // Entry id -> the first id of the hidden run that holds it.
+  const hiddenRunOf = useMemo(
+    () =>
+      new Map(
+        hiddenRuns.flatMap((run) =>
+          run.entries.map((entry) => [entry.id, run.firstId]),
+        ),
+      ),
     [hiddenRuns],
   );
   const detachedSteps = useMemo(
@@ -250,12 +265,14 @@ export function useChatTranscript(
     groupedChildIds,
     rawToolGroupByFirstId,
     hiddenRunByFirstId,
+    hiddenRunOf,
     hiddenRunTurns,
     detachedSteps,
     turnData,
     hidden,
     openRuns,
     toggleRun,
+    openRun,
   };
 }
 
@@ -309,7 +326,8 @@ export function ChatTranscript({
   // Jumps from links in this transcript (task 9ebe887d slice 3): ring the
   // entry in this surface only. In a chat that is not whole, a target that is
   // not rendered loads the rest and waits here; a whole chat without it, an
-  // agent change or a clear drops it.
+  // agent change or a clear drops it. A target folded into a closed hidden
+  // run opens that run and waits for its card (task 17fb1a29).
   const rootRef = useRef<HTMLDivElement>(null);
   const pending = useRef<{ target: JumpTarget; agent?: string } | null>(null);
   const resolve = useCallback(
@@ -317,10 +335,26 @@ export function ChatTranscript({
       "entryId" in target ? target.entryId : origins.get(target.askId),
     [origins],
   );
+  const { hiddenRunOf, openRuns, openRun } = view;
+  // Opens the closed run that holds `id`. False when no closed run does.
+  const reveal = useCallback(
+    (id: string) => {
+      const runId = hiddenRunOf.get(id);
+      if (!runId || openRuns.has(runId)) return false;
+      openRun(runId);
+      return true;
+    },
+    [hiddenRunOf, openRuns, openRun],
+  );
   const jump = useCallback<ChatJumpFn>(
     (target) => {
       const id = resolve(target);
       const root = rootRef.current;
+      // First, as a closed line carries its first entry's id.
+      if (id && reveal(id)) {
+        pending.current = { target, agent: logs[0]?.agentId };
+        return;
+      }
       if (id && root && jumpToLogEntry(id, root)) {
         pending.current = null;
         return;
@@ -329,11 +363,11 @@ export function ChatTranscript({
       pending.current = { target, agent: logs[0]?.agentId };
       if (level === "recent") rest?.loadRest();
     },
-    [resolve, partial, level, rest, logs],
+    [resolve, reveal, partial, level, rest, logs],
   );
-  // After each change of entries or level: the jump rings once its target
-  // renders, and goes when the chat changed agent, was cleared, or is whole
-  // without it.
+  // After each change of entries, level or open runs: the jump opens the
+  // closed run that holds its target, rings the target once it renders, and
+  // goes when the chat changed agent, was cleared, or is whole without it.
   useEffect(() => {
     const wait = pending.current;
     if (!wait) return;
@@ -343,9 +377,10 @@ export function ChatTranscript({
     }
     const id = resolve(wait.target);
     const root = rootRef.current;
+    if (id && reveal(id)) return;
     if ((id && root && jumpToLogEntry(id, root)) || !partial)
       pending.current = null;
-  }, [resolve, partial, logs]);
+  }, [resolve, reveal, partial, logs, openRuns]);
 
   return (
     <div ref={rootRef} data-chat-transcript style={{ display: "contents" }}>

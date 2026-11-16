@@ -1,7 +1,8 @@
 // Tool calls in the chat (task e7579473, Nil 2026-11-15: "for non-technical
 // folks who would get overwhelmed by anything that looks like terminal
-// commands"). A member's chat folds every tool step that is not an office
-// action into one "N steps" line, unless their record says showToolCalls.
+// commands"). A member's chat folds every tool step, office actions too
+// (task 17fb1a29), into one "N steps" line, unless their record says
+// showToolCalls. A message to another agent folds with its own setting.
 // The default is folded, so a record that has not arrived yet folds too: a
 // page load never flashes the commands. Which entries a run holds is pinned
 // in tool-call-groups.test.ts; this file pins the chat that LogView draws
@@ -138,24 +139,67 @@ const drawn = (root: ParentNode, entries: LogEntry[] = logs) => {
 const shown = (root: ParentNode) =>
   MARKERS.filter((m) => root.textContent?.includes(m));
 
-it("folds the tool calls by default: one line per run, office actions and replies stay", () => {
+// Each card in an open run: the line's siblings.
+const openCards = (run: Element) =>
+  Array.from(
+    run.querySelector("button[data-hidden-steps-open]")!.parentElement!
+      .children,
+  ).slice(1);
+
+it("folds the tool calls by default: one line per run, office actions too, and replies stay", () => {
   const { view } = mount({});
   const chat = view.container;
   expect(shown(chat)).toEqual([]);
   expect(runLines(chat).length).toBe(2);
-  // The runs sit where their first call was; the office card and the
-  // replies are drawn on their own.
-  expect(drawn(chat)).toEqual(["u1", "c1", "x1", "c2", "o1", "x2"]);
+  // The runs sit where their first call was; the office call is in the
+  // second run, and the replies are drawn on their own.
+  expect(drawn(chat)).toEqual(["u1", "c1", "x1", "c2", "x2"]);
   for (const id of ["c1", "c2"])
     expect(
       chat.querySelector(
         `[data-log-entry-id="${id}"] button[data-hidden-steps]`,
       ),
     ).not.toBeNull();
+  expect(chat.textContent).toContain("All done.");
+  // Opened, the second run holds its command and the office card.
+  const second = chat.querySelector('[data-log-entry-id="c2"]')!;
+  fireEvent.click(second.querySelector("button[data-hidden-steps]")!);
+  expect(openCards(second).length).toBe(2);
+  expect(openCards(second)[0].textContent).toContain("HIDE-TWO");
+  expect(openCards(second)[1].textContent).not.toContain("HIDE-TWO");
+  view.unmount();
+});
+
+// "Show agent messages" on: a message the agent sends to another agent
+// stays a card of its own and splits the run, while the office call next
+// to it folds.
+it("with agent messages shown, a send stays on its own and the office call beside it folds", () => {
+  const SEND = `curl -s -X POST "localhost:4000/api/agents/a2/messages" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nHi.\nEOF`;
+  const withSend = [
+    entry("u1", "user_message", "Go.", { username: "Tester" }),
+    shellCall("c1", "echo HIDE-ONE"),
+    done("r1", "c1"),
+    shellCall("m1", SEND),
+    done("m1r", "m1", '{"messageId":"m"}'),
+    shellCall("o1", OFFICE),
+    done("o1r", "o1", "[]"),
+    entry("x1", "text", "Done."),
+  ];
+  const messagesShown = { ...self, showAgentMessages: true as const };
+  const { view } = mount(
+    { users: usersWith(messagesShown) },
+    { agent, logs: withSend },
+  );
+  const chat = view.container;
+  expect(shown(chat)).toEqual([]);
+  expect(runLines(chat).length).toBe(2);
+  expect(drawn(chat, withSend)).toEqual(["u1", "c1", "m1", "o1", "x1"]);
+  expect(
+    chat.querySelector(`[data-log-entry-id="m1"] button[data-hidden-steps]`),
+  ).toBeNull();
   expect(
     chat.querySelector(`[data-log-entry-id="o1"] button[data-hidden-steps]`),
-  ).toBeNull();
-  expect(chat.textContent).toContain("All done.");
+  ).not.toBeNull();
   view.unmount();
 });
 
@@ -195,9 +239,9 @@ it("a record that arrives with showToolCalls opens the chat in place", () => {
   view.unmount();
 });
 
-// OpenCode names its shell tool "shell": its office calls stay office
-// cards, its other commands fold.
-it("an OpenCode office call stays on its own while its other shell commands fold", () => {
+// OpenCode names its shell tool "shell": its office calls fold with its
+// other commands.
+it("an OpenCode office call folds with its other shell commands", () => {
   const opencode = [
     entry("u1", "user_message", "Go.", { username: "Tester" }),
     shellCall("s1", "echo HIDE-ONE", "shell"),
@@ -210,10 +254,10 @@ it("an OpenCode office call stays on its own while its other shell commands fold
   const chat = view.container;
   expect(shown(chat)).toEqual([]);
   expect(runLines(chat).length).toBe(1);
-  expect(drawn(chat, opencode)).toEqual(["u1", "s1", "o1", "x1"]);
-  expect(
-    chat.querySelector(`[data-log-entry-id="o1"] button[data-hidden-steps]`),
-  ).toBeNull();
+  expect(drawn(chat, opencode)).toEqual(["u1", "s1", "x1"]);
+  const run = chat.querySelector('[data-log-entry-id="s1"]')!;
+  fireEvent.click(run.querySelector("button[data-hidden-steps]")!);
+  expect(openCards(run).length).toBe(2);
   view.unmount();
 });
 
@@ -336,10 +380,7 @@ it("a turn that ends in a closed run has its copy button beside the steps line, 
     // the open line.
     expect(inChat()).toBe(closedCount);
     expect(copyButtons(turnRun()).length).toBe(1);
-    const cards = Array.from(
-      turnRun().querySelector("button[data-hidden-steps-open]")!.parentElement!
-        .children,
-    ).slice(1);
+    const cards = openCards(turnRun());
     expect(cards.length).toBe(2);
     expect(cards[1].textContent).toContain("HIDE-TWO");
     expect(copyButtons(cards[1]).length).toBe(1);
