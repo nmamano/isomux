@@ -8,10 +8,9 @@
 // line opens the cards the run holds. A reply that is only the no-update
 // keyword (task 51c187f4) adds "nothing new for you" to the line; a run of only
 // such replies is a still line, with nothing to open. A line that ends with
-// such a reply has no copy button: the turn has nothing for the member. A
-// line can hold the restart line (findHiddenRuns). The open state
-// lives in useChatTranscript, keyed by the run's first entry, so it stays
-// open while a live run grows and through an HTML export.
+// such a reply has no copy button: the turn has nothing for the member. The
+// open state lives in useChatTranscript, keyed by the run's first entry, so
+// it stays open while a live run grows and through an HTML export.
 
 import type { ComponentProps } from "react";
 import type { LogEntry } from "../../shared/types.ts";
@@ -51,7 +50,6 @@ export function HiddenToolRunCard({
   // A run that holds only no-update replies (task 51c187f4) has nothing to
   // open: it is a still line. A tool result in a run is one that folds into
   // its call's card, which draws outside the run, so it adds nothing to open.
-  // A run that also holds a restart line opens to show it.
   const quietOnly = entries.every(
     (entry) => isNoUpdateReply(entry) || entry.kind === "tool_result",
   );

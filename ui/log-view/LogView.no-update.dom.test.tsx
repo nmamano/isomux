@@ -347,17 +347,17 @@ it("a still line after shown cards takes the turn's copy button away", () => {
   }
 });
 
-// The line the office writes when it resumes an agent after a restart (Nil
-// 2026-11-16, sign-off of task 51c187f4: "After a restart, fold the next
-// quiet turn into the same line: one \"nothing for you\", and no copy button
-// beside it"). Which entries a run holds: tool-call-groups.test.ts.
+// The line the office writes when it resumes an agent after a restart. Nil,
+// 2026-11-16, at the sign-off of task afd64219: "I like knowing when the
+// server restarted. Keep that line visible; fold only the quiet turns."
+// Which entries a run holds: tool-call-groups.test.ts.
 const restart = (id: string) => ({
   ...entry(id, "system", ""),
   ...logTextFields(msg("systemEntries.restartWake.resumed")),
 });
 const RESTARTED = EN.t("systemEntries.restartWake.resumed");
 
-it("a restart between quiet turns of agent traffic is one line, one nothing new for you, no copy button", async () => {
+it("a restart between quiet turns of agent traffic shows between two lines, each with nothing new for you, and no copy button", async () => {
   // Nil's sign-off image: three turns, the server restarted in the third.
   const logs = [
     member("u1", "Restart the server when Main asks."),
@@ -377,26 +377,41 @@ it("a restart between quiet turns of agent traffic is one line, one nothing new 
   ];
   const view = mount(withPeer, logs);
   const chat = view.container;
-  expect(drawn(chat, logs)).toEqual(["u1", "x1", "p1"]);
+  expect(drawn(chat, logs)).toEqual(["u1", "x1", "p1", "R", "q3"]);
+  // The restart line shows while both lines are closed.
   expect(toggles(chat).length).toBe(1);
-  expect(chat.querySelectorAll("[data-hidden-quiet]").length).toBe(0);
+  expect(toggles(wrapOf(chat, "p1"))[0].getAttribute("aria-expanded")).toBe(
+    "false",
+  );
+  expect(wrapOf(chat, "R").textContent).toContain(RESTARTED);
+  // Each line says that nothing is for the member.
+  expect(toggles(wrapOf(chat, "p1"))[0].textContent).toContain(QUIET);
+  expect(
+    wrapOf(chat, "q3").querySelectorAll("[data-hidden-quiet]").length,
+  ).toBe(1);
+  expect(wrapOf(chat, "q3").textContent).toContain(QUIET_ONLY);
+  // The turn ends with nothing for the member: no copy button on either
+  // line or on the restart line.
+  for (const id of ["p1", "R", "q3"])
+    expect({ id, copies: copyButtons(wrapOf(chat, id)).length }).toEqual({
+      id,
+      copies: 0,
+    });
+  // Open, the first line holds the steps before the restart, and the restart
+  // line is not in it.
   const wrap = wrapOf(chat, "p1");
-  expect(toggles(wrap)[0].textContent).toContain(QUIET);
-  expect(chat.textContent!.split(QUIET).length - 1).toBe(1);
-  expect(chat.textContent).not.toContain(RESTARTED);
-  expect(copyButtons(wrap).length).toBe(0);
-  // Open, it shows the restart line among the cards, and still no copy.
   fireEvent.click(toggles(wrap)[0]);
   expect(wrap.textContent).toContain("STEP-THREE");
-  expect(wrap.textContent).toContain(RESTARTED);
+  expect(wrap.textContent).not.toContain(RESTARTED);
   expect(await turnCopies(wrap)).toEqual([]);
+  expect(chat.textContent!.split(RESTARTED).length - 1).toBe(1);
   expect(keywordShown(chat)).toEqual(HIDDEN);
   view.unmount();
 });
 
-it("a restart folded between replies that are only the keyword is a line that opens to show it", () => {
-  // A member who shows everything: the run is only the keyword and the
-  // restart line. A still line would hide the restart line for good.
+it("a restart between replies that are only the keyword shows between two still lines", () => {
+  // A member who shows everything: each side of the restart line is only
+  // the keyword, so each is a still line, and the restart line shows.
   const logs = [
     member("u1", "Watch."),
     entry("x1", "text", "Watching."),
@@ -406,16 +421,21 @@ it("a restart folded between replies that are only the keyword is a line that op
   ];
   const view = mount({ ...withPeer, users: showsBoth }, logs);
   const chat = view.container;
-  expect(drawn(chat, logs)).toEqual(["u1", "x1", "q1"]);
-  expect(chat.querySelectorAll("[data-hidden-quiet]").length).toBe(0);
-  expect(chat.textContent).not.toContain(RESTARTED);
-  const wrap = wrapOf(chat, "q1");
-  expect(toggles(wrap).length).toBe(1);
-  expect(toggles(wrap)[0].textContent).toContain(QUIET);
-  fireEvent.click(toggles(wrap)[0]);
-  expect(wrap.textContent).toContain(RESTARTED);
+  expect(drawn(chat, logs)).toEqual(["u1", "x1", "q1", "R", "q2"]);
+  expect(toggles(chat).length).toBe(0);
+  expect(chat.querySelectorAll("[data-hidden-quiet]").length).toBe(2);
+  expect(wrapOf(chat, "R").textContent).toContain(RESTARTED);
+  for (const id of ["q1", "q2"])
+    expect({
+      id,
+      text: wrapOf(chat, id).textContent!.includes(QUIET_ONLY),
+    }).toEqual({ id, text: true });
   expect(keywordShown(chat)).toEqual(HIDDEN);
-  expect(copyButtons(wrap).length).toBe(0);
+  for (const id of ["q1", "R", "q2"])
+    expect({ id, copies: copyButtons(wrapOf(chat, id)).length }).toEqual({
+      id,
+      copies: 0,
+    });
   view.unmount();
 });
 

@@ -955,11 +955,10 @@ describe("no-update replies", () => {
   });
 });
 
-// The line the office writes when it resumes an agent after a restart
-// (sign-off of task 51c187f4, Nil 2026-11-16: "After a restart, fold the
-// next quiet turn into the same line"). It joins a run only when the entry
-// after it joins that run too, so it never splits one line in two and never
-// hides inside a line that would not be there without it.
+// The line the office writes when it resumes an agent after a restart. Nil,
+// 2026-11-16, at the sign-off of task afd64219: "I like knowing when the
+// server restarted. Keep that line visible; fold only the quiet turns." Like
+// every other system line, it ends a run and is in none.
 describe("the restart line in a run", () => {
   const system = (id: string, text: Parameters<typeof logTextFields>[0]) => ({
     ...entry(id, "system", ""),
@@ -995,7 +994,7 @@ describe("the restart line in a run", () => {
     expect(line.content.length).toBeGreaterThan(0);
   });
 
-  test("between two entries of one run, it joins the run, on every fold", () => {
+  test("between two entries that fold, it splits the run in two, on every fold", () => {
     // Nil's sign-off image: three turns of agent traffic that each end with
     // nothing for the member; the server restarted during the third.
     const entries = [
@@ -1012,67 +1011,63 @@ describe("the restart line in a run", () => {
       quiet("q3"),
     ];
     expect(ids(entries, FOLDS[0])).toEqual([
-      ["p1", "c1", "c1-r", "q1", "p2", "c2", "q2", "p3", "c3", "R", "q3"],
+      ["p1", "c1", "c1-r", "q1", "p2", "c2", "q2", "p3", "c3"],
+      ["q3"],
     ]);
-    // A run of only no-update replies takes it too.
+    // A run of only no-update replies splits too.
     for (const fold of FOLDS)
       expect({
         fold,
         runs: ids([quiet("q1"), restart("R"), quiet("q2")], fold),
-      }).toEqual({ fold, runs: [["q1", "R", "q2"]] });
+      }).toEqual({ fold, runs: [["q1"], ["q2"]] });
     // The resumed turn may take steps before its reply.
     expect(
       ids([call("c1"), restart("R"), call("c2"), quiet("q1")], FOLDS[1]),
-    ).toEqual([["c1", "R", "c2", "q1"]]);
+    ).toEqual([["c1"], ["c2", "q1"]]);
   });
 
-  test("before a card the member sees, it stays out, and the run ends before it", () => {
-    for (const fold of FOLDS)
-      expect({
-        fold,
-        runs: ids([quiet("q1"), restart("R"), reply("x"), quiet("q2")], fold),
-      }).toEqual({ fold, runs: [["q1"], ["q2"]] });
-    expect(
-      ids([peer("p1"), call("c1"), restart("R"), reply("x")], FOLDS[0]),
-    ).toEqual([["p1", "c1"]]);
-  });
-
-  test("it never starts a run", () => {
-    for (const fold of FOLDS) {
-      expect({ fold, runs: ids([restart("R"), quiet("q1")], fold) }).toEqual({
-        fold,
-        runs: [["q1"]],
-      });
-      expect({
-        fold,
-        runs: ids([reply("x"), restart("R"), quiet("q1")], fold),
-      }).toEqual({ fold, runs: [["q1"]] });
-    }
-  });
-
-  test("at the end of the log, it stays out until the next entry comes", () => {
+  test("live, the next entry does not pull it into the run before it", () => {
     const head = [peer("p1"), call("c1"), restart("R")];
     expect(ids(head, FOLDS[0])).toEqual([["p1", "c1"]]);
-    // Live: the next entry folds it in, and the run keeps its first entry.
     expect(ids([...head, quiet("q1")], FOLDS[0])).toEqual([
-      ["p1", "c1", "R", "q1"],
+      ["p1", "c1"],
+      ["q1"],
     ]);
   });
 
-  test("a folded result after it neither breaks nor closes the wait", () => {
+  test("a folded result written after it does not join a run", () => {
     // The result of a call made before the restart, written after the line.
-    const entries = [call("c1"), restart("R"), result("c1-r", "c1")];
-    expect(ids([...entries, quiet("q1")], FOLDS[0]).length).toBe(1);
-    expect(ids([...entries, quiet("q1")], FOLDS[0])[0].sort()).toEqual(
-      ["R", "c1", "c1-r", "q1"].sort(),
-    );
-    // Followed by a card, the line still stays out of the run.
-    const out = ids([...entries, reply("x")], FOLDS[0]);
-    expect(out.length).toBe(1);
-    expect(out[0].includes("R")).toBe(false);
+    expect(
+      ids(
+        [call("c1"), restart("R"), result("c1-r", "c1"), quiet("q1")],
+        FOLDS[0],
+      ),
+    ).toEqual([["c1"], ["q1"]]);
   });
 
-  test("other system lines still break the run", () => {
+  test("it is in no run, wherever it falls", () => {
+    const logs = [
+      [restart("R"), quiet("q1")],
+      [reply("x"), restart("R"), quiet("q1")],
+      [quiet("q1"), restart("R"), reply("x"), quiet("q2")],
+      [peer("p1"), call("c1"), restart("R"), reply("x")],
+      [peer("p1"), call("c1"), restart("R"), quiet("q1")],
+      [quiet("q1"), restart("R"), restart("R2"), quiet("q2")],
+    ];
+    for (const fold of FOLDS)
+      for (const log of logs) {
+        const held = ids(log, fold)
+          .flat()
+          .filter((id) => id.startsWith("R"));
+        expect({ fold, log: log.map((e) => e.id), held }).toEqual({
+          fold,
+          log: log.map((e) => e.id),
+          held: [],
+        });
+      }
+  });
+
+  test("other system lines break the run the same way", () => {
     const others = [
       system(
         "B",
@@ -1086,19 +1081,5 @@ describe("the restart line in a run", () => {
         id: other.id,
         runs: ids([quiet("q1"), other, quiet("q2")], FOLDS[0]),
       }).toEqual({ id: other.id, runs: [["q1"], ["q2"]] });
-  });
-
-  test("the line does not count it", () => {
-    const runs = findHiddenRuns(
-      [peer("p1"), call("c1"), restart("R"), quiet("q1")],
-      FOLDS[0],
-    );
-    expect(runs.length).toBe(1);
-    expect(runs[0].entries.length).toBe(4);
-    expect(hiddenRunCounts(runs[0].entries)).toEqual({
-      messages: 1,
-      steps: 1,
-      quiet: true,
-    });
   });
 });

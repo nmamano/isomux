@@ -317,15 +317,6 @@ export function isAgentMessageEntry(entry: LogEntry): boolean {
   return isPeerMessage(entry) || messageRecipient(entry) !== null;
 }
 
-// The line Isomux writes when it resumes an agent after a server restart.
-function isRestartWakeLine(entry: LogEntry): boolean {
-  if (entry.kind !== "system" || entry.message?.length !== 1) return false;
-  const part = entry.message[0];
-  return (
-    typeof part === "object" && part.key === "systemEntries.restartWake.resumed"
-  );
-}
-
 /**
  * The runs a member sees as one folded line. `tools`: the tool-call fold
  * (findHiddenToolRuns); `messages`: the agent-message fold. With tools false,
@@ -333,13 +324,6 @@ function isRestartWakeLine(entry: LogEntry): boolean {
  * may reach past the turn a message from another agent starts. A reply that
  * is only the no-update keyword (task 51c187f4) joins a run, or starts one,
  * with either fold or neither: it never shows as a card.
- *
- * The line that says Isomux resumed the agent after a restart joins an open
- * run only when the next entry also joins it, so a restart does not split one
- * line in two (sign-off of task 51c187f4). It never starts a run, and before a
- * card, or at the end of the log, it shows on its own. Live, it shows on its
- * own until the next entry arrives, then moves into the line; the run keeps
- * its first entry, so an open line stays open.
  */
 export function findHiddenRuns(
   entries: LogEntry[],
@@ -352,9 +336,6 @@ export function findHiddenRuns(
     if (run.length > 0) groups.push({ firstId: run[0].id, entries: run });
     run = [];
   };
-  // A restart line held while a run is open, until the next entry says
-  // whether it joins.
-  let restart: LogEntry | null = null;
   for (const entry of entries) {
     if (isFoldedToolResult(entry, entries, index)) {
       if (run.length > 0) run.push(entry);
@@ -363,13 +344,8 @@ export function findHiddenRuns(
       (fold.messages && isAgentMessageEntry(entry)) ||
       (fold.tools && isHiddenToolEntry(entry))
     ) {
-      if (restart) run.push(restart);
-      restart = null;
       run.push(entry);
-    } else if (run.length > 0 && !restart && isRestartWakeLine(entry)) {
-      restart = entry;
     } else {
-      restart = null;
       flush();
     }
   }
