@@ -65,6 +65,12 @@ export interface MoveStepInput {
   agentRoot: string;
 }
 
+// files-place of a restore (server/member-restore.ts): a destination that is
+// there already is kept and named, never replaced, and the place goes on.
+export interface PlaceInput extends MoveStepInput {
+  keep?: boolean;
+}
+
 export interface MoveRecordHeader {
   dest: string;
   size: number;
@@ -279,9 +285,16 @@ function readPlaced(staging: string): PlacedLine[] {
 
 // files-place: link each staged file to its destination. Never replaces a
 // file: a destination with the same bytes counts as placed but is not ours
-// (a rerun after a stopped move); any other one fails the place.
-export function placeFiles(input: MoveStepInput): { placed: number } {
+// (a rerun after a stopped move); any other one fails the place. With
+// `keep` (a restore), anything at a destination, or a file where one of its
+// folders goes, is kept and named in `kept`.
+export function placeFiles(input: PlaceInput): {
+  placed: number;
+  kept?: string[];
+} {
   const staging = stagingDir(input);
+  const keep = input.keep === true;
+  const kept: string[] = [];
   const manifest = JSON.parse(
     readFileSync(join(staging, "manifest.json"), "utf8"),
   ) as ManifestEntry[];
@@ -291,10 +304,16 @@ export function placeFiles(input: MoveStepInput): { placed: number } {
   let placed = 0;
   for (const entry of manifest) {
     const staged = join(staging, String(entry.index));
-    const made = mkdirSync(dirname(entry.dest), {
-      recursive: true,
-      mode: 0o700,
-    });
+    let made: string | undefined;
+    try {
+      made = mkdirSync(dirname(entry.dest), { recursive: true, mode: 0o700 });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!keep || (code !== "EEXIST" && code !== "ENOTDIR")) throw error;
+      kept.push(entry.dest);
+      unlinkSync(staged);
+      continue;
+    }
     // The first folder mkdir made; each one below it is new too.
     if (made) {
       let dir = dirname(entry.dest);
@@ -316,6 +335,11 @@ export function placeFiles(input: MoveStepInput): { placed: number } {
           { cause: error },
         );
       if (code !== "EEXIST") throw error;
+      if (keep) {
+        kept.push(entry.dest);
+        unlinkSync(staged);
+        continue;
+      }
       const there = lstatSync(entry.dest);
       if (
         !there.isFile() ||
@@ -332,7 +356,7 @@ export function placeFiles(input: MoveStepInput): { placed: number } {
     unlinkSync(staged);
     placed++;
   }
-  return { placed };
+  return keep ? { placed, kept } : { placed };
 }
 
 // files-undo: remove what files-place recorded, newest first. A file whose

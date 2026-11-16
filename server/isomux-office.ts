@@ -6993,6 +6993,14 @@ export async function runOfficeMain(): Promise<void> {
     runAdminCli(process.argv.slice(2));
     process.exit(0);
   }
+  // `restore-member-spaces <copy folder>`: the isolated members' agent
+  // spaces of a backup copy, through their runners (member-restore.ts).
+  if (process.argv[2] === "restore-member-spaces") {
+    const { restoreMemberSpaces } = await import("./member-restore.ts");
+    process.exit(
+      await restoreMemberSpaces(process.argv[3], { stateRoot: STATE_ROOT }),
+    );
+  }
   // Name this process `isomux` rather than `bun`, so out-of-memory protection
   // can shield the office server without also shielding the agent builds that
   // share the name `bun` (see server/process-name.ts). Here rather than at

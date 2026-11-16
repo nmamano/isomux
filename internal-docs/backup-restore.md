@@ -217,7 +217,8 @@ size, and copied again in the next run.
 `backup.json` lists the members not copied in the run (`membersSkipped`);
 `GET /api/backup/status` gives their names. A member who is not copied does
 not fail the backup. The restore below puts back the state root only; a
-member's space stays in the copy.
+member's space stays in the copy until you restore it (see "Isolated
+members' spaces" under "Restoring").
 
 Two things are silently absent:
 
@@ -414,6 +415,39 @@ tar -xzf ~/isomux-backups/isomux-2026-07-30.tar.gz -C ~
 
 As root, tar restores the ownership recorded in the archive, so on a VPS
 install the files come back owned by `isomux`.
+
+### Isolated members' spaces
+
+After step 5, put back the agent spaces of the members with their own OS
+user. As the office user, from the checkout:
+
+```
+bun run server/isomux-office.ts restore-member-spaces ~/isomux-backups/isomux-2026-07-30
+```
+
+It works with the office running or stopped. For each member in the copy's
+`members/`, it prints what it restored and what it did not:
+
+- Each member's runner writes the files as that member. A file that is
+  already there is kept and named, never replaced.
+- A member is refused when this office does not run them as the same OS
+  user and uid as the copy, or when their runner does not answer. The other
+  members go on.
+- Links, empty folders and login files are never restored. Each restored
+  member signs in to their providers again.
+
+The command exits 0 when every member was restored, 1 when one was refused
+or failed, and 2 when it refused the copy (a copy of another office, or a
+backup that did not finish).
+
+A new box usually gives a member a new uid, which the command refuses. Turn
+their OS user on again, then either restore their space by hand as root,
+or not at all (`cp -a` replaces the files that are there):
+
+```
+cp -a <copy>/members/<userId>/space/. <their home>/.isomux-agent/
+chown -R <os user>: <their home>/.isomux-agent
+```
 
 ## Restoring onto a new box
 

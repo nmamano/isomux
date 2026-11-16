@@ -337,7 +337,7 @@ class Reader {
 
 const DIGITS = /^\d{1,25}$/;
 
-function normalisedRel(rel: unknown): rel is string {
+export function normalisedRel(rel: unknown): rel is string {
   return (
     typeof rel === "string" &&
     rel !== "" &&

@@ -17,6 +17,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -254,6 +255,63 @@ describe("files-undo", () => {
     expect(readFileSync(first, "utf8")).toBe("ours");
     undoFiles({ nonce: NONCE, agentRoot });
     expect(existsSync(first)).toBe(false);
+    expect(readFileSync(taken, "utf8")).toBe("hers");
+  });
+});
+
+// A restore (server/member-restore.ts, slice 3c-ii of task b94dfd25) places
+// with keep: what is at a destination stays, and the place goes on.
+describe("files-place with keep", () => {
+  const placeKeep = (keep: unknown = true) =>
+    placeFiles({ nonce: NONCE, agentRoot, keep } as Parameters<
+      typeof placeFiles
+    >[0]);
+
+  it("keeps a file, a link and a file where a folder goes, names them, and places the rest", async () => {
+    const taken = join(home, "taken");
+    const link = join(home, "link");
+    const target = join(outside, "target");
+    const blocked = join(home, "blocked", "x");
+    const fresh = join(home, "fresh", "y");
+    writeFileSync(taken, "hers");
+    writeFileSync(target, "outside");
+    symlinkSync(target, link);
+    writeFileSync(join(home, "blocked"), "a file");
+    await receive([
+      { dest: taken, data: "ours" },
+      { dest: link, data: "ours" },
+      { dest: blocked, data: "ours" },
+      { dest: fresh, data: "new" },
+    ]);
+    const answer = placeKeep();
+    expect({
+      answer: { ...answer, kept: [...(answer.kept ?? [])].sort() },
+      taken: readFileSync(taken, "utf8"),
+      target: readFileSync(target, "utf8"),
+      link: lstatSync(link).isSymbolicLink(),
+      blocked: readFileSync(join(home, "blocked"), "utf8"),
+      fresh: readFileSync(fresh, "utf8"),
+    }).toEqual({
+      answer: { placed: 1, kept: [blocked, link, taken].sort() },
+      taken: "hers",
+      target: "outside",
+      link: true,
+      blocked: "a file",
+      fresh: "new",
+    });
+    // An undo removes what it placed, never what it kept.
+    undoFiles({ nonce: NONCE, agentRoot });
+    expect([existsSync(fresh), readFileSync(taken, "utf8")]).toEqual([
+      false,
+      "hers",
+    ]);
+  });
+
+  it("takes keep only as true", async () => {
+    const taken = join(home, "taken");
+    writeFileSync(taken, "hers");
+    await receive([{ dest: taken, data: "ours" }]);
+    expect(await codeOf(() => placeKeep("yes"))).toBe("refused");
     expect(readFileSync(taken, "utf8")).toBe("hers");
   });
 });
