@@ -29,10 +29,17 @@ import {
 } from "../member-os-users.ts";
 import { getUserByName } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
+import {
+  agentHostMoving,
+  moveAgentHost,
+  setAgentHostMoveDeps,
+  type AgentHostChange,
+} from "../agent-host-move.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 let iso: IsolatedMember | null = null;
+let moveDepsSet = false;
 const folders: string[] = [];
 afterEach(async () => {
   await server?.stop();
@@ -41,6 +48,10 @@ afterEach(async () => {
   iso = null;
   for (const dir of folders.splice(0))
     rmSync(dir, { recursive: true, force: true });
+  // Last: a 3d test that replaced the host move's file steps.
+  const reset = moveDepsSet;
+  moveDepsSet = false;
+  if (reset) setAgentHostMoveDeps(null);
 });
 
 type Auth = { bearer?: string; rawSessionId?: string };
@@ -427,9 +438,10 @@ describe("a pending prompt of the office's agent", () => {
   });
 });
 
-// Part 3d: a manager change between hosts (office <-> member, member <->
-// member) is refused with 409 member_os_user and changes nothing; a change
-// on one host still moves the agent.
+// Part 3d, task abdb452b: a manager change between hosts (office <-> member,
+// member <-> member) moves the agent (server/agent-host-move.ts); a change
+// it cannot make answers a code and changes nothing. A change on one host
+// moves the agent as before.
 describe("a manager change between hosts", () => {
   const PACK = {
     areas: { agents: "write", tasks: "read" },
@@ -449,6 +461,7 @@ describe("a manager change between hosts", () => {
       userId: a.userId,
       manager: a.manager,
       access: a.access,
+      cwd: a.cwd,
       token: getAgentTokenRaw(agentId),
     };
   };
@@ -462,14 +475,27 @@ describe("a manager change between hosts", () => {
     expect([r.status, r.code]).toEqual([409, "member_os_user"]);
     expect(stateOf(o, agentId)).toEqual(before);
   };
+  // A plan with one file, so the move reaches files-in whatever the
+  // agent's sessions are.
+  const somePlan = (agentId: string, toUserId: string) => ({
+    userId: toUserId,
+    trees: [],
+    codex: [],
+    claude: [
+      {
+        agentId,
+        sessionId: "5e551011-aaaa-4bbb-8ccc-0123456789ab",
+        cwd: "/tmp",
+        root: "/tmp",
+        personal: false,
+      },
+    ],
+  });
 
-  // MUTANT: transferAgentManager and setManager without the host check
-  // (the writer's assertion then throws: 500, not 409); the check after the
-  // clamp (dies on access: the agent moved down to Alice's ceiling).
-  it("is refused office->Alice and Alice->Bob, with no field, token or clamp change; office->Bob moves", async () => {
+  // MUTANT: the clamp applied before the files (dies on access); no undo
+  // of the fields on a failed files-in (dies on userId and token).
+  it("changes no field, token or clamp when the files cannot move, answers host_move_failed, and still moves office->Bob", async () => {
     const o = await office();
-    // Alice's pack ceiling would move a Standard agent down: a refused
-    // change must not.
     const pack = await call(
       o.srv,
       "PUT",
@@ -478,13 +504,24 @@ describe("a manager change between hosts", () => {
       { allowedRooms: [o.room.id], pack: PACK },
     );
     expect(pack.status).toBe(200);
-    const aliceAgent = await o.spawn("Alice's agent", o.alice);
     // The enabling condition: the clamp would apply to Alice.
     expect(o.srv.agentManager.getAgent(o.officeAgent.id)!.access).not.toBe(
       "office",
     );
-    await refused(o, o.officeAgent.id, o.alice.id);
-    await refused(o, aliceAgent.id, o.bob.id);
+    let staged = 0;
+    moveDepsSet = true;
+    setAgentHostMoveDeps({
+      planIn: (agent, _from, to) => somePlan(agent.id, to),
+      stageIn: async () => {
+        staged++;
+        throw new Error("the runner refused files-in");
+      },
+    });
+    const before = stateOf(o, o.officeAgent.id);
+    const r = await setManager(o, o.officeAgent.id, o.alice.id);
+    expect([r.status, r.code]).toEqual([500, "host_move_failed"]);
+    expect(staged).toBe(1);
+    expect(stateOf(o, o.officeAgent.id)).toEqual(before);
     const moved = await setManager(o, o.officeAgent.id, o.bob.id);
     expect(moved.status).toBe(200);
     expect(o.srv.agentManager.getAgent(o.officeAgent.id)!.userId).toBe(
@@ -493,8 +530,9 @@ describe("a manager change between hosts", () => {
   });
 
   // MUTANT: agentHostIdentity by "isolated" state only (dies on the
-  // not-ready and malformed entries and on the broken file).
-  it("counts a not-ready, a malformed and an unreadable record as the member's own host", async () => {
+  // not-ready and malformed entries and on the broken file); a not-ready
+  // member's host taken as connected (dies on the not-ready row).
+  it("refuses a not-ready, a malformed and an unreadable record with member_os_user", async () => {
     const o = await office();
     // Bob gets an entry but no runner: not ready.
     recordMemberOsUser(o.bob.id, { name: "isomux-test-bob", uid: 4545 });
@@ -515,21 +553,17 @@ describe("a manager change between hosts", () => {
       );
       reloadMemberOsUsers();
       await refused(o, o.officeAgent.id, o.bob.id);
-      // An unreadable file: every change between two members is refused,
-      // also between the owner and Bob, who have no OS user. The route
-      // refuses the owner first (2c counts them as isolated), so the
-      // manager's own check is called here.
+      // An unreadable file: every member counts as their own host, and no
+      // host is ready. The route refuses the owner caller first (2c counts
+      // them as isolated), so the move itself is called here.
       writeFileSync(memberOsUsersPath(), "{");
       reloadMemberOsUsers();
       const before = stateOf(o, o.officeAgent.id);
-      expect(
-        await o.srv.agentManager.setManager(
-          o.officeAgent.id,
-          o.bob.id,
-          o.bob.username,
-          "test",
-        ),
-      ).toBe("other_host");
+      const r = await moveAgentHost(o.officeAgent.id, o.bob.id, "test");
+      expect(r.ok ? "moved" : [r.status, r.code]).toEqual([
+        409,
+        "member_os_user",
+      ]);
       expect(stateOf(o, o.officeAgent.id)).toEqual(before);
     } finally {
       writeFileSync(memberOsUsersPath(), saved);
@@ -537,6 +571,168 @@ describe("a manager change between hosts", () => {
     }
     // Repaired: the same change moves.
     expect((await setManager(o, o.officeAgent.id, o.bob.id)).status).toBe(200);
+  });
+
+  // MUTANT: no agentHostMoving check in the cwd, engine, access, kill or
+  // manager handler (dies on that row).
+  it("refuses a folder, engine or access change, a kill and a second manager change while the agent moves", async () => {
+    const o = await office();
+    const id = o.officeAgent.id;
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    moveDepsSet = true;
+    setAgentHostMoveDeps({
+      planIn: (agent, _from, to) => somePlan(agent.id, to),
+      stageIn: async () => {
+        await gate;
+        throw new Error("the runner refused files-in");
+      },
+    });
+    const moving = setManager(o, id, o.alice.id);
+    for (let i = 0; i < 300 && !agentHostMoving(id); i++) await Bun.sleep(5);
+    expect(agentHostMoving(id)).toBe(true);
+    const other = realpathSync(mkdtempSync(join(tmpdir(), "member-reach-")));
+    folders.push(other);
+    const rows: [string, string, unknown?][] = [
+      ["PATCH", `/api/agents/${id}`, { cwd: other }],
+      ["PATCH", `/api/agents/${id}`, { agentType: "codex" }],
+      ["PUT", `/api/agents/${id}/access`, { access: "office" }],
+      ["DELETE", `/api/agents/${id}`],
+      ["PUT", `/api/agents/${id}/manager`, { userId: o.bob.id }],
+    ];
+    try {
+      for (const [method, path, body] of rows) {
+        const r = await call(o.srv, method, path, o.ownerAuth, body);
+        expect([method, path, body, r.status, r.code]).toEqual([
+          method,
+          path,
+          body,
+          409,
+          "move_in_progress",
+        ]);
+      }
+    } finally {
+      open();
+    }
+    const done = await moving;
+    expect([done.status, done.code]).toEqual([500, "host_move_failed"]);
+    expect(agentHostMoving(id)).toBe(false);
+    expect(o.srv.agentManager.getAgent(id)!.userId).not.toBe(o.alice.id);
+    // The mark is gone: the same folder change goes through.
+    const after = await call(o.srv, "PATCH", `/api/agents/${id}`, o.ownerAuth, {
+      cwd: other,
+    });
+    expect(after.status).toBe(200);
+  });
+
+  // MUTANT: holdMember without the terminal (dies on the first open; red
+  // on main 450717bdf, where the enable left it running); holdAgentForMove
+  // without it (dies on the second): the next member to open the panel
+  // would join the old host's shell.
+  it("ends the agent's terminal when it holds the agent, for an agent move and for a member's move", async () => {
+    const o = await office();
+    const am = o.srv.agentManager;
+    const id = o.officeAgent.id;
+    const ownerId = getUserByName(o.owner.username)!.id;
+    am._testSeedTerminalBuffer(id, "office shell");
+    expect(am.readTerminal(id).open).toBe(true);
+    await am.holdMember(ownerId);
+    expect(am.readTerminal(id).open).toBe(false);
+    am.releaseMember(ownerId);
+    am._testSeedTerminalBuffer(id, "office shell");
+    expect(am.readTerminal(id).open).toBe(true);
+    await am.holdAgentForMove(id);
+    expect(am.readTerminal(id).open).toBe(false);
+    am.releaseAgentMove(id);
+  });
+
+  // MUTANT: the move hold released by newConversation's drain (dies: the
+  // held message runs before the release).
+  it("keeps a held agent's queue through a manager change until the move releases it", async () => {
+    const o = await office();
+    const am = o.srv.agentManager;
+    const id = o.officeAgent.id;
+    const sentHeld = () =>
+      o.srv.fakeBackend.sessions.some(
+        (s) =>
+          s.opts.agentId === id &&
+          s.sent.some((m) => m.text.includes("HELD-1")),
+      );
+    await am.holdAgentForMove(id);
+    am.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "HELD-1",
+    });
+    // A change on one host runs newConversation, which flushes the queue.
+    expect(
+      await am.setManager(id, o.bob.id, o.bob.username, "test"),
+    ).toBeTruthy();
+    await Bun.sleep(100);
+    expect(sentHeld()).toBe(false);
+    am.releaseAgentMove(id);
+    for (let i = 0; i < 300 && !sentHeld(); i++) await Bun.sleep(5);
+    expect(sentHeld()).toBe(true);
+  });
+
+  // MUTANT: afterFields before the write, or no afterFields (dies on the
+  // userId each saw); the folder not applied (dies on cwd). The plain write
+  // to Bob is refused by setManager's own host check, before the guard, so
+  // it cannot show an allowance left set: that is the synchronous
+  // try/finally around updateAgent, checked by reading.
+  it("writes the fields between the two hooks, applies the new folder, and lets only that one write cross hosts", async () => {
+    const o = await office();
+    const am = o.srv.agentManager;
+    const id = o.officeAgent.id;
+    const ownerId = getUserByName(o.owner.username)!.id;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "member-reach-")));
+    folders.push(home);
+    const from = am.getAgent(id)!.cwd;
+    const seen: (string | null | undefined)[] = [];
+    const change = (over: Partial<AgentHostChange> = {}): AgentHostChange => ({
+      from: ownerId,
+      to: o.alice.id,
+      beforeFields: () => void seen.push(am.getAgent(id)!.userId),
+      afterFields: () => void seen.push(am.getAgent(id)!.userId),
+      cwd: { from, to: home },
+      appsStayed: [],
+      ...over,
+    });
+    // A throw in the hook before the fields leaves them as they were.
+    const before = stateOf(o, id);
+    const threw = await am
+      .setManager(
+        id,
+        o.alice.id,
+        o.alice.username,
+        "test",
+        change({
+          beforeFields: () => {
+            throw new Error("pins failed");
+          },
+        }),
+      )
+      .then(
+        () => "returned",
+        () => "threw",
+      );
+    expect(threw).toBe("threw");
+    expect(stateOf(o, id)).toEqual(before);
+    const info = await am.setManager(
+      id,
+      o.alice.id,
+      o.alice.username,
+      "test",
+      change(),
+    );
+    expect(info && typeof info === "object" ? info.userId : info).toBe(
+      o.alice.id,
+    );
+    expect(seen).toEqual([ownerId, o.alice.id]);
+    expect(am.getAgent(id)!.cwd).toBe(home);
+    // The allowance was for that one write: a plain change to Bob (the
+    // office's host) is still refused.
+    await am.setManager(id, o.bob.id, o.bob.username, "test").catch(() => null);
+    expect(am.getAgent(id)!.userId).toBe(o.alice.id);
   });
 
   // MUTANT: reassignKilledAgents without the host check (the history

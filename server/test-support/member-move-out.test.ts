@@ -32,6 +32,7 @@ import { join, resolve } from "path";
 import type { AgentHost } from "../agent-host.ts";
 import {
   moveOutRequest,
+  planAgentMoveOut,
   planMemberMoveOut,
   purgeMemberAgentSpace,
   setMemberMoveOutDeps,
@@ -55,6 +56,7 @@ import { STATE_ROOT } from "../config.ts";
 import { AGENT_ROOT } from "../split/roots.ts";
 import { setSessionClaudeConfigDir } from "../persistence.ts";
 import { createMember, deleteUserById } from "../users.ts";
+import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
 
 const SESSION = "5e551011-bbbb-4ccc-8ddd-0123456789ab";
@@ -558,5 +560,113 @@ describe("the purge of a removed member", () => {
       removeSent({ agentRoot: agentRoot(), trees: [outside] }),
     ).toThrow();
     expect(existsSync(join(outside, "secret"))).toBe(true);
+  });
+});
+
+// Task abdb452b: one agent leaves the isolated member for a manager on the
+// office's host. Only its sessions come back, each as a single file and
+// folder with an office destination (a session in the member's personal
+// home too); the member's trees and the other agent's session stay.
+describe("one agent's files on a manager change", () => {
+  const SESSION_A2 = "5e551011-cccc-4ccc-8ddd-0123456789ab";
+  const SESSION_B = "5e551011-dddd-4ccc-8ddd-0123456789ab";
+  const transcriptOf = (root: string, session: string) =>
+    join(claudeProjectDirIn(root, CWD), `${session}.jsonl`);
+
+  // MUTANT: the whole-member plan (dies on the personal-home tree and the
+  // other agent's session); a session of the personal home left to a tree
+  // (dies on A2, which then does not come).
+  it("brings back only this agent's sessions, to the office Claude root, and the member keeps the rest", async () => {
+    const agentB = `agent-${crypto.randomUUID()}`;
+    put(transcriptOf(memberClaude(), SESSION), "A-ONE");
+    put(
+      join(claudeProjectDirIn(memberClaude(), CWD), SESSION, "r.txt"),
+      "A-ONE-RESULT",
+    );
+    put(transcriptOf(memberHome(), SESSION_A2), "A-TWO");
+    put(transcriptOf(memberClaude(), SESSION_B), "B-ONE");
+    put(join(memberHome(), "settings.json"), "HERS");
+    setSessionClaudeConfigDir(agentId, SESSION, memberClaude());
+    setSessionClaudeConfigDir(agentId, SESSION_A2, memberHome());
+    setSessionClaudeConfigDir(agentB, SESSION_B, memberClaude());
+    for (const session of [SESSION, SESSION_A2, SESSION_B])
+      scratch.push(
+        transcriptOf(officeClaude(), session),
+        join(claudeProjectDirIn(officeClaude(), CWD), session),
+      );
+    const p = planAgentMoveOut(
+      { id: agentId, agentType: "claude", cwd: CWD },
+      alice,
+      hostFor(alice),
+      [],
+    );
+    expect(p.sources.filter((s) => s.kind === "tree")).toEqual([]);
+    const written = await writeMoveOut(p, of(await runnerStream(p)), NONCE);
+    written.staging.remove();
+    expect(readFileSync(transcriptOf(officeClaude(), SESSION), "utf8")).toBe(
+      "A-ONE",
+    );
+    expect(
+      readFileSync(
+        join(claudeProjectDirIn(officeClaude(), CWD), SESSION, "r.txt"),
+        "utf8",
+      ),
+    ).toBe("A-ONE-RESULT");
+    expect(readFileSync(transcriptOf(officeClaude(), SESSION_A2), "utf8")).toBe(
+      "A-TWO",
+    );
+    const contents = officeFiles().map((f) => readFileSync(f, "utf8"));
+    expect(contents).not.toContain("B-ONE");
+    expect(contents).not.toContain("HERS");
+    expect(
+      [...written.pins].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
+    ).toEqual([
+      { agentId, sessionId: SESSION, root: officeClaude() },
+      { agentId, sessionId: SESSION_A2, root: officeClaude() },
+    ]);
+    // The member's copy of what came goes; the rest stays.
+    removeSent({ nonce: NONCE, agentRoot: agentRoot() });
+    expect(existsSync(transcriptOf(memberClaude(), SESSION))).toBe(false);
+    expect(existsSync(transcriptOf(memberHome(), SESSION_A2))).toBe(false);
+    expect(readFileSync(transcriptOf(memberClaude(), SESSION_B), "utf8")).toBe(
+      "B-ONE",
+    );
+    expect(readFileSync(join(memberHome(), "settings.json"), "utf8")).toBe(
+      "HERS",
+    );
+  });
+
+  // MUTANT: the rollout skipped when the member's Codex home is in their
+  // personal home (the whole-member rule: a tree carries it).
+  it("brings back this agent's rollout only, also from a Codex home in the personal home", async () => {
+    const agentB = `agent-${crypto.randomUUID()}`;
+    const codexHome = join(memberHome(), "..", "codex");
+    writeManagedUserEnv(alice, { CODEX_HOME: codexHome });
+    try {
+      setSessionClaudeConfigDir(agentId, THREAD, null);
+      setSessionClaudeConfigDir(agentB, OTHER_THREAD, null);
+      put(join(codexHome, rolloutRel(THREAD)), "A-ROLLOUT");
+      put(join(codexHome, rolloutRel(OTHER_THREAD)), "B-ROLLOUT");
+      scratch.push(
+        join(ISOMUX_CODEX_HOME, rolloutRel(THREAD)),
+        join(ISOMUX_CODEX_HOME, rolloutRel(OTHER_THREAD)),
+      );
+      const p = planAgentMoveOut(
+        { id: agentId, agentType: "codex", cwd: CWD },
+        alice,
+        hostFor(alice),
+        [],
+      );
+      const written = await writeMoveOut(p, of(await runnerStream(p)), NONCE);
+      written.staging.remove();
+      expect(
+        readFileSync(join(ISOMUX_CODEX_HOME, rolloutRel(THREAD)), "utf8"),
+      ).toBe("A-ROLLOUT");
+      expect(
+        existsSync(join(ISOMUX_CODEX_HOME, rolloutRel(OTHER_THREAD))),
+      ).toBe(false);
+    } finally {
+      removeManagedUserEnv(alice);
+    }
   });
 });

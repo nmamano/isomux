@@ -4093,6 +4093,12 @@ Coses que pots fer per ell:
     "S'ha aturat el resum de traspàs. Envia un missatge i l'agent llegeix la seva conversa anterior.",
   "systemEntries.managerChanged":
     "{actor} ha fet responsable {member}. Conversa nova iniciada.",
+  "systemEntries.hostMove.folder":
+    "L'agent no pot treballar a {from} amb el seu nou responsable, així que ara treballa a {to}.",
+  "systemEntries.hostMove.appsStayed":
+    "Aquestes aplicacions es queden amb el responsable anterior, perquè les seves carpetes no es poden fer servir amb el nou responsable: {apps}.",
+  "systemEntries.hostMove.failed":
+    "El canvi de responsable ha fallat, i no ha canviat res: {reason}",
   "systemEntries.autoHandoff.writingTokens":
     "El context és a {thousands}k tokens. S'està escrivint un resum de traspàs per a una sessió nova.",
   "systemEntries.autoHandoff.writingPercent":

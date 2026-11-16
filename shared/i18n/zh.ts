@@ -3649,6 +3649,11 @@ export const zh: Catalog = {
     "交接简报已停止。发送一条消息，智能体就会阅读它的上一个对话。",
   "systemEntries.managerChanged":
     "{actor} 将 {member} 设为负责人。新对话已开始。",
+  "systemEntries.hostMove.folder":
+    "在新负责人下，智能体无法在 {from} 中工作，所以现在在 {to} 中工作。",
+  "systemEntries.hostMove.appsStayed":
+    "这些应用留给之前的负责人，因为在新负责人下无法使用它们的文件夹：{apps}。",
+  "systemEntries.hostMove.failed": "更换负责人失败，没有任何更改：{reason}",
   "systemEntries.autoHandoff.writingTokens":
     "上下文已达 {thousands}k 个 token。正在为新会话撰写交接简报。",
   "systemEntries.autoHandoff.writingPercent":

@@ -167,6 +167,38 @@ describe("enable moves her apps onto her host", () => {
   });
 });
 
+// Task abdb452b: an agent's host move takes only the apps it made.
+describe("an agent's host move", () => {
+  // MUTANT: names ignored (dies on idle's teardown).
+  it("tears down only the named apps, and the others keep running", async () => {
+    const s = setup("office");
+    s.office.install(s.apps[0]!);
+    s.office.install(s.apps[1]!);
+    const left = await appsLeave(ALICE, ["hello"]);
+    expect(s.office.calls.filter((c) => c.startsWith("teardown:"))).toEqual([
+      "teardown:hello",
+    ]);
+    expect(left).toEqual([{ name: "hello", running: true }]);
+    expect(s.router.states(["idle"]).get("idle")?.state).toBe("running");
+  });
+
+  // MUTANT: theirApps by "" for a null owner (dies on the teardown: the
+  // app keeps running while its record goes to the new member).
+  it("takes the apps of an agent with no manager, on the office's host", async () => {
+    const s = setup("office");
+    const legacy = { ...s.apps[0]!, userId: null, username: null };
+    s.apps.splice(0, 1, legacy);
+    s.office.install(legacy);
+    const left = await appsLeave(null, ["hello"]);
+    expect(s.office.calls.filter((c) => c.startsWith("teardown:"))).toEqual([
+      "teardown:hello",
+    ]);
+    expect(left).toEqual([{ name: "hello", running: true }]);
+    appsArrive(null, left);
+    expect(s.router.states(["hello"]).get("hello")?.state).toBe("running");
+  });
+});
+
 describe("disable moves her apps back to the office", () => {
   // B5: no read of an app file through her host, and the office's token is
   // not her copy.

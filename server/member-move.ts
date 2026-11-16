@@ -27,7 +27,8 @@ import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
 import { claudeConfigRoot } from "./claude-session-root.ts";
 import { claudeProjectDir, findCodexRolloutPath } from "./cwd-utils.ts";
 import { buildEnvForUserId, buildOfficeEnv } from "./env-loader.ts";
-import { memberAppDataTrees } from "./member-app-move.ts";
+import { memberAppDataTrees, OFFICE_APP_DATA_ROOT } from "./member-app-move.ts";
+import type { MoveOutResult } from "./member-move-out.ts";
 import { hostFor } from "./member-hosts.ts";
 import { hasMemberOsUser } from "./member-os-users.ts";
 import { officeUsageTarget } from "./member-usage-cap.ts";
@@ -96,6 +97,20 @@ export interface MemberMovePlan {
     root: string;
     personal: boolean;
   }[];
+  // Single files taken as they are (a host move's second stage, from what
+  // its first stage put in the office): `src` under `root`, to <`to`>/<rel>
+  // on the member's host. The office copy is deleted only when it is still
+  // the inode `placed` (that first stage placed it); `pin` for a transcript.
+  files?: {
+    src: string;
+    root: string;
+    to: "agent" | "codex" | "claude";
+    rel: string;
+    placed: number | null;
+    pin?: { agentId: string; sessionId: string };
+  }[];
+  // Folders that the first stage made, removed when empty at the end.
+  folders?: string[];
 }
 
 function skip(userId: string, path: string, reason: string): void {
@@ -158,17 +173,51 @@ export function planMemberMove(
   ];
   const officePin = (pin: string | undefined) =>
     pin && (!memberHome || !within(resolve(pin), memberHome)) ? pin : undefined;
-  const codexHomes = [ISOMUX_CODEX_HOME];
+  addSessions(plan, agents, {
+    claudeRoots,
+    codexHomes: officeCodexHomes(),
+    officePin,
+    carriedBy: providerHomes,
+  });
+  return plan;
+}
+
+// The office's Codex homes: its own and the usage target's.
+function officeCodexHomes(): string[] {
+  const homes = [ISOMUX_CODEX_HOME];
   try {
-    codexHomes.push(officeUsageTarget("codex").dir);
+    homes.push(officeUsageTarget("codex").dir);
   } catch {}
+  return homes;
+}
+
+// The sessions of `agents` in the office's folders: each Codex rollout by
+// thread id in `codexHomes`, each Claude transcript by id under the pin or
+// the first of `claudeRoots` that has it. `carriedBy`: a tree of the plan
+// that carries what is under it (a rollout there is not listed again, a
+// transcript there is `personal`); null lists every session as its own file.
+function addSessions(
+  plan: MemberMovePlan,
+  agents: MemberMoveAgent[],
+  where: {
+    claudeRoots: string[];
+    codexHomes: string[];
+    officePin: (pin: string | undefined) => string | undefined;
+    carriedBy: string | null;
+  },
+): void {
+  const { userId } = plan;
+  const carried = (path: string) =>
+    where.carriedBy !== null && within(path, where.carriedBy);
   const seenCodex = new Set<string>();
   for (const agent of agents) {
     const sessions = loadSessionsMap(agent.id);
     for (const [sessionId, session] of Object.entries(sessions)) {
       const agentType = session.agentType ?? agent.agentType;
       if (agentType === "codex") {
-        for (const home of [...new Set(codexHomes.map((h) => resolve(h)))]) {
+        for (const home of [
+          ...new Set(where.codexHomes.map((h) => resolve(h))),
+        ]) {
           const path = findCodexRolloutPath(sessionId, { CODEX_HOME: home });
           if (path === "") {
             skip(userId, home, `the search for ${sessionId} stopped early`);
@@ -176,7 +225,7 @@ export function planMemberMove(
           }
           if (!path || seenCodex.has(path)) continue;
           seenCodex.add(path);
-          if (within(resolve(path), providerHomes)) break;
+          if (carried(resolve(path))) break;
           plan.codex.push({ src: path, home, rel: relative(home, path) });
           break;
         }
@@ -184,7 +233,7 @@ export function planMemberMove(
         const cwd = session.cwd || agent.cwd;
         const roots = [
           ...new Set(
-            [officePin(session.claudeConfigDir), ...claudeRoots]
+            [where.officePin(session.claudeConfigDir), ...where.claudeRoots]
               .filter((r): r is string => !!r)
               .map((r) => resolve(r)),
           ),
@@ -200,21 +249,122 @@ export function planMemberMove(
             sessionId,
             cwd,
             root,
-            personal: within(root, providerHomes),
+            personal: carried(root),
           });
           break;
         }
       }
     }
   }
+}
+
+// The files of one agent that moves from `fromUserId`'s host (the office)
+// to the member `toUserId` (a manager change, agent-host-move.ts): its
+// Claude sessions searched in the old manager's roots, each a single file
+// and <id>/ folder (nothing carried by a provider-home tree), its Codex
+// rollouts in the office Codex homes and the old manager's CODEX_HOME, and
+// `appTrees`, the data of the apps that move with it.
+export function planAgentMoveIn(
+  agent: MemberMoveAgent,
+  fromUserId: string | null,
+  toUserId: string,
+  appTrees: { src: string; destParts: string[] }[],
+): MemberMovePlan {
+  const plan: MemberMovePlan = {
+    userId: toUserId,
+    trees: appTrees.filter((tree) => realFolder(tree.src)),
+    codex: [],
+    claude: [],
+  };
+  const fromEnv =
+    (fromUserId && buildEnvForUserId(fromUserId)) || buildOfficeEnv();
+  addSessions(plan, [agent], {
+    claudeRoots: [
+      claudeConfigRoot(fromEnv),
+      claudeConfigRoot(buildOfficeEnv()),
+      ...(fromUserId
+        ? [resolve(officePersonalProviderHome(fromUserId, "claude"))]
+        : []),
+    ],
+    codexHomes: [
+      ...officeCodexHomes(),
+      ...(fromEnv.CODEX_HOME ? [fromEnv.CODEX_HOME] : []),
+    ],
+    officePin: (pin) => pin,
+    carriedBy: null,
+  });
   return plan;
+}
+
+// The second stage of a member->member move: exactly what the first stage
+// placed in the office (`out`), never a new root search.
+export function planAgentMoveInFromOut(
+  _agent: MemberMoveAgent,
+  out: MoveOutResult,
+  toUserId: string,
+): MemberMovePlan {
+  const officeClaude = resolve(claudeConfigRoot(buildOfficeEnv()));
+  const codexHome = resolve(ISOMUX_CODEX_HOME);
+  const placed = new Map((out.placed ?? []).map((p) => [p.dest, p.ino]));
+  const files: NonNullable<MemberMovePlan["files"]> = [];
+  for (const { source, dest } of out.arrived ?? []) {
+    const at = resolve(dest);
+    let entry: Omit<NonNullable<MemberMovePlan["files"]>[number], "placed">;
+    if (source.kind === "codex")
+      entry = {
+        src: at,
+        root: codexHome,
+        to: "codex",
+        rel: relative(codexHome, at),
+      };
+    else if (source.kind === "claude-file" || source.kind === "claude-dir")
+      entry = {
+        src: at,
+        root: officeClaude,
+        to: "claude",
+        rel: relative(officeClaude, at),
+        ...(source.kind === "claude-file"
+          ? {
+              pin: {
+                agentId: source.session.agentId,
+                sessionId: source.session.sessionId,
+              },
+            }
+          : {}),
+      };
+    else if (within(at, OFFICE_APP_DATA_ROOT) && at !== OFFICE_APP_DATA_ROOT)
+      entry = {
+        src: at,
+        root: OFFICE_APP_DATA_ROOT,
+        to: "agent",
+        rel: join("apps", "data", relative(OFFICE_APP_DATA_ROOT, at)),
+      };
+    else {
+      skip(toUserId, at, "not a file a host move sends on");
+      continue;
+    }
+    if (!within(at, entry.root) || entry.rel.startsWith("..")) {
+      skip(toUserId, at, "outside the folder it came to");
+      continue;
+    }
+    files.push({ ...entry, placed: placed.get(dest) ?? null });
+  }
+  return {
+    userId: toUserId,
+    trees: [],
+    codex: [],
+    claude: [],
+    files,
+    folders: [...(out.madeDirs ?? [])],
+  };
 }
 
 export function memberMovePlanIsEmpty(plan: MemberMovePlan): boolean {
   return (
     plan.trees.length === 0 &&
     plan.codex.length === 0 &&
-    plan.claude.length === 0
+    plan.claude.length === 0 &&
+    (plan.files ?? []).length === 0
   );
 }
 
@@ -234,6 +384,8 @@ interface MoveFile extends Seen {
   mode: number;
   // Every byte went into the stream (moveRecords).
   sent: boolean;
+  // The office copy stays after the move (a file the plan did not place).
+  keep?: boolean;
 }
 
 // What a walk collects. `removable`: entries that hold no content of their
@@ -514,7 +666,8 @@ function removeSeen(userId: string, seen: Seen, folder: boolean): void {
 // content of their own, then the folders that are now empty, deepest
 // first. A skipped file stays, and so does its folder.
 function deleteMoved(userId: string, c: Collected): void {
-  for (const file of c.files) if (file.sent) removeSeen(userId, file, false);
+  for (const file of c.files)
+    if (file.sent && !file.keep) removeSeen(userId, file, false);
   for (const entry of c.removable) removeSeen(userId, entry, false);
   const folders = [...c.folders].sort(
     (a, b) => b.path.split(sep).length - a.path.split(sep).length,
@@ -598,6 +751,50 @@ function collectPlan(
       c,
     );
     sessions.push({ session, transcript, root: to.claudeRoot });
+  }
+  for (const file of plan.files ?? []) {
+    const base =
+      file.to === "agent"
+        ? to.agentRoot
+        : file.to === "codex"
+          ? to.codexHome
+          : to.claudeRoot;
+    const dest = join(base, file.rel);
+    if (!inHome(dest) || !within(dest, base) || dest === base) {
+      note(
+        c,
+        userId,
+        file.src,
+        `its destination ${dest} is outside the member's home`,
+      );
+      continue;
+    }
+    const before = c.files.length;
+    singleFile(userId, file.root, file.src, dest, c);
+    const added = c.files[before];
+    if (!added) continue;
+    added.keep = file.placed === null || added.ino !== file.placed;
+    if (file.pin)
+      sessions.push({
+        session: {
+          ...file.pin,
+          cwd: "",
+          root: file.root,
+          personal: false,
+        },
+        transcript: file.src,
+        root: to.claudeRoot,
+      });
+  }
+  for (const folder of plan.folders ?? []) {
+    const stats = lstatOrNull(folder);
+    if (stats?.isDirectory())
+      c.folders.push({
+        path: folder,
+        root: folder,
+        dev: stats.dev,
+        ino: stats.ino,
+      });
   }
   return sessions;
 }

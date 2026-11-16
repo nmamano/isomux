@@ -4004,6 +4004,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The handoff brief was stopped. Send a message, and the agent reads its previous conversation.",
   "systemEntries.managerChanged":
     "{actor} made {member} the manager. New conversation started.",
+  "systemEntries.hostMove.folder":
+    "The agent cannot work in {from} under its new manager, so it now works in {to}.",
+  "systemEntries.hostMove.appsStayed":
+    "These apps stay with the previous manager, because their folders cannot be used under the new manager: {apps}.",
+  "systemEntries.hostMove.failed":
+    "The manager change failed, and nothing changed: {reason}",
   "systemEntries.autoHandoff.writingTokens":
     "Context is at {thousands}k tokens. Writing a handoff brief for a fresh session.",
   "systemEntries.autoHandoff.writingPercent":

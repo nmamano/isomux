@@ -76,6 +76,10 @@ import {
   type EnterpriseRefusalOutcome,
 } from "./enterprise-seats-routes.ts";
 import { AGENTS_CANNOT_MOVE_DOWN } from "./identity/agent-fit.ts";
+import {
+  isHostMoveRefusal,
+  type ManagerTransferResult,
+} from "./agent-host-move.ts";
 
 // What the users routes read from server/isomux-office.ts.
 export interface UsersRoutesDeps
@@ -111,9 +115,7 @@ export interface UsersRoutesDeps
     agentId: string,
     toUserId: string,
     changedBy: string,
-  ) => Promise<
-    AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
-  >;
+  ) => Promise<ManagerTransferResult>;
   // The member permission pack's agent ceiling (server/member-ceiling.ts):
   // the agents a pack would leave above it with an engine that cannot run at
   // it, and the moves and app stops after a save.
@@ -314,7 +316,9 @@ export function createUsersRoutes(
       const live = agentManager.getAgent(agentId);
       if (live?.userId === heirId) {
         const moved = await transferAgentManager(agentId, userId, changedBy);
-        (typeof moved === "object" && moved !== null
+        (typeof moved === "object" &&
+        moved !== null &&
+        !isHostMoveRefusal(moved)
           ? movedBack
           : stayed
         ).agentIds.push(agentId);

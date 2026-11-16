@@ -4091,6 +4091,12 @@ Cosas que puedes hacer por él:
     "Se detuvo el resumen de traspaso. Envía un mensaje y el agente lee su conversación anterior.",
   "systemEntries.managerChanged":
     "{actor} hizo responsable a {member}. Conversación nueva iniciada.",
+  "systemEntries.hostMove.folder":
+    "El agente no puede trabajar en {from} con su nuevo responsable, así que ahora trabaja en {to}.",
+  "systemEntries.hostMove.appsStayed":
+    "Estas aplicaciones se quedan con el responsable anterior, porque sus carpetas no se pueden usar con el nuevo responsable: {apps}.",
+  "systemEntries.hostMove.failed":
+    "El cambio de responsable falló, y no cambió nada: {reason}",
   "systemEntries.autoHandoff.writingTokens":
     "El contexto está en {thousands}k tokens. Escribiendo un resumen de traspaso para una sesión nueva.",
   "systemEntries.autoHandoff.writingPercent":

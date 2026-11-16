@@ -40,6 +40,7 @@ import { renderReceptionistProfile } from "./receptionist-profile.ts";
 import type { RouteHandler } from "./routes/executor.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
 import { listUsers } from "./users.ts";
+import type { ManagerTransferResult } from "./agent-host-move.ts";
 
 // What the agents routes read from server/isomux-office.ts.
 export interface AgentsRoutesDeps extends Pick<
@@ -66,9 +67,7 @@ export interface AgentsRoutesDeps extends Pick<
     agentId: string,
     toUserId: string,
     changedBy: string,
-  ) => Promise<
-    AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
-  >;
+  ) => Promise<ManagerTransferResult>;
   sharesRoomWithMember: (identity: Identity, userId: string) => boolean;
   // Moves the agents among `which` that their manager's ceiling or folder
   // rules no longer allow down (server/member-ceiling.ts).

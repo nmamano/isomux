@@ -22,13 +22,18 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join, relative, resolve } from "path";
+import { basename, join, relative, resolve } from "path";
+import { OFFICE_APP_DATA_ROOT } from "../member-app-move.ts";
+import type { MoveOutResult } from "../member-move-out.ts";
 import type { AgentHost } from "../agent-host.ts";
 import {
+  planAgentMoveIn,
+  planAgentMoveInFromOut,
   planMemberMove,
   setMemberMoveDeps,
   stageMemberMove,
@@ -543,5 +548,283 @@ describe("a member whose files move", () => {
     expect(memberMoveHost(alice) === runner).toBe(true);
     clearMemberMoving(alice);
     expect(hostFor(alice) === runner).toBe(true);
+  });
+});
+
+// Task abdb452b: one agent of an office member (Zoe) gets the isolated
+// Alice as its manager. Only its sessions move, each as a single file and
+// folder, from the office root, Zoe's personal home or Zoe's Codex home;
+// Zoe's trees and her other agent's sessions stay. Alice is ready (not
+// moving): her other agents may run.
+describe("one agent's files on a manager change", () => {
+  const SESSION_A2 = "5e551011-cccc-4bbb-8ccc-0123456789ab";
+  const SESSION_B = "5e551011-dddd-4bbb-8ccc-0123456789ab";
+  const THREAD_B = "019e0000-9999-7222-8333-444455556666";
+  let zoe = "";
+  let a = "";
+  let b = "";
+  beforeEach(() => {
+    const made = createMember(`MoveZoe${created.length}`, { role: "member" });
+    if (!made.ok) throw new Error(made.error);
+    zoe = made.user.id;
+    created.push(zoe);
+    a = `agent-${crypto.randomUUID()}`;
+    b = `agent-${crypto.randomUUID()}`;
+  });
+  afterEach(() => {
+    rmSync(join(officePersonalProviderHome(zoe, "claude"), ".."), {
+      recursive: true,
+      force: true,
+    });
+  });
+  const officeRoot = () => resolve(claudeConfigRoot(buildOfficeEnv()));
+  const zoeClaude = () => resolve(officePersonalProviderHome(zoe, "claude"));
+  const memberRoot = () => join(home(), ".claude");
+  const transcriptOf = (root: string, session: string) =>
+    join(
+      claudeProjectDir(CWD, { CLAUDE_CONFIG_DIR: root }),
+      `${session}.jsonl`,
+    );
+  const put = (path: string, text: string) => {
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, text);
+    scratch.push(path);
+  };
+  const rollout = (codexHome: string, thread: string) =>
+    join(
+      codexHome,
+      "sessions",
+      "2026",
+      "11",
+      "16",
+      `rollout-2026-11-16T10-00-00-${thread}.jsonl`,
+    );
+
+  // MUTANT: the whole-member plan of Zoe (dies on her settings and the
+  // other agent's session); a session of the personal home marked personal
+  // (dies on A2: no tree carries it).
+  it("moves only this agent's Claude sessions to Alice's root, pins them there, and deletes only their office copies", async () => {
+    put(transcriptOf(officeRoot(), SESSION), "A-ONE");
+    const folderA = join(
+      claudeProjectDir(CWD, { CLAUDE_CONFIG_DIR: officeRoot() }),
+      SESSION,
+    );
+    put(join(folderA, "r.txt"), "A-ONE-RESULT");
+    scratch.push(folderA);
+    put(transcriptOf(zoeClaude(), SESSION_A2), "A-TWO");
+    put(transcriptOf(officeRoot(), SESSION_B), "B-ONE");
+    put(join(zoeClaude(), "settings.json"), "ZOE");
+    setSessionClaudeConfigDir(a, SESSION, null);
+    setSessionClaudeConfigDir(a, SESSION_A2, zoeClaude());
+    setSessionClaudeConfigDir(b, SESSION_B, null);
+    const plan = planAgentMoveIn(
+      { id: a, agentType: "claude", cwd: CWD },
+      zoe,
+      alice,
+      [],
+    );
+    expect(plan.trees).toEqual([]);
+    iso = await isolateMember(alice);
+    const staged = await stageMemberMove(plan, runnerHost());
+    const got = landed();
+    expect(readFileSync(transcriptOf(memberRoot(), SESSION), "utf8")).toBe(
+      "A-ONE",
+    );
+    expect(
+      readFileSync(
+        join(
+          claudeProjectDir(CWD, { CLAUDE_CONFIG_DIR: memberRoot() }),
+          SESSION,
+          "r.txt",
+        ),
+        "utf8",
+      ),
+    ).toBe("A-ONE-RESULT");
+    expect(readFileSync(transcriptOf(memberRoot(), SESSION_A2), "utf8")).toBe(
+      "A-TWO",
+    );
+    expect([...got.values()]).not.toContain("B-ONE");
+    expect([...got.values()]).not.toContain("ZOE");
+    expect([...got.keys()].filter((k) => k.includes("provider-homes"))).toEqual(
+      [],
+    );
+    expect(
+      [...staged.pins].sort((x, y) => x.sessionId.localeCompare(y.sessionId)),
+    ).toEqual([
+      { agentId: a, sessionId: SESSION, root: memberRoot() },
+      { agentId: a, sessionId: SESSION_A2, root: memberRoot() },
+    ]);
+    staged.deleteOfficeCopies();
+    expect(existsSync(transcriptOf(officeRoot(), SESSION))).toBe(false);
+    expect(existsSync(transcriptOf(zoeClaude(), SESSION_A2))).toBe(false);
+    expect(readFileSync(transcriptOf(officeRoot(), SESSION_B), "utf8")).toBe(
+      "B-ONE",
+    );
+    expect(readFileSync(join(zoeClaude(), "settings.json"), "utf8")).toBe(
+      "ZOE",
+    );
+  });
+
+  // The second stage of a member->member move: what the first stage put in
+  // the office goes on to Alice. MUTANT: keep never set (dies on the file
+  // that was there before and on the swapped one: their office copies are
+  // deleted); the pin dropped from a transcript (dies on the pins). The
+  // arrived file outside every office root is checked three times (the
+  // kind, the root, collectPlan's destination): dropping the first two
+  // still leaves it skipped.
+  it("sends on exactly what the first stage placed, pins the transcript, and deletes only the office copies that stage placed", async () => {
+    const project = claudeProjectDir(CWD, { CLAUDE_CONFIG_DIR: officeRoot() });
+    const transcript = join(project, `${SESSION}.jsonl`);
+    const folder = join(project, SESSION);
+    const result = join(folder, "r.txt");
+    const before = join(folder, "old.txt");
+    const swapped = join(folder, "swap.txt");
+    const roll = rollout(ISOMUX_CODEX_HOME, THREAD);
+    const appDir = join(OFFICE_APP_DATA_ROOT, `hm-app-${a.slice(-6)}`);
+    const appFile = join(appDir, "db.json");
+    put(transcript, "T-ONE");
+    put(result, "R-ONE");
+    // In the office before the first stage, with the same bytes: it arrived
+    // but that stage did not place it.
+    put(before, "OLD");
+    put(swapped, "S-ONE");
+    const swappedIno = statSync(swapped).ino;
+    // Replaced after the first stage placed it: another inode.
+    writeFileSync(`${swapped}.new`, "S-TWO");
+    renameSync(`${swapped}.new`, swapped);
+    put(roll, "ROLL");
+    put(appFile, "APP");
+    scratch.push(folder, appDir);
+    const ino = (path: string) => statSync(path).ino;
+    const claudeDir = {
+      index: 1,
+      kind: "claude-dir",
+      path: "/member/x",
+      destRoot: folder,
+    };
+    const out = {
+      pins: [],
+      undo: () => {},
+      removeMemberCopy: async () => {},
+      done: () => {},
+      arrived: [
+        {
+          source: {
+            index: 0,
+            kind: "claude-file",
+            path: "/member/x.jsonl",
+            dest: transcript,
+            session: { agentId: a, sessionId: SESSION, root: officeRoot() },
+          },
+          dest: transcript,
+        },
+        { source: claudeDir, dest: result },
+        { source: claudeDir, dest: before },
+        { source: claudeDir, dest: swapped },
+        {
+          source: {
+            index: 2,
+            kind: "codex",
+            home: "/member/codex",
+            threadId: THREAD,
+            destRoot: ISOMUX_CODEX_HOME,
+          },
+          dest: roll,
+        },
+        {
+          source: {
+            index: 3,
+            kind: "tree",
+            path: "/member/app",
+            destRoot: appDir,
+          },
+          dest: appFile,
+        },
+        {
+          source: {
+            index: 4,
+            kind: "tree",
+            path: "/member/y",
+            destRoot: outside,
+          },
+          dest: join(outside, "secret"),
+        },
+      ],
+      placed: [
+        { dest: transcript, ino: ino(transcript) },
+        { dest: result, ino: ino(result) },
+        { dest: swapped, ino: swappedIno },
+        { dest: roll, ino: ino(roll) },
+        { dest: appFile, ino: ino(appFile) },
+      ],
+      madeDirs: [],
+    } as unknown as MoveOutResult;
+    const plan = planAgentMoveInFromOut(
+      { id: a, agentType: "claude", cwd: CWD },
+      out,
+      alice,
+    );
+    iso = await isolateMember(alice);
+    const staged = await stageMemberMove(plan, runnerHost());
+    const memberProject = claudeProjectDir(CWD, {
+      CLAUDE_CONFIG_DIR: memberRoot(),
+    });
+    expect(readFileSync(join(memberProject, `${SESSION}.jsonl`), "utf8")).toBe(
+      "T-ONE",
+    );
+    expect(readFileSync(join(memberProject, SESSION, "r.txt"), "utf8")).toBe(
+      "R-ONE",
+    );
+    expect(readFileSync(join(memberProject, SESSION, "old.txt"), "utf8")).toBe(
+      "OLD",
+    );
+    expect(
+      readFileSync(rollout(join(agentRoot(), "codex-home"), THREAD), "utf8"),
+    ).toBe("ROLL");
+    expect(
+      readFileSync(
+        join(agentRoot(), "apps", "data", basename(appDir), "db.json"),
+        "utf8",
+      ),
+    ).toBe("APP");
+    expect([...landed().values()]).not.toContain("OFFICE-ONLY");
+    expect(staged.pins).toEqual([
+      { agentId: a, sessionId: SESSION, root: memberRoot() },
+    ]);
+    staged.deleteOfficeCopies();
+    for (const gone of [transcript, result, roll, appFile])
+      expect([gone, existsSync(gone)]).toEqual([gone, false]);
+    expect(readFileSync(before, "utf8")).toBe("OLD");
+    expect(readFileSync(swapped, "utf8")).toBe("S-TWO");
+    expect(readFileSync(join(outside, "secret"), "utf8")).toBe("OFFICE-ONLY");
+  });
+
+  // MUTANT: only the office Codex homes searched (dies on the rollout in
+  // Zoe's own CODEX_HOME).
+  it("moves this agent's rollout from the old manager's Codex home, and not the other agent's", async () => {
+    const zoeCodex = mkdtempSync(join(tmpdir(), "member-move-zoe-codex-"));
+    scratch.push(zoeCodex);
+    writeManagedUserEnv(zoe, { CODEX_HOME: zoeCodex });
+    try {
+      put(rollout(zoeCodex, THREAD), "A-ROLLOUT");
+      put(rollout(ISOMUX_CODEX_HOME, THREAD_B), "B-ROLLOUT");
+      setSessionClaudeConfigDir(a, THREAD, null);
+      setSessionClaudeConfigDir(b, THREAD_B, null);
+      const plan = planAgentMoveIn(
+        { id: a, agentType: "codex", cwd: CWD },
+        zoe,
+        alice,
+        [],
+      );
+      iso = await isolateMember(alice);
+      await stageMemberMove(plan, runnerHost());
+      const memberCodex = join(agentRoot(), "codex-home");
+      expect(readFileSync(rollout(memberCodex, THREAD), "utf8")).toBe(
+        "A-ROLLOUT",
+      );
+      expect(existsSync(rollout(memberCodex, THREAD_B))).toBe(false);
+    } finally {
+      removeManagedUserEnv(zoe);
+    }
   });
 });

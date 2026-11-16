@@ -149,8 +149,8 @@ export function agentHostIdentity(userId: string | null | undefined): string {
   return hasMemberOsUser(userId) ? `member:${userId}` : "office";
 }
 
-// True when agents of `a` and of `b` run as the same OS user. An agent never
-// gets a manager on another host: the move is task abdb452b.
+// True when agents of `a` and of `b` run as the same OS user. A manager
+// change between hosts moves the agent (agent-host-move.ts).
 export function sameAgentHost(
   a: string | null | undefined,
   b: string | null | undefined,
@@ -159,8 +159,8 @@ export function sameAgentHost(
 }
 
 // The last guard in the writers of an agent's manager: each caller checks
-// sameAgentHost first and refuses, so this throws only on a path that skips
-// that check.
+// sameAgentHost first and refuses or moves the agent, so this throws only on
+// a path that skips that check (a host move's one write is let through).
 export function assertSameAgentHost(
   from: string | null | undefined,
   to: string | null | undefined,

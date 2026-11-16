@@ -333,6 +333,7 @@ import {
 import { stopOpenCodeServers } from "./backends/opencode/supervisor.ts";
 import { openCodeProfileKey } from "./backends/opencode/access.ts";
 import { setMemberMoveWiring } from "./member-user-admin.ts";
+import type { AgentHostChange } from "./agent-host-move.ts";
 import type { MemberMoveAgent } from "./member-move.ts";
 import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
 import type { SecretSetChange } from "./secret-proxy/runtime.ts";
@@ -706,7 +707,19 @@ export function createAgentManager(deps: ManagerDeps) {
   const officeState = deps.officeState;
   const taskStore = createTaskStore();
   officeState.beforeTaskChange = taskStore.change;
-  officeState.beforeManagerChange = assertSameAgentHost;
+  // The one manager write of a host move (setManager with a hostChange)
+  // may cross hosts: set just around that synchronous write, for its from
+  // and to only.
+  let hostChangeAllowed: { from: string | null; to: string } | null = null;
+  officeState.beforeManagerChange = (from, to) => {
+    if (
+      hostChangeAllowed &&
+      hostChangeAllowed.from === from &&
+      hostChangeAllowed.to === to
+    )
+      return;
+    assertSameAgentHost(from, to);
+  };
   const initialLoadedAgents = deps.initialRooms;
   const runBrowserAction =
     deps.runBrowserAction ??
@@ -1765,7 +1778,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // visible in the UI, burns no turn, never enters the SDK conversation).
   // Used by the scheduled-message scheduler for delivery-failure notices.
   // Returns false when the agent doesn't exist.
-  function addSystemNote(agentId: string, text: string): boolean {
+  function addSystemNote(agentId: string, text: LogText): boolean {
     if (!agents.has(agentId)) return false;
     addLogEntry(agentId, "system", text);
     return true;
@@ -4381,7 +4394,10 @@ export function createAgentManager(deps: ManagerDeps) {
   // and webhooks (transferAgentManager). `username` is the member's current
   // name. Returns the updated AgentInfo, or null for a killed/unknown agent.
   // "other_host" when the new manager's agents run as another OS user
-  // (member-os-user-design.md 2.4): nothing changes.
+  // (member-os-user-design.md 2.4) and no `hostChange` is given: nothing
+  // changes. A host move (agent-host-move.ts) passes one after the agent's
+  // files moved: its hooks write the pins around the fields, and the agent
+  // gets the folder it names.
   //
   // A transfer kills the running session (Nil, 2026-10-20): the conversation
   // resets like /clear and the next message starts a fresh one under the new
@@ -4396,11 +4412,23 @@ export function createAgentManager(deps: ManagerDeps) {
     userId: string,
     manager: string,
     changedBy: string,
+    // A move between hosts (agent-host-move.ts), after its files moved.
+    hostChange?: AgentHostChange,
   ): Promise<AgentInfo | null | "other_host"> {
     const managed = agents.get(agentId);
     if (!managed) return null;
     if (managed.info.userId === userId) return managed.info;
-    if (!sameAgentHost(managed.info.userId, userId)) return "other_host";
+    if (hostChange) {
+      if (
+        hostChange.from !== (managed.info.userId ?? null) ||
+        hostChange.to !== userId
+      )
+        throw new Error(
+          `the host change of ${agentId} names another manager change`,
+        );
+      // The pins of a move to the office; a throw changes nothing.
+      hostChange.beforeFields();
+    } else if (!sameAgentHost(managed.info.userId, userId)) return "other_host";
     const previousManager = managed.info.manager ?? null;
     stampAgentSessions(
       agentId,
@@ -4408,11 +4436,22 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.userId,
       managed.info.manager,
     );
-    for (const event of officeState.updateAgent(agentId, {
-      userId,
-      manager,
-    }))
-      emit(event);
+    hostChangeAllowed = hostChange
+      ? { from: hostChange.from, to: hostChange.to }
+      : null;
+    try {
+      for (const event of officeState.updateAgent(agentId, {
+        userId,
+        manager,
+        ...(hostChange?.cwd ? { cwd: hostChange.cwd.to } : {}),
+      }))
+        emit(event);
+    } finally {
+      hostChangeAllowed = null;
+    }
+    // The pins of a move to a member: a stop before them leaves pins that
+    // their host ignores.
+    hostChange?.afterFields();
     mintAgentToken(
       agentId,
       tokenUserIdFor(managed.info),
@@ -4438,7 +4477,31 @@ export function createAgentManager(deps: ManagerDeps) {
         changedBy,
       },
     });
+    // After the new conversation's notice: the change clears the chat.
+    for (const line of hostChangeNotes(hostChange))
+      addLogEntry(agentId, "system", line);
     return managed.info;
+  }
+
+  // What a host move changed besides the manager: the folder it left and
+  // the apps that stayed with the old manager.
+  function hostChangeNotes(hostChange: AgentHostChange | undefined) {
+    if (!hostChange) return [];
+    const notes = [];
+    if (hostChange.cwd)
+      notes.push(
+        msg("systemEntries.hostMove.folder", {
+          from: hostChange.cwd.from,
+          to: hostChange.cwd.to,
+        }),
+      );
+    if (hostChange.appsStayed.length > 0)
+      notes.push(
+        msg("systemEntries.hostMove.appsStayed", {
+          apps: hostChange.appsStayed.join(", "),
+        }),
+      );
+    return notes;
   }
 
   // Stamp every session of the agent that has no manager yet with the
@@ -4873,7 +4936,7 @@ export function createAgentManager(deps: ManagerDeps) {
       if (managed.info.userId !== userId) continue;
       if (!holds.has(agentId))
         holds.set(agentId, holdQueue(managed, "member-move"));
-      ends.push(endProcessForMove(agentId, managed));
+      ends.push(endAgentForMove(agentId, managed));
     }
     await Promise.all(ends);
     const key = profileKeyForOwner(userId);
@@ -4904,6 +4967,46 @@ export function createAgentManager(deps: ManagerDeps) {
       releaseHold(managed, hold);
       requestFlush(agentId, "member move");
     }
+  }
+
+  // The per-agent part of holdMember, for a host move of one agent
+  // (agent-host-move.ts): the queue held (its own map, by agent id), the
+  // turn cut, its processes, background work and terminal ended. New
+  // messages queue until releaseAgentMove.
+  const agentMoveHolds = new Map<string, symbol>();
+  async function holdAgentForMove(agentId: string): Promise<void> {
+    const managed = agents.get(agentId);
+    if (!managed) throw new Error(`no agent ${agentId}`);
+    if (!agentMoveHolds.has(agentId))
+      agentMoveHolds.set(agentId, holdQueue(managed, "member-move"));
+    await endAgentForMove(agentId, managed);
+  }
+
+  function releaseAgentMove(agentId: string): void {
+    const hold = agentMoveHolds.get(agentId);
+    if (!hold) return;
+    agentMoveHolds.delete(agentId);
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    releaseHold(managed, hold);
+    requestFlush(agentId, "agent move");
+  }
+
+  // What a move ends of one agent: its turn, its processes and background
+  // work, and its terminal, a shell of the host it leaves (the panel would
+  // join it after the move).
+  async function endAgentForMove(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<void> {
+    const shell = managed.ptySidecar;
+    if (shell) {
+      closeTerminal(agentId);
+      try {
+        shell.kill();
+      } catch {}
+    }
+    await endProcessForMove(agentId, managed);
   }
 
   function memberAgents(userId: string): MemberMoveAgent[] {
@@ -10368,6 +10471,9 @@ export function createAgentManager(deps: ManagerDeps) {
     holdMember,
     releaseMember,
     memberAgents,
+    holdAgentForMove,
+    releaseAgentMove,
+    refreshSkillMenu,
     memberSkillsConnected,
     configureAgentTurnDeps,
     setMemberCeilingClamp,

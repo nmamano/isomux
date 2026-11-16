@@ -131,7 +131,7 @@ export interface MoveOutsideFolders {
 
 /** Slice 5c-1: why the old office cannot carry the home of a member with
  *  their own OS user. `broken`, her record is malformed; `unfinished`, her
- *  enable did not finish; `busy`, an enable or disable runs for her;
+ *  enable did not finish; `busy`, an enable, a disable or an agent host move runs for her;
  *  `moved_in`, she came with a move and the enable command has not run on
  *  this machine; `bad_home`, passwd gives no safe home for her; `runner_down`,
  *  her runner does not answer; `wrong_runner`, the answer names another user,

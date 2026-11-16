@@ -50,7 +50,10 @@ import {
 import { claudeProjectDirIn } from "./claude-session-files.ts";
 import { STATE_ROOT } from "./config.ts";
 import { buildEnvForUserId, buildOfficeEnv } from "./env-loader.ts";
-import { memberAppDataSources } from "./member-app-move.ts";
+import {
+  memberAppDataSources,
+  OFFICE_APP_DATA_ROOT,
+} from "./member-app-move.ts";
 import {
   MOVE_FILE_MAX,
   MOVE_IN_TIMEOUT_MS,
@@ -232,6 +235,92 @@ export function planMemberMoveOut(
     }
   }
   return { userId, sources, personal };
+}
+
+// The files of one agent that leaves the member `fromUserId` (a manager
+// change, agent-host-move.ts): its sessions only, each as a Claude file and
+// folder or a Codex rollout with an office destination (a session in the
+// member's personal home too), and the data of the apps `appNames`. No
+// provider-home or OpenCode tree.
+export function planAgentMoveOut(
+  agent: MemberMoveAgent,
+  fromUserId: string,
+  host: AgentHost,
+  appNames: string[],
+): MemberMoveOutPlan {
+  const agentRoot = resolve(host.agentRoot());
+  const memberEnv = buildEnvForUserId(fromUserId) ?? {};
+  const sources: MoveOutSource[] = [];
+  const add = (source: SourceWithoutIndex) =>
+    sources.push({ ...source, index: sources.length });
+  for (const name of appNames)
+    add({
+      kind: "tree",
+      path: join(agentRoot, "apps", "data", name),
+      destRoot: join(OFFICE_APP_DATA_ROOT, name),
+    });
+  const codexHome = resolve(
+    memberEnv.CODEX_HOME || join(agentRoot, "codex-home"),
+  );
+  const memberRoots = isolatedMemberClaudeRoots(memberEnv, fromUserId);
+  const officeClaude = resolve(claudeConfigRoot(buildOfficeEnv()));
+  for (const [sessionId, session] of Object.entries(
+    loadSessionsMap(agent.id),
+  )) {
+    const agentType = session.agentType ?? agent.agentType;
+    if (agentType === "codex")
+      add({
+        kind: "codex",
+        home: codexHome,
+        threadId: sessionId,
+        destRoot: ISOMUX_CODEX_HOME,
+      });
+    else if (agentType === "claude")
+      addClaudeSession(add, {
+        agentId: agent.id,
+        sessionId,
+        cwd: session.cwd || agent.cwd,
+        memberRoots,
+        memberEnv,
+        officeClaude,
+      });
+  }
+  return { userId: fromUserId, sources, personal: [] };
+}
+
+// A Claude session of the member as its transcript and its <id>/ folder,
+// each a source with an office destination: from the pinned root when it
+// is one of the member's, else their current one.
+function addClaudeSession(
+  add: (source: SourceWithoutIndex) => void,
+  session: {
+    agentId: string;
+    sessionId: string;
+    cwd: string;
+    memberRoots: string[];
+    memberEnv: Record<string, string | undefined>;
+    officeClaude: string;
+  },
+): void {
+  const { agentId, sessionId, cwd, officeClaude } = session;
+  const pin = getSessionClaudeConfigDir(agentId, sessionId);
+  const root =
+    pin && session.memberRoots.includes(resolve(pin))
+      ? resolve(pin)
+      : resolve(claudeConfigRoot(session.memberEnv));
+  const projectDir = claudeProjectDirIn(root, cwd);
+  const officeDir = claudeProjectDirIn(officeClaude, cwd);
+  add({
+    kind: "claude-file",
+    path: join(projectDir, `${sessionId}.jsonl`),
+    dest: join(officeDir, `${sessionId}.jsonl`),
+    session: { agentId, sessionId, root: officeClaude },
+  });
+  add({
+    kind: "claude-dir",
+    path: join(projectDir, sessionId),
+    destRoot: join(officeDir, sessionId),
+  });
 }
 
 // What files-out gets: the sources by kind, with no destination.
@@ -433,6 +522,8 @@ export interface WrittenOut {
   pins: PinChange[];
   // The requested sources the runner sent nothing for.
   missing: number[];
+  // Every file that arrived, placed now or there with the same bytes.
+  arrived: { source: MoveOutSource; dest: string }[];
   staging: Staging;
 }
 
@@ -497,6 +588,7 @@ export async function writeMoveOut(
     madeDirs: [],
     pins: [],
     missing: [],
+    arrived: [],
     staging,
   };
   const staged: StagedOut[] = [];
@@ -608,6 +700,7 @@ export async function writeMoveOut(
     }
     // Place: link with no replace.
     for (const file of staged) {
+      written.arrived.push({ source: file.source, dest: file.dest });
       written.madeDirs.push(...makeParents(destRootOf(file.source), file.dest));
       try {
         linkSync(file.staged, file.dest);
@@ -668,6 +761,12 @@ export function undoMoveOut(written: WrittenOut): void {
 
 export interface MoveOutResult {
   pins: PinChange[];
+  // What came into the office: each file that arrived (a host move's second
+  // stage sends exactly these on), the ones this move placed, and the
+  // folders it made.
+  arrived?: WrittenOut["arrived"];
+  placed?: WrittenOut["placed"];
+  madeDirs?: string[];
   // Undo the office's side.
   undo(): void;
   // The member's copies go, through the runner; the paths it kept are
@@ -707,6 +806,9 @@ export async function transferMemberFilesOut(
   }
   return {
     pins: written.pins,
+    arrived: written.arrived,
+    placed: written.placed,
+    madeDirs: written.madeDirs,
     undo: () => undoMoveOut(written),
     removeMemberCopy: async () => {
       try {

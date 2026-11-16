@@ -57,7 +57,10 @@ export function setMemberAppMoveDeps(next: MemberAppMoveDeps | null): void {
   moveDeps = next;
 }
 
-function theirApps(deps: MemberAppMoveDeps, userId: string): AppRecord[] {
+function theirApps(
+  deps: MemberAppMoveDeps,
+  userId: string | null,
+): AppRecord[] {
   return deps.apps().filter((app) => app.userId === userId);
 }
 
@@ -89,10 +92,16 @@ export function memberAppDataSources(
 // stop on a member's host is tried again for up to LEAVE_WAIT_MS. When one
 // cannot be torn down, the apps already down go back up and this throws:
 // the move does not start while an app may still run.
-export async function appsLeave(userId: string): Promise<LeftApp[]> {
+// `names`: only those apps of `userId` (an agent's host move).
+export async function appsLeave(
+  userId: string | null,
+  names?: readonly string[],
+): Promise<LeftApp[]> {
   const deps = moveDeps;
   if (!deps) return [];
-  const apps = theirApps(deps, userId);
+  const apps = theirApps(deps, userId).filter(
+    (app) => !names || names.includes(app.name),
+  );
   if (apps.length === 0) return [];
   const sleep =
     deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
@@ -138,11 +147,16 @@ export async function appsLeave(userId: string): Promise<LeftApp[]> {
 // Install the apps that left on the host that runs `userId`'s apps now.
 // Never throws: an app that cannot be installed stays stopped, with a log
 // line; its next start provisions a token (ensureAppToken).
-export function appsArrive(userId: string, left: readonly LeftApp[]): void {
+// `userId` null: the apps of an agent with no manager (a legacy agent's
+// host move), which run on the office's host.
+export function appsArrive(
+  userId: string | null,
+  left: readonly LeftApp[],
+): void {
   const deps = moveDeps;
   if (!deps || left.length === 0) return;
   const log = deps.log ?? ((line: string) => console.error(line));
-  deps.supervisor.forget(userId);
+  if (userId !== null) deps.supervisor.forget(userId);
   const byName = new Map(theirApps(deps, userId).map((a) => [a.name, a]));
   const records = left
     .map((entry) => ({ entry, record: byName.get(entry.name) }))

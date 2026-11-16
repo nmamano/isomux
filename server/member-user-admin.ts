@@ -435,12 +435,26 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
   }
 }
 
-// The members whose go-on or disable runs.
+// The members whose go-on, disable or agent host move runs.
 const goingOn = new Set<string>();
 
-// Whether a go-on or a disable runs for the member (an office move waits).
+// Whether a go-on, a disable or an agent host move runs for the member (an office move waits).
 export function memberUserCallRunning(userId: string): boolean {
   return goingOn.has(userId);
+}
+
+// A host move of an agent (agent-host-move.ts) claims each member it
+// touches that has an OS user, so no go-on, disable or other agent move
+// of that member runs meanwhile (they share the runner's staging). False,
+// and nothing claimed, when one of them is busy.
+export function claimMemberMoves(userIds: string[]): boolean {
+  if (userIds.some((id) => goingOn.has(id))) return false;
+  for (const id of userIds) goingOn.add(id);
+  return true;
+}
+
+export function releaseMemberMoves(userIds: string[]): void {
+  for (const id of userIds) goingOn.delete(id);
 }
 
 // disable (design 2.3): hold the member's agents, tear their apps down on

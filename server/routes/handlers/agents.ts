@@ -128,6 +128,11 @@ import {
   PACK_SETS_NO_FOLDER,
 } from "../../identity/agent-fit.ts";
 import { resolveAgentCwd } from "../../agent-folder.ts";
+import {
+  agentHostMoving,
+  isHostMoveRefusal,
+  type ManagerTransferResult,
+} from "../../agent-host-move.ts";
 
 // Discriminated results for the response-driven trio: the index closures own the
 // compound logic (validateCwd / saveRecentCwd / spawn null-disambiguation) and
@@ -317,14 +322,13 @@ export interface AgentsDeps {
   // Authorization (an office owner by cookie session) is the route guard's
   // job. changedBy: the caller's display name, for the chat line. Null for a
   // killed or unknown agent; "unknown_member" when no member has that id;
-  // "other_host" when the member's agents run as another OS user.
+  // a refusal or failure of the move when the member's agents run as
+  // another OS user (agent-host-move.ts).
   setManager(
     agentId: string,
     userId: string,
     changedBy: string,
-  ): Promise<
-    AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
-  >;
+  ): Promise<ManagerTransferResult>;
   // Live AgentInfo lookup for the instructions read. The
   // agentParam guard already gated existence + room access, so a miss here is
   // a post-guard race (-> defensive 404).
@@ -387,9 +391,23 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
 const NO_FOLDER_MESSAGE =
   "Your permission pack does not let you set a folder. Your agents work in their room's folder.";
 
+// While the agent moves to another OS user (agent-host-move.ts), what
+// would change the files or the setup the move planned is refused.
+function movingRefusal(agentId: string) {
+  return agentHostMoving(agentId)
+    ? fail(
+        409,
+        "move_in_progress",
+        "This agent is moving to another OS user. Try again after the manager change.",
+      )
+    : null;
+}
+
 export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
   return {
     "agents.kill": async (ctx) => {
+      const moving = movingRefusal(ctx.params.id);
+      if (moving) return moving;
       await deps.kill(ctx.params.id);
       return noContent();
     },
@@ -780,6 +798,10 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         ...fields
       } = b as EditAgentReq & AgentEdit;
       const changes: AgentEdit = fields;
+      if (changes.cwd !== undefined || changes.agentType !== undefined) {
+        const moving = movingRefusal(ctx.params.id);
+        if (moving) return moving;
+      }
       // A member with a permission pack changes no agent's folder.
       if (ctx.identity.memberPack && typeof changes.cwd === "string") {
         const current = deps.getAgent(ctx.params.id);
@@ -842,17 +864,14 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           AGENTS_CANNOT_MOVE_DOWN,
           `${deps.getAgent(ctx.params.id)?.name ?? "This agent"} cannot run at the highest agent level of this member's permission pack with its engine and model. Change its engine or model first.`,
         );
-      if (r === "other_host")
-        return fail(
-          409,
-          "member_os_user",
-          `${deps.getAgent(ctx.params.id)?.name ?? "This agent"} runs as another OS user than this member's agents. Spawn a new agent for this member instead.`,
-        );
+      if (isHostMoveRefusal(r)) return fail(r.status, r.code, r.reason);
       if (!r) return fail(404, "agent_not_found", "Agent not found");
       return ok({ agent: r });
     },
 
     "agents.setPrivileged": async (ctx) => {
+      const moving = movingRefusal(ctx.params.id);
+      if (moving) return moving;
       // The route is double-gated (agent:privilege cap + userScope guard), so by
       // here the caller is a USER with access to :id. Shape-check the body and
       // apply the toggle; the heavy lifting (re-mint + session-swap) is the core's.
@@ -874,6 +893,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     "agents.setAccess": async (ctx) => {
       // Double-gated like agents.setPrivileged. The body is {access}; a pack
       // is refused, not dropped: the stop alone sets the token limits.
+      const moving = movingRefusal(ctx.params.id);
+      if (moving) return moving;
       const body = ctx.body;
       if (typeof body === "object" && body !== null && "pack" in body)
         return fail(422, "invalid_request", packNotAccepted("pack"));

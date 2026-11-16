@@ -18,8 +18,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { startAdminSocket } from "./admin-socket.ts";
 import {
+  claimMemberMoves,
   handleMemberUserAdmin,
   memberSlug,
+  releaseMemberMoves,
   memberUsersSupport,
   setMemberUserAdminDeps,
   type MemberUserAdminDeps,
@@ -915,6 +917,46 @@ describe("go-on moves the member's files", () => {
     expect(second?.body.ok).toBe(false);
     expect(holdsAsked).toBe(1);
     expect((await first).body).toMatchObject({ ok: true, ready: true });
+  });
+
+  // Task abdb452b: an agent's host move shares the go-on/disable busy set,
+  // both ways. MUTANT: claimMemberMoves on a set of its own (dies on the
+  // go-on and disable refusals and on the claim during a go-on); a claim
+  // that keeps the free members of a refused claim (dies on Bob's claim).
+  it("shares one busy set with an agent's host move, both ways, and claims all or nothing", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    moveDeps(alice);
+    expect(claimMemberMoves([alice])).toBe(true);
+    try {
+      const refusedGoOn = await goOn(alice);
+      expect([refusedGoOn.status, refusedGoOn.body.error]).toEqual([
+        409,
+        "move_in_progress",
+      ]);
+      const refusedDisable = await call("disable", { member: alice });
+      expect([refusedDisable.status, refusedDisable.body.error]).toEqual([
+        409,
+        "move_in_progress",
+      ]);
+      expect(steps).toEqual([]);
+      // Alice is busy: a claim of Bob and Alice takes neither.
+      expect(claimMemberMoves([bob, alice])).toBe(false);
+      expect(claimMemberMoves([bob])).toBe(true);
+      releaseMemberMoves([bob]);
+    } finally {
+      releaseMemberMoves([alice]);
+    }
+    // While Alice's go-on runs, a host move cannot claim her.
+    const first = goOn(alice);
+    for (let i = 0; i < 200 && !steps.includes("hold"); i++) await Bun.sleep(1);
+    expect(steps).toEqual(["hold"]);
+    expect(claimMemberMoves([alice])).toBe(false);
+    releaseHold();
+    expect((await first).body).toMatchObject({ ok: true, ready: true });
+    // Free again once the go-on answered.
+    expect(claimMemberMoves([alice])).toBe(true);
+    releaseMemberMoves([alice]);
   });
 
   it("holds nothing when go-on refuses (another OS user, a taken user)", async () => {

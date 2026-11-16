@@ -729,6 +729,12 @@ import {
 import { hidesManagerData } from "./system-prompt.ts";
 import { scheduleExceedsAgentFor } from "./cron-agent-limits.ts";
 import { appVisibleTo } from "./app-visibility.ts";
+import {
+  agentHostMoving,
+  moveAgentHost,
+  setAgentHostMoveWiring,
+  type ManagerTransferResult,
+} from "./agent-host-move.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
 // fast-path (`bun run server/isomux-office.ts owner-login`) and the production
@@ -3556,23 +3562,31 @@ function ensureAppToken(name: string): void {
 // Give a live agent a new manager (task 6a9deaba): the agent manager's core
 // mutation, then the apps, schedules and webhooks the agent made that its old
 // manager still owns. The agents.setManager route and a member deletion
-// (to the oldest office owner) both come here.
+// (to the oldest office owner) both come here. A new manager whose agents
+// run as another OS user moves the agent and its files there
+// (agent-host-move.ts, member-os-user-design.md 2.4).
 async function transferAgentManager(
   agentId: string,
   toUserId: string,
   changedBy: string,
-): Promise<
-  AgentInfo | null | "unknown_member" | "cannot_move_down" | "other_host"
-> {
+): Promise<ManagerTransferResult> {
   const to = getUserById(toUserId);
   if (!to) return "unknown_member";
   const before = agentManager.getAgent(agentId);
   if (!before) return null;
+  if (agentHostMoving(agentId))
+    return {
+      ok: false,
+      status: 409,
+      code: "move_in_progress",
+      reason: `${before.name} is moving to another OS user. Try again after that manager change.`,
+    };
   const from = before.userId;
   if (from === toUserId) return before;
-  // Before the clamp, so a refused change changes nothing
-  // (member-os-user-design.md 2.4).
-  if (!sameAgentHost(from, toUserId)) return "other_host";
+  if (!sameAgentHost(from, toUserId)) {
+    const moved = await moveAgentHost(agentId, toUserId, changedBy);
+    return moved.ok ? moved.agent : moved;
+  }
   // A member with a permission pack gets the agent at their agent ceiling: it
   // moves down first, so it never runs above it under them.
   const clamp = memberCeiling.clampFor(
@@ -3585,53 +3599,137 @@ async function transferAgentManager(
     if (moved === "engine_below_standard") return "cannot_move_down";
     if (!moved) return null;
   }
-  // What the agent made and its old manager still owns. A record the agent
-  // made that a third member owns now is that member's and stays.
-  const made = (record: { createdByAgentId?: string; userId: string | null }) =>
-    record.createdByAgentId === agentId && record.userId === from;
-  const appAudienceBefore = snapshotAppVisibility(made);
-  const webhookAudienceBefore = snapshotWebhookAudience(made);
+  const made = madeRecordsMove(agentId, from);
   const info = await agentManager.setManager(
     agentId,
     to.id,
     to.name,
     changedBy,
   );
-  if (!info || info === "other_host") return info;
-  try {
-    for (const app of appRegistry.list().filter(made))
-      appRegistry.update(app.name, {
-        owner: { userId: to.id, username: to.name },
-      });
-  } catch (err) {
-    console.error(`[manager] the apps of ${agentId} did not move:`, err);
-  }
-  try {
-    for (const job of cronjobManager.listCronjobs())
-      if (job.userId === from && cronjobMadeBy(job, agentId))
-        cronjobManager.setCronjobOwner(job.id, to.id, to.name);
-  } catch (err) {
-    console.error(`[manager] the schedules of ${agentId} did not move:`, err);
-  }
-  // The old manager could read each hook's secret, so a hook moves with a new
-  // one (task 37b2876b). Rotate before setOwner, in the one try: a rotate
-  // that throws stops the loop before that hook moves, so the old manager
-  // keeps it with the secret they knew. The maker agent rotates again to get
-  // the new secret.
-  try {
-    for (const hook of webhookRegistry.list().filter(made)) {
-      webhookRegistry.rotateSecret(hook.id);
-      webhookRegistry.setOwner(hook.id, to.id, to.name);
-    }
-  } catch (err) {
-    console.error(`[manager] the webhooks of ${agentId} did not move:`, err);
-  }
-  announceAppAudienceChanges(appAudienceBefore);
-  announceWebhookAudienceChanges(webhookAudienceBefore);
-  // An app reads only its owner's member secrets: the old manager's leave
-  // it, and a running app whose file changed restarts.
-  appSecrets.syncNow();
+  if (!info) return null;
+  // The record changed between the check and the write.
+  if (info === "other_host")
+    return {
+      ok: false,
+      status: 409,
+      code: "member_os_user",
+      reason: `${before.name} runs as another OS user than this member's agents now; try again`,
+    };
+  made.transfer(to, new Set());
   return agentManager.getAgent(agentId) ?? info;
+}
+
+// A manager change between hosts (agent-host-move.ts): the agent manager's
+// hold and write, and the office's clamp and records.
+function wireAgentHostMove(): void {
+  setAgentHostMoveWiring({
+    getAgent: (agentId) => agentManager.getAgent(agentId) ?? undefined,
+    clampFor: (agent, toUserId) => {
+      const to = getUserById(toUserId);
+      return memberCeiling.clampFor(
+        agent,
+        to?.role === "member" ? to.pack : undefined,
+      );
+    },
+    setAccess: async (agentId, grant) => {
+      const moved = await agentManager.setAccess(agentId, grant);
+      if (moved === "engine_below_standard" || !moved)
+        throw new Error(
+          "the agent cannot run at the highest agent level of the new manager's permission pack",
+        );
+      return moved;
+    },
+    holdAgent: (agentId) => agentManager.holdAgentForMove(agentId),
+    releaseAgent: (agentId) => agentManager.releaseAgentMove(agentId),
+    setManager: async (agentId, toUserId, manager, changedBy, hostChange) => {
+      const info = await agentManager.setManager(
+        agentId,
+        toUserId,
+        manager,
+        changedBy,
+        hostChange,
+      );
+      return info && info !== "other_host" ? info : null;
+    },
+    agentApps: (agentId, fromUserId) =>
+      appRegistry
+        .list()
+        .filter(
+          (app) =>
+            app.createdByAgentId === agentId && app.userId === fromUserId,
+        ),
+    transferMade: (agentId, fromUserId, toUserId, keepApps) => {
+      const to = getUserById(toUserId);
+      if (!to) return;
+      madeRecordsMove(agentId, fromUserId).transfer(to, keepApps);
+    },
+    systemLine: (agentId, reason) =>
+      agentManager.addSystemNote(
+        agentId,
+        msg("systemEntries.hostMove.failed", { reason }),
+      ),
+    // Both directions: the office's folder and menu, then a member's lists.
+    refreshSkills: (agentId) => agentManager.refreshSkillMenu(agentId),
+  });
+}
+
+// The apps, schedules and webhooks the agent made that its old manager
+// `from` still owns: a record the agent made that a third member owns now
+// is that member's and stays. Snapshot before the manager change, transfer
+// after it. Apps named in `keepApps` stay with `from` (a host move whose
+// new host must not run them).
+function madeRecordsMove(agentId: string, from: string | null) {
+  const made = (record: { createdByAgentId?: string; userId: string | null }) =>
+    record.createdByAgentId === agentId && record.userId === from;
+  const appAudienceBefore = snapshotAppVisibility(made);
+  const webhookAudienceBefore = snapshotWebhookAudience(made);
+  return {
+    transfer(
+      to: { id: string; name: string },
+      keepApps: ReadonlySet<string>,
+    ): void {
+      try {
+        for (const app of appRegistry.list().filter(made))
+          if (!keepApps.has(app.name))
+            appRegistry.update(app.name, {
+              owner: { userId: to.id, username: to.name },
+            });
+      } catch (err) {
+        console.error(`[manager] the apps of ${agentId} did not move:`, err);
+      }
+      try {
+        for (const job of cronjobManager.listCronjobs())
+          if (job.userId === from && cronjobMadeBy(job, agentId))
+            cronjobManager.setCronjobOwner(job.id, to.id, to.name);
+      } catch (err) {
+        console.error(
+          `[manager] the schedules of ${agentId} did not move:`,
+          err,
+        );
+      }
+      // The old manager could read each hook's secret, so a hook moves with
+      // a new one (task 37b2876b). Rotate before setOwner, in the one try: a
+      // rotate that throws stops the loop before that hook moves, so the old
+      // manager keeps it with the secret they knew. The maker agent rotates
+      // again to get the new secret.
+      try {
+        for (const hook of webhookRegistry.list().filter(made)) {
+          webhookRegistry.rotateSecret(hook.id);
+          webhookRegistry.setOwner(hook.id, to.id, to.name);
+        }
+      } catch (err) {
+        console.error(
+          `[manager] the webhooks of ${agentId} did not move:`,
+          err,
+        );
+      }
+      announceAppAudienceChanges(appAudienceBefore);
+      announceWebhookAudienceChanges(webhookAudienceBefore);
+      // An app reads only its owner's member secrets: the old manager's
+      // leave it, and a running app whose file changed restarts.
+      appSecrets.syncNow();
+    },
+  };
 }
 
 // Whether `agentId` made the job. A job made before jobs recorded their agent
@@ -7308,6 +7406,7 @@ export async function startServer(
   migrateOwnersToRuleBasedAccess();
   settleMemberSkillFolders();
   settleRemovedMembers();
+  wireAgentHostMove();
   // After the managers (the supervisor is assigned in createManagers) and
   // before the listener: an app's token should be settled before anything can
   // present one.
