@@ -149,7 +149,7 @@ const before = (a: Element, b: Element) =>
   (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
 describe("the groups", () => {
-  it("puts Sessions, Audit log, Usage and Storage in Housekeeping after Members, and keeps Pager and API tokens out", async () => {
+  it("puts Sessions, Audit log, Usage, Storage and Move office in Housekeeping after Members, and keeps Pager and API tokens out", async () => {
     const view = await mount();
     const members = toggle(view, "members")!;
     expect(members).not.toBeNull();
@@ -160,6 +160,7 @@ describe("the groups", () => {
       "audit.title",
       "settings.sidebar.usage",
       "settings.sidebar.storage",
+      "settings.sidebar.move",
     ] as const) {
       const r = row(view, t(key));
       expect(r, key).not.toBeNull();
@@ -191,6 +192,7 @@ describe("the groups", () => {
       "settings.sidebar.sessions",
       "audit.title",
       "settings.sidebar.storage",
+      "settings.sidebar.move",
     ] as const)
       expect(row(view, t(key)), key).toBeNull();
   });

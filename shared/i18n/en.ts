@@ -3469,7 +3469,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.out.needs":
     "The new machine needs a new Isomux office, of this release or newer, with the same home folder for the office user.",
   "officeMove.out.steps":
-    "Get a move code here, then paste it in Settings → Office → Move office on the new machine.",
+    "Get a move code here, then paste it in Settings → Housekeeping → Move office on the new machine.",
   "officeMove.out.mint": "Get a move code",
   "officeMove.out.mintAgain": "Get a new code",
   "officeMove.out.codeLabel": "Move code",
@@ -3490,7 +3490,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.out.cancel": "Cancel the move",
   "officeMove.in.heading": "Move an office here",
   "officeMove.in.body":
-    "A copy of another office replaces this one. Get a move code on the old office, in Settings → Office → Move office, and paste it here.",
+    "A copy of another office replaces this one. Get a move code on the old office, in Settings → Housekeeping → Move office, and paste it here.",
   "officeMove.in.blocked":
     "Only a new office can take a move in. This office has:",
   "officeMove.in.reason.users.one": "{count} more member",

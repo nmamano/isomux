@@ -3202,7 +3202,7 @@ export const zh: Catalog = {
   "officeMove.out.needs":
     "新机器需要一个新的 Isomux 办公室，版本不低于此版本，且办公室用户的主文件夹相同。",
   "officeMove.out.steps":
-    "在此获取迁移代码，然后在新机器的“设置 → 办公室 → 迁移办公室”中粘贴。",
+    "在此获取迁移代码，然后在新机器的“设置 → 维护 → 迁移办公室”中粘贴。",
   "officeMove.out.mint": "获取迁移代码",
   "officeMove.out.mintAgain": "获取新代码",
   "officeMove.out.codeLabel": "迁移代码",
@@ -3222,7 +3222,7 @@ export const zh: Catalog = {
   "officeMove.out.cancel": "取消迁移",
   "officeMove.in.heading": "将办公室迁移到这里",
   "officeMove.in.body":
-    "另一个办公室的副本将替换此办公室。在旧办公室的“设置 → 办公室 → 迁移办公室”中获取迁移代码，然后粘贴到这里。",
+    "另一个办公室的副本将替换此办公室。在旧办公室的“设置 → 维护 → 迁移办公室”中获取迁移代码，然后粘贴到这里。",
   "officeMove.in.blocked": "只有新办公室才能接收迁移。此办公室有：",
   "officeMove.in.reason.users.one": "另外 {count} 名成员",
   "officeMove.in.reason.users.other": "另外 {count} 名成员",

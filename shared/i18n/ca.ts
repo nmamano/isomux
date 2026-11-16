@@ -3578,7 +3578,7 @@ Coses que pots fer per ell:
   "officeMove.out.needs":
     "La màquina nova necessita una oficina d'Isomux nova, d'aquesta versió o una de més recent, amb la mateixa carpeta personal per a l'usuari de l'oficina.",
   "officeMove.out.steps":
-    "Obtén aquí un codi de trasllat i enganxa'l a Configuració → Oficina → Traslladar l'oficina a la màquina nova.",
+    "Obtén aquí un codi de trasllat i enganxa'l a Configuració → Manteniment → Traslladar l'oficina a la màquina nova.",
   "officeMove.out.mint": "Obtenir un codi de trasllat",
   "officeMove.out.mintAgain": "Obtenir un codi nou",
   "officeMove.out.codeLabel": "Codi de trasllat",
@@ -3599,7 +3599,7 @@ Coses que pots fer per ell:
   "officeMove.out.cancel": "Cancel·lar el trasllat",
   "officeMove.in.heading": "Traslladar una oficina aquí",
   "officeMove.in.body":
-    "Una còpia d'una altra oficina substitueix aquesta. Obtén un codi de trasllat a l'oficina antiga, a Configuració → Oficina → Traslladar l'oficina, i enganxa'l aquí.",
+    "Una còpia d'una altra oficina substitueix aquesta. Obtén un codi de trasllat a l'oficina antiga, a Configuració → Manteniment → Traslladar l'oficina, i enganxa'l aquí.",
   "officeMove.in.blocked":
     "Només una oficina nova pot rebre un trasllat. Aquesta oficina té:",
   "officeMove.in.reason.users.one": "{count} membre més",

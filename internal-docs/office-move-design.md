@@ -259,7 +259,7 @@ Her agent-made user units are listed through her runner as the office's are (her
 
 ## The Settings pane (slice 2c-2)
 
-Settings > Office > Move office, owners only, on Hosted too: `ui/components/OfficeMovePane.tsx`, with its logic in `ui/office-move.ts`. The wire types of the move routes are in `shared/office-move.ts`.
+Settings > Housekeeping > Move office, owners only, on Hosted too: `ui/components/OfficeMovePane.tsx`, with its logic in `ui/office-move.ts`. The wire types of the move routes are in `shared/office-move.ts`.
 
 - Two cards. The move-out card mints the code and shows it once (in memory only, never stored), with a warning when its origin is loopback, then the code's expiry or the pairing, and a cancel. The move-in card shows the status by phase: the start form (or the blocker), the old office's preflight with Lock and Check again, the copy's progress, the check with Finish (and "finish without these files" on an incomplete copy), a failure with Try again, the restart, and the report with the delete of the aside folder.
 - The move-in card comes first on a new office and whenever a move-in runs or is done.

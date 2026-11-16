@@ -3572,7 +3572,7 @@ Cosas que puedes hacer por él:
   "officeMove.out.needs":
     "La nueva máquina necesita una oficina de Isomux nueva, de esta versión o una más reciente, con la misma carpeta personal para el usuario de la oficina.",
   "officeMove.out.steps":
-    "Obtén aquí un código de traslado y pégalo en Ajustes → Oficina → Trasladar la oficina en la nueva máquina.",
+    "Obtén aquí un código de traslado y pégalo en Ajustes → Mantenimiento → Trasladar la oficina en la nueva máquina.",
   "officeMove.out.mint": "Obtener un código de traslado",
   "officeMove.out.mintAgain": "Obtener un código nuevo",
   "officeMove.out.codeLabel": "Código de traslado",
@@ -3593,7 +3593,7 @@ Cosas que puedes hacer por él:
   "officeMove.out.cancel": "Cancelar el traslado",
   "officeMove.in.heading": "Trasladar una oficina aquí",
   "officeMove.in.body":
-    "Una copia de otra oficina sustituye a esta. Obtén un código de traslado en la oficina antigua, en Ajustes → Oficina → Trasladar la oficina, y pégalo aquí.",
+    "Una copia de otra oficina sustituye a esta. Obtén un código de traslado en la oficina antigua, en Ajustes → Mantenimiento → Trasladar la oficina, y pégalo aquí.",
   "officeMove.in.blocked":
     "Solo una oficina nueva puede recibir un traslado. Esta oficina tiene:",
   "officeMove.in.reason.users.one": "{count} miembro más",

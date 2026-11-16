@@ -1,4 +1,4 @@
-// Settings > Office > Move office (task 78733adf, slice 2c-2): the owner
+// Settings > Housekeeping > Move office (task 78733adf, slice 2c-2): the owner
 // moves this office to another machine (the move-out card) or moves an
 // office here (the move-in card). ui/office-move.ts holds the logic;
 // internal-docs/office-move-design.md describes the flow.

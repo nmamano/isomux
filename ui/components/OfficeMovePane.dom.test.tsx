@@ -1,4 +1,4 @@
-// Settings > Office > Move office (task 78733adf, slice 2c-2). The pane has a
+// Settings > Housekeeping > Move office (task 78733adf, slice 2c-2). The pane has a
 // move-out card (this office to another machine) and a move-in card (an
 // office to this machine). The properties:
 // - card order: the move-in card is first on a new office and whenever a

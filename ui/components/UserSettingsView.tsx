@@ -467,11 +467,6 @@ export function UserSettingsView({
               ? [sectionRow("enterprise", t("settings.sidebar.enterprise"))]
               : []),
             sectionRow("updates", t("settings.sidebar.updates")),
-            // Moving the office (task 78733adf): an owner action, on Hosted
-            // too.
-            ...(isOwner
-              ? [sectionRow("move", t("settings.sidebar.move"))]
-              : []),
           ],
         },
         {
@@ -543,8 +538,13 @@ export function UserSettingsView({
             sectionRow("usage", t("settings.sidebar.usage")),
             // Storage is owner-only, matching the server: prune is gated on
             // officeOwner and the usage read strips paths for anyone else.
+            // Moving the office (task 78733adf) is an owner action, on Hosted
+            // too.
             ...(isOwner
-              ? [sectionRow("storage", t("settings.sidebar.storage"))]
+              ? [
+                  sectionRow("storage", t("settings.sidebar.storage")),
+                  sectionRow("move", t("settings.sidebar.move")),
+                ]
               : []),
           ],
         },

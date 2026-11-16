@@ -134,7 +134,7 @@ A member with their own OS user ([access and invites](access-and-invites.md#give
 
 ## Moving an office to another machine
 
-An owner moves an office as it is, with its agents and their chats, apps, schedules, files, sign-ins and secrets, in Settings → Office → Move office. It needs no root or SSH, so it works on Hosted Isomux too.
+An owner moves an office as it is, with its agents and their chats, apps, schedules, files, sign-ins and secrets, in Settings → Housekeeping → Move office. It needs no root or SSH, so it works on Hosted Isomux too.
 
 1. Install Isomux on the new machine, with the same home folder for the office user and the same or a newer release. Both offices must run as the installer's service, which restarts by itself.
 2. On the old office, get a move code. It works for one hour.
