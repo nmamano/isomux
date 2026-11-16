@@ -48,6 +48,7 @@ import {
   refuseOldFields,
 } from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
+import type { MemberOsUserRunResult } from "../../member-os-user-run.ts";
 import { parsePinnedBody } from "./view.ts";
 import { parseMemberPack, type MemberPack } from "../../../shared/pack-fit.ts";
 
@@ -85,7 +86,13 @@ export type UserRecordChanges = UserUpdateReq & {
 export interface UsersDeps {
   readMemberPrompt(username: string): { memberPrompt: string | null } | null;
   readMemberProfile(username: string): UserProfileWire | null;
-  readMemberOsUser(username: string): MemberOsUserWire | null;
+  readMemberOsUser(username: string): Promise<MemberOsUserWire | null>;
+  // The owner's Run on the Members page (server/member-os-user-run.ts); null
+  // for an unknown member.
+  runMemberOsUser(
+    username: string,
+    body: unknown,
+  ): Promise<MemberOsUserRunResult | null>;
   // Owner creates a member (officeOwner already passed). Validates the name and
   // the room grants, creates the record with pendingSignIn, emits users_list.
   create(
@@ -251,9 +258,19 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       return user ? ok({ user }) : fail(404, "not_found", "Member not found.");
     },
 
-    "users.osUser.get": (ctx) => {
-      const view = deps.readMemberOsUser(ctx.params.username);
+    "users.osUser.get": async (ctx) => {
+      const view = await deps.readMemberOsUser(ctx.params.username);
       return view ? ok(view) : fail(404, "not_found", "Member not found.");
+    },
+
+    // The answer is the start; the page reads the end through the GET. No
+    // answer, error or log line carries the body.
+    "users.osUser.run": async (ctx) => {
+      const result = await deps.runMemberOsUser(ctx.params.username, ctx.body);
+      if (!result) return fail(404, "not_found", "Member not found.");
+      return result.ok
+        ? ok({ action: result.action }, 202)
+        : fail(result.status, result.code, result.message, result.detail);
     },
 
     "users.readInstructions": (ctx) => {

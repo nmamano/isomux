@@ -550,6 +550,8 @@ export const zh: Catalog = {
   "settings.osUser.unfinished": "未就绪：其文件迁移到 {name} 的过程没有完成。",
   "settings.osUser.finishHint": "要完成开启，请在办公室的机器上运行：",
   "settings.osUser.containerName": "请把 CONTAINER 换成办公室容器的名称。",
+  "settings.osUser.runLocked": "密码错误次数过多。请在 {minutes} 分钟后重试。",
+  "settings.osUser.runInProgress": "此成员的命令正在运行。请在它结束后重试。",
   "settings.osUser.unsupported.notLinux": "不可用：办公室必须在 Linux 上运行。",
   "settings.osUser.unsupported.kubernetes":
     "在 Kubernetes 上不可用：办公室的 pod 不能以 root 身份运行命令。",

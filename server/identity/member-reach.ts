@@ -432,6 +432,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "terminalRecordings.get",
       "tasks.restore",
       "sudoRequests.run",
+      "users.osUser.run",
       "sudoRequests.decline",
       "githubSync.get",
       "githubSync.set",

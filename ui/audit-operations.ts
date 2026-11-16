@@ -234,6 +234,7 @@ export const AUDIT_OPERATIONS = [
   "userEnv.set",
   "users.create",
   "users.delete",
+  "users.osUser.run",
   "users.purge",
   "users.restore",
   "users.setAccess",

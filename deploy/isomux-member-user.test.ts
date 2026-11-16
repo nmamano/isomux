@@ -125,6 +125,15 @@ beforeEach(() => {
       `#!/usr/bin/env bash
 printf '%s' "${name}" >> "$T/log"; printf ' %q' "$@" >> "$T/log"; echo >> "$T/log"
 if [[ -e $T/fail/${name} ]]; then m=$(cat "$T/fail/${name}"); [[ -z $m || " $* " == *"$m"* ]] && exit 1; fi
+# $T/term-on/<name>: this call (its argv holds the content) sends TERM to
+# the command, as a restart or a second Ctrl-C does.
+if [[ -e $T/term-on/${name} ]] && [[ " $* " == *"$(cat "$T/term-on/${name}")"* ]]; then
+  p=$PPID
+  until tr '\\0' ' ' <"/proc/$p/cmdline" | grep -q isomux-member-user.sh; do
+    p=$(awk '{print $4}' "/proc/$p/stat"); ((p > 1)) || exit 9
+  done
+  kill -TERM "$p"
+fi
 ${body}
 `,
     );
@@ -416,6 +425,20 @@ describe("enable", () => {
       () => rmSync(join(root, "answers", "prepare")),
     ],
   ];
+  // R2 (4c-iii): a stop signal during the undo (a restart sends TERM to
+  // sudo and to the command, and sudo relays it) does not cut it short.
+  it("finishes the undo when a stop signal comes during it", () => {
+    fail("systemctl", "enable");
+    mkdirSync(join(root, "term-on"), { recursive: true });
+    writeFileSync(join(root, "term-on", "systemctl"), "disable --now");
+    const result = run("enable", "Alice");
+    expect(result.code).not.toBe(0);
+    // The enabling condition: the signal came from the first undo step.
+    expect(called("systemctl disable --now")).toBe(true);
+    expect(called(`userdel --remove ${OS_USER}`)).toBe(true);
+    expectNothingLeft();
+  });
+
   for (const [name, setup] of failures)
     it(`undoes every change when ${name}`, () => {
       setup();

@@ -598,6 +598,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "To finish turning it on, run this on the office's machine:",
   "settings.osUser.containerName":
     "Put the name of the office's container in place of CONTAINER.",
+  "settings.osUser.runLocked":
+    "Too many wrong passwords. Try again in {minutes} min.",
+  "settings.osUser.runInProgress":
+    "The command for this member is running. Try again when it ends.",
   "settings.osUser.unsupported.notLinux":
     "Not available: the office must run on Linux.",
   "settings.osUser.unsupported.kubernetes":

@@ -299,6 +299,8 @@ import type {
   InstructionsRes,
   UserSelfWire,
   UserProfileWire,
+  MemberOsUserRunReq,
+  MemberOsUserRunRes,
   MemberOsUserWire,
   UserAdminWire,
   RemovedMemberListRes,
@@ -2980,6 +2982,19 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username/os-user",
     auth: cap("office:read", memberOsUserOwner),
     tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  // The owner's Run of that command (server/member-os-user-run.ts): the
+  // server runs it as root with the box account's password. user:admin
+  // admits browser sessions only, as sudoRequests.run. Audit rows name the
+  // body's fields, never the password. The page reads the end through the GET.
+  defineRoute<MemberOsUserRunReq, MemberOsUserRunRes>({
+    opId: "users.osUser.run",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/os-user/run",
+    auth: cap("user:admin", officeOwner),
+    tokenArea: { area: "office", level: "write" },
     emits: [],
   }),
   defineRoute<InstructionsReq, InstructionsRes>({

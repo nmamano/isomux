@@ -593,6 +593,10 @@ Cosas que puedes hacer por él:
     "Para terminar de activarlo, ejecuta esto en la máquina de la oficina:",
   "settings.osUser.containerName":
     "Pon el nombre del contenedor de la oficina en lugar de CONTAINER.",
+  "settings.osUser.runLocked":
+    "Demasiadas contraseñas incorrectas. Vuelve a intentarlo en {minutes} min.",
+  "settings.osUser.runInProgress":
+    "El comando de este miembro está en ejecución. Vuelve a intentarlo cuando termine.",
   "settings.osUser.unsupported.notLinux":
     "No disponible: la oficina debe ejecutarse en Linux.",
   "settings.osUser.unsupported.kubernetes":

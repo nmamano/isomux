@@ -129,6 +129,13 @@ export function noteMemberUserAttempt(
   });
 }
 
+// The stage of what the root command last did for a member, if anything.
+export function memberUserAttemptStage(
+  userId: string,
+): Attempt["stage"] | undefined {
+  return attempts.get(userId)?.stage;
+}
+
 export function clearMemberUserAttempt(userId: string): void {
   attempts.delete(userId);
 }
@@ -159,6 +166,8 @@ export function memberOsUserView(
   user: Pick<UserRecord, "id" | "role">,
   opts: {
     support: MemberUserSupport;
+    // How the page can run the command itself (member-os-user-run.ts).
+    run?: MemberOsUserWire["run"];
     now?: number;
   },
 ): MemberOsUserWire {
@@ -179,7 +188,7 @@ export function memberOsUserView(
     !support.container
       ? { commandHint: "container_name" as const }
       : {}),
-    run: null,
+    run: commands ? (opts.run ?? null) : null,
     ...(attempt ? { attempt } : {}),
   };
   if (record.kind === "none") return { state: "off", ...common };

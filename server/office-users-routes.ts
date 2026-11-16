@@ -5,6 +5,7 @@
 // userDeleteNotSelfOwner and userDeleteNotLastOwner preconditions.
 import { hasMemberOsUser } from "./member-os-users.ts";
 import { memberOsUserView } from "./member-os-user-view.ts";
+import type { MemberOsUserRun } from "./member-os-user-run.ts";
 import { memberUsersSupport } from "./member-user-admin.ts";
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
 import type { AgentInfo, UserRecord, WebhookRecord } from "../shared/types.ts";
@@ -89,6 +90,8 @@ export interface UsersRoutesDeps
       | "snapshotWebhookAudience"
     >,
     Pick<ReturnType<typeof createSessionProjection>, "clampViewFields"> {
+  // The owner's Run on the Members page.
+  memberOsUserRun: MemberOsUserRun;
   accessibleRoomIdsFor: (
     user: UserRecord,
     allowedRoomsOverride?: readonly string[],
@@ -277,6 +280,7 @@ export function createUsersRoutes(
     transferAgentManager,
     agentsThatCannotMoveDown,
     afterMemberPackSaved,
+    memberOsUserRun,
   } = deps;
   // Restore (task 321e7b8e): what passed to the heir at the removal and the
   // heir still owns comes back to the member, as it is now; the rest stays
@@ -387,11 +391,19 @@ export function createUsersRoutes(
       const user = getUser(username);
       return user ? { memberPrompt: user.memberPrompt } : null;
     },
-    readMemberOsUser: (username) => {
+    readMemberOsUser: async (username) => {
       const user = getUser(username);
-      return user
-        ? memberOsUserView(user, { support: memberUsersSupport() })
+      if (!user) return null;
+      const run = await memberOsUserRun.mode();
+      // The member may be gone during the probe.
+      const now = getUserById(user.id);
+      return now
+        ? memberOsUserView(now, { support: memberUsersSupport(), run })
         : null;
+    },
+    runMemberOsUser: async (username, body) => {
+      const user = getUser(username);
+      return user ? memberOsUserRun.run(user, body) : null;
     },
     readMemberProfile: (username) => {
       const user = getUser(username);

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { apiFetch } from "../api.ts";
+import { ApiError, apiFetch } from "../api.ts";
 import type {
   MemberOsUserWire,
   MemberTokenViewRes,
   MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 
 // Settings > Members > a member > Own OS user (server/member-os-user-view.ts,
@@ -35,7 +36,34 @@ export function MemberOsUserSection({
   // Set at a Copy: the state then, until the page sees another.
   const [waitingFrom, setWaitingFrom] = useState<string | null>(null);
   const pollStart = useRef<number | null>(null);
+  // The last Run's refusal, shown under the commands.
+  const [runError, setRunError] = useState<string | null>(null);
   const route = `/api/users/${encodeURIComponent(username)}/os-user`;
+
+  // Run (4c-iii): the server runs the command as root with the password;
+  // the end shows through the GET's attempt.
+  const runCommand = async (
+    action: "enable" | "disable",
+    password: string | null,
+  ): Promise<boolean> => {
+    setRunError(null);
+    try {
+      await apiFetch(
+        "POST",
+        `${route}/run`,
+        password === null ? { action } : { action, password },
+      );
+    } catch (err) {
+      setRunError(runErrorLine(err, t));
+      return false;
+    }
+    try {
+      setView(await apiFetch<MemberOsUserWire>("GET", route));
+    } catch {
+      // The poll reads it again.
+    }
+    return true;
+  };
 
   useEffect(() => {
     let live = true;
@@ -107,7 +135,11 @@ export function MemberOsUserSection({
 
   // Off: turn it on. Not ready: an enable that the office's restart cut
   // finishes when it runs again, so both. Otherwise: turn it off.
-  const commands: { hint: string; line: string }[] =
+  const commands: {
+    hint: string;
+    line: string;
+    action: "enable" | "disable";
+  }[] =
     view.commands === null
       ? []
       : view.state === "off"
@@ -115,6 +147,7 @@ export function MemberOsUserSection({
             {
               hint: t("settings.osUser.enableHint"),
               line: view.commands.enable,
+              action: "enable",
             },
           ]
         : view.state === "not_ready"
@@ -124,16 +157,19 @@ export function MemberOsUserSection({
                   ? t("settings.osUser.finishHint")
                   : t("settings.osUser.rerunHint"),
                 line: view.commands.enable,
+                action: "enable",
               },
               {
                 hint: t("settings.osUser.disableHint"),
                 line: view.commands.disable,
+                action: "disable",
               },
             ]
           : [
               {
                 hint: t("settings.osUser.disableHint"),
                 line: view.commands.disable,
+                action: "disable",
               },
             ];
 
@@ -172,7 +208,7 @@ export function MemberOsUserSection({
           {t("settings.osUser.waiting")}
         </p>
       )}
-      {commands.map(({ hint, line: command }) => (
+      {commands.map(({ hint, line: command, action }) => (
         <div key={command}>
           <p style={{ ...hintStyle, marginTop: 8 }}>{hint}</p>
           <div
@@ -205,8 +241,24 @@ export function MemberOsUserSection({
               }}
             />
           </div>
+          {view.run && (
+            <RunControl
+              withPassword={view.run === "password"}
+              blocked={running}
+              onRun={(password) => runCommand(action, password)}
+            />
+          )}
         </div>
       ))}
+      {runError && (
+        <p
+          data-testid="member-os-user-run-error"
+          role="alert"
+          style={{ fontSize: 12, margin: "4px 0", color: "var(--red-text)" }}
+        >
+          {runError}
+        </p>
+      )}
       {view.commandHint === "container_name" && commands.length > 0 && (
         <p data-testid="member-os-user-command-hint" style={hintStyle}>
           {t("settings.osUser.containerName")}
@@ -231,6 +283,88 @@ export function MemberOsUserSection({
       </p>
     </div>
   );
+}
+
+// Run beside a command: a password field where sudo asks for one. The
+// password is sent once and never kept: the field is cleared after a start.
+function RunControl({
+  withPassword,
+  blocked,
+  onRun,
+}: {
+  withPassword: boolean;
+  blocked: boolean;
+  onRun: (password: string | null) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const [password, setPassword] = useState("");
+  const [sending, setSending] = useState(false);
+  const disabled = blocked || sending || (withPassword && password === "");
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (disabled) return;
+        setSending(true);
+        void onRun(withPassword ? password : null).then((started) => {
+          setSending(false);
+          if (started) setPassword("");
+        });
+      }}
+      style={{ display: "flex", gap: 6, marginTop: 6 }}
+    >
+      {withPassword && (
+        <input
+          data-testid="member-os-user-password"
+          type="password"
+          autoComplete="off"
+          aria-label={t("cards.sudoRequest.password")}
+          placeholder={t("cards.sudoRequest.password")}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          style={{ ...dialogInput, flex: 1, minWidth: 0 }}
+        />
+      )}
+      <button
+        data-testid="member-os-user-run"
+        type="submit"
+        disabled={disabled}
+        style={dialogSaveBtn}
+      >
+        {sending ? t("cards.sudoRequest.running") : t("cards.sudoRequest.run")}
+      </button>
+    </form>
+  );
+}
+
+// A Run refusal in words: a wrong password says sudo's line and the tries
+// left; a lock says when to try again.
+function runErrorLine(err: unknown, t: T): string {
+  if (!(err instanceof ApiError)) return t("cards.sudoRequest.runFailed");
+  const detail = err.detail ?? {};
+  switch (err.code) {
+    case "not_started":
+      return t("cards.sudoRequest.notStarted", {
+        attempts: String(
+          typeof detail.attemptsLeft === "number" ? detail.attemptsLeft : 0,
+        ),
+        reason: typeof detail.reason === "string" ? detail.reason : "",
+      });
+    case "locked_out":
+      return t("settings.osUser.runLocked", {
+        minutes: String(
+          Math.max(1, Math.ceil(Number(detail.retryAfterS ?? 900) / 60)),
+        ),
+      });
+    case "invalid_password":
+      return t("cards.sudoRequest.invalidPassword");
+    case "run_in_progress":
+      return t("settings.osUser.runInProgress");
+    default:
+      // The server's message is English: a refusal without its own line
+      // gets the sudo card's, as SudoAskCard does.
+      return t("cards.sudoRequest.runFailed");
+  }
 }
 
 const UNSUPPORTED_KEY = {

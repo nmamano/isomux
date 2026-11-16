@@ -59,6 +59,23 @@ export const SUDO_WRONG_PASSWORD_MAX = 3;
 // command: a password is one line.
 export const SUDO_PASSWORD_MAX = 1024;
 
+// One line of 1 to SUDO_PASSWORD_MAX characters, also for the owner's Run
+// on the Members page (member-os-user-run.ts).
+export function isSudoPassword(password: unknown): password is string {
+  return (
+    typeof password === "string" &&
+    password !== "" &&
+    password.length <= SUDO_PASSWORD_MAX &&
+    !/[\n\r\0]/.test(password)
+  );
+}
+export const INVALID_SUDO_PASSWORD = {
+  ok: false as const,
+  status: 400 as const,
+  code: "invalid_password",
+  message: `password: one line of 1 to ${SUDO_PASSWORD_MAX} characters`,
+};
+
 export interface SudoRequestDeps {
   // The open requests.
   asks: AskStore;
@@ -444,18 +461,7 @@ export function createSudoRequests(deps: SudoRequestDeps) {
         typeof body === "object" && body !== null
           ? (body as { password?: unknown }).password
           : undefined;
-      if (
-        typeof password !== "string" ||
-        password === "" ||
-        password.length > SUDO_PASSWORD_MAX ||
-        /[\n\r\0]/.test(password)
-      )
-        return {
-          ok: false,
-          status: 400,
-          code: "invalid_password",
-          message: `password: one line of 1 to ${SUDO_PASSWORD_MAX} characters`,
-        };
+      if (!isSudoPassword(password)) return INVALID_SUDO_PASSWORD;
       if (busy.has(agentId)) return inProgress;
       busy.add(agentId);
       const { entry } = found;

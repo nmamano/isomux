@@ -56,7 +56,7 @@ A session ends after 30 days without use, and after 1 year in any case. Server r
 
 ## Give a member their own OS user
 
-On Linux, an owner can run a member's agents, terminals, apps and scheduled runs as a separate OS user, so that they cannot read the office's files or the other members' credentials ([isolation model](isolation-model.md#hard-boundaries)). In `Settings` → `Members` → the member → `Own OS user`, copy the command and run it as root on the office's machine. It makes the user and moves the member's agent files and sign-ins to its home; their agents then run there. The page shows when it is on. The command to turn it off moves the files back.
+On Linux, an owner can run a member's agents, terminals, apps and scheduled runs as a separate OS user, so that they cannot read the office's files or the other members' credentials ([isolation model](isolation-model.md#hard-boundaries)). In `Settings` → `Members` → the member → `Own OS user`, copy the command and run it as root on the office's machine. Where the office's OS user may use sudo, Run beside the command runs it for you with that user's password; on most installs it may not, and only the command shows. It makes the user and moves the member's agent files and sign-ins to its home; their agents then run there. The page shows when it is on. The command to turn it off moves the files back.
 
 - If the page says that it is not ready after a restart, run the turn-on command again. On a member whose own OS user works, it stops their agents for a moment and moves their apps again.
 - At their usage limit, their Claude agents can continue on the office's Claude token for members with their own OS user (`Integrations` → `Model providers`). They cannot use the office's Codex sign-in.

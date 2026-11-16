@@ -593,6 +593,10 @@ Coses que pots fer per ell:
     "Per acabar d'activar-lo, executa això a la màquina de l'oficina:",
   "settings.osUser.containerName":
     "Posa el nom del contenidor de l'oficina en lloc de CONTAINER.",
+  "settings.osUser.runLocked":
+    "Massa contrasenyes incorrectes. Torna-ho a provar d'aquí a {minutes} min.",
+  "settings.osUser.runInProgress":
+    "L'ordre d'aquest membre s'està executant. Torna-ho a provar quan acabi.",
   "settings.osUser.unsupported.notLinux":
     "No disponible: l'oficina s'ha d'executar a Linux.",
   "settings.osUser.unsupported.kubernetes":

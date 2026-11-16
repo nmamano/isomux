@@ -104,6 +104,16 @@ export interface MemberOsUserWire {
   unfinished?: true;
 }
 
+// POST /api/users/:username/os-user/run: the owner's Run (202 at the start).
+export interface MemberOsUserRunReq {
+  action: "enable" | "disable";
+  // Only where run is "password".
+  password?: string;
+}
+export interface MemberOsUserRunRes {
+  action: "enable" | "disable";
+}
+
 export type MemberUserUnsupported =
   "not_linux" | "kubernetes" | "render" | "no_system_install" | "no_command";
 

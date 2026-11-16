@@ -1064,6 +1064,10 @@ fail() {
 GO_ON_OUT=
 on_exit() {
   local status=$?
+  # A second stop signal (a restart sends TERM to sudo and to this command,
+  # and sudo relays it; or a second Ctrl-C) must not cut the undo short.
+  # systemd's SIGKILL after TimeoutStopSec still bounds it.
+  trap '' INT TERM
   if [[ -n $GO_ON_OUT ]]; then
     echo "isomux-member-user: the office may have taken the OS user; it stays. Run the same enable command again when the office runs." >&2
   elif ((${#UNDO[@]})); then

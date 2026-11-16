@@ -1760,6 +1760,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   // A member's own OS user for the owner's page (task b94dfd25 4c-i): read
   // only, an office owner's reach (memberOsUserOwner).
   "users.osUser.get": { caps: ["office:read"], emits: [] },
+  // The owner's Run (4c-iii): the sudo password goes to root, so only
+  // a browser session with user:admin.
+  "users.osUser.run": { caps: ["user:admin"], emits: [] },
   "users.readInstructions": { caps: [], emits: [] },
   // Writes only the text, so no role change and no full_state.
   "users.setInstructions": {

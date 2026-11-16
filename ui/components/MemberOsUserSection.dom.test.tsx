@@ -11,7 +11,12 @@
 // - the page reads again every OS_USER_POLL_MS only while the state can
 //   change (an attempt running, or after a Copy until the state changes), and
 //   stops on a final state, on unmount and at OS_USER_POLL_CAP_MS;
-// - the Claude row follows the office's member token.
+// - the Claude row follows the office's member token;
+// - Run (4c-iii): with a password field where sudo asks for one, a button
+//   only where it does not, nothing without run; each command's own verb,
+//   the field cleared and the state read again after a start; no Run while
+//   a run goes on or with an empty field; a wrong password says how many
+//   tries are left, and a lock says so.
 import { afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -37,7 +42,16 @@ const COMMANDS = {
 let answers: (MemberOsUserWire | "fail")[] = [];
 let reads = 0;
 let tokenSet = false;
-setApiShim(async (method, path) => {
+// The owner's Run (4c-iii): each POST, and what the next one answers.
+const RUN_ROUTE = "/api/users/Mia/os-user/run";
+let posts: unknown[] = [];
+let runAnswer: (() => unknown) | null = null;
+setApiShim(async (method, path, body) => {
+  if (method === "POST" && path === RUN_ROUTE) {
+    posts.push(body);
+    if (runAnswer) return runAnswer();
+    return { action: (body as { action: string }).action };
+  }
   if (method === "GET" && path === ROUTE) {
     reads++;
     const next = answers.length > 1 ? answers.shift()! : answers[0];
@@ -55,6 +69,8 @@ let copied: string[] = [];
 beforeEach(() => {
   answers = [];
   reads = 0;
+  posts = [];
+  runAnswer = null;
   tokenSet = false;
   copied = [];
   Object.defineProperty(navigator, "clipboard", {
@@ -343,4 +359,119 @@ it("the Claude row says whether the member token is set", async () => {
   const setText = set.q("member-os-user-claude")?.textContent ?? "";
   expect(setText).toContain(t("settings.osUser.claudeTokenSet"));
   expect(setText).not.toBe(missingText);
+});
+
+// Task b94dfd25 4c-iii: Run on the page.
+const runButtons = (m: Awaited<ReturnType<typeof mount>>) => [
+  ...m.rendered.container.querySelectorAll<HTMLButtonElement>(
+    '[data-testid="member-os-user-run"]',
+  ),
+];
+const passwordFields = (m: Awaited<ReturnType<typeof mount>>) => [
+  ...m.rendered.container.querySelectorAll<HTMLInputElement>(
+    '[data-testid="member-os-user-password"]',
+  ),
+];
+const typeInto = async (field: HTMLInputElement, text: string) => {
+  await act(async () => {
+    fireEvent.change(field, { target: { value: text } });
+  });
+};
+const click = async (button: HTMLButtonElement) => {
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  await settle();
+};
+
+it("shows a password field and Run beside each command where sudo asks for a password, and runs that command's verb", async () => {
+  answers = [
+    view({
+      state: "not_ready",
+      osUser: { name: "isomux-mia", uid: 2001 },
+      run: "password",
+    }),
+  ];
+  const m = await mount();
+  const fields = passwordFields(m);
+  const buttons = runButtons(m);
+  expect([fields.length, buttons.length]).toEqual([2, 2]);
+  for (const field of fields) {
+    expect(field.type).toBe("password");
+    expect(field.autocomplete).toBe("off");
+  }
+  // Copy stays beside Run.
+  expect(
+    m.rendered.container.querySelectorAll(
+      '[data-testid="member-os-user-command"]',
+    ).length,
+  ).toBe(2);
+  // An empty field: no run.
+  expect(buttons.map((b) => b.disabled)).toEqual([true, true]);
+  await typeInto(fields[1], "s3cret");
+  expect(runButtons(m)[1].disabled).toBe(false);
+  const before = reads;
+  await click(runButtons(m)[1]);
+  expect(posts).toEqual([{ action: "disable", password: "s3cret" }]);
+  // Cleared, and the state is read again.
+  expect(passwordFields(m)[1].value).toBe("");
+  expect(reads).toBeGreaterThan(before);
+  await typeInto(passwordFields(m)[0], "other");
+  await click(runButtons(m)[0]);
+  expect(posts.at(-1)).toEqual({ action: "enable", password: "other" });
+});
+
+it("shows Run alone where sudo asks for no password, and nothing where the page cannot run", async () => {
+  answers = [view({ run: "no_password" })];
+  const free = await mount();
+  expect(passwordFields(free)).toHaveLength(0);
+  expect(runButtons(free)).toHaveLength(1);
+  expect(runButtons(free)[0].disabled).toBe(false);
+  await click(runButtons(free)[0]);
+  expect(posts).toEqual([{ action: "enable" }]);
+  free.rendered.unmount();
+  answers = [view({ run: null })];
+  const none = await mount();
+  expect([runButtons(none).length, passwordFields(none).length]).toEqual([
+    0, 0,
+  ]);
+  expect(none.q("member-os-user-command")?.textContent).toBe(COMMANDS.enable);
+});
+
+it("allows no Run while a run goes on", async () => {
+  answers = [
+    view({
+      run: "no_password",
+      attempt: { action: "enable", status: "running", at: 1 },
+    }),
+  ];
+  const m = await mount();
+  expect(runButtons(m).map((b) => b.disabled)).toEqual([true]);
+});
+
+it("says how many tries are left after a wrong password, and that the member is locked after the last", async () => {
+  answers = [view({ run: "password" })];
+  const m = await mount();
+  expect(passwordFields(m)).toHaveLength(1);
+  runAnswer = () => {
+    throw new ApiError(422, "not_started", "not started", {
+      reason: "sudo: 1 incorrect password attempt",
+      attemptsLeft: 2,
+    });
+  };
+  await typeInto(passwordFields(m)[0], "wrong");
+  await click(runButtons(m)[0]);
+  const wrong = m.q("member-os-user-run-error")?.textContent ?? "";
+  expect(wrong).toContain("sudo: 1 incorrect password attempt");
+  expect(wrong).toContain("2");
+  runAnswer = () => {
+    throw new ApiError(429, "locked_out", "locked", { retryAfterS: 900 });
+  };
+  await typeInto(passwordFields(m)[0], "wrong");
+  await click(runButtons(m)[0]);
+  const locked = m.q("member-os-user-run-error")?.textContent ?? "";
+  expect(locked).not.toBe("");
+  expect(locked).not.toBe(wrong);
+  // The wait in minutes, from the answer's retryAfterS.
+  expect(locked).toContain("15");
 });
