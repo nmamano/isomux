@@ -40,7 +40,7 @@ interface Conn {
 }
 
 // A gateway that says HELLO on every connection and records what it hears.
-function fakeGateway() {
+function fakeGateway(heartbeatInterval: number = HEARTBEAT_MS) {
   const conns: Conn[] = [];
   let seq = 0;
   const server = Bun.serve<{ n: number; path: string }, never>({
@@ -59,7 +59,10 @@ function fakeGateway() {
           received: [],
         });
         ws.send(
-          JSON.stringify({ op: 10, d: { heartbeat_interval: HEARTBEAT_MS } }),
+          JSON.stringify({
+            op: 10,
+            d: { heartbeat_interval: heartbeatInterval },
+          }),
         );
       },
       message(ws, text) {
@@ -123,8 +126,8 @@ afterEach(() => {
   for (const c of cleanups.splice(0)) c();
 });
 
-function start() {
-  const gw = fakeGateway();
+function start(heartbeatInterval?: number) {
+  const gw = fakeGateway(heartbeatInterval);
   const cmds = commandQueue();
   const lines: string[] = [];
   const events: GatewayEvent[] = [];
@@ -156,7 +159,7 @@ function start() {
 
 type Started = ReturnType<typeof start>;
 
-async function identified(s: Started) {
+async function identified(s: Started, resumeUrl = s.gw.resumeUrl) {
   await until(
     () => s.gw.conns[0]?.received.some((p) => p.op === 2) ?? false,
     "IDENTIFY",
@@ -165,7 +168,7 @@ async function identified(s: Started) {
   s.gw.dispatch(conn, "READY", {
     v: 10,
     session_id: "session-1",
-    resume_gateway_url: s.gw.resumeUrl,
+    resume_gateway_url: resumeUrl,
     user: { id: BOT, username: "Office Bot", bot: true },
     guilds: [{ id: GUILD, unavailable: true }],
   });
@@ -331,6 +334,50 @@ describe("discord gateway child", () => {
     expect(s.events.filter((e) => e.ev === "ready")).toHaveLength(1);
     expect(s.isDone()).toBe(false);
   });
+
+  it("a resume URL off Discord and off the start URL's origin is not used: the resume goes to the start URL", async () => {
+    const s = start();
+    const elsewhere = fakeGateway();
+    cleanups.push(elsewhere.stop);
+    const conn = await identified(s, elsewhere.resumeUrl);
+    const seq = s.gw.dispatch(conn, "TYPING_START", {});
+    s.gw.send(conn, { op: 7, d: null });
+    await until(
+      () => s.gw.conns.length + elsewhere.conns.length === 2,
+      "the second connection",
+    );
+    expect(elsewhere.conns).toHaveLength(0);
+    const second = s.gw.conns[1];
+    expect(second.path).toBe("/gateway");
+    await until(() => second.received.some((p) => p.op === 6), "RESUME");
+    expect(second.received.find((p) => p.op === 6)!.d).toEqual({
+      token: TOKEN,
+      session_id: "session-1",
+      seq,
+    });
+    expect(elsewhere.conns).toHaveLength(0);
+  });
+
+  // JSON carries no NaN or Infinity; these are the numbers it can carry
+  // that no timer should take: none, a negative, and far past a 32-bit
+  // timer (Bun fires those at once). Each falls back to Discord's usual interval,
+  // so no heartbeat is due in the first moments.
+  for (const interval of [0, -1, 1e12])
+    it(`a HELLO with heartbeat_interval ${interval} does not spin the heartbeat`, async () => {
+      const s = start(interval);
+      await until(
+        () => s.gw.conns[0]?.received.some((p) => p.op === 2) ?? false,
+        "IDENTIFY",
+      );
+      await Bun.sleep(300);
+      const beats = s.gw.conns
+        .flatMap((c) => c.received)
+        .filter((p) => p.op === 1).length;
+      // The default's first beat is at a random point of its interval, so
+      // one beat now and then is fine; a spin sends hundreds.
+      expect(beats).toBeLessThanOrEqual(1);
+      expect(s.gw.conns).toHaveLength(1);
+    });
 
   it("a dropped connection resumes too", async () => {
     const s = start();

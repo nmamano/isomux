@@ -57,6 +57,8 @@ afterEach(() => {
     "__chatClose",
     "__chatSend",
     "__chatSubmit",
+    "__chatStarter",
+    "__docContext",
   ])
     delete (window as unknown as Record<string, unknown>)[name];
 });
@@ -144,6 +146,63 @@ describe("the page kind the widget reports to /api/chat", () => {
     }
     for (const [path, lang] of paths)
       expect((await outbound(path, lang)).page, path).toBe("main");
+  });
+});
+
+// A starter is a button that sends its own text. Its onclick must carry the
+// text intact whatever quotes it holds (CodeQL js/incomplete-sanitization,
+// task 0c5817c2).
+describe("the chat widget's starter buttons", () => {
+  /** Click starter `index` on a fresh widget; return [label, text sent]. */
+  async function clickStarter(
+    lang: string,
+    onDocPage: boolean,
+    index: number,
+  ): Promise<[string, unknown] | null> {
+    document.body.innerHTML = '<div id="chat-widget"></div>';
+    if (onDocPage)
+      (window as unknown as { __docContext: string }).__docContext = "A page.";
+    let sent: unknown = null;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const { messages } = JSON.parse(String(init.body)) as {
+        messages: { content: unknown }[];
+      };
+      sent = messages[messages.length - 1].content;
+      return new Response(
+        new ReadableStream({ start: (c) => c.close() }),
+      ) as Response;
+    }) as unknown as typeof fetch;
+    runOn(lang, CHATBOT);
+    (window as ChatWindow).__chatOpen();
+    const buttons =
+      document.querySelectorAll<HTMLButtonElement>(".chat-starter-btn");
+    if (index >= buttons.length) return null;
+    const label = buttons[index].textContent ?? "";
+    // happy-dom does not run inline handlers. A browser runs the parsed
+    // attribute value as a function body, so this does the same.
+    new Function(buttons[index].getAttribute("onclick") ?? "").call(
+      buttons[index],
+    );
+    for (let i = 0; i < 50 && sent === null; i++)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    return [label, sent];
+  }
+
+  it("sends each starter's own text, in every language, on a doc page and off one", async () => {
+    let clicked = 0;
+    for (const lang of LANGUAGES)
+      for (const onDocPage of [false, true])
+        for (let index = 0; ; index++) {
+          const result = await clickStarter(lang, onDocPage, index);
+          if (!result) break;
+          const [label, sent] = result;
+          expect(label, `${lang} ${onDocPage} ${index}`).toBeTruthy();
+          expect(sent, `${lang} ${onDocPage} ${index}`).toBe(label);
+          clicked++;
+        }
+    // The enabling condition: real buttons were clicked, both lists of
+    // every language.
+    expect(clicked).toBeGreaterThanOrEqual(LANGUAGES.length * 2 * 3);
   });
 });
 

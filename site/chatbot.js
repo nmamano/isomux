@@ -187,7 +187,7 @@
     if (messages.length === 0) {
       msgsHtml = `<div class="chat-starters">
           <p>${pageContext ? L.pageIntro : L.intro}</p>
-          ${starters.map((q) => `<button class="chat-starter-btn" onclick="window.__chatSend('${q.replace(/'/g, "\\'")}')">${q}</button>`).join("")}
+          ${starters.map((q, i) => `<button class="chat-starter-btn" onclick="window.__chatStarter(${i})">${esc(q)}</button>`).join("")}
         </div>`;
     } else {
       msgsHtml = messages
@@ -359,6 +359,10 @@
   };
   window.__chatSend = (text) => {
     sendMessage(text);
+  };
+  // A starter's text never goes into the onclick attribute.
+  window.__chatStarter = (i) => {
+    sendMessage(starters[i]);
   };
 
   render();

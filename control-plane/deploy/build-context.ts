@@ -53,7 +53,7 @@ export function patternToRegExp(pattern: string): RegExp {
     } else if (character === "?") {
       out += "[^/]";
     } else {
-      out += character.replace(/[.+^${}()|[\]\\/]/, "\\$&");
+      out += character.replace(/[.+^${}()|[\]\\/]/g, "\\$&");
     }
   }
   return new RegExp(`^${out}$`);

@@ -32,6 +32,7 @@ afterEach(() => {
     "__chatClose",
     "__chatSend",
     "__chatSubmit",
+    "__chatStarter",
   ])
     delete (window as unknown as Record<string, unknown>)[name];
 });

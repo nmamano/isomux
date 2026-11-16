@@ -461,8 +461,8 @@ const SAFE_PATTERNS: RegExp[] = [
 
 function normalizeAbsolutePaths(cmd: string): string {
   if (!cmd) return cmd;
-  let result = cmd.replace(/^\/(?:\S*\/)*s?bin\/rm(?=\s|$)/, "rm");
-  result = result.replace(/^\/(?:\S*\/)*s?bin\/git(?=\s|$)/, "git");
+  let result = cmd.replace(/^\/(?:[^\s/]*\/)*s?bin\/rm(?=\s|$)/, "rm");
+  result = result.replace(/^\/(?:[^\s/]*\/)*s?bin\/git(?=\s|$)/, "git");
   return result;
 }
 
@@ -4175,7 +4175,7 @@ function shellWriteFlow(
     if (!/[$`*?[{]/.test(word.text) || ["[", "[[", "{"].includes(word.text))
       return false;
     if (
-      !/^(?:[^$`*?[{]|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\})*$/.test(
+      !/^(?:[^$`*?[{]|\$[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])|\$\{[A-Za-z_][A-Za-z0-9_]*\})*$/.test(
         word.text,
       )
     )

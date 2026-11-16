@@ -200,7 +200,7 @@ async function serveIndexHtml(
     // The app's own manifest replaces the office's, which applyWidgetMetadata
     // removed. Chrome fetches a manifest without cookies unless the link asks
     // for them.
-    const manifest = escapeHtml(
+    const manifest = escapeAttribute(
       `/api/apps/${encodeURIComponent(widget.name)}/manifest`,
     );
     html = html.replace(

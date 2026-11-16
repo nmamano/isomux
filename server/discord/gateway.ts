@@ -55,6 +55,9 @@ interface Payload {
   t?: string | null;
 }
 
+// Discord sends about 41 s; anything above 10 minutes is not a heartbeat.
+const MAX_HEARTBEAT_MS = 600_000;
+
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -63,6 +66,29 @@ const isStr = (v: unknown): v is string => typeof v === "string";
 // The resume URL Discord gives carries no query.
 function withQuery(url: string): string {
   return url.includes("?") ? url : `${url}?v=10&encoding=json`;
+}
+
+// The resume URL from READY, when it is a Discord gateway (wss: on
+// discord.gg) or on the start URL's own origin; otherwise null, and a resume
+// goes to the start URL.
+function onDiscord(resume: string, start: string): string | null {
+  let target: URL;
+  try {
+    target = new URL(resume);
+  } catch {
+    return null;
+  }
+  const discord =
+    target.protocol === "wss:" &&
+    (target.hostname === "discord.gg" ||
+      target.hostname.endsWith(".discord.gg"));
+  let sameOrigin = false;
+  try {
+    sameOrigin = target.origin === new URL(start).origin;
+  } catch {
+    // An unreadable start URL matches nothing.
+  }
+  return discord || sameOrigin ? resume : null;
 }
 
 // Runs until a stop command, the end of stdin or a fatal close. The exit
@@ -145,7 +171,11 @@ export async function runGateway(io: GatewayIO): Promise<number> {
         const user = d.user;
         if (!isObj(user) || !isStr(user.id) || !isStr(user.username)) return;
         sessionId = isStr(d.session_id) ? d.session_id : null;
-        resumeUrl = isStr(d.resume_gateway_url) ? d.resume_gateway_url : null;
+        resumeUrl = isStr(d.resume_gateway_url)
+          ? onDiscord(d.resume_gateway_url, url)
+          : null;
+        if (isStr(d.resume_gateway_url) && !resumeUrl)
+          log("gateway: ignored a resume URL that is not on Discord");
         botUserId = user.id;
         reconnects = 0;
         emit({ ev: "ready", user: { id: user.id, name: user.username } });
@@ -282,9 +312,14 @@ export async function runGateway(io: GatewayIO): Promise<number> {
     if (typeof p.s === "number") seq = p.s;
     switch (p.op) {
       case 10: {
+        // A timer above 2^31-1 ms fires at once, and 0 or less spins.
+        const given = isObj(p.d) ? p.d.heartbeat_interval : undefined;
         const interval =
-          isObj(p.d) && typeof p.d.heartbeat_interval === "number"
-            ? p.d.heartbeat_interval
+          typeof given === "number" &&
+          Number.isFinite(given) &&
+          given > 0 &&
+          given <= MAX_HEARTBEAT_MS
+            ? given
             : 41_250;
         stopBeats();
         firstBeat = setTimeout(
