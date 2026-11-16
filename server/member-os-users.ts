@@ -145,6 +145,14 @@ export function assertSameAgentHost(
 }
 
 // The user ids with an entry (valid or not).
+// True when any member may have an OS user: an entry, or a broken file
+// (which makes every member's agents not ready, hasMemberOsUser).
+export function anyMemberOsUser(): boolean {
+  const loaded = load();
+  if (loaded.kind === "absent") return false;
+  return loaded.kind === "broken" || Object.keys(loaded.entries).length > 0;
+}
+
 export function memberOsUserIds(): string[] {
   const loaded = load();
   return loaded.kind === "ok" ? Object.keys(loaded.entries) : [];

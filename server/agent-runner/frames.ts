@@ -123,7 +123,9 @@ export type FsRequest =
   // The path with every link resolved, as the agent user sees it, as stdout
   // bytes (at most RUNNER_PATH_MAX).
   | { call: "realpath"; path: string }
-  | { call: "chmod"; path: string; mode: number };
+  | { call: "chmod"; path: string; mode: number }
+  // Move path to `to`, never onto an existing entry (EEXIST).
+  | { call: "rename"; path: string; to: string };
 
 // Control messages after the request.
 export type ClientControl =

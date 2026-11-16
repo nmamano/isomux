@@ -37,6 +37,11 @@ export const LOCKED_HEADER = "X-Isomux-Locked";
 export const LOCKED_READY_BODY = "locked\n";
 /** The apps a lock stopped, which the first normal boot starts again. */
 export const LOCKDOWN_APPS_FILE = "apps-stopped-by-lock.json";
+/** The apps of LOCKDOWN_APPS_FILE that the first normal boot could not start
+ *  yet: their owner's host was not ready (an isolated member's runner). They
+ *  start when it is, or at a later normal boot. A file of its own, so a new
+ *  lock's record is never mixed with them. */
+export const LOCKDOWN_WAITING_APPS_FILE = "apps-stopped-by-lock-waiting.json";
 /** The apps whose unit a lock disabled, which the first normal boot enables
  *  again (task 367596bc). */
 export const LOCKDOWN_DISABLED_APPS_FILE = "apps-disabled-by-lock.json";
@@ -308,20 +313,31 @@ export function stopAppsForLockWithFailures(
 }
 
 /** At the first normal boot after a lock: enables each app in
- *  LOCKDOWN_DISABLED_APPS_FILE that is still registered, then starts each app
- *  in LOCKDOWN_APPS_FILE that is still registered and `mayRun` allows, and
- *  removes both files. An app that does not enable stays in its record for
- *  the next boot. Returns the names it started. */
+ *  LOCKDOWN_DISABLED_APPS_FILE that is still registered (one that does not
+ *  enable stays in its record for the next boot), then starts each app in
+ *  LOCKDOWN_APPS_FILE and LOCKDOWN_WAITING_APPS_FILE that is still
+ *  registered and `mayRun` allows, and removes LOCKDOWN_APPS_FILE. An app
+ *  whose owner's host is not `reachable` yet keeps its name in
+ *  LOCKDOWN_WAITING_APPS_FILE for a later call (an isolated member's runner
+ *  connect); that file goes when no name is left. Returns the names it
+ *  started. */
 export function restartAppsAfterLock(
   stateRoot: string,
   apps: LockdownApps,
   mayRun: (name: string) => boolean,
+  reachable: (name: string) => boolean = () => true,
 ): string[] {
   // The enabled bit first, with or without a record of stopped apps (the
   // unlock of an older release drops that one and keeps this one).
   const disabledRecord = join(stateRoot, LOCKDOWN_DISABLED_APPS_FILE);
   const record = join(stateRoot, LOCKDOWN_APPS_FILE);
-  if (!existsSync(disabledRecord) && !existsSync(record)) return [];
+  const waiting = join(stateRoot, LOCKDOWN_WAITING_APPS_FILE);
+  if (
+    !existsSync(disabledRecord) &&
+    !existsSync(record) &&
+    !existsSync(waiting)
+  )
+    return [];
   const registered = new Set(apps.list());
   if (existsSync(disabledRecord)) {
     // A unit that does not enable stays in the record: the next normal boot
@@ -342,11 +358,17 @@ export function restartAppsAfterLock(
       });
     else rmSync(disabledRecord, { force: true });
   }
-  if (!existsSync(record)) return [];
-  const names = readNames(record);
+  if (!existsSync(record) && !existsSync(waiting)) return [];
+  const names = [...new Set([...readNames(record), ...readNames(waiting)])];
   const started: string[] = [];
+  const kept: string[] = [];
   for (const name of names) {
-    if (!registered.has(name) || !mayRun(name)) continue;
+    if (!registered.has(name)) continue;
+    if (!reachable(name)) {
+      kept.push(name);
+      continue;
+    }
+    if (!mayRun(name)) continue;
     try {
       apps.start(name);
       started.push(name);
@@ -354,6 +376,9 @@ export function restartAppsAfterLock(
       console.error(`[lockdown] the app ${name} did not start:`, err);
     }
   }
+  if (kept.length > 0)
+    writeFileSync(waiting, `${JSON.stringify(kept)}\n`, { mode: 0o600 });
+  else rmSync(waiting, { force: true });
   rmSync(record, { force: true });
   return started;
 }

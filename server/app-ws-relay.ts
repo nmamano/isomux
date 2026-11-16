@@ -40,6 +40,7 @@ import {
 import type { AppRegistry } from "./app-registry.ts";
 import {
   buildUpstreamHeaders,
+  proveAppPortOwner,
   proveAppRunning,
   readProxySecret,
 } from "./app-proxy.ts";
@@ -266,6 +267,8 @@ export interface AppWsRelayContext {
   recheckMs?: number;
   upstreamLimits?: Partial<AppUpstreamLimits>;
   dial?: typeof dialAppUpstream;
+  // Tests: the text of /proc/net/tcp and /proc/net/tcp6.
+  readSocketTable?: (path: string) => string;
 }
 
 // What rides on the Bun socket. `kind` is the discriminant the office's shared
@@ -819,6 +822,12 @@ export async function relayWsToApp(
   if (!proxySecret.ok) {
     stopWatchingRetirement();
     return proxySecret.response;
+  }
+  // Nor a socket of another OS user on its port.
+  const portOwner = proveAppPortOwner(ctx);
+  if (!portOwner.ok) {
+    stopWatchingRetirement();
+    return portOwner.response;
   }
 
   // 5. A permit from the WebSocket pool, taken in this synchronous turn.

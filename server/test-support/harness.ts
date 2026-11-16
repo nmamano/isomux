@@ -31,6 +31,7 @@ import {
   createFakeAppSupervisor,
   type FakeAppSupervisor,
 } from "./fake-app-supervisor.ts";
+import { fakeMemberAppSupervisor } from "./fake-member-runner.ts";
 import { assertSafeToDelete, removeStateDir } from "./temp-state.ts";
 import {
   sessionCookieName,
@@ -293,6 +294,9 @@ async function bootTestServer(
         throw new Error("test harness: no Codex model discovery");
       },
       appSupervisor,
+      // The same for an isolated member's apps: no member runner, no user
+      // manager (fake-member-runner.ts).
+      memberAppSupervisor: fakeMemberAppSupervisor(),
       createCodexAccountClient: unavailableAccountClient,
       createClaudeAccountClient: unavailableAccountClient,
       skipSchedulers: true,

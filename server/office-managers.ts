@@ -68,9 +68,22 @@ import { officeAuditStore } from "./audit-store.ts";
 import { trackUiBuild, type UiBuildTracker } from "./ui-build.ts";
 import { createTurnEndWatch } from "./turn-end-watch.ts";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
-import type { AppSupervisor } from "./app-supervisor.ts";
 import { appHostingUnsupportedReason } from "./app-hosting.ts";
-import { defaultAppSupervisor } from "./app-supervisor-default.ts";
+import {
+  defaultAppSupervisor,
+  defaultOfficeAppUid,
+} from "./app-supervisor-default.ts";
+import {
+  createAppSupervisorRouter,
+  type AppSupervisorRouter,
+} from "./app-supervisor-router.ts";
+import { appRegistry, setMemberAppData } from "./app-registry.ts";
+import { hostFor, memberAppRunner } from "./member-hosts.ts";
+import {
+  anyMemberOsUser,
+  hasMemberOsUser,
+  memberOsUserState,
+} from "./member-os-users.ts";
 import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
 import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
 import { setProcessIsolationSwitch } from "./process-isolation-state.ts";
@@ -246,7 +259,7 @@ export let providerAccountManager: ProviderAccountManager;
 // `bun test` boots the real server through the harness, and the harness passes
 // a fake here - that default is what makes "the test suite never touches
 // systemd" a property of the wiring rather than a promise.
-export let appSupervisor: AppSupervisor;
+export let appSupervisor: AppSupervisorRouter;
 export let discoverWelcomeOpenCodeModels:
   ((userId: string) => Promise<BackendModelWire[]>) | undefined;
 // How long a Codex spawn with no model waits for the login's model list
@@ -339,7 +352,50 @@ export function createManagers(
   // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
   hostPlatform = startOpts.hostPlatform ?? process.platform;
-  appSupervisor = startOpts.appSupervisor ?? defaultAppSupervisor(hostPlatform);
+  // Each app goes to the supervisor of its owner's host
+  // (app-supervisor-router.ts): the office's, or an isolated member's.
+  appSupervisor = createAppSupervisorRouter({
+    office: startOpts.appSupervisor ?? defaultAppSupervisor(hostPlatform),
+    officeAppUid: startOpts.appSupervisor
+      ? () => process.getuid?.() ?? null
+      : defaultOfficeAppUid(hostPlatform),
+    owners: (names) => {
+      const wanted = new Set(names);
+      return new Map(
+        appRegistry
+          .list()
+          .filter((app) => wanted.has(app.name))
+          .map((app) => [app.name, app.userId]),
+      );
+    },
+    anyIsolated: anyMemberOsUser,
+    target: (userId) => {
+      if (memberOsUserState(userId).kind === "none") return { kind: "office" };
+      const runner = memberAppRunner(userId);
+      if (!runner) return { kind: "not_ready" };
+      return {
+        kind: "member",
+        key: runner.host,
+        uid: runner.osUser.uid,
+        socketPath: runner.socketPath,
+        home: runner.host.home(),
+        agentRoot: runner.host.agentRoot(),
+      };
+    },
+    memberName: (userId) => getUserById(userId)?.name ?? userId,
+    memberSupervisor: startOpts.memberAppSupervisor,
+  });
+  // A member's app data is in their agent space, made and set aside as
+  // them (app-registry.ts).
+  setMemberAppData({
+    rootFor: (userId) =>
+      hasMemberOsUser(userId)
+        ? join(hostFor(userId).agentRoot(), "apps", "data")
+        : null,
+    make: (userId, path) => appSupervisor.makeDataDir(userId, path),
+    retire: (userId, root, name, at) =>
+      appSupervisor.retireDataDir(userId, root, name, at),
+  });
   // Containers only: learn at boot whether Codex's sandbox can run here.
   void codexSandboxProbe();
   // The owner's switch for one PID namespace per agent, read at each session

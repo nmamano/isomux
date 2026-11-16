@@ -49,6 +49,7 @@ import {
   runtimeSource,
 } from "./member-runtime.ts";
 import { checkMemberShare } from "./member-share-check.ts";
+import { appsArrive, appsLeave, type LeftApp } from "./member-app-move.ts";
 import { readAgentIdentity } from "./split/start.ts";
 import { getUserById, getUserByName } from "./users.ts";
 
@@ -89,6 +90,10 @@ export interface MemberUserAdminDeps {
     plan: MemberMoveOutPlan,
     host: AgentHost,
   ) => Promise<MoveOutResult>;
+  // The member's apps (server/member-app-move.ts): torn down on the host
+  // that runs them before the files move, installed on the new one after.
+  appsLeave: (userId: string) => Promise<LeftApp[]>;
+  appsArrive: (userId: string, left: readonly LeftApp[]) => void;
 }
 
 // What the agent manager gives the move (setMemberMoveWiring, at startup).
@@ -138,6 +143,8 @@ const DEFAULT_DEPS: MemberUserAdminDeps = {
   moveHost: memberMoveHost,
   planMoveOut: planMemberMoveOut,
   transferOut: transferMemberFilesOut,
+  appsLeave,
+  appsArrive,
 };
 let deps = DEFAULT_DEPS;
 
@@ -355,17 +362,12 @@ export async function handleMemberUserAdmin(
 // The members whose go-on or disable runs.
 const goingOn = new Set<string>();
 
-// disable (design 2.3): hold the member's agents, mark moving, read their
-// files back through their runner and write them into the office, write
-// the pins, remove the member's copies, then forget the record and
-// release. A failure before the pins undoes the office's side and keeps the
+// disable (design 2.3): hold the member's agents, tear their apps down on
+// their host, mark moving, read their files back through their runner and
+// write them into the office, write the pins, remove the member's copies,
+// forget the record, install the apps on the office's host and release. A failure before the pins undoes the office's side and keeps the
 // record and the member's copy.
 async function disableMove(userId: string): Promise<Response> {
-  const fail = (reason: string): Response => {
-    clearMemberMoving(userId);
-    deps.releaseMember(userId);
-    return json(200, { ok: false, ready: false, reason });
-  };
   try {
     await deps.holdMember(userId);
   } catch (error) {
@@ -376,6 +378,24 @@ async function disableMove(userId: string): Promise<Response> {
       reason: `cannot stop the member's agents: ${(error as Error).message}`,
     });
   }
+  let left: LeftApp[];
+  try {
+    left = await deps.appsLeave(userId);
+  } catch (error) {
+    deps.releaseMember(userId);
+    return json(200, {
+      ok: false,
+      ready: false,
+      reason: (error as Error).message,
+    });
+  }
+  const fail = (reason: string): Response => {
+    clearMemberMoving(userId);
+    // Back on the member's host.
+    deps.appsArrive(userId, left);
+    deps.releaseMember(userId);
+    return json(200, { ok: false, ready: false, reason });
+  };
   markMemberMoving(userId);
   const host = deps.moveHost(userId);
   if (!host) return fail("the member's runner is not connected");
@@ -400,16 +420,19 @@ async function disableMove(userId: string): Promise<Response> {
   forgetMemberHost(userId);
   forgetMemberOsUser(userId);
   clearMemberMoving(userId);
+  // On the office's host now.
+  deps.appsArrive(userId, left);
   deps.releaseMember(userId);
   moved.done();
   return json(200, { ok: true });
 }
 
 // go-on (design 2.2): hold the member's agents, plan the move from the
-// office's paths, record and mark moving, connect, move the files through
-// the runner, write the pins, then release. A failure before the pins
-// undoes the runner's side and, when this call made the record, removes it;
-// the office copy stays.
+// office's paths, tear their apps down, record and mark moving, connect,
+// move the files through the runner, write the pins, install the apps on
+// the member's host, then release. A failure before the pins undoes the
+// runner's side and, when this call made the record, removes it; the
+// office copy stays, and the apps go back up where they were.
 async function goOn(
   userId: string,
   osUser: { name: string; uid: number },
@@ -438,6 +461,17 @@ async function goOn(
       reason: `cannot plan the file move: ${(error as Error).message}`,
     });
   }
+  let left: LeftApp[];
+  try {
+    left = await deps.appsLeave(userId);
+  } catch (error) {
+    deps.releaseMember(userId);
+    return json(200, {
+      ok: false,
+      ready: false,
+      reason: (error as Error).message,
+    });
+  }
   markMemberMoving(userId);
   recordMemberOsUser(userId, { name: osUser.name, uid: osUser.uid });
   forgetMemberCodeVerdicts(osUser.uid);
@@ -456,6 +490,8 @@ async function goOn(
       forgetMemberOsUser(userId);
     }
     clearMemberMoving(userId);
+    // Back on the host they left.
+    deps.appsArrive(userId, left);
     deps.releaseMember(userId);
     return json(200, { ok: false, ready: false, reason });
   };
@@ -497,6 +533,8 @@ async function goOn(
       );
   }
   clearMemberMoving(userId);
+  // On the member's own host now; their data has moved.
+  deps.appsArrive(userId, left);
   deps.releaseMember(userId);
   staged?.deleteOfficeCopies();
   return json(200, { ok: true, ready: true });

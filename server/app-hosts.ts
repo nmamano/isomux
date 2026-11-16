@@ -36,7 +36,6 @@
 
 import { appRegistry as productionRegistry } from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
-import { appSupervisor as productionSupervisor } from "./app-supervisor.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 import { relayToApp } from "./app-proxy.ts";
 import { withAppFraming } from "./app-framing.ts";
@@ -182,7 +181,9 @@ function isWebSocketUpgrade(req: Request): boolean {
 // with (a fake, under `bun test`) and never the production singleton.
 export interface AppHostDeps {
   registry?: AppRegistry;
-  supervisor?: AppSupervisor;
+  // Required: the office's router, which gives the relays the uid of each
+  // app's listener (app-port-owner.ts). A default would skip that check.
+  supervisor: AppSupervisor;
   // The TCP peer of the office's listener, for X-Forwarded-For, read only if a
   // request is actually relayed. See the relay for why that is the only address
   // it can honestly claim.
@@ -352,7 +353,7 @@ function dispatchAppHostRequest(
       app,
       host,
       apps,
-      supervisor: deps.supervisor ?? productionSupervisor,
+      supervisor: deps.supervisor,
       peer: deps.peer,
       proxySecret: () => deps.proxySecretFor(app),
       registry,
@@ -392,7 +393,7 @@ function dispatchAppHostRequest(
     app,
     host,
     apps,
-    supervisor: deps.supervisor ?? productionSupervisor,
+    supervisor: deps.supervisor,
     peer: deps.peer,
     member: gate.member,
     proxySecret: () => deps.proxySecretFor(app),

@@ -661,6 +661,11 @@ export interface AppSupervisor {
   // app is still running afterwards, so a caller can safely treat a return as
   // "this app is gone".
   teardown(appName: string): void;
+  // Remove the app's generated files and nothing else: no systemctl call.
+  // Only for a host that provably has no user manager to ask (an isolated
+  // member's, app-supervisor-router.ts): the unit, its enable link, the
+  // launcher, the token and the secrets file it owns.
+  removeFiles?(appName: string): void;
   start(appName: string): void;
   stop(appName: string): void;
   restart(appName: string): void;
@@ -671,6 +676,11 @@ export interface AppSupervisor {
   // rather than throws: a query that fails is false, never a throw.
   provablyNotRunning(appName: string): boolean;
   logs(appName: string, lines: number): string[];
+  // The uid whose listening socket the relays accept for the app
+  // (app-port-owner.ts), or null to refuse. The office's router
+  // (app-supervisor-router.ts) has it; a supervisor without it is not
+  // checked (tests).
+  appUid?(appName: string): number | null;
   // The lock's (task 367596bc, server/lockdown.ts disableAppsForLock): the
   // named apps whose unit is "enabled", in one call; and the enabled bit of
   // one unit, without a start or a stop. Only the systemd supervisor has
@@ -696,7 +706,28 @@ interface AppSupervisorOptions {
   appHostDomain?: () => string | null;
   // Where the app secrets files live. Default STATE_ROOT/secrets/apps.
   secretsDir?: string;
+  // An isolated member's host (member-app-host.ts): start, stop and restart
+  // only queue the job (--no-block), so no call waits for an app's stop
+  // timeout, and teardown waits at most TEARDOWN_STOP_WAIT_MS for the stop.
+  noBlock?: boolean;
+  // Teardown also removes the app's secrets file. The office's secrets
+  // folder is swept by app-secrets.ts; a member's is not.
+  ownsSecretsFile?: boolean;
+  // Tests: the wait between two reads of a stopping unit.
+  sleep?: (ms: number) => void;
 }
+
+// How long a no-block teardown waits for a stopping app before it refuses
+// (the caller tries again), and how often it asks systemd meanwhile.
+export const TEARDOWN_STOP_WAIT_MS = 2_000;
+// The refusal of a no-block teardown whose app is still stopping.
+export const APP_STILL_STOPPING =
+  "the app is still stopping; try again in a few seconds";
+const TEARDOWN_STOP_POLL_MS = 200;
+
+const sleepSync = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
 
 export function createAppSupervisor(
   options: AppSupervisorOptions = {},
@@ -782,6 +813,11 @@ export function createAppSupervisor(
   const tolerate = (argv: string[]): RunResult => host.run(argv);
 
   const systemctl = (...args: string[]) => ["systemctl", "--user", ...args];
+  // start, stop and restart: on a no-block host they only queue the job.
+  const noBlock = options.noBlock === true;
+  const job = (verb: "start" | "stop" | "restart", unit: string) =>
+    noBlock ? systemctl(verb, "--no-block", unit) : systemctl(verb, unit);
+  const sleep = options.sleep ?? sleepSync;
 
   // systemd's way of saying the unit is not there. Matched narrowly and only
   // where absence is genuinely fine (tearing down an install that never got as
@@ -1063,7 +1099,7 @@ export function createAppSupervisor(
           systemctl("enable", unit),
           "systemd could not enable the app's unit",
         );
-        const started = host.run(systemctl("start", unit));
+        const started = host.run(job("start", unit));
         invalidate();
         if (started.code !== 0) {
           throw failed(
@@ -1133,7 +1169,7 @@ export function createAppSupervisor(
             );
             clearStartLimit(app.name);
             must(
-              systemctl("start", unit),
+              job("start", unit),
               "the app's updated unit could not be started",
             );
           } else if (
@@ -1144,7 +1180,7 @@ export function createAppSupervisor(
           ) {
             clearStartLimit(app.name);
             must(
-              systemctl("restart", unit),
+              job("restart", unit),
               "the app could not be restarted into its updated command",
             );
           } else if (
@@ -1186,13 +1222,28 @@ export function createAppSupervisor(
         // 1. Stop. A failure is survivable only if we can then PROVE the app
         //    is not running - after an install that never wrote a unit, stop
         //    legitimately fails and there is nothing to stop.
-        const stopped = host.run(systemctl("stop", unit));
+        const stopped = host.run(job("stop", unit));
         if (stopped.code !== 0) {
           assertNotRunning(
             appName,
             "the app could not be stopped",
             stopped.stderr || stopped.stdout,
           );
+        } else if (noBlock) {
+          // The stop is only queued: nothing below runs until systemd says
+          // the app is at rest. A slow stop is a refusal, and the caller
+          // tries again; no file is removed under a stopping app.
+          const end = now() + TEARDOWN_STOP_WAIT_MS;
+          for (;;) {
+            const { r, props } = showUnit(appName);
+            if (r.code === 0 && isProvablyNotRunning(props)) break;
+            if (now() >= end)
+              throw new AppSupervisorError(
+                "supervisor_failed",
+                APP_STILL_STOPPING,
+              );
+            sleep(TEARDOWN_STOP_POLL_MS);
+          }
         }
         // 2. Disable. Only the narrow "there is no such unit" case is
         //    tolerated. Any other failure leaves an enabled symlink behind, and
@@ -1214,6 +1265,7 @@ export function createAppSupervisor(
           // delete handler; removing the file here is what makes the pair
           // disappear together even if that revoke is retried.
           host.removeFile(tokenEnvPath(appName));
+          if (options.ownsSecretsFile) host.removeFile(secretsEnvPath(appName));
         });
         must(
           systemctl("daemon-reload"),
@@ -1245,14 +1297,28 @@ export function createAppSupervisor(
       }
     },
 
+    removeFiles(appName) {
+      try {
+        stage("the app's generated files could not be removed", () => {
+          host.removeFile(unitPath(appName));
+          host.removeFile(
+            join(host.unitDir, "default.target.wants", unitName(appName)),
+          );
+          host.removeFile(launcherPath(appName));
+          host.removeFile(tokenEnvPath(appName));
+          if (options.ownsSecretsFile) host.removeFile(secretsEnvPath(appName));
+        });
+        startErrors.delete(appName);
+      } finally {
+        invalidate();
+      }
+    },
+
     start(appName) {
       remember(appName, () => {
         try {
           clearStartLimit(appName);
-          must(
-            systemctl("start", unitName(appName)),
-            "the app could not be started",
-          );
+          must(job("start", unitName(appName)), "the app could not be started");
         } finally {
           // In a finally, not after the call: systemctl can change state and
           // still exit non-zero, so a cached read is stale on the failure path
@@ -1267,10 +1333,7 @@ export function createAppSupervisor(
     // then stopped on purpose should still be able to say why it failed.
     stop(appName) {
       try {
-        must(
-          systemctl("stop", unitName(appName)),
-          "the app could not be stopped",
-        );
+        must(job("stop", unitName(appName)), "the app could not be stopped");
       } finally {
         invalidate();
       }
@@ -1281,7 +1344,7 @@ export function createAppSupervisor(
         try {
           clearStartLimit(appName);
           must(
-            systemctl("restart", unitName(appName)),
+            job("restart", unitName(appName)),
             "the app could not be restarted",
           );
         } finally {

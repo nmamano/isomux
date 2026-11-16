@@ -2102,7 +2102,10 @@ export type AppErrorCode =
   | "supervisor_failed"
   // This host cannot run apps at all (no systemd: macOS). HTTP 501, and every
   // route that would change or run an app answers it before any side effect.
-  | "apps_not_supported";
+  | "apps_not_supported"
+  // The app's owner has their own OS user (member-os-user-design.md), and it
+  // is not ready: their runner is not connected or does not answer. HTTP 409.
+  | "member_os_user";
 
 // The wire contract for webhooks (internal-docs/webhooks-design.md section 7).
 export type { WebhookWire } from "./types.ts";

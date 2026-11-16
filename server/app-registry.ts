@@ -591,7 +591,10 @@ function loadState(
         ...record
       } = app as PersistedApp & { inboxAccess?: unknown };
       return withRegistrationGeneration(
-        { ...record, dataDir: join(dataRoot, app.name) },
+        {
+          ...record,
+          dataDir: join(dataRootOf(dataRoot, app.userId), app.name),
+        },
         visible,
       );
     });
@@ -788,6 +791,31 @@ function archiveDataDir(dataRoot: string, name: string, at: number): void {
   renameSync(from, to);
 }
 
+// The data of an app whose owner has their own OS user
+// (member-os-user-design.md, slice 3b): in their agent space, made and set
+// aside through their runner, since their app cannot write the office's
+// folder. Set at boot (office-managers.ts); null: every app's data is in the
+// registry's own data folder.
+export interface MemberAppData {
+  // The data root of `userId`'s apps, or null for the registry's own.
+  rootFor(userId: string | null): string | null;
+  // Make the folder as the member. Throws when it cannot.
+  make(userId: string, path: string): void;
+  // Set `name`'s folder under `root` aside (archiveDataDir's rule), as the
+  // member. Throws when it cannot.
+  retire(userId: string, root: string, name: string, at: number): void;
+}
+
+let memberAppData: MemberAppData | null = null;
+
+export function setMemberAppData(next: MemberAppData | null): void {
+  memberAppData = next;
+}
+
+function dataRootOf(dataRoot: string, userId: string | null): string {
+  return memberAppData?.rootFor(userId) ?? dataRoot;
+}
+
 export interface RegisterAppInput {
   name: string;
   command: string;
@@ -967,9 +995,12 @@ export function createAppRegistry(
       // record write is recoverable, a record pointing at a directory that was
       // never created is not. It is empty even when the name has been used
       // before, because delete sets the old one aside (see archiveDataDir).
-      const dataDir = join(dataRoot, input.name);
+      const memberRoot = memberAppData?.rootFor(input.userId) ?? null;
+      const dataDir = join(memberRoot ?? dataRoot, input.name);
       try {
-        mkdirSync(dataDir, { recursive: true });
+        if (memberRoot !== null && input.userId)
+          memberAppData!.make(input.userId, dataDir);
+        else mkdirSync(dataDir, { recursive: true });
       } catch (err) {
         console.error(`[app-registry] failed to create ${dataDir}:`, err);
         throw new AppRegistryError(
@@ -1138,7 +1169,10 @@ export function createAppRegistry(
       // it, and it converges: the archive step is a no-op once the directory
       // has moved.)
       try {
-        archiveDataDir(dataRoot, record.name, now());
+        const memberRoot = memberAppData?.rootFor(record.userId) ?? null;
+        if (memberRoot !== null && record.userId)
+          memberAppData!.retire(record.userId, memberRoot, record.name, now());
+        else archiveDataDir(dataRoot, record.name, now());
       } catch (err) {
         console.error(
           `[app-registry] failed to set aside the data directory for "${record.name}":`,

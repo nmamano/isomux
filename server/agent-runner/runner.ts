@@ -18,6 +18,7 @@ import {
   mkdir,
   open as openFile,
   realpath,
+  rename,
   rm,
   stat as statFile,
   writeFile,
@@ -393,6 +394,19 @@ async function runFs(
       case "chmod":
         await chmod(request.path, request.mode);
         break;
+      case "rename":
+        // Never onto an existing entry: a rename replaces an empty folder
+        // or a file without a word.
+        try {
+          lstatSync(request.to);
+          throw Object.assign(new Error(`${request.to} exists`), {
+            code: "EEXIST",
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        await rename(request.path, request.to);
+        break;
       case "enter":
         await access(request.path, constants.X_OK);
         break;
@@ -429,7 +443,13 @@ function handleFs(socket: RunnerSocket, request: FsRequest): void {
       "chmod",
       "enter",
       "realpath",
+      "rename",
     ].includes(request.call) ||
+    (request.call === "rename" &&
+      (typeof request.to !== "string" ||
+        !request.to.startsWith("/") ||
+        request.to.split("/").includes("..") ||
+        request.path.split("/").includes(".."))) ||
     (needsMode && !validMode((request as { mode?: unknown }).mode)) ||
     (request.call === "readBytes" &&
       !(Number.isSafeInteger(request.max) && request.max >= 0)) ||

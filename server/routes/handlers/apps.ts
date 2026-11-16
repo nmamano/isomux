@@ -108,6 +108,16 @@ type AppSendResult =
       detail?: Record<string, unknown>;
     };
 
+type CwdCheck = { ok: true; resolved: string } | { ok: false; error: string };
+
+// Why the host of `userId`'s apps cannot take a new one now: their own OS
+// user is not ready (member_os_user) or cannot run apps
+// (apps_not_supported).
+export type AppOwnerRefusal = {
+  code: "member_os_user" | "apps_not_supported";
+  message: string;
+} | null;
+
 export interface AppsDeps {
   // Why this host cannot run apps, or null when it can (server/app-hosting.ts).
   appHostingUnsupportedReason(): string | null;
@@ -180,14 +190,21 @@ export interface AppsDeps {
     createdBy: string;
     username: string | undefined;
   };
-  // Resolve + verify a working directory (the same check the spawn path runs).
-  // Returns the resolved absolute path, or an error string.
+  // Resolve + verify a working directory (the same check the spawn path runs)
+  // on the host of the app's owner. Returns the resolved absolute path, or an
+  // error string.
   validateCwd(
     cwd: string,
-  ): { ok: true; resolved: string } | { ok: false; error: string };
-  // Why an app may not work in this resolved folder (it overlaps the folder
-  // of an agent below Standard), or null.
-  folderRefusal?(cwd: string): string | null;
+    ownerUserId: string | null,
+  ): CwdCheck | Promise<CwdCheck>;
+  // Why an app of `ownerUserId` may not work in this resolved folder (it
+  // overlaps the folder of an agent below Standard), or null.
+  folderRefusal?(
+    cwd: string,
+    ownerUserId: string | null,
+  ): string | null | Promise<string | null>;
+  // Asked at register, before any write (app-supervisor-router.ts).
+  ownerAppsRefusal?(ownerUserId: string | null): AppOwnerRefusal;
   projectForList(
     identity: Identity,
     record: AppRecord,
@@ -328,6 +345,7 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
   persist_failed: 500,
   supervisor_failed: 500,
   apps_not_supported: 501,
+  member_os_user: 409,
 };
 
 // Answered first by every route that would change or run an app, so a host
@@ -578,9 +596,12 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       }
     },
 
-    "apps.register": (ctx) => {
+    "apps.register": async (ctx) => {
       const refused = refuseUnsupportedHost(deps);
       if (refused) return refused;
+      const owner = deps.ownerAppsRefusal?.(ctx.identity.userId) ?? null;
+      if (owner)
+        return fail(STATUS_BY_CODE[owner.code], owner.code, owner.message);
       const body = (ctx.body ?? {}) as Partial<AppRegisterReq>;
       if (typeof body.name !== "string") {
         return fail(400, "invalid_name", "name is required");
@@ -599,9 +620,12 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       }
       // Resolved here rather than in the registry so `~/` expands the same way
       // it does for an agent's own cwd, and so the stored path is absolute.
-      const cwd = deps.validateCwd(body.cwd);
+      const cwd = await deps.validateCwd(body.cwd, ctx.identity.userId);
       if (!cwd.ok) return fail(400, "invalid_cwd", cwd.error);
-      const folderErr = deps.folderRefusal?.(cwd.resolved);
+      const folderErr = await deps.folderRefusal?.(
+        cwd.resolved,
+        ctx.identity.userId,
+      );
       if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
 
       const { createdBy, username } = deps.attributionFor(ctx.identity);
@@ -665,7 +689,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // The verb that stops a mistyped command from costing an app its address
     // and its data. Everything about it is shaped by one fact: the registry
     // write is the commit point, and past it the update HAS happened.
-    "apps.update": (ctx) => {
+    "apps.update": async (ctx) => {
       const refused = refuseUnsupportedHost(deps);
       if (refused) return refused;
       const body = (ctx.body ?? {}) as Record<string, unknown>;
@@ -831,12 +855,20 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         if (body.cwd !== undefined) {
           // Same resolution as register, so `~/` means the same thing on both
           // routes and what is stored is absolute.
-          const resolved = deps.validateCwd(body.cwd);
+          const resolved = await deps.validateCwd(body.cwd, before.userId);
           if (!resolved.ok) return fail(400, "invalid_cwd", resolved.error);
-          const folderErr = deps.folderRefusal?.(resolved.resolved);
+          const folderErr = await deps.folderRefusal?.(
+            resolved.resolved,
+            before.userId,
+          );
           if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
           cwd = resolved.resolved;
         }
+        // The checks above await: a write in the gap is what this update
+        // changes, so the compare below reads the record again. An owner
+        // never moves to another host (3d), so the folder check holds.
+        const prior = cwd !== undefined ? deps.get(before.name) : before;
+        if (!prior) return fail(404, "not_found");
 
         const after = deps.update(before.name, {
           ...(creator ? { creator } : {}),
@@ -857,7 +889,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // edit - or a patch that sets a field to what it already held - leaves
         // systemd alone entirely, so editing an app's blurb never bounces a
         // running process.
-        if (after.command !== before.command || after.cwd !== before.cwd) {
+        if (after.command !== prior.command || after.cwd !== prior.cwd) {
           try {
             deps.reinstall(after);
           } catch (err) {
@@ -875,7 +907,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           }
         }
         const wire = wireOf(after, deps.states([after.name]).get(after.name));
-        announced(after.name, () => deps.announce(wire, before));
+        announced(after.name, () => deps.announce(wire, prior));
         return ok(wire);
       } catch (err) {
         return renderRegistryError(err);

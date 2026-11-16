@@ -405,3 +405,71 @@ describe("the proxy secret", () => {
     expect(logged).not.toContain("fake-key-0001");
   });
 });
+
+// Slice 3b of task b94dfd25: the file of an isolated member's app goes
+// through her host (fileFor); the store is the only source of its text.
+describe("the file of an app on a member's own host", () => {
+  function hostFile() {
+    const host = { text: null as string | null, writes: 0, reads: 0 };
+    return {
+      host,
+      file: {
+        read: () => {
+          host.reads++;
+          return host.text;
+        },
+        write: (text: string) => {
+          host.writes++;
+          host.text = text;
+        },
+      },
+    };
+  }
+
+  // MUTANT: the pass writes the office's folder for her app too (dies on
+  // the office file).
+  it("is written through her host and never in the office's folder", async () => {
+    const h = hostFile();
+    const t = setup({ fileFor: (a) => (a.name === "hers" ? h.file : null) });
+    const hers = t.install(app("hers", 1));
+    add(t.store, OFFICE, "OFFICE_KEY", "fake-office-0002", [hers]);
+    await t.appSecrets.sync();
+    expect([h.host.text, t.file("hers")]).toEqual([
+      fileOf(hers, { OFFICE_KEY: "fake-office-0002" }),
+      null,
+    ]);
+  });
+
+  // MUTANT: an unchanged compare that keeps the file's text (dies on the
+  // text).
+  it("gets the store's text again when its file was changed, and is left alone when it matches", async () => {
+    const h = hostFile();
+    const t = setup({ fileFor: () => h.file });
+    const hers = t.install(app("hers", 1));
+    add(t.store, OFFICE, "OFFICE_KEY", "fake-office-0003", [hers]);
+    await t.appSecrets.sync();
+    const want = fileOf(hers, { OFFICE_KEY: "fake-office-0003" });
+    h.host.text = 'OFFICE_KEY="planted"\n';
+    await t.appSecrets.sync();
+    const writes = h.host.writes;
+    await t.appSecrets.sync();
+    expect([h.host.text, h.host.writes - writes]).toEqual([want, 0]);
+  });
+
+  it("skips her app while her host is not ready, and writes the others", async () => {
+    const t = setup({
+      fileFor: (a) => {
+        if (a.name === "hers") throw new Error("not ready");
+        return null;
+      },
+    });
+    const hers = t.install(app("hers", 1));
+    const office = t.install(app("office", 2, null));
+    add(t.store, OFFICE, "OFFICE_KEY", "fake-office-0004", [hers, office]);
+    await t.appSecrets.sync();
+    expect([
+      t.file("office"),
+      t.logs.some((l) => l.includes('"hers"')),
+    ]).toEqual([fileOf(office, { OFFICE_KEY: "fake-office-0004" }), true]);
+  });
+});

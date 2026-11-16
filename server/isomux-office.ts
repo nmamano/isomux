@@ -1,7 +1,11 @@
 import { readWidgetMetadata } from "./app-widget-metadata.ts";
+import { setMemberAppMoveDeps } from "./member-app-move.ts";
+import type { AppSupervisorRouterDeps } from "./app-supervisor-router.ts";
 import {
   connectMemberHosts,
   hostFor,
+  onMemberConnected,
+  memberRunnerSocketPath,
   memberShareOf,
   setMemberSecretHooks,
   writeMemberCaBundles,
@@ -150,7 +154,7 @@ import {
   validateAgentCwd,
 } from "./agent-folder.ts";
 import { modelFamilyMismatchError } from "./agent-validators.ts";
-import type { Cronjob, CronjobTarget } from "../shared/types.ts";
+import type { AppRecord, Cronjob, CronjobTarget } from "../shared/types.ts";
 import { LOBBY_ROOM_ID, cronjobRunStreamId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import type { FreeModelProbeTiming } from "./welcome-opencode-model.ts";
@@ -446,7 +450,7 @@ import { createSystemdHost } from "./app-supervisor.ts";
 import { officeUnitFromCgroup, unitPrefixFor } from "./office-units.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
 import { allowMoveRedeemRequest } from "./ready-limiter.ts";
-import { lockOfficeNow } from "./office-lock-gate.ts";
+import { lockOfficeNow, officeLockedNow } from "./office-lock-gate.ts";
 import {
   createOfficeExportJobs,
   spawnExportChildProcess,
@@ -491,11 +495,17 @@ import {
   sweepPersonalProviderHomes,
 } from "./provider-homes.ts";
 import {
+  anyMemberOsUser,
   hasMemberOsUser,
   sameAgentHost,
   memberOsUidTies,
   memberOsUserIds,
+  memberOsUserState,
 } from "./member-os-users.ts";
+import {
+  keepStoppingMemberApps,
+  lockedAppSupervisor,
+} from "./locked-member-apps.ts";
 import { purgeMemberAgentSpace } from "./member-move-out.ts";
 import { BUNDLED_SKILLS_DIR } from "./skills.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
@@ -800,6 +810,8 @@ const appSecrets = createAppSecrets({
     },
   },
   dir: appSecretsDir(STATE_ROOT),
+  fileFor: (app) => appSupervisor.secretsFile(app),
+  skip: (app) => !appSupervisor.ownerReady(app.userId),
   proxySecret: productionAppProxySecret,
   oauthOwned: (scope) => {
     try {
@@ -1299,9 +1311,7 @@ function afterMemberPackSaved(userId: string): void {
 // Stops each app among `which` whose owner's pack has no apps write, or whose
 // folder is inside the office state. At boot for every app: an app unit is
 // enabled, so a reboot starts it again.
-function stopAppsThatMayNotRun(
-  which: (app: { userId?: string | null }) => boolean,
-): void {
+function stopAppsThatMayNotRun(which: (app: AppRecord) => boolean): void {
   let apps: ReturnType<typeof appRegistry.list>;
   try {
     apps = appRegistry.list();
@@ -2557,6 +2567,62 @@ function migrateOwnersToRuleBasedAccess(): void {
   }
 }
 
+// The apps of an isolated member whose runner is not connected wait: the
+// reconcile passes skip them, with one line per member, and run for them at
+// their runner's connect (reconcileMemberApps).
+function appOwnerReachable(app: AppRecord): boolean {
+  if (appSupervisor.ownerReady(app.userId)) return true;
+  if (app.userId && !appsWaitLogged.has(app.userId)) {
+    appsWaitLogged.add(app.userId);
+    console.log(
+      `[apps] the apps of ${getUserById(app.userId)?.name ?? app.userId} wait for their runner to connect`,
+    );
+  }
+  return false;
+}
+const appsWaitLogged = new Set<string>();
+let stopMemberAppReconcile: (() => void) | null = null;
+
+// A member's runner connected: their apps get the boot passes now. The
+// starts come last, after their tokens, URLs and secrets. Nothing while the
+// process is locked (the lockdown route's gap before the stop): no app
+// starts, and the unlock still finds the names it needs.
+function reconcileMemberApps(userId: string): void {
+  if (officeLockedNow()) return;
+  if (appHostingUnsupported() !== null) return;
+  appsWaitLogged.delete(userId);
+  appSupervisor.forget(userId);
+  const theirs = (app: AppRecord) => app.userId === userId;
+  if (!appRegistry.list().some(theirs)) return;
+  reconcileAppTokensAtBoot(theirs);
+  reconcileAppUrlsAtBoot(theirs);
+  appSecrets.syncNow({ boot: true });
+  stopAppsThatMayNotRun(theirs);
+  startAppsAfterLock((name) => appRegistry.get(name)?.userId === userId);
+}
+
+// Starts the apps a lock stopped (restartAppsAfterLock) whose owner is
+// `reachable`; the others wait for a later call.
+function startAppsAfterLock(reachable: (name: string) => boolean): void {
+  try {
+    const started = restartAppsAfterLock(
+      STATE_ROOT,
+      lockdownApps(appSupervisor),
+      (name) => {
+        const app = appRegistry.get(name);
+        return app ? appMayRun(app) : appsMayRunFor(undefined);
+      },
+      reachable,
+    );
+    if (started.length > 0)
+      console.log(
+        `[lockdown] started the apps the lock stopped: ${started.join(", ")}`,
+      );
+  } catch (err) {
+    console.error("[lockdown] could not start the apps the lock stopped:", err);
+  }
+}
+
 // One-time-per-boot convergence of app tokens (server/app-token-reconcile.ts):
 // every registered app ends up with a token whose hash and environment file
 // agree, and hashes for apps that no longer exist are dropped. Nothing is
@@ -2566,10 +2632,15 @@ function migrateOwnersToRuleBasedAccess(): void {
 // ADVISORY: a failure here must never stop the office from booting, so the
 // whole pass is caught. It is also the reason an app registered before tokens
 // existed converges without anyone doing anything by hand.
-function reconcileAppTokensAtBoot(): void {
+// `only`: the apps to check (an isolated member's, at their runner's
+// connect); the others stay live.
+function reconcileAppTokensAtBoot(
+  only: (app: AppRecord) => boolean = appOwnerReachable,
+): void {
   try {
     const report = reconcileAppTokens({
       list: () => appRegistry.list(),
+      skip: (app) => !only(app),
       tokens: appTokens,
       readToken: (name) => appSupervisor.readToken(name),
       removeToken: (name) => appSupervisor.removeToken(name),
@@ -2600,10 +2671,12 @@ function reconcileAppTokensAtBoot(): void {
 //
 // ADVISORY, for the same reason as the token pass: a failure here must never
 // stop the office from booting.
-function reconcileAppUrlsAtBoot(): void {
+function reconcileAppUrlsAtBoot(
+  only: (app: AppRecord) => boolean = appOwnerReachable,
+): void {
   try {
     const report = reconcileAppUrls({
-      list: () => appRegistry.list(),
+      list: () => appRegistry.list().filter(only),
       expectedUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
       readUnitFile: (name) => appSupervisor.readUnitFile(name),
       restoreUnitFile: (name, contents) =>
@@ -2951,6 +3024,50 @@ function enqueueFailure(result: Extract<EnqueueResult, { ok: false }>): {
 // The office's conversation-log tree, read-only. Built once: it holds no state
 // beyond the directory path, so every log read shares it.
 const officeLogSource = fileLogSource(join(STATE_ROOT, "logs"));
+
+// The token and its environment file, written together. A failure to write
+// the file takes the hash back, so an app either has a usable token or has
+// none - never a hash whose plaintext was lost, which is unrepairable (isomux
+// cannot reproduce a token it does not keep). Never throws.
+function provisionAppToken(record: AppRecord): boolean {
+  let minted: string;
+  try {
+    minted = appTokens.mint(record.name, record.userId);
+  } catch (err) {
+    console.error(`[apps] "${record.name}" got no token:`, err);
+    return false;
+  }
+  try {
+    appSupervisor.provisionToken(record.name, minted);
+    return true;
+  } catch (err) {
+    console.error(
+      `[apps] "${record.name}" token could not be delivered, revoking it:`,
+      err,
+    );
+    try {
+      appTokens.revoke(record.name);
+    } catch (revokeErr) {
+      console.error(
+        `[apps] "${record.name}" token could not be revoked either:`,
+        revokeErr,
+      );
+    }
+    return false;
+  }
+}
+
+// Before a start or restart: an app whose host holds no token that matches
+// its hash (a move whose install failed after the mint, a lost file) gets a
+// new one first, so the process starts with a token that verifies. A host
+// that cannot be read throws, as the start would.
+function ensureAppToken(name: string): void {
+  const record = appRegistry.get(name);
+  if (!record) return;
+  const current = appSupervisor.readToken(name);
+  if (current !== null && appTokens.matches(name, current)) return;
+  provisionAppToken(record);
+}
 
 // Give a live agent a new manager (task 6a9deaba): the agent manager's core
 // mutation, then the apps, schedules and webhooks the agent made that its old
@@ -3636,9 +3753,18 @@ function buildExecutorDeps(
       list: () => appRegistry.list(),
       get: (name) => appRegistry.get(name),
       register: (input) => appRegistry.register(input),
-      folderRefusal: (cwd) =>
-        stateFolderRefusal(cwd, STATE_ROOT) ??
-        folderOverlapRefusal(cwd, null, folderRuleState()),
+      // An isolated member's app: its folder's links resolve as the member.
+      folderRefusal: async (cwd, ownerUserId) => {
+        const dir = memberFolderHost(ownerUserId)
+          ? await folderForRules(cwd, ownerUserId)
+          : cwd;
+        return (
+          stateFolderRefusal(dir, STATE_ROOT) ??
+          folderOverlapRefusal(dir, null, folderRuleState())
+        );
+      },
+      ownerAppsRefusal: (ownerUserId) =>
+        appSupervisor.ownerAppsRefusal(ownerUserId),
       remove: (name) => appRegistry.remove(name),
       update: (name, patch) => appRegistry.update(name, patch),
       resolveMessageTarget: (ownerUserId, agentId, identity) => {
@@ -3674,33 +3800,7 @@ function buildExecutorDeps(
       // write the file takes the hash back, so an app either has a usable
       // token or has none - never a hash whose plaintext was lost, which is
       // unrepairable (isomux cannot reproduce a token it does not keep).
-      provisionToken: (record) => {
-        let minted: string;
-        try {
-          minted = appTokens.mint(record.name, record.userId);
-        } catch (err) {
-          console.error(`[apps] "${record.name}" got no token:`, err);
-          return false;
-        }
-        try {
-          appSupervisor.provisionToken(record.name, minted);
-          return true;
-        } catch (err) {
-          console.error(
-            `[apps] "${record.name}" token could not be delivered, revoking it:`,
-            err,
-          );
-          try {
-            appTokens.revoke(record.name);
-          } catch (revokeErr) {
-            console.error(
-              `[apps] "${record.name}" token could not be revoked either:`,
-              revokeErr,
-            );
-          }
-          return false;
-        }
-      },
+      provisionToken: provisionAppToken,
       syncAppSecrets: () => appSecrets.syncNow(),
       revokeToken: (name) => appTokens.revoke(name),
       retireRegistration: (app) => retireAppRegistration(app),
@@ -3761,12 +3861,14 @@ function buildExecutorDeps(
       teardown: (name) => appSupervisor.teardown(name),
       start: (name) => {
         refuseAppThatMayNotRun(name);
+        ensureAppToken(name);
         appSupervisor.start(name);
         appProcessStarted(name);
       },
       stop: (name) => appSupervisor.stop(name),
       restart: (name) => {
         refuseAppThatMayNotRun(name);
+        ensureAppToken(name);
         appSupervisor.restart(name);
         appProcessStarted(name);
       },
@@ -3784,9 +3886,15 @@ function buildExecutorDeps(
         appSecrets.syncNow();
       },
       attributionFor,
-      validateCwd: (cwd) => {
+      // On the owner's host: an isolated member's folder as the member.
+      validateCwd: async (cwd, ownerUserId) => {
         try {
-          return { ok: true, resolved: agentManager.validateCwd(cwd) };
+          return {
+            ok: true,
+            resolved: memberFolderHost(ownerUserId)
+              ? await validateAgentCwd(cwd, ownerUserId)
+              : agentManager.validateCwd(cwd),
+          };
         } catch (err) {
           return { ok: false, error: errMessage(err, "Invalid directory") };
         }
@@ -6151,25 +6259,15 @@ function runBackgroundBoot(
   agentManager.setSessionFolderRefusal(sessionFolderRefusal);
   agentManager.setPlacementFolderRefusal(cwdFolderRefusal);
   // The apps of a member whose pack has no apps write stay stopped across a
-  // reboot or a crash between a pack save and its stops.
-  stopAppsThatMayNotRun(() => true);
+  // reboot or a crash between a pack save and its stops. An isolated
+  // member's apps get both passes at their runner's connect
+  // (reconcileMemberApps).
+  stopAppsThatMayNotRun(appOwnerReachable);
   // The first boot after an unlock starts the apps the lock stopped.
-  try {
-    const started = restartAppsAfterLock(
-      STATE_ROOT,
-      lockdownApps(appSupervisor),
-      (name) => {
-        const app = appRegistry.get(name);
-        return app ? appMayRun(app) : appsMayRunFor(undefined);
-      },
-    );
-    if (started.length > 0)
-      console.log(
-        `[lockdown] started the apps the lock stopped: ${started.join(", ")}`,
-      );
-  } catch (err) {
-    console.error("[lockdown] could not start the apps the lock stopped:", err);
-  }
+  startAppsAfterLock((name) => {
+    const app = appRegistry.get(name);
+    return !app || appOwnerReachable(app);
+  });
   try {
     finishMoveAtBoot(officeMoveSeams);
   } catch (err) {
@@ -6385,6 +6483,10 @@ export interface StartServerOpts {
   // writes systemd unit files and runs systemctl against the real user manager,
   // which is shared with whatever office is running on the same box.
   appSupervisor?: AppSupervisor;
+  // The same for an isolated member's apps (app-supervisor-router.ts): the
+  // host and supervisor of a member whose runner is connected. Absent: their
+  // runner, through sync_call.py.
+  memberAppSupervisor?: AppSupervisorRouterDeps["memberSupervisor"];
   // Inject the pager's HTTP send. Tests pass a stub: no test sends to Discord.
   pagerFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // Inject the GitHub issue sync's HTTP calls (task 7fc83592). Tests pass a
@@ -6659,6 +6761,17 @@ export async function startServer(
     // Then their vault secrets: a lost file is written again, and a unit
     // written before app secrets existed gets its line.
     await appSecrets.sync({ boot: true });
+    // A member's apps move with their OS user (member-app-move.ts).
+    setMemberAppMoveDeps({
+      apps: () => appRegistry.list(),
+      supervisor: appSupervisor,
+      provisionToken: provisionAppToken,
+      revokeToken: (name) => appTokens.revoke(name),
+      syncSecrets: () => appSecrets.syncNow(),
+    });
+    // One listener per server, also when a test boots several.
+    stopMemberAppReconcile?.();
+    stopMemberAppReconcile = onMemberConnected(reconcileMemberApps);
   }
   // A member renamed before renames reached the hooks (task 3278f29c): each
   // hook takes its owner's name now. No record keeps the name.
@@ -6761,8 +6874,9 @@ async function startLockedOfficeFromBoot(): Promise<void> {
     exportBaseDir: lockExportBaseDir(),
     port: PORT,
     ...(loopback ? { hostname: "127.0.0.1" } : {}),
-    apps: lockdownApps(defaultAppSupervisor(process.platform)),
+    apps: lockedOfficeApps(),
   });
+  keepStoppingLockedMemberApps();
 }
 
 // The MOVE-locked server binds where the locked office would.
@@ -6782,11 +6896,46 @@ async function startMoveLockedOfficeFromBoot(): Promise<void> {
     }),
     port: PORT,
     ...(loopback ? { hostname: "127.0.0.1" } : {}),
-    apps: lockdownApps(defaultAppSupervisor(process.platform)),
+    apps: lockedOfficeApps(),
     runUnits: (argv) => createSystemdHost().run(argv),
     // Restart=always starts the office again, now in a normal boot.
     requestStop: () => process.kill(process.pid, "SIGTERM"),
     now,
+  });
+  keepStoppingLockedMemberApps();
+}
+
+// The apps of a locked office: the office's own through its supervisor, an
+// isolated member's through their runner (locked-member-apps.ts).
+let lockedApps: LockdownApps | null = null;
+function lockedOfficeApps(): LockdownApps {
+  lockedApps ??= lockdownApps(
+    lockedAppSupervisor({
+      office: defaultAppSupervisor(process.platform),
+      owners: (names) => {
+        const wanted = new Set(names);
+        return new Map(
+          appRegistry
+            .list()
+            .filter((app) => wanted.has(app.name))
+            .map((app) => [app.name, app.userId]),
+        );
+      },
+      anyIsolated: anyMemberOsUser,
+      memberState: memberOsUserState,
+      socketPath: memberRunnerSocketPath,
+    }),
+  );
+  return lockedApps;
+}
+
+// A member's runner that did not answer at the locked boot is asked again
+// until their apps are stopped.
+function keepStoppingLockedMemberApps(): void {
+  if (!anyMemberOsUser()) return;
+  keepStoppingMemberApps({
+    apps: lockedOfficeApps(),
+    isMemberApp: (name) => hasMemberOsUser(appRegistry.get(name)?.userId),
   });
 }
 

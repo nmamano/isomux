@@ -27,6 +27,7 @@ import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
 import { claudeConfigRoot } from "./claude-session-root.ts";
 import { claudeProjectDir, findCodexRolloutPath } from "./cwd-utils.ts";
 import { buildEnvForUserId, buildOfficeEnv } from "./env-loader.ts";
+import { memberAppDataTrees } from "./member-app-move.ts";
 import { hostFor } from "./member-hosts.ts";
 import { hasMemberOsUser } from "./member-os-users.ts";
 import { officeUsageTarget } from "./member-usage-cap.ts";
@@ -142,6 +143,9 @@ export function planMemberMove(
         destParts: ["opencode", "profiles", name],
       });
   }
+  // The data of the member's apps (member-app-move.ts).
+  for (const tree of memberAppDataTrees(userId))
+    if (realFolder(tree.src)) plan.trees.push(tree);
   const personalClaude = resolve(officePersonalProviderHome(userId, "claude"));
   // A member who already has their own OS user (a rerun, or the check at
   // connect): only the office's roots, never a path in their home.

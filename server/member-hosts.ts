@@ -149,6 +149,31 @@ export function memberMoveHost(userId: string): AgentHost | undefined {
   return entry.host;
 }
 
+// The runner of `userId` for their apps (app-supervisor-router.ts): their
+// OS user, the connected host and its socket, when the runner is connected
+// for their current record and their files are not moving; else null.
+export function memberAppRunner(userId: string): {
+  osUser: MemberOsUser;
+  host: AgentHost;
+  socketPath: string;
+} | null {
+  if (moving.has(userId)) return null;
+  const state = memberOsUserState(userId);
+  const entry = connected.get(userId);
+  if (
+    state.kind !== "isolated" ||
+    !entry ||
+    entry.osUser.name !== state.osUser.name ||
+    entry.osUser.uid !== state.osUser.uid
+  )
+    return null;
+  return {
+    osUser: entry.osUser,
+    host: entry.host,
+    socketPath: memberRunnerSocketPath(entry.osUser.name),
+  };
+}
+
 // The member's runner is connected for their current record.
 export function memberHostConnected(userId: string): boolean {
   const state = memberOsUserState(userId);

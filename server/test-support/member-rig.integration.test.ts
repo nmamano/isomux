@@ -2249,6 +2249,103 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
     }, 200_000);
   });
 
+  // Part 3b: apps of an isolated member in the container shape, which has
+  // no systemd user manager. Her own check refuses her apps (501); the
+  // office's apps run as the container supervisor's uid, which is what the
+  // relay's port check expects (the owner of its control socket); an app
+  // made before enable is torn down on the office, stays registered and
+  // stopped, and can be deleted.
+  describe("the apps of a member", () => {
+    const appCommand = "python3 -m http.server $PORT --bind 127.0.0.1";
+    // The uid of the socket that listens on the port, from the kernel's
+    // tables (the image has no ss): field 4 is the state (0A is LISTEN),
+    // field 8 the uid.
+    const listenerUid = (port: number) => {
+      const hex = port.toString(16).toUpperCase().padStart(4, "0");
+      const out = root(
+        name,
+        `awk '$4 == "0A" && $2 ~ /:${hex}$/ { print $8 }' /proc/net/tcp /proc/net/tcp6`,
+      ).out.trim();
+      return out === "" ? null : out.split("\n")[0];
+    };
+    const appsOf = (who: string) => {
+      const list = api(name, who, "GET", "/api/apps", undefined) as unknown;
+      if (!Array.isArray(list))
+        throw new Error(`apps: ${JSON.stringify(list)}`);
+      return (list as { name: string }[]).map((a) => a.name);
+    };
+
+    it("refuses Alice's app from her own check, and writes nothing of it", () => {
+      const made = api(name, aliceCookie, "POST", "/api/apps", {
+        name: "rig-alice-app",
+        command: appCommand,
+        cwd: "/tmp",
+      }) as { error?: { code?: string } };
+      expect([
+        made.error?.code,
+        root(
+          name,
+          `find ${STATE}/apps ${STATE}/container-runtime -name '*rig-alice-app*'`,
+        ).out,
+        appsOf(cookie).includes("rig-alice-app"),
+      ]).toEqual(["apps_not_supported", "", false]);
+    });
+
+    it("runs the owner's app as the uid that owns the container supervisor's socket", async () => {
+      const made = api(name, cookie, "POST", "/api/apps", {
+        name: "rig-office-app",
+        command: appCommand,
+        cwd: "/tmp",
+      }) as { port?: number; name?: string };
+      if (!made.port) throw new Error(`register: ${JSON.stringify(made)}`);
+      const port = made.port;
+      await waitFor("the app's listener", () => listenerUid(port) !== null);
+      const socketUid = root(
+        name,
+        `stat -c %u ${STATE}/container-runtime/control.sock`,
+      ).out.trim();
+      expect([listenerUid(port), socketUid]).toEqual([
+        String(OFFICE_UID),
+        String(OFFICE_UID),
+      ]);
+      expect(
+        api(name, cookie, "DELETE", "/api/apps/rig-office-app", undefined),
+      ).toEqual({});
+    }, 120_000);
+
+    it("stops a member's app at enable, leaves nothing of it on the office's side, and deletes it", async () => {
+      const gwen = member(name, cookie, "Gwen", [roomId]);
+      const gwenCookie = cookieOf(gwen, "Gwen");
+      const made = api(name, gwenCookie, "POST", "/api/apps", {
+        name: "rig-gwen-app",
+        command: appCommand,
+        cwd: "/tmp",
+      }) as { port?: number };
+      if (!made.port) throw new Error(`register: ${JSON.stringify(made)}`);
+      const port = made.port;
+      // The enabling condition: it runs, as the office, before the enable.
+      await waitFor("Gwen's app", () => listenerUid(port) !== null);
+      expect(listenerUid(port)).toBe(String(OFFICE_UID));
+      const enabled = command(name, "enable", "Gwen");
+      if (enabled.status !== 0) throw new Error(`enable Gwen: ${enabled.err}`);
+      await waitFor("Gwen's app to stop", () => listenerUid(port) === null);
+      expect([
+        appsOf(gwenCookie).includes("rig-gwen-app"),
+        root(
+          name,
+          `find ${STATE}/apps ${STATE}/container-runtime -name '*rig-gwen-app*'`,
+        ).out,
+      ]).toEqual([true, ""]);
+      expect(
+        api(name, gwenCookie, "DELETE", "/api/apps/rig-gwen-app", undefined),
+      ).toEqual({});
+      expect(appsOf(gwenCookie).includes("rig-gwen-app")).toBe(false);
+      const disabled = command(name, "disable", "Gwen");
+      if (disabled.status !== 0)
+        throw new Error(`disable Gwen: ${disabled.err}`);
+    }, 300_000);
+  });
+
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {
     const erinUser = "isomux-erin";
     const erinHome = `${MEMBERS}/home/${erinUser}`;

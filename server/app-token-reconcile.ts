@@ -66,6 +66,9 @@ export interface AppTokenReconcileDeps {
   regenerate(app: AppRecord): void;
   states(appNames: readonly string[]): Map<string, AppRuntime>;
   restart(appName: string): void;
+  // An app not to check now (its owner's own OS user is not ready): it is
+  // still live, so its hash stays.
+  skip?(app: AppRecord): boolean;
 }
 
 export interface AppTokenReconcileReport {
@@ -104,7 +107,8 @@ export function reconcileAppTokens(
     pruned: [],
     failed: [],
   };
-  const apps = deps.list();
+  const all = deps.list();
+  const apps = deps.skip ? all.filter((app) => !deps.skip!(app)) : all;
   report.checked = apps.length;
 
   let before: Map<string, AppRuntime>;
@@ -199,7 +203,7 @@ export function reconcileAppTokens(
   // Hashes whose app is gone. Delete revokes, so this is the leftovers of a
   // delete that failed midway - a credential for a name that will never be
   // issued again.
-  const live = new Set(apps.map((a) => a.name));
+  const live = new Set(all.map((a) => a.name));
   for (const name of deps.tokens.names()) {
     if (live.has(name)) continue;
     try {

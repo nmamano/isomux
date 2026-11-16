@@ -29,6 +29,8 @@ import type { AppRecord } from "../shared/types.ts";
 import { APP_PROXY_SECRET_HEADER } from "./app-proxy-secret.ts";
 import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 import type { AppRuntime, AppSupervisor } from "./app-supervisor.ts";
+import { createAppPortCheck } from "./app-port-owner.ts";
+import { anyMemberOsUser } from "./member-os-users.ts";
 import { APP_COOKIE_NAME } from "./app-auth.ts";
 import { isSessionCookieName } from "./auth.ts";
 import { setAppFramingPolicy } from "./app-framing.ts";
@@ -335,6 +337,8 @@ export interface RelayContext {
   maxPerApp?: number;
   maxTotal?: number;
   fetch?: typeof fetch;
+  // Tests: the text of /proc/net/tcp and /proc/net/tcp6.
+  readSocketTable?: (path: string) => string;
 }
 
 function peerAddress(ctx: RelayContext): string | null {
@@ -394,6 +398,29 @@ export function readProxySecret(ctx: {
   }
 }
 
+// THE PORT BELONGS TO THE APP'S OS USER, before a socket opens and the proxy
+// secret leaves (app-port-owner.ts). Asked at every request and every
+// upgrade, with no cache, in the same synchronous turn as the connect.
+export function proveAppPortOwner(ctx: {
+  app: AppRecord;
+  supervisor: AppSupervisor;
+  readSocketTable?: (path: string) => string;
+}): { ok: true } | { ok: false; response: Response } {
+  const appUid = ctx.supervisor.appUid?.bind(ctx.supervisor);
+  if (!appUid) return { ok: true };
+  const verdict = createAppPortCheck({
+    appUid,
+    platform: process.platform,
+    anyIsolated: anyMemberOsUser,
+    read: ctx.readSocketTable,
+  })(ctx.app);
+  if (verdict.ok) return { ok: true };
+  // Nothing listens: the answer of a connect that fails.
+  const body =
+    verdict.uids.length === 0 ? APP_UNREACHABLE_BODY : APP_NOT_RELAYED_BODY;
+  return { ok: false, response: neutral(502, body) };
+}
+
 export async function relayToApp(
   req: Request,
   ctx: RelayContext,
@@ -413,6 +440,11 @@ export async function relayToApp(
   if (!proxySecret.ok) {
     stopWatchingRetirement();
     return proxySecret.response;
+  }
+  const portOwner = proveAppPortOwner(ctx);
+  if (!portOwner.ok) {
+    stopWatchingRetirement();
+    return portOwner.response;
   }
 
   const permit = acquirePermit(permitKey(ctx.app), {

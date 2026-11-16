@@ -22,6 +22,7 @@ import {
   LOCKDOWN_APPS_FILE,
   LOCKDOWN_DISABLED_APPS_FILE,
   LOCKDOWN_DIR_PREFIX,
+  LOCKDOWN_WAITING_APPS_FILE,
   QUARANTINED_FILES,
   ROOT_MARKER_FILE,
   disableAppsForLock,
@@ -310,6 +311,94 @@ describe("the apps a lock stops", () => {
     const later = fakeApps(["board", "chat", "idle"], []);
     expect(restartAppsAfterLock(stateRoot, later.apps, () => true)).toEqual([]);
     expect(later.calls).toEqual([]);
+  });
+});
+
+// Slice 3b of task b94dfd25: an isolated member's app the lock stopped
+// waits for her runner. The boot starts what it can reach and keeps her
+// names; her connect starts hers.
+describe("the apps a lock stopped whose owner is not reachable yet", () => {
+  const waitingOf = (stateRoot: string) => {
+    const path = join(stateRoot, LOCKDOWN_WAITING_APPS_FILE);
+    return existsSync(path)
+      ? (JSON.parse(readFileSync(path, "utf8")) as string[])
+      : null;
+  };
+
+  // MUTANT: an unreachable name is dropped like an unregistered one (dies
+  // on the waiting file).
+  test("the boot starts the office's apps and keeps hers; her connect starts hers and the file goes", () => {
+    const { stateRoot } = bed();
+    const lock = fakeApps(["board", "hers"], ["board", "hers"]);
+    stopAppsForLock(stateRoot, lock.apps);
+    const boot = fakeApps(["board", "hers"], []);
+    expect(
+      restartAppsAfterLock(
+        stateRoot,
+        boot.apps,
+        () => true,
+        (n) => n !== "hers",
+      ),
+    ).toEqual(["board"]);
+    expect([
+      existsSync(join(stateRoot, LOCKDOWN_APPS_FILE)),
+      waitingOf(stateRoot),
+    ]).toEqual([false, ["hers"]]);
+    const connect = fakeApps(["board", "hers"], ["board"]);
+    expect(
+      restartAppsAfterLock(
+        stateRoot,
+        connect.apps,
+        () => true,
+        (n) => n === "hers",
+      ),
+    ).toEqual(["hers"]);
+    expect([connect.calls, waitingOf(stateRoot)]).toEqual([
+      ["start hers"],
+      null,
+    ]);
+  });
+
+  // MUTANT: a locked boot adds its stops to an existing record (dies on
+  // "board", which did not run at the second lock).
+  test("a second lock and a reboot while locked do not start an app that did not run at that lock", () => {
+    const { stateRoot } = bed();
+    stopAppsForLock(
+      stateRoot,
+      fakeApps(["board", "hers"], ["board", "hers"]).apps,
+    );
+    restartAppsAfterLock(
+      stateRoot,
+      fakeApps(["board", "hers"], []).apps,
+      () => true,
+      (n) => n !== "hers",
+    );
+    // "board" was stopped by its owner; the second lock finds nothing
+    // running, and a reboot while locked starts "board" (enabled) again.
+    stopAppsForLock(stateRoot, fakeApps(["board", "hers"], []).apps);
+    stopAppsForLock(stateRoot, fakeApps(["board", "hers"], ["board"]).apps);
+    const unlock = fakeApps(["board", "hers"], []);
+    expect(restartAppsAfterLock(stateRoot, unlock.apps, () => true)).toEqual([
+      "hers",
+    ]);
+    expect(waitingOf(stateRoot)).toBeNull();
+  });
+
+  test("drops a waiting name that is no longer registered or may not run", () => {
+    const { stateRoot } = bed();
+    stopAppsForLock(stateRoot, fakeApps(["a", "b"], ["a", "b"]).apps);
+    restartAppsAfterLock(
+      stateRoot,
+      fakeApps(["a", "b"], []).apps,
+      () => true,
+      () => false,
+    );
+    expect(waitingOf(stateRoot)?.sort()).toEqual(["a", "b"]);
+    const later = fakeApps(["b"], []);
+    expect(restartAppsAfterLock(stateRoot, later.apps, () => false)).toEqual(
+      [],
+    );
+    expect([later.calls, waitingOf(stateRoot)]).toEqual([[], null]);
   });
 });
 

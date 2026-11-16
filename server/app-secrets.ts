@@ -73,6 +73,20 @@ export interface AppSecretsDeps {
   proxySecret: (app: AppRecord) => string;
   // A fixed line that names apps and secrets, never a value or an error.
   log?: (line: string) => void;
+  // The secrets file of an app whose owner has their own OS user, written
+  // through their runner (app-supervisor-router.ts); null for an app whose
+  // file is in `dir`. Throws when the owner's host is not ready.
+  fileFor?: (app: AppRecord) => AppSecretsFile | null;
+  // An app not to write now (its owner's own OS user is not ready); its
+  // owner's connect syncs again.
+  skip?: (app: AppRecord) => boolean;
+}
+
+export interface AppSecretsFile {
+  // The current text, or null. Read only to skip an unchanged write: nothing
+  // in it is used.
+  read(): string | null;
+  write(text: string): void;
 }
 
 export function createAppSecrets(deps: AppSecretsDeps) {
@@ -154,6 +168,7 @@ export function createAppSecrets(deps: AppSecretsDeps) {
     const wanted = new Set<string>();
     const changed: string[] = [];
     for (const app of apps) {
+      if (deps.skip?.(app)) continue;
       if (boot)
         try {
           // A unit written before app secrets existed does not read the file.
@@ -186,6 +201,27 @@ export function createAppSecrets(deps: AppSecretsDeps) {
         log(
           `[app-secrets] the secrets of the app "${app.name}" could not be read`,
         );
+        continue;
+      }
+      let file: AppSecretsFile | null;
+      try {
+        file = deps.fileFor ? deps.fileFor(app) : null;
+      } catch {
+        log(
+          `[app-secrets] the secrets file of the app "${app.name}" could not be written`,
+        );
+        continue;
+      }
+      if (file) {
+        try {
+          if (file.read() === text) continue;
+          file.write(text);
+          changed.push(app.name);
+        } catch {
+          log(
+            `[app-secrets] the secrets file of the app "${app.name}" could not be written`,
+          );
+        }
         continue;
       }
       const path = appSecretsPath(deps.dir, app.name);

@@ -50,6 +50,7 @@ import {
 import { claudeProjectDirIn } from "./claude-session-files.ts";
 import { STATE_ROOT } from "./config.ts";
 import { buildEnvForUserId, buildOfficeEnv } from "./env-loader.ts";
+import { memberAppDataSources } from "./member-app-move.ts";
 import {
   MOVE_FILE_MAX,
   MOVE_IN_TIMEOUT_MS,
@@ -171,6 +172,9 @@ export function planMemberMoveOut(
       destRoot: join(AGENT_ROOT, "opencode", "profiles", name),
     });
   }
+  // The data of the member's apps (member-app-move.ts).
+  for (const tree of memberAppDataSources(userId, agentRoot))
+    add({ kind: "tree", path: tree.path, destRoot: tree.destRoot });
   const codexHome = resolve(
     memberEnv.CODEX_HOME || join(agentRoot, "codex-home"),
   );
