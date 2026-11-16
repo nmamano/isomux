@@ -44,6 +44,28 @@ if [[ -e $worktree_path ]]; then
     echo "Existing worktree does not match branch '$name': $worktree_path" >&2
     exit 1
   }
+elif git show-ref --verify --quiet "refs/heads/$name"; then
+  # A branch left from an earlier merge (a task merged in slices). Its work is
+  # in main when its tip is in main's history, or when merging it would leave
+  # main's tree unchanged (Isomux Main squashed it on another branch). Any
+  # other branch holds work main does not have: refuse and keep it.
+  old_tip=$(git rev-parse --short "refs/heads/$name")
+  in_main=false
+  if git merge-base --is-ancestor "refs/heads/$name" HEAD; then
+    in_main=true
+  else
+    merge_status=0
+    merged_tree=$(git merge-tree --write-tree HEAD "refs/heads/$name" 2>/dev/null) || merge_status=$?
+    if [[ $merge_status -eq 0 && ${merged_tree%%$'\n'*} == "$(git rev-parse 'HEAD^{tree}')" ]]; then
+      in_main=true
+    fi
+  fi
+  if [[ $in_main == false ]]; then
+    echo "Branch '$name' has work that is not in main: tip $old_tip \"$(git log -1 --format=%s "refs/heads/$name")\". Merge it, or use another worktree name." >&2
+    exit 1
+  fi
+  echo "Branch '$name' is already in main; starting it again from main (old tip $old_tip)." >&2
+  git worktree add "$worktree_path" -B "$name" HEAD
 else
   git worktree add "$worktree_path" -b "$name"
 fi
