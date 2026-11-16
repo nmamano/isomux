@@ -1284,6 +1284,13 @@ function sessionLiveness(hash: string, now: number): SessionLiveness {
   return { live: true, session, user };
 }
 
+// Whether the office session with this hash is live, as a read only: unlike
+// revalidateByHash it does not roll the session, touch lastSeenAt or delete it.
+export function isSessionHashLive(sessionIdHash: string): boolean {
+  ensureLoaded();
+  return sessionLiveness(sessionIdHash, Date.now()).live;
+}
+
 function isLiveSession(rawSessionId: string): boolean {
   ensureLoaded();
   return sessionLiveness(hashOf(rawSessionId), Date.now()).live;

@@ -36,7 +36,11 @@ import { join } from "node:path";
 import { APP_MINT_PATH } from "./browser-office-gate.ts";
 import { appRegistry } from "./app-registry.ts";
 import { appRegistrationGeneration } from "./app-registry.ts";
-import { buildPublicOrigin, revalidateByHash } from "./auth.ts";
+import {
+  buildPublicOrigin,
+  isSessionHashLive,
+  revalidateByHash,
+} from "./auth.ts";
 import type { SessionLookup } from "./auth.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppMember } from "./app-proxy.ts";
@@ -77,12 +81,12 @@ export const APP_COOKIE_NAME = "__Host-isomux_app";
 // history entry or a proxy log is dead before anyone reads it.
 export const APP_CODE_TTL_MS = 45_000;
 
-// How long an app session lasts before the handshake runs again. Generous
-// because it is not the security boundary: the office session behind it is
-// revalidated on EVERY request, so a sign-out or a revoke closes the app
-// immediately regardless of this number. It only decides how often a user
-// pays one invisible redirect.
-export const APP_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+// How long an app session lasts before the handshake runs again. It is not
+// the security boundary: the office session behind it is checked on EVERY
+// request and caps it, so a sign-out, a revoke or an office expiry closes the
+// app at once whatever this number is. It only sets how often a member pays
+// the sign-in round trip, so it matches the office session's 30-day idle limit.
+export const APP_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Mint budget, per office session. Also the loop breaker: if a browser refuses
 // the app cookie - an office declaring https while its terminator actually
@@ -582,6 +586,13 @@ export function startAppSession(
   const maxAgeSec = Math.floor((deadline - now) / 1000);
   if (maxAgeSec <= 0) return null;
   pruneExpired(appSessions, now);
+  if (appSessions.size >= MAX_APP_SESSIONS) {
+    // First drop the rows whose office session has ended (a sign-out does not
+    // delete them). The check only reads, so it does not extend any session.
+    for (const [key, row] of appSessions) {
+      if (!isSessionHashLive(row.officeSessionHash)) appSessions.delete(key);
+    }
+  }
   if (appSessions.size >= MAX_APP_SESSIONS) {
     // Evict the row closest to expiry. Unlike a code, an app session can be
     // re-established invisibly (one redirect), so failing closed here would

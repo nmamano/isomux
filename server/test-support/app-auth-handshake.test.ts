@@ -50,8 +50,12 @@ import {
   type RawResponse,
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { SHARED_HOST_COOKIE_NAME, officeSessionCookieNames } from "../auth.ts";
-import { createHash } from "crypto";
+import {
+  SHARED_HOST_COOKIE_NAME,
+  _testSetSessionExpiry,
+  officeSessionCookieNames,
+} from "../auth.ts";
+import { createHash, randomBytes } from "crypto";
 import { runInNewContext } from "node:vm";
 import { readFileSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -236,6 +240,50 @@ describe("app-host handshake: the whole round trip", () => {
     });
     expectBounce(after, { label, path: "/" }, "after sign-out");
     expect(after.setCookies).toEqual([CLEAR_LINE]);
+  });
+
+  // The app session lasts much longer than a day (task d9e8c5e4), so the
+  // office session's own idle expiry must close it, not the app's deadline.
+  it("dies when the office session passes its idle expiry, with the app session still running", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    const value = await signIn(srv, label, rawSessionId);
+    const host = appHost(label);
+    const app = appRegistry.get("hello")!;
+    const hash = sessionHashOf(rawSessionId);
+    expectPlaceholder(
+      await raw(srv.port, {
+        host,
+        headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
+      }),
+      RELAY_UNREACHABLE,
+      "before the office session expires",
+    );
+
+    // Only the rolling stamp passes; the absolute cap is still far away.
+    const now = Date.now();
+    expect(
+      _testSetSessionExpiry(rawSessionId, {
+        expiresAt: now - 1,
+        absoluteExpiresAt: now + APP_SESSION_TTL_MS * 2,
+      }),
+    ).toBe(true);
+    // The enabling condition: the app session's own deadline is still ahead.
+    const stored = JSON.parse(
+      readFileSync(join(srv.stateRoot, "app-sessions.json"), "utf8"),
+    ) as Record<string, { officeSessionHash: string; expiresAt: number }>;
+    const rows = Object.values(stored).filter(
+      (row) => row.officeSessionHash === hash,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].expiresAt).toBeGreaterThan(Date.now() + 60_000);
+
+    const after = await raw(srv.port, {
+      host,
+      headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
+    });
+    expectBounce(after, { label, path: "/" }, "after the office idle expiry");
+    expect(after.setCookies).toEqual([CLEAR_LINE]);
+    expect(appSessionExpiresAt(app, hash)).toBeNull();
   });
 
   it("rechecks room visibility at redeem and on every later request", async () => {
@@ -482,6 +530,67 @@ describe("app-host handshake: app sessions across a restart", () => {
     );
     expect(refused.setCookies).toEqual([CLEAR_LINE]);
   });
+
+  // The table has a ceiling. A row whose office session is gone (a sign-out
+  // does not delete it) can never be used again, so a full table drops those
+  // first, and a member's live session is not evicted in their place (task
+  // d9e8c5e4). A table full of live rows still takes a new sign-in and evicts
+  // the row nearest its expiry: a member re-establishes that one invisibly.
+  for (const filler of ["signed-out", "live"] as const) {
+    it(`takes a new sign-in when the table is full of ${filler} rows`, async () => {
+      const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+      const nearest = await signIn(srv, label, rawSessionId);
+      const file = sessionsFile(srv);
+      const stored = JSON.parse(readFileSync(file, "utf8")) as Record<
+        string,
+        Record<string, unknown>
+      >;
+      const [own] = Object.values(stored);
+      expect(Object.keys(stored)).toHaveLength(1);
+      const officeSessionHash =
+        filler === "live"
+          ? sessionHashOf(rawSessionId)
+          : randomBytes(32).toString("hex");
+      // Every filler row expires after the member's own row, so an eviction
+      // by expiry alone would pick the member's row.
+      const later = (own.expiresAt as number) + 60 * 60 * 1000;
+      const TABLE_CEILING = 4096;
+      for (let i = 1; i < TABLE_CEILING; i++) {
+        const tokenHash = randomBytes(32).toString("hex");
+        stored[tokenHash] = {
+          ...own,
+          tokenHash,
+          officeSessionHash,
+          expiresAt: later + i,
+        };
+      }
+      writeFileSync(file, JSON.stringify(stored));
+      // The table loads from the file at its first use after a start.
+      server = await srv.restart();
+
+      const fresh = await signIn(server, label, rawSessionId);
+      expectPlaceholder(
+        await onApp(server, label, fresh),
+        RELAY_UNREACHABLE,
+        `new sign-in over ${filler} rows`,
+      );
+      const after = Object.keys(
+        JSON.parse(readFileSync(sessionsFile(server), "utf8")) as object,
+      ).length;
+      if (filler === "signed-out") {
+        expectPlaceholder(
+          await onApp(server, label, nearest),
+          RELAY_UNREACHABLE,
+          "the member's own row over signed-out rows",
+        );
+        expect(after).toBe(2);
+      } else {
+        expect(after).toBe(TABLE_CEILING);
+        const evicted = await onApp(server, label, nearest);
+        expectBounce(evicted, { label, path: "/" }, "the row nearest expiry");
+      }
+    });
+  }
 
   it("boots with no app sessions from a file it cannot read, and signs in again", async () => {
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();

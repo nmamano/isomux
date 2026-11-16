@@ -341,6 +341,16 @@ describe("app sessions", () => {
     expect(session(now + 30_000, now)?.maxAgeSec).toBe(30);
   });
 
+  // A member who opens an app once a day must not repeat the sign-in round
+  // trip (task d9e8c5e4). The office session, checked on every request, is
+  // the boundary; this lifetime only sets how often the handshake runs.
+  it("lasts at least 30 days when the office session allows it", () => {
+    const now = 1_000_000;
+    expect(session(5_000_000_000_000, now)?.maxAgeSec).toBeGreaterThanOrEqual(
+      30 * 24 * 60 * 60,
+    );
+  });
+
   it("fails rather than issuing a cookie the browser deletes on arrival", () => {
     const now = 1_000_000;
     expect(session(now, now)).toBeNull();

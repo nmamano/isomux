@@ -1613,3 +1613,48 @@ it("a first load that fails for a moment shows unavailable", async () => {
     iframesOn();
   }
 });
+
+// The widget reads the status again when the app session ends. An app session
+// can last longer than a browser timer can wait (2^31 - 1 ms, about 24.8 days):
+// a longer wait fires at once, so the widget must not read again at mount
+// (task d9e8c5e4). A session that ends soon is still read again at its end.
+it("waits for the end of a long app session, and reads the status again at the end of a short one", async () => {
+  sessionStorage.clear();
+  const iframesOn = iframesOff();
+  const day = 24 * 60 * 60 * 1000;
+  const wait = (ms: number) =>
+    act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const cases = [
+    [30 * day, 1],
+    [40, 2],
+  ] as const;
+  for (const [lasts, reads] of cases) {
+    let gets = 0;
+    // One app session from the first read: the office answers the same end
+    // on every read until it passes, then a new session's.
+    let sessionExpiresAt = 0;
+    setApiShim(async () => {
+      gets++;
+      if (gets === 1) sessionExpiresAt = Date.now() + lasts;
+      else if (sessionExpiresAt <= Date.now()) sessionExpiresAt += 30 * day;
+      return {
+        ...boot,
+        appUrl: "https://hello.office.example",
+        sessionExpiresAt,
+        chat: null,
+      };
+    });
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(<AppWidgetPage boot={boot} />);
+      });
+      expect(view!.container.querySelector("iframe")).not.toBeNull();
+      await wait(150);
+      expect({ lasts, gets }).toEqual({ lasts, gets: reads });
+    } finally {
+      view?.unmount();
+      if (lasts === cases.at(-1)![0]) iframesOn();
+    }
+  }
+});

@@ -83,6 +83,11 @@ import { MicIcon } from "./components/MicIcon.tsx";
 import { VoiceInputAlert } from "./log-view/VoiceInputAlert.tsx";
 import { visibleArea } from "./visible-area.ts";
 
+// setTimeout runs a longer delay at once, and an app session lasts 30 days.
+// A clamped timer fires early only to read the status again; the recheck
+// interval keeps it current while the page is visible.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
 // The chat panel (WidgetChat in its section), on the app page and over the
 // Office's Inbox (AgentChatPanel, task e3c25581): each injects these rules. The
 // button and link rules style the panel's own controls. They skip the chat
@@ -480,7 +485,10 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       () => {
         void refresh();
       },
-      Math.max(0, status.sessionExpiresAt - Date.now()),
+      Math.min(
+        MAX_TIMER_DELAY_MS,
+        Math.max(0, status.sessionExpiresAt - Date.now()),
+      ),
     );
     return () => clearTimeout(timer);
   }, [status?.sessionExpiresAt, refresh]);
