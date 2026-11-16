@@ -114,6 +114,9 @@ import { citeModeHere } from "./cite-mode.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 import { filledSecondaryBtn } from "../components/dialog-styles.ts";
+import { useComposerVoice } from "../hooks/useComposerVoice.ts";
+import { MicIcon } from "../components/MicIcon.tsx";
+import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
 
 const PROMPT_LINES = 3;
 
@@ -514,6 +517,34 @@ function ReplyAskCard({
       ? (agents.find((a) => a.id === link.agentId)?.name ?? null)
       : t(officeLinkLabel(link));
 
+  // The composer's mic on the reply field. No Ctrl+Space: that stays the
+  // chat composer's. No dictated write lands while the card holds or sends
+  // its answer, so Undo brings back the sent words.
+  const voice = useComposerVoice({
+    keywords: agents.map((a) => a.name),
+    draft: () => draft ?? "",
+    setDraft: (text) => {
+      if (sending.current) return;
+      dispatch({ type: "set_ask_draft", askId: entry.id, text });
+    },
+    send: ({ text }) => {
+      if (sending.current || text.trim() === "") return false;
+      dispatch({ type: "set_ask_draft", askId: entry.id, text });
+      commit("reply", text);
+      return true;
+    },
+    onDictated: () => {
+      const el = inputRef.current;
+      if (!el) return;
+      fitComposer(el, isMobile);
+      el.scrollTop = el.scrollHeight;
+    },
+    pushToTalk: false,
+  });
+  const voiceHolds =
+    voice.voiceInput === "openai" && (voice.listening || voice.transcribing);
+  const answerOff = busy || voiceHolds;
+
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
     pendingFocus.current = false;
@@ -648,9 +679,19 @@ function ReplyAskCard({
   }
 
   // `text` is a reply other than the field's, as the option a tap sends.
+  // While an OpenAI clip records or transcribes, the card does not answer:
+  // the spoken words are not in the field yet.
   function answer(kind: AnswerKind, text: string = reply) {
+    if (voiceHolds) return;
+    commit(kind, text);
+  }
+
+  function commit(kind: AnswerKind, text: string) {
     if (sending.current) return;
     if (kind === "reply" && text.trim() === "") return;
+    // The browser recognizer stops and drops its pending words, which would
+    // otherwise land on the answered card.
+    voice.stop(true);
     sending.current = true;
     dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
@@ -888,7 +929,7 @@ function ReplyAskCard({
     <button
       type="button"
       data-ask-dismiss=""
-      disabled={busy}
+      disabled={answerOff}
       onClick={() => answer("dismiss")}
       style={secondaryButton}
     >
@@ -899,7 +940,7 @@ function ReplyAskCard({
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       <button
         type="submit"
-        disabled={busy || reply.trim() === ""}
+        disabled={answerOff || reply.trim() === ""}
         style={{
           padding: buttonPad,
           borderRadius: 8,
@@ -920,7 +961,7 @@ function ReplyAskCard({
       <button
         type="button"
         data-ask-file-task=""
-        disabled={busy}
+        disabled={answerOff}
         onClick={() => answer("file-task")}
         style={secondaryButton}
       >
@@ -1308,7 +1349,7 @@ function ReplyAskCard({
                 key={i}
                 type="button"
                 {...marks}
-                disabled={busy}
+                disabled={answerOff}
                 onClick={() =>
                   sends ? answer("reply", option) : fillOption(option)
                 }
@@ -1344,46 +1385,112 @@ function ReplyAskCard({
             marginTop: 7,
           }}
         >
-          <textarea
-            ref={inputRef}
-            value={reply}
-            rows={1}
-            disabled={busy}
-            data-ask-reply-input=""
-            onChange={(e) =>
-              dispatch({
-                type: "set_ask_draft",
-                askId: entry.id,
-                text: e.target.value,
-              })
-            }
-            onFocus={(e) => selectDefault(e.currentTarget)}
-            onPointerDown={(e) => {
-              clickFocuses.current = document.activeElement !== e.currentTarget;
-            }}
-            onClick={(e) => {
-              if (clickFocuses.current) selectDefault(e.currentTarget);
-              clickFocuses.current = false;
-            }}
-            onKeyDown={onReplyKeyDown}
-            aria-label={t("asks.reply")}
-            style={{
-              minWidth: 0,
-              boxSizing: "border-box",
-              padding: isMobile ? "8px 10px" : "5px 10px",
-              background: "var(--bg-input)",
-              border: "1px solid var(--border-light)",
-              borderRadius: 8,
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-ui)",
-              // 16px keeps iOS Safari from zooming into the field.
-              fontSize: isMobile ? 16 : 12,
-              lineHeight: isMobile ? "20px" : "16px",
-              resize: "none",
-              overflowY: "auto",
-              outline: "none",
-            }}
-          />
+          {voice.voiceInput === "openai" ? (
+            <VoiceInputAlert dictation={voice.recorded} isMobile={isMobile} />
+          ) : (
+            voice.error && (
+              <div
+                role="alert"
+                style={{
+                  color: "var(--red-text)",
+                  fontSize: isMobile ? 12 : 11,
+                }}
+              >
+                {voice.error}
+              </div>
+            )
+          )}
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+            <textarea
+              ref={inputRef}
+              value={reply}
+              rows={1}
+              disabled={busy}
+              data-ask-reply-input=""
+              onChange={(e) =>
+                dispatch({
+                  type: "set_ask_draft",
+                  askId: entry.id,
+                  // Typed words join a running dictation, so its next result
+                  // does not write over them.
+                  text: voice.reconcileEdit(e.target.value),
+                })
+              }
+              onFocus={(e) => selectDefault(e.currentTarget)}
+              onPointerDown={(e) => {
+                clickFocuses.current =
+                  document.activeElement !== e.currentTarget;
+              }}
+              onClick={(e) => {
+                if (clickFocuses.current) selectDefault(e.currentTarget);
+                clickFocuses.current = false;
+              }}
+              onKeyDown={onReplyKeyDown}
+              aria-label={t("asks.reply")}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                boxSizing: "border-box",
+                padding: isMobile ? "8px 10px" : "5px 10px",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-light)",
+                borderRadius: 8,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-ui)",
+                // 16px keeps iOS Safari from zooming into the field.
+                fontSize: isMobile ? 16 : 12,
+                lineHeight: isMobile ? "20px" : "16px",
+                resize: "none",
+                overflowY: "auto",
+                outline: "none",
+              }}
+            />
+            {voice.micShown && (
+              <button
+                type="button"
+                disabled={busy}
+                aria-pressed={voice.listening}
+                aria-busy={voice.transcribing || undefined}
+                aria-label={t(
+                  voice.transcribing
+                    ? "voice.mic.transcribing"
+                    : "voice.mic.talk",
+                )}
+                title={t(
+                  voice.transcribing
+                    ? "voice.mic.transcribing"
+                    : "voice.mic.talk",
+                )}
+                onClick={voice.toggle}
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: isMobile ? 38 : 28,
+                  height: isMobile ? 38 : 28,
+                  padding: 0,
+                  borderRadius: 8,
+                  border: voice.listening
+                    ? "1px solid var(--red)"
+                    : "1px solid var(--border-light)",
+                  background: voice.listening
+                    ? "rgba(255,50,50,0.15)"
+                    : "var(--bg-input)",
+                  color: voice.listening
+                    ? "var(--red-text)"
+                    : "var(--text-muted)",
+                  cursor: voice.transcribing ? "progress" : "pointer",
+                  opacity: voice.transcribing ? 0.6 : 1,
+                  animation: voice.listening
+                    ? "mic-pulse 1.5s ease-in-out infinite"
+                    : "none",
+                }}
+              >
+                <MicIcon />
+              </button>
+            )}
+          </div>
           {replyButtons}
         </form>
       )}

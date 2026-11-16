@@ -8,7 +8,13 @@
 // through the options, which it keeps in a ref, so its handlers always see the
 // latest ones.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   advanceDictationSession,
   joinSpoken,
@@ -64,6 +70,10 @@ export interface ComposerVoice {
   // joins the session, so the next result does not write over it.
   reconcileEdit: (text: string) => string;
 }
+
+// The stop of the mic that runs now. One mic at a time on the page: a start
+// stops the other composer's or ask card's mic, which keeps its words.
+let activeStop: (() => void) | null = null;
 
 export function useComposerVoice(opts: ComposerVoiceOptions): ComposerVoice {
   const i18n = useI18n();
@@ -129,12 +139,27 @@ export function useComposerVoice(opts: ComposerVoiceOptions): ComposerVoice {
   const listening =
     voiceInput === "openai" ? recorded.state === "recording" : isListening;
 
+  // The latest start and stop, for Ctrl+Space and for another mic's start.
+  const startRef = useRef(start);
+  const stopRef = useRef(stop);
+  // This instance's stop as the page's running mic, the same function on
+  // every render. It reaches the latest stop through the ref.
+  const stopFromOther = useCallback(() => stopRef.current(), []);
+
+  function claimMic() {
+    if (activeStop && activeStop !== stopFromOther) activeStop();
+    activeStop = stopFromOther;
+  }
+
   function start() {
     if (voiceInput === "openai") {
+      if (recorded.state !== "recording" && recorded.state !== "transcribing")
+        claimMic();
       recorded.start();
       return;
     }
     if (isListeningRef.current || !SpeechRecognition) return;
+    claimMic();
     setError(null);
     dictationRef.current = startDictationSession(
       optsRef.current.draft(),
@@ -219,7 +244,7 @@ export function useComposerVoice(opts: ComposerVoiceOptions): ComposerVoice {
   function toggle() {
     if (voiceInput === "openai") {
       if (recorded.state === "recording") recorded.stop();
-      else if (recorded.state !== "transcribing") recorded.start();
+      else if (recorded.state !== "transcribing") start();
     } else if (isListeningRef.current) stop();
     else start();
   }
@@ -232,8 +257,6 @@ export function useComposerVoice(opts: ComposerVoiceOptions): ComposerVoice {
 
   // Ctrl+Space push-to-talk. Latest-ref the handlers so the listener started
   // with pushToTalk dispatches to the current composer.
-  const startRef = useRef(start);
-  const stopRef = useRef(stop);
   useLayoutEffect(() => {
     optsRef.current = opts;
     micShownRef.current = micShown;
@@ -270,7 +293,13 @@ export function useComposerVoice(opts: ComposerVoiceOptions): ComposerVoice {
     };
   }, [pushToTalk]);
   // The recognizer ends with the composer.
-  useEffect(() => () => recognitionRef.current?.stop(), []);
+  useEffect(
+    () => () => {
+      recognitionRef.current?.stop();
+      if (activeStop === stopFromOther) activeStop = null;
+    },
+    [stopFromOther],
+  );
 
   return {
     voiceInput,

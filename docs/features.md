@@ -102,7 +102,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Media display** - agents can show images, video and audio inline in the conversation.
 - **Office language** - each person picks a language, like Spanish or Chinese, under Settings → You → Language and the whole office reads in it.
-- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost), or via OpenAI. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
+- **Voice-to-text** for prompts and ask replies via the browser's `SpeechRecognition` API (HTTPS or localhost), or via OpenAI. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API, or via OpenAI voices.
 - **Voice settings** in Integrations > Voice: each member picks the browser or OpenAI for the mic and for read aloud. OpenAI gives better accuracy and voices, and a mic in Firefox.
 - **Context check** - agents and humans (`/context`) can see how full a context window is, and a battery meter in the header drains as it fills.
