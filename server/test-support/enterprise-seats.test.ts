@@ -496,6 +496,13 @@ describe("while locked, nobody texts an agent", () => {
     srv.fakeBackend.sessions
       .filter((s) => s.opts.agentId === agentId)
       .flatMap((s) => s.sent.map((m) => m.text));
+  // The texts at an agent that hold one of the words as a whole word. A
+  // substring match also hits an agent id in a text: ids end in a random
+  // base36 suffix, which can hold "m3".
+  const withWord = (srv: TestServer, agentId: string, words: string[]) =>
+    sentTo(srv, agentId).filter((t) =>
+      new RegExp(`\\b(${words.join("|")})\\b`).test(t),
+    );
 
   // The refusal: 409, the locked code, and a message for the sender.
   const refused = (r: Res) => {
@@ -508,8 +515,7 @@ describe("while locked, nobody texts an agent", () => {
   };
   const LOCKED = [409, "enterprise_secret_needed", true];
 
-  // Quarantined (task 96c7f3f7): flaky in CI, m3 found at Ada.
-  it.skip("refuses a member's message, an agent's message and an ask reply, and takes them with the box off or a secret accepted", async () => {
+  it("refuses a member's message, an agent's message and an ask reply, and takes them with the box off or a secret accepted", async () => {
     const { srv, owner } = await boot(300, quickBackend());
     const ada = await spawnAgent(srv, "Ada", owner.username);
     const bob = await spawnAgent(srv, "Bob", owner.username);
@@ -540,9 +546,7 @@ describe("while locked, nobody texts an agent", () => {
       post(srv, `/api/asks/${askId}/reply`, member, { json: { text } });
     expect(refused(await reply("r1"))).toEqual(LOCKED);
     await Bun.sleep(50);
-    expect(sentTo(srv, ada.id).filter((t) => /\b(m1|b1|r1)\b/.test(t))).toEqual(
-      [],
-    );
+    expect(withWord(srv, ada.id, ["m1", "b1", "r1"])).toEqual([]);
 
     // Box off: messages go through.
     expect(
@@ -551,7 +555,7 @@ describe("while locked, nobody texts an agent", () => {
     expect(
       (await post(srv, toAda, member, { json: { text: "m2" } })).status,
     ).toBe(200);
-    await until(() => sentTo(srv, ada.id).some((t) => t.includes("m2")), "m2");
+    await until(() => withWord(srv, ada.id, ["m2"]).length > 0, "m2");
 
     // On again: locked again until the secret is accepted.
     expect(viewOf(await setEnabled(srv, owner.rawSessionId, true)).locked).toBe(
@@ -572,12 +576,11 @@ describe("while locked, nobody texts an agent", () => {
     expect(replied.status).toBeLessThan(300);
     await until(
       () =>
-        ["m4", "b4", "r4"].every((w) =>
-          sentTo(srv, ada.id).some((t) => t.includes(w)),
-        ),
+        ["m4", "b4", "r4"].every((w) => withWord(srv, ada.id, [w]).length > 0),
       "m4, b4 and r4 at Ada",
     );
-    expect(sentTo(srv, ada.id).some((t) => t.includes("m3"))).toBe(false);
+    // No refused text arrives late, after the unlock.
+    expect(withWord(srv, ada.id, ["m1", "b1", "r1", "m3"])).toEqual([]);
   });
 
   it("takes the answer to a running turn's permission prompt", async () => {
