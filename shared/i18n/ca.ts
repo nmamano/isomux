@@ -3679,6 +3679,36 @@ Coses que pots fer per ell:
   "officeMove.in.incomplete.one": "A la còpia li falta {count} fitxer:",
   "officeMove.in.incomplete.other": "A la còpia li falten {count} fitxers:",
   "officeMove.in.more": "i {count} més",
+  "officeMove.in.outside.heading":
+    "Carpetes fora de la carpeta personal de l'oficina, copiades al mateix camí aquí:",
+  "officeMove.in.outside.sizeUnknown": "mida desconeguda",
+  "officeMove.in.outside.reason.inHome":
+    "Quedaria dins la carpeta personal d'aquesta oficina.",
+  "officeMove.in.outside.reason.link": "{at} és un enllaç.",
+  "officeMove.in.outside.reason.notDir": "{at} no és una carpeta.",
+  "officeMove.in.outside.reason.owner":
+    "Un altre usuari és el propietari de {at}.",
+  "officeMove.in.outside.reason.unsafeParent":
+    "Altres usuaris poden escriure a {at}.",
+  "officeMove.in.outside.reason.notEmpty":
+    "{at} no és buida. Mou-ne els fitxers a un altre lloc.",
+  "officeMove.in.outside.reason.noWrite":
+    "Aquesta oficina no pot escriure a {at}.",
+  "officeMove.in.outside.command": "Executa com a root en aquesta màquina:",
+  "officeMove.in.outside.lockWaits":
+    "El bloqueig espera fins que cada carpeta es pugui copiar aquí.",
+  "officeMove.in.outside.fixFirst":
+    "Arregla aquestes carpetes i torna-ho a provar:",
+  "officeMove.in.outside.left":
+    "Carpetes fora de la carpeta personal que es queden a la màquina antiga:",
+  "officeMove.in.outside.leftReason.temp": "temporal",
+  "officeMove.in.outside.leftReason.link": "un enllaç",
+  "officeMove.in.outside.leftReason.office": "una carpeta d'Isomux",
+  "officeMove.in.outside.leftReason.owner": "d'un altre usuari",
+  "officeMove.report.outsideMoved":
+    "Carpetes fora de la carpeta personal que s'han mogut:",
+  "officeMove.report.outsideLeft":
+    "Carpetes fora de la carpeta personal que s'han quedat a la màquina antiga:",
   "officeMove.in.acceptMissing": "Acabar sense aquests fitxers",
   "officeMove.in.finishWarning":
     "Acabar substitueix aquesta oficina per la còpia i la reinicia. Després l'oficina antiga mostra que s'ha traslladat.",

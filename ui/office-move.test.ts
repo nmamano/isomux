@@ -14,6 +14,10 @@
 // - the live pass (slice 4): the confirm view carries it, Copy again only
 //   after a pass that ended, the copied bytes count what an earlier pass
 //   kept, and the confirm card polls while the pass runs.
+// - the folders outside the home (slice 5b-2): the card lists the server's
+//   checks (the list the lock checks and the pass moves) with the
+//   preflight's sizes; Lock waits and the card polls while one cannot land,
+//   in confirm and after a pass failed for it.
 import { describe, expect, it } from "bun:test";
 import {
   MOVE_IN_POLL_MS,
@@ -29,10 +33,13 @@ import {
   lockAllowed,
   moveInPollDecision,
   moveOutPollDecision,
+  outsideBlocked,
+  outsideLines,
   phaseView,
   preflightView,
 } from "./office-move.ts";
 import type {
+  MoveInFolderCheck,
   MoveInLive,
   MoveInLivePhase,
   MoveInPhase,
@@ -445,6 +452,7 @@ describe("phaseView", () => {
       error,
       retryable: true,
       oldOfficeLocked: true,
+      outside: [],
     });
     expect(
       phaseView(inPhase("failed", { error, retryable: false })),
@@ -942,5 +950,211 @@ describe("the live pass (slice 4)", () => {
         quiet,
       ),
     ).toEqual(stop);
+  });
+});
+
+describe("folders outside the home (slice 5b-2)", () => {
+  const P = "/srv/data";
+  const Q = "/opt/tools";
+  const R = "/var/lib/extra";
+  /** The old office's outsideFolders part, as its release answers it. */
+  const outsideFolders = {
+    move: [
+      { path: P, mode: 0o750, bytes: 2_000, timedOut: false },
+      { path: Q, mode: 0o755, bytes: null, timedOut: true },
+    ],
+    left: [
+      { path: "/tmp/scratch", reason: "temp" },
+      { path: "/home/other/x", reason: "owner" },
+    ],
+  };
+  const ok = (path: string, create: string[] = []): MoveInFolderCheck => ({
+    path,
+    ok: true,
+    create,
+  });
+  const blocked = (path: string): MoveInFolderCheck => ({
+    path,
+    ok: false,
+    reason: "not_empty",
+    at: path,
+    command: `rm -rf -- ${path}/*`,
+  });
+  const confirmWith = (checks: MoveInFolderCheck[] | undefined, pf = {}) =>
+    inPhase("confirm", {
+      preflightId: "pf-1",
+      preflight: preflight({ outsideFolders, ...pf }),
+      ...(checks ? { outsideChecks: checks } : {}),
+    });
+  const failedWith = (code: string, checks?: MoveInFolderCheck[]) =>
+    inPhase("failed", {
+      error: { code, message: "m" },
+      retryable: true,
+      oldOfficeLocked: true,
+      ...(checks ? { outsideChecks: checks } : {}),
+    });
+
+  it("preflightView reads the part: the folders that move with their size, and the folders left with their reason", () => {
+    expect(preflightView(preflight({ outsideFolders })).outside).toEqual({
+      kind: "list",
+      move: [
+        { path: P, bytes: 2_000, timedOut: false },
+        { path: Q, bytes: null, timedOut: true },
+      ],
+      left: outsideFolders.left,
+    });
+    // Empty lists are known, not unknown.
+    expect(
+      preflightView(preflight({ outsideFolders: { move: [], left: [] } }))
+        .outside,
+    ).toEqual({ kind: "list", move: [], left: [] });
+  });
+
+  it("an old office without the part is unknown; so is a part with a bad item (known whole or not at all); the other parts stay known", () => {
+    expect(preflightView(preflight()).outside.kind).toBe("unknown");
+    const bad = [
+      "x",
+      { move: "x", left: [] },
+      { move: [], left: null },
+      { move: [{ path: 7, bytes: 1, timedOut: false }], left: [] },
+      { move: [{ path: P, bytes: "1", timedOut: false }], left: [] },
+      { move: [], left: [{ path: P }] },
+      { move: [], left: [{ reason: "temp" }] },
+    ];
+    for (const outside of bad) {
+      const v = preflightView(preflight({ outsideFolders: outside }));
+      expect({ outside, kind: v.outside.kind, sizes: v.sizes.kind }).toEqual({
+        outside,
+        kind: "unknown",
+        sizes: "total",
+      });
+    }
+  });
+
+  it("a left reason this release does not name keeps the folder, with its reason string", () => {
+    const v = preflightView(
+      preflight({
+        outsideFolders: {
+          move: [],
+          left: [
+            { path: "/mnt/quota", reason: "quota" },
+            { path: "/tmp/t", reason: "temp" },
+          ],
+        },
+      }),
+    );
+    expect(v.outside).toEqual({
+      kind: "list",
+      move: [],
+      left: [
+        { path: "/mnt/quota", reason: "quota" },
+        { path: "/tmp/t", reason: "temp" },
+      ],
+    });
+  });
+
+  it("outsideLines: one line per check in the checks' order, the size joined by path; a check with no preflight match, or no preflight, has no size", () => {
+    const pf = preflightView(preflight({ outsideFolders }));
+    // The checks' order, not the preflight's; R has no preflight entry.
+    const checks = [ok(Q), blocked(R), ok(P, [P])];
+    expect(outsideLines(pf, checks)).toEqual([
+      { path: Q, bytes: null, timedOut: true, check: checks[0] },
+      { path: R, bytes: null, timedOut: false, check: checks[1] },
+      { path: P, bytes: 2_000, timedOut: false, check: checks[2] },
+    ]);
+    // A preflight folder with no check gives no line: the server does not
+    // move it.
+    expect(outsideLines(pf, [ok(P)]).map((l) => l.path)).toEqual([P]);
+    expect(outsideLines(pf, undefined)).toEqual([]);
+    expect(outsideLines(null, [ok(P)])).toEqual([
+      { path: P, bytes: null, timedOut: false, check: ok(P) },
+    ]);
+    const unknownPf = preflightView(preflight());
+    expect(outsideLines(unknownPf, [ok(P)])).toEqual([
+      { path: P, bytes: null, timedOut: false, check: ok(P) },
+    ]);
+  });
+
+  it("outsideBlocked: any line whose check is not ok; none or no lines is not blocked", () => {
+    const line = (c: MoveInFolderCheck) => ({
+      path: c.path,
+      bytes: 1,
+      timedOut: false,
+      check: c,
+    });
+    expect(outsideBlocked([])).toBe(false);
+    expect(outsideBlocked([line(ok(P)), line(ok(Q, [Q]))])).toBe(false);
+    expect(outsideBlocked([line(ok(P)), line(blocked(Q))])).toBe(true);
+    expect(outsideBlocked([line(blocked(P)), line(ok(Q))])).toBe(true);
+  });
+
+  it("confirm: the lines from the status's checks, and Lock waits while one is blocked; with Restart=always and no checks, Lock is allowed", () => {
+    const clear = phaseView(confirmWith([ok(P), ok(Q)]));
+    expect(clear).toMatchObject({ kind: "confirm", lockAllowed: true });
+    expect(
+      clear.kind === "confirm" ? clear.outside.map((l) => l.bytes) : null,
+    ).toEqual([2_000, null]);
+    const one = phaseView(confirmWith([ok(P), blocked(Q)]));
+    expect(one).toMatchObject({ kind: "confirm", lockAllowed: false });
+    expect(
+      one.kind === "confirm" ? one.outside.map((l) => l.check.ok) : null,
+    ).toEqual([true, false]);
+    // An old office before 5b: no part, no checks.
+    const old = phaseView(
+      inPhase("confirm", { preflightId: "pf-1", preflight: preflight() }),
+    );
+    expect(old).toMatchObject({
+      kind: "confirm",
+      lockAllowed: true,
+      outside: [],
+    });
+    // Blocked folders do not unlock a Lock the restart policy holds.
+    const off = phaseView(
+      confirmWith([ok(P)], {
+        restart: {
+          unit: "isomux.service",
+          manager: "user",
+          restart: "on-failure",
+        },
+      }),
+    );
+    expect(off).toMatchObject({ kind: "confirm", lockAllowed: false });
+  });
+
+  it("failed: the lines from the status's checks with no size; none when the status carries none", () => {
+    const f = phaseView(failedWith("outside_folders_blocked", [blocked(P)]));
+    expect(f).toMatchObject({ kind: "failed", retryable: true });
+    expect(
+      f.kind === "failed"
+        ? f.outside.map((l) => [l.path, l.bytes, l.check.ok])
+        : null,
+    ).toEqual([[P, null, false]]);
+    expect(phaseView(failedWith("batch_failed"))).toMatchObject({
+      kind: "failed",
+      outside: [],
+    });
+  });
+
+  it("the poll: confirm waits while a folder is blocked and stops when all can land; failed with outside_folders_blocked the same; another failure stops", () => {
+    const quiet = { restartingSince: null, now: 1_000_000 };
+    const d = (s: MoveInStatus) =>
+      moveInPollDecision({ kind: "status", status: s }, quiet);
+    const wait = { kind: "wait" as const, ms: MOVE_IN_POLL_MS };
+    const stop = { kind: "stop" as const };
+    expect({
+      confirmBlocked: d(confirmWith([ok(P), blocked(Q)])),
+      confirmClear: d(confirmWith([ok(P), ok(Q)])),
+      confirmNone: d(confirmWith(undefined)),
+      failedBlocked: d(failedWith("outside_folders_blocked", [blocked(P)])),
+      failedClear: d(failedWith("outside_folders_blocked", [ok(P)])),
+      failedOther: d(failedWith("batch_failed")),
+    }).toEqual({
+      confirmBlocked: wait,
+      confirmClear: stop,
+      confirmNone: stop,
+      failedBlocked: wait,
+      failedClear: stop,
+      failedOther: stop,
+    });
   });
 });

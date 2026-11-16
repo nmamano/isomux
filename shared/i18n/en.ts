@@ -3570,6 +3570,32 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.incomplete.one": "The copy is missing {count} file:",
   "officeMove.in.incomplete.other": "The copy is missing {count} files:",
   "officeMove.in.more": "and {count} more",
+  "officeMove.in.outside.heading":
+    "Folders outside the office's home folder, copied to the same path here:",
+  "officeMove.in.outside.sizeUnknown": "size unknown",
+  "officeMove.in.outside.reason.inHome":
+    "It would be inside this office's home folder.",
+  "officeMove.in.outside.reason.link": "{at} is a link.",
+  "officeMove.in.outside.reason.notDir": "{at} is not a folder.",
+  "officeMove.in.outside.reason.owner": "Another user owns {at}.",
+  "officeMove.in.outside.reason.unsafeParent": "Other users can write to {at}.",
+  "officeMove.in.outside.reason.notEmpty":
+    "{at} is not empty. Move its files away.",
+  "officeMove.in.outside.reason.noWrite": "This office cannot write to {at}.",
+  "officeMove.in.outside.command": "Run as root on this machine:",
+  "officeMove.in.outside.lockWaits":
+    "The lock waits until every folder can be copied here.",
+  "officeMove.in.outside.fixFirst": "Fix these folders, then try again:",
+  "officeMove.in.outside.left":
+    "Folders outside the home folder that stay on the old machine:",
+  "officeMove.in.outside.leftReason.temp": "temporary",
+  "officeMove.in.outside.leftReason.link": "a link",
+  "officeMove.in.outside.leftReason.office": "an Isomux folder",
+  "officeMove.in.outside.leftReason.owner": "another user's",
+  "officeMove.report.outsideMoved":
+    "Folders outside the home folder that moved:",
+  "officeMove.report.outsideLeft":
+    "Folders outside the home folder that stayed on the old machine:",
   "officeMove.in.acceptMissing": "Finish without these files",
   "officeMove.in.finishWarning":
     "Finish replaces this office with the copy and restarts it. The old office then shows that it moved.",

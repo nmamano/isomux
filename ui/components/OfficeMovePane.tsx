@@ -25,12 +25,15 @@ import type {
   MintMoveCodeRes,
   MoveBoxInfo,
   MoveInCancelRes,
+  MoveInFolderBlock,
   MoveInStartBlocker,
   MoveInStatus,
+  MoveOutsideLeftReason,
   OfficeMoveRes,
 } from "../../shared/office-move.ts";
 import {
   MOVE_IN_POLL_MS,
+  MOVE_LIST_MAX,
   copiedBytes,
   finishAllowed,
   leftBehindLines,
@@ -41,6 +44,7 @@ import {
   type LeftBehindLine,
   type LiveView,
   type MoveInView,
+  type OutsideFolderLine,
   type PollDecision,
   type PollOutcome,
   type PreflightView,
@@ -52,6 +56,7 @@ import {
   smallBtn,
 } from "./access-shared.tsx";
 import { sizeText } from "./StoragePane.tsx";
+import { CopyButton } from "./CopyButton.tsx";
 import { armedConfirmLook, dialogSaveBtn } from "./dialog-styles.ts";
 
 // ---- polling ----
@@ -563,13 +568,19 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
       )}
       {view?.kind === "confirm" && (
         <>
-          <ConfirmView preflight={view.preflight} size={size} time={time} />
+          <ConfirmView
+            preflight={view.preflight}
+            outside={view.outside}
+            size={size}
+            time={time}
+          />
           {view.live && <LiveLine live={view.live} size={size} time={time} />}
           <div style={row}>
             {/* After a refusal for an old or changed check, a new check
                 comes first. */}
             {state.error?.detail?.code === "preflight_stale" ||
-            state.error?.detail?.code === "turns_changed" ? (
+            state.error?.detail?.code === "turns_changed" ||
+            state.error?.detail?.code === "folders_changed" ? (
               <>
                 <CheckAgain busy={busy} onClick={() => void checkAgain()} />
                 <LockButton
@@ -688,7 +699,14 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
       {view?.kind === "failed" && (
         <>
           <p style={warning}>{t("officeMove.in.failed")}</p>
-          <ErrorLine error={view.error} />
+          {/* With the folder checks, the blocked folders (why and the fix)
+              replace the server's message, which is stale once they are
+              fixed. */}
+          {view.outside.length > 0 ? (
+            <BlockedFolders lines={view.outside} />
+          ) : (
+            <ErrorLine error={view.error} />
+          )}
           <div style={row}>
             {view.retryable && (
               <button
@@ -968,14 +986,21 @@ function CheckAgain({ busy, onClick }: { busy: boolean; onClick: () => void }) {
 
 function ConfirmView({
   preflight: p,
+  outside,
   size,
   time,
 }: {
   preflight: PreflightView;
+  outside: OutsideFolderLine[];
   size: (bytes: number) => string;
   time: (ts: number) => string;
 }) {
   const { t } = useI18n();
+  // Slice 5b: the folders outside the home are copied too.
+  const outsideBytes = outside.reduce((n, l) => n + (l.bytes ?? 0), 0);
+  const sizePartial =
+    p.sizes.kind === "total" &&
+    (p.sizes.partial || outside.some((l) => l.bytes === null));
   return (
     <>
       <p style={{ ...text, fontWeight: 600 }}>
@@ -1051,12 +1076,27 @@ function ConfirmView({
       {p.sizes.kind === "total" && (
         <p style={text}>
           {t(
-            p.sizes.partial
+            sizePartial
               ? "officeMove.in.confirm.sizeAtLeast"
               : "officeMove.in.confirm.size",
-            { size: size(p.sizes.bytes) },
+            { size: size(p.sizes.bytes + outsideBytes) },
           )}
         </p>
+      )}
+      {outside.length > 0 && (
+        <>
+          <p style={text}>{t("officeMove.in.outside.heading")}</p>
+          <FolderList testId="move-outside" lines={outside} size={size} />
+          {outside.some((l) => !l.check.ok) && (
+            <p style={warning}>{t("officeMove.in.outside.lockWaits")}</p>
+          )}
+        </>
+      )}
+      {p.outside.kind === "list" && p.outside.left.length > 0 && (
+        <>
+          <p style={text}>{t("officeMove.in.outside.left")}</p>
+          <LeftFolders testId="move-outside-left" items={p.outside.left} />
+        </>
       )}
       {p.sudoPackages.kind === "list" ? (
         p.sudoPackages.packages.length > 0 && (
@@ -1070,6 +1110,138 @@ function ConfirmView({
         <p style={hint}>{t("officeMove.in.confirm.sudoUnknown")}</p>
       )}
     </>
+  );
+}
+
+/** Slice 5b: the folders outside the home, one item per folder with its
+ *  size and, when it cannot land here, why and the root command. */
+function FolderList({
+  testId,
+  lines,
+  size,
+}: {
+  testId: string;
+  lines: OutsideFolderLine[];
+  size?: (bytes: number) => string;
+}) {
+  const { t } = useI18n();
+  // The cap never hides a folder that cannot land (the owner must see why):
+  // it drops only folders that can, and keeps the checks' order.
+  const blocked = lines.filter((l) => !l.check.ok).length;
+  let room = Math.max(0, MOVE_LIST_MAX - blocked);
+  const shown = lines.filter((l) => !l.check.ok || room-- > 0);
+  const more = lines.length - shown.length;
+  return (
+    <ul data-testid={testId} style={list}>
+      {shown.map((l) => (
+        <li key={l.path} data-path={l.path}>
+          <span style={mono}>{l.path}</span>
+          {size &&
+            ` (${l.bytes === null ? t("officeMove.in.outside.sizeUnknown") : size(l.bytes)})`}
+          {!l.check.ok && (
+            <>
+              <div data-testid="move-outside-blocked" style={warning}>
+                {t(BLOCK_REASON_KEY[l.check.reason], { at: l.check.at })}
+              </div>
+              {l.check.command && <RootCommand command={l.check.command} />}
+            </>
+          )}
+        </li>
+      ))}
+      {more > 0 && <li>{t("officeMove.in.more", { count: more })}</li>}
+    </ul>
+  );
+}
+
+function RootCommand({ command }: { command: string }) {
+  const { t } = useI18n();
+  return (
+    <div style={{ margin: "4px 0" }}>
+      <span style={hint}>{t("officeMove.in.outside.command")}</span>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <code
+          data-testid="move-outside-command"
+          style={{
+            ...mono,
+            flex: 1,
+            minWidth: 0,
+            overflowWrap: "anywhere",
+            padding: "6px 8px",
+            borderRadius: 6,
+            border: "1px solid var(--border)",
+            background: "var(--bg-base)",
+          }}
+        >
+          {command}
+        </code>
+        <CopyButton getText={() => command} />
+      </div>
+    </div>
+  );
+}
+
+/** Slice 5b: a pass failed for folders outside the home: the ones that
+ *  cannot land here yet, until the owner fixes them. */
+function BlockedFolders({ lines }: { lines: OutsideFolderLine[] }) {
+  const { t } = useI18n();
+  const blocked = lines.filter((l) => !l.check.ok);
+  if (blocked.length === 0) return null;
+  return (
+    <>
+      <p style={text}>{t("officeMove.in.outside.fixFirst")}</p>
+      <FolderList testId="move-outside" lines={blocked} />
+    </>
+  );
+}
+
+/** Slice 5b: the copy of each reason a folder cannot land here. */
+const BLOCK_REASON_KEY = {
+  in_home: "officeMove.in.outside.reason.inHome",
+  link: "officeMove.in.outside.reason.link",
+  not_dir: "officeMove.in.outside.reason.notDir",
+  owner: "officeMove.in.outside.reason.owner",
+  unsafe_parent: "officeMove.in.outside.reason.unsafeParent",
+  not_empty: "officeMove.in.outside.reason.notEmpty",
+  no_write: "officeMove.in.outside.reason.noWrite",
+} as const satisfies Record<MoveInFolderBlock, string>;
+
+/** Slice 5b: the copy of each reason the old office leaves a folder. */
+const LEFT_REASON_KEY = {
+  temp: "officeMove.in.outside.leftReason.temp",
+  link: "officeMove.in.outside.leftReason.link",
+  office: "officeMove.in.outside.leftReason.office",
+  owner: "officeMove.in.outside.leftReason.owner",
+} as const satisfies Record<MoveOutsideLeftReason, string>;
+
+const leftReasonKey = (reason: string) =>
+  Object.hasOwn(LEFT_REASON_KEY, reason)
+    ? LEFT_REASON_KEY[reason as MoveOutsideLeftReason]
+    : null;
+
+/** Slice 5b: the folders outside the home the old office leaves, with why
+ *  (a reason this release does not name shows the path only). */
+function LeftFolders({
+  testId,
+  items,
+}: {
+  testId: string;
+  items: { path: string; reason: string }[];
+}) {
+  const { t } = useI18n();
+  const { shown, more } = listHead(items);
+  return (
+    <ul data-testid={testId} style={list}>
+      {shown.map((f) => {
+        const reason = leftReasonKey(f.reason);
+        return (
+          <li key={f.path} data-path={f.path}>
+            <span style={mono}>{f.path}</span>
+            {reason !== null && ` (${t(reason)})`}
+          </li>
+        );
+      })}
+      {more > 0 && <li>{t("officeMove.in.more", { count: more })}</li>}
+    </ul>
   );
 }
 
@@ -1104,6 +1276,8 @@ function ReportView({
   const { t, tn, rich } = useI18n();
   const r = view.report;
   const aside = listHead(r.aside.entries);
+  // Slice 5b: absent in a report of an earlier release.
+  const outsideMoved = listHead(r.outsideMoved ?? []);
   const leftBehind = leftBehindLines(r);
   const leftBehindText = (line: LeftBehindLine): string => {
     switch (line.kind) {
@@ -1149,6 +1323,30 @@ function ReportView({
               </li>
             ))}
           </ul>
+        </>
+      )}
+      {outsideMoved.shown.length > 0 && (
+        <>
+          <p style={text}>{t("officeMove.report.outsideMoved")}</p>
+          <ul data-testid="move-report-outside-moved" style={list}>
+            {outsideMoved.shown.map((path) => (
+              <li key={path} data-path={path} style={mono}>
+                {path}
+              </li>
+            ))}
+            {outsideMoved.more > 0 && (
+              <li>{t("officeMove.in.more", { count: outsideMoved.more })}</li>
+            )}
+          </ul>
+        </>
+      )}
+      {r.outsideLeft && r.outsideLeft.length > 0 && (
+        <>
+          <p style={text}>{t("officeMove.report.outsideLeft")}</p>
+          <LeftFolders
+            testId="move-report-outside-left"
+            items={r.outsideLeft}
+          />
         </>
       )}
       {r.oldOfficeUnitSetAside && (

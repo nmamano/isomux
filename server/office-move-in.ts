@@ -1891,7 +1891,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     const prevJoin = opts.prev ? ledgerJoin(opts.prev.ledger) : null;
     try {
       for await (const e of manifestEntries(t.manifestFile)) {
-        if (firstError !== null || gen !== generation || signal.aborted) break;
+        if (gen !== generation) break;
+        // A failed or stopped pass still carries what the last pass copied,
+        // so the next one does not fetch it again: the walk goes on with no
+        // batch, making folders and keeping files.
+        const ended = firstError !== null || signal.aborted;
+        if (ended && !prevJoin) break;
         if (e.t === "f" && prevJoin && opts.prev) {
           const row = await prevJoin(e.p);
           if (
@@ -1903,6 +1908,15 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             opts.prog.bytesKept = (opts.prog.bytesKept ?? 0) + e.s;
             continue;
           }
+        }
+        if (ended) {
+          if (e.t !== "d") continue;
+          try {
+            stage.prepare(e);
+          } catch {
+            break; // The pass's own error stands.
+          }
+          continue;
         }
         stage.prepare(e);
         if (e.t !== "f") continue;
@@ -2281,6 +2295,11 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       if (s.phase === "failed") {
         out.error = s.error;
         out.retryable = s.retryable;
+        // Slice 5b-2: the folders the lock kept, checked at each request, so
+        // the owner sees what to fix before Try again.
+        const folders = s.outside?.move ?? [];
+        if (s.error.code === "outside_folders_blocked" && folders.length > 0)
+          out.outsideChecks = folders.map((f) => checkFolder(f.path, f.mode));
       }
       return out;
     },

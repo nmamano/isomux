@@ -248,8 +248,10 @@ export type MoveInStatus =
       preflight?: MoveInPreflight;
       /** Slice 4, phases `preflight` and `confirm`. */
       live?: MoveInLive;
-      /** Slice 5b, phase `confirm`: where each folder outside the home of
-       *  the preflight lands on this box, checked at this request. */
+      /** Slice 5b: where each folder outside the home lands on this box,
+       *  checked at this request. Phase `confirm`: the preflight's folders;
+       *  phase `failed` with error code outside_folders_blocked: the
+       *  folders the lock kept. */
       outsideChecks?: MoveInFolderCheck[];
       lockedAt?: number | null;
       progress?: MoveInProgress;

@@ -2364,6 +2364,84 @@ describe("the live pass (slice 4)", () => {
     expectStageIsOldHome(o, n);
   });
 
+  it("a final pass that fails before its walk ends still keeps what the live pass copied: the pull again fetches none of it", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    // One batch at a time, and docs/a.txt grows past one batch below: the
+    // final pass flushes the sign-ins' batch at docs/ and waits for a slot
+    // for docs/a.txt, so it sees that batch fail before it reaches files/.
+    // Deterministic, where three slots race.
+    const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
+    await toConfirm(o, n);
+    const preflightId = await liveReady(n);
+    const copied = asked(o, "paired").filter((p) => !ALWAYS.includes(p));
+    // The condition: the live pass copied files after the failing batch's
+    // place in the walk.
+    expect(
+      ["files/f000.bin", "files/f029.bin"].filter((p) => !copied.includes(p)),
+    ).toEqual([]);
+    writeFileSync(join(o.home, "docs/a.txt"), "x".repeat(20 * 1024));
+    g.fail(
+      (m) =>
+        m.path === "/api/move/batch" &&
+        m.state === "move" &&
+        (m.body ?? "").includes(".claude/.credentials.json"),
+    );
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    const failed = await waitPhase(n.moveIn, [...TERMINAL], 15_000);
+    expect([
+      failed.phase,
+      (failed as { error?: { code: string } }).error?.code,
+    ]).toEqual(["failed", "batch_failed"]);
+    g.fail(null);
+    const mark = o.log.length;
+    expect((await n.moveIn.retryPull({ by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    const again = new Set(asked(o, "move", mark));
+    expect(again.has(".claude/.credentials.json")).toBe(true);
+    expect(
+      copied.filter((p) => p.startsWith("files/") && again.has(p)),
+    ).toEqual([]);
+    expectStageIsOldHome(o, n);
+  });
+
+  it("a live pass the lock stops keeps what the earlier live pass copied: the final pass fetches none of it", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
+    await toConfirm(o, n);
+    await liveReady(n);
+    const copied = asked(o, "paired").filter((p) => !ALWAYS.includes(p));
+    // docs/a.txt grows past one batch: Copy again flushes its first batch
+    // there (the sign-ins), and with one slot the walk waits at docs/,
+    // before files/, while that batch is held.
+    writeFileSync(join(o.home, "docs/a.txt"), "x".repeat(20 * 1024));
+    const first = g.hold(liveBatch(g.count("/api/move/batch", "paired")), 20);
+    const mark0 = o.log.length;
+    expect((await n.moveIn.copyLive({ by: OWNER })).ok).toBe(true);
+    await first.reached;
+    const preflightId = (n.moveIn.status() as { preflightId: string })
+      .preflightId;
+    // The condition: the held pass is still on its first batch.
+    expect(liveOf(n)?.phase).toBe("copying");
+    expect(asked(o, "paired", mark0)).toEqual([]);
+    const mark = o.log.length;
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    const final = new Set(asked(o, "move", mark));
+    expect(final.has("docs/a.txt")).toBe(true);
+    expect(
+      copied.filter((p) => p.startsWith("files/") && final.has(p)),
+    ).toEqual([]);
+    expectStageIsOldHome(o, n);
+  });
+
   it("Copy again runs the live pass again on what changed; a second one while it runs is refused", async () => {
     dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
@@ -2596,6 +2674,36 @@ describe("slice 5b: folders outside the home", () => {
     expect(existsSync(join(stageIn(b.at(b.p)), "a.txt"))).toBe(true);
   });
 
+  it("slice 5b-2: a pass failed with outside_folders_blocked: the status carries the checks of the folders the lock kept, checked again at each request", async () => {
+    let bed: Bed | null = null;
+    const b = outsideBed({
+      fetch: atLock(
+        () => bed!,
+        () => {
+          mkdirSync(bed!.at(bed!.p), { recursive: true });
+          writeFileSync(join(bed!.at(bed!.p), "late.txt"), "late");
+        },
+      ),
+    });
+    bed = b;
+    const end = await toEnd(b.o, b.n);
+    expect(failure(end)).toEqual({
+      phase: "failed",
+      code: "outside_folders_blocked",
+      retryable: true,
+    });
+    const checks = () =>
+      (
+        (b.n.moveIn.status() as { outsideChecks?: unknown[] }).outsideChecks as
+          { path: string; ok: boolean; reason?: string }[] | undefined
+      )?.map((c) => [c.path, c.ok, c.reason ?? null]) ?? null;
+    expect(checks()).toEqual([[b.p, false, "not_empty"]]);
+    // The owner empties the folder: the next request says it can land.
+    rmSync(join(b.at(b.p), "late.txt"));
+    expect(b.n.moveIn.status().phase).toBe("failed");
+    expect(checks()).toEqual([[b.p, true, null]]);
+  });
+
   it("C4: a manifest that lists folders other than the ones checked fails the pass (outside_folders_changed, retryable) and stages none of them", async () => {
     let bed: Bed | null = null;
     const b = outsideBed({
@@ -2616,6 +2724,10 @@ describe("slice 5b: folders outside the home", () => {
       code: "outside_folders_changed",
       retryable: true,
     });
+    // Slice 5b-2: only an outside_folders_blocked failure carries checks.
+    expect(
+      (b.n.moveIn.status() as { outsideChecks?: unknown[] }).outsideChecks,
+    ).toBeUndefined();
     expect(existsSync(b.at(b.q))).toBe(false);
     expect(existsSync(stageIn(b.at(b.p)))).toBe(false);
   });

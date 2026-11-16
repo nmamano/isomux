@@ -20,6 +20,11 @@
 //   final copy counts what the live pass kept; a lock error goes away when a
 //   new check comes; the move-out card says when the new machine started
 //   copying.
+// - the folders outside the home (slice 5b-2): the confirm card lists each
+//   with its check, a blocked one with its reason and root command, and the
+//   folders left; Lock waits and the card polls while one is blocked, also
+//   after a lock refused for it and on a pass failed for it; the size counts
+//   them; the report lists what moved and what stayed.
 //
 // Controls are found by data-testid (copy is not asserted).
 import { afterEach, beforeEach, expect, it, jest, spyOn } from "bun:test";
@@ -33,11 +38,16 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const browser = await import("../reload-browser.ts");
 const { OfficeMovePane } = await import("./OfficeMovePane.tsx");
-const { MOVE_IN_POLL_MS, MOVE_OUT_POLL_MS, MOVE_IN_RESTART_CAP_MS } =
-  await import("../office-move.ts");
+const {
+  MOVE_IN_POLL_MS,
+  MOVE_OUT_POLL_MS,
+  MOVE_IN_RESTART_CAP_MS,
+  MOVE_LIST_MAX,
+} = await import("../office-move.ts");
 const { absoluteTime } = await import("../../shared/i18n/time.ts");
 const { formatBytes } = await import("../../shared/i18n/number.ts");
 import type {
+  MoveInFolderCheck,
   MoveInLive,
   MoveInLivePhase,
   MoveInProgress,
@@ -869,4 +879,345 @@ it("the move-out card says when the new machine started copying, only while pair
     }),
     none: await served({ state: "none" }),
   }).toEqual({ paired: true, pairedNotServed: null, code: null, none: null });
+});
+
+// Slice 5b-2: the folders outside the home. Structure the tests read:
+// move-outside and move-outside-left (confirm), move-report-outside-moved
+// and move-report-outside-left (report) are lists whose items carry
+// data-path; move-outside-blocked (the reason) and move-outside-command (the
+// root command) sit inside the blocked folder's item.
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { sizeText } = await import("./StoragePane.tsx");
+
+const OUT_P = "/srv/data";
+const OUT_Q = "/opt/tools";
+const ROOT_CMD = "chown isomux:isomux /opt/tools";
+const okCheck = (path: string, create: string[] = []): MoveInFolderCheck => ({
+  path,
+  ok: true,
+  create,
+});
+const blockedCheck = (path: string, command?: string): MoveInFolderCheck => ({
+  path,
+  ok: false,
+  reason: "owner",
+  at: path,
+  ...(command ? { command } : {}),
+});
+function outsidePreflight(
+  qBytes: number | null = 3_000,
+  left: { path: string; reason: string }[] = [
+    { path: "/tmp/scratch", reason: "temp" },
+    { path: "/mnt/quota", reason: "quota" },
+  ],
+) {
+  return {
+    ...preflight("always"),
+    outsideFolders: {
+      move: [
+        { path: OUT_P, mode: 0o750, bytes: 2_000, timedOut: false },
+        { path: OUT_Q, mode: 0o755, bytes: qBytes, timedOut: qBytes === null },
+      ],
+      left,
+    },
+  };
+}
+const confirmOutside = (
+  checks: MoveInFolderCheck[],
+  pf: Record<string, unknown> = outsidePreflight(),
+) =>
+  inPhase("confirm", {
+    preflightId: "pf-1",
+    preflight: pf,
+    outsideChecks: checks,
+  });
+const failedOutside = (checks: MoveInFolderCheck[]) =>
+  inPhase("failed", {
+    error: { code: "outside_folders_blocked", message: "BLOCKED" },
+    retryable: true,
+    oldOfficeLocked: true,
+    outsideChecks: checks,
+  });
+const pathsIn = (list: HTMLElement | null) =>
+  list
+    ? [...list.querySelectorAll<HTMLElement>("[data-path]")].map(
+        (e) => e.dataset.path,
+      )
+    : null;
+/** The data-path of the item each element of `id` sits in. */
+const itemsOf = (m: Awaited<ReturnType<typeof mount>>, id: string) =>
+  [...m.all(id)].map(
+    (e) => e.closest<HTMLElement>("[data-path]")?.dataset.path ?? null,
+  );
+
+it("slice 5b-2: the confirm card lists the folders outside the home; a blocked one says why and shows its root command, Lock waits and sends nothing; the folders left are listed", async () => {
+  inAnswers = [
+    confirmOutside([okCheck(OUT_P, [OUT_P]), blockedCheck(OUT_Q, ROOT_CMD)]),
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("confirm");
+  expect(pathsIn(m.q("move-outside"))).toEqual([OUT_P, OUT_Q]);
+  expect(itemsOf(m, "move-outside-blocked")).toEqual([OUT_Q]);
+  expect(itemsOf(m, "move-outside-command")).toEqual([OUT_Q]);
+  expect(m.q("move-outside-command")?.textContent ?? "").toContain(ROOT_CMD);
+  // A reason this release does not name keeps its folder.
+  expect(pathsIn(m.q("move-outside-left"))).toEqual([
+    "/tmp/scratch",
+    "/mnt/quota",
+  ]);
+  const lock = m.q("move-lock") as HTMLButtonElement;
+  expect(lock.disabled).toBe(true);
+  await click(lock);
+  expect(writesTo("/api/office/move-in/lock").length).toBe(0);
+  m.view.unmount();
+
+  // Every folder can land: no reason, no command, Lock on. A blocked folder
+  // with no command shows its reason only. No folders left: no left list.
+  for (const [checks, blocked] of [
+    [[okCheck(OUT_P), okCheck(OUT_Q, [OUT_Q])], []],
+    [[okCheck(OUT_P), blockedCheck(OUT_Q)], [OUT_Q]],
+  ] as const) {
+    inAnswers = [confirmOutside([...checks], outsidePreflight(3_000, []))];
+    const c = await mount();
+    expect({
+      blocked: itemsOf(c, "move-outside-blocked"),
+      commands: c.all("move-outside-command").length,
+      lockDisabled: (c.q("move-lock") as HTMLButtonElement).disabled,
+      left: c.q("move-outside-left") !== null,
+    }).toEqual({
+      blocked: [...blocked],
+      commands: 0,
+      lockDisabled: blocked.length > 0,
+      left: false,
+    });
+    c.view.unmount();
+  }
+});
+
+it("slice 5b-2: an old office before 5b sends no folders outside the home: no folder lists, and Lock is on", async () => {
+  inAnswers = [
+    inPhase("confirm", { preflightId: "pf-1", preflight: preflight("always") }),
+  ];
+  const m = await mount();
+  expect({
+    outside: m.q("move-outside") !== null,
+    left: m.q("move-outside-left") !== null,
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ outside: false, left: false, lockDisabled: false });
+});
+
+it("slice 5b-2: the size line adds the folders outside the home to the home; a folder with no size makes it a lower bound", async () => {
+  const { t } = translatorFor("en");
+  const line = (
+    key: "officeMove.in.confirm.size" | "officeMove.in.confirm.sizeAtLeast",
+    bytes: number,
+  ) => t(key, { size: sizeText("en", t, bytes) });
+  // Home 10 + 2000 + 3000.
+  inAnswers = [confirmOutside([okCheck(OUT_P), okCheck(OUT_Q)])];
+  const known = await mount();
+  const knownText = known.q("move-in")?.textContent ?? "";
+  expect({
+    size: knownText.includes(line("officeMove.in.confirm.size", 5_010)),
+    homeOnly: knownText.includes(line("officeMove.in.confirm.size", 10)),
+  }).toEqual({ size: true, homeOnly: false });
+  known.view.unmount();
+  inAnswers = [
+    confirmOutside([okCheck(OUT_P), okCheck(OUT_Q)], outsidePreflight(null)),
+  ];
+  const partial = await mount();
+  expect(
+    (partial.q("move-in")?.textContent ?? "").includes(
+      line("officeMove.in.confirm.sizeAtLeast", 2_010),
+    ),
+  ).toBe(true);
+});
+
+it("slice 5b-2: while a folder is blocked the confirm card polls; when the owner clears it, Lock turns on and the poll stops", async () => {
+  jest.useFakeTimers();
+  inAnswers = [
+    confirmOutside([okCheck(OUT_P), blockedCheck(OUT_Q, ROOT_CMD)]),
+    confirmOutside([okCheck(OUT_P), okCheck(OUT_Q)]),
+  ];
+  const m = await mount();
+  expect((m.q("move-lock") as HTMLButtonElement).disabled).toBe(true);
+  await advance(MOVE_IN_POLL_MS);
+  expect({
+    blocked: m.all("move-outside-blocked").length,
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ blocked: 0, lockDisabled: false });
+  const reads = inReads;
+  await advance(MOVE_IN_POLL_MS * 3);
+  expect(inReads).toBe(reads);
+});
+
+it("slice 5b-2: a lock refused with outside_folders_blocked shows the checks the refresh brings and polls until they clear, Lock first; folders_changed puts Check again first", async () => {
+  const before = (a: HTMLElement | null, b: HTMLElement | null) =>
+    a !== null &&
+    b !== null &&
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  jest.useFakeTimers();
+  writeAnswers["POST /api/office/move-in/lock"] = new ApiError(
+    409,
+    "outside_folders_blocked",
+    "BLOCKED",
+    { code: "outside_folders_blocked" },
+  );
+  inAnswers = [confirmOutside([okCheck(OUT_P), okCheck(OUT_Q)])];
+  const m = await mount();
+  inAnswers = [
+    confirmOutside([okCheck(OUT_P), blockedCheck(OUT_Q, ROOT_CMD)]),
+    confirmOutside([okCheck(OUT_P), okCheck(OUT_Q)]),
+  ];
+  await click(m.q("move-lock"));
+  expect(writesTo("/api/office/move-in/lock").length).toBe(1);
+  expect({
+    commands: itemsOf(m, "move-outside-command"),
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+    lockFirst: before(m.q("move-lock"), m.q("move-check-again")),
+  }).toEqual({ commands: [OUT_Q], lockDisabled: true, lockFirst: true });
+  await advance(MOVE_IN_POLL_MS);
+  expect({
+    blocked: m.all("move-outside-blocked").length,
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ blocked: 0, lockDisabled: false });
+  m.view.unmount();
+
+  // The old office's folder list changed since its check: a new check first.
+  writes = [];
+  writeAnswers["POST /api/office/move-in/lock"] = new ApiError(
+    409,
+    "folders_changed",
+    "CHANGED",
+    { code: "folders_changed" },
+  );
+  inAnswers = [confirmOutside([okCheck(OUT_P), okCheck(OUT_Q)])];
+  const c = await mount();
+  expect(before(c.q("move-lock"), c.q("move-check-again"))).toBe(true);
+  await click(c.q("move-lock"));
+  expect(writesTo("/api/office/move-in/lock").length).toBe(1);
+  expect(before(c.q("move-check-again"), c.q("move-lock"))).toBe(true);
+});
+
+it("slice 5b-2: a pass failed for a folder: the failed card shows the blocked folder with its command and Try again, and polls until it clears", async () => {
+  jest.useFakeTimers();
+  inAnswers = [
+    failedOutside([okCheck(OUT_P), blockedCheck(OUT_Q, ROOT_CMD)]),
+    failedOutside([okCheck(OUT_P), okCheck(OUT_Q)]),
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("failed");
+  expect({
+    blocked: itemsOf(m, "move-outside-blocked"),
+    commands: itemsOf(m, "move-outside-command"),
+    command: (m.q("move-outside-command")?.textContent ?? "").includes(
+      ROOT_CMD,
+    ),
+    retry: m.q("move-retry") !== null,
+  }).toEqual({
+    blocked: [OUT_Q],
+    commands: [OUT_Q],
+    command: true,
+    retry: true,
+  });
+  await advance(MOVE_IN_POLL_MS);
+  expect({
+    view: m.inView(),
+    blocked: m.all("move-outside-blocked").length,
+    retry: m.q("move-retry") !== null,
+  }).toEqual({ view: "failed", blocked: 0, retry: true });
+  const reads = inReads;
+  await advance(MOVE_IN_POLL_MS * 3);
+  expect(inReads).toBe(reads);
+});
+
+it("slice 5b-2: the report lists the folders outside the home that moved and those that stayed; a report of an earlier release has neither list", async () => {
+  const base = moved([".bashrc"]) as Extract<MoveInStatus, { phase: "moved" }>;
+  inAnswers = [
+    {
+      ...base,
+      report: {
+        ...base.report,
+        outsideMoved: [OUT_P, OUT_Q],
+        outsideLeft: [
+          { path: "/tmp/scratch", reason: "temp" },
+          { path: "/home/other/x", reason: "owner" },
+        ],
+      },
+    },
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("report");
+  expect({
+    moved: pathsIn(m.q("move-report-outside-moved")),
+    left: pathsIn(m.q("move-report-outside-left")),
+  }).toEqual({
+    moved: [OUT_P, OUT_Q],
+    left: ["/tmp/scratch", "/home/other/x"],
+  });
+  m.view.unmount();
+  inAnswers = [base];
+  const old = await mount();
+  expect({
+    moved: old.q("move-report-outside-moved") !== null,
+    left: old.q("move-report-outside-left") !== null,
+  }).toEqual({ moved: false, left: false });
+});
+
+it("slice 5b-2: the list cap never hides a folder that cannot land: with more folders than the cap, the blocked one past it still shows its reason and command", async () => {
+  const many = Array.from({ length: MOVE_LIST_MAX + 10 }, (_, i) =>
+    okCheck(`/srv/f${String(i).padStart(3, "0")}`),
+  );
+  const last = "/srv/zz-blocked";
+  inAnswers = [
+    confirmOutside([...many, blockedCheck(last, ROOT_CMD)], {
+      ...preflight("always"),
+      outsideFolders: {
+        move: [...many, { path: last }].map((c) => ({
+          path: c.path,
+          mode: 0o755,
+          bytes: 1,
+          timedOut: false,
+        })),
+        left: [],
+      },
+    }),
+  ];
+  const m = await mount();
+  expect({
+    blocked: itemsOf(m, "move-outside-blocked"),
+    commands: itemsOf(m, "move-outside-command"),
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ blocked: [last], commands: [last], lockDisabled: true });
+});
+
+it("slice 5b-2: the failed card with folder checks shows the folders, not the server's message, also after the owner's fix; with no checks, the message", async () => {
+  const says = (m: Awaited<ReturnType<typeof mount>>, msg: string) =>
+    (m.q("move-in")?.textContent ?? "").includes(msg);
+  // failedOutside's server message is "BLOCKED".
+  for (const checks of [
+    [okCheck(OUT_P), blockedCheck(OUT_Q, ROOT_CMD)],
+    [okCheck(OUT_P), okCheck(OUT_Q)],
+  ]) {
+    inAnswers = [failedOutside(checks)];
+    const m = await mount();
+    expect({
+      view: m.inView(),
+      blocked: itemsOf(m, "move-outside-blocked").length,
+      message: says(m, "BLOCKED"),
+    }).toEqual({
+      view: "failed",
+      blocked: checks.some((c) => !c.ok) ? 1 : 0,
+      message: false,
+    });
+    m.view.unmount();
+  }
+  inAnswers = [
+    inPhase("failed", {
+      error: { code: "batch_failed", message: "A PART FAILED" },
+      retryable: true,
+    }),
+  ];
+  const other = await mount();
+  expect(says(other, "A PART FAILED")).toBe(true);
 });

@@ -4,6 +4,7 @@
 // internal-docs/office-move-design.md describes the flow.
 
 import type {
+  MoveInFolderCheck,
   MoveInLive,
   MoveInLivePhase,
   MoveInProgress,
@@ -84,6 +85,49 @@ export interface PreflightView {
     | { kind: "broken" }
     | Unknown;
   sudoPackages: { kind: "list"; packages: string[] } | Unknown;
+  /** Slice 5b: the old office's folders outside its home. Unknown: an old
+   *  office of a release without this part, or a part that does not read.
+   *  A left reason this release does not name is kept as its string. */
+  outside:
+    | {
+        kind: "list";
+        move: { path: string; bytes: number | null; timedOut: boolean }[];
+        left: { path: string; reason: string }[];
+      }
+    | Unknown;
+}
+
+/** Slice 5b: one folder outside the home as the card shows it: the server's
+ *  check (the list the lock checks and the pass moves), with the preflight's
+ *  size joined by path (null when the preflight has no match). */
+export interface OutsideFolderLine {
+  path: string;
+  bytes: number | null;
+  timedOut: boolean;
+  check: MoveInFolderCheck;
+}
+
+/** Slice 5b: one line per check, in the checks' order. */
+export function outsideLines(
+  preflight: PreflightView | null,
+  checks: MoveInFolderCheck[] | undefined,
+): OutsideFolderLine[] {
+  const sized =
+    preflight?.outside.kind === "list" ? preflight.outside.move : [];
+  return (checks ?? []).map((check) => {
+    const f = sized.find((m) => m.path === check.path);
+    return {
+      path: check.path,
+      bytes: f?.bytes ?? null,
+      timedOut: f?.timedOut ?? false,
+      check,
+    };
+  });
+}
+
+/** Slice 5b: a folder cannot land here yet. */
+export function outsideBlocked(lines: OutsideFolderLine[]): boolean {
+  return lines.some((l) => !l.check.ok);
 }
 
 type Obj = Record<string, unknown>;
@@ -201,6 +245,27 @@ function readMemberOsUsers(v: unknown): PreflightView["memberOsUsers"] {
   return names.length === 0 ? { kind: "none" } : { kind: "list", names };
 }
 
+/** Slice 5b: an item of `move` needs its path, bytes (or null) and
+ *  timedOut; an item of `left` its path and a reason string (one this
+ *  release does not name is kept). */
+function readOutside(v: unknown): PreflightView["outside"] {
+  if (!isObj(v)) return UNKNOWN;
+  const move = readList(v.move, (x) =>
+    isObj(x) &&
+    isStr(x.path) &&
+    (x.bytes === null || isNum(x.bytes)) &&
+    isBool(x.timedOut)
+      ? { path: x.path, bytes: x.bytes, timedOut: x.timedOut }
+      : null,
+  );
+  const left = readList(v.left, (x) =>
+    isObj(x) && isStr(x.path) && isStr(x.reason)
+      ? { path: x.path, reason: x.reason }
+      : null,
+  );
+  return move && left ? { kind: "list", move, left } : UNKNOWN;
+}
+
 /** Never throws: each part that does not have its known shape is unknown. */
 export function preflightView(raw: unknown): PreflightView {
   const r: Obj = isObj(raw) ? raw : {};
@@ -213,6 +278,7 @@ export function preflightView(raw: unknown): PreflightView {
     sizes: isObj(raw) ? readSizes(r.sizes) : UNKNOWN,
     sudoPackages: isObj(raw) ? readSudo(r.sudoPackages) : UNKNOWN,
     memberOsUsers: readMemberOsUsers(isObj(raw) ? r.memberOsUsers : undefined),
+    outside: isObj(raw) ? readOutside(r.outsideFolders) : UNKNOWN,
   };
 }
 
@@ -288,6 +354,8 @@ export type MoveInView =
       oldOfficeLocked: boolean;
       /** Slice 4: null when the status has no live pass. */
       live: LiveView | null;
+      /** Slice 5b: the folders outside the home (outsideLines). */
+      outside: OutsideFolderLine[];
     }
   | {
       kind: "copying";
@@ -311,6 +379,8 @@ export type MoveInView =
       error: { code: string; message: string };
       retryable: boolean;
       oldOfficeLocked: boolean;
+      /** Slice 5b: the checks of an outside_folders_blocked failure. */
+      outside: OutsideFolderLine[];
     }
   | { kind: "restarting"; oldOrigin: string }
   | {
@@ -353,14 +423,16 @@ export function phaseView(status: MoveInStatus): MoveInView {
       };
     case "confirm": {
       const preflight = preflightView(status.preflight);
+      const outside = outsideLines(preflight, status.outsideChecks);
       return {
         kind: "confirm",
         oldOrigin,
         preflightId: status.preflightId ?? "",
         preflight,
-        lockAllowed: lockAllowed(preflight),
+        lockAllowed: lockAllowed(preflight) && !outsideBlocked(outside),
         oldOfficeLocked,
         live: liveView(status.live),
+        outside,
       };
     }
     case "pulling":
@@ -397,6 +469,7 @@ export function phaseView(status: MoveInStatus): MoveInView {
         error: status.error ?? { code: "unknown", message: "" },
         retryable: status.retryable === true,
         oldOfficeLocked,
+        outside: outsideLines(null, status.outsideChecks),
       };
     case "finishing":
     case "swapping":
@@ -434,6 +507,15 @@ const liveRuns = (status: MoveInStatus): boolean =>
   status.phase === "confirm" &&
   (status.live?.phase === "manifest" || status.live?.phase === "copying");
 
+/** Slice 5b: in confirm, or after a pass failed for it, a folder outside
+ *  the home cannot land yet: the card polls the server's checks, so it sees
+ *  the owner's fix. */
+const waitsForFolders = (status: MoveInStatus): boolean =>
+  (status.phase === "confirm" ||
+    (status.phase === "failed" &&
+      status.error?.code === "outside_folders_blocked")) &&
+  (status.outsideChecks ?? []).some((c) => !c.ok);
+
 /** What one poll got. `locked`: the answer carried LOCKED_HEADER. */
 export type PollOutcome<S> =
   | { kind: "status"; status: S }
@@ -465,7 +547,8 @@ export function moveInPollDecision(
         : { kind: "wait", ms: MOVE_IN_POLL_MS };
     case "status":
       return MOVE_IN_JOB_PHASES.has(outcome.status.phase) ||
-        liveRuns(outcome.status)
+        liveRuns(outcome.status) ||
+        waitsForFolders(outcome.status)
         ? { kind: "wait", ms: MOVE_IN_POLL_MS }
         : { kind: "stop" };
   }

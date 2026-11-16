@@ -144,6 +144,8 @@ An owner moves an office as it is, with its agents and their chats, apps, schedu
 
 What belongs to the old address or machine stays: members sign in again, and invites, the browser extension's pairing, notification devices and the SSH keys that log in to the old machine do not move. The report lists what to set up again. Members with their own OS user cannot move yet: turn it off for each of them first. Before the lock, a cancel on either office ends the move. After it, the old office stays locked until someone enters the move code on its moving page.
 
+Folders outside the office user's home that agents, apps or schedules use move too, to the same path. On the new machine, each one must be missing or empty and belong to the office's user. The new office shows the root command that fixes one. To put such a folder on a new disk, mount the disk at the folder's parent, not at the folder: a disk's top folder holds lost+found. Temporary folders, links and folders of other users stay on the old machine.
+
 ## Enterprise Contract
 
 A company of more than 10 people that uses Isomux commercially needs an enterprise account at [cloud.isomux.com/enterprise](https://cloud.isomux.com/enterprise). In each of its offices, an owner checks "This office is part of an Enterprise Contract" in Settings -> Office -> Enterprise and pastes the secret from the account page. Until a secret is accepted, agents take no messages and the office adds no members.

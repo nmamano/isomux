@@ -3675,6 +3675,35 @@ Cosas que puedes hacer por él:
   "officeMove.in.incomplete.one": "A la copia le falta {count} archivo:",
   "officeMove.in.incomplete.other": "A la copia le faltan {count} archivos:",
   "officeMove.in.more": "y {count} más",
+  "officeMove.in.outside.heading":
+    "Carpetas fuera de la carpeta personal de la oficina, copiadas a la misma ruta aquí:",
+  "officeMove.in.outside.sizeUnknown": "tamaño desconocido",
+  "officeMove.in.outside.reason.inHome":
+    "Quedaría dentro de la carpeta personal de esta oficina.",
+  "officeMove.in.outside.reason.link": "{at} es un enlace.",
+  "officeMove.in.outside.reason.notDir": "{at} no es una carpeta.",
+  "officeMove.in.outside.reason.owner": "Otro usuario es dueño de {at}.",
+  "officeMove.in.outside.reason.unsafeParent":
+    "Otros usuarios pueden escribir en {at}.",
+  "officeMove.in.outside.reason.notEmpty":
+    "{at} no está vacía. Mueve sus archivos a otro sitio.",
+  "officeMove.in.outside.reason.noWrite":
+    "Esta oficina no puede escribir en {at}.",
+  "officeMove.in.outside.command": "Ejecuta como root en esta máquina:",
+  "officeMove.in.outside.lockWaits":
+    "El bloqueo espera hasta que cada carpeta se pueda copiar aquí.",
+  "officeMove.in.outside.fixFirst":
+    "Arregla estas carpetas y vuelve a intentarlo:",
+  "officeMove.in.outside.left":
+    "Carpetas fuera de la carpeta personal que se quedan en la máquina antigua:",
+  "officeMove.in.outside.leftReason.temp": "temporal",
+  "officeMove.in.outside.leftReason.link": "un enlace",
+  "officeMove.in.outside.leftReason.office": "una carpeta de Isomux",
+  "officeMove.in.outside.leftReason.owner": "de otro usuario",
+  "officeMove.report.outsideMoved":
+    "Carpetas fuera de la carpeta personal que se movieron:",
+  "officeMove.report.outsideLeft":
+    "Carpetas fuera de la carpeta personal que se quedaron en la máquina antigua:",
   "officeMove.in.acceptMissing": "Terminar sin estos archivos",
   "officeMove.in.finishWarning":
     "Terminar sustituye esta oficina por la copia y la reinicia. Luego la oficina antigua muestra que se trasladó.",
