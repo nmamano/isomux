@@ -77,6 +77,9 @@ const retries = new Map<string, ReturnType<typeof setTimeout>>();
 // server/member-move.ts): their host keeps its paths and starts nothing.
 const moving = new Set<string>();
 const MOVING_REASON = "the member's files are moving";
+// The record's mark of a go-on that did not finish (member-os-users.ts).
+const UNFINISHED_REASON =
+  "the move of the member's files did not finish; run the turn-on command again";
 let connectedHook: ((userId: string) => void) | null = null;
 // Called after each connect of a member who is not moving: the office's
 // own work for a connected member, such as their skill lists and folders.
@@ -115,10 +118,16 @@ export function hostFor(userId: string | null | undefined): AgentHost {
   )
     return moving.has(userId!)
       ? createMovingHost(entry.host, userId!)
-      : entry.host;
+      : state.unfinished
+        ? createNotReadyHost(userId!, UNFINISHED_REASON)
+        : entry.host;
   return createNotReadyHost(
     userId!,
-    moving.has(userId!) ? MOVING_REASON : "the member's OS user is not ready",
+    moving.has(userId!)
+      ? MOVING_REASON
+      : state.unfinished
+        ? UNFINISHED_REASON
+        : "the member's OS user is not ready",
   );
 }
 
@@ -167,6 +176,7 @@ export function memberAppRunner(userId: string): {
   const entry = connected.get(userId);
   if (
     state.kind !== "isolated" ||
+    state.unfinished ||
     !entry ||
     entry.osUser.name !== state.osUser.name ||
     entry.osUser.uid !== state.osUser.uid
@@ -764,7 +774,9 @@ async function connectNow(userId: string): Promise<boolean> {
   // member's agents start.
   if (deps.caBundle() !== bundleWritten) await writeCaBundleTo(userId, share);
   console.log(`[member-hosts] ${userId} runs as ${osUser.name}`);
-  if (!moving.has(userId))
+  // A move that did not finish: as during a move, nothing of the member's
+  // starts until enable runs again.
+  if (!moving.has(userId) && !now.unfinished)
     for (const listener of connectedListeners)
       try {
         listener(userId);

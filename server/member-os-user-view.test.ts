@@ -1,10 +1,17 @@
 // The owner's view of a member's own OS user (task b94dfd25 4c-i,
 // server/member-os-user-view.ts). The properties:
-// - the shape: the container by its supervisor, the installer by its root
-//   command, nothing elsewhere or off Linux;
+// - the support verdict: off Linux, Kubernetes and Render first (each wins
+//   over a container's supervisor), then the installer's container by its
+//   conf, another Docker container by its supervisor, then the installer's
+//   system install and its root command; a conf that does not parse is no
+//   conf;
+// - a Docker container's own hostname reaches the command only when it is
+//   Docker's short id, else the placeholder does;
 // - the command holds the member id only, and only an id of the id pattern:
 //   nothing else a member could set reaches a line an owner runs as root;
-// - the state comes from the records (off, broken, not_ready, moving, on);
+// - the state comes from the records (off, broken, not_ready, moving, on); a
+//   record that says the files move keeps the member not ready (unfinished),
+//   connected or not, and their host starts nothing;
 // - the attempt reads running, failed (with its message) or stopped (an
 //   enable that prepared and never went on), and an owner gets no command.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -12,10 +19,13 @@ import { rmSync, writeFileSync } from "node:fs";
 
 import {
   clearMemberUserAttempt,
+  CONTAINER_PLACEHOLDER,
   MEMBER_USER_COMMAND_PATH,
+  memberUserSupport,
+  type MemberUserSupportInput,
   memberOsUserView,
   memberUserCommands,
-  memberUserShape,
+  type MemberUserSupport,
   noteMemberUserAttempt,
   PREPARED_STALE_MS,
   resetMemberUserAttempts,
@@ -25,8 +35,17 @@ import {
   recordMemberOsUser,
   reloadMemberOsUsers,
 } from "./member-os-users.ts";
-import { clearMemberMoving, markMemberMoving } from "./member-hosts.ts";
+import {
+  clearMemberMoving,
+  connectMemberHost,
+  hostFor,
+  markMemberMoving,
+  memberAppRunner,
+  onMemberConnected,
+  resetMemberHosts,
+} from "./member-hosts.ts";
 import { createMember, deleteUserById } from "./users.ts";
+import type { UpdateConfRead } from "./update-conf.ts";
 import {
   isolateMember,
   type IsolatedMember,
@@ -34,6 +53,12 @@ import {
 
 const ID = "0a1b2c3d";
 const NOW = 1_790_000_000_000;
+const INSTALLER: MemberUserSupport = { ok: true, shape: "installer" };
+const CONTAINER: MemberUserSupport = { ok: true, shape: "container" };
+const UNSUPPORTED: MemberUserSupport = {
+  ok: false,
+  reason: "no_system_install",
+};
 
 beforeEach(() => {
   rmSync(memberOsUsersPath(), { force: true });
@@ -47,18 +72,155 @@ afterEach(() => {
   clearMemberMoving(ID);
 });
 
-describe("the shape", () => {
-  it("is the container by its supervisor, the installer by its root command, and nothing elsewhere", () => {
-    const has = (path: string) => path === MEMBER_USER_COMMAND_PATH;
-    const none = () => false;
-    expect([
-      memberUserShape({ ISOMUX_APP_SUPERVISOR: "container" }, none, "linux"),
-      memberUserShape({}, has, "linux"),
-      // A user-level install has no root command.
-      memberUserShape({}, none, "linux"),
-      memberUserShape({ ISOMUX_APP_SUPERVISOR: "container" }, has, "darwin"),
-      memberUserShape({}, has, "darwin"),
-    ]).toEqual(["container", "installer", null, null, null]);
+describe("the support verdict", () => {
+  const SHORT_ID = "0123456789ab";
+  // An installer box with the root command: every input that the verdict
+  // reads, so each case changes only what it names.
+  const input = (
+    over: Partial<MemberUserSupportInput> = {},
+  ): MemberUserSupportInput => ({
+    env: {},
+    exists: (path) => path === MEMBER_USER_COMMAND_PATH,
+    platform: "linux",
+    hostname: SHORT_ID,
+    conf: {
+      state: "parsed",
+      values: { SERVICE_KIND: "system", DEPLOYMENT_KIND: "git" },
+    },
+    ...over,
+  });
+  const verdict = (over: Partial<MemberUserSupportInput> = {}) =>
+    memberUserSupport(input(over));
+  const reason = (over: Partial<MemberUserSupportInput>) => {
+    const v = verdict(over);
+    return v.ok ? `ok:${v.shape}` : v.reason;
+  };
+  const SUPERVISED = { ISOMUX_APP_SUPERVISOR: "container" };
+  const COMPOSE_CONF = {
+    state: "parsed" as const,
+    values: { DEPLOYMENT_KIND: "container", SERVICE_KIND: "system" },
+  };
+
+  it("is the installer on a system install with the root command, and says why not without either", () => {
+    expect(verdict()).toEqual({ ok: true, shape: "installer" });
+    expect(reason({ exists: () => false })).toBe("no_command");
+    const confs: UpdateConfRead[] = [
+      { state: "absent" },
+      { state: "invalid" },
+      { state: "parsed", values: { SERVICE_KIND: "user" } },
+      { state: "parsed", values: { DEPLOYMENT_KIND: "git" } },
+    ];
+    for (const conf of confs)
+      expect({ conf, reason: reason({ conf }) }).toEqual({
+        conf,
+        reason: "no_system_install",
+      });
+  });
+
+  it("is the installer's container by its conf, and another Docker container without it", () => {
+    expect(verdict({ env: SUPERVISED, conf: COMPOSE_CONF })).toEqual({
+      ok: true,
+      shape: "container",
+    });
+    for (const conf of [
+      { state: "absent" as const },
+      { state: "invalid" as const },
+    ])
+      expect({ conf, v: verdict({ env: SUPERVISED, conf }) }).toEqual({
+        conf,
+        v: { ok: true, shape: "docker", container: SHORT_ID },
+      });
+    // The conf alone is not a container: the supervisor is.
+    expect(reason({ conf: COMPOSE_CONF, exists: () => false })).toBe(
+      "no_command",
+    );
+  });
+
+  it("refuses off Linux, on Kubernetes and on Render, before a container's supervisor counts", () => {
+    const container = { env: SUPERVISED, conf: COMPOSE_CONF };
+    expect(reason({ ...container, platform: "darwin" })).toBe("not_linux");
+    expect(reason({ platform: "win32" })).toBe("not_linux");
+    const k8s = { ...SUPERVISED, KUBERNETES_SERVICE_HOST: "10.0.0.1" };
+    expect(reason({ ...container, env: k8s })).toBe("kubernetes");
+    expect(reason({ env: { KUBERNETES_SERVICE_HOST: "10.0.0.1" } })).toBe(
+      "kubernetes",
+    );
+    expect(
+      reason({ ...container, env: { ...SUPERVISED, RENDER: "true" } }),
+    ).toBe("render");
+    // Off Linux wins over Kubernetes.
+    expect(reason({ ...container, env: k8s, platform: "darwin" })).toBe(
+      "not_linux",
+    );
+    // An empty value is no Kubernetes; Render only by its own value.
+    expect(
+      reason({
+        ...container,
+        env: { ...SUPERVISED, KUBERNETES_SERVICE_HOST: "" },
+      }),
+    ).toBe("ok:container");
+    expect(
+      reason({ ...container, env: { ...SUPERVISED, RENDER: "false" } }),
+    ).toBe("ok:container");
+  });
+
+  it("puts a Docker container's hostname in the command only when it is Docker's short id", () => {
+    const docker = (hostname: string) =>
+      memberUserCommands(
+        ID,
+        verdict({ env: SUPERVISED, hostname, conf: { state: "absent" } }),
+      )!;
+    for (const verb of ["enable", "disable"] as const)
+      expect(docker(SHORT_ID)[verb].split(" ")).toEqual([
+        "sudo",
+        "docker",
+        "exec",
+        "-u",
+        "0",
+        SHORT_ID,
+        MEMBER_USER_COMMAND_PATH,
+        verb,
+        ID,
+      ]);
+    for (const hostname of [
+      "my-office",
+      "0123456789AB",
+      "0123456789abc",
+      "0123456789a",
+      "$(id)6789ab",
+      "0123456789ab;id",
+      "",
+    ]) {
+      const line = docker(hostname).enable;
+      expect({ hostname, words: line.split(" ").slice(5, 7) }).toEqual({
+        hostname,
+        words: [CONTAINER_PLACEHOLDER, MEMBER_USER_COMMAND_PATH],
+      });
+      if (hostname)
+        expect({ hostname, in: line.includes(hostname) }).toEqual({
+          hostname,
+          in: false,
+        });
+    }
+  });
+
+  it("asks the owner for the container's name only when the command holds the placeholder", () => {
+    const view = (
+      support: MemberUserSupport,
+      role: "member" | "owner" = "member",
+    ) => memberOsUserView({ id: ID, role }, { support, now: NOW }).commandHint;
+    expect(view({ ok: true, shape: "docker", container: null })).toBe(
+      "container_name",
+    );
+    expect(
+      view({ ok: true, shape: "docker", container: SHORT_ID }),
+    ).toBeUndefined();
+    expect(view(INSTALLER)).toBeUndefined();
+    expect(view(CONTAINER)).toBeUndefined();
+    // No command, no hint.
+    expect(
+      view({ ok: true, shape: "docker", container: null }, "owner"),
+    ).toBeUndefined();
   });
 });
 
@@ -67,7 +229,7 @@ describe("the command", () => {
   const words = (line: string) => line.split(" ");
 
   it("runs the root-owned command with the verb and the id, on each shape", () => {
-    const installer = memberUserCommands(ID, "installer")!;
+    const installer = memberUserCommands(ID, INSTALLER)!;
     expect(words(installer.enable)).toEqual([
       "sudo",
       MEMBER_USER_COMMAND_PATH,
@@ -80,7 +242,7 @@ describe("the command", () => {
       "disable",
       ID,
     ]);
-    const container = memberUserCommands(ID, "container")!;
+    const container = memberUserCommands(ID, CONTAINER)!;
     for (const verb of ["enable", "disable"] as const) {
       const line = words(container[verb]);
       // The compose folder of the installer, then root in the office
@@ -95,7 +257,7 @@ describe("the command", () => {
         ID,
       ]);
     }
-    expect(memberUserCommands(ID, null)).toBeNull();
+    expect(memberUserCommands(ID, UNSUPPORTED)).toBeNull();
   });
 
   it("takes only an id of the id pattern: anything else gives no command", () => {
@@ -110,7 +272,7 @@ describe("the command", () => {
       "$(id)abcd",
       "../0a1b2c",
     ])
-      for (const shape of ["installer", "container"] as const)
+      for (const shape of [INSTALLER, CONTAINER])
         expect({ id, shape, commands: memberUserCommands(id, shape) }).toEqual({
           id,
           shape,
@@ -121,13 +283,14 @@ describe("the command", () => {
 
 describe("the state", () => {
   const view = (role: "member" | "owner" = "member") =>
-    memberOsUserView(
-      { id: ID, role },
-      { gate: true, shape: "installer", now: NOW },
-    );
+    memberOsUserView({ id: ID, role }, { support: INSTALLER, now: NOW });
 
   it("is off with no record, broken with a bad record, and not_ready while the runner is not connected", () => {
-    expect(view()).toMatchObject({ state: "off", gate: true, run: null });
+    expect(view()).toMatchObject({
+      state: "off",
+      support: { ok: true },
+      run: null,
+    });
     expect(view().osUser).toBeUndefined();
     writeFileSync(memberOsUsersPath(), "{ not json");
     reloadMemberOsUsers();
@@ -143,6 +306,22 @@ describe("the state", () => {
     });
     markMemberMoving(ID);
     expect(view().state).toBe("moving");
+    clearMemberMoving(ID);
+    // A move that a stop cut: not ready, and says so, also after a reload
+    // (a restart); during the rerun's move it is moving.
+    recordMemberOsUser(
+      ID,
+      { name: "isomux-alice", uid: 2001 },
+      { moving: true },
+    );
+    reloadMemberOsUsers();
+    expect(view()).toMatchObject({ state: "not_ready", unfinished: true });
+    markMemberMoving(ID);
+    expect(view().state).toBe("moving");
+    expect(view().unfinished).toBeUndefined();
+    clearMemberMoving(ID);
+    recordMemberOsUser(ID, { name: "isomux-alice", uid: 2001 });
+    expect(view().unfinished).toBeUndefined();
   });
 
   it("is on while the member's runner is connected", async () => {
@@ -152,17 +331,51 @@ describe("the state", () => {
     try {
       iso = await isolateMember(made.user.id);
       const on = memberOsUserView(made.user, {
-        gate: true,
-        shape: "installer",
+        support: INSTALLER,
         now: NOW,
       });
       expect(on.state).toBe("on");
       expect(on.osUser?.uid).toBe(process.getuid!());
       markMemberMoving(made.user.id);
-      expect(
-        memberOsUserView(made.user, { gate: true, shape: "installer" }).state,
-      ).toBe("moving");
+      expect(memberOsUserView(made.user, { support: INSTALLER }).state).toBe(
+        "moving",
+      );
       clearMemberMoving(made.user.id);
+      // The enabling condition of the flip below: connected, the runner's
+      // host and an app runner.
+      expect(hostFor(made.user.id).home()).toBe(iso.home);
+      expect(memberAppRunner(made.user.id)).not.toBeNull();
+      // Connected, but the record says the files move: not ready, a host
+      // that starts nothing, no app runner.
+      const osUser = on.osUser!;
+      recordMemberOsUser(made.user.id, osUser, { moving: true });
+      expect(
+        memberOsUserView(made.user, { support: INSTALLER, now: NOW }),
+      ).toMatchObject({ state: "not_ready", unfinished: true });
+      expect(hostFor(made.user.id).home()).not.toBe(iso.home);
+      expect(memberAppRunner(made.user.id)).toBeNull();
+      recordMemberOsUser(made.user.id, osUser);
+      expect(
+        memberOsUserView(made.user, { support: INSTALLER, now: NOW }).state,
+      ).toBe("on");
+      expect(hostFor(made.user.id).home()).toBe(iso.home);
+      // A connect (a boot) with the mark runs none of the office's connect
+      // work for the member (their skills, their apps); one without it does.
+      const heard: string[] = [];
+      const stop = onMemberConnected((id) => void heard.push(id));
+      try {
+        for (const moving of [true, false]) {
+          resetMemberHosts();
+          recordMemberOsUser(made.user.id, osUser, { moving });
+          expect(await connectMemberHost(made.user.id)).toBe(true);
+          expect({ moving, heard: heard.length }).toEqual({
+            moving,
+            heard: moving ? 0 : 1,
+          });
+        }
+      } finally {
+        stop();
+      }
     } finally {
       iso?.dispose();
       deleteUserById(made.user.id);
@@ -171,24 +384,20 @@ describe("the state", () => {
 
   it("gives an owner no command, and passes the gate through", () => {
     expect(view("owner").commands).toBeNull();
-    expect(view("member").commands).toEqual(
-      memberUserCommands(ID, "installer"),
-    );
+    expect(view("member").commands).toEqual(memberUserCommands(ID, INSTALLER));
     expect(
       memberOsUserView(
         { id: ID, role: "member" },
-        { gate: false, shape: "installer", now: NOW },
-      ).gate,
-    ).toBe(false);
+        { support: UNSUPPORTED, now: NOW },
+      ).support,
+    ).toEqual({ ok: false, reason: "no_system_install" });
   });
 });
 
 describe("the attempt", () => {
   const attemptAt = (now: number) =>
-    memberOsUserView(
-      { id: ID, role: "member" },
-      { gate: true, shape: "installer", now },
-    ).attempt;
+    memberOsUserView({ id: ID, role: "member" }, { support: INSTALLER, now })
+      .attempt;
 
   it("reads running, failed with its message, and none once cleared", () => {
     expect(attemptAt(NOW)).toBeUndefined();

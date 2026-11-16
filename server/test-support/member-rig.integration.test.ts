@@ -2542,6 +2542,108 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
     expect(after[1]?.uid).toBe(OFFICE);
   });
 
+  // 4c-ii (D1, C4): the office stops during go-on, after the record says the
+  // files move and before they have. Through any number of restarts the
+  // member stays not ready and their agent starts nothing; the same enable
+  // run again finishes the move and the conversation goes on as them.
+  it("keeps a member whose move a restart cut not ready until enable runs again, then their conversation goes on as them", async () => {
+    const ginaUser = "isomux-gina";
+    const ginaHome = `${MEMBERS}/home/${ginaUser}`;
+    const space = `${ginaHome}/.isomux-agent`;
+    const {
+      id: gina,
+      agents,
+      send,
+      first,
+    } = await officeMember("Gina", ["claude"]);
+    const sid = sessionOf(first.claude.transcript);
+    // Enough to move that go-on is still out when the mark is seen.
+    const officeHome = `${STATE}/provider-homes/${gina}/claude`;
+    sh(
+      name,
+      OFFICE,
+      `mkdir -p ${officeHome}/bulk && for i in $(seq 1 3000); do printf "$i" > ${officeHome}/bulk/f$i; done && head -c 200M /dev/urandom > ${officeHome}/big`,
+    );
+    const marked = () =>
+      root(
+        name,
+        `jq -e '.["${gina}"].moving == true' ${STATE}/member-os-users.json`,
+      ).status === 0;
+    const view = () =>
+      api(name, cookie, "GET", "/api/users/Gina/os-user", undefined);
+    const uids = async (count: number) =>
+      (await reportsOf(agents.claude, count)).map((r) => r.uid);
+
+    run("docker", [
+      "exec",
+      "-d",
+      "-u",
+      "0",
+      name,
+      "isomux-member-user",
+      "enable",
+      "Gina",
+    ]);
+    // As soon as the record says the files move, freeze Gina's processes
+    // (her runner serves the move), then restart the container.
+    const caught = root(
+      name,
+      `for i in $(seq 1 2400); do if jq -e '.["${gina}"].moving == true' ${STATE}/member-os-users.json >/dev/null 2>&1; then pkill -STOP -u ${ginaUser}; exit 0; fi; sleep 0.05; done; exit 1`,
+    );
+    expect(caught.status).toBe(0);
+    expect(run("docker", ["restart", name]).status).toBe(0);
+    await office(name);
+    await waitFor("Gina's runner", () => runnerPid(name, ginaUser) !== "");
+    // The enabling condition: the cut came before the move was done.
+    expect(marked()).toBe(true);
+    expect(view()).toMatchObject({ state: "not_ready", unfinished: true });
+    expect(root(name, `test -e ${first.claude.transcript}`).status).toBe(0);
+
+    // In the window, her agent starts nothing.
+    send(agents.claude, "two");
+    await Bun.sleep(15_000);
+    // reportsOf answers at once with every report once there is one.
+    expect(await uids(1)).toEqual([OFFICE]);
+
+    // A second restart in the window keeps her not ready.
+    expect(run("docker", ["restart", name]).status).toBe(0);
+    await office(name);
+    await waitFor("Gina's runner", () => runnerPid(name, ginaUser) !== "");
+    expect(marked()).toBe(true);
+    expect(view()).toMatchObject({ state: "not_ready", unfinished: true });
+    send(agents.claude, "three");
+    await Bun.sleep(15_000);
+    expect(await uids(1)).toEqual([OFFICE]);
+
+    // The same enable again finishes it.
+    const again = command(name, "enable", "Gina");
+    if (again.status !== 0) throw new Error(`enable Gina again: ${again.err}`);
+    expect(marked()).toBe(false);
+    await waitFor("Gina on", () => view().state === "on");
+    const ginaUid = String(uidOf(name, ginaUser));
+    // Her conversation moved, pinned in her root, and the office copy is
+    // gone; so is the bulk.
+    const sessions = JSON.parse(
+      root(name, `cat ${STATE}/logs/${agents.claude}/sessions.json`).out,
+    ) as Record<string, { claudeConfigDir?: string }>;
+    expect(sessions[sid]?.claudeConfigDir).toBe(`${ginaHome}/.claude`);
+    expect(root(name, `test -e ${first.claude.transcript}`).status).toBe(1);
+    const landed = `${space}/provider-homes/${gina}/claude`;
+    expect(root(name, `ls ${landed}/bulk | wc -l`).out.trim()).toBe("3000");
+    expect(root(name, `stat -c %u ${landed}/big`).out.trim()).toBe(ginaUid);
+    expect(root(name, `test -e ${officeHome}/big`).status).toBe(1);
+    expect(root(name, `ls -A ${space}/.move-in 2>/dev/null`).out).toBe("");
+    // Her agent goes on, as her: a message queued in the window, or a new
+    // one when none was kept.
+    if ((await reportsOf(agents.claude, 2)).length < 2)
+      send(agents.claude, "four");
+    const after = await reportsOf(agents.claude, 2);
+    expect(after.slice(1).map((r) => r.uid)).toEqual([ginaUid]);
+    expect(
+      String(after[1]?.transcript).startsWith(`${ginaHome}/.claude/projects/`),
+    ).toBe(true);
+  }, 600_000);
+
   it("disable --delete-user deletes nothing of a user this command did not make for the member", () => {
     const mark = `${MEMBERS}/etc/${BOB}.made`;
     const original = root(name, `cat ${mark}`).out;
@@ -2629,8 +2731,6 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
         name,
         "--label",
         "isomux.split-rig=1",
-        "-e",
-        "ISOMUX_MEMBER_USERS_RIG=1",
         "-e",
         `ISOMUX_RIG_CANARY=${CANARY}`,
         "-e",
@@ -2764,8 +2864,6 @@ describe.skipIf(!ENABLED)("the command inside the container", () => {
           name,
           "--label",
           "isomux.split-rig=1",
-          "-e",
-          "ISOMUX_MEMBER_USERS_RIG=1",
           "-e",
           `ISOMUX_PUBLIC_URL=${ORIGIN}`,
           "-e",

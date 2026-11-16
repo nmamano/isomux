@@ -21,6 +21,7 @@ The server and everything it starts (agents, terminals, apps, scheduled runs) ru
 - **Sign-in.** Each office API request needs a credential that the office minted, and each webhook delivery a valid signature. Only an owner can invite a new person ([audit, section 4](security-audit.md#4-access-from-outside-the-office)).
 - **Agent access below Standard.** An agent at Chat, Office, Folder or Web has no shell. At Office, Folder and Web, it reaches the office only through a limited token. At Folder and Web, it reads and writes files only in its own folder. A symbolic or hard link in that folder can lead a search to files outside it, so keep links out of it. It cannot read another agent's token or the office files. An agent at Web can send what it reads to any site ([audit, section 6.2a](security-audit.md#62a-agents-below-standard)).
 - **Permission packs.** A permission pack is a limit that an owner puts on a member: the areas of the office they can use, and the highest access level of their agents ([limit a member](access-and-invites.md#limit-a-member)). A member with a pack has no terminal, and messages only agents whose access fits inside the pack, so they cannot get a shell through an agent. The pack holds only for a member who never had an agent at Standard or Privileged ([audit, section 7](security-audit.md#7-members-inside-the-office)).
+- **A member's own OS user.** An owner can run a member's agents, terminals, apps and scheduled runs as a separate OS user on the office's machine ([own OS user](access-and-invites.md#give-a-member-their-own-os-user)). Then that member and their agents cannot read the office's files, the other members' credentials or the tokens of other agents, also with a shell. The office's own agents can still read and act as that member ([audit, section 3.3](security-audit.md#33-a-members-own-os-user)).
 - **Room access, without a shell.** Room access controls what the office UI and API show. It holds for agents below Standard, and for members whose permission pack holds, as the item above says ([audit, section 3.2](security-audit.md#32-what-follows)).
 
 ## Soft boundaries
@@ -42,7 +43,7 @@ A secret on the Integrations page keeps its value out of the model's context and
 ## What an admin should do
 
 - Run one office for each trust group.
-- Give office access only to people you trust with a shell on its machine, or give them a permission pack when you invite them.
+- Give office access only to people you trust with a shell on its machine. Give the others a permission pack when you invite them, or their own OS user.
 - Give the owner role only to the people who run the office. Owners decide who joins, set room access and permission packs, manage the variables, secrets, MCP servers and Claude and Codex sign-ins of every member, and can give an agent another manager, which puts it on that member's credentials.
 
 Tip: text from strangers (email, tickets, web pages, WhatsApp or Discord messages) can carry instructions. Keep an agent that reads such text below Standard.

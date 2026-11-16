@@ -4,9 +4,9 @@
 //   POST /admin/member-user/prepare  {member, osUser, uid}
 //   POST /admin/member-user/go-on    {member, osUser, uid}
 //   POST /admin/member-user/disable  {member, keepFiles?}
-// Only a peer with uid 0 reaches them (server/admin-socket.ts). Until the
-// product slice ships, each answers 409 not_ready unless the office started
-// with ISOMUX_MEMBER_USERS_RIG=1 (the test rig).
+// Only a peer with uid 0 reaches them (server/admin-socket.ts). Where the
+// root command cannot run (memberUserSupport), each answers 409
+// not_supported with the reason.
 
 import type { AgentHost } from "./agent-host.ts";
 import {
@@ -52,20 +52,22 @@ import { checkMemberShare } from "./member-share-check.ts";
 import { appsArrive, appsLeave, type LeftApp } from "./member-app-move.ts";
 import { readAgentIdentity } from "./split/start.ts";
 import { getUserById, getUserByName } from "./users.ts";
+import type { MemberUserUnsupported } from "../shared/contract-shapes.ts";
 import {
   clearMemberUserAttempt,
+  MEMBER_USER_COMMAND_PATH,
+  memberUserSupport,
   noteMemberUserAttempt,
+  type MemberUserSupport,
 } from "./member-os-user-view.ts";
 
 type UserRecord = NonNullable<ReturnType<typeof getUserById>>;
 
-// Read once, at boot.
-const RIG_ENABLED = process.env.ISOMUX_MEMBER_USERS_RIG === "1";
-
 export const MEMBER_USER_PATH_PREFIX = "/admin/member-user/";
 
 export interface MemberUserAdminDeps {
-  enabled: boolean;
+  // Where the root command can run; read once, at boot.
+  support: MemberUserSupport;
   officeUid: number;
   lookupUser: (name: string) => { uid: number; gid: number; groups: number[] };
   // Install the runtime in the share and check the whole share; the hash.
@@ -120,7 +122,7 @@ export function setMemberMoveWiring(next: MemberMoveWiring | null): void {
 }
 
 const DEFAULT_DEPS: MemberUserAdminDeps = {
-  enabled: RIG_ENABLED,
+  support: memberUserSupport(),
   officeUid: process.getuid?.() ?? -1,
   lookupUser: readAgentIdentity,
   prepare: async (share, memberGid) => {
@@ -241,9 +243,9 @@ function ownerRefusal(user: UserRecord): Response | null {
     : null;
 }
 
-// The gate of the root command: closed until the product slice ships.
-export function memberUsersGateOpen(): boolean {
-  return deps.enabled;
+// Where the root command can run (the owner's page shows why it cannot).
+export function memberUsersSupport(): MemberUserSupport {
+  return deps.support;
 }
 
 // The verbs, with the owner's page told what the command does
@@ -262,7 +264,7 @@ export async function handleMemberUserAdmin(
         ? "enable"
         : null;
   const user =
-    action && deps.enabled && typeof body === "object" && body !== null
+    action && deps.support.ok && typeof body === "object" && body !== null
       ? findMember((body as Record<string, unknown>).member)
       : undefined;
   if (!user || !action) return handleVerb(pathname, body);
@@ -298,15 +300,26 @@ export async function handleMemberUserAdmin(
   return response;
 }
 
+// What the root command prints (it runs as root on the office's machine).
+const UNSUPPORTED_MESSAGE: Record<MemberUserUnsupported, string> = {
+  not_linux: "member OS users need Linux",
+  kubernetes:
+    "member OS users are not supported on Kubernetes: the pod never runs as root",
+  render: "member OS users are not supported on Render",
+  no_system_install:
+    "member OS users need an office installed with the system installer (deploy/install.sh)",
+  no_command: `${MEMBER_USER_COMMAND_PATH} is missing; update the office to install it`,
+};
+
 async function handleVerb(pathname: string, body: unknown): Promise<Response> {
   const verb = pathname.slice(MEMBER_USER_PATH_PREFIX.length);
   if (!["info", "prepare", "go-on", "disable"].includes(verb))
     return json(404, { ok: false, error: "not found" });
-  if (!deps.enabled)
+  if (!deps.support.ok)
     return refusal(
       409,
-      "not_ready",
-      "this office does not support member OS users yet",
+      "not_supported",
+      UNSUPPORTED_MESSAGE[deps.support.reason],
     );
   if (typeof body !== "object" || body === null || Array.isArray(body))
     return refusal(400, "bad_request", "the body must be a JSON object");
@@ -411,7 +424,12 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
     );
   goingOn.add(user.id);
   try {
-    return await goOn(user.id, osUser, state.kind === "none");
+    return await goOn(
+      user.id,
+      osUser,
+      state.kind === "none",
+      state.kind === "isolated" && !!state.unfinished,
+    );
   } finally {
     goingOn.delete(user.id);
   }
@@ -485,6 +503,19 @@ async function disableMove(userId: string): Promise<Response> {
   return json(200, { ok: true });
 }
 
+// A go-on that did not take the OS user. `kept`: the office still holds
+// the member's record (a rerun, or an undo that could not remove it), so the
+// root command must keep the user and its home, and the same enable runs
+// again; without it, the office removed what this call recorded.
+function notTaken(userId: string, reason: string): Response {
+  return json(200, {
+    ok: false,
+    ready: false,
+    reason,
+    ...(memberOsUserState(userId).kind !== "none" ? { kept: true } : {}),
+  });
+}
+
 // go-on (design 2.2): hold the member's agents, plan the move from the
 // office's paths, tear their apps down, record and mark moving, connect,
 // move the files through the runner, write the pins, install the apps on
@@ -497,41 +528,43 @@ async function goOn(
   // A re-run for the OS user the member already runs as keeps the record
   // when it fails: only a record this call made is undone.
   made: boolean,
+  // The record said a move did not finish: a re-run that fails keeps it so.
+  unfinished: boolean,
 ): Promise<Response> {
   try {
     await deps.holdMember(userId);
   } catch (error) {
     deps.releaseMember(userId);
-    return json(200, {
-      ok: false,
-      ready: false,
-      reason: `cannot stop the member's agents: ${(error as Error).message}`,
-    });
+    return notTaken(
+      userId,
+      `cannot stop the member's agents: ${(error as Error).message}`,
+    );
   }
   let plan: MemberMovePlan;
   try {
     plan = deps.planMove(userId, deps.memberAgents(userId));
   } catch (error) {
     deps.releaseMember(userId);
-    return json(200, {
-      ok: false,
-      ready: false,
-      reason: `cannot plan the file move: ${(error as Error).message}`,
-    });
+    return notTaken(
+      userId,
+      `cannot plan the file move: ${(error as Error).message}`,
+    );
   }
   let left: LeftApp[];
   try {
     left = await deps.appsLeave(userId);
   } catch (error) {
     deps.releaseMember(userId);
-    return json(200, {
-      ok: false,
-      ready: false,
-      reason: (error as Error).message,
-    });
+    return notTaken(userId, (error as Error).message);
   }
   markMemberMoving(userId);
-  recordMemberOsUser(userId, { name: osUser.name, uid: osUser.uid });
+  // The record says the files move until they have: an office that stops
+  // before then keeps the member not ready until enable runs again.
+  recordMemberOsUser(
+    userId,
+    { name: osUser.name, uid: osUser.uid },
+    { moving: true },
+  );
   forgetMemberCodeVerdicts(osUser.uid);
   let staged: StagedMove | null = null;
   const fail = async (reason: string): Promise<Response> => {
@@ -543,15 +576,26 @@ async function goOn(
             `[member-move] ${userId}: the undo failed: ${(error as Error).message}`,
           ),
         );
-    if (made) {
-      forgetMemberHost(userId);
-      forgetMemberOsUser(userId);
+    try {
+      if (made) {
+        forgetMemberHost(userId);
+        forgetMemberOsUser(userId);
+      } else
+        recordMemberOsUser(
+          userId,
+          { name: osUser.name, uid: osUser.uid },
+          { moving: unfinished },
+        );
+    } catch (error) {
+      console.error(
+        `[member-move] ${userId}: cannot write the record back: ${(error as Error).message}`,
+      );
     }
     clearMemberMoving(userId);
     // Back on the host they left.
     deps.appsArrive(userId, left);
     deps.releaseMember(userId);
-    return json(200, { ok: false, ready: false, reason });
+    return notTaken(userId, reason);
   };
   const end = Date.now() + deps.connectWaitMs;
   let connected = false;
@@ -590,10 +634,27 @@ async function goOn(
         ),
       );
   }
+  // The files are in place. A record that keeps the mark keeps the member
+  // not ready; enable again places nothing twice (files-place takes a file
+  // with the same bytes as placed).
+  let marked = false;
+  try {
+    recordMemberOsUser(userId, { name: osUser.name, uid: osUser.uid });
+  } catch (error) {
+    marked = true;
+    console.error(
+      `[member-move] ${userId}: cannot clear the moving mark: ${(error as Error).message}`,
+    );
+  }
   clearMemberMoving(userId);
   // On the member's own host now; their data has moved.
   deps.appsArrive(userId, left);
   deps.releaseMember(userId);
+  if (marked)
+    return notTaken(
+      userId,
+      "the files moved, but the record still says they move; run enable again",
+    );
   staged?.deleteOfficeCopies();
   return json(200, { ok: true, ready: true });
 }

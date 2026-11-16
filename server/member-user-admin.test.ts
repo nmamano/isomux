@@ -7,13 +7,20 @@
 // undone go-on leave no host, no retry and no record behind; go-on forgets
 // the kept code verdict of that identity.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { startAdminSocket } from "./admin-socket.ts";
 import {
   handleMemberUserAdmin,
   memberSlug,
+  memberUsersSupport,
   setMemberUserAdminDeps,
   type MemberUserAdminDeps,
 } from "./member-user-admin.ts";
@@ -41,6 +48,7 @@ import { memberSharePath } from "./member-runtime.ts";
 import { createMember, deleteUserById, getUserByName } from "./users.ts";
 import {
   memberOsUserView,
+  memberUserSupport,
   noteMemberUserAttempt,
   resetMemberUserAttempts,
 } from "./member-os-user-view.ts";
@@ -74,7 +82,7 @@ function deps(
   const answers = over.answers ?? [true];
   let tries = 0;
   setMemberUserAdminDeps({
-    enabled: true,
+    support: { ok: true, shape: "installer" },
     officeUid: OFFICE_UID,
     lookupUser: (name) => {
       if (
@@ -139,36 +147,48 @@ afterEach(() => {
 });
 
 describe("the gate", () => {
-  it("answers not_ready to every verb until the rig gate is on, and changes nothing", async () => {
+  it("answers not_supported to every verb, info included, where the root command cannot run, says why, and changes nothing", async () => {
     const alice = member("Alice");
-    deps({ enabled: false });
-    for (const verb of ["info", "prepare", "go-on", "disable"]) {
-      const answer = await call(verb, {
-        member: alice,
-        osUser: "isomux-alice",
-        uid: MEMBER_UID,
-      });
-      expect([verb, answer.status, answer.body.error]).toEqual([
-        verb,
-        409,
-        "not_ready",
-      ]);
+    const messages = new Set<string>();
+    const reasons = [
+      "not_linux",
+      "kubernetes",
+      "render",
+      "no_system_install",
+      "no_command",
+    ] as const;
+    for (const reason of reasons) {
+      deps({ support: { ok: false, reason } });
+      for (const verb of ["info", "prepare", "go-on", "disable"]) {
+        const answer = await call(verb, {
+          member: alice,
+          osUser: "isomux-alice",
+          uid: MEMBER_UID,
+        });
+        expect([reason, verb, answer.status, answer.body.error]).toEqual([
+          reason,
+          verb,
+          409,
+          "not_supported",
+        ]);
+        // The root command prints the message.
+        expect(typeof answer.body.message).toBe("string");
+        messages.add(answer.body.message as string);
+      }
     }
+    // One message per reason.
+    expect(messages.size).toBe(reasons.length);
     expect(prepared).toEqual([]);
     expect(connects).toEqual([]);
     expect(memberOsUserState(alice).kind).toBe("none");
-    // The enabling condition: with the gate on, info answers.
+    // The enabling condition: where it can run, info answers.
     deps();
     expect((await call("info", { member: alice })).status).toBe(200);
   });
 
-  it("is off when the office starts without ISOMUX_MEMBER_USERS_RIG=1", async () => {
-    // A fresh module load reads the environment of this test process.
-    expect(process.env.ISOMUX_MEMBER_USERS_RIG).toBeUndefined();
+  it("takes the verdict of the office's machine at boot when nothing overrides it", () => {
     setMemberUserAdminDeps(null);
-    expect((await call("info", { member: member("Alice") })).body.error).toBe(
-      "not_ready",
-    );
+    expect(memberUsersSupport()).toEqual(memberUserSupport());
   });
 
   it("answers 404 to an unknown verb and 400 to a body that is not an object", async () => {
@@ -607,7 +627,12 @@ describe("go-on moves the member's files", () => {
     claude: [],
   };
 
-  function moveDeps(alice: string, fail?: string, answers: boolean[] = [true]) {
+  function moveDeps(
+    alice: string,
+    fail?: string,
+    answers: boolean[] = [true],
+    extra: Partial<MemberUserAdminDeps> = {},
+  ) {
     steps = [];
     seen = {};
     holds = [];
@@ -645,6 +670,7 @@ describe("go-on moves the member's files", () => {
         };
       },
       applyPins: () => step("pins"),
+      ...extra,
     });
   }
 
@@ -715,6 +741,165 @@ describe("go-on moves the member's files", () => {
     expect(memberOsUserState(alice).kind).toBe("isolated");
   });
 
+  // D1 (4c-ii): the record says the files move from before the connect
+  // until the pins are written, so an office that stops in between keeps
+  // the member not ready through a restart (a reload of the record).
+  it("marks the record moving from the record to the pins, through a reload, and clears it before the release", async () => {
+    const alice = member("Alice");
+    moveDeps(alice);
+    const unfinished: Record<string, boolean> = {};
+    const watch = (name: string, inner: () => unknown) => () => {
+      reloadMemberOsUsers();
+      const state = memberOsUserState(alice);
+      unfinished[name] = state.kind === "isolated" && !!state.unfinished;
+      return inner();
+    };
+    deps({
+      connect: watch(
+        "connect",
+        async () => (steps.push("connect"), true),
+      ) as never,
+      holdMember: async () => void steps.push("hold"),
+      releaseMember: watch(
+        "release",
+        () => void steps.push("release"),
+      ) as never,
+      memberAgents: () => [],
+      planMove: () => PLAN,
+      moveHost: () => MOVE_HOST,
+      stageMove: async () => ({
+        pins: [],
+        undo: async () => {},
+        done: async () => {},
+        deleteOfficeCopies: () => {},
+      }),
+      applyPins: watch("pins", () => void steps.push("pins")) as never,
+    });
+    const answer = await goOn(alice);
+    expect(answer.body).toMatchObject({ ok: true, ready: true });
+    expect(unfinished).toEqual({ connect: true, pins: true, release: false });
+    reloadMemberOsUsers();
+    expect(memberOsUserState(alice)).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+    });
+  });
+
+  it("clears the mark of an unfinished move when the rerun succeeds, also with nothing left to move", async () => {
+    const alice = member("Alice");
+    recordMemberOsUser(
+      alice,
+      { name: "isomux-alice", uid: MEMBER_UID },
+      { moving: true },
+    );
+    for (const plan of [PLAN, { ...PLAN, trees: [] }]) {
+      moveDeps(alice, undefined, [true], { planMove: () => plan });
+      expect((await goOnHeld(alice)).body).toMatchObject({ ok: true });
+      reloadMemberOsUsers();
+      const state = memberOsUserState(alice);
+      expect({
+        trees: plan.trees.length,
+        unfinished: state.kind === "isolated" && state.unfinished,
+      }).toEqual({
+        trees: plan.trees.length,
+        unfinished: undefined,
+      });
+      recordMemberOsUser(
+        alice,
+        { name: "isomux-alice", uid: MEMBER_UID },
+        { moving: true },
+      );
+    }
+  });
+
+  it("puts the mark back as it was when a rerun fails: unfinished stays unfinished, finished stays finished", async () => {
+    const alice = member("Alice");
+    for (const before of [true, false]) {
+      recordMemberOsUser(
+        alice,
+        { name: "isomux-alice", uid: MEMBER_UID },
+        { moving: before },
+      );
+      moveDeps(alice, "pins");
+      expect((await goOnHeld(alice)).body).toMatchObject({ ok: false });
+      reloadMemberOsUsers();
+      const state = memberOsUserState(alice);
+      expect({ before, state }).toEqual({
+        before,
+        state: {
+          kind: "isolated",
+          osUser: { name: "isomux-alice", uid: MEMBER_UID },
+          ...(before ? { unfinished: true } : {}),
+        },
+      });
+    }
+  });
+
+  // F1 (4c-ii round 1): the root command undoes the OS user, its home
+  // included, on every go-on answer that is not ready, unless the answer
+  // says that the office keeps its record. The record cannot be written:
+  // a folder in place of its temporary file.
+  const blockRecord = () =>
+    mkdirSync(`${memberOsUsersPath()}.${process.pid}.tmp`, { recursive: true });
+  const unblockRecord = () =>
+    rmSync(`${memberOsUsersPath()}.${process.pid}.tmp`, {
+      recursive: true,
+      force: true,
+    });
+
+  it("tells the root command that it keeps the record when the files moved but the mark cannot be cleared", async () => {
+    const alice = member("Alice");
+    moveDeps(alice, undefined, [true], {
+      applyPins: () => (steps.push("pins"), blockRecord()),
+    });
+    try {
+      const answer = await goOnHeld(alice);
+      expect(answer.body).toMatchObject({
+        ok: false,
+        ready: false,
+        kept: true,
+      });
+    } finally {
+      unblockRecord();
+    }
+    // The enabling condition: the record still says the files move.
+    reloadMemberOsUsers();
+    const state = memberOsUserState(alice);
+    expect(state.kind === "isolated" && state.unfinished).toBe(true);
+  });
+
+  it("tells the root command that it keeps the record when a failed first go-on cannot remove it", async () => {
+    const alice = member("Alice");
+    moveDeps(alice, undefined, [true], {
+      stageMove: async () => {
+        steps.push("stage");
+        blockRecord();
+        throw new Error("stage failed");
+      },
+    });
+    try {
+      const answer = await goOnHeld(alice);
+      expect(answer.body).toMatchObject({
+        ok: false,
+        ready: false,
+        kept: true,
+      });
+    } finally {
+      unblockRecord();
+    }
+    reloadMemberOsUsers();
+    expect(memberOsUserState(alice).kind).toBe("isolated");
+  });
+
+  it("says nothing is kept when a failed first go-on removed its record", async () => {
+    const alice = member("Alice");
+    moveDeps(alice, "stage");
+    const answer = await goOnHeld(alice);
+    expect(answer.body).toMatchObject({ ok: false, ready: false });
+    expect(answer.body.kept).toBeUndefined();
+    expect(memberOsUserState(alice).kind).toBe("none");
+  });
+
   it("refuses a second go-on while the member's files move, and holds nothing for it", async () => {
     const alice = member("Alice");
     moveDeps(alice);
@@ -752,7 +937,7 @@ describe("what the owner's page hears", () => {
   const attemptOf = (userId: string) =>
     memberOsUserView(
       { id: userId, role: "member" },
-      { gate: true, shape: null },
+      { support: { ok: false, reason: "no_system_install" } },
     ).attempt;
 
   it("an enable reads running from prepare through go-on, and nothing once go-on succeeds", async () => {
@@ -850,7 +1035,7 @@ describe("what the owner's page hears", () => {
       message: "earlier",
     });
     resetMemberUserAttempts();
-    deps({ enabled: false });
+    deps({ support: { ok: false, reason: "no_system_install" } });
     for (const verb of ["prepare", "go-on", "disable"]) {
       const answer = await call(verb, {
         member: alice,

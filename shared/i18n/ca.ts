@@ -572,7 +572,7 @@ Coses que pots fer per ell:
   "settings.osUser.disableHint":
     "Per desactivar-lo, executa això a la màquina de l'oficina:",
   "settings.osUser.rerunHint":
-    "Si continua així, torna a executar l'ordre per activar-lo:",
+    "Si continua sense estar a punt, torna a executar l'ordre per activar-lo:",
   "settings.osUser.turningOn": "Activant…",
   "settings.osUser.turningOff": "Desactivant…",
   "settings.osUser.stopped":
@@ -586,6 +586,21 @@ Coses que pots fer per ell:
   "settings.osUser.claudeTokenLink": "Proveïdors de models",
   "settings.osUser.codexOff":
     "Codex: els seus agents s'aturen al seu límit d'ús. No poden fer servir la sessió de Codex de l'oficina, perquè compartir-la els permetria tancar la sessió de l'oficina.",
+  "settings.osUser.unfinished":
+    "No està a punt: el trasllat dels seus fitxers a {name} no va acabar.",
+  "settings.osUser.finishHint":
+    "Per acabar d'activar-lo, executa això a la màquina de l'oficina:",
+  "settings.osUser.containerName":
+    "Posa el nom del contenidor de l'oficina en lloc de CONTAINER.",
+  "settings.osUser.unsupported.notLinux":
+    "No disponible: l'oficina s'ha d'executar a Linux.",
+  "settings.osUser.unsupported.kubernetes":
+    "No disponible a Kubernetes: el pod de l'oficina no pot executar ordres com a root.",
+  "settings.osUser.unsupported.render": "No disponible a Render.",
+  "settings.osUser.unsupported.noSystemInstall":
+    "No disponible: l'oficina no es va instal·lar amb l'instal·lador d'Isomux.",
+  "settings.osUser.unsupported.noCommand":
+    "No disponible fins que s'actualitzi l'oficina.",
   "settings.members.create": "Crea el membre",
   "settings.members.neverSignedIn": "no ha iniciat mai la sessió",
   "settings.members.signInLink.create":

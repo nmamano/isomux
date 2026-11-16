@@ -66,7 +66,7 @@ function moveDeps(fail?: string, waitHold = false) {
     if (name === fail) throw new Error(`${name} failed`);
   };
   setMemberUserAdminDeps({
-    enabled: true,
+    support: { ok: true, shape: "installer" },
     holdMember: async () => {
       steps.push("hold");
       if (waitHold) await new Promise<void>((resolve) => holds.push(resolve));

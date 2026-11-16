@@ -1,6 +1,6 @@
 // The record of which members run their agents as their own OS user
 // (internal-docs/member-os-user-design.md). STATE_ROOT/member-os-users.json,
-// { <userId>: { name, uid } }, owned by this module and never by users.json:
+// { <userId>: { name, uid, moving? } }, owned by this module and never by users.json:
 // an entry survives a removed member and a users.json that fails to parse, so
 // no failure there moves an isolated member's agents to the office user.
 //
@@ -24,7 +24,10 @@ export interface MemberOsUser {
 export type MemberOsUserState =
   // The member's agents run as the office user.
   | { kind: "none" }
-  | { kind: "isolated"; osUser: MemberOsUser }
+  // unfinished: an enable's go-on began moving their files and has not
+  // finished (the office stopped during it). Their agents stay not ready
+  // until enable runs again.
+  | { kind: "isolated"; osUser: MemberOsUser; unfinished?: true }
   // A malformed entry, or a file that does not parse: the not-ready host.
   | { kind: "broken"; reason: string };
 
@@ -106,7 +109,13 @@ function stateIn(
       kind: "broken",
       reason: `the OS user entry of ${userId} is malformed`,
     };
-  return { kind: "isolated", osUser: { name: entry.name, uid: entry.uid } };
+  return {
+    kind: "isolated",
+    osUser: { name: entry.name, uid: entry.uid },
+    ...((entry as { moving?: unknown }).moving === true
+      ? { unfinished: true as const }
+      : {}),
+  };
 }
 
 // The state of `userId`. Null or undefined: "none" (an agent with no manager).
@@ -197,14 +206,23 @@ function writableEntries(): Record<string, unknown> {
 
 // Writes the entry (the admin.sock enable flow of slice 1b calls it). The
 // uid's tie (memberOsUidTies) is written first, so a crash between the two
-// leaves a tie without an entry, never the reverse.
-export function recordMemberOsUser(userId: string, osUser: MemberOsUser): void {
+// leaves a tie without an entry, never the reverse. `moving`: go-on starts
+// to move the member's files (MemberOsUserState unfinished).
+export function recordMemberOsUser(
+  userId: string,
+  osUser: MemberOsUser,
+  opts: { moving?: boolean } = {},
+): void {
   if (!userId) throw new Error("a member OS user needs a user id");
   if (!validOsUser(osUser))
     throw new Error("an OS user needs a lowercase name and a uid above 0");
   const entries = writableEntries();
   writeTie(osUser.uid, userId);
-  entries[userId] = { name: osUser.name, uid: osUser.uid };
+  entries[userId] = {
+    name: osUser.name,
+    uid: osUser.uid,
+    ...(opts.moving ? { moving: true } : {}),
+  };
   writeEntries(entries);
 }
 

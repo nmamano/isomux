@@ -1,7 +1,11 @@
 // Settings > Members > a member > Own OS user (task b94dfd25 4c-i). The
 // properties:
-// - nothing renders while the office does not offer it (gate false) or the
-//   read fails;
+// - where the root command cannot run, only the reason shows (one line per
+//   reason, no command); nothing renders when the read fails or the answer
+//   has no support field (an older server);
+// - not ready after a move that a stop cut says so, with its own hint over
+//   the enable command; a command with the container placeholder adds the
+//   hint to name the container;
 // - the section shows the state, the last attempt, and the command for the
 //   state: enable while off, disable otherwise; Copy copies that command;
 // - the page reads again every OS_USER_POLL_MS only while the state can
@@ -74,7 +78,7 @@ function view(over: Partial<MemberOsUserWire> = {}): MemberOsUserWire {
     state: "off",
     commands: COMMANDS,
     run: null,
-    gate: true,
+    support: { ok: true },
     ...over,
   };
 }
@@ -108,14 +112,41 @@ async function advance(ms: number) {
   await settle();
 }
 
-it("renders nothing while the gate is closed or the read fails", async () => {
-  answers = [view({ gate: false })];
-  const closed = await mount();
-  expect(closed.q("member-os-user")).toBeNull();
-  closed.rendered.unmount();
+it("shows only the reason where the command cannot run, and nothing when the read fails or has no support", async () => {
+  const lines = new Set<string>();
+  const reasons = [
+    "not_linux",
+    "kubernetes",
+    "render",
+    "no_system_install",
+    "no_command",
+  ] as const;
+  for (const reason of reasons) {
+    answers = [view({ support: { ok: false, reason }, commands: null })];
+    const closed = await mount();
+    const line = closed.q("member-os-user-unsupported");
+    expect({ reason, shown: line?.dataset.reason }).toEqual({
+      reason,
+      shown: reason,
+    });
+    lines.add(line?.textContent ?? "");
+    expect(closed.q("member-os-user-command")).toBeNull();
+    expect(closed.q("member-os-user-state")).toBeNull();
+    closed.rendered.unmount();
+  }
+  // One line per reason.
+  expect(lines.size).toBe(reasons.length);
+  expect(lines.has("")).toBe(false);
+
   answers = ["fail"];
   const failed = await mount();
   expect(failed.q("member-os-user")).toBeNull();
+  failed.rendered.unmount();
+  // An older server answers without support.
+  const { support: _support, ...old } = view();
+  answers = [old as MemberOsUserWire];
+  const older = await mount();
+  expect(older.q("member-os-user")).toBeNull();
 });
 
 it("shows the enable command while off, and the disable command with the failed attempt's message otherwise", async () => {
@@ -172,6 +203,50 @@ it("shows the enable command again, then the disable command, while not ready", 
     ),
   ].map((el) => el.textContent);
   expect(lines).toEqual([COMMANDS.enable, COMMANDS.disable]);
+});
+
+it("says when a move did not finish, with its own hint over the enable command", async () => {
+  const osUser = { name: "isomux-mia", uid: 2001 };
+  const texts = async (over: Partial<MemberOsUserWire>) => {
+    answers = [view({ state: "not_ready", osUser, ...over })];
+    const m = await mount();
+    const commands = [
+      ...m.rendered.container.querySelectorAll<HTMLElement>(
+        '[data-testid="member-os-user-command"]',
+      ),
+    ];
+    const out = {
+      state: m.q("member-os-user-state")?.textContent ?? "",
+      // The hint line just above the first command block.
+      hint:
+        commands[0]?.closest("div[style]")?.previousElementSibling
+          ?.textContent ?? "",
+      lines: commands.map((el) => el.textContent),
+    };
+    m.rendered.unmount();
+    return out;
+  };
+  const cut = await texts({ unfinished: true });
+  const plain = await texts({});
+  expect(cut.lines).toEqual([COMMANDS.enable, COMMANDS.disable]);
+  expect(cut.state).not.toBe(plain.state);
+  expect(cut.hint).not.toBe("");
+  expect(cut.hint).not.toBe(plain.hint);
+});
+
+it("asks for the container's name only when the command holds the placeholder", async () => {
+  answers = [view({ commandHint: "container_name" })];
+  const hinted = await mount();
+  expect(hinted.q("member-os-user-command-hint")).not.toBeNull();
+  hinted.rendered.unmount();
+  answers = [view()];
+  const plain = await mount();
+  expect(plain.q("member-os-user-command-hint")).toBeNull();
+  plain.rendered.unmount();
+  // No command, no hint.
+  answers = [view({ commandHint: "container_name", commands: null })];
+  const none = await mount();
+  expect(none.q("member-os-user-command-hint")).toBeNull();
 });
 
 it("reads again while an attempt runs, and stops when it ends and on unmount", async () => {

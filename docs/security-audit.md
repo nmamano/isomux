@@ -53,7 +53,7 @@ Isomux reads the role and the room access of a member from the live state on eac
 | Self-hosted office that its owner runs                            | The owner's own login user                        |
 | Container (Docker, Render, AWS, Kubernetes)                       | The container user `node` (uid 1000)              |
 
-No code in Isomux starts an agent, a terminal, an app or a scheduled run as a different user.
+No code in Isomux starts an agent, a terminal, an app or a scheduled run as a different user, except for a member with their own OS user (section 3.3).
 
 ### 3.2 What follows
 
@@ -68,7 +68,20 @@ No code in Isomux starts an agent, a terminal, an app or a scheduled run as a di
 
 This is a tradeoff between isolation and collaboration, not a defect with one correct fix. One shared OS user lets members and agents work on the same files and with each other.
 
-A narrower change is planned: the server process gets its own OS user. Members and agents keep sharing one user with each other, but they can no longer read or change the server's state directory and its credentials. This change does not stop a member or an agent from acting as another agent. A separate OS user for each member would stop it across members, and it needs the server's own OS user first. A member's ordinary agent could still act as that member's privileged agent.
+A narrower change is planned: the server process gets its own OS user. Members and agents keep sharing one user with each other, but they can no longer read or change the server's state directory and its credentials. This change does not stop a member or an agent from acting as another agent. A member's ordinary agent could still act as that member's privileged agent.
+
+### 3.3 A member's own OS user
+
+An owner can give a member their own OS user ([access and invites](access-and-invites.md#give-a-member-their-own-os-user)). That member's agents, terminals, apps and scheduled runs then run as that user, through a runner that the office starts as them. Their files are in their own home. They cannot read the state directory, the server code or the files of other members, so the items of section 3.2 do not hold for them: they cannot read another agent's token or another member's credentials. The secret proxy gives their processes only their own secrets and the office's.
+
+What stays open:
+
+- The office's OS user and its agents can read and act as the member.
+- A message from the member to an agent that runs as the office's user, with a shell, can ask it to read office files for them (soft, as section 3.2).
+- Office agents load the shared memory and skills that the member writes; a skill can hold a script that an office agent runs.
+- A service of the office's user on the loopback address without its own sign-in is reachable from any OS user on the machine. The office's own services check a token or a password.
+- With the Claude token for members with their own OS user set, their agents can read that token.
+- Their agents can see the process lists of other users.
 
 ---
 
@@ -327,7 +340,7 @@ All office state is in the state directory: `~/.isomux` of the server's OS user,
 
 ### 8.2 Backups
 
-Backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the pager's Web Push key and devices, the WhatsApp sessions, the Discord bot tokens, the TLS key, the OpenCode server records, the files of an office move in progress or the backend sign-in files. They include the OpenCode databases, with their conversations and provider sign-ins, `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the pager's Web Push key and devices, the WhatsApp sessions, the Discord bot tokens, the TLS key, the OpenCode server records, the files of an office move in progress or the backend sign-in files. They include the OpenCode databases, with their conversations and provider sign-ins, `api-tokens.json` (hashes only), the token logs, and the agent logs. Each backup also holds the agent space of each member with their own OS user, read as that member, without their sign-in files. Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 

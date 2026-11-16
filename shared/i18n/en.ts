@@ -576,7 +576,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "To turn it on, run this on the office's machine:",
   "settings.osUser.disableHint":
     "To turn it off, run this on the office's machine:",
-  "settings.osUser.rerunHint": "If it stays so, run the turn-on command again:",
+  "settings.osUser.rerunHint":
+    "If it stays not ready, run the turn-on command again:",
   "settings.osUser.turningOn": "Turning on…",
   "settings.osUser.turningOff": "Turning off…",
   "settings.osUser.stopped":
@@ -590,6 +591,21 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.claudeTokenLink": "Model providers",
   "settings.osUser.codexOff":
     "Codex: their agents stop at their usage limit. They cannot use the office's Codex sign-in, because sharing it would let them sign the office out.",
+  "settings.osUser.unfinished":
+    "Not ready: the move of their files to {name} did not finish.",
+  "settings.osUser.finishHint":
+    "To finish turning it on, run this on the office's machine:",
+  "settings.osUser.containerName":
+    "Put the name of the office's container in place of CONTAINER.",
+  "settings.osUser.unsupported.notLinux":
+    "Not available: the office must run on Linux.",
+  "settings.osUser.unsupported.kubernetes":
+    "Not available on Kubernetes: the office's pod cannot run commands as root.",
+  "settings.osUser.unsupported.render": "Not available on Render.",
+  "settings.osUser.unsupported.noSystemInstall":
+    "Not available: the office was not set up with the Isomux installer.",
+  "settings.osUser.unsupported.noCommand":
+    "Not available until the office is updated.",
   "settings.members.create": "Create member",
   "settings.members.neverSignedIn": "never signed in",
   "settings.members.signInLink.create": "Create sign-in link for {name}",

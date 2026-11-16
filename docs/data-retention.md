@@ -76,7 +76,7 @@ By default, Isomux keeps seven daily backups in a directory next to the state di
 
 ### Other copies
 
-- Provider conversations: `~/.claude/projects` of the server's OS user for Claude, and any `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that a member set to a directory outside the state directory. Backups include only what is in the state directory.
+- Provider conversations: `~/.claude/projects` of the server's OS user for Claude, and any `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that a member set to a directory outside the state directory. Backups include only what is in the state directory, and the agent space of each member with their own OS user.
 - Agent working directories: the projects that agents make. An agent starts in the home directory of the server's OS user, and can work in any directory.
 - Pre-update snapshots: on a server set up by the installer, updaters before release v2026.10.8 kept copies of the whole state directory, credentials included, in `/var/lib/isomux-update/snapshots`. Newer updates keep none, and do not remove the old ones.
 - Logs: the systemd journal (office and app output), the Caddy access logs in `/var/log/caddy/` when the installer set up Caddy, and the log stream of your container platform.

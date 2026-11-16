@@ -8,7 +8,7 @@ A privileged agent can rename its manager, or any member when its manager is an 
 
 When your manager is an office owner, you can set up a member's sidebar, also before they sign in. `GET /api/users/:username/pinned` reads their Pinned list; `PUT /api/users/:username/pinned` with `{pinned}` replaces it. An entry is an agent id, or `member:<userId>` for a member. Read first, then send the whole list in order.
 
-When your manager is an office owner, `GET /api/users/:username/os-user` tells whether the member's agents run as their own OS user: `state` (`off`, `on`, `moving`, `not_ready` or `broken`), `osUser`, the last run of the root command (`attempt`), and `commands`, the `enable` and `disable` lines an office owner runs as root to turn it on or off. You cannot run them. `gate: false` means this office does not offer it yet.
+When your manager is an office owner, `GET /api/users/:username/os-user` tells whether the member's agents run as their own OS user: `state` (`off`, `on`, `moving`, `not_ready` or `broken`), `osUser`, the last run of the root command (`attempt`), and `commands`, the `enable` and `disable` lines an office owner runs as root to turn it on or off. You cannot run them. `support` is `{ok: false, reason}` where the root command cannot run. `unfinished: true` means an enable stopped while it moved their files; it is not ready until the enable runs again.
 
 Safe example: `GET /api/users/:username/instructions`.
 

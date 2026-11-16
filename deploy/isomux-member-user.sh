@@ -249,11 +249,16 @@ go_on() {
   admin_call go-on "$(jq -n --arg m "$user_id" --arg u "$os_user" \
     --argjson uid "$MEMBER_UID" '{member: $m, osUser: $u, uid: $uid}')" ||
     die "the office did not answer go-on"
-  # The office answered: a refusal removed what this call recorded.
-  GO_ON_OUT=
-  if [[ $ADMIN_STATUS != 200 || $(field .ready "$ADMIN_BODY") != true ]]; then
-    fail "the office did not take the OS user: $(field .reason "$ADMIN_BODY")$(field .message "$ADMIN_BODY")"
-  fi
+  [[ $ADMIN_STATUS == 200 && $(field .ready "$ADMIN_BODY") == true ]] && {
+    GO_ON_OUT=
+    return 0
+  }
+  # kept: the office still records the user, so it stays (GO_ON_OUT) and
+  # the same enable finishes. Else the refusal removed what this call
+  # recorded, and the steps are undone.
+  [[ $ADMIN_STATUS == 200 && $(field .kept "$ADMIN_BODY") == true ]] ||
+    GO_ON_OUT=
+  fail "the office did not take the OS user: $(field .reason "$ADMIN_BODY")$(field .message "$ADMIN_BODY")"
 }
 
 # In the container: ids above every recorded one, the home and the share on

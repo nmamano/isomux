@@ -54,6 +54,15 @@ Isomux refuses to sign out or revoke the last owner session in the office. Sign 
 
 A session ends after 30 days without use, and after 1 year in any case. Server restarts keep sessions.
 
+## Give a member their own OS user
+
+On Linux, an owner can run a member's agents, terminals, apps and scheduled runs as a separate OS user, so that they cannot read the office's files or the other members' credentials ([isolation model](isolation-model.md#hard-boundaries)). In `Settings` → `Members` → the member → `Own OS user`, copy the command and run it as root on the office's machine. It makes the user and moves the member's agent files and sign-ins to its home; their agents then run there. The page shows when it is on. The command to turn it off moves the files back.
+
+- If the page says that it is not ready after a restart, run the turn-on command again. On a member whose own OS user works, it stops their agents for a moment and moves their apps again.
+- At their usage limit, their Claude agents can continue on the office's Claude token for members with their own OS user (`Integrations` → `Model providers`). They cannot use the office's Codex sign-in.
+- It works on an office set up with the installer and in a Docker container, not on Kubernetes, Render, macOS or a checkout run as your own user ([hosting reference](hosting-reference.md#member-os-users)).
+- To remove the member, turn it off first.
+
 ## Delete a member
 
 Deleting a member ends their sessions, sign-in links, API tokens and paired browsers at once. Their agents, schedules and webhooks pass to the oldest office owner. Their schedules and webhooks pass turned off, and their webhooks get a new secret. Read each schedule, then turn it back on. Give each webhook's sender the new secret, then turn the webhook on.

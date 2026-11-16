@@ -708,7 +708,7 @@ start_member() {
   # The seccomp profile of compose.yaml: Chromium's namespace sandbox needs it.
   docker run -d --name "$name" --label isomux.split-rig=1 \
     --security-opt seccomp=deploy/container/seccomp/chromium.json \
-    -e ISOMUX_MEMBER_USERS_RIG=1 -e ISOMUX_RIG_CANARY=member-rig-canary \
+    -e ISOMUX_RIG_CANARY=member-rig-canary \
     -e ISOMUX_PUBLIC_URL=https://office.example.com \
     -e ISOMUX_SETUP_KEY=member-rig-setup-key-0123456789abcdef \
     -v "$name-data:/var/data" "$tag" > /dev/null

@@ -122,6 +122,16 @@ Run the command from a login shell on the machine, not from an office terminal o
 
 A backup taken before the lock still holds the revoked sign-ins: restoring it brings them back.
 
+## Member OS users
+
+A member with their own OS user ([access and invites](access-and-invites.md#give-a-member-their-own-os-user)) needs root on the office's machine to turn it on.
+
+- **Installer (VPS, Hosted Isomux).** The command is `/usr/local/sbin/isomux-member-user`, which the installer and each update install. On Hosted Isomux, run it over SSH as root.
+- **Docker.** The command runs in the container with `docker exec -u 0`. The container makes the member's user again at each start. Each member gets their own copy of the agent programs, about 1 GB, on the data volume. Their apps cannot run, because the container has no user service manager.
+- **Not supported:** Kubernetes (the pod never runs as root), Render, macOS, and an office that you run from a checkout as your own user.
+
+`lockdown` stops a member's apps too. `lockdown --stop` on an installer box also stops their user's services and keeps them stopped after a reboot, and `unlock` starts them again. In a container, `--stop` stops the container.
+
 ## Enterprise Contract
 
 A company of more than 10 people that uses Isomux commercially needs an enterprise account at [cloud.isomux.com/enterprise](https://cloud.isomux.com/enterprise). In each of its offices, an owner checks "This office is part of an Enterprise Contract" in Settings -> Office -> Enterprise and pastes the secret from the account page. Until a secret is accepted, agents take no messages and the office adds no members.

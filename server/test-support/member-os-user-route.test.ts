@@ -3,13 +3,14 @@
 // - only an office owner's reach reads it (the owner, their privileged agent,
 //   their API token); a room-limited token, a plain agent and a member get
 //   403; an unknown member is 404 to an owner;
-// - the gate goes through as is (closed until 4c-ii), and nothing else of
-//   the member's record does;
+// - the office's support verdict goes through as is (the reason where the
+//   command cannot run, with no command), and nothing else of the member's
+//   record does;
 // - the command holds the member id only: a member named with a quote,
 //   spaces and dashes changes no word of it; an owner gets no command.
 //
-// Seam: startTestServer() - real auth, executor and guards. The shape is the
-// container (ISOMUX_APP_SUPERVISOR), so the commands are set on any box.
+// Seam: startTestServer() - real auth, executor and guards. The verdict is
+// set (the installer's container), so the commands are set on any box.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 
@@ -18,6 +19,7 @@ import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { MEMBER_USER_COMMAND_PATH } from "../member-os-user-view.ts";
+import { setMemberUserAdminDeps } from "../member-user-admin.ts";
 import type { MemberOsUserWire } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
@@ -26,13 +28,11 @@ afterEach(async () => {
   server = null;
 });
 
-const savedSupervisor = process.env.ISOMUX_APP_SUPERVISOR;
 beforeAll(() => {
-  process.env.ISOMUX_APP_SUPERVISOR = "container";
+  setMemberUserAdminDeps({ support: { ok: true, shape: "container" } });
 });
 afterAll(() => {
-  if (savedSupervisor === undefined) delete process.env.ISOMUX_APP_SUPERVISOR;
-  else process.env.ISOMUX_APP_SUPERVISOR = savedSupervisor;
+  setMemberUserAdminDeps(null);
 });
 
 type Auth = { bearer?: string; rawSessionId?: string };
@@ -128,17 +128,26 @@ describe("GET /api/users/:username/os-user", () => {
     const r = await get(o.srv, "Mia", o.callers.ownerSession);
     expect(r.status).toBe(200);
     const view = r.body as MemberOsUserWire;
-    // Closed until the product slice opens it.
-    expect(view.gate).toBe(false);
+    expect(view.support).toEqual({ ok: true });
     expect(view.state).toBe("off");
     expect(view.run).toBeNull();
     expect(Object.keys(view).sort()).toEqual(
-      ["commands", "gate", "run", "state"].sort(),
+      ["commands", "support", "run", "state"].sort(),
     );
     expect(view.commands?.enable.endsWith(`enable ${o.ids.mia}`)).toBe(true);
     // An owner never gets an OS user: no command.
     const ownerView = await get(o.srv, o.ownerName, o.callers.ownerSession);
     expect((ownerView.body as MemberOsUserWire).commands).toBeNull();
+    // Where the command cannot run: the reason, and no command.
+    setMemberUserAdminDeps({ support: { ok: false, reason: "kubernetes" } });
+    try {
+      const refused = (await get(o.srv, "Mia", o.callers.ownerSession))
+        .body as MemberOsUserWire;
+      expect(refused.support).toEqual({ ok: false, reason: "kubernetes" });
+      expect(refused.commands).toBeNull();
+    } finally {
+      setMemberUserAdminDeps({ support: { ok: true, shape: "container" } });
+    }
   });
 
   it("builds the command from the member id only, whatever their name holds", async () => {

@@ -3,14 +3,16 @@ import { apiFetch } from "../api.ts";
 import type {
   MemberOsUserWire,
   MemberTokenViewRes,
+  MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { useI18n } from "../i18n.tsx";
 
 // Settings > Members > a member > Own OS user (server/member-os-user-view.ts,
 // internal-docs/member-os-user-design.md 2.1): an office owner turns it on or
-// off with one root command, shown here to copy. Nothing renders while the
-// office does not offer it (gate false) or the read fails.
+// off with one root command, shown here to copy. Where the command cannot
+// run, only the reason shows; nothing renders when the read fails or the
+// answer has no support field.
 //
 // The page reads the state again every 3 s while it can still change: while
 // the command runs, and after a Copy until the state changes. It stops on
@@ -51,7 +53,7 @@ export function MemberOsUserSection({
   const fingerprint = view ? stateKey(view) : null;
   const running = view?.attempt?.status === "running";
   const waiting = waitingFrom !== null && waitingFrom === fingerprint;
-  const polling = !!view?.gate && (running || waiting);
+  const polling = !!view?.support?.ok && (running || waiting);
 
   useEffect(() => {
     if (waitingFrom !== null && fingerprint !== waitingFrom)
@@ -81,7 +83,27 @@ export function MemberOsUserSection({
     };
   }, [polling, route]);
 
-  if (!view || !view.gate) return null;
+  // No support: a server older than this page (a UI build is live before
+  // the restart that brings its server).
+  if (!view?.support) return null;
+  if (!view.support.ok)
+    return (
+      <div data-testid="member-os-user">
+        <h5 style={headingStyle}>{t("settings.osUser.title")}</h5>
+        <p style={hintStyle}>{t("settings.osUser.hint")}</p>
+        <p
+          data-testid="member-os-user-unsupported"
+          data-reason={view.support.reason}
+          style={{
+            fontSize: 13,
+            margin: "6px 0",
+            color: "var(--text-primary)",
+          }}
+        >
+          {t(UNSUPPORTED_KEY[view.support.reason])}
+        </p>
+      </div>
+    );
 
   // Off: turn it on. Not ready: an enable that the office's restart cut
   // finishes when it runs again, so both. Otherwise: turn it off.
@@ -98,7 +120,9 @@ export function MemberOsUserSection({
         : view.state === "not_ready"
           ? [
               {
-                hint: t("settings.osUser.rerunHint"),
+                hint: view.unfinished
+                  ? t("settings.osUser.finishHint")
+                  : t("settings.osUser.rerunHint"),
                 line: view.commands.enable,
               },
               {
@@ -183,6 +207,11 @@ export function MemberOsUserSection({
           </div>
         </div>
       ))}
+      {view.commandHint === "container_name" && commands.length > 0 && (
+        <p data-testid="member-os-user-command-hint" style={hintStyle}>
+          {t("settings.osUser.containerName")}
+        </p>
+      )}
       <p
         data-testid="member-os-user-claude"
         style={{ ...hintStyle, marginTop: 10 }}
@@ -203,6 +232,14 @@ export function MemberOsUserSection({
     </div>
   );
 }
+
+const UNSUPPORTED_KEY = {
+  not_linux: "settings.osUser.unsupported.notLinux",
+  kubernetes: "settings.osUser.unsupported.kubernetes",
+  render: "settings.osUser.unsupported.render",
+  no_system_install: "settings.osUser.unsupported.noSystemInstall",
+  no_command: "settings.osUser.unsupported.noCommand",
+} as const satisfies Record<MemberUserUnsupported, string>;
 
 // What can change while the page waits: the state, the OS user, the attempt.
 function stateKey(view: MemberOsUserWire): string {
@@ -226,7 +263,9 @@ function stateLine(view: MemberOsUserWire, t: T): string {
     case "moving":
       return t("settings.osUser.moving", { name });
     case "not_ready":
-      return t("settings.osUser.notReady", { name });
+      return view.unfinished
+        ? t("settings.osUser.unfinished", { name })
+        : t("settings.osUser.notReady", { name });
     case "broken":
       return t("settings.osUser.broken", { reason: view.reason ?? "" });
   }

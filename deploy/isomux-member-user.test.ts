@@ -519,6 +519,21 @@ describe("an enable that go-on did not finish", () => {
       expectUserKept();
     });
 
+  // F1: the office answers that it keeps its record (the files moved, or it
+  // could not remove the record): the user and its home stay.
+  it("keeps the user when the office answers go-on that it keeps its record", () => {
+    answer("go-on", 200, {
+      ok: false,
+      ready: false,
+      kept: true,
+      reason: "the record still says the files move",
+    });
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(1);
+    expect(result.stderr.length).toBeGreaterThan(0);
+    expectUserKept();
+  });
+
   it("undoes nothing when the office refuses the rerun's go-on", () => {
     rmSync(join(root, "answers", "go-on"));
     expect(run("enable", "Alice").code).toBe(1);
@@ -863,6 +878,19 @@ describe("in the container", () => {
       `${HELPER_CALL} start ${OS_USER}`,
       curl("go-on"),
     ]);
+  });
+
+  it("keeps the user when the office answers go-on that it keeps its record", () => {
+    answer("go-on", 200, { ok: false, ready: false, kept: true, reason: "no" });
+    expect(run("enable", "Alice").code).toBe(1);
+    const undoes = (line: string) =>
+      [
+        `${HELPER_CALL} stop`,
+        `${HELPER_CALL} delete`,
+        "userdel",
+        "groupdel",
+      ].some((p) => line.startsWith(p));
+    expect(changes().filter(undoes)).toEqual([]);
   });
 
   it("refuses a rerun before any change when the helper did not make the user", () => {

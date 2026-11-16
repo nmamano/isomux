@@ -572,7 +572,7 @@ Cosas que puedes hacer por él:
   "settings.osUser.disableHint":
     "Para desactivarlo, ejecuta esto en la máquina de la oficina:",
   "settings.osUser.rerunHint":
-    "Si sigue así, ejecuta de nuevo el comando para activarlo:",
+    "Si sigue sin estar listo, ejecuta de nuevo el comando para activarlo:",
   "settings.osUser.turningOn": "Activando…",
   "settings.osUser.turningOff": "Desactivando…",
   "settings.osUser.stopped":
@@ -586,6 +586,21 @@ Cosas que puedes hacer por él:
   "settings.osUser.claudeTokenLink": "Proveedores de modelos",
   "settings.osUser.codexOff":
     "Codex: sus agentes se detienen en su límite de uso. No pueden usar la sesión de Codex de la oficina, porque compartirla les permitiría cerrar la sesión de la oficina.",
+  "settings.osUser.unfinished":
+    "No está listo: el traslado de sus archivos a {name} no terminó.",
+  "settings.osUser.finishHint":
+    "Para terminar de activarlo, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.containerName":
+    "Pon el nombre del contenedor de la oficina en lugar de CONTAINER.",
+  "settings.osUser.unsupported.notLinux":
+    "No disponible: la oficina debe ejecutarse en Linux.",
+  "settings.osUser.unsupported.kubernetes":
+    "No disponible en Kubernetes: el pod de la oficina no puede ejecutar comandos como root.",
+  "settings.osUser.unsupported.render": "No disponible en Render.",
+  "settings.osUser.unsupported.noSystemInstall":
+    "No disponible: la oficina no se instaló con el instalador de Isomux.",
+  "settings.osUser.unsupported.noCommand":
+    "No disponible hasta que se actualice la oficina.",
   "settings.members.create": "Crear miembro",
   "settings.members.neverSignedIn": "nunca ha iniciado sesión",
   "settings.members.signInLink.create":

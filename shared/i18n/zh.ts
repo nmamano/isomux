@@ -533,7 +533,7 @@ export const zh: Catalog = {
   "settings.osUser.waiting": "正在等待命令…",
   "settings.osUser.enableHint": "要开启，请在办公室的机器上运行：",
   "settings.osUser.disableHint": "要关闭，请在办公室的机器上运行：",
-  "settings.osUser.rerunHint": "如果一直如此，请再次运行开启命令：",
+  "settings.osUser.rerunHint": "如果仍未就绪，请再次运行开启命令：",
   "settings.osUser.turningOn": "正在开启…",
   "settings.osUser.turningOff": "正在关闭…",
   "settings.osUser.stopped": "命令在完成前停止了。请再运行一次。",
@@ -546,6 +546,16 @@ export const zh: Catalog = {
   "settings.osUser.claudeTokenLink": "模型提供商",
   "settings.osUser.codexOff":
     "Codex：其代理会在用量上限时停止。它们不能使用办公室的 Codex 登录，因为共享它会让它们能使办公室退出登录。",
+  "settings.osUser.unfinished": "未就绪：其文件迁移到 {name} 的过程没有完成。",
+  "settings.osUser.finishHint": "要完成开启，请在办公室的机器上运行：",
+  "settings.osUser.containerName": "请把 CONTAINER 换成办公室容器的名称。",
+  "settings.osUser.unsupported.notLinux": "不可用：办公室必须在 Linux 上运行。",
+  "settings.osUser.unsupported.kubernetes":
+    "在 Kubernetes 上不可用：办公室的 pod 不能以 root 身份运行命令。",
+  "settings.osUser.unsupported.render": "在 Render 上不可用。",
+  "settings.osUser.unsupported.noSystemInstall":
+    "不可用：办公室不是用 Isomux 安装程序安装的。",
+  "settings.osUser.unsupported.noCommand": "在办公室更新之前不可用。",
   "settings.members.create": "创建成员",
   "settings.members.neverSignedIn": "从未登录",
   "settings.members.signInLink.create": "为 {name} 创建登录链接",

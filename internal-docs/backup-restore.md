@@ -427,7 +427,8 @@ user. As the office user, from the checkout:
 bun run server/isomux-office.ts restore-member-spaces ~/isomux-backups/isomux-2026-07-30
 ```
 
-It works with the office running or stopped. For each member in the copy's
+It works with the office running or stopped, but not while an enable or a
+disable of a member's OS user runs. For each member in the copy's
 `members/`, it prints what it restored and what it did not:
 
 - Each member's runner writes the files as that member. A file that is

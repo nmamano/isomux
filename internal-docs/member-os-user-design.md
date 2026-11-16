@@ -93,7 +93,7 @@ The command never runs a file that the office's user can write (an agent could c
 - container: the same file in the image, run with `docker exec -u 0`;
 - a user-level install (a checkout run as a user service): not supported. The command needs the installer's root install (`/etc/isomux/update.conf` with `SERVICE_KIND=system`).
 
-Until the last slice ships, the server answers "not ready" on `admin.sock` and the command stops before it changes anything.
+Where the command cannot run, the server answers `not_supported` with the reason on `admin.sock` and the page shows only the reason (`memberUserSupport`, read at boot): off Linux, on Kubernetes (the kubelet sets `KUBERNETES_SERVICE_HOST` in every pod; the pod never runs as root), on Render, without the installer's system install (`/etc/isomux/update.conf` with `SERVICE_KIND=system`: a from-source run or a user-level install), and on an installed box whose root command is missing. A container is the installer's (update.conf `DEPLOYMENT_KIND=container`, the compose line) or another Docker container (`docker exec -u 0` with the hostname when it is Docker's short id, else `CONTAINER` to replace).
 
 ### 2.2 `isomux-member-user enable <member> [--user <osuser>]`
 
@@ -117,7 +117,7 @@ A failure before step 6 undoes the runner's side (`files-undo` removes only what
 
 The command waits up to 3 hours for go-on and disable, more than the server's longest move (`deploy/isomux-member-user.sh`, `MOVE_VERB_LIMIT_S`).
 
-If the server stops during a move, the record stays and the office copy stays. The member's agents then resume without the moved conversations, and each connect logs that an earlier move did not finish while the office holds a file that a move would take. A rerun of enable finishes it. For a member who already has their own OS user, the plan reads only the office's roots, never a path in their home.
+If the server stops during a move, the record stays and the office copy stays. go-on writes the record with `moving: true` before it moves the files and clears it once the pins are written, so a stop in between leaves the mark: the member stays not ready (their host starts nothing, and their apps and connect listeners wait) through any number of restarts, and the page says so. A rerun of enable finishes it; a go-on that fails puts the mark back as it was. Each connect also logs that an earlier move did not finish while the office holds a file that a move would take (also stale office copies after a stop during step 6, which the member no longer needs). For a member who already has their own OS user, the plan reads only the office's roots, never a path in their home.
 
 ### 2.3 `isomux-member-user disable <member> [--delete-user] [--keep-files]`
 

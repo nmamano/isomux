@@ -96,8 +96,16 @@ export interface MemberOsUserWire {
   attempt?: MemberOsUserAttemptWire;
   commands: { enable: string; disable: string } | null;
   run: "password" | "no_password" | null;
-  gate: boolean;
+  // Where the root command cannot run, why (server/member-os-user-view.ts).
+  support: { ok: true } | { ok: false; reason: MemberUserUnsupported };
+  // The command names CONTAINER: the owner puts the container's name there.
+  commandHint?: "container_name";
+  // not_ready because an enable did not finish moving their files.
+  unfinished?: true;
 }
+
+export type MemberUserUnsupported =
+  "not_linux" | "kubernetes" | "render" | "no_system_install" | "no_command";
 
 // A member's profile (GET /api/users/:username): what an agent needs to
 // write to them. Anyone who reads their instructions reads it.
