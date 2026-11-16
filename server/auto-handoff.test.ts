@@ -23,12 +23,42 @@ describe("autoHandoffTrigger", () => {
       undefined,
       { tokens: 500_000, measure: "tokens" },
     ],
-    // 167k less 5 points (10k) of the window.
+    // The compaction guard: compactAt less a margin of 5 points of the
+    // window or 40k, whichever is larger, capped at half of compactAt.
+    // 40k: Claude on a 200k window compacts at about 167k.
     [
-      "moves 5 points of the window ahead of an earlier compaction point",
+      "moves 40k ahead of the compaction point on a 200k window",
       { maxTokens: K200, compactAtTokens: 167_000 },
       undefined,
-      { tokens: 157_000, measure: "compaction" },
+      { tokens: 127_000, measure: "compaction" },
+    ],
+    // 40k: OpenCode on a 128k window with a 32k output limit.
+    [
+      "moves 40k ahead of the compaction point on a 128k window",
+      { maxTokens: 128_000, compactAtTokens: 96_000 },
+      undefined,
+      { tokens: 56_000, measure: "compaction" },
+    ],
+    // 5 points of a 1M window (50k) is larger than 40k.
+    [
+      "moves 5 points of a large window ahead of the compaction point",
+      { maxTokens: M, compactAtTokens: 300_000 },
+      undefined,
+      { tokens: 250_000, measure: "compaction" },
+    ],
+    // 40k is more than half of 32k: the cap keeps the trigger above zero.
+    [
+      "caps the margin at half the compaction point on a small window",
+      { maxTokens: 64_000, compactAtTokens: 32_000 },
+      undefined,
+      { tokens: 16_000, measure: "compaction" },
+    ],
+    // The cap applies to 5 points too: 50k is more than half of 60k.
+    [
+      "caps 5 points of a large window at half the compaction point",
+      { maxTokens: M, compactAtTokens: 60_000 },
+      undefined,
+      { tokens: 30_000, measure: "compaction" },
     ],
     // Strict comparisons: on a tie the earlier limit is reported, in the
     // order tokens, then percent, then compaction.
@@ -38,11 +68,12 @@ describe("autoHandoffTrigger", () => {
       undefined,
       { tokens: 500_000, measure: "tokens" },
     ],
+    // 900k less 5 points (50k) is 850k, 85% of 1M.
     [
       "reports percent when the compaction guard ties 85%",
-      { maxTokens: K200, compactAtTokens: 180_000 },
-      undefined,
-      { tokens: 170_000, measure: "percent" },
+      { maxTokens: M, compactAtTokens: 900_000 },
+      900_000,
+      { tokens: 850_000, measure: "percent" },
     ],
     [
       "reports tokens when the agent's own value ties 85%",

@@ -11,10 +11,15 @@ import type { ManagedAgent, SettingHandoffRequest } from "./internal-types.ts";
 // by default) or at 85% of the window, whichever comes first.
 export const AUTO_HANDOFF_MAX_PERCENT = 85;
 // An engine that compacts on its own before that point would compact first and
-// the handoff would never fire, so the trigger moves this many points of the
-// window ahead of the engine's compaction point. The room is for the brief
-// turn, which runs in the old context.
+// the handoff would never fire, so the trigger sits a margin ahead of the
+// engine's compaction point: 5 points of the window or 40k tokens, whichever
+// is larger, and at most half the compaction point, so the trigger stays above
+// zero. The margin holds the turn that crosses the trigger (it always
+// finishes) and then the brief turn, both in the old context. One turn in 50
+// adds about 40k tokens, so 5 points alone (10k on a 200k window) let the
+// engine compact first on small windows.
 export const AUTO_HANDOFF_COMPACTION_MARGIN_PERCENT = 5;
+export const AUTO_HANDOFF_COMPACTION_MARGIN_TOKENS = 40_000;
 
 export type AutoHandoffMeasure = "tokens" | "percent" | "compaction";
 
@@ -50,9 +55,14 @@ export function autoHandoffTrigger(
   if (percent < best.tokens)
     best = { tokens: percent, measure: "percent", maxTokens };
   if (snap.compactAtTokens !== undefined && snap.compactAtTokens > 0) {
-    const guard =
-      snap.compactAtTokens -
-      (maxTokens * AUTO_HANDOFF_COMPACTION_MARGIN_PERCENT) / 100;
+    const margin = Math.min(
+      Math.max(
+        (maxTokens * AUTO_HANDOFF_COMPACTION_MARGIN_PERCENT) / 100,
+        AUTO_HANDOFF_COMPACTION_MARGIN_TOKENS,
+      ),
+      snap.compactAtTokens / 2,
+    );
+    const guard = snap.compactAtTokens - margin;
     if (guard < best.tokens)
       best = { tokens: guard, measure: "compaction", maxTokens };
   }

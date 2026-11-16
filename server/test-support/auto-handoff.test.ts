@@ -498,31 +498,34 @@ describe("automatic handoff: arming", () => {
     ["claude", "sdk"],
     ["opencode", "adapter"],
   ] as const) {
-    it(`${agentType}: an engine that compacts before 85% hands off 5 points ahead of its compaction point`, async () => {
-      // Compacts at 160k of 200k (80%): the trigger is 75%, 150k.
+    it(`${agentType}: an engine that compacts before 85% hands off 40k ahead of its compaction point on a 200k window`, async () => {
+      // Claude on a 200k window compacts at about 167k: the trigger is 127k
+      // (64%), so a turn that ends at 137.5k, as in the live repro, arms
+      // before the engine compacts.
       expect(
-        autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 160_000 }),
-      ).toMatchObject({ tokens: 150_000, measure: "compaction" });
+        autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 167_000 }),
+      ).toMatchObject({ tokens: 127_000, measure: "compaction" });
       const h = makeHarness();
       const info = await spawn(h, { agentType });
       // Below the guard: nothing.
-      await turnEndingAt(h, info.id, ctx(149_000, 200_000, 160_000, via));
+      await turnEndingAt(h, info.id, ctx(126_000, 200_000, 167_000, via));
       await settle();
       const old = h.fake.sessionForAgent(info.id)!;
       expect(texts(old).some(isBriefPrompt)).toBe(false);
-      // At the guard: hands off.
+      // Past the guard: hands off.
       await waitUntil(
         () => stateOf(h, info.id) === "waiting_for_response",
         "at rest",
       );
-      await turnEndingAt(h, info.id, ctx(152_000, 200_000, 160_000, via));
+      await turnEndingAt(h, info.id, ctx(137_500, 200_000, 167_000, via));
       await nextMessage(h, info.id);
       await freshSession(h, info.id, old);
+      expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
       expect(systemLines(h)).toContain(
-        en.t("systemEntries.autoHandoff.writingCompaction", { percent: 75 }),
+        en.t("systemEntries.autoHandoff.writingCompaction", { percent: 64 }),
       );
       expect(systemLines(h)).toContain(
-        en.t("systemEntries.autoHandoff.doneCompaction", { percent: 75 }),
+        en.t("systemEntries.autoHandoff.doneCompaction", { percent: 64 }),
       );
     });
   }
