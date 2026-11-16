@@ -541,6 +541,7 @@ Cosas que puedes hacer por él:
   "settings.sidebar.recording": "Modo grabación",
   "settings.sidebar.housekeeping": "Mantenimiento",
   "settings.sidebar.updates": "Actualizaciones",
+  "settings.sidebar.move": "Trasladar la oficina",
   "settings.sidebar.enterprise": "Enterprise",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens de API",
@@ -3556,6 +3557,134 @@ Cosas que puedes hacer por él:
   "apps.notFound.heading": "App no encontrada",
   "apps.notFound.body":
     "No hay ninguna app en esta dirección, o no puedes abrirla.",
+  "officeMove.title": "Trasladar la oficina",
+  "officeMove.intro":
+    "Traslada una oficina tal como está a otra máquina: los agentes con sus chats, las apps, las programaciones y los archivos.",
+  "officeMove.out.heading": "Trasladar esta oficina a otra máquina",
+  "officeMove.out.signIns":
+    "Los inicios de sesión y los secretos aún no se trasladan: los miembros vuelven a iniciar sesión en la nueva máquina, y tú vuelves a configurar los secretos allí.",
+  "officeMove.out.needs":
+    "La nueva máquina necesita una oficina de Isomux nueva, de esta versión o una más reciente, con la misma carpeta personal para el usuario de la oficina.",
+  "officeMove.out.steps":
+    "Obtén aquí un código de traslado y pégalo en Ajustes → Oficina → Trasladar la oficina en la nueva máquina.",
+  "officeMove.out.mint": "Obtener un código de traslado",
+  "officeMove.out.mintAgain": "Obtener un código nuevo",
+  "officeMove.out.codeLabel": "Código de traslado",
+  "officeMove.out.codeHint":
+    "Solo se muestra una vez. Úsalo en la nueva máquina antes de las {time}. Guárdalo: después del bloqueo, lo necesitas para cancelar el traslado.",
+  "officeMove.out.copyTitle": "Copiar el código de traslado",
+  "officeMove.out.clipboardBlocked":
+    "Portapapeles bloqueado. El código de arriba está seleccionado: cópialo a mano.",
+  "officeMove.out.loopback":
+    "Este código lleva la dirección {origin}, a la que otra máquina no puede llegar. Abre esta página en una dirección a la que llegue la nueva máquina, o configura una en Ajustes → Oficina → Acceso, y obtén un código nuevo.",
+  "officeMove.out.waiting":
+    "Un código de traslado espera a la nueva máquina hasta las {time}.",
+  "officeMove.out.paired":
+    "Emparejada con la nueva máquina. Esta bloquea esta oficina cuando lo aceptes allí.",
+  "officeMove.out.locked": "Esta oficina está bloqueada para el traslado.",
+  "officeMove.out.cancel": "Cancelar el traslado",
+  "officeMove.in.heading": "Trasladar una oficina aquí",
+  "officeMove.in.body":
+    "Una copia de otra oficina sustituye a esta. Obtén un código de traslado en la oficina antigua, en Ajustes → Oficina → Trasladar la oficina, y pégalo aquí.",
+  "officeMove.in.blocked":
+    "Solo una oficina nueva puede recibir un traslado. Esta oficina tiene:",
+  "officeMove.in.reason.users.one": "{count} miembro más",
+  "officeMove.in.reason.users.other": "{count} miembros más",
+  "officeMove.in.reason.agents.one": "{count} agente creado aquí",
+  "officeMove.in.reason.agents.other": "{count} agentes creados aquí",
+  "officeMove.in.reason.apps.one": "{count} app",
+  "officeMove.in.reason.apps.other": "{count} apps",
+  "officeMove.in.reason.tasks.one": "{count} tarea",
+  "officeMove.in.reason.tasks.other": "{count} tareas",
+  "officeMove.in.codeLabel": "Código de traslado",
+  "officeMove.in.start": "Empezar",
+  "officeMove.in.from": "Desde {origin}",
+  "officeMove.in.boxes": "Oficina antigua: {old}. Esta oficina: {here}.",
+  "officeMove.in.boxHome": "carpeta personal",
+  "officeMove.in.boxData": "carpeta de datos",
+  "officeMove.in.boxVersion": "versión",
+  "officeMove.in.step.pairing": "Conectando con la oficina antigua…",
+  "officeMove.in.step.preflight": "Comprobando la oficina antigua…",
+  "officeMove.in.step.locking": "Bloqueando la oficina antigua…",
+  "officeMove.in.step.waiting":
+    "Esperando a que la oficina antigua se bloquee…",
+  "officeMove.in.step.manifest": "Listando los archivos de la oficina antigua…",
+  "officeMove.in.confirm.heading": "Comprueba y bloquea",
+  "officeMove.in.confirm.body":
+    "El bloqueo detiene la oficina antigua: muestra una página de traslado hasta que termina la copia. Sus agentes, apps y servicios se detienen allí y se inician aquí.",
+  "officeMove.in.confirm.checkedAt":
+    "Comprobado a las {time}. El bloqueo necesita una comprobación de los últimos 15 minutos.",
+  "officeMove.in.confirm.turns":
+    "Agentes trabajando ahora: {names}. Sus turnos se detienen con el bloqueo y siguen aquí.",
+  "officeMove.in.confirm.noTurns": "Ningún agente está trabajando.",
+  "officeMove.in.confirm.turnsUnknown":
+    "La oficina antigua no dijo qué agentes están trabajando.",
+  "officeMove.in.confirm.units":
+    "Servicios que crearon los agentes: {names}. Se detienen allí y se inician aquí.",
+  "officeMove.in.confirm.unitsUnknown":
+    "La oficina antigua no pudo listar los servicios que crearon los agentes.",
+  "officeMove.in.confirm.restartOff":
+    "El servicio de la oficina antigua, {unit}, no se reinicia solo, así que la oficina antigua no puede bloquearse. Configura Restart=always en él y vuelve a comprobar.",
+  "officeMove.in.confirm.restartNone":
+    "La oficina antigua no se ejecuta como un servicio que se reinicia solo, así que no puede bloquearse.",
+  "officeMove.in.confirm.restartUnknown":
+    "La oficina antigua no dijo cómo se reinicia su servicio, así que no puede bloquearse. Actualiza la oficina antigua y vuelve a comprobar.",
+  "officeMove.in.confirm.hostRefs":
+    "Estos archivos de apps nombran la dirección de la oficina antigua. Cámbialos después del traslado:",
+  "officeMove.in.confirm.hostRefsMore": "y más",
+  "officeMove.in.confirm.size": "Unos {size} para copiar.",
+  "officeMove.in.confirm.sizeAtLeast": "Al menos {size} para copiar.",
+  "officeMove.in.confirm.sudo":
+    "Instalado en la máquina antigua con sudo: {packages}. Instálalo aquí también.",
+  "officeMove.in.confirm.sudoUnknown":
+    "La oficina antigua no pudo decir qué se instaló con sudo.",
+  "officeMove.in.lock": "Bloquear la oficina antigua y copiar",
+  "officeMove.in.checkAgain": "Volver a comprobar",
+  "officeMove.in.copying": "Copiando: {done} de {total}.",
+  "officeMove.in.copyingStart": "Copiando…",
+  "officeMove.in.checking": "Comprobando la copia…",
+  "officeMove.in.staged":
+    "La copia está completa y comprobada: {files} archivos, {size}.",
+  "officeMove.in.incomplete.one": "A la copia le falta {count} archivo:",
+  "officeMove.in.incomplete.other": "A la copia le faltan {count} archivos:",
+  "officeMove.in.more": "y {count} más",
+  "officeMove.in.acceptMissing": "Terminar sin estos archivos",
+  "officeMove.in.finishWarning":
+    "Terminar sustituye esta oficina por la copia y la reinicia. Luego la oficina antigua muestra que se trasladó.",
+  "officeMove.in.finish": "Terminar el traslado",
+  "officeMove.in.failed": "El traslado se detuvo.",
+  "officeMove.in.tryAgain": "Reintentar",
+  "officeMove.in.restarting":
+    "La oficina se reinicia con la copia. Esta página vuelve en un minuto.",
+  "officeMove.in.lost": "La oficina no ha vuelto.",
+  "officeMove.in.reload": "Recargar",
+  "officeMove.in.cancel": "Cancelar el traslado",
+  "officeMove.in.lockedNote":
+    "La oficina antigua sigue bloqueada. Para volver a iniciarla allí, introduce el código de traslado en su página.",
+  "officeMove.report.heading": "Esta oficina se trasladó aquí",
+  "officeMove.report.from": "Trasladada desde {origin} el {time} por {name}.",
+  "officeMove.report.missing.one": "{count} archivo no se trasladó:",
+  "officeMove.report.missing.other": "{count} archivos no se trasladaron:",
+  "officeMove.report.excluded": "Se quedó atrás, para volver a configurar:",
+  "officeMove.report.excludedItem.one": "{unit} ({count} archivo)",
+  "officeMove.report.excludedItem.other": "{unit} ({count} archivos)",
+  "officeMove.report.secrets.one":
+    "{count} secreto para volver a configurar, en Integraciones → Secretos.",
+  "officeMove.report.secrets.other":
+    "{count} secretos para volver a configurar, en Integraciones → Secretos.",
+  "officeMove.report.renamed":
+    "Tu cuenta ahora se llama {name}: la oficina antigua tenía un miembro con tu nombre.",
+  "officeMove.report.unitSetAside":
+    "El servicio propio de la oficina antigua, {name}, se apartó.",
+  "officeMove.report.unitsRestored": "Servicios restaurados: {names}.",
+  "officeMove.report.unitFailed": "{name} no se inició: {reason}",
+  "officeMove.report.unitsPending":
+    "Los servicios se restauran en el próximo inicio.",
+  "officeMove.report.aside":
+    "La oficina que había aquí antes del traslado está apartada en {path} ({size}).",
+  "officeMove.report.asideDeleteWarning":
+    "Eliminar borra para siempre los archivos de la lista de arriba.",
+  "officeMove.report.asideDelete": "Eliminar la oficina apartada",
   "moveSwap.title": "traslado detenido",
   "moveSwap.heading": "El traslado a esta oficina se detuvo a medias",
   "moveSwap.body":

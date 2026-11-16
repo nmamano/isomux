@@ -45,6 +45,7 @@ import {
   type MoveEntryKind,
   type MoveScope,
 } from "./office-move-scope.ts";
+import type { MoveExcludedUnit } from "../shared/office-move.ts";
 
 /** The most plaintext in one sealed chunk. */
 export const MOVE_SEAL_CHUNK_BYTES = 1024 * 1024;
@@ -81,12 +82,7 @@ export interface MoveManifestEntry {
   q?: 1;
 }
 
-export interface MoveExcludedUnit {
-  unit: string;
-  entries: number;
-  /** Regular file bytes only. */
-  bytes: number;
-}
+export type { MoveExcludedUnit } from "../shared/office-move.ts";
 
 export interface MoveManifestSummary {
   entries: number;

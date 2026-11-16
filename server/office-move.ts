@@ -29,6 +29,7 @@ import {
 import { isAbsolute, join, relative, sep } from "node:path";
 import { readLockState, ROOT_MARKER_DIR } from "./lockdown.ts";
 import { CALVER_RELEASE_RE } from "./version.ts";
+import type { MoveBoxInfo } from "../shared/office-move.ts";
 
 /** The state file in the state root (0600). It holds the code key and the
  *  session hash: the backup and the rescue export leave it out. */
@@ -54,28 +55,7 @@ export const MOVE_SESSION_TTL_MS = 24 * 60 * 60_000;
 /** How long after it finished a preflight can back a lock. */
 export const MOVE_PREFLIGHT_FRESH_MS = 15 * 60_000;
 
-/** What each box tells the other about itself at the redeem. */
-export interface MoveBoxInfo {
-  /** The CalVer release tag when the checkout is at one, else null. */
-  release: string | null;
-  commit: string | null;
-  /** The office user's home directory. */
-  homePath: string;
-  /** The office's state root, absolute (slice 2b). Both boxes refuse a move
-   *  when it is not inside the home, not its own realpath, or differs. */
-  stateRoot: string;
-  /** The office's own user unit (slice 2c-1), null for a system unit or
-   *  none. The new office refuses a redeem answer without the key ("update
-   *  the old office"): its swap sets the old unit aside. */
-  officeUnit?: MoveOfficeUnit | null;
-}
-
-/** An office's own systemd user unit. */
-export interface MoveOfficeUnit {
-  name: string;
-  /** The unit file, absolute, or null when systemd does not name one. */
-  fragmentPath: string | null;
-}
+export type { MoveBoxInfo, MoveOfficeUnit } from "../shared/office-move.ts";
 
 interface MoveStateBase {
   /** sha256 (hex) of the code's token. */

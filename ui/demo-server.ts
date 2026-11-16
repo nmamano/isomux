@@ -3303,6 +3303,25 @@ export async function demoApi(
         name: state.office.name,
         version: "demo-version",
       };
+    // Settings > Move office (task 78733adf): the demo office has no move
+    // and is not new, so the pane shows its two cards with nothing to run.
+    case "GET /api/office/move":
+      return { state: "none" };
+    case "GET /api/office/move-in":
+      return {
+        phase: "none",
+        blocker: {
+          code: "office_not_fresh",
+          message: "This office already has agents of its own.",
+          extra: { reasons: [{ kind: "agents", count: 1 }] },
+        },
+      };
+    case "POST /api/office/move/code":
+      throw new ApiError(
+        403,
+        "demo",
+        "The demo office cannot move. Install Isomux to move an office.",
+      );
     // office.enterprise.get - the demo office has no Enterprise Contract
     // section (as on Hosted).
     case "GET /api/office/enterprise":

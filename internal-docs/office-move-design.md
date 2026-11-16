@@ -11,7 +11,9 @@ The full slice plan and the gaps of the manual move of 2026-11-15 are in the tas
 3. The new office runs the preflight on the old office and shows it to the owner.
 4. After the owner's yes, the new office locks the old office for the move (`POST /api/move/lock`).
 5. The new office pulls the old office's home into a stage and checks it (slice 2b).
-6. The owner finishes: the new office sends `done` (the old office is MOVED), restarts, and swaps the stage in at boot (slice 2c-1). Slice 2c-2 adds the UI on both offices.
+6. The owner finishes: the new office sends `done` (the old office is MOVED), restarts, and swaps the stage in at boot (slice 2c-1).
+
+The owner does steps 1, 2, 4 and 6 in Settings > Move office (slice 2c-2, below).
 
 ## Move code and session
 
@@ -59,6 +61,7 @@ The office lock does not stop units that agents or members made, for example a t
 
 - At the lock: `move-units.json` (0600) records each unit before any change. Units that are exactly `enabled` are disabled with `--now`: under linger, a stopped unit starts again at boot. The other active units are stopped. A linked unit is only stopped, because `disable` removes its link. Transient units are recorded with their command, folder and environment, read from the unit's fragment (`systemctl cat`): `systemctl show` prints the command without quotes, so `bash -c 'a; b'` would lose its words. A command the move cannot read exactly is recorded as unreadable, and the restore reports it.
 - At the first normal boot after a cancel, or after a lockdown that won and was unlocked: `enable` for exactly `enabled`, `start` for what was active, `systemd-run` for transient units. A unit that cannot start again is logged.
+- Testing: a live run of the lock (the live pass of slice 4 included) never runs under a user manager that other work shares, such as a development box's office user: the lock stops every transient unit of that manager.
 
 ## Cancel and lockdown
 
@@ -107,7 +110,7 @@ AES-256-GCM. Each response starts with a fresh random 32-byte salt. The response
 
 ## The new office (slice 2b)
 
-`server/office-move-in.ts` runs the move on the new office; `server/office-move-stage.ts` writes the stage. There is no UI yet (slice 2c-2), so no release offers the flow before it is whole.
+`server/office-move-in.ts` runs the move on the new office; `server/office-move-stage.ts` writes the stage.
 
 ### Owner routes
 
@@ -176,3 +179,13 @@ The kept `sessions.json` keeps the owner who finished signed in on the moved off
 
 `GET /api/office/move-in` in `moved`: the old origin, who finished and when, the sign-in units left out with counts, the secrets to set again, the missing paths the owner accepted, the fresh owner's new name after a clash, the old office's unit set aside, the units put back, and the top-level entries and size of the aside folder.
 
+## The Settings pane (slice 2c-2)
+
+Settings > Office > Move office, owners only, on Hosted too: `ui/components/OfficeMovePane.tsx`, with its logic in `ui/office-move.ts`. The wire types of the move routes are in `shared/office-move.ts`.
+
+- Two cards. The move-out card mints the code and shows it once (in memory only, never stored), with a warning when its origin is loopback, then the code's expiry or the pairing, and a cancel. The move-in card shows the status by phase: the start form (or the blocker), the old office's preflight with Lock and Check again, the copy's progress, the check with Finish (and "finish without these files" on an incomplete copy), a failure with Try again, the restart, and the report with the delete of the aside folder.
+- The move-in card comes first on a new office and whenever a move-in runs or is done.
+- `GET /api/office/move-in` in phase `none` carries `blocker`: the start's own refusal before the redeem (`startBlocker`: not fresh, the restart policy, the state root), so the owner sees it before minting a code. Every phase from `preflight` on carries `oldOfficeLocked` (the cancel's own expression), and `moved` carries `asidePath`.
+- The routes emit nothing, so each card polls while something runs (move-in 2 s, move-out 5 s). An answer with `X-Isomux-Locked` (`ApiError.locked`) reloads the page: the old office after its lock shows the MOVE page, and a failed swap shows its page with Try again. Through the restart after Finish, poll errors are silent; after 5 min with no answer the card says the office has not come back and offers a reload.
+- The old office's preflight comes from its release, so the card reads it through a guard (`preflightView`): each part is its shape or unknown. Lock is enabled only when the old office's unit has `Restart=always`.
+- Finish, a cancel and the delete of the aside folder ask first, in place. A cancel after the lock says the old office stays locked until its owner enters the move code there.

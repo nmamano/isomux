@@ -132,6 +132,18 @@ A member with their own OS user ([access and invites](access-and-invites.md#give
 
 `lockdown` stops a member's apps too. `lockdown --stop` on an installer box also stops their user's services and keeps them stopped after a reboot, and `unlock` starts them again. In a container, `--stop` stops the container.
 
+## Moving an office to another machine
+
+An owner moves an office as it is, with its agents and their chats, apps, schedules and files, in Settings → Office → Move office. It needs no root or SSH, so it works on Hosted Isomux too.
+
+1. Install Isomux on the new machine, with the same home folder for the office user and the same or a newer release. Both offices must run as the installer's service, which restarts by itself.
+2. On the old office, get a move code. It works for one hour.
+3. On the new office, paste the code. The new office checks the old one and shows what runs there: agents that work, services agents made, packages installed with sudo, and app files that name the old address.
+4. Lock the old office. It stops and shows a moving page, and the new office copies it.
+5. Finish. The new office restarts with the copy and shows a report. The old office then shows that it moved.
+
+Sign-ins and secrets do not move yet: members sign in again, and the report lists the secrets to set again. Before the lock, a cancel on either office ends the move. After it, the old office stays locked until someone enters the move code on its moving page.
+
 ## Enterprise Contract
 
 A company of more than 10 people that uses Isomux commercially needs an enterprise account at [cloud.isomux.com/enterprise](https://cloud.isomux.com/enterprise). In each of its offices, an owner checks "This office is part of an Enterprise Contract" in Settings -> Office -> Enterprise and pastes the secret from the account page. Until a secret is accepted, agents take no messages and the office adds no members.

@@ -541,6 +541,7 @@ Coses que pots fer per ell:
   "settings.sidebar.recording": "Mode d'enregistrament",
   "settings.sidebar.housekeeping": "Manteniment",
   "settings.sidebar.updates": "Actualitzacions",
+  "settings.sidebar.move": "Traslladar l'oficina",
   "settings.sidebar.enterprise": "Enterprise",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens d'API",
@@ -3562,6 +3563,133 @@ Coses que pots fer per ell:
   "apps.notFound.heading": "App no trobada",
   "apps.notFound.body":
     "No hi ha cap app en aquesta adreça, o no la pots obrir.",
+  "officeMove.title": "Traslladar l'oficina",
+  "officeMove.intro":
+    "Trasllada una oficina tal com és a una altra màquina: els agents amb els seus xats, les apps, les programacions i els fitxers.",
+  "officeMove.out.heading": "Traslladar aquesta oficina a una altra màquina",
+  "officeMove.out.signIns":
+    "Els inicis de sessió i els secrets encara no es traslladen: els membres tornen a iniciar sessió a la màquina nova, i tu hi tornes a configurar els secrets.",
+  "officeMove.out.needs":
+    "La màquina nova necessita una oficina d'Isomux nova, d'aquesta versió o una de més recent, amb la mateixa carpeta personal per a l'usuari de l'oficina.",
+  "officeMove.out.steps":
+    "Obtén aquí un codi de trasllat i enganxa'l a Configuració → Oficina → Traslladar l'oficina a la màquina nova.",
+  "officeMove.out.mint": "Obtenir un codi de trasllat",
+  "officeMove.out.mintAgain": "Obtenir un codi nou",
+  "officeMove.out.codeLabel": "Codi de trasllat",
+  "officeMove.out.codeHint":
+    "Només es mostra una vegada. Fes-lo servir a la màquina nova abans de les {time}. Guarda'l: després del bloqueig, el necessites per cancel·lar el trasllat.",
+  "officeMove.out.copyTitle": "Copiar el codi de trasllat",
+  "officeMove.out.clipboardBlocked":
+    "Porta-retalls bloquejat. El codi de dalt està seleccionat: copia'l a mà.",
+  "officeMove.out.loopback":
+    "Aquest codi porta l'adreça {origin}, on una altra màquina no pot arribar. Obre aquesta pàgina en una adreça on arribi la màquina nova, o configura'n una a Configuració → Oficina → Accés, i obtén un codi nou.",
+  "officeMove.out.waiting":
+    "Un codi de trasllat espera la màquina nova fins a les {time}.",
+  "officeMove.out.paired":
+    "Aparellada amb la màquina nova. Aquesta bloqueja aquesta oficina quan ho acceptis allà.",
+  "officeMove.out.locked": "Aquesta oficina està bloquejada per al trasllat.",
+  "officeMove.out.cancel": "Cancel·lar el trasllat",
+  "officeMove.in.heading": "Traslladar una oficina aquí",
+  "officeMove.in.body":
+    "Una còpia d'una altra oficina substitueix aquesta. Obtén un codi de trasllat a l'oficina antiga, a Configuració → Oficina → Traslladar l'oficina, i enganxa'l aquí.",
+  "officeMove.in.blocked":
+    "Només una oficina nova pot rebre un trasllat. Aquesta oficina té:",
+  "officeMove.in.reason.users.one": "{count} membre més",
+  "officeMove.in.reason.users.other": "{count} membres més",
+  "officeMove.in.reason.agents.one": "{count} agent creat aquí",
+  "officeMove.in.reason.agents.other": "{count} agents creats aquí",
+  "officeMove.in.reason.apps.one": "{count} app",
+  "officeMove.in.reason.apps.other": "{count} apps",
+  "officeMove.in.reason.tasks.one": "{count} tasca",
+  "officeMove.in.reason.tasks.other": "{count} tasques",
+  "officeMove.in.codeLabel": "Codi de trasllat",
+  "officeMove.in.start": "Començar",
+  "officeMove.in.from": "Des de {origin}",
+  "officeMove.in.boxes": "Oficina antiga: {old}. Aquesta oficina: {here}.",
+  "officeMove.in.boxHome": "carpeta personal",
+  "officeMove.in.boxData": "carpeta de dades",
+  "officeMove.in.boxVersion": "versió",
+  "officeMove.in.step.pairing": "Connectant amb l'oficina antiga…",
+  "officeMove.in.step.preflight": "Comprovant l'oficina antiga…",
+  "officeMove.in.step.locking": "Bloquejant l'oficina antiga…",
+  "officeMove.in.step.waiting": "Esperant que l'oficina antiga es bloquegi…",
+  "officeMove.in.step.manifest": "Llistant els fitxers de l'oficina antiga…",
+  "officeMove.in.confirm.heading": "Comprova i bloqueja",
+  "officeMove.in.confirm.body":
+    "El bloqueig atura l'oficina antiga: mostra una pàgina de trasllat fins que acaba la còpia. Els seus agents, apps i serveis s'aturen allà i s'inicien aquí.",
+  "officeMove.in.confirm.checkedAt":
+    "Comprovat a les {time}. El bloqueig necessita una comprovació dels últims 15 minuts.",
+  "officeMove.in.confirm.turns":
+    "Agents que treballen ara: {names}. Els seus torns s'aturen amb el bloqueig i continuen aquí.",
+  "officeMove.in.confirm.noTurns": "Cap agent no treballa.",
+  "officeMove.in.confirm.turnsUnknown":
+    "L'oficina antiga no va dir quins agents treballen.",
+  "officeMove.in.confirm.units":
+    "Serveis que van crear els agents: {names}. S'aturen allà i s'inicien aquí.",
+  "officeMove.in.confirm.unitsUnknown":
+    "L'oficina antiga no va poder llistar els serveis que van crear els agents.",
+  "officeMove.in.confirm.restartOff":
+    "El servei de l'oficina antiga, {unit}, no es reinicia sol, així que l'oficina antiga no es pot bloquejar. Configura-hi Restart=always i torna a comprovar.",
+  "officeMove.in.confirm.restartNone":
+    "L'oficina antiga no s'executa com un servei que es reinicia sol, així que no es pot bloquejar.",
+  "officeMove.in.confirm.restartUnknown":
+    "L'oficina antiga no va dir com es reinicia el seu servei, així que no es pot bloquejar. Actualitza l'oficina antiga i torna a comprovar.",
+  "officeMove.in.confirm.hostRefs":
+    "Aquests fitxers d'apps anomenen l'adreça de l'oficina antiga. Canvia'ls després del trasllat:",
+  "officeMove.in.confirm.hostRefsMore": "i més",
+  "officeMove.in.confirm.size": "Uns {size} per copiar.",
+  "officeMove.in.confirm.sizeAtLeast": "Almenys {size} per copiar.",
+  "officeMove.in.confirm.sudo":
+    "Instal·lat a la màquina antiga amb sudo: {packages}. Instal·la-ho aquí també.",
+  "officeMove.in.confirm.sudoUnknown":
+    "L'oficina antiga no va poder dir què es va instal·lar amb sudo.",
+  "officeMove.in.lock": "Bloquejar l'oficina antiga i copiar",
+  "officeMove.in.checkAgain": "Tornar a comprovar",
+  "officeMove.in.copying": "Copiant: {done} de {total}.",
+  "officeMove.in.copyingStart": "Copiant…",
+  "officeMove.in.checking": "Comprovant la còpia…",
+  "officeMove.in.staged":
+    "La còpia és completa i comprovada: {files} fitxers, {size}.",
+  "officeMove.in.incomplete.one": "A la còpia li falta {count} fitxer:",
+  "officeMove.in.incomplete.other": "A la còpia li falten {count} fitxers:",
+  "officeMove.in.more": "i {count} més",
+  "officeMove.in.acceptMissing": "Acabar sense aquests fitxers",
+  "officeMove.in.finishWarning":
+    "Acabar substitueix aquesta oficina per la còpia i la reinicia. Després l'oficina antiga mostra que s'ha traslladat.",
+  "officeMove.in.finish": "Acabar el trasllat",
+  "officeMove.in.failed": "El trasllat s'ha aturat.",
+  "officeMove.in.tryAgain": "Tornar-ho a provar",
+  "officeMove.in.restarting":
+    "L'oficina es reinicia amb la còpia. Aquesta pàgina torna en un minut.",
+  "officeMove.in.lost": "L'oficina no ha tornat.",
+  "officeMove.in.reload": "Recarregar",
+  "officeMove.in.cancel": "Cancel·lar el trasllat",
+  "officeMove.in.lockedNote":
+    "L'oficina antiga continua bloquejada. Per tornar-la a iniciar allà, introdueix el codi de trasllat a la seva pàgina.",
+  "officeMove.report.heading": "Aquesta oficina s'ha traslladat aquí",
+  "officeMove.report.from": "Traslladada des de {origin} el {time} per {name}.",
+  "officeMove.report.missing.one": "{count} fitxer no s'ha traslladat:",
+  "officeMove.report.missing.other": "{count} fitxers no s'han traslladat:",
+  "officeMove.report.excluded": "S'ha quedat enrere, per tornar a configurar:",
+  "officeMove.report.excludedItem.one": "{unit} ({count} fitxer)",
+  "officeMove.report.excludedItem.other": "{unit} ({count} fitxers)",
+  "officeMove.report.secrets.one":
+    "{count} secret per tornar a configurar, a Integracions → Secrets.",
+  "officeMove.report.secrets.other":
+    "{count} secrets per tornar a configurar, a Integracions → Secrets.",
+  "officeMove.report.renamed":
+    "El teu compte ara es diu {name}: l'oficina antiga tenia un membre amb el teu nom.",
+  "officeMove.report.unitSetAside":
+    "El servei propi de l'oficina antiga, {name}, s'ha apartat.",
+  "officeMove.report.unitsRestored": "Serveis restaurats: {names}.",
+  "officeMove.report.unitFailed": "{name} no s'ha iniciat: {reason}",
+  "officeMove.report.unitsPending":
+    "Els serveis es restauren a la propera inicialització.",
+  "officeMove.report.aside":
+    "L'oficina que hi havia aquí abans del trasllat està apartada a {path} ({size}).",
+  "officeMove.report.asideDeleteWarning":
+    "Eliminar esborra per sempre els fitxers de la llista de dalt.",
+  "officeMove.report.asideDelete": "Eliminar l'oficina apartada",
   "moveSwap.title": "trasllat aturat",
   "moveSwap.heading": "El trasllat a aquesta oficina s'ha aturat a mitges",
   "moveSwap.body":

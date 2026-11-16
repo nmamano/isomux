@@ -1682,6 +1682,18 @@ describe("moved (slice 2c-1)", () => {
     expect(existsSync(join(n.home, MOVE_IN_DIR))).toBe(false);
   });
 
+  it("slice 2c-2: the status names the aside folder, the folder the delete removes; the delete answers the old office not locked", async () => {
+    const { n } = movedOffice();
+    n.moveIn.recoverAtBoot();
+    const s = n.moveIn.status();
+    const asidePath = (s as { asidePath?: string }).asidePath ?? "";
+    expect(asidePath).toBe(join(n.home, MOVE_IN_DIR, "aside"));
+    expect(readFileSync(join(asidePath, "notes.txt"), "utf8")).toBe("fresh");
+    const a = await n.moveIn.cancel({ by: OWNER });
+    expect(a.ok && a.body).toEqual({ cancelled: true, oldOfficeLocked: false });
+    expect(existsSync(asidePath)).toBe(false);
+  });
+
   it("refuses finish and a new start", async () => {
     const { o, n } = movedOffice();
     n.moveIn.recoverAtBoot();
@@ -1690,5 +1702,147 @@ describe("moved (slice 2c-1)", () => {
       false,
     );
     expect(o.log.length).toBe(0);
+  });
+});
+
+// ---- slice 2c-2: what the Settings pane reads ----
+
+describe("the status for the Settings pane (slice 2c-2)", () => {
+  it("phase none carries the start's own refusal as the blocker, and null on an office that can take a move", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    const outside = join(dir, "outside-state");
+    mkdirSync(outside);
+    const variants: [
+      string,
+      (n: NewOffice) => void,
+      Parameters<typeof newOffice>[1],
+    ][] = [
+      ["notFresh", (n) => void (n.fresh.apps = 2), {}],
+      ["restart", () => {}, { box: { restartPolicy: "on-failure" } }],
+      ["noUnit", () => {}, { box: { restartPolicy: null } }],
+      [
+        "stateRoot",
+        () => {},
+        { ours: () => ({ ...o.box, stateRoot: outside }) },
+      ],
+    ];
+    const seen: Record<string, unknown> = {};
+    for (const [name, spoil, over] of variants) {
+      const n = newOffice(o, { name, ...over });
+      spoil(n);
+      const s = n.moveIn.status();
+      const blocker = (s as { blocker?: { code: string; extra?: unknown } })
+        .blocker;
+      const a = await n.moveIn.start({ code: o.mint(), by: OWNER });
+      seen[name] = {
+        phase: s.phase,
+        same: blocker?.code === errCode(a) && !a.ok,
+        extra:
+          JSON.stringify(blocker?.extra ?? null) ===
+          JSON.stringify((a as { extra?: unknown }).extra ?? null),
+      };
+    }
+    const same = { phase: "none", same: true, extra: true };
+    expect(seen).toEqual({
+      notFresh: same,
+      restart: same,
+      noUnit: same,
+      stateRoot: same,
+    });
+    // The not-fresh blocker names its reasons with counts.
+    const n = newOffice(o, { name: "counts" });
+    n.fresh.apps = 2;
+    expect(
+      (n.moveIn.status() as { blocker?: { extra?: unknown } }).blocker?.extra,
+    ).toEqual({ reasons: [{ kind: "apps", count: 2 }] });
+    // None of the GETs reached the old office.
+    expect(o.log.length).toBe(0);
+
+    const ready = newOffice(o, { name: "ready" });
+    expect(ready.moveIn.status()).toEqual({ phase: "none", blocker: null });
+  });
+
+  it("oldOfficeLocked says what the cancel would say: not before the lock, yes while it is in flight and after it, yes on a failure after it", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    const locked = (s: MoveInStatus) =>
+      (s as { oldOfficeLocked?: boolean }).oldOfficeLocked;
+    const cancelSays = async (n: NewOffice) => {
+      const a = await n.moveIn.cancel({ by: OWNER });
+      return a.ok
+        ? (a.body as { oldOfficeLocked?: boolean }).oldOfficeLocked
+        : a;
+    };
+
+    // Before the lock.
+    const n1 = newOffice(o, { name: "n1" });
+    await toConfirm(o, n1);
+    const atConfirm = locked(n1.moveIn.status());
+    const cancelAtConfirm = await cancelSays(n1);
+
+    // A failure after the lock (the restart cut the pull), from a second
+    // old office: the first stays paired with n1.
+    const o2 = oldOffice("old2");
+    const h = holding(o2, "/api/move/batch");
+    const n2 = newOffice(o2, { name: "n2", fetch: h.fetch });
+    cleanups.push(h.release);
+    const preflightId = await toConfirm(o2, n2);
+    expect((await n2.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    await waitFor(() => h.held.n > 0);
+    const atPulling = locked(n2.moveIn.status());
+    const n3Home = join(dir, "n3", "home");
+    mkdirSync(join(n3Home, ".isomux"), { recursive: true });
+    copyFileSync(
+      join(n2.root, MOVE_IN_STATE_FILE),
+      join(n3Home, ".isomux", MOVE_IN_STATE_FILE),
+    );
+    const n3 = newOffice(o2, { name: "n3" });
+    n3.moveIn.recoverAtBoot();
+    const failed = n3.moveIn.status();
+    expect(failed.phase).toBe("failed");
+    const atFailed = locked(failed);
+    const cancelAtFailed = await cancelSays(n3);
+
+    // The lock in flight: no lockedAt yet, but it may have arrived.
+    const o4 = oldOffice("old4");
+    const h4 = holding(o4, "/api/move/lock");
+    const n4 = newOffice(o4, { name: "n4", fetch: h4.fetch });
+    cleanups.push(h4.release);
+    const pf4 = await toConfirm(o4, n4);
+    void n4.moveIn.lock({ preflightId: pf4, by: OWNER });
+    await waitFor(() => h4.held.n > 0);
+    const s4 = n4.moveIn.status();
+    expect(s4.phase).toBe("locking");
+    expect((s4 as { lockedAt?: number | null }).lockedAt ?? null).toBe(null);
+    const atLocking = locked(s4);
+
+    expect({
+      atConfirm,
+      cancelAtConfirm,
+      atLocking,
+      atPulling,
+      atFailed,
+      cancelAtFailed,
+    }).toEqual({
+      atConfirm: false,
+      cancelAtConfirm: false,
+      atLocking: true,
+      atPulling: true,
+      atFailed: true,
+      cancelAtFailed: true,
+    });
+  });
+
+  it("oldOfficeLocked on a staged copy matches the cancel", async () => {
+    const { n } = await stagedPair();
+    const s = n.moveIn.status();
+    expect(s.phase).toBe("staged");
+    const atStaged = (s as { oldOfficeLocked?: boolean }).oldOfficeLocked;
+    const a = await n.moveIn.cancel({ by: OWNER });
+    expect({
+      atStaged,
+      cancel: a.ok && (a.body as { oldOfficeLocked?: boolean }).oldOfficeLocked,
+    }).toEqual({ atStaged: true, cancel: true });
   });
 });

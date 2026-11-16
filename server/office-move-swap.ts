@@ -32,7 +32,6 @@ import {
   type Dirent,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import type { AuditActor } from "../shared/audit.ts";
 import { errMessage } from "../shared/errors.ts";
 import { isBackupEntryName } from "./backup.ts";
 import {
@@ -41,7 +40,6 @@ import {
   type MoveBoxInfo,
   type MoveOfficeUnit,
 } from "./office-move.ts";
-import type { MoveExcludedUnit } from "./office-move-pull.ts";
 import {
   createMoveScope,
   moveScope,
@@ -50,6 +48,7 @@ import {
 import { MOVE_IN_STAGE } from "./office-move-stage.ts";
 import { writeUnitsRecord, type AgentUnit } from "./office-move-units.ts";
 import { OFFICE_CONFIG_BOX_KEYS } from "./persistence.ts";
+import type { MoveInReport, MoveInReportInput } from "../shared/office-move.ts";
 
 /** The swap file, in the move-in folder (MOVE_IN_DIR). */
 export const MOVE_IN_SWAP_FILE = "swap.json";
@@ -75,20 +74,7 @@ export type MoveInSwapOp =
    *  unit). */
   | { op: "drop"; path: string };
 
-/** What the report starts with (the rest is filled at the swap and at the
- *  first normal boot). */
-export interface MoveInReportInput {
-  oldOrigin: string;
-  office: MoveBoxInfo;
-  finishedAt: number;
-  by: AuditActor;
-  /** The sign-in units the move left out (the manifest's `excluded`). */
-  excluded: MoveExcludedUnit[];
-  /** Secrets to set again (the manifest's secret count). */
-  secretCount: number;
-  /** The paths the owner accepted as missing (finish {acceptMissing}). */
-  missing: { path: string; reason: string }[];
-}
+export type { MoveInReport, MoveInReportInput } from "../shared/office-move.ts";
 
 /** What finish stores; the swap boot computes the rest from the disk. */
 export interface MoveInSwapInputs {
@@ -123,25 +109,6 @@ export interface MoveInSwapFile {
   inputs: MoveInSwapInputs;
   /** null until the first swap boot computes them. */
   ops: MoveInSwapOp[] | null;
-}
-
-/** The after-move report (GET /api/office/move-in in phase `moved`). */
-export interface MoveInReport extends MoveInReportInput {
-  swappedAt: number;
-  /** The fresh office's owner, renamed on a name clash (null: not renamed). */
-  ownerRenamedTo: string | null;
-  /** The old office's own unit, set aside (null: none in the stage). */
-  oldOfficeUnitSetAside: string | null;
-  /** The top-level entries of the aside folder and its size. */
-  aside: { entries: string[]; bytes: number };
-  /** The agent-made units put back at the first normal boot (null: not
-   *  yet). */
-  units: {
-    restored: string[];
-    failed: { name: string; reason: string }[];
-  } | null;
-  /** Whether the first normal boot wrote office.moveInSwapped. */
-  audited: boolean;
 }
 
 /** Why finish refuses before it sends `done` (the dry run). */

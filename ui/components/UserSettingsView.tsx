@@ -76,6 +76,7 @@ import {
 import { DevicePane } from "./DevicePane.tsx";
 import { SidebarPage } from "./SidebarPage.tsx";
 import { OfficePane } from "./OfficePane.tsx";
+import { OfficeMovePane } from "./OfficeMovePane.tsx";
 import { StoragePane } from "./StoragePane.tsx";
 import { UsagePane } from "./UsagePane.tsx";
 import { RoomPane } from "./RoomPane.tsx";
@@ -147,6 +148,7 @@ export type SettingsSection =
   | "prefs"
   | "signInLinks"
   | "updates"
+  | "move"
   | "deviceLabel"
   | "theme"
   | "recording";
@@ -465,6 +467,11 @@ export function UserSettingsView({
               ? [sectionRow("enterprise", t("settings.sidebar.enterprise"))]
               : []),
             sectionRow("updates", t("settings.sidebar.updates")),
+            // Moving the office (task 78733adf): an owner action, on Hosted
+            // too.
+            ...(isOwner
+              ? [sectionRow("move", t("settings.sidebar.move"))]
+              : []),
           ],
         },
         {
@@ -917,6 +924,8 @@ export function UserSettingsView({
             <AuditPane />
           ) : selection.section === "storage" && isOwner ? (
             <StoragePane closeRef={detailCloseRef} />
+          ) : selection.section === "move" && isOwner ? (
+            <OfficeMovePane />
           ) : selection.section === "updates" ? (
             <UpdatePane onClose={() => leaveEdit(() => onClose())} />
           ) : selection.section === "deviceLabel" ? (

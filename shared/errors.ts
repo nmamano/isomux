@@ -22,3 +22,7 @@ export function errCode(err: unknown): string | undefined {
   }
   return undefined;
 }
+
+/** Set on every response of a locked office (the lockdown's locked page, the
+ *  MOVE page of an office locked for a move, a failed move-in swap). */
+export const LOCKED_HEADER = "X-Isomux-Locked";

@@ -508,6 +508,7 @@ export const zh: Catalog = {
   "settings.sidebar.recording": "录制模式",
   "settings.sidebar.housekeeping": "维护",
   "settings.sidebar.updates": "更新",
+  "settings.sidebar.move": "迁移办公室",
   "settings.sidebar.enterprise": "企业",
   "settings.sidebar.profile": "个人资料",
   "settings.sidebar.apiTokens": "API 令牌",
@@ -3190,6 +3191,123 @@ export const zh: Catalog = {
   "apps.notFound.title": "未找到应用",
   "apps.notFound.heading": "未找到应用",
   "apps.notFound.body": "此地址没有应用，或者你无法打开它。",
+  "officeMove.title": "迁移办公室",
+  "officeMove.intro":
+    "将办公室原样迁移到另一台机器：包括智能体及其聊天、应用、日程和文件。",
+  "officeMove.out.heading": "将此办公室迁移到另一台机器",
+  "officeMove.out.signIns":
+    "登录和密钥暂不迁移：成员需在新机器上重新登录，你需在那里重新设置密钥。",
+  "officeMove.out.needs":
+    "新机器需要一个新的 Isomux 办公室，版本不低于此版本，且办公室用户的主文件夹相同。",
+  "officeMove.out.steps":
+    "在此获取迁移代码，然后在新机器的“设置 → 办公室 → 迁移办公室”中粘贴。",
+  "officeMove.out.mint": "获取迁移代码",
+  "officeMove.out.mintAgain": "获取新代码",
+  "officeMove.out.codeLabel": "迁移代码",
+  "officeMove.out.codeHint":
+    "代码只显示一次。请在 {time} 前在新机器上使用。请保存好：锁定后，取消迁移需要它。",
+  "officeMove.out.copyTitle": "复制迁移代码",
+  "officeMove.out.clipboardBlocked":
+    "剪贴板被阻止。上方的代码已选中：请手动复制。",
+  "officeMove.out.loopback":
+    "此代码包含地址 {origin}，其他机器无法访问。请通过新机器可以访问的地址打开此页面，或在“设置 → 办公室 → 访问权限”中设置一个地址，然后获取新代码。",
+  "officeMove.out.waiting": "迁移代码等待新机器，有效至 {time}。",
+  "officeMove.out.paired":
+    "已与新机器配对。你在新机器上同意后，它会锁定此办公室。",
+  "officeMove.out.locked": "此办公室已为迁移而锁定。",
+  "officeMove.out.cancel": "取消迁移",
+  "officeMove.in.heading": "将办公室迁移到这里",
+  "officeMove.in.body":
+    "另一个办公室的副本将替换此办公室。在旧办公室的“设置 → 办公室 → 迁移办公室”中获取迁移代码，然后粘贴到这里。",
+  "officeMove.in.blocked": "只有新办公室才能接收迁移。此办公室有：",
+  "officeMove.in.reason.users.one": "另外 {count} 名成员",
+  "officeMove.in.reason.users.other": "另外 {count} 名成员",
+  "officeMove.in.reason.agents.one": "{count} 个在此创建的智能体",
+  "officeMove.in.reason.agents.other": "{count} 个在此创建的智能体",
+  "officeMove.in.reason.apps.one": "{count} 个应用",
+  "officeMove.in.reason.apps.other": "{count} 个应用",
+  "officeMove.in.reason.tasks.one": "{count} 个任务",
+  "officeMove.in.reason.tasks.other": "{count} 个任务",
+  "officeMove.in.codeLabel": "迁移代码",
+  "officeMove.in.start": "开始",
+  "officeMove.in.from": "来自 {origin}",
+  "officeMove.in.boxes": "旧办公室：{old}。此办公室：{here}。",
+  "officeMove.in.boxHome": "主文件夹",
+  "officeMove.in.boxData": "数据文件夹",
+  "officeMove.in.boxVersion": "版本",
+  "officeMove.in.step.pairing": "正在连接旧办公室…",
+  "officeMove.in.step.preflight": "正在检查旧办公室…",
+  "officeMove.in.step.locking": "正在锁定旧办公室…",
+  "officeMove.in.step.waiting": "正在等待旧办公室锁定…",
+  "officeMove.in.step.manifest": "正在列出旧办公室的文件…",
+  "officeMove.in.confirm.heading": "检查后锁定",
+  "officeMove.in.confirm.body":
+    "锁定会停止旧办公室：在复制完成前，它会显示迁移页面。它的智能体、应用和服务会在那里停止，并在这里启动。",
+  "officeMove.in.confirm.checkedAt":
+    "检查于 {time}。锁定需要最近 15 分钟内的检查。",
+  "officeMove.in.confirm.turns":
+    "正在工作的智能体：{names}。它们的轮次会在锁定时停止，并在这里继续。",
+  "officeMove.in.confirm.noTurns": "没有智能体在工作。",
+  "officeMove.in.confirm.turnsUnknown": "旧办公室没有说明哪些智能体在工作。",
+  "officeMove.in.confirm.units":
+    "智能体创建的服务：{names}。它们会在那里停止，并在这里启动。",
+  "officeMove.in.confirm.unitsUnknown": "旧办公室无法列出智能体创建的服务。",
+  "officeMove.in.confirm.restartOff":
+    "旧办公室的服务 {unit} 不会自动重启，因此旧办公室无法锁定。请为它设置 Restart=always，然后重新检查。",
+  "officeMove.in.confirm.restartNone":
+    "旧办公室没有作为会自动重启的服务运行，因此无法锁定。",
+  "officeMove.in.confirm.restartUnknown":
+    "旧办公室没有说明其服务如何重启，因此无法锁定。请更新旧办公室，然后重新检查。",
+  "officeMove.in.confirm.hostRefs":
+    "这些应用文件包含旧办公室的地址。请在迁移后修改：",
+  "officeMove.in.confirm.hostRefsMore": "等",
+  "officeMove.in.confirm.size": "约 {size} 需要复制。",
+  "officeMove.in.confirm.sizeAtLeast": "至少 {size} 需要复制。",
+  "officeMove.in.confirm.sudo":
+    "在旧机器上用 sudo 安装的：{packages}。请在这里也安装。",
+  "officeMove.in.confirm.sudoUnknown": "旧办公室无法说明用 sudo 安装了什么。",
+  "officeMove.in.lock": "锁定旧办公室并复制",
+  "officeMove.in.checkAgain": "重新检查",
+  "officeMove.in.copying": "正在复制：{done}/{total}。",
+  "officeMove.in.copyingStart": "正在复制…",
+  "officeMove.in.checking": "正在检查副本…",
+  "officeMove.in.staged": "副本完整且已检查：{files} 个文件，{size}。",
+  "officeMove.in.incomplete.one": "副本缺少 {count} 个文件：",
+  "officeMove.in.incomplete.other": "副本缺少 {count} 个文件：",
+  "officeMove.in.more": "另外 {count} 个",
+  "officeMove.in.acceptMissing": "不含这些文件，直接完成",
+  "officeMove.in.finishWarning":
+    "完成后，副本将替换此办公室并重启。之后旧办公室会显示它已迁移。",
+  "officeMove.in.finish": "完成迁移",
+  "officeMove.in.failed": "迁移已停止。",
+  "officeMove.in.tryAgain": "重试",
+  "officeMove.in.restarting":
+    "办公室正在使用副本重启。此页面将在一分钟内恢复。",
+  "officeMove.in.lost": "办公室没有恢复。",
+  "officeMove.in.reload": "重新加载",
+  "officeMove.in.cancel": "取消迁移",
+  "officeMove.in.lockedNote":
+    "旧办公室仍然锁定。要在那里重新启动它，请在其页面上输入迁移代码。",
+  "officeMove.report.heading": "此办公室已迁移到这里",
+  "officeMove.report.from": "由 {name} 于 {time} 从 {origin} 迁移。",
+  "officeMove.report.missing.one": "{count} 个文件没有迁移：",
+  "officeMove.report.missing.other": "{count} 个文件没有迁移：",
+  "officeMove.report.excluded": "留在旧机器上，需要重新设置：",
+  "officeMove.report.excludedItem.one": "{unit}（{count} 个文件）",
+  "officeMove.report.excludedItem.other": "{unit}（{count} 个文件）",
+  "officeMove.report.secrets.one":
+    "{count} 个密钥需要重新设置，在“集成 → 密钥”中。",
+  "officeMove.report.secrets.other":
+    "{count} 个密钥需要重新设置，在“集成 → 密钥”中。",
+  "officeMove.report.renamed":
+    "你的账户现在名为 {name}：旧办公室有一名同名成员。",
+  "officeMove.report.unitSetAside": "旧办公室自己的服务 {name} 已被搁置。",
+  "officeMove.report.unitsRestored": "已恢复的服务：{names}。",
+  "officeMove.report.unitFailed": "{name} 未能启动：{reason}",
+  "officeMove.report.unitsPending": "服务将在下次启动时恢复。",
+  "officeMove.report.aside": "迁移前在这里的办公室已搁置在 {path}（{size}）。",
+  "officeMove.report.asideDeleteWarning": "删除将永久移除上面列出的文件。",
+  "officeMove.report.asideDelete": "删除搁置的办公室",
   "moveSwap.title": "迁移已中断",
   "moveSwap.heading": "迁入此办公室的过程中途停止",
   "moveSwap.body": "迁移完成后办公室才会启动。请修正下方的错误，然后重试。",

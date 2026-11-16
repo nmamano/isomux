@@ -9,6 +9,8 @@
 // network, so the landing demo keeps working as commands migrate off the WS
 // shim. Mirrors the ws.ts setShim() pattern (the WS half of the same idea).
 
+import { LOCKED_HEADER } from "../shared/errors.ts";
+
 export type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 // Thrown for any non-2xx /api response. Carries the server's error envelope
@@ -23,6 +25,9 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly detail?: Record<string, unknown>,
+    // The answer carried LOCKED_HEADER: a locked office answered, not the
+    // running one (task 78733adf, slice 2c-2).
+    readonly locked: boolean = false,
   ) {
     super(message);
     this.name = "ApiError";
@@ -94,7 +99,13 @@ export async function apiFetch<T = unknown>(
       env?.error?.message || res.statusText || `Request failed (${res.status})`;
     // Carry the full error object as `detail` so structured failures (e.g. the
     // editor's 409 { code:"stale", currentMtime }) reach the call site.
-    throw new ApiError(res.status, code, message, env?.error);
+    throw new ApiError(
+      res.status,
+      code,
+      message,
+      env?.error,
+      res.headers.get(LOCKED_HEADER) === "1",
+    );
   }
 
   return data as T;

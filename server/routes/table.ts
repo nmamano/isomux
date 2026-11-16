@@ -8,6 +8,12 @@ import {
   type PlainTextParams,
 } from "../../shared/plain-text-form.ts";
 import type {
+  MintMoveCodeRes,
+  MoveInCancelRes,
+  MoveInStatus,
+  OfficeMoveRes,
+} from "../../shared/office-move.ts";
+import type {
   AppWidgetStatus,
   EnterpriseEnableReq,
   EnterpriseSecretReq,
@@ -476,23 +482,6 @@ const bodyRoom = (name: string): Guard =>
   requiresRoomAccess({ kind: "bodyRoomId", name });
 
 type NoContent = void;
-interface MintMoveCodeRes {
-  code: string;
-  origin: string;
-  expiresAt: number;
-  loopbackOrigin: boolean;
-}
-interface OfficeMoveRes {
-  state: "none" | "code" | "paired" | "move";
-  expiresAt?: number | null;
-  pairedAt?: number;
-  newBox?: {
-    release: string | null;
-    commit: string | null;
-    homePath: string;
-    stateRoot: string;
-  };
-}
 interface OfficeExportStatusRes {
   state: "running" | "ready" | "failed";
   bytes?: number;
@@ -3352,7 +3341,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // the lock replace this whole office with another, so only an owner's
   // browser session does them; reading, the preflight again, the pull again
   // and the cancel are open to the owner's agents too.
-  defineRoute<{ code: string }, unknown>({
+  defineRoute<{ code: string }, MoveInStatus>({
     opId: "office.startMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
@@ -3360,7 +3349,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),
-  defineRoute<void, unknown>({
+  defineRoute<void, MoveInStatus>({
     opId: "office.getMoveIn",
     method: "GET",
     path: "/api/office/move-in",
@@ -3368,7 +3357,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
-  defineRoute<void, unknown>({
+  defineRoute<void, MoveInStatus>({
     opId: "office.rerunMoveInPreflight",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
@@ -3377,7 +3366,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "write" },
     emits: [],
   }),
-  defineRoute<{ preflightId: string }, unknown>({
+  defineRoute<{ preflightId: string }, MoveInStatus>({
     opId: "office.lockMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
@@ -3387,7 +3376,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Slice 2c-1: the old office goes MOVED and this office restarts into the
   // swap, so only an owner's browser session finishes.
-  defineRoute<{ acceptMissing?: boolean }, unknown>({
+  defineRoute<{ acceptMissing?: boolean }, MoveInStatus>({
     opId: "office.finishMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
@@ -3395,7 +3384,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),
-  defineRoute<void, unknown>({
+  defineRoute<void, MoveInStatus>({
     opId: "office.retryMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
@@ -3404,7 +3393,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "write" },
     emits: [],
   }),
-  defineRoute<void, unknown>({
+  defineRoute<void, MoveInCancelRes>({
     opId: "office.cancelMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "DELETE",

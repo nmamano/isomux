@@ -5,6 +5,7 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { apiFetch, ApiError, setApiShim } from "./api.ts";
+import { LOCKED_HEADER } from "../shared/errors.ts";
 
 const realFetch = globalThis.fetch;
 
@@ -175,5 +176,22 @@ describe("apiFetch", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).code).toBe("stale");
     expect((err as ApiError).detail?.currentMtime).toBe(42);
+  });
+  it("marks an answer of a locked office (LOCKED_HEADER) as locked, and only that answer", async () => {
+    const fail = async (headers: Record<string, string>) => {
+      mockFetch(
+        new Response("<!doctype html><p>locked</p>", { status: 503, headers }),
+      );
+      return apiFetch("GET", "/api/office/move-in").catch((e: unknown) => e);
+    };
+    const locked = await fail({ [LOCKED_HEADER]: "1" });
+    const plain = await fail({});
+    expect(locked).toBeInstanceOf(ApiError);
+    expect(plain).toBeInstanceOf(ApiError);
+    expect({
+      locked: (locked as ApiError).locked,
+      plain: (plain as ApiError).locked,
+      status: (locked as ApiError).status,
+    }).toEqual({ locked: true, plain: false, status: 503 });
   });
 });

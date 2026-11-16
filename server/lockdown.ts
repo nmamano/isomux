@@ -31,8 +31,7 @@ export const LOCK_MARKER_FILE = "LOCKDOWN";
 export const ROOT_MARKER_DIR = "/etc/isomux";
 /** The root marker's file name, in ROOT_MARKER_DIR. */
 export const ROOT_MARKER_FILE = "lockdown";
-/** Set on every response of a locked office. */
-export const LOCKED_HEADER = "X-Isomux-Locked";
+export { LOCKED_HEADER } from "../shared/errors.ts";
 /** The /readyz body of a locked office ("ok\n" when not locked). */
 export const LOCKED_READY_BODY = "locked\n";
 /** The apps a lock stopped, which the first normal boot starts again. */

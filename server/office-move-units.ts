@@ -27,6 +27,7 @@ import {
 import { join } from "node:path";
 import type { RunResult } from "./app-supervisor.ts";
 import { isProtectedUnitEntry } from "./office-units.ts";
+import type { AgentUnit, TransientExec } from "../shared/office-move.ts";
 
 /** The record of the units the move lock changed, in the state root. */
 export const MOVE_UNITS_FILE = "move-units.json";
@@ -36,26 +37,7 @@ export const MOVE_UNITS_FILE = "move-units.json";
  *  install too). */
 export type UnitRunner = (argv: string[]) => RunResult;
 
-export interface TransientExec {
-  /** argv of ExecStart. */
-  argv: string[];
-  workingDirectory: string | null;
-  /** KEY=VALUE entries of Environment. */
-  environment: string[];
-}
-
-export interface AgentUnit {
-  name: string;
-  fragmentPath: string;
-  /** UnitFileState as systemctl reports it ("enabled", "static", ...). */
-  unitFileState: string;
-  /** ActiveState as systemctl reports it ("active", "inactive", ...). */
-  activeState: string;
-  transient: boolean;
-  /** For an active transient unit: how to start it again. null when it could
-   *  not be read. */
-  exec?: TransientExec | null;
-}
+export type { AgentUnit, TransientExec } from "../shared/office-move.ts";
 
 export interface UnitContext {
   /** The office user's home. */

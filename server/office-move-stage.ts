@@ -42,6 +42,7 @@ import type {
   MoveManifestEntry,
   MoveRecordEvent,
 } from "./office-move-pull.ts";
+import type { MoveStageCheck } from "../shared/office-move.ts";
 
 export { MOVE_IN_DIR };
 /** The stage, under MOVE_IN_DIR. */
@@ -93,18 +94,7 @@ export type MoveStageItemResult =
   | { path: string; offset: number; bytes: number; changed?: true }
   | { path: string; offset: number; error: string };
 
-export interface MoveStageCheck {
-  /** Every manifest entry is in the stage and every requested item has its
-   *  end with the requested length. */
-  complete: boolean;
-  files: number;
-  bytes: number;
-  /** Items with no end, a short end or an error record; directories and
-   *  links not in the stage. */
-  missing: { path: string; reason: string }[];
-  /** Files whose size or mtime moved while the old office read them. */
-  changed: string[];
-}
+export type { MoveStageCheck } from "../shared/office-move.ts";
 
 export interface MoveStage {
   /** The stage folder. */

@@ -548,6 +548,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // sidebar. One string, so a rename is one line.
   "settings.sidebar.housekeeping": "Housekeeping",
   "settings.sidebar.updates": "Updates",
+  "settings.sidebar.move": "Move office",
   "settings.sidebar.enterprise": "Enterprise",
   "settings.sidebar.profile": "Profile",
   "settings.sidebar.apiTokens": "API tokens",
@@ -3455,6 +3456,132 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.notFound.heading": "App not found",
   "apps.notFound.body":
     "There is no app at this address, or you cannot open it.",
+  "officeMove.title": "Move office",
+  "officeMove.intro":
+    "Move an office as it is to another machine: agents with their chats, apps, schedules and files.",
+  "officeMove.out.heading": "Move this office to another machine",
+  "officeMove.out.signIns":
+    "Sign-ins and secrets do not move yet: members sign in again on the new machine, and you set the secrets again there.",
+  "officeMove.out.needs":
+    "The new machine needs a new Isomux office, of this release or newer, with the same home folder for the office user.",
+  "officeMove.out.steps":
+    "Get a move code here, then paste it in Settings → Office → Move office on the new machine.",
+  "officeMove.out.mint": "Get a move code",
+  "officeMove.out.mintAgain": "Get a new code",
+  "officeMove.out.codeLabel": "Move code",
+  "officeMove.out.codeHint":
+    "It shows only once. Use it on the new machine before {time}. Keep it: after the lock, you need it to cancel the move.",
+  "officeMove.out.copyTitle": "Copy the move code",
+  "officeMove.out.clipboardBlocked":
+    "Clipboard blocked. The code above is selected: copy it manually.",
+  "officeMove.out.loopback":
+    "This code names the address {origin}, which another machine cannot reach. Open this page at an address the new machine can reach, or set one in Settings → Office → Access, then get a new code.",
+  "officeMove.out.waiting":
+    "A move code waits for the new machine until {time}.",
+  "officeMove.out.paired":
+    "Paired with the new machine. It locks this office when you agree there.",
+  "officeMove.out.locked": "This office is locked for the move.",
+  "officeMove.out.cancel": "Cancel the move",
+  "officeMove.in.heading": "Move an office here",
+  "officeMove.in.body":
+    "A copy of another office replaces this one. Get a move code on the old office, in Settings → Office → Move office, and paste it here.",
+  "officeMove.in.blocked":
+    "Only a new office can take a move in. This office has:",
+  "officeMove.in.reason.users.one": "{count} more member",
+  "officeMove.in.reason.users.other": "{count} more members",
+  "officeMove.in.reason.agents.one": "{count} agent made here",
+  "officeMove.in.reason.agents.other": "{count} agents made here",
+  "officeMove.in.reason.apps.one": "{count} app",
+  "officeMove.in.reason.apps.other": "{count} apps",
+  "officeMove.in.reason.tasks.one": "{count} task",
+  "officeMove.in.reason.tasks.other": "{count} tasks",
+  "officeMove.in.codeLabel": "Move code",
+  "officeMove.in.start": "Start",
+  "officeMove.in.from": "From {origin}",
+  "officeMove.in.boxes": "Old office: {old}. This office: {here}.",
+  "officeMove.in.boxHome": "home folder",
+  "officeMove.in.boxData": "data folder",
+  "officeMove.in.boxVersion": "version",
+  "officeMove.in.step.pairing": "Connecting to the old office…",
+  "officeMove.in.step.preflight": "Checking the old office…",
+  "officeMove.in.step.locking": "Locking the old office…",
+  "officeMove.in.step.waiting": "Waiting for the old office to lock…",
+  "officeMove.in.step.manifest": "Listing the old office's files…",
+  "officeMove.in.confirm.heading": "Check, then lock",
+  "officeMove.in.confirm.body":
+    "The lock stops the old office: it shows a moving page until the copy is done. Its agents, apps and services stop there and start here.",
+  "officeMove.in.confirm.checkedAt":
+    "Checked at {time}. The lock needs a check from the last 15 minutes.",
+  "officeMove.in.confirm.turns":
+    "Agents working now: {names}. Their turns stop at the lock and go on here.",
+  "officeMove.in.confirm.noTurns": "No agent is working.",
+  "officeMove.in.confirm.turnsUnknown":
+    "The old office did not say which agents are working.",
+  "officeMove.in.confirm.units":
+    "Services that agents made: {names}. They stop there and start here.",
+  "officeMove.in.confirm.unitsUnknown":
+    "The old office could not list the services that agents made.",
+  "officeMove.in.confirm.restartOff":
+    "The old office's service, {unit}, does not restart by itself, so the old office cannot lock. Set Restart=always on it, then check again.",
+  "officeMove.in.confirm.restartNone":
+    "The old office does not run as a service that restarts by itself, so it cannot lock.",
+  "officeMove.in.confirm.restartUnknown":
+    "The old office did not say how its service restarts, so it cannot lock. Update the old office, then check again.",
+  "officeMove.in.confirm.hostRefs":
+    "These app files name the old office's address. Change them after the move:",
+  "officeMove.in.confirm.hostRefsMore": "and more",
+  "officeMove.in.confirm.size": "About {size} to copy.",
+  "officeMove.in.confirm.sizeAtLeast": "At least {size} to copy.",
+  "officeMove.in.confirm.sudo":
+    "Installed on the old machine with sudo: {packages}. Install them here too.",
+  "officeMove.in.confirm.sudoUnknown":
+    "The old office could not say what was installed with sudo.",
+  "officeMove.in.lock": "Lock the old office and copy",
+  "officeMove.in.checkAgain": "Check again",
+  "officeMove.in.copying": "Copying: {done} of {total}.",
+  "officeMove.in.copyingStart": "Copying…",
+  "officeMove.in.checking": "Checking the copy…",
+  "officeMove.in.staged":
+    "The copy is complete and checked: {files} files, {size}.",
+  "officeMove.in.incomplete.one": "The copy is missing {count} file:",
+  "officeMove.in.incomplete.other": "The copy is missing {count} files:",
+  "officeMove.in.more": "and {count} more",
+  "officeMove.in.acceptMissing": "Finish without these files",
+  "officeMove.in.finishWarning":
+    "Finish replaces this office with the copy and restarts it. The old office then shows that it moved.",
+  "officeMove.in.finish": "Finish the move",
+  "officeMove.in.failed": "The move stopped.",
+  "officeMove.in.tryAgain": "Try again",
+  "officeMove.in.restarting":
+    "The office restarts with the copy. This page comes back in a minute.",
+  "officeMove.in.lost": "The office has not come back.",
+  "officeMove.in.reload": "Reload",
+  "officeMove.in.cancel": "Cancel the move",
+  "officeMove.in.lockedNote":
+    "The old office stays locked. To start it there again, enter the move code on its page.",
+  "officeMove.report.heading": "This office moved here",
+  "officeMove.report.from": "Moved from {origin} on {time} by {name}.",
+  "officeMove.report.missing.one": "{count} file did not move:",
+  "officeMove.report.missing.other": "{count} files did not move:",
+  "officeMove.report.excluded": "Left behind, to set up again:",
+  "officeMove.report.excludedItem.one": "{unit} ({count} file)",
+  "officeMove.report.excludedItem.other": "{unit} ({count} files)",
+  "officeMove.report.secrets.one":
+    "{count} secret to set again, in Integrations → Secrets.",
+  "officeMove.report.secrets.other":
+    "{count} secrets to set again, in Integrations → Secrets.",
+  "officeMove.report.renamed":
+    "Your account is now named {name}: the old office had a member with your name.",
+  "officeMove.report.unitSetAside":
+    "The old office's own service, {name}, was set aside.",
+  "officeMove.report.unitsRestored": "Services put back: {names}.",
+  "officeMove.report.unitFailed": "{name} did not start: {reason}",
+  "officeMove.report.unitsPending": "Services are put back at the next start.",
+  "officeMove.report.aside":
+    "The office that was here before the move is set aside in {path} ({size}).",
+  "officeMove.report.asideDeleteWarning":
+    "Delete removes the files listed above for good.",
+  "officeMove.report.asideDelete": "Delete the set-aside office",
   "moveSwap.title": "move stopped",
   "moveSwap.heading": "The move into this office stopped halfway",
   "moveSwap.body":

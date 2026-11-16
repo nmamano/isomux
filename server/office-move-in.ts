@@ -27,6 +27,12 @@ import {
 import { isAbsolute, join, normalize } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
 import { errMessage } from "../shared/errors.ts";
+import type {
+  MoveInPreflight,
+  MoveInProgress,
+  MoveInStartBlocker,
+  MoveInStatus,
+} from "../shared/office-move.ts";
 import {
   MOVE_IN_DIR,
   MOVE_IN_STATE_FILE,
@@ -37,6 +43,7 @@ import {
 } from "./office-move.ts";
 import {
   checkMoveInSwap,
+  MOVE_IN_ASIDE,
   writeMoveInSwapFile,
   type MoveInReport,
   type MoveInSwapInputs,
@@ -138,19 +145,7 @@ export interface MoveInPairing {
   office: MoveBoxInfo;
 }
 
-/** The old office's preflight result, as it answered (not re-typed here:
- *  the new office shows it). */
-export type MoveInPreflight = Record<string, unknown>;
-
-export interface MoveInProgress {
-  entries: number;
-  totalBytes: number;
-  filesDone: number;
-  bytesDone: number;
-  batchesDone: number;
-  batchesTotal: number;
-  retries: number;
-}
+export type { MoveInPreflight, MoveInProgress, MoveInStatus };
 
 export type MoveInState =
   | ({ phase: "preflight"; preflightId: string } & MoveInPairing)
@@ -246,32 +241,6 @@ export interface MoveInManifestFacts {
   /** The old office's units record. */
   units: AgentUnit[];
 }
-
-/** The status an owner sees: never the session, the key or the code. */
-export type MoveInStatus =
-  | { phase: "none" }
-  /** The redeem is in flight (in memory only). */
-  | { phase: "pairing"; oldOrigin: string }
-  | {
-      phase: MoveInState["phase"];
-      oldOrigin: string;
-      office: MoveBoxInfo;
-      preflightId?: string;
-      preflight?: MoveInPreflight;
-      lockedAt?: number | null;
-      progress?: MoveInProgress;
-      result?: MoveStageCheck;
-      error?: { code: string; message: string };
-      retryable?: boolean;
-      /** Phase `moved`. */
-      report?: MoveInReport;
-    }
-  | {
-      phase: "moved";
-      oldOrigin: string;
-      office: MoveBoxInfo;
-      report: MoveInReport;
-    };
 
 // ---- the job ----
 
@@ -431,6 +400,9 @@ const unreachable = (err: unknown) =>
         "old_office_unreachable",
         `The old office did not answer: ${errMessage(err)}`,
       );
+
+const STATE_ROOT_REFUSAL_MESSAGE =
+  "This office's data folder is not a real folder inside the office user's home.";
 
 /** Phases after which the lock may have reached the old office. */
 const LOCKED_PHASES = new Set<MoveInState["phase"]>([
@@ -796,6 +768,10 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
 
   const lockedAtOf = (s: MoveInState): number | null =>
     "lockedAt" in s && typeof s.lockedAt === "number" ? s.lockedAt : null;
+  /** Whether the lock may have reached the old office: a cancel then leaves
+   *  it locked until its owner enters the move code there. */
+  const oldOfficeLocked = (s: MoveInState): boolean =>
+    lockedAtOf(s) !== null || LOCKED_PHASES.has(s.phase);
 
   // ---- requests ----
 
@@ -982,7 +958,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       `[move-in] failed in ${state.phase}: ${f.code}: ${f.message}`,
     );
     const lockedAt = lockedAtOf(state);
-    const mayBeLocked = LOCKED_PHASES.has(state.phase) || lockedAt !== null;
+    const mayBeLocked = oldOfficeLocked(state);
     try {
       writeState({
         phase: "failed",
@@ -1457,6 +1433,28 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         );
   };
 
+  /** Why this office cannot take a move in now: the start's refusals before
+   *  the redeem, in its order. The status in phase none shows the same answer
+   *  (slice 2c-2), so the owner learns it before minting a code. */
+  const startBlocker = (): MoveInStartBlocker | null => {
+    const answer = notFresh() ?? restartRefusal();
+    if (answer && !answer.ok)
+      return {
+        code: answer.code,
+        message: answer.message,
+        ...(answer.extra ? { extra: answer.extra } : {}),
+      };
+    const ours = deps.ours();
+    const rootRefusal = moveStateRootRefusal(ours);
+    return rootRefusal
+      ? {
+          code: rootRefusal,
+          message: STATE_ROOT_REFUSAL_MESSAGE,
+          extra: { ours },
+        }
+      : null;
+  };
+
   const swapRefusalMessage = (r: MoveInSwapRefusal): string => {
     switch (r.code) {
       case "home_too_big":
@@ -1520,21 +1518,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         }
         if (!parsed || !origin)
           return refuse(400, "move_code_malformed", "This is not a move code.");
-        const notFreshAnswer = notFresh();
-        if (notFreshAnswer) return notFreshAnswer;
-        // Slice 2c-1: the swap needs a restart; refused before the old
-        // office is locked.
-        const restartAnswer = restartRefusal();
-        if (restartAnswer) return restartAnswer;
+        // Freshness, the restart policy (the swap needs a restart) and the
+        // state root, before the old office is asked anything.
+        const blocker = startBlocker();
+        if (blocker)
+          return refuse(409, blocker.code, blocker.message, blocker.extra);
         const ours = deps.ours();
-        const rootRefusal = moveStateRootRefusal(ours);
-        if (rootRefusal)
-          return refuse(
-            409,
-            rootRefusal,
-            "This office's data folder is not a real folder inside the office user's home.",
-            { ours },
-          );
         pairing = { oldOrigin: origin };
         // A cancel while a request is in flight wins: nothing is written.
         const gen = generation;
@@ -1567,7 +1556,8 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             409,
             "state_root_differs",
             "The office's data folder is in another place on the two machines.",
-            { ours, theirs: office },
+            // As in the old office's own refusal: ours is the old office.
+            { ours: office, theirs: ours },
           );
         const pair: MoveInPairing = {
           oldOrigin: origin,
@@ -1615,14 +1605,17 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
           oldOrigin: moved.oldOrigin,
           office: moved.office,
           report: moved.report,
+          // The folder the delete removes, so the owner can look first.
+          asidePath: join(moveInDir, MOVE_IN_ASIDE),
         };
       if (pairing) return { phase: "pairing", oldOrigin: pairing.oldOrigin };
       const s = state;
-      if (!s) return { phase: "none" };
+      if (!s) return { phase: "none", blocker: startBlocker() };
       const out: MoveInStatus = {
         phase: s.phase,
         oldOrigin: s.oldOrigin,
         office: s.office,
+        oldOfficeLocked: oldOfficeLocked(s),
       };
       if ("preflightId" in s) out.preflightId = s.preflightId;
       if (s.phase === "confirm") out.preflight = s.preflight;
@@ -1928,7 +1921,11 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         moved = null;
         writeState(null);
         removeTree(moveInDir);
-        return { ok: true, status: 200, body: { cancelled: true } };
+        return {
+          ok: true,
+          status: 200,
+          body: { cancelled: true, oldOfficeLocked: false },
+        };
       }
       if (
         finishRunning ||
@@ -1950,9 +1947,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         );
       writeState(null);
       removeTree(moveInDir);
-      const locked = s
-        ? lockedAtOf(s) !== null || LOCKED_PHASES.has(s.phase)
-        : false;
+      const locked = s ? oldOfficeLocked(s) : false;
       return {
         ok: true,
         status: 200,
