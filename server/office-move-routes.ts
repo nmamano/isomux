@@ -21,7 +21,11 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
 import { endOfficeLeftovers } from "./office-lockdown-route.ts";
-import { getStopFinalStep, setStopFinalStep } from "./server-stop.ts";
+import {
+  getStopFinalStep,
+  restartOfficeProcess,
+  setStopFinalStep,
+} from "./server-stop.ts";
 import {
   checkMoveSession,
   markMoveLocked,
@@ -212,7 +216,9 @@ export function createOfficeMoveFrontDoor(
       return json({
         session: res.session,
         sessionExpiresAt: res.sessionExpiresAt,
-        office: res.office,
+        // Slice 2c-1: the key is always there (null: a system unit or none);
+        // the new office refuses an answer without it as an older release.
+        office: { ...res.office, officeUnit: res.office.officeUnit ?? null },
       });
     }
     if (res.status === 403)
@@ -451,5 +457,5 @@ export function requestStopForMove(input: {
       stopUnits: input.stopUnits,
     }),
   );
-  process.kill(process.pid, "SIGTERM");
+  restartOfficeProcess();
 }

@@ -229,7 +229,8 @@ describe("the redeem route", () => {
       body: { token: tokenOf(b.mint()), newBox: BOX },
     });
     expect(res.status).toBe(200);
-    expect(res.body?.office).toEqual(BOX);
+    // Slice 2c-1: the key is always there (null: a system unit or none).
+    expect(res.body?.office).toEqual({ ...BOX, officeUnit: null });
     expect(typeof res.body?.session).toBe("string");
     expect(b.audits).toEqual(["office.pairMove"]);
     const status = await b.call("GET", "/api/move/status", {

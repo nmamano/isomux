@@ -45,6 +45,14 @@ let signalAt = 0;
 let finalStep: ((signalAt: number) => Promise<unknown>) | null = null;
 const hooks: (() => Promise<unknown>)[] = [];
 
+/** Stops this office process the way a service manager does (SIGTERM, so
+ *  every stop hook runs). The office's units have Restart=always, so the
+ *  service manager starts it again: the lock, the move, the move-in's swap
+ *  and the swap-failed retry restart the office through this one call. */
+export function restartOfficeProcess(): void {
+  process.kill(process.pid, "SIGTERM");
+}
+
 /** True once this process got SIGTERM or SIGINT. Never resets. */
 export function serverStopping(): boolean {
   return stopping;

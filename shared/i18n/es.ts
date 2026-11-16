@@ -3541,6 +3541,16 @@ Cosas que puedes hacer por él:
   "apps.notFound.heading": "App no encontrada",
   "apps.notFound.body":
     "No hay ninguna app en esta dirección, o no puedes abrirla.",
+  "moveSwap.title": "traslado detenido",
+  "moveSwap.heading": "El traslado a esta oficina se detuvo a medias",
+  "moveSwap.body":
+    "La oficina se inicia cuando termina el traslado. Corrige el error de abajo y vuelve a intentarlo.",
+  "moveSwap.stepLabel": "Paso",
+  "moveSwap.errorLabel": "Error",
+  "moveSwap.retry": "Volver a intentarlo",
+  "moveSwap.wait": "Espera 30 segundos y vuelve a intentarlo.",
+  "moveSwap.restarting":
+    "El traslado continúa. Recarga esta página en un minuto.",
   "moving.title": "oficina en traslado",
   "moving.heading": "Esta oficina se está trasladando a otra máquina",
   "moving.body": "Se abre en la máquina nueva cuando termina la copia.",

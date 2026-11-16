@@ -92,6 +92,20 @@ const MIN_HEADROOM_BYTES = 256 * 1024 * 1024; // 256 MiB
 const FILENAME_PATTERN = /^isomux-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.tar\.gz$/;
 const PARTIAL_PATTERN = /^\.isomux-backup-.*\.partial$/;
 
+/** An entry a backup run makes in the backup folder: a copy (a tar.gz or a
+ *  folder), its check record, a partial copy, a database snapshot. An office
+ *  move deletes these of the new machine's empty office
+ *  (office-move-swap.ts), and nothing else of the folder. */
+export function isBackupEntryName(name: string): boolean {
+  return (
+    /^isomux-\d{4}-\d{2}-\d{2}(?:-\d+)?(?:\.tar\.gz(?:\.verified\.json|\.invalid\.json)?)?$/.test(
+      name,
+    ) ||
+    PARTIAL_PATTERN.test(name) ||
+    name.startsWith(".sqlite-snapshot-")
+  );
+}
+
 // Next to the state root and named after it: ~/.isomux backs up to
 // ~/isomux-backups, as it always has. An office started with its own
 // ISOMUX_HOME gets its own folder, so its retention never prunes another

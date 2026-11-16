@@ -3547,6 +3547,16 @@ Coses que pots fer per ell:
   "apps.notFound.heading": "App no trobada",
   "apps.notFound.body":
     "No hi ha cap app en aquesta adreça, o no la pots obrir.",
+  "moveSwap.title": "trasllat aturat",
+  "moveSwap.heading": "El trasllat a aquesta oficina s'ha aturat a mitges",
+  "moveSwap.body":
+    "L'oficina s'inicia quan acaba el trasllat. Corregeix l'error de sota i torna-ho a provar.",
+  "moveSwap.stepLabel": "Pas",
+  "moveSwap.errorLabel": "Error",
+  "moveSwap.retry": "Torna-ho a provar",
+  "moveSwap.wait": "Espera 30 segons i torna-ho a provar.",
+  "moveSwap.restarting":
+    "El trasllat continua. Torna a carregar aquesta pàgina d'aquí a un minut.",
   "moving.title": "oficina en trasllat",
   "moving.heading": "Aquesta oficina s'està traslladant a una altra màquina",
   "moving.body": "S'obre a la màquina nova quan acaba la còpia.",

@@ -1845,6 +1845,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // and cancel it.
   "office.startMoveIn": { caps: ["office:admin"], emits: [] },
   "office.lockMoveIn": { caps: ["office:admin"], emits: [] },
+  "office.finishMoveIn": { caps: ["office:admin"], emits: [] },
   "office.getMoveIn": { caps: ["office:rescue"], emits: [] },
   "office.rerunMoveInPreflight": { caps: ["office:rescue"], emits: [] },
   "office.retryMoveIn": { caps: ["office:rescue"], emits: [] },

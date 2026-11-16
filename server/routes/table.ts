@@ -3385,6 +3385,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),
+  // Slice 2c-1: the old office goes MOVED and this office restarts into the
+  // swap, so only an owner's browser session finishes.
+  defineRoute<{ acceptMissing?: boolean }, unknown>({
+    opId: "office.finishMoveIn",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move-in/finish",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
   defineRoute<void, unknown>({
     opId: "office.retryMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },

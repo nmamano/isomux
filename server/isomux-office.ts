@@ -92,7 +92,7 @@ import type { EnqueueResult } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
 import { armStopReap } from "./stop-reap.ts";
-import { runAtServerStop } from "./server-stop.ts";
+import { restartOfficeProcess, runAtServerStop } from "./server-stop.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
@@ -476,8 +476,16 @@ import {
   moveBootMode,
   readMoveCancelled,
   readMoveState,
+  type MoveOfficeUnit,
 } from "./office-move.ts";
 import { startMoveLockedOffice } from "./move-locked-office.ts";
+import {
+  readMovedIn,
+  runMoveInSwapAtBoot,
+  writeMovedInReport,
+  type MoveInReport,
+} from "./office-move-swap.ts";
+import { startSwapFailedOffice } from "./move-swap-failed-office.ts";
 import { movePullForBoot } from "./move-pull-boot.ts";
 import { createSystemdHost } from "./app-supervisor.ts";
 import { officeUnitFromCgroup, unitPrefixFor } from "./office-units.ts";
@@ -1563,11 +1571,68 @@ function buildMoveIn(seams: MoveSeams): MoveIn {
         targets: ["office"],
         fields: [],
       }),
+    box: () => {
+      let backupDir: string | null = null;
+      try {
+        backupDir = currentBackupDir();
+      } catch {
+        // No backup folder: nothing of it to delete at the swap.
+      }
+      const pub = buildPublicOrigin();
+      const cfg = loadServerConfig();
+      const external = cfg.externalAccess ?? cfg.publicOrigin !== null;
+      return {
+        loopbackOnly: cfg.networkBind === "loopback" || !external,
+        codeDir: PROJECT_ROOT,
+        backupDir,
+        officeUnit: officeOwnUnit(seams),
+        restartPolicy:
+          officeRestartPolicy(moveCgroupText(seams), moveUnitRunner(seams))
+            ?.restart ?? null,
+        publicOrigin: pub.source === "config" ? pub.origin : null,
+      };
+    },
+    // After the 202 is out.
+    requestRestart:
+      seams.moveIn?.requestRestart ??
+      (() => void setTimeout(restartOfficeProcess, 200)),
     now: () => new Date(),
     timing: { ...MOVE_IN_TIMING, ...seams.moveIn?.timing },
     limits: { ...MOVE_IN_LIMITS, ...seams.moveIn?.limits },
   });
 }
+function moveUnitRunner(seams: MoveSeams): UnitRunner {
+  return seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
+}
+
+function moveCgroupText(seams: MoveSeams): string {
+  if (seams.cgroupText !== undefined) return seams.cgroupText;
+  try {
+    return readFileSync("/proc/self/cgroup", "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/** This office's own user unit and its file (slice 2c-1): the new office's
+ *  swap keeps it, and sets the old office's aside. null for a system unit
+ *  or none. */
+function officeOwnUnit(seams: MoveSeams): MoveOfficeUnit | null {
+  const run = moveUnitRunner(seams);
+  const policy = officeRestartPolicy(moveCgroupText(seams), run);
+  if (!policy || policy.manager !== "user") return null;
+  const r = run([
+    "systemctl",
+    "--user",
+    "show",
+    "--property=FragmentPath",
+    "--value",
+    policy.unit,
+  ]);
+  const fragmentPath = r.code === 0 ? r.stdout.trim() : "";
+  return { name: policy.unit, fragmentPath: fragmentPath || null };
+}
+
 function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
   const runUnits: UnitRunner =
     seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
@@ -1636,6 +1701,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       commit: version.commit,
       homePath: home,
       stateRoot: STATE_ROOT,
+      officeUnit: officeOwnUnit(seams),
     }),
     preflight,
     turnsInFlight,
@@ -1679,13 +1745,50 @@ function finishMoveAtBoot(seams: MoveSeams): void {
   if (readMoveState(STATE_ROOT, new Date()).current?.state === "move") return;
   const runUnits: UnitRunner =
     seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
+  // The first boot after a move-in (slice 2c-1): the unit files came with
+  // the old office's home, so systemd reads them before the restore.
+  const movedIn = readMovedIn(STATE_ROOT);
+  if (movedIn && movedIn.report.units === null) {
+    const r = runUnits(["systemctl", "--user", "daemon-reload"]);
+    if (r.code !== 0)
+      console.error(
+        `[move-in] systemctl daemon-reload failed: ${r.stderr.trim() || `exit ${r.code}`}`,
+      );
+  }
   const { restored, failed } = restoreUnitsAfterMove(STATE_ROOT, runUnits);
+  if (movedIn) finishMoveInAtBoot(movedIn.report, { restored, failed });
   if (restored.length > 0)
     console.log(
       `[move] put back the units the move stopped: ${restored.join(", ")}`,
     );
   for (const f of failed)
     console.error(`[move] could not put back the unit ${f.name}: ${f.reason}`);
+}
+
+/** The first normal boot after a move-in: the report gets the units the
+ *  boot put back, and the audit row is written once. */
+function finishMoveInAtBoot(
+  report: MoveInReport,
+  units: { restored: string[]; failed: { name: string; reason: string }[] },
+): void {
+  const next: MoveInReport = { ...report, units: report.units ?? units };
+  if (!next.audited) {
+    try {
+      recordAudit({
+        actor: report.by,
+        operation: "office.moveInSwapped",
+        targets: ["office"],
+        fields: [],
+      });
+      next.audited = true;
+    } catch (err) {
+      console.error("[move-in] could not write the audit row:", err);
+    }
+  }
+  if (next.units === report.units && next.audited === report.audited) return;
+  writeMovedInReport(STATE_ROOT, next);
+  // The move-in read the state at its build.
+  currentMoveIn().recoverAtBoot();
 }
 
 // The public webhook route's state (counters, limits, delivery logs). Built
@@ -2766,6 +2869,20 @@ function startAppsAfterLock(reachable: (name: string) => boolean): void {
       );
   } catch (err) {
     console.error("[lockdown] could not start the apps the lock stopped:", err);
+  }
+}
+
+// Writes every app's launcher and unit again from its record.
+function regenerateAppsAfterMoveIn(): void {
+  for (const app of appRegistry.list().filter(appOwnerReachable)) {
+    try {
+      appSupervisor.regenerate(app);
+    } catch (err) {
+      console.error(
+        `[move-in] could not write the unit of the app ${app.name} again:`,
+        err,
+      );
+    }
   }
 }
 
@@ -6626,6 +6743,8 @@ export interface MoveSeams {
     statfs?: MoveInDeps["statfs"];
     timing?: Partial<MoveInTiming>;
     limits?: Partial<MoveInLimits>;
+    /** Slice 2c-1: the restart after finish. */
+    requestRestart?: () => void;
   };
 }
 
@@ -6950,6 +7069,10 @@ export async function startServer(
   if (appsOff !== null) {
     console.log(`[apps] app hosting is off: ${appsOff}`);
   } else {
+    // The first boot after a move-in (slice 2c-1): the app units came with
+    // the old office's home and name its machine (the app's address, PATH).
+    if (readMovedIn(STATE_ROOT)?.report.units === null)
+      regenerateAppsAfterMoveIn();
     reconcileAppTokensAtBoot();
     // Then their addresses, on the units the pass above may just have written.
     reconcileAppUrlsAtBoot();
@@ -7074,6 +7197,24 @@ async function startLockedOfficeFromBoot(): Promise<void> {
   keepStoppingLockedMemberApps();
 }
 
+// The swap-failed server binds as this office did when the owner finished
+// (swap.json), never by the state root: it may hold the old office's
+// settings by then.
+function startSwapFailedOfficeFromBoot(failure: {
+  step: string;
+  message: string;
+  loopbackOnly: boolean;
+}): void {
+  startSwapFailedOffice({
+    failure: { step: failure.step, message: failure.message },
+    port: PORT,
+    ...(failure.loopbackOnly ? { hostname: "127.0.0.1" } : {}),
+    // After the answer is out; the swap resumes at the next boot.
+    requestRestart: () => void setTimeout(restartOfficeProcess, 200),
+    now: () => new Date(),
+  });
+}
+
 // The MOVE-locked server binds where the locked office would.
 async function startMoveLockedOfficeFromBoot(): Promise<void> {
   const cfg = loadServerConfig();
@@ -7094,7 +7235,7 @@ async function startMoveLockedOfficeFromBoot(): Promise<void> {
     apps: lockedOfficeApps(),
     runUnits: (argv) => createSystemdHost().run(argv),
     // Restart=always starts the office again, now in a normal boot.
-    requestStop: () => process.kill(process.pid, "SIGTERM"),
+    requestStop: restartOfficeProcess,
     now,
   });
   keepStoppingLockedMemberApps();
@@ -7194,6 +7335,19 @@ export async function runOfficeMain(): Promise<void> {
   // A move (task 78733adf) locked for its final copy boots the MOVE-locked
   // server instead: the move page with its cancel form, nothing else. A lock
   // marker wins over a move.
+  // A move into this office (task 78733adf, slice 2c-1): the swap of the old
+  // office's copy runs before anything reads the state root. A swap that
+  // fails serves the swap-failed page and nothing else: a normal boot would
+  // write over a state root that holds parts of two offices.
+  const swap = runMoveInSwapAtBoot({ home: homedir(), now: () => new Date() });
+  if (swap.kind === "failed") {
+    startSwapFailedOfficeFromBoot(swap);
+    return;
+  }
+  if (swap.kind === "swapped")
+    console.log(
+      `[move-in] the office from ${swap.report.oldOrigin} is in place; the fresh office is set aside`,
+    );
   const bootMode = moveBootMode(STATE_ROOT);
   if (bootMode === "lockdown") {
     await startLockedOfficeFromBoot();

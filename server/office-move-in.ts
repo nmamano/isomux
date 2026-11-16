@@ -24,7 +24,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -33,11 +33,21 @@ import {
   moveStateRootRefusal,
   parseMoveCode,
   type MoveBoxInfo,
+  type MoveOfficeUnit,
 } from "./office-move.ts";
+import {
+  checkMoveInSwap,
+  writeMoveInSwapFile,
+  type MoveInReport,
+  type MoveInSwapInputs,
+  type MoveInSwapRefusal,
+} from "./office-move-swap.ts";
+import type { AgentUnit } from "./office-move-units.ts";
 import {
   moveItemsHash,
   openMoveStream,
   readMoveRecords,
+  type MoveExcludedUnit,
   type MoveManifestEntry,
   type MoveSealContext,
 } from "./office-move-pull.ts";
@@ -177,12 +187,38 @@ export type MoveInState =
       manifestId: string;
       stagedAt: number;
       result: MoveStageCheck;
+      /** Slice 2c-1: what the swap and the report need of the manifest. */
+      manifest: MoveInManifestFacts;
+      /** A finish that did not reach the old office. */
+      error?: { code: string; message: string };
     } & MoveInPairing)
   | ({
       phase: "incomplete";
       lockedAt: number;
       manifestId: string;
       result: MoveStageCheck;
+      manifest: MoveInManifestFacts;
+      error?: { code: string; message: string };
+    } & MoveInPairing)
+  /** Slice 2c-1: finish runs (the dry run, then `done`). A boot that finds it
+   *  goes back to `staged` or `incomplete` (`from`). */
+  | ({
+      phase: "finishing";
+      from: "staged" | "incomplete";
+      lockedAt: number;
+      manifestId: string;
+      stagedAt: number | null;
+      result: MoveStageCheck;
+      manifest: MoveInManifestFacts;
+      acceptMissing: boolean;
+    } & MoveInPairing)
+  /** `done` answered and swap.json is written: the process restarts and the
+   *  boot swaps. */
+  | ({
+      phase: "swapping";
+      lockedAt: number;
+      manifestId: string;
+      finishedAt: number;
     } & MoveInPairing)
   | ({
       phase: "failed";
@@ -193,6 +229,23 @@ export type MoveInState =
       retryable: boolean;
       failedAt: number;
     } & MoveInPairing);
+
+/** Terminal, in the same state file: the swap boot wrote it. No session or
+ *  key any more. Not a MoveInState: nothing pairs from it. */
+export interface MoveInMovedState {
+  phase: "moved";
+  oldOrigin: string;
+  office: MoveBoxInfo;
+  report: MoveInReport;
+}
+
+/** What the swap and the report keep of the old office's manifest answer. */
+export interface MoveInManifestFacts {
+  excluded: MoveExcludedUnit[];
+  secretCount: number;
+  /** The old office's units record. */
+  units: AgentUnit[];
+}
 
 /** The status an owner sees: never the session, the key or the code. */
 export type MoveInStatus =
@@ -210,6 +263,14 @@ export type MoveInStatus =
       result?: MoveStageCheck;
       error?: { code: string; message: string };
       retryable?: boolean;
+      /** Phase `moved`. */
+      report?: MoveInReport;
+    }
+  | {
+      phase: "moved";
+      oldOrigin: string;
+      office: MoveBoxInfo;
+      report: MoveInReport;
     };
 
 // ---- the job ----
@@ -266,6 +327,20 @@ export interface MoveInStatfs {
   ffree: number;
 }
 
+/** This box, as finish needs it. */
+export interface MoveInBox {
+  codeDir: string | null;
+  backupDir: string | null;
+  /** The office's own user unit, or null. */
+  officeUnit: MoveOfficeUnit | null;
+  /** The office unit's Restart= value, or null when it runs under no unit. */
+  restartPolicy: string | null;
+  /** The public origin, or null (finish then sends the request's origin). */
+  publicOrigin: string | null;
+  /** Whether the office listens on loopback only (absent: yes). */
+  loopbackOnly?: boolean;
+}
+
 /** The job's own audit row (the routes audit start, lock, retry and
  *  cancel through the executor). */
 export type MoveInAuditOperation = "office.moveInStaged";
@@ -281,6 +356,10 @@ export interface MoveInDeps {
   freshness(): MoveInFreshInput;
   statfs(path: string): MoveInStatfs;
   audit(operation: MoveInAuditOperation, actor: AuditActor): void;
+  /** Slice 2c-1: this box, for the swap's inputs and finish's checks. */
+  box(): MoveInBox;
+  /** Restarts the office process (the office's own self-restart path). */
+  requestRestart(): void;
   now(): Date;
   timing: MoveInTiming;
   limits: MoveInLimits;
@@ -309,7 +388,17 @@ export interface MoveIn {
   lock(input: { preflightId: string; by: AuditActor }): Promise<MoveInAnswer>;
   /** POST /api/office/move-in/pull: a retryable `failed` only. */
   retryPull(input: { by: AuditActor }): Promise<MoveInAnswer>;
-  /** DELETE /api/office/move-in: the state file and the stage. */
+  /** POST /api/office/move-in/finish {acceptMissing?} (owner browser
+   *  session), slice 2c-1: `staged`, or `incomplete` with acceptMissing.
+   *  The dry run, then `done`, then swap.json, then a restart. 202. */
+  finish(input: {
+    acceptMissing: boolean;
+    by: AuditActor;
+    /** The origin of the owner's request. */
+    requestOrigin: string;
+  }): Promise<MoveInAnswer>;
+  /** DELETE /api/office/move-in: the state file and the stage. In `moved`:
+   *  the report and the move-in folder (the fresh office set aside). */
   cancel(input: { by: AuditActor }): Promise<MoveInAnswer>;
   /** At boot: a phase from `locking` on with no job -> `failed`
    *  (interrupted, retryable). */
@@ -496,6 +585,9 @@ function answerFail(status: number, body: unknown): MoveInFail {
   );
 }
 
+/** A service unit's file name. */
+const UNIT_NAME_RE = /^[A-Za-z0-9:_.@\\-]+\.service$/;
+
 function asBox(v: unknown): MoveBoxInfo | null {
   if (!isObject(v)) return null;
   const nullable = (x: unknown) => x === null || typeof x === "string";
@@ -506,11 +598,30 @@ function asBox(v: unknown): MoveBoxInfo | null {
     typeof v.stateRoot !== "string"
   )
     return null;
+  // Slice 2c-1: the old office's own unit (null: a system unit or none). An
+  // answer without the key comes from an older release.
+  const u = v.officeUnit;
+  let officeUnit: MoveOfficeUnit | null;
+  if (u === null) officeUnit = null;
+  // The swap renames by these: a unit file name, and an absolute path with
+  // no "." or ".." in it, never a path that leaves the stage.
+  else if (
+    isObject(u) &&
+    typeof u.name === "string" &&
+    UNIT_NAME_RE.test(u.name) &&
+    (u.fragmentPath === null ||
+      (typeof u.fragmentPath === "string" &&
+        isAbsolute(u.fragmentPath) &&
+        normalize(u.fragmentPath) === u.fragmentPath))
+  )
+    officeUnit = { name: u.name, fragmentPath: u.fragmentPath };
+  else return null;
   return {
     release: v.release,
     commit: v.commit,
     homePath: v.homePath,
     stateRoot: v.stateRoot,
+    officeUnit,
   };
 }
 
@@ -635,7 +746,22 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     }
   };
 
-  let state: MoveInState | null = readState();
+  /** A finish runs (from its first line): a cancel waits for its end. */
+  let finishRunning = false;
+  /** Phase `moved` (slice 2c-1): terminal, in the same state file. */
+  let moved: MoveInMovedState | null = null;
+  let state: MoveInState | null = null;
+  const loadState = () => {
+    const s = readState();
+    if (s && (s as { phase: string }).phase === "moved") {
+      moved = s as unknown as MoveInMovedState;
+      state = null;
+    } else {
+      moved = null;
+      state = s;
+    }
+  };
+  loadState();
   /** The redeem in flight (in memory only). */
   let pairing: { oldOrigin: string } | null = null;
   /** Set before the first await of a start or a lock (D9). */
@@ -988,6 +1114,25 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     );
     const totalBytes =
       typeof summary.totalBytes === "number" ? summary.totalBytes : 0;
+    // Slice 2c-1: the swap and the report keep these.
+    const manifestFacts: MoveInManifestFacts = {
+      excluded: Array.isArray(summary.excluded)
+        ? summary.excluded.filter(
+            (u): u is MoveExcludedUnit =>
+              isObject(u) &&
+              typeof u.unit === "string" &&
+              typeof u.entries === "number" &&
+              typeof u.bytes === "number",
+          )
+        : [],
+      secretCount:
+        typeof summary.secretCount === "number" ? summary.secretCount : 0,
+      units: Array.isArray(summary.units)
+        ? summary.units.filter(
+            (u): u is AgentUnit => isObject(u) && typeof u.name === "string",
+          )
+        : [],
+    };
     const unreadable = Array.isArray(summary.unreadable)
       ? summary.unreadable.filter((p): p is string => typeof p === "string")
       : [];
@@ -1082,6 +1227,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         manifestId,
         stagedAt: deps.now().getTime(),
         result,
+        manifest: manifestFacts,
       });
       try {
         deps.audit("office.moveInStaged", pair.by);
@@ -1098,6 +1244,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         lockedAt,
         manifestId,
         result,
+        manifest: manifestFacts,
       });
     }
   };
@@ -1295,8 +1442,59 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         );
   };
 
+  const movedRefusal = () =>
+    refuse(409, "move_in_done", "The move into this office is done.");
+
+  const restartRefusal = (): MoveInAnswer | null => {
+    const policy = deps.box().restartPolicy;
+    return policy === "always"
+      ? null
+      : refuse(
+          409,
+          "restart_policy",
+          "This office's service does not restart by itself (it needs Restart=always), so it cannot take a move.",
+          { restart: policy },
+        );
+  };
+
+  const swapRefusalMessage = (r: MoveInSwapRefusal): string => {
+    switch (r.code) {
+      case "home_too_big":
+        return `This office's home has more than ${r.entries} entries. A move goes only into a new office.`;
+      case "home_has_mounts":
+        return `These folders are on another disk than the home, so the move cannot replace them: ${r.paths.join(", ")}.`;
+      case "account_clash":
+        return "A member of the old office has the same id as this office's owner.";
+      case "swap_unreadable":
+        return `The move cannot read this machine's files: ${r.message}`;
+    }
+  };
+
+  /** The old office's state after a `done` that did not answer 200: its
+   *  state, "gone" (it no longer knows the session), or null (no answer). */
+  const oldStateAfterDone = async (
+    pair: MoveInPairing,
+  ): Promise<string | null> => {
+    try {
+      const r = await requestJson(pair.oldOrigin, "GET", "/api/move/status", {
+        session: pair.session,
+      });
+      if (r.status === 401) return "gone";
+      if (
+        r.status === 200 &&
+        isObject(r.body) &&
+        typeof r.body.state === "string"
+      )
+        return r.body.state;
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const api: MoveIn = {
     async start({ code, by }) {
+      if (moved) return movedRefusal();
       if (busy || job || pairing)
         return refuse(
           409,
@@ -1324,6 +1522,10 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
           return refuse(400, "move_code_malformed", "This is not a move code.");
         const notFreshAnswer = notFresh();
         if (notFreshAnswer) return notFreshAnswer;
+        // Slice 2c-1: the swap needs a restart; refused before the old
+        // office is locked.
+        const restartAnswer = restartRefusal();
+        if (restartAnswer) return restartAnswer;
         const ours = deps.ours();
         const rootRefusal = moveStateRootRefusal(ours);
         if (rootRefusal)
@@ -1407,6 +1609,13 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     },
 
     status() {
+      if (moved)
+        return {
+          phase: "moved",
+          oldOrigin: moved.oldOrigin,
+          office: moved.office,
+          report: moved.report,
+        };
       if (pairing) return { phase: "pairing", oldOrigin: pairing.oldOrigin };
       const s = state;
       if (!s) return { phase: "none" };
@@ -1420,8 +1629,10 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       if ("lockedAt" in s) out.lockedAt = s.lockedAt;
       if (s.phase === "pulling" || s.phase === "checking")
         out.progress = progress ? { ...progress } : s.progress;
-      if (s.phase === "staged" || s.phase === "incomplete")
+      if (s.phase === "staged" || s.phase === "incomplete") {
         out.result = s.result;
+        if (s.error) out.error = s.error;
+      }
       if (s.phase === "failed") {
         out.error = s.error;
         out.retryable = s.retryable;
@@ -1501,6 +1712,143 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       }
     },
 
+    async finish({ acceptMissing, by, requestOrigin }) {
+      if (moved) return movedRefusal();
+      if (busy || job || pairing)
+        return refuse(
+          409,
+          "move_in_running",
+          "A move into this office is already running.",
+        );
+      const s = state;
+      if (!s || (s.phase !== "staged" && s.phase !== "incomplete"))
+        return refuse(409, "not_staged", "The copy is not ready.");
+      if (s.phase === "incomplete" && !acceptMissing)
+        return refuse(
+          409,
+          "copy_incomplete",
+          "Some files of the old office are not in the copy. Finish with acceptMissing: true to move without them.",
+          { missing: s.result.missing.length },
+        );
+      busy = true;
+      finishRunning = true;
+      try {
+        // Every refusal comes before `done`: after it, only writes fail.
+        const restartAnswer = restartRefusal();
+        if (restartAnswer) return restartAnswer;
+        const notFreshAnswer = notFresh();
+        if (notFreshAnswer) return notFreshAnswer;
+        const box = deps.box();
+        const pair = pairingOf(s);
+        const finishedAt = deps.now().getTime();
+        const inputs: MoveInSwapInputs = {
+          version: 1,
+          home: deps.home,
+          stateRoot: deps.stateRoot,
+          codeDir: box.codeDir,
+          backupDir: box.backupDir,
+          newOfficeUnit: box.officeUnit,
+          oldOfficeUnit: s.office.officeUnit ?? null,
+          ownerId: by.id,
+          units: s.manifest.units,
+          loopbackOnly: box.loopbackOnly !== false,
+          report: {
+            oldOrigin: pair.oldOrigin,
+            office: pair.office,
+            finishedAt,
+            by,
+            excluded: s.manifest.excluded,
+            secretCount: s.manifest.secretCount,
+            missing: s.phase === "incomplete" ? s.result.missing : [],
+          },
+        };
+        const refusals = await checkMoveInSwap(inputs);
+        if (refusals.length > 0)
+          return refuse(
+            409,
+            refusals[0].code,
+            swapRefusalMessage(refusals[0]),
+            { refusals },
+          );
+        const { error: _lastError, ...back } = s;
+        writeState({
+          phase: "finishing",
+          from: s.phase,
+          ...pair,
+          lockedAt: s.lockedAt,
+          manifestId: s.manifestId,
+          stagedAt: s.phase === "staged" ? s.stagedAt : null,
+          result: s.result,
+          manifest: s.manifest,
+          acceptMissing,
+        });
+        let done = false;
+        try {
+          const r = await requestJson(
+            pair.oldOrigin,
+            "POST",
+            "/api/move/done",
+            {
+              session: pair.session,
+              body: {
+                manifestId: s.manifestId,
+                newOrigin: box.publicOrigin ?? requestOrigin,
+              },
+            },
+          );
+          done = r.status === 200;
+        } catch {
+          // No answer: the old office's state says whether it got it.
+        }
+        if (!done) {
+          const st = await oldStateAfterDone(pair);
+          if (st === "moved") done = true;
+          else if (st === "move" || st === null) {
+            const error = {
+              code: "done_failed",
+              message:
+                "The old office did not confirm the end of the move. Finish again.",
+            };
+            writeState({ ...back, error });
+            return refuse(502, error.code, error.message);
+          } else {
+            const error = {
+              code: "old_office_state",
+              message:
+                st === "gone"
+                  ? "The old office no longer knows this move. Cancel here and start again with a new code."
+                  : `The old office is in the state "${st}". The move cannot end.`,
+            };
+            writeState({
+              phase: "failed",
+              ...pair,
+              lockedAt: s.lockedAt,
+              error,
+              retryable: false,
+              failedAt: deps.now().getTime(),
+            });
+            return refuse(409, error.code, error.message);
+          }
+        }
+        // The old office is MOVED: from here, only writes.
+        writeMoveInSwapFile(deps.home, { inputs, ops: null });
+        writeState({
+          phase: "swapping",
+          ...pair,
+          lockedAt: s.lockedAt,
+          manifestId: s.manifestId,
+          finishedAt,
+        });
+        deps.requestRestart();
+        return okStatus(202);
+      } catch (err) {
+        return fromFail(err);
+      } finally {
+        busy = false;
+        finishRunning = false;
+      }
+    },
+
     async retryPull() {
       if (busy || job || !state || state.phase !== "failed" || !state.retryable)
         return refuse(
@@ -1576,6 +1924,22 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     },
 
     async cancel() {
+      if (moved) {
+        moved = null;
+        writeState(null);
+        removeTree(moveInDir);
+        return { ok: true, status: 200, body: { cancelled: true } };
+      }
+      if (
+        finishRunning ||
+        state?.phase === "finishing" ||
+        state?.phase === "swapping"
+      )
+        return refuse(
+          409,
+          "move_in_finishing",
+          "The move is ending. Wait for the office to restart.",
+        );
       const s = state;
       generation++;
       jobAbort?.abort();
@@ -1606,6 +1970,32 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     },
 
     recoverAtBoot() {
+      if (busy || job || pairing) return;
+      // The disk as the boot left it (the swap boot writes `moved`).
+      loadState();
+      // Slice 2c-1: a finish the restart cut goes back to the copy it had;
+      // finish again asks the old office. Never the pull again (it wipes the
+      // stage).
+      if (state?.phase === "finishing" && !busy) {
+        const f = state;
+        const common = {
+          ...pairingOf(f),
+          lockedAt: f.lockedAt,
+          manifestId: f.manifestId,
+          result: f.result,
+          manifest: f.manifest,
+        };
+        writeState(
+          f.from === "staged"
+            ? {
+                phase: "staged",
+                ...common,
+                stagedAt: f.stagedAt ?? deps.now().getTime(),
+              }
+            : { phase: "incomplete", ...common },
+        );
+        return;
+      }
       if (!state || !JOB_PHASES.has(state.phase) || job) return;
       writeState({
         phase: "failed",

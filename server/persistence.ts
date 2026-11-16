@@ -1495,6 +1495,41 @@ export interface ServerConfig {
   trustedProxy: TrustedProxy;
 }
 
+// The keys of office-config.json that belong to the machine, not to the
+// office: an office move (server/office-move-swap.ts) keeps the new
+// machine's value of each and takes every other key from the old office. A
+// new key goes in one of the two lists.
+export const OFFICE_CONFIG_BOX_KEYS: readonly string[] = [
+  "publicOrigin",
+  "externalAccess",
+  "networkBind",
+  "trustedProxy",
+  // A path on this machine.
+  "backupDir",
+  // A path on this machine (a boot-migration marker of old installs).
+  "envFile",
+  // Depends on what this machine's kernel allows.
+  "processIsolation",
+];
+
+/** The keys that move with the office. */
+export const OFFICE_CONFIG_OFFICE_KEYS: readonly string[] = [
+  "prompt",
+  "name",
+  "experimental",
+  "memberUsageCap",
+  "memberUsageShare",
+  "providerFallback",
+  "recordTerminals",
+  "claudeIsomuxLabel",
+  "freeModelMarkBackfillDone",
+  "backupIntervalHours",
+  "backupRetention",
+  "logsCompressAfterDays",
+  "logsDeleteAfterDays",
+  "cronjobsPrompt",
+];
+
 // Re-read the raw JSON object so save paths can do a read-modify-write that
 // preserves unrelated sibling keys (e.g. `publicOrigin` when the UI saves
 // prompt/envFile, or vice versa). Always returns a plain object - missing

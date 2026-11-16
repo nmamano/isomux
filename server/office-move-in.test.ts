@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -32,6 +33,7 @@ import { Database } from "bun:sqlite";
 import type { AuditActor } from "../shared/audit.ts";
 import {
   mintMoveCode,
+  MOVE_STATE_FILE,
   parseMoveCode,
   readMoveState,
   type MoveBoxInfo,
@@ -53,12 +55,19 @@ import {
   createMoveIn,
   MOVE_IN_STATE_FILE,
   type MoveIn,
+  type MoveInBox,
   type MoveInDeps,
   type MoveInFreshInput,
+  type MoveInMovedState,
   type MoveInStatfs,
   type MoveInStatus,
 } from "./office-move-in.ts";
 import { MOVE_IN_DIR, MOVE_IN_STAGE } from "./office-move-stage.ts";
+import {
+  MOVE_IN_SWAP_FILE,
+  type MoveInReport,
+  type MoveInSwapFile,
+} from "./office-move-swap.ts";
 
 const REPO = join(import.meta.dir, "..");
 const ORIGIN = "https://old.example.com";
@@ -327,6 +336,8 @@ interface NewOffice {
   statfs: { value: MoveInStatfs };
   statfsPaths: string[];
   audits: string[];
+  /** requestRestart calls (slice 2c-1). */
+  restarts: { n: number };
 }
 
 const ROOMY: MoveInStatfs = { bavail: 1e9, bsize: 4096, ffree: 1e9 };
@@ -339,6 +350,8 @@ function newOffice(
     ours?: () => MoveBoxInfo;
     timing?: Partial<MoveInDeps["timing"]>;
     limits?: Partial<MoveInDeps["limits"]>;
+    box?: Partial<MoveInBox>;
+    onRestart?: () => void;
   } = {},
 ): NewOffice {
   const home = join(dir, over.name ?? "new", "home");
@@ -354,6 +367,7 @@ function newOffice(
   const statfs = { value: { ...ROOMY } };
   const statfsPaths: string[] = [];
   const audits: string[] = [];
+  const restarts = { n: 0 };
   const moveIn = createMoveIn({
     stateRoot: root,
     home,
@@ -368,6 +382,18 @@ function newOffice(
     },
     audit: (op) => {
       audits.push(op);
+    },
+    box: () => ({
+      codeDir: null,
+      backupDir: null,
+      officeUnit: null,
+      restartPolicy: "always",
+      publicOrigin: null,
+      ...over.box,
+    }),
+    requestRestart: () => {
+      restarts.n++;
+      over.onRestart?.();
     },
     now: () => new Date(),
     timing: {
@@ -389,7 +415,7 @@ function newOffice(
     },
   });
   cleanups.push(() => moveIn.settled());
-  return { home, root, moveIn, fresh, statfs, statfsPaths, audits };
+  return { home, root, moveIn, fresh, statfs, statfsPaths, audits, restarts };
 }
 
 const SEEDED = [
@@ -708,13 +734,43 @@ describe("before the redeem", () => {
   it("refuses a redeem answer with no state root, or another one, and starts no preflight", async () => {
     dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const results = [];
-    for (const office of [
+    const variants = [
       (b: MoveBoxInfo) =>
         Object.fromEntries(
           Object.entries(b).filter(([k]) => k !== "stateRoot"),
         ),
       (b: MoveBoxInfo) => ({ ...b, stateRoot: join(b.homePath, ".other") }),
-    ]) {
+      // Slice 2c-1: no officeUnit key (an older release).
+      (b: MoveBoxInfo) =>
+        Object.fromEntries(
+          Object.entries(b).filter(([k]) => k !== "officeUnit"),
+        ),
+      // The swap moves the paths the old office's unit names: a name or a
+      // file that leaves the unit folders is refused.
+      (b: MoveBoxInfo) => ({
+        ...b,
+        officeUnit: { name: "..", fragmentPath: null },
+      }),
+      (b: MoveBoxInfo) => ({
+        ...b,
+        officeUnit: { name: ".", fragmentPath: null },
+      }),
+      (b: MoveBoxInfo) => ({
+        ...b,
+        officeUnit: {
+          name: "isomux.service",
+          fragmentPath: `${b.homePath}/.config/systemd/user/../../../../victim`,
+        },
+      }),
+      (b: MoveBoxInfo) => ({
+        ...b,
+        officeUnit: {
+          name: "isomux.service",
+          fragmentPath: ".config/systemd/user/isomux.service",
+        },
+      }),
+    ];
+    for (const office of variants) {
       // One old office each: the first one stays paired.
       const o = oldOffice(`old-${results.length}`);
       const n = newOffice(o, {
@@ -736,10 +792,19 @@ describe("before the redeem", () => {
         phase: ["none", "failed"].includes(n.moveIn.status().phase),
       });
     }
-    expect(results).toEqual([
-      { ok: false, preflights: 0, phase: true },
-      { ok: false, preflights: 0, phase: true },
-    ]);
+    expect(results).toEqual(
+      variants.map(() => ({ ok: false, preflights: 0, phase: true })),
+    );
+  });
+
+  it("slice 2c-1: refuses a start when the office unit does not restart by itself, before the redeem", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    const n = newOffice(o, { box: { restartPolicy: "on-failure" } });
+    const a = await n.moveIn.start({ code: o.mint(), by: OWNER });
+    expect([a.ok, errCode(a)]).toEqual([false, "restart_policy"]);
+    expect(o.log.length).toBe(0);
+    expect(o.state()).not.toBe("paired");
   });
 
   it("D9: two starts at the same time: one 202, one 409 move_in_running, one redeem", async () => {
@@ -1229,5 +1294,401 @@ describe("the cancel", () => {
     expect(existsSync(stageOf(n))).toBe(false);
     expect(existsSync(join(n.root, MOVE_IN_STATE_FILE))).toBe(false);
     expect(n.moveIn.status().phase).toBe("none");
+  });
+});
+
+// ---- slice 2c-1: finish ----
+
+const NEW_ORIGIN = "https://new.example.com";
+const REQ_ORIGIN = "https://req.example.com";
+
+function writeUsers(
+  root: string,
+  users: { id: string; name: string; role: string }[],
+) {
+  mkdirSync(root, { recursive: true });
+  writeFileSync(
+    join(root, "users.json"),
+    JSON.stringify(
+      Object.fromEntries(users.map((u) => [u.id, { ...u, createdAt: 1 }])),
+    ),
+  );
+}
+
+const swapFileOf = (n: NewOffice) =>
+  join(n.home, MOVE_IN_DIR, MOVE_IN_SWAP_FILE);
+const readSwap = (n: NewOffice) =>
+  JSON.parse(readFileSync(swapFileOf(n), "utf8")) as MoveInSwapFile;
+const phaseOnDisk = (n: NewOffice) =>
+  (
+    JSON.parse(readFileSync(join(n.root, MOVE_IN_STATE_FILE), "utf8")) as {
+      phase: string;
+    }
+  ).phase;
+const doneBodies = (o: OldOffice) =>
+  o.log
+    .filter((c) => c.path === "/api/move/done")
+    .map(
+      (c) =>
+        JSON.parse(c.body ?? "null") as {
+          manifestId: string;
+          newOrigin: string;
+        },
+    );
+
+/** An old office and a new office with their users, at staged. */
+async function stagedPair(
+  over: Parameters<typeof newOffice>[1] = {},
+  oldUsers: { id: string; name: string; role: string }[] = [
+    { id: "u-old", name: "Riley", role: "owner" },
+  ],
+  /** Wraps the old office's fetch (the new office's view of it). */
+  wrap?: (o: OldOffice) => MoveInDeps["fetch"],
+) {
+  dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+  const o = oldOffice();
+  writeUsers(o.root, oldUsers);
+  const n = newOffice(o, wrap ? { ...over, fetch: wrap(o) } : over);
+  writeUsers(n.root, [{ id: OWNER.id, name: OWNER.name, role: "owner" }]);
+  const s = await toEnd(o, n);
+  return { o, n, s };
+}
+
+const finishAs = (n: NewOffice, acceptMissing = false) =>
+  n.moveIn.finish({ acceptMissing, by: OWNER, requestOrigin: REQ_ORIGIN });
+
+describe("finish (slice 2c-1)", () => {
+  it("staged: done with the public origin, swap.json with the inputs and no ops, phase swapping, then one restart; 202", async () => {
+    const atRestart: { seen: { swap: boolean; phase: string } | null } = {
+      seen: null,
+    };
+    const { o, n, s } = await stagedPair({
+      box: { publicOrigin: NEW_ORIGIN },
+      onRestart: () => {
+        atRestart.seen = {
+          swap: existsSync(swapFileOf(n)),
+          phase: phaseOnDisk(n),
+        };
+      },
+    });
+    expect(s.phase).toBe("staged");
+    const a = await finishAs(n);
+    expect(a.ok && a.status).toBe(202);
+    expect(o.state()).toBe("moved");
+    expect(doneBodies(o).map((b) => b.newOrigin)).toEqual([NEW_ORIGIN]);
+    const sw = readSwap(n);
+    // B1: finish stores the inputs only; the swap boot computes the ops.
+    expect(sw.ops).toBeNull();
+    expect(sw.inputs.ownerId).toBe(OWNER.id);
+    expect(sw.inputs.home).toBe(n.home);
+    expect(sw.inputs.stateRoot).toBe(n.root);
+    expect(sw.inputs.report.oldOrigin).toBe(ORIGIN);
+    expect(sw.inputs.report.missing).toEqual([]);
+    expect(n.moveIn.status().phase).toBe("swapping");
+    // The restart comes last: swap.json and the phase are on disk by then.
+    expect(n.restarts.n).toBe(1);
+    expect(atRestart.seen).toEqual({ swap: true, phase: "swapping" });
+    // Nothing moved yet: the stage is still there.
+    expect(existsSync(join(stageOf(n), ".isomux/agents.json"))).toBe(true);
+  });
+
+  it("with no public origin, sends the origin of the owner's request", async () => {
+    const { o, n } = await stagedPair();
+    expect((await finishAs(n)).ok).toBe(true);
+    expect(doneBodies(o).map((b) => b.newOrigin)).toEqual([REQ_ORIGIN]);
+    // How the office listens is kept for a failed swap's page: absent reads
+    // as loopback.
+    expect(readSwap(n).inputs.loopbackOnly).toBe(true);
+  });
+
+  it("keeps an office that listens on all interfaces as such for a failed swap's page", async () => {
+    const { n } = await stagedPair({ box: { loopbackOnly: false } });
+    expect((await finishAs(n)).ok).toBe(true);
+    expect(readSwap(n).inputs.loopbackOnly).toBe(false);
+  });
+
+  for (const c of [
+    {
+      // The unit changed after the start checked it.
+      label: "an office unit that is not Restart=always: 409 restart_policy",
+      code: "restart_policy",
+      setup: (n: NewOffice, box: Partial<MoveInBox>) => {
+        void n;
+        box.restartPolicy = "on-failure";
+      },
+    },
+    {
+      label: "an office that is no longer fresh: 409 office_not_fresh",
+      code: "office_not_fresh",
+      setup: (n: NewOffice) => {
+        n.fresh.apps = 1;
+      },
+    },
+  ]) {
+    it(`refuses before done: ${c.label}; no swap.json, no restart, still staged`, async () => {
+      const box: Partial<MoveInBox> = {};
+      const { o, n } = await stagedPair({ box });
+      c.setup(n, box);
+      const a = await finishAs(n);
+      expect([a.ok, a.ok ? null : a.status, errCode(a)]).toEqual([
+        false,
+        409,
+        c.code,
+      ]);
+      expect(paths(o, "/api/move/done")).toBe(0);
+      expect(o.state()).toBe("move");
+      expect(existsSync(swapFileOf(n))).toBe(false);
+      expect(n.restarts.n).toBe(0);
+      expect(n.moveIn.status().phase).toBe("staged");
+    });
+  }
+
+  it("refuses before done: an old office user with the fresh owner's id: 409 account_clash", async () => {
+    const { o, n } = await stagedPair({}, [
+      { id: OWNER.id, name: "Riley", role: "owner" },
+    ]);
+    const a = await finishAs(n);
+    expect([a.ok, errCode(a)]).toEqual([false, "account_clash"]);
+    expect(paths(o, "/api/move/done")).toBe(0);
+    expect(existsSync(swapFileOf(n))).toBe(false);
+    expect(n.restarts.n).toBe(0);
+    expect(n.moveIn.status().phase).toBe("staged");
+  });
+
+  it("refuses a phase before staged (confirm) and sends nothing", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    const n = newOffice(o);
+    await toConfirm(o, n);
+    const a = await finishAs(n);
+    expect([a.ok, a.ok ? null : a.status]).toEqual([false, 409]);
+    expect(paths(o, "/api/move/done")).toBe(0);
+    expect(o.state()).toBe("paired");
+  });
+
+  it("incomplete: refused without acceptMissing (409 copy_incomplete); with it, done and the missing paths in the report", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    writeUsers(o.root, [{ id: "u-old", name: "Riley", role: "owner" }]);
+    mkdirSync(join(o.home, "secret"));
+    writeFileSync(join(o.home, "secret/locked.txt"), "no");
+    chmodSync(join(o.home, "secret/locked.txt"), 0o000);
+    const n = newOffice(o);
+    writeUsers(n.root, [{ id: OWNER.id, name: OWNER.name, role: "owner" }]);
+    expect((await toEnd(o, n)).phase).toBe("incomplete");
+
+    const refused = await finishAs(n, false);
+    expect([
+      refused.ok,
+      refused.ok ? null : refused.status,
+      errCode(refused),
+    ]).toEqual([false, 409, "copy_incomplete"]);
+    expect(paths(o, "/api/move/done")).toBe(0);
+    expect(n.moveIn.status().phase).toBe("incomplete");
+
+    const a = await finishAs(n, true);
+    expect(a.ok && a.status).toBe(202);
+    expect(o.state()).toBe("moved");
+    expect(readSwap(n).inputs.report.missing.map((m) => m.path)).toContain(
+      "secret/locked.txt",
+    );
+    expect(n.restarts.n).toBe(1);
+  });
+
+  it("done's answer is lost after the old office took it: status says moved, so it goes on", async () => {
+    const { o, n } = await stagedPair(
+      {},
+      undefined,
+      (o) => async (url, init) => {
+        const res = await o.fetch(url, init);
+        if (new URL(url).pathname === "/api/move/done")
+          throw new TypeError("fetch failed");
+        return res;
+      },
+    );
+    const a = await finishAs(n);
+    expect(a.ok && a.status).toBe(202);
+    expect(o.state()).toBe("moved");
+    expect(paths(o, "/api/move/status")).toBeGreaterThan(0);
+    expect(readSwap(n).ops).toBeNull();
+    expect(n.restarts.n).toBe(1);
+  });
+
+  it("done lost before the old office got it (status move): back to staged with done_failed, nothing written; finish again works", async () => {
+    const refuseDone = { on: true };
+    const { o, n } = await stagedPair(
+      {},
+      undefined,
+      (o) => async (url, init) => {
+        // The request never reached the old office.
+        if (refuseDone.on && new URL(url).pathname === "/api/move/done")
+          throw new TypeError("fetch failed");
+        return o.fetch(url, init);
+      },
+    );
+    const a = await finishAs(n);
+    expect(a.ok).toBe(false);
+    expect(o.state()).toBe("move");
+    const s = n.moveIn.status();
+    expect(s.phase).toBe("staged");
+    expect((s as { error?: { code: string } }).error?.code).toBe("done_failed");
+    expect(existsSync(swapFileOf(n))).toBe(false);
+    expect(n.restarts.n).toBe(0);
+    // The stage is kept (never the pull again).
+    expect(existsSync(join(stageOf(n), ".isomux/agents.json"))).toBe(true);
+
+    refuseDone.on = false;
+    const again = await finishAs(n);
+    expect(again.ok && again.status).toBe(202);
+    expect(o.state()).toBe("moved");
+    expect(n.restarts.n).toBe(1);
+  });
+
+  it("the old office no longer knows the move (cancelled): failed, not retryable, no swap", async () => {
+    const { n } = await stagedPair({}, undefined, (o) => async (url, init) => {
+      if (new URL(url).pathname === "/api/move/done") {
+        // The old office's owner cancelled by code just before.
+        rmSync(join(o.root, MOVE_STATE_FILE), { force: true });
+        throw new TypeError("fetch failed");
+      }
+      return o.fetch(url, init);
+    });
+    const a = await finishAs(n);
+    expect(a.ok).toBe(false);
+    const s = n.moveIn.status();
+    expect([s.phase, (s as { retryable?: boolean }).retryable]).toEqual([
+      "failed",
+      false,
+    ]);
+    expect(existsSync(swapFileOf(n))).toBe(false);
+    expect(n.restarts.n).toBe(0);
+  });
+
+  it("a cancel while finish runs never leaves a done old office without its copy", async () => {
+    const { o, n } = await stagedPair();
+    // finish stops at its first await (the dry run); the cancel comes then.
+    const f = finishAs(n);
+    const c = await n.moveIn.cancel({ by: OWNER });
+    const a = await f;
+    // Either the cancel won (nothing sent to the old office) or the finish
+    // did (the cancel refused); never both.
+    expect(c.ok && a.ok).toBe(false);
+    if (o.state() === "moved") {
+      expect(existsSync(join(stageOf(n), ".isomux/agents.json"))).toBe(true);
+      expect(existsSync(swapFileOf(n))).toBe(true);
+    } else {
+      expect(paths(o, "/api/move/done")).toBe(0);
+      expect(existsSync(swapFileOf(n))).toBe(false);
+    }
+  });
+
+  it("a restart while done was in flight: the boot goes back to staged with the stage, and finish again asks the old office (done 409, status moved) and goes on", async () => {
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const held = { n: 0 };
+    const { o, n: n1 } = await stagedPair(
+      {},
+      undefined,
+      (o) => async (url, init) => {
+        const res = await o.fetch(url, init);
+        if (new URL(url).pathname === "/api/move/done") {
+          held.n++;
+          await gate;
+          throw new Error("the process is gone");
+        }
+        return res;
+      },
+    );
+    cleanups.push(() => release!());
+    void finishAs(n1);
+    await waitFor(() => held.n > 0);
+    expect(phaseOnDisk(n1)).toBe("finishing");
+    expect(o.state()).toBe("moved");
+
+    // The second process: a copy of the first one's disk.
+    const n2Home = join(dir, "new2", "home");
+    mkdirSync(n2Home, { recursive: true });
+    cpSync(join(n1.home, ".isomux"), join(n2Home, ".isomux"), {
+      recursive: true,
+    });
+    cpSync(join(n1.home, MOVE_IN_DIR), join(n2Home, MOVE_IN_DIR), {
+      recursive: true,
+    });
+    const n2 = newOffice(o, { name: "new2" });
+    n2.moveIn.recoverAtBoot();
+    expect(n2.moveIn.status().phase).toBe("staged");
+    expect(existsSync(join(stageOf(n2), ".isomux/agents.json"))).toBe(true);
+
+    const a = await finishAs(n2);
+    expect(a.ok && a.status).toBe(202);
+    // The second done found the old office moved already.
+    expect(o.log.filter((c) => c.path === "/api/move/done").length).toBe(2);
+    expect(existsSync(swapFileOf(n2))).toBe(true);
+    expect(n2.restarts.n).toBe(1);
+  });
+});
+
+describe("moved (slice 2c-1)", () => {
+  function movedOffice() {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    const n = newOffice(o);
+    const report: MoveInReport = {
+      oldOrigin: ORIGIN,
+      office: o.box,
+      finishedAt: 1,
+      by: OWNER,
+      excluded: [{ unit: "ssh", entries: 2, bytes: 10 }],
+      secretCount: 1,
+      missing: [],
+      swappedAt: 2,
+      ownerRenamedTo: null,
+      oldOfficeUnitSetAside: null,
+      aside: { entries: ["notes.txt"], bytes: 5 },
+      units: null,
+      audited: false,
+    };
+    // As the swap boot leaves it.
+    const moved: MoveInMovedState = {
+      phase: "moved",
+      oldOrigin: ORIGIN,
+      office: o.box,
+      report,
+    };
+    writeFileSync(join(n.root, MOVE_IN_STATE_FILE), JSON.stringify(moved));
+    mkdirSync(join(n.home, MOVE_IN_DIR, "aside"), { recursive: true });
+    writeFileSync(join(n.home, MOVE_IN_DIR, "aside/notes.txt"), "fresh");
+    return { o, n, report };
+  }
+
+  it("the status after a restart is the report, with no session or key", () => {
+    const { n, report } = movedOffice();
+    n.moveIn.recoverAtBoot();
+    const s = n.moveIn.status();
+    expect(s.phase).toBe("moved");
+    expect((s as { report?: MoveInReport }).report).toEqual(report);
+    expect(JSON.stringify(s)).not.toMatch(/session|"key"/i);
+  });
+
+  it("the delete removes the report and the move-in folder (the fresh office set aside)", async () => {
+    const { n } = movedOffice();
+    n.moveIn.recoverAtBoot();
+    expect(n.moveIn.status().phase).toBe("moved");
+    expect((await n.moveIn.cancel({ by: OWNER })).ok).toBe(true);
+    expect(n.moveIn.status().phase).toBe("none");
+    expect(existsSync(join(n.root, MOVE_IN_STATE_FILE))).toBe(false);
+    expect(existsSync(join(n.home, MOVE_IN_DIR))).toBe(false);
+  });
+
+  it("refuses finish and a new start", async () => {
+    const { o, n } = movedOffice();
+    n.moveIn.recoverAtBoot();
+    expect((await finishAs(n)).ok).toBe(false);
+    expect((await n.moveIn.start({ code: o.mint(), by: OWNER })).ok).toBe(
+      false,
+    );
+    expect(o.log.length).toBe(0);
   });
 });

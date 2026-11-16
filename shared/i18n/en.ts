@@ -3439,6 +3439,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.notFound.heading": "App not found",
   "apps.notFound.body":
     "There is no app at this address, or you cannot open it.",
+  "moveSwap.title": "move stopped",
+  "moveSwap.heading": "The move into this office stopped halfway",
+  "moveSwap.body":
+    "The office starts when the move ends. Fix the error below, then try again.",
+  "moveSwap.stepLabel": "Step",
+  "moveSwap.errorLabel": "Error",
+  "moveSwap.retry": "Try again",
+  "moveSwap.wait": "Wait 30 seconds, then try again.",
+  "moveSwap.restarting": "The move goes on. Reload this page in a minute.",
   "moving.title": "office moving",
   "moving.heading": "This office is moving to another machine",
   "moving.body": "It opens on the new machine when the copy is done.",

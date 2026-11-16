@@ -10,7 +10,8 @@ The full slice plan and the gaps of the manual move of 2026-11-15 are in the tas
 2. The new office redeems it (`POST /api/move/redeem`) and gets a move session. That pairs the two offices.
 3. The new office runs the preflight on the old office and shows it to the owner.
 4. After the owner's yes, the new office locks the old office for the move (`POST /api/move/lock`).
-5. The new office pulls the old office's home into a stage and checks it (slice 2b). Slice 2c: `done` (the old office is MOVED), then the swap at boot.
+5. The new office pulls the old office's home into a stage and checks it (slice 2b).
+6. The owner finishes: the new office sends `done` (the old office is MOVED), restarts, and swaps the stage in at boot (slice 2c-1). Slice 2c-2 adds the UI on both offices.
 
 ## Move code and session
 
@@ -66,7 +67,7 @@ The office lock does not stop units that agents or members made, for example a t
 
 ## The pull (slice 2a)
 
-Slice 2 is split in three merges: 2a, the old office serves the pull while it is locked for the move, and the MOVED state; 2b, the new office's side (the owner flow, the pull into a staging folder, the check, `done`); 2c, the swap at boot, the accounts, the after-move report, the units and the wake.
+Slice 2 is split in four merges: 2a, the old office serves the pull while it is locked for the move, and the MOVED state; 2b, the new office's side (the owner flow, the pull into a staging folder, the check); 2c-1, `done`, the swap at boot, the accounts, the after-move report, the units and the wake; 2c-2, the UI on both offices.
 
 The pull routes exist only in the MOVE-locked server (state `move`, or `moved` for the status). Each takes the move session. In another state they answer 409 `not_locked`.
 
@@ -106,23 +107,24 @@ AES-256-GCM. Each response starts with a fresh random 32-byte salt. The response
 
 ## The new office (slice 2b)
 
-`server/office-move-in.ts` runs the move on the new office; `server/office-move-stage.ts` writes the stage. There is no UI yet: slice 2c adds it with the swap, so no release offers a flow that leaves the old office locked with no way to use the copy. Slice 2b ends at `staged` and never sends `done`.
+`server/office-move-in.ts` runs the move on the new office; `server/office-move-stage.ts` writes the stage. There is no UI yet (slice 2c-2), so no release offers the flow before it is whole.
 
 ### Owner routes
 
 - `POST /api/office/move-in {code}` (owner browser session): refuses a code that does not parse (400), an office that is not fresh (409 `office_not_fresh`, a count per rule: one user who is an owner, removed members included; only the seeded agents, the welcome agents in the first front room and the Receptionist in the lobby, killed agents included; no apps; no tasks), and a state root that is not a real folder in the home. Then the redeem. A refusal of the old office passes through with both boxes, and the code stays usable. A redeem answer without the old office's state root, or with another one, is refused ("update the old office"); that pairing expires on the old office by itself. Then the old office's preflight.
 - `GET /api/office/move-in`: the phase and what the owner sees (the old office's preflight, progress, the check), never the session, the key or the code.
 - `POST /api/office/move-in/preflight`: the preflight again, in `confirm`.
-- A cancel while a start or a preflight again waits for the old office wins: that request writes nothing and answers 409 `cancelled`.
+- A cancel while a start or a preflight again waits for the old office wins: that request writes nothing and answers 409 `cancelled`. A cancel while a finish runs answers 409 `move_in_finishing`: the finish may already have sent `done`.
 - `POST /api/office/move-in/lock {preflightId}` (owner browser session): the owner's yes. The freshness check again, then the lock. A refusal of the old office (`turns_changed`, `preflight_stale`) passes through, and the phase stays `confirm`.
+- `POST /api/office/move-in/finish {acceptMissing?}` (owner browser session, slice 2c-1): below, "Finish and the swap".
 - `POST /api/office/move-in/pull`: runs a `failed` move again when it is retryable. It asks the old office first: `move` pulls from the start (the stage is wiped), `paired` goes back to `confirm` (the lock never arrived), anything else fails for good.
-- `DELETE /api/office/move-in`: deletes the state file and the move-in folder. After the lock, the old office stays locked until its owner cancels with the code.
+- `DELETE /api/office/move-in`: deletes the state file and the move-in folder. After the lock, the old office stays locked until its owner cancels with the code. Refused while the move ends (`finishing`, `swapping`). In `moved` it deletes the report and the fresh office set aside.
 
 One move-in at a time: an in-process guard set before the first await.
 
 ### Phases
 
-`<state>/office-move-in.json` (0600, one union by phase; the backup leaves it out, and moveScope too): `preflight` -> `confirm` -> `locking` -> `waiting` -> `manifest` -> `pulling` -> `checking` -> `staged`, or `incomplete`, or `failed {error, retryable}`. The redeem in flight is `pairing`, in memory only. The job lives in the process: a boot that finds a job phase sets `failed` (`interrupted`, retryable).
+`<state>/office-move-in.json` (0600, one union by phase; the backup leaves it out, and moveScope too): `preflight` -> `confirm` -> `locking` -> `waiting` -> `manifest` -> `pulling` -> `checking` -> `staged`, or `incomplete`, or `failed {error, retryable}`; then `finishing` -> `swapping` -> `moved` (slice 2c-1). The redeem in flight is `pairing`, in memory only. The job lives in the process: a boot that finds a job phase sets `failed` (`interrupted`, retryable).
 
 ### Requests
 
@@ -136,3 +138,41 @@ Every request goes to the code's origin with `redirect: "error"` (the session mu
 4. Batches of at most 64 MiB and 800 KB of item JSON, 3 at a time. A file over 64 MiB that is not SQLite goes in ranges, one per batch. A batch writes by position into the file pass 1 made (`O_WRONLY|O_NOFOLLOW|O_NONBLOCK`, so a fifo put in the stage cannot block the office; fstat dev/ino checked, the parent's realpath checked), so a retry rewrites its own bytes. The record stream must match the request (order, regular files only, the SQLite flag, the offset, no more bytes than asked); otherwise the whole batch fails and runs again, up to 3 times. An error record of the old office is not asked again.
 5. Then modes and mtimes of files by fd (setuid and setgid dropped), then the links (never followed), then folders deepest first.
 6. The check comes from the ledger of trailers: each item has one end with the length asked (the manifest size, or for SQLite the trailer's bytes, which the file on disk must have); lstat of the stage comes second. The old office's unreadable paths are missing too. Complete: `staged` and an audit row `office.moveInStaged`; else `incomplete` with the missing paths.
+
+## Finish and the swap (slice 2c-1)
+
+`server/office-move-swap.ts` swaps; `server/move-swap-failed-office.ts` serves a failed swap.
+
+### Finish
+
+`POST /api/office/move-in/finish {acceptMissing?}` takes `staged`, or `incomplete` with `acceptMissing: true` (409 `copy_incomplete` otherwise). Every refusal comes before `done`: the office unit must have `Restart=always` (409 `restart_policy`, checked at the start too), the office must still be fresh, and the dry run of the swap must pass: the walk of the fresh home (at most 200,000 entries, `home_too_big`), every rename on the home's device (`home_has_mounts`), and no old member with the id of the owner who finishes (`account_clash`). Then:
+
+1. phase `finishing`;
+2. `POST /api/move/done {manifestId, newOrigin}` (the public origin, else the origin of the owner's request). No 200: `GET /api/move/status`. `moved` goes on; `move` or no answer goes back to `staged`/`incomplete` with `done_failed` (finish again); any other answer is `failed`, not retryable;
+3. `<home>/.isomux-move-in/swap.json` with the swap's inputs only, then phase `swapping`, 202, and a restart (`restartOfficeProcess`, the one self-restart of the office).
+
+A boot that finds `finishing` goes back to `staged`/`incomplete` with the stage; finish again asks the old office. It never pulls again.
+
+### The swap
+
+At boot, first in `runOfficeMain`, before any state module reads the disk. swap.json absent: nothing.
+
+- Keep: every path of the fresh home that this box's move scope leaves out (the code folder, caches, the sign-ins and the origin-bound files, the move's own files, the move-in folder, sockets), the office id, and this office's own user unit (its file, its `.d` folder, its links in `*.wants`). `office-move-in.json` is one of the move's own files, so it stays in place across the swap. The walk's SQLite side-file rule does not apply: a fresh `-wal` goes aside with the fresh database.
+- Ops, computed at the first swap boot from the home as it is then, and stored in swap.json before the first rename: the old office's own unit (named in its redeem answer) is dropped from the stage to `aside/.from-stage`; then, level by level, an entry with a kept path inside is entered; a kept path stays, and the stage's entry there goes to `aside/.from-stage`; any other entry goes `aside` (the fresh one) and `in` (the old one) whole.
+- Each op is one rename and runs again with no effect. An `in` whose place is taken by an entry no op sets aside fails before any rename. A stage entry left after the ops fails too.
+- Then: `users.json` is the old office's plus the fresh owner, kept with its id (a name clash renames it "<name> new box"); `office-config.json` is the old office's with this machine's value of each key in `OFFICE_CONFIG_BOX_KEYS` (persistence.ts); the fresh office's backups are deleted (backup names only); `move-units.json` gets the old office's units record; the state becomes `moved` with the report; swap.json is deleted last. A crash at any step resumes at the next boot with the same result.
+- A failed op or step boots the swap-failed server: `/readyz`, a page with the step and the error, and `POST /move-in/retry` (at most once per 30 s), which restarts the office so the swap resumes. No state module loads. It listens on loopback unless this office listened beyond it when the owner finished (swap.json keeps that): the state root may hold the old office's network settings by then.
+
+The kept `sessions.json` keeps the owner who finished signed in on the moved office: a session is a token hash keyed by the user id, and that account is kept with its id. This replaces the one-use sign-in link of the plan. `/var/lib/isomux-install/owner-id` still names an owner.
+
+### The first boot after the swap
+
+- The app units came with the old office's home and name its machine: every app's launcher and unit is written again, before the token, address and secrets passes.
+- `systemctl --user daemon-reload`, then the units restore from `move-units.json` (as after a cancel); the result goes in the report. A crash between the restore and the report's write leaves the report with no units restored: the restore deleted its record.
+- The apps the lock stopped start (`apps-stopped-by-lock.json` came with the copy), and the restart wake wakes the turns the lock cut (`turns-in-flight.json` came with the copy; the lock stops through SIGTERM, which keeps it).
+- `office.moveInSwapped` is audited once.
+
+### The report
+
+`GET /api/office/move-in` in `moved`: the old origin, who finished and when, the sign-in units left out with counts, the secrets to set again, the missing paths the owner accepted, the fresh owner's new name after a clash, the old office's unit set aside, the units put back, and the top-level entries and size of the aside folder.
+

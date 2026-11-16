@@ -103,6 +103,22 @@ export function officeMoveHandlers(
         }),
       );
     },
+    "office.finishMoveIn": async (ctx) => {
+      const acceptMissing = field(ctx.body, "acceptMissing");
+      if (acceptMissing !== undefined && typeof acceptMissing !== "boolean")
+        return fail(
+          400,
+          "invalid_request",
+          "The body must be {acceptMissing?: boolean}.",
+        );
+      return answer(
+        await deps.moveIn().finish({
+          acceptMissing: acceptMissing === true,
+          by: auditActor(ctx.identity, deps.byName(ctx.identity)),
+          requestOrigin: deps.origin(ctx.req),
+        }),
+      );
+    },
     "office.retryMoveIn": async (ctx) =>
       answer(
         await deps.moveIn().retryPull({

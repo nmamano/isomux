@@ -12,6 +12,7 @@ import {
   MOVE_LOCK_MARKER,
 } from "./office-move.ts";
 import { MOVE_UNITS_FILE } from "./office-move-units.ts";
+import { LOCKDOWN_APPS_FILE, LOCKDOWN_WAITING_APPS_FILE } from "./lockdown.ts";
 import { MOVE_IN_STATE_FILE } from "./office-move-in.ts";
 import { MOVE_IN_DIR } from "./office-move-stage.ts";
 import {
@@ -228,5 +229,17 @@ describe("the move scope and a move-in on this box", () => {
     expect(file(s, `.isomux/${MOVE_IN_STATE_FILE}`).in).toBe(false);
     // Precision: a sibling with a longer name still moves.
     expect(file(s, `${MOVE_IN_DIR}-notes.txt`)).toEqual(IN);
+  });
+});
+
+// Slice 2c-1, design round D8: the first boot after the swap wakes the turns
+// the lock cut and starts the apps the lock stopped, from the old office's
+// records. They must come with the copy.
+describe("the records the first boot after a move-in reads", () => {
+  it("moves turns-in-flight.json and the lock's apps records", () => {
+    const s = scope();
+    expect(file(s, ".isomux/turns-in-flight.json")).toEqual(IN);
+    expect(file(s, `.isomux/${LOCKDOWN_APPS_FILE}`)).toEqual(IN);
+    expect(file(s, `.isomux/${LOCKDOWN_WAITING_APPS_FILE}`)).toEqual(IN);
   });
 });

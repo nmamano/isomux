@@ -20,7 +20,11 @@ import type { AuditActor } from "../shared/audit.ts";
 import { writeStateMarker } from "./lockdown.ts";
 import { lockOfficeNow } from "./office-lock-gate.ts";
 import { endLeftovers, readProcesses } from "./office-leftovers.ts";
-import { getStopFinalStep, setStopFinalStep } from "./server-stop.ts";
+import {
+  getStopFinalStep,
+  restartOfficeProcess,
+  setStopFinalStep,
+} from "./server-stop.ts";
 
 /** The longest reason the route takes, after trimming. */
 export const LOCKDOWN_REASON_MAX = 500;
@@ -134,7 +138,7 @@ export function requestStopForLock(applyEffects: () => void): void {
       applyLockEffects: applyEffects,
     }),
   );
-  process.kill(process.pid, "SIGTERM");
+  restartOfficeProcess();
 }
 
 /** Ends this office's leftover processes (server/office-leftovers.ts);

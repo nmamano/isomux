@@ -64,6 +64,17 @@ export interface MoveBoxInfo {
   /** The office's state root, absolute (slice 2b). Both boxes refuse a move
    *  when it is not inside the home, not its own realpath, or differs. */
   stateRoot: string;
+  /** The office's own user unit (slice 2c-1), null for a system unit or
+   *  none. The new office refuses a redeem answer without the key ("update
+   *  the old office"): its swap sets the old unit aside. */
+  officeUnit?: MoveOfficeUnit | null;
+}
+
+/** An office's own systemd user unit. */
+export interface MoveOfficeUnit {
+  name: string;
+  /** The unit file, absolute, or null when systemd does not name one. */
+  fragmentPath: string | null;
 }
 
 interface MoveStateBase {
