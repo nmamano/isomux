@@ -10,13 +10,18 @@
 // - the move-in card polls only while a job runs, keeps polling through the
 //   restart's errors up to a cap, and reloads on a locked answer;
 // - the move-out card keeps polling through the lock and its restart, and
-//   reloads on a locked answer.
+//   reloads on a locked answer;
+// - the live pass (slice 4): the confirm view carries it, Copy again only
+//   after a pass that ended, the copied bytes count what an earlier pass
+//   kept, and the confirm card polls while the pass runs.
 import { describe, expect, it } from "bun:test";
 import {
   MOVE_IN_POLL_MS,
   MOVE_IN_RESTART_CAP_MS,
   MOVE_LIST_MAX,
   MOVE_OUT_POLL_MS,
+  copiedBytes,
+  copyFraction,
   finishAllowed,
   LEFT_BEHIND_ORDER,
   leftBehindLines,
@@ -28,7 +33,10 @@ import {
   preflightView,
 } from "./office-move.ts";
 import type {
+  MoveInLive,
+  MoveInLivePhase,
   MoveInPhase,
+  MoveInProgress,
   MoveInReport,
   MoveInStatus,
   MoveStageCheck,
@@ -771,5 +779,168 @@ describe("leftBehindLines", () => {
       leftOutNoSecrets: [],
       moved: [{ kind: "invites" }],
     });
+  });
+});
+
+describe("the live pass (slice 4)", () => {
+  const LIVE_PHASES: MoveInLivePhase[] = [
+    "manifest",
+    "copying",
+    "ready",
+    "stopped",
+    "failed",
+    "unsupported",
+  ];
+  const progress = (over: Partial<MoveInProgress> = {}): MoveInProgress => ({
+    entries: 100,
+    totalBytes: 8_000,
+    filesDone: 10,
+    bytesDone: 1_000,
+    batchesDone: 1,
+    batchesTotal: 4,
+    retries: 0,
+    ...over,
+  });
+  const confirmWith = (live?: MoveInLive) =>
+    phaseView(
+      inPhase("confirm", {
+        preflightId: "pf-1",
+        preflight: preflight(),
+        ...(live ? { live } : {}),
+      }),
+    );
+  const liveOf = (v: ReturnType<typeof phaseView>) =>
+    v.kind === "confirm" ? v.live : "not confirm";
+
+  it("copiedBytes: the bytes fetched in this pass plus the bytes kept from the last one", () => {
+    expect({
+      none: copiedBytes(progress()),
+      zero: copiedBytes(progress({ filesKept: 0, bytesKept: 0 })),
+      kept: copiedBytes(progress({ filesKept: 40, bytesKept: 3_000 })),
+    }).toEqual({ none: 1_000, zero: 1_000, kept: 4_000 });
+  });
+
+  it("copyFraction: the copied bytes over the total, at most 1, null when the total is not known", () => {
+    expect({
+      plain: copyFraction(progress()),
+      kept: copyFraction(progress({ bytesKept: 3_000 })),
+      over: copyFraction(progress({ bytesDone: 6_000, bytesKept: 3_000 })),
+      noTotal: copyFraction(progress({ totalBytes: 0, bytesDone: 0 })),
+      noTotalKept: copyFraction(progress({ totalBytes: 0, bytesKept: 5 })),
+    }).toEqual({
+      plain: 0.125,
+      kept: 0.5,
+      over: 1,
+      noTotal: null,
+      noTotalKept: null,
+    });
+  });
+
+  it("the confirm view carries the live pass as the status gives it, with its fraction; null when the status has none", () => {
+    expect(liveOf(confirmWith())).toBeNull();
+    const p = progress({ filesKept: 40, bytesKept: 3_000 });
+    expect(
+      liveOf(confirmWith({ phase: "copying", startedAt: 1, progress: p })),
+    ).toEqual({
+      phase: "copying",
+      finishedAt: null,
+      error: null,
+      progress: p,
+      fraction: 0.5,
+      copyAgain: false,
+    });
+    const error = { code: "batch_failed", message: "a part failed" };
+    expect(
+      liveOf(
+        confirmWith({ phase: "failed", startedAt: 1, finishedAt: 9, error }),
+      ),
+    ).toEqual({
+      phase: "failed",
+      finishedAt: 9,
+      error,
+      progress: null,
+      fraction: null,
+      copyAgain: true,
+    });
+    // The rest of the confirm view does not change with the live pass.
+    expect(
+      confirmWith({ phase: "copying", startedAt: 1, progress: p }),
+    ).toMatchObject({
+      kind: "confirm",
+      preflightId: "pf-1",
+      lockAllowed: true,
+      oldOfficeLocked: false,
+    });
+  });
+
+  it("Copy again only after a pass that ended: ready, stopped, failed", () => {
+    const copyAgain = Object.fromEntries(
+      LIVE_PHASES.map((phase) => {
+        const live = liveOf(confirmWith({ phase, startedAt: 1 }));
+        return [phase, live && live !== "not confirm" ? live.copyAgain : live];
+      }),
+    );
+    expect(copyAgain).toEqual({
+      manifest: false,
+      copying: false,
+      ready: true,
+      stopped: true,
+      failed: true,
+      unsupported: false,
+    });
+  });
+
+  it("the final pass's copy view counts the kept bytes in its fraction", () => {
+    const p = progress({ filesKept: 40, bytesKept: 3_000 });
+    expect(
+      phaseView(inPhase("pulling", { progress: p, oldOfficeLocked: true })),
+    ).toMatchObject({ kind: "copying", progress: p, fraction: 0.5 });
+    expect(
+      phaseView(
+        inPhase("pulling", {
+          progress: progress({ bytesDone: 6_000, bytesKept: 3_000 }),
+          oldOfficeLocked: true,
+        }),
+      ),
+    ).toMatchObject({ kind: "copying", fraction: 1 });
+  });
+
+  it("the confirm card polls while the live pass lists or copies, and stops on every other live phase and with no live pass", () => {
+    const quiet = { restartingSince: null, now: 1_000_000 };
+    const decisions = Object.fromEntries(
+      LIVE_PHASES.map((phase) => [
+        phase,
+        moveInPollDecision(
+          {
+            kind: "status",
+            status: inPhase("confirm", {
+              preflightId: "p",
+              preflight: {},
+              live: { phase, startedAt: 1 },
+            }),
+          },
+          quiet,
+        ),
+      ]),
+    );
+    const wait = { kind: "wait" as const, ms: MOVE_IN_POLL_MS };
+    const stop = { kind: "stop" as const };
+    expect(decisions).toEqual({
+      manifest: wait,
+      copying: wait,
+      ready: stop,
+      stopped: stop,
+      failed: stop,
+      unsupported: stop,
+    });
+    expect(
+      moveInPollDecision(
+        {
+          kind: "status",
+          status: inPhase("confirm", { preflightId: "p", preflight: {} }),
+        },
+        quiet,
+      ),
+    ).toEqual(stop);
   });
 });

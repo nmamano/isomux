@@ -3214,6 +3214,8 @@ export const zh: Catalog = {
   "officeMove.out.waiting": "迁移代码等待新机器，有效至 {time}。",
   "officeMove.out.paired":
     "已与新机器配对。你在新机器上同意后，它会锁定此办公室。",
+  "officeMove.out.served":
+    "新机器已于 {time} 开始复制此办公室，包括登录和密钥。在这里取消不会删除那份副本：也要在新机器上取消。",
   "officeMove.out.locked": "此办公室已为迁移而锁定。",
   "officeMove.out.cancel": "取消迁移",
   "officeMove.in.heading": "将办公室迁移到这里",
@@ -3274,6 +3276,22 @@ export const zh: Catalog = {
   "officeMove.in.checkAgain": "重新检查",
   "officeMove.in.copying": "正在复制：{done}/{total}。",
   "officeMove.in.copyingStart": "正在复制…",
+  "officeMove.in.live.manifest": "正在旧办公室运行时复制它…",
+  "officeMove.in.live.copying": "正在旧办公室运行时复制它：{done}/{total}。",
+  "officeMove.in.live.lockStops":
+    "等这次复制完成后再锁定，旧办公室停机的时间会更短。现在锁定会保留已复制的内容。",
+  "officeMove.in.live.ready":
+    "已在旧办公室运行时复制了它。锁定后，只复制此后变化的内容。",
+  "officeMove.in.live.readyAt": "复制于 {time}。",
+  "officeMove.in.live.stopped": "锁定停止了这次复制。已复制的内容会保留。",
+  "officeMove.in.live.failed":
+    "这次复制失败了。请重新复制，或者锁定：锁定会复制缺少的内容。",
+  "officeMove.in.live.unsupported":
+    "旧办公室的版本不支持在运行时复制，因此锁定会复制全部内容，旧办公室的停机时间会更长。",
+  "officeMove.in.copyAgain": "重新复制",
+  "officeMove.in.kept.one": "{count} 个文件（{size}）已在旧办公室运行时复制。",
+  "officeMove.in.kept.other":
+    "{count} 个文件（{size}）已在旧办公室运行时复制。",
   "officeMove.in.checking": "正在检查副本…",
   "officeMove.in.staged": "副本完整且已检查：{files} 个文件，{size}。",
   "officeMove.in.incomplete.one": "副本缺少 {count} 个文件：",

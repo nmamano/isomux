@@ -31,6 +31,7 @@ import type {
 } from "../../shared/office-move.ts";
 import {
   MOVE_IN_POLL_MS,
+  copiedBytes,
   finishAllowed,
   leftBehindLines,
   listHead,
@@ -38,6 +39,7 @@ import {
   moveOutPollDecision,
   phaseView,
   type LeftBehindLine,
+  type LiveView,
   type MoveInView,
   type PollDecision,
   type PollOutcome,
@@ -295,6 +297,12 @@ function MoveOutCard() {
       {moveState === "paired" && (
         <p style={text}>{t("officeMove.out.paired")}</p>
       )}
+      {/* Slice 4: the new machine copies while this office runs. */}
+      {moveState === "paired" && typeof status?.servedAt === "number" && (
+        <p data-testid="move-out-served" style={text}>
+          {t("officeMove.out.served", { time: time(status.servedAt) })}
+        </p>
+      )}
       {moveState === "move" && <p style={text}>{t("officeMove.out.locked")}</p>}
       <ErrorLine error={error ?? pollError} />
       <div style={row}>
@@ -345,8 +353,19 @@ const versionOf = (box: { release: string | null; commit: string | null }) =>
 
 interface InState {
   status: MoveInStatus | null;
-  action: "start" | "lock" | "preflight" | "finish" | "pull" | "cancel" | null;
+  action:
+    | "start"
+    | "lock"
+    | "preflight"
+    | "live"
+    | "finish"
+    | "pull"
+    | "cancel"
+    | null;
   error: CardError | null;
+  /** The check the confirm card showed when `error` came: a status with
+   *  another check drops the error, which the new check makes moot. */
+  errorCheck: string | null;
   /** The code field. */
   code: string;
   /** "Finish without these files" on an incomplete copy. */
@@ -370,6 +389,7 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
     status: null,
     action: null,
     error: null,
+    errorCheck: null,
     code: "",
     acceptMissing: false,
     cancelled: null,
@@ -383,7 +403,19 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
   const take = (status: MoveInStatus) => {
     if (!RESTART_PHASES.has(status.phase)) restartingSince.current = null;
     else restartingSince.current ??= Date.now();
-    setState((s) => ({ ...s, status, lost: false, pollError: null }));
+    setState((s) => {
+      const newCheck =
+        s.errorCheck !== null &&
+        status.phase === "confirm" &&
+        status.preflightId !== s.errorCheck;
+      return {
+        ...s,
+        status,
+        lost: false,
+        pollError: null,
+        ...(newCheck ? { error: null, errorCheck: null } : {}),
+      };
+    });
   };
 
   const refresh = useStatusPoll<MoveInStatus>(
@@ -416,13 +448,20 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
     path: string,
     body?: unknown,
   ): Promise<unknown> {
-    setState((s) => ({ ...s, action, error: null }));
+    setState((s) => ({ ...s, action, error: null, errorCheck: null }));
     try {
       const answer = await apiFetch<unknown>(method, path, body);
       setState((s) => ({ ...s, action: null }));
       return answer;
     } catch (e) {
-      setState((s) => ({ ...s, action: null, error: toCardError(e) }));
+      setState((s) => ({
+        ...s,
+        action: null,
+        error: toCardError(e),
+        // The card the click came from: a poll may have moved the status on
+        // while the write was in flight.
+        errorCheck: view?.kind === "confirm" ? view.preflightId : null,
+      }));
       return null;
     } finally {
       refresh();
@@ -525,6 +564,7 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
       {view?.kind === "confirm" && (
         <>
           <ConfirmView preflight={view.preflight} size={size} time={time} />
+          {view.live && <LiveLine live={view.live} size={size} time={time} />}
           <div style={row}>
             {/* After a refusal for an old or changed check, a new check
                 comes first. */}
@@ -548,6 +588,18 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
                 <CheckAgain busy={busy} onClick={() => void checkAgain()} />
               </>
             )}
+            {view.live?.copyAgain && (
+              <button
+                data-testid="move-copy-again"
+                disabled={busy}
+                onClick={() =>
+                  void write("live", "POST", "/api/office/move-in/live")
+                }
+                style={secondaryBtn}
+              >
+                {t("officeMove.in.copyAgain")}
+              </button>
+            )}
             {cancelButton}
           </div>
         </>
@@ -559,7 +611,7 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
               ? t("officeMove.in.checking")
               : view.progress
                 ? t("officeMove.in.copying", {
-                    done: size(view.progress.bytesDone),
+                    done: size(copiedBytes(view.progress)),
                     total: size(view.progress.totalBytes),
                   })
                 : t("officeMove.in.copyingStart")}
@@ -570,6 +622,13 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
               max={1}
               style={{ width: "100%", marginTop: 6 }}
             />
+          )}
+          {!view.checking && (view.progress?.filesKept ?? 0) > 0 && (
+            <p data-testid="move-kept" style={hint}>
+              {tn("officeMove.in.kept", view.progress!.filesKept!, {
+                size: size(view.progress!.bytesKept ?? 0),
+              })}
+            </p>
           )}
           <div style={row}>{cancelButton}</div>
         </>
@@ -810,6 +869,70 @@ function notFreshReasons(
       out.push({ kind, count });
   }
   return out.length > 0 ? out : null;
+}
+
+/** The copy while the old office still runs (slice 4), by phase. */
+function LiveLine({
+  live,
+  size,
+  time,
+}: {
+  live: LiveView;
+  size: (bytes: number) => string;
+  time: (ts: number) => string;
+}) {
+  const { t } = useI18n();
+  return (
+    <div data-testid="move-live" data-phase={live.phase}>
+      {live.phase === "manifest" && (
+        <p style={text}>{t("officeMove.in.live.manifest")}</p>
+      )}
+      {live.phase === "copying" && (
+        <>
+          <p style={text}>
+            {live.progress
+              ? t("officeMove.in.live.copying", {
+                  done: size(copiedBytes(live.progress)),
+                  total: size(live.progress.totalBytes),
+                })
+              : t("officeMove.in.live.manifest")}
+          </p>
+          {live.fraction !== null && (
+            <progress
+              value={live.fraction}
+              max={1}
+              style={{ width: "100%", marginTop: 6 }}
+            />
+          )}
+        </>
+      )}
+      {(live.phase === "manifest" || live.phase === "copying") && (
+        <p style={hint}>{t("officeMove.in.live.lockStops")}</p>
+      )}
+      {live.phase === "ready" && (
+        <>
+          <p style={text}>{t("officeMove.in.live.ready")}</p>
+          {live.finishedAt !== null && (
+            <p style={hint}>
+              {t("officeMove.in.live.readyAt", { time: time(live.finishedAt) })}
+            </p>
+          )}
+        </>
+      )}
+      {live.phase === "stopped" && (
+        <p style={text}>{t("officeMove.in.live.stopped")}</p>
+      )}
+      {live.phase === "failed" && (
+        <>
+          <p style={warning}>{t("officeMove.in.live.failed")}</p>
+          <ErrorLine error={live.error} />
+        </>
+      )}
+      {live.phase === "unsupported" && (
+        <p style={text}>{t("officeMove.in.live.unsupported")}</p>
+      )}
+    </div>
+  );
 }
 
 function LockButton({

@@ -14,7 +14,12 @@
 //   and runs on the second click;
 // - Finish asks first, and on an incomplete copy needs the box ticked;
 // - through the restart the pane keeps polling with no error, shows the
-//   report when it comes, and says so when the office does not come back.
+//   report when it comes, and says so when the office does not come back;
+// - the live pass (slice 4): the confirm card shows it by phase, Copy again
+//   only after a pass that ended, and Lock stays usable while it copies; the
+//   final copy counts what the live pass kept; a lock error goes away when a
+//   new check comes; the move-out card says when the new machine started
+//   copying.
 //
 // Controls are found by data-testid (copy is not asserted).
 import { afterEach, beforeEach, expect, it, jest, spyOn } from "bun:test";
@@ -30,7 +35,12 @@ const browser = await import("../reload-browser.ts");
 const { OfficeMovePane } = await import("./OfficeMovePane.tsx");
 const { MOVE_IN_POLL_MS, MOVE_OUT_POLL_MS, MOVE_IN_RESTART_CAP_MS } =
   await import("../office-move.ts");
+const { absoluteTime } = await import("../../shared/i18n/time.ts");
+const { formatBytes } = await import("../../shared/i18n/number.ts");
 import type {
+  MoveInLive,
+  MoveInLivePhase,
+  MoveInProgress,
   MintMoveCodeRes,
   MoveInCancelRes,
   MoveInPhase,
@@ -166,7 +176,9 @@ beforeEach(() => {
     writes.push({ method, path, body });
     const key = `${method} ${path}`;
     if (!(key in writeAnswers)) throw new Error(`unexpected ${key}`);
-    return writeAnswers[key];
+    const answer = writeAnswers[key];
+    if (answer instanceof Error) throw answer;
+    return answer;
   });
 });
 afterEach(() => {
@@ -571,4 +583,264 @@ it("a poll error outside the restart shows on the card, and the next status clea
     out: errorIn("move-out") !== null,
     in: errorIn("move-in") !== null,
   }).toEqual({ out: false, in: false });
+});
+
+// ---- the live pass (slice 4) ----
+
+const LIVE_PHASES: MoveInLivePhase[] = [
+  "manifest",
+  "copying",
+  "ready",
+  "stopped",
+  "failed",
+  "unsupported",
+];
+const LIVE_ERROR = { code: "batch_failed", message: "LIVE-PASS-ERROR-77" };
+const progressOf = (over: Partial<MoveInProgress> = {}): MoveInProgress => ({
+  entries: 100,
+  totalBytes: 8_000_000,
+  filesDone: 10,
+  bytesDone: 1_000_000,
+  batchesDone: 1,
+  batchesTotal: 4,
+  retries: 0,
+  ...over,
+});
+function liveOf(phase: MoveInLivePhase): MoveInLive {
+  return {
+    phase,
+    startedAt: Date.now() - 60_000,
+    ...(["ready", "stopped", "failed"].includes(phase)
+      ? { finishedAt: Date.now() - 1_000 }
+      : {}),
+    ...(phase === "failed" ? { error: LIVE_ERROR } : {}),
+    ...(phase === "copying"
+      ? { progress: progressOf({ filesKept: 40, bytesKept: 3_000_000 }) }
+      : {}),
+  };
+}
+const confirmLive = (preflightId: string, live?: MoveInLive) =>
+  inPhase("confirm", {
+    preflightId,
+    preflight: preflight("always"),
+    ...(live ? { live } : {}),
+  });
+
+it("the confirm card shows the live pass by phase, Copy again only after a pass that ended, and Lock stays usable while it copies", async () => {
+  const seen: Record<string, unknown> = {};
+  for (const phase of [...LIVE_PHASES, "none"] as const) {
+    inAnswers = [
+      confirmLive("pf-1", phase === "none" ? undefined : liveOf(phase)),
+    ];
+    const m = await mount();
+    expect(m.inView()).toBe("confirm");
+    const live = m.q("move-live");
+    const bar = live?.querySelector("progress") ?? null;
+    seen[phase] = {
+      live: live?.dataset.phase ?? null,
+      copyAgain: m.q("move-copy-again") !== null,
+      lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+      bar: bar?.getAttribute("value") ?? null,
+      // The copied size: this pass plus the bytes an earlier pass kept.
+      copied: (live?.textContent ?? "").includes(formatBytes("en", 4_000_000)!),
+      liveError: (m.q("move-in")?.textContent ?? "").includes(
+        LIVE_ERROR.message,
+      ),
+    };
+    m.view.unmount();
+  }
+  const row = (live: string | null, copyAgain: boolean) => ({
+    live,
+    copyAgain,
+    lockDisabled: false,
+    bar: live === "copying" ? "0.5" : null,
+    copied: live === "copying",
+    liveError: live === "failed",
+  });
+  expect(seen).toEqual({
+    manifest: row("manifest", false),
+    copying: row("copying", false),
+    ready: row("ready", true),
+    stopped: row("stopped", true),
+    failed: row("failed", true),
+    unsupported: row("unsupported", false),
+    none: row(null, false),
+  });
+});
+
+it("Lock while the live pass copies sends the shown preflight id; Copy again posts the live pass and shows the status after it", async () => {
+  inAnswers = [confirmLive("pf-1", liveOf("copying"))];
+  writeAnswers["POST /api/office/move-in/lock"] = inPhase("locking", {
+    preflightId: "pf-1",
+  });
+  const copying = await mount();
+  inAnswers = [inPhase("locking", { oldOfficeLocked: true })];
+  await click(copying.q("move-lock"));
+  expect(writesTo("/api/office/move-in/lock").map((w) => w.body)).toEqual([
+    { preflightId: "pf-1" },
+  ]);
+  copying.view.unmount();
+
+  writes = [];
+  inAnswers = [confirmLive("pf-1", liveOf("ready"))];
+  writeAnswers["POST /api/office/move-in/live"] = confirmLive(
+    "pf-1",
+    liveOf("manifest"),
+  );
+  const m = await mount();
+  const reads = inReads;
+  inAnswers = [confirmLive("pf-1", liveOf("manifest"))];
+  await click(m.q("move-copy-again"));
+  expect(writes.map((w) => ({ method: w.method, path: w.path }))).toEqual([
+    { method: "POST", path: "/api/office/move-in/live" },
+  ]);
+  expect(inReads).toBeGreaterThan(reads);
+  expect({
+    live: m.q("move-live")?.dataset.phase ?? null,
+    copyAgain: m.q("move-copy-again") !== null,
+  }).toEqual({ live: "manifest", copyAgain: false });
+});
+
+it("the final copy counts the bytes the live pass kept, and says how many files it kept only when there are some", async () => {
+  const card = async (progress: MoveInProgress) => {
+    inAnswers = [inPhase("pulling", { progress, oldOfficeLocked: true })];
+    const m = await mount();
+    expect(m.inView()).toBe("copying");
+    const kept = m.q("move-kept");
+    const text = m.q("move-in")?.textContent ?? "";
+    const keptText = kept?.textContent ?? "";
+    const out = {
+      kept: kept !== null,
+      keptCount: keptText.includes("40"),
+      // The copied size outside the kept line: this pass plus the kept bytes.
+      copied: text
+        .replace(keptText, "")
+        .includes(formatBytes("en", 4_000_000)!),
+      bar:
+        m.q("move-in")?.querySelector("progress")?.getAttribute("value") ??
+        null,
+    };
+    m.view.unmount();
+    return out;
+  };
+  expect(
+    await card(progressOf({ filesKept: 40, bytesKept: 3_000_000 })),
+  ).toEqual({ kept: true, keptCount: true, copied: true, bar: "0.5" });
+  expect(await card(progressOf({ filesKept: 0, bytesKept: 0 }))).toMatchObject({
+    kept: false,
+  });
+  expect(await card(progressOf())).toMatchObject({ kept: false });
+});
+
+it("a lock error goes away when a status brings a new check, whatever its code, and stays while the check is the same", async () => {
+  // The new check is already there when the refresh after the error reads.
+  writeAnswers["POST /api/office/move-in/lock"] = new ApiError(
+    409,
+    "preflight_stale",
+    "LOCK-REFUSED",
+    { code: "preflight_stale" },
+  );
+  inAnswers = [confirmLive("pf-1")];
+  const early = await mount();
+  inAnswers = [confirmLive("pf-2")];
+  await click(early.q("move-lock"));
+  expect(writesTo("/api/office/move-in/lock").length).toBe(1);
+  expect({
+    view: early.inView(),
+    error: early.q("move-error") !== null,
+  }).toEqual({ view: "confirm", error: false });
+  early.view.unmount();
+
+  jest.useFakeTimers();
+  for (const code of ["preflight_stale", "not_confirming"]) {
+    writes = [];
+    writeAnswers["POST /api/office/move-in/lock"] = new ApiError(
+      409,
+      code,
+      "LOCK-REFUSED",
+      { code },
+    );
+    // The live pass copies, so the confirm card polls.
+    inAnswers = [confirmLive("pf-1", liveOf("copying"))];
+    const m = await mount();
+    await click(m.q("move-lock"));
+    expect(writesTo("/api/office/move-in/lock").length).toBe(1);
+    const shown = () => m.q("move-error") !== null;
+    // The refresh after the write and the next poll: the same check.
+    const reads = inReads;
+    const sameId: boolean[] = [shown()];
+    await advance(MOVE_IN_POLL_MS);
+    sameId.push(shown());
+    expect({ code, view: m.inView(), sameId, polled: inReads > reads }).toEqual(
+      { code, view: "confirm", sameId: [true, true], polled: true },
+    );
+    // The live pass ends, the new office checks again: a new id.
+    inAnswers = [inPhase("preflight"), confirmLive("pf-2", liveOf("ready"))];
+    await advance(MOVE_IN_POLL_MS);
+    expect(m.inView()).toBe("working");
+    await advance(MOVE_IN_POLL_MS);
+    expect({ code, view: m.inView(), error: shown() }).toEqual({
+      code,
+      view: "confirm",
+      error: false,
+    });
+    m.view.unmount();
+  }
+});
+
+it("a lock error goes away on a new check even when a poll moved the card on while the lock was in flight", async () => {
+  jest.useFakeTimers();
+  inAnswers = [confirmLive("pf-1", liveOf("copying"))];
+  const m = await mount();
+  let refuse: (e: Error) => void = () => {};
+  writeAnswers["POST /api/office/move-in/lock"] = new Promise((_, reject) => {
+    refuse = reject;
+  });
+  // The live pass ends while the owner presses Lock: the new office checks
+  // again, and a poll shows that before the lock answers.
+  inAnswers = [inPhase("preflight")];
+  await click(m.q("move-lock"));
+  await advance(MOVE_IN_POLL_MS);
+  expect(m.inView()).toBe("working");
+  inAnswers = [confirmLive("pf-2", liveOf("ready"))];
+  await act(async () => {
+    refuse(
+      new ApiError(409, "not_confirming", "LOCK-REFUSED", {
+        code: "not_confirming",
+      }),
+    );
+  });
+  await settle();
+  expect(writesTo("/api/office/move-in/lock").map((w) => w.body)).toEqual([
+    { preflightId: "pf-1" },
+  ]);
+  expect({ view: m.inView(), error: m.q("move-error") !== null }).toEqual({
+    view: "confirm",
+    error: false,
+  });
+});
+
+it("the move-out card says when the new machine started copying, only while paired", async () => {
+  const servedAt = 1_790_000_000_000;
+  const served = async (status: OfficeMoveRes) => {
+    outAnswers = [status];
+    const m = await mount();
+    const line = m.q("move-out-served");
+    const out =
+      line === null
+        ? null
+        : (line.textContent ?? "").includes(absoluteTime("en", servedAt));
+    m.view.unmount();
+    return out;
+  };
+  expect({
+    paired: await served({ state: "paired", pairedAt: 1, servedAt }),
+    pairedNotServed: await served({ state: "paired", pairedAt: 1 }),
+    code: await served({
+      state: "code",
+      expiresAt: Date.now() + 60_000,
+      servedAt,
+    }),
+    none: await served({ state: "none" }),
+  }).toEqual({ paired: true, pairedNotServed: null, code: null, none: null });
 });

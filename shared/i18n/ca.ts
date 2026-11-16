@@ -3589,6 +3589,8 @@ Coses que pots fer per ell:
     "Un codi de trasllat espera la màquina nova fins a les {time}.",
   "officeMove.out.paired":
     "Aparellada amb la màquina nova. Aquesta bloqueja aquesta oficina quan ho acceptis allà.",
+  "officeMove.out.served":
+    "La màquina nova va començar a copiar aquesta oficina a les {time}, amb els inicis de sessió i els secrets. Cancel·lar aquí no esborra aquesta còpia: cancel·la també a la màquina nova.",
   "officeMove.out.locked": "Aquesta oficina està bloquejada per al trasllat.",
   "officeMove.out.cancel": "Cancel·lar el trasllat",
   "officeMove.in.heading": "Traslladar una oficina aquí",
@@ -3653,6 +3655,25 @@ Coses que pots fer per ell:
   "officeMove.in.checkAgain": "Tornar a comprovar",
   "officeMove.in.copying": "Copiant: {done} de {total}.",
   "officeMove.in.copyingStart": "Copiant…",
+  "officeMove.in.live.manifest": "Copiant l'oficina antiga mentre funciona…",
+  "officeMove.in.live.copying":
+    "Copiant l'oficina antiga mentre funciona: {done} de {total}.",
+  "officeMove.in.live.lockStops":
+    "Bloqueja quan acabi aquesta còpia, i l'oficina antiga s'atura menys temps. Si bloqueges ara, es conserva el que s'ha copiat.",
+  "officeMove.in.live.ready":
+    "L'oficina antiga es va copiar mentre funcionava. Després del bloqueig, només es copia el que ha canviat des de llavors.",
+  "officeMove.in.live.readyAt": "Copiada a les {time}.",
+  "officeMove.in.live.stopped":
+    "El bloqueig va aturar aquesta còpia. Es conserva el que s'ha copiat.",
+  "officeMove.in.live.failed":
+    "Aquesta còpia ha fallat. Torna a copiar, o bloqueja: el bloqueig copia el que falta.",
+  "officeMove.in.live.unsupported":
+    "La versió de l'oficina antiga no admet una còpia mentre funciona, així que el bloqueig ho copia tot i l'oficina antiga s'atura més temps.",
+  "officeMove.in.copyAgain": "Tornar a copiar",
+  "officeMove.in.kept.one":
+    "{count} fitxer ({size}) ja es va copiar mentre funcionava l'oficina antiga.",
+  "officeMove.in.kept.other":
+    "{count} fitxers ({size}) ja es van copiar mentre funcionava l'oficina antiga.",
   "officeMove.in.checking": "Comprovant la còpia…",
   "officeMove.in.staged":
     "La còpia és completa i comprovada: {files} fitxers, {size}.",

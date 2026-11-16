@@ -4,6 +4,8 @@
 // internal-docs/office-move-design.md describes the flow.
 
 import type {
+  MoveInLive,
+  MoveInLivePhase,
   MoveInProgress,
   MoveInReport,
   MoveInStartBlocker,
@@ -226,6 +228,48 @@ export function lockAllowed(preflight: PreflightView): boolean {
   );
 }
 
+/** The copy while the old office still runs (slice 4), as the confirm
+ *  card shows it. */
+export interface LiveView {
+  phase: MoveInLivePhase;
+  finishedAt: number | null;
+  error: { code: string; message: string } | null;
+  progress: MoveInProgress | null;
+  /** 0..1 by bytes (copyFraction); null when the total is not known. */
+  fraction: number | null;
+  /** Copy again: only after a pass that ended (ready, stopped, failed). */
+  copyAgain: boolean;
+}
+
+/** Bytes in the stage: fetched in this pass plus kept from the last one. */
+export function copiedBytes(progress: MoveInProgress): number {
+  return progress.bytesDone + (progress.bytesKept ?? 0);
+}
+
+/** copiedBytes over the manifest total, at most 1; null when the total is
+ *  not known (0). */
+export function copyFraction(progress: MoveInProgress): number | null {
+  return progress.totalBytes > 0
+    ? Math.min(1, copiedBytes(progress) / progress.totalBytes)
+    : null;
+}
+
+/** The live passes that ended: the owner may run one again. */
+const LIVE_ENDED = new Set<MoveInLivePhase>(["ready", "stopped", "failed"]);
+
+function liveView(live: MoveInLive | undefined): LiveView | null {
+  if (!live) return null;
+  const progress = live.progress ?? null;
+  return {
+    phase: live.phase,
+    finishedAt: live.finishedAt ?? null,
+    error: live.error ?? null,
+    progress,
+    fraction: progress ? copyFraction(progress) : null,
+    copyAgain: LIVE_ENDED.has(live.phase),
+  };
+}
+
 /** What the move-in card shows. */
 export type MoveInView =
   | { kind: "start"; blocker: MoveInStartBlocker | null }
@@ -242,6 +286,8 @@ export type MoveInView =
       preflight: PreflightView;
       lockAllowed: boolean;
       oldOfficeLocked: boolean;
+      /** Slice 4: null when the status has no live pass. */
+      live: LiveView | null;
     }
   | {
       kind: "copying";
@@ -314,6 +360,7 @@ export function phaseView(status: MoveInStatus): MoveInView {
         preflight,
         lockAllowed: lockAllowed(preflight),
         oldOfficeLocked,
+        live: liveView(status.live),
       };
     }
     case "pulling":
@@ -324,10 +371,7 @@ export function phaseView(status: MoveInStatus): MoveInView {
         checking: status.phase === "checking",
         oldOrigin,
         progress,
-        fraction:
-          progress && progress.totalBytes > 0
-            ? Math.min(1, progress.bytesDone / progress.totalBytes)
-            : null,
+        fraction: progress ? copyFraction(progress) : null,
         oldOfficeLocked,
       };
     }
@@ -384,6 +428,12 @@ const MOVE_IN_JOB_PHASES = new Set<MoveInStatus["phase"]>([
   "swapping",
 ]);
 
+/** In confirm, the live pass still lists or copies (slice 4): the card
+ *  polls for its progress and for the check after it. */
+const liveRuns = (status: MoveInStatus): boolean =>
+  status.phase === "confirm" &&
+  (status.live?.phase === "manifest" || status.live?.phase === "copying");
+
 /** What one poll got. `locked`: the answer carried LOCKED_HEADER. */
 export type PollOutcome<S> =
   | { kind: "status"; status: S }
@@ -414,7 +464,8 @@ export function moveInPollDecision(
         ? { kind: "lost" }
         : { kind: "wait", ms: MOVE_IN_POLL_MS };
     case "status":
-      return MOVE_IN_JOB_PHASES.has(outcome.status.phase)
+      return MOVE_IN_JOB_PHASES.has(outcome.status.phase) ||
+        liveRuns(outcome.status)
         ? { kind: "wait", ms: MOVE_IN_POLL_MS }
         : { kind: "stop" };
   }

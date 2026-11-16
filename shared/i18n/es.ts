@@ -3583,6 +3583,8 @@ Cosas que puedes hacer por él:
     "Un código de traslado espera a la nueva máquina hasta las {time}.",
   "officeMove.out.paired":
     "Emparejada con la nueva máquina. Esta bloquea esta oficina cuando lo aceptes allí.",
+  "officeMove.out.served":
+    "La nueva máquina empezó a copiar esta oficina a las {time}, con los inicios de sesión y los secretos. Cancelar aquí no borra esa copia: cancela también en la nueva máquina.",
   "officeMove.out.locked": "Esta oficina está bloqueada para el traslado.",
   "officeMove.out.cancel": "Cancelar el traslado",
   "officeMove.in.heading": "Trasladar una oficina aquí",
@@ -3648,6 +3650,26 @@ Cosas que puedes hacer por él:
   "officeMove.in.checkAgain": "Volver a comprobar",
   "officeMove.in.copying": "Copiando: {done} de {total}.",
   "officeMove.in.copyingStart": "Copiando…",
+  "officeMove.in.live.manifest":
+    "Copiando la oficina antigua mientras funciona…",
+  "officeMove.in.live.copying":
+    "Copiando la oficina antigua mientras funciona: {done} de {total}.",
+  "officeMove.in.live.lockStops":
+    "Bloquea cuando termine esta copia, y la oficina antigua se detiene menos tiempo. Si bloqueas ahora, se conserva lo copiado.",
+  "officeMove.in.live.ready":
+    "La oficina antigua se copió mientras funcionaba. Tras el bloqueo, solo se copia lo que ha cambiado desde entonces.",
+  "officeMove.in.live.readyAt": "Copiada a las {time}.",
+  "officeMove.in.live.stopped":
+    "El bloqueo detuvo esta copia. Se conserva lo copiado.",
+  "officeMove.in.live.failed":
+    "Esta copia falló. Copia de nuevo, o bloquea: el bloqueo copia lo que falta.",
+  "officeMove.in.live.unsupported":
+    "La versión de la oficina antigua no admite una copia mientras funciona, así que el bloqueo lo copia todo y la oficina antigua se detiene más tiempo.",
+  "officeMove.in.copyAgain": "Copiar de nuevo",
+  "officeMove.in.kept.one":
+    "{count} archivo ({size}) ya se copió mientras funcionaba la oficina antigua.",
+  "officeMove.in.kept.other":
+    "{count} archivos ({size}) ya se copiaron mientras funcionaba la oficina antigua.",
   "officeMove.in.checking": "Comprobando la copia…",
   "officeMove.in.staged":
     "La copia está completa y comprobada: {files} archivos, {size}.",

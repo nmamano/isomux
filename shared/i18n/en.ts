@@ -3480,6 +3480,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "A move code waits for the new machine until {time}.",
   "officeMove.out.paired":
     "Paired with the new machine. It locks this office when you agree there.",
+  "officeMove.out.served":
+    "The new machine started copying this office at {time}, sign-ins and secrets included. A cancel here does not delete that copy: cancel on the new machine too.",
   "officeMove.out.locked": "This office is locked for the move.",
   "officeMove.out.cancel": "Cancel the move",
   "officeMove.in.heading": "Move an office here",
@@ -3544,6 +3546,25 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.checkAgain": "Check again",
   "officeMove.in.copying": "Copying: {done} of {total}.",
   "officeMove.in.copyingStart": "Copying…",
+  "officeMove.in.live.manifest": "Copying the old office while it runs…",
+  "officeMove.in.live.copying":
+    "Copying the old office while it runs: {done} of {total}.",
+  "officeMove.in.live.lockStops":
+    "Lock when this copy is done, and the old office stops for a shorter time. A lock now keeps what it copied.",
+  "officeMove.in.live.ready":
+    "The old office was copied while it ran. After the lock, only what changed since then is copied.",
+  "officeMove.in.live.readyAt": "Copied at {time}.",
+  "officeMove.in.live.stopped":
+    "The lock stopped this copy. What it copied is kept.",
+  "officeMove.in.live.failed":
+    "This copy failed. Copy again, or lock: the lock copies what is missing.",
+  "officeMove.in.live.unsupported":
+    "The old office's version does not support a copy while it runs, so the lock copies everything and the old office stops for longer.",
+  "officeMove.in.copyAgain": "Copy again",
+  "officeMove.in.kept.one":
+    "{count} file ({size}) was already copied while the old office ran.",
+  "officeMove.in.kept.other":
+    "{count} files ({size}) were already copied while the old office ran.",
   "officeMove.in.checking": "Checking the copy…",
   "officeMove.in.staged":
     "The copy is complete and checked: {files} files, {size}.",
