@@ -1329,8 +1329,70 @@ describe("OpenCode 2 event translation", () => {
     // MUTANT: compaction.failed fails the turn, or is not shown.
     expect(end?.status).toBe("completed");
     expect(kinds(events, "system_text")).toHaveLength(1);
+    // MUTANT: a failed compaction also shows as a done one.
+    expect(kinds(events, "compacted")).toHaveLength(0);
     // The summary the compaction wrote is OpenCode's, not an answer.
     expect(textOf(events)).toBe("ANSWER:EV text streaming check");
+  });
+
+  it("shows a compaction of the agent's context once, and none of a subagent's", async () => {
+    const ended = loadFixture("compaction-ok").find(
+      (f) => f.type === "session.compaction.ended",
+    )!;
+    const own = setup({
+      fake: {
+        turns: [
+          editedTurn("text-reasoning", (frames) => {
+            const end = terminalIndex(frames);
+            return [
+              ...frames.slice(0, end),
+              {
+                ...ended,
+                data: { ...ended.data, sessionID: frames[end].data.sessionID },
+              },
+              frames[end],
+            ];
+          }),
+        ],
+      },
+    });
+    const first = await own.turn();
+    expect(first.end?.status).toBe("completed");
+    // MUTANT: session.compaction.ended emits nothing (today's code).
+    expect(kinds(first.events, "compacted")).toEqual([{ kind: "compacted" }]);
+    // The summary OpenCode wrote is not an answer, and no notice is shown.
+    expect(textOf(first.events)).toBe("ANSWER:EV text streaming check");
+    expect(kinds(first.events, "system_text")).toHaveLength(0);
+
+    const recorded = loadFixture("probe-subagent-permission");
+    const child = recorded.find(
+      (f) => f.type === "session.created" && f.data.parentID,
+    )!.data.sessionID as string;
+    const sub = setup({
+      fake: {
+        turns: [
+          editedTurn("probe-subagent-permission", (frames) => {
+            const at = frames.findIndex(
+              (f) => f.type === "session.created" && f.data.parentID,
+            );
+            return [
+              ...frames.slice(0, at + 1),
+              { ...ended, data: { ...ended.data, sessionID: child } },
+              ...frames.slice(at + 1),
+            ];
+          }),
+        ],
+      },
+    });
+    const second = await sub.turn([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "approval_request")
+        void sub.transport.approve(event.approvalId, { kind: "allow_once" });
+    });
+    // The subagent's session was adopted: its request reached the member.
+    expect(approvals(second.events)).toHaveLength(1);
+    expect(second.end?.status).toBe("completed");
+    // MUTANT: a subagent's compaction shows as the agent's.
+    expect(kinds(second.events, "compacted")).toHaveLength(0);
   });
 
   it("shows OpenCode's question as an input request and ends as stopped when the member stops it", async () => {

@@ -240,8 +240,8 @@ for (const scenario of [
           expect(rawErrors).toEqual(["provider.invalid-request"]);
           expect(requests).toBe(2);
         } else {
-          // 2.1.4 compacts on the overflow and does not report it to the
-          // turn: the summary request is the only sign.
+          // OpenCode compacts on the overflow with no error on the turn; the
+          // held summary request shows the compaction is under way.
           await wait("the held summary request", () => summaryHeld);
           expect(rawErrors).toEqual([]);
           expect(settled()).toBe(false);
@@ -270,6 +270,20 @@ for (const scenario of [
           expect(
             logs().some((e) => e.content.includes("INTERNAL_SUMMARY")),
           ).toBe(false);
+          // The compaction OpenCode ran on its own shows as one line, before
+          // the reply. MUTANT: session.compaction.ended emits nothing.
+          const line = translatorFor("en").t(
+            "systemEntries.contextCompactedNoSummary",
+          );
+          const isCompacted = (e: { kind: string; content: string }) =>
+            e.kind === "system" && e.content === line;
+          expect(logs().filter(isCompacted)).toHaveLength(1);
+          const compacted = logs().findIndex(isCompacted);
+          expect(
+            logs().findIndex(
+              (e) => e.kind === "text" && e.content === "ORIGINAL_REPLY",
+            ),
+          ).toBeGreaterThan(compacted);
           expect(logs().filter((e) => e.kind === "error")).toHaveLength(0);
           if (scenario === "busy-peer") {
             const originalIndex = logs().findIndex(

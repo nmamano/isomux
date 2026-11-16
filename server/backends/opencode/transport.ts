@@ -2176,6 +2176,7 @@ export class OpenCodeTransport {
                   kind: "system_text",
                   text: OPENCODE_COMPACTION_FAILED_NOTICE,
                 });
+              else sink({ kind: "compacted" });
               continue;
             }
             if (type === "session.retry.scheduled") {

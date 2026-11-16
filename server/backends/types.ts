@@ -328,7 +328,7 @@ export type NormalizedEvent =
   // reports cumulative totals (e.g. Codex `thread/tokenUsage/updated`) must
   // compute the delta against their last-known cumulative before emitting.
   | { kind: "usage_update"; tokenUsage: TokenUsage }
-  // Context compaction occurred mid-conversation (Codex-only at v1).
+  // The engine compacted the context mid-conversation.
   | { kind: "compacted"; summary?: string }
   // Backend-level error (stream / RPC failure, etc.).
   // Isomux's own words are a message; a backend's text stays a string.

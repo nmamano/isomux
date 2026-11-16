@@ -1577,6 +1577,9 @@ export function* translateSDKMessage(
               }
             : {}),
         };
+      } else if (subtype === "compact_boundary") {
+        // The engine compacted the context, on its own or by /compact.
+        yield { kind: "compacted" };
       } else if (subtype === "local_command_output") {
         const { content } = msg;
         if (content)

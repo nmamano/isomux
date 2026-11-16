@@ -190,8 +190,21 @@ describe("translateSDKMessage - system", () => {
     expect(ev.message.length).toBeLessThanOrEqual(200);
   });
 
+  it("a compaction of either trigger emits one compacted event", () => {
+    for (const trigger of ["auto", "manual"])
+      expect(
+        translate({
+          type: "system",
+          subtype: "compact_boundary",
+          compact_metadata: { trigger, pre_tokens: 137_500 },
+          uuid: "u-c",
+          session_id: "s-1",
+        }),
+      ).toEqual([{ kind: "compacted" }]);
+  });
+
   it("an unknown system subtype or message type is dropped", () => {
-    expect(translate({ type: "system", subtype: "compact_boundary" })).toEqual(
+    expect(translate({ type: "system", subtype: "no_such_subtype" })).toEqual(
       [],
     );
     expect(translate({ type: "tool_progress", whatever: 1 })).toEqual([]);

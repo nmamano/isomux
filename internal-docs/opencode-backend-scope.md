@@ -172,7 +172,7 @@ fails, stop. Do not fall back to several processes sharing one profile.
 | `approval_request` | `permission.asked` | Use the permission request ID. Map Allow once and Deny directly. Do not offer a wider choice unless its scope is proven session-only. |
 | `turn_completed` | final step plus session idle/error | Emit exactly once per Isomux send. Include step tokens and cost. Ordering and deduplication are spike requirements. |
 | `usage_update` | message/step token fields | Optional in v1; completion usage is sufficient if live totals are not reliable. |
-| `compacted` | compaction part or `session.compacted` | Emit one visible compaction event. |
+| `compacted` | `session.compaction.ended` | Emit one visible compaction event. |
 | `error` | `session.error` or typed assistant error | Preserve a safe provider error for classification and redact secrets. |
 | `file_view` | file attachment part | Resolve only files inside the existing Isomux attachment/path policy. |
 | `task_lifecycle` | subtask/agent/tool parts | Defer unless the event stream distinguishes background tasks reliably. |
