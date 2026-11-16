@@ -116,7 +116,7 @@ function runnerFailure(err: unknown): ReturnType<typeof fail> {
     return fail(
       409,
       "member_os_user",
-      "Your own OS user is not ready, so your skills cannot be read now.",
+      "The member's own OS user is not ready; try again later.",
     );
   return fail(
     502,

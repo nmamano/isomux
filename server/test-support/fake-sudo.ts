@@ -28,6 +28,14 @@ export interface FakeSudo {
   // When set, sudo waits this many seconds before it reads the password,
   // as PAM does after a wrong one.
   setAuthDelay(seconds: number | null): void;
+  // A NOPASSWD entry (task b94dfd25 4b): sudo writes `warning` (a line of
+  // its own, such as "unable to resolve host") when given, asks for no
+  // password, reads nothing and runs the command, which then owns stdin.
+  // "" is NOPASSWD with no line; null asks for the password again.
+  setNoPassword(warning: string | null): void;
+  // A PAM module whose prompt sudo shows in place of -p (sudoers
+  // passprompt: only "Password: " is replaced). null shows -p's prompt.
+  setPamPrompt(prompt: string | null): void;
   // The probe: the output and exit code of `sudo -n -l`, and the exit code
   // of `sudo -n -k true`. Without -k the stand-in answers 0 (a cached
   // timestamp); without LC_ALL=C it answers in Spanish.
@@ -75,6 +83,12 @@ if [ "$1" != -k ] || [ "$2" != -S ] || [ "$3" != -p ] || [ "$5" != -- ]; then
   exit 64
 fi
 prompt=$4
+if [ -e "$d/no-password" ]; then
+  [ -s "$d/no-password" ] && cat "$d/no-password" >&2
+  shift 5
+  exec "$@"
+fi
+[ -e "$d/pam-prompt" ] && prompt=$(cat "$d/pam-prompt")
 printf '%s' "$prompt" >&2
 [ -e "$d/auth-delay" ] && sleep "$(cat "$d/auth-delay")"
 pw=
@@ -123,6 +137,15 @@ export function createFakeSudo(): FakeSudo {
     setAuthDelay: (seconds) => {
       if (seconds !== null) write("auth-delay", String(seconds));
       else Bun.spawnSync(["rm", "-f", join(dir, "auth-delay")]);
+    },
+    setNoPassword: (warning) => {
+      if (warning === null)
+        Bun.spawnSync(["rm", "-f", join(dir, "no-password")]);
+      else write("no-password", warning);
+    },
+    setPamPrompt: (prompt) => {
+      if (prompt !== null) write("pam-prompt", prompt);
+      else Bun.spawnSync(["rm", "-f", join(dir, "pam-prompt")]);
     },
     setProbe: (list, trueCode) => {
       write("probe-list-out", list.output);

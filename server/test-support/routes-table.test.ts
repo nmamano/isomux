@@ -1755,6 +1755,8 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["users_list"],
   },
   // Authenticated: who reads is the room-overlap guard (memberSharesRoom).
+  // The profile has the instructions' reach (task b94dfd25 4b).
+  "users.read": { caps: [], emits: [] },
   "users.readInstructions": { caps: [], emits: [] },
   // Writes only the text, so no role change and no full_state.
   "users.setInstructions": {
@@ -2686,6 +2688,7 @@ const API_REACHABLE_OPIDS = [
   "integrationChanges.list",
   "apiTokenInbox.drain",
   "users.readInstructions",
+  "users.read",
   "users.setInstructions",
   "users.readPinned",
   "users.setPinned",
@@ -2932,6 +2935,7 @@ describe("member prompt route authority", () => {
       .map((r) => r.opId)
       .sort();
     expect(reachable).toEqual([
+      "users.read",
       "users.readInstructions",
       "users.setInstructions",
       "users.update",

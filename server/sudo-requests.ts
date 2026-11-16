@@ -69,6 +69,14 @@ export interface SudoRequestDeps {
   agentUserId: (agentId: string) => string | null | undefined;
   // The agent's working directory, or null when there is no such agent.
   agentCwd: (agentId: string) => string | null;
+  // The agent's working directory checked on the agent's host: the office's
+  // files, or the runner of a manager with their own OS user. "not_ready"
+  // when that runner cannot be asked.
+  cwdState: (agentId: string) => Promise<"ok" | "missing" | "not_ready">;
+  // True when the agent's manager has their own OS user: that user cannot
+  // use sudo, so the office's "no password needed" does not help the agent,
+  // and the run gets root's home.
+  ownOsUser: (agentId: string) => boolean;
   // Whether the agent is below Standard access: it reads text from
   // strangers, so a prompt-injected root ask is the likeliest abuse.
   agentLimited: (agentId: string) => boolean;
@@ -78,7 +86,9 @@ export interface SudoRequestDeps {
   // A member's name by id, or null when the member is gone.
   memberName: (userId: string) => string | null;
   probe: () => Promise<SudoProbe>;
-  start: (opts: Omit<SudoStartOptions, "home">) => Promise<SudoStart>;
+  start: (
+    opts: Omit<SudoStartOptions, "home"> & { ownOsUser: boolean },
+  ) => Promise<SudoStart>;
   runs: SudoRunStore;
   // An outcome: a system line in the agent's chat (with the request id and
   // the outcome as metadata), and, unless `notice` is null, an office notice
@@ -94,6 +104,33 @@ export interface SudoRequestDeps {
     notice: string | null,
   ) => void;
   now: () => number;
+}
+
+// The errors of a stat that say the folder is not there for the agent. Any
+// other error on a member's host (their runner not ready, gone or failing)
+// is "not_ready"; on the office's own files it is "missing".
+const CWD_MISSING_CODES = new Set([
+  "ENOENT",
+  "ENOTDIR",
+  "ELOOP",
+  "EACCES",
+  "ENAMETOOLONG",
+]);
+
+// A sudo request's cwd check (SudoRequestDeps.cwdState) on the agent's host.
+export async function sudoCwdState(
+  stat: (path: string) => Promise<{ type: string }>,
+  cwd: string,
+  memberHost: boolean,
+): Promise<"ok" | "missing" | "not_ready"> {
+  try {
+    return (await stat(cwd)).type === "dir" ? "ok" : "missing";
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | null)?.code;
+    if (typeof code === "string" && CWD_MISSING_CODES.has(code))
+      return "missing";
+    return memberHost ? "not_ready" : "missing";
+  }
 }
 
 export type SudoRequestFailure = {
@@ -326,6 +363,21 @@ export function createSudoRequests(deps: SudoRequestDeps) {
       };
     const answerId = memberUserId;
     return (async (): Promise<SudoRequestResult<{ requestId: string }>> => {
+      const cwdState = await deps.cwdState(agentId);
+      if (cwdState === "not_ready")
+        return {
+          ok: false,
+          status: 409,
+          code: "member_os_user",
+          message: "The member's own OS user is not ready; try again later.",
+        };
+      if (cwdState === "missing")
+        return {
+          ok: false,
+          status: 422,
+          code: "cwd_not_found",
+          message: "your working folder does not exist or is not a folder",
+        };
       const probe = await deps.probe();
       if (probe === "unavailable")
         return {
@@ -334,7 +386,7 @@ export function createSudoRequests(deps: SudoRequestDeps) {
           code: "sudo_unavailable",
           message: "the office's account cannot use sudo on this box",
         };
-      if (probe === "no_password_needed")
+      if (probe === "no_password_needed" && !deps.ownOsUser(agentId))
         return {
           ok: false,
           status: 409,
@@ -413,6 +465,7 @@ export function createSudoRequests(deps: SudoRequestDeps) {
           command: entry.sudo.command,
           cwd: entry.sudo.cwd,
           password,
+          ownOsUser: deps.ownOsUser(agentId),
         });
       } catch {
         busy.delete(agentId);

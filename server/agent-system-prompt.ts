@@ -9,6 +9,7 @@ import { agentAccessOf } from "../shared/agent-access.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { buildSystemPrompt, managerHiddenLine } from "./system-prompt.ts";
 import { getUserById, getUserByName } from "./users.ts";
+import { hasMemberOsUser } from "./member-os-users.ts";
 
 // The agent's manager, for the system prompt. Found by userId, so a member's
 // rename keeps their name, special instructions and memory label current. The
@@ -108,5 +109,7 @@ export function buildAgentSystemPrompt(
     agent.agentType,
     manager.record?.language ?? null,
     agentMakesSchedules(agent),
+    null,
+    hasMemberOsUser(agent.userId),
   );
 }

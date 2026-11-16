@@ -36,6 +36,7 @@ import type {
   RemovedMemberWire,
   UserAdminWire,
   UserCreateReq,
+  UserProfileWire,
   UserSelfWire,
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
@@ -82,6 +83,7 @@ export type UserRecordChanges = UserUpdateReq & {
 
 export interface UsersDeps {
   readMemberPrompt(username: string): { memberPrompt: string | null } | null;
+  readMemberProfile(username: string): UserProfileWire | null;
   // Owner creates a member (officeOwner already passed). Validates the name and
   // the room grants, creates the record with pendingSignIn, emits users_list.
   create(
@@ -242,6 +244,11 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
     // The member's instructions. The write passes ONLY the text and its
     // version to the core, never the body: the route has no body-key check,
     // and a proxy agent's role check would read its owner's role.
+    "users.read": (ctx) => {
+      const user = deps.readMemberProfile(ctx.params.username);
+      return user ? ok({ user }) : fail(404, "not_found", "Member not found.");
+    },
+
     "users.readInstructions": (ctx) => {
       const prompt = deps.readMemberPrompt(ctx.params.username);
       return prompt

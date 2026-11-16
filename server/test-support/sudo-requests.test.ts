@@ -4,7 +4,15 @@
 // the password is in no answer, frame, console line or state file.
 
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -14,16 +22,22 @@ import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { createSudoRunStore } from "../sudo-run-store.ts";
-import type { AskEntry } from "../../shared/types.ts";
+import type { AgentInfo, AskEntry } from "../../shared/types.ts";
+import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
+import type { AgentFs } from "../agent-host.ts";
+import { ownOsUserLine } from "../system-prompt.ts";
 
 const PASSWORD = "R0ute-marker-pa55-43a28eed";
 const sudo = createFakeSudo();
 sudo.setPassword(PASSWORD);
 
 let server: TestServer | null = null;
+let iso: IsolatedMember | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
+  iso?.dispose();
+  iso = null;
 });
 afterAll(() => rmSync(sudo.dir, { recursive: true, force: true }));
 
@@ -361,5 +375,156 @@ describe("a sudo request through the routes", () => {
     expect(
       createSudoRunStore(join(srv.stateRoot, "sudo-runs.json")).list(),
     ).toEqual([]);
+  });
+});
+
+// Task b94dfd25 4b: an agent of a member with their own OS user. Its cwd is
+// checked through her host, it asks even where the office's sudo needs no
+// password (her user has none), and its run gets root's home, never the
+// office's. Mia has her own OS user (the recording stand-in of
+// member-host-fixture.ts); the office agent is the owner's.
+describe("an agent of a member with their own OS user", () => {
+  async function memberWorld() {
+    const w = await world();
+    const mia = getUserByName(w.member.username)!;
+    iso = await isolateMember(mia.id);
+    // The recorder keeps process calls only: record her host's stats here.
+    const memberFs = iso.member.host.fs;
+    const statted: string[] = [];
+    (iso.member.host as { fs: AgentFs }).fs = {
+      ...memberFs,
+      stat: (path) => {
+        statted.push(path);
+        return memberFs.stat(path);
+      },
+    };
+    const cwd = realpathSync(mkdtempSync(join(iso.home, "work-")));
+    const [room] = w.srv.agentManager.getRooms();
+    const info = (await w.srv.agentManager.spawn(
+      "Mia's agent",
+      cwd,
+      "default",
+      undefined,
+      undefined,
+      room.id,
+      undefined,
+      undefined,
+      undefined,
+      mia.name,
+      "claude",
+      undefined,
+      mia.id,
+    )) as AgentInfo | null;
+    if (!info) throw new Error("spawn failed");
+    const token = { bearer: getAgentTokenRaw(info.id)! };
+    const ask = (command: string) =>
+      call(w.srv, "POST", `/api/agents/${info.id}/sudo-requests`, token, {
+        command,
+        reason: "To install jq.",
+        member: w.owner.username,
+      });
+    return { ...w, mia, cwd, miaAgent: info, ask, statted };
+  }
+  const line = ownOsUserLine("your manager");
+  // Per session of the agent: whether its system prompt has the line.
+  const promptsOf = (srv: TestServer, agentId: string) =>
+    srv.fakeBackend.sessions
+      .filter((s) => s.opts.agentId === agentId)
+      .map((s) => s.opts.systemPrompt.includes(line));
+  const previewHasLine = async (
+    w: { srv: TestServer; ownerSession: { rawSessionId: string } },
+    agentId: string,
+  ) => {
+    const r = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${agentId}/system-prompt`,
+      w.ownerSession,
+    );
+    expect(r.status).toBe(200);
+    return (r.body as { prompt: string }).prompt.includes(line);
+  };
+
+  it("asks where sudo needs no password, with her cwd checked on her host, and runs with root's home and no password on stdin", async () => {
+    sudo.setProbe({ output: "    (ALL) NOPASSWD: ALL\n", code: 0 }, 0);
+    sudo.setNoPassword("");
+    try {
+      const w = await memberWorld();
+      // The office's agent may run sudo itself.
+      const office = await w.request("echo office");
+      expect(`${office.status} ${office.code}`).toBe("409 no_password_needed");
+      // The spawn stats her cwd too: count only the request's stats.
+      w.statted.length = 0;
+      const opened = await w.ask("cat; echo MIA-RAN-b94dfd25");
+      expect(opened.status).toBe(200);
+      // Her cwd was asked of her host.
+      expect(w.statted).toContain(w.cwd);
+      const requestId = (opened.body as { requestId: string }).requestId;
+      const ran = await call(
+        w.srv,
+        "POST",
+        `/api/agents/${w.miaAgent.id}/sudo-requests/${requestId}/run`,
+        w.ownerSession,
+        { password: PASSWORD },
+      );
+      expect(ran.status).toBe(200);
+      await waitUntil(
+        () =>
+          sentTexts(w.srv, w.miaAgent.id).some((t) =>
+            t.includes("MIA-RAN-b94dfd25"),
+          ),
+        "her agent's result notice",
+      );
+      expect(sudo.env().HOME).toBe("/root");
+      expect(sudo.cwd()).toBe("/");
+      const notice = sentTexts(w.srv, w.miaAgent.id).join("\n");
+      expect(notice.includes(PASSWORD)).toBe(false);
+      // Her agent's session and its preview carry the own OS user line.
+      expect(promptsOf(w.srv, w.miaAgent.id)).toEqual([true]);
+      expect(await previewHasLine(w, w.miaAgent.id)).toBe(true);
+    } finally {
+      sudo.setNoPassword(null);
+      sudo.setProbe({ output: "sudo: a password is required\n", code: 1 }, 1);
+    }
+  });
+
+  it("an office agent's run keeps the office's home", async () => {
+    const w = await memberWorld();
+    const opened = await w.request("echo OFFICE-RAN-b94dfd25");
+    expect(opened.status).toBe(200);
+    const requestId = (opened.body as { requestId: string }).requestId;
+    const ran = await call(
+      w.srv,
+      "POST",
+      w.runPath(requestId, "run"),
+      w.ownerSession,
+      { password: PASSWORD },
+    );
+    expect(ran.status).toBe(200);
+    await waitUntil(
+      () =>
+        sentTexts(w.srv, w.asker.id).some((t) =>
+          t.includes("OFFICE-RAN-b94dfd25"),
+        ),
+      "the office agent's result notice",
+    );
+    expect(sudo.env().HOME).toBe(homedir());
+    // The office agent's session and preview do not carry the line, and its
+    // cwd was not asked of her host.
+    expect(promptsOf(w.srv, w.asker.id)).toEqual([false]);
+    expect(await previewHasLine(w, w.asker.id)).toBe(false);
+    expect(w.statted).not.toContain(w.srv.workDir);
+    expect(w.statted).not.toContain(realpathSync(w.srv.workDir));
+  });
+
+  it("a cwd that is gone on her host opens no ask", async () => {
+    const w = await memberWorld();
+    rmSync(w.cwd, { recursive: true, force: true });
+    w.statted.length = 0;
+    const r = await w.ask("echo never");
+    expect(`${r.status} ${r.code}`).toBe("422 cwd_not_found");
+    expect(w.statted).toContain(w.cwd);
+    const asks = await call(w.srv, "GET", "/api/asks", w.ownerSession);
+    expect((asks.body as AskEntry[]).filter((e) => e.sudo)).toHaveLength(0);
   });
 });

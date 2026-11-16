@@ -7,7 +7,7 @@
 // a temp file, pipe(2), the environment or argv.
 
 import { randomBytes } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 
 import { createOutputTail, superviseProcess } from "./command-supervisor.ts";
@@ -112,8 +112,12 @@ export async function probeSudo(opts?: {
 
 // The command sudo runs: it writes the start marker ($1) to stderr, so the
 // runner knows that sudo accepted the password, then runs the command ($2).
-// The command is an argument, never part of this script.
-const WRAPPER = `printf %s "$1" >&2; exec /bin/sh -c "$2"`;
+// The command and the cwd are arguments, never part of this script. sudo
+// starts in "/" and root enters the cwd after the start marker: a cwd the
+// office's account cannot enter (a member's own home) works, and one that is
+// gone at run time ends the run with the shell's line, never as a refused
+// password. `|| exit` keeps the command out of "/".
+const WRAPPER = `printf %s "$1" >&2; cd -- "$3" || exit 1; exec /bin/sh -c "$2"`;
 
 // Before the start marker, stderr holds only sudo's own lines.
 const PRE_START_MAX = 64 * 1024;
@@ -125,8 +129,12 @@ export async function startSudo(opts: SudoStartOptions): Promise<SudoStart> {
   const marker = nonce();
   const timeoutMs = opts.timeoutMs ?? SUDO_TIMEOUT_MS;
   const killGraceMs = opts.killGraceMs ?? SUDO_KILL_GRACE_MS;
-  if (!statSync(opts.cwd).isDirectory())
-    throw new Error("the cwd is not a directory");
+  // Where sudo needs no password it reads none, so a password written to
+  // stdin would reach the command: write it only when the probe says sudo
+  // asks for one. Not on sudo's prompt: PAM can show its own prompt in place
+  // of -p's.
+  const needsPassword =
+    (await probeSudo({ sudoPath: opts.sudoPath })) !== "no_password_needed";
   const t0 = Date.now();
   // stdin "pipe" is a socketpair in Bun: see the top of this file.
   const proc = Bun.spawn(
@@ -143,17 +151,19 @@ export async function startSudo(opts: SudoStartOptions): Promise<SudoStart> {
       "sh",
       marker,
       opts.command,
+      opts.cwd,
     ],
     {
-      cwd: opts.cwd,
+      cwd: "/",
       env: sudoEnv(opts.home),
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
     },
   );
+  // One line, then end of input; nothing when sudo needs no password.
   try {
-    await proc.stdin.write(`${opts.password}\n`);
+    if (needsPassword) await proc.stdin.write(`${opts.password}\n`);
     await proc.stdin.end();
   } catch {
     // sudo exited before it read: the exit below tells why.

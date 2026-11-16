@@ -2232,6 +2232,7 @@ export const zh: Catalog = {
   "apiCall.githubSync.delete": "取消房间与 GitHub 的链接",
   "apiCall.rooms.saveInstructions": "更改房间指令",
   "apiCall.agents.saveInstructions": "更改智能体指令",
+  "apiCall.users.read": "读取成员资料",
   "apiCall.users.readInstructions": "读取成员指令",
   "apiCall.users.readSessions": "读取成员会话",
   "apiCall.users.saveInstructions": "更改成员指令",

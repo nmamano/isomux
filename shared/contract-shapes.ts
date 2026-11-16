@@ -75,6 +75,13 @@ export type UserSelfWire = UserRecord;
 // Any user's full record; delivered ONLY to owners managing them.
 export type UserAdminWire = UserRecord;
 
+// A member's profile (GET /api/users/:username): what an agent needs to
+// write to them. Anyone who reads their instructions reads it.
+export type UserProfileWire = Pick<
+  UserRecord,
+  "id" | "name" | "role" | "language"
+>;
+
 // A removed member, kept for REMOVED_MEMBER_RETENTION_MS so an owner can
 // restore them (task 321e7b8e). Owners only.
 export interface RemovedMemberWire {

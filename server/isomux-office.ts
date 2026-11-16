@@ -362,7 +362,11 @@ import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
 import { createSecretRequests } from "./secret-requests.ts";
 import { sudoRequestHandlers } from "./routes/handlers/sudo-requests.ts";
-import { createSudoRequests, type SudoRequests } from "./sudo-requests.ts";
+import {
+  createSudoRequests,
+  sudoCwdState,
+  type SudoRequests,
+} from "./sudo-requests.ts";
 import { probeSudo, startSudo } from "./sudo-runner.ts";
 import { askRunLine, askRunLostNotice } from "./ask-command-runner.ts";
 import { createSudoRunStore } from "./sudo-run-store.ts";
@@ -4867,6 +4871,17 @@ function buildExecutorDeps(
       return agent ? (agent.userId ?? null) : undefined;
     },
     agentCwd: (agentId) => agentManager.getAgent(agentId)?.cwd ?? null,
+    cwdState: async (agentId) => {
+      const agent = agentManager.getAgent(agentId);
+      if (!agent) return "missing";
+      return sudoCwdState(
+        (path) => hostFor(agent.userId).fs.stat(path),
+        agent.cwd,
+        hasMemberOsUser(agent.userId),
+      );
+    },
+    ownOsUser: (agentId) =>
+      hasMemberOsUser(agentManager.getAgent(agentId)?.userId),
     agentLimited: (agentId) => {
       const agent = agentManager.getAgent(agentId);
       return !agent || belowStandard(agentAccessOf(agent));
@@ -4881,7 +4896,9 @@ function buildExecutorDeps(
       isHostedAccess(installKind, loadServerConfig().publicOrigin)
         ? "unavailable"
         : probeSudo({ sudoPath }),
-    start: (opts) => startSudo({ ...opts, home: homedir(), sudoPath }),
+    // A member with their own OS user gets root's home, never the office's.
+    start: ({ ownOsUser, ...opts }) =>
+      startSudo({ ...opts, home: ownOsUser ? "/root" : homedir(), sudoPath }),
     runs: createSudoRunStore(join(STATE_ROOT, "sudo-runs.json")),
     report: (agentId, requestId, outcome, line, member, notice) =>
       agentManager.emitAgentSudoRequestReport(

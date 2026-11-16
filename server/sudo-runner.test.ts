@@ -5,7 +5,13 @@
 // markers). A real sudo run is a manual check, not CI.
 
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -87,7 +93,9 @@ describe("what sudo gets", () => {
     expect(first.slice(4, 7)).toEqual(["--", "/bin/sh", "-c"]);
     expect(first[8]).toBe("sh");
     expect(first[10]).toBe("echo one");
-    expect(first).toHaveLength(11);
+    // The cwd is the last argument (task b94dfd25 4b): root enters it.
+    expect(first[11]).toBe(work);
+    expect(first).toHaveLength(12);
     expect(second[10]).toBe("echo two");
     // The prompt and the start marker: different from each other, and new
     // for each run, so no command can know them in advance.
@@ -101,12 +109,16 @@ describe("what sudo gets", () => {
     // part of the script.
     expect(second[7]).toBe(first[7]);
     expect(first[7]).not.toContain("echo one");
+    expect(first[7]).not.toContain(work);
   });
 
-  it("gets a fixed environment and the request's cwd, nothing from the server's environment", async () => {
+  // Task b94dfd25 4b: sudo starts in "/" and root enters the cwd, so a cwd
+  // the office's account cannot enter (a member's own home) works.
+  it("gets a fixed environment and starts in /, and the command runs in the request's cwd", async () => {
     process.env.ISOMUX_SUDO_RUNNER_TEST_LEAK = "leak";
+    let result: SudoRunResult;
     try {
-      await run("true");
+      result = await run("pwd -P");
     } finally {
       delete process.env.ISOMUX_SUDO_RUNNER_TEST_LEAK;
     }
@@ -115,14 +127,45 @@ describe("what sudo gets", () => {
       LC_ALL: "C",
       HOME,
     });
-    expect(sudo.cwd()).toBe(realpathSync(work));
+    expect(sudo.cwd()).toBe("/");
+    expect(result.exitCode).toBe(0);
+    expect(result.output.trim()).toBe(realpathSync(work));
   });
 
-  it("starts nothing when sudo or the cwd is missing", async () => {
+  it("starts nothing when sudo is missing", async () => {
     await expect(
       start("true", { sudoPath: join(sudo.dir, "no-such-sudo") }),
     ).rejects.toThrow();
-    await expect(start("true", { cwd: join(work, "gone") })).rejects.toThrow();
+  });
+
+  // A cwd that is gone at the run: sudo took the password, so the run
+  // started and ends with the shell's line. It is never a refused password,
+  // which would count toward the lockout, and the command never runs in /.
+  it("a cwd that is gone or no folder at the run: started, a nonzero exit, the shell's line, and the command does not run", async () => {
+    const file = join(work, "a-file");
+    await Bun.write(file, "x");
+    for (const cwd of [join(work, "gone"), file]) {
+      const started = await start("echo command-ran", { cwd });
+      expect({ cwd, kind: started.kind }).toEqual({ cwd, kind: "started" });
+      if (started.kind !== "started") continue;
+      const result = await started.done;
+      expect(result.exitCode).not.toBe(0);
+      expect(result.exitCode).not.toBeNull();
+      expect(result.output).not.toContain("command-ran");
+      // The shell's own line names the folder.
+      expect(result.output).toContain(cwd);
+    }
+  });
+
+  it("the cwd is an argument: a folder name with quotes and $( ) is entered as it is", async () => {
+    const odd = join(work, `it's $(touch PWNED) "q" ;x`);
+    mkdirSync(odd);
+    const result = await run("pwd -P", { cwd: odd });
+    expect(result.exitCode).toBe(0);
+    expect(result.output.trim()).toBe(realpathSync(odd));
+    expect(existsSync(join("/", "PWNED"))).toBe(false);
+    expect(existsSync(join(work, "PWNED"))).toBe(false);
+    expect(existsSync(join(odd, "PWNED"))).toBe(false);
   });
 });
 
@@ -211,6 +254,58 @@ describe("the result", () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("bg-started");
     expect(Date.now() - t0).toBeLessThan(3000);
+  });
+});
+
+// Task b94dfd25 4b: the password is for sudo, never for the command. Where
+// sudo needs no password (NOPASSWD), it reads no stdin, so a password
+// written at once would reach the command; an agent of a member with their
+// own OS user asks even then. Where sudo shows a PAM module's prompt in
+// place of -p's (sudoers passprompt), it still reads the password.
+describe("the password goes to sudo only", () => {
+  it("NOPASSWD: the command's stdin never holds the password, with or without a line of sudo's first", async () => {
+    // The probe says what the run finds.
+    sudo.setProbe({ output: "    (ALL) NOPASSWD: ALL\n", code: 0 }, 0);
+    try {
+      for (const warning of [
+        "",
+        "sudo: unable to resolve host box: Name or service not known\n",
+      ]) {
+        sudo.setNoPassword(warning);
+        const result = await run("cat; echo read-done");
+        // The enabling condition: sudo asked for nothing.
+        expect(sudo.stdin()).toMatch(/^socket:/);
+        expect({ warning, exit: result.exitCode }).toEqual({
+          warning,
+          exit: 0,
+        });
+        expect(result.output).toContain("read-done");
+        expect({ warning, leaked: result.output.includes(PASSWORD) }).toEqual({
+          warning,
+          leaked: false,
+        });
+      }
+    } finally {
+      sudo.setNoPassword(null);
+      sudo.setProbe({ output: "sudo: a password is required\n", code: 1 }, 1);
+    }
+  });
+
+  it("a PAM prompt in place of -p's: sudo still gets the password and the command starts", async () => {
+    sudo.setPamPrompt("LDAP Password: ");
+    try {
+      // A short timeout, so a runner that waits for -p's prompt ends here
+      // as a refused start instead of holding the case.
+      const started = await start("echo pam-ok", { timeoutMs: 2000 });
+      expect(started.kind).toBe("started");
+      if (started.kind !== "started") return;
+      const result = await started.done;
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("pam-ok");
+      expect(result.output).not.toContain(PASSWORD);
+    } finally {
+      sudo.setPamPrompt(null);
+    }
   });
 });
 

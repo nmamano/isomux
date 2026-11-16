@@ -2520,6 +2520,7 @@ Coses que pots fer per ell:
   "apiCall.githubSync.delete": "Desenllaçar una sala de GitHub",
   "apiCall.rooms.saveInstructions": "Canviar les instruccions de la sala",
   "apiCall.agents.saveInstructions": "Canviar les instruccions de l'agent",
+  "apiCall.users.read": "Llegir el perfil del membre",
   "apiCall.users.readInstructions": "Llegir les instruccions del membre",
   "apiCall.users.readSessions": "Llegir les sessions del membre",
   "apiCall.users.saveInstructions": "Canviar les instruccions del membre",

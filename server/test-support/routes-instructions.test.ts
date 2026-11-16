@@ -606,6 +606,81 @@ describe("member instructions read", () => {
     ).toBe(403);
   });
 
+  // GET /api/users/:username (task b94dfd25 4b): the profile an agent needs
+  // to write to a member, with the reach of their instructions. Agents read
+  // it in place of the office's users file, which an agent of a member with
+  // their own OS user cannot read.
+  it("the profile answers exactly the instructions' callers, with id, name, role and language only", async () => {
+    const o = await rooms();
+    expect(updateUserById(o.id("Mia"), { language: "es" }).ok).toBe(true);
+    const profile = "/api/users/Mia";
+    const out: Record<string, string> = {};
+    for (const [who, auth] of Object.entries(o.callers)) {
+      const read = await call(o.srv, "GET", profile, auth);
+      const instr = await call(o.srv, "GET", o.path, auth);
+      // The same rule: each caller gets the same status from both.
+      expect({ who, status: read.status }).toEqual({
+        who,
+        status: instr.status,
+      });
+      out[who] = String(read.status);
+      if (read.status !== 200) continue;
+      // Nothing but the four fields: no rooms, pack, preferences or inbox.
+      expect(read.body).toEqual({
+        user: { id: o.id("Mia"), name: "Mia", role: "member", language: "es" },
+      });
+    }
+    expect(out).toEqual({
+      miaPlainAgent: "200",
+      nora: "200",
+      noraPlainAgent: "200",
+      noraApiTokenInA: "200",
+      noraApiTokenNoRooms: "403",
+      pat: "403",
+      patPlainAgent: "403",
+      morganPlainAgent: "200",
+      morganApiTokenInB: "403",
+    });
+    // A member with no language chosen reads null.
+    expect(updateUserById(o.id("Mia"), { language: null }).ok).toBe(true);
+    const plain = await call(o.srv, "GET", profile, o.callers.noraPlainAgent);
+    expect(
+      (plain.body as { user?: { language?: unknown } }).user?.language,
+    ).toBeNull();
+  });
+
+  it("the profile of an unknown member reads as one that shares no room, and the office area is needed", async () => {
+    const o = await rooms();
+    const unknown = await call(
+      o.srv,
+      "GET",
+      "/api/users/Nobody",
+      o.callers.noraPlainAgent,
+    );
+    const unshared = await call(
+      o.srv,
+      "GET",
+      "/api/users/Mia",
+      o.callers.patPlainAgent,
+    );
+    expect(unshared.status).toBe(403);
+    expect({ status: unknown.status, error: errOf(unknown) }).toEqual({
+      status: unshared.status,
+      error: errOf(unshared),
+    });
+    const token = (
+      await mintApiToken({
+        userId: o.id("Nora"),
+        name: "Nora memory only",
+        expiresInDays: null,
+        limits: { areas: { memory: "read" }, rooms: [o.roomA] },
+      })
+    ).token;
+    const r = await call(o.srv, "GET", "/api/users/Mia", { bearer: token });
+    const area = (errOf(r) as { area?: string } | undefined)?.area;
+    expect({ status: r.status, area }).toEqual({ status: 403, area: "office" });
+  });
+
   it("a token without the office area reads no member's instructions", async () => {
     const o = await rooms();
     const token = (

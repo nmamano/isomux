@@ -385,7 +385,7 @@ Each instruction layer has a read and a write route:
 
 Both return `{instructions,version}`. The PUT takes `{instructions,version}` with the version from the read; `instructions: null` clears them. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. `POST /api/agents`, `PATCH /api/agents/:id` (with `instructionsVersion`) and `POST /api/users` also take `instructions`.
 
-Anyone who shares a room with a member, other than the lobby, can read that member's instructions, and so can office owners and their agents. A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
+Anyone who shares a room with a member, other than the lobby, can read that member's instructions, and so can office owners and their agents. The same callers read the member's profile, `{user:{id,name,role,language}}`, with `GET /api/users/:username`. A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
 
 ### Pinned agents
 

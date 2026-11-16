@@ -387,7 +387,11 @@ import { memberPackOf } from "./identity/member-pack.ts";
 import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { agentStopRefusal, stopName } from "./identity/agent-fit.ts";
 import { managerRoomsOf } from "../shared/pack-fit.ts";
-import { assertSameAgentHost, sameAgentHost } from "./member-os-users.ts";
+import {
+  assertSameAgentHost,
+  hasMemberOsUser,
+  sameAgentHost,
+} from "./member-os-users.ts";
 import { serverStopping } from "./server-stop.ts";
 import {
   bindUnsavedSessionId,
@@ -5565,6 +5569,7 @@ export function createAgentManager(deps: ManagerDeps) {
       manager.record?.language ?? null,
       agentMakesSchedules(managed.info),
       isolation,
+      hasMemberOsUser(managed.info.userId),
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

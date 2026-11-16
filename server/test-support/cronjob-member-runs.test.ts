@@ -28,6 +28,8 @@ import { renderLogText } from "../../shared/i18n/log-message.ts";
 import { msg } from "../../shared/i18n/log-message.ts";
 import type { LogText } from "../../shared/i18n/log-message.ts";
 import type { AskRunResult } from "../ask-command-runner.ts";
+import { ownOsUserLine } from "../system-prompt.ts";
+import { STATE_ROOT } from "../config.ts";
 
 type CronDeps = Parameters<typeof createCronjobManager>[0];
 type AddCronjobInput = Parameters<
@@ -485,6 +487,40 @@ describe("the folder limits of a member", () => {
     } finally {
       forgetMemberOsUser(carol);
       deleteUserById(carol);
+    }
+  });
+});
+
+// Task b94dfd25 4b: a schedule run of a member with their own OS user runs as
+// that user, and its prompt says so in one line. No run's prompt names the
+// office's files: a run reads no schedule (a cron run identity has no
+// cron:read), and a member's run cannot read the office's state root.
+describe("the prompt of a schedule run", () => {
+  const line = ownOsUserLine("the member");
+  const stateRoot = STATE_ROOT.replace(/\/+$/, "");
+
+  it("of a member with their own OS user has the line; an office run's does not", () => {
+    const { mgr } = manager();
+    const hers = mgr.addCronjob(input());
+    const office = mgr.addCronjob(
+      input({ userId: undefined, username: "Nil", cwd: tmp("office-job-") }),
+    );
+    const herPrompt = mgr.buildCronjobSystemPrompt(hers);
+    const officePrompt = mgr.buildCronjobSystemPrompt(office);
+    expect(herPrompt.split(line)).toHaveLength(2);
+    expect(officePrompt).not.toContain(line);
+    for (const [who, prompt] of [
+      ["member", herPrompt],
+      ["office", officePrompt],
+    ] as const) {
+      expect({ who, files: /\.isomux\//.test(prompt) }).toEqual({
+        who,
+        files: false,
+      });
+      expect({ who, root: prompt.includes(stateRoot) }).toEqual({
+        who,
+        root: false,
+      });
     }
   });
 });

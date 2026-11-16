@@ -385,6 +385,17 @@ export function createUsersRoutes(
       const user = getUser(username);
       return user ? { memberPrompt: user.memberPrompt } : null;
     },
+    readMemberProfile: (username) => {
+      const user = getUser(username);
+      return user
+        ? {
+            id: user.id,
+            name: user.name,
+            role: user.role,
+            language: user.language,
+          }
+        : null;
+    },
     create: async ({
       name,
       role,

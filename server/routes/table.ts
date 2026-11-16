@@ -291,6 +291,7 @@ import type {
   InstructionsReq,
   InstructionsRes,
   UserSelfWire,
+  UserProfileWire,
   UserAdminWire,
   RemovedMemberListRes,
   MemberRestoreReq,
@@ -2959,6 +2960,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "users.readInstructions",
     method: "GET",
     path: "/api/users/:username/instructions",
+    auth: authn(memberSharesRoom("username")),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  // A member's profile: what an agent needs to write to them. The same reach
+  // as their instructions, so an unknown member answers as one who shares no
+  // room (403).
+  defineRoute<void, { user: UserProfileWire }>({
+    opId: "users.read",
+    method: "GET",
+    path: "/api/users/:username",
     auth: authn(memberSharesRoom("username")),
     tokenArea: { area: "office", level: "read" },
     emits: [],

@@ -56,6 +56,15 @@ export function appHostingSection(unsupportedReason: string | null): string {
   return "- The member asks for a web app that keeps running: register it as an app. Page: `apps`.";
 }
 
+// The line for an agent or schedule run whose manager has their own OS user
+// (hasMemberOsUser, the predicate hostFor picks the host with): it runs as
+// that user, and the office's files are not its to read.
+// `member` names whose OS user: "your manager" for an agent, "the member"
+// for a schedule run.
+export function ownOsUserLine(member: string): string {
+  return `You run as ${member}'s own OS user, in their home. The office's files and other members' homes are out of your reach: get office data through the office routes.`;
+}
+
 // The way out of the namespace for work that must outlive the session (a
 // transient user service, task 030093e9) is how-to detail: it lives on the
 // apps page only (task f7a6f63d).
@@ -95,6 +104,8 @@ export function buildSystemPrompt(
   // The form of this session's PID namespace, from the same decision as its
   // spawn; null when it is not wrapped.
   isolation: IsolationForm | null = null,
+  // The manager has their own OS user (hasMemberOsUser).
+  ownOsUser: boolean = false,
 ): string {
   const stop: AgentAccess =
     typeof access === "boolean" ? (access ? "privileged" : "standard") : access;
@@ -109,11 +120,18 @@ export function buildSystemPrompt(
     publicOrigin.source === "localhost"
       ? ""
       : `\nThe office UI for humans is at ${publicOrigin.origin}. Use that origin for browser links; office API calls stay on localhost:${PORT}.\n`;
-  const appsUnsupported = appHostingUnsupportedReason(process.platform);
-  const containerNote =
-    process.env.ISOMUX_APP_SUPERVISOR === "container"
-      ? "\nThis office runs in a container. Keep projects and dependencies under /var/data/home or /var/data/workspaces; only /var/data persists across replacement.\n"
-      : "";
+  const inContainer = process.env.ISOMUX_APP_SUPERVISOR === "container";
+  // In the container, a member's own OS user has no service manager: their
+  // apps cannot run, and their home is not under /var/data/home.
+  const appsUnsupported =
+    ownOsUser && inContainer
+      ? "Your manager's own OS user cannot run apps in this container."
+      : appHostingUnsupportedReason(process.platform);
+  const containerNote = !inContainer
+    ? ""
+    : ownOsUser
+      ? "\nThis office runs in a container. Keep projects and dependencies in your home, which persists across replacement.\n"
+      : "\nThis office runs in a container. Keep projects and dependencies under /var/data/home or /var/data/workspaces; only /var/data persists across replacement.\n";
 
   const belowStd = belowStandard(stop);
   const officeSection = belowStd
@@ -163,7 +181,7 @@ ${agentType === "opencode" ? `You have no bearer token. Call every office route 
   let systemPrompt = `You are "${agentName}", agent id ${agentId}, in room "${roomName}" of the Isomux office. ${taskScope}
 Your goal is to help office members. Their messages start with their name and any device in brackets. Your normal replies reach members only; another agent sees a message only when you send it through messaging. When a turn leaves nothing a member needs to know, reply with only ${NO_UPDATE}
 For questions about Isomux itself, read the README and source at https://github.com/nmamano/isomux.
-${humanUrlNote}${hostedNote}${containerNote}
+${humanUrlNote}${hostedNote}${containerNote}${ownOsUser ? `\n${ownOsUserLine("your manager")}\n` : ""}
 ${officeSection}${trustRules}${attachmentsLine}
 
 In chat, text between two $ can render as LaTeX math: write a literal $ as \\$, but a plain $ inside code.`;

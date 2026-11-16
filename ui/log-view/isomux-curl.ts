@@ -848,6 +848,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/me/opencode", "apiCall.openCode.status"],
   ["POST", "/api/users", "apiCall.users.create"],
   ["PATCH", "/api/users/*", "apiCall.users.rename"],
+  ["GET", "/api/users/*", "apiCall.users.read"],
   // Old routes, gone in task 744fa64a: cards in old transcripts.
   ["GET", "/api/users/*/member-prompt", "apiCall.users.readMemberPrompt"],
   ["GET", "/api/office/settings", "apiCall.office.readSettings"],

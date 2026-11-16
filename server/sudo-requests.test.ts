@@ -25,6 +25,7 @@ import {
 } from "./asks.ts";
 import {
   createSudoRequests,
+  sudoCwdState,
   SUDO_PASSWORD_MAX,
   SUDO_REQUEST_REASON_MAX,
   SUDO_REQUESTS_OPEN_MAX,
@@ -33,6 +34,8 @@ import {
 } from "./sudo-requests.ts";
 import type { SudoProbe, SudoRunResult, SudoStart } from "./sudo-runner.ts";
 import { createSudoRunStore, type SudoRunStore } from "./sudo-run-store.ts";
+import { localAgentFs } from "./agent-host.ts";
+import { createNotReadyHost } from "./member-hosts.ts";
 
 const PASSWORD = "Mark3r-pa55word-43a28eed";
 const COMMAND = "apt-get install -y jq";
@@ -120,8 +123,17 @@ function setup() {
     next: [] as (() => Promise<SudoStart>)[],
     reportThrows: false,
     removeThrows: false,
+    // Task b94dfd25 4b: the agent's cwd on its host, and the agents whose
+    // manager has their own OS user.
+    cwdState: new Map<string, "ok" | "missing" | "not_ready">(),
+    ownOsUser: new Set<string>(),
   };
-  const starts: { command: string; cwd: string; password: string }[] = [];
+  const starts: {
+    command: string;
+    cwd: string;
+    password: string;
+    ownOsUser: boolean;
+  }[] = [];
   const done: ReturnType<typeof deferred<SudoRunResult>>[] = [];
   let probes = 0;
 
@@ -146,6 +158,8 @@ function setup() {
         Object.hasOwn(AGENTS, agentId) ? AGENTS[agentId].manager : undefined,
       agentCwd: (agentId) =>
         Object.hasOwn(AGENTS, agentId) ? AGENTS[agentId].cwd : null,
+      cwdState: async (agentId) => control.cwdState.get(agentId) ?? "ok",
+      ownOsUser: (agentId) => control.ownOsUser.has(agentId),
       agentLimited: (agentId) => limited.has(agentId),
       isOfficeOwner: (userId) => owners.has(userId),
       memberByName: (name) => {
@@ -165,6 +179,7 @@ function setup() {
           command: opts.command,
           cwd: opts.cwd,
           password: opts.password,
+          ownOsUser: opts.ownOsUser,
         });
         const next = control.next.shift();
         if (next) return next();
@@ -428,6 +443,138 @@ describe("the agent's request", () => {
   });
 });
 
+// Task b94dfd25 4b: the agent's cwd is checked on the agent's host when it
+// asks (its manager's own OS user's runner, or the office's files), and an
+// agent whose manager has their own OS user always asks: that user has no
+// sudo, so "no password needed" on the office's account does not help it.
+describe("an agent's cwd and its manager's own OS user", () => {
+  it("a cwd that is not there, or a host that is not ready, opens no ask", async () => {
+    const t = setup();
+    t.control.cwdState.set("a1", "missing");
+    t.control.cwdState.set("a3", "not_ready");
+    const missing = await t.requests.open("a1", {
+      command: COMMAND,
+      reason: REASON,
+    });
+    const notReady = await t.requests.open("a3", {
+      command: COMMAND,
+      reason: REASON,
+    });
+    expect([missing, notReady].map(failure)).toEqual([
+      "422 cwd_not_found",
+      "409 member_os_user",
+    ]);
+    expect(t.asks.listAll()).toEqual([]);
+    // The enabling condition: the same agents ask once their cwd is there.
+    t.control.cwdState.clear();
+    await open(t, "a1");
+    await open(t, "a3");
+    expect(t.asks.listAll()).toHaveLength(2);
+  });
+
+  it("where sudo needs no password, an office agent is told to run it, and an agent of a member with their own OS user asks", async () => {
+    const t = setup();
+    t.control.probe = "no_password_needed";
+    t.control.ownOsUser.add("a3");
+    const office = await t.requests.open("a1", {
+      command: COMMAND,
+      reason: REASON,
+    });
+    expect(failure(office)).toBe("409 no_password_needed");
+    const requestId = await open(t, "a3");
+    expect(t.asks.listAll().map((e) => [e.agentId, e.sudo?.requestId])).toEqual(
+      [["a3", requestId]],
+    );
+    // Where the office's account has no sudo, no one asks.
+    t.control.probe = "unavailable";
+    const none = await t.requests.open("a3", {
+      command: COMMAND,
+      reason: REASON,
+    });
+    expect(failure(none)).toBe("409 sudo_unavailable");
+  });
+
+  it("the run tells the runner whose agent it is, so a member's run gets root's home", async () => {
+    const t = setup();
+    t.control.ownOsUser.add("a3");
+    const office = await open(t, "a1");
+    const member = await open(t, "a3");
+    expect(failure(await run(t, office))).toBe("ok");
+    expect(failure(await run(t, member, { agent: "a3" }))).toBe("ok");
+    expect(t.starts.map((s) => [s.cwd, s.ownOsUser])).toEqual([
+      ["/work/a1", false],
+      ["/work/a3", true],
+    ]);
+  });
+});
+
+describe("sudoCwdState", () => {
+  const errno = (code: string) =>
+    Object.assign(new Error(code), { code }) as NodeJS.ErrnoException;
+  const failing = (err: unknown) => () => Promise.reject(err);
+
+  it("a folder is ok; a file, a missing path or a path the host cannot enter is missing, on either host", async () => {
+    const root = mkdtempSync(join(tmpdir(), "isomux-sudo-cwd-"));
+    roots.push(root);
+    const file = join(root, "file");
+    writeFileSync(file, "x");
+    const out: Record<string, string> = {};
+    for (const memberHost of [false, true]) {
+      out[`dir ${memberHost}`] = await sudoCwdState(
+        localAgentFs.stat,
+        root,
+        memberHost,
+      );
+      out[`file ${memberHost}`] = await sudoCwdState(
+        localAgentFs.stat,
+        file,
+        memberHost,
+      );
+      out[`gone ${memberHost}`] = await sudoCwdState(
+        localAgentFs.stat,
+        join(root, "gone"),
+        memberHost,
+      );
+      for (const code of ["ENOENT", "ENOTDIR", "EACCES", "ELOOP"])
+        out[`${code} ${memberHost}`] = await sudoCwdState(
+          failing(errno(code)),
+          root,
+          memberHost,
+        );
+    }
+    expect(out).toEqual({
+      "dir false": "ok",
+      "file false": "missing",
+      "gone false": "missing",
+      "ENOENT false": "missing",
+      "ENOTDIR false": "missing",
+      "EACCES false": "missing",
+      "ELOOP false": "missing",
+      "dir true": "ok",
+      "file true": "missing",
+      "gone true": "missing",
+      "ENOENT true": "missing",
+      "ENOTDIR true": "missing",
+      "EACCES true": "missing",
+      "ELOOP true": "missing",
+    });
+  });
+
+  it("a member's host that cannot answer is not_ready; the office's own files never are", async () => {
+    // The host of a member whose OS user is broken (member-hosts.ts).
+    const notReady = createNotReadyHost("u-alice", "no runner");
+    const runnerGone = failing(errno("ECONNREFUSED"));
+    const noCode = failing(new Error("bad reply"));
+    expect([
+      await sudoCwdState(notReady.fs.stat, "/home/alice", true),
+      await sudoCwdState(runnerGone, "/home/alice", true),
+      await sudoCwdState(noCode, "/home/alice", true),
+      await sudoCwdState(runnerGone, "/work/a1", false),
+      await sudoCwdState(noCode, "/work/a1", false),
+    ]).toEqual(["not_ready", "not_ready", "not_ready", "missing", "missing"]);
+  });
+});
+
 describe("the owner runs it", () => {
   it("starts the command once with the password, closes the ask and keeps a run row", async () => {
     const t = setup();
@@ -435,7 +582,12 @@ describe("the owner runs it", () => {
     const r = await run(t, requestId);
     expect(failure(r)).toBe("ok");
     expect(t.starts).toEqual([
-      { command: COMMAND, cwd: "/work/a1", password: PASSWORD },
+      {
+        command: COMMAND,
+        cwd: "/work/a1",
+        password: PASSWORD,
+        ownOsUser: false,
+      },
     ]);
     expect(t.asks.listAll()).toEqual([]);
     expect(t.runs.list()).toEqual([

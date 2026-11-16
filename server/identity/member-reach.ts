@@ -282,6 +282,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "providerAccounts.disconnect",
       "openCode.status",
       "connections.list",
+      "users.read",
       "users.readInstructions",
       "users.setInstructions",
       "users.readPinned",

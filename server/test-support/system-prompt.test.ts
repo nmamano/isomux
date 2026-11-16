@@ -1,10 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
+  appHostingSection,
   buildSystemPrompt,
   hostedIdentityNote,
   memorySection,
+  ownOsUserLine,
   processIsolationPromptLine,
 } from "../system-prompt.ts";
+import { STATE_ROOT } from "../config.ts";
 import {
   AGENT_REFERENCE_SUBPAGES,
   AGENT_REFERENCE_TOPICS,
@@ -858,5 +861,163 @@ describe("keeping a process past the session", () => {
       agentReferenceContent(identity, "cronjob-management") ?? "";
     expect(schedules).toContain("`apps`");
     expect(schedules).not.toContain("systemd-run --user");
+  });
+});
+
+// Task b94dfd25 4b: an agent whose manager has their own OS user runs as that
+// user, so it cannot read the office's files. Its prompt says so in one line;
+// in the container it also names the member's home and says apps cannot run.
+// Every other agent's prompt stays byte for byte as it was.
+describe("an agent whose manager has their own OS user", () => {
+  // ownOsUser undefined leaves the argument out, as every caller before 4b.
+  function promptOf(opts: {
+    ownOsUser?: boolean;
+    container: boolean;
+    agentType?: "claude" | "codex" | "opencode";
+    privileged?: boolean;
+  }): string {
+    const saved = process.env.ISOMUX_APP_SUPERVISOR;
+    if (opts.container) process.env.ISOMUX_APP_SUPERVISOR = "container";
+    else delete process.env.ISOMUX_APP_SUPERVISOR;
+    try {
+      const args = [
+        "A1",
+        "agent-1",
+        "Test Room",
+        "room-1",
+        null,
+        null,
+        null,
+        "Nil",
+        null,
+        opts.privileged ?? false,
+        null,
+        opts.agentType ?? "claude",
+        null,
+        true,
+        null,
+      ] as const;
+      return opts.ownOsUser === undefined
+        ? buildSystemPrompt(...args)
+        : buildSystemPrompt(...args, opts.ownOsUser);
+    } finally {
+      if (saved === undefined) delete process.env.ISOMUX_APP_SUPERVISOR;
+      else process.env.ISOMUX_APP_SUPERVISOR = saved;
+    }
+  }
+  const ENGINES = ["claude", "codex", "opencode"] as const;
+  const line = ownOsUserLine("your manager");
+  // The apps pointer of a host that runs apps (Linux, as in CI).
+  const appsPointer = appHostingSection(null);
+
+  it("an office agent's prompt is the one it had before, in and out of the container", () => {
+    for (const container of [false, true])
+      for (const agentType of ENGINES)
+        for (const privileged of [false, true]) {
+          const before = promptOf({ container, agentType, privileged });
+          const now = promptOf({
+            ownOsUser: false,
+            container,
+            agentType,
+            privileged,
+          });
+          expect({
+            container,
+            agentType,
+            privileged,
+            same: now === before,
+          }).toEqual({ container, agentType, privileged, same: true });
+          expect(before).not.toContain(line);
+        }
+  });
+
+  it("outside the container, the prompt gains the one line and nothing else", () => {
+    for (const agentType of ENGINES)
+      for (const privileged of [false, true]) {
+        const office = promptOf({
+          ownOsUser: false,
+          container: false,
+          agentType,
+          privileged,
+        });
+        const own = promptOf({
+          ownOsUser: true,
+          container: false,
+          agentType,
+          privileged,
+        });
+        expect(own.split(line)).toHaveLength(2);
+        // Remove the line with the line breaks around it: the office prompt.
+        expect(own.replace(`\n${line}\n`, "") === office).toBe(true);
+        // Apps run on this host, as the member's own OS user.
+        expect(own).toContain(appsPointer);
+      }
+  });
+
+  it("in the container, the prompt names the member's home, not the office's folders, and says apps cannot run", () => {
+    for (const agentType of ENGINES) {
+      const office = promptOf({ ownOsUser: false, container: true, agentType });
+      const own = promptOf({ ownOsUser: true, container: true, agentType });
+      // The office agent keeps the office's persistent folders and apps.
+      expect(office).toContain("/var/data/home");
+      expect(office).toContain(appsPointer);
+      // The member's agent cannot write those folders, and their OS user has
+      // no service manager in the container.
+      expect(own).toContain(line);
+      expect(own).not.toContain("/var/data/home");
+      expect(own).not.toContain("/var/data/workspaces");
+      expect(own).not.toContain(appsPointer);
+      expect(own).not.toContain("Page: `apps`");
+    }
+  });
+
+  it("no prompt and no reference page sends an agent to the office's files", () => {
+    const stateRoot = STATE_ROOT.replace(/\/+$/, "");
+    // The OpenCode authority socket is the one office path a prompt names:
+    // a route, not a file, and the transport puts a member's own socket in
+    // its place (opencode/transport.ts fillAuthority).
+    const socket = openCodeAuthoritySocketPath();
+    const offending = (raw: string) => {
+      const text = raw.replaceAll(socket, "<authority socket>");
+      return [
+        /\.isomux\//.test(text) ? ".isomux/" : null,
+        text.includes(stateRoot) ? "the state root" : null,
+      ].filter((hit): hit is string => hit !== null);
+    };
+    const hits: string[] = [];
+    for (const container of [false, true])
+      for (const ownOsUser of [false, true])
+        for (const agentType of ENGINES)
+          for (const privileged of [false, true]) {
+            const prompt = promptOf({
+              ownOsUser,
+              container,
+              agentType,
+              privileged,
+            });
+            for (const hit of offending(prompt))
+              hits.push(
+                `prompt ${agentType} ${privileged} ${container} ${ownOsUser}: ${hit}`,
+              );
+          }
+    const reader: Identity = {
+      scope: "agent",
+      agentId: "agent-1",
+      userId: "u1",
+      role: "owner",
+      capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+    };
+    const topics = Object.keys(AGENT_REFERENCE_TOPICS) as AgentReferenceTopic[];
+    for (const topic of topics) {
+      const page = agentReferenceContent(reader, topic);
+      expect({ topic, page: typeof page }).toEqual({ topic, page: "string" });
+      for (const hit of offending(page as string))
+        hits.push(`page ${topic}: ${hit}`);
+    }
+    // The guard sees what it guards: the pages that told agents to read the
+    // files before 4b are among the pages read.
+    expect(topics).toContain("cronjobs");
+    expect(topics).toContain("discovery");
+    expect(hits).toEqual([]);
   });
 });

@@ -2442,6 +2442,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.githubSync.delete": "Unlink a room from GitHub",
   "apiCall.rooms.saveInstructions": "Change room instructions",
   "apiCall.agents.saveInstructions": "Change agent instructions",
+  "apiCall.users.read": "Read a member's profile",
   "apiCall.users.readInstructions": "Read member instructions",
   "apiCall.users.readSessions": "Read member sessions",
   "apiCall.users.saveInstructions": "Change member instructions",
