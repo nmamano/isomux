@@ -333,12 +333,23 @@ export function restoreUnitsAfterMove(
   } catch (err) {
     console.error("[move] the units record is unreadable:", err);
   }
+  const restored = restoreUnits(run, units);
+  rmSync(path, { force: true });
+  return restored;
+}
+
+/** Restores units as a record holds them: enable for exactly "enabled",
+ *  start what was active, systemd-run the active transient ones. */
+export function restoreUnits(
+  run: UnitRunner,
+  units: AgentUnit[],
+): UnitRestoreResult {
+  const result: UnitRestoreResult = { restored: [], failed: [] };
   for (const unit of units) {
     const reason = restoreOne(run, unit);
     if (reason) result.failed.push({ name: unit.name, reason });
     else result.restored.push(unit.name);
   }
-  rmSync(path, { force: true });
   return result;
 }
 

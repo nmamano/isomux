@@ -52,6 +52,13 @@ import { Database } from "bun:sqlite";
 import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
 import { moveLockedResponse } from "./move-locked-office.ts";
 import type { MoveOutsideFolders } from "../shared/office-move.ts";
+import {
+  MOVE_MEMBER_UNITS_FILE,
+  readMemberUnitsRecord,
+  type MoveMember,
+  type MoveMemberInfo,
+  type MoveMembersCheck,
+} from "./office-move-members.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
 let dir = "";
@@ -110,7 +117,13 @@ interface Bed {
   mint(): string;
 }
 
-function bed(): Bed {
+function bed(
+  opts: {
+    /** Slice 5c-1: checkMoveMembers, for the preflight and the lock. */
+    moveMembers?: () => Promise<MoveMembersCheck>;
+    stopMemberUnits?: (member: MoveMember, units: AgentUnit[]) => void;
+  } = {},
+): Bed {
   dir = mkdtempSync(join(tmpdir(), "office-move-routes-"));
   const root = join(dir, ".isomux");
   mkdirSync(root);
@@ -142,6 +155,7 @@ function bed(): Bed {
         ? null
         : { unit: "isomux.service", manager: "system", restart: restart.value },
     memberOsUsers: () => members.value,
+    ...(opts.moveMembers ? { moveMembers: opts.moveMembers } : {}),
     outsideFolders: () => outside.value,
     exec: async () => {
       if (hold) await hold;
@@ -178,6 +192,8 @@ function bed(): Bed {
     turnsInFlight: () => turns.map((t) => ({ ...t })),
     restartPolicy: () => restart.value,
     memberOsUsers: () => members.value,
+    ...(opts.moveMembers ? { moveMembers: opts.moveMembers } : {}),
+    ...(opts.stopMemberUnits ? { stopMemberUnits: opts.stopMemberUnits } : {}),
     outsideFolders: () => outside.value,
     listUnits: () => UNITS,
     lockProcess: () => {
@@ -1071,5 +1087,170 @@ describe("the pull while paired (slice 4)", () => {
     const res = await b.call("GET", "/api/move/status", { session });
     expect(res.status).toBe(401);
     expect(existsSync(b.scratch)).toBe(false);
+  });
+});
+
+// Slice 5c-1: members with their own OS user move with the office. The
+// preflight and the lock read checkMoveMembers (server/office-move-members.ts
+// owns its blocks); the lock refuses only when a member is blocked, records
+// the ready members in the state `move` for the MOVE-locked server, and
+// writes her units record before it stops her units (Q5).
+describe("slice 5c-1: the lock and members with their own OS user", () => {
+  const BOT: AgentUnit = {
+    name: "bot.service",
+    fragmentPath: "/home/isomux-mia/.config/systemd/user/bot.service",
+    unitFileState: "enabled",
+    activeState: "active",
+    transient: false,
+  };
+  const MIA: MoveMember = {
+    userId: "u-mia",
+    name: "Mia",
+    osUser: "isomux-mia",
+    uid: 60001,
+    home: "/home/isomux-mia",
+    bundleHash: "a".repeat(64),
+  };
+  const MIA_INFO: MoveMemberInfo = {
+    userId: "u-mia",
+    name: "Mia",
+    osUser: "isomux-mia",
+    home: "/home/isomux-mia",
+    block: null,
+    units: [BOT],
+  };
+  const SAM_DOWN: MoveMemberInfo = {
+    userId: "u-sam",
+    name: "Sam",
+    osUser: "isomux-sam",
+    home: "/home/isomux-sam",
+    block: "runner_down",
+  };
+  const readyCheck: MoveMembersCheck = { members: [MIA_INFO], ready: [MIA] };
+  const blockedCheck: MoveMembersCheck = {
+    members: [MIA_INFO, SAM_DOWN],
+    ready: [MIA],
+  };
+
+  interface MemberBed {
+    b: Bed;
+    check: { value: MoveMembersCheck };
+    reads: { n: number };
+    memberStops: { member: string; units: string[]; recorded: boolean }[];
+  }
+
+  function memberBed(): MemberBed {
+    const check = { value: readyCheck };
+    const reads = { n: 0 };
+    const memberStops: MemberBed["memberStops"] = [];
+    let root = "";
+    const b = bed({
+      moveMembers: async () => {
+        reads.n++;
+        return check.value;
+      },
+      stopMemberUnits: (member, units) =>
+        memberStops.push({
+          member: member.userId,
+          units: units.map((u) => u.name),
+          recorded: existsSync(join(root, MOVE_MEMBER_UNITS_FILE)),
+        }),
+    });
+    root = b.root;
+    return { b, check, reads, memberStops };
+  }
+
+  const lock = (b: Bed, session: string, id: string) =>
+    b.call("POST", "/api/move/lock", { session, body: { preflightId: id } });
+
+  it("the preflight shows each member with her block and units", async () => {
+    const { b, check } = memberBed();
+    check.value = blockedCheck;
+    const session = await pair(b);
+    const id = await readyPreflight(b, session);
+    const s = await b.call("GET", `/api/move/preflight/${id}`, { session });
+    const got = (s.body?.result as { memberOsUsers?: Record<string, unknown> })
+      ?.memberOsUsers;
+    if (!got || !("members" in got)) throw new Error(JSON.stringify(got));
+    expect(got.members).toEqual([MIA_INFO, SAM_DOWN]);
+    expect([...(got.names as string[])].sort()).toEqual(["Mia", "Sam"]);
+  });
+
+  it("refuses with 409 member_os_users from a read at the lock, naming the blocked member, and writes nothing", async () => {
+    const { b, check, reads, memberStops } = memberBed();
+    const session = await pair(b);
+    // The preflight saw every member ready; the lock reads again.
+    const id = await readyPreflight(b, session);
+    const before = reads.n;
+    check.value = blockedCheck;
+    const res = await lock(b, session, id);
+    expect(reads.n).toBeGreaterThan(before);
+    expect(`${res.status} ${code(res)}`).toBe("409 member_os_users");
+    expect(res.body?.names).toEqual(["Sam"]);
+    expect(
+      (res.body?.members as { userId: string; block: string | null }[]).map(
+        (m) => [m.userId, m.block],
+      ),
+    ).toEqual([
+      ["u-mia", null],
+      ["u-sam", "runner_down"],
+    ]);
+    check.value = { broken: true };
+    const broken = await lock(b, session, id);
+    expect([`${broken.status} ${code(broken)}`, broken.body?.broken]).toEqual([
+      "409 member_os_users",
+      true,
+    ]);
+    await Bun.sleep(300);
+    expect(b.locks).toEqual([]);
+    expect(b.stops).toEqual([]);
+    expect(memberStops).toEqual([]);
+    expect(existsSync(join(b.root, MOVE_UNITS_FILE))).toBe(false);
+    expect(existsSync(join(b.root, MOVE_MEMBER_UNITS_FILE))).toBe(false);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
+      "paired",
+    );
+  });
+
+  it("locks when every member is ready, even though members have their own OS user; records them in the state, and her units record before her units stop", async () => {
+    const { b, memberStops } = memberBed();
+    // The read of slice 3 alone would refuse: the check decides now.
+    b.members.value = { names: ["Mia"] };
+    const session = await pair(b);
+    const id = await readyPreflight(b, session);
+    const res = await lock(b, session, id);
+    expect(res.status).toBe(202);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current).toMatchObject({
+      state: "move",
+      members: [MIA],
+    });
+    expect(readMemberUnitsRecord(b.root)).toEqual([
+      { userId: "u-mia", osUser: "isomux-mia", units: [BOT] },
+    ]);
+    const deadline = performance.now() + 3000;
+    while (memberStops.length === 0 && performance.now() < deadline)
+      await Bun.sleep(20);
+    expect(memberStops).toEqual([
+      { member: "u-mia", units: ["bot.service"], recorded: true },
+    ]);
+  });
+
+  it("a members' units record that cannot be written answers 500 and changes nothing: still paired, not locked, no stop", async () => {
+    const { b, memberStops } = memberBed();
+    const session = await pair(b);
+    const id = await readyPreflight(b, session);
+    mkdirSync(join(b.root, MOVE_MEMBER_UNITS_FILE));
+    const res = await lock(b, session, id);
+    expect(res.status).toBe(500);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
+      "paired",
+    );
+    // No record of a lock that did not happen: a later boot would restore
+    // from it.
+    expect(existsSync(join(b.root, MOVE_UNITS_FILE))).toBe(false);
+    await Bun.sleep(300);
+    expect(b.locks).toEqual([]);
+    expect(b.stops).toEqual([]);
+    expect(memberStops).toEqual([]);
   });
 });

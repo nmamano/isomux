@@ -329,3 +329,41 @@ export function memberOsUsersForMove(
       .sort(),
   };
 }
+
+// The members with their own OS user as an office move's check reads them
+// (task 78733adf, slice 5c-1), from `stateRoot` now, with no cache. A
+// malformed entry has no OS user (the check blocks it); `moving` is an
+// enable that did not finish; `movedIn` a member who came with a move and
+// waits for the enable command on this machine (slice 5c-2).
+export function memberOsUserRecordsForMove(
+  stateRoot: string,
+  nameOf: (userId: string) => string | null,
+):
+  | { broken: true }
+  | {
+      members: {
+        userId: string;
+        name: string | null;
+        osUser: MemberOsUser | null;
+        unfinished: boolean;
+        movedIn: boolean;
+      }[];
+    } {
+  const loaded = readRecord(join(stateRoot, MEMBER_OS_USERS_FILE));
+  if (loaded.kind === "absent") return { members: [] };
+  if (loaded.kind === "broken") return { broken: true };
+  return {
+    members: Object.entries(loaded.entries).map(([userId, entry]) => {
+      const raw = (entry ?? {}) as { moving?: unknown; movedIn?: unknown };
+      return {
+        userId,
+        name: nameOf(userId),
+        osUser: validOsUser(entry)
+          ? { name: entry.name, uid: entry.uid }
+          : null,
+        unfinished: raw.moving === true,
+        movedIn: raw.movedIn !== undefined && raw.movedIn !== false,
+      };
+    }),
+  };
+}

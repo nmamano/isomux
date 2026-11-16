@@ -692,11 +692,16 @@ export interface RunnerInfo {
   bundleHash: string | null;
 }
 
-export function readRunnerInfo(socketPath: RunnerTarget): Promise<RunnerInfo> {
+export function readRunnerInfo(
+  socketPath: RunnerTarget,
+  // An office move bounds the call (a member's listener may never answer).
+  timeoutMs?: number,
+): Promise<RunnerInfo> {
   return new Promise((resolve, reject) => {
     let info: RunnerInfo | null = null;
     let error: string | null = null;
-    new RunnerStream(
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stream = new RunnerStream(
       socketPath,
       { op: "info" },
       {
@@ -719,14 +724,22 @@ export function readRunnerInfo(socketPath: RunnerTarget): Promise<RunnerInfo> {
         },
         stdout: () => {},
         stderr: () => {},
-        close: () =>
-          info
-            ? resolve(info)
-            : reject(
-                new Error(error ?? "the agent runner closed the connection"),
-              ),
+        close: () => {
+          clearTimeout(timer);
+          if (info) resolve(info);
+          else
+            reject(
+              new Error(error ?? "the agent runner closed the connection"),
+            );
+        },
       },
     );
+    if (timeoutMs !== undefined)
+      timer = setTimeout(() => {
+        error = `the agent runner did not answer in ${timeoutMs / 1000} s`;
+        info = null;
+        stream.close();
+      }, timeoutMs);
   });
 }
 
@@ -831,6 +844,8 @@ export async function* runRunnerEntryOut(
   timeoutMs: number,
   // Ends the stream when no output comes for this long.
   stallMs?: number,
+  // Ends the stream when it aborts.
+  signal?: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
   const queue: Buffer[] = [];
   let ended = false;
@@ -854,6 +869,10 @@ export async function* runRunnerEntryOut(
     }, stallMs);
   };
   armStall();
+  const onAbort = () => {
+    error = "stopped";
+    stream.close();
+  };
   stream = new RunnerStream(
     socketPath,
     { op: "entry", name, input },
@@ -884,6 +903,8 @@ export async function* runRunnerEntryOut(
       },
     },
   );
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
       const chunk = queue.shift();
@@ -901,6 +922,7 @@ export async function* runRunnerEntryOut(
       wake = null;
     }
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     if (!ended) stream.close();
     clearTimeout(timer);
     if (stallTimer) clearTimeout(stallTimer);

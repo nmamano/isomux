@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMoveOutsideScope } from "./office-move-outside.ts";
+import { writeMemberBatch } from "./office-move-members.ts";
 import { languageFromAcceptLanguage } from "../shared/languages.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import {
@@ -247,13 +248,22 @@ export async function servePull(
         : fail(404, "not_found", "No such manifest.");
     }
     case "manifestData": {
-      // Slice 5b: ?outside=<i> names a folder of the job's own list.
-      const raw = new URL(req.url).searchParams.get("outside");
+      // Slice 5b: ?outside=<i> names a folder of the job's own list; slice
+      // 5c-1: ?member=<i> a member of it.
+      const params = new URL(req.url).searchParams;
+      const raw = params.get("outside");
+      const rawMember = params.get("member");
       const outside = raw === null ? undefined : outsideIndexOf(raw);
+      const member = rawMember === null ? undefined : outsideIndexOf(rawMember);
       const file =
-        route.id && outside !== null
-          ? pull.manifests.dataFile(route.id, state.sessionHash, outside)
-          : null;
+        !route.id ||
+        outside === null ||
+        member === null ||
+        (outside !== undefined && member !== undefined)
+          ? null
+          : member !== undefined
+            ? pull.manifests.memberDataFile(route.id, state.sessionHash, member)
+            : pull.manifests.dataFile(route.id, state.sessionHash, outside);
       if (!file) return fail(404, "not_found", "No ready manifest of that id.");
       const id = route.id;
       const signal = opts.signal;
@@ -262,7 +272,8 @@ export async function servePull(
           if (signal?.aborted) throw new Error("The move pairing ended.");
           yield chunk;
         }
-        if (outside === undefined) pull.manifests.markServed(id);
+        if (outside === undefined && member === undefined)
+          pull.manifests.markServed(id);
       }
       return sealed(
         sealMoveStream(
@@ -273,6 +284,7 @@ export async function servePull(
             batch: 0,
             itemsHash: "",
             ...(typeof outside === "number" ? { outside } : {}),
+            ...(typeof member === "number" ? { member } : {}),
           },
           data(),
         ),
@@ -347,8 +359,14 @@ async function batch(
   const manifestId = body?.manifestId;
   const n = body?.batch;
   const outside = body?.outside;
+  const member = body?.member;
+  const badIndex = (v: unknown) =>
+    v !== undefined &&
+    (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0);
   if (
     !body ||
+    badIndex(member) ||
+    (member !== undefined && outside !== undefined) ||
     !items ||
     typeof manifestId !== "string" ||
     typeof n !== "number" ||
@@ -362,10 +380,30 @@ async function batch(
     return fail(
       400,
       "invalid_request",
-      "The body must be {manifestId, batch, items: [{path, offset?, length?}], outside?}.",
+      "The body must be {manifestId, batch, items: [{path, offset?, length?}], outside? or member?}.",
     );
   if (!pull.manifests.dataFile(manifestId, state.sessionHash))
     return fail(409, "manifest_unknown", "No ready manifest of that id.");
+  // Slice 5c-1: a member of the job's own list, through her runner.
+  let records: AsyncIterable<Uint8Array> | null = null;
+  if (member !== undefined) {
+    const who = pull.manifests.member(
+      manifestId,
+      state.sessionHash,
+      member as number,
+    );
+    if (!who || !pull.memberSource)
+      return fail(409, "manifest_unknown", "The manifest has no such member.");
+    records = writeMemberBatch(
+      who,
+      pull.memberSource(who, member as number),
+      items,
+      {
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        snapshots: state.state !== "paired",
+      },
+    );
+  }
   // Slice 5b: a folder of the job's own list, never of the live records.
   let source = pull.batch;
   if (outside !== undefined) {
@@ -400,11 +438,13 @@ async function batch(
         batch: n,
         itemsHash: moveItemsHash(items),
         ...(outside !== undefined ? { outside } : {}),
+        ...(member !== undefined ? { member: member as number } : {}),
       },
-      writeMoveBatch(source, items, {
-        ...(opts.signal ? { signal: opts.signal } : {}),
-        snapshots: state.state !== "paired",
-      }),
+      records ??
+        writeMoveBatch(source, items, {
+          ...(opts.signal ? { signal: opts.signal } : {}),
+          snapshots: state.state !== "paired",
+        }),
     ),
   );
 }

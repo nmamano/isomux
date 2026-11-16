@@ -134,6 +134,10 @@ describe("the move scope", () => {
       MOVE_LOCK_MARKER,
       "move-pull",
       "move-pull/abc.ndjson",
+      // Slice 5c-1 (C6): a moved-in member's staged home is hers, carried
+      // by her runner; it never moves as office data.
+      "move-members",
+      "move-members/u-mia/home/.ssh/id_ed25519",
     ])
       expect([name, file(s, `.isomux/${name}`)]).toEqual([name, OUT]);
     expect(moveScope(s, "work/agent.sock", "other")).toEqual(OUT);

@@ -71,6 +71,8 @@ export const ENTRY_NAMES = new Set([
   "files-out",
   "files-remove",
   "file-read",
+  "home-files",
+  "home-list",
   "claude-cwd-move",
   "folder-files",
   "opencode-inspect",

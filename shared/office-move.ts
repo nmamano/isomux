@@ -129,6 +129,43 @@ export interface MoveOutsideFolders {
   left: MoveOutsideLeft[];
 }
 
+/** Slice 5c-1: why the old office cannot carry the home of a member with
+ *  their own OS user. `broken`, her record is malformed; `unfinished`, her
+ *  enable did not finish; `busy`, an enable or disable runs for her;
+ *  `moved_in`, she came with a move and the enable command has not run on
+ *  this machine; `bad_home`, passwd gives no safe home for her; `runner_down`,
+ *  her runner does not answer; `wrong_runner`, the answer names another user,
+ *  uid or home; `old_runtime`, her runner runs another runtime than this
+ *  office's. */
+export type MoveMemberBlock =
+  | "broken"
+  | "unfinished"
+  | "busy"
+  | "moved_in"
+  | "bad_home"
+  | "runner_down"
+  | "wrong_runner"
+  | "old_runtime";
+
+/** Slice 5c-1: a member with their own OS user, as the preflight and the
+ *  lock see her. */
+export interface MoveMemberInfo {
+  userId: string;
+  /** Her name, or the id when no user has it. */
+  name: string;
+  /** The OS user, or null when her record is malformed. */
+  osUser: string | null;
+  /** Her home from passwd, or null. */
+  home: string | null;
+  /** Ready to move, or why not. */
+  block: MoveMemberBlock | null;
+  /** The detail of a block, for the owner (a path, the two hashes...). */
+  detail?: string;
+  /** Her agent-made user units (slice 5c-1, Q5): the lock stops and
+   *  disables them. Absent when her runner cannot be asked. */
+  units?: AgentUnit[];
+}
+
 /** Slice 5b: why a folder cannot land on the new office. */
 export type MoveInFolderBlock =
   | "in_home"

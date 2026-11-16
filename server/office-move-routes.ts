@@ -20,7 +20,7 @@
 // (Restart=always, checked) starts the process again, and the boot gate
 // starts the MOVE-locked server.
 
-import { rmSync } from "node:fs";
+import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
 import type { MoveOutsideFolders } from "../shared/office-move.ts";
@@ -42,6 +42,14 @@ import {
   type MoveRedeemRefusal,
   type MoveState,
 } from "./office-move.ts";
+import {
+  MOVE_MEMBER_UNITS_FILE,
+  moveMembersLockRefusal,
+  writeMemberUnitsRecord,
+  type MoveMember,
+  type MoveMembersCheck,
+  type MoveMemberUnits,
+} from "./office-move-members.ts";
 import type { MovePullDeps } from "./office-move-pull.ts";
 import { movePullRouteOf, servePull } from "./move-locked-office.ts";
 import type {
@@ -68,6 +76,13 @@ export interface OfficeMoveRouteDeps {
   /** Members with their own OS user, read now (slice 3): the lock refuses
    *  while any member has one. */
   memberOsUsers(): MovePreflightResult["memberOsUsers"];
+  /** Slice 5c-1: checkMoveMembers, read at the lock. When given, the lock
+   *  refuses 409 member_os_users only with moveMembersLockRefusal, records
+   *  the ready members in the state `move`, and stops and disables their
+   *  units (the record first). */
+  moveMembers?(): Promise<MoveMembersCheck>;
+  /** Slice 5c-1: her units, through her runner (Q5). */
+  stopMemberUnits?(member: MoveMember, units: AgentUnit[]): void;
   /** Slice 5b: the folders outside the home, read now: the lock refuses
    *  (409 folders_changed) when the move list differs from the preflight's,
    *  and records it in the state. */
@@ -302,17 +317,57 @@ export function createOfficeMoveFrontDoor(
         "no_service_manager",
         "The office must run under a service that restarts it always (Restart=always).",
       );
-    // Read now, not from the preflight: their homes and sign-ins do not move
-    // yet (slice 5), so their agents would run as an OS user the new machine
-    // does not have.
-    const members = deps.memberOsUsers();
-    if ("broken" in members || members.names.length > 0)
-      return fail(
-        409,
-        "member_os_users",
-        "Members with their own OS user cannot move yet. Turn it off for each of them, then check again.",
-        members,
-      );
+    // Read now, not from the preflight. Slice 5c-1: a member with their
+    // own OS user moves when their runner can send their home; the check
+    // says why not for each one.
+    let ready: MoveMember[] = [];
+    let memberUnits: MoveMemberUnits[] = [];
+    if (deps.moveMembers) {
+      let check: MoveMembersCheck;
+      try {
+        check = await deps.moveMembers();
+      } catch (err) {
+        console.error("[move] could not check the members:", err);
+        return fail(
+          500,
+          "lock_failed",
+          "The office could not check its members with their own OS user. It is not locked.",
+        );
+      }
+      const refusal = moveMembersLockRefusal(check);
+      if (refusal)
+        return fail(
+          409,
+          "member_os_users",
+          "Some members with their own OS user cannot move now. Fix the reason shown for each of them, then check again.",
+          refusal,
+        );
+      if (!("broken" in check)) {
+        ready = check.ready;
+        memberUnits = ready.map((m) => ({
+          userId: m.userId,
+          osUser: m.osUser,
+          units: check.members.find((i) => i.userId === m.userId)?.units ?? [],
+        }));
+      }
+      // The check waited for the runners: the pairing may have ended.
+      const again = currentState();
+      if (
+        !again ||
+        again.state !== "paired" ||
+        again.sessionHash !== state.sessionHash
+      )
+        return fail(409, "not_paired", "The move pairing ended.");
+    } else {
+      const members = deps.memberOsUsers();
+      if ("broken" in members || members.names.length > 0)
+        return fail(
+          409,
+          "member_os_users",
+          "Members with their own OS user cannot move yet. Turn it off for each of them, then check again.",
+          members,
+        );
+    }
     const seen = new Set(pf.result.turnsInFlight.map((t) => t.agentId));
     const current = deps.turnsInFlight();
     const added = current.filter((t) => !seen.has(t.agentId));
@@ -349,7 +404,31 @@ export function createOfficeMoveFrontDoor(
         "The folders outside the home changed after the preflight. Run it again.",
         { outside, preflight: agreed },
       );
-    // The record and the state first: a failure changes nothing.
+    // The records and the state first: a failure changes nothing.
+    const dropMemberUnits = () => {
+      for (const name of [
+        MOVE_MEMBER_UNITS_FILE,
+        `${MOVE_MEMBER_UNITS_FILE}.tmp`,
+      ])
+        try {
+          if (!statSync(join(deps.stateRoot, name)).isDirectory())
+            rmSync(join(deps.stateRoot, name), { force: true });
+        } catch {
+          // Not there.
+        }
+    };
+    if (memberUnits.length > 0)
+      try {
+        writeMemberUnitsRecord(deps.stateRoot, memberUnits);
+      } catch (err) {
+        console.error("[move] could not write the members' units record:", err);
+        dropMemberUnits();
+        return fail(
+          500,
+          "lock_failed",
+          "The office could not record the units of its members. It is not locked.",
+        );
+      }
     let units: AgentUnit[];
     try {
       units = deps.listUnits();
@@ -357,6 +436,7 @@ export function createOfficeMoveFrontDoor(
     } catch (err) {
       console.error("[move] could not write the units record:", err);
       rmSync(join(deps.stateRoot, `${MOVE_UNITS_FILE}.tmp`), { force: true });
+      dropMemberUnits();
       return fail(
         500,
         "lock_failed",
@@ -364,13 +444,19 @@ export function createOfficeMoveFrontDoor(
       );
     }
     try {
-      markMoveLocked(deps.stateRoot, { preflightId, now, outside });
+      markMoveLocked(deps.stateRoot, {
+        preflightId,
+        now,
+        outside,
+        members: ready,
+      });
     } catch (err) {
       console.error("[move] could not write the move state:", err);
       rmSync(join(deps.stateRoot, MOVE_UNITS_FILE), {
         force: true,
         recursive: true,
       });
+      dropMemberUnits();
       return fail(
         500,
         "lock_failed",
@@ -389,6 +475,17 @@ export function createOfficeMoveFrontDoor(
     }
     console.log("[move] locked for the move; stopping the office");
     setTimeout(() => {
+      // Her units first, through her runner, while this process still runs
+      // (Q5); the record is written.
+      for (const m of ready) {
+        const mine = memberUnits.find((u) => u.userId === m.userId)?.units;
+        if (!mine || mine.length === 0 || !deps.stopMemberUnits) continue;
+        try {
+          deps.stopMemberUnits(m, mine);
+        } catch (err) {
+          console.error(`[move] could not stop the units of ${m.name}:`, err);
+        }
+      }
       try {
         deps.requestStop(units);
       } catch (err) {

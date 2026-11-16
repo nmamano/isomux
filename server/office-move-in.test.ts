@@ -46,6 +46,7 @@ import {
   type TurnInFlight,
 } from "./office-move-preflight.ts";
 import { createOfficeMoveFrontDoor } from "./office-move-routes.ts";
+import type { MemberHomeSource, MoveMember } from "./office-move-members.ts";
 import { moveLockedResponse } from "./move-locked-office.ts";
 import {
   compareMoveWalkOrder,
@@ -247,6 +248,18 @@ function bodyText(body: unknown): string | null {
   return null;
 }
 
+// Slice 5c-1: a member's runner whose home holds one file.
+const oneFileMember: MemberHomeSource = () => ({
+  async *list() {
+    yield Buffer.from(
+      `${JSON.stringify({ p: "m.txt", t: "f", s: 3, m: 1000, mode: 0o644 })}\n{"end":true}\n`,
+    );
+  },
+  async *files() {
+    yield Buffer.alloc(4);
+  },
+});
+
 function oldOffice(
   name = "old",
   opts: {
@@ -256,6 +269,9 @@ function oldOffice(
     /** Slice 5b: what the read of the folders outside the home gives now
      *  (the preflight, the lock and each manifest job read it). */
     outside?: { value: MoveOutsideFolders };
+    /** Slice 5c-1: members with their own OS user, ready to move, whose
+     *  runners each list one file. */
+    members?: MoveMember[];
   } = {},
 ): OldOffice {
   const home = join(dir, name, "home");
@@ -306,9 +322,13 @@ function oldOffice(
       units: () => [],
       secretCount: () => 0,
       ...(opts.outside ? { outside: () => opts.outside!.value.move } : {}),
+      ...(opts.members
+        ? { members: () => opts.members!, memberSource: oneFileMember }
+        : {}),
       now,
     }),
     batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
+    ...(opts.members ? { memberSource: oneFileMember } : {}),
   };
   const door = createOfficeMoveFrontDoor({
     ...(opts.live ? { pull } : {}),
@@ -318,6 +338,21 @@ function oldOffice(
     turnsInFlight: () => turns.map((t) => ({ ...t })),
     restartPolicy: () => "always",
     memberOsUsers: () => ({ names: [] }),
+    ...(opts.members
+      ? {
+          moveMembers: async () => ({
+            members: opts.members!.map((m) => ({
+              userId: m.userId,
+              name: m.name,
+              osUser: m.osUser,
+              home: m.home,
+              block: null,
+              units: [],
+            })),
+            ready: opts.members!,
+          }),
+        }
+      : {}),
     ...(opts.outside ? { outsideFolders: () => opts.outside!.value } : {}),
     listUnits: () => [],
     lockProcess: () => {},
@@ -2885,5 +2920,38 @@ describe("slice 5b: folders outside the home", () => {
     expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
       "staged",
     );
+  });
+});
+
+// Slice 5c-1, until slice 5c-2: an old office of 5c-1 locks with members
+// whose homes move, and lists them in its manifest. This office cannot take
+// their homes yet, so it must fail the pass, not move the office without
+// them.
+describe("slice 5c-1: an old office with members whose homes move", () => {
+  it("fails the pass with member_homes_unsupported, not retryable, and swaps nothing", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const mia: MoveMember = {
+      userId: "u-mia",
+      name: "Mia",
+      osUser: "isomux-mia",
+      uid: 60001,
+      home: "/home/isomux-mia",
+      bundleHash: "a".repeat(64),
+    };
+    const o = oldOffice("old", { members: [mia] });
+    const n = newOffice(o);
+    const end = await toEnd(o, n);
+    expect({
+      phase: end.phase,
+      code: (end as { error?: { code: string } }).error?.code ?? null,
+      retryable: (end as { retryable?: boolean }).retryable ?? null,
+    }).toEqual({
+      phase: "failed",
+      code: "member_homes_unsupported",
+      retryable: false,
+    });
+    // The old office did lock: the pass, not the lock, refused.
+    expect(o.state()).toBe("move");
+    expect(n.restarts.n).toBe(0);
   });
 });

@@ -40,6 +40,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { createMoveOutsideScope } from "./office-move-outside.ts";
+import {
+  walkMemberHome,
+  type MemberHomeSource,
+  type MoveMember,
+  type MoveMemberManifest,
+} from "./office-move-members.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   moveScope,
@@ -118,6 +124,9 @@ export interface MoveSealContext {
   /** Slice 5b: the index of the outside folder in the manifest job's list;
    *  absent for the home (whose context string is unchanged). */
   outside?: number;
+  /** Slice 5c-1: the index of a member in the manifest job's list; absent
+   *  for the home and the folders (their strings are unchanged). */
+  member?: number;
 }
 
 const sha256Hex = (b: Uint8Array | string) =>
@@ -186,7 +195,10 @@ async function fill(
 
 function contextString(ctx: MoveSealContext): string {
   const base = [ctx.route, ctx.manifestId, ctx.batch, ctx.itemsHash];
-  // The home's string is the one of an office before slice 5b.
+  // The home's string is the one of an office before slice 5b, and a
+  // folder's the one of slice 5b.
+  if (ctx.member !== undefined)
+    return JSON.stringify([...base, `member:${ctx.member}`]);
   return JSON.stringify(
     ctx.outside === undefined ? base : [...base, ctx.outside],
   );
@@ -337,6 +349,27 @@ function record(kind: number, payload: Uint8Array): Buffer {
 
 const jsonRecord = (kind: number, value: unknown) =>
   record(kind, Buffer.from(JSON.stringify(value)));
+
+/** Slice 5c-1: the records of a batch, for a member's files
+ *  (office-move-members.ts), in this format. */
+export const moveRecords = {
+  entry: (header: {
+    path: string;
+    mode: number;
+    mtime: number;
+    q?: 1;
+    offset?: number;
+  }) => jsonRecord(REC_ENTRY, { ...header, t: "f" }),
+  /** Content, at most moveRecords.dataMax bytes. */
+  data: (bytes: Uint8Array) => record(REC_DATA, bytes),
+  end: (trailer: { bytes: number; sha256: string; changed?: true }) =>
+    jsonRecord(REC_END, trailer),
+  error: (path: string, error: string) =>
+    jsonRecord(REC_ERROR, { path, error }),
+  get dataMax() {
+    return DATA_RECORD_BYTES;
+  },
+};
 
 /** One event of a batch's record stream. */
 export type MoveRecordEvent =
@@ -996,6 +1029,9 @@ export type MoveManifestStatus =
       /** Slice 5b: the folders outside the home, frozen at the job's start
        *  (C4). */
       outside: MoveOutsideManifest[];
+      /** Slice 5c-1: the homes of the members with their own OS user,
+       *  frozen at the job's start. */
+      members: MoveMemberManifest[];
       /** The units record of the lock (move-units.json). */
       units: unknown[];
       secretCount: number;
@@ -1008,6 +1044,9 @@ export type MoveManifestStatus =
 export interface MovePullDeps {
   manifests: MoveManifestJobs;
   batch: MoveBatchSource;
+  /** Slice 5c-1: her runner's streams for a batch with `member: i`;
+   *  without it such a batch answers 404. */
+  memberSource?: MemberHomeSource;
 }
 
 export interface MoveManifestJobs {
@@ -1021,6 +1060,10 @@ export interface MoveManifestJobs {
   dataFile(id: string, sessionHash: string, outside?: number): string | null;
   /** Slice 5b: the job's outside folder `i`, as the job froze it, or null. */
   outsideFolder(id: string, sessionHash: string, i: number): string | null;
+  /** Slice 5c-1: the NDJSON file of member `i` of a ready job, or null. */
+  memberDataFile(id: string, sessionHash: string, i: number): string | null;
+  /** Slice 5c-1: the job's member `i`, as the job froze it, or null. */
+  member(id: string, sessionHash: string, i: number): MoveMember | null;
   /** Records that the data of a ready job was served (done needs it). */
   markServed(id: string): void;
   served(id: string, sessionHash: string): boolean;
@@ -1038,6 +1081,9 @@ interface ManifestJob {
    *  NDJSON files, in the same order. */
   outside: string[];
   outsideFiles: string[];
+  /** Slice 5c-1: the members, frozen at the start, and their NDJSON files. */
+  members: MoveMember[];
+  memberFiles: string[];
   status: MoveManifestStatus;
   served: boolean;
 }
@@ -1080,6 +1126,10 @@ export function createMoveManifestJobs(deps: {
   /** Slice 5b: the folders outside the home that move, read once at each
    *  job's start (C4). */
   outside?(): MoveOutsideFolder[];
+  /** Slice 5c-1: the members whose homes move, read once at each job's
+   *  start, and the streams of their runners. */
+  members?(): MoveMember[];
+  memberSource?: MemberHomeSource;
   now(): Date;
 }): MoveManifestJobs {
   const jobs = new Map<string, ManifestJob>();
@@ -1088,10 +1138,13 @@ export function createMoveManifestJobs(deps: {
     return job && job.sessionHash === sessionHash ? job : null;
   };
   const removeFiles = (job: ManifestJob) => {
-    for (const f of [job.file, ...job.outsideFiles]) rmSync(f, { force: true });
+    for (const f of [job.file, ...job.outsideFiles, ...job.memberFiles])
+      rmSync(f, { force: true });
   };
   const index = (job: ManifestJob, i: number) =>
     Number.isSafeInteger(i) && i >= 0 && i < job.outside.length;
+  const memberIndex = (job: ManifestJob, i: number) =>
+    Number.isSafeInteger(i) && i >= 0 && i < job.members.length;
   return {
     start(sessionHash) {
       for (const job of jobs.values())
@@ -1111,6 +1164,21 @@ export function createMoveManifestJobs(deps: {
           message: `The folders outside the home cannot be read: ${errMessage(err)}`,
         };
       }
+      let members: MoveMember[];
+      try {
+        members = deps.members?.() ?? [];
+      } catch (err) {
+        return {
+          ok: false,
+          message: `The members with their own OS user cannot be read: ${errMessage(err)}`,
+        };
+      }
+      if (members.length > 0 && !deps.memberSource)
+        return {
+          ok: false,
+          message:
+            "The homes of members with their own OS user cannot be read.",
+        };
       const id = randomBytes(12).toString("base64url");
       mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
       const file = join(deps.dir, `${id}.ndjson`);
@@ -1121,6 +1189,10 @@ export function createMoveManifestJobs(deps: {
         outside,
         outsideFiles: outside.map((_, i) =>
           join(deps.dir, `${id}.outside-${i}.ndjson`),
+        ),
+        members,
+        memberFiles: members.map((_, i) =>
+          join(deps.dir, `${id}.member-${i}.ndjson`),
         ),
         status: { state: "running", id, entries: 0 },
         served: false,
@@ -1143,10 +1215,20 @@ export function createMoveManifestJobs(deps: {
               job.abort.signal,
             ),
           );
-        return { home, folders };
+        const homes: MoveMemberManifest[] = [];
+        for (let i = 0; i < members.length; i++)
+          homes.push(
+            await walkMemberHome(
+              members[i],
+              deps.memberSource!(members[i], i),
+              job.memberFiles[i],
+              { signal: job.abort.signal },
+            ),
+          );
+        return { home, folders, homes };
       };
       void walk().then(
-        ({ home, folders }) => {
+        ({ home, folders, homes }) => {
           if (job.abort.signal.aborted) return;
           let units: unknown[] = [];
           let secretCount = 0;
@@ -1166,6 +1248,7 @@ export function createMoveManifestJobs(deps: {
             units,
             secretCount,
             outside: folders,
+            members: homes,
             finishedAt: deps.now().getTime(),
           };
         },
@@ -1190,6 +1273,15 @@ export function createMoveManifestJobs(deps: {
     outsideFolder(id, sessionHash, i) {
       const job = mine(id, sessionHash);
       return job && index(job, i) ? job.outside[i] : null;
+    },
+    memberDataFile(id, sessionHash, i) {
+      const job = mine(id, sessionHash);
+      if (!job || job.status.state !== "ready") return null;
+      return memberIndex(job, i) ? job.memberFiles[i] : null;
+    },
+    member(id, sessionHash, i) {
+      const job = mine(id, sessionHash);
+      return job && memberIndex(job, i) ? job.members[i] : null;
     },
     markServed(id) {
       const job = jobs.get(id);

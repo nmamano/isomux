@@ -56,6 +56,8 @@ import {
   type MoveSealContext,
 } from "./office-move-pull.ts";
 import { createMovePull } from "./move-pull-boot.ts";
+import type { HomeFilesInput } from "./member-home-send.ts";
+import type { MemberHomeSource, MoveMember } from "./office-move-members.ts";
 import { createMoveScope } from "./office-move-scope.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
@@ -509,7 +511,12 @@ interface Pull {
 // with the pull wired as production wires it.
 function pullOffice(
   root: string,
-  over: { outside?: () => { path: string; mode: number }[] } = {},
+  over: {
+    outside?: () => { path: string; mode: number }[];
+    /** Slice 5c-1: the members and their runners' streams. */
+    members?: () => MoveMember[];
+    memberSource?: MemberHomeSource;
+  } = {},
 ): Pull {
   const home = join(root, "..");
   mkdirSync(join(home, "docs"), { recursive: true });
@@ -532,9 +539,12 @@ function pullOffice(
       units: () => [],
       secretCount: () => 0,
       ...(over.outside ? { outside: over.outside } : {}),
+      ...(over.members ? { members: over.members } : {}),
+      ...(over.memberSource ? { memberSource: over.memberSource } : {}),
       now,
     }),
     batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
+    ...(over.memberSource ? { memberSource: over.memberSource } : {}),
   };
   return {
     root,
@@ -1238,4 +1248,184 @@ describe("the pull through the real entry", () => {
     });
     expect(status.status).toBe(401);
   }, 30_000);
+});
+
+// Slice 5c-1: the manifest data and a batch pick a member of the job's own
+// list by her index (?member=<i>, member: i); the seal binds the index; her
+// files come through her runner's streams, never the office's file system.
+describe("slice 5c-1: the pull of members' homes", () => {
+  const member = (name: string, uid: number): MoveMember => ({
+    userId: `u-${name.toLowerCase()}`,
+    name,
+    osUser: `isomux-${name.toLowerCase()}`,
+    uid,
+    home: `/home/isomux-${name.toLowerCase()}`,
+    bundleHash: "a".repeat(64),
+  });
+  const MIA = member("Mia", 60001);
+  const SAM = member("Sam", 60002);
+
+  const frame = (b: Uint8Array) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(b.length, 0);
+    return Buffer.concat([len, b]);
+  };
+  const jframe = (v: unknown) => frame(Buffer.from(JSON.stringify(v)));
+
+  // Her runner: one file, "f.txt", whose content names her.
+  function source(): {
+    source: MemberHomeSource;
+    files: { osUser: string; input: HomeFilesInput }[];
+  } {
+    const files: { osUser: string; input: HomeFilesInput }[] = [];
+    return {
+      files,
+      source: (m) => ({
+        async *list() {
+          yield Buffer.from(
+            `${JSON.stringify({ p: "f.txt", t: "f", s: 9, m: 1000, mode: 0o644 })}\n{"end":true}\n`,
+          );
+        },
+        async *files(input) {
+          files.push({ osUser: m.osUser, input });
+          for (const it of input.items) {
+            const bytes = Buffer.from(`of ${m.osUser}`);
+            yield jframe({
+              i: it.i,
+              p: it.p,
+              mode: 0o644,
+              mtime: 1000,
+              size: bytes.length,
+            });
+            yield frame(bytes);
+            yield jframe({ i: it.i, end: true });
+          }
+          yield Buffer.alloc(4);
+        },
+      }),
+    };
+  }
+
+  const batchCtx = (
+    id: string,
+    n: number,
+    items: MoveBatchItem[],
+    i?: number,
+  ): MoveSealContext => ({
+    route: "batch",
+    manifestId: id,
+    batch: n,
+    itemsHash: moveItemsHash(items),
+    ...(i === undefined ? {} : { member: i }),
+  });
+
+  it("a batch with member: i reads member i of the job's list through her runner, with snapshots on, also after the records change; sealed to i; data with ?member=i is her manifest", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    let list = [MIA, SAM];
+    const src = source();
+    const p = pullOffice(root, {
+      members: () => list,
+      memberSource: src.source,
+    });
+    const id = await readyManifest(p, session);
+    list = [SAM];
+    const items: MoveBatchItem[] = [{ path: "f.txt" }];
+    const one = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 1, items, member: 1 },
+      }),
+      batchCtx(id, 1, items, 1),
+    );
+    expect(await batchFiles(one)).toEqual({ "f.txt": "of isomux-sam" });
+    const zero = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 2, items, member: 0 },
+      }),
+      batchCtx(id, 2, items, 0),
+    );
+    expect(await batchFiles(zero)).toEqual({ "f.txt": "of isomux-mia" });
+    expect(
+      src.files.map((f) => [f.osUser, f.input.home, f.input.snapshot]),
+    ).toEqual([
+      ["isomux-sam", "/home/isomux-sam", true],
+      ["isomux-mia", "/home/isomux-mia", true],
+    ]);
+    // The same item without member is the home's: no such file there, and
+    // her runner is not asked.
+    const home = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 3, items },
+      }),
+      batchCtx(id, 3, items),
+    );
+    expect(await batchFiles(home)).toEqual({ "f.txt": "error" });
+    expect(src.files).toHaveLength(2);
+
+    const data = await opened(
+      root,
+      await p.call("GET", `/api/move/manifest/${id}/data?member=1`, {
+        session,
+      }),
+      {
+        route: "manifest",
+        manifestId: id,
+        batch: 0,
+        itemsHash: "",
+        member: 1,
+      },
+    );
+    const names = data
+      .toString()
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => (JSON.parse(l) as { p: string }).p);
+    expect(names).toEqual(["f.txt"]);
+  });
+
+  it("a batch for an index the job does not have, or with both outside and member, is refused, and her runner is not asked", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const src = source();
+    const p = pullOffice(root, {
+      members: () => [MIA],
+      memberSource: src.source,
+    });
+    const id = await readyManifest(p, session);
+    for (const member of [1, -1, 0.5, "0"]) {
+      const res = await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 1, items: [{ path: "f.txt" }], member },
+      });
+      expect([member, res.status >= 400]).toEqual([member, true]);
+    }
+    const both = await p.call("POST", "/api/move/batch", {
+      session,
+      body: {
+        manifestId: id,
+        batch: 1,
+        items: [{ path: "f.txt" }],
+        member: 0,
+        outside: 0,
+      },
+    });
+    expect(both.status).toBe(400);
+    expect(src.files).toEqual([]);
+    const data = await p.call("GET", `/api/move/manifest/${id}/data?member=1`, {
+      session,
+    });
+    expect(data.status).toBe(404);
+    // The condition: member 0 is served.
+    const ok = await p.call("POST", "/api/move/batch", {
+      session,
+      body: { manifestId: id, batch: 1, items: [{ path: "f.txt" }], member: 0 },
+    });
+    expect(ok.status).toBe(200);
+  });
 });

@@ -40,6 +40,7 @@ import {
   type MoveRecordEvent,
   type MoveSealContext,
 } from "./office-move-pull.ts";
+import type { MemberHomeSource, MoveMember } from "./office-move-members.ts";
 import { createMoveScope } from "./office-move-scope.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
@@ -1070,5 +1071,172 @@ describe("slice 5b: folders outside the home", () => {
     const job2 = ok.start("s1");
     if (!job2.ok) throw new Error(job2.message);
     expect((await ready(ok, job2.id, "s1"))?.state).toBe("ready");
+  });
+});
+
+// Slice 5c-1: the homes of members with their own OS user. The job reads
+// its members once at its start and walks each through her runner's
+// streams; the seal binds the member's index apart from the home's and the
+// folders' (the runner side and the checks of each line:
+// server/office-move-members.test.ts).
+describe("slice 5c-1: the homes of members with their own OS user", () => {
+  const member = (name: string, uid: number): MoveMember => ({
+    userId: `u-${name.toLowerCase()}`,
+    name,
+    osUser: `isomux-${name.toLowerCase()}`,
+    uid,
+    home: `/home/isomux-${name.toLowerCase()}`,
+    bundleHash: "a".repeat(64),
+  });
+  const MIA = member("Mia", 60001);
+  const SAM = member("Sam", 60002);
+  const line = (p: string, t: "f" | "d", s: number) =>
+    JSON.stringify({ p, t, s, m: 1000, mode: t === "d" ? 0o755 : 0o644 });
+
+  // Each member's listing, by her OS user; null: a line she could not list.
+  function source(listings: Record<string, string[] | null>): {
+    source: MemberHomeSource;
+    asked: string[];
+  } {
+    const asked: string[] = [];
+    return {
+      asked,
+      source: (m) => ({
+        async *list(input) {
+          asked.push(`${m.osUser}:${input.home}`);
+          const l = listings[m.osUser];
+          const lines = l ?? [line("/etc/passwd", "f", 1)];
+          yield Buffer.from(`${[...lines, '{"end":true}'].join("\n")}\n`);
+        },
+        files: () => {
+          throw new Error("no batch here");
+        },
+      }),
+    };
+  }
+
+  async function ready(
+    jobs: ReturnType<typeof createMoveManifestJobs>,
+    id: string,
+    session: string,
+  ) {
+    const deadline = performance.now() + 10_000;
+    for (;;) {
+      const s = jobs.status(id, session);
+      if (s?.state !== "running" || performance.now() > deadline) return s;
+      await Bun.sleep(10);
+    }
+  }
+
+  it("a job walks the members it read once at its start; its status, data and members keep that list; each manifest is hers, relative to her home", async () => {
+    const f = fixture();
+    put(f, "docs/a.txt", "alpha");
+    let list = [MIA, SAM];
+    let reads = 0;
+    const src = source({
+      "isomux-mia": [line("m.txt", "f", 3), line("proj", "d", 4096)],
+      "isomux-sam": [line("s.txt", "f", 9)],
+    });
+    const jobs = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => [],
+      secretCount: () => 0,
+      members: () => {
+        reads++;
+        return list;
+      },
+      memberSource: src.source,
+      now: () => new Date(),
+    });
+    const job = jobs.start("s1");
+    if (!job.ok) throw new Error(job.message);
+    list = [SAM];
+    const s = await ready(jobs, job.id, "s1");
+    if (s?.state !== "ready") throw new Error(JSON.stringify(s));
+    expect(reads).toBe(1);
+    expect(src.asked).toEqual([
+      "isomux-mia:/home/isomux-mia",
+      "isomux-sam:/home/isomux-sam",
+    ]);
+    expect(
+      s.members.map((m) => [
+        m.userId,
+        m.osUser,
+        m.home,
+        m.entries,
+        m.totalBytes,
+      ]),
+    ).toEqual([
+      ["u-mia", "isomux-mia", "/home/isomux-mia", 2, 3],
+      ["u-sam", "isomux-sam", "/home/isomux-sam", 1, 9],
+    ]);
+    expect(jobs.member(job.id, "s1", 0)).toEqual(MIA);
+    expect(jobs.member(job.id, "s1", 1)).toEqual(SAM);
+    expect(jobs.member(job.id, "s1", 2)).toBeNull();
+    expect(jobs.member(job.id, "s2", 0)).toBeNull();
+    const zero = jobs.memberDataFile(job.id, "s1", 0);
+    expect(zero && dirname(zero)).toBe(f.scratch);
+    expect(statSync(zero!).mode & 0o777).toBe(0o600);
+    expect(readManifest(zero!).map((e) => e.p)).toEqual(["m.txt", "proj"]);
+    expect(
+      readManifest(jobs.memberDataFile(job.id, "s1", 1)!).map((e) => e.p),
+    ).toEqual(["s.txt"]);
+    expect(jobs.memberDataFile(job.id, "s1", 2)).toBeNull();
+    expect(jobs.memberDataFile(job.id, "s2", 0)).toBeNull();
+    // The home's manifest has none of her files.
+    const home = readManifest(jobs.dataFile(job.id, "s1")!).map((e) => e.p);
+    expect(home).toContain("docs/a.txt");
+    expect(home.some((p) => /^(m|s)\.txt$/.test(p))).toBe(false);
+    // A job with no members: an empty list.
+    const none = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => [],
+      secretCount: () => 0,
+      now: () => new Date(),
+    });
+    const j2 = none.start("s1");
+    if (!j2.ok) throw new Error(j2.message);
+    const s2 = await ready(none, j2.id, "s1");
+    expect(s2?.state === "ready" ? s2.members : null).toEqual([]);
+  });
+
+  it("Q3: a member whose runner sends a line she could not list fails the job, naming her", async () => {
+    const f = fixture();
+    const jobs = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => [],
+      secretCount: () => 0,
+      members: () => [MIA, SAM],
+      memberSource: source({
+        "isomux-mia": [line("m.txt", "f", 3)],
+        "isomux-sam": null,
+      }).source,
+      now: () => new Date(),
+    });
+    const job = jobs.start("s1");
+    if (!job.ok) throw new Error(job.message);
+    const s = await ready(jobs, job.id, "s1");
+    expect(s?.state).toBe("failed");
+    expect(s?.state === "failed" && s.error.includes("Sam")).toBe(true);
+  });
+
+  it("a member's response opens only as hers: not as the home, another member or a folder of the same index", async () => {
+    const plain = randomBytes(5_000);
+    const zero = await seal(plain, { ...CTX, member: 0 });
+    expect(sha256(await openAll(zero, { ...CTX, member: 0 }))).toBe(
+      sha256(plain),
+    );
+    expect([
+      await sealError(zero, CTX),
+      await sealError(zero, { ...CTX, member: 1 }),
+      await sealError(zero, { ...CTX, outside: 0 }),
+      await sealError(await seal(plain, { ...CTX, outside: 0 }), {
+        ...CTX,
+        member: 0,
+      }),
+    ]).toEqual(Array(4).fill("MoveSealError"));
   });
 });

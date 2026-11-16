@@ -1685,6 +1685,15 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   }> => {
     const { signal, gen } = opts;
     if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
+    // Slice 5c-1: the old office carries the homes of its members with
+    // their own OS user; this office takes them in slice 5c-2. Until then
+    // it refuses rather than move the office without them.
+    if (Array.isArray(summary.members) && summary.members.length > 0)
+      throw new MoveInFail(
+        "member_homes_unsupported",
+        "The old office has members with their own OS user, and this office cannot take their homes yet. Turn off their own OS user on the old office, then start the move again.",
+        false,
+      );
     const listed = outsideOfSummary(summary);
     prepareOutside(listed, opts.checked);
     const targets: PassTarget[] = [

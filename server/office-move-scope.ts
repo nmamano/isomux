@@ -12,10 +12,12 @@ import {
   MOVE_IN_DIR,
   MOVE_IN_STATE_FILE,
   MOVE_LOCK_MARKER,
+  MOVE_MEMBERS_DIR,
   MOVE_SCRATCH_DIR,
   MOVE_STATE_FILE,
 } from "./office-move.ts";
 import { MOVE_UNITS_FILE } from "./office-move-units.ts";
+import { MOVE_HOME_CACHES } from "./member-home-send.ts";
 
 /** The kind of a home entry, from lstat (a symlink is never followed). */
 export type MoveEntryKind = "file" | "dir" | "symlink" | "other";
@@ -62,11 +64,7 @@ interface MoveScopeRules {
 const HOME_CACHES = [
   // A move-in on this box (its stage holds another office's home).
   MOVE_IN_DIR,
-  ".cache",
-  ".bun",
-  ".npm/_cacache",
-  "go/pkg/mod",
-  ".cargo/registry",
+  ...MOVE_HOME_CACHES,
 ];
 
 /** The move's own files in the state root: left out, not counted. */
@@ -80,6 +78,8 @@ const MOVE_OWN_FILES = [
   MOVE_CANCELLED_FILE,
   MOVE_LOCK_MARKER,
   MOVE_SCRATCH_DIR,
+  // Slice 5c: the homes of moved-in members, waiting for their OS user.
+  MOVE_MEMBERS_DIR,
 ];
 
 /** Units bound to the old box or its origin (slice 3): left out, counted for

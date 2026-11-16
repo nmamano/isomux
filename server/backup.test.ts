@@ -410,6 +410,11 @@ describe("a folder copy", () => {
       "discord/u-alice/bots.json",
       "discord/u-alice/routes.json",
       "discord/u-alice/cursors.json",
+      // The units an office move stopped: a transient unit's environment
+      // can hold a secret. Slice 5c-1: the members' units too.
+      "move-units.json",
+      "move-member-units.json",
+      "move-member-units.json.tmp",
     ];
     const kept = [
       "pager.json",

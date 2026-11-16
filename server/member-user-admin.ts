@@ -438,6 +438,11 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
 // The members whose go-on or disable runs.
 const goingOn = new Set<string>();
 
+// Whether a go-on or a disable runs for the member (an office move waits).
+export function memberUserCallRunning(userId: string): boolean {
+  return goingOn.has(userId);
+}
+
 // disable (design 2.3): hold the member's agents, tear their apps down on
 // their host, mark moving, read their files back through their runner and
 // write them into the office, write the pins, remove the member's copies,

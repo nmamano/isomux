@@ -499,6 +499,19 @@ import {
 } from "./office-move-swap.ts";
 import { startSwapFailedOffice } from "./move-swap-failed-office.ts";
 import { createMovePull, movePullForBoot } from "./move-pull-boot.ts";
+import {
+  MOVE_MEMBER_UNITS_FILE,
+  readMemberUnitsRecord,
+  restoreMemberUnits,
+  type MoveMember,
+  type MoveMembersCheck,
+} from "./office-move-members.ts";
+import {
+  memberUnitRunner,
+  moveMembersCheck,
+  passwdEntry,
+  productionMemberHomeSource,
+} from "./office-move-member-wiring.ts";
 import { createSystemdHost } from "./app-supervisor.ts";
 import { officeUnitFromCgroup, unitPrefixFor } from "./office-units.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
@@ -1795,6 +1808,20 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       uid: process.getuid?.() ?? -1,
     });
   };
+  // Slice 5c-1: the members with their own OS user, checked through their
+  // runners. The live pass walks the ready ones of the last check (the
+  // preflight runs before it, and again after it).
+  let lastReadyMembers: MoveMember[] = [];
+  const moveMembers = async (): Promise<MoveMembersCheck> => {
+    const check = await moveMembersCheck({
+      stateRoot: STATE_ROOT,
+      officeHome: home,
+      appPrefix: unitPrefixFor(AGENT_ROOT, AGENT_ROOT_IS_DEFAULT),
+      nameOf: (id) => getUserById(id)?.name ?? null,
+    });
+    lastReadyMembers = "broken" in check ? [] : check.ready;
+    return check;
+  };
   const preflight = createMovePreflightJobs({
     home,
     hosts,
@@ -1804,6 +1831,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     listUnits,
     restartPolicy,
     memberOsUsers: moveMemberOsUsers,
+    moveMembers,
     outsideFolders,
     exec: seams.exec ?? spawnPreflightExec,
     osUser: userInfo().username,
@@ -1820,6 +1848,8 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       codeDir: PROJECT_ROOT,
       backupDir,
       outside: () => outsideFolders().move,
+      members: () => lastReadyMembers,
+      memberSource: productionMemberHomeSource,
       now: () => new Date(),
     }),
     stateRoot: STATE_ROOT,
@@ -1834,6 +1864,9 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     turnsInFlight,
     restartPolicy: () => restartPolicy()?.restart ?? null,
     memberOsUsers: moveMemberOsUsers,
+    moveMembers,
+    stopMemberUnits: (member, units) =>
+      stopRecordedUnits(memberUnitRunner(member), units),
     outsideFolders,
     listUnits,
     lockProcess: () => {
@@ -1901,6 +1934,45 @@ function finishMoveAtBoot(seams: MoveSeams): void {
     );
   for (const f of failed)
     console.error(`[move] could not put back the unit ${f.name}: ${f.reason}`);
+}
+
+/** Slice 5c-1: a member's units that a move stopped come back at her
+ *  runner's first connect after a normal boot (a cancel, a lockdown that
+ *  won and was unlocked). Not on a moved-in office: the enable command
+ *  places her home first (slice 5c-2). */
+function restoreMemberUnitsAtConnect(userId: string): void {
+  try {
+    if (!existsSync(join(STATE_ROOT, MOVE_MEMBER_UNITS_FILE))) return;
+    if (!readMemberUnitsRecord(STATE_ROOT).some((r) => r.userId === userId))
+      return;
+    if (officeLockedNow()) return;
+    if (readMoveState(STATE_ROOT, new Date()).current?.state === "move") return;
+    if (readMovedIn(STATE_ROOT)) return;
+    const state = memberOsUserState(userId);
+    if (state.kind !== "isolated") return;
+    const home = passwdEntry(state.osUser.name);
+    if (!home || home.uid !== state.osUser.uid) return;
+    const result = restoreMemberUnits(
+      STATE_ROOT,
+      userId,
+      memberUnitRunner({
+        osUser: state.osUser.name,
+        uid: state.osUser.uid,
+        home: home.home,
+      }),
+    );
+    if (!result) return;
+    if (result.restored.length > 0)
+      console.log(
+        `[move] put back the units of ${userId} the move stopped: ${result.restored.join(", ")}`,
+      );
+    for (const f of result.failed)
+      console.error(
+        `[move] could not put back the unit ${f.name} of ${userId}: ${f.reason}`,
+      );
+  } catch (err) {
+    console.error(`[move] could not put back the units of ${userId}:`, err);
+  }
 }
 
 /** The first normal boot after a move-in: the report gets the units the
@@ -2979,6 +3051,7 @@ function appOwnerReachable(app: AppRecord): boolean {
 }
 const appsWaitLogged = new Set<string>();
 let stopMemberAppReconcile: (() => void) | null = null;
+let stopMemberUnitsRestore: (() => void) | null = null;
 
 // A member's runner connected: their apps get the boot passes now. The
 // starts come last, after their tokens, URLs and secrets. Nothing while the
@@ -7264,6 +7337,10 @@ export async function startServer(
     stopMemberAppReconcile?.();
     stopMemberAppReconcile = onMemberConnected(reconcileMemberApps);
   }
+  // Slice 5c-1: a member's units that a move stopped (one listener per
+  // server, also when a test boots several).
+  stopMemberUnitsRestore?.();
+  stopMemberUnitsRestore = onMemberConnected(restoreMemberUnitsAtConnect);
   // A member renamed before renames reached the hooks (task 3278f29c): each
   // hook takes its owner's name now. No record keeps the name.
   webhookRegistry.syncOwnerNames((userId) => getUserById(userId)?.name);
@@ -7401,6 +7478,7 @@ async function startMoveLockedOfficeFromBoot(): Promise<void> {
       home: homedir(),
       codeDir: PROJECT_ROOT,
       backupDir: currentBackupDir(),
+      memberSource: productionMemberHomeSource,
       now,
     }),
     port: PORT,
@@ -7412,6 +7490,26 @@ async function startMoveLockedOfficeFromBoot(): Promise<void> {
     now,
   });
   keepStoppingLockedMemberApps();
+  stopMemberUnitsAgain(now());
+}
+
+/** Slice 5c-1: the MOVE-locked boot stops the members' recorded units again
+ *  through their runners (a safety net, as for the office's units). A
+ *  runner that does not answer is logged. */
+function stopMemberUnitsAgain(now: Date): void {
+  try {
+    const current = readMoveState(STATE_ROOT, now).current;
+    if (!current || (current.state !== "move" && current.state !== "moved"))
+      return;
+    const members = current.members ?? [];
+    for (const record of readMemberUnitsRecord(STATE_ROOT)) {
+      const member = members.find((m) => m.userId === record.userId);
+      if (member && record.units.length > 0)
+        stopRecordedUnits(memberUnitRunner(member), record.units);
+    }
+  } catch (err) {
+    console.error("[move] could not stop the members' units again:", err);
+  }
 }
 
 // The apps of a locked office: the office's own through its supervisor, an

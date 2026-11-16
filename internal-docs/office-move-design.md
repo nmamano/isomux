@@ -43,16 +43,16 @@ Expiry drops `code` and `paired` only (an audit row `office.moveExpired`), at th
 - per app folder, the files that name the old host (OAuth redirect URIs too), without `node_modules`, `.git` and files over 1 MB (`find` skips them before `grep` reads them);
 - `du` per top-level entry of the office user's home;
 - the packages the office user installed with sudo (apt history), or unknown;
-- the members with their own OS user (slice 3): their names (the id when no user has it, sorted), or `broken` when the record cannot be read.
+- the members with their own OS user (slice 3): their names (the id when no user has it, sorted), or `broken` when the record cannot be read. Slice 5c-1 adds `members`: per member her OS user, home, units and why her home cannot move now (below).
 
 ## The lock
 
-`POST /api/move/lock {preflightId}` refuses unless: the state is `paired`, the preflight is this pairing's, ready, and finished less than 15 min ago, the office unit has `Restart=always`, no member has their own OS user (read at the lock, not from the preflight: 409 `member_os_users` with `names` or `broken`; their homes and sign-ins move in slice 5c), the folders outside the home that move are the preflight's (409 `folders_changed`, slice 5b), and no agent works that the preflight did not list (409 `turns_changed`). Then, in order:
+`POST /api/move/lock {preflightId}` refuses unless: the state is `paired`, the preflight is this pairing's, ready, and finished less than 15 min ago, the office unit has `Restart=always`, no member with their own OS user is blocked (read at the lock, not from the preflight: 409 `member_os_users` with `names` and `members`, or `broken`; slice 5c-1, below), the folders outside the home that move are the preflight's (409 `folders_changed`, slice 5b), and no agent works that the preflight did not list (409 `turns_changed`). Then, in order:
 
-1. write `move-units.json` and the state `move` (a failure answers 500, and nothing changed);
+1. write `move-member-units.json` (slice 5c-1), `move-units.json` and the state `move` (a failure answers 500, and nothing changed);
 2. lock the process and close every socket (as the lockdown route does);
 3. audit `office.lockForMove`, answer 202;
-4. stop: end the office's leftover processes, stop the apps (the lock's apps record), disable or stop the units.
+4. stop: stop or disable the units of each member with their own OS user, through their runner; end the office's leftover processes, stop the apps (the lock's apps record, members' apps included), disable or stop the units.
 
 There is no credential quarantine and no `LOCKDOWN` marker: the sign-ins move with the office. The service manager starts the process again. The boot gate (`moveBootMode`) sees the state `move` and starts the MOVE-locked server (`server/move-locked-office.ts`), which loads no auth state, like the locked office. It serves `/readyz` (locked), `GET /api/move/status` and the move page with its cancel form, which takes the move code.
 
@@ -235,6 +235,27 @@ The kept `sessions.json` keeps the owner who finished signed in on the moved off
 - Before any rename, an entry in a folder that is not its stage and not an entry an earlier run of the swap put there fails the swap with its path. Finish's dry run refuses the same first (409 `outside_folder_not_empty`).
 - After the ops: each folder's `.isomux-move-in` and `outside.json` go, then each folder gets its old mode and mtime.
 - The report has `outsideMoved` and `outsideLeft` (from the preflight the owner agreed to).
+
+## Members with their own OS user (slice 5c)
+
+`server/office-move-members.ts` (the old office), `server/member-home-send.ts` (her runner's side, in the runner bundle), `server/office-move-member-wiring.ts` (production deps). The office cannot read the home of a member with their own OS user, so her runner lists it and sends its files, as her. 5c-1 is the old office; 5c-2 the new office (her home waits as office data until root runs the enable command there, which places it through her new runner); 5c-3 the UI.
+
+### The check (5c-1)
+
+`checkMoveMembers`, at the preflight and again at the lock. A member is blocked, with a reason, when her record is malformed (`broken`), her enable did not finish (`unfinished`), an enable or disable runs for her (`busy`), she came with a move and the enable command has not run here (`moved_in`), passwd gives no safe home (`bad_home`: absolute, normalised, not `/`, not holding or inside the office home or the state root, a real folder owned by her uid), her runner does not answer (`runner_down`), answers with another uid, user or home (`wrong_runner`), or runs another runtime than this office's bundle (`old_runtime`). The lock refuses while any member is blocked, and records the ready members (uid, home, runtime hash) in the state `move` as `members`: the MOVE-locked server loads no records.
+
+### Her units (5c-1)
+
+Her agent-made user units are listed through her runner as the office's are (her home, her uid's transient folder, the app units left out). The lock writes `move-member-units.json` (0600) before any change, then stops and disables them through her runner; the MOVE-locked boot does it again. After a normal boot (a cancel, an unlock), her units come back at her runner's first connect, and her entry goes. The file is in the move's scope: the new office restores her units after the enable command places her home (5c-2). A known limit: the listing at the preflight and the stop at the lock are synchronous runner calls, and a member who hangs her own user bus can block the office's event loop for up to 5 s per call, only while an owner runs the preflight or the lock.
+
+### The pull (5c-1)
+
+- Her runner's entries: `home-list` (an lstat walk of her home in the manifest's walk order, never into a link; specials as `x`, unreadable paths as `{u}`, then an end line) and `home-files` (the asked files as u32-length frames: a header, exactly `size` bytes, a trailer; or an error frame; a zero length ends; a file that shrinks after its header ends the call). A SQLite file goes as a `VACUUM INTO` snapshot in `.isomux-agent/.move-out/` in the state `move`, and as an error while paired. Each call takes a 32-hex nonce; `home-files` first removes the snapshots a crashed call left. The home must be its own realpath.
+- Scope (`memberHomeScope`): out, the home caches of the office's scope and what the office writes again in her agent space (`MEMBER_SPACE_OWN_LOCATIONS` under `.isomux-agent/`); bound, `.ssh/authorized_keys(2)`. Her sign-ins move.
+- Every reply is member data. The office checks each line (a plain relative path, strict walk order, its folder listed, in scope, at most 64 KB) and fails her walk, and the pass, naming her, on any other line, a missing end line, more than 10,000 unreadable paths (kept in memory for the status), or less than 1 GiB free where the manifest is written (checked every 10 MB). Only `f`, `d` and `l` lines reach the manifest. In a batch it asks her runner only for items it could have listed, and the first frame that does not match the request (index, path, offset, size, a SQLite flag where none may come) ends the batch with an error record for that item and every later one. It computes the sha256 itself.
+- Each stream asks her runner's info first (uid, user, home and runtime hash as recorded) with a time limit, then runs the entry with a 60 s stall limit and a 60 min total limit.
+- The manifest job reads the members once at its start (in `paired`, the ready members of the last check; in `move`, the state's), and walks each into its own NDJSON. A ready status adds `members: [{userId, osUser, home, entries, totalBytes, excluded, skipped, unreadable}]`. `GET .../data?member=<i>` and a batch's `member: i` index the job's list (not with `outside`). The seal context adds `member:<i>`.
+- Until 5c-2, the new office fails a pass whose manifest lists members (`member_homes_unsupported`).
 
 ## The Settings pane (slice 2c-2)
 

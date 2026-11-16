@@ -20,6 +20,7 @@ import {
 import { readMoveState } from "./office-move.ts";
 import { MOVE_AUDIT_ACTOR } from "./office-move-routes.ts";
 import type { MoveOutsideFolder } from "../shared/office-move.ts";
+import type { MemberHomeSource, MoveMember } from "./office-move-members.ts";
 import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
 import { createSecretStore } from "./secret-store.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
@@ -38,6 +39,10 @@ export function createMovePull(input: {
    *  lock recorded in the move state (the MOVE-locked server loads no
    *  records). */
   outside?(): MoveOutsideFolder[];
+  /** Slice 5c-1: the members whose homes move, and their runners' streams.
+   *  Absent: the members the lock recorded in the move state. */
+  members?(): MoveMember[];
+  memberSource?: MemberHomeSource;
   now(): Date;
 }): MovePullDeps {
   const scope = createMoveScope(input);
@@ -54,9 +59,15 @@ export function createMovePull(input: {
         input.outside
           ? input.outside()
           : lockedOutside(input.stateRoot, input.now()),
+      members: () =>
+        input.members
+          ? input.members()
+          : lockedMembers(input.stateRoot, input.now()),
+      ...(input.memberSource ? { memberSource: input.memberSource } : {}),
       now: () => input.now(),
     }),
     batch: { scope, scratchDir: scratch, snapshot: moveSnapshot },
+    ...(input.memberSource ? { memberSource: input.memberSource } : {}),
   };
 }
 
@@ -65,6 +76,7 @@ export function movePullForBoot(input: {
   home: string;
   codeDir: string;
   backupDir: string;
+  memberSource?: MemberHomeSource;
   now(): Date;
 }): Required<Pick<MoveLockedOfficeOpts, "pull" | "audit">> {
   return {
@@ -95,6 +107,15 @@ function lockedOutside(stateRoot: string, now: Date): MoveOutsideFolder[] {
   if (!current || (current.state !== "move" && current.state !== "moved"))
     return [];
   return (current.outside ?? []).map((path) => ({ path, mode: 0 }));
+}
+
+/** Slice 5c-1: the members the lock recorded in the move state (none in
+ *  any other state, or in a state of an earlier release). */
+function lockedMembers(stateRoot: string, now: Date): MoveMember[] {
+  const current = readMoveState(stateRoot, now).current;
+  if (!current || (current.state !== "move" && current.state !== "moved"))
+    return [];
+  return current.members ?? [];
 }
 
 /** The time limit of a member database's snapshot: 60 s, plus 1 s per

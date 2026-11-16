@@ -111,8 +111,9 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   },
   // An office move in progress (task 78733adf): the move code's key, the
   // hashes of its token and of the new office's session, and the units the
-  // move stopped (a transient unit's environment can hold a secret). On the
-  // new office, the move-in state holds the old office's session and key.
+  // move stopped, the office's and the members' (a transient unit's
+  // environment can hold a secret). On the new office, the move-in state
+  // holds the old office's session and key.
   // The temp files are each file in the middle of a write. The pull's
   // scratch (slice 4: also in a running office while paired) lists every
   // path and can hold a database snapshot.
@@ -123,6 +124,8 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/office-move.json.tmp`,
       `${root}/move-units.json`,
       `${root}/move-units.json.tmp`,
+      `${root}/move-member-units.json`,
+      `${root}/move-member-units.json.tmp`,
       `${root}/office-move-in.json`,
       `${root}/office-move-in.json.tmp`,
       ...rootedDirectory(root, "move-pull"),

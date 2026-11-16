@@ -49,6 +49,9 @@ export const MOVE_IN_STATE_FILE = "office-move-in.json";
 export const MOVE_IN_DIR = ".isomux-move-in";
 /** The move's scratch folder in the state root (manifests, snapshots). */
 export const MOVE_SCRATCH_DIR = "move-pull";
+/** Slice 5c: the homes of moved-in members on the new office, until the
+ *  enable command places each one (state root). */
+export const MOVE_MEMBERS_DIR = "move-members";
 export const MOVE_CODE_PREFIX = "isomux-move-1.";
 /** How long the new box has to redeem a code. */
 export const MOVE_CODE_TTL_MS = 60 * 60_000;
@@ -58,6 +61,7 @@ export const MOVE_SESSION_TTL_MS = 24 * 60 * 60_000;
 export const MOVE_PREFLIGHT_FRESH_MS = 15 * 60_000;
 
 export type { MoveBoxInfo, MoveOfficeUnit } from "../shared/office-move.ts";
+import type { MoveMember } from "./office-move-members.ts";
 
 interface MoveStateBase {
   /** sha256 (hex) of the code's token. */
@@ -100,6 +104,10 @@ export interface MoveStateMove extends Omit<MoveStatePaired, "state"> {
    *  them (equal to the preflight's). The MOVE-locked server walks these.
    *  Absent in a state of an earlier release: none. */
   outside?: string[];
+  /** Slice 5c-1: the members whose homes move, as the lock checked them.
+   *  The MOVE-locked server reaches their runners with these. Absent in a
+   *  state of an earlier release: none. */
+  members?: MoveMember[];
 }
 
 /** The new office confirmed a complete, checked copy (slice 2a). Terminal:
@@ -455,7 +463,12 @@ export function checkMoveSession(
 /** "paired" -> "move". Throws MoveStateError("not_paired") otherwise. */
 export function markMoveLocked(
   stateRoot: string,
-  input: { preflightId: string; now: Date; outside?: string[] },
+  input: {
+    preflightId: string;
+    now: Date;
+    outside?: string[];
+    members?: MoveMember[];
+  },
 ): MoveStateMove {
   const { current } = readMoveState(stateRoot, input.now);
   if (!current || current.state !== "paired")
@@ -466,6 +479,9 @@ export function markMoveLocked(
     lockedAt: input.now.getTime(),
     preflightId: input.preflightId,
     ...(input.outside ? { outside: input.outside } : {}),
+    ...(input.members && input.members.length > 0
+      ? { members: input.members }
+      : {}),
   };
   // The marker first (N1): an unreadable state file with it still boots
   // locked.

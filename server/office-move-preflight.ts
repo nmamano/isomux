@@ -7,10 +7,12 @@ import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type {
+  MoveMemberInfo,
   MoveOutsideFolder,
   MoveOutsideFolders,
   MoveOutsideLeft,
 } from "../shared/office-move.ts";
+import type { MoveMembersCheck } from "./office-move-members.ts";
 import type { AgentUnit } from "./office-move-units.ts";
 
 /** One step's time limit for du on one top-level entry. */
@@ -48,9 +50,12 @@ export interface MovePreflightResult {
   /** Packages installed system-wide with sudo by the office user (apt
    *  history); unknown when the log cannot be read. */
   sudoPackages: { packages: string[] } | { unknown: true };
-  /** Members with their own OS user (slice 3): the lock refuses while any
-   *  member has one, or while their record cannot be read. */
-  memberOsUsers: { names: string[] } | { broken: true };
+  /** Members with their own OS user (slice 3): the lock refuses while
+   *  their record cannot be read. Slice 5c-1: `members` says per member
+   *  whether her home can move; the lock refuses while one cannot. An old
+   *  office of slice 3-5b sends `names` only. */
+  memberOsUsers:
+    { names: string[]; members?: MoveMemberInfo[] } | { broken: true };
   /** Slice 5b: the folders outside the home, with a size estimate (du -sxb,
    *  which stops at mount points) of each folder that moves. */
   outsideFolders: {
@@ -81,6 +86,9 @@ export interface MovePreflightDeps {
   listUnits(): AgentUnit[];
   restartPolicy(): MovePreflightResult["restart"];
   memberOsUsers(): MovePreflightResult["memberOsUsers"];
+  /** Slice 5c-1: checkMoveMembers; when given, the preflight's
+   *  memberOsUsers comes from it (names and members). */
+  moveMembers?(): Promise<MoveMembersCheck>;
   /** Slice 5b: collectMoveOutsideFolders over the office's records. */
   outsideFolders?(): MoveOutsideFolders;
   exec: PreflightExec;
@@ -203,8 +211,28 @@ async function runPreflight(
     hostRefs,
     sizes,
     sudoPackages,
-    memberOsUsers: deps.memberOsUsers(),
+    memberOsUsers: await memberOsUsersOf(deps),
     outsideFolders,
+  };
+}
+
+/** Slice 5c-1: the members with their blocks when the office checks them;
+ *  else the names of slice 3. A check that throws reads as broken. */
+async function memberOsUsersOf(
+  deps: MovePreflightDeps,
+): Promise<MovePreflightResult["memberOsUsers"]> {
+  if (!deps.moveMembers) return deps.memberOsUsers();
+  let check: MoveMembersCheck;
+  try {
+    check = await deps.moveMembers();
+  } catch (err) {
+    console.error("[move] could not check the members:", err);
+    return { broken: true };
+  }
+  if ("broken" in check) return { broken: true };
+  return {
+    names: check.members.map((m) => m.name).sort(),
+    members: check.members,
   };
 }
 
