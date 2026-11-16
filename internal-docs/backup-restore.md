@@ -51,9 +51,12 @@ copy").
   ```
   isomux-2026-11-16/        mode 0700
     .isomux/                the copy of the state root
+    members/<userId>/       an isolated member's agent space (below)
     manifest.jsonl.gz       one line per entry of the copy
     backup.json             the marker, written last
   ```
+
+  Nothing else is at the top level, and only `.isomux/` is office state.
 
   A file with the same size, mtime and ctime as in the previous copy is a
   hard link to that copy's file; a changed or new file is copied. The copies
@@ -183,6 +186,38 @@ browsers signed in. An office started from a copy of another office's state
 root (a restore next to the original, or a copied `~/.isomux`) has the same id,
 and on one host the two read and clear each other's session cookies. Delete
 `office-id` in the copy before its first start to give it its own id.
+
+### Isolated members' agent spaces
+
+A member with their own OS user keeps their agents' files (provider homes,
+OpenCode profiles, Codex home, app data) in their home, not in the state root.
+Each copy holds that agent space in `members/<userId>/`, read as the member
+through their runner (`server/member-backup.ts`):
+
+```
+members/<userId>/
+  member.json         state: copied | carried | skipped, and why
+  space/              the agent space, files only
+  manifest.jsonl.gz   one line per entry of space/, links included
+```
+
+It leaves out what the state root's copy leaves out (login files, secrets,
+caches) and the app launchers, tokens and secrets. `member.json` names the
+files it could not take: sockets, fifos and devices, files over 2 GiB, and
+files that were gone, replaced, shrunk or no longer a file when they were read.
+A file that grew or was written during the read is copied up to its listed
+size, and copied again in the next run.
+
+- `copied`: this run copied the space.
+- `carried`: this run could not (the runner was not connected, the space did
+  not fit, the stream failed). `space/` is the tree of an earlier copy,
+  hard-linked: `carriedFrom` names it and `copiedAt` gives its date.
+- `skipped`: no earlier tree to carry; `member.json` only.
+
+`backup.json` lists the members not copied in the run (`membersSkipped`);
+`GET /api/backup/status` gives their names. A member who is not copied does
+not fail the backup. The restore below puts back the state root only; a
+member's space stays in the copy.
 
 Two things are silently absent:
 

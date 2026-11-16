@@ -261,6 +261,8 @@ export interface AgentHost {
     name: string,
     input: unknown,
     timeoutMs: number,
+    // Also ends it when no output comes for this long (a member's backup).
+    stallMs?: number,
   ): AsyncIterable<Uint8Array>;
   // The engine executables and helper scripts that this host's processes
   // run: the office's on an office host, the member runtime's on a member

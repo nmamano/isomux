@@ -56,6 +56,8 @@ import {
 // stdout.
 export const ENTRY_NAMES = new Set([
   "attachment-copy",
+  "backup-files",
+  "backup-list",
   "diff",
   "bun-path",
   "diagnose",

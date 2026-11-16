@@ -57,6 +57,7 @@ import {
 } from "fs";
 import { errMessage } from "../shared/errors.ts";
 import { OFFICE_DATABASE } from "./audit-store.ts";
+import { pacer } from "./backup-pacer.ts";
 import {
   COPY_MANIFEST,
   COPY_MARKER,
@@ -70,6 +71,13 @@ import {
   tarGlobSource,
 } from "./backup-exclusions.ts";
 import { STATE_ROOT } from "./config.ts";
+import {
+  copyMemberSpace,
+  findPreviousMemberTree,
+  type MemberBackupSource,
+  type MemberCopyResult,
+  type PreviousMemberTree,
+} from "./member-backup.ts";
 import { loadBackupSettingsRaw, saveBackupSettingsRaw } from "./persistence.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
@@ -341,6 +349,9 @@ let running = false;
 const preparedDirs = new Set<string>();
 
 export interface BackupStatus {
+  // The members of the newest copy whose space it did not copy in its run
+  // (carried from an earlier copy, or skipped), by name.
+  membersSkipped?: string[];
   backupDir: string;
   // ISOMUX_BACKUP_DIR set the folder.
   backupDirFromEnv: boolean;
@@ -486,7 +497,34 @@ function statusFromDisk(
         : null,
     lastBackupFile: newest?.file ?? null,
     running: isRunning,
+    ...membersSkippedOf(newest),
   };
+}
+
+// The members the newest copy did not copy, by name, when there are any.
+function membersSkippedOf(newest: VerifiedBackup | null): {
+  membersSkipped?: string[];
+} {
+  if (newest?.kind !== "folder") return {};
+  const marker = readCopyMarker(dirname(newest.path), newest.file);
+  const ids = marker?.membersSkipped ?? [];
+  if (ids.length === 0) return {};
+  const sources = memberSources;
+  return {
+    membersSkipped: ids.map((id) => (sources ? sources.name(id) : id)),
+  };
+}
+
+// The isolated members whose agent space each copy also holds
+// (member-backup.ts), set at boot. Null: no member's space.
+export interface BackupMemberSources {
+  list(): MemberBackupSource[];
+  name(userId: string): string;
+}
+let memberSources: BackupMemberSources | null = null;
+
+export function setBackupMemberSources(next: BackupMemberSources | null): void {
+  memberSources = next;
 }
 
 // ---- Older tar.gz copies -------------------------------------------------
@@ -730,25 +768,6 @@ function partialPath(dir: string, now: number): string {
     dir,
     `.isomux-backup-${process.pid}-${now}-${Math.random().toString(36).slice(2)}.partial`,
   );
-}
-
-// Long walks use sync fs calls (an await per file costs ~50 s for 167k
-// files) and give the event loop a turn every YIELD_EVERY entries and at
-// least every YIELD_MS, so the server keeps answering.
-const YIELD_EVERY = 1000;
-const YIELD_MS = 20;
-const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
-
-function pacer(): () => Promise<void> | undefined {
-  let n = 0;
-  let last = performance.now();
-  return () => {
-    if (++n % YIELD_EVERY !== 0 && performance.now() - last < YIELD_MS)
-      return undefined;
-    return yieldToLoop().then(() => {
-      last = performance.now();
-    });
-  };
 }
 
 function errCode(err: unknown): string | undefined {
@@ -1183,6 +1202,8 @@ async function verifyCopy(
   const pace = pacer();
   const stack = [""];
   while (stack.length > 0) {
+    // Also per folder: an empty one has no names to pace.
+    await pace();
     const dirRel = stack.pop()!;
     for (const name of readdirSync(join(copyRoot, dirRel))) {
       found++;
@@ -1345,6 +1366,10 @@ async function runBackup(
       chmodSync(dst, entry.mode & 0o7777);
     }
     await verifyCopy(copyRoot, written.manifest);
+    const members = await copyMembers(config, deps, partial, startedAt);
+    written.files += members.files;
+    written.bytes += members.bytes;
+    written.newBytes += members.newBytes;
 
     await writeManifest(join(partial, COPY_MANIFEST), written.manifest);
     const marker: CopyMarker = {
@@ -1357,9 +1382,12 @@ async function runBackup(
       bytes: written.bytes,
       newBytes: written.newBytes,
       linkedFrom:
-        previous && written.linked > 0
+        previous && (written.linked > 0 || members.linked)
           ? { name: previous.name, id: previous.id }
           : null,
+      ...(members.skipped.length > 0
+        ? { membersSkipped: members.skipped }
+        : {}),
     };
     writeFileSync(join(partial, COPY_MARKER), `${JSON.stringify(marker)}\n`, {
       mode: 0o600,
@@ -1372,6 +1400,89 @@ async function runBackup(
   } finally {
     if (existsSync(partial)) await removeCopyTree(partial);
   }
+}
+
+// Each isolated member's space, after the office's copy is written and
+// verified: one at a time, each one checked for free space on its own (the
+// office's copy was checked alone, before any write), and nothing of hers
+// can fail the run (member-backup.ts).
+async function copyMembers(
+  config: BackupConfig,
+  deps: BackupDeps,
+  partial: string,
+  startedAt: number,
+): Promise<{
+  files: number;
+  bytes: number;
+  newBytes: number;
+  skipped: string[];
+  linked: boolean;
+}> {
+  const out = {
+    files: 0,
+    bytes: 0,
+    newBytes: 0,
+    skipped: [] as string[],
+    linked: false,
+  };
+  let sources: MemberBackupSource[];
+  try {
+    sources = memberSources?.list() ?? [];
+  } catch (err) {
+    console.error("[backup] the isolated members could not be listed:", err);
+    return out;
+  }
+  if (sources.length === 0) return out;
+  const copies = listVerifiedBackups(config)
+    .filter((b) => b.kind === "folder")
+    .reverse()
+    .map((b) => ({ name: b.file, path: b.path }));
+  const newest = copies[0]?.name;
+  for (const source of sources) {
+    let previous: PreviousMemberTree | null = null;
+    let result: MemberCopyResult;
+    try {
+      previous = findPreviousMemberTree(copies, source.userId);
+      result = await copyMemberSpace(source, {
+        partial,
+        startedAt,
+        previous,
+        fits: (bytes, folders, entries) =>
+          deps.availableBytes(config.backupDir) >=
+          bytes +
+            folders * FOLDER_BYTES +
+            entries * MANIFEST_BYTES_PER_ENTRY +
+            Math.max(config.minHeadroomBytes, bytes / 4),
+        checkSpace: () => {
+          const available = deps.availableBytes(config.backupDir);
+          if (available < config.minHeadroomBytes)
+            throw new Error(
+              `free space ran out during a member's copy: ${available} bytes available`,
+            );
+        },
+        ...(deps.link ? { link: deps.link } : {}),
+        now: () => deps.now(),
+      });
+    } catch (err) {
+      // copyMemberSpace answers for everything of theirs; this is a fault of
+      // the office's own, and it fails their part only.
+      console.error(`[backup] ${source.userId}: agent space not copied:`, err);
+      result = {
+        userId: source.userId,
+        state: "skipped",
+        files: 0,
+        bytes: 0,
+        newBytes: 0,
+      };
+    }
+    out.files += result.files;
+    out.bytes += result.bytes;
+    out.newBytes += result.newBytes;
+    if (result.state !== "copied") out.skipped.push(source.userId);
+    // Her files link to the newest copy only when her tree came from it.
+    if (previous?.copyName === newest && result.files > 0) out.linked = true;
+  }
+  return out;
 }
 
 let preTick: (() => Promise<void>) | null = null;

@@ -4,8 +4,13 @@
 //
 //   <backup folder>/isomux-YYYY-MM-DD[-N]/   mode 0700
 //     <state root name>/                     the copy of the state root
+//     members/<userId>/                      an isolated member's agent space
+//                                            (server/member-backup.ts)
 //     manifest.jsonl.gz                      one line per entry of the copy
 //     backup.json                            the marker, written last
+//
+// These four are the whole top level. A reader of a copy treats nothing but
+// <state root name>/ as office state: members/ and any other entry are not.
 //
 // Files that did not change since the previous copy are hard links to that
 // copy's files, so the copies share disk space. The marker records how many
@@ -26,14 +31,17 @@ export interface CopyMarker {
   finishedAt: number;
   // The state root of the office that wrote it.
   office: string;
-  // The entries of the copy's state root that are not folders, and their
-  // sizes.
+  // The entries of the copy that are not folders (its state root and each
+  // member's space), and their sizes.
   files: number;
   bytes: number;
   // The sizes of the entries this copy wrote: copied files and symlinks.
   newBytes: number;
   // The copy whose files it links to, or null when it links to none.
   linkedFrom: { name: string; id: string } | null;
+  // The isolated members whose space this run did not copy (carried from an
+  // earlier copy, or skipped: members/<userId>/member.json says which).
+  membersSkipped?: string[];
 }
 
 function isCopyMarker(value: unknown): value is CopyMarker {
@@ -52,7 +60,10 @@ function isCopyMarker(value: unknown): value is CopyMarker {
     (m.linkedFrom === null ||
       (typeof m.linkedFrom === "object" &&
         typeof m.linkedFrom.name === "string" &&
-        typeof m.linkedFrom.id === "string"))
+        typeof m.linkedFrom.id === "string")) &&
+    (m.membersSkipped === undefined ||
+      (Array.isArray(m.membersSkipped) &&
+        m.membersSkipped.every((id) => typeof id === "string")))
   );
 }
 

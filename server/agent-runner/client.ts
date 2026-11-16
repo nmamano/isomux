@@ -829,6 +829,8 @@ export async function* runRunnerEntryOut(
   name: string,
   input: unknown,
   timeoutMs: number,
+  // Ends the stream when no output comes for this long.
+  stallMs?: number,
 ): AsyncGenerator<Uint8Array> {
   const queue: Buffer[] = [];
   let ended = false;
@@ -842,6 +844,16 @@ export async function* runRunnerEntryOut(
     error = "timed out";
     stream.close();
   }, timeoutMs);
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+  const armStall = () => {
+    if (stallMs === undefined) return;
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      error = `sent nothing for ${stallMs / 1000} s`;
+      stream.close();
+    }, stallMs);
+  };
+  armStall();
   stream = new RunnerStream(
     socketPath,
     { op: "entry", name, input },
@@ -852,10 +864,14 @@ export async function* runRunnerEntryOut(
         else if (message.type === "error") error = message.message;
       },
       stdout: (chunk) => {
+        if (!paused) armStall();
         queue.push(chunk);
         if (queue.length > 64 && !paused) {
           paused = true;
           stream.pause();
+          // A pause is the office's wait, not the runner's.
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = null;
         }
         wake?.();
       },
@@ -863,6 +879,7 @@ export async function* runRunnerEntryOut(
       close: () => {
         ended = true;
         clearTimeout(timer);
+        if (stallTimer) clearTimeout(stallTimer);
         wake?.();
       },
     },
@@ -874,6 +891,7 @@ export async function* runRunnerEntryOut(
         if (paused && queue.length < 16) {
           paused = false;
           stream.resume();
+          armStall();
         }
         yield chunk;
         continue;
@@ -885,6 +903,7 @@ export async function* runRunnerEntryOut(
   } finally {
     if (!ended) stream.close();
     clearTimeout(timer);
+    if (stallTimer) clearTimeout(stallTimer);
   }
   if (error !== null || status !== 0)
     throw new Error(
@@ -1121,7 +1140,8 @@ export class RunnerAgentHost implements AgentHost {
     name: string,
     input: unknown,
     timeoutMs: number,
+    stallMs?: number,
   ): AsyncIterable<Uint8Array> {
-    return runRunnerEntryOut(this.socketPath, name, input, timeoutMs);
+    return runRunnerEntryOut(this.socketPath, name, input, timeoutMs, stallMs);
   }
 }

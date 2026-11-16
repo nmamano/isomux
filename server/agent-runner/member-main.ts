@@ -15,6 +15,8 @@ import { basename } from "path";
 
 const ENTRIES: Record<string, () => Promise<unknown>> = {
   "attachment-copy": () => import("./entries/attachment-copy.ts"),
+  "backup-files": () => import("./entries/backup-files.ts"),
+  "backup-list": () => import("./entries/backup-list.ts"),
   diff: () => import("./entries/diff.ts"),
   "bun-path": () => import("./entries/bun-path.ts"),
   diagnose: () => import("./entries/diagnose.ts"),

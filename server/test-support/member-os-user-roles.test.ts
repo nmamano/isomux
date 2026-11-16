@@ -1,8 +1,9 @@
 // An isolated member (internal-docs/member-os-user-design.md, section 3.1 and
 // slice 1a) cannot become an owner while they have an OS user: an owner sets
 // office variables that reach every office-user agent. And the office does not
-// remove them until removal moves their agents (slice 3): a removal passes the
-// agents to an heir that may run as the office user.
+// remove them while they have one: a removal passes the agents to an heir that
+// may run as the office user. Their OS user is turned off first, which brings
+// their files and apps back; moving agents between hosts is task abdb452b.
 import { afterEach, expect, it } from "bun:test";
 import { rmSync } from "fs";
 import { startTestServer, type TestServer } from "./harness.ts";

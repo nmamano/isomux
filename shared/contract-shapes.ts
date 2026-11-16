@@ -2385,6 +2385,9 @@ export interface BackupStatusWire {
   destDir: string;
   // ISOMUX_BACKUP_DIR sets the folder; the settings cannot change it.
   destDirFromEnv: boolean;
+  // The isolated members whose agent space the newest backup did not copy
+  // in its run (it holds an earlier copy of it, or none), by name.
+  membersSkipped?: string[];
 }
 
 // PUT /api/backup/settings. An omitted field keeps its value; dir null resets

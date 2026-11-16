@@ -5,6 +5,7 @@ import {
   connectMemberHosts,
   hostFor,
   onMemberConnected,
+  memberHostConnected,
   memberRunnerSocketPath,
   memberShareOf,
   setMemberSecretHooks,
@@ -138,6 +139,7 @@ import {
   currentBackupDir,
   getBackupStatus,
   saveBackupSettings,
+  setBackupMemberSources,
   type BackupStatus,
 } from "./backup.ts";
 import { getVersionInfo, PROJECT_ROOT } from "./version.ts";
@@ -3184,6 +3186,7 @@ function backupStatusWire(s: BackupStatus): BackupStatusWire {
     intervalHours: s.intervalHours,
     destDir: s.backupDir,
     destDirFromEnv: s.backupDirFromEnv,
+    ...(s.membersSkipped ? { membersSkipped: s.membersSkipped } : {}),
   };
 }
 
@@ -6391,7 +6394,24 @@ function runBackgroundBoot(
   }
 
   // The daily backup of the state root, as the backup settings say. See
-  // server/backup.ts.
+  // server/backup.ts. Each copy also holds each isolated member's agent
+  // space, through their runner (member-backup.ts).
+  setBackupMemberSources({
+    list: () =>
+      memberOsUserIds().flatMap((userId) => {
+        const state = memberOsUserState(userId);
+        if (state.kind !== "isolated") return [];
+        const connected = memberHostConnected(userId);
+        return [
+          {
+            userId,
+            osUser: state.osUser,
+            host: connected ? hostFor(userId) : null,
+          },
+        ];
+      }),
+    name: (userId) => getUserById(userId)?.name ?? userId,
+  });
   if (!startOpts.skipBackups) startBackupScheduler();
 
   if (!startOpts.quiet)

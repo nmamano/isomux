@@ -172,11 +172,15 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
 
 // What Isomux or a backend makes again, so the daily backup leaves it out
 // (task 1426371a): package and plugin caches, temp folders and the built
-// Codex safety hook. Paths are relative to the state root and literal: they
-// are read from the disk at each run, because a glob's "*" also matches
-// "/" and would drop a folder of the same name deep in an agent's home. Kept
-// apart from BACKUP_EXCLUSIONS, which the office move reports as sign-ins.
-// The move still copies these paths.
+// Codex safety hook. Kept apart from BACKUP_EXCLUSIONS, which the office move
+// reports as sign-ins. The move still copies these paths.
+//
+// LOCATIONS, relative to the agent root: a "*" segment stands for one
+// folder name, never for "/", so a folder of the same name deep in an
+// agent's home or an app's data stays in a copy. The office's backup lists
+// each "*" from the disk at each run and matches literal paths
+// (regenerableBackupPaths); an isolated member's space, which the office
+// cannot list, is matched segment by segment (member-space-exclusions.ts).
 const OPENCODE_PROFILE_REMADE = [
   "cache", // XDG_CACHE_HOME (backends/opencode/profile-paths.ts)
   "tmp", // openCodeCliTmpDir (backends/opencode/config-layers.ts)
@@ -186,20 +190,29 @@ const OPENCODE_PROFILE_REMADE = [
 ];
 const CODEX_HOME_REMADE = ["cache", ".tmp", "tmp"];
 
+export const REGENERABLE_LOCATIONS: readonly string[] = [
+  // safety-hook-install.ts builds the golden copy again when it is missing
+  // and installs the hook from it.
+  "bin/isomux-codex-safety-hook",
+  "bin/.isomux-codex-safety-hook.golden",
+  ...CODEX_HOME_REMADE.map((name) => `codex-home/${name}`),
+  ...OPENCODE_PROFILE_REMADE.map((name) => `opencode/profiles/*/${name}`),
+  ...CODEX_HOME_REMADE.map((name) => `provider-homes/*/codex/${name}`),
+];
+
 export function regenerableBackupPaths(stateRoot: string): string[] {
-  const paths = [
-    // safety-hook-install.ts builds the golden copy again when it is missing
-    // and installs the hook from it.
-    "bin/isomux-codex-safety-hook",
-    "bin/.isomux-codex-safety-hook.golden",
-    ...CODEX_HOME_REMADE.map((name) => `codex-home/${name}`),
-  ];
-  for (const profile of subfolders(stateRoot, "opencode/profiles"))
-    for (const name of OPENCODE_PROFILE_REMADE)
-      paths.push(`opencode/profiles/${profile}/${name}`);
-  for (const home of subfolders(stateRoot, "provider-homes"))
-    for (const name of CODEX_HOME_REMADE)
-      paths.push(`provider-homes/${home}/codex/${name}`);
+  const paths: string[] = [];
+  for (const location of REGENERABLE_LOCATIONS) {
+    const star = location.indexOf("/*/");
+    if (star < 0) {
+      paths.push(location);
+      continue;
+    }
+    const parent = location.slice(0, star);
+    const rest = location.slice(star + 3);
+    for (const name of subfolders(stateRoot, parent))
+      paths.push(`${parent}/${name}/${rest}`);
+  }
   return paths;
 }
 
