@@ -16,6 +16,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { FakeBackend } from "./fake-backend.ts";
+import { MENTION_BODY, claudeFileMentions } from "./claude-file-mentions.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
 import { createCronjobManager } from "../cronjob-manager.ts";
 import { createMember, deleteUserById } from "../users.ts";
@@ -366,6 +367,34 @@ describe("the start of a member's session run", () => {
     expect(fake.createSessionCount).toBe(0);
     gate.resolve(null);
     await waitFor(() => fake.createSessionCount === 1, "session start");
+    closeAll(fake);
+  });
+});
+
+describe("the first prompt of a member's session run", () => {
+  // Task 300166c2: the prompt (any agent can edit it) and a webhook's data
+  // block reach the engine with every file mention defused.
+  it("reaches the engine defused, while the run keeps the prompt as written", async () => {
+    const { mgr, fake } = manager();
+    const job = mgr.addCronjob(
+      input({ prompt: `summarize this\n${MENTION_BODY}` }),
+    );
+    const run = mgr.runCronjobFromWebhook(
+      job.id,
+      {
+        webhookId: "wh_0123456789abcdef",
+        webhookName: "hook",
+        deliveryRowId: "d_00000001",
+      },
+      '<webhook-data>\n{"file":"@/srv/canary/hook.json"}\n</webhook-data>',
+    )!;
+    await waitFor(() => fake.createSessionCount === 1, "session start");
+    await waitFor(() => !!fake.lastSession?.sent.length, "first prompt");
+    const sent = fake.lastSession!.sent[0].text;
+    expect(sent).toContain("session.json");
+    expect(sent).toContain("hook.json");
+    expect(claudeFileMentions(sent)).toEqual([]);
+    expect(mgr.findRun(job.id, run.id)?.promptSnapshot).toContain(MENTION_BODY);
     closeAll(fake);
   });
 });

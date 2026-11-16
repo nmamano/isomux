@@ -69,6 +69,7 @@ import {
 import { askReplyNote } from "./asks.ts";
 import {
   formatPrefix,
+  defuseFileMentions,
   defuseSenderLabels,
   isRepliesOnlyDevice,
   formatApiTokenName,
@@ -7724,7 +7725,8 @@ export function createAgentManager(deps: ManagerDeps) {
     const prefix = nativeCommand
       ? ""
       : `${formatPrefix({ username, device })}${ask ? askReplyNote(ask, managed.sessionManager.sessionId) : ""}`;
-    const body = asData ? defuseSenderLabels(text) : text;
+    // A replies-only token's text is data: no label lines, no file mentions.
+    const body = asData ? defuseFileMentions(defuseSenderLabels(text)) : text;
     const prefixedText = prefix ? `${prefix}${body}` : body;
     try {
       await runAgentTurn({

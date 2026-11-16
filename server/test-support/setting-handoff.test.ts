@@ -25,6 +25,7 @@ import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
+import { claudeFileMentions } from "./claude-file-mentions.ts";
 import { createMember, getUserByName } from "../users.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
@@ -475,6 +476,22 @@ describe("a setting change hands off, on the new settings", () => {
     const { brief, fresh } = await expectHandedOff(h, info.id, c0, "codex");
     expect(brief.session.opts.cwd).toBe(cwd);
     expect(fresh.opts.cwd).toBe(cwd);
+  });
+
+  // Task 300166c2: the brief prompt and the fresh notice quote the folder
+  // paths (an agent can pick them), so a file mention in one is defused.
+  it("folder, Codex: a path that holds a file mention reaches the engine defused", async () => {
+    const h = makeHarness();
+    const info = await spawn(h, "codex");
+    const c0 = await finishedTurn(h, info.id);
+    const cwd = join(STATE_ROOT, "tools @", "srv", "canary");
+    mkdirSync(cwd, { recursive: true });
+    await h.mgr.editAgent(info.id, { cwd });
+    const { brief, fresh } = await expectHandedOff(h, info.id, c0, "codex");
+    expect(brief.text).toContain("canary");
+    expect(claudeFileMentions(brief.text)).toEqual([]);
+    expect(fresh.sent[0].text).toContain("canary");
+    expect(claudeFileMentions(fresh.sent[0].text)).toEqual([]);
   });
 
   it("folder, Codex released: the brief turn runs in the new folder", async () => {

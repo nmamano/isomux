@@ -85,7 +85,7 @@ import {
   type RunCommand,
 } from "./cron-agent-fire.ts";
 import { cwdProblem, resolveCwd, type CwdProblem } from "./cwd-utils.ts";
-import { formatPrefix } from "../shared/identity.ts";
+import { defuseFileMentions, formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   loadOfficeConfig,
@@ -1751,7 +1751,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
             return;
           }
         }
-        await session.send(prompt);
+        // The prompt was written ahead of time, by a member or an agent, and
+        // may end in a webhook's data: no file mention in it is read.
+        await session.send(defuseFileMentions(prompt));
       } catch (err) {
         // The run already ended (a kill, or a turn that ended before the send
         // settled): a late send failure is not news for it.
@@ -2283,7 +2285,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // REST boundary threads a messageId so the persisted/broadcast user_message
     // entry id equals the route response's ack. clientMessageId dedupes a
     // resend of an attempt that was accepted but whose response was lost.
-    opts?: { messageId?: string; clientMessageId?: string },
+    // asData: the sender is not a member at the keyboard (an agent, app,
+    // run or API token), so the text is defused before the engine reads it.
+    opts?: { messageId?: string; clientMessageId?: string; asData?: boolean },
   ): Promise<RunSendResult> {
     if (!opts?.clientMessageId)
       return sendRunMessageInner(jobId, runId, text, username, device, opts);
@@ -2323,7 +2327,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     text: string,
     username: string | undefined,
     device: string | undefined,
-    opts: { messageId?: string } | undefined,
+    opts: { messageId?: string; asData?: boolean } | undefined,
   ): Promise<UserSendAcceptance> {
     const notResumable = (message: string): UserSendAcceptance => ({
       ok: false,
@@ -2453,9 +2457,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
           message: renderLogText(english, failed),
         };
       }
+      // asData: the engine gets the text defused, and the entry records what
+      // it got (sdkText), so an edit of it finds the engine's message.
+      const sentText = opts?.asData ? defuseFileMentions(text) : text;
       const meta: Record<string, unknown> | undefined =
-        username || device
-          ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
+        username || device || sentText !== text
+          ? {
+              ...(username ? { username } : {}),
+              ...(device ? { device } : {}),
+              ...(sentText !== text ? { sdkText: sentText } : {}),
+            }
           : undefined;
       const saved = writeLog(
         active,
@@ -2480,7 +2491,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       }
 
       const prefix = formatPrefix({ username, device });
-      const prefixedText = prefix ? `${prefix}${text}` : text;
+      const prefixedText = prefix ? `${prefix}${sentText}` : sentText;
       void (async () => {
         try {
           await session.send(prefixedText);
@@ -2648,7 +2659,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
     newText: string,
     username?: string,
     device?: string,
-    opts?: { messageId?: string },
+    // As sendRunMessage's asData.
+    opts?: { messageId?: string; asData?: boolean },
   ): Promise<void> {
     const run = findRun(jobId, runId);
     // A run that sent a message to an agent has no session to edit; the
@@ -2734,7 +2746,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     leaf: string,
     username?: string,
     device?: string,
-    opts?: { messageId?: string },
+    opts?: { messageId?: string; asData?: boolean },
   ): Promise<void> {
     const jobId = run.cronjobId;
     const runId = run.id;
@@ -2943,9 +2955,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
       );
       return;
     }
+    // As in sendRunMessageInner.
+    const sentText = opts?.asData ? defuseFileMentions(newText) : newText;
     const editMeta: Record<string, unknown> | undefined =
-      username || device
-        ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
+      username || device || sentText !== newText
+        ? {
+            ...(username ? { username } : {}),
+            ...(device ? { device } : {}),
+            ...(sentText !== newText ? { sdkText: sentText } : {}),
+          }
         : undefined;
     writeLog(
       active,
@@ -2956,7 +2974,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       opts?.messageId ? { id: opts.messageId } : undefined,
     );
     const editPrefix = formatPrefix({ username, device });
-    const prefixedText = editPrefix ? `${editPrefix}${newText}` : newText;
+    const prefixedText = editPrefix ? `${editPrefix}${sentText}` : sentText;
     void (async () => {
       try {
         await session.send(prefixedText);

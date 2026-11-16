@@ -17,6 +17,7 @@
 //
 // LEAF: imports only shared types, the atomic writer and the history's type.
 
+import { defuseFileMentions } from "../shared/identity.ts";
 import { readFileSync, renameSync } from "fs";
 import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
@@ -1521,10 +1522,18 @@ export function askTaskFields(
 // question, so the note quotes the whole prompt and, when the session that
 // opened the ask is not the current one, names it for a log search. An ask an
 // app opened names the app, so the agent knows it did not ask it. A simplify
-// request keeps the ask open: the agent rewrites it in place.
+// request keeps the ask open: the agent rewrites it in place. The prompt
+// quoted here is not the member's typing, so its file mentions are defused.
 export function askReplyNote(
   ref: AskRef,
   currentSessionId: string | null = null,
+): string {
+  return defuseFileMentions(askReplyNoteText(ref, currentSessionId));
+}
+
+function askReplyNoteText(
+  ref: AskRef,
+  currentSessionId: string | null,
 ): string {
   const from =
     ref.sessionId && ref.sessionId !== currentSessionId

@@ -154,7 +154,7 @@ export interface CronDeps {
     text: string,
     username: string | undefined,
     device: string | undefined,
-    opts: { messageId?: string; clientMessageId?: string },
+    opts: { messageId?: string; clientMessageId?: string; asData?: boolean },
   ): Promise<RunSendResult>;
   editRunMessage(
     jobId: string,
@@ -163,7 +163,7 @@ export interface CronDeps {
     newText: string,
     username: string | undefined,
     device: string | undefined,
-    opts: { messageId?: string },
+    opts: { messageId?: string; asData?: boolean },
   ): void;
   emitCronjobRunReadFile(
     jobId: string,
@@ -325,6 +325,16 @@ function hasKey(body: object, key: string): boolean {
 
 function jobById(deps: CronDeps, id: string | undefined): Cronjob | undefined {
   return deps.listCronjobs().find((cronjob) => cronjob.id === id);
+}
+
+// A run message from anyone but a member at the keyboard is data: its file
+// mentions are defused before the engine reads it. A full personal API token
+// is the member, as on the agent message route; a replies-only one is not.
+function runMessageIsData(identity: Identity): boolean {
+  if (identity.scope === "user") return false;
+  if (identity.scope === "api")
+    return identity.apiTokenLimits?.repliesOnly === true;
+  return true;
 }
 
 export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
@@ -740,7 +750,11 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         body.text,
         username,
         device,
-        { messageId, clientMessageId: body.clientMessageId },
+        {
+          messageId,
+          clientMessageId: body.clientMessageId,
+          asData: runMessageIsData(ctx.identity),
+        },
       );
       if (!r.ok) return fail(r.status, r.code, r.message);
       return ok({ messageId: r.deduped ? "" : messageId });
@@ -768,7 +782,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         body.newText,
         username,
         device,
-        { messageId },
+        { messageId, asData: runMessageIsData(ctx.identity) },
       );
       return ok({ messageId });
     },

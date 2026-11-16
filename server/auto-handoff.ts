@@ -4,6 +4,7 @@
 // hands off to a fresh session. The state machine lives in agent-manager; this
 // module holds the trigger and the words.
 
+import { defuseFileMentions } from "../shared/identity.ts";
 import { AUTO_HANDOFF_DEFAULT_TOKENS } from "../shared/auto-handoff.ts";
 import type { ManagedAgent, SettingHandoffRequest } from "./internal-types.ts";
 
@@ -188,14 +189,15 @@ export function settingHandoffBriefPrompt(
   agentId: string,
 ): string {
   const logs = `/api/agents/${agentId}/logs?session=${request.previousSessionId}`;
-  return (
+  // It quotes names and folder paths that no member typed here.
+  return defuseFileMentions(
     `[settings handoff: ${settingChangeText(request)}, so Isomux started this new conversation. ` +
-    `Your previous conversation is session ${request.previousSessionId}, and after this turn Isomux hands off to a fresh session with your reply as its brief. ` +
-    `Read what you need from the previous conversation, not all of it: the member messages, where standing rules and go-aheads are (GET ${logs}&tier=prompts), ` +
-    `then its summary and its last entries, where the open work is (GET ${logs}&tier=conversation&limit=60). ` +
-    `GET /api/agent-reference/conversation-history has the details.${cutTurnText(request, "brief")}${managerTrustRule(request, "brief")} ` +
-    `Reply with only the handoff brief. It is forward-looking: the goal, the next concrete steps, the standing rules the members gave, working state not obvious from disk, decisions the fresh session should not relitigate, open questions to revisit with the member, and pointers (files, docs, task IDs). ` +
-    `Leave out a recap of the previous conversation and anything already in your system prompt, custom instructions or memory. Keep it tight. Do not call the handoff route.]`
+      `Your previous conversation is session ${request.previousSessionId}, and after this turn Isomux hands off to a fresh session with your reply as its brief. ` +
+      `Read what you need from the previous conversation, not all of it: the member messages, where standing rules and go-aheads are (GET ${logs}&tier=prompts), ` +
+      `then its summary and its last entries, where the open work is (GET ${logs}&tier=conversation&limit=60). ` +
+      `GET /api/agent-reference/conversation-history has the details.${cutTurnText(request, "brief")}${managerTrustRule(request, "brief")} ` +
+      `Reply with only the handoff brief. It is forward-looking: the goal, the next concrete steps, the standing rules the members gave, working state not obvious from disk, decisions the fresh session should not relitigate, open questions to revisit with the member, and pointers (files, docs, task IDs). ` +
+      `Leave out a recap of the previous conversation and anything already in your system prompt, custom instructions or memory. Keep it tight. Do not call the handoff route.]`,
   );
 }
 

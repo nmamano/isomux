@@ -793,6 +793,67 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
     return { ...base, ...over };
   }
 
+  // Task 300166c2: a run message from anyone but a member at the keyboard is
+  // data, so its file mentions are defused (asData). A full personal API token
+  // is the member, as on the agent message route; a replies-only one is not.
+  const asDataCases: [string, Identity, boolean][] = [
+    ["a member session", ownerIdentity, false],
+    [
+      "a full API token",
+      { ...ownerIdentity, scope: "api", apiTokenId: "t1", apiTokenName: "cli" },
+      false,
+    ],
+    [
+      "a replies-only API token",
+      {
+        ...ownerIdentity,
+        scope: "api",
+        apiTokenId: "t2",
+        apiTokenName: "bot",
+        apiTokenLimits: { repliesOnly: true },
+      },
+      true,
+    ],
+    ["an agent", { ...ownerIdentity, scope: "agent", agentId: "a1" }, true],
+    ["an app", { ...ownerIdentity, scope: "app", appName: "habits" }, true],
+    [
+      "a schedule run",
+      { ...ownerIdentity, scope: "cron-run", cronjobId: "job9", runId: "r9" },
+      true,
+    ],
+  ];
+  for (const [label, identity, asData] of asDataCases) {
+    it(`a run message and its edit from ${label} ${asData ? "are" : "are not"} sent as data`, async () => {
+      const seen: (boolean | undefined)[] = [];
+      const handlers = cronHandlers(
+        stubDeps({
+          findRun: () => ({ id: "run1" }) as CronjobRun,
+          sendRunMessage: async (_j, _r, _t, _u, _d, opts) => {
+            seen.push(opts.asData);
+            return { ok: true };
+          },
+          editRunMessage: (_j, _r, _e, _t, _u, _d, opts) => {
+            seen.push(opts.asData);
+          },
+        }),
+      );
+      const send = await handlers["cron.runMessage"]({
+        ...unitCtx({ text: "hi" }, { id: "job1", runId: "run1" }),
+        identity,
+      });
+      expect(send.kind).toBe("json");
+      const edit = await handlers["cron.editRunMessage"]({
+        ...unitCtx(
+          { newText: "edited" },
+          { id: "job1", runId: "run1", logEntryId: "e1" },
+        ),
+        identity,
+      });
+      expect(edit.kind).toBe("json");
+      expect(seen.map((v) => v === true)).toEqual([asData, asData]);
+    });
+  }
+
   it("cron.editRunMessage returns {messageId} and threads that SAME id into editRunMessage", async () => {
     let captured: { messageId?: string } | undefined;
     const handlers = cronHandlers(

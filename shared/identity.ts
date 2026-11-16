@@ -13,8 +13,8 @@ export function formatPrefix({
   device?: string | null;
 }): string {
   if (!username) return "";
-  if (!device) return `[${username}] `;
-  return `[${username} (${device})] `;
+  if (!device) return defuseFileMentions(`[${username}] `);
+  return defuseFileMentions(`[${username} (${device})] `);
 }
 
 export function formatIdentity({
@@ -124,6 +124,18 @@ export function defuseSenderLabels(body: string): string {
         : part,
     )
     .join("");
+}
+
+// Claude Code reads a file into the prompt by itself when an at-sign starts a
+// word of the prompt (a "file mention"), also before a quoted path and after
+// the CJK marks U+3002 U+3001 U+FF1F U+FF01. Every prompt text a member did not
+// type goes through this: it puts a backslash before each such at-sign, so the
+// engine reads no file the sender named (task 300166c2). The regex has the
+// same characters before the at-sign as the engine's own scan.
+const FILE_MENTION_AT_RE = /(?<=^|[\s\u3002\u3001\uFF1F\uFF01])@/gu;
+
+export function defuseFileMentions(text: string): string {
+  return text.replace(FILE_MENTION_AT_RE, "\\@");
 }
 
 // Sender prefix for a message from a registered app (POST /api/app/message).

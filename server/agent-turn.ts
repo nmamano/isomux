@@ -20,6 +20,7 @@
  * each call site.
  */
 
+import { defuseFileMentions } from "../shared/identity.ts";
 import type { Attachment, QueuedMessage } from "../shared/types.ts";
 import {
   BackendSignedOutError,
@@ -265,7 +266,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   }
   let finalText = sdkText;
   if (envelopeBlocks.length > 0) {
-    finalText = `${envelopeBlocks.join("\n\n")}${USER_MESSAGE_SEPARATOR}${sdkText}`;
+    // The notices quote names and paths no member typed here (a settings
+    // notice names who changed what), so their file mentions are defused.
+    finalText = `${defuseFileMentions(envelopeBlocks.join("\n\n"))}${USER_MESSAGE_SEPARATOR}${sdkText}`;
   }
 
   // Final pre-send cancel check. Catches a Stop/swap that fires after the

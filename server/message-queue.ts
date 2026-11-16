@@ -14,6 +14,7 @@ import { fitsInside } from "../shared/pack-fit.ts";
 import { errMessage } from "../shared/errors.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
 import {
+  defuseFileMentions,
   defuseSenderLabels,
   formatAgentSenderPrefix,
   formatAppSenderPrefix,
@@ -308,11 +309,22 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     // authority, and keeps the bytes the immediate path sends; the receiver's
     // own handoff brief or scheduled note is its own text. A replies-only API
     // token does not have member authority.
+    //
+    // Only a body a member typed keeps its file mentions (defuseFileMentions);
+    // the prefix may quote names and ask text, which no member typed here.
     const body = m.sdkText ?? m.text;
+    const memberTyped =
+      m.sender.kind === "user" &&
+      !isRepliesOnlyDevice(m.sender.device) &&
+      !m.notice;
     const own =
       (m.sender.kind === "user" && !isRepliesOnlyDevice(m.sender.device)) ||
       (m.sender.kind === "agent" && m.sender.agentId === receiverAgentId);
-    return `${queuedItemPrefix(m, receiverAgentId)}${own ? body : defuseSenderLabels(body)}`;
+    const labelSafe = own ? body : defuseSenderLabels(body);
+    return (
+      defuseFileMentions(queuedItemPrefix(m, receiverAgentId)) +
+      (memberTyped ? labelSafe : defuseFileMentions(labelSafe))
+    );
   }
 
   // Delivered items become chat entries. Shared by the flush (after the backend

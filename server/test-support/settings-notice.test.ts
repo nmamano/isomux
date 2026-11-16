@@ -9,6 +9,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { claudeFileMentions } from "./claude-file-mentions.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { english } from "../i18n.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
@@ -340,6 +341,31 @@ describe("settings notice", () => {
         line(t("common.field.workingDirectory"), from, typed),
       ].join("\n"),
     );
+  });
+
+  // Task 300166c2: a notice quotes values a member or an agent wrote (a
+  // folder path, a caller's name), so an at-sign in one must not make the
+  // engine read a file.
+  it("a working folder whose path holds a file mention reaches the engine defused", async () => {
+    const srv = await startTestServer({ fakeBackend: holdingBackend() });
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const from = join(srv.workDir, "folder-a");
+    const to = join(srv.workDir, "folder @", "srv", "canary");
+    mkdirSync(from, { recursive: true });
+    mkdirSync(to, { recursive: true });
+    const id = await liveAgent(srv, from);
+
+    await patch(srv, id, { cwd: to }, owner);
+    expect(agentOf(srv, id).cwd).toBe(to);
+    await turn(srv, id, "after-cwd");
+
+    const notice = noticeSentWith(srv, id, "after-cwd");
+    expect(notice).toContain("canary");
+    const sent = session(srv, id).sent.find((m) =>
+      m.text.includes("after-cwd"),
+    )!;
+    expect(claudeFileMentions(sent.text)).toEqual([]);
   });
 
   it("two edits before a turn merge: the latest value wins, the oldest old value stays", async () => {
