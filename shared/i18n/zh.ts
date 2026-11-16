@@ -1187,6 +1187,16 @@ export const zh: Catalog = {
   "integrations.memberIntro":
     "所有者设置智能体使用的内容。你可以为自己启动的智能体添加自己的内容。",
   "integrations.tabs.providers": "模型提供商",
+  "integrations.memberToken.title": "拥有独立系统用户的成员所用的 Claude 令牌",
+  "integrations.memberToken.hint":
+    "当他们自己的登录达到使用上限时，他们的智能体会继续使用此令牌。登录办公室的 Claude 账户后，用 `claude setup-token` 生成。",
+  "integrations.memberToken.token": "令牌",
+  "integrations.memberToken.tokenHint": "有效期一年。他们的智能体可以读取它。",
+  "integrations.memberToken.madeOn": "生成日期",
+  "integrations.memberToken.expires": "已设置。{date} 到期。",
+  "integrations.memberToken.replace": "替换",
+  "integrations.memberToken.remove": "移除",
+  "integrations.memberToken.failed": "无法保存令牌。请重试。",
   "integrations.tabs.mcp": "MCP 服务器",
   "integrations.tabs.secrets": "密钥",
   "integrations.tabs.variables": "变量",
@@ -2205,6 +2215,12 @@ export const zh: Catalog = {
   "apiCall.office.setEnterprise": "开启或关闭企业合同",
   "apiCall.office.setEnterpriseSecret": "设置企业密钥",
   "apiCall.office.checkEnterprise": "检查企业席位",
+  "apiCall.office.readMemberToken":
+    "读取拥有独立系统用户的成员所用的 Claude 令牌",
+  "apiCall.office.setMemberToken":
+    "设置拥有独立系统用户的成员所用的 Claude 令牌",
+  "apiCall.office.clearMemberToken":
+    "移除拥有独立系统用户的成员所用的 Claude 令牌",
   "apiCall.office.lockdown": "锁定办公室",
   "apiCall.office.startExport": "开始导出办公室",
   "apiCall.office.exportStatus": "查看办公室导出",

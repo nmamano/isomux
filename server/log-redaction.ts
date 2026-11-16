@@ -8,9 +8,21 @@ import { SECRET_PATTERN } from "../shared/secret-shapes.ts";
 // safe because agents never get a value; a value reaches a log only if a
 // host reflects it in a form the scrub misses.
 let exactPatterns: string[] = [];
+let secretValues: readonly string[] = [];
+// The Claude token of members with their own OS user (claude-member-token.ts):
+// a value the server holds outside the secret store.
+let memberToken: string | null = null;
 
 export function setSecretValuesForRedaction(values: readonly string[]): void {
-  exactPatterns = scrubPatterns(values);
+  secretValues = values;
+  exactPatterns = scrubPatterns(
+    memberToken ? [...secretValues, memberToken] : secretValues,
+  );
+}
+
+export function setMemberTokenForRedaction(value: string | null): void {
+  memberToken = value;
+  setSecretValuesForRedaction(secretValues);
 }
 
 /** Copy an entry without changing the producer's payload. Keys are structural;

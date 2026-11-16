@@ -237,8 +237,11 @@ export let discordSupervisor: DiscordSupervisor;
 // What the WhatsApp and Discord supervisors page their member with: a paged
 // ask from the office itself (task 74e8fc07).
 export let officePagers: Record<
-  "whatsapp" | "discord",
-  { raise(userId: string, key: string, title: string, body: string): void }
+  "whatsapp" | "discord" | "claudeMemberToken",
+  {
+    raise(userId: string, key: string, title: string, body: string): void;
+    close(userId: string, key: string): void;
+  }
 >;
 export let discordRoutes: DiscordRoutes;
 // An agent's reply on any messaging route, dispatched by app (slice 2).
@@ -292,9 +295,21 @@ export let extensionSessions: ExtensionBrowserSessions | undefined;
 // supervisors call it from timers and exit handlers: it never throws.
 function officePager(
   store: AskStore,
-  office: { feature: "whatsapp" | "discord"; name: string },
+  office: { feature: string; name: string },
 ) {
   return {
+    // Closes the open page of `userId` with this key, if any.
+    close(userId: string, key: string) {
+      try {
+        const open = store.openPaged(
+          { kind: "office", feature: office.feature, memberUserId: userId },
+          key,
+        );
+        if (open) store.remove(open.id, { outcome: "done" });
+      } catch {
+        console.error(`[asks] ${office.feature} page could not be closed`);
+      }
+    },
     raise(userId: string, key: string, title: string, body: string) {
       const prompt = body ? `${title}\n\n${body}` : title;
       try {
@@ -614,6 +629,10 @@ export function createManagers(
   officePagers = {
     whatsapp: officePager(asks, { feature: "whatsapp", name: "WhatsApp" }),
     discord: officePager(asks, { feature: "discord", name: "Discord" }),
+    claudeMemberToken: officePager(asks, {
+      feature: "claude-member-token",
+      name: "Claude",
+    }),
   };
   // What both delivery channels send: the paged asks. A page is one; the
   // old pager store's pages become paged asks at boot (startServer).

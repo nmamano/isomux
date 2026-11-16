@@ -52,7 +52,10 @@ export type FallbackEntry = {
 
 // An account an agent session runs on: the account folder for Claude and
 // Codex, the OPENCODE_API_KEY for OpenCode.
-export type FallbackAccount = { dir: string } | { apiKey: string };
+// `token`: the generation of the Claude token of members with their own OS
+// user (claude-member-token.ts), never the value.
+export type FallbackAccount =
+  { dir: string } | { apiKey: string } | { token: number };
 
 // OpenCode reports no reset time with most refusals: the member's key is
 // tried again this long after the stop.

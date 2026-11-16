@@ -1324,6 +1324,19 @@ Coses que pots fer per ell:
   "integrations.memberIntro":
     "Els propietaris configuren el que fan servir els agents. Pots afegir-hi el teu per als agents que inicies.",
   "integrations.tabs.providers": "Proveïdors de models",
+  "integrations.memberToken.title":
+    "Token de Claude per als membres amb el seu propi usuari del sistema",
+  "integrations.memberToken.hint":
+    "Quan la seva pròpia sessió arriba al límit d'ús, els seus agents continuen amb aquest token. Crea'l amb `claude setup-token`, amb la sessió del compte de Claude de l'oficina.",
+  "integrations.memberToken.token": "Token",
+  "integrations.memberToken.tokenHint":
+    "Dura un any. Els seus agents el poden llegir.",
+  "integrations.memberToken.madeOn": "Creat el",
+  "integrations.memberToken.expires": "Desat. Caduca el {date}.",
+  "integrations.memberToken.replace": "Substitueix",
+  "integrations.memberToken.remove": "Treu",
+  "integrations.memberToken.failed":
+    "No s'ha pogut desar el token. Torna-ho a provar.",
   "integrations.tabs.mcp": "Servidors MCP",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
@@ -2490,6 +2503,12 @@ Coses que pots fer per ell:
   "apiCall.office.setEnterprise": "Activa o desactiva el contracte Enterprise",
   "apiCall.office.setEnterpriseSecret": "Desa el secret Enterprise",
   "apiCall.office.checkEnterprise": "Comprova les places Enterprise",
+  "apiCall.office.readMemberToken":
+    "Llegeix el token de Claude per als membres amb el seu propi usuari del sistema",
+  "apiCall.office.setMemberToken":
+    "Desa el token de Claude per als membres amb el seu propi usuari del sistema",
+  "apiCall.office.clearMemberToken":
+    "Treu el token de Claude per als membres amb el seu propi usuari del sistema",
   "apiCall.office.lockdown": "Bloquejar l'oficina",
   "apiCall.office.startExport": "Iniciar una exportació de l'oficina",
   "apiCall.office.exportStatus": "Comprovar una exportació de l'oficina",

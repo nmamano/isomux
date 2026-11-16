@@ -254,6 +254,12 @@ import {
   type ProviderFallback,
 } from "./provider-fallback.ts";
 import {
+  memberTokenGenerationIn,
+  memberTokenRejected,
+  memberTokenStore,
+  type MemberTokenStore,
+} from "./claude-member-token.ts";
+import {
   createOpenCodeFreeLimit,
   type OpenCodeFreeLimit,
 } from "./opencode-free-limit.ts";
@@ -511,6 +517,9 @@ export interface ManagerDeps {
   fallbackOfficeAccount?: (
     provider: FallbackProvider,
   ) => FallbackAccount | null;
+  // The Claude token of members with their own OS user. Defaults to the
+  // office's (claude-member-token.ts).
+  memberToken?: MemberTokenStore;
 }
 
 export interface LimitResumeClock {
@@ -1063,6 +1072,7 @@ export function createAgentManager(deps: ManagerDeps) {
     limitResumeClock,
     providerFallback: deps.providerFallback,
     fallbackOfficeAccount: deps.fallbackOfficeAccount,
+    ...(deps.memberToken ? { memberToken: deps.memberToken } : {}),
     noteSwitchRelease: (managed, reason) => noteSwitchRelease(managed, reason),
   });
   // Skill menus, member skill folders and the OpenCode server environment
@@ -3574,6 +3584,8 @@ export function createAgentManager(deps: ManagerDeps) {
         // managed.turnFlags.authNeeded; emitDetectedAuthInstructions sets it.
         const managed = agents.get(agentId);
         if (managed) managed.pendingFreshRecoveryNotice = false;
+        // A turn on the member token: the token no longer works.
+        if (managed?.launchedMemberToken) memberTokenRejected();
         emitDetectedAuthInstructions(agentId, managed);
         break;
       }
@@ -5598,6 +5610,10 @@ export function createAgentManager(deps: ManagerDeps) {
     if (backend.planMode) opts.planMode = managed.planMode;
     managed.launchedClaudeConfigDir =
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
+    managed.launchedMemberToken =
+      managed.info.agentType === "claude"
+        ? memberTokenGenerationIn(env, deps.memberToken ?? memberTokenStore())
+        : undefined;
     managed.launchedClaudeCloud =
       managed.info.agentType === "claude" &&
       isClaudeCloudSelected(env ?? officeAgentHost().baseEnv());

@@ -13,6 +13,7 @@ import type {
 import { homedir } from "os";
 import { join, sep } from "path";
 import { STATE_ROOT } from "./config.ts";
+import { memberTokenPath } from "./claude-member-token.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 
 const realStateRoot = join(homedir(), ".isomux");
@@ -1142,6 +1143,9 @@ describe("sensitive-read guard covers copies and renames", () => {
     deniesRead("mv ~/.codex/auth.json /tmp/probe/a", "~/.codex/auth.json");
     const stored = join(STATE_ROOT, "secrets", "token");
     deniesRead(`cp ${stored} /tmp/probe/t`, stored);
+    // The Claude token of members with their own OS user (task b94dfd25 4a).
+    const memberToken = memberTokenPath();
+    deniesRead(`cat ${memberToken}`, memberToken);
   });
 
   describe("every operand but the destination is a source", () => {

@@ -129,6 +129,8 @@ export const AUDIT_OPERATIONS = [
   "messaging.reply",
   "office.enterprise.setEnabled",
   "office.enterprise.setSecret",
+  "office.memberToken.clear",
+  "office.memberToken.set",
   "office.cancelMove",
   "office.lockdown",
   "office.lockForMove",

@@ -1326,6 +1326,19 @@ Cosas que puedes hacer por él:
   "integrations.memberIntro":
     "Los propietarios configuran lo que usan los agentes. Puedes añadir lo tuyo para los agentes que inicias.",
   "integrations.tabs.providers": "Proveedores de modelos",
+  "integrations.memberToken.title":
+    "Token de Claude para los miembros con su propio usuario del sistema",
+  "integrations.memberToken.hint":
+    "Cuando su propia sesión llega a su límite de uso, sus agentes siguen con este token. Créalo con `claude setup-token`, con la sesión de la cuenta de Claude de la oficina.",
+  "integrations.memberToken.token": "Token",
+  "integrations.memberToken.tokenHint":
+    "Dura un año. Sus agentes pueden leerlo.",
+  "integrations.memberToken.madeOn": "Creado el",
+  "integrations.memberToken.expires": "Guardado. Caduca el {date}.",
+  "integrations.memberToken.replace": "Sustituir",
+  "integrations.memberToken.remove": "Quitar",
+  "integrations.memberToken.failed":
+    "No se pudo guardar el token. Inténtalo de nuevo.",
   "integrations.tabs.mcp": "Servidores MCP",
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
@@ -2485,6 +2498,12 @@ Cosas que puedes hacer por él:
   "apiCall.office.setEnterprise": "Activar o desactivar el contrato Enterprise",
   "apiCall.office.setEnterpriseSecret": "Guardar el secreto Enterprise",
   "apiCall.office.checkEnterprise": "Comprobar las plazas Enterprise",
+  "apiCall.office.readMemberToken":
+    "Leer el token de Claude para los miembros con su propio usuario del sistema",
+  "apiCall.office.setMemberToken":
+    "Guardar el token de Claude para los miembros con su propio usuario del sistema",
+  "apiCall.office.clearMemberToken":
+    "Quitar el token de Claude para los miembros con su propio usuario del sistema",
   "apiCall.office.lockdown": "Bloquear la oficina",
   "apiCall.office.startExport": "Iniciar una exportación de la oficina",
   "apiCall.office.exportStatus": "Comprobar una exportación de la oficina",

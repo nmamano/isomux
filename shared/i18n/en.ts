@@ -1301,6 +1301,18 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.memberIntro":
     "Owners set up what agents use. You can add your own for the agents you start.",
   "integrations.tabs.providers": "Model providers",
+  "integrations.memberToken.title":
+    "Claude token for members with their own OS user",
+  "integrations.memberToken.hint":
+    "When their own sign-in reaches its usage limit, their agents continue on this token. Make it with `claude setup-token`, signed in as the office's Claude account.",
+  "integrations.memberToken.token": "Token",
+  "integrations.memberToken.tokenHint":
+    "It lasts one year. Their agents can read it.",
+  "integrations.memberToken.madeOn": "Made on",
+  "integrations.memberToken.expires": "Set. Expires on {date}.",
+  "integrations.memberToken.replace": "Replace",
+  "integrations.memberToken.remove": "Remove",
+  "integrations.memberToken.failed": "The token could not be saved. Try again.",
   "integrations.tabs.mcp": "MCP servers",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
@@ -2413,6 +2425,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.setEnterprise": "Turn the Enterprise Contract on or off",
   "apiCall.office.setEnterpriseSecret": "Set the enterprise secret",
   "apiCall.office.checkEnterprise": "Check enterprise seats",
+  "apiCall.office.readMemberToken":
+    "Read the Claude token for members with their own OS user",
+  "apiCall.office.setMemberToken":
+    "Set the Claude token for members with their own OS user",
+  "apiCall.office.clearMemberToken":
+    "Remove the Claude token for members with their own OS user",
   "apiCall.office.lockdown": "Lock the office",
   "apiCall.office.startExport": "Start an office export",
   "apiCall.office.getMove": "Check the office move",
