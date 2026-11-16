@@ -7,12 +7,15 @@
 // and copies the whole turn (Nil, 2026-11-15, task 59aca671). A tap on the
 // line opens the cards the run holds. A reply that is only the no-update
 // keyword (task 51c187f4) adds "nothing for you" to the line; a run of only
-// such replies is a still line, with nothing to open or copy. The open state
+// such replies is a still line, with nothing to open. A line that ends with
+// such a reply has no copy button: the turn has nothing for the member. A
+// line can hold the restart line (findHiddenRuns). The open state
 // lives in useChatTranscript, keyed by the run's first entry, so it stays
 // open while a live run grows and through an HTML export.
 
 import type { ComponentProps } from "react";
 import type { LogEntry } from "../../shared/types.ts";
+import { isNoUpdateReply } from "../../shared/no-update.ts";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { useI18n } from "../i18n.tsx";
 import { AgentAvatar } from "./chat-avatars.tsx";
@@ -46,8 +49,12 @@ export function HiddenToolRunCard({
     counts.steps > 0 && tn("cards.toolCall.hiddenSteps", counts.steps),
   ].filter(Boolean);
   // A run that holds only no-update replies (task 51c187f4) has nothing to
-  // open: it is a still line.
-  const quietOnly = counts.quiet && parts.length === 0;
+  // open: it is a still line. A tool result in a run is one that folds into
+  // its call's card, which draws outside the run, so it adds nothing to open.
+  // A run that also holds a restart line opens to show it.
+  const quietOnly = entries.every(
+    (entry) => isNoUpdateReply(entry) || entry.kind === "tool_result",
+  );
   if (counts.quiet && !quietOnly) parts.push(t("cards.toolCall.hiddenQuiet"));
   const label = quietOnly
     ? t("cards.toolCall.hiddenQuietOnly")
@@ -79,9 +86,6 @@ export function HiddenToolRunCard({
         <span data-hidden-quiet style={{ ...line, cursor: "default" }}>
           {label}
         </span>
-        {turn?.isLastInTurn && (
-          <TurnCopyButton turnEntries={turn.turnEntries} />
-        )}
       </div>
     );
   }

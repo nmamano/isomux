@@ -60,7 +60,8 @@ function secretRequestOutcomes(
 
 // Where a folded line takes its turn copy button from: the turn of the run's
 // last entry that is not a message to the agent (such a message starts a turn
-// of its own), and only when nothing shown follows the run in that turn.
+// of its own), and only when nothing shown follows the run in that turn and
+// the run does not end with a no-update reply.
 // `lastCardId` is the card that carries the button when the line is open.
 export type HiddenRunTurn = {
   isLastInTurn: boolean;
@@ -221,15 +222,19 @@ export function useChatTranscript(
         anchors.set(run.firstId, { isLastInTurn: false });
         continue;
       }
-      // A no-update reply draws nothing, so it cannot carry the button.
-      const lastCard = agentEntries.findLast(
-        (entry) =>
-          !isFoldedToolResult(entry, turnEntries) && !isNoUpdateReply(entry),
+      const shown = agentEntries.filter(
+        (entry) => !isFoldedToolResult(entry, turnEntries),
       );
+      // A no-update reply draws nothing, so it cannot carry the button. A run
+      // that ends with one ends a turn with nothing for the member, so the
+      // turn has no copy button (sign-off of task 51c187f4).
+      const lastCard = shown.findLast((entry) => !isNoUpdateReply(entry));
+      const endsQuiet = shown.length > 0 && isNoUpdateReply(shown.at(-1)!);
       anchors.set(run.firstId, {
         isLastInTurn:
+          !endsQuiet &&
           lastVisibleEntryIndex(turnEntries, groupedChildIds) <=
-          turnEntries.indexOf(last),
+            turnEntries.indexOf(last),
         turnEntries,
         lastCardId: lastCard?.id,
       });

@@ -19,6 +19,7 @@ const { setApiShim } = await import("../api.ts");
 const { en } = await import("../../shared/i18n/en.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { NO_UPDATE } = await import("../../shared/no-update.ts");
+const { logTextFields, msg } = await import("../../shared/i18n/log-message.ts");
 
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
@@ -200,38 +201,53 @@ it("back-to-back turns that end with the keyword are one closed line that says n
   view.unmount();
 });
 
-it("the open line shows the traffic and still no keyword, and keeps the turn's copy button", async () => {
+// What the copy buttons in `root` copy, without the button each message
+// from another agent carries for its own text ("PEER-<id>"): what is left is
+// the turn's copy.
+async function turnCopies(root: ParentNode): Promise<string[]> {
+  let texts: string[] = [];
+  // A clicked button changes its title for a moment, so take them first.
+  const buttons = Array.from(copyButtons(root));
   await withClipboard(async (copied) => {
-    const view = mount(withPeer, traffic);
-    const chat = view.container;
-    const wrap = wrapOf(chat, "p1");
-    // Closed, the line ends the chat, so it carries the last turn's copy.
-    expect(copyButtons(wrap).length).toBe(1);
-    await act(async () => {
-      fireEvent.click(copyButtons(wrap)[0]);
-    });
-    expect(copied.length).toBe(1);
-    expect(copied[0]).toContain("SEND-s1");
-    expect(copied[0]).not.toContain(LEGACY_WORDS);
-
-    fireEvent.click(toggles(wrap)[0]);
-    expect(wrap.querySelector("button[data-hidden-steps-open]")).not.toBeNull();
-    expect(chat.textContent).toContain("PEER-p2");
-    expect(chat.textContent).toContain("SEND-s1");
-    expect(keywordShown(chat)).toEqual(HIDDEN);
-    const open = copyButtons(wrap).length;
-    view.unmount();
-    // Open, the turn's button moves to the last card that draws something:
-    // as many copy buttons as the same line without the closing keyword.
-    const without = traffic.filter((e) => e.id !== "q2");
-    const control = mount(withPeer, without);
-    const controlWrap = wrapOf(control.container, "p1");
-    expect(drawn(control.container, without)).toEqual(["u1", "x1", "p1"]);
-    fireEvent.click(toggles(controlWrap)[0]);
-    expect(copyButtons(controlWrap).length).toBeGreaterThan(0);
-    expect(open).toBe(copyButtons(controlWrap).length);
-    control.unmount();
+    for (const button of buttons)
+      await act(async () => {
+        fireEvent.click(button);
+      });
+    texts = copied;
   });
+  expect(texts.length).toBe(buttons.length);
+  return texts.filter((text) => !/^PEER-[\w-]+$/.test(text));
+}
+
+// A turn that ends with nothing for the member has nothing to copy (sign-off
+// of task 51c187f4, Nil 2026-11-16: "no copy button beside it").
+it("the open line shows the traffic and still no keyword, and a line that ends with the keyword has no copy button", async () => {
+  const view = mount(withPeer, traffic);
+  const chat = view.container;
+  const wrap = wrapOf(chat, "p1");
+  expect(copyButtons(wrap).length).toBe(0);
+  fireEvent.click(toggles(wrap)[0]);
+  expect(wrap.querySelector("button[data-hidden-steps-open]")).not.toBeNull();
+  expect(chat.textContent).toContain("PEER-p2");
+  expect(chat.textContent).toContain("SEND-s1");
+  expect(keywordShown(chat)).toEqual(HIDDEN);
+  expect(await turnCopies(wrap)).toEqual([]);
+  view.unmount();
+  // The same line without the closing keyword ends the turn with a step:
+  // closed and open, it carries the turn's copy button, which copies the turn.
+  const without = traffic.filter((e) => e.id !== "q2");
+  const control = mount(withPeer, without);
+  const controlWrap = wrapOf(control.container, "p1");
+  expect(drawn(control.container, without)).toEqual(["u1", "x1", "p1"]);
+  expect(copyButtons(controlWrap).length).toBe(1);
+  const closed = await turnCopies(controlWrap);
+  expect(closed.length).toBe(1);
+  expect(closed[0]).toContain("SEND-s1");
+  fireEvent.click(toggles(controlWrap)[0]);
+  const open = await turnCopies(controlWrap);
+  expect(open.length).toBe(1);
+  expect(open[0]).toContain("SEND-s1");
+  control.unmount();
 });
 
 it("a turn that is only the keyword is a still line: nothing to open, nothing to copy or speak", () => {
@@ -284,13 +300,15 @@ it("a reply with other words is a reply card, keyword and all", () => {
 });
 
 // The keyword's still line ends a turn that has cards the member sees: the
-// turn keeps its copy button, as many as the same chat without the keyword.
-it("a still line after shown cards leaves the turn its copy button", () => {
-  const cases: [string, Partial<AppState>, LogEntry[]][] = [
+// turn ended with nothing for the member, so it has no copy button. The same
+// chat without the keyword has one on the turn's last card.
+it("a still line after shown cards takes the turn's copy button away", () => {
+  const cases: [string, Partial<AppState>, LogEntry[], string][] = [
     [
       "shows both",
       { ...withPeer, users: showsBoth },
       [member("u1", "Go."), shellCall("c1", "echo STEP-ONE"), done("r1", "c1")],
+      "c1",
     ],
     [
       "shows tool calls",
@@ -301,20 +319,136 @@ it("a still line after shown cards leaves the turn its copy button", () => {
         shellCall("c1", "echo STEP-ONE"),
         done("r1", "c1"),
       ],
+      "c1",
     ],
   ];
-  for (const [label, over, logs] of cases) {
-    const count = (entries: LogEntry[]) => {
-      const view = mount(over, entries);
-      const n = copyButtons(view.container).length;
-      view.unmount();
-      return n;
-    };
-    const without = count(logs);
-    expect({ label, without: without > 0 }).toEqual({ label, without: true });
-    expect({ label, with: count([...logs, quiet("q1")]) }).toEqual({
+  for (const [label, over, logs, lastCard] of cases) {
+    const without = mount(over, logs);
+    expect({
       label,
-      with: without,
+      without: copyButtons(wrapOf(without.container, lastCard)).length,
+    }).toEqual({ label, without: 1 });
+    without.unmount();
+    const withQuiet = [...logs, quiet("q1")];
+    const view = mount(over, withQuiet);
+    const chat = view.container;
+    expect({ label, drawn: drawn(chat, withQuiet).at(-1) }).toEqual({
+      label,
+      drawn: "q1",
     });
+    expect(wrapOf(chat, "q1").textContent).toContain(QUIET_ONLY);
+    for (const id of [lastCard, "q1"])
+      expect({
+        label,
+        id,
+        copies: copyButtons(wrapOf(chat, id)).length,
+      }).toEqual({ label, id, copies: 0 });
+    view.unmount();
   }
+});
+
+// The line the office writes when it resumes an agent after a restart (Nil
+// 2026-11-16, sign-off of task 51c187f4: "After a restart, fold the next
+// quiet turn into the same line: one \"nothing for you\", and no copy button
+// beside it"). Which entries a run holds: tool-call-groups.test.ts.
+const restart = (id: string) => ({
+  ...entry(id, "system", ""),
+  ...logTextFields(msg("systemEntries.restartWake.resumed")),
+});
+const RESTARTED = EN.t("systemEntries.restartWake.resumed");
+
+it("a restart between quiet turns of agent traffic is one line, one nothing for you, no copy button", async () => {
+  // Nil's sign-off image: three turns, the server restarted in the third.
+  const logs = [
+    member("u1", "Restart the server when Main asks."),
+    entry("x1", "text", "OK."),
+    peerMessage("p1"),
+    shellCall("c1", "echo STEP-ONE"),
+    done("r1", "c1"),
+    quiet("q1"),
+    peerMessage("p2"),
+    shellCall("c2", "echo STEP-TWO"),
+    done("r2", "c2"),
+    quiet("q2"),
+    peerMessage("p3"),
+    shellCall("c3", "echo STEP-THREE"),
+    restart("R"),
+    quiet("q3"),
+  ];
+  const view = mount(withPeer, logs);
+  const chat = view.container;
+  expect(drawn(chat, logs)).toEqual(["u1", "x1", "p1"]);
+  expect(toggles(chat).length).toBe(1);
+  expect(chat.querySelectorAll("[data-hidden-quiet]").length).toBe(0);
+  const wrap = wrapOf(chat, "p1");
+  expect(toggles(wrap)[0].textContent).toContain(QUIET);
+  expect(chat.textContent!.split(QUIET).length - 1).toBe(1);
+  expect(chat.textContent).not.toContain(RESTARTED);
+  expect(copyButtons(wrap).length).toBe(0);
+  // Open, it shows the restart line among the cards, and still no copy.
+  fireEvent.click(toggles(wrap)[0]);
+  expect(wrap.textContent).toContain("STEP-THREE");
+  expect(wrap.textContent).toContain(RESTARTED);
+  expect(await turnCopies(wrap)).toEqual([]);
+  expect(keywordShown(chat)).toEqual(HIDDEN);
+  view.unmount();
+});
+
+it("a restart folded between replies that are only the keyword is a line that opens to show it", () => {
+  // A member who shows everything: the run is only the keyword and the
+  // restart line. A still line would hide the restart line for good.
+  const logs = [
+    member("u1", "Watch."),
+    entry("x1", "text", "Watching."),
+    quiet("q1"),
+    restart("R"),
+    quiet("q2"),
+  ];
+  const view = mount({ ...withPeer, users: showsBoth }, logs);
+  const chat = view.container;
+  expect(drawn(chat, logs)).toEqual(["u1", "x1", "q1"]);
+  expect(chat.querySelectorAll("[data-hidden-quiet]").length).toBe(0);
+  expect(chat.textContent).not.toContain(RESTARTED);
+  const wrap = wrapOf(chat, "q1");
+  expect(toggles(wrap).length).toBe(1);
+  expect(toggles(wrap)[0].textContent).toContain(QUIET);
+  fireEvent.click(toggles(wrap)[0]);
+  expect(wrap.textContent).toContain(RESTARTED);
+  expect(keywordShown(chat)).toEqual(HIDDEN);
+  expect(copyButtons(wrap).length).toBe(0);
+  view.unmount();
+});
+
+// A result that comes after the keyword folds into its call's card, so a
+// run of the keyword and such a result has nothing to show either.
+it("a run of the keyword and a folded result is still a still line", () => {
+  const logs = [
+    member("u1", "Go."),
+    shellCall("c1", "echo STEP-ONE"),
+    quiet("q1"),
+    done("r1", "c1"),
+  ];
+  const view = mount({ ...withPeer, users: showsBoth }, logs);
+  const chat = view.container;
+  expect(drawn(chat, logs)).toEqual(["u1", "c1", "q1"]);
+  const wrap = wrapOf(chat, "q1");
+  expect(wrap.querySelectorAll("[data-hidden-quiet]").length).toBe(1);
+  expect(wrap.querySelectorAll("button[aria-expanded]").length).toBe(0);
+  expect(wrap.textContent).toContain(QUIET_ONLY);
+  view.unmount();
+});
+
+it("a restart before a reply card stays a line of its own", () => {
+  const logs = [
+    member("u1", "Status?"),
+    peerMessage("p1"),
+    shellCall("c1", "echo STEP-ONE"),
+    restart("R"),
+    entry("x1", "text", "All green."),
+  ];
+  const view = mount(withPeer, logs);
+  const chat = view.container;
+  expect(drawn(chat, logs)).toEqual(["u1", "p1", "R", "x1"]);
+  expect(wrapOf(chat, "R").textContent).toContain(RESTARTED);
+  view.unmount();
 });

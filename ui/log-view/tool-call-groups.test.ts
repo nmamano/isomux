@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
 import { commandForPermissionDenial } from "../../shared/permission-denial.ts";
 import { NO_UPDATE } from "../../shared/no-update.ts";
+import { logTextFields, msg } from "../../shared/i18n/log-message.ts";
 import {
   detachedSubagentSteps,
   findHiddenRuns,
@@ -951,5 +952,153 @@ describe("no-update replies", () => {
     // A run without it keeps today's counts, with no quiet mark.
     expect(counts([call("c1")])).toEqual({ messages: 0, steps: 1 });
     expect(counts([peer("p1")])).toEqual({ messages: 1, steps: 0 });
+  });
+});
+
+// The line the office writes when it resumes an agent after a restart
+// (sign-off of task 51c187f4, Nil 2026-11-16: "After a restart, fold the
+// next quiet turn into the same line"). It joins a run only when the entry
+// after it joins that run too, so it never splits one line in two and never
+// hides inside a line that would not be there without it.
+describe("the restart line in a run", () => {
+  const system = (id: string, text: Parameters<typeof logTextFields>[0]) => ({
+    ...entry(id, "system", ""),
+    ...logTextFields(text),
+  });
+  const restart = (id: string) =>
+    system(id, msg("systemEntries.restartWake.resumed"));
+  const peer = (id: string) =>
+    entry(id, "user_message", "From a2", {
+      sender_agent_id: "a2",
+      sender_agent_name: "Peer",
+      sender_agent_room: "Room",
+    });
+  const quiet = (id: string) => entry(id, "text", NO_UPDATE);
+  const reply = (id: string) => entry(id, "text", "Here it is.");
+  const FOLDS = [
+    { tools: true, messages: true },
+    { tools: true, messages: false },
+    { tools: false, messages: true },
+    { tools: false, messages: false },
+  ];
+  const ids = (entries: LogEntry[], fold: (typeof FOLDS)[number]) =>
+    findHiddenRuns(entries, fold).map((run) => {
+      expect(run.firstId).toBe(run.entries[0].id);
+      return run.entries.map((e) => e.id);
+    });
+
+  test("the fixture is the line the office writes", () => {
+    const line = restart("R");
+    expect(line.message).toEqual([
+      { key: "systemEntries.restartWake.resumed" },
+    ]);
+    expect(line.content.length).toBeGreaterThan(0);
+  });
+
+  test("between two entries of one run, it joins the run, on every fold", () => {
+    // Nil's sign-off image: three turns of agent traffic that each end with
+    // nothing for the member; the server restarted during the third.
+    const entries = [
+      peer("p1"),
+      call("c1"),
+      result("c1-r", "c1"),
+      quiet("q1"),
+      peer("p2"),
+      call("c2"),
+      quiet("q2"),
+      peer("p3"),
+      call("c3"),
+      restart("R"),
+      quiet("q3"),
+    ];
+    expect(ids(entries, FOLDS[0])).toEqual([
+      ["p1", "c1", "c1-r", "q1", "p2", "c2", "q2", "p3", "c3", "R", "q3"],
+    ]);
+    // A run of only no-update replies takes it too.
+    for (const fold of FOLDS)
+      expect({
+        fold,
+        runs: ids([quiet("q1"), restart("R"), quiet("q2")], fold),
+      }).toEqual({ fold, runs: [["q1", "R", "q2"]] });
+    // The resumed turn may take steps before its reply.
+    expect(
+      ids([call("c1"), restart("R"), call("c2"), quiet("q1")], FOLDS[1]),
+    ).toEqual([["c1", "R", "c2", "q1"]]);
+  });
+
+  test("before a card the member sees, it stays out, and the run ends before it", () => {
+    for (const fold of FOLDS)
+      expect({
+        fold,
+        runs: ids([quiet("q1"), restart("R"), reply("x"), quiet("q2")], fold),
+      }).toEqual({ fold, runs: [["q1"], ["q2"]] });
+    expect(
+      ids([peer("p1"), call("c1"), restart("R"), reply("x")], FOLDS[0]),
+    ).toEqual([["p1", "c1"]]);
+  });
+
+  test("it never starts a run", () => {
+    for (const fold of FOLDS) {
+      expect({ fold, runs: ids([restart("R"), quiet("q1")], fold) }).toEqual({
+        fold,
+        runs: [["q1"]],
+      });
+      expect({
+        fold,
+        runs: ids([reply("x"), restart("R"), quiet("q1")], fold),
+      }).toEqual({ fold, runs: [["q1"]] });
+    }
+  });
+
+  test("at the end of the log, it stays out until the next entry comes", () => {
+    const head = [peer("p1"), call("c1"), restart("R")];
+    expect(ids(head, FOLDS[0])).toEqual([["p1", "c1"]]);
+    // Live: the next entry folds it in, and the run keeps its first entry.
+    expect(ids([...head, quiet("q1")], FOLDS[0])).toEqual([
+      ["p1", "c1", "R", "q1"],
+    ]);
+  });
+
+  test("a folded result after it neither breaks nor closes the wait", () => {
+    // The result of a call made before the restart, written after the line.
+    const entries = [call("c1"), restart("R"), result("c1-r", "c1")];
+    expect(ids([...entries, quiet("q1")], FOLDS[0]).length).toBe(1);
+    expect(ids([...entries, quiet("q1")], FOLDS[0])[0].sort()).toEqual(
+      ["R", "c1", "c1-r", "q1"].sort(),
+    );
+    // Followed by a card, the line still stays out of the run.
+    const out = ids([...entries, reply("x")], FOLDS[0]);
+    expect(out.length).toBe(1);
+    expect(out[0].includes("R")).toBe(false);
+  });
+
+  test("other system lines still break the run", () => {
+    const others = [
+      system(
+        "B",
+        msg("systemEntries.wake.backgroundEndedRestart", { tasks: "build" }),
+      ),
+      system("L", msg("systemEntries.limitResume.resumed")),
+      system("S", "A plain system line."),
+    ];
+    for (const other of others)
+      expect({
+        id: other.id,
+        runs: ids([quiet("q1"), other, quiet("q2")], FOLDS[0]),
+      }).toEqual({ id: other.id, runs: [["q1"], ["q2"]] });
+  });
+
+  test("the line does not count it", () => {
+    const runs = findHiddenRuns(
+      [peer("p1"), call("c1"), restart("R"), quiet("q1")],
+      FOLDS[0],
+    );
+    expect(runs.length).toBe(1);
+    expect(runs[0].entries.length).toBe(4);
+    expect(hiddenRunCounts(runs[0].entries)).toEqual({
+      messages: 1,
+      steps: 1,
+      quiet: true,
+    });
   });
 });
