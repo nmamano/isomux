@@ -365,7 +365,6 @@ describe("Blank template dirty state", () => {
     privileged: false,
     autoHandoff: false,
     autoHandoffTokens: "500",
-    limitResume: true,
   };
 
   // Both authored fields use the language of the card at pick time.

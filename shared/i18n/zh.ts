@@ -628,6 +628,9 @@ export const zh: Catalog = {
   "settings.office.claudeIsomuxLabel": "将 Claude 智能体标记为 Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "只更改 Claude 智能体发送给 Anthropic 的元数据：表明它们运行在 Isomux 中，而不是 Agent SDK 中。Isomux 中的一切都不会改变。在 Isomux 的测试中，SDK 流量消耗 5 小时限额的速度约为两倍。Anthropic 尚未说明是否允许这样做，风险由每位成员的 Claude 账号承担。适用于所有成员的 Claude 智能体，在更改后开始的会话中生效。",
+  "settings.office.limitResume": "用量限制后继续",
+  "settings.office.limitResumeHint":
+    "用量限制让 Claude 或 Codex 智能体停下时，限制重置后它会继续。",
   "settings.office.enterprise.label": "此办公室属于企业合同",
   "settings.office.enterprise.hint":
     "在超过 10 人的公司中商用 Isomux 时，必须勾选此项。<link>查看详情</link>。",
@@ -1879,9 +1882,6 @@ export const zh: Catalog = {
     "上下文快满时，智能体会写一份简报并在新会话中继续。聊天记录会清空。",
   "dialogs.agent.autoHandoffTokens": "在上下文达到 {input}k 个 token 时交接",
   "dialogs.agent.autoHandoffTokensError": "请输入 {min} 到 {max} 之间的数字。",
-  "dialogs.agent.limitResume": "用量限制后继续",
-  "dialogs.agent.limitResumeHint":
-    "用量限制让智能体停下时，限制重置后它会继续。",
   "dialogs.agent.permission.ask": "询问",
   "dialogs.agent.permission.bypassAll": "跳过所有权限检查",
   "dialogs.agent.permission.codexUntrusted": "不受信任（每次使用工具都询问）",

@@ -116,6 +116,8 @@ export interface SessionAccountsDeps {
     userId: string | null | undefined,
   ) => string;
   limitResumeClock: LimitResumeClock;
+  // The office switch for the resume after a usage limit.
+  limitResumeEnabled: () => boolean;
   providerFallback: ManagerDeps["providerFallback"];
   // Puts the sign-in on the agent's info (server/usage-readings.ts).
   refreshSignIn: (managed: ManagedAgent) => void;
@@ -151,6 +153,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     buildOpenCodeLaunchEnvironmentForUserId,
     openCodeEnvironmentRevisionForUserId,
     limitResumeClock,
+    limitResumeEnabled,
   } = deps;
 
   const memberToken = (): MemberTokenStore =>
@@ -950,9 +953,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   }
 
   // The turn the fallback continues on the office sign-in. With the
-  // agent's resume after a limit off, none: its next turn moves.
+  // office's resume after a limit off, none: its next turn moves.
   function queueFallbackContinue(agentId: string, managed: ManagedAgent): void {
-    if (managed.info.limitResume === false) return;
+    if (!limitResumeEnabled()) return;
     const self = getAgentDisplay(agentId);
     if (!self) return;
     const result = enqueueMessage(agentId, {

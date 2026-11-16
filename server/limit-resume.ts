@@ -40,11 +40,12 @@ export function limitResumeDueAt(
   return resetsAtMs + LIMIT_RESUME_DELAY_MS;
 }
 
-/** The switch is on (absent reads as on) and the engine supports it. */
+/** The office switch is on and the agent's engine supports it. */
 export function limitResumeOn(
-  info: Pick<AgentInfo, "limitResume" | "capabilities">,
+  info: Pick<AgentInfo, "capabilities">,
+  officeOn: boolean,
 ): boolean {
-  return info.limitResume !== false && info.capabilities.limitResume;
+  return officeOn && info.capabilities.limitResume;
 }
 
 /** How long the next timer waits for a resume due at `dueAt`. */

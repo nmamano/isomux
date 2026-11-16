@@ -6,7 +6,7 @@
 
 Every reply also carries `signIn`: `individual` when the agent runs on its member's own sign-in or key, `office` when it runs on the office's. With no live session, it is the sign-in the next turn starts on. When your conversation moves to or from the office sign-in, your next turn tells you.
 
-When a usage limit stops your turn, Isomux sends you a message after the limit resets, unless `limitResume` is off in your settings.
+When a usage limit stops your turn, Isomux sends you a message after the limit resets, unless an owner turned off `limitResume` in the office settings.
 
 Room access controls which agent ids the caller may inspect.
 

@@ -213,7 +213,6 @@ export type AgentEdit = Partial<
     | "codexSandbox"
     | "autoHandoff"
     | "autoHandoffTokens"
-    | "limitResume"
     // Changing the engine starts a fresh conversation on the new engine (the old
     // one is preserved in the resume history). Model/effort/permission sent in
     // the same edit are validated against the NEW engine and applied; omitted
@@ -1249,6 +1248,9 @@ export interface OfficeSettingsReq {
   // Claude agents start labelled as Isomux, not as the Agent SDK
   // (server/backends/claude.ts). Omitted preserves it.
   claudeIsomuxLabel?: boolean;
+  // Agents a usage limit stopped continue after it resets
+  // (server/limit-resume.ts). Omitted preserves it.
+  limitResume?: boolean;
 }
 
 // `notes`: the usage note of each variable that has one (integrations A4).
@@ -1707,6 +1709,8 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   processIsolationStatus?: "on" | ProcessIsolationReason;
   // The owner's switch that labels Claude agents as Isomux traffic.
   claudeIsomuxLabel?: boolean;
+  // The owner's switch for the resume after a usage limit.
+  limitResume?: boolean;
 };
 
 // Enterprise seats (server/enterprise-seats.ts), owner-only. What the seat

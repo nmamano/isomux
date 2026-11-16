@@ -690,7 +690,10 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(after?.autoHandoffTokens).toBe(300_000);
   });
 
-  it("PATCH sets the resume-after-usage-limit switch, on by default; off persists; a non-boolean is 422", async () => {
+  // Task 2b42971b: the resume after a usage limit is an office setting. A
+  // client from before it (an open tab) that still sends the agent's switch
+  // gets its other fields saved, and the agent stores no switch.
+  it("PATCH with the old per-agent limitResume field saves the rest and stores no switch", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -700,38 +703,18 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
       srv.agentManager.getRooms()[0].id,
       0,
     );
-    // No stored value reads as on.
-    expect(srv.agentManager.getAgent(x.id)?.limitResume ?? true).toBe(true);
     const persisted = () =>
       loadAgents()
         .flatMap((r) => r.agents)
         .find((a) => a.id === x.id);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { name: "Renamed", limitResume: false },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    expect(persisted()?.name).toBe("Renamed");
     expect(persisted()).not.toHaveProperty("limitResume");
-
-    const off = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { limitResume: false },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(off.status).toBe(200);
-    expect(
-      (off.body as { agent: { limitResume?: boolean } }).agent.limitResume,
-    ).toBe(false);
-    expect(persisted()?.limitResume).toBe(false);
-
-    const bad = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { limitResume: "no" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(bad.status).toBe(422);
-    expect(srv.agentManager.getAgent(x.id)?.limitResume).toBe(false);
-
-    const on = await req(srv, "PATCH", `/api/agents/${x.id}`, {
-      body: { limitResume: true },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(on.status).toBe(200);
-    expect(srv.agentManager.getAgent(x.id)?.limitResume ?? true).toBe(true);
-    expect(persisted()).not.toHaveProperty("limitResume");
+    expect(srv.agentManager.getAgent(x.id)).not.toHaveProperty("limitResume");
   });
 
   it("PATCH carries costume through the existing outfit update", async () => {

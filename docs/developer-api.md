@@ -393,7 +393,7 @@ Anyone who shares a room with a member, other than the lobby, can read that memb
 
 ### Office settings
 
-`GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,recordTerminals,providerFallback,processIsolation,processIsolationStatus,claudeIsomuxLabel}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. `GET /api/office/member-usage-status` returns `{memberUsageStatus}`, the weekly usage of the office sign-ins against the member usage cap, for both providers or one with `?provider=claude` or `?provider=codex`. Owners, their API tokens and privileged agents whose manager is an owner can call all three.
+`GET /api/office/settings` returns `{name,version,memberUsageCap,memberUsageShare,recordTerminals,providerFallback,processIsolation,processIsolationStatus,claudeIsomuxLabel,limitResume}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value. `GET /api/office/member-usage-status` returns `{memberUsageStatus}`, the weekly usage of the office sign-ins against the member usage cap, for both providers or one with `?provider=claude` or `?provider=codex`. Owners, their API tokens and privileged agents whose manager is an owner can call all three.
 
 ## App page readiness
 

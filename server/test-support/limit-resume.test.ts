@@ -19,7 +19,11 @@ import { removeStateDir } from "./temp-state.ts";
 import { createAgentManager, type LimitResumeClock } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
-import { loadAgents } from "../persistence.ts";
+import {
+  loadAgents,
+  loadLimitResume,
+  saveLimitResume,
+} from "../persistence.ts";
 import { createMember, getUserByName } from "../users.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import {
@@ -29,7 +33,12 @@ import {
   LIMIT_RESUME_TEXT,
 } from "../limit-resume.ts";
 import type { EventHandler } from "../internal-types.ts";
-import type { AgentInfo, LogEntry, RoomWire } from "../../shared/types.ts";
+import {
+  DEFAULT_AGENT_CAPABILITIES,
+  type AgentInfo,
+  type LogEntry,
+  type RoomWire,
+} from "../../shared/types.ts";
 
 beforeEach(() => {
   removeStateDir(STATE_ROOT);
@@ -121,9 +130,20 @@ function makeHarness(
         : never
       : never;
     sampleWaitMs?: number;
+    capabilities?: Partial<AgentInfo["capabilities"]>;
   } = {},
 ): Harness {
-  const fake = new FakeBackend(opts.session ? { session: opts.session } : {});
+  const fake = new FakeBackend({
+    ...(opts.session ? { session: opts.session } : {}),
+    ...(opts.capabilities
+      ? {
+          capabilities: {
+            ...DEFAULT_AGENT_CAPABILITIES,
+            ...opts.capabilities,
+          },
+        }
+      : {}),
+  });
   const clock = fakeClock();
   const logs: LogEntry[] = [];
   const sink: EventHandler = (e) => {
@@ -145,9 +165,10 @@ function makeHarness(
 async function spawn(
   h: Harness,
   agentType: AgentInfo["agentType"] = "claude",
+  name = "Receiver",
 ): Promise<AgentInfo> {
   const info = await h.mgr.spawn(
-    "Receiver",
+    name,
     STATE_ROOT,
     "default",
     undefined,
@@ -304,10 +325,10 @@ describe("the usage-limit notice", () => {
     });
   }
 
-  it("is written with the resume switched off", async () => {
+  it("is written with the office's resume switched off", async () => {
     const h = makeHarness();
     const info = await spawn(h);
-    await h.mgr.editAgent(info.id, { limitResume: false });
+    saveLimitResume(false);
     await limitedTurn(h, info.id, h.clock.now() + HOUR);
     await settle();
     expect(notices(h)).toHaveLength(1);
@@ -470,15 +491,48 @@ describe("resume after a usage limit: when it is dropped", () => {
     expect(resumesSent(h)).toBe(0);
   });
 
-  it("the switch goes off", async () => {
+  // Task 2b42971b: the switch is the office's. Turning it off drops every
+  // pending resume, of every agent, and they stay dropped when it goes on
+  // again.
+  it("the office switch goes off: every agent's pending resume is dropped", async () => {
+    const h = makeHarness();
+    const a = await spawn(h);
+    const b = await spawn(h, "codex", "Second");
+    const reset = h.clock.now() + HOUR;
+    await limitedTurn(h, a.id, reset);
+    await limitedTurn(h, b.id, reset, "codex");
+    // The enabling condition: both are armed.
+    expect([persistedAt(a.id), persistedAt(b.id)]).toEqual([
+      reset + LIMIT_RESUME_DELAY_MS,
+      reset + LIMIT_RESUME_DELAY_MS,
+    ]);
+    expect(h.clock.pending()).toHaveLength(2);
+    saveLimitResume(false);
+    h.mgr.dropAllLimitResumes();
+    expect([persistedAt(a.id), persistedAt(b.id)]).toEqual([
+      undefined,
+      undefined,
+    ]);
+    expect(h.clock.pending()).toEqual([]);
+    // Dropped, not skipped: the switch back on before the reset brings
+    // nothing back.
+    saveLimitResume(true);
+    await toResume(h, reset);
+    expect(resumesSent(h)).toBe(0);
+  });
+
+  it("the office switch is off when the resume is due: no resume, and it is dropped", async () => {
     const h = makeHarness();
     const info = await spawn(h);
     const reset = h.clock.now() + HOUR;
     await limitedTurn(h, info.id, reset);
-    await h.mgr.editAgent(info.id, { limitResume: false });
-    expect(persistedAt(info.id)).toBeUndefined();
+    expect(persistedAt(info.id)).toBe(reset + LIMIT_RESUME_DELAY_MS);
+    // Off with no drop (the file changed under the office): the fire checks.
+    saveLimitResume(false);
     await toResume(h, reset);
     expect(resumesSent(h)).toBe(0);
+    expect(persistedAt(info.id)).toBeUndefined();
+    expect(queueOf(h, info.id)).toEqual([]);
   });
 
   it("the agent is killed", async () => {
@@ -595,11 +649,25 @@ describe("resume after a usage limit: when it is dropped", () => {
     expect(queueOf(h, info.id).some((m) => m.limitResume)).toBe(false);
   });
 
-  it("the switch off at the stop arms nothing", async () => {
+  it("the office switch off at the stop arms nothing", async () => {
     const h = makeHarness();
     const info = await spawn(h);
-    await h.mgr.editAgent(info.id, { limitResume: false });
-    await limitedTurn(h, info.id, h.clock.now() + HOUR);
+    saveLimitResume(false);
+    const reset = h.clock.now() + HOUR;
+    await limitedTurn(h, info.id, reset);
+    expect(persistedAt(info.id)).toBeUndefined();
+    expect(h.clock.pending()).toEqual([]);
+    await toResume(h, reset);
+    expect(resumesSent(h)).toBe(0);
+  });
+
+  it("an engine with no resume (OpenCode) arms nothing", async () => {
+    const h = makeHarness([], { capabilities: { limitResume: false } });
+    const info = await spawn(h, "opencode");
+    // The enabling condition: the office switch is on.
+    expect(loadLimitResume()).toBe(true);
+    const reset = h.clock.now() + HOUR;
+    await limitedTurn(h, info.id, reset);
     expect(persistedAt(info.id)).toBeUndefined();
     expect(h.clock.pending()).toEqual([]);
   });
@@ -640,7 +708,12 @@ describe("resume after a usage limit: restart", () => {
 
   const persisted = (
     id: string,
-    over: { lastSessionId: string | null; limitResumeAt?: number },
+    over: {
+      lastSessionId: string | null;
+      limitResumeAt?: number;
+      // An older server's per-agent switch (task 2b42971b drops it).
+      limitResume?: boolean;
+    },
   ) => ({
     id,
     name: id,
@@ -689,6 +762,65 @@ describe("resume after a usage limit: restart", () => {
     const s = h.fake.sessionForAgent("stopped")!;
     expect(s.isResume).toBe(true);
     expect(s.sessionId).toBe("s-old");
+    expect(persistedAt("stopped")).toBeUndefined();
+  });
+
+  // Task 2b42971b: the switch is the office's; a stored per-agent off is
+  // dropped at load and not written again.
+  it("an agent stored with the old per-agent switch off resumes, and the switch is not written again", async () => {
+    seedClaudeSession("s-old");
+    const dueAt = Date.now() - HOUR;
+    const h = makeHarness([
+      {
+        id: "room-a",
+        name: "room-a",
+        prompt: null,
+        agents: [
+          persisted("was-off", {
+            lastSessionId: "s-old",
+            limitResumeAt: dueAt,
+            limitResume: false,
+          }),
+        ],
+      },
+    ]);
+    await h.mgr.restoreAgents();
+    expect(h.clock.pending()).toEqual([LIMIT_RESUME_BOOT_DELAY_MS]);
+    const stored = () =>
+      loadAgents()
+        .flatMap((r) => r.agents)
+        .find((a) => a.id === "was-off");
+    expect(stored()?.limitResumeAt).toBe(dueAt);
+    expect(stored()).not.toHaveProperty("limitResume");
+    await h.clock.advance(LIMIT_RESUME_BOOT_DELAY_MS);
+    await waitUntil(() => resumesSent(h) === 1, "resume sent after boot");
+  });
+
+  it("with the office switch off, a boot restores no pending resume and keeps none, also when the switch goes on again", async () => {
+    seedClaudeSession("s-old");
+    saveLimitResume(false);
+    const dueAt = Date.now() - HOUR;
+    const h = makeHarness([
+      {
+        id: "room-a",
+        name: "room-a",
+        prompt: null,
+        agents: [
+          persisted("stopped", {
+            lastSessionId: "s-old",
+            limitResumeAt: dueAt,
+          }),
+        ],
+      },
+    ]);
+    await h.mgr.restoreAgents();
+    expect(h.clock.pending()).toEqual([]);
+    expect(persistedAt("stopped")).toBeUndefined();
+    // A later boot with the switch on again finds nothing to restore.
+    saveLimitResume(true);
+    const next = makeHarness(loadAgents());
+    await next.mgr.restoreAgents();
+    expect(next.clock.pending()).toEqual([]);
     expect(persistedAt("stopped")).toBeUndefined();
   });
 

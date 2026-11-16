@@ -76,6 +76,8 @@ import { serverStopping } from "./server-stop.ts";
 export interface HandoffAndWakeDeps {
   agents: Map<string, ManagedAgent>;
   limitResumeClock: LimitResumeClock;
+  // The office switch for the resume after a usage limit.
+  limitResumeEnabled: () => boolean;
   maybeEmitUiContextNotice: (managed: ManagedAgent) => void;
   emitEphemeralLog: (
     agentId: string,
@@ -145,6 +147,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   const {
     agents,
     limitResumeClock,
+    limitResumeEnabled,
     maybeEmitUiContextNotice,
     emitEphemeralLog,
     addLogEntry,
@@ -411,12 +414,27 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     managed: ManagedAgent,
     resetsAtMs: number,
   ): void {
-    if (!limitResumeOn(managed.info)) return;
+    if (!limitResumeOn(managed.info, limitResumeEnabled())) return;
     const dueAt = limitResumeDueAt(resetsAtMs, limitResumeClock.now());
     if (dueAt === null) return;
     managed.limitResumeAt = dueAt;
     persistAll();
     scheduleLimitResume(agentId, managed);
+  }
+
+  // The office switch went off: every pending resume is dropped, with one
+  // persist.
+  function dropAllLimitResumes(): void {
+    let dropped = 0;
+    for (const [agentId, managed] of agents) {
+      const timer = limitResumeTimers.get(agentId);
+      if (timer !== undefined) limitResumeClock.clearTimeout(timer);
+      limitResumeTimers.delete(agentId);
+      if (managed.limitResumeAt === null) continue;
+      managed.limitResumeAt = null;
+      dropped++;
+    }
+    if (dropped > 0) persistAll();
   }
 
   function dropLimitResume(agentId: string, managed: ManagedAgent): void {
@@ -435,7 +453,10 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     const dueAt = p.limitResumeAt;
     if (!managed || typeof dueAt !== "number" || !Number.isFinite(dueAt))
       return;
-    if (!managed.sessionManager.sessionId || !limitResumeOn(managed.info))
+    if (
+      !managed.sessionManager.sessionId ||
+      !limitResumeOn(managed.info, limitResumeEnabled())
+    )
       return;
     managed.limitResumeAt = dueAt;
     scheduleLimitResume(p.id, managed, LIMIT_RESUME_BOOT_DELAY_MS);
@@ -444,7 +465,8 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   // Why a due resume does not go out, or null when it does. A busy agent is
   // already working, so the resume would stack a second turn.
   function limitResumeSkipReason(managed: ManagedAgent): string | null {
-    if (!limitResumeOn(managed.info)) return "switched off";
+    if (!limitResumeOn(managed.info, limitResumeEnabled()))
+      return "switched off";
     if (!managed.sessionManager.sessionId) return "no conversation";
     const state = managed.info.state;
     if (state === "stopped") return "stopped";
@@ -942,6 +964,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     armAutoHandoffFromEdit,
     armLimitResume,
     dropLimitResume,
+    dropAllLimitResumes,
     restoreLimitResume,
     recordTurnStart,
     scheduleTurnRecordClear,

@@ -365,9 +365,6 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
     (b.autoHandoff !== undefined &&
       b.autoHandoff !== null &&
       typeof b.autoHandoff !== "boolean") ||
-    (b.limitResume !== undefined &&
-      b.limitResume !== null &&
-      typeof b.limitResume !== "boolean") ||
     (b.autoHandoffTokens !== undefined &&
       b.autoHandoffTokens !== null &&
       !(

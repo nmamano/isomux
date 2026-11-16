@@ -17,7 +17,7 @@ export function OfficeSettingSwitch({
   onConflict,
 }: {
   // The settings field this checkbox writes.
-  field: "processIsolation" | "claudeIsomuxLabel";
+  field: "processIsolation" | "claudeIsomuxLabel" | "limitResume";
   // From the pane's settings read; null until it loads. Undefined when the
   // server does not know the field (an older server): nothing renders.
   checked: boolean | null | undefined;

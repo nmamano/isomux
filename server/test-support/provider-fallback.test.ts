@@ -22,6 +22,7 @@ import {
   getSessionClaudeConfigDir,
   loadAgents,
   loadMessageQueuesRaw,
+  saveLimitResume,
 } from "../persistence.ts";
 import { personalProviderHome } from "../provider-homes.ts";
 import { createMember, getUserByName } from "../users.ts";
@@ -565,10 +566,10 @@ describe("a stop on the member's own sign-in, with the switch on", () => {
     ).toBe(officeDir("claude"));
   });
 
-  it("with the agent's resume after a limit off: no continue, and the next turn runs on the office sign-in", async () => {
+  it("with the office's resume after a limit off: no continue, and the next turn runs on the office sign-in", async () => {
     const h = makeHarness();
     const info = await spawn(h);
-    await h.mgr.editAgent(info.id, { limitResume: false });
+    saveLimitResume(false);
     const reset = h.office.clock.now() + HOUR;
     const s = await memberTurn(h, info.id, "work");
     stopTurn(s, "claude", { resetsAtMs: reset });

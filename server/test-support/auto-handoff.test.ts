@@ -29,8 +29,7 @@ import {
   setMemberUsageCapForTests,
 } from "../member-usage-cap.ts";
 import { WEEK_MS } from "../office-usage.ts";
-import { limitResumeOn } from "../limit-resume.ts";
-import { loadAgents } from "../persistence.ts";
+import { loadAgents, loadLimitResume } from "../persistence.ts";
 import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
@@ -1464,8 +1463,9 @@ describe("automatic handoff: failures", () => {
       briefSession = s;
     };
     const info = await spawn(h);
-    // The enabling condition: the switch armLimitResume reads is on.
-    expect(limitResumeOn(h.mgr.getAgent(info.id)!)).toBe(true);
+    // The enabling condition: the switches armLimitResume reads are on.
+    expect(loadLimitResume()).toBe(true);
+    expect(h.mgr.getAgent(info.id)!.capabilities.limitResume).toBe(true);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
     await atRestMeasured(h, info.id);
     const queued = h.mgr.enqueueMessage(info.id, {

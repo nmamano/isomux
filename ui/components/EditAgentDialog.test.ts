@@ -30,7 +30,6 @@ const BASE: AgentFormSnapshot = {
   manager: "u1",
   autoHandoff: false,
   autoHandoffTokens: "500",
-  limitResume: true,
 };
 
 describe("agentFormDirty", () => {
@@ -48,7 +47,6 @@ describe("agentFormDirty", () => {
       { privileged: true },
       { manager: "u2" },
       { autoHandoff: true },
-      { limitResume: false },
     ];
     for (const edit of edits) {
       expect(agentFormDirty({ ...BASE, ...edit }, BASE, false)).toBe(true);

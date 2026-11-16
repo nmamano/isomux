@@ -683,6 +683,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.claudeIsomuxLabel": "Label Claude agents as Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "Changes only the metadata that Claude agents send to Anthropic: it says they run in Isomux, not in the Agent SDK. Nothing in Isomux changes. In Isomux's tests, SDK traffic used the 5-hour limit about twice as fast. Anthropic has not said whether this is allowed, and the risk falls on each member's Claude account. Applies to every member's Claude agents, in sessions that start after the change.",
+  "settings.office.limitResume": "Resume after usage limit",
+  "settings.office.limitResumeHint":
+    "When a usage limit stops a Claude or Codex agent, it continues after the limit resets.",
   "settings.office.enterprise.label":
     "This office is part of an Enterprise Contract",
   "settings.office.enterprise.hint":
@@ -2074,9 +2077,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.autoHandoffTokens":
     "Hand off when the context reaches {input}k tokens",
   "dialogs.agent.autoHandoffTokensError": "Enter a number from {min} to {max}.",
-  "dialogs.agent.limitResume": "Resume after usage limit",
-  "dialogs.agent.limitResumeHint":
-    "When a usage limit stops the agent, it continues after the limit resets.",
   "dialogs.agent.permission.ask": "Ask",
   "dialogs.agent.permission.bypassAll": "Bypass all permissions",
   "dialogs.agent.permission.codexUntrusted": "Untrusted (ask on every tool)",

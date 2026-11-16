@@ -111,6 +111,8 @@ import {
   loadRecordTerminals,
   saveRecordTerminals,
   loadClaudeIsomuxLabel,
+  loadLimitResume,
+  saveLimitResume,
   saveClaudeIsomuxLabel,
   loadProcessIsolation,
   saveProcessIsolation,
@@ -953,6 +955,7 @@ function officeSettingsNow(): OfficeSettingsRes {
     processIsolation: loadProcessIsolation(),
     processIsolationStatus: processIsolationStatusLine(),
     claudeIsomuxLabel: loadClaudeIsomuxLabel(),
+    limitResume: loadLimitResume(),
   };
 }
 // Who sees and answers an ask (askVisibleTo), read live: GET /api/asks,
@@ -2452,6 +2455,7 @@ function officeSettingsVersion(): string {
       providerFallback().isEnabled(),
       loadProcessIsolation(),
       loadClaudeIsomuxLabel(),
+      loadLimitResume(),
     ]),
   );
 }
@@ -2495,6 +2499,7 @@ function applyOfficeSettings(
     providerFallback?: boolean;
     processIsolation?: boolean;
     claudeIsomuxLabel?: boolean;
+    limitResume?: boolean;
     expectedVersion: string;
   },
   actor: AuditActor,
@@ -2563,6 +2568,14 @@ function applyOfficeSettings(
   // Claude sessions that start from here on follow it.
   if (input.claudeIsomuxLabel !== undefined)
     saveClaudeIsomuxLabel(input.claudeIsomuxLabel);
+  // Off drops every pending resume; on arms none until the next limit stop.
+  if (
+    input.limitResume !== undefined &&
+    input.limitResume !== loadLimitResume()
+  ) {
+    saveLimitResume(input.limitResume);
+    if (!input.limitResume) agentManager.dropAllLimitResumes();
+  }
   return { ok: true };
 }
 

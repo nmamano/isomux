@@ -938,10 +938,6 @@ export interface AgentInfo {
   // The automatic handoff's token trigger (shared/auto-handoff.ts). Absent
   // reads as AUTO_HANDOFF_DEFAULT_TOKENS.
   autoHandoffTokens?: number;
-  // Resume after a usage limit: a turn a usage limit stopped is continued
-  // after the limit resets (server/limit-resume.ts). Absent reads as true; the
-  // server sets it only when off.
-  limitResume?: boolean;
 
   // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
   // 9870b472) - a restart no longer empties it. Live source of truth is the

@@ -680,6 +680,9 @@ Cosas que puedes hacer por él:
     "Identificar los agentes de Claude como Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "Cambia solo los metadatos que los agentes de Claude envían a Anthropic: indican que se ejecutan en Isomux, no en el Agent SDK. Nada cambia en Isomux. En las pruebas de Isomux, el tráfico del SDK consumió el límite de 5 horas aproximadamente el doble de rápido. Anthropic no ha dicho si esto está permitido, y el riesgo recae en la cuenta de Claude de cada miembro. Se aplica a los agentes de Claude de todos los miembros, en las sesiones que empiecen después del cambio.",
+  "settings.office.limitResume": "Reanudar tras el límite de uso",
+  "settings.office.limitResumeHint":
+    "Cuando un límite de uso detiene a un agente de Claude o Codex, continúa cuando el límite se restablece.",
   "settings.office.enterprise.label":
     "Esta oficina forma parte de un contrato Enterprise",
   "settings.office.enterprise.hint":
@@ -2126,9 +2129,6 @@ Cosas que puedes hacer por él:
   "dialogs.agent.autoHandoffTokens": "Traspasar al llegar a {input}k tokens",
   "dialogs.agent.autoHandoffTokensError":
     "Introduce un número de {min} a {max}.",
-  "dialogs.agent.limitResume": "Reanudar tras el límite de uso",
-  "dialogs.agent.limitResumeHint":
-    "Cuando un límite de uso detiene al agente, continúa cuando el límite se restablece.",
   "dialogs.agent.permission.ask": "Preguntar",
   "dialogs.agent.permission.bypassAll": "Omitir todos los permisos",
   "dialogs.agent.permission.codexUntrusted":

@@ -347,7 +347,6 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       ...spawnTreeFields(a.info),
       ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
-      ...(a.info.limitResume === false ? { limitResume: false } : {}),
       ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
       ...(a.heardFrom?.size ? { heardFrom: [...a.heardFrom] } : {}),
       ...(a.heardFromMembers?.size
@@ -439,7 +438,6 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
         ...spawnTreeFields(a.info),
         ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
         ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
-        ...(a.info.limitResume === false ? { limitResume: false } : {}),
       };
     }
     saveAgentHistory(history);

@@ -222,7 +222,6 @@ export interface AgentFormSnapshot {
   autoHandoff: boolean;
   // The threshold field as typed, in thousands of tokens.
   autoHandoffTokens: string;
-  limitResume: boolean;
 }
 
 // Does the form hold edits that closing would throw away? Agent memory is
@@ -251,7 +250,6 @@ export function agentFormDirty(
     "access",
     "manager",
     "autoHandoff",
-    "limitResume",
   ] as const;
   for (const k of exact) {
     if (current[k] !== baseline[k]) return true;
@@ -406,12 +404,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
     isSpawn ||
     targetEngine !== agentType ||
     agent?.capabilities.autoHandoff === true;
-  // Claude and Codex report a usage limit stop and its reset time; OpenCode
-  // does not.
-  const showLimitResume =
-    isSpawn || targetEngine !== agentType
-      ? !isOpenCode
-      : agent?.capabilities.limitResume === true;
   const roomCount = rooms.length;
   // Room of the agent being edited, resolved by stable id. The index is used
   // only for ordinal fallbacks; name is "" when the room isn't visible.
@@ -562,8 +554,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
     String((agent?.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS) / 1000),
   );
   const [autoHandoffTokensError, setAutoHandoffTokensError] = useState(false);
-  // Absent reads as on.
-  const [limitResume, setLimitResume] = useState(agent?.limitResume ?? true);
   const [saving, setSaving] = useState(false);
   const [reviving, setReviving] = useState<string | null>(null);
   const [reviveError, setReviveError] = useState<string | null>(null);
@@ -661,7 +651,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
     manager: managerUserId,
     autoHandoff,
     autoHandoffTokens,
-    limitResume,
   };
   // Copied, not aliased: the effects below re-stamp individual baseline entries
   // in place, and sharing the object with this render's snapshot would make
@@ -1234,15 +1223,14 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         ...(belowStandard(access) ? { access } : {}),
       } satisfies SpawnReq)
         .then(async (res) => {
-          // Spawn takes neither switch: set what is off the default with an
-          // edit. Both switches are on by default.
+          // Spawn does not take the switch: set what is off the default with
+          // an edit. The switch is on by default.
           const spawnEdits: EditAgentReq = {
             ...(!autoHandoff ? { autoHandoff: false } : {}),
             ...(handoffTokens !== undefined &&
             handoffTokens !== AUTO_HANDOFF_DEFAULT_TOKENS
               ? { autoHandoffTokens: handoffTokens }
               : {}),
-            ...(!limitResume && !isOpenCode ? { limitResume: false } : {}),
           };
           if (Object.keys(spawnEdits).length > 0)
             await apiFetch("PATCH", `/api/agents/${res.agent.id}`, spawnEdits);
@@ -1316,8 +1304,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
           (agent!.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS)
       )
         changes.autoHandoffTokens = handoffTokens;
-      if (showLimitResume && limitResume !== (agent!.limitResume ?? true))
-        changes.limitResume = limitResume;
       const hasChanges = !!(
         changes.name ||
         changes.cwd ||
@@ -1329,8 +1315,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         changes.codexSandbox ||
         changes.agentType ||
         changes.autoHandoff !== undefined ||
-        changes.autoHandoffTokens !== undefined ||
-        changes.limitResume !== undefined
+        changes.autoHandoffTokens !== undefined
       );
       // Access is its OWN user-gated route (PUT /access), never part of the
       // PATCH - it re-mints the token and restarts the session like a model
@@ -2065,29 +2050,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
               })}
             </p>
           )}
-        </div>
-      )}
-      {showLimitResume && (
-        <div className="agent-limit-resume-field">
-          <label
-            htmlFor="agent-limit-resume"
-            style={{ ...labelStyle, marginTop: 14 }}
-          >
-            {t("dialogs.agent.limitResume")}
-          </label>
-          <label
-            className="agent-auto-handoff-control"
-            htmlFor="agent-limit-resume"
-          >
-            <input
-              id="agent-limit-resume"
-              type="checkbox"
-              checked={limitResume}
-              onChange={(e) => setLimitResume(e.target.checked)}
-              style={{ cursor: "pointer", margin: 0 }}
-            />
-            <span style={dialogHint}>{t("dialogs.agent.limitResumeHint")}</span>
-          </label>
         </div>
       )}
     </section>

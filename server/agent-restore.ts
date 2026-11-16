@@ -388,7 +388,6 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       ...spawnTreeFields(p),
       ...(p.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(p.autoHandoffTokens),
-      ...(p.limitResume === false ? { limitResume: false } : {}),
       queue: [],
       sessionSwapping: false,
       turnMemberIds: [],

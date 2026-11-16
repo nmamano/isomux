@@ -72,8 +72,9 @@ export interface OfficeSettingsDeps {
   // `memberUsageShare === undefined` the share, `recordTerminals ===
   // undefined` the "Record terminals" switch, `providerFallback ===
   // undefined` the fallback to the office sign-in, `processIsolation ===
-  // undefined` one PID namespace per agent, and `claudeIsomuxLabel ===
-  // undefined` the Isomux label on Claude agents.
+  // undefined` one PID namespace per agent, `claudeIsomuxLabel ===
+  // undefined` the Isomux label on Claude agents, and `limitResume ===
+  // undefined` the resume after a usage limit.
   // Throws nothing - invalid input returns { ok: false }. `ctx` names the
   // writer for the switch's own audit row.
   applySettings(
@@ -85,6 +86,7 @@ export interface OfficeSettingsDeps {
       providerFallback?: boolean;
       processIsolation?: boolean;
       claudeIsomuxLabel?: boolean;
+      limitResume?: boolean;
       expectedVersion: string;
     },
     ctx: RouteHandlerContext,
@@ -109,6 +111,7 @@ export const OFFICE_SETTINGS_SWITCHES = [
   "providerFallback",
   "processIsolation",
   "claudeIsomuxLabel",
+  "limitResume",
 ] as const;
 
 // Why a switch or the member share of a settings write is refused, or null.
@@ -168,6 +171,7 @@ export function officeSettingsHandlers(
         providerFallback?: unknown;
         processIsolation?: unknown;
         claudeIsomuxLabel?: unknown;
+        limitResume?: unknown;
       };
       // Distinguish "omitted" (undefined → preserve) from "set to null" (→
       // clear) for the name. JSON access yields undefined for an absent key and
@@ -199,6 +203,7 @@ export function officeSettingsHandlers(
           providerFallback: b.providerFallback as boolean | undefined,
           processIsolation: b.processIsolation as boolean | undefined,
           claudeIsomuxLabel: b.claudeIsomuxLabel as boolean | undefined,
+          limitResume: b.limitResume as boolean | undefined,
           expectedVersion: b.version,
         },
         ctx,

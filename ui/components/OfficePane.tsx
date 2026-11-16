@@ -72,7 +72,10 @@ export function OfficePane({
   // settings reads as the version.
   const [switches, setSwitches] = useState<Pick<
     OfficeSettingsRes,
-    "processIsolation" | "processIsolationStatus" | "claudeIsomuxLabel"
+    | "processIsolation"
+    | "processIsolationStatus"
+    | "claudeIsomuxLabel"
+    | "limitResume"
   > | null>(null);
   const [baselinePrompt, setBaselinePrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -408,6 +411,15 @@ export function OfficePane({
               version={settingsVersion}
               label={t("settings.office.claudeIsomuxLabel")}
               hint={t("settings.office.claudeIsomuxLabelHint")}
+              onSaved={onSwitchSaved}
+              onConflict={onSwitchConflict}
+            />
+            <OfficeSettingSwitch
+              field="limitResume"
+              checked={switches ? switches.limitResume : null}
+              version={settingsVersion}
+              label={t("settings.office.limitResume")}
+              hint={t("settings.office.limitResumeHint")}
               onSaved={onSwitchSaved}
               onConflict={onSwitchConflict}
             />

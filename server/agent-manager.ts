@@ -119,6 +119,7 @@ import {
   saveOfficeConfig,
   readEnvFile,
   loadAgentHistory,
+  loadLimitResume,
   saveAgentHistory,
   type PersistedAgent,
   type Room,
@@ -500,6 +501,9 @@ export interface ManagerDeps {
   // The clock and timers of the resume after a usage limit
   // (server/limit-resume.ts). Defaults to the real ones; tests move time.
   limitResumeClock?: LimitResumeClock;
+  // The office switch for the resume after a usage limit. Defaults to
+  // loadLimitResume (office-config.json); tests inject it.
+  limitResumeEnabled?: () => boolean;
   // OpenCode's free usage limit, office-wide (server/opencode-free-limit.ts).
   // Defaults to one on limitResumeClock.
   openCodeFreeLimit?: OpenCodeFreeLimit;
@@ -997,6 +1001,7 @@ export function createAgentManager(deps: ManagerDeps) {
     clearTimeout: (handle) =>
       clearTimeout(handle as ReturnType<typeof setTimeout>),
   };
+  const limitResumeEnabled = deps.limitResumeEnabled ?? loadLimitResume;
   const openCodeFreeLimit =
     deps.openCodeFreeLimit ?? createOpenCodeFreeLimit(limitResumeClock);
   // A member's /handoff, the automatic handoff, limit resume and restart
@@ -1010,6 +1015,7 @@ export function createAgentManager(deps: ManagerDeps) {
     armAutoHandoffFromEdit,
     armLimitResume,
     dropLimitResume,
+    dropAllLimitResumes,
     restoreLimitResume,
     recordTurnStart,
     scheduleTurnRecordClear,
@@ -1020,6 +1026,7 @@ export function createAgentManager(deps: ManagerDeps) {
   } = createHandoffAndWake({
     agents,
     limitResumeClock,
+    limitResumeEnabled,
     maybeEmitUiContextNotice,
     emitEphemeralLog,
     addLogEntry,
@@ -1075,6 +1082,7 @@ export function createAgentManager(deps: ManagerDeps) {
     openCodeEnvironmentRevisionForUserId: (userId) =>
       openCodeEnvironmentRevisionForUserId(userId),
     limitResumeClock,
+    limitResumeEnabled,
     providerFallback: deps.providerFallback,
     fallbackOfficeAccount: deps.fallbackOfficeAccount,
     ...(deps.memberToken ? { memberToken: deps.memberToken } : {}),
@@ -1796,7 +1804,6 @@ export function createAgentManager(deps: ManagerDeps) {
       agentType?: AgentInfo["agentType"];
       autoHandoff?: boolean;
       autoHandoffTokens?: number;
-      limitResume?: boolean;
       // Internal callers only (the office's free-model switch and repick).
       // A modelFamily change without it deletes the agent's officeFreeModel.
       officeFreeModel?: string;
@@ -1850,8 +1857,6 @@ export function createAgentManager(deps: ManagerDeps) {
         meta.autoHandoff = changes.autoHandoff;
       if (typeof changes.autoHandoffTokens === "number")
         meta.autoHandoffTokens = changes.autoHandoffTokens;
-      if (typeof changes.limitResume === "boolean")
-        meta.limitResume = changes.limitResume;
       if (Object.keys(meta).length > 0) {
         for (const event of officeState.editAgent(agentId, meta)) emit(event);
       }
@@ -1899,8 +1904,6 @@ export function createAgentManager(deps: ManagerDeps) {
       validated.autoHandoff = changes.autoHandoff;
     if (typeof changes.autoHandoffTokens === "number")
       validated.autoHandoffTokens = changes.autoHandoffTokens;
-    if (typeof changes.limitResume === "boolean")
-      validated.limitResume = changes.limitResume;
     if (changes.modelFamily) {
       validated.modelFamily = validateModelFamily(
         managed.info.agentType,
@@ -1990,7 +1993,6 @@ export function createAgentManager(deps: ManagerDeps) {
       codexSandbox: managed.info.codexSandbox,
       autoHandoff: managed.info.autoHandoff,
       autoHandoffTokens: managed.info.autoHandoffTokens,
-      limitResume: managed.info.limitResume,
       officeFreeModel: managed.info.officeFreeModel,
     };
 
@@ -2031,9 +2033,6 @@ export function createAgentManager(deps: ManagerDeps) {
         requestFlush(agentId, "auto-handoff release");
       }
     }
-    // Switched off: a pending resume after a usage limit does not happen.
-    if (managed.info.limitResume === false) dropLimitResume(agentId, managed);
-
     // After editAgent, managed.info has the new values, so createSession reads
     // them correctly. On failure we revert via officeState.updateAgent - that
     // hits onChange (persists the rollback) but not eventHandler, so the wire
@@ -8348,7 +8347,6 @@ export function createAgentManager(deps: ManagerDeps) {
           ...spawnTreeFields(managed.info),
           ...(managed.info.autoHandoff === false ? { autoHandoff: false } : {}),
           ...persistedAutoHandoffTokens(managed.info.autoHandoffTokens),
-          ...(managed.info.limitResume === false ? { limitResume: false } : {}),
         };
         saveAgentHistory(history);
       }
@@ -8611,7 +8609,6 @@ export function createAgentManager(deps: ManagerDeps) {
       ...spawnTreeFields(entry),
       ...(entry.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(entry.autoHandoffTokens),
-      ...(entry.limitResume === false ? { limitResume: false } : {}),
     };
 
     // An agent its manager's agent ceiling would hold below what its engine
@@ -10347,6 +10344,8 @@ export function createAgentManager(deps: ManagerDeps) {
     roomById,
     liveAgentRoom,
     getOfficeSettings,
+    // The office switch for the resume after a usage limit went off.
+    dropAllLimitResumes,
     getTasks,
     addTask,
     updateTask,

@@ -180,6 +180,7 @@ const OFFICE_LABEL: Record<string, PlainMessageKey> = {
   providerFallback: "settings.office.providerFallback",
   processIsolation: "settings.office.processIsolation",
   claudeIsomuxLabel: "settings.office.claudeIsomuxLabel",
+  limitResume: "settings.office.limitResume",
 };
 const OFFICE_HINT: Record<string, PlainMessageKey> = {
   memberUsageCap: "settings.office.memberUsageCapHint",
@@ -187,6 +188,7 @@ const OFFICE_HINT: Record<string, PlainMessageKey> = {
   providerFallback: "settings.office.providerFallbackHint",
   processIsolation: "settings.office.processIsolationHint",
   claudeIsomuxLabel: "settings.office.claudeIsomuxLabelHint",
+  limitResume: "settings.office.limitResumeHint",
 };
 const PREFERENCE_LABEL: Record<string, PlainMessageKey> = {
   language: "settings.sidebar.language",

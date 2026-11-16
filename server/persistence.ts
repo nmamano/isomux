@@ -936,9 +936,6 @@ export interface PersistedAgent {
   // Its token trigger. Written only off the default; absent reads as
   // AUTO_HANDOFF_DEFAULT_TOKENS.
   autoHandoffTokens?: number;
-  // Resume-after-usage-limit switch. Written only when off; absent reads as
-  // true.
-  limitResume?: boolean;
   // The pending resume after a usage limit, epoch ms (server/limit-resume.ts).
   // Absent when none is pending.
   limitResumeAt?: number;
@@ -1375,6 +1372,17 @@ export function saveClaudeIsomuxLabel(enabled: boolean): void {
   saveOfficeConfigField("claudeIsomuxLabel", enabled);
 }
 
+// The owner's switch for the resume after a usage limit
+// (server/limit-resume.ts), beside the settings in office-config.json. An
+// absent switch reads as on.
+export function loadLimitResume(): boolean {
+  return readOfficeConfigRaw().limitResume !== false;
+}
+
+export function saveLimitResume(enabled: boolean): void {
+  saveOfficeConfigField("limitResume", enabled);
+}
+
 // Set once the boot backfill of AgentInfo.officeFreeModel ran (task
 // c00b3973), so it never runs again.
 export function loadFreeModelMarkBackfillDone(): boolean {
@@ -1522,6 +1530,7 @@ export const OFFICE_CONFIG_OFFICE_KEYS: readonly string[] = [
   "providerFallback",
   "recordTerminals",
   "claudeIsomuxLabel",
+  "limitResume",
   "freeModelMarkBackfillDone",
   "backupIntervalHours",
   "backupRetention",

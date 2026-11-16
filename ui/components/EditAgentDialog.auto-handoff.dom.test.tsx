@@ -42,10 +42,13 @@ async function rename(container: HTMLElement) {
 }
 
 describe("edit dialog usage switches", () => {
-  it("each switch shows only when the agent's engine reports what it needs", async () => {
+  // Task 2b42971b: the resume after a usage limit is an office setting, so
+  // the dialog has no switch for it, whatever the engine reports.
+  it("the handoff switch shows only when the agent's engine reports what it needs; no resume switch", async () => {
     for (const [autoHandoff, limitResume] of [
       [false, true],
       [true, false],
+      [true, true],
     ]) {
       shimRequests();
       const base = claudeAgent("opus", "default", []);
@@ -59,7 +62,7 @@ describe("edit dialog usage switches", () => {
         expect({
           autoHandoff: toggle(view.container) !== null,
           limitResume: limitResumeToggle(view.container) !== null,
-        }).toEqual({ autoHandoff, limitResume });
+        }).toEqual({ autoHandoff, limitResume: false });
       } finally {
         view.unmount();
       }
@@ -104,39 +107,6 @@ describe("edit dialog automatic handoff switch", () => {
       );
       await save(view.container);
       expect(patches).toEqual([{ autoHandoff: true }]);
-    } finally {
-      view.unmount();
-    }
-  });
-});
-
-describe("edit dialog resume-after-usage-limit switch", () => {
-  it("is on for an agent with no stored value, and saving it off sends limitResume false", async () => {
-    const patches = shimRequests();
-    const { view } = renderEdit(claudeAgent("opus", "default", []), []);
-    try {
-      await settle();
-      const box = limitResumeToggle(view.container)!;
-      expect(box.checked).toBe(true);
-      fireEvent.click(box);
-      await save(view.container);
-      expect(patches).toEqual([{ limitResume: false }]);
-    } finally {
-      view.unmount();
-    }
-  });
-
-  it("shows an agent's switch off and sends it on", async () => {
-    const patches = shimRequests();
-    const agent = { ...claudeAgent("opus", "default", []), limitResume: false };
-    const { view } = renderEdit(agent, []);
-    try {
-      await settle();
-      const box = limitResumeToggle(view.container)!;
-      expect(box.checked).toBe(false);
-      fireEvent.click(box);
-      await save(view.container);
-      expect(patches).toEqual([{ limitResume: true }]);
     } finally {
       view.unmount();
     }

@@ -381,7 +381,6 @@ export class OfficeState {
       codexSandbox?: AgentInfo["codexSandbox"];
       autoHandoff?: boolean;
       autoHandoffTokens?: number;
-      limitResume?: boolean;
       // With a modelFamily change: the office moved the agent to this free
       // model (AgentInfo.officeFreeModel).
       officeFreeModel?: string;
@@ -460,13 +459,6 @@ export class OfficeState {
         delete agent.autoHandoffTokens;
       else agent.autoHandoffTokens = changes.autoHandoffTokens;
       updated.autoHandoffTokens = changes.autoHandoffTokens;
-    }
-    if (
-      typeof changes.limitResume === "boolean" &&
-      changes.limitResume !== (agent.limitResume ?? true)
-    ) {
-      agent.limitResume = changes.limitResume;
-      updated.limitResume = changes.limitResume;
     }
 
     if (updated.modelFamily) {
