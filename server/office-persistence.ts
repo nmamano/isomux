@@ -366,8 +366,9 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     return tasks?.length ? { backgroundTasks: tasks } : {};
   }
 
-  // Set by stop(): a stopped harness server's sessions can still deliver
-  // events, and a write then would put that office over the next boot's files.
+  // Set by the manager's stop(): a stopped harness server's sessions can still
+  // deliver events, and persistAll then would put that office over the next
+  // boot's agents, manifest and history files.
   let stopped = false;
   function stopPersisting() {
     stopped = true;

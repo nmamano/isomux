@@ -7034,7 +7034,8 @@ function resetServerModuleState(): void {
 
 async function stopServer(server: Server<WsData>): Promise<void> {
   // First, before any await: this manager's sessions stay open (below), and a
-  // late event from one must not write this office over the next boot's files.
+  // late event from one must not write this office over the next boot's files
+  // (stop() ends persistAll, transcripts and held death lines).
   agentManager.stop();
   // Force-close active sockets and stop accepting, freeing the (ephemeral) port
   // before the next harness boot.
@@ -7064,7 +7065,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   //
   // Agent backend sessions are likewise not closed here: the next
   // createManagers() drops this manager instance, and agentManager.stop() above
-  // keeps their late events off the state files.
+  // keeps their late events off the agent files and transcripts.
   browsers.clear();
   apiTokenSockets.clear();
   _testClearPresence();

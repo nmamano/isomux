@@ -90,8 +90,8 @@ import {
   BACK_ROOM_FULL_MESSAGE,
 } from "../shared/desks.ts";
 import {
-  appendLog,
-  appendLogOrThrow,
+  appendLog as appendLogToDisk,
+  appendLogOrThrow as appendLogToDiskOrThrow,
   prepareLogEntry,
   loadLog,
   loadLogWithAncestors,
@@ -178,6 +178,7 @@ import {
   type BackendFailureText,
 } from "./backend-failure-text.ts";
 import { RESTART_WAKE_CLEAR_DELAY_MS } from "./restart-wake.ts";
+import { registerAgentManagerStop } from "./agent-manager-stops.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
@@ -1296,7 +1297,12 @@ export function createAgentManager(deps: ManagerDeps) {
     clearTimeout: (handle) =>
       clearTimeout(handle as ReturnType<typeof setTimeout>),
   };
-  const heldDeathLines = new Map<string, (() => void)[]>();
+  // Set by stop(). See stop() for what a stopped manager no longer writes.
+  let managerStopped = false;
+  const heldDeathLines = new Map<
+    string,
+    { writes: (() => void)[]; timer: unknown }
+  >();
   function writeUnlessServerStop(
     agentId: string,
     raw: string,
@@ -1306,6 +1312,8 @@ export function createAgentManager(deps: ManagerDeps) {
       write();
       return;
     }
+    // A stopped manager holds nothing: stop() cleared what it held.
+    if (managerStopped) return;
     const dropped = () =>
       console.log(
         `Agent ${agentId}: the server stops, so the chat shows no line for: ${raw}`,
@@ -1316,12 +1324,11 @@ export function createAgentManager(deps: ManagerDeps) {
     }
     const held = heldDeathLines.get(agentId);
     if (held) {
-      held.push(write);
+      held.writes.push(write);
       return;
     }
     const writes = [write];
-    heldDeathLines.set(agentId, writes);
-    deathClock.setTimeout(() => {
+    const timer = deathClock.setTimeout(() => {
       heldDeathLines.delete(agentId);
       if (isServerStopping()) dropped();
       else if (agents.has(agentId))
@@ -1336,6 +1343,7 @@ export function createAgentManager(deps: ManagerDeps) {
             );
           }
     }, RESTART_WAKE_CLEAR_DELAY_MS);
+    heldDeathLines.set(agentId, { writes, timer });
   }
   function backgroundSetChanged(
     agentId: string,
@@ -2882,6 +2890,19 @@ export function createAgentManager(deps: ManagerDeps) {
         classified ? { backendFailureRaw: raw } : undefined,
       ),
     );
+  }
+
+  // Every transcript write of this manager goes through these two: a stopped
+  // manager writes none (stop()).
+  function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
+    if (!managerStopped) appendLogToDisk(agentId, sessionId, entry);
+  }
+  function appendLogOrThrow(
+    agentId: string,
+    sessionId: string,
+    entry: LogEntry,
+  ) {
+    if (!managerStopped) appendLogToDiskOrThrow(agentId, sessionId, entry);
   }
 
   // Returns false only for a `durable` entry whose transcript write failed;
@@ -10314,6 +10335,19 @@ export function createAgentManager(deps: ManagerDeps) {
     );
   }
 
+  // For a server stopped in a process that boots another (the test harness,
+  // the next test): this manager's late events must not write over the next
+  // office's state. It ends persistAll, every transcript write and the death
+  // lines it holds. It closes no session, and the session-map writers
+  // (topic, usage, cwd and the others) still write.
+  function stop(): void {
+    managerStopped = true;
+    stopPersisting();
+    for (const { timer } of heldDeathLines.values())
+      deathClock.clearTimeout(timer);
+    heldDeathLines.clear();
+  }
+
   function resolveEditorPathForAgent(
     agentId: string,
     rawPath: string,
@@ -10325,12 +10359,12 @@ export function createAgentManager(deps: ManagerDeps) {
     return resolved.kind === "ok" ? { path: resolved.path, host } : null;
   }
 
+  registerAgentManagerStop(stop);
+
   // Explicitly assembled public surface (see AgentManager type above). Mirrors
   // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
-    // Ends this manager's writes to the state files, for a server stopped in
-    // a process that boots another (the test harness). It closes no session.
-    stop: stopPersisting,
+    stop,
     holdMember,
     releaseMember,
     memberAgents,

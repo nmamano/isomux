@@ -11,7 +11,7 @@
 // STATE_ROOT once at import; importing it here (directly or transitively) before
 // we set ISOMUX_HOME would freeze STATE_ROOT to the real home. temp-state.ts
 // pulls in only os/fs/path, so it is safe to import.
-import { afterAll } from "bun:test";
+import { afterAll, afterEach, beforeEach } from "bun:test";
 import { AsyncLocalStorage } from "async_hooks";
 import { mkdirSync, realpathSync } from "fs";
 import { homedir, tmpdir } from "os";
@@ -25,6 +25,10 @@ import {
 } from "./temp-root.ts";
 import { inheritedGitRepoEnv } from "./git-env.ts";
 import { recordStartGlobals } from "../../ui/test-support/start-globals.ts";
+import {
+  _testClearAgentManagerStops,
+  _testStopAgentManagers,
+} from "../agent-manager-stops.ts";
 
 // Next builds its request store once, at load, from globalThis.AsyncLocalStorage,
 // and falls back to a fake whose exit() throws. A Next server sets the global
@@ -218,3 +222,15 @@ afterAll(() => {
 
 // Last, so that the DOM harness's baseline holds what this preload set.
 recordStartGlobals();
+
+// A test's agent managers stop after it: a backend session it left open can
+// end later, and that manager's chat line would land in the next test's state
+// (task 7a54c6a3). These hooks wrap every file's own: a manager made at a
+// file's top level or in beforeAll is cleared here, not stopped, so the tests
+// that share it keep it.
+beforeEach(() => {
+  _testClearAgentManagerStops();
+});
+afterEach(() => {
+  _testStopAgentManagers();
+});
