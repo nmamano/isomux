@@ -73,6 +73,14 @@ export interface PreflightView {
   /** `partial`: an entry timed out or has no size, so the total is a lower
    *  bound ("at least"). */
   sizes: { kind: "total"; bytes: number; partial: boolean } | Unknown;
+  /** Members with their own OS user on the old office (slice 3): the lock
+   *  waits until none has one. Unknown: an old office of a release without
+   *  this part. */
+  memberOsUsers:
+    | { kind: "none" }
+    | { kind: "list"; names: string[] }
+    | { kind: "broken" }
+    | Unknown;
   sudoPackages: { kind: "list"; packages: string[] } | Unknown;
 }
 
@@ -183,6 +191,14 @@ function readSudo(v: unknown): PreflightView["sudoPackages"] {
   return packages ? { kind: "list", packages } : UNKNOWN;
 }
 
+function readMemberOsUsers(v: unknown): PreflightView["memberOsUsers"] {
+  if (!isObj(v)) return UNKNOWN;
+  if (v.broken === true) return { kind: "broken" };
+  const names = readStrings(v.names);
+  if (!names) return UNKNOWN;
+  return names.length === 0 ? { kind: "none" } : { kind: "list", names };
+}
+
 /** Never throws: each part that does not have its known shape is unknown. */
 export function preflightView(raw: unknown): PreflightView {
   const r: Obj = isObj(raw) ? raw : {};
@@ -194,13 +210,19 @@ export function preflightView(raw: unknown): PreflightView {
     hostRefs: isObj(raw) ? readHostRefs(r.hostRefs) : UNKNOWN,
     sizes: isObj(raw) ? readSizes(r.sizes) : UNKNOWN,
     sudoPackages: isObj(raw) ? readSudo(r.sudoPackages) : UNKNOWN,
+    memberOsUsers: readMemberOsUsers(isObj(raw) ? r.memberOsUsers : undefined),
   };
 }
 
-/** The old office locks only when its unit has Restart=always. */
+/** The old office locks only when its unit has Restart=always and no
+ *  member has their own OS user. An old office that does not report those
+ *  members (unknown) does not refuse them either. */
 export function lockAllowed(preflight: PreflightView): boolean {
+  const members = preflight.memberOsUsers.kind;
   return (
-    preflight.restart.kind === "set" && preflight.restart.restart === "always"
+    preflight.restart.kind === "set" &&
+    preflight.restart.restart === "always" &&
+    (members === "none" || members === "unknown")
   );
 }
 
@@ -422,4 +444,54 @@ export function listHead<T>(items: T[]): { shown: T[]; more: number } {
     shown: items.slice(0, MOVE_LIST_MAX),
     more: Math.max(0, items.length - MOVE_LIST_MAX),
   };
+}
+
+/** One line of the after-move report's "left behind" list (slice 3). */
+export type LeftBehindLine =
+  | { kind: "signIn" }
+  | { kind: "invites" }
+  | { kind: "extension" }
+  | { kind: "push" }
+  | { kind: "sshKeys" }
+  /** A unit this release does not name (an old office of an older release). */
+  | { kind: "unit"; unit: string; entries: number }
+  | { kind: "secrets"; count: number };
+
+/** The units the report names, in the order it shows them. A unit with a
+ *  null kind gives no line (apps sign in again through the office). The
+ *  units it does not name come after these, then the secrets line. */
+export const LEFT_BEHIND_ORDER: readonly {
+  unit: string;
+  kind: "signIn" | "invites" | "extension" | "push" | "sshKeys" | null;
+}[] = [
+  { unit: "browser-sessions", kind: "signIn" },
+  { unit: "invites", kind: "invites" },
+  { unit: "extension-pairings", kind: "extension" },
+  { unit: "web-push", kind: "push" },
+  { unit: "ssh-authorized-keys", kind: "sshKeys" },
+  { unit: "app-sessions", kind: null },
+];
+
+/** The secret store's unit: an older old office leaves it out, and the
+ *  report then counts the secrets to set again. */
+const SECRET_STORE_UNIT = "secret-store";
+
+/** What the report lists as left behind: one line per excluded unit with
+ *  entries, and the secrets to set again when the old office left the
+ *  secret store out. */
+export function leftBehindLines(
+  report: Pick<MoveInReport, "excluded" | "secretCount">,
+): LeftBehindLine[] {
+  const present = report.excluded.filter((u) => u.entries > 0);
+  const has = (unit: string) => present.some((u) => u.unit === unit);
+  const lines: LeftBehindLine[] = [];
+  for (const o of LEFT_BEHIND_ORDER)
+    if (o.kind !== null && has(o.unit)) lines.push({ kind: o.kind });
+  const named = new Set(LEFT_BEHIND_ORDER.map((o) => o.unit));
+  for (const u of present)
+    if (!named.has(u.unit) && u.unit !== SECRET_STORE_UNIT)
+      lines.push({ kind: "unit", unit: u.unit, entries: u.entries });
+  if (has(SECRET_STORE_UNIT) && report.secretCount > 0)
+    lines.push({ kind: "secrets", count: report.secretCount });
+  return lines;
 }

@@ -310,3 +310,22 @@ export function memberOsUidTies(): MemberUidTie[] {
 export function reloadMemberOsUsers(): void {
   cache = null;
 }
+
+// The members with their own OS user, for an office move's preflight and
+// lock (task 78733adf, slice 3), read from `stateRoot` now, with no cache.
+// Every entry counts, valid or not. A member's name comes from `nameOf`, or
+// is the id when it gives null; the names are sorted. No file: no names.
+// A file that cannot be read or parsed: broken.
+export function memberOsUsersForMove(
+  stateRoot: string,
+  nameOf: (userId: string) => string | null,
+): { names: string[] } | { broken: true } {
+  const loaded = readRecord(join(stateRoot, MEMBER_OS_USERS_FILE));
+  if (loaded.kind === "absent") return { names: [] };
+  if (loaded.kind === "broken") return { broken: true };
+  return {
+    names: Object.keys(loaded.entries)
+      .map((id) => nameOf(id) ?? id)
+      .sort(),
+  };
+}

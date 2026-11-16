@@ -178,6 +178,14 @@ function fillHome(home: string): void {
   w("ro/inside.txt", "read only folder");
   // Left out of the move (a cache).
   w(".cache/junk.bin", rnd(1000, 1));
+  // Slice 3: sign-ins and secrets move; the box's SSH login keys and the
+  // origin-bound sessions stay.
+  w(".claude/.credentials.json", '{"token":"old-claude"}', 0o600);
+  w(".ssh/id_ed25519", "OLD-SSH-ID", 0o600);
+  w(".ssh/authorized_keys", "ssh-ed25519 AAAA old-box-login", 0o600);
+  w(".config/gh/hosts.yml", "github.com: {oauth_token: old}");
+  w(".isomux/secrets/office.json", '{"secrets":[]}', 0o600);
+  w(".isomux/sessions.json", '{"old":"sessions"}', 0o600);
   // A SQLite database whose snapshot is smaller than the live file (freed
   // pages): its trailer, not the manifest size, is the right size.
   mkdirSync(join(home, "data"), { recursive: true });
@@ -243,6 +251,7 @@ function oldOffice(name = "old"): OldOffice {
       manager: "system",
       restart: "always",
     }),
+    memberOsUsers: () => ({ names: [] }),
     exec: async () => ({ code: 0, stdout: "0\t.\n", timedOut: false }),
     osUser: "isomux",
     aptHistoryPath: join(dir, "no-apt-log"),
@@ -254,6 +263,7 @@ function oldOffice(name = "old"): OldOffice {
     preflight,
     turnsInFlight: () => turns.map((t) => ({ ...t })),
     restartPolicy: () => "always",
+    memberOsUsers: () => ({ names: [] }),
     listUnits: () => [],
     lockProcess: () => {},
     audit: () => {},
@@ -491,7 +501,12 @@ const oldSkip = (r: string) =>
   /\.sqlite-(wal|shm|journal)$/.test(r) ||
   r === ".cache" ||
   r.startsWith(".cache/") ||
-  (r.startsWith(".isomux/") && r !== ".isomux/agents.json");
+  // Slice 3: bound to the old box, so it stays there.
+  r === ".ssh/authorized_keys" ||
+  (r.startsWith(".isomux/") &&
+    r !== ".isomux/agents.json" &&
+    r !== ".isomux/secrets" &&
+    r !== ".isomux/secrets/office.json");
 
 const rows = (path: string) => {
   const db = new Database(path, { readonly: true });

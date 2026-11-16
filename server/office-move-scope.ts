@@ -39,8 +39,9 @@ export type MoveScopeVerdict =
   | { in: true }
   /** Left out and not counted (caches, the code folder, specials...). */
   | { in: false; why: "out" }
-  /** A sign-in unit: left out and counted for the after-move report. */
-  | { in: false; why: "signin"; unit: string };
+  /** Bound to the old box or its origin: left out, counted for the
+   *  after-move report, and kept from the new box by the swap. */
+  | { in: false; why: "bound"; unit: string };
 
 interface UnitRule {
   unit: string;
@@ -50,9 +51,9 @@ interface UnitRule {
 interface MoveScopeRules {
   /** Folders (or files) left out with all they hold. */
   out: string[];
-  /** One regex over every sign-in rule, to skip the per-unit loop. */
-  anySignin: RegExp | null;
-  signins: UnitRule[];
+  /** One regex over every bound rule, to skip the per-unit loop. */
+  anyBound: RegExp | null;
+  bound: UnitRule[];
 }
 
 /** The home's caches and build caches, rooted at the home. */
@@ -79,21 +80,61 @@ const MOVE_OWN_FILES = [
   MOVE_SCRATCH_DIR,
 ];
 
-/** Sign-in units rooted at the home. */
-const HOME_SIGNINS: { unit: string; path: string }[] = [
-  { unit: "ssh", path: ".ssh" },
-  { unit: "gh", path: ".config/gh" },
-];
+/** Units bound to the old box or its origin (slice 3): left out, counted for
+ *  the after-move report, and kept from the new box by the swap. */
+export const MOVE_BOUND_UNITS = [
+  "browser-sessions",
+  "app-sessions",
+  "invites",
+  "extension-pairings",
+  "web-push",
+  "ssh-authorized-keys",
+] as const;
 
-/** Files bound to the old office's origin, in the state root. */
-const ORIGIN_BOUND: { unit: string; name: string }[] = [
+/** Sign-in and secret units that move with the office (slice 3). Every id
+ *  of BACKUP_EXCLUSIONS and BACKEND_CREDENTIAL_PATHS is in exactly one of
+ *  the two lists ("office-move" in neither: the move's own files are out). */
+export const MOVE_CARRIED_UNITS = [
+  "app-runtime-credentials",
+  "container-app-tokens",
+  "personal-environment",
+  "office-environment",
+  "secret-store",
+  "removed-members",
+  "mcp-server-registrations",
+  "codex-shell-snapshots",
+  "webhook-secrets",
+  "whatsapp-sessions",
+  "discord-bots",
+  "pager-discord-webhooks",
+  "legacy-tls-key",
+  "browser-profile",
+  "claude-login",
+  "codex-login",
+  "opencode-login",
+  "opencode-mcp-login",
+  "opencode-database",
+  "opencode-isomux-config",
+  "opencode-server-record",
+] as const;
+
+/** Files bound to the old office's origin, in the state root. Each covers
+ *  its temp file and its quarantined copies (`.tmp`, `.corrupt-*`). */
+const ORIGIN_BOUND: {
+  unit: (typeof MOVE_BOUND_UNITS)[number];
+  name: string;
+}[] = [
   { unit: "browser-sessions", name: "sessions.json" },
-  { unit: "invites", name: "invites.json" },
-  { unit: "api-tokens", name: "api-tokens.json" },
-  { unit: "extension-pairings", name: "browser-connections.json" },
   { unit: "app-sessions", name: "app-sessions.json" },
+  { unit: "invites", name: "invites.json" },
+  { unit: "extension-pairings", name: "browser-connections.json" },
   { unit: "web-push", name: "web-push.json" },
 ];
+
+/** The keys that may log in to the old box over SSH: the new box keeps its
+ *  own (the Hosted control plane writes its line there). A project's copy
+ *  elsewhere in the home moves. */
+const SSH_LOGIN_KEYS = /^\.ssh\/authorized_keys2?$/;
 
 function relInHome(home: string, path: string | null): string | null {
   if (!path) return null;
@@ -111,40 +152,47 @@ function buildRules(
   stateRootRel: string | null,
   out: string[],
 ): MoveScopeRules {
-  const signins: UnitRule[] = [];
+  // The bound rules come first: the first rule that matches names the unit.
+  const bound: UnitRule[] = [];
+  const carried = new Set<string>(MOVE_CARRIED_UNITS);
+  if (stateRootRel !== null)
+    for (const { unit, name } of ORIGIN_BOUND)
+      bound.push({
+        unit,
+        test: new RegExp(
+          rooted(
+            `${escapeRegex(`${stateRootRel}/${name}`)}(?:\\.tmp|\\.corrupt-.*)?`,
+          ),
+        ),
+      });
+  bound.push({ unit: "ssh-authorized-keys", test: SSH_LOGIN_KEYS });
+  // A backup exclusion or backend login that is not in the carried list stays
+  // on the old box under its own id: a new credential store moves only once
+  // its author puts it in MOVE_CARRIED_UNITS.
   if (stateRootRel !== null) {
     // The state root's name as a glob literal, as backup.ts escapes it.
     const root = stateRootRel.replace(/[\\*?[\]]/g, "\\$&");
     for (const entry of BACKUP_EXCLUSIONS) {
       // The move's own files are "out" (above).
-      if (entry.id === "office-move") continue;
+      if (entry.id === "office-move" || carried.has(entry.id)) continue;
       const sources = entry.archivePatterns(root).map(tarGlobSource);
       if (sources.length > 0)
-        signins.push({
+        bound.push({
           unit: entry.id,
           test: new RegExp(rooted(sources.join("|"))),
         });
     }
-    for (const { unit, name } of ORIGIN_BOUND)
-      signins.push({
-        unit,
-        test: new RegExp(rooted(escapeRegex(`${stateRootRel}/${name}`))),
-      });
   }
-  // Backend sign-in files at any depth of the home. An entry the backup
-  // keeps holds more than a sign-in, so it moves.
   for (const entry of BACKEND_CREDENTIAL_PATHS)
-    if (entry.backup !== "keep")
-      signins.push({ unit: entry.id, test: entry.pattern });
-  for (const { unit, path } of HOME_SIGNINS)
-    signins.push({ unit, test: new RegExp(rooted(escapeRegex(path))) });
+    if (!carried.has(entry.id))
+      bound.push({ unit: entry.id, test: entry.pattern });
   return {
     out,
-    anySignin:
-      signins.length > 0
-        ? new RegExp(signins.map((r) => `(?:${r.test.source})`).join("|"))
+    anyBound:
+      bound.length > 0
+        ? new RegExp(bound.map((r) => `(?:${r.test.source})`).join("|"))
         : null,
-    signins,
+    bound,
   };
 }
 
@@ -186,10 +234,10 @@ export function moveScope(
   if (kind === "other") return OUT;
   for (const prefix of scope.rules.out)
     if (relPath === prefix || relPath.startsWith(`${prefix}/`)) return OUT;
-  const { anySignin, signins } = scope.rules;
-  if (anySignin && anySignin.test(relPath))
-    for (const rule of signins)
+  const { anyBound, bound } = scope.rules;
+  if (anyBound && anyBound.test(relPath))
+    for (const rule of bound)
       if (rule.test.test(relPath))
-        return { in: false, why: "signin", unit: rule.unit };
+        return { in: false, why: "bound", unit: rule.unit };
   return IN;
 }

@@ -3559,10 +3559,10 @@ Cosas que puedes hacer por él:
     "No hay ninguna app en esta dirección, o no puedes abrirla.",
   "officeMove.title": "Trasladar la oficina",
   "officeMove.intro":
-    "Traslada una oficina tal como está a otra máquina: los agentes con sus chats, las apps, las programaciones y los archivos.",
+    "Traslada una oficina tal como está a otra máquina: los agentes con sus chats, las apps, las programaciones, los archivos, los inicios de sesión y los secretos.",
   "officeMove.out.heading": "Trasladar esta oficina a otra máquina",
   "officeMove.out.signIns":
-    "Los inicios de sesión y los secretos aún no se trasladan: los miembros vuelven a iniciar sesión en la nueva máquina, y tú vuelves a configurar los secretos allí.",
+    "Los miembros vuelven a iniciar sesión en la nueva máquina.",
   "officeMove.out.needs":
     "La nueva máquina necesita una oficina de Isomux nueva, de esta versión o una más reciente, con la misma carpeta personal para el usuario de la oficina.",
   "officeMove.out.steps":
@@ -3571,7 +3571,7 @@ Cosas que puedes hacer por él:
   "officeMove.out.mintAgain": "Obtener un código nuevo",
   "officeMove.out.codeLabel": "Código de traslado",
   "officeMove.out.codeHint":
-    "Solo se muestra una vez. Úsalo en la nueva máquina antes de las {time}. Guárdalo: después del bloqueo, lo necesitas para cancelar el traslado.",
+    "Solo se muestra una vez. Úsalo en la nueva máquina antes de las {time}. Cualquiera que lo tenga puede copiar esta oficina, con los inicios de sesión. Guárdalo: después del bloqueo, lo necesitas para cancelar el traslado.",
   "officeMove.out.copyTitle": "Copiar el código de traslado",
   "officeMove.out.clipboardBlocked":
     "Portapapeles bloqueado. El código de arriba está seleccionado: cópialo a mano.",
@@ -3629,6 +3629,10 @@ Cosas que puedes hacer por él:
     "La oficina antigua no se ejecuta como un servicio que se reinicia solo, así que no puede bloquearse.",
   "officeMove.in.confirm.restartUnknown":
     "La oficina antigua no dijo cómo se reinicia su servicio, así que no puede bloquearse. Actualiza la oficina antigua y vuelve a comprobar.",
+  "officeMove.in.confirm.memberOsUsers":
+    "Miembros con usuario del sistema propio: {names}. Sus archivos aún no se trasladan, así que la oficina antigua no puede bloquearse. En la oficina antigua, desactívalo para cada uno en Ajustes → Miembros → el miembro → Usuario del sistema propio y vuelve a comprobar.",
+  "officeMove.in.confirm.memberOsUsersBroken":
+    "La oficina antigua no puede leer qué miembros tienen usuario del sistema propio, así que no puede bloquearse.",
   "officeMove.in.confirm.hostRefs":
     "Estos archivos de apps nombran la dirección de la oficina antigua. Cámbialos después del traslado:",
   "officeMove.in.confirm.hostRefsMore": "y más",
@@ -3672,6 +3676,16 @@ Cosas que puedes hacer por él:
     "{count} secreto para volver a configurar, en Integraciones → Secretos.",
   "officeMove.report.secrets.other":
     "{count} secretos para volver a configurar, en Integraciones → Secretos.",
+  "officeMove.report.leftBehind.signIn":
+    "Los miembros vuelven a iniciar sesión: crea un enlace de inicio de sesión para cada uno en Ajustes → Invitaciones.",
+  "officeMove.report.leftBehind.invites":
+    "Las invitaciones y los enlaces de inicio de sesión creados en la oficina antigua no funcionan aquí: crea otros nuevos.",
+  "officeMove.report.leftBehind.extension":
+    "Vuelve a vincular Chrome en Integraciones → Uso del navegador.",
+  "officeMove.report.leftBehind.push":
+    "Vuelve a activar las Notificaciones en cada dispositivo, en Integraciones → Avisos.",
+  "officeMove.report.leftBehind.sshKeys":
+    "Las claves SSH que inician sesión en la máquina antigua se quedaron allí. Esta máquina conserva las suyas.",
   "officeMove.report.renamed":
     "Tu cuenta ahora se llama {name}: la oficina antigua tenía un miembro con tu nombre.",
   "officeMove.report.unitSetAside":
@@ -3716,7 +3730,7 @@ Cosas que puedes hacer por él:
   "moving.movedCancelHint":
     "Para volver a arrancar la oficina aquí, introduce el código del traslado.",
   "moving.movedWarning":
-    "La oficina funcionará entonces en las dos máquinas, con sus agentes, programaciones, webhooks, bots de Discord y vínculos de WhatsApp.",
+    "La oficina funcionará entonces en las dos máquinas, con sus agentes, inicios de sesión, programaciones, webhooks, bots de Discord y vínculos de WhatsApp.",
   "moving.confirmMovedLabel":
     "Sé que la oficina funcionará en las dos máquinas",
   "moving.confirmMovedRequired":

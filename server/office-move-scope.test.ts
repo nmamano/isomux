@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { BACKUP_EXCLUSIONS } from "./backup-exclusions.ts";
+import { BACKEND_CREDENTIAL_PATHS } from "./backend-credential-paths.ts";
 import {
   MOVE_STATE_FILE,
   MOVE_CANCELLED_FILE,
@@ -18,6 +19,8 @@ import { MOVE_IN_DIR } from "./office-move-stage.ts";
 import {
   createMoveScope,
   moveScope,
+  MOVE_BOUND_UNITS,
+  MOVE_CARRIED_UNITS,
   type MoveScope,
   type MoveScopeVerdict,
 } from "./office-move-scope.ts";
@@ -39,6 +42,12 @@ function scope(
 const file = (s: MoveScope, p: string) => moveScope(s, p, "file");
 const IN: MoveScopeVerdict = { in: true };
 const OUT: MoveScopeVerdict = { in: false, why: "out" };
+
+// A verdict as plain data: slice 3 renames the left-out-and-counted reason
+// to "bound".
+const verdict = (s: MoveScope, p: string) =>
+  moveScope(s, p, "file") as unknown as Record<string, unknown>;
+const boundAs = (unit: string) => ({ in: false, why: "bound", unit });
 
 // A path a tar glob matches: each "*" becomes one plain segment.
 const sample = (pattern: string) => pattern.replaceAll("*", "x");
@@ -129,31 +138,44 @@ describe("the move scope", () => {
     expect(moveScope(s, "work/agent.sock", "other")).toEqual(OUT);
   });
 
-  it("leaves out each backup exclusion as a sign-in unit named by its id", () => {
+  // Slice 3: sign-ins and secrets move. Only what is bound to the old box or
+  // its origin stays, counted per unit for the after-move report.
+  it("carries each backup exclusion and backend login, except the bound units, which stay as named", () => {
     const s = scope();
-    let checked = 0;
+    const bound = new Set<string>(MOVE_BOUND_UNITS);
+    let carried = 0;
+    let kept = 0;
     for (const entry of BACKUP_EXCLUSIONS) {
       // The move's own files are left out uncounted (the test above).
       if (entry.id === "office-move") continue;
       for (const pattern of entry.archivePatterns(".isomux")) {
         const p = sample(pattern);
-        expect([p, file(s, p)]).toEqual([
-          p,
-          { in: false, why: "signin", unit: entry.id },
-        ]);
-        checked++;
+        if (bound.has(entry.id)) {
+          expect([p, verdict(s, p)]).toEqual([p, boundAs(entry.id)]);
+          kept++;
+        } else {
+          expect([p, verdict(s, p)]).toEqual([p, { in: true }]);
+          carried++;
+        }
       }
     }
-    expect(checked).toBeGreaterThan(20);
+    expect(carried).toBeGreaterThan(20);
+    expect(kept).toBeGreaterThan(0);
+    // Backend logins at any depth move.
+    for (const p of [
+      ".claude/.credentials.json",
+      "work/agent-home/.claude/.credentials.json",
+      "work/agent-home/.codex/auth.json",
+    ])
+      expect([p, verdict(s, p)]).toEqual([p, { in: true }]);
   });
 
   it("matches a backup exclusion as tar does: rooted at the state root, and its * crosses folders", () => {
     const s = scope();
-    // "*" matches "/" in a tar exclusion.
-    expect(file(s, ".isomux/a/b/.codex/shell_snapshots/s.sh")).toMatchObject({
-      why: "signin",
-      unit: "codex-shell-snapshots",
-    });
+    // "*" matches "/" in a tar exclusion (web-push.json.corrupt-* is bound).
+    expect(verdict(s, ".isomux/web-push.json.corrupt-a/b")).toEqual(
+      boundAs("web-push"),
+    );
     // Rooted: an app's own folder named like a credential store moves.
     for (const p of [
       ".isomux/apps/board/data/secrets/notes.md",
@@ -165,7 +187,25 @@ describe("the move scope", () => {
       expect([p, file(s, p)]).toEqual([p, IN]);
   });
 
-  it("picks up a new backup exclusion with no second list", () => {
+  it("every backup exclusion and backend credential id is in exactly one of the bound and carried lists", () => {
+    const bound = new Set<string>(MOVE_BOUND_UNITS);
+    const carried = new Set<string>(MOVE_CARRIED_UNITS);
+    const ids = [
+      ...BACKUP_EXCLUSIONS.map((e) => e.id).filter(
+        (id) => id !== "office-move",
+      ),
+      ...BACKEND_CREDENTIAL_PATHS.map((e) => e.id),
+    ];
+    const wrong = ids.filter((id) => bound.has(id) === carried.has(id));
+    expect(wrong).toEqual([]);
+    // The carried list names only real ids: an entry no rule reads would
+    // seem to decide what moves.
+    expect([...carried].filter((id) => !ids.includes(id))).toEqual([]);
+    expect([...bound].filter((id) => carried.has(id))).toEqual([]);
+    expect(bound.has("office-move") || carried.has("office-move")).toBe(false);
+  });
+
+  it("a new backup exclusion in neither list stays on the old box, counted under its id", () => {
     const list = BACKUP_EXCLUSIONS as unknown as {
       id: string;
       archivePatterns: (root: string) => string[];
@@ -175,46 +215,81 @@ describe("the move scope", () => {
       archivePatterns: (root) => [`${root}/new-store`, `${root}/new-store/*`],
     });
     try {
-      const s = scope();
-      expect(file(s, ".isomux/new-store/token.json")).toEqual({
-        in: false,
-        why: "signin",
-        unit: "test-new-store",
-      });
+      expect(verdict(scope(), ".isomux/new-store/token.json")).toEqual(
+        boundAs("test-new-store"),
+      );
     } finally {
       list.pop();
     }
-    expect(file(scope(), ".isomux/new-store/token.json")).toEqual(IN);
+    expect(verdict(scope(), ".isomux/new-store/token.json")).toEqual({
+      in: true,
+    });
   });
 
-  it("leaves out backend logins at any depth, ssh and gh keys, and the files bound to this office's origin, each as a sign-in unit", () => {
+  it("a new backend sign-in file in neither list stays on the old box, at any depth of the home", () => {
+    const list = BACKEND_CREDENTIAL_PATHS as unknown as {
+      id: string;
+      pattern: RegExp;
+      backup: "keep";
+    }[];
+    list.push({
+      id: "test-new-login",
+      pattern: /(^|\/)\.newtool\/token\.json$/,
+      backup: "keep",
+    });
+    const paths = [".newtool/token.json", "work/.newtool/token.json"];
+    try {
+      const s = scope();
+      for (const p of paths)
+        expect([p, verdict(s, p)]).toEqual([p, boundAs("test-new-login")]);
+    } finally {
+      list.pop();
+    }
     const s = scope();
-    const signin = (p: string) => {
-      const v = file(s, p);
-      expect([p, v.in, v.in ? null : v.why]).toEqual([p, false, "signin"]);
-      return v.in ? "" : v.why === "signin" ? v.unit : "";
+    for (const p of paths) expect([p, verdict(s, p)]).toEqual([p, IN]);
+  });
+
+  it("keeps the files bound to the old origin, with their .tmp and .corrupt-* siblings, each under its unit; the bound rule wins over a carried one", () => {
+    const s = scope();
+    const units: Record<string, string> = {
+      "sessions.json": "browser-sessions",
+      "app-sessions.json": "app-sessions",
+      "invites.json": "invites",
+      "browser-connections.json": "extension-pairings",
+      // web-push is a backup exclusion too: the bound unit names it.
+      "web-push.json": "web-push",
     };
-    expect(signin(".claude/.credentials.json")).toBe("claude-login");
-    expect(signin("work/agent-home/.claude/.credentials.json")).toBe(
-      "claude-login",
-    );
-    expect(signin("work/agent-home/.codex/auth.json")).toBe("codex-login");
-    const ssh = signin(".ssh/id_ed25519");
-    expect(signin(".ssh")).toBe(ssh);
-    const gh = signin(".config/gh/hosts.yml");
-    expect(new Set([ssh, gh]).size).toBe(2);
-    for (const name of [
-      "sessions.json",
-      "invites.json",
-      "api-tokens.json",
-      "browser-connections.json",
-      "app-sessions.json",
-      "web-push.json",
-    ])
-      expect(signin(`.isomux/${name}`)).not.toBe("");
+    for (const [name, unit] of Object.entries(units))
+      for (const p of [
+        `.isomux/${name}`,
+        `.isomux/${name}.tmp`,
+        `.isomux/${name}.corrupt-1763300000000`,
+      ])
+        expect([p, verdict(s, p)]).toEqual([p, boundAs(unit)]);
     // Same names elsewhere are a member's own files.
-    expect(file(s, "work/sessions.json")).toEqual(IN);
-    expect(file(s, ".config/ghostty/config")).toEqual(IN);
+    for (const p of ["work/sessions.json", "work/web-push.json"])
+      expect([p, verdict(s, p)]).toEqual([p, { in: true }]);
+  });
+
+  it("keeps the old box's SSH login keys and moves the rest of .ssh, gh, the API tokens and the secret store", () => {
+    const s = scope();
+    for (const p of [".ssh/authorized_keys", ".ssh/authorized_keys2"])
+      expect([p, verdict(s, p)]).toEqual([p, boundAs("ssh-authorized-keys")]);
+    for (const p of [
+      ".ssh",
+      ".ssh/id_ed25519",
+      ".ssh/id_ed25519.pub",
+      ".ssh/known_hosts",
+      ".ssh/config",
+      ".config/gh/hosts.yml",
+      ".isomux/api-tokens.json",
+      ".isomux/secrets/office.json",
+      ".isomux/secrets/users/u1.json",
+      // Only the home's own .ssh: a project's copy moves.
+      "work/deploy/.ssh/authorized_keys",
+    ])
+      expect([p, verdict(s, p)]).toEqual([p, { in: true }]);
+    expect(moveScope(s, ".ssh", "dir")).toEqual(IN);
   });
 });
 

@@ -6,9 +6,9 @@
 // with `claude setup-token`; it runs inference only and lasts a year.
 //
 // The file is in the secret store's folder, so the agent read policy refuses
-// it and backups and office moves leave it out, as they do the secret store
-// (the store reads only its own files there). After a restore, the owner
-// sets it again. A lock does not move it aside: it is no way into the
+// it, backups leave it out and office moves copy it, as they do the secret
+// store (the store reads only its own files there). After a restore, the
+// owner sets it again. A lock does not move it aside: it is no way into the
 // office, as the office's own Claude sign-in is not.
 
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";

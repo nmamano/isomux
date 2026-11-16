@@ -117,6 +117,7 @@ function bed(over: Partial<MovePreflightDeps> = {}): Bed {
       manager: "system",
       restart: "always",
     }),
+    memberOsUsers: () => ({ names: [] }),
     // media/ is the step that runs out of time; so is the slow app's grep.
     exec: execWith([join(home, "media"), slow]),
     osUser: "isomux",

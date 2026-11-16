@@ -3193,10 +3193,9 @@ export const zh: Catalog = {
   "apps.notFound.body": "此地址没有应用，或者你无法打开它。",
   "officeMove.title": "迁移办公室",
   "officeMove.intro":
-    "将办公室原样迁移到另一台机器：包括智能体及其聊天、应用、日程和文件。",
+    "将办公室原样迁移到另一台机器：包括智能体及其聊天、应用、日程、文件、登录和密钥。",
   "officeMove.out.heading": "将此办公室迁移到另一台机器",
-  "officeMove.out.signIns":
-    "登录和密钥暂不迁移：成员需在新机器上重新登录，你需在那里重新设置密钥。",
+  "officeMove.out.signIns": "成员需在新机器上重新登录。",
   "officeMove.out.needs":
     "新机器需要一个新的 Isomux 办公室，版本不低于此版本，且办公室用户的主文件夹相同。",
   "officeMove.out.steps":
@@ -3205,7 +3204,7 @@ export const zh: Catalog = {
   "officeMove.out.mintAgain": "获取新代码",
   "officeMove.out.codeLabel": "迁移代码",
   "officeMove.out.codeHint":
-    "代码只显示一次。请在 {time} 前在新机器上使用。请保存好：锁定后，取消迁移需要它。",
+    "代码只显示一次。请在 {time} 前在新机器上使用。任何拿到它的人都能复制此办公室，包括登录。请保存好：锁定后，取消迁移需要它。",
   "officeMove.out.copyTitle": "复制迁移代码",
   "officeMove.out.clipboardBlocked":
     "剪贴板被阻止。上方的代码已选中：请手动复制。",
@@ -3258,6 +3257,10 @@ export const zh: Catalog = {
     "旧办公室没有作为会自动重启的服务运行，因此无法锁定。",
   "officeMove.in.confirm.restartUnknown":
     "旧办公室没有说明其服务如何重启，因此无法锁定。请更新旧办公室，然后重新检查。",
+  "officeMove.in.confirm.memberOsUsers":
+    "拥有专属系统用户的成员：{names}。他们的文件暂不迁移，因此旧办公室无法锁定。请在旧办公室的“设置 → 成员 → 该成员 → 专属系统用户”中为每人关闭，然后重新检查。",
+  "officeMove.in.confirm.memberOsUsersBroken":
+    "旧办公室无法读取哪些成员拥有专属系统用户，因此无法锁定。",
   "officeMove.in.confirm.hostRefs":
     "这些应用文件包含旧办公室的地址。请在迁移后修改：",
   "officeMove.in.confirm.hostRefsMore": "等",
@@ -3299,6 +3302,16 @@ export const zh: Catalog = {
     "{count} 个密钥需要重新设置，在“集成 → 密钥”中。",
   "officeMove.report.secrets.other":
     "{count} 个密钥需要重新设置，在“集成 → 密钥”中。",
+  "officeMove.report.leftBehind.signIn":
+    "成员需重新登录：请在“设置 → 邀请”中为每人创建登录链接。",
+  "officeMove.report.leftBehind.invites":
+    "在旧办公室创建的邀请和登录链接在这里无效：请创建新的。",
+  "officeMove.report.leftBehind.extension":
+    "请在“集成 → 浏览器使用”中重新配对 Chrome。",
+  "officeMove.report.leftBehind.push":
+    "请在每台设备上的“集成 → 呼叫”中重新打开通知。",
+  "officeMove.report.leftBehind.sshKeys":
+    "可登录旧机器的 SSH 密钥留在了旧机器上。这台机器保留自己的密钥。",
   "officeMove.report.renamed":
     "你的账户现在名为 {name}：旧办公室有一名同名成员。",
   "officeMove.report.unitSetAside": "旧办公室自己的服务 {name} 已被搁置。",
@@ -3333,7 +3346,7 @@ export const zh: Catalog = {
   "moving.movedBody": "它现在运行在 {origin}。",
   "moving.movedCancelHint": "要在这里重新启动办公室，请输入迁移代码。",
   "moving.movedWarning":
-    "届时办公室会在两台机器上同时运行，包括它的智能体、计划任务、Webhook、Discord 机器人和 WhatsApp 关联。",
+    "届时办公室会在两台机器上同时运行，包括它的智能体、登录、计划任务、Webhook、Discord 机器人和 WhatsApp 关联。",
   "moving.confirmMovedLabel": "我知道办公室会在两台机器上同时运行",
   "moving.confirmMovedRequired": "勾选此框以在这里重新启动办公室。",
   "moving.startHereAgain": "在这里重新启动办公室",

@@ -5,8 +5,8 @@
 // state module loads, puts the stage in place of the fresh office's home:
 //
 // - keep: every path of the home that the new box's move scope leaves out
-//   (out or a sign-in unit: its code folder, caches, sign-ins, origin-bound
-//   files, the move's own files, the move-in folder), the office id, and the
+//   (out or bound: its code folder, caches, the files bound to its origin,
+//   its SSH login keys, the move's own files, the move-in folder), the office id, and the
 //   new office's own user unit. The kept paths stay where they are.
 // - ops: renames one level at a time ("a swap with holes"). A folder with a
 //   kept path inside is entered; any other entry moves whole. The first swap

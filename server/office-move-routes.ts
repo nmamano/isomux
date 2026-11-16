@@ -40,6 +40,7 @@ import {
 } from "./office-move.ts";
 import type {
   MovePreflightJobs,
+  MovePreflightResult,
   TurnInFlight,
 } from "./office-move-preflight.ts";
 import {
@@ -58,6 +59,9 @@ export interface OfficeMoveRouteDeps {
   turnsInFlight(): TurnInFlight[];
   /** The office unit's Restart= value, or null without a unit. */
   restartPolicy(): string | null;
+  /** Members with their own OS user, read now (slice 3): the lock refuses
+   *  while any member has one. */
+  memberOsUsers(): MovePreflightResult["memberOsUsers"];
   listUnits(): AgentUnit[];
   /** Locks this process (lockOfficeNow) and closes every socket. */
   lockProcess(): void;
@@ -264,6 +268,17 @@ export function createOfficeMoveFrontDoor(
         409,
         "no_service_manager",
         "The office must run under a service that restarts it always (Restart=always).",
+      );
+    // Read now, not from the preflight: their homes and sign-ins do not move
+    // yet (slice 5), so their agents would run as an OS user the new machine
+    // does not have.
+    const members = deps.memberOsUsers();
+    if ("broken" in members || members.names.length > 0)
+      return fail(
+        409,
+        "member_os_users",
+        "Members with their own OS user cannot move yet. Turn it off for each of them, then check again.",
+        members,
       );
     const seen = new Set(pf.result.turnsInFlight.map((t) => t.agentId));
     const current = deps.turnsInFlight();

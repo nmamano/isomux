@@ -3,7 +3,15 @@
 // entry is malformed, and every member when the file does not parse, must
 // never come back as "none": "none" sends their agents to the office user.
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -12,6 +20,7 @@ import {
   MEMBER_OS_UID_TIES_FILE,
   memberOsUidTies,
   memberOsUserState,
+  memberOsUsersForMove,
   memberOsUsersPath,
   recordMemberOsUser,
   reloadMemberOsUsers,
@@ -149,5 +158,66 @@ describe("the uid ties", () => {
     // No entry without its tie.
     expect(memberOsUserState("u-bob").kind).toBe("none");
     expect(readFileSync(tiesPath(), "utf8")).toBe("{ not json");
+  });
+});
+
+// Task 78733adf, slice 3: an office move's preflight and lock read the record
+// of the state root they are given, now (no cache), and list every member it
+// holds, so a lock never misses one the move would strand.
+describe("the members with their own OS user, for an office move", () => {
+  let root = "";
+  const write = (text: string) =>
+    writeFileSync(join(root, "member-os-users.json"), text);
+  const names: Record<string, string | null> = {
+    "u-a": "Zed",
+    "u-b": "Amy",
+    "u-c": null,
+  };
+  const nameOf = (id: string) => names[id] ?? null;
+
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+    root = "";
+  });
+  const fresh = () => {
+    root = mkdtempSync(join(tmpdir(), "member-os-users-move-"));
+    // The office's own record names someone else: the read must not use it.
+    writeRegistry(
+      JSON.stringify({ "u-office": { name: "isomux-o", uid: 3001 } }),
+    );
+    expect(memberOsUserState("u-office").kind).toBe("isolated");
+  };
+
+  it("names every entry, valid or not, by name or else by id, sorted, as the file is now", () => {
+    fresh();
+    write(
+      JSON.stringify({
+        "u-c": { name: "Bad Name!", uid: -1 },
+        "u-b": { name: "isomux-amy", uid: 2002 },
+        "u-a": { name: "isomux-zed", uid: 2001, moving: true },
+      }),
+    );
+    expect(memberOsUsersForMove(root, nameOf)).toEqual({
+      names: ["Amy", "Zed", "u-c"],
+    });
+    // Read again at each call: a disable shows at once.
+    write(JSON.stringify({ "u-b": { name: "isomux-amy", uid: 2002 } }));
+    expect(memberOsUsersForMove(root, nameOf)).toEqual({ names: ["Amy"] });
+  });
+
+  it("names nobody when the state root has no record", () => {
+    fresh();
+    expect(memberOsUsersForMove(root, nameOf)).toEqual({ names: [] });
+  });
+
+  it("is broken when the record cannot be read or is not a JSON object", () => {
+    fresh();
+    const seen: unknown[] = [];
+    for (const text of ["{", "[]", "null", '"x"'])
+      seen.push((write(text), memberOsUsersForMove(root, nameOf)));
+    rmSync(join(root, "member-os-users.json"));
+    mkdirSync(join(root, "member-os-users.json"));
+    seen.push(memberOsUsersForMove(root, nameOf));
+    expect(seen).toEqual(Array(5).fill({ broken: true }));
   });
 });

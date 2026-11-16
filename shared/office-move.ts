@@ -86,9 +86,11 @@ export interface MoveInReportInput {
   office: MoveBoxInfo;
   finishedAt: number;
   by: AuditActor;
-  /** The sign-in units the move left out (the manifest's `excluded`). */
+  /** The units the move left out, bound to the old box or its origin (the
+   *  manifest's `excluded`; an older old office also lists its sign-ins). */
   excluded: MoveExcludedUnit[];
-  /** Secrets to set again (the manifest's secret count). */
+  /** The old office's secret count (the manifest's); secrets to set again
+   *  only when the old office left the secret store out. */
   secretCount: number;
   /** The paths the owner accepted as missing (finish {acceptMissing}). */
   missing: { path: string; reason: string }[];

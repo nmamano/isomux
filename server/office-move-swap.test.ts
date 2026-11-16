@@ -163,6 +163,9 @@ function fixture(dir: string, opts: FixtureOpts = {}): Fixture {
     JSON.stringify({ phase: "swapping" }),
   );
   put(home, ".ssh/id_ed25519", "fresh-ssh");
+  // The Hosted control plane's login line on the new box (slice 3: kept).
+  put(home, ".ssh/authorized_keys", "fresh-authorized-keys");
+  put(home, ".isomux/secrets/office.json", "fresh-secrets");
   put(home, ".config/gh/hosts.yml", "fresh-gh");
   put(home, ".config/fresh-only.conf", "fresh-only");
   put(home, ".claude/.credentials.json", "fresh-cred");
@@ -217,6 +220,14 @@ function fixture(dir: string, opts: FixtureOpts = {}): Fixture {
   put(stage, ".isomux/turns-in-flight.json", "old-turns");
   put(stage, ".isomux/apps-stopped-by-lock.json", "old-apps");
   put(stage, ".claude/settings.json", "old-settings");
+  // Slice 3: the old office's sign-ins and secrets, and its bound files.
+  put(stage, ".claude/.credentials.json", "old-cred");
+  put(stage, ".ssh/id_ed25519", "old-ssh");
+  put(stage, ".ssh/authorized_keys", "old-authorized-keys");
+  put(stage, ".config/gh/hosts.yml", "old-gh");
+  put(stage, ".isomux/secrets/office.json", "old-secrets");
+  put(stage, ".isomux/api-tokens.json", "old-api-tokens");
+  put(stage, ".isomux/sessions.json", "old-sessions");
   put(stage, ".claude/projects/p.jsonl", "old-project");
   put(stage, ".config/other.conf", "old-other");
   put(stage, "isomux-code/proj.txt", "old-at-code-dir");
@@ -329,7 +340,7 @@ describe("the swap at boot", () => {
     expect(snap(f.dir)).toEqual(before);
   });
 
-  it("puts the old office in place and keeps the new box's sign-ins, identity, code, caches and unit", () => {
+  it("puts the old office in place with its sign-ins and secrets, and keeps the new box's bound files, identity, code, caches and unit", () => {
     const f = fixture(join(scratch(), "o"));
     const r = swap(f);
     expect(r.kind).toBe("swapped");
@@ -355,12 +366,22 @@ describe("the swap at boot", () => {
       ),
     ).toBe("../tunnel.service");
 
-    // Kept: identity, origin-bound files, sign-ins at any depth, code, caches.
+    // In (slice 3): the old office's sign-ins and secrets.
+    expect(h(".claude/.credentials.json")).toBe("old-cred");
+    expect(h(".ssh/id_ed25519")).toBe("old-ssh");
+    expect(h(".config/gh/hosts.yml")).toBe("old-gh");
+    expect(h(".isomux/secrets/office.json")).toBe("old-secrets");
+    expect(h(".isomux/api-tokens.json")).toBe("old-api-tokens");
+    expect(a(".claude/.credentials.json")).toBe("fresh-cred");
+    expect(a(".ssh/id_ed25519")).toBe("fresh-ssh");
+    expect(a(".isomux/secrets/office.json")).toBe("fresh-secrets");
+
+    // Kept: identity, the files bound to the box or its origin, code, caches.
     expect(h(".isomux/office-id")).toBe("aaaaaaaaaaaa\n");
     expect(h(".isomux/sessions.json")).toBe("fresh-sessions");
-    expect(h(".ssh/id_ed25519")).toBe("fresh-ssh");
-    expect(h(".config/gh/hosts.yml")).toBe("fresh-gh");
-    expect(h(".claude/.credentials.json")).toBe("fresh-cred");
+    expect(h(".ssh/authorized_keys")).toBe("fresh-authorized-keys");
+    expect(fromStage(".isomux/sessions.json")).toBe("old-sessions");
+    expect(fromStage(".ssh/authorized_keys")).toBe("old-authorized-keys");
     expect(h(".cache/x")).toBe("fresh-cache");
     expect(h("isomux-code/server.ts")).toBe("fresh-code");
     // The new office's own unit, its drop-in and its link.

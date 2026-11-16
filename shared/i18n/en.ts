@@ -3458,10 +3458,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "There is no app at this address, or you cannot open it.",
   "officeMove.title": "Move office",
   "officeMove.intro":
-    "Move an office as it is to another machine: agents with their chats, apps, schedules and files.",
+    "Move an office as it is to another machine: agents with their chats, apps, schedules, files, sign-ins and secrets.",
   "officeMove.out.heading": "Move this office to another machine",
-  "officeMove.out.signIns":
-    "Sign-ins and secrets do not move yet: members sign in again on the new machine, and you set the secrets again there.",
+  "officeMove.out.signIns": "Members sign in again on the new machine.",
   "officeMove.out.needs":
     "The new machine needs a new Isomux office, of this release or newer, with the same home folder for the office user.",
   "officeMove.out.steps":
@@ -3470,7 +3469,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.out.mintAgain": "Get a new code",
   "officeMove.out.codeLabel": "Move code",
   "officeMove.out.codeHint":
-    "It shows only once. Use it on the new machine before {time}. Keep it: after the lock, you need it to cancel the move.",
+    "It shows only once. Use it on the new machine before {time}. Anyone with it can copy this office, sign-ins included. Keep it: after the lock, you need it to cancel the move.",
   "officeMove.out.copyTitle": "Copy the move code",
   "officeMove.out.clipboardBlocked":
     "Clipboard blocked. The code above is selected: copy it manually.",
@@ -3527,6 +3526,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The old office does not run as a service that restarts by itself, so it cannot lock.",
   "officeMove.in.confirm.restartUnknown":
     "The old office did not say how its service restarts, so it cannot lock. Update the old office, then check again.",
+  "officeMove.in.confirm.memberOsUsers":
+    "Members with their own OS user: {names}. Their files do not move yet, so the old office cannot lock. On the old office, turn it off for each of them in Settings → Members → the member → Own OS user, then check again.",
+  "officeMove.in.confirm.memberOsUsersBroken":
+    "The old office cannot read which members have their own OS user, so it cannot lock.",
   "officeMove.in.confirm.hostRefs":
     "These app files name the old office's address. Change them after the move:",
   "officeMove.in.confirm.hostRefsMore": "and more",
@@ -3570,6 +3573,16 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "{count} secret to set again, in Integrations → Secrets.",
   "officeMove.report.secrets.other":
     "{count} secrets to set again, in Integrations → Secrets.",
+  "officeMove.report.leftBehind.signIn":
+    "Members sign in again: create a sign-in link for each of them in Settings → Invites.",
+  "officeMove.report.leftBehind.invites":
+    "Invites and sign-in links made on the old office do not work here: create new ones.",
+  "officeMove.report.leftBehind.extension":
+    "Pair Chrome again in Integrations → Browser Use.",
+  "officeMove.report.leftBehind.push":
+    "Turn Notifications on again on each device, in Integrations → Pager.",
+  "officeMove.report.leftBehind.sshKeys":
+    "The SSH keys that log in to the old machine stayed there. This machine keeps its own.",
   "officeMove.report.renamed":
     "Your account is now named {name}: the old office had a member with your name.",
   "officeMove.report.unitSetAside":
@@ -3612,7 +3625,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "moving.movedCancelHint":
     "To start the office here again, enter the move code.",
   "moving.movedWarning":
-    "The office will then run on both machines, with its agents, schedules, webhooks, Discord bots and WhatsApp links.",
+    "The office will then run on both machines, with its agents, sign-ins, schedules, webhooks, Discord bots and WhatsApp links.",
   "moving.confirmMovedLabel": "I know the office will run on both machines",
   "moving.confirmMovedRequired": "Tick the box to start the office here again.",
   "moving.startHereAgain": "Start the office here again",

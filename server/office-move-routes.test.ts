@@ -34,6 +34,7 @@ import {
 } from "./office-move.ts";
 import {
   createMovePreflightJobs,
+  type MovePreflightResult,
   type TurnInFlight,
 } from "./office-move-preflight.ts";
 import { createOfficeMoveFrontDoor } from "./office-move-routes.ts";
@@ -69,6 +70,8 @@ interface Bed {
   clock: { now: number };
   turns: TurnInFlight[];
   restart: { value: string | null };
+  /** What the members-with-their-own-OS-user read gives now. */
+  members: { value: MovePreflightResult["memberOsUsers"] };
   allow: { value: boolean };
   /** How far the clock moves at each preflight step (a slow preflight). */
   stepTakes: { ms: number };
@@ -99,6 +102,7 @@ function bed(): Bed {
   const clock = { now: Date.parse("2026-11-15T10:00:00Z") };
   const turns: TurnInFlight[] = [];
   const restart = { value: "always" as string | null };
+  const members: Bed["members"] = { value: { names: [] } };
   const allow = { value: true };
   const stepTakes = { ms: 0 };
   const locks: Bed["locks"] = [];
@@ -115,6 +119,7 @@ function bed(): Bed {
       restart.value === null
         ? null
         : { unit: "isomux.service", manager: "system", restart: restart.value },
+    memberOsUsers: () => members.value,
     exec: async () => {
       if (hold) await hold;
       clock.now += stepTakes.ms;
@@ -130,6 +135,7 @@ function bed(): Bed {
     preflight,
     turnsInFlight: () => turns.map((t) => ({ ...t })),
     restartPolicy: () => restart.value,
+    memberOsUsers: () => members.value,
     listUnits: () => UNITS,
     lockProcess: () => {
       locks.push({
@@ -147,6 +153,7 @@ function bed(): Bed {
     clock,
     turns,
     restart,
+    members,
     allow,
     stepTakes,
     locks,
@@ -519,6 +526,64 @@ describe("the lock", () => {
     }
     expect(got).toEqual(["409 no_service_manager", "409 no_service_manager"]);
     expect(b.locks).toEqual([]);
+  });
+
+  it("slice 3: the preflight names the members with their own OS user, as the read gives them", async () => {
+    const b = bed();
+    const session = await pair(b);
+    const seen: unknown[] = [];
+    for (const value of [
+      { names: [] },
+      { names: ["Mia", "Sam"] },
+      { broken: true as const },
+    ]) {
+      b.members.value = value;
+      const id = await readyPreflight(b, session);
+      const s = await b.call("GET", `/api/move/preflight/${id}`, { session });
+      seen.push(
+        (s.body?.result as { memberOsUsers?: unknown } | undefined)
+          ?.memberOsUsers,
+      );
+    }
+    expect(seen).toEqual([
+      { names: [] },
+      { names: ["Mia", "Sam"] },
+      { broken: true },
+    ]);
+  });
+
+  it("slice 3: refuses with 409 member_os_users from a read at the lock, not the preflight's copy, and writes nothing; the lock goes once none is left", async () => {
+    const b = bed();
+    const session = await pair(b);
+    const lockWith = async (value: Bed["members"]["value"]) => {
+      // The preflight saw no such member; the lock reads again.
+      b.members.value = { names: [] };
+      const id = await readyPreflight(b, session);
+      b.members.value = value;
+      return b.call("POST", "/api/move/lock", {
+        session,
+        body: { preflightId: id },
+      });
+    };
+    const named = await lockWith({ names: ["Mia"] });
+    expect([`${named.status} ${code(named)}`, named.body?.names]).toEqual([
+      "409 member_os_users",
+      ["Mia"],
+    ]);
+    const broken = await lockWith({ broken: true });
+    expect([`${broken.status} ${code(broken)}`, broken.body?.broken]).toEqual([
+      "409 member_os_users",
+      true,
+    ]);
+    expect(b.locks).toEqual([]);
+    expect(b.stops).toEqual([]);
+    expect(existsSync(join(b.root, MOVE_UNITS_FILE))).toBe(false);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
+      "paired",
+    );
+    const ok = await lockWith({ names: [] });
+    expect(ok.status).toBe(202);
+    expect(b.locks.length).toBe(1);
   });
 
   it("a units record that cannot be written answers 500 and changes nothing: still paired, not locked, no stop", async () => {

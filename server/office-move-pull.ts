@@ -739,7 +739,7 @@ interface Listed {
 }
 
 /** Walks the home through moveScope and writes the NDJSON manifest to
- *  `outFile` (0600). A sign-in unit is walked only to count it. */
+ *  `outFile` (0600). A bound unit is walked only to count it. */
 export async function walkMoveManifest(
   scope: MoveScope,
   outFile: string,
@@ -795,7 +795,7 @@ export async function walkMoveManifest(
     }
     return listed;
   };
-  // A sign-in unit's folder: counted, never listed.
+  // A bound unit's folder: counted, never listed.
   const countUnit = async (unit: string, rel: string) => {
     const stack = [rel];
     while (stack.length > 0) {
@@ -832,7 +832,7 @@ export async function walkMoveManifest(
         }
         const verdict = moveScope(scope, e.rel, e.kind);
         if (!verdict.in) {
-          if (verdict.why === "signin") {
+          if (verdict.why === "bound") {
             count(verdict.unit, e.st);
             if (e.kind === "dir") await countUnit(verdict.unit, e.rel);
           }

@@ -1,8 +1,10 @@
 // The backup's exclusion list (moved out of server/backup.ts so the office
 // move can share it without loading the backup scheduler; task 78733adf).
 // Each entry is a credential or secret store the daily backup leaves out, as
-// globs in tar's syntax (tarGlobSource) rooted at the state root's name. The office move leaves out the
-// same entries (server/office-move-scope.ts).
+// globs in tar's syntax (tarGlobSource) rooted at the state root's name. The
+// office move copies an entry only when its id is in MOVE_CARRIED_UNITS
+// (server/office-move-scope.ts): put a new id there, or in MOVE_BOUND_UNITS
+// when it belongs to this machine or its address. A test fails until you do.
 
 import { readdirSync } from "fs";
 import { join } from "path";

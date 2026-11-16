@@ -3565,10 +3565,10 @@ Coses que pots fer per ell:
     "No hi ha cap app en aquesta adreça, o no la pots obrir.",
   "officeMove.title": "Traslladar l'oficina",
   "officeMove.intro":
-    "Trasllada una oficina tal com és a una altra màquina: els agents amb els seus xats, les apps, les programacions i els fitxers.",
+    "Trasllada una oficina tal com és a una altra màquina: els agents amb els seus xats, les apps, les programacions, els fitxers, els inicis de sessió i els secrets.",
   "officeMove.out.heading": "Traslladar aquesta oficina a una altra màquina",
   "officeMove.out.signIns":
-    "Els inicis de sessió i els secrets encara no es traslladen: els membres tornen a iniciar sessió a la màquina nova, i tu hi tornes a configurar els secrets.",
+    "Els membres tornen a iniciar sessió a la màquina nova.",
   "officeMove.out.needs":
     "La màquina nova necessita una oficina d'Isomux nova, d'aquesta versió o una de més recent, amb la mateixa carpeta personal per a l'usuari de l'oficina.",
   "officeMove.out.steps":
@@ -3577,7 +3577,7 @@ Coses que pots fer per ell:
   "officeMove.out.mintAgain": "Obtenir un codi nou",
   "officeMove.out.codeLabel": "Codi de trasllat",
   "officeMove.out.codeHint":
-    "Només es mostra una vegada. Fes-lo servir a la màquina nova abans de les {time}. Guarda'l: després del bloqueig, el necessites per cancel·lar el trasllat.",
+    "Només es mostra una vegada. Fes-lo servir a la màquina nova abans de les {time}. Qualsevol que el tingui pot copiar aquesta oficina, amb els inicis de sessió. Guarda'l: després del bloqueig, el necessites per cancel·lar el trasllat.",
   "officeMove.out.copyTitle": "Copiar el codi de trasllat",
   "officeMove.out.clipboardBlocked":
     "Porta-retalls bloquejat. El codi de dalt està seleccionat: copia'l a mà.",
@@ -3634,6 +3634,10 @@ Coses que pots fer per ell:
     "L'oficina antiga no s'executa com un servei que es reinicia sol, així que no es pot bloquejar.",
   "officeMove.in.confirm.restartUnknown":
     "L'oficina antiga no va dir com es reinicia el seu servei, així que no es pot bloquejar. Actualitza l'oficina antiga i torna a comprovar.",
+  "officeMove.in.confirm.memberOsUsers":
+    "Membres amb usuari del sistema propi: {names}. Els seus fitxers encara no es traslladen, així que l'oficina antiga no es pot bloquejar. A l'oficina antiga, desactiva'l per a cadascun a Configuració → Membres → el membre → Usuari del sistema propi i torna a comprovar.",
+  "officeMove.in.confirm.memberOsUsersBroken":
+    "L'oficina antiga no pot llegir quins membres tenen usuari del sistema propi, així que no es pot bloquejar.",
   "officeMove.in.confirm.hostRefs":
     "Aquests fitxers d'apps anomenen l'adreça de l'oficina antiga. Canvia'ls després del trasllat:",
   "officeMove.in.confirm.hostRefsMore": "i més",
@@ -3677,6 +3681,16 @@ Coses que pots fer per ell:
     "{count} secret per tornar a configurar, a Integracions → Secrets.",
   "officeMove.report.secrets.other":
     "{count} secrets per tornar a configurar, a Integracions → Secrets.",
+  "officeMove.report.leftBehind.signIn":
+    "Els membres tornen a iniciar sessió: crea un enllaç d'inici de sessió per a cadascun a Configuració → Invitacions.",
+  "officeMove.report.leftBehind.invites":
+    "Les invitacions i els enllaços d'inici de sessió creats a l'oficina antiga no funcionen aquí: crea'n de nous.",
+  "officeMove.report.leftBehind.extension":
+    "Torna a vincular Chrome a Integracions → Ús del navegador.",
+  "officeMove.report.leftBehind.push":
+    "Torna a activar les Notificacions a cada dispositiu, a Integracions → Avisos.",
+  "officeMove.report.leftBehind.sshKeys":
+    "Les claus SSH que inicien sessió a la màquina antiga s'hi han quedat. Aquesta màquina conserva les seves.",
   "officeMove.report.renamed":
     "El teu compte ara es diu {name}: l'oficina antiga tenia un membre amb el teu nom.",
   "officeMove.report.unitSetAside":
@@ -3721,7 +3735,7 @@ Coses que pots fer per ell:
   "moving.movedCancelHint":
     "Per tornar a arrencar l'oficina aquí, introdueix el codi del trasllat.",
   "moving.movedWarning":
-    "Aleshores l'oficina funcionarà a les dues màquines, amb els seus agents, programacions, webhooks, bots de Discord i vincles de WhatsApp.",
+    "Aleshores l'oficina funcionarà a les dues màquines, amb els seus agents, inicis de sessió, programacions, webhooks, bots de Discord i vincles de WhatsApp.",
   "moving.confirmMovedLabel": "Sé que l'oficina funcionarà a les dues màquines",
   "moving.confirmMovedRequired":
     "Marca la casella per tornar a arrencar l'oficina aquí.",

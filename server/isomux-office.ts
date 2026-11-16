@@ -459,6 +459,7 @@ import {
   createMovePreflightJobs,
   spawnPreflightExec,
   type MovePreflightJobs,
+  type MovePreflightResult,
   type PreflightExec,
   type TurnInFlight,
 } from "./office-move-preflight.ts";
@@ -541,6 +542,7 @@ import {
   sameAgentHost,
   memberOsUidTies,
   memberOsUserIds,
+  memberOsUsersForMove,
   memberOsUserState,
 } from "./member-os-users.ts";
 import {
@@ -1687,6 +1689,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     turnsInFlight,
     listUnits,
     restartPolicy,
+    memberOsUsers: moveMemberOsUsers,
     exec: seams.exec ?? spawnPreflightExec,
     osUser: userInfo().username,
     aptHistoryPath: seams.aptHistoryPath ?? "/var/log/apt/history.log",
@@ -1706,6 +1709,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     preflight,
     turnsInFlight,
     restartPolicy: () => restartPolicy()?.restart ?? null,
+    memberOsUsers: moveMemberOsUsers,
     listUnits,
     lockProcess: () => {
       lockOfficeNow();
@@ -1724,6 +1728,15 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     allow: (source) => allowMoveRedeemRequest(source.client, Date.now()),
     now: () => new Date(),
   });
+}
+
+/** The members with their own OS user, for the move's preflight and lock
+ *  (slice 3), read from the disk now. */
+function moveMemberOsUsers(): MovePreflightResult["memberOsUsers"] {
+  return memberOsUsersForMove(
+    STATE_ROOT,
+    (id) => getUserById(id)?.name ?? null,
+  );
 }
 
 /** The first normal boot after a move ended without moving (task 78733adf):

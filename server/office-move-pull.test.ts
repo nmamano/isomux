@@ -521,7 +521,8 @@ describe("a batch", () => {
 
   it("refuses a path out of scope, absolute, with .., or through a symlinked folder, with an error record each, and goes on", async () => {
     const f = fixture();
-    put(f, ".ssh/id_ed25519", "SSH-SECRET");
+    // Slice 3: the old box's SSH login keys stay; its id keys move.
+    put(f, ".ssh/authorized_keys", "SSH-SECRET");
     put(f, ".isomux/office-move.json", "MOVE-KEY");
     put(f, ".isomux/sessions.json", "SESSION-SECRET");
     put(f, ".cache/x", "CACHE");
@@ -531,12 +532,12 @@ describe("a batch", () => {
     symlinkSync(f.outside, join(f.home, "out"));
     put(f, "docs/a.txt", "alpha");
     const bad = [
-      ".ssh/id_ed25519",
+      ".ssh/authorized_keys",
       ".isomux/office-move.json",
       ".isomux/sessions.json",
       ".cache/x",
       join(f.home, "docs/a.txt"),
-      "docs/../.ssh/id_ed25519",
+      "docs/../.ssh/authorized_keys",
       "../outside/secret.txt",
       "linked/secret.txt",
       "out/secret.txt",
@@ -629,6 +630,7 @@ function walkFixture(f: Fixture): { db: string } {
   if (fifo.exitCode !== 0) throw new Error("mkfifo failed");
   put(f, ".cache/big.bin", randomBytes(1000));
   put(f, ".ssh/id_ed25519", "0123456789");
+  put(f, ".ssh/authorized_keys", "abcdefghijk");
   put(f, ".isomux/office-move.json", "{}");
   put(f, ".isomux/secrets/s.json", "1234567");
   put(f, ".isomux/agents.json", "[]");
@@ -661,12 +663,15 @@ describe("the manifest walk", () => {
       "notes/day",
       "notes/day-journal",
       ".isomux/agents.json",
+      // Slice 3: sign-ins and secrets move.
+      ".ssh/id_ed25519",
+      ".isomux/secrets/s.json",
     ])
       expect([p, byPath.has(p)]).toEqual([p, true]);
     for (const p of entries.map((e) => e.p))
       expect([
         p,
-        /^(\.cache|\.ssh|isomux-code|link-out\/|locked\/|pipe$)|office-move\.json|secrets|move-pull|-wal$|-shm$/.test(
+        /^(\.cache|isomux-code|link-out\/|locked\/|pipe$)|authorized_keys|office-move\.json|move-pull|-wal$|-shm$/.test(
           p,
         ),
       ]).toEqual([p, false]);
@@ -690,9 +695,10 @@ describe("the manifest walk", () => {
     );
     expect(summary.skipped).toBe(1);
     expect(summary.unreadable).toContain("locked");
-    const units = new Map(summary.excluded.map((u) => [u.unit, u]));
-    expect(units.get("secret-store")?.bytes).toBe(7);
-    expect(summary.excluded.reduce((n, u) => n + u.bytes, 0)).toBe(7 + 10);
+    // Only the bound unit is left out and counted.
+    expect(summary.excluded.map((u) => [u.unit, u.entries, u.bytes])).toEqual([
+      ["ssh-authorized-keys", 1, 11],
+    ]);
   });
 });
 

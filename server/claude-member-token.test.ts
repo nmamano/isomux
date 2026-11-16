@@ -5,8 +5,8 @@
 //   read is no token;
 // - the shape check is loose (no prefix), the date is the day it was made;
 // - no route answers the token;
-// - office agents may not read it, and backups and office moves leave it out
-//   (U1);
+// - office agents may not read it, and backups leave it out (U1); an office
+//   move carries it with the secret store (office-move-scope.test.ts);
 // - the logs redact it with the secret store's values, and stop when it is
 //   cleared (T3);
 // - the owners get one page per phase: a page they closed is not opened again
@@ -35,7 +35,6 @@ import {
   EXPIRY_NOTICE_MS,
 } from "./claude-member-token-pager.ts";
 import { memberTokenHandlers } from "./claude-member-token-routes.ts";
-import { createMoveScope, moveScope } from "./office-move-scope.ts";
 import { runBackupOnceForTest } from "./backup.ts";
 import {
   redactSecretText,
@@ -202,19 +201,6 @@ describe("where it is kept (U1)", () => {
       readFileSync(join(copy, "state.txt"), "utf8"),
       existsSync(join(copy, "secrets", "claude-member-token.json")),
     ]).toEqual(["state", false]);
-  });
-
-  it("is left out of an office move as the secret store is", () => {
-    const home = "/home/office";
-    const stateRoot = join(home, ".isomux");
-    const scope = createMoveScope({
-      home,
-      stateRoot,
-      codeDir: null,
-      backupDir: null,
-    });
-    const rel = relative(home, memberTokenPath(stateRoot));
-    expect(moveScope(scope, rel, "file").in).toBe(false);
   });
 });
 

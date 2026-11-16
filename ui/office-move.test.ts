@@ -18,6 +18,8 @@ import {
   MOVE_LIST_MAX,
   MOVE_OUT_POLL_MS,
   finishAllowed,
+  LEFT_BEHIND_ORDER,
+  leftBehindLines,
   listHead,
   lockAllowed,
   moveInPollDecision,
@@ -644,5 +646,130 @@ describe("listHead", () => {
     const head = listHead(items(MOVE_LIST_MAX + 7));
     expect(head.shown).toEqual(items(MOVE_LIST_MAX));
     expect(head.more).toBe(7);
+  });
+});
+
+// Slice 3: members with their own OS user stay on the old box until slice 5,
+// so the old office's lock refuses while any member has one.
+describe("preflightView memberOsUsers and the lock", () => {
+  const read = (memberOsUsers: unknown) =>
+    preflightView(
+      memberOsUsers === undefined ? preflight() : preflight({ memberOsUsers }),
+    ).memberOsUsers;
+
+  it("reads none, the names, broken, or unknown for an old office without the part or with another shape", () => {
+    expect({
+      none: read({ names: [] }),
+      list: read({ names: ["Mia", "Sam"] }),
+      broken: read({ broken: true }),
+      absent: read(undefined),
+      wrongNames: read({ names: "Mia" }),
+      badItem: read({ names: ["Mia", 5] }),
+      other: read("yes"),
+    }).toEqual({
+      none: { kind: "none" },
+      list: { kind: "list", names: ["Mia", "Sam"] },
+      broken: { kind: "broken" },
+      absent: { kind: "unknown" },
+      wrongNames: { kind: "unknown" },
+      badItem: { kind: "unknown" },
+      other: { kind: "unknown" },
+    });
+  });
+
+  it("Lock waits while a member has their own OS user or the record does not read; an old office that does not say (unknown) does not block it", () => {
+    const allowed = (memberOsUsers: unknown) =>
+      lockAllowed(
+        preflightView(
+          memberOsUsers === undefined
+            ? preflight()
+            : preflight({ memberOsUsers }),
+        ),
+      );
+    expect({
+      none: allowed({ names: [] }),
+      list: allowed({ names: ["Mia"] }),
+      broken: allowed({ broken: true }),
+      unknown: allowed(undefined),
+    }).toEqual({ none: true, list: false, broken: false, unknown: true });
+    // Restart= still gates on its own.
+    expect(
+      lockAllowed(
+        preflightView(
+          preflight({
+            memberOsUsers: { names: [] },
+            restart: {
+              unit: "isomux.service",
+              manager: "user",
+              restart: "on-failure",
+            },
+          }),
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      phaseView(
+        inPhase("confirm", {
+          preflightId: "p",
+          preflight: preflight({ memberOsUsers: { names: ["Mia"] } }),
+        }),
+      ),
+    ).toMatchObject({ kind: "confirm", lockAllowed: false });
+  });
+});
+
+// Slice 3: the report's "left behind" list, from the old office's excluded
+// units, so an old office of an older release still reports what it left.
+describe("leftBehindLines", () => {
+  const unit = (u: string, entries = 1) => ({ unit: u, entries, bytes: 10 });
+  const named = LEFT_BEHIND_ORDER.filter((o) => o.kind !== null);
+
+  it("one line per named unit with entries, in LEFT_BEHIND_ORDER, whatever the order received; app-sessions and empty units give none", () => {
+    const excluded = [...LEFT_BEHIND_ORDER]
+      .reverse()
+      .map((o) => unit(o.unit, 2));
+    expect(
+      leftBehindLines({ excluded, secretCount: 0 }).map((l): string => l.kind),
+    ).toEqual(named.map((o) => o.kind as string));
+    expect(
+      leftBehindLines({
+        excluded: [unit("app-sessions", 5), unit("invites", 0)],
+        secretCount: 0,
+      }),
+    ).toEqual([]);
+  });
+
+  it("a unit this release does not name (an older old office) comes after the named ones, in the order received, with its count", () => {
+    expect(
+      leftBehindLines({
+        excluded: [
+          unit("ssh", 3),
+          unit("browser-sessions", 2),
+          unit("claude-login", 1),
+          unit("personal-environment", 0),
+        ],
+        secretCount: 0,
+      }),
+    ).toEqual([
+      { kind: "signIn" },
+      { kind: "unit", unit: "ssh", entries: 3 },
+      { kind: "unit", unit: "claude-login", entries: 1 },
+    ]);
+  });
+
+  it("secrets to set again, last, only when the old office left the secret store out and had secrets; the store itself gives no unit line", () => {
+    const lines = (
+      excluded: { unit: string; entries: number; bytes: number }[],
+      secretCount: number,
+    ) => leftBehindLines({ excluded, secretCount });
+    expect({
+      leftOut: lines([unit("secret-store", 4), unit("invites", 1)], 3),
+      leftOutNoSecrets: lines([unit("secret-store", 4)], 0),
+      moved: lines([unit("invites", 1)], 3),
+    }).toEqual({
+      leftOut: [{ kind: "invites" }, { kind: "secrets", count: 3 }],
+      leftOutNoSecrets: [],
+      moved: [{ kind: "invites" }],
+    });
   });
 });

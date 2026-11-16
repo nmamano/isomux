@@ -42,11 +42,12 @@ Expiry drops `code` and `paired` only (an audit row `office.moveExpired`), at th
 - the office unit's `Restart=` value;
 - per app folder, the files that name the old host (OAuth redirect URIs too), without `node_modules`, `.git` and files over 1 MB (`find` skips them before `grep` reads them);
 - `du` per top-level entry of the office user's home;
-- the packages the office user installed with sudo (apt history), or unknown.
+- the packages the office user installed with sudo (apt history), or unknown;
+- the members with their own OS user (slice 3): their names (the id when no user has it, sorted), or `broken` when the record cannot be read.
 
 ## The lock
 
-`POST /api/move/lock {preflightId}` refuses unless: the state is `paired`, the preflight is this pairing's, ready, and finished less than 15 min ago, the office unit has `Restart=always`, and no agent works that the preflight did not list (409 `turns_changed`). Then, in order:
+`POST /api/move/lock {preflightId}` refuses unless: the state is `paired`, the preflight is this pairing's, ready, and finished less than 15 min ago, the office unit has `Restart=always`, no member has their own OS user (read at the lock, not from the preflight: 409 `member_os_users` with `names` or `broken`; their homes and sign-ins move in slice 5), and no agent works that the preflight did not list (409 `turns_changed`). Then, in order:
 
 1. write `move-units.json` and the state `move` (a failure answers 500, and nothing changed);
 2. lock the process and close every socket (as the lockdown route does);
@@ -79,7 +80,8 @@ The pull routes exist only in the MOVE-locked server (state `move`, or `moved` f
 One predicate (`moveScope`, `server/office-move-scope.ts`) decides for the walk and for each batch path. Paths are relative to the office user's home. Nothing follows a symlink.
 
 - Out, not counted: `.cache`, `.bun`, `.npm/_cacache`, `go/pkg/mod`, `.cargo/registry`; the code folder and the backup folder when they are in the home; the move's own files in the state root and its scratch folder `move-pull/`; sockets, fifos and devices (counted as skipped); the `-wal`, `-shm` and `-journal` of a SQLite file, only when the file without the suffix is a SQLite database (a member's `day-journal` moves). The predicate does not touch the disk, so the walk and the batch apply this last rule.
-- Out as a sign-in unit, counted per unit for the after-move report (slice 3 adds them back): each entry of `BACKUP_EXCLUSIONS` (its tar globs as a matcher, `*` matches `/` as in tar), so a new backup exclusion is a move exclusion with no second list; each backend credential path at any depth (for example `~/.claude/.credentials.json`); `.ssh`; `.config/gh`; and the files bound to the old office's origin: `sessions.json`, `invites.json`, `api-tokens.json`, `browser-connections.json` (extension pairings), `app-sessions.json`, `web-push.json`.
+- Out as a bound unit (slice 3), counted per unit for the after-move report, and kept from the new box by the swap: the files bound to the old office's origin, each with its `.tmp` and `.corrupt-*` siblings in the state root (`sessions.json` browser-sessions, `app-sessions.json`, `invites.json`, `browser-connections.json` extension-pairings, `web-push.json`), and the home's own `.ssh/authorized_keys` and `authorized_keys2` (ssh-authorized-keys: the Hosted control plane writes its own line in the new box's file, and the old box's keys must not open the new box). The bound rules match first.
+- Sign-ins and secrets move (slice 3): every id of `BACKUP_EXCLUSIONS` and `BACKEND_CREDENTIAL_PATHS` is in `MOVE_CARRIED_UNITS` or `MOVE_BOUND_UNITS`, and a test fails for an id in neither. An id in neither stays on the old box under its own id. The rest of `.ssh`, `.config/gh` and `api-tokens.json` move. The old box keeps its copies, locked. Slice 4's live pass must fetch the credential files again in the final pull: a token refresh between the two pulls changes them (the manifest compare catches it when the size or mtime moved).
 - Hard links arrive as separate files (as with an rsync without `-H`).
 
 ### Routes
@@ -160,7 +162,7 @@ A boot that finds `finishing` goes back to `staged`/`incomplete` with the stage;
 
 At boot, first in `runOfficeMain`, before any state module reads the disk. swap.json absent: nothing.
 
-- Keep: every path of the fresh home that this box's move scope leaves out (the code folder, caches, the sign-ins and the origin-bound files, the move's own files, the move-in folder, sockets), the office id, and this office's own user unit (its file, its `.d` folder, its links in `*.wants`). `office-move-in.json` is one of the move's own files, so it stays in place across the swap. The walk's SQLite side-file rule does not apply: a fresh `-wal` goes aside with the fresh database.
+- Keep: every path of the fresh home that this box's move scope leaves out (the code folder, caches, the bound units, the move's own files, the move-in folder, sockets), the office id, and this office's own user unit (its file, its `.d` folder, its links in `*.wants`). `office-move-in.json` is one of the move's own files, so it stays in place across the swap. The walk's SQLite side-file rule does not apply: a fresh `-wal` goes aside with the fresh database.
 - Ops, computed at the first swap boot from the home as it is then, and stored in swap.json before the first rename: the old office's own unit (named in its redeem answer) is dropped from the stage to `aside/.from-stage`; then, level by level, an entry with a kept path inside is entered; a kept path stays, and the stage's entry there goes to `aside/.from-stage`; any other entry goes `aside` (the fresh one) and `in` (the old one) whole.
 - Each op is one rename and runs again with no effect. An `in` whose place is taken by an entry no op sets aside fails before any rename. A stage entry left after the ops fails too.
 - Then: `users.json` is the old office's plus the fresh owner, kept with its id (a name clash renames it "<name> new box"); `office-config.json` is the old office's with this machine's value of each key in `OFFICE_CONFIG_BOX_KEYS` (persistence.ts); the fresh office's backups are deleted (backup names only); `move-units.json` gets the old office's units record; the state becomes `moved` with the report; swap.json is deleted last. A crash at any step resumes at the next boot with the same result.
@@ -177,7 +179,7 @@ The kept `sessions.json` keeps the owner who finished signed in on the moved off
 
 ### The report
 
-`GET /api/office/move-in` in `moved`: the old origin, who finished and when, the sign-in units left out with counts, the secrets to set again, the missing paths the owner accepted, the fresh owner's new name after a clash, the old office's unit set aside, the units put back, and the top-level entries and size of the aside folder.
+`GET /api/office/move-in` in `moved`: the old origin, who finished and when, the units left out with counts (the old office's `excluded`; an old office of slice 2 also lists its sign-ins), the secrets to set again (only when the old office left the secret store out), the missing paths the owner accepted, the fresh owner's new name after a clash, the old office's unit set aside, the units put back, and the top-level entries and size of the aside folder.
 
 ## The Settings pane (slice 2c-2)
 
@@ -187,5 +189,6 @@ Settings > Office > Move office, owners only, on Hosted too: `ui/components/Offi
 - The move-in card comes first on a new office and whenever a move-in runs or is done.
 - `GET /api/office/move-in` in phase `none` carries `blocker`: the start's own refusal before the redeem (`startBlocker`: not fresh, the restart policy, the state root), so the owner sees it before minting a code. Every phase from `preflight` on carries `oldOfficeLocked` (the cancel's own expression), and `moved` carries `asidePath`.
 - The routes emit nothing, so each card polls while something runs (move-in 2 s, move-out 5 s). An answer with `X-Isomux-Locked` (`ApiError.locked`) reloads the page: the old office after its lock shows the MOVE page, and a failed swap shows its page with Try again. Through the restart after Finish, poll errors are silent; after 5 min with no answer the card says the office has not come back and offers a reload.
-- The old office's preflight comes from its release, so the card reads it through a guard (`preflightView`): each part is its shape or unknown. Lock is enabled only when the old office's unit has `Restart=always`.
+- The old office's preflight comes from its release, so the card reads it through a guard (`preflightView`): each part is its shape or unknown. Lock is enabled only when the old office's unit has `Restart=always` and the old office reports no member with their own OS user and can read them (slice 3; an old office of a release without that part reports nothing and does not refuse, so Lock is enabled then).
 - Finish, a cancel and the delete of the aside folder ask first, in place. A cancel after the lock says the old office stays locked until its owner enters the move code there.
+- The report's "left behind" list (`leftBehindLines`, slice 3): one sentence per bound unit with entries, in `LEFT_BEHIND_ORDER` (app-sessions gives none: apps sign in again through the office); a unit this release does not name keeps the line with its id and count; the secrets line last.

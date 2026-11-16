@@ -32,10 +32,12 @@ import type {
 import {
   MOVE_IN_POLL_MS,
   finishAllowed,
+  leftBehindLines,
   listHead,
   moveInPollDecision,
   moveOutPollDecision,
   phaseView,
+  type LeftBehindLine,
   type MoveInView,
   type PollDecision,
   type PollOutcome,
@@ -878,6 +880,18 @@ function ConfirmView({
       {p.restart.kind === "unknown" && (
         <p style={warning}>{t("officeMove.in.confirm.restartUnknown")}</p>
       )}
+      {p.memberOsUsers.kind === "list" && (
+        <p data-testid="move-member-os-users" style={warning}>
+          {t("officeMove.in.confirm.memberOsUsers", {
+            names: p.memberOsUsers.names.join(", "),
+          })}
+        </p>
+      )}
+      {p.memberOsUsers.kind === "broken" && (
+        <p data-testid="move-member-os-users" style={warning}>
+          {t("officeMove.in.confirm.memberOsUsersBroken")}
+        </p>
+      )}
       <p style={text}>
         {p.turnsInFlight.kind === "unknown"
           ? t("officeMove.in.confirm.turnsUnknown")
@@ -972,6 +986,19 @@ function ReportView({
   const { t, tn, rich } = useI18n();
   const r = view.report;
   const aside = listHead(r.aside.entries);
+  const leftBehind = leftBehindLines(r);
+  const leftBehindText = (line: LeftBehindLine): string => {
+    switch (line.kind) {
+      case "unit":
+        return tn("officeMove.report.excludedItem", line.entries, {
+          unit: line.unit,
+        });
+      case "secrets":
+        return tn("officeMove.report.secrets", line.count);
+      default:
+        return t(`officeMove.report.leftBehind.${line.kind}`);
+    }
+  };
   return (
     <>
       <p style={text}>
@@ -994,22 +1021,17 @@ function ReportView({
           <PathList items={r.missing} />
         </>
       )}
-      {r.excluded.length > 0 && (
+      {leftBehind.length > 0 && (
         <>
           <p style={text}>{t("officeMove.report.excluded")}</p>
-          <ul style={list}>
-            {r.excluded.map((u) => (
-              <li key={u.unit}>
-                {tn("officeMove.report.excludedItem", u.entries, {
-                  unit: u.unit,
-                })}
+          <ul data-testid="move-left-behind" style={list}>
+            {leftBehind.map((line) => (
+              <li key={line.kind === "unit" ? `unit:${line.unit}` : line.kind}>
+                {leftBehindText(line)}
               </li>
             ))}
           </ul>
         </>
-      )}
-      {r.secretCount > 0 && (
-        <p style={text}>{tn("officeMove.report.secrets", r.secretCount)}</p>
       )}
       {r.oldOfficeUnitSetAside && (
         <p style={text}>

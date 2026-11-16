@@ -43,6 +43,9 @@ export interface MovePreflightResult {
   /** Packages installed system-wide with sudo by the office user (apt
    *  history); unknown when the log cannot be read. */
   sudoPackages: { packages: string[] } | { unknown: true };
+  /** Members with their own OS user (slice 3): the lock refuses while any
+   *  member has one, or while their record cannot be read. */
+  memberOsUsers: { names: string[] } | { broken: true };
 }
 
 export type MovePreflightStatus =
@@ -66,6 +69,7 @@ export interface MovePreflightDeps {
   turnsInFlight(): TurnInFlight[];
   listUnits(): AgentUnit[];
   restartPolicy(): MovePreflightResult["restart"];
+  memberOsUsers(): MovePreflightResult["memberOsUsers"];
   exec: PreflightExec;
   /** The office OS user's name (the apt Requested-By match). */
   osUser: string;
@@ -185,6 +189,7 @@ async function runPreflight(
     hostRefs,
     sizes,
     sudoPackages,
+    memberOsUsers: deps.memberOsUsers(),
   };
 }
 
