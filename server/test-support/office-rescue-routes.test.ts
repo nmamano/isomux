@@ -22,7 +22,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { STATE_ROOT } from "../config.ts";
 import { spawnSync } from "node:child_process";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
@@ -564,6 +565,9 @@ describe("the move routes", () => {
     return {
       calls,
       stops,
+      // The redeem checks the state root on disk inside the office user's
+      // home (slice 2b): this office's home is the folder that holds it.
+      home: dirname(STATE_ROOT),
       runUnits: (argv) => {
         calls.push(argv);
         if (argv.includes("show") && argv.some((a) => a.includes("Restart")))
@@ -909,5 +913,63 @@ describe("the move routes", () => {
     expect(existsSync(join(server.stateRoot, MOVE_UNITS_FILE))).toBe(false);
     expect(existsSync(join(server.stateRoot, MOVE_CANCELLED_FILE))).toBe(false);
     expect(moveAudits()).toEqual(["office.cancelMove"]);
+  });
+
+  // Slice 2b, the new office's side, through the whole server: only an
+  // owner's browser session starts a move-in, and the office's real
+  // freshness read (users, agents, apps, tasks) refuses this office, which
+  // has members, agents and an app, before any request to the old office.
+  it("a move-in: only an owner's session starts it; an office with members, agents and apps gets 409 office_not_fresh and the old office is never called", async () => {
+    const fetched: string[] = [];
+    const seams = {
+      ...moveSeams(),
+      moveIn: {
+        fetch: async (url: string) => {
+          fetched.push(url);
+          return Response.json(
+            { error: { code: "move_code_invalid", message: "x" } },
+            { status: 403 },
+          );
+        },
+      },
+    };
+    const b = await boot({ move: seams });
+    const c = await cast(b.srv);
+    const code = `isomux-move-1.${Buffer.from(
+      JSON.stringify({
+        o: "https://old.example.com",
+        t: "t".repeat(43),
+        k: "k".repeat(43),
+      }),
+    ).toString("base64url")}`;
+    for (const name of [...REFUSED, "ownerAgent"] as const)
+      expect({
+        name,
+        ...outcome(
+          await call(b.srv, "POST", "/api/office/move-in", c[name], { code }),
+        ),
+      }).toEqual({ name, status: 403, code: "forbidden" });
+
+    const res = await call(b.srv, "POST", "/api/office/move-in", c.owner, {
+      code,
+    });
+    expect(outcome(res)).toEqual({ status: 409, code: "office_not_fresh" });
+    const reasons = (res.body as { error?: { reasons?: { kind: string }[] } })
+      .error?.reasons;
+    expect(reasons?.map((r) => r.kind).sort()).toEqual([
+      "agents",
+      "apps",
+      "users",
+    ]);
+    expect(fetched).toEqual([]);
+
+    const read = await call(b.srv, "GET", "/api/office/move-in", c.ownerAgent);
+    expect({
+      status: read.status,
+      phase: (read.body as { phase?: string }).phase,
+    }).toEqual({
+      status: 200,
+      phase: "none",
+    });
   });
 });

@@ -2509,6 +2509,11 @@ Cosas que puedes hacer por él:
   "apiCall.office.exportStatus": "Comprobar una exportación de la oficina",
   "apiCall.office.getMove": "Comprobar el traslado de la oficina",
   "apiCall.office.cancelMove": "Cancelar el traslado de la oficina",
+  "apiCall.office.getMoveIn": "Comprobar el traslado a esta oficina",
+  "apiCall.office.rerunMoveInPreflight":
+    "Comprobar de nuevo la oficina antigua",
+  "apiCall.office.retryMoveIn": "Copiar de nuevo la oficina antigua",
+  "apiCall.office.cancelMoveIn": "Cancelar el traslado a esta oficina",
   "apiCall.rooms.readInstructions": "Leer las instrucciones de la sala",
   "apiCall.githubSync.get": "Leer el enlace de GitHub de una sala",
   "apiCall.githubSync.set": "Enlazar una sala con un repositorio de GitHub",

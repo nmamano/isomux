@@ -45,6 +45,16 @@ import {
   openCodeRunsOnHost,
 } from "./office-managers.ts";
 
+const CLAUDE_WELCOME_AGENT_NAME = "Claude Welcome Agent";
+const CODEX_WELCOME_AGENT_NAME = "Codex Welcome Agent";
+/** The welcome agents a fresh office seeds for its first owner, in their
+ *  first front room (the move-in's freshness check reads them). */
+export const WELCOME_AGENT_NAMES: readonly string[] = [
+  CLAUDE_WELCOME_AGENT_NAME,
+  CODEX_WELCOME_AGENT_NAME,
+  FREE_WELCOME_AGENT_NAME,
+];
+
 // The seed's discovery timeout, then the background retry after a seed used
 // the fallback (see repickFallbackSeeds).
 export interface WelcomeModelTiming extends WelcomeModelRetryTiming {
@@ -496,8 +506,8 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
     name: string;
     family: string;
   }> = [
-    { agentType: "claude", name: "Claude Welcome Agent", family: "Claude" },
-    { agentType: "codex", name: "Codex Welcome Agent", family: "Codex" },
+    { agentType: "claude", name: CLAUDE_WELCOME_AGENT_NAME, family: "Claude" },
+    { agentType: "codex", name: CODEX_WELCOME_AGENT_NAME, family: "Codex" },
     {
       agentType: "opencode",
       name: FREE_WELCOME_AGENT_NAME,

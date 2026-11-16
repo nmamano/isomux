@@ -9,6 +9,8 @@ import { BACKUP_EXCLUSIONS, tarGlobSource } from "./backup-exclusions.ts";
 import { BACKEND_CREDENTIAL_PATHS } from "./backend-credential-paths.ts";
 import {
   MOVE_CANCELLED_FILE,
+  MOVE_IN_DIR,
+  MOVE_IN_STATE_FILE,
   MOVE_LOCK_MARKER,
   MOVE_STATE_FILE,
 } from "./office-move.ts";
@@ -55,6 +57,8 @@ interface MoveScopeRules {
 
 /** The home's caches and build caches, rooted at the home. */
 const HOME_CACHES = [
+  // A move-in on this box (its stage holds another office's home).
+  MOVE_IN_DIR,
   ".cache",
   ".bun",
   ".npm/_cacache",
@@ -64,6 +68,8 @@ const HOME_CACHES = [
 
 /** The move's own files in the state root: left out, not counted. */
 const MOVE_OWN_FILES = [
+  MOVE_IN_STATE_FILE,
+  `${MOVE_IN_STATE_FILE}.tmp`,
   MOVE_STATE_FILE,
   `${MOVE_STATE_FILE}.tmp`,
   MOVE_UNITS_FILE,

@@ -21,11 +21,12 @@ import {
   chmodSync,
   existsSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { readLockState, ROOT_MARKER_DIR } from "./lockdown.ts";
 import { CALVER_RELEASE_RE } from "./version.ts";
 
@@ -40,6 +41,11 @@ export const MOVE_LOCK_MARKER = "move-locked";
  *  it means "cancelled", even when the state file is still there. */
 export const MOVE_CANCELLED_FILE = "move-cancelled.json";
 /** The prefix of a move code. */
+/** The new office's move-in state, in its state root (slice 2b). */
+export const MOVE_IN_STATE_FILE = "office-move-in.json";
+/** The folder under the office user's home that holds a move-in (the
+ *  stage, the manifest). */
+export const MOVE_IN_DIR = ".isomux-move-in";
 export const MOVE_CODE_PREFIX = "isomux-move-1.";
 /** How long the new box has to redeem a code. */
 export const MOVE_CODE_TTL_MS = 60 * 60_000;
@@ -55,6 +61,9 @@ export interface MoveBoxInfo {
   commit: string | null;
   /** The office user's home directory. */
   homePath: string;
+  /** The office's state root, absolute (slice 2b). Both boxes refuse a move
+   *  when it is not inside the home, not its own realpath, or differs. */
+  stateRoot: string;
 }
 
 interface MoveStateBase {
@@ -263,6 +272,15 @@ function hashEquals(hexA: string, hexB: string): boolean {
   return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
 }
 
+/** Why a redeem is refused after a valid token (the code is not used up). */
+export type MoveRedeemRefusal =
+  | "home_path_differs"
+  | "release_older"
+  | "release_unknown"
+  /** Slice 2b: a state root outside the home, or not its own realpath. */
+  | "state_root_outside_home"
+  | "state_root_differs";
+
 export type RedeemMoveResult =
   | {
       ok: true;
@@ -277,7 +295,7 @@ export type RedeemMoveResult =
   | {
       ok: false;
       status: 409;
-      error: "home_path_differs" | "release_older" | "release_unknown";
+      error: MoveRedeemRefusal;
       ours: MoveBoxInfo;
       theirs: MoveBoxInfo;
     };
@@ -295,6 +313,9 @@ export function redeemMoveCode(
     token: string;
     newBox: MoveBoxInfo;
     ours: MoveBoxInfo;
+    /** This box's own state root on disk (moveStateRootRefusal), checked by
+     *  the caller; told only to a valid token holder. */
+    oursOnDisk?: MoveRedeemRefusal | null;
     now: Date;
   },
 ): RedeemMoveResult {
@@ -305,10 +326,14 @@ export function redeemMoveCode(
     !hashEquals(sha256(input.token), current.tokenHash)
   )
     return CODE_INVALID;
-  const refusal =
+  const refusal: MoveRedeemRefusal | null =
     input.newBox.homePath !== input.ours.homePath
       ? "home_path_differs"
-      : moveReleaseRefusal(input.ours, input.newBox);
+      : (moveStateRootPathRefusal(input.ours) ??
+        input.oursOnDisk ??
+        (input.newBox.stateRoot !== input.ours.stateRoot
+          ? "state_root_differs"
+          : moveReleaseRefusal(input.ours, input.newBox)));
   if (refusal)
     return {
       ok: false,
@@ -329,6 +354,7 @@ export function redeemMoveCode(
       release: input.newBox.release,
       commit: input.newBox.commit,
       homePath: input.newBox.homePath,
+      stateRoot: input.newBox.stateRoot,
     },
   };
   writeMoveState(stateRoot, paired);
@@ -338,6 +364,41 @@ export function redeemMoveCode(
     sessionExpiresAt: paired.sessionExpiresAt,
     office: input.ours,
   };
+}
+
+/** A state root that is not inside the home, by the paths alone. */
+export function moveStateRootPathRefusal(
+  box: MoveBoxInfo,
+): "state_root_outside_home" | null {
+  const rel = relative(box.homePath, box.stateRoot);
+  return !box.stateRoot ||
+    !rel ||
+    rel === ".." ||
+    rel.startsWith(`..${sep}`) ||
+    isAbsolute(rel)
+    ? "state_root_outside_home"
+    : null;
+}
+
+/** A state root the walk would not enter: outside the home, or not the
+ *  real folder at its place in the home (~/.isomux as a link: the walk lists
+ *  a link and moves no office data). Reads the disk. A home reached through
+ *  a link is fine. */
+export function moveStateRootRefusal(
+  box: MoveBoxInfo,
+): "state_root_outside_home" | null {
+  if (moveStateRootPathRefusal(box)) return "state_root_outside_home";
+  try {
+    const expected = join(
+      realpathSync(box.homePath),
+      relative(box.homePath, box.stateRoot),
+    );
+    return realpathSync(box.stateRoot) === expected
+      ? null
+      : "state_root_outside_home";
+  } catch {
+    return "state_root_outside_home";
+  }
 }
 
 /** Why the new box's release cannot take this office, or null. Both CalVer

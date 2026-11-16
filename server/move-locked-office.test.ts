@@ -81,6 +81,7 @@ const BOX: MoveBoxInfo = {
   release: "v2026.11.12",
   commit: "a".repeat(40),
   homePath: "/home/isomux",
+  stateRoot: "/home/isomux/.isomux",
 };
 
 function stateRoot(): string {

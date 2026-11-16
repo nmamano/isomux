@@ -76,6 +76,7 @@ const BOX: MoveBoxInfo = {
   release: "v2026.11.12",
   commit: "a".repeat(40),
   homePath: "/home/isomux",
+  stateRoot: "/home/isomux/.isomux",
 };
 const stateFile = (root: string) => join(root, MOVE_STATE_FILE);
 const rawState = (root: string) => readFileSync(stateFile(root), "utf8");
@@ -341,6 +342,7 @@ describe("the release rule", () => {
     release,
     commit,
     homePath: "/home/isomux",
+    stateRoot: "/home/isomux/.isomux",
   });
   it("compares CalVer releases as numbers, and asks for the same commit when either side is not a release", () => {
     const a = "a".repeat(40);

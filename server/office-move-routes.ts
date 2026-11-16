@@ -25,11 +25,13 @@ import { getStopFinalStep, setStopFinalStep } from "./server-stop.ts";
 import {
   checkMoveSession,
   markMoveLocked,
+  moveStateRootRefusal,
   MOVE_PREFLIGHT_FRESH_MS,
   readMoveBody,
   readMoveState,
   redeemMoveCode,
   type MoveBoxInfo,
+  type MoveRedeemRefusal,
   type MoveState,
 } from "./office-move.ts";
 import type {
@@ -136,6 +138,7 @@ function asBoxInfo(v: unknown): MoveBoxInfo | null {
   if (
     !nullableString(b.release) ||
     !nullableString(b.commit) ||
+    (b.stateRoot !== undefined && typeof b.stateRoot !== "string") ||
     typeof b.homePath !== "string" ||
     b.homePath.length === 0
   )
@@ -144,6 +147,9 @@ function asBoxInfo(v: unknown): MoveBoxInfo | null {
     release: b.release,
     commit: b.commit,
     homePath: b.homePath,
+    // A new box before slice 2b sends none: the redeem refuses it as a
+    // different state root.
+    stateRoot: typeof b.stateRoot === "string" ? b.stateRoot : "",
   };
 }
 
@@ -188,10 +194,12 @@ export function createOfficeMoveFrontDoor(
         "The body must be {token, newBox: {release, commit, homePath}}.",
       );
     currentState();
+    const ours = deps.ours();
     const res = redeemMoveCode(deps.stateRoot, {
       token: b.token,
       newBox,
-      ours: deps.ours(),
+      ours,
+      oursOnDisk: moveStateRootRefusal(ours),
       now: deps.now(),
     });
     if (res.ok) {
@@ -376,10 +384,12 @@ export function createOfficeMoveFrontDoor(
   };
 }
 
-function refusalMessage(
-  error: "home_path_differs" | "release_older" | "release_unknown",
-): string {
+function refusalMessage(error: MoveRedeemRefusal): string {
   switch (error) {
+    case "state_root_outside_home":
+      return "The office's data folder is not a real folder inside the office user's home.";
+    case "state_root_differs":
+      return "The office's data folder is in another place on the two machines.";
     case "home_path_differs":
       return "The office user's home folder differs between the two machines.";
     case "release_older":

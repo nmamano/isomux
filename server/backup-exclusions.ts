@@ -109,8 +109,9 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   },
   // An office move in progress (task 78733adf): the move code's key, the
   // hashes of its token and of the new office's session, and the units the
-  // move stopped (a transient unit's environment can hold a secret). The
-  // temp files are each file in the middle of a write.
+  // move stopped (a transient unit's environment can hold a secret). On the
+  // new office, the move-in state holds the old office's session and key.
+  // The temp files are each file in the middle of a write.
   {
     id: "office-move",
     archivePatterns: (root) => [
@@ -118,6 +119,8 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/office-move.json.tmp`,
       `${root}/move-units.json`,
       `${root}/move-units.json.tmp`,
+      `${root}/office-move-in.json`,
+      `${root}/office-move-in.json.tmp`,
     ],
   },
   // Webhook signing secrets (D5). After a restore, the owner rotates once per

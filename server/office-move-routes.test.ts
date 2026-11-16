@@ -17,6 +17,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,10 +45,13 @@ afterEach(() => {
   dir = "";
 });
 
-const BOX: MoveBoxInfo = {
+// This box, as both sides send it. bed() points homePath and stateRoot at
+// its real folders: the redeem checks the state root on disk (slice 2b).
+let BOX: MoveBoxInfo = {
   release: "v2026.11.12",
   commit: "a".repeat(40),
   homePath: "/home/isomux",
+  stateRoot: "/home/isomux/.isomux",
 };
 const UNITS: AgentUnit[] = [
   {
@@ -86,6 +90,7 @@ function bed(): Bed {
   dir = mkdtempSync(join(tmpdir(), "office-move-routes-"));
   const root = join(dir, ".isomux");
   mkdirSync(root);
+  BOX = { ...BOX, homePath: dir, stateRoot: root };
   const home = join(dir, "home");
   mkdirSync(home);
   // One top-level entry, so the preflight runs a step that holdPreflight
@@ -256,7 +261,11 @@ describe("the redeem route", () => {
   it("a refusal shows both boxes to the token holder as 409 and leaves the code redeemable", async () => {
     const b = bed();
     const c = b.mint();
-    const theirs = { ...BOX, homePath: "/home/office" };
+    const theirs = {
+      ...BOX,
+      homePath: "/home/office",
+      stateRoot: "/home/office/.isomux",
+    };
     const res = await b.call("POST", "/api/move/redeem", {
       body: { token: tokenOf(c), newBox: theirs },
     });
@@ -528,5 +537,115 @@ describe("the lock", () => {
     await Bun.sleep(300);
     expect(b.stops).toEqual([]);
     expect(b.audits).toEqual(["office.pairMove"]);
+  });
+});
+
+// Slice 2b, the reviewer's note: a state root outside the home, or
+// ~/.isomux as a link, moves no office data (the walk lists a link and never
+// enters it), and two different state roots put the data in the wrong
+// folder on the new box. The old office refuses at the redeem, shows both
+// boxes, and the code is not used up.
+describe("the redeem and the state root", () => {
+  const STATE_ROOT_CODES = ["state_root_outside_home", "state_root_differs"];
+
+  async function refusedThenRedeemable(
+    b: Bed,
+    c: string,
+    newBox: MoveBoxInfo,
+  ): Promise<{
+    status: number;
+    code: string | null;
+    ours: unknown;
+    theirs: unknown;
+  }> {
+    const res = await b.call("POST", "/api/move/redeem", {
+      body: { token: tokenOf(c), newBox },
+    });
+    const state = readMoveState(b.root, new Date(b.clock.now)).current?.state;
+    return {
+      status: res.status,
+      code: code(res),
+      ours: res.body?.ours,
+      theirs: res.body?.theirs,
+      ...(state === "code" ? {} : { codeUsedUp: state }),
+    };
+  }
+
+  it("refuses when this office's state root is a link (~/.isomux -> a real folder): 409, both boxes shown, the code stays", async () => {
+    const b = bed();
+    const real = BOX;
+    const link = join(real.homePath, ".isomux-link");
+    symlinkSync(real.stateRoot, link);
+    BOX = { ...real, stateRoot: link };
+    const c = b.mint();
+    const res = await refusedThenRedeemable(b, c, BOX);
+    expect(res.status).toBe(409);
+    expect(STATE_ROOT_CODES).toContain(res.code!);
+    expect(res).toMatchObject({ ours: BOX, theirs: BOX });
+    // Fixed (the real folder): the same code pairs.
+    BOX = real;
+    const again = await b.call("POST", "/api/move/redeem", {
+      body: { token: tokenOf(c), newBox: BOX },
+    });
+    expect(again.status).toBe(200);
+  });
+
+  it("refuses when this office's state root is outside its home: 409 state_root_outside_home", async () => {
+    const b = bed();
+    const outside = mkdtempSync(join(tmpdir(), "office-move-outside-"));
+    try {
+      BOX = { ...BOX, stateRoot: outside };
+      const c = b.mint();
+      const res = await refusedThenRedeemable(b, c, BOX);
+      expect(res).toEqual({
+        status: 409,
+        code: "state_root_outside_home",
+        ours: BOX,
+        theirs: BOX,
+      });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a new box whose state root differs: 409 state_root_differs, both values, the code stays", async () => {
+    const b = bed();
+    const c = b.mint();
+    const theirs = { ...BOX, stateRoot: join(BOX.homePath, ".isomux-other") };
+    const res = await refusedThenRedeemable(b, c, theirs);
+    expect(res).toEqual({
+      status: 409,
+      code: "state_root_differs",
+      ours: BOX,
+      theirs,
+    });
+    const again = await b.call("POST", "/api/move/redeem", {
+      body: { token: tokenOf(c), newBox: BOX },
+    });
+    expect(again.status).toBe(200);
+  });
+
+  // Precision: a home reached through a link is fine when the state root is
+  // a real folder in it (the walk starts from the home's realpath).
+  it("pairs when the home path is a link and the state root is a real folder inside it", async () => {
+    const b = bed();
+    const linkedHome = `${BOX.homePath}-via-link`;
+    symlinkSync(BOX.homePath, linkedHome);
+    try {
+      BOX = {
+        ...BOX,
+        homePath: linkedHome,
+        stateRoot: join(linkedHome, ".isomux"),
+      };
+      const res = await b.call("POST", "/api/move/redeem", {
+        body: { token: tokenOf(b.mint()), newBox: BOX },
+      });
+      expect({ status: res.status, code: code(res) }).toEqual({
+        status: 200,
+        code: null,
+      });
+    } finally {
+      rmSync(linkedHome, { force: true });
+    }
   });
 });

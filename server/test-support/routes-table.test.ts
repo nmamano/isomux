@@ -1836,6 +1836,16 @@ const SPEC_ROUTE_CONTRACT: Record<
   "office.mintMoveCode": { caps: ["office:admin"], emits: [] },
   "office.getMove": { caps: ["office:rescue"], emits: [] },
   "office.cancelMove": { caps: ["office:rescue"], emits: [] },
+  // The new office's side of a move (slice 2b): only an owner's session
+  // starts it and sends the lock (both replace this office with another);
+  // owners and their agents read it, run the preflight or the pull again,
+  // and cancel it.
+  "office.startMoveIn": { caps: ["office:admin"], emits: [] },
+  "office.lockMoveIn": { caps: ["office:admin"], emits: [] },
+  "office.getMoveIn": { caps: ["office:rescue"], emits: [] },
+  "office.rerunMoveInPreflight": { caps: ["office:rescue"], emits: [] },
+  "office.retryMoveIn": { caps: ["office:rescue"], emits: [] },
+  "office.cancelMoveIn": { caps: ["office:rescue"], emits: [] },
   // Office settings, validation, backends
   "office.getSettings": { caps: ["office:settings"], emits: [] },
   "office.getMemberUsageStatus": { caps: ["office:settings"], emits: [] },
@@ -2346,6 +2356,10 @@ const APP_REFUSED_OPIDS = [
   // Nor does it read or cancel a move of the office (task 78733adf).
   "office.getMove",
   "office.cancelMove",
+  "office.getMoveIn",
+  "office.rerunMoveInPreflight",
+  "office.retryMoveIn",
+  "office.cancelMoveIn",
 ];
 
 // An ORDINARY agent may also clear its own conversation, and take back its own

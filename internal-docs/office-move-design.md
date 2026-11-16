@@ -8,9 +8,9 @@ The full slice plan and the gaps of the manual move of 2026-11-15 are in the tas
 
 1. An owner mints a move code on the running old office (`POST /api/office/move/code`, owner browser session only).
 2. The new office redeems it (`POST /api/move/redeem`) and gets a move session. That pairs the two offices.
-3. The new office runs the preflight on the old office and shows it to the owner (slice 2 has the new office's side).
+3. The new office runs the preflight on the old office and shows it to the owner.
 4. After the owner's yes, the new office locks the old office for the move (`POST /api/move/lock`).
-5. Slice 2: the final pull, then the old office is MOVED.
+5. The new office pulls the old office's home into a stage and checks it (slice 2b). Slice 2c: `done` (the old office is MOVED), then the swap at boot.
 
 ## Move code and session
 
@@ -103,3 +103,36 @@ AES-256-GCM. Each response starts with a fresh random 32-byte salt. The response
 - `moved` is terminal. The MOVE-locked server shows the MOVED page with the new origin as text (escaped, not a link). The cancel by code from `moved` also needs `confirmMoved: true` (409 `moved_confirm_required`); the page's form has the checkbox and the hard warning (a tailscale node, a Discord bot, a WhatsApp link, cron jobs, webhooks and Claude sessions would run on two machines). Once a batch was served (`servedAt`), the MOVE page warns that the new office may already hold a full copy.
 - The MOVE-locked server opens the audit store only for its two rows: `office.movePulled` at the first batch, `office.moveDone` at done.
 - N1: the lock writes a marker `move-locked` before the state `move`; the cancel by code deletes it. An unreadable state file boots the MOVE-locked server when the marker is there (no session works, so the page says to ask the operator, who deletes both files) and boots normal without it. A cancel record wins over both.
+
+## The new office (slice 2b)
+
+`server/office-move-in.ts` runs the move on the new office; `server/office-move-stage.ts` writes the stage. There is no UI yet: slice 2c adds it with the swap, so no release offers a flow that leaves the old office locked with no way to use the copy. Slice 2b ends at `staged` and never sends `done`.
+
+### Owner routes
+
+- `POST /api/office/move-in {code}` (owner browser session): refuses a code that does not parse (400), an office that is not fresh (409 `office_not_fresh`, a count per rule: one user who is an owner, removed members included; only the seeded agents, the welcome agents in the first front room and the Receptionist in the lobby, killed agents included; no apps; no tasks), and a state root that is not a real folder in the home. Then the redeem. A refusal of the old office passes through with both boxes, and the code stays usable. A redeem answer without the old office's state root, or with another one, is refused ("update the old office"); that pairing expires on the old office by itself. Then the old office's preflight.
+- `GET /api/office/move-in`: the phase and what the owner sees (the old office's preflight, progress, the check), never the session, the key or the code.
+- `POST /api/office/move-in/preflight`: the preflight again, in `confirm`.
+- A cancel while a start or a preflight again waits for the old office wins: that request writes nothing and answers 409 `cancelled`.
+- `POST /api/office/move-in/lock {preflightId}` (owner browser session): the owner's yes. The freshness check again, then the lock. A refusal of the old office (`turns_changed`, `preflight_stale`) passes through, and the phase stays `confirm`.
+- `POST /api/office/move-in/pull`: runs a `failed` move again when it is retryable. It asks the old office first: `move` pulls from the start (the stage is wiped), `paired` goes back to `confirm` (the lock never arrived), anything else fails for good.
+- `DELETE /api/office/move-in`: deletes the state file and the move-in folder. After the lock, the old office stays locked until its owner cancels with the code.
+
+One move-in at a time: an in-process guard set before the first await.
+
+### Phases
+
+`<state>/office-move-in.json` (0600, one union by phase; the backup leaves it out, and moveScope too): `preflight` -> `confirm` -> `locking` -> `waiting` -> `manifest` -> `pulling` -> `checking` -> `staged`, or `incomplete`, or `failed {error, retryable}`. The redeem in flight is `pairing`, in memory only. The job lives in the process: a boot that finds a job phase sets `failed` (`interrupted`, retryable).
+
+### Requests
+
+Every request goes to the code's origin with `redirect: "error"` (the session must not reach another host), a time limit, and a byte cap on every JSON answer. A request whose answer does not start in the time limit is aborted. A sealed stream fails when no byte comes for the idle limit. Every error of the job ends in `failed`, never an unhandled rejection.
+
+### The pull
+
+1. The manifest data is written, opened, to `<home>/.isomux-move-in/manifest.ndjson`, never held in memory.
+2. Free space, before the first batch: every file rounded up to whole blocks, one block per folder, plus 10% or 1 GiB; and free inodes for the entries plus 10%. Short of either: `failed` `no_space`, retryable.
+3. Pass 1 (`prepare`) per entry: a path must be relative with plain segments, not twice, and its parent a folder of the manifest. Folders are made 0700 and every file is made empty (`O_CREAT|O_EXCL|O_NOFOLLOW`, 0600); links are only listed.
+4. Batches of at most 64 MiB and 800 KB of item JSON, 3 at a time. A file over 64 MiB that is not SQLite goes in ranges, one per batch. A batch writes by position into the file pass 1 made (`O_WRONLY|O_NOFOLLOW|O_NONBLOCK`, so a fifo put in the stage cannot block the office; fstat dev/ino checked, the parent's realpath checked), so a retry rewrites its own bytes. The record stream must match the request (order, regular files only, the SQLite flag, the offset, no more bytes than asked); otherwise the whole batch fails and runs again, up to 3 times. An error record of the old office is not asked again.
+5. Then modes and mtimes of files by fd (setuid and setgid dropped), then the links (never followed), then folders deepest first.
+6. The check comes from the ledger of trailers: each item has one end with the length asked (the manifest size, or for SQLite the trailer's bytes, which the file on disk must have); lstat of the stage comes second. The old office's unreadable paths are missing too. Complete: `staged` and an audit row `office.moveInStaged`; else `incomplete` with the missing paths.

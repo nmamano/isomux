@@ -438,6 +438,17 @@ import {
 } from "./enterprise-seats-routes.ts";
 import { rescueHandlers } from "./routes/handlers/rescue.ts";
 import { officeMoveHandlers } from "./routes/handlers/office-move.ts";
+import { RECEPTIONIST_NAME } from "./welcome-opencode-model.ts";
+import {
+  createMoveIn,
+  MOVE_IN_LIMITS,
+  MOVE_IN_STATE_FILE,
+  MOVE_IN_TIMING,
+  type MoveIn,
+  type MoveInDeps,
+  type MoveInLimits,
+  type MoveInTiming,
+} from "./office-move-in.ts";
 import {
   createOfficeMoveFrontDoor,
   MOVE_AUDIT_ACTOR,
@@ -605,7 +616,7 @@ import {
   stopAppsForLock,
   type LockdownApps,
 } from "./lockdown.ts";
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statfsSync } from "node:fs";
 import { applyLockEffects, startLockedOffice } from "./locked-office.ts";
 import { lockdownApps as lockdownAppsOver } from "./lockdown-apps.ts";
 import { defaultAppSupervisor } from "./app-supervisor-default.ts";
@@ -653,6 +664,7 @@ import {
 } from "./office-managers.ts";
 import {
   createOfficeOnboarding,
+  WELCOME_AGENT_NAMES,
   type WelcomeModelTiming,
 } from "./office-onboarding.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
@@ -1492,6 +1504,70 @@ function currentOfficeMove(): OfficeMoveFrontDoor {
   officeMoveFrontDoor ??= buildOfficeMoveFrontDoor(officeMoveSeams);
   return officeMoveFrontDoor;
 }
+// The new office's side of a move (slice 2b), built at the first use.
+let officeMoveIn: MoveIn | null = null;
+function currentMoveIn(): MoveIn {
+  officeMoveIn ??= buildMoveIn(officeMoveSeams);
+  return officeMoveIn;
+}
+function buildMoveIn(seams: MoveSeams): MoveIn {
+  const version = getVersionInfo();
+  const home = seams.home ?? homedir();
+  return createMoveIn({
+    stateRoot: STATE_ROOT,
+    home,
+    fetch: seams.moveIn?.fetch ?? ((url, init) => fetch(url, init)),
+    ours: () => ({
+      release: version.release,
+      commit: version.commit,
+      homePath: home,
+      stateRoot: STATE_ROOT,
+    }),
+    freshness: () => {
+      // The seed's first front room (the welcome agents) and the lobby.
+      const firstRoom = agentManager
+        .getRooms()
+        .find((r) => r.id !== LOBBY_ROOM_ID)?.id;
+      const tasks = (
+        officeAuditStore()
+          .db.query("SELECT count(*) AS n FROM tasks")
+          .get() as { n: number }
+      ).n;
+      return {
+        users: [...listUsers(), ...listRemovedMembers().map((m) => m.user)].map(
+          (u) => ({ role: u.role }),
+        ),
+        agents: [
+          ...agentManager
+            .getAllAgents()
+            .map((a) => ({ name: a.name, roomId: a.roomId ?? null })),
+          ...agentManager
+            .getKilledAgentSummaries()
+            .map((k) => ({ name: k.name, roomId: k.lastRoomId })),
+        ],
+        seededAgents: [
+          ...(firstRoom
+            ? WELCOME_AGENT_NAMES.map((name) => ({ name, roomId: firstRoom }))
+            : []),
+          { name: RECEPTIONIST_NAME, roomId: LOBBY_ROOM_ID },
+        ],
+        apps: appRegistry.list().length,
+        tasks,
+      };
+    },
+    statfs: seams.moveIn?.statfs ?? ((path) => statfsSync(path)),
+    audit: (operation, actor) =>
+      recordAudit({
+        actor,
+        operation,
+        targets: ["office"],
+        fields: [],
+      }),
+    now: () => new Date(),
+    timing: { ...MOVE_IN_TIMING, ...seams.moveIn?.timing },
+    limits: { ...MOVE_IN_LIMITS, ...seams.moveIn?.limits },
+  });
+}
 function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
   const runUnits: UnitRunner =
     seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
@@ -1503,7 +1579,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       return "";
     }
   };
-  const home = homedir();
+  const home = seams.home ?? homedir();
   const listUnits = (): AgentUnit[] =>
     listAgentUnits(runUnits, {
       home,
@@ -1559,6 +1635,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       release: version.release,
       commit: version.commit,
       homePath: home,
+      stateRoot: STATE_ROOT,
     }),
     preflight,
     turnsInFlight,
@@ -3373,6 +3450,7 @@ function buildExecutorDeps(
       },
       byName: lockdownByName,
       clearPreflights: () => officeMovePreflights?.clear(),
+      moveIn: currentMoveIn,
       now: () => new Date(),
     }),
   );
@@ -3380,6 +3458,10 @@ function buildExecutorDeps(
   officeMoveSeams = rescue.move ?? {};
   officeMoveFrontDoor = null;
   officeMovePreflights = null;
+  officeMoveIn = null;
+  // A move-in whose job this process lost (a restart): failed, to run again.
+  if (existsSync(join(STATE_ROOT, MOVE_IN_STATE_FILE)))
+    currentMoveIn().recoverAtBoot();
   register(
     agentDirectoryHandlers({
       originAllowed: checkOrigin,
@@ -6529,11 +6611,22 @@ export interface RescueSeams {
 }
 
 export interface MoveSeams {
+  /** The office user's home. Production: homedir(). A test office whose
+   *  state root is a temp folder passes the folder that holds it. */
+  home?: string;
   runUnits?: UnitRunner;
   exec?: PreflightExec;
   requestStop?: (units: AgentUnit[]) => void;
   cgroupText?: string;
   aptHistoryPath?: string;
+  /** The new office's side (slice 2b): the requests to the old office, the
+   *  free-space read, shorter waits. */
+  moveIn?: {
+    fetch?: MoveInDeps["fetch"];
+    statfs?: MoveInDeps["statfs"];
+    timing?: Partial<MoveInTiming>;
+    limits?: Partial<MoveInLimits>;
+  };
 }
 
 export interface StartServerOpts {

@@ -12,6 +12,8 @@ import {
   MOVE_LOCK_MARKER,
 } from "./office-move.ts";
 import { MOVE_UNITS_FILE } from "./office-move-units.ts";
+import { MOVE_IN_STATE_FILE } from "./office-move-in.ts";
+import { MOVE_IN_DIR } from "./office-move-stage.ts";
 import {
   createMoveScope,
   moveScope,
@@ -212,5 +214,19 @@ describe("the move scope", () => {
     // Same names elsewhere are a member's own files.
     expect(file(s, "work/sessions.json")).toEqual(IN);
     expect(file(s, ".config/ghostty/config")).toEqual(IN);
+  });
+});
+
+// Slice 2b: a later move of an office that once moved in must not carry the
+// old stage or the move-in state (it holds the old office's session and key).
+describe("the move scope and a move-in on this box", () => {
+  it("leaves out the move-in folder (the stage) and the move-in state file", () => {
+    const s = scope();
+    expect(moveScope(s, MOVE_IN_DIR, "dir").in).toBe(false);
+    expect(file(s, `${MOVE_IN_DIR}/stage/.isomux/agents.json`).in).toBe(false);
+    expect(file(s, `${MOVE_IN_DIR}/manifest.ndjson`).in).toBe(false);
+    expect(file(s, `.isomux/${MOVE_IN_STATE_FILE}`).in).toBe(false);
+    // Precision: a sibling with a longer name still moves.
+    expect(file(s, `${MOVE_IN_DIR}-notes.txt`)).toEqual(IN);
   });
 });

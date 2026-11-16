@@ -484,7 +484,12 @@ interface OfficeMoveRes {
   state: "none" | "code" | "paired" | "move";
   expiresAt?: number | null;
   pairedAt?: number;
-  newBox?: { release: string | null; commit: string | null; homePath: string };
+  newBox?: {
+    release: string | null;
+    commit: string | null;
+    homePath: string;
+    stateRoot: string;
+  };
 }
 interface OfficeExportStatusRes {
   state: "running" | "ready" | "failed";
@@ -3325,6 +3330,62 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "DELETE",
     path: "/api/office/move",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
+
+  // The new office's side of a move (task 78733adf, slice 2b). Starting and
+  // the lock replace this whole office with another, so only an owner's
+  // browser session does them; reading, the preflight again, the pull again
+  // and the cancel are open to the owner's agents too.
+  defineRoute<{ code: string }, unknown>({
+    opId: "office.startMoveIn",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move-in",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "office.getMoveIn",
+    method: "GET",
+    path: "/api/office/move-in",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "office.rerunMoveInPreflight",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move-in/preflight",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
+  defineRoute<{ preflightId: string }, unknown>({
+    opId: "office.lockMoveIn",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move-in/lock",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "office.retryMoveIn",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move-in/pull",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "office.cancelMoveIn",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "DELETE",
+    path: "/api/office/move-in",
     auth: cap("office:rescue", officeOwnerOrOwnersAgent),
     tokenArea: { area: "office", level: "write" },
     emits: [],
