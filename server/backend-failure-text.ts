@@ -195,6 +195,23 @@ export function humanizeBackendFailure(raw: string): BackendFailureText {
   return { text: raw, id: "unclassified" };
 }
 
+/**
+ * Whether a server stop could have caused this death: every backend dies with
+ * the server (server/server-stop.ts), by a signal or with its stream cut. The
+ * chat line of such a death waits for the stop to show (task 51c187f4).
+ */
+export function deathCouldBeServerStop(raw: string): boolean {
+  // A cut stream: ours (STREAM_ENDED_MID_TURN) and OpenCode's event stream.
+  if (/\bstream (?:ended|failed)\b/i.test(raw)) return true;
+  if (/\bSIG[A-Z]+\b/.test(raw)) return true;
+  const code = /(?:exited with code|\(code) (\d+)/i.exec(raw);
+  return (
+    code !== null &&
+    Number(code[1]) >= SIGNAL_EXIT_MIN &&
+    Number(code[1]) <= SIGNAL_EXIT_MAX
+  );
+}
+
 // Convenience for the log-entry metadata blob: undefined when nothing was
 // rewritten, so an unchanged entry doesn't carry a redundant copy of itself.
 export function backendFailureMeta(

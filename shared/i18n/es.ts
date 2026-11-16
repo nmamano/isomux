@@ -2667,6 +2667,8 @@ Cosas que puedes hacer por él:
   "cards.toolCall.hiddenMessages.other": "{count} mensajes entre agentes",
   "cards.toolCall.hiddenSteps.one": "{count} paso",
   "cards.toolCall.hiddenSteps.other": "{count} pasos",
+  "cards.toolCall.hiddenQuiet": "nada para ti",
+  "cards.toolCall.hiddenQuietOnly": "Nada para ti",
   "cards.toolResult.showMore": "Ver más",
   "cards.toolResult.showLess": "Ver menos",
   "cards.reviewFindings.none": "Sin hallazgos.",
@@ -3956,6 +3958,8 @@ Cosas que puedes hacer por él:
     "La liberación terminó tu trabajo en segundo plano: {tasks}.",
   "systemEntries.wake.backgroundEndedToo":
     "Eso también terminó tu trabajo en segundo plano: {tasks}.",
+  "systemEntries.wake.backgroundEndedRestart":
+    "El reinicio del servidor terminó el trabajo en segundo plano del agente: {tasks}.",
   "systemEntries.wake.env":
     "Se retomó tu sesión con los secretos y las variables actuales.",
   "systemEntries.wake.afterRestart":

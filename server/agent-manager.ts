@@ -171,9 +171,11 @@ import {
 } from "./cwd-utils.ts";
 import {
   backendFailureMeta,
+  deathCouldBeServerStop,
   humanizeBackendFailure,
   type BackendFailureText,
 } from "./backend-failure-text.ts";
+import { RESTART_WAKE_CLEAR_DELAY_MS } from "./restart-wake.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
@@ -1124,6 +1126,7 @@ export function createAgentManager(deps: ManagerDeps) {
       sessionTokens.get(session) === getAgentTokenRaw(managed.info.id),
     processNormalizedEvent,
     addLogEntry,
+    writeUnlessServerStop,
     // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
     // only call it for claude-typed agents. Best-effort env build - see the
     // envForHints note (server/agent-skills.ts).
@@ -1259,6 +1262,58 @@ export function createAgentManager(deps: ManagerDeps) {
   // the stop signal the saved copy stays: the stop's kill clears the live
   // list, and the record keeps what the restart ends.
   const isServerStopping = deps.serverStopping ?? serverStopping;
+  // The chat lines of a backend death a server stop could have caused (task
+  // 51c187f4). The stop and the deaths come in either order, so such a line
+  // waits RESTART_WAKE_CLEAR_DELAY_MS, as the turn record's clear does, and
+  // goes to the console instead when the stop shows by then: the member reads
+  // the restart wake's one line. Any other death writes its line at once.
+  const deathClock: LimitResumeClock = deps.restartWakeClock ?? {
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+  };
+  const heldDeathLines = new Map<string, (() => void)[]>();
+  function writeUnlessServerStop(
+    agentId: string,
+    raw: string,
+    write: () => void,
+  ): void {
+    if (!deathCouldBeServerStop(raw)) {
+      write();
+      return;
+    }
+    const dropped = () =>
+      console.log(
+        `Agent ${agentId}: the server stops, so the chat shows no line for: ${raw}`,
+      );
+    if (isServerStopping()) {
+      dropped();
+      return;
+    }
+    const held = heldDeathLines.get(agentId);
+    if (held) {
+      held.push(write);
+      return;
+    }
+    const writes = [write];
+    heldDeathLines.set(agentId, writes);
+    deathClock.setTimeout(() => {
+      heldDeathLines.delete(agentId);
+      if (isServerStopping()) dropped();
+      else if (agents.has(agentId))
+        // A timer callback: a throw here would end the server.
+        for (const w of writes)
+          try {
+            w();
+          } catch (err) {
+            console.error(
+              `Agent ${agentId}: a held death line failed to write:`,
+              errMessage(err),
+            );
+          }
+    }, RESTART_WAKE_CLEAR_DELAY_MS);
+  }
   function backgroundSetChanged(
     agentId: string,
     changes: Partial<AgentInfo>,
@@ -2805,11 +2860,13 @@ export function createAgentManager(deps: ManagerDeps) {
     // Only a CLASSIFIED death is ever suppressed. Two unrelated consecutive
     // errors that happen to share wording both still surface.
     if (echoed && classified) return;
-    addLogEntry(
-      agentId,
-      "error",
-      text,
-      classified ? { backendFailureRaw: raw } : undefined,
+    writeUnlessServerStop(agentId, raw, () =>
+      addLogEntry(
+        agentId,
+        "error",
+        text,
+        classified ? { backendFailureRaw: raw } : undefined,
+      ),
     );
   }
 
@@ -3810,11 +3867,16 @@ export function createAgentManager(deps: ManagerDeps) {
                 checkMemberFolder(agentId, managed);
               if (!silentEnd) {
                 const meta = backendFailureMeta(failure);
-                addLogEntry(
+                writeUnlessServerStop(
                   agentId,
-                  "error",
-                  failure.text,
-                  ev.pickModel ? { ...meta, pickModel: true } : meta,
+                  typeof errorText === "string" ? errorText : "",
+                  () =>
+                    addLogEntry(
+                      agentId,
+                      "error",
+                      failure.text,
+                      ev.pickModel ? { ...meta, pickModel: true } : meta,
+                    ),
                 );
               }
               if (ev.goneModel) setGoneModel(agentId, ev.goneModel);
@@ -4014,28 +4076,35 @@ export function createAgentManager(deps: ManagerDeps) {
           typeof ev.message === "string"
             ? humanizeBackendFailure(ev.message)
             : { text: ev.message, id: "unclassified" };
-        addLogEntry(
-          agentId,
-          "error",
-          failure.text,
-          backendFailureMeta(failure),
-        );
         if (managed) managed.sessionManager.lastBackendFailure = failure.id;
         if (managed) checkMemberFolder(agentId, managed);
         // diagnoseProcessExit gives Claude-specific hints (CLAUDE_CONFIG_DIR/
         // projects/ path, "session .jsonl missing" wording). Don't run it for
         // non-Claude agents - the message would be wrong and misleading.
-        if (managed && managed.info.agentType === "claude") {
-          // Best-effort env build: an environment load error must not mask the original
-          // backend error this hint is annotating. Resume preflights still
-          // throw on broken env (deliberate); the hint generator does not.
-          const hints = diagnoseProcessExit(
-            managed.info.cwd,
-            managed.sessionManager.sessionId,
-            envForHints(managed),
+        // Best-effort env build: an environment load error must not mask the
+        // original backend error this hint is annotating. Resume preflights
+        // still throw on broken env (deliberate); the hint generator does not.
+        const hints =
+          managed && managed.info.agentType === "claude"
+            ? diagnoseProcessExit(
+                managed.info.cwd,
+                managed.sessionManager.sessionId,
+                envForHints(managed),
+              )
+            : null;
+        const raw = typeof ev.message === "string" ? ev.message : "";
+        writeUnlessServerStop(agentId, raw, () =>
+          addLogEntry(
+            agentId,
+            "error",
+            failure.text,
+            backendFailureMeta(failure),
+          ),
+        );
+        if (hints)
+          writeUnlessServerStop(agentId, raw, () =>
+            addLogEntry(agentId, "system", hints),
           );
-          if (hints) addLogEntry(agentId, "system", hints);
-        }
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
         const turn = managed?.sessionManager.pendingTurn;
         if (managed) managed.sessionManager.clearLiveTurn(managed);
@@ -4429,7 +4498,8 @@ export function createAgentManager(deps: ManagerDeps) {
     ended: BackgroundTask[],
     key:
       | "systemEntries.wake.backgroundEnded"
-      | "systemEntries.wake.backgroundEndedToo" = "systemEntries.wake.backgroundEnded",
+      | "systemEntries.wake.backgroundEndedToo"
+      | "systemEntries.wake.backgroundEndedRestart" = "systemEntries.wake.backgroundEnded",
   ): LogText {
     return msg(key, { tasks: ended.map((t) => t.label).join("; ") });
   }
@@ -4492,11 +4562,16 @@ export function createAgentManager(deps: ManagerDeps) {
   // The two surfaces are built from the same keys: the log line is a message
   // each member words in their language, the agent always gets English
   // (task c37a7365). Changing a key changes both.
+  //
+  // `restartLog` is the member's line when the restart wake's own line
+  // follows (task 51c187f4): that line already says the server restarted, and
+  // the in-flight warning is for the agent, so it keeps only the ended
+  // background work and the rejection sentence, or is null.
   function dormantWakeMessage(
     managed: ManagedAgent,
     reason: DormantReason,
     sessionId: string,
-  ): { log: LogText; note: string | null } {
+  ): { log: LogText; note: string | null; restartLog?: LogText | null } {
     const ended = takeEndedBackground(managed);
     // The agent hears of it too: its environment has the current secrets and
     // variables.
@@ -4532,7 +4607,18 @@ export function createAgentManager(deps: ManagerDeps) {
     parts.push(msg("systemEntries.wake.inFlightWarning"));
     if (clause) parts.push(msg("systemEntries.wake.shutdownRejection"));
     const log = joinLogText(parts, " ");
-    return { log, note: renderLogText(english, log) };
+    const restartParts: LogText[] = [];
+    if (ended)
+      restartParts.push(
+        backgroundEndedLine(ended, "systemEntries.wake.backgroundEndedRestart"),
+      );
+    if (clause) restartParts.push(msg("systemEntries.wake.shutdownRejection"));
+    return {
+      log,
+      note: renderLogText(english, log),
+      restartLog:
+        restartParts.length > 0 ? joinLogText(restartParts, " ") : null,
+    };
   }
 
   // A settings restart's notice, as message parts. The rejection sentence has
@@ -6063,10 +6149,16 @@ export function createAgentManager(deps: ManagerDeps) {
               ? createSession(managed, sessionId)
               : createSession(managed),
           );
+          // The restart wake's own line follows in this flush: the member
+          // reads that one line for the restart (task 51c187f4).
+          const restartWake =
+            wasDormant &&
+            dormantReason === "boot" &&
+            managed.messageQueue.some((m) => m.restartWake);
           // If the prior session died owing a response, mark the gap. Parity
           // with the SDK's lazy synthetic placeholder injected at this moment.
           const tail = (logCache.get(agentId) ?? []).at(-1);
-          if (needsInterruptionMarker(tail)) {
+          if (!restartWake && needsInterruptionMarker(tail)) {
             addLogEntry(
               agentId,
               "system",
@@ -6079,7 +6171,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // logged nothing - so a "Started a fresh session…" note here would be
           // a NEW regression. Every other wake keeps its existing wording.
           if (sessionId) {
-            let wakeText: LogText = msg(
+            let wakeText: LogText | null = msg(
               "systemEntries.wake.resumedBeforeFlush",
             );
             if (wasDormant) {
@@ -6091,9 +6183,9 @@ export function createAgentManager(deps: ManagerDeps) {
                 sessionId,
               );
               managed.wakeNotice = wake.note;
-              wakeText = wake.log;
+              wakeText = restartWake ? (wake.restartLog ?? null) : wake.log;
             }
-            addLogEntry(agentId, "system", wakeText);
+            if (wakeText) addLogEntry(agentId, "system", wakeText);
           } else if (!(wasDormant && dormantReason === "fresh") && !dropped) {
             addLogEntry(
               agentId,

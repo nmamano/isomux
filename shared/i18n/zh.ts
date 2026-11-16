@@ -2379,6 +2379,8 @@ export const zh: Catalog = {
   "cards.toolCall.hiddenMessages.other": "{count} 条智能体消息",
   "cards.toolCall.hiddenSteps.one": "{count} 个步骤",
   "cards.toolCall.hiddenSteps.other": "{count} 个步骤",
+  "cards.toolCall.hiddenQuiet": "没有需要你处理的",
+  "cards.toolCall.hiddenQuietOnly": "没有需要你处理的",
   "cards.toolResult.showMore": "显示更多",
   "cards.toolResult.showLess": "显示更少",
   "cards.reviewFindings.none": "没有发现问题。",
@@ -3538,6 +3540,8 @@ export const zh: Catalog = {
   "systemEntries.wake.idle": "已继续会话（此前在空闲时释放以节省内存）。",
   "systemEntries.wake.backgroundEnded": "释放会话时，后台任务已结束：{tasks}。",
   "systemEntries.wake.backgroundEndedToo": "后台任务也随之结束：{tasks}。",
+  "systemEntries.wake.backgroundEndedRestart":
+    "服务器重启使智能体的后台任务结束：{tasks}。",
   "systemEntries.wake.env": "已使用当前密钥和变量继续会话。",
   "systemEntries.wake.afterRestart": "服务器重启后，已继续会话。",
   "systemEntries.wake.afterBackendEnded": "后端意外结束后，已继续会话。",

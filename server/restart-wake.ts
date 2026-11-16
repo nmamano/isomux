@@ -8,6 +8,12 @@
 // next boot does not wake it again, so a turn that crashes the server cannot
 // make a restart loop. The state machine lives in agent-manager; this module
 // holds the timing, the words and the boot plan.
+//
+// The member reads one line for a restart (task 51c187f4): the queue's
+// "restarted during the turn" line. The backend deaths the stop causes write
+// no chat line (agent-manager's writeUnlessServerStop), and the wake's own
+// restart sentence and interruption marker are left out; the agent still gets
+// the whole notice.
 
 /** One agent's entry in turns-in-flight.json. */
 export interface TurnInFlightRecord {

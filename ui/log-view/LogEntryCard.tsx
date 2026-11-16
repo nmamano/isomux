@@ -17,6 +17,7 @@ import type {
   SubagentOrigin,
 } from "../../shared/types.ts";
 import { isApiTokenDevice } from "../../shared/identity.ts";
+import { isNoUpdateReply } from "../../shared/no-update.ts";
 import { messagingAppName } from "../../shared/messaging.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
@@ -229,6 +230,22 @@ function findMatchingToolResult(
   );
 }
 
+// What a turn's copy takes from one entry, or null for an entry it skips (a
+// reply that is only the no-update keyword among them).
+function copyPart(e: LogEntry): string | null {
+  if (e.kind === "user_message") return e.content;
+  if (e.kind === "text")
+    return isNoUpdateReply(e) ? null : unescapeDollars(e.content);
+  if (e.kind === "tool_call")
+    return `**${e.content}**\n${toolInputText(e.metadata?.input)}`;
+  return null;
+}
+
+// Whether serializeEntries has anything to copy from these entries.
+function hasCopyableEntry(entries: LogEntry[]): boolean {
+  return entries.some((e) => copyPart(e) !== null);
+}
+
 /** Serialize visible conversation entries for the clipboard. */
 export function serializeEntries(
   i18n: Translator,
@@ -236,13 +253,8 @@ export function serializeEntries(
 ): string {
   const parts: string[] = [];
   for (const e of entries) {
-    if (e.kind === "user_message") {
-      parts.push(e.content);
-    } else if (e.kind === "text") {
-      parts.push(unescapeDollars(e.content));
-    } else if (e.kind === "tool_call") {
-      parts.push(`**${e.content}**\n${toolInputText(e.metadata?.input)}`);
-    }
+    const part = copyPart(e);
+    if (part !== null) parts.push(part);
   }
   return parts.join("\n\n");
 }
@@ -327,7 +339,7 @@ function labelSpeakers(
       block = e.content;
       who =
         describeMessageSender(i18n, e.metadata).label ?? i18n.t("common.you");
-    } else if (e.kind === "text") {
+    } else if (e.kind === "text" && !isNoUpdateReply(e)) {
       block =
         format === "plain"
           ? markdownToPlainText(e.content)
@@ -864,6 +876,9 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "agent_outbound":
       return null;
     case "text":
+      // A reply that is only the no-update keyword draws nothing: the chat
+      // folds it into a line (task 51c187f4).
+      if (isNoUpdateReply(entry)) return null;
       return (
         <AssistantText
           content={entry.content}
@@ -1323,7 +1338,8 @@ export function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
     () => (turnEntries ? serializeEntries(i18n, turnEntries) : ""),
     [i18n, turnEntries],
   );
-  if (!turnEntries) return null;
+  // A turn of only no-update replies has nothing to copy.
+  if (!turnEntries || !hasCopyableEntry(turnEntries)) return null;
   return (
     // Centred, so a one-row card holds it.
     <div

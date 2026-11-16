@@ -10,6 +10,7 @@ import {
   type RefCallback,
 } from "react";
 import type { AgentState, LogEntry } from "../../shared/types.ts";
+import { isNoUpdateReply } from "../../shared/no-update.ts";
 import {
   LogEntryCard,
   type RunDeniedCommand,
@@ -220,8 +221,10 @@ export function useChatTranscript(
         anchors.set(run.firstId, { isLastInTurn: false });
         continue;
       }
+      // A no-update reply draws nothing, so it cannot carry the button.
       const lastCard = agentEntries.findLast(
-        (entry) => !isFoldedToolResult(entry, turnEntries),
+        (entry) =>
+          !isFoldedToolResult(entry, turnEntries) && !isNoUpdateReply(entry),
       );
       anchors.set(run.firstId, {
         isLastInTurn:

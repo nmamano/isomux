@@ -2587,6 +2587,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.toolCall.hiddenMessages.other": "{count} agent messages",
   "cards.toolCall.hiddenSteps.one": "{count} step",
   "cards.toolCall.hiddenSteps.other": "{count} steps",
+  "cards.toolCall.hiddenQuiet": "nothing for you",
+  "cards.toolCall.hiddenQuietOnly": "Nothing for you",
   "cards.toolResult.showMore": "Show more",
   "cards.toolResult.showLess": "Show less",
   "cards.reviewFindings.none": "No findings.",
@@ -3871,6 +3873,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The release ended your background work: {tasks}.",
   "systemEntries.wake.backgroundEndedToo":
     "That also ended your background work: {tasks}.",
+  "systemEntries.wake.backgroundEndedRestart":
+    "The server restart ended the agent's background work: {tasks}.",
   "systemEntries.wake.env":
     "Resumed your session with the current secrets and variables.",
   "systemEntries.wake.afterRestart":

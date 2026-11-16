@@ -2,6 +2,7 @@ import { createContext } from "react";
 import type { LogEntry, SubagentOrigin } from "../../shared/types.ts";
 import { parseIsomuxCurl, type IsomuxCurlRequest } from "./isomux-curl.ts";
 import { isomuxUiPorts } from "./IsomuxCurlSummary.tsx";
+import { isNoUpdateReply } from "../../shared/no-update.ts";
 
 // The shell tool of each engine: Claude and Codex "Bash", OpenCode "shell"
 // (and "bash" in its older builds). Each carries input.command.
@@ -320,13 +321,14 @@ export function isAgentMessageEntry(entry: LogEntry): boolean {
  * The runs a member sees as one folded line. `tools`: the tool-call fold
  * (findHiddenToolRuns); `messages`: the agent-message fold. With tools false,
  * a run holds only agent messages and the results that fold into them. A run
- * may reach past the turn a message from another agent starts.
+ * may reach past the turn a message from another agent starts. A reply that
+ * is only the no-update keyword (task 51c187f4) joins a run, or starts one,
+ * with either fold or neither: it never shows as a card.
  */
 export function findHiddenRuns(
   entries: LogEntry[],
   fold: { tools: boolean; messages: boolean },
 ): RawToolCallGroup[] {
-  if (!fold.tools && !fold.messages) return [];
   const index = buildToolEntryIndex(entries);
   const groups: RawToolCallGroup[] = [];
   let run: LogEntry[] = [];
@@ -338,6 +340,7 @@ export function findHiddenRuns(
     if (isFoldedToolResult(entry, entries, index)) {
       if (run.length > 0) run.push(entry);
     } else if (
+      isNoUpdateReply(entry) ||
       (fold.messages && isAgentMessageEntry(entry)) ||
       (fold.tools && isHiddenToolEntry(entry))
     ) {
@@ -353,21 +356,26 @@ export function findHiddenRuns(
 /**
  * What a folded line counts: agent messages (messages in, and top-level
  * cards that send one) and top-level steps. A run with no message counts at
- * least one step.
+ * least one step, unless it holds a no-update reply.
  */
 export function hiddenRunCounts(run: LogEntry[]): {
   messages: number;
   steps: number;
+  // Present when the run holds a reply that is only the no-update keyword.
+  quiet?: true;
 } {
   let messages = 0;
   let calls = 0;
+  let quiet = false;
   for (const entry of run) {
-    if (isPeerMessage(entry)) messages++;
+    if (isNoUpdateReply(entry)) quiet = true;
+    else if (isPeerMessage(entry)) messages++;
     else if (entry.kind === "tool_call" && !entry.metadata?.subagent) {
       if (messageRecipient(entry) !== null) messages++;
       else calls++;
     }
   }
+  if (quiet) return { messages, steps: calls, quiet: true };
   return { messages, steps: messages > 0 ? calls : Math.max(1, calls) };
 }
 

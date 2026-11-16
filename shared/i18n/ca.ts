@@ -2669,6 +2669,8 @@ Coses que pots fer per ell:
   "cards.toolCall.hiddenMessages.other": "{count} missatges entre agents",
   "cards.toolCall.hiddenSteps.one": "{count} pas",
   "cards.toolCall.hiddenSteps.other": "{count} passos",
+  "cards.toolCall.hiddenQuiet": "res per a tu",
+  "cards.toolCall.hiddenQuietOnly": "Res per a tu",
   "cards.toolResult.showMore": "Mostra'n més",
   "cards.toolResult.showLess": "Mostra'n menys",
   "cards.reviewFindings.none": "Cap troballa.",
@@ -3960,6 +3962,8 @@ Coses que pots fer per ell:
     "L'alliberament va acabar la teva feina en segon pla: {tasks}.",
   "systemEntries.wake.backgroundEndedToo":
     "Això també va acabar la teva feina en segon pla: {tasks}.",
+  "systemEntries.wake.backgroundEndedRestart":
+    "El reinici del servidor va acabar la feina en segon pla de l'agent: {tasks}.",
   "systemEntries.wake.env":
     "S'ha reprès la teva sessió amb els secrets i les variables actuals.",
   "systemEntries.wake.afterRestart":

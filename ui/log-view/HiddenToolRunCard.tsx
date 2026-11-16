@@ -5,9 +5,11 @@
 // "N agent messages", or both, led by the avatars of the agents the run
 // talked with. When the run ends a turn, the turn copy button sits beside it
 // and copies the whole turn (Nil, 2026-11-15, task 59aca671). A tap on the
-// line opens the cards the run holds. The open state lives in
-// useChatTranscript, keyed by the run's first entry, so it stays open while a
-// live run grows and through an HTML export.
+// line opens the cards the run holds. A reply that is only the no-update
+// keyword (task 51c187f4) adds "nothing for you" to the line; a run of only
+// such replies is a still line, with nothing to open or copy. The open state
+// lives in useChatTranscript, keyed by the run's first entry, so it stays
+// open while a live run grows and through an HTML export.
 
 import type { ComponentProps } from "react";
 import type { LogEntry } from "../../shared/types.ts";
@@ -37,14 +39,19 @@ export function HiddenToolRunCard({
     entry: LogEntry,
   ) => Omit<ComponentProps<typeof LogEntryCard>, "entry" | "isLastInTurn">;
 }) {
-  const { tn } = useI18n();
+  const { t, tn } = useI18n();
   const counts = hiddenRunCounts(entries);
-  const label = [
+  const parts = [
     counts.messages > 0 && tn("cards.toolCall.hiddenMessages", counts.messages),
     counts.steps > 0 && tn("cards.toolCall.hiddenSteps", counts.steps),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter(Boolean);
+  // A run that holds only no-update replies (task 51c187f4) has nothing to
+  // open: it is a still line.
+  const quietOnly = counts.quiet && parts.length === 0;
+  if (counts.quiet && !quietOnly) parts.push(t("cards.toolCall.hiddenQuiet"));
+  const label = quietOnly
+    ? t("cards.toolCall.hiddenQuietOnly")
+    : parts.join(" · ");
   const peers = hiddenRunPeers(entries).map((id) => (
     <AgentAvatar key={id} agentId={id} />
   ));
@@ -66,6 +73,18 @@ export function HiddenToolRunCard({
       {peers}
     </span>
   );
+  if (quietOnly) {
+    return (
+      <div style={{ margin: "4px 0", position: "relative" }}>
+        <span data-hidden-quiet style={{ ...line, cursor: "default" }}>
+          {label}
+        </span>
+        {turn?.isLastInTurn && (
+          <TurnCopyButton turnEntries={turn.turnEntries} />
+        )}
+      </div>
+    );
+  }
   if (open) {
     return (
       <div>

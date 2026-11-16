@@ -49,6 +49,7 @@ import type { NormalizedEvent } from "../types.ts";
 import { createAgentManager } from "../../agent-manager.ts";
 import { OfficeState } from "../../../shared/office-state.ts";
 import { STATE_ROOT } from "../../config.ts";
+import { RESTART_WAKE_CLEAR_DELAY_MS } from "../../restart-wake.ts";
 import { msg, type LogText } from "../../../shared/i18n/log-message.ts";
 
 const CANARY = "LOCAL_FAILURE_HEADER_SECRET_CANARY";
@@ -554,6 +555,11 @@ it("persists reader failure class, code and status in the agent log", async () =
     await settled.promise;
     const expected =
       "OpenCode event stream failed (Error/ConnectionRefused; HTTP status: unavailable).";
+    // A cut stream could be the server's stop: its line waits
+    // RESTART_WAKE_CLEAR_DELAY_MS for the stop to show (task 51c187f4).
+    const deadline = Date.now() + RESTART_WAKE_CLEAR_DELAY_MS + 2000;
+    while (!streamed.includes(expected) && Date.now() < deadline)
+      await Bun.sleep(20);
     expect(errors, "manager safe error sink").toEqual([
       { name: "Error", code: "ConnectionRefused" },
     ]);

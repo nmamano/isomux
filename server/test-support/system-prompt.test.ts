@@ -35,6 +35,8 @@ import {
   setProcessIsolationSwitch,
 } from "../process-isolation-state.ts";
 import type { CodexSandboxMode } from "../../shared/types.ts";
+import { AGENT_ACCESS_STOPS } from "../../shared/agent-access.ts";
+import { NO_UPDATE } from "../../shared/no-update.ts";
 
 function build(
   agentType: "claude" | "codex" | "opencode" = "codex",
@@ -258,6 +260,38 @@ describe("system prompt pointer contract", () => {
           privileged,
           rule: true,
         });
+      }
+    }
+  });
+
+  // The keyword is a protocol value: the chat folds a reply that is only
+  // this word (task 51c187f4), so the prompt must name the shared constant.
+  it("names the no-update keyword, not the old phrase, on every engine and access stop", () => {
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const access of AGENT_ACCESS_STOPS) {
+        const prompt = buildSystemPrompt(
+          "A1",
+          "agent-1",
+          "Test Room",
+          "room-1",
+          null,
+          null,
+          null,
+          "Nil",
+          null,
+          access,
+          null,
+          engine,
+        );
+        const line = prompt
+          .split("\n")
+          .find((l) => new RegExp(`\\b${NO_UPDATE}\\b`).test(l));
+        expect({
+          engine,
+          access,
+          named: line !== undefined && /\breply\b/i.test(line),
+          oldPhrase: prompt.includes("members' attention"),
+        }).toEqual({ engine, access, named: true, oldPhrase: false });
       }
     }
   });

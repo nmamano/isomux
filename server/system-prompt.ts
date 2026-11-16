@@ -18,6 +18,7 @@ import {
 import { appHostingUnsupportedReason } from "./app-hosting.ts";
 import type { IsolationForm } from "./process-isolation.ts";
 import { BACKGROUND_HOLD_MS, IDLE_EVICT_MS } from "./idle-release.ts";
+import { NO_UPDATE } from "../shared/no-update.ts";
 import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
@@ -160,7 +161,7 @@ ${agentType === "opencode" ? `You have no bearer token. Call every office route 
     : "\n\nAttachments arrive with a server path. Open an attachment before answering about it.";
 
   let systemPrompt = `You are "${agentName}", agent id ${agentId}, in room "${roomName}" of the Isomux office. ${taskScope}
-Your goal is to help office members. Their messages start with their name and any device in brackets. Your normal replies reach members only; another agent sees a message only when you send it through messaging. When a turn leaves nothing a member needs to know, reply with only _(nothing to bring to the members' attention)_
+Your goal is to help office members. Their messages start with their name and any device in brackets. Your normal replies reach members only; another agent sees a message only when you send it through messaging. When a turn leaves nothing a member needs to know, reply with only ${NO_UPDATE}
 For questions about Isomux itself, read the README and source at https://github.com/nmamano/isomux.
 ${humanUrlNote}${hostedNote}${containerNote}
 ${officeSection}${trustRules}${attachmentsLine}

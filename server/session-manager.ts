@@ -213,6 +213,14 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // The per-event work: state derivation, log entries, usage refresh, and the
   // turn_completed / error-event settle of pendingTurn (through this object).
   processNormalizedEvent: (agentId: string, ev: NormalizedEvent) => void;
+  // Writes a backend death's chat lines, or holds them while a server stop
+  // may still show (agent-manager's writeUnlessServerStop). `raw` is the
+  // backend's own words. Absent: written at once.
+  writeUnlessServerStop?: (
+    agentId: string,
+    raw: string,
+    write: () => void,
+  ) => void;
   // The chat entries the consumer writes when a backend dies.
   addLogEntry: (
     agentId: string,
@@ -447,6 +455,13 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     return slot.kind === "released" && slot.reason !== null;
   }
 
+  // A backend death's chat lines, through the manager's server-stop hold.
+  private deathLines(raw: string, write: () => void): void {
+    const hold = this.deps.writeUnlessServerStop;
+    if (hold) hold(this.agentId, raw, write);
+    else write();
+  }
+
   private emitChanges(changes: Partial<AgentInfo>): void {
     for (const event of this.deps.updateAgent(this.agentId, changes))
       this.deps.emit(event);
@@ -674,13 +689,15 @@ export class SessionManager<H extends SessionHost = SessionHost> {
           // exit code or subtype on this path (the stream simply ended), so it
           // gets the generic line. The rejection text classifies as the same
           // death, so the owning caller's catch adds no second line.
-          this.deps.addLogEntry(
-            this.agentId,
-            "error",
-            backendStoppedDuringTurn(),
-            {
-              backendFailureRaw: STREAM_ENDED_MID_TURN,
-            },
+          this.deathLines(STREAM_ENDED_MID_TURN, () =>
+            this.deps.addLogEntry(
+              this.agentId,
+              "error",
+              backendStoppedDuringTurn(),
+              {
+                backendFailureRaw: STREAM_ENDED_MID_TURN,
+              },
+            ),
           );
           this.lastBackendFailure = "stopped-during-turn";
         } else {
@@ -743,20 +760,25 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       // replaces the whole line.
       const failure = humanizeBackendFailure(errMessage(err));
       const classified = failure.raw !== undefined;
-      this.deps.addLogEntry(
-        this.agentId,
-        "error",
-        classified ? failure.text : errorLine,
-        classified
-          ? backendFailureMeta({ ...failure, raw: rawLine })
-          : undefined,
-      );
-      this.lastBackendFailure = failure.id;
       // The SDK's "process exited with code 1" is opaque; diagnose common causes.
       // The manager answers null for non-Claude agents (the diagnosis reads
       // CLAUDE_CONFIG_DIR/projects).
       const hints = this.deps.diagnoseProcessExitHints(host, this.sessionId);
-      if (hints) this.deps.addLogEntry(this.agentId, "system", hints);
+      this.deathLines(errMessage(err), () =>
+        this.deps.addLogEntry(
+          this.agentId,
+          "error",
+          classified ? failure.text : errorLine,
+          classified
+            ? backendFailureMeta({ ...failure, raw: rawLine })
+            : undefined,
+        ),
+      );
+      if (hints)
+        this.deathLines(errMessage(err), () =>
+          this.deps.addLogEntry(this.agentId, "system", hints),
+        );
+      this.lastBackendFailure = failure.id;
       // Same rationale as the "error"-event path in processNormalizedEvent:
       // a turn that needed sign-in is not an agent failure, so the desk waits
       // for the member instead of showing red.

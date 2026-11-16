@@ -15,6 +15,7 @@ import {
 } from "./LogEntryCard.tsx";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { formatApiTokenDevice } from "../../shared/identity.ts";
+import { NO_UPDATE } from "../../shared/no-update.ts";
 
 const EN = translatorFor("en");
 
@@ -386,5 +387,58 @@ describe("describeMessageSender", () => {
     });
     // The edit affordance reads the same answer.
     expect(senderIsHuman(metadata)).toBe(fromHuman);
+  });
+});
+
+// A reply that is only the no-update keyword (task 51c187f4) is no reply:
+// the copy leaves it out, and a speaker whose only entry it is gets no label.
+describe("no-update replies in a copy", () => {
+  const md = { agentName: "Bot", format: "markdown" } as const;
+  const YOU = EN.t("common.you");
+  const PEER = EN.t("common.sender.agent", { name: "Peer" });
+  const peer = (content: string): LogEntry => ({
+    ...entry("user_message", content),
+    metadata: { sender_agent_name: "Peer" },
+  });
+  const LEGACY = "_(nothing to bring to the members' attention)_";
+  const log: LogEntry[] = [
+    entry("user_message", "Ask"),
+    entry("text", "Answer"),
+    peer("Ping"),
+    entry("text", NO_UPDATE),
+    peer("Ping again"),
+    entry("text", LEGACY),
+    entry("user_message", "Next"),
+    entry("text", `Done.\n\n${NO_UPDATE}`),
+  ];
+
+  it("the chat bar's Copy names no speaker for it and copies no keyword", () => {
+    for (const scope of ["everything", "messages"] as const)
+      expect({ scope, text: chatCopyText(EN, log, scope, md) }).toEqual({
+        scope,
+        text: [
+          `**${YOU}:**`,
+          "Ask",
+          "**Bot:**",
+          "Answer",
+          `**${PEER}:**`,
+          "Ping",
+          "Ping again",
+          `**${YOU}:**`,
+          "Next",
+          "**Bot:**",
+          `Done.\n\n${NO_UPDATE}`,
+        ].join("\n\n"),
+      });
+  });
+
+  it("a turn's copy leaves it out", () => {
+    expect(
+      serializeEntries(EN, [
+        { ...entry("tool_call", "Bash"), metadata: { input: "ls" } },
+        entry("text", NO_UPDATE),
+      ]),
+    ).toBe("**Bash**\nls");
+    expect(serializeEntries(EN, [entry("text", LEGACY)])).toBe("");
   });
 });

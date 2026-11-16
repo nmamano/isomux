@@ -112,7 +112,11 @@ interface Harness {
 
 function makeHarness(
   initialRooms: Parameters<typeof createAgentManager>[0]["initialRooms"] = [],
-  opts: { manualSend?: boolean } = {},
+  opts: {
+    manualSend?: boolean;
+    // The sink throws once, at the first entry this picks.
+    sinkThrowsAt?: (entry: LogEntry) => boolean;
+  } = {},
 ): Harness {
   const fake = new FakeBackend(
     opts.manualSend ? { session: { manualSend: true } } : {},
@@ -120,9 +124,15 @@ function makeHarness(
   const clock = fakeClock();
   const logs: LogEntry[] = [];
   const stopping = { value: false };
+  let thrown = false;
   const sink: EventHandler = (e) => {
     const ev = e as { type?: string; entry?: LogEntry };
-    if (ev.type === "log_entry" && ev.entry) logs.push(ev.entry);
+    if (ev.type !== "log_entry" || !ev.entry) return;
+    if (!thrown && opts.sinkThrowsAt?.(ev.entry)) {
+      thrown = true;
+      throw new Error("sink failed");
+    }
+    logs.push(ev.entry);
   };
   const mgr = createAgentManager({
     resolveBackend: () => fake,
@@ -728,5 +738,245 @@ describe("background work a restart ended", () => {
     expect(woken).toContain(AFTER_BACKEND_ENDED);
     expect(names(woken)).toBe(2);
     expect(names(await nextTurnText(h, id, "same session"))).toBe(0);
+  });
+});
+
+// A restart reads as one short line in the member's chat (task 51c187f4):
+// the queue's restart line. The backend's death at the stop writes no error,
+// in either order of the stop signal and the death (every backend dies with
+// the server, and either can be seen first), and the wake writes neither its
+// own restart sentence nor the interruption marker. The agent still gets the
+// whole notice. A backend that dies with no stop still shows its error.
+describe("one line for a restart", () => {
+  const IN_FLIGHT = en.t("systemEntries.wake.inFlightWarning");
+  const REJECTION = en.t("systemEntries.wake.shutdownRejection");
+  const INTERRUPTED = en.t("systemEntries.previousInterrupted");
+  // The SDK's words when the stop's SIGTERM ends the Claude CLI.
+  const DEATH = "Claude Code process terminated by signal SIGTERM";
+  type Order = "stop first" | "backend first";
+  const ORDERS: Order[] = ["stop first", "backend first"];
+  // What the member reads besides messages and replies.
+  const linesFrom = (h: Harness, from = 0) =>
+    h.logs
+      .slice(from)
+      .filter((e) => e.kind === "system" || e.kind === "error")
+      .map((e) => `${e.kind}: ${e.content}`);
+
+  // A spawned Claude agent's conversation, on disk where a resume looks.
+  async function working(h: Harness, engine: Engine, name?: string) {
+    if (engine === "claude")
+      setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
+    const info = await spawn(h, engine, name);
+    const session = await memberTurn(h, info.id, "work");
+    if (engine === "claude") seedClaudeSession(session.sessionId);
+    return { info, session };
+  }
+
+  // The stop cuts the turn running in `session`.
+  async function cut(
+    h: Harness,
+    id: string,
+    session: FakeSession,
+    order: Order,
+  ) {
+    if (order === "stop first") h.stopping.value = true;
+    session.failStream(new Error(DEATH));
+    await waitUntil(() => !busy(h, id), "turn cut");
+    h.stopping.value = true;
+    await pastClearDelay(h);
+  }
+  // The next boot's wake of `id`, settled.
+  async function wokenAfterRestart(id: string) {
+    const h = await restart();
+    await toFirstWakes(h);
+    await waitUntil(() => wakesTo(h, id) === 1, "woken");
+    await settle();
+    return h;
+  }
+
+  for (const engine of ENGINES)
+    for (const order of ORDERS)
+      it(`${engine}, ${order}: the cut turn shows no error, and the wake one line`, async () => {
+        const h1 = makeHarness();
+        const { info, session } = await working(h1, engine);
+        const from = h1.logs.length;
+        await cut(h1, info.id, session, order);
+        expect({ engine, order, lines: linesFrom(h1, from) }).toEqual({
+          engine,
+          order,
+          lines: [],
+        });
+        // The record that makes the next boot wake it.
+        expect(onDisk()[info.id]).toBeDefined();
+
+        const h2 = await wokenAfterRestart(info.id);
+        expect({ engine, order, lines: linesFrom(h2) }).toEqual({
+          engine,
+          order,
+          lines: [`system: ${RESUMED}`],
+        });
+        // The agent reads the whole notice with its wake.
+        const woken = sentTo(h2, info.id).find((t) =>
+          t.includes(RESTART_WAKE_TEXT),
+        )!;
+        expect(woken).toContain(AFTER_RESTART);
+        expect(woken).toContain(IN_FLIGHT);
+      });
+
+  for (const order of ORDERS)
+    it(`a turn the queue started, ${order}: no flush error either`, async () => {
+      const h1 = makeHarness();
+      const { info } = await working(h1, "claude");
+      void h1.mgr.sendMessage(info.id, "second");
+      await waitUntil(() => queueOf(h1, info.id).length === 1, "queued");
+      h1.fake.sessionForAgent(info.id)!.completeTurn({ text: "done" });
+      await waitUntil(
+        () =>
+          busy(h1, info.id) &&
+          sentTo(h1, info.id).some((t) => t.includes("second")),
+        "queued turn running",
+      );
+      const from = h1.logs.length;
+      await cut(h1, info.id, h1.fake.sessionForAgent(info.id)!, order);
+      expect({ order, lines: linesFrom(h1, from) }).toEqual({
+        order,
+        lines: [],
+      });
+      expect(onDisk()[info.id]).toBeDefined();
+      const h2 = await wokenAfterRestart(info.id);
+      expect({ order, lines: linesFrom(h2) }).toEqual({
+        order,
+        lines: [`system: ${RESUMED}`],
+      });
+    });
+
+  it("a backend that dies with no stop still shows its error, in a member's turn and a queued one", async () => {
+    const h = makeHarness();
+    const { info, session } = await working(h, "claude");
+    let from = h.logs.length;
+    session.failStream(new Error(DEATH));
+    await waitUntil(() => !busy(h, info.id), "turn ended");
+    await pastClearDelay(h);
+    expect(linesFrom(h, from).some((l) => l.startsWith("error: "))).toBe(true);
+
+    const { info: other } = await working(h, "claude", "Other");
+    void h.mgr.sendMessage(other.id, "second");
+    await waitUntil(() => queueOf(h, other.id).length === 1, "queued");
+    h.fake.sessionForAgent(other.id)!.completeTurn({ text: "done" });
+    await waitUntil(
+      () =>
+        busy(h, other.id) &&
+        sentTo(h, other.id).some((t) => t.includes("second")),
+      "queued turn running",
+    );
+    from = h.logs.length;
+    h.fake.sessionForAgent(other.id)!.failStream(new Error(DEATH));
+    await waitUntil(() => !busy(h, other.id), "queued turn ended");
+    await pastClearDelay(h);
+    expect(linesFrom(h, from).some((l) => l.startsWith("error: "))).toBe(true);
+  });
+
+  // Which deaths wait for the stop: each engine's words for a death by a
+  // signal or a cut stream. Any other death writes at once, stop or not.
+  const STOP_DEATHS = [
+    DEATH,
+    "Claude Code process exited with code 143",
+    "Claude Code process exited with code 137",
+    "codex subprocess exited (signal SIGTERM) mid-turn",
+    "codex subprocess exited (code 143) mid-turn",
+    "OpenCode event stream failed (Error/ConnectionRefused; HTTP status: unavailable).",
+  ];
+  const OTHER_DEATHS = [
+    "Claude Code process exited with code 1",
+    "Selected model is at capacity. Please try a different model.",
+  ];
+  async function errorsAfter(end: (s: FakeSession) => void, stop: boolean) {
+    const h = makeHarness();
+    const { info, session } = await working(h, "claude");
+    const from = h.logs.length;
+    end(session);
+    await waitUntil(() => !busy(h, info.id), "turn ended");
+    h.stopping.value = stop;
+    await pastClearDelay(h);
+    return linesFrom(h, from).filter((l) => l.startsWith("error: ")).length;
+  }
+  const stopEnds: [string, (s: FakeSession) => void][] = [
+    ...STOP_DEATHS.map((raw): [string, (s: FakeSession) => void] => [
+      raw,
+      (s) => s.failStream(new Error(raw)),
+    ]),
+    ["the stream ends", (s) => s.endStream()],
+  ];
+  for (const [raw, end] of stopEnds)
+    it(`a death the stop could cause waits for it: ${raw}`, async () => {
+      // With no stop the death shows: the case reaches a chat line.
+      expect(await errorsAfter(end, false)).toBeGreaterThan(0);
+      expect(await errorsAfter(end, true)).toBe(0);
+    });
+  for (const raw of OTHER_DEATHS)
+    it(`any other death writes its line, stop or not: ${raw}`, async () => {
+      expect(
+        await errorsAfter((s) => s.failStream(new Error(raw)), true),
+      ).toBeGreaterThan(0);
+    });
+
+  // The held lines are written from a timer, where a throw ends the server.
+  it("a held line that fails to write does not stop the next one", async () => {
+    const h = makeHarness([], {
+      sinkThrowsAt: (e) => e.kind === "error",
+    });
+    const { info, session } = await working(h, "claude");
+    const from = h.logs.length;
+    session.failStream(new Error(DEATH));
+    await waitUntil(() => !busy(h, info.id), "turn ended");
+    await pastClearDelay(h);
+    // The death writes two error lines; the first one's write threw.
+    expect(
+      linesFrom(h, from).filter((l) => l.startsWith("error: ")).length,
+    ).toBe(1);
+  });
+
+  it("the wake keeps what the member needs: the background work the restart ended, and why a rejection was not a human's", async () => {
+    const WORK = [
+      { id: "b1", kind: "command" as const, label: "bun run safe-push" },
+    ];
+    const h1 = makeHarness();
+    const { info, session } = await working(h1, "claude");
+    session.push({ kind: "background_tasks", tasks: WORK });
+    await waitUntil(
+      () => h1.mgr.getAgent(info.id)?.backgroundTasks?.length === 1,
+      "work running",
+    );
+    h1.stopping.value = true;
+    session.push({ kind: "background_tasks", tasks: [] });
+    session.failStream(new Error(DEATH));
+    await waitUntil(() => !busy(h1, info.id), "turn cut");
+    await pastClearDelay(h1);
+
+    const h2 = await restart();
+    // The Claude transcript shows the stop forged a rejection.
+    const sessionId = loadAgents()
+      .flatMap((r) => r.agents)
+      .find((a) => a.id === info.id)!.lastSessionId!;
+    const dir = claudeProjectDir(STATE_ROOT, {
+      CLAUDE_CONFIG_DIR: claudeHome(),
+    });
+    writeFileSync(
+      join(dir, `${sessionId}.jsonl`),
+      `${JSON.stringify({ interruptedByShutdown: true })}\n`,
+    );
+    await toFirstWakes(h2);
+    await waitUntil(() => wakesTo(h2, info.id) === 1, "woken");
+    await settle();
+
+    const lines = linesFrom(h2);
+    expect(lines).toContain(`system: ${RESUMED}`);
+    expect(lines.filter((l) => l.includes(WORK[0].label)).length).toBe(1);
+    expect(lines.filter((l) => l.includes(REJECTION)).length).toBe(1);
+    for (const said of [AFTER_RESTART, IN_FLIGHT, INTERRUPTED])
+      expect({ said, lines: lines.filter((l) => l.includes(said)) }).toEqual({
+        said,
+        lines: [],
+      });
   });
 });

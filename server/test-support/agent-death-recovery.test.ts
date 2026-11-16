@@ -47,6 +47,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { RESTART_WAKE_CLEAR_DELAY_MS } from "../restart-wake.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -83,6 +84,17 @@ function stubClaudeSession(srv: TestServer, cwd: string, sessionId: string) {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// A death a server stop could cause (a signal) writes its chat line after
+// RESTART_WAKE_CLEAR_DELAY_MS, unless the stop shows by then (task 51c187f4).
+async function waitForErrorLine(srv: TestServer, agentId: string) {
+  await waitUntil(
+    () =>
+      srv.agentManager.getAgentLogs(agentId).some((e) => e.kind === "error"),
+    RESTART_WAKE_CLEAR_DELAY_MS + 2000,
+    "error line written",
+  );
+}
 
 async function waitUntil(
   pred: () => boolean,
@@ -308,6 +320,7 @@ describe("backend death: what the user is told (86678675, e8168c2a)", () => {
       message: "Claude Code process exited with code 143",
     });
     await waitUntil(() => agentOf(server!, a.id).state === "error");
+    await waitForErrorLine(server, a.id);
 
     const entries = server.agentManager.getAgentLogs(a.id);
     const failure = entries.find((e) => e.kind === "error");
@@ -391,6 +404,9 @@ describe("backend death: what the user is told (86678675, e8168c2a)", () => {
       message: "Claude Code process exited with code 143",
     });
     await waitUntil(() => agentOf(server!, target.id).state === "error");
+    await waitForErrorLine(server, target.id);
+    // Give a second line time to follow.
+    await sleep(50);
 
     const text =
       "The agent backend was terminated by SIGTERM (exit code 143). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.";
@@ -423,6 +439,7 @@ describe("backend death: what the user is told (86678675, e8168c2a)", () => {
         message: "Claude Code process exited with code 143",
       });
       await waitUntil(() => agentOf(server!, a.id).state === "error");
+      await waitForErrorLine(server, a.id);
       // Give the command path's catch time to write a second line.
       await sleep(50);
 

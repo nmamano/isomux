@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
 import { commandForPermissionDenial } from "../../shared/permission-denial.ts";
+import { NO_UPDATE } from "../../shared/no-update.ts";
 import {
   detachedSubagentSteps,
   findHiddenRuns,
@@ -835,5 +836,120 @@ describe("agent-message runs", () => {
     expect(runs).toHaveLength(1);
     expect(hiddenRunPeers(runs[0].entries)).toEqual(["a2", "a3", "a4"]);
     expect(hiddenRunPeers([call("c1"), text("x")])).toEqual([]);
+  });
+});
+
+// A reply that is only the no-update keyword (task 51c187f4): it shows no
+// card. It folds into the line around it, whatever the member shows, so
+// back-to-back turns of agent traffic that end with it read as one line.
+describe("no-update replies", () => {
+  const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  const send = (id: string, to: string) =>
+    call(id, "Bash", {
+      command: `curl -s -X POST "localhost:4000/api/agents/${to}/messages" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nHello.\nEOF`,
+    });
+  const peer = (id: string) =>
+    entry(id, "user_message", "From a2", {
+      sender_agent_id: "a2",
+      sender_agent_name: "Peer",
+      sender_agent_room: "Room",
+    });
+  const member = (id: string) =>
+    entry(id, "user_message", "go", { username: "Nil" });
+  const quiet = (id: string) => entry(id, "text", NO_UPDATE);
+  const legacy = (id: string) =>
+    entry(id, "text", "_(nothing to bring to the members' attention)_");
+  const reply = (id: string, content = "Here it is.") =>
+    entry(id, "text", content);
+  const FOLDS = [
+    { tools: true, messages: true },
+    { tools: true, messages: false },
+    { tools: false, messages: true },
+    { tools: false, messages: false },
+  ];
+  const ids = (entries: LogEntry[], fold: (typeof FOLDS)[number]) =>
+    findHiddenRuns(entries, fold).map((run) => {
+      expect(run.firstId).toBe(run.entries[0].id);
+      return run.entries.map((e) => e.id);
+    });
+
+  test("with both folds on, back-to-back agent-driven turns that end with it are one run", () => {
+    const entries = [
+      member("u"),
+      reply("x"),
+      peer("p1"),
+      call("c1"),
+      result("c1-r", "c1"),
+      quiet("q1"),
+      peer("p2"),
+      send("s1", "a2"),
+      result("s1-r", "s1"),
+      legacy("q2"),
+      member("u2"),
+    ];
+    expect(ids(entries, FOLDS[0])).toEqual([
+      ["p1", "c1", "c1-r", "q1", "p2", "s1", "s1-r", "q2"],
+    ]);
+  });
+
+  test("it never breaks a run, and it can start one, on every fold", () => {
+    // The run each fold makes of [a step, a message, the keyword, a step].
+    const entries = [call("c1"), peer("p1"), quiet("q1"), call("c2")];
+    expect(FOLDS.map((fold) => ids(entries, fold))).toEqual([
+      [["c1", "p1", "q1", "c2"]],
+      [["c1"], ["q1", "c2"]],
+      [["p1", "q1"]],
+      [["q1"]],
+    ]);
+    // It starts a run after a card the member sees.
+    for (const fold of FOLDS)
+      expect({ fold, runs: ids([reply("x"), quiet("q1")], fold) }).toEqual({
+        fold,
+        runs: [["q1"]],
+      });
+  });
+
+  test("anything the member sees ends the run: a member's message, a reply with words", () => {
+    for (const fold of FOLDS) {
+      expect({
+        fold,
+        runs: ids([quiet("q1"), member("u"), quiet("q2")], fold),
+      }).toEqual({ fold, runs: [["q1"], ["q2"]] });
+      expect({
+        fold,
+        runs: ids([quiet("q1"), reply("x", `Done.\n\n${NO_UPDATE}`)], fold),
+      }).toEqual({ fold, runs: [["q1"]] });
+    }
+  });
+
+  test("the line says nothing is for the member, and a run of only that counts no step", () => {
+    const counts = (entries: LogEntry[], fold = FOLDS[0]) => {
+      const runs = findHiddenRuns(entries, fold);
+      expect(runs.length).toBe(1);
+      return hiddenRunCounts(runs[0].entries);
+    };
+    expect(counts([quiet("q1")])).toEqual({
+      messages: 0,
+      steps: 0,
+      quiet: true,
+    });
+    expect(counts([legacy("q1"), quiet("q2")], FOLDS[3])).toEqual({
+      messages: 0,
+      steps: 0,
+      quiet: true,
+    });
+    expect(counts([peer("p1"), quiet("q1")])).toEqual({
+      messages: 1,
+      steps: 0,
+      quiet: true,
+    });
+    expect(counts([call("c1"), result("c1-r", "c1"), quiet("q1")])).toEqual({
+      messages: 0,
+      steps: 1,
+      quiet: true,
+    });
+    // A run without it keeps today's counts, with no quiet mark.
+    expect(counts([call("c1")])).toEqual({ messages: 0, steps: 1 });
+    expect(counts([peer("p1")])).toEqual({ messages: 1, steps: 0 });
   });
 });
