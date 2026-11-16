@@ -15,6 +15,9 @@
 //   directories deepest first;
 // - `check`: from the ledger (one end per requested item, with the
 //   requested length; SQLite by its trailer), then lstat of the stage.
+// - slice 4a: `writeLedger` writes the files that came whole and clean, in
+//   manifest order, for the next pass; `keep` moves such a file from the
+//   last pass's stage in place of `prepare`.
 //
 // Pure fs, no network: the pull job (office-move-in.ts) drives it.
 
@@ -31,8 +34,11 @@ import {
   openSync,
   readlinkSync,
   realpathSync,
+  renameSync,
+  rmSync,
   symlinkSync,
   writeSync,
+  type Stats,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { errMessage } from "../shared/errors.ts";
@@ -114,11 +120,44 @@ export interface MoveStage {
   finish(entries: AsyncIterable<MoveManifestEntry>): Promise<void>;
   /** The final check, from the ledger, then lstat. */
   check(entries: AsyncIterable<MoveManifestEntry>): Promise<MoveStageCheck>;
+  /** Slice 4, in place of `prepare` for a regular file an earlier pass
+   *  copied whole: moves `<prevRoot>/<entry.p>` into this stage when it is
+   *  a regular file with the row's ino under a real folder (lstat before
+   *  and after the rename), and records it as whole. False when it does
+   *  not hold: then nothing is in its place, and the caller prepares it. */
+  keep(entry: MoveManifestEntry, prevRoot: string, row: MoveLedgerRow): boolean;
+  /** Slice 4: writes the ledger (0600, atomic) in the order of `entries`
+   *  (this pass's manifest): one row per regular file that came whole and
+   *  clean. Returns the row count. */
+  writeLedger(
+    entries: AsyncIterable<MoveManifestEntry>,
+    file: string,
+  ): Promise<number>;
+}
+
+/** Slice 4: the ledger of a pass, next to its stage. */
+export const MOVE_IN_LEDGER = "ledger.ndjson";
+
+/** Slice 4: one regular file a pass copied whole and clean: the size and
+ *  mtime of that pass's manifest (equal to the batch header's), and the
+ *  stage file's inode. */
+export interface MoveLedgerRow {
+  p: string;
+  s: number;
+  m: number;
+  ino: number;
 }
 
 /** What one requested item gave: its end, or why it failed. */
 type Outcome =
-  | { bytes: number; want: number | null; changed?: true }
+  | {
+      bytes: number;
+      want: number | null;
+      changed?: true;
+      /** The mtime in the record's header (slice 4: clean only when it is
+       *  the manifest's). */
+      mtime: number;
+    }
   | {
       error: string;
     };
@@ -161,6 +200,81 @@ const parentOf = (path: string) => {
 
 const mismatch = (message: string) =>
   new MoveStageError("stream_mismatch", message);
+
+const lstatOrNull = (path: string): Stats | null => {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+};
+
+/** Slice 4: whether one outcome is a clean copy of `want` bytes of the
+ *  manifest's version (the header's mtime is the manifest's). */
+const cleanOutcome = (o: Outcome, want: number, m: number) =>
+  !("error" in o) &&
+  !o.changed &&
+  o.bytes === want &&
+  o.want === want &&
+  o.mtime === m;
+
+/** Slice 4: whether a file came whole and clean, by its ledger. */
+function cleanRow(row: FileRow, e: MoveManifestEntry): boolean {
+  if (row.ranges && row.ranges.size > 0) {
+    let pos = 0;
+    for (const off of [...row.ranges.keys()].sort((a, b) => a - b)) {
+      const o = row.ranges.get(off)!;
+      if (off !== pos || "error" in o || !cleanOutcome(o, o.bytes, e.m))
+        return false;
+      if (o.want !== o.bytes) return false;
+      pos += o.bytes;
+    }
+    return pos === e.s;
+  }
+  return row.whole !== undefined && cleanOutcome(row.whole, e.s, e.m);
+}
+
+/** Slice 4: the rows of a ledger file, in its order. A line that does not
+ *  parse ends the ledger. */
+export async function* readMoveLedger(
+  file: string,
+): AsyncGenerator<MoveLedgerRow> {
+  const decoder = new TextDecoder();
+  let rest = "";
+  const parse = (line: string): MoveLedgerRow | null => {
+    let v: unknown;
+    try {
+      v = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (!v || typeof v !== "object") return null;
+    const r = v as Record<string, unknown>;
+    return typeof r.p === "string" &&
+      typeof r.s === "number" &&
+      typeof r.m === "number" &&
+      typeof r.ino === "number"
+      ? { p: r.p, s: r.s, m: r.m, ino: r.ino }
+      : null;
+  };
+  for await (const chunk of Bun.file(file).stream()) {
+    rest += decoder.decode(chunk, { stream: true });
+    let nl: number;
+    while ((nl = rest.indexOf("\n")) >= 0) {
+      const line = rest.slice(0, nl);
+      rest = rest.slice(nl + 1);
+      if (line === "") continue;
+      const row = parse(line);
+      if (!row) return;
+      yield row;
+    }
+  }
+  rest += decoder.decode();
+  if (rest !== "") {
+    const row = parse(rest);
+    if (row) yield row;
+  }
+}
 
 /** A stage at `root` (made 0700; it must not exist yet). */
 export function createMoveStage(root: string): MoveStage {
@@ -306,6 +420,7 @@ export function createMoveStage(root: string): MoveStage {
         error: string | null;
         written: number;
         limit: number;
+        mtime: number;
       } | null = null;
       const closeCur = () => {
         if (cur?.fd != null) closeSync(cur.fd);
@@ -361,6 +476,7 @@ export function createMoveStage(root: string): MoveStage {
                 error: "error" in opened ? opened.error : null,
                 written: 0,
                 limit,
+                mtime: ev.mtime,
               };
               break;
             }
@@ -417,6 +533,7 @@ export function createMoveStage(root: string): MoveStage {
                   : {
                       bytes: ev.bytes,
                       want,
+                      mtime: cur.mtime,
                       ...(ev.changed ? { changed: true as const } : {}),
                     },
               );
@@ -605,6 +722,89 @@ export function createMoveStage(root: string): MoveStage {
       }
       result.complete = result.missing.length === 0;
       return result;
+    },
+
+    keep(entry, prevRoot, row) {
+      const p = entry.p;
+      if (
+        entry.t !== "f" ||
+        entry.q === 1 ||
+        !isSafeMovePath(p) ||
+        nodes.has(p) ||
+        row.p !== p ||
+        row.s !== entry.s ||
+        row.m !== entry.m
+      )
+        return false;
+      const parent = parentOf(p);
+      if (parent !== "" && nodes.get(parent) !== "d") return false;
+      if (!parentIsReal(parent)) return false;
+      let realPrev: string;
+      try {
+        realPrev = realpathSync(prevRoot);
+        if (parent !== "") {
+          const expected = join(realPrev, parent);
+          if (realpathSync(expected) !== expected) return false;
+        }
+      } catch {
+        return false;
+      }
+      const from = join(realPrev, p);
+      const isRow = (st: Stats | null) =>
+        st !== null &&
+        st.isFile() &&
+        st.dev === rootDev &&
+        st.ino === row.ino &&
+        st.size === entry.s;
+      if (!isRow(lstatOrNull(from))) return false;
+      const to = abs(p);
+      // Nothing may sit in its place: rename would replace it.
+      if (lstatOrNull(to) !== null) return false;
+      try {
+        renameSync(from, to);
+      } catch {
+        return false;
+      }
+      if (!isRow(lstatOrNull(to))) {
+        // Swapped between the check and the rename: what came goes, never
+        // followed.
+        rmSync(to, { recursive: true, force: true });
+        return false;
+      }
+      nodes.set(p, {
+        ino: row.ino,
+        whole: { bytes: entry.s, want: entry.s, mtime: entry.m },
+      });
+      return true;
+    },
+
+    async writeLedger(entries, file) {
+      const tmp = `${file}.tmp`;
+      const fd = openSync(tmp, "w", 0o600);
+      let count = 0;
+      try {
+        fchmodSync(fd, 0o600);
+        let pending = "";
+        for await (const e of entries) {
+          if (e.t !== "f" || e.q === 1) continue;
+          const row = fileRow(e.p);
+          if (!row || !cleanRow(row, e)) continue;
+          pending += `${JSON.stringify({ p: e.p, s: e.s, m: e.m, ino: row.ino })}\n`;
+          count++;
+          if (pending.length > 1024 * 1024) {
+            writeSync(fd, pending);
+            pending = "";
+          }
+        }
+        if (pending.length > 0) writeSync(fd, pending);
+      } catch (err) {
+        closeSync(fd);
+        rmSync(tmp, { force: true });
+        throw err;
+      }
+      closeSync(fd);
+      renameSync(tmp, file);
+      return count;
     },
   };
 }

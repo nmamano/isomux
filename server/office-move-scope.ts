@@ -12,6 +12,7 @@ import {
   MOVE_IN_DIR,
   MOVE_IN_STATE_FILE,
   MOVE_LOCK_MARKER,
+  MOVE_SCRATCH_DIR,
   MOVE_STATE_FILE,
 } from "./office-move.ts";
 import { MOVE_UNITS_FILE } from "./office-move-units.ts";
@@ -19,8 +20,7 @@ import { MOVE_UNITS_FILE } from "./office-move-units.ts";
 /** The kind of a home entry, from lstat (a symlink is never followed). */
 export type MoveEntryKind = "file" | "dir" | "symlink" | "other";
 
-/** The move's scratch folder in the state root (manifests, snapshots). */
-export const MOVE_SCRATCH_DIR = "move-pull";
+export { MOVE_SCRATCH_DIR };
 
 export interface MoveScope {
   /** The office user's home, absolute. */
@@ -54,6 +54,8 @@ interface MoveScopeRules {
   /** One regex over every bound rule, to skip the per-unit loop. */
   anyBound: RegExp | null;
   bound: UnitRule[];
+  /** Slice 4: what a later pass fetches again whatever the manifests say. */
+  alwaysFetch: RegExp;
 }
 
 /** The home's caches and build caches, rooted at the home. */
@@ -188,12 +190,38 @@ function buildRules(
       bound.push({ unit: entry.id, test: entry.pattern });
   return {
     out,
+    alwaysFetch: alwaysFetchRule(stateRootRel),
     anyBound:
       bound.length > 0
         ? new RegExp(bound.map((r) => `(?:${r.test.source})`).join("|"))
         : null,
     bound,
   };
+}
+
+/** The sign-ins and secrets that move (slice 3), and the SQLite side-file
+ *  names: one regex over paths relative to the home (slice 4). */
+function alwaysFetchRule(stateRootRel: string | null): RegExp {
+  const carried = new Set<string>(MOVE_CARRIED_UNITS);
+  const sources: string[] = [
+    rooted(escapeRegex(".ssh")),
+    rooted(escapeRegex(".config/gh")),
+    "-(?:wal|shm|journal)$",
+  ];
+  for (const entry of BACKEND_CREDENTIAL_PATHS)
+    if (carried.has(entry.id)) sources.push(entry.pattern.source);
+  if (stateRootRel !== null) {
+    sources.push(
+      `^${escapeRegex(`${stateRootRel}/api-tokens.json`)}(?:\\.tmp)?$`,
+    );
+    const root = stateRootRel.replace(/[\\*?[\]]/g, "\\$&");
+    for (const entry of BACKUP_EXCLUSIONS) {
+      if (!carried.has(entry.id)) continue;
+      const globs = entry.archivePatterns(root).map(tarGlobSource);
+      if (globs.length > 0) sources.push(rooted(globs.join("|")));
+    }
+  }
+  return new RegExp(sources.map((x) => `(?:${x})`).join("|"));
 }
 
 /** The scope of this office: the folders as absolute paths, each made
@@ -240,4 +268,14 @@ export function moveScope(
       if (rule.test.test(relPath))
         return { in: false, why: "bound", unit: rule.unit };
   return IN;
+}
+
+/** Slice 4: whether a later pass fetches the file again even when the
+ *  manifests agree. True for a sign-in or secret file that moves (the
+ *  carried units of BACKUP_EXCLUSIONS and BACKEND_CREDENTIAL_PATHS, `.ssh`,
+ *  `.config/gh`, `api-tokens.json`): a token refresh must not be kept
+ *  stale; and for a name that ends in `-wal`, `-shm` or `-journal`. A
+ *  SQLite file (q) is the caller's rule. */
+export function moveAlwaysFetch(scope: MoveScope, relPath: string): boolean {
+  return scope.rules.alwaysFetch.test(relPath);
 }

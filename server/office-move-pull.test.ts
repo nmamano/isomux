@@ -24,6 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  compareMoveWalkOrder,
   createMoveManifestJobs,
   MOVE_SEAL_CHUNK_BYTES,
   MoveSealError,
@@ -754,5 +755,166 @@ describe("the manifest jobs", () => {
     const second = jobs.start("s1");
     expect(second.ok).toBe(true);
     if (second.ok) expect(second.id).not.toBe(first.id);
+  });
+});
+
+// Slice 4 (the live pass): the running office serves the pull before the
+// lock. [R] it never takes a SQLite snapshot then (decided by the bytes it
+// opens, not by the request), and an ended pairing stops every walk and
+// stream in flight and deletes the scratch.
+describe("slice 4: the pull while the office still runs", () => {
+  it("a batch with snapshots off sends no SQLite file: an error record per database, by its bytes whatever its name, no VACUUM INTO, and the other items go on", async () => {
+    const f = fixture();
+    walDatabase(join(f.home, "data/app.db"), ["r1"]);
+    // A database whose name says nothing about it.
+    walDatabase(join(f.home, "data/notes.bin"), ["r2"]);
+    put(f, "docs/a.txt", "alpha");
+    let snapshots = 0;
+    const src = source(f, {
+      snapshot: async (a, b) => {
+        snapshots++;
+        await snapshotOfficeDatabase(a, b);
+      },
+    });
+    const items = [
+      { path: "data/app.db" },
+      { path: "data/notes.bin" },
+      { path: "docs/a.txt" },
+    ];
+    const got = await records(writeMoveBatch(src, items, { snapshots: false }));
+    expect(
+      got.map((g) => [g.path, g.error !== null, g.data.toString("utf8")]),
+    ).toEqual([
+      ["data/app.db", true, ""],
+      ["data/notes.bin", true, ""],
+      ["docs/a.txt", false, "alpha"],
+    ]);
+    expect(snapshots).toBe(0);
+    expect(readdirSync(f.scratch)).toEqual([]);
+    // The condition: by default the same batch takes both snapshots.
+    const control = await records(writeMoveBatch(src, items));
+    expect(control.map((g) => g.header?.q ?? null)).toEqual([1, 1, null]);
+    expect(snapshots).toBe(2);
+  });
+
+  it("a batch ends when its signal aborts: no record after the abort, and a snapshot in use is deleted", async () => {
+    const f = fixture();
+    put(f, "big.bin", randomBytes(5 * 1024 * 1024));
+    put(f, "after.txt", "after");
+    const ac = new AbortController();
+    const iter = writeMoveBatch(
+      source(f),
+      [{ path: "big.bin" }, { path: "after.txt" }],
+      { signal: ac.signal },
+    )[Symbol.asyncIterator]();
+    // The header and the first data record.
+    for (let i = 0; i < 2; i++) expect((await iter.next()).done).toBe(false);
+    ac.abort();
+    let after = 0;
+    try {
+      while (!(await iter.next()).done) after++;
+    } catch {
+      // Ending with an error is an end too.
+    }
+    expect(after).toBe(0);
+
+    // With a snapshot in the scratch.
+    walDatabase(join(f.home, "data/app.db"), ["r1", "r2"], 1024 * 1024);
+    const ac2 = new AbortController();
+    const it2 = writeMoveBatch(source(f), [{ path: "data/app.db" }], {
+      signal: ac2.signal,
+    })[Symbol.asyncIterator]();
+    for (let i = 0; i < 2; i++) expect((await it2.next()).done).toBe(false);
+    expect(readdirSync(f.scratch).length).toBe(1);
+    ac2.abort();
+    try {
+      while (!(await it2.next()).done);
+    } catch {
+      // Ending with an error is an end too.
+    }
+    expect(readdirSync(f.scratch)).toEqual([]);
+  });
+
+  it("clear() stops a walk in flight and deletes every manifest file; a new walk starts after it", async () => {
+    const f = fixture();
+    for (let i = 0; i < 300; i++) put(f, `many/d${i % 30}/f${i}.txt`, "x");
+    // A walk that ends reads the units for its status: a stopped one never.
+    let unitReads = 0;
+    const jobs = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => {
+        unitReads++;
+        return [];
+      },
+      secretCount: () => 0,
+      now: () => new Date(),
+    });
+    // A ready job's file goes.
+    const first = jobs.start("s1");
+    if (!first.ok) throw new Error(first.message);
+    const deadline = performance.now() + 5_000;
+    while (
+      jobs.status(first.id, "s1")?.state === "running" &&
+      performance.now() < deadline
+    )
+      await Bun.sleep(5);
+    expect(jobs.dataFile(first.id, "s1")).not.toBeNull();
+    // A walk in flight: start() returns at the walk's first await.
+    const second = jobs.start("s1");
+    if (!second.ok) throw new Error(second.message);
+    expect(jobs.status(second.id, "s1")?.state).toBe("running");
+    jobs.clear();
+    expect(jobs.dataFile(first.id, "s1")).toBeNull();
+    expect(jobs.status(second.id, "s1")?.state ?? null).not.toBe("ready");
+    // The stopped walk writes nothing after the clear, and never ends.
+    await Bun.sleep(300);
+    expect(readdirSync(f.scratch)).toEqual([]);
+    expect(unitReads).toBe(1);
+    expect(jobs.dataFile(second.id, "s1")).toBeNull();
+    expect(jobs.start("s1").ok).toBe(true);
+  });
+});
+
+// Slice 4: the live pass keeps a file by matching the two manifests in
+// walk order (a merge-join), so the order must be one the comparator
+// gives. If the two disagree, the join misses matches.
+describe("compareMoveWalkOrder", () => {
+  it("orders a small tree as the walk does: a folder's names first, then each subfolder's group, depth first", () => {
+    const walked = ["A", "a", "a-b", "a.b", "a/b", "a/c", "a/b/x", "a.b/y"];
+    const shuffled = [...walked].reverse();
+    expect(shuffled.sort(compareMoveWalkOrder)).toEqual(walked);
+  });
+
+  it("sorts a real walk: every entry comes after the one before it", async () => {
+    const f = fixture();
+    const names = [
+      "A",
+      "a",
+      "a-b",
+      "a.b",
+      "a b",
+      "a_b",
+      "\u{1D518}",
+      "\uFF5A",
+      "z",
+    ];
+    for (const n of names) {
+      put(f, `${n}/inner/x.txt`, "1");
+      put(f, `${n}/y.txt`, "2");
+      put(f, `file-${n}`, "3");
+      put(f, `${n}-sib`, "4");
+    }
+    const out = join(f.scratch, "walk.ndjson");
+    await walkMoveManifest(scopeOf(f), out);
+    const walked = readManifest(out).map((e) => e.p);
+    // The condition: the stress names are in the walk.
+    expect(walked).toContain("\u{1D518}/inner/x.txt");
+    expect(walked).toContain("a.b/inner");
+    const out_of_order = walked.filter(
+      (p, i) => i > 0 && compareMoveWalkOrder(walked[i - 1], p) >= 0,
+    );
+    expect(out_of_order).toEqual([]);
+    expect([...walked].reverse().sort(compareMoveWalkOrder)).toEqual(walked);
   });
 });

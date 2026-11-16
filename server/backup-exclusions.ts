@@ -113,7 +113,9 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   // hashes of its token and of the new office's session, and the units the
   // move stopped (a transient unit's environment can hold a secret). On the
   // new office, the move-in state holds the old office's session and key.
-  // The temp files are each file in the middle of a write.
+  // The temp files are each file in the middle of a write. The pull's
+  // scratch (slice 4: also in a running office while paired) lists every
+  // path and can hold a database snapshot.
   {
     id: "office-move",
     archivePatterns: (root) => [
@@ -123,6 +125,7 @@ export const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/move-units.json.tmp`,
       `${root}/office-move-in.json`,
       `${root}/office-move-in.json.tmp`,
+      ...rootedDirectory(root, "move-pull"),
     ],
   },
   // Webhook signing secrets (D5). After a restore, the owner rotates once per

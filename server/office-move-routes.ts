@@ -9,6 +9,9 @@
 //   GET  /api/move/preflight/:id   -> the job status
 //   POST /api/move/lock            {preflightId} -> 202, the MOVE lock
 //   GET  /api/move/status          -> {state}
+//   POST /api/move/manifest, GET /api/move/manifest/:id[/data],
+//   POST /api/move/batch           -> the live pass in "paired" (slice 4a;
+//                                     servePull, no SQLite snapshot)
 //
 // The lock mirrors lockOfficeFromRoute (server/office-lockdown-route.ts):
 // units record + state "move" (a failure answers 500 and changes nothing),
@@ -38,6 +41,8 @@ import {
   type MoveRedeemRefusal,
   type MoveState,
 } from "./office-move.ts";
+import type { MovePullDeps } from "./office-move-pull.ts";
+import { movePullRouteOf, servePull } from "./move-locked-office.ts";
 import type {
   MovePreflightJobs,
   MovePreflightResult,
@@ -65,8 +70,15 @@ export interface OfficeMoveRouteDeps {
   listUnits(): AgentUnit[];
   /** Locks this process (lockOfficeNow) and closes every socket. */
   lockProcess(): void;
+  /** Slice 4: the pull routes in `paired` (the live pass); without it they
+   *  answer 404 here. */
+  pull?: MovePullDeps;
   audit(input: {
-    operation: "office.pairMove" | "office.lockForMove" | "office.moveExpired";
+    operation:
+      | "office.pairMove"
+      | "office.lockForMove"
+      | "office.moveExpired"
+      | "office.movePulled";
     actor: AuditActor;
     state?: MoveState;
   }): void;
@@ -81,6 +93,10 @@ export interface OfficeMoveRouteDeps {
 export interface OfficeMoveFrontDoor {
   /** Drops an expired code or pairing (audited). The office's 1 min timer. */
   sweep(): void;
+  /** Slice 4: the pairing ended (the owner's cancel, a lockdown; an expiry
+   *  calls it itself). Stops every walk and batch stream in flight and
+   *  deletes the move scratch folder. */
+  endPull(): void;
   /** The answer to a /api/move/* request, or null for any other path. */
   handle(
     req: Request,
@@ -164,11 +180,23 @@ function asBoxInfo(v: unknown): MoveBoxInfo | null {
 export function createOfficeMoveFrontDoor(
   deps: OfficeMoveRouteDeps,
 ): OfficeMoveFrontDoor {
+  // Slice 4: the live pass's streams of the current pairing end with it.
+  let pullAbort = new AbortController();
+  const endPull = () => {
+    pullAbort.abort();
+    pullAbort = new AbortController();
+    if (!deps.pull) return;
+    deps.pull.manifests.clear();
+    // It lists every path, and a snapshot may sit there.
+    rmSync(deps.pull.batch.scratchDir, { recursive: true, force: true });
+  };
+
   // Drops an expired code or pairing, audited once, and its preflights.
   const currentState = (): MoveState | null => {
     const { current, dropped } = readMoveState(deps.stateRoot, deps.now());
     if (dropped) {
       deps.preflight.clear();
+      endPull();
       try {
         deps.audit({
           operation: "office.moveExpired",
@@ -343,11 +371,44 @@ export function createOfficeMoveFrontDoor(
     sweep: () => {
       currentState();
     },
+    endPull,
     async handle(req, url, source) {
       if (!url.pathname.startsWith(MOVE_API_PREFIX)) return null;
       const path = url.pathname.slice(MOVE_API_PREFIX.length);
       if (path === "redeem" && req.method === "POST")
         return redeem(req, source);
+
+      // Slice 4: the pull while paired (the live pass).
+      const pullRoute = movePullRouteOf(req.method, url.pathname);
+      if (pullRoute) {
+        if (!deps.pull) return fail(404, "not_found", "No such move route.");
+        currentState();
+        const paired = checkMoveSession(
+          deps.stateRoot,
+          req.headers.get("authorization"),
+          deps.now(),
+        );
+        if (!paired) return sessionInvalid();
+        return servePull(req, pullRoute, {
+          stateRoot: deps.stateRoot,
+          now: () => deps.now(),
+          pull: deps.pull,
+          state: paired,
+          allowed: "paired",
+          signal: pullAbort.signal,
+          onFirstServed: (served) => {
+            try {
+              deps.audit({
+                operation: "office.movePulled",
+                actor: MOVE_AUDIT_ACTOR,
+                state: served,
+              });
+            } catch (err) {
+              console.error("[move] could not write the audit row:", err);
+            }
+          },
+        });
+      }
 
       const route =
         path === "preflight" && req.method === "POST"

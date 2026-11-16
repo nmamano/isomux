@@ -2559,6 +2559,8 @@ Cosas que puedes hacer por él:
   "apiCall.office.getMoveIn": "Comprobar el traslado a esta oficina",
   "apiCall.office.rerunMoveInPreflight":
     "Comprobar de nuevo la oficina antigua",
+  "apiCall.office.copyMoveInLive":
+    "Copiar de nuevo la oficina antigua mientras funciona",
   "apiCall.office.retryMoveIn": "Copiar de nuevo la oficina antigua",
   "apiCall.office.cancelMoveIn": "Cancelar el traslado a esta oficina",
   "apiCall.rooms.readInstructions": "Leer las instrucciones de la sala",

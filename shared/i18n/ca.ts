@@ -2563,6 +2563,8 @@ Coses que pots fer per ell:
   "apiCall.office.cancelMove": "Cancel·lar el trasllat de l'oficina",
   "apiCall.office.getMoveIn": "Comprovar el trasllat a aquesta oficina",
   "apiCall.office.rerunMoveInPreflight": "Comprovar de nou l'oficina antiga",
+  "apiCall.office.copyMoveInLive":
+    "Copiar de nou l'oficina antiga mentre funciona",
   "apiCall.office.retryMoveIn": "Copiar de nou l'oficina antiga",
   "apiCall.office.cancelMoveIn": "Cancel·lar el trasllat a aquesta oficina",
   "apiCall.rooms.readInstructions": "Llegir les instruccions de la sala",

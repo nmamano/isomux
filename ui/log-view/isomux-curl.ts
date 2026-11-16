@@ -886,6 +886,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
     "/api/office/move-in/preflight",
     "apiCall.office.rerunMoveInPreflight",
   ],
+  ["POST", "/api/office/move-in/live", "apiCall.office.copyMoveInLive"],
   ["POST", "/api/office/move-in/pull", "apiCall.office.retryMoveIn"],
   ["DELETE", "/api/office/move-in", "apiCall.office.cancelMoveIn"],
   ["GET", "/api/rooms/*/github-link", "apiCall.githubSync.get"],

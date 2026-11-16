@@ -190,6 +190,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "office.cancelMove": "rescue",
   "office.getMoveIn": "rescue",
   "office.rerunMoveInPreflight": "rescue",
+  "office.copyMoveInLive": "rescue",
   "office.retryMoveIn": "rescue",
   "office.cancelMoveIn": "rescue",
   "apiTokenInbox.send": "messaging",

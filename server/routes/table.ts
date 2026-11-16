@@ -3384,6 +3384,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),
+  // Slice 4: the copy while the old office runs, again.
+  defineRoute<void, MoveInStatus>({
+    opId: "office.copyMoveInLive",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/move-in/live",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
   defineRoute<void, MoveInStatus>({
     opId: "office.retryMoveIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },

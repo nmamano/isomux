@@ -46,6 +46,7 @@ import {
   parseMoveCode,
 } from "../office-move.ts";
 import { MOVE_UNITS_FILE, type AgentUnit } from "../office-move-units.ts";
+import { MOVE_SCRATCH_DIR } from "../office-move-scope.ts";
 
 let server: TestServer | null = null;
 let scratch = "";
@@ -843,6 +844,105 @@ describe("the move routes", () => {
     expect(outcome(locked)).toEqual({ status: 409, code: "turns_changed" });
     expect(JSON.stringify(locked.body)).toContain(late.id);
     expect((await call(b.srv, "GET", "/api/tasks", c.owner)).status).toBe(200);
+  });
+
+  // Slice 4: the running office serves the live pass to the paired box,
+  // and [R] C3 an owner's cancel or a lockdown ends it: the scratch, which
+  // lists every path, is deleted.
+  async function livePull(
+    b: { srv: TestServer },
+    c: Awaited<ReturnType<typeof cast>>,
+  ) {
+    const minted = (await call(b.srv, "POST", "/api/office/move/code", c.owner))
+      .body as { code: string };
+    const token = parseMoveCode(minted.code)!.token;
+    const probe = await moveCall(b.srv, "POST", "/api/move/redeem", {
+      body: {
+        token,
+        newBox: { release: null, commit: null, homePath: "/nowhere" },
+      },
+    });
+    const ours = (probe.body as { ours: unknown }).ours;
+    const session = (
+      (
+        await moveCall(b.srv, "POST", "/api/move/redeem", {
+          body: { token, newBox: ours },
+        })
+      ).body as { session: string }
+    ).session;
+    const note = join(dirname(STATE_ROOT), "live-note.txt");
+    writeFileSync(note, "live");
+    const started = await moveCall(b.srv, "POST", "/api/move/manifest", {
+      session,
+    });
+    expect(started.status).toBe(202);
+    const id = (started.body as { id: string }).id;
+    let state = "running";
+    const deadline = performance.now() + 10_000;
+    while (state === "running" && performance.now() < deadline) {
+      await Bun.sleep(10);
+      state = (
+        (
+          await moveCall(
+            b.srv,
+            "GET",
+            `/api/move/manifest/${encodeURIComponent(id)}`,
+            { session },
+          )
+        ).body as { state: string }
+      ).state;
+    }
+    expect(state).toBe("ready");
+    const batch = await moveCall(b.srv, "POST", "/api/move/batch", {
+      session,
+      body: { manifestId: id, batch: 0, items: [{ path: "live-note.txt" }] },
+    });
+    expect(batch.status).toBe(200);
+    expect(existsSync(join(b.srv.stateRoot, MOVE_SCRATCH_DIR))).toBe(true);
+    return { session, note };
+  }
+
+  it("slice 4: while paired, the running office serves the manifest and a batch; the owner's read shows servedAt; one audit row; the owner's cancel deletes the scratch", async () => {
+    const b = await boot({ move: moveSeams() });
+    const c = await cast(b.srv);
+    const { note } = await livePull(b, c);
+    try {
+      const read = await call(b.srv, "GET", "/api/office/move", c.owner);
+      expect(typeof (read.body as { servedAt?: unknown }).servedAt).toBe(
+        "number",
+      );
+      expect(
+        officeAuditStore().list({ operation: "office.movePulled", limit: 10 })
+          .items,
+      ).toHaveLength(1);
+      expect(
+        (await call(b.srv, "DELETE", "/api/office/move", c.owner)).status,
+      ).toBe(200);
+      expect(existsSync(join(b.srv.stateRoot, MOVE_SCRATCH_DIR))).toBe(false);
+    } finally {
+      rmSync(note, { force: true });
+    }
+  });
+
+  it("slice 4: a lockdown while paired deletes the move scratch", async () => {
+    const b = await boot({ move: moveSeams() });
+    const c = await cast(b.srv);
+    const { note } = await livePull(b, c);
+    try {
+      const res = await call(b.srv, "POST", "/api/office/lockdown", c.owner, {
+        reason: "test",
+      });
+      expect(res.status).toBe(202);
+      const deadline = performance.now() + 3_000;
+      while (
+        existsSync(join(b.srv.stateRoot, MOVE_SCRATCH_DIR)) &&
+        performance.now() < deadline
+      )
+        await Bun.sleep(10);
+      expect(existsSync(join(b.srv.stateRoot, MOVE_SCRATCH_DIR))).toBe(false);
+    } finally {
+      rmSync(note, { force: true });
+    }
   });
 
   it("the owner's cancel ends the pairing: the new box's session stops working", async () => {

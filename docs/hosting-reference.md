@@ -138,8 +138,8 @@ An owner moves an office as it is, with its agents and their chats, apps, schedu
 
 1. Install Isomux on the new machine, with the same home folder for the office user and the same or a newer release. Both offices must run as the installer's service, which restarts by itself.
 2. On the old office, get a move code. It works for one hour.
-3. On the new office, paste the code. The new office checks the old one and shows what runs there: agents that work, services agents made, packages installed with sudo, and app files that name the old address.
-4. Lock the old office. It stops and shows a moving page, and the new office copies it.
+3. On the new office, paste the code. The new office checks the old one and shows what runs there: agents that work, services agents made, packages installed with sudo, and app files that name the old address. Then it copies the old office while it still runs.
+4. Lock the old office. It stops and shows a moving page, and the new office copies what changed since its first copy. Lock after the first copy is done: the old office then stops for a shorter time.
 5. Finish. The new office restarts with the copy and shows a report. The old office then shows that it moved.
 
 What belongs to the old address or machine stays: members sign in again, and invites, the browser extension's pairing, notification devices and the SSH keys that log in to the old machine do not move. The report lists what to set up again. Members with their own OS user cannot move yet: turn it off for each of them first. Before the lock, a cancel on either office ends the move. After it, the old office stays locked until someone enters the move code on its moving page.

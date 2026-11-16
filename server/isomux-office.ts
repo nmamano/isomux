@@ -473,6 +473,7 @@ import {
 } from "./office-move-units.ts";
 import {
   clearMoveCancelled,
+  MOVE_SCRATCH_DIR,
   MOVE_STATE_FILE,
   moveBootMode,
   readMoveCancelled,
@@ -487,7 +488,7 @@ import {
   type MoveInReport,
 } from "./office-move-swap.ts";
 import { startSwapFailedOffice } from "./move-swap-failed-office.ts";
-import { movePullForBoot } from "./move-pull-boot.ts";
+import { createMovePull, movePullForBoot } from "./move-pull-boot.ts";
 import { createSystemdHost } from "./app-supervisor.ts";
 import { officeUnitFromCgroup, unitPrefixFor } from "./office-units.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
@@ -1510,6 +1511,12 @@ function resendSessionContexts(userId?: string): void {
 let officeMoveSeams: MoveSeams = {};
 let officeMoveFrontDoor: OfficeMoveFrontDoor | null = null;
 let officeMovePreflights: MovePreflightJobs | null = null;
+/** Slice 4: an ended pairing stops the live pass's streams and deletes the
+ *  move scratch, also when this process never served a move request. */
+function endOfficeMovePull(): void {
+  officeMoveFrontDoor?.endPull();
+  rmSync(join(STATE_ROOT, MOVE_SCRATCH_DIR), { recursive: true, force: true });
+}
 function currentOfficeMove(): OfficeMoveFrontDoor {
   officeMoveFrontDoor ??= buildOfficeMoveFrontDoor(officeMoveSeams);
   return officeMoveFrontDoor;
@@ -1697,7 +1704,21 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
   });
   officeMovePreflights = preflight;
   const version = getVersionInfo();
+  let backupDir: string | null = null;
+  try {
+    backupDir = currentBackupDir();
+  } catch {
+    // No backup folder: nothing of it to leave out.
+  }
   return createOfficeMoveFrontDoor({
+    // Slice 4: the live pass, while paired.
+    pull: createMovePull({
+      stateRoot: STATE_ROOT,
+      home,
+      codeDir: PROJECT_ROOT,
+      backupDir,
+      now: () => new Date(),
+    }),
     stateRoot: STATE_ROOT,
     ours: () => ({
       release: version.release,
@@ -3546,6 +3567,7 @@ function buildExecutorDeps(
       lockdown: {
         stateRoot: STATE_ROOT,
         closeSockets: closeOfficeSockets,
+        endMovePull: endOfficeMovePull,
         audit: ({ actor, reason }) =>
           recordAudit({
             actor,
@@ -3579,7 +3601,10 @@ function buildExecutorDeps(
         return pub.source === "config" ? pub.origin : new URL(req.url).origin;
       },
       byName: lockdownByName,
-      clearPreflights: () => officeMovePreflights?.clear(),
+      clearPreflights: () => {
+        officeMovePreflights?.clear();
+        endOfficeMovePull();
+      },
       moveIn: currentMoveIn,
       now: () => new Date(),
     }),

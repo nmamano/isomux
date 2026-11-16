@@ -487,6 +487,14 @@ export interface MoveBatchSource {
 
 class ItemRefused extends Error {}
 
+/** Slice 4: the pairing ended while a batch was served. */
+class PairingEnded extends Error {
+  constructor() {
+    super("The move pairing ended.");
+    this.name = "PairingEnded";
+  }
+}
+
 function kindOf(st: {
   isFile(): boolean;
   isDirectory(): boolean;
@@ -602,6 +610,7 @@ async function* oneItem(
   realHome: string,
   parents: Map<string, boolean>,
   item: MoveBatchItem,
+  snapshots: boolean,
 ): AsyncGenerator<Buffer> {
   const path = item?.path;
   if (!cleanRelPath(path))
@@ -668,6 +677,11 @@ async function* oneItem(
     if (sqlite) {
       if (range)
         throw new ItemRefused("A SQLite file moves whole, as a snapshot.");
+      // Slice 4: the office still runs; the pass after the lock takes it.
+      if (!snapshots)
+        throw new ItemRefused(
+          "A SQLite file moves only after the lock, as a snapshot.",
+        );
       closeSync(fd);
       fd = null;
       snapshot = join(src.scratchDir, `snapshot-${randomUUID()}.sqlite`);
@@ -700,25 +714,76 @@ async function* oneItem(
 export function writeMoveBatch(
   src: MoveBatchSource,
   items: MoveBatchItem[],
+  opts: MoveBatchOpts = {},
 ): AsyncIterable<Uint8Array> {
-  return batchRecords(src, items);
+  return batchRecords(src, items, opts);
 }
+
+/** Slice 4: how a batch runs. */
+export interface MoveBatchOpts {
+  /** Ends the stream (the pairing ended): the snapshot in use is deleted. */
+  signal?: AbortSignal;
+  /** False while the office still runs (state `paired`): a SQLite file, as
+   *  the bytes opened show it, gets an error record and no VACUUM INTO.
+   *  Default true. */
+  snapshots?: boolean;
+}
+
+/** Slice 4: the order of walkMoveManifest's entries. Entries are grouped by
+ *  their folder; the groups come in depth-first name order (a folder before
+ *  what it holds), and the names in a group in JS string order. Negative
+ *  when `a` comes first. */
+export function compareMoveWalkOrder(a: string, b: string): number {
+  if (a === b) return 0;
+  const ia = a.lastIndexOf("/");
+  const ib = b.lastIndexOf("/");
+  const pa = ia < 0 ? "" : a.slice(0, ia);
+  const pb = ib < 0 ? "" : b.slice(0, ib);
+  if (pa === pb) return codeUnitOrder(a.slice(ia + 1), b.slice(ib + 1));
+  // Folder groups: the root first, then depth first in name order (an
+  // ancestor before what it holds).
+  if (pa === "") return -1;
+  if (pb === "") return 1;
+  const sa = pa.split("/");
+  const sb = pb.split("/");
+  for (let i = 0; i < Math.min(sa.length, sb.length); i++)
+    if (sa[i] !== sb[i]) return codeUnitOrder(sa[i], sb[i]);
+  return sa.length - sb.length;
+}
+
+/** The order of Array.prototype.sort with no comparator (UTF-16 code
+ *  units), which the walk uses. */
+const codeUnitOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 async function* batchRecords(
   src: MoveBatchSource,
   items: MoveBatchItem[],
+  opts: MoveBatchOpts,
 ): AsyncGenerator<Uint8Array> {
   const realHome = realpathSync(src.scope.home);
   const parents = new Map<string, boolean>();
   const breathe = createBreather();
+  const snapshots = opts.snapshots !== false;
+  const ended = () => {
+    if (opts.signal?.aborted) throw new PairingEnded();
+  };
   for (const item of items) {
+    ended();
     const path = typeof item?.path === "string" ? item.path : "";
     try {
-      for await (const rec of oneItem(src, realHome, parents, item)) {
+      for await (const rec of oneItem(
+        src,
+        realHome,
+        parents,
+        item,
+        snapshots,
+      )) {
+        ended();
         yield rec;
         await breathe();
       }
     } catch (err) {
+      if (err instanceof PairingEnded) throw err;
       const error =
         err instanceof ItemRefused
           ? err.message
@@ -743,7 +808,7 @@ interface Listed {
 export async function walkMoveManifest(
   scope: MoveScope,
   outFile: string,
-  opts: { onProgress?(entries: number): void } = {},
+  opts: { onProgress?(entries: number): void; signal?: AbortSignal } = {},
 ): Promise<MoveManifestSummary> {
   const realHome = realpathSync(scope.home);
   const out = openSync(outFile, "w", 0o600);
@@ -773,7 +838,11 @@ export async function walkMoveManifest(
     u.entries++;
     if (st.isFile()) u.bytes += st.size;
   };
+  const stopped = () => {
+    if (opts.signal?.aborted) throw new PairingEnded();
+  };
   const list = async (rel: string): Promise<Listed[] | null> => {
+    stopped();
     let names: string[];
     try {
       names = readdirSync(rel ? join(realHome, rel) : realHome);
@@ -792,6 +861,7 @@ export async function walkMoveManifest(
         summary.unreadable.push(childRel);
       }
       await breathe();
+      stopped();
     }
     return listed;
   };
@@ -860,6 +930,7 @@ export async function walkMoveManifest(
         if (e.kind === "dir") subdirs.push(e.rel);
         summary.entries++;
         pending += `${JSON.stringify(entry)}\n`;
+        stopped();
         flush(false);
       }
       // Depth first, in name order.
@@ -889,6 +960,13 @@ export type MoveManifestStatus =
     } & MoveManifestSummary)
   | { state: "failed"; id: string; error: string };
 
+/** The pull's routes: the MOVE-locked server's (slice 2a), and the running
+ *  office's in `paired` (slice 4). */
+export interface MovePullDeps {
+  manifests: MoveManifestJobs;
+  batch: MoveBatchSource;
+}
+
 export interface MoveManifestJobs {
   /** One job at a time. */
   start(
@@ -900,9 +978,14 @@ export interface MoveManifestJobs {
   /** Records that the data of a ready job was served (done needs it). */
   markServed(id: string): void;
   served(id: string, sessionHash: string): boolean;
+  /** Slice 4: the pairing ended. Stops a running walk and deletes every
+   *  manifest file. */
+  clear(): void;
 }
 
 interface ManifestJob {
+  /** Slice 4: clear() stops the walk. */
+  abort: AbortController;
   sessionHash: string;
   file: string;
   status: MoveManifestStatus;
@@ -936,6 +1019,7 @@ export function createMoveManifestJobs(deps: {
       mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
       const file = join(deps.dir, `${id}.ndjson`);
       const job: ManifestJob = {
+        abort: new AbortController(),
         sessionHash,
         file,
         status: { state: "running", id, entries: 0 },
@@ -943,12 +1027,14 @@ export function createMoveManifestJobs(deps: {
       };
       jobs.set(id, job);
       void walkMoveManifest(deps.scope, file, {
+        signal: job.abort.signal,
         onProgress: (entries) => {
           if (job.status.state === "running")
             job.status = { state: "running", id, entries };
         },
       }).then(
         (summary) => {
+          if (job.abort.signal.aborted) return;
           let units: unknown[] = [];
           let secretCount = 0;
           try {
@@ -970,6 +1056,10 @@ export function createMoveManifestJobs(deps: {
           };
         },
         (err: unknown) => {
+          if (job.abort.signal.aborted) {
+            rmSync(file, { force: true });
+            return;
+          }
           console.error("[move] the manifest walk failed:", errMessage(err));
           rmSync(file, { force: true });
           job.status = { state: "failed", id, error: errMessage(err) };
@@ -990,6 +1080,13 @@ export function createMoveManifestJobs(deps: {
     },
     served(id, sessionHash) {
       return mine(id, sessionHash)?.served ?? false;
+    },
+    clear() {
+      for (const [id, job] of jobs) {
+        job.abort.abort();
+        rmSync(job.file, { force: true });
+        jobs.delete(id);
+      }
     },
   };
 }

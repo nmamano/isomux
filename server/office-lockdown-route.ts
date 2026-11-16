@@ -36,6 +36,9 @@ export interface OfficeLockdownDeps {
   stateRoot: string;
   /** Closes every open WebSocket of the office listener. */
   closeSockets(): void;
+  /** Slice 4 of the office move: stops a live pull in flight and deletes
+   *  the move scratch (a lock wins over a move). */
+  endMovePull?(): void;
   /** Writes the audit row. */
   audit(input: { actor: AuditActor; reason: string }): void;
   /** Stops the process after the response is sent. Production:
@@ -82,6 +85,11 @@ export function lockOfficeFromRoute(
     deps.closeSockets();
   } catch (err) {
     console.error("[lockdown] could not close every socket:", err);
+  }
+  try {
+    deps.endMovePull?.();
+  } catch (err) {
+    console.error("[lockdown] could not end the office move's pull:", err);
   }
   try {
     deps.audit({ actor: input.actor, reason });

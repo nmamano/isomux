@@ -14,6 +14,7 @@ import {
   chmodSync,
   closeSync,
   constants as fsConstants,
+  existsSync,
   fchmodSync,
   mkdirSync,
   openSync,
@@ -28,6 +29,7 @@ import { isAbsolute, join, normalize } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
 import { errMessage } from "../shared/errors.ts";
 import type {
+  MoveInLive,
   MoveInPreflight,
   MoveInProgress,
   MoveInStartBlocker,
@@ -51,6 +53,7 @@ import {
 } from "./office-move-swap.ts";
 import type { AgentUnit } from "./office-move-units.ts";
 import {
+  compareMoveWalkOrder,
   moveItemsHash,
   openMoveStream,
   readMoveRecords,
@@ -58,10 +61,14 @@ import {
   type MoveManifestEntry,
   type MoveSealContext,
 } from "./office-move-pull.ts";
+import { createMoveScope, moveAlwaysFetch } from "./office-move-scope.ts";
 import {
   createMoveStage,
+  MOVE_IN_LEDGER,
   MOVE_IN_STAGE,
   MoveStageError,
+  readMoveLedger,
+  type MoveLedgerRow,
   type MoveStage,
   type MoveStageBatch,
   type MoveStageCheck,
@@ -145,14 +152,20 @@ export interface MoveInPairing {
   office: MoveBoxInfo;
 }
 
-export type { MoveInPreflight, MoveInProgress, MoveInStatus };
+export type { MoveInLive, MoveInPreflight, MoveInProgress, MoveInStatus };
 
 export type MoveInState =
-  | ({ phase: "preflight"; preflightId: string } & MoveInPairing)
+  | ({
+      phase: "preflight";
+      preflightId: string;
+      /** Slice 4: the live pass (written only by writeLive). */
+      live?: MoveInLive;
+    } & MoveInPairing)
   | ({
       phase: "confirm";
       preflightId: string;
       preflight: MoveInPreflight;
+      live?: MoveInLive;
     } & MoveInPairing)
   | ({ phase: "locking"; preflightId: string } & MoveInPairing)
   /** Waiting for the old office to answer as locked: after the lock's
@@ -355,6 +368,10 @@ export interface MoveIn {
   rerunPreflight(input: { by: AuditActor }): Promise<MoveInAnswer>;
   /** POST /api/office/move-in/lock {preflightId}: the owner's yes. */
   lock(input: { preflightId: string; by: AuditActor }): Promise<MoveInAnswer>;
+  /** POST /api/office/move-in/live (slice 4): the live pass again, in
+   *  `confirm` with no live pass running. It keeps what the last pass
+   *  copied whole. */
+  copyLive(input: { by: AuditActor }): Promise<MoveInAnswer>;
   /** POST /api/office/move-in/pull: a retryable `failed` only. */
   retryPull(input: { by: AuditActor }): Promise<MoveInAnswer>;
   /** POST /api/office/move-in/finish {acceptMissing?} (owner browser
@@ -701,6 +718,20 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   const moveInDir = join(deps.home, MOVE_IN_DIR);
   const stageDir = join(moveInDir, MOVE_IN_STAGE);
   const manifestFile = join(moveInDir, "manifest.ndjson");
+  // Slice 4: every pass builds on the last one. Its ledger lists what came
+  // whole and clean; a new pass moves the last stage and ledger aside, keeps
+  // what still matches, and removes the rest.
+  const ledgerFile = join(moveInDir, MOVE_IN_LEDGER);
+  const prevStageDir = join(moveInDir, `${MOVE_IN_STAGE}.prev`);
+  const prevLedgerFile = join(moveInDir, "ledger.prev.ndjson");
+  // Only the state root's place matters to moveAlwaysFetch; it is the same
+  // path on both boxes (the redeem refuses otherwise).
+  const fetchScope = createMoveScope({
+    home: deps.home,
+    stateRoot: deps.stateRoot,
+    codeDir: null,
+    backupDir: null,
+  });
 
   const readState = (): MoveInState | null => {
     let text: string;
@@ -741,6 +772,13 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   let progress: MoveInProgress | null = null;
   let job: Promise<void> | null = null;
   let jobAbort: AbortController | null = null;
+  /** Slice 4: the live pass, in its own slot (a preflight again may run
+   *  next to it). */
+  let liveJob: Promise<void> | null = null;
+  let liveAbort: AbortController | null = null;
+  /** The lock stops the live pass: it ends `stopped`, not `failed`. */
+  let liveStopping = false;
+  let liveProgress: MoveInProgress | null = null;
   /** A cancel bumps it; a job of an older generation writes nothing. */
   let generation = 0;
 
@@ -754,6 +792,32 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     writeFileSync(tmp, `${JSON.stringify(next)}\n`, { mode: 0o600 });
     chmodSync(tmp, 0o600);
     renameSync(tmp, stateFile);
+  };
+
+  /** The live pass of the state now (phases preflight and confirm only). */
+  const currentLive = (): MoveInLive | undefined =>
+    state && (state.phase === "preflight" || state.phase === "confirm")
+      ? state.live
+      : undefined;
+
+  /** C6: the one writer of `preflight` and `confirm`: `live` comes from the
+   *  state now, never from a snapshot taken before an await. */
+  const writePre = (
+    next:
+      | Extract<MoveInState, { phase: "preflight" }>
+      | Extract<MoveInState, { phase: "confirm" }>,
+  ) => {
+    const { live: _ignored, ...rest } = next;
+    const live = currentLive();
+    writeState(live ? { ...rest, live } : rest);
+  };
+
+  /** C6: the one writer of `live`. Written only in preflight and confirm,
+   *  and only for the current generation. */
+  const writeLive = (gen: number, live: MoveInLive) => {
+    if (gen !== generation || !state) return;
+    if (state.phase !== "preflight" && state.phase !== "confirm") return;
+    writeState({ ...state, live });
   };
 
   const pairingOf = (s: MoveInState): MoveInPairing => ({
@@ -959,6 +1023,8 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     );
     const lockedAt = lockedAtOf(state);
     const mayBeLocked = oldOfficeLocked(state);
+    // The live pass stops with the move-in it belongs to.
+    liveAbort?.abort();
     try {
       writeState({
         phase: "failed",
@@ -980,7 +1046,8 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   const setFor = (gen: number, next: MoveInState) => {
     if (gen !== generation)
       throw new MoveInFail("cancelled", "The move-in was cancelled.");
-    writeState(next);
+    if (next.phase === "preflight" || next.phase === "confirm") writePre(next);
+    else writeState(next);
   };
 
   /** The old office's preflight: start it, then poll it to `confirm`. */
@@ -1000,7 +1067,123 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         preflightId,
         preflight: result,
       });
+      // Slice 4: the live pass starts at the first confirm of a pairing.
+      if (!currentLive() && !liveJob) startLive(pair);
     });
+
+  /** Slice 4: the live pass, while the old office still runs. Ends
+   *  `ready` (then the preflight again, N3, so the Lock works at once with a
+   *  fresh preflight), `stopped` (the lock), `unsupported` (an old office of
+   *  an older release) or `failed`. */
+  const startLive = (pair: MoveInPairing) => {
+    const ctl = new AbortController();
+    const gen = generation;
+    liveAbort = ctl;
+    liveStopping = false;
+    const startedAt = deps.now().getTime();
+    let manifestId: string | undefined;
+    const set = (live: Omit<MoveInLive, "startedAt">) =>
+      writeLive(gen, {
+        ...live,
+        startedAt,
+        ...(manifestId ? { manifestId } : {}),
+      });
+    const p = (async () => {
+      set({ phase: "manifest" });
+      try {
+        const started = await requestJson(
+          pair.oldOrigin,
+          "POST",
+          "/api/move/manifest",
+          { session: pair.session, signal: ctl.signal },
+        );
+        if (started.status === 404) {
+          set({ phase: "unsupported", finishedAt: deps.now().getTime() });
+          return;
+        }
+        if (
+          started.status !== 202 ||
+          !isObject(started.body) ||
+          typeof started.body.id !== "string"
+        )
+          throw answerFail(started.status, started.body);
+        manifestId = started.body.id;
+        set({ phase: "manifest" });
+        const summary = await poll(
+          pair,
+          `/api/move/manifest/${encodeURIComponent(manifestId)}`,
+          deps.timing.manifestWaitMs,
+          "manifest",
+          ctl.signal,
+          (b) => (b.state === "ready" ? b : null),
+        );
+        await runPass(pair, manifestId, {
+          live: true,
+          totalBytes:
+            typeof summary.totalBytes === "number" ? summary.totalBytes : 0,
+          signal: ctl.signal,
+          gen,
+          started: (prog) => {
+            liveProgress = prog;
+            set({ phase: "copying" });
+          },
+        });
+        const ready = {
+          phase: "ready" as const,
+          finishedAt: deps.now().getTime(),
+        };
+        // N3: a fresh preflight, unless one runs or the owner already acts.
+        if (gen === generation && !job && !busy && state?.phase === "confirm") {
+          try {
+            const preflightId = await startPreflight(pair, ctl.signal);
+            if (
+              gen === generation &&
+              !job &&
+              !busy &&
+              state?.phase === "confirm"
+            ) {
+              set(ready);
+              setFor(gen, { phase: "preflight", ...pair, preflightId });
+              preflightJob(pair, preflightId);
+              return;
+            }
+          } catch (err) {
+            console.warn(
+              "[move-in] the preflight after the live pass failed:",
+              errMessage(err),
+            );
+          }
+        }
+        set(ready);
+      } catch (err) {
+        if (gen !== generation) return;
+        const finishedAt = deps.now().getTime();
+        if (liveStopping) set({ phase: "stopped", finishedAt });
+        else {
+          const f = unreachable(err);
+          console.error(
+            `[move-in] the live pass failed: ${f.code}: ${f.message}`,
+          );
+          set({
+            phase: "failed",
+            finishedAt,
+            error: { code: f.code, message: f.message },
+          });
+        }
+      }
+    })()
+      .catch((err) => {
+        console.error("[move-in] the live pass failed:", errMessage(err));
+      })
+      .finally(() => {
+        if (liveJob === p) {
+          liveJob = null;
+          liveAbort = null;
+          liveProgress = null;
+        }
+      });
+    liveJob = p;
+  };
 
   const startPreflight = async (
     pair: MoveInPairing,
@@ -1113,79 +1296,29 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       ? summary.unreadable.filter((p): p is string => typeof p === "string")
       : [];
 
-    // A fresh move-in folder: an earlier pull's stage goes (rm does not
-    // follow links).
-    removeTree(moveInDir);
-    mkdirSync(moveInDir, { mode: 0o700 });
-    const fd = openSync(manifestFile, "w", 0o600);
-    try {
-      for await (const chunk of await requestSealed(
-        pair,
-        "GET",
-        `/api/move/manifest/${encodeURIComponent(manifestId)}/data`,
-        undefined,
-        { route: "manifest", manifestId, batch: 0, itemsHash: "" },
-        signal,
-      )) {
-        let off = 0;
-        while (off < chunk.byteLength)
-          off += writeSync(fd, chunk, off, chunk.byteLength - off);
-      }
-    } finally {
-      closeSync(fd);
-    }
-
-    // D5: whole blocks and inodes, before the first batch.
-    const fs = deps.statfs(deps.home);
-    const bsize = Math.max(1, fs.bsize);
-    let blocks = 0;
-    let entries = 0;
-    for await (const e of manifestEntries(manifestFile)) {
-      entries++;
-      if (e.t === "f") blocks += Math.ceil(e.s / bsize) * bsize;
-      else if (e.t === "d") blocks += bsize;
-    }
-    const needBytes = blocks + Math.max(blocks * 0.1, GIB);
-    const haveBytes = fs.bavail * bsize;
-    const needInodes = entries + Math.ceil(entries * 0.1);
-    if (haveBytes < needBytes)
-      throw new MoveInFail(
-        "no_space",
-        `Not enough disk space: the copy needs ${Math.ceil(needBytes)} bytes, and ${haveBytes} are free. Free some space, then pull again.`,
-        true,
-      );
-    if (fs.ffree < needInodes)
-      throw new MoveInFail(
-        "no_space",
-        `The disk can hold ${fs.ffree} more files, and the copy needs ${needInodes}. Free some, then pull again.`,
-        true,
-      );
-
-    progress = {
-      entries,
+    const { stage, prog } = await runPass(pair, manifestId, {
+      live: false,
       totalBytes,
-      filesDone: 0,
-      bytesDone: 0,
-      batchesDone: 0,
-      batchesTotal: 0,
-      retries: 0,
-    };
-    setFor(gen, {
-      phase: "pulling",
-      ...pair,
-      lockedAt,
-      manifestId,
-      progress: { ...progress },
+      signal,
+      gen,
+      started: (prog) => {
+        progress = prog;
+        setFor(gen, {
+          phase: "pulling",
+          ...pair,
+          lockedAt,
+          manifestId,
+          progress: { ...prog },
+        });
+      },
     });
-    const stage = createMoveStage(stageDir);
-    await pullBatches(pair, manifestId, stage, signal, gen);
 
     setFor(gen, {
       phase: "checking",
       ...pair,
       lockedAt,
       manifestId,
-      progress: { ...progress },
+      progress: { ...prog },
     });
     await stage.finish(manifestEntries(manifestFile));
     const result = await stage.check(manifestEntries(manifestFile));
@@ -1225,6 +1358,158 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     }
   };
 
+  /** A ledger read in step with a manifest (both in walk order): the row of
+   *  a path, or null. Flat memory: one row at a time. */
+  const ledgerJoin = (file: string) => {
+    const it = readMoveLedger(file)[Symbol.asyncIterator]();
+    let cur: MoveLedgerRow | null | undefined;
+    return async (path: string): Promise<MoveLedgerRow | null> => {
+      for (;;) {
+        if (cur === undefined) {
+          const r = await it.next();
+          cur = r.done ? null : r.value;
+        }
+        if (cur === null) return null;
+        const c = compareMoveWalkOrder(cur.p, path);
+        if (c > 0) return null;
+        const row = cur;
+        cur = undefined;
+        if (c === 0) return row;
+      }
+    };
+  };
+
+  /** Whether an earlier pass's copy of a file may stay ([R]: the manifest
+   *  values that pass recorded against this manifest's, never a stat). */
+  const keepable = (e: MoveManifestEntry, row: MoveLedgerRow | null) =>
+    row !== null &&
+    e.t === "f" &&
+    e.q !== 1 &&
+    row.s === e.s &&
+    row.m === e.m &&
+    !moveAlwaysFetch(fetchScope, e.p);
+
+  /** One pass (slice 4: the live pass, or the final pass after the lock):
+   *  the manifest data, the free space, then pass 1 and the batches on a
+   *  new stage that keeps what the last pass copied whole and still
+   *  matches. Writes the ledger whatever the end, unless cancelled. */
+  const runPass = async (
+    pair: MoveInPairing,
+    manifestId: string,
+    opts: {
+      live: boolean;
+      totalBytes: number;
+      signal: AbortSignal;
+      gen: number;
+      started(prog: MoveInProgress): void;
+    },
+  ): Promise<{ stage: MoveStage; prog: MoveInProgress }> => {
+    const { signal, gen } = opts;
+    if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
+    mkdirSync(moveInDir, { recursive: true, mode: 0o700 });
+    // A pass a crash cut left these.
+    removeTree(prevStageDir);
+    rmSync(prevLedgerFile, { force: true });
+    const fd = openSync(manifestFile, "w", 0o600);
+    try {
+      for await (const chunk of await requestSealed(
+        pair,
+        "GET",
+        `/api/move/manifest/${encodeURIComponent(manifestId)}/data`,
+        undefined,
+        { route: "manifest", manifestId, batch: 0, itemsHash: "" },
+        signal,
+      )) {
+        let off = 0;
+        while (off < chunk.byteLength)
+          off += writeSync(fd, chunk, off, chunk.byteLength - off);
+      }
+    } finally {
+      closeSync(fd);
+    }
+    if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
+
+    // The last pass's stage and ledger, when both are there.
+    const reuse = existsSync(ledgerFile) && existsSync(stageDir);
+
+    // D5: whole blocks and inodes, before the first batch; a file the last
+    // pass copied and that stays needs neither.
+    const fs = deps.statfs(deps.home);
+    const bsize = Math.max(1, fs.bsize);
+    let blocks = 0;
+    let entries = 0;
+    let needEntries = 0;
+    const spaceJoin = reuse ? ledgerJoin(ledgerFile) : null;
+    for await (const e of manifestEntries(manifestFile)) {
+      entries++;
+      if (e.t === "f") {
+        if (spaceJoin && keepable(e, await spaceJoin(e.p))) continue;
+        blocks += Math.ceil(e.s / bsize) * bsize;
+      } else if (e.t === "d") blocks += bsize;
+      needEntries++;
+    }
+    const needBytes = blocks + Math.max(blocks * 0.1, GIB);
+    const haveBytes = fs.bavail * bsize;
+    const needInodes = needEntries + Math.ceil(needEntries * 0.1);
+    if (haveBytes < needBytes)
+      throw new MoveInFail(
+        "no_space",
+        `Not enough disk space: the copy needs ${Math.ceil(needBytes)} bytes, and ${haveBytes} are free. Free some space, then pull again.`,
+        true,
+      );
+    if (fs.ffree < needInodes)
+      throw new MoveInFail(
+        "no_space",
+        `The disk can hold ${fs.ffree} more files, and the copy needs ${needInodes}. Free some, then pull again.`,
+        true,
+      );
+    if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
+
+    if (reuse) {
+      renameSync(stageDir, prevStageDir);
+      renameSync(ledgerFile, prevLedgerFile);
+    } else {
+      rmSync(ledgerFile, { force: true });
+      removeTree(stageDir);
+    }
+    const prog: MoveInProgress = {
+      entries,
+      totalBytes: opts.totalBytes,
+      filesDone: 0,
+      bytesDone: 0,
+      batchesDone: 0,
+      batchesTotal: 0,
+      retries: 0,
+      filesKept: 0,
+      bytesKept: 0,
+    };
+    const stage = createMoveStage(stageDir);
+    try {
+      opts.started(prog);
+      await pullBatches(pair, manifestId, stage, signal, gen, {
+        live: opts.live,
+        prev: reuse ? { root: prevStageDir, ledger: prevLedgerFile } : null,
+        prog,
+      });
+    } finally {
+      // What the batches wrote stays usable for the next pass, also after a
+      // failure or a stop; never after a cancel (its folder is gone).
+      if (gen === generation)
+        try {
+          await stage.writeLedger(manifestEntries(manifestFile), ledgerFile);
+        } catch (err) {
+          console.error(
+            "[move-in] could not write the ledger:",
+            errMessage(err),
+          );
+          rmSync(ledgerFile, { force: true });
+        }
+      removeTree(prevStageDir);
+      rmSync(prevLedgerFile, { force: true });
+    }
+    return { stage, prog };
+  };
+
   /** Pass 1 over the manifest, and the batches it plans. */
   const pullBatches = async (
     pair: MoveInPairing,
@@ -1232,6 +1517,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     stage: MoveStage,
     signal: AbortSignal,
     gen: number,
+    opts: {
+      /** The live pass asks for no SQLite file. */
+      live: boolean;
+      prev: { root: string; ledger: string } | null;
+      prog: MoveInProgress;
+    },
   ): Promise<void> => {
     const { batchBytes, batchItemsJsonBytes, concurrency } = deps.limits;
     let n = 0;
@@ -1245,7 +1536,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         await new Promise<void>((r) => slots.push(r));
       if (firstError !== null) return;
       active++;
-      const p = runBatch(pair, manifestId, stage, batch, signal)
+      const p = runBatch(pair, manifestId, stage, batch, signal, opts.prog)
         .catch((err) => {
           if (firstError === null) firstError = err;
         })
@@ -1266,17 +1557,29 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       items = [];
       bytes = 0;
       json = 2;
-      if (progress) progress.batchesTotal++;
+      opts.prog.batchesTotal++;
       await launch(batch);
     };
     const itemJson = (i: { path: string; offset?: number; length?: number }) =>
       JSON.stringify(i).length + 1;
 
+    const prevJoin = opts.prev ? ledgerJoin(opts.prev.ledger) : null;
     try {
       for await (const e of manifestEntries(manifestFile)) {
-        if (firstError !== null || gen !== generation) break;
+        if (firstError !== null || gen !== generation || signal.aborted) break;
+        if (e.t === "f" && prevJoin && opts.prev) {
+          const row = await prevJoin(e.p);
+          if (row && keepable(e, row) && stage.keep(e, opts.prev.root, row)) {
+            opts.prog.filesKept = (opts.prog.filesKept ?? 0) + 1;
+            opts.prog.bytesKept = (opts.prog.bytesKept ?? 0) + e.s;
+            continue;
+          }
+        }
         stage.prepare(e);
         if (e.t !== "f") continue;
+        // The running office takes no snapshot: the final pass fetches every
+        // SQLite file.
+        if (opts.live && e.q === 1) continue;
         if (e.q !== 1 && e.s > batchBytes) {
           // A big file: one range per batch.
           await flush();
@@ -1310,7 +1613,8 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       if (firstError === null) firstError = err;
     }
     while (running.size > 0) await Promise.all([...running]);
-    if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
+    if (gen !== generation || (signal.aborted && firstError === null))
+      throw new MoveInFail("cancelled", "Cancelled.");
     if (firstError instanceof MoveStageError)
       throw new MoveInFail("manifest_refused", firstError.message, true);
     if (firstError !== null) throw unreachable(firstError);
@@ -1323,6 +1627,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     stage: MoveStage,
     batch: MoveStageBatch,
     signal: AbortSignal,
+    progress: MoveInProgress,
   ): Promise<void> => {
     const items = batch.items.map((i) => ({
       path: i.path,
@@ -1348,14 +1653,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
           signal,
         );
         const results = await stage.writeBatch(batch, readMoveRecords(plain));
-        if (progress) {
-          progress.batchesDone++;
-          for (const r of results)
-            if (!("error" in r)) {
-              progress.bytesDone += r.bytes;
-              if ((r.offset ?? 0) === 0) progress.filesDone++;
-            }
-        }
+        progress.batchesDone++;
+        for (const r of results)
+          if (!("error" in r)) {
+            progress.bytesDone += r.bytes;
+            if ((r.offset ?? 0) === 0) progress.filesDone++;
+          }
         return;
       } catch (err) {
         last = err;
@@ -1366,7 +1669,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         )
           throw err;
         if (signal.aborted) throw err;
-        if (progress) progress.retries++;
+        progress.retries++;
         console.warn(
           `[move-in] batch ${batch.n} attempt ${attempt} failed:`,
           errMessage(err),
@@ -1493,7 +1796,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   const api: MoveIn = {
     async start({ code, by }) {
       if (moved) return movedRefusal();
-      if (busy || job || pairing)
+      if (busy || job || liveJob || pairing)
         return refuse(
           409,
           "move_in_running",
@@ -1587,7 +1890,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
           return fromFail(err);
         }
         if (generation !== gen) return cancelled();
-        writeState({ phase: "preflight", ...pair, preflightId });
+        writePre({ phase: "preflight", ...pair, preflightId });
         preflightJob(pair, preflightId);
         return okStatus(202);
       } catch (err) {
@@ -1619,6 +1922,11 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       };
       if ("preflightId" in s) out.preflightId = s.preflightId;
       if (s.phase === "confirm") out.preflight = s.preflight;
+      if ((s.phase === "preflight" || s.phase === "confirm") && s.live)
+        out.live =
+          s.live.phase === "copying" && liveProgress
+            ? { ...s.live, progress: { ...liveProgress } }
+            : s.live;
       if ("lockedAt" in s) out.lockedAt = s.lockedAt;
       if (s.phase === "pulling" || s.phase === "checking")
         out.progress = progress ? { ...progress } : s.progress;
@@ -1648,7 +1956,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         // A cancel while the request was in flight wins.
         if (generation !== gen)
           return refuse(409, "cancelled", "The move-in was cancelled.");
-        writeState({ phase: "preflight", ...pair, preflightId });
+        writePre({ phase: "preflight", ...pair, preflightId });
         preflightJob(pair, preflightId);
         return okStatus(202);
       } catch (err) {
@@ -1667,11 +1975,29 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         );
       const notFreshAnswer = notFresh();
       if (notFreshAnswer) return notFreshAnswer;
+      // C4: set before the first await; every other verb sees it.
       busy = true;
-      const before = state;
-      const pair = pairingOf(before);
       const gen = generation;
       try {
+        // Slice 4: the live pass stops first; what it copied whole stays.
+        const running = liveJob;
+        if (running) {
+          liveStopping = true;
+          liveAbort?.abort();
+          await running;
+          if (gen !== generation)
+            return refuse(409, "cancelled", "The move-in was cancelled.");
+        }
+        // Read after the live pass ended: `live` is final, and no writer of
+        // it runs until the refusal below writes it back.
+        const before = state;
+        if (!before || before.phase !== "confirm")
+          return refuse(
+            409,
+            "not_confirming",
+            "The move is not waiting for the owner's yes.",
+          );
+        const pair = pairingOf(before);
         writeState({ phase: "locking", ...pair, preflightId });
         let r: { status: number; body: unknown };
         try {
@@ -1707,7 +2033,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
 
     async finish({ acceptMissing, by, requestOrigin }) {
       if (moved) return movedRefusal();
-      if (busy || job || pairing)
+      if (busy || job || liveJob || pairing)
         return refuse(
           409,
           "move_in_running",
@@ -1842,8 +2168,26 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       }
     },
 
+    async copyLive() {
+      if (busy || job || liveJob || !state || state.phase !== "confirm")
+        return refuse(
+          409,
+          "not_confirming",
+          "The move is not waiting for the owner's yes, or a copy runs.",
+        );
+      startLive(pairingOf(state));
+      return okStatus(202);
+    },
+
     async retryPull() {
-      if (busy || job || !state || state.phase !== "failed" || !state.retryable)
+      if (
+        busy ||
+        job ||
+        liveJob ||
+        !state ||
+        state.phase !== "failed" ||
+        !state.retryable
+      )
         return refuse(
           409,
           "not_retryable",
@@ -1899,6 +2243,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
               preflightId,
               preflight: result,
             });
+            if (!currentLive() && !liveJob) startLive(pair);
             return;
           }
           if (st !== "move")
@@ -1940,11 +2285,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       const s = state;
       generation++;
       jobAbort?.abort();
-      const running = job;
-      if (running)
-        await withTimeout(running, deps.timing.requestMs, "the cancel").catch(
-          () => {},
-        );
+      liveAbort?.abort();
+      for (const running of [job, liveJob])
+        if (running)
+          await withTimeout(running, deps.timing.requestMs, "the cancel").catch(
+            () => {},
+          );
       writeState(null);
       removeTree(moveInDir);
       const locked = s ? oldOfficeLocked(s) : false;
@@ -1991,6 +2337,26 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         );
         return;
       }
+      // Slice 4: a live pass the restart cut.
+      if (
+        state?.phase === "confirm" &&
+        !liveJob &&
+        (state.live?.phase === "manifest" || state.live?.phase === "copying")
+      ) {
+        writeState({
+          ...state,
+          live: {
+            ...state.live,
+            phase: "failed",
+            finishedAt: deps.now().getTime(),
+            error: {
+              code: "interrupted",
+              message: "The office restarted during the copy.",
+            },
+          },
+        });
+        return;
+      }
       if (!state || !JOB_PHASES.has(state.phase) || job) return;
       writeState({
         phase: "failed",
@@ -2007,7 +2373,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     },
 
     async settled() {
-      while (job) await job.catch(() => {});
+      while (job || liveJob) await (job ?? liveJob)!.catch(() => {});
     },
   };
   return api;

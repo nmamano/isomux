@@ -32,6 +32,7 @@ import {
   type MoveState,
   type MoveStateMove,
   type MoveStateMoved,
+  type MoveStatePaired,
 } from "./office-move.ts";
 import {
   MOVE_BATCH_BODY_MAX_BYTES,
@@ -39,8 +40,7 @@ import {
   sealMoveStream,
   writeMoveBatch,
   type MoveBatchItem,
-  type MoveBatchSource,
-  type MoveManifestJobs,
+  type MovePullDeps,
 } from "./office-move-pull.ts";
 import {
   MOVE_UNITS_FILE,
@@ -65,11 +65,7 @@ const MOVE_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
 };
 
-/** The pull (slice 2a): served only here, in "move". */
-export interface MovePullDeps {
-  manifests: MoveManifestJobs;
-  batch: MoveBatchSource;
-}
+export type { MovePullDeps };
 
 export interface MoveLockedOfficeOpts {
   stateRoot: string;
@@ -133,19 +129,23 @@ export async function moveLockedResponse(
   }
   if (path === MOVE_CANCEL_PATH && req.method === "POST")
     return cancel(req, opts);
-  const pullRoute = pullRouteOf(req.method, path);
+  const pullRoute = movePullRouteOf(req.method, path);
   if (pullRoute) return pullResponse(req, pullRoute, opts);
   return page(req, pageKind(opts), 503);
 }
 
-type PullRoute =
+export type MovePullRoute =
   | { kind: "manifest" }
   | { kind: "manifestStatus"; id: string }
   | { kind: "manifestData"; id: string }
   | { kind: "batch" }
   | { kind: "done" };
 
-function pullRouteOf(method: string, path: string): PullRoute | null {
+/** The pull route a request names, or null. */
+export function movePullRouteOf(
+  method: string,
+  path: string,
+): MovePullRoute | null {
   if (path === "/api/move/manifest" && method === "POST")
     return { kind: "manifest" };
   if (path === "/api/move/batch" && method === "POST") return { kind: "batch" };
@@ -176,7 +176,7 @@ function fail(status: number, code: string, message: string): Response {
  *  state "move". */
 async function pullResponse(
   req: Request,
-  route: PullRoute,
+  route: MovePullRoute,
   opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now" | "pull" | "audit">,
 ): Promise<Response> {
   const pull = opts.pull;
@@ -187,7 +187,47 @@ async function pullResponse(
     opts.now(),
   );
   if (!state) return json({ error: SESSION_INVALID }, 401);
-  if (state.state !== "move")
+  return servePull(req, route, {
+    stateRoot: opts.stateRoot,
+    now: opts.now,
+    pull,
+    state,
+    allowed: "move",
+    onFirstServed: (served) =>
+      opts.audit?.({ operation: "office.movePulled", state: served }),
+    onDone: (moved) =>
+      opts.audit?.({ operation: "office.moveDone", state: moved }),
+  });
+}
+
+/** How servePull serves a route (slice 4: the running office serves the
+ *  live pass in "paired"). */
+export interface ServePullOpts {
+  stateRoot: string;
+  now(): Date;
+  pull: MovePullDeps;
+  /** The state the move session names. */
+  state: MoveStatePaired | MoveStateMove | MoveStateMoved;
+  /** The state the pull routes need ("done" always needs "move"). In
+   *  "paired" a batch takes no SQLite snapshot. */
+  allowed: "paired" | "move";
+  /** Ends the streams of this pairing (slice 4). */
+  signal?: AbortSignal;
+  /** The first batch served (servedAt set): audit it once. */
+  onFirstServed?(state: MoveState): void;
+  /** `done` recorded the state "moved". */
+  onDone?(state: MoveStateMoved): void;
+}
+
+/** A pull route for a session already checked. */
+export async function servePull(
+  req: Request,
+  route: MovePullRoute,
+  opts: ServePullOpts,
+): Promise<Response> {
+  const { pull, state } = opts;
+  const allowed = route.kind === "done" ? "move" : opts.allowed;
+  if (state.state !== allowed)
     return fail(409, "not_locked", "The office is not locked for the move.");
   const key = Buffer.from(state.key, "base64url");
   switch (route.kind) {
@@ -211,9 +251,13 @@ async function pullResponse(
         : null;
       if (!file) return fail(404, "not_found", "No ready manifest of that id.");
       const id = route.id;
+      const signal = opts.signal;
       async function* data(): AsyncGenerator<Uint8Array> {
-        for await (const chunk of Bun.file(file!).stream()) yield chunk;
-        pull!.manifests.markServed(id);
+        for await (const chunk of Bun.file(file!).stream()) {
+          if (signal?.aborted) throw new Error("The move pairing ended.");
+          yield chunk;
+        }
+        pull.manifests.markServed(id);
       }
       return sealed(
         sealMoveStream(
@@ -226,7 +270,7 @@ async function pullResponse(
     case "batch":
       return batch(req, state, key, pull, opts);
     case "done":
-      return done(req, state, pull, opts);
+      return done(req, state as MoveStateMove, pull, opts);
   }
 }
 
@@ -273,10 +317,10 @@ function asItems(v: unknown): MoveBatchItem[] | null {
 
 async function batch(
   req: Request,
-  state: MoveStateMove,
+  state: MoveStatePaired | MoveStateMove | MoveStateMoved,
   key: Buffer,
   pull: MovePullDeps,
-  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now" | "audit">,
+  opts: ServePullOpts,
 ): Promise<Response> {
   // Read only now, after the session check: the cap is larger here.
   const body = await readJsonObject(req, MOVE_BATCH_BODY_MAX_BYTES);
@@ -302,10 +346,9 @@ async function batch(
     return fail(409, "manifest_unknown", "No ready manifest of that id.");
   try {
     if (markMoveServed(opts.stateRoot, opts.now()))
-      opts.audit?.({
-        operation: "office.movePulled",
-        state: readMoveState(opts.stateRoot, opts.now()).current ?? state,
-      });
+      opts.onFirstServed?.(
+        readMoveState(opts.stateRoot, opts.now()).current ?? state,
+      );
   } catch (err) {
     console.error("[move] could not record the first batch:", err);
   }
@@ -318,7 +361,10 @@ async function batch(
         batch: n,
         itemsHash: moveItemsHash(items),
       },
-      writeMoveBatch(pull.batch, items),
+      writeMoveBatch(pull.batch, items, {
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        snapshots: state.state !== "paired",
+      }),
     ),
   );
 }
@@ -327,7 +373,7 @@ async function done(
   req: Request,
   state: MoveStateMove,
   pull: MovePullDeps,
-  opts: Pick<MoveLockedOfficeOpts, "stateRoot" | "now" | "audit">,
+  opts: ServePullOpts,
 ): Promise<Response> {
   const body = await readJsonObject(req);
   if (body === "too_large")
@@ -360,7 +406,7 @@ async function done(
     return fail(500, "done_failed", "The office could not record the move.");
   }
   try {
-    opts.audit?.({ operation: "office.moveDone", state: moved });
+    opts.onDone?.(moved);
   } catch (err) {
     console.error("[move] could not write the audit row:", err);
   }

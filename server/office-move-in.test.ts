@@ -45,6 +45,7 @@ import {
 import { createOfficeMoveFrontDoor } from "./office-move-routes.ts";
 import { moveLockedResponse } from "./move-locked-office.ts";
 import {
+  compareMoveWalkOrder,
   createMoveManifestJobs,
   walkMoveManifest,
 } from "./office-move-pull.ts";
@@ -62,7 +63,13 @@ import {
   type MoveInStatfs,
   type MoveInStatus,
 } from "./office-move-in.ts";
-import { MOVE_IN_DIR, MOVE_IN_STAGE } from "./office-move-stage.ts";
+import {
+  MOVE_IN_DIR,
+  MOVE_IN_LEDGER,
+  MOVE_IN_STAGE,
+  readMoveLedger,
+} from "./office-move-stage.ts";
+import type { MoveInLive } from "../shared/office-move.ts";
 import {
   MOVE_IN_SWAP_FILE,
   type MoveInReport,
@@ -136,6 +143,9 @@ interface FetchCall {
   url: string;
   redirect: RequestRedirect | undefined;
   body: string | null;
+  /** The old office's state when the request came (slice 4: a batch in
+   *  "paired" is the live pass's, in "move" the final pass's). */
+  state: string | null;
 }
 
 interface OldOffice {
@@ -150,6 +160,8 @@ interface OldOffice {
   fetch: MoveInDeps["fetch"];
   mint(): string;
   state(): string | null;
+  /** Holds every preflight step until released (slice 4). */
+  holdPreflight(): () => void;
 }
 
 const rnd = (n: number, seed: number) =>
@@ -227,7 +239,14 @@ function bodyText(body: unknown): string | null {
   return null;
 }
 
-function oldOffice(name = "old"): OldOffice {
+function oldOffice(
+  name = "old",
+  opts: {
+    /** Slice 4: the running office serves the pull (the live pass). Off,
+     *  it answers 404 there, as a release before slice 4 does. */
+    live?: boolean;
+  } = {},
+): OldOffice {
   const home = join(dir, name, "home");
   const root = join(home, ".isomux");
   mkdirSync(root, { recursive: true });
@@ -240,6 +259,7 @@ function oldOffice(name = "old"): OldOffice {
   };
   const turns: TurnInFlight[] = [];
   const now = () => new Date();
+  let preflightHold: Promise<void> | null = null;
   const preflight = createMovePreflightJobs({
     home,
     hosts: () => ["old.example.com"],
@@ -252,24 +272,13 @@ function oldOffice(name = "old"): OldOffice {
       restart: "always",
     }),
     memberOsUsers: () => ({ names: [] }),
-    exec: async () => ({ code: 0, stdout: "0\t.\n", timedOut: false }),
+    exec: async () => {
+      if (preflightHold) await preflightHold;
+      return { code: 0, stdout: "0\t.\n", timedOut: false };
+    },
     osUser: "isomux",
     aptHistoryPath: join(dir, "no-apt-log"),
     now: () => Date.now(),
-  });
-  const door = createOfficeMoveFrontDoor({
-    stateRoot: root,
-    ours: () => box,
-    preflight,
-    turnsInFlight: () => turns.map((t) => ({ ...t })),
-    restartPolicy: () => "always",
-    memberOsUsers: () => ({ names: [] }),
-    listUnits: () => [],
-    lockProcess: () => {},
-    audit: () => {},
-    requestStop: () => {},
-    allow: () => true,
-    now,
   });
   const scope = createMoveScope({
     home,
@@ -288,6 +297,21 @@ function oldOffice(name = "old"): OldOffice {
     }),
     batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
   };
+  const door = createOfficeMoveFrontDoor({
+    ...(opts.live ? { pull } : {}),
+    stateRoot: root,
+    ours: () => box,
+    preflight,
+    turnsInFlight: () => turns.map((t) => ({ ...t })),
+    restartPolicy: () => "always",
+    memberOsUsers: () => ({ names: [] }),
+    listUnits: () => [],
+    lockProcess: () => {},
+    audit: () => {},
+    requestStop: () => {},
+    allow: () => true,
+    now,
+  });
   const log: FetchCall[] = [];
   const sessions: string[] = [];
   const state = () => readMoveState(root, now()).current?.state ?? null;
@@ -299,6 +323,7 @@ function oldOffice(name = "old"): OldOffice {
       url,
       redirect: init.redirect,
       body: bodyText(init.body),
+      state: state(),
     });
     if (u.origin !== ORIGIN) throw new TypeError("fetch failed");
     const req = new Request(url, init);
@@ -333,6 +358,14 @@ function oldOffice(name = "old"): OldOffice {
     mint: () =>
       mintMoveCode(root, { origin: ORIGIN, by: "Morgan", now: now() }).code,
     state,
+    holdPreflight() {
+      let release!: () => void;
+      preflightHold = new Promise<void>((r) => (release = r));
+      return () => {
+        preflightHold = null;
+        release();
+      };
+    },
   };
 }
 
@@ -1861,3 +1894,441 @@ describe("the status for the Settings pane (slice 2c-2)", () => {
     }).toEqual({ atStaged: true, cancel: true });
   });
 });
+
+// ---- slice 4: the live pass ----
+//
+// The new office copies the old one while it still runs (state "paired"),
+// then the lock's pass fetches only what changed. [R] the keep decision
+// compares the final manifest with the values the earlier pass recorded,
+// never a stat taken at read time; every SQLite file and every sign-in or
+// secret file is fetched again; the running office never takes a snapshot.
+
+const liveOf = (n: NewOffice) =>
+  (n.moveIn.status() as { live?: MoveInLive }).live;
+
+async function waitLive(n: NewOffice, phases: string[], ms = 10_000) {
+  await waitFor(() => phases.includes(liveOf(n)?.phase ?? ""), ms);
+  return liveOf(n);
+}
+
+/** The paths the old office was asked for in batches, in a state. */
+const asked = (o: OldOffice, state: string, from = 0) =>
+  o.log
+    .slice(from)
+    .filter((c) => c.path === "/api/move/batch" && c.state === state)
+    .flatMap((c) =>
+      (JSON.parse(c.body!) as { items: { path: string }[] }).items.map(
+        (i) => i.path,
+      ),
+    );
+
+/** The live pass is done and the preflight after it (N3) is ready: the id
+ *  the owner's Lock sends. Settled: the same id over two reads. */
+async function liveReady(n: NewOffice): Promise<string> {
+  const now = () => {
+    const s = n.moveIn.status();
+    return s.phase === "confirm" && liveOf(n)?.phase === "ready"
+      ? (s as { preflightId: string }).preflightId
+      : null;
+  };
+  const deadline = performance.now() + 12_000;
+  while (performance.now() < deadline) {
+    const id = now();
+    if (id !== null) {
+      await Bun.sleep(100);
+      if (now() === id) return id;
+    }
+    await Bun.sleep(10);
+  }
+  const s = n.moveIn.status();
+  expect([s.phase, liveOf(n)?.phase]).toEqual(["confirm", "ready"]);
+  throw new Error("the live pass did not settle");
+}
+
+/** A fetch that can hold or fail chosen requests to the old office. `k`
+ *  counts the earlier requests with the same path in the same old state. */
+interface Match {
+  path: string;
+  state: string | null;
+  k: number;
+  body: string | null;
+}
+function liveGate(o: OldOffice) {
+  const counts = new Map<string, number>();
+  const holds: {
+    match: (m: Match) => boolean;
+    abortDelayMs: number;
+    used: boolean;
+    reach: () => void;
+    resolve: () => void;
+  }[] = [];
+  let failing: ((m: Match) => boolean) | null = null;
+  const fetch: MoveInDeps["fetch"] = async (url, init) => {
+    const path = new URL(url).pathname;
+    const state = o.state();
+    const key = `${path} ${state}`;
+    const k = counts.get(key) ?? 0;
+    counts.set(key, k + 1);
+    const m: Match = { path, state, k, body: bodyText(init.body) };
+    if (failing?.(m)) return new Response("broken", { status: 500 });
+    const h = holds.find((x) => !x.used && x.match(m));
+    if (h) {
+      h.used = true;
+      h.reach();
+      await new Promise<void>((resolve, reject) => {
+        h.resolve = resolve;
+        // A batch that takes a while to end after the abort.
+        init.signal?.addEventListener(
+          "abort",
+          () =>
+            setTimeout(
+              () => reject(new DOMException("aborted", "AbortError")),
+              h.abortDelayMs,
+            ),
+          { once: true },
+        );
+      });
+    }
+    return o.fetch(url, init);
+  };
+  return {
+    fetch,
+    count: (path: string, state: string) => counts.get(`${path} ${state}`) ?? 0,
+    hold(match: (m: Match) => boolean, abortDelayMs = 0) {
+      let reach!: () => void;
+      const hit = new Promise<boolean>((r) => (reach = () => r(true)));
+      // A bounded wait: a pass that never asks fails on this, well before
+      // the runner's timeout.
+      const reached = Promise.race([
+        hit,
+        Bun.sleep(10_000).then(() => false),
+      ]).then((ok) => {
+        if (!ok) throw new Error("the held request never came");
+      });
+      // Not every test waits for it.
+      reached.catch(() => {});
+      const h = {
+        match,
+        abortDelayMs,
+        used: false,
+        reach,
+        resolve: () => {},
+      };
+      holds.push(h);
+      cleanups.push(() => h.resolve());
+      return { reached, release: () => h.resolve() };
+    },
+    fail(match: ((m: Match) => boolean) | null) {
+      failing = match;
+    },
+  };
+}
+
+const liveBatch = (k: number) => (m: Match) =>
+  m.path === "/api/move/batch" && m.state === "paired" && m.k === k;
+
+// What the final pass must fetch although nothing changed: the sign-ins and
+// secrets that move, and the SQLite database.
+const ALWAYS = [
+  ".claude/.credentials.json",
+  ".ssh/id_ed25519",
+  ".config/gh/hosts.yml",
+  ".isomux/secrets/office.json",
+  "data/app.sqlite",
+];
+
+function expectStageIsOldHome(o: OldOffice, n: NewOffice): void {
+  const want = tree(o.home, oldSkip);
+  for (const [, s] of want) if (s.mode !== undefined) s.mode &= ~0o6000;
+  const got = tree(stageOf(n), () => false);
+  expect([...got.keys()].sort()).toEqual([...want.keys()].sort());
+  expect(Object.fromEntries(got)).toEqual(Object.fromEntries(want));
+}
+
+const LATER = new Date(FILE_MTIME.getTime() + 5_000);
+
+describe("the live pass (slice 4)", () => {
+  it("copies while the old office runs, then the lock's pass fetches only what changed, the SQLite file and the sign-ins; the stage is the old home at the lock", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    // The first live batch ends last.
+    const first = g.hold(liveBatch(0));
+    const n = newOffice(o, { fetch: g.fetch });
+    await toConfirm(o, n);
+    await first.reached;
+    await waitFor(() => g.count("/api/move/batch", "paired") >= 5);
+    first.release();
+    const preflightId = await liveReady(n);
+    expect(o.state()).toBe("paired");
+    const live = asked(o, "paired");
+    expect(live).toContain("docs/a.txt");
+    expect(live).toContain("files/f003.bin");
+    // The running office is never asked for a SQLite file.
+    expect(live).not.toContain("data/app.sqlite");
+
+    // The ledger is in manifest order, although its first batch ended last.
+    const rows: string[] = [];
+    for await (const r of readMoveLedger(
+      join(n.home, MOVE_IN_DIR, MOVE_IN_LEDGER),
+    ))
+      rows.push(r.p);
+    expect(rows).toContain("docs/a.txt");
+    expect(
+      rows.filter((p, i) => i > 0 && compareMoveWalkOrder(rows[i - 1], p) >= 0),
+    ).toEqual([]);
+
+    // Changes on the old box between the passes.
+    writeFileSync(join(o.home, "docs/a.txt"), "alpha+");
+    utimesSync(join(o.home, "docs/a.txt"), FILE_MTIME, FILE_MTIME);
+    const f1 = join(o.home, "files/f001.bin");
+    writeFileSync(f1, rnd(lstatSync(f1).size, 500));
+    utimesSync(f1, LATER, LATER);
+    rmSync(join(o.home, "files/f002.bin"));
+    writeFileSync(join(o.home, "new.txt"), "new");
+    utimesSync(join(o.home, "new.txt"), FILE_MTIME, FILE_MTIME);
+
+    const mark = o.log.length;
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    const end = await waitPhase(n.moveIn, [...TERMINAL], 15_000);
+    expect(end.phase).toBe("staged");
+    const final = new Set(asked(o, "move", mark));
+    const want = ["docs/a.txt", "files/f001.bin", "new.txt", ...ALWAYS];
+    expect(want.filter((p) => !final.has(p))).toEqual([]);
+    expect(
+      [
+        "files/f000.bin",
+        "files/f003.bin",
+        "big.bin",
+        "docs/sub/deep/n.txt",
+      ].filter((p) => final.has(p)),
+    ).toEqual([]);
+    expectStageIsOldHome(o, n);
+    expect(existsSync(join(stageOf(n), "files/f002.bin"))).toBe(false);
+  });
+
+  it("an old office without the live routes (404): live is unsupported and the lock copies everything", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice();
+    const n = newOffice(o);
+    const preflightId = await toConfirm(o, n);
+    expect((await waitLive(n, ["unsupported"]))?.phase).toBe("unsupported");
+    expect(asked(o, "paired")).toEqual([]);
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    expect(asked(o, "move")).toContain("files/f003.bin");
+    expectStageIsOldHome(o, n);
+  });
+
+  it("the lock during the live pass stops it, keeps what came whole, and ends staged", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    // One batch at a time: when the tenth is asked, nine are written, the
+    // seven ranges of big.bin among them, so every file asked came whole.
+    const tenth = g.hold(liveBatch(9));
+    const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
+    const preflightId = await toConfirm(o, n);
+    await tenth.reached;
+    const copied = asked(o, "paired").filter((p) => !ALWAYS.includes(p));
+    // The condition: a file the live pass copied in ranges came whole.
+    expect(copied).toContain("big.bin");
+    const mark = o.log.length;
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    const final = new Set(asked(o, "move", mark));
+    expect(copied.filter((p) => final.has(p))).toEqual([]);
+    expect(ALWAYS.filter((p) => !final.has(p))).toEqual([]);
+    expectStageIsOldHome(o, n);
+  });
+
+  it("C4: while the lock waits for the live pass to end, every other verb is refused, and the lock then goes on", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    const held = g.hold(liveBatch(0), 400);
+    const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
+    const preflightId = await toConfirm(o, n);
+    await held.reached;
+    const locking = n.moveIn.lock({ preflightId, by: OWNER });
+    await Bun.sleep(60);
+    // The condition: the lock still waits (no lock sent yet).
+    expect(paths(o, "/api/move/lock")).toBe(0);
+    const others = await Promise.all([
+      n.moveIn.rerunPreflight({ by: OWNER }),
+      n.moveIn.copyLive({ by: OWNER }),
+      n.moveIn.lock({ preflightId, by: OWNER }),
+      n.moveIn.retryPull({ by: OWNER }),
+      n.moveIn.finish({
+        acceptMissing: false,
+        by: OWNER,
+        requestOrigin: "https://new.example.com",
+      }),
+    ]);
+    expect(
+      others.map((a) => [a.ok, (a as { status?: number }).status]),
+    ).toEqual(Array(5).fill([false, 409]));
+    expect((await locking).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    expect(paths(o, "/api/move/lock")).toBe(1);
+  });
+
+  it("C4: a cancel while the lock waits for the live pass ends both: the lock answers cancelled, nothing is locked, nothing is left", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    const held = g.hold(liveBatch(0), 400);
+    const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
+    const preflightId = await toConfirm(o, n);
+    await held.reached;
+    const locking = n.moveIn.lock({ preflightId, by: OWNER });
+    await Bun.sleep(60);
+    expect((await n.moveIn.cancel({ by: OWNER })).ok).toBe(true);
+    const answer = await locking;
+    expect([answer.ok, errCode(answer)]).toEqual([false, "cancelled"]);
+    await n.moveIn.settled();
+    await Bun.sleep(500);
+    expect(paths(o, "/api/move/lock")).toBe(0);
+    expect(o.state()).toBe("paired");
+    expect(n.moveIn.status().phase).toBe("none");
+    expect(leftovers(n)).toEqual([]);
+  });
+
+  it("C5: a cancel during the live pass leaves no stage and no ledger, also when a batch ends after it", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    const held = g.hold(liveBatch(1), 300);
+    const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
+    await toConfirm(o, n);
+    await held.reached;
+    // The condition: a batch came whole before the cancel.
+    expect(asked(o, "paired").length).toBeGreaterThan(0);
+    expect((await n.moveIn.cancel({ by: OWNER })).ok).toBe(true);
+    await n.moveIn.settled();
+    await Bun.sleep(600);
+    expect(n.moveIn.status().phase).toBe("none");
+    expect(leftovers(n)).toEqual([]);
+  });
+
+  it("C6: a preflight again that ends after the live pass changed keeps the live pass's phase", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    const held = g.hold(liveBatch(0));
+    const n = newOffice(o, { fetch: g.fetch });
+    await toConfirm(o, n);
+    await held.reached;
+    const releasePreflight = o.holdPreflight();
+    cleanups.push(releasePreflight);
+    expect((await n.moveIn.rerunPreflight({ by: OWNER })).ok).toBe(true);
+    held.release();
+    await waitLive(n, ["ready"]);
+    // The condition: the preflight again was still running then.
+    expect(n.moveIn.status().phase).toBe("preflight");
+    releasePreflight();
+    await waitPhase(n.moveIn, ["confirm", "failed"]);
+    expect([n.moveIn.status().phase, liveOf(n)?.phase]).toEqual([
+      "confirm",
+      "ready",
+    ]);
+  });
+
+  it("an old-stage file swapped for a link between the passes is fetched again; the link's target is never read or written", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const n = newOffice(o);
+    await toConfirm(o, n);
+    const preflightId = await liveReady(n);
+    const outside = join(dir, "outside.txt");
+    writeFileSync(outside, "OUTSIDE");
+    const staged = join(stageOf(n), "docs/a.txt");
+    // The condition: the live pass copied it.
+    expect(readFileSync(staged, "utf8")).toBe("alpha");
+    rmSync(staged);
+    symlinkSync(outside, staged);
+    const mark = o.log.length;
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    expect(asked(o, "move", mark)).toContain("docs/a.txt");
+    expect(readFileSync(outside, "utf8")).toBe("OUTSIDE");
+    expectStageIsOldHome(o, n);
+  });
+
+  it("the pull again after a failed final pass keeps what the passes copied", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const g = liveGate(o);
+    const n = newOffice(o, { fetch: g.fetch });
+    await toConfirm(o, n);
+    const preflightId = await liveReady(n);
+    g.fail(
+      (m) =>
+        m.path === "/api/move/batch" &&
+        m.state === "move" &&
+        (m.body ?? "").includes(".claude/.credentials.json"),
+    );
+    expect((await n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    const failed = await waitPhase(n.moveIn, [...TERMINAL], 15_000);
+    expect([
+      failed.phase,
+      (failed as { retryable?: boolean }).retryable,
+    ]).toEqual(["failed", true]);
+    g.fail(null);
+    const mark = o.log.length;
+    expect((await n.moveIn.retryPull({ by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    const again = new Set(asked(o, "move", mark));
+    expect(again.has(".claude/.credentials.json")).toBe(true);
+    expect(
+      ["files/f000.bin", "files/f003.bin", "big.bin"].filter((p) =>
+        again.has(p),
+      ),
+    ).toEqual([]);
+    expectStageIsOldHome(o, n);
+  });
+
+  it("Copy again runs the live pass again on what changed; a second one while it runs is refused", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const o = oldOffice("old", { live: true });
+    const n = newOffice(o);
+    await toConfirm(o, n);
+    await liveReady(n);
+    writeFileSync(join(o.home, "docs/a.txt"), "alpha 2");
+    const mark = o.log.length;
+    const [one, two] = await Promise.all([
+      n.moveIn.copyLive({ by: OWNER }),
+      n.moveIn.copyLive({ by: OWNER }),
+    ]);
+    expect([one.ok, two.ok, (two as { status?: number }).status]).toEqual([
+      true,
+      false,
+      409,
+    ]);
+    await waitFor(() => o.log.length > mark && liveOf(n)?.phase !== "ready");
+    await liveReady(n);
+    const again = asked(o, "paired", mark);
+    expect(again).toContain("docs/a.txt");
+    expect(again).not.toContain("files/f003.bin");
+    expect(again).not.toContain("data/app.sqlite");
+  });
+});
+
+/** What a cancelled move-in must not leave in its folder. */
+function leftovers(n: NewOffice): string[] {
+  const folder = join(n.home, MOVE_IN_DIR);
+  if (!existsSync(folder)) return [];
+  return readdirSync(folder).filter(
+    (name) => name.startsWith("stage") || name.startsWith("ledger"),
+  );
+}

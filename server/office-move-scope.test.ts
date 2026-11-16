@@ -21,6 +21,7 @@ import {
   moveScope,
   MOVE_BOUND_UNITS,
   MOVE_CARRIED_UNITS,
+  moveAlwaysFetch,
   type MoveScope,
   type MoveScopeVerdict,
 } from "./office-move-scope.ts";
@@ -316,5 +317,59 @@ describe("the records the first boot after a move-in reads", () => {
     expect(file(s, ".isomux/turns-in-flight.json")).toEqual(IN);
     expect(file(s, `.isomux/${LOCKDOWN_APPS_FILE}`)).toEqual(IN);
     expect(file(s, `.isomux/${LOCKDOWN_WAITING_APPS_FILE}`)).toEqual(IN);
+  });
+});
+
+// Slice 4: the final pass fetches a sign-in or secret file again even when
+// both manifests agree (a token kept stale breaks a sign-in after the move
+// with no sign), and every SQLite side-file name.
+describe("moveAlwaysFetch", () => {
+  it("is true for every path of every carried backup exclusion, so a new carried store is covered by its own globs", () => {
+    const s = scope();
+    const carried = new Set<string>(MOVE_CARRIED_UNITS);
+    const samples = BACKUP_EXCLUSIONS.filter((e) => carried.has(e.id)).flatMap(
+      (e) =>
+        e
+          .archivePatterns(".isomux")
+          .map((g) => [e.id, g.replace(/\\(.)/g, "$1").replace(/\*/g, "x")]),
+    );
+    // The condition: the carried list reaches the backup exclusions.
+    expect(samples.length).toBeGreaterThan(10);
+    expect(samples.filter(([, p]) => !moveAlwaysFetch(s, p))).toEqual([]);
+  });
+
+  it("is true for the backend sign-ins at any depth, the home's .ssh and gh, the API tokens and the SQLite side-file names", () => {
+    const s = scope();
+    const yes = [
+      ".claude/.credentials.json",
+      "work/.claude/.credentials.json",
+      ".codex/auth.json",
+      ".ssh/id_ed25519",
+      ".ssh/known_hosts",
+      ".ssh/config",
+      ".config/gh/hosts.yml",
+      ".isomux/api-tokens.json",
+      ".isomux/secrets/office.json",
+      "data/app.sqlite-wal",
+      "data/app.sqlite-shm",
+      "notes/day-journal",
+    ];
+    expect(yes.filter((p) => !moveAlwaysFetch(s, p))).toEqual([]);
+  });
+
+  it("is false for the rest, and a name that only starts like one", () => {
+    const s = scope();
+    const no = [
+      "docs/a.txt",
+      ".isomux/agents.json",
+      "work/secrets/plan.md",
+      ".sshkeys",
+      ".ssh-old/id_rsa",
+      ".config/ghost/x",
+      ".isomux/api-tokens.json.bak",
+      "data/wal.txt",
+      "data/journal",
+    ];
+    expect(no.filter((p) => moveAlwaysFetch(s, p))).toEqual([]);
   });
 });

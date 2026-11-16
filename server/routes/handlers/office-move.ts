@@ -71,6 +71,10 @@ export function officeMoveHandlers(
         ...(current.state !== "code"
           ? { pairedAt: current.pairedAt, newBox: current.newBox }
           : {}),
+        // Slice 4: the new office has copied a part of this office.
+        ...(current.state !== "code" && current.servedAt !== undefined
+          ? { servedAt: current.servedAt }
+          : {}),
       });
     },
     // The new office (slice 2b): the owner pastes the old office's code.
@@ -119,6 +123,12 @@ export function officeMoveHandlers(
         }),
       );
     },
+    "office.copyMoveInLive": async (ctx) =>
+      answer(
+        await deps.moveIn().copyLive({
+          by: auditActor(ctx.identity, deps.byName(ctx.identity)),
+        }),
+      ),
     "office.retryMoveIn": async (ctx) =>
       answer(
         await deps.moveIn().retryPull({

@@ -484,6 +484,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "office.rerunMoveInPreflight",
       "office.lockMoveIn",
       "office.finishMoveIn",
+      "office.copyMoveInLive",
       "office.retryMoveIn",
       "office.cancelMoveIn",
       "office.getSettings",

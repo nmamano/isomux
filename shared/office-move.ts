@@ -77,6 +77,33 @@ export interface MoveInProgress {
   batchesDone: number;
   batchesTotal: number;
   retries: number;
+  /** Slice 4: files and bytes an earlier pass already copied, kept without
+   *  a fetch. */
+  filesKept?: number;
+  bytesKept?: number;
+}
+
+/** Slice 4: the copy while the old office still runs (the live pass). */
+export type MoveInLivePhase =
+  | "manifest"
+  | "copying"
+  /** Done: the lock's pass fetches only what changed since. */
+  | "ready"
+  /** The lock stopped it; what it copied whole is kept. */
+  | "stopped"
+  | "failed"
+  /** The old office's release cannot serve it: the lock's pass copies
+   *  everything. */
+  | "unsupported";
+
+export interface MoveInLive {
+  phase: MoveInLivePhase;
+  startedAt: number;
+  finishedAt?: number;
+  manifestId?: string;
+  error?: { code: string; message: string };
+  /** In the status only, while it copies. */
+  progress?: MoveInProgress;
 }
 
 /** What the report starts with (the rest is filled at the swap and at the
@@ -162,6 +189,8 @@ export type MoveInStatus =
       oldOfficeLocked: boolean;
       preflightId?: string;
       preflight?: MoveInPreflight;
+      /** Slice 4, phases `preflight` and `confirm`. */
+      live?: MoveInLive;
       lockedAt?: number | null;
       progress?: MoveInProgress;
       result?: MoveStageCheck;
@@ -197,6 +226,9 @@ export interface OfficeMoveRes {
   state: "none" | "code" | "paired" | "move";
   expiresAt?: number | null;
   pairedAt?: number;
+  /** Slice 4: when the new office first copied a part of this office (in
+   *  `paired`, while it still runs, or in `move`). */
+  servedAt?: number;
   newBox?: {
     release: string | null;
     commit: string | null;

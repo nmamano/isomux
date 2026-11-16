@@ -16,6 +16,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -29,7 +30,10 @@ import type { MoveManifestEntry, MoveRecordEvent } from "./office-move-pull.ts";
 import {
   createMoveStage,
   isSafeMovePath,
+  MOVE_IN_LEDGER,
   MoveStageError,
+  readMoveLedger,
+  type MoveLedgerRow,
   type MoveStage,
   type MoveStageItem,
 } from "./office-move-stage.ts";
@@ -604,4 +608,189 @@ console.log(JSON.stringify({ complete: c.complete, fifo: true }));
       out: JSON.stringify({ complete: false, fifo: true }),
     });
   }, 15_000);
+});
+
+// Slice 4: every pass builds on the last one. A pass writes a ledger of the
+// regular files that came whole and clean, with the values of ITS manifest
+// ([R] the next pass compares manifests, never a stat); the next pass moves
+// such a file from the old stage into its own only when it is still the
+// file the row names.
+describe("slice 4: the ledger", () => {
+  async function rowsOf(file: string): Promise<MoveLedgerRow[]> {
+    const out: MoveLedgerRow[] = [];
+    for await (const r of readMoveLedger(file)) out.push(r);
+    return out;
+  }
+
+  it("lists, in manifest order whatever order the batches came in, only the files that came whole and clean, with the manifest's size and mtime", async () => {
+    const { stage, root } = fresh();
+    const five = Buffer.from("12345");
+    const big = Buffer.alloc(300, 3);
+    const e = {
+      docs: d("docs"),
+      a: f("docs/a", 5),
+      b: f("b", 5),
+      big: f("big", 300),
+      changed: f("c-changed", 5),
+      err: f("d-err", 5),
+      short: f("e-short", 5),
+      mtime: f("g-mtime", 5),
+      part: f("h-part", 300),
+      ln: l("ln", "b"),
+      z: f("z", 5),
+    };
+    const entries = Object.values(e);
+    prepareAll(stage, entries);
+    const write = (
+      n: number,
+      entry: MoveManifestEntry,
+      events: MoveRecordEvent[],
+      range?: { offset: number; length: number },
+    ) => stage.writeBatch({ n, items: [item(entry, range)] }, each(events));
+    // Last entry first: the batches end out of manifest order.
+    await write(0, e.z, itemEvents(e.z, five));
+    const [head, data] = itemEvents(e.changed, five);
+    await write(1, e.changed, [
+      head,
+      data,
+      { type: "end", bytes: 5, sha256: sha(five), changed: true },
+    ]);
+    await write(2, e.err, [{ type: "error", path: e.err.p, error: "EACCES" }]);
+    await write(3, e.short, itemEvents(e.short, Buffer.from("1234")));
+    // C1: the bytes of a later version (another mtime), at the same size.
+    await write(4, e.mtime, itemEvents({ ...e.mtime, m: MTIME + 1000 }, five));
+    for (const n of [0, 1])
+      await write(
+        10 + n,
+        e.part,
+        itemEvents(e.part, big.subarray(n * 100, n * 100 + 100), {
+          offset: n * 100,
+        }),
+        { offset: n * 100, length: 100 },
+      );
+    for (const n of [2, 0, 1])
+      await write(
+        20 + n,
+        e.big,
+        itemEvents(e.big, big.subarray(n * 100, n * 100 + 100), {
+          offset: n * 100,
+        }),
+        { offset: n * 100, length: 100 },
+      );
+    await write(30, e.b, itemEvents(e.b, five));
+    await write(31, e.a, itemEvents(e.a, five));
+
+    const file = join(dir, MOVE_IN_LEDGER);
+    const count = await stage.writeLedger(each(entries), file);
+    const ino = (p: string) => lstatSync(join(root, p)).ino;
+    const want = ["docs/a", "b", "big", "z"].map((p) => {
+      const m = entries.find((x) => x.p === p)!;
+      return { p, s: m.s, m: m.m, ino: ino(p) };
+    });
+    expect(await rowsOf(file)).toEqual(want);
+    expect(count).toBe(4);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("a line that does not parse ends the ledger", async () => {
+    dir = mkdtempSync(join(tmpdir(), "office-move-stage-"));
+    const file = join(dir, MOVE_IN_LEDGER);
+    const row = (p: string) => JSON.stringify({ p, s: 1, m: MTIME, ino: 7 });
+    writeFileSync(file, `${row("a")}\n${row("b")}\n{"p":\n${row("c")}\n`);
+    expect((await rowsOf(file)).map((r) => r.p)).toEqual(["a", "b"]);
+  });
+});
+
+describe("slice 4: keep", () => {
+  /** A first pass's stage with docs/a and b copied whole, and its rows. */
+  async function firstPass(): Promise<{
+    prevRoot: string;
+    rows: Map<string, MoveLedgerRow>;
+    entries: MoveManifestEntry[];
+  }> {
+    dir = mkdtempSync(join(tmpdir(), "office-move-stage-"));
+    const prevRoot = join(dir, "stage.prev");
+    const prev = createMoveStage(prevRoot);
+    const entries = [d("docs"), f("docs/a", 5), f("b", 4)];
+    prepareAll(prev, entries);
+    await prev.writeBatch(
+      { n: 0, items: [item(entries[1]), item(entries[2])] },
+      each([
+        ...itemEvents(entries[1], Buffer.from("alpha")),
+        ...itemEvents(entries[2], Buffer.from("beta")),
+      ]),
+    );
+    const file = join(dir, "ledger.prev.ndjson");
+    await prev.writeLedger(each(entries), file);
+    const rows = new Map<string, MoveLedgerRow>();
+    for await (const r of readMoveLedger(file)) rows.set(r.p, r);
+    return { prevRoot, rows, entries };
+  }
+
+  it("moves a file the row names into the new stage, and the check counts it whole", async () => {
+    const { prevRoot, rows, entries } = await firstPass();
+    const root = join(dir, "stage");
+    const stage = createMoveStage(root);
+    stage.prepare(entries[0]);
+    const inoBefore = lstatSync(join(prevRoot, "docs/a")).ino;
+    expect(stage.keep(entries[1], prevRoot, rows.get("docs/a")!)).toBe(true);
+    expect(stage.keep(entries[2], prevRoot, rows.get("b")!)).toBe(true);
+    expect(readFileSync(join(root, "docs/a"), "utf8")).toBe("alpha");
+    expect(lstatSync(join(root, "docs/a")).ino).toBe(inoBefore);
+    expect(existsSync(join(prevRoot, "docs/a"))).toBe(false);
+    await stage.finish(each(entries));
+    const check = await stage.check(each(entries));
+    expect({ complete: check.complete, missing: check.missing }).toEqual({
+      complete: true,
+      missing: [],
+    });
+  });
+
+  it("keeps nothing, follows nothing and leaves nothing in place when the old stage's entry is a link, another file, gone, or under a linked folder; the caller then prepares it", async () => {
+    const { prevRoot, rows, entries } = await firstPass();
+    const outside = join(dir, "outside");
+    mkdirSync(outside);
+    // b: a link to a file outside with the same bytes.
+    writeFileSync(join(outside, "b"), "beta");
+    const outsideIno = lstatSync(join(outside, "b")).ino;
+    rmSync(join(prevRoot, "b"));
+    symlinkSync(join(outside, "b"), join(prevRoot, "b"));
+    // docs: the folder moved outside (its file keeps its inode), a link in
+    // its place.
+    renameSync(join(prevRoot, "docs"), join(outside, "docs"));
+    symlinkSync(join(outside, "docs"), join(prevRoot, "docs"));
+    const root = join(dir, "stage");
+    const stage = createMoveStage(root);
+    stage.prepare(entries[0]);
+    expect(stage.keep(entries[1], prevRoot, rows.get("docs/a")!)).toBe(false);
+    expect(stage.keep(entries[2], prevRoot, rows.get("b")!)).toBe(false);
+    // The condition: the moved file has the row's inode.
+    expect(lstatSync(join(outside, "docs/a")).ino).toBe(
+      rows.get("docs/a")!.ino,
+    );
+    expect(existsSync(join(root, "docs/a"))).toBe(false);
+    expect(existsSync(join(root, "b"))).toBe(false);
+    expect(readFileSync(join(outside, "docs/a"), "utf8")).toBe("alpha");
+    expect(lstatSync(join(outside, "b")).ino).toBe(outsideIno);
+    // The caller prepares them, as for a file no pass copied.
+    stage.prepare(entries[1]);
+    stage.prepare(entries[2]);
+    expect(lstatSync(join(root, "b")).isFile()).toBe(true);
+  });
+
+  it("keeps nothing when the file was replaced (another inode, written first and renamed over) or is gone", async () => {
+    const { prevRoot, rows, entries } = await firstPass();
+    // Written first, then renamed over: the freed inode is not reused.
+    writeFileSync(join(prevRoot, "b.new"), "beta");
+    renameSync(join(prevRoot, "b.new"), join(prevRoot, "b"));
+    expect(lstatSync(join(prevRoot, "b")).ino).not.toBe(rows.get("b")!.ino);
+    rmSync(join(prevRoot, "docs/a"));
+    const root = join(dir, "stage");
+    const stage = createMoveStage(root);
+    stage.prepare(entries[0]);
+    expect(stage.keep(entries[1], prevRoot, rows.get("docs/a")!)).toBe(false);
+    expect(stage.keep(entries[2], prevRoot, rows.get("b")!)).toBe(false);
+    expect(existsSync(join(root, "b"))).toBe(false);
+    expect(existsSync(join(prevRoot, "b"))).toBe(true);
+  });
 });

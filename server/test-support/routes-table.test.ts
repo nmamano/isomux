@@ -1848,6 +1848,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "office.finishMoveIn": { caps: ["office:admin"], emits: [] },
   "office.getMoveIn": { caps: ["office:rescue"], emits: [] },
   "office.rerunMoveInPreflight": { caps: ["office:rescue"], emits: [] },
+  "office.copyMoveInLive": { caps: ["office:rescue"], emits: [] },
   "office.retryMoveIn": { caps: ["office:rescue"], emits: [] },
   "office.cancelMoveIn": { caps: ["office:rescue"], emits: [] },
   // Office settings, validation, backends
@@ -2362,6 +2363,7 @@ const APP_REFUSED_OPIDS = [
   "office.cancelMove",
   "office.getMoveIn",
   "office.rerunMoveInPreflight",
+  "office.copyMoveInLive",
   "office.retryMoveIn",
   "office.cancelMoveIn",
 ];

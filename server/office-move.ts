@@ -47,6 +47,8 @@ export const MOVE_IN_STATE_FILE = "office-move-in.json";
 /** The folder under the office user's home that holds a move-in (the
  *  stage, the manifest). */
 export const MOVE_IN_DIR = ".isomux-move-in";
+/** The move's scratch folder in the state root (manifests, snapshots). */
+export const MOVE_SCRATCH_DIR = "move-pull";
 export const MOVE_CODE_PREFIX = "isomux-move-1.";
 /** How long the new box has to redeem a code. */
 export const MOVE_CODE_TTL_MS = 60 * 60_000;
@@ -83,6 +85,10 @@ export interface MoveStatePaired extends MoveStateBase {
   pairedAt: number;
   sessionExpiresAt: number;
   newBox: MoveBoxInfo;
+  /** Epoch ms of the first batch served: from then on the new office may
+   *  hold a copy. Slice 4: set in "paired" by the live pass, and the lock
+   *  keeps it. */
+  servedAt?: number;
 }
 
 export interface MoveStateMove extends Omit<MoveStatePaired, "state"> {
@@ -90,9 +96,6 @@ export interface MoveStateMove extends Omit<MoveStatePaired, "state"> {
   lockedAt: number;
   /** The preflight the owner agreed to. */
   preflightId: string;
-  /** Epoch ms of the first batch served (slice 2a): from then on the new
-   *  office may hold a copy. */
-  servedAt?: number;
 }
 
 /** The new office confirmed a complete, checked copy (slice 2a). Terminal:
@@ -466,12 +469,16 @@ export function markMoveLocked(
   return moved;
 }
 
-/** Records the first batch served ("move" only; later calls keep the first
- *  time). Returns true when this call set it (the caller audits
- *  office.movePulled once). */
+/** Records the first batch served ("paired", the live pass of slice 4, or
+ *  "move"; later calls keep the first time). Returns true when this call set
+ *  it (the caller audits office.movePulled once). */
 export function markMoveServed(stateRoot: string, now: Date): boolean {
   const current = readStateFile(stateRoot);
-  if (!current || current.state !== "move" || current.servedAt !== undefined)
+  if (
+    !current ||
+    (current.state !== "move" && current.state !== "paired") ||
+    current.servedAt !== undefined
+  )
     return false;
   writeMoveState(stateRoot, { ...current, servedAt: now.getTime() });
   return true;
@@ -583,6 +590,8 @@ export function clearMoveCancelled(stateRoot: string): void {
  *  deleted. */
 export function killMoveForLockdown(stateRoot: string): boolean {
   rmSync(join(stateRoot, MOVE_LOCK_MARKER), { force: true });
+  // Slice 4: the pull's scratch lists every path.
+  rmSync(join(stateRoot, MOVE_SCRATCH_DIR), { recursive: true, force: true });
   const path = join(stateRoot, MOVE_STATE_FILE);
   if (!existsSync(path)) return false;
   rmSync(path, { force: true });

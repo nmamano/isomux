@@ -2264,6 +2264,7 @@ export const zh: Catalog = {
   "apiCall.office.cancelMove": "取消办公室迁移",
   "apiCall.office.getMoveIn": "查看迁入本办公室",
   "apiCall.office.rerunMoveInPreflight": "重新检查旧办公室",
+  "apiCall.office.copyMoveInLive": "在旧办公室运行时重新复制",
   "apiCall.office.retryMoveIn": "重新复制旧办公室",
   "apiCall.office.cancelMoveIn": "取消迁入本办公室",
   "apiCall.rooms.readInstructions": "读取房间指令",

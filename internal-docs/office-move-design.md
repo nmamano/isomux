@@ -8,9 +8,9 @@ The full slice plan and the gaps of the manual move of 2026-11-15 are in the tas
 
 1. An owner mints a move code on the running old office (`POST /api/office/move/code`, owner browser session only).
 2. The new office redeems it (`POST /api/move/redeem`) and gets a move session. That pairs the two offices.
-3. The new office runs the preflight on the old office and shows it to the owner.
+3. The new office runs the preflight on the old office and shows it to the owner. Then it copies the old office while it still runs (the live pass, slice 4a).
 4. After the owner's yes, the new office locks the old office for the move (`POST /api/move/lock`).
-5. The new office pulls the old office's home into a stage and checks it (slice 2b).
+5. The new office pulls the old office's home into a stage, keeps what the live pass copied and did not change since, and checks it (slices 2b and 4a).
 6. The owner finishes: the new office sends `done` (the old office is MOVED), restarts, and swaps the stage in at boot (slice 2c-1).
 
 The owner does steps 1, 2, 4 and 6 in Settings > Move office (slice 2c-2, below).
@@ -62,7 +62,7 @@ The office lock does not stop units that agents or members made, for example a t
 
 - At the lock: `move-units.json` (0600) records each unit before any change. Units that are exactly `enabled` are disabled with `--now`: under linger, a stopped unit starts again at boot. The other active units are stopped. A linked unit is only stopped, because `disable` removes its link. Transient units are recorded with their command, folder and environment, read from the unit's fragment (`systemctl cat`): `systemctl show` prints the command without quotes, so `bash -c 'a; b'` would lose its words. A command the move cannot read exactly is recorded as unreadable, and the restore reports it.
 - At the first normal boot after a cancel, or after a lockdown that won and was unlocked: `enable` for exactly `enabled`, `start` for what was active, `systemd-run` for transient units. A unit that cannot start again is logged.
-- Testing: a live run of the lock (the live pass of slice 4 included) never runs under a user manager that other work shares, such as a development box's office user: the lock stops every transient unit of that manager.
+- Testing: a live run of the lock (the live pass of slice 4a included) never runs under a user manager that other work shares, such as a development box's office user: the lock stops every transient unit of that manager.
 
 ## Cancel and lockdown
 
@@ -73,7 +73,7 @@ The office lock does not stop units that agents or members made, for example a t
 
 Slice 2 is split in four merges: 2a, the old office serves the pull while it is locked for the move, and the MOVED state; 2b, the new office's side (the owner flow, the pull into a staging folder, the check); 2c-1, `done`, the swap at boot, the accounts, the after-move report, the units and the wake; 2c-2, the UI on both offices.
 
-The pull routes exist only in the MOVE-locked server (state `move`, or `moved` for the status). Each takes the move session. In another state they answer 409 `not_locked`.
+The pull routes are served by the MOVE-locked server (state `move`) and, for the live pass (slice 4a), by the running office in `paired`; `done` needs `move`. Each takes the move session. In another state they answer 409 `not_locked`. One function serves both (`servePull`, `server/move-locked-office.ts`).
 
 ### Scope
 
@@ -81,7 +81,7 @@ One predicate (`moveScope`, `server/office-move-scope.ts`) decides for the walk 
 
 - Out, not counted: `.cache`, `.bun`, `.npm/_cacache`, `go/pkg/mod`, `.cargo/registry`; the code folder and the backup folder when they are in the home; the move's own files in the state root and its scratch folder `move-pull/`; sockets, fifos and devices (counted as skipped); the `-wal`, `-shm` and `-journal` of a SQLite file, only when the file without the suffix is a SQLite database (a member's `day-journal` moves). The predicate does not touch the disk, so the walk and the batch apply this last rule.
 - Out as a bound unit (slice 3), counted per unit for the after-move report, and kept from the new box by the swap: the files bound to the old office's origin, each with its `.tmp` and `.corrupt-*` siblings in the state root (`sessions.json` browser-sessions, `app-sessions.json`, `invites.json`, `browser-connections.json` extension-pairings, `web-push.json`), and the home's own `.ssh/authorized_keys` and `authorized_keys2` (ssh-authorized-keys: the Hosted control plane writes its own line in the new box's file, and the old box's keys must not open the new box). The bound rules match first.
-- Sign-ins and secrets move (slice 3): every id of `BACKUP_EXCLUSIONS` and `BACKEND_CREDENTIAL_PATHS` is in `MOVE_CARRIED_UNITS` or `MOVE_BOUND_UNITS`, and a test fails for an id in neither. An id in neither stays on the old box under its own id. The rest of `.ssh`, `.config/gh` and `api-tokens.json` move. The old box keeps its copies, locked. Slice 4's live pass must fetch the credential files again in the final pull: a token refresh between the two pulls changes them (the manifest compare catches it when the size or mtime moved).
+- Sign-ins and secrets move (slice 3): every id of `BACKUP_EXCLUSIONS` and `BACKEND_CREDENTIAL_PATHS` is in `MOVE_CARRIED_UNITS` or `MOVE_BOUND_UNITS`, and a test fails for an id in neither. An id in neither stays on the old box under its own id. The rest of `.ssh`, `.config/gh` and `api-tokens.json` move. The old box keeps its copies, locked. The final pass fetches the credential files again even when the manifests agree (slice 4a, `moveAlwaysFetch`).
 - Hard links arrive as separate files (as with an rsync without `-H`).
 
 ### Routes
@@ -122,7 +122,8 @@ AES-256-GCM. Each response starts with a fresh random 32-byte salt. The response
 - A cancel while a start or a preflight again waits for the old office wins: that request writes nothing and answers 409 `cancelled`. A cancel while a finish runs answers 409 `move_in_finishing`: the finish may already have sent `done`.
 - `POST /api/office/move-in/lock {preflightId}` (owner browser session): the owner's yes. The freshness check again, then the lock. A refusal of the old office (`turns_changed`, `preflight_stale`) passes through, and the phase stays `confirm`.
 - `POST /api/office/move-in/finish {acceptMissing?}` (owner browser session, slice 2c-1): below, "Finish and the swap".
-- `POST /api/office/move-in/pull`: runs a `failed` move again when it is retryable. It asks the old office first: `move` pulls from the start (the stage is wiped), `paired` goes back to `confirm` (the lock never arrived), anything else fails for good.
+- `POST /api/office/move-in/pull`: runs a `failed` move again when it is retryable. It asks the old office first: `move` pulls again (keeping what the last pass copied, slice 4a), `paired` goes back to `confirm` (the lock never arrived), anything else fails for good.
+- `POST /api/office/move-in/live` (slice 4a): the live pass again, in `confirm` with no live pass running.
 - `DELETE /api/office/move-in`: deletes the state file and the move-in folder. After the lock, the old office stays locked until its owner cancels with the code. Refused while the move ends (`finishing`, `swapping`). In `moved` it deletes the report and the fresh office set aside.
 
 One move-in at a time: an in-process guard set before the first await.
@@ -143,6 +144,30 @@ Every request goes to the code's origin with `redirect: "error"` (the session mu
 4. Batches of at most 64 MiB and 800 KB of item JSON, 3 at a time. A file over 64 MiB that is not SQLite goes in ranges, one per batch. A batch writes by position into the file pass 1 made (`O_WRONLY|O_NOFOLLOW|O_NONBLOCK`, so a fifo put in the stage cannot block the office; fstat dev/ino checked, the parent's realpath checked), so a retry rewrites its own bytes. The record stream must match the request (order, regular files only, the SQLite flag, the offset, no more bytes than asked); otherwise the whole batch fails and runs again, up to 3 times. An error record of the old office is not asked again.
 5. Then modes and mtimes of files by fd (setuid and setgid dropped), then the links (never followed), then folders deepest first.
 6. The check comes from the ledger of trailers: each item has one end with the length asked (the manifest size, or for SQLite the trailer's bytes, which the file on disk must have); lstat of the stage comes second. The old office's unreadable paths are missing too. Complete: `staged` and an audit row `office.moveInStaged`; else `incomplete` with the missing paths.
+
+## The live pass (slice 4a)
+
+The same pull twice: a live pass while the old office still runs, then the final pass after the lock fetches only what changed. The manual move of 2026-11-15 took 28.6 min live and 4.6 min after the lock.
+
+### The old office
+
+- The running office serves `manifest`, its status and data, and `batch` in `paired` (`OfficeMoveRouteDeps.pull`, the same scope and scratch folder as the MOVE-locked server).
+- In `paired` a batch takes no SQLite snapshot: a file whose first bytes are the SQLite magic gets an error record. The old office decides by the bytes it opens, not by the request.
+- `servedAt` is set at the first batch of either pass, and the lock keeps it. `office.movePulled` is audited once. `GET /api/office/move` shows `servedAt`; the MOVE page's warning that the new office may hold a copy follows it.
+- An ended pairing (expiry, the owner's cancel, a lockdown) aborts every walk and batch stream of the pairing (`endPull`) and deletes the scratch folder, which lists every path. The backup leaves the scratch folder out.
+
+### The new office
+
+- The live pass starts at the first `confirm` of a pairing, in its own job slot. Its state is `live` in phases `preflight` and `confirm`: `manifest`, `copying`, `ready`, `stopped` (the lock stopped it), `failed`, or `unsupported` (an old office of an older release answers 404). One writer each: `writeLive` for `live`, `writePre` for the phases, which reads `live` from the state at write time.
+- It asks for no SQLite file and does not finish or check the stage. When it is `ready`, the preflight runs again, so Lock works at once with a fresh preflight.
+- The lock sets the busy flag, stops the live pass and waits for its end, then locks. A cancel in that wait ends both, and the lock answers `cancelled`.
+
+### The ledger and the keep rule
+
+- After its batches, whatever the end except a cancel, a pass writes `<home>/.isomux-move-in/ledger.ndjson` in the order of its manifest: `{p, s, m, ino}` per regular file that came whole and clean (no error, not `changed`, the size of the manifest, and the header's mtime equal to the manifest's). So a row describes the bytes in the stage.
+- The next pass moves the stage and the ledger aside (`stage.prev`, `ledger.prev.ndjson`) and makes a new stage. It reads the ledger in step with its manifest (`compareMoveWalkOrder`, the walk's order), so its memory stays flat. A file is kept when the row has the same path, size and mtime as the new manifest, the file is not SQLite in the new manifest, and `moveAlwaysFetch` does not name it (the sign-ins and secrets that move, `.ssh`, `.config/gh`, `api-tokens.json`, and names that end in `-wal`, `-shm` or `-journal`). Then `stage.keep` checks the old stage's file (a regular file with the row's inode under a real folder), renames it into the new stage, and checks it again. Anything else is fetched. What stays in `stage.prev` is deleted.
+- The free-space check counts only what the pass fetches. A crash during a pass leaves no ledger: the next pass fetches everything.
+- Accepted gaps: a file rewritten with the same size and the same mtime is kept (the rsync rule; mtimes are compared below the millisecond). A change of mode only is not fetched: the final manifest's mode is applied. An append to a big file (an agent log) fetches the whole file again; ranges of a changed file are a later option.
 
 ## Finish and the swap (slice 2c-1)
 

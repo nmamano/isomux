@@ -13,11 +13,42 @@ import {
   readUnitsRecord,
   type MoveLockedOfficeOpts,
 } from "./move-locked-office.ts";
-import { createMoveManifestJobs } from "./office-move-pull.ts";
+import {
+  createMoveManifestJobs,
+  type MovePullDeps,
+} from "./office-move-pull.ts";
 import { MOVE_AUDIT_ACTOR } from "./office-move-routes.ts";
 import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
 import { createSecretStore } from "./secret-store.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
+
+/** The pull of this office: its scope, the manifest jobs and the batch
+ *  source. The MOVE-locked server serves it, and (slice 4) the running
+ *  office while paired. Manifests and snapshots of an earlier process are
+ *  stale, so the scratch folder starts empty: the new office starts its
+ *  pull again. */
+export function createMovePull(input: {
+  stateRoot: string;
+  home: string;
+  codeDir: string | null;
+  backupDir: string | null;
+  now(): Date;
+}): MovePullDeps {
+  const scope = createMoveScope(input);
+  const scratch = join(input.stateRoot, MOVE_SCRATCH_DIR);
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch, { recursive: true, mode: 0o700 });
+  return {
+    manifests: createMoveManifestJobs({
+      scope,
+      dir: scratch,
+      units: () => readUnitsRecord(input.stateRoot),
+      secretCount: () => countSecrets(input.stateRoot),
+      now: () => input.now(),
+    }),
+    batch: { scope, scratchDir: scratch, snapshot: moveSnapshot },
+  };
+}
 
 export function movePullForBoot(input: {
   stateRoot: string;
@@ -26,23 +57,8 @@ export function movePullForBoot(input: {
   backupDir: string;
   now(): Date;
 }): Required<Pick<MoveLockedOfficeOpts, "pull" | "audit">> {
-  const scope = createMoveScope(input);
-  // Manifests and snapshots of an earlier process are stale: the new office
-  // starts its pull again.
-  const scratch = join(input.stateRoot, MOVE_SCRATCH_DIR);
-  rmSync(scratch, { recursive: true, force: true });
-  mkdirSync(scratch, { recursive: true, mode: 0o700 });
   return {
-    pull: {
-      manifests: createMoveManifestJobs({
-        scope,
-        dir: scratch,
-        units: () => readUnitsRecord(input.stateRoot),
-        secretCount: () => countSecrets(input.stateRoot),
-        now: () => input.now(),
-      }),
-      batch: { scope, scratchDir: scratch, snapshot: moveSnapshot },
-    },
+    pull: createMovePull(input),
     // No audit store is open in the MOVE-locked server: open it for the
     // write only.
     audit: ({ operation }) => {

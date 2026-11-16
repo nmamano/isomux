@@ -137,6 +137,7 @@ export const AUDIT_OPERATIONS = [
   "office.lockForMove",
   "office.lockMoveIn",
   "office.finishMoveIn",
+  "office.copyMoveInLive",
   "office.mintMoveCode",
   "office.moveDone",
   "office.moveExpired",

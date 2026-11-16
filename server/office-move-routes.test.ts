@@ -37,8 +37,21 @@ import {
   type MovePreflightResult,
   type TurnInFlight,
 } from "./office-move-preflight.ts";
-import { createOfficeMoveFrontDoor } from "./office-move-routes.ts";
+import {
+  createOfficeMoveFrontDoor,
+  type OfficeMoveFrontDoor,
+} from "./office-move-routes.ts";
 import { MOVE_UNITS_FILE, type AgentUnit } from "./office-move-units.ts";
+import {
+  createMoveManifestJobs,
+  moveItemsHash,
+  openMoveStream,
+  readMoveRecords,
+} from "./office-move-pull.ts";
+import { Database } from "bun:sqlite";
+import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
+import { moveLockedResponse } from "./move-locked-office.ts";
+import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
 let dir = "";
 afterEach(() => {
@@ -67,6 +80,11 @@ const OFF_BOX = { onBox: false, client: "203.0.113.9" };
 
 interface Bed {
   root: string;
+  /** The home the pull walks (slice 4), and the move scratch folder. */
+  home: string;
+  scratch: string;
+  door: OfficeMoveFrontDoor;
+  pull: NonNullable<Parameters<typeof createOfficeMoveFrontDoor>[0]["pull"]>;
   clock: { now: number };
   turns: TurnInFlight[];
   restart: { value: string | null };
@@ -129,7 +147,26 @@ function bed(): Bed {
     aptHistoryPath: join(dir, "no-apt-log"),
     now: () => clock.now,
   });
+  // Slice 4: the pull of the running office, over the box's home.
+  const scope = createMoveScope({
+    home: dir,
+    stateRoot: root,
+    codeDir: null,
+    backupDir: null,
+  });
+  const scratch = join(root, MOVE_SCRATCH_DIR);
+  const pull = {
+    manifests: createMoveManifestJobs({
+      scope,
+      dir: scratch,
+      units: () => [],
+      secretCount: () => 0,
+      now: () => new Date(clock.now),
+    }),
+    batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
+  };
   const door = createOfficeMoveFrontDoor({
+    pull,
     stateRoot: root,
     ours: () => BOX,
     preflight,
@@ -150,6 +187,10 @@ function bed(): Bed {
   });
   return {
     root,
+    home,
+    scratch,
+    door,
+    pull,
     clock,
     turns,
     restart,
@@ -713,5 +754,281 @@ describe("the redeem and the state root", () => {
     } finally {
       rmSync(linkedHome, { force: true });
     }
+  });
+});
+
+// Slice 4 (the live pass): the running office serves the pull in `paired`,
+// to the move session only, so the new office copies before the lock. done
+// stays MOVE-only. servedAt and its one audit row cover both passes, and an
+// ended pairing ([R] C3) stops what is in flight and deletes the scratch.
+describe("the pull while paired (slice 4)", () => {
+  async function readyManifest(b: Bed, session: string): Promise<string> {
+    const started = await b.call("POST", "/api/move/manifest", { session });
+    if (started.status !== 202)
+      throw new Error(`manifest: ${JSON.stringify(started)}`);
+    const id = started.body!.id as string;
+    const deadline = performance.now() + 5_000;
+    for (;;) {
+      const st = await b.call(
+        "GET",
+        `/api/move/manifest/${encodeURIComponent(id)}`,
+        { session },
+      );
+      if (st.body?.state === "ready") return id;
+      if (st.body?.state === "failed" || performance.now() > deadline)
+        throw new Error(`manifest: ${JSON.stringify(st)}`);
+      await Bun.sleep(5);
+    }
+  }
+  const batchBody = (manifestId: string, n = 0, path = "home/notes.txt") => ({
+    manifestId,
+    batch: n,
+    items: [{ path }],
+  });
+  const pulledAudits = (b: Bed) =>
+    b.audits.filter((a) => a === "office.movePulled").length;
+
+  it("serves the manifest, its data and a batch to the move session only; done waits for the lock", async () => {
+    const b = bed();
+    const session = await pair(b);
+    const none = await b.call("POST", "/api/move/manifest");
+    expect([none.status, code(none)]).toEqual([401, "move_session_invalid"]);
+    const id = await readyManifest(b, session);
+    const data = await b.call(
+      "GET",
+      `/api/move/manifest/${encodeURIComponent(id)}/data`,
+      { session },
+    );
+    expect(data.status).toBe(200);
+    const anon = await b.call("POST", "/api/move/batch", {
+      body: batchBody(id),
+    });
+    expect([anon.status, code(anon)]).toEqual([401, "move_session_invalid"]);
+    const got = await b.call("POST", "/api/move/batch", {
+      session,
+      body: batchBody(id),
+    });
+    expect(got.status).toBe(200);
+    const done = await b.call("POST", "/api/move/done", {
+      session,
+      body: { manifestId: id, newOrigin: "https://new.example.com" },
+    });
+    expect([done.status, code(done)]).toEqual([409, "not_locked"]);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
+      "paired",
+    );
+  });
+
+  it("the first batch sets servedAt and audits once; the lock keeps it, and the locked office's batches audit nothing more", async () => {
+    const b = bed();
+    const session = await pair(b);
+    const id = await readyManifest(b, session);
+    const at = b.clock.now;
+    expect(
+      (
+        await b.call("POST", "/api/move/batch", {
+          session,
+          body: batchBody(id),
+        })
+      ).status,
+    ).toBe(200);
+    b.clock.now += 1_000;
+    expect(
+      (
+        await b.call("POST", "/api/move/batch", {
+          session,
+          body: batchBody(id, 1),
+        })
+      ).status,
+    ).toBe(200);
+    const served = () =>
+      (
+        readMoveState(b.root, new Date(b.clock.now)).current as {
+          servedAt?: number;
+        } | null
+      )?.servedAt;
+    expect(served()).toBe(at);
+    expect(pulledAudits(b)).toBe(1);
+
+    const preflightId = await readyPreflight(b, session);
+    const locked = await b.call("POST", "/api/move/lock", {
+      session,
+      body: { preflightId },
+    });
+    expect(locked.status).toBe(202);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
+      "move",
+    );
+    expect(served()).toBe(at);
+
+    // The final pass, on the MOVE-locked server.
+    const lockedAudits: string[] = [];
+    const lockedCall = async (method: string, path: string, body?: unknown) => {
+      const res = await moveLockedResponse(
+        new Request(`https://old.example.com${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${session}`,
+            ...(body !== undefined
+              ? { "Content-Type": "application/json" }
+              : {}),
+          },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        }),
+        {
+          stateRoot: b.root,
+          requestStop: () => {},
+          now: () => new Date(b.clock.now),
+          pull: b.pull,
+          audit: (input) => lockedAudits.push(input.operation),
+        },
+      );
+      const text = await res.text();
+      let parsed: Record<string, unknown> | null = null;
+      try {
+        parsed = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        parsed = null;
+      }
+      return { status: res.status, body: parsed };
+    };
+    const started = await lockedCall("POST", "/api/move/manifest");
+    expect(started.status).toBe(202);
+    const finalId = started.body!.id as string;
+    const deadline = performance.now() + 5_000;
+    while (performance.now() < deadline) {
+      const st = await lockedCall(
+        "GET",
+        `/api/move/manifest/${encodeURIComponent(finalId)}`,
+      );
+      if (st.body?.state !== "running") break;
+      await Bun.sleep(5);
+    }
+    expect(
+      (await lockedCall("POST", "/api/move/batch", batchBody(finalId))).status,
+    ).toBe(200);
+    expect(lockedAudits.filter((a) => a === "office.movePulled")).toEqual([]);
+    expect(pulledAudits(b)).toBe(1);
+    expect(served()).toBe(at);
+  });
+
+  it("[R] C2: a batch in paired sends a SQLite file as an error record and takes no snapshot, whatever the new office asks", async () => {
+    const b = bed();
+    const db = new Database(join(b.home, "data.db"), { create: true });
+    db.run("CREATE TABLE t (v TEXT)");
+    db.run("INSERT INTO t VALUES ('x')");
+    db.close();
+    const code = b.mint();
+    const redeemed = await b.call("POST", "/api/move/redeem", {
+      body: { token: tokenOf(code), newBox: BOX },
+    });
+    const session = redeemed.body!.session as string;
+    const key = Buffer.from(parseMoveCode(code)!.key, "base64url");
+    const id = await readyManifest(b, session);
+    const items = [{ path: "home/data.db" }, { path: "home/notes.txt" }];
+    const res = await b.door.handle(
+      new Request("https://old.example.com/api/move/batch", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ manifestId: id, batch: 0, items }),
+      }),
+      new URL("https://old.example.com/api/move/batch"),
+      OFF_BOX,
+    );
+    expect(res?.status).toBe(200);
+    const got: string[] = [];
+    for await (const ev of readMoveRecords(
+      openMoveStream(
+        key,
+        {
+          route: "batch",
+          manifestId: id,
+          batch: 0,
+          itemsHash: moveItemsHash(items),
+        },
+        res!.body!,
+      ),
+    ))
+      if (ev.type === "entry" || ev.type === "error")
+        got.push(`${ev.path} ${ev.type}`);
+    expect(got).toEqual(["home/data.db error", "home/notes.txt entry"]);
+    expect(
+      readdirSync(b.scratch).filter((n) => n.startsWith("snapshot")),
+    ).toEqual([]);
+  });
+
+  it("endPull stops a batch stream in flight and a walk in flight, and deletes the scratch folder", async () => {
+    const b = bed();
+    writeFileSync(join(b.home, "big.bin"), Buffer.alloc(6 * 1024 * 1024, 5));
+    const session = await pair(b);
+    const id = await readyManifest(b, session);
+    const res = await b.door.handle(
+      new Request("https://old.example.com/api/move/batch", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(batchBody(id, 0, "home/big.bin")),
+      }),
+      new URL("https://old.example.com/api/move/batch"),
+      OFF_BOX,
+    );
+    expect(res?.status).toBe(200);
+    const reader = res!.body!.getReader();
+    let read = (await reader.read()).value?.length ?? 0;
+    expect(read).toBeGreaterThan(0);
+    // A walk in flight: the route answers at the walk's first await.
+    const walking = await b.call("POST", "/api/move/manifest", { session });
+    expect(walking.status).toBe(202);
+    const walkId = walking.body!.id as string;
+
+    b.door.endPull();
+    const ends = (async () => {
+      try {
+        for (;;) {
+          const r = await reader.read();
+          if (r.done) return true;
+          read += r.value.length;
+        }
+      } catch {
+        return true;
+      }
+    })();
+    expect(await Promise.race([ends, Bun.sleep(3_000).then(() => false)])).toBe(
+      true,
+    );
+    // The stream ended well short of the 6 MB file.
+    expect(read).toBeLessThan(3 * 1024 * 1024);
+    expect(existsSync(b.scratch)).toBe(false);
+    await Bun.sleep(150);
+    expect(existsSync(b.scratch)).toBe(false);
+    // Neither manifest is served any more.
+    const states = [];
+    for (const mid of [id, walkId])
+      states.push(
+        (
+          await b.call("GET", `/api/move/manifest/${encodeURIComponent(mid)}`, {
+            session,
+          })
+        ).body?.state ?? null,
+      );
+    expect(states.filter((st) => st === "ready" || st === "running")).toEqual(
+      [],
+    );
+  });
+
+  it("an expired pairing ends the pull: the next request deletes the scratch folder", async () => {
+    const b = bed();
+    const session = await pair(b);
+    await readyManifest(b, session);
+    expect(readdirSync(b.scratch).length).toBeGreaterThan(0);
+    b.clock.now += MOVE_SESSION_TTL_MS + 1;
+    const res = await b.call("GET", "/api/move/status", { session });
+    expect(res.status).toBe(401);
+    expect(existsSync(b.scratch)).toBe(false);
   });
 });

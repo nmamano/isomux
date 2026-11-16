@@ -633,18 +633,20 @@ function moved(root: string, now = T0) {
 }
 
 describe("the pull's marks and MOVED", () => {
-  it("the first batch served is marked once, and only in a locked move", () => {
+  it("the first batch served is marked once, while paired (slice 4) or locked, and the lock keeps the mark", () => {
     const root = stateRoot();
+    // No move: nothing to mark.
+    expect(markMoveServed(root, at(500))).toBe(false);
     pair(root);
-    expect(markMoveServed(root, at(1_000))).toBe(false);
-    expect(JSON.parse(rawState(root)).servedAt).toBeUndefined();
+    expect(markMoveServed(root, at(1_000))).toBe(true);
+    expect(markMoveServed(root, at(1_500))).toBe(false);
 
     markMoveLocked(root, { preflightId: "pf-1", now: at(2_000) });
-    expect(markMoveServed(root, at(3_000))).toBe(true);
-    expect(markMoveServed(root, at(4_000))).toBe(false);
+    // The final pass's first batch is not a first one.
+    expect(markMoveServed(root, at(3_000))).toBe(false);
     expect(JSON.parse(rawState(root))).toMatchObject({
       state: "move",
-      servedAt: at(3_000).getTime(),
+      servedAt: at(1_000).getTime(),
     });
   });
 

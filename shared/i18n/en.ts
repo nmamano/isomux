@@ -2482,6 +2482,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.cancelMove": "Cancel the office move",
   "apiCall.office.getMoveIn": "Check the move into this office",
   "apiCall.office.rerunMoveInPreflight": "Check the old office again",
+  "apiCall.office.copyMoveInLive": "Copy the old office again while it runs",
   "apiCall.office.retryMoveIn": "Pull the old office again",
   "apiCall.office.cancelMoveIn": "Cancel the move into this office",
   "apiCall.office.exportStatus": "Check an office export",
