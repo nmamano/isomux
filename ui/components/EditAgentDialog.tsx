@@ -291,8 +291,8 @@ type EditAgentDialogProps = {
 } & (
   | {
       agent: AgentInfo;
-      // The section the Agent settings page opens on. Absent: Profile on a
-      // desktop, the section list on a phone.
+      // The section the Agent settings page opens on. Absent: Model and
+      // behavior on a desktop, the section list on a phone.
       initialSection?: AgentSettingsSection;
       // A menu or a dialog is open over the page: Escape is theirs.
       covered?: boolean;
@@ -335,7 +335,7 @@ function AgentSettingsEditor(
   const { isMobile } = useAppState();
   // A phone opens on the section list unless the door named a section.
   const [section, setSection] = useState<AgentSettingsSection | null>(
-    props.initialSection ?? (isMobile ? null : "profile"),
+    props.initialSection ?? (isMobile ? null : "engine"),
   );
   const [formKey, setFormKey] = useState(0);
   return (

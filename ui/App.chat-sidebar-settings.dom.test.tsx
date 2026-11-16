@@ -67,11 +67,11 @@ async function openRoom(view: View, roomId: string): Promise<void> {
     await click(roomHeader(view, roomId));
   expect(roomHeader(view, roomId)?.getAttribute("aria-expanded")).toBe("true");
 }
-/** The agent settings page's name field, or null when no page shows. */
-const pageName = (view: View) =>
-  view.baseElement.querySelector<HTMLInputElement>(
-    "[data-agent-settings-page] .agent-identity-section input",
-  )?.value ?? null;
+/** The agent settings page's agent id, or null when no page shows. */
+const pageAgent = (view: View) =>
+  view.baseElement
+    .querySelector("[data-agent-settings-page]")
+    ?.getAttribute("data-agent-settings-page") ?? null;
 const officeGear = (view: View) =>
   inSidebar(view, "button[data-sidebar-office-settings]");
 /** The rows Settings' own list marks as selected (not the sidebar's). */
@@ -258,26 +258,26 @@ it("an agent row's settings button, before its pin, opens the agent's settings p
     const order = nextAction(button);
     await click(button);
     // The page, on this agent; its chat does not open.
-    seen[where] = { order, name: pageName(view), chat: currentRows(view) };
+    seen[where] = { order, page: pageAgent(view), chat: currentRows(view) };
     await act(async () =>
       fireEvent.keyDown(document.body, { key: "Escape", bubbles: true }),
     );
-    expect(pageName(view)).toBeNull();
+    expect(pageAgent(view)).toBeNull();
   }
   expect(seen).toEqual({
     r1: {
       order: `data-sidebar-pin=${scout.id}`,
-      name: scout.name,
+      page: scout.id,
       chat: [],
     },
     pinned: {
       order: `data-sidebar-pin=${faraway.id}`,
-      name: faraway.name,
+      page: faraway.id,
       chat: [],
     },
     recent: {
       order: `data-sidebar-pin=${ranger.id}`,
-      name: ranger.name,
+      page: ranger.id,
       chat: [],
     },
   });

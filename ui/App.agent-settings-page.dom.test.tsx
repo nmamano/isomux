@@ -1,7 +1,8 @@
 // An agent's settings open as a full page in the view's place (task 59538509),
 // not as a dialog over it. On a desktop the chat sidebar stays beside the
-// page; Close (and Escape) return to the view the page opened over. The
-// doors about the model open it on Engine. Each agent gets its own form. The
+// page; Close (and Escape) return to the view the page opened over. A door
+// that names no section opens it on Engine (Nil, 2026-11-16), as the doors
+// about the model do. Each agent gets its own form. The
 // guards (unsaved edits, the page keys, Back, Escape over a menu) are in
 // ui/App.agent-settings-page-guards.dom.test.tsx; the page itself in
 // ui/components/AgentSettingsPage.dom.test.tsx; the setup in
@@ -33,6 +34,7 @@ const {
   headerName,
   nameInput,
   openRoom,
+  openSection,
   pageAgent,
   prompt,
   settingsButton,
@@ -57,7 +59,7 @@ it("the chat header's name opens the page in the chat's place with the sidebar k
     chat: false,
     sidebar: true,
     dialog: false,
-    section: "profile",
+    section: "engine",
   });
   await click(view.baseElement.querySelector("[data-page-close]"));
   expect({ ...shows(view), rows: currentRows(view) }).toEqual({
@@ -99,6 +101,7 @@ it("an update to the agent while the page shows keeps the page and the member's 
   const view = await boot();
   await openFirstDesk(view);
   await click(headerName(view));
+  await openSection(view, "profile");
   await typeName(view, "Renamed");
   await act(async () => {
     shimEmit({
@@ -118,9 +121,11 @@ it("another agent's settings button: a clean page moves to that agent's own form
   await openFirstDesk(view);
   await openRoom(view, "r1");
   await click(settingsButton(view, scout.id));
+  await openSection(view, "profile");
   expect(nameInput(view)?.value).toBe(scout.name);
 
   await click(settingsButton(view, ranger.id));
+  await openSection(view, "profile");
   expect({ page: pageAgent(view), name: nameInput(view)?.value }).toEqual({
     page: ranger.id,
     name: ranger.name,
@@ -134,11 +139,12 @@ it("another agent's settings button: a clean page moves to that agent's own form
     prompt: prompt(view) !== null,
   }).toEqual({ page: ranger.id, name: "Unsaved", prompt: true });
   await discard(view);
-  expect({
-    page: pageAgent(view),
-    name: nameInput(view)?.value,
-    prompt: prompt(view) !== null,
-  }).toEqual({ page: scout.id, name: scout.name, prompt: false });
+  expect(prompt(view)).toBeNull();
+  await openSection(view, "profile");
+  expect({ page: pageAgent(view), name: nameInput(view)?.value }).toEqual({
+    page: scout.id,
+    name: scout.name,
+  });
 });
 
 it("on a phone the page fills the screen with the section list first; Close returns to the chat", async () => {

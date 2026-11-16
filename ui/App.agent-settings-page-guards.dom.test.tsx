@@ -29,6 +29,7 @@ const {
   discard,
   headerName,
   openRoom,
+  openSection,
   pageAgent,
   prompt,
   settingsButton,
@@ -53,6 +54,7 @@ it("the page keys do nothing while the page shows; a sidebar page row asks about
   }
   expect(settingsOpen(view)).toBe(false);
 
+  await openSection(view, "profile");
   await typeName(view, "Unsaved");
   await click(navRow(view, "tasks"));
   expect({

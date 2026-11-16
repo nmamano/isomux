@@ -57,6 +57,15 @@ export const settingsButton = (view: View, agentId: string) =>
   view.container.querySelector(
     `nav[data-chat-sidebar] button[data-sidebar-agent-settings="${agentId}"]`,
   );
+/** Clicks a section's row on the page; the row shows as the current one. */
+export async function openSection(view: View, section: string): Promise<void> {
+  await click(
+    view.baseElement.querySelector(
+      `button[data-agent-settings-section="${section}"]`,
+    ),
+  );
+  expect(currentSection(view)).toBe(section);
+}
 export async function typeName(view: View, value: string): Promise<void> {
   const input = nameInput(view);
   expect(input).not.toBeNull();

@@ -140,7 +140,7 @@ async function save(view: View) {
 }
 
 describe("the agent settings page on a desktop", () => {
-  it("lists the four sections in order, opens on Profile, and a row shows only its section", async () => {
+  it("lists the four sections in order, opens on Engine, and a row shows only its section", async () => {
     shim();
     const view = renderPage();
     try {
@@ -154,8 +154,8 @@ describe("the agent settings page on a desktop", () => {
       }).toEqual({
         page: "a1",
         rows: ["profile", "engine", "instructions", "access"],
-        current: ["profile"],
-        shown: ["profile"],
+        current: ["engine"],
+        shown: ["engine"],
         back: false,
       });
       const seen: Record<string, unknown> = {};
@@ -184,13 +184,13 @@ describe("the agent settings page on a desktop", () => {
 
   it("opens on the section it is asked for", async () => {
     shim();
-    const view = renderPage({ initialSection: "engine" });
+    const view = renderPage({ initialSection: "profile" });
     try {
       await settle();
       expect({
         current: currentRows(view),
         shown: shownSections(view),
-      }).toEqual({ current: ["engine"], shown: ["engine"] });
+      }).toEqual({ current: ["profile"], shown: ["profile"] });
     } finally {
       cleanup(view);
     }
@@ -202,6 +202,7 @@ describe("the agent settings page on a desktop", () => {
     const view = renderPage({ onClose: () => closed++ });
     try {
       await settle();
+      await open(view, "profile");
       await typeName(view, "Renamed");
       await open(view, "engine");
       await open(view, "access");
@@ -234,6 +235,7 @@ describe("the agent settings page on a desktop", () => {
     const view = renderPage({ onClose: () => closed++ });
     try {
       await settle();
+      await open(view, "profile");
       await typeName(view, "Renamed");
       await open(view, "engine");
       await click(view.container.querySelector("[data-page-close]"));
@@ -258,6 +260,7 @@ describe("a save the server refuses for a field", () => {
     const view = renderPage({ onClose: () => closed++ });
     try {
       await settle();
+      await open(view, "profile");
       await typeName(view, "Taken");
       await open(view, "access");
       await save(view);
