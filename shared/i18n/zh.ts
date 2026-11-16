@@ -3638,9 +3638,10 @@ export const zh: Catalog = {
     "已在上下文用到 {percent}% 时自动交接。",
   "systemEntries.autoHandoff.doneCompaction":
     "已在上下文用到 {percent}% 时自动交接，早于自动压缩。",
-  "systemEntries.autoHandoff.failed": "自动交接未完成。本对话继续。",
   "systemEntries.autoHandoff.retry":
     "自动交接未完成。Isomux 会在智能体下次回复后再试。",
+  "systemEntries.autoHandoff.backoff":
+    "自动交接已连续 {failures} 次未完成。Isomux 会跳过接下来的 {turns} 次回复，然后再试。",
   "systemEntries.autoHandoff.paused":
     "本对话的自动交接已暂停：它开始时已超过交接阈值。",
   "systemEntries.secretRequest.saved": "密钥 {name} 已保存。",

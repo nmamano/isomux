@@ -22,6 +22,13 @@ export const AUTO_HANDOFF_MAX_PERCENT = 85;
 export const AUTO_HANDOFF_COMPACTION_MARGIN_PERCENT = 5;
 export const AUTO_HANDOFF_COMPACTION_MARGIN_TOKENS = 40_000;
 
+// A brief turn that fails retries after the next completed turn. From this
+// many failures in a row, temporary ones not counted, each failure makes the
+// mode wait AUTO_HANDOFF_BACKOFF_TURNS completed turns before it arms again,
+// so a brief that always fails costs one brief turn per that many replies.
+export const AUTO_HANDOFF_BACKOFF_FAILURES = 3;
+export const AUTO_HANDOFF_BACKOFF_TURNS = 10;
+
 export type AutoHandoffMeasure = "tokens" | "percent" | "compaction";
 
 export interface AutoHandoffTrigger {
@@ -99,14 +106,23 @@ export function autoHandoffMeasureParams(trigger: AutoHandoffTrigger): {
   };
 }
 
-/** Whether an automatic attempt can still happen in this conversation. While
- *  it can, the fullness notices that tell the agent or the member to hand off
- *  stay quiet; after a failed or paused attempt they fire as before. */
-export function autoHandoffPossible(managed: ManagedAgent): boolean {
+/** Whether the mode can still arm in this conversation: the switch is on and
+ *  the loop guard has not paused it. A back-off wait does not stop it. */
+export function autoHandoffCanArm(managed: ManagedAgent): boolean {
   return (
     managed.info.autoHandoff !== false &&
     managed.info.capabilities.autoHandoff &&
-    !managed.autoHandoffSpent
+    !managed.autoHandoffPaused
+  );
+}
+
+/** Whether the automatic handoff stands in for the fullness notices that tell
+ *  the agent or the member to hand off. It does while it can arm and has not
+ *  backed off; from the back-off on, and after a pause, they fire as before. */
+export function autoHandoffPossible(managed: ManagedAgent): boolean {
+  return (
+    autoHandoffCanArm(managed) &&
+    managed.autoHandoffFailures < AUTO_HANDOFF_BACKOFF_FAILURES
   );
 }
 

@@ -4070,10 +4070,10 @@ Cosas que puedes hacer por él:
     "Traspasado automáticamente con el contexto al {percent}%.",
   "systemEntries.autoHandoff.doneCompaction":
     "Traspasado automáticamente con el contexto al {percent}%, antes de la compactación automática.",
-  "systemEntries.autoHandoff.failed":
-    "El traspaso automático no se completó. Esta conversación continúa.",
   "systemEntries.autoHandoff.retry":
     "El traspaso automático no se completó. Isomux lo intenta de nuevo tras la próxima respuesta del agente.",
+  "systemEntries.autoHandoff.backoff":
+    "El traspaso automático no se completó {failures} veces seguidas. Isomux deja pasar las próximas {turns} respuestas y luego lo intenta de nuevo.",
   "systemEntries.autoHandoff.paused":
     "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
   "systemEntries.secretRequest.saved": "Secreto {name} guardado.",

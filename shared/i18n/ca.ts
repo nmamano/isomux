@@ -4071,10 +4071,10 @@ Coses que pots fer per ell:
     "Traspassat automàticament amb el context al {percent}%.",
   "systemEntries.autoHandoff.doneCompaction":
     "Traspassat automàticament amb el context al {percent}%, abans de la compactació automàtica.",
-  "systemEntries.autoHandoff.failed":
-    "El traspàs automàtic no s'ha completat. Aquesta conversa continua.",
   "systemEntries.autoHandoff.retry":
     "El traspàs automàtic no s'ha completat. Isomux ho torna a provar després de la propera resposta de l'agent.",
+  "systemEntries.autoHandoff.backoff":
+    "El traspàs automàtic no s'ha completat {failures} vegades seguides. Isomux deixa passar les properes {turns} respostes i després ho torna a provar.",
   "systemEntries.autoHandoff.paused":
     "El traspàs automàtic està en pausa en aquesta conversa: ha començat per sobre del llindar de traspàs.",
   "systemEntries.secretRequest.saved": "Secret {name} desat.",

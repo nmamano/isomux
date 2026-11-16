@@ -80,7 +80,7 @@ Entries 19 and later are "leave" (below).
 ## Leave
 
 19. Abort (`aborting`, `abortPromise`, `abortCancelToken`, `session-manager.ts:203-226`): one writer (`abort()`), three recent fixes (`ec9237c65`, `22f7dc306`, `5734b68e7`); folds into 1 if 1 lands.
-20. Handoff phase (`autoHandoffPhase` union plus `handoffInProgress`, `autoHandoffSpent`/`Opened`): partly explicit; no bug found.
+20. Handoff phase (`autoHandoffPhase` union plus `handoffInProgress`, `autoHandoffPaused`/`Opened`/`Failures`/`Wait`): partly explicit; no bug found.
 21. Two-step prompts (`pendingResume`/`ModelPick`/`EffortPick` duplicate `pendingInteraction.kind`; `agent-manager.ts:2209-2230`): redundant storage, two writers; `openChoiceInteraction` does not clear `pendingPermission` (no sequence traced).
 22. Claude session (`ClaudeSession`, `backends/claude.ts:1017-1028`, `:1767`): plan mode is three fields (`reportedPlanMode`, `memberPlanMode`, `planModeReady`) written only inside the class (about 8 sites, `:1059-1099`); `ended`, `closed` and `stoppedThisTurn` each have one setter. No bug found.
 23. OpenCode transport turn (`transport.ts:554-604`): a `close()` during `beginTurn()` is not re-checked; unchecked, and abort is gated by `canAbortInPlace`.

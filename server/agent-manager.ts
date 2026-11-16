@@ -235,7 +235,7 @@ import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
   settingHandoffFreshNotice,
-  autoHandoffPossible,
+  autoHandoffCanArm,
   autoHandoffTokensOf,
   autoHandoffTrigger,
   persistedAutoHandoffTokens,
@@ -5836,7 +5836,9 @@ export function createAgentManager(deps: ManagerDeps) {
       stopNotice: null,
       settingsNotice: null,
       autoHandoffPhase: null,
-      autoHandoffSpent: false,
+      autoHandoffPaused: false,
+      autoHandoffFailures: 0,
+      autoHandoffWait: 0,
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
@@ -6103,11 +6105,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // should go to the fresh session does not go to the old one.
       {
         const inFlight = managed.contextSampleInFlight;
-        if (
-          inFlight &&
-          autoHandoffPossible(managed) &&
-          !managed.autoHandoffPhase
-        )
+        if (inFlight && autoHandoffCanArm(managed) && !managed.autoHandoffPhase)
           await Promise.race([
             inFlight,
             new Promise<void>((res) => setTimeout(res, sampleWaitMs)),
@@ -9611,7 +9609,9 @@ export function createAgentManager(deps: ManagerDeps) {
     // SAME conversation - so an already-delivered notice must stay delivered.
     // Only the FLAG is stashed; resetContextUsage re-arms the slot from it.
     const oldMemoryNoticeFired = managed.memoryNoticeFired;
-    const oldAutoHandoffSpent = managed.autoHandoffSpent;
+    const oldAutoHandoffPaused = managed.autoHandoffPaused;
+    const oldAutoHandoffFailures = managed.autoHandoffFailures;
+    const oldAutoHandoffWait = managed.autoHandoffWait;
 
     // Find target up front so the ephemeral short-circuit and the not-found
     // error can return before the fork pipeline runs.
@@ -10035,7 +10035,9 @@ export function createAgentManager(deps: ManagerDeps) {
                 fired: oldFiredAgentThresholds,
                 firedUi: oldFiredUiThresholds,
                 memoryFired: oldMemoryNoticeFired,
-                autoHandoffSpent: oldAutoHandoffSpent,
+                autoHandoffPaused: oldAutoHandoffPaused,
+                autoHandoffFailures: oldAutoHandoffFailures,
+                autoHandoffWait: oldAutoHandoffWait,
               }
             : null,
         );

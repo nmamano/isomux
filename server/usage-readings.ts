@@ -89,7 +89,9 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
       fired: Set<number>;
       firedUi: Set<number>;
       memoryFired: boolean;
-      autoHandoffSpent: boolean;
+      autoHandoffPaused: boolean;
+      autoHandoffFailures: number;
+      autoHandoffWait: number;
     } | null = null,
   ): void {
     managed.contextGen++;
@@ -125,7 +127,9 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     // phase gone and leaves quietly. The rollback restores whether the
     // conversation spent its attempt, like the fired-notice sets.
     managed.autoHandoffPhase = null;
-    managed.autoHandoffSpent = restore ? restore.autoHandoffSpent : false;
+    managed.autoHandoffPaused = restore ? restore.autoHandoffPaused : false;
+    managed.autoHandoffFailures = restore ? restore.autoHandoffFailures : 0;
+    managed.autoHandoffWait = restore ? restore.autoHandoffWait : 0;
     managed.autoHandoffOpened = false;
     managed.autoHandoffNotice = null;
     managed.settingHandoffSource = null;

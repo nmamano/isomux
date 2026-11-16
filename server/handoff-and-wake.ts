@@ -21,6 +21,8 @@ import { providerDisplayName } from "./agent-auth.ts";
 import { runAgentTurn } from "./agent-turn.ts";
 import { recordAudit } from "./audit-store.ts";
 import {
+  AUTO_HANDOFF_BACKOFF_FAILURES,
+  AUTO_HANDOFF_BACKOFF_TURNS,
   autoHandoffBriefPrompt,
   handoffBriefPrompt,
   settingHandoffBriefPrompt,
@@ -301,7 +303,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
 
   // Called on every committed sample. Pauses a conversation an automatic
   // handoff opened above the trigger (the loop guard), and arms on a sample
-  // from the end of a completed turn.
+  // from the end of a completed turn, unless a back-off wait passes it.
   function evaluateAutoHandoff(
     managed: ManagedAgent,
     turnStatus: "completed" | "interrupted" | "failed" | undefined,
@@ -316,23 +318,36 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     )
       return;
     const trigger = autoHandoffTrigger(snap, autoHandoffTokensOf(managed.info));
-    const above = snap.totalTokens >= trigger.tokens;
-    if (!above || managed.autoHandoffSpent || managed.autoHandoffPhase) return;
+    if (snap.totalTokens < trigger.tokens) {
+      // Below the trigger (a compaction, a new token value): the failures
+      // before it are not in a row with a later crossing.
+      managed.autoHandoffFailures = 0;
+      managed.autoHandoffWait = 0;
+      return;
+    }
+    if (managed.autoHandoffPaused || managed.autoHandoffPhase) return;
     const agentId = managed.info.id;
     if (opened) {
-      managed.autoHandoffSpent = true;
+      managed.autoHandoffPaused = true;
       addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.paused"));
       return;
     }
-    // A member who pressed Stop wants attention, not a reset.
+    // A member who pressed Stop wants attention, not a reset. A brief turn's
+    // own sample comes here without a status too, so it neither arms nor
+    // counts toward a wait.
     if (turnStatus !== "completed") return;
+    if (managed.autoHandoffWait > 0) {
+      managed.autoHandoffWait--;
+      return;
+    }
     armAutoHandoffPhase(managed, snap, trigger);
     // The reply that crossed the trigger stays on screen: the brief turn
     // starts when the next message arrives (flushQueue).
   }
 
   // A settings edit (editAgent) arms from the latest sample of any source:
-  // the member's edit is the intent, so a stopped turn's sample counts too.
+  // the member's edit is the intent, so a stopped turn's sample counts too,
+  // and it ends a back-off wait.
   function armAutoHandoffFromEdit(agentId: string, managed: ManagedAgent) {
     const snap = managed.contextUsage;
     if (
@@ -340,13 +355,15 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       managed.info.autoHandoff === false ||
       !managed.info.capabilities.autoHandoff ||
       managed.autoHandoffPhase ||
-      managed.autoHandoffSpent ||
+      managed.autoHandoffPaused ||
       handoffInProgress.has(agentId)
     )
       return;
     const trigger = autoHandoffTrigger(snap, autoHandoffTokensOf(managed.info));
-    if (snap.totalTokens >= trigger.tokens)
+    if (snap.totalTokens >= trigger.tokens) {
+      managed.autoHandoffWait = 0;
       armAutoHandoffPhase(managed, snap, trigger);
+    }
   }
 
   function armAutoHandoffPhase(
@@ -870,10 +887,11 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   }
 
   // No handoff: the conversation continues and the queue flushes to the old
-  // session. A failed automatic attempt uses the conversation's attempt, so
-  // the fullness notices come back; a failed /handoff leaves it. A temporary
-  // failure leaves the automatic attempt open: the next completed turn above
-  // the trigger arms it again (evaluateAutoHandoff).
+  // session. A failed automatic attempt stays open: the next completed turn
+  // above the trigger arms it again (evaluateAutoHandoff). From
+  // AUTO_HANDOFF_BACKOFF_FAILURES failures in a row on, temporary ones not
+  // counted, each failure waits AUTO_HANDOFF_BACKOFF_TURNS completed turns
+  // first, and the fullness notices come back.
   function failAutoHandoff(
     agentId: string,
     managed: ManagedAgent,
@@ -893,11 +911,21 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
         settingFailedLine(managed, opts.cause ?? "failed"),
       );
       managed.autoHandoffNotice = settingHandoffPointerNotice(phase.setting);
-    } else if (opts.temporary) {
+    } else if (
+      opts.temporary ||
+      ++managed.autoHandoffFailures < AUTO_HANDOFF_BACKOFF_FAILURES
+    ) {
       addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.retry"));
     } else {
-      managed.autoHandoffSpent = true;
-      addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.failed"));
+      managed.autoHandoffWait = AUTO_HANDOFF_BACKOFF_TURNS;
+      addLogEntry(
+        agentId,
+        "system",
+        msg("systemEntries.autoHandoff.backoff", {
+          failures: managed.autoHandoffFailures,
+          turns: AUTO_HANDOFF_BACKOFF_TURNS,
+        }),
+      );
       maybeEmitUiContextNotice(managed);
     }
     // After the phase goes, nothing else may be waiting for it: flush what

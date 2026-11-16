@@ -593,9 +593,17 @@ describe("/handoff failures: no switch, and the conversation continues", () => {
         "failure line",
       );
       expect(systemLines(h)).not.toContain(handedOff);
-      expect(systemLines(h)).not.toContain(
-        en.t("systemEntries.autoHandoff.failed"),
-      );
+      // No line of the automatic handoff: a failed /handoff is not a failed
+      // automatic attempt (no retry, no back-off).
+      expect(
+        h.logs.some((e) =>
+          (e.message ?? []).some(
+            (part) =>
+              typeof part !== "string" &&
+              part.key.startsWith("systemEntries.autoHandoff."),
+          ),
+        ),
+      ).toBe(false);
       // The message goes to the old conversation, not a fresh one.
       await waitUntil(
         () => sent(h.fake.sessionForAgent(info.id), "DURING-MSG"),

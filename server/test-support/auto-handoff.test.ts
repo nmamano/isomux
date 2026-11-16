@@ -17,6 +17,8 @@ import { translatorForLanguage } from "../i18n.ts";
 import { createMember, getUserByName } from "../users.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import {
+  AUTO_HANDOFF_BACKOFF_FAILURES,
+  AUTO_HANDOFF_BACKOFF_TURNS,
   AUTO_HANDOFF_FRESH_NOTICE,
   autoHandoffTrigger,
 } from "../auto-handoff.ts";
@@ -250,9 +252,30 @@ const keyCount = (h: Harness, key: string) =>
     ),
   ).length;
 const RETRY_KEY = "systemEntries.autoHandoff.retry";
+const BACKOFF_KEY = "systemEntries.autoHandoff.backoff";
+// The line of the old rule, under which a failed brief turn switched the mode
+// off for the conversation (task 036ccc27 removed it).
+const SPENT_KEY = "systemEntries.autoHandoff.failed";
 const CAP_KEY = "systemEntries.usageCap.pace";
 
-// A failed automatic attempt that stays open: the retry line, not the
+// The params of each back-off line, in order.
+const backoffLines = (h: Harness) =>
+  h.logs.flatMap((e) =>
+    (e.message ?? []).flatMap((part) =>
+      typeof part !== "string" && part.key === BACKOFF_KEY
+        ? [part.params ?? {}]
+        : [],
+    ),
+  );
+
+// No failed automatic attempt: no retry, back-off or old failure line.
+function expectNoFailureLine(h: Harness): void {
+  expect(keyCount(h, RETRY_KEY)).toBe(0);
+  expect(keyCount(h, BACKOFF_KEY)).toBe(0);
+  expect(keyCount(h, SPENT_KEY)).toBe(0);
+}
+
+// A failed automatic attempt that stays open: the retry line, no other
 // failure line, and the wrap-up notice stays quiet (95% is the measured
 // context in these tests). `old` got `briefs` brief prompts: the brief turn's
 // own end is not the completed turn a retry waits for, so none follows it.
@@ -261,17 +284,18 @@ async function expectAttemptOpen(
   old: FakeSession,
   briefs: number,
 ): Promise<void> {
-  const failed = en.t("systemEntries.autoHandoff.failed");
   await waitUntil(
     () =>
       keyCount(h, RETRY_KEY) > 0 ||
-      systemLines(h).includes(failed) ||
+      keyCount(h, SPENT_KEY) > 0 ||
+      keyCount(h, BACKOFF_KEY) > 0 ||
       h.fake.sessions.length > 1,
     "the attempt ended (retry line, failure line or handoff)",
   );
   await settle();
   expect(h.fake.sessions).toHaveLength(1);
-  expect(systemLines(h)).not.toContain(failed);
+  expect(keyCount(h, SPENT_KEY)).toBe(0);
+  expect(keyCount(h, BACKOFF_KEY)).toBe(0);
   expect(texts(old).filter(isBriefPrompt)).toHaveLength(briefs);
   expect(keyCount(h, RETRY_KEY)).toBe(1);
   expect(contextNoticeAt(h, 95)).toBe(false);
@@ -895,9 +919,7 @@ describe("automatic handoff: the next message starts it", () => {
     await waitUntil(() => briefSession !== null, "brief turn sent");
     await settle();
     expect(stateOf(h, info.id)).toBe("thinking");
-    expect(systemLines(h)).not.toContain(
-      en.t("systemEntries.autoHandoff.failed"),
-    );
+    expectNoFailureLine(h);
     briefSession!.completeTurn({ text: BRIEF });
     const fresh = await freshSession(h, info.id, old);
     expectInOrder(fresh.sent[0].text, [BRIEF, "NOW-NEXT"]);
@@ -905,8 +927,8 @@ describe("automatic handoff: the next message starts it", () => {
   });
 
   // A send-now while the brief turn runs waits with the queue for the fresh
-  // session: stopping the brief turn would use up the automatic attempt for
-  // the rest of the conversation (Nil, 2026-11-16, task 774df066). Both front
+  // session: stopping the brief turn would cost the attempt and a retry
+  // (Nil, 2026-11-16, task 774df066). Both front
   // doors: the composer's Ctrl/Cmd+Enter and the queue's Send now.
   for (const via of ["composer", "send-now route"] as const) {
     it(`a send-now during the brief turn (${via}) waits for the fresh session, and the brief turn completes`, async () => {
@@ -937,9 +959,7 @@ describe("automatic handoff: the next message starts it", () => {
         });
       }
       await settle();
-      expect(systemLines(h)).not.toContain(
-        en.t("systemEntries.autoHandoff.failed"),
-      );
+      expectNoFailureLine(h);
       expect(stateOf(h, info.id)).toBe("thinking");
       expect(
         h.mgr
@@ -1246,75 +1266,140 @@ describe("automatic handoff: a sample that lands late", () => {
   });
 });
 
+// Part of a brief, then the usage limit, as the Claude engine reports it.
+function limitStop(s: FakeSession, resetsAtMs: number) {
+  s.push({ kind: "assistant_text", text: "BRIEF-PART" });
+  s.push({ kind: "usage_limit_stop", resetsAtMs });
+  s.completeTurn();
+}
+const inAnHour = () => Date.now() + 60 * 60 * 1000;
+
 describe("automatic handoff: failures", () => {
-  const failed = en.t("systemEntries.autoHandoff.failed");
-
-  async function expectFailed(h: Harness, id: string) {
-    await waitUntil(() => systemLines(h).includes(failed), "failure line");
-    expect(h.fake.sessions.filter((s) => s.opts.agentId === id)).toHaveLength(
-      1,
-    );
-    // The attempt is used: the member's wrap-up notice comes back now.
-    expect(contextNoticeAt(h, 95)).toBe(true);
+  // Nil, 2026-11-16 (task 036ccc27): no outcome of a brief turn switches the
+  // mode off for the conversation. Each kind of failure leaves the attempt
+  // open: the next completed turn above the trigger arms it again, and the
+  // message after that hands off.
+  const kinds: {
+    name: string;
+    abortInPlace?: boolean;
+    // Ends the parked brief turn the way this kind of failure does.
+    fail: (h: Harness, id: string, s: FakeSession) => Promise<void>;
+  }[] = [
+    {
+      name: "a brief turn that fails",
+      fail: async (_h, _id, s) =>
+        s.completeTurn({ status: "failed", error: "boom" }),
+    },
+    {
+      name: "a brief turn with no text",
+      fail: async (_h, _id, s) => s.completeTurn({ text: "   " }),
+    },
+    {
+      name: "a brief turn the member stops",
+      abortInPlace: true,
+      fail: async (h, id, s) => {
+        const aborted = h.mgr.abort(id);
+        s.completeTurn({ status: "interrupted" });
+        expect(await aborted).toMatchObject({ ok: true });
+      },
+    },
+  ];
+  for (const kind of kinds) {
+    it(`${kind.name} leaves the attempt open, and the next completed turn above the trigger hands off`, async () => {
+      const h = makeHarness(kind.abortInPlace ? { abortInPlace: true } : {});
+      let parked: FakeSession | null = null;
+      h.brief.answer = (s) => {
+        parked = s;
+      };
+      const info = await spawn(h);
+      await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+      await nextMessage(h, info.id);
+      await waitUntil(() => parked !== null, "brief turn sent");
+      await kind.fail(h, info.id, parked!);
+      await waitUntil(
+        () =>
+          keyCount(h, RETRY_KEY) > 0 ||
+          keyCount(h, SPENT_KEY) > 0 ||
+          keyCount(h, BACKOFF_KEY) > 0,
+        "failure line",
+      );
+      await settle();
+      expect(keyCount(h, RETRY_KEY)).toBe(1);
+      expect(keyCount(h, SPENT_KEY)).toBe(0);
+      expect(keyCount(h, BACKOFF_KEY)).toBe(0);
+      // The automatic handoff still stands in for the member's wrap-up
+      // notice (95% is past the 75 band).
+      expect(contextNoticeAt(h, 95)).toBe(false);
+      // A failed turn leaves the agent in error with the message that
+      // started the attempt queued, as any failed turn does: the member's
+      // next message resumes the conversation and runs ahead of it.
+      const inError = stateOf(h, info.id) === "error";
+      if (inError) void h.mgr.sendMessage(info.id, "RESUME");
+      const running = inError ? "RESUME" : NEXT;
+      // A message runs in the old conversation, with no wrap-up advice for
+      // the agent either.
+      await waitUntil(
+        () =>
+          stateOf(h, info.id) === "thinking" &&
+          sent(h.fake.sessionForAgent(info.id), running),
+        "a message runs in the old conversation",
+      );
+      const cur = h.fake.sessionForAgent(info.id)!;
+      expect(texts(cur).at(-1)).not.toContain("context-check");
+      expect(texts(cur).join("\n")).not.toContain(BRIEF);
+      // That turn completes above the trigger: the next message to go out
+      // (the queued one, or a new one) hands off.
+      h.brief.answer = (s) => s.completeTurn({ text: BRIEF });
+      h.measure.now = ctx(192_000, 200_000);
+      cur.completeTurn({ text: "done" });
+      const carried = inError ? NEXT : "RETRY-NEXT";
+      if (!inError) await nextMessage(h, info.id, carried);
+      const fresh = await freshSession(h, info.id, cur);
+      expect(
+        h.fake.sessions.flatMap((s) => texts(s)).filter(isBriefPrompt),
+      ).toHaveLength(2);
+      expectInOrder(fresh.sent[0].text, [BRIEF, carried]);
+    });
   }
 
-  // The conversation continues in the old session: the message that started
-  // the attempt goes there, with the wrap-up advice.
-  async function expectOldSessionContinues(old: FakeSession) {
-    await waitUntil(() => sent(old, NEXT), "old session continues");
-    expect(texts(old).at(-1)).toContain("--- begin isomux: context-check ---");
-  }
-
-  it("a brief turn that fails", async () => {
-    const h = makeHarness();
-    h.brief.answer = (s) => s.completeTurn({ status: "failed", error: "boom" });
-    const info = await spawn(h);
-    await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await nextMessage(h, info.id);
-    await expectFailed(h, info.id);
-    // A failed turn leaves the agent in error, as any failed turn does, and
-    // the message that started the attempt stays queued.
-    expect(stateOf(h, info.id)).toBe("error");
-    expect(
-      h.mgr
-        .getAllAgents()
-        .find((a) => a.id === info.id)
-        ?.queue?.map((m) => m.text),
-    ).toEqual([NEXT]);
-  });
-
-  it("a brief turn with no text", async () => {
-    const h = makeHarness();
-    h.brief.answer = (s) => s.completeTurn({ text: "   " });
+  it("the brief turn's own sample arms nothing, even when it commits after the failure", async () => {
+    // A send waits up to 2 s for the last turn's sample, so the message the
+    // failure releases waits for the brief turn's late sample.
+    const h = makeHarness({ sampleWaitMs: 2000 });
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await nextMessage(h, info.id);
-    await expectFailed(h, info.id);
-    await expectOldSessionContinues(old);
-  });
-
-  it("a brief turn the member stops", async () => {
-    const h = makeHarness();
-    let briefSession: FakeSession | null = null;
+    await atRestMeasured(h, info.id);
+    // The brief turn writes no brief. Its own sample, still above the
+    // trigger, commits 300 ms after its end.
     h.brief.answer = (s) => {
-      briefSession = s;
+      h.measure.now = ctx(194_000, 200_000);
+      h.measure.delayMs = 300;
+      s.completeTurn({ text: "   " });
     };
-    const info = await spawn(h);
-    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
-    await nextMessage(h, info.id);
-    await waitUntil(() => briefSession !== null, "brief turn sent");
-    await h.mgr.abort(info.id);
-    await waitUntil(() => systemLines(h).includes(failed), "failure line");
-    // The message that started the attempt goes to the old conversation; the
-    // attempt is used.
+    void h.mgr.sendMessage(info.id, NEXT);
     await waitUntil(
-      () => sent(h.fake.sessionForAgent(info.id), NEXT),
-      "conversation continues",
+      () => keyCount(h, RETRY_KEY) > 0 || keyCount(h, SPENT_KEY) > 0,
+      "failure line",
     );
-    expect(texts(h.fake.sessionForAgent(info.id)).join("\n")).not.toContain(
-      BRIEF,
+    // The enabling condition: the failure came before that sample.
+    expect(h.mgr.getAgent(info.id)?.contextUsage?.totalTokens).toBe(190_000);
+    await waitUntil(
+      () => h.mgr.getAgent(info.id)?.contextUsage?.totalTokens === 194_000,
+      "the brief turn's sample committed",
     );
-    expect(old.sent.some((m) => isBriefPrompt(m.text))).toBe(true);
+    h.measure.delayMs = 0;
+    // The message runs in the old session, not behind a second brief turn.
+    await waitUntil(() => sent(old, NEXT), "message runs in the old session");
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    // Nothing stays armed: after that turn (below the trigger), a message
+    // runs in place.
+    h.measure.now = ctx(20_000, 200_000);
+    old.completeTurn({ text: "done" });
+    await nextMessage(h, info.id, "AFTER");
+    await waitUntil(() => sent(old, "AFTER"), "message runs in place");
+    await settle();
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expect(h.fake.sessions).toHaveLength(1);
   });
 
   it("a handoff whose brief cannot be written leaves the attempt open", async () => {
@@ -1337,7 +1422,7 @@ describe("automatic handoff: failures", () => {
     try {
       briefSession!.completeTurn({ text: BRIEF });
       await waitUntil(
-        () => keyCount(h, RETRY_KEY) > 0 || systemLines(h).includes(failed),
+        () => keyCount(h, RETRY_KEY) > 0 || keyCount(h, SPENT_KEY) > 0,
         "the attempt ended",
       );
     } finally {
@@ -1351,14 +1436,6 @@ describe("automatic handoff: failures", () => {
     h.brief.answer = (s) => s.completeTurn({ text: BRIEF });
     await expectRetried(h, info.id, old, "QUEUED-ONE");
   });
-
-  // Part of a brief, then the usage limit, as the Claude engine reports it.
-  function limitStop(s: FakeSession, resetsAtMs: number) {
-    s.push({ kind: "assistant_text", text: "BRIEF-PART" });
-    s.push({ kind: "usage_limit_stop", resetsAtMs });
-    s.completeTurn();
-  }
-  const inAnHour = () => Date.now() + 60 * 60 * 1000;
 
   it("a brief turn a usage limit stops is not handed off, and the attempt stays open until a completed turn", async () => {
     const h = makeHarness();
@@ -1421,7 +1498,7 @@ describe("automatic handoff: failures", () => {
     await waitUntil(() => briefSession !== null, "brief turn sent");
     await h.mgr.newConversation(info.id);
     await settle();
-    expect(systemLines(h)).not.toContain(failed);
+    expectNoFailureLine(h);
     expect(
       systemLines(h).some((l) => l.startsWith("Handed off automatically")),
     ).toBe(false);
@@ -1433,6 +1510,196 @@ describe("automatic handoff: failures", () => {
     expect(
       officeAuditStore().list({ actorKind: "auto_handoff" }).items,
     ).toHaveLength(0);
+  });
+});
+
+describe("automatic handoff: back-off", () => {
+  const N = AUTO_HANDOFF_BACKOFF_FAILURES;
+  const T = AUTO_HANDOFF_BACKOFF_TURNS;
+
+  // Every brief turn writes no brief until a test says otherwise. Each
+  // member turn ends at a context of its own above the trigger (85% of
+  // 200k), so the commit of each sample can be seen.
+  interface Rig {
+    h: Harness;
+    id: string;
+    old: FakeSession;
+    n: number;
+  }
+  async function armedRig(): Promise<Rig> {
+    const h = makeHarness();
+    h.brief.answer = (s) => s.completeTurn({ text: "   " });
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(180_000, 200_000));
+    await atRestMeasured(h, info.id);
+    return { h, id: info.id, old, n: 0 };
+  }
+  const briefs = (r: Rig) => texts(r.old).filter(isBriefPrompt).length;
+  const fullnessNotices = (r: Rig) =>
+    keyCount(r.h, "systemEntries.contextFull");
+
+  // A member's message from rest; returns when it runs in the old session,
+  // after the brief turn it may have started.
+  async function message(r: Rig, text: string): Promise<void> {
+    void r.h.mgr.sendMessage(r.id, text);
+    await waitUntil(
+      () => stateOf(r.h, r.id) === "thinking" && sent(r.old, text),
+      `${text} runs in the old session`,
+    );
+  }
+  // Ends the running member turn at `tokens` of 200k, with its sample
+  // committed.
+  async function endTurn(r: Rig, tokens = 180_001 + r.n++): Promise<void> {
+    r.h.measure.now = ctx(tokens, 200_000);
+    r.old.completeTurn({ text: "done" });
+    await atRestMeasured(r.h, r.id);
+  }
+
+  it("failures in a row back off: the next completed turns arm nothing, the one after arms, and a later failure backs off again", async () => {
+    const r = await armedRig();
+    for (let i = 1; i <= N; i++) {
+      await message(r, `FAIL-${i}`);
+      expect(briefs(r)).toBe(i);
+      if (i < N) {
+        // A retry: the automatic handoff still stands in for the wrap-up
+        // advice, for both audiences.
+        expect(keyCount(r.h, RETRY_KEY)).toBe(i);
+        expect(backoffLines(r.h)).toHaveLength(0);
+        expect(texts(r.old).at(-1)).not.toContain("context-check");
+        expect(fullnessNotices(r)).toBe(0);
+      } else {
+        expect(keyCount(r.h, RETRY_KEY)).toBe(N - 1);
+        expect(backoffLines(r.h)).toEqual([{ failures: N, turns: T }]);
+        // In a back-off the wrap-up advice is back, for both audiences.
+        expect(texts(r.old).at(-1)).toContain("context-check");
+      }
+      await endTurn(r);
+    }
+    expect(fullnessNotices(r)).toBe(1);
+    // The turn of FAIL-N was the first of the T turns that arm nothing.
+    for (let i = 2; i <= T; i++) {
+      await message(r, `WAIT-${i}`);
+      await endTurn(r);
+    }
+    expect(briefs(r)).toBe(N);
+    // The message after the T-th runs in place too; its turn arms. A
+    // message queued during that turn waits for its sample, which lands
+    // late, and goes out after the brief turn the arm starts.
+    await message(r, "ARMS");
+    expect(briefs(r)).toBe(N);
+    void r.h.mgr.sendMessage(r.id, "FAIL-NEXT");
+    // The enabling condition: the message is queued behind the turn.
+    await waitUntil(
+      () =>
+        r.h.mgr
+          .getAllAgents()
+          .find((a) => a.id === r.id)
+          ?.queue?.some((m) => m.text === "FAIL-NEXT") ?? false,
+      "FAIL-NEXT queued",
+    );
+    r.h.measure.now = ctx(185_000, 200_000);
+    r.h.measure.delayMs = 200;
+    r.old.completeTurn({ text: "done" });
+    await waitUntil(
+      () => stateOf(r.h, r.id) === "thinking" && sent(r.old, "FAIL-NEXT"),
+      "FAIL-NEXT runs in the old session",
+    );
+    r.h.measure.delayMs = 0;
+    expect(briefs(r)).toBe(N + 1);
+    // The brief turn went first.
+    const order = texts(r.old);
+    expect(order.findLastIndex(isBriefPrompt)).toBeLessThan(
+      order.findIndex((t) => t.includes("FAIL-NEXT")),
+    );
+    // A failure after a back-off backs off again.
+    expect(backoffLines(r.h)).toEqual([
+      { failures: N, turns: T },
+      { failures: N + 1, turns: T },
+    ]);
+    await endTurn(r);
+    await message(r, "AFTER");
+    expect(briefs(r)).toBe(N + 1);
+  });
+
+  it("temporary failures neither count toward the back-off nor break the row", async () => {
+    const r = await armedRig();
+    for (let i = 1; i < N; i++) {
+      await message(r, `FAIL-${i}`);
+      await endTurn(r);
+    }
+    // A usage limit stops the next brief turn: a temporary failure.
+    r.h.brief.answer = (s) => limitStop(s, inAnHour());
+    await message(r, "LIMIT");
+    expect(briefs(r)).toBe(N);
+    expect(keyCount(r.h, RETRY_KEY)).toBe(N);
+    expect(backoffLines(r.h)).toHaveLength(0);
+    await endTurn(r);
+    r.h.brief.answer = (s) => s.completeTurn({ text: "   " });
+    await message(r, "FAIL-LAST");
+    expect(briefs(r)).toBe(N + 1);
+    expect(backoffLines(r.h)).toEqual([{ failures: N, turns: T }]);
+  });
+
+  it("a turn that ends below the trigger starts the row again", async () => {
+    const r = await armedRig();
+    for (let i = 1; i < N; i++) {
+      await message(r, `FAIL-${i}`);
+      // The engine compacted during the last one: it ends below the
+      // trigger, and the next message runs in place.
+      await endTurn(r, i === N - 1 ? 20_000 : undefined);
+    }
+    await message(r, "BELOW");
+    expect(briefs(r)).toBe(N - 1);
+    // Above again: the next failure is the first of a new row.
+    await endTurn(r);
+    await message(r, "FAIL-AGAIN");
+    expect(briefs(r)).toBe(N);
+    expect(backoffLines(r.h)).toHaveLength(0);
+    expect(keyCount(r.h, RETRY_KEY)).toBe(N);
+  });
+
+  it("a turn that ends below the trigger ends a back-off wait", async () => {
+    const r = await armedRig();
+    for (let i = 1; i <= N; i++) {
+      await message(r, `FAIL-${i}`);
+      await endTurn(r);
+    }
+    expect(backoffLines(r.h)).toHaveLength(1);
+    await message(r, "COMPACTED");
+    await endTurn(r, 20_000);
+    // The first completed turn above the trigger arms again.
+    await message(r, "ABOVE");
+    await endTurn(r);
+    await message(r, "FAIL-AGAIN");
+    expect(briefs(r)).toBe(N + 1);
+  });
+
+  it("an edit arms during a back-off wait, and ends the wait", async () => {
+    const r = await armedRig();
+    for (let i = 1; i <= N; i++) {
+      await message(r, `FAIL-${i}`);
+      await endTurn(r);
+    }
+    expect(backoffLines(r.h)).toHaveLength(1);
+    // The member lowers the value below the context: the edit arms.
+    await r.h.mgr.editAgent(r.id, { autoHandoffTokens: 150_000 });
+    // The brief turn the next message starts hits a usage limit, which does
+    // not count toward the back-off.
+    r.h.brief.answer = (s) => limitStop(s, inAnHour());
+    await message(r, "EDIT-ARMED");
+    expect(briefs(r)).toBe(N + 1);
+    expect(backoffLines(r.h)).toHaveLength(1);
+    // No wait is left: this turn arms, and the next message hands off.
+    r.h.brief.answer = (s) => s.completeTurn({ text: BRIEF });
+    await endTurn(r);
+    void r.h.mgr.sendMessage(r.id, "HANDS-OFF");
+    await waitUntil(
+      () => sent(r.old, "HANDS-OFF") || r.h.fake.sessions.length > 1,
+      "HANDS-OFF went out",
+    );
+    expect(sent(r.old, "HANDS-OFF")).toBe(false);
+    const fresh = await freshSession(r.h, r.id, r.old);
+    expectInOrder(fresh.sent[0].text, [BRIEF, "HANDS-OFF"]);
   });
 });
 
@@ -1455,10 +1722,7 @@ describe("automatic handoff: the member usage cap", () => {
     const fresh = await freshSession(h, info.id, old);
     expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
     expectInOrder(fresh.sent[0].text, [BRIEF, "AGENT-NEXT"]);
-    expect(keyCount(h, RETRY_KEY)).toBe(0);
-    expect(systemLines(h)).not.toContain(
-      en.t("systemEntries.autoHandoff.failed"),
-    );
+    expectNoFailureLine(h);
     // The enabling condition: the cap refuses on this agent's account. A
     // member's own message is refused.
     h.measure.now = ctx(20_000, 200_000);

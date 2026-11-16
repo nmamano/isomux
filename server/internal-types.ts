@@ -307,13 +307,19 @@ export interface ManagedAgent {
   settingsNotice: SettingsNoticeArm | null;
   // Automatic handoff (internal-docs/auto-handoff-design.md). All in memory
   // and all per conversation: resetContextUsage clears them, except that
-  // newConversation sets the last two for a conversation an automatic
-  // handoff opened.
+  // newConversation sets autoHandoffOpened and autoHandoffNotice for a
+  // conversation an automatic handoff opened.
   // The running attempt, or null.
   autoHandoffPhase: AutoHandoffPhase | null;
-  // This conversation used its attempt (it failed) or paused the mode. The
+  // The loop guard paused the mode for this conversation (section 6). The
   // fullness notices fire as before once this is set.
-  autoHandoffSpent: boolean;
+  autoHandoffPaused: boolean;
+  // Brief turns of this conversation that failed in a row, temporary failures
+  // not counted. From AUTO_HANDOFF_BACKOFF_FAILURES on, each failure sets
+  // autoHandoffWait. A sample below the trigger zeroes both.
+  autoHandoffFailures: number;
+  // Completed turns above the trigger that still pass without arming.
+  autoHandoffWait: number;
   // While the brief turn runs: its text after the last tool call, its turn
   // status, and whether a usage limit stopped it. Filled by the
   // normalized-event handler.
