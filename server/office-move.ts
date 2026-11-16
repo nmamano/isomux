@@ -96,6 +96,10 @@ export interface MoveStateMove extends Omit<MoveStatePaired, "state"> {
   lockedAt: number;
   /** The preflight the owner agreed to. */
   preflightId: string;
+  /** Slice 5b: the folders outside the home that move, as the lock found
+   *  them (equal to the preflight's). The MOVE-locked server walks these.
+   *  Absent in a state of an earlier release: none. */
+  outside?: string[];
 }
 
 /** The new office confirmed a complete, checked copy (slice 2a). Terminal:
@@ -451,7 +455,7 @@ export function checkMoveSession(
 /** "paired" -> "move". Throws MoveStateError("not_paired") otherwise. */
 export function markMoveLocked(
   stateRoot: string,
-  input: { preflightId: string; now: Date },
+  input: { preflightId: string; now: Date; outside?: string[] },
 ): MoveStateMove {
   const { current } = readMoveState(stateRoot, input.now);
   if (!current || current.state !== "paired")
@@ -461,6 +465,7 @@ export function markMoveLocked(
     state: "move",
     lockedAt: input.now.getTime(),
     preflightId: input.preflightId,
+    ...(input.outside ? { outside: input.outside } : {}),
   };
   // The marker first (N1): an unreadable state file with it still boots
   // locked.

@@ -51,6 +51,7 @@ import {
 import { Database } from "bun:sqlite";
 import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
 import { moveLockedResponse } from "./move-locked-office.ts";
+import type { MoveOutsideFolders } from "../shared/office-move.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
 let dir = "";
@@ -90,6 +91,8 @@ interface Bed {
   restart: { value: string | null };
   /** What the members-with-their-own-OS-user read gives now. */
   members: { value: MovePreflightResult["memberOsUsers"] };
+  /** Slice 5b: what the read of the folders outside the home gives now. */
+  outside: { value: MoveOutsideFolders };
   allow: { value: boolean };
   /** How far the clock moves at each preflight step (a slow preflight). */
   stepTakes: { ms: number };
@@ -121,6 +124,7 @@ function bed(): Bed {
   const turns: TurnInFlight[] = [];
   const restart = { value: "always" as string | null };
   const members: Bed["members"] = { value: { names: [] } };
+  const outside: Bed["outside"] = { value: { move: [], left: [] } };
   const allow = { value: true };
   const stepTakes = { ms: 0 };
   const locks: Bed["locks"] = [];
@@ -138,6 +142,7 @@ function bed(): Bed {
         ? null
         : { unit: "isomux.service", manager: "system", restart: restart.value },
     memberOsUsers: () => members.value,
+    outsideFolders: () => outside.value,
     exec: async () => {
       if (hold) await hold;
       clock.now += stepTakes.ms;
@@ -173,6 +178,7 @@ function bed(): Bed {
     turnsInFlight: () => turns.map((t) => ({ ...t })),
     restartPolicy: () => restart.value,
     memberOsUsers: () => members.value,
+    outsideFolders: () => outside.value,
     listUnits: () => UNITS,
     lockProcess: () => {
       locks.push({
@@ -195,6 +201,7 @@ function bed(): Bed {
     turns,
     restart,
     members,
+    outside,
     allow,
     stepTakes,
     locks,
@@ -550,6 +557,40 @@ describe("the lock", () => {
     expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
       "paired",
     );
+  });
+
+  it("slice 5b: refuses with 409 folders_changed when the folders that move differ from the preflight's, and writes nothing; a change of the left list only does not refuse; the lock records the list in the state", async () => {
+    const b = bed();
+    const a = { path: "/srv/a", mode: 0o755 };
+    const c = { path: "/srv/c", mode: 0o700 };
+    b.outside.value = { move: [a], left: [] };
+    const session = await pair(b);
+    const id = await readyPreflight(b, session);
+    const lock = () =>
+      b.call("POST", "/api/move/lock", { session, body: { preflightId: id } });
+    const got: string[] = [];
+    for (const move of [[a, c], [], [c]]) {
+      b.outside.value = { move, left: [] };
+      const res = await lock();
+      got.push(`${res.status} ${code(res)}`);
+    }
+    expect(got).toEqual(Array(3).fill("409 folders_changed"));
+    expect(b.locks).toEqual([]);
+    expect(existsSync(join(b.root, MOVE_UNITS_FILE))).toBe(false);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current?.state).toBe(
+      "paired",
+    );
+    // The same folders, with a folder left now that was not before.
+    b.outside.value = {
+      move: [a],
+      left: [{ path: "/srv/theirs", reason: "owner" }],
+    };
+    const res = await lock();
+    expect(res.status).toBe(202);
+    expect(readMoveState(b.root, new Date(b.clock.now)).current).toMatchObject({
+      state: "move",
+      outside: ["/srv/a"],
+    });
   });
 
   it("refuses with 409 no_service_manager unless the office's unit restarts it always", async () => {

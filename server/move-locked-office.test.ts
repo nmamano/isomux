@@ -13,6 +13,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
@@ -54,6 +55,7 @@ import {
   type MoveBatchItem,
   type MoveSealContext,
 } from "./office-move-pull.ts";
+import { createMovePull } from "./move-pull-boot.ts";
 import { createMoveScope } from "./office-move-scope.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
 
@@ -505,7 +507,10 @@ interface Pull {
 
 // A home with one member file, and the MOVE-locked server's answers over it
 // with the pull wired as production wires it.
-function pullOffice(root: string): Pull {
+function pullOffice(
+  root: string,
+  over: { outside?: () => { path: string; mode: number }[] } = {},
+): Pull {
   const home = join(root, "..");
   mkdirSync(join(home, "docs"), { recursive: true });
   writeFileSync(join(home, "docs", "a.txt"), "alpha");
@@ -526,6 +531,7 @@ function pullOffice(root: string): Pull {
       dir: scratch,
       units: () => [],
       secretCount: () => 0,
+      ...(over.outside ? { outside: over.outside } : {}),
       now,
     }),
     batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
@@ -753,6 +759,213 @@ describe("the pull", () => {
     const status = await p2.call("GET", "/api/move/status", { session });
     expect(((await status.json()) as { state: string }).state).toBe("moved");
     expect(p2.audits).toEqual([]);
+  });
+});
+
+// Slice 5b: a batch and the manifest data pick an outside folder of the job's
+// own list by its index; the seal binds the index; the folder is checked at
+// each batch as the home is.
+describe("slice 5b: the pull of folders outside the home", () => {
+  function outsideDir(name: string): string {
+    const p = join(dir, "outside", name);
+    mkdirSync(join(p, ".isomux-move-in", "stage"), { recursive: true });
+    writeFileSync(join(p, "f.txt"), `file of ${name}`);
+    writeFileSync(join(p, ".isomux-move-in", "stage", "s.txt"), "stage");
+    return p;
+  }
+
+  const batchCtx = (
+    id: string,
+    n: number,
+    items: MoveBatchItem[],
+    i?: number,
+  ): MoveSealContext => ({
+    route: "batch",
+    manifestId: id,
+    batch: n,
+    itemsHash: moveItemsHash(items),
+    ...(i === undefined ? {} : { outside: i }),
+  });
+
+  it("C4: a batch with outside: i reads folder i of the job's list, also after the records change; sealed to i; data with ?outside=i is that folder's manifest", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const a = outsideDir("a");
+    const b = outsideDir("b");
+    let list = [
+      { path: a, mode: 0o755 },
+      { path: b, mode: 0o755 },
+    ];
+    const p = pullOffice(root, { outside: () => list });
+    const id = await readyManifest(p, session);
+    list = [{ path: b, mode: 0o755 }];
+    const items: MoveBatchItem[] = [{ path: "f.txt" }];
+    const one = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 1, items, outside: 1 },
+      }),
+      batchCtx(id, 1, items, 1),
+    );
+    expect(await batchFiles(one)).toEqual({ "f.txt": "file of b" });
+    const zero = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 2, items, outside: 0 },
+      }),
+      batchCtx(id, 2, items, 0),
+    );
+    expect(await batchFiles(zero)).toEqual({ "f.txt": "file of a" });
+    // The same item without outside is the home's: no such file there.
+    const home = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 3, items },
+      }),
+      batchCtx(id, 3, items),
+    );
+    expect(await batchFiles(home)).toEqual({ "f.txt": "error" });
+
+    const data = await opened(
+      root,
+      await p.call("GET", `/api/move/manifest/${id}/data?outside=1`, {
+        session,
+      }),
+      {
+        route: "manifest",
+        manifestId: id,
+        batch: 0,
+        itemsHash: "",
+        outside: 1,
+      },
+    );
+    const names = data
+      .toString()
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => (JSON.parse(l) as { p: string }).p);
+    expect(names).toEqual(["f.txt"]);
+  });
+
+  it("a batch for an index the job does not have is refused; the new office's stage in a folder is never served", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const a = outsideDir("a");
+    const p = pullOffice(root, { outside: () => [{ path: a, mode: 0o755 }] });
+    const id = await readyManifest(p, session);
+    for (const outside of [1, -1, 0.5, "0"]) {
+      const res = await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 1, items: [{ path: "f.txt" }], outside },
+      });
+      expect([outside, res.status >= 400]).toEqual([outside, true]);
+    }
+    const data = await p.call(
+      "GET",
+      `/api/move/manifest/${id}/data?outside=1`,
+      {
+        session,
+      },
+    );
+    expect(data.status).toBe(404);
+    const items: MoveBatchItem[] = [{ path: ".isomux-move-in/stage/s.txt" }];
+    const plain = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 1, items, outside: 0 },
+      }),
+      batchCtx(id, 1, items, 0),
+    );
+    expect(await batchFiles(plain)).toEqual({
+      ".isomux-move-in/stage/s.txt": "error",
+    });
+  });
+
+  it("a folder that became a link after the walk: every item gets an error record, and the link's target is never read", async () => {
+    const root = stateRoot();
+    const { session } = lockedMove(root);
+    const a = outsideDir("a");
+    const p = pullOffice(root, { outside: () => [{ path: a, mode: 0o755 }] });
+    const id = await readyManifest(p, session);
+    const items: MoveBatchItem[] = [{ path: "f.txt" }];
+    // The condition: before the swap the item is served.
+    const before = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 1, items, outside: 0 },
+      }),
+      batchCtx(id, 1, items, 0),
+    );
+    expect(await batchFiles(before)).toEqual({ "f.txt": "file of a" });
+    const elsewhere = join(dir, "elsewhere");
+    mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, "f.txt"), "NOT THE OFFICE'S");
+    rmSync(a, { recursive: true });
+    symlinkSync(elsewhere, a);
+    const after = await opened(
+      root,
+      await p.call("POST", "/api/move/batch", {
+        session,
+        body: { manifestId: id, batch: 2, items, outside: 0 },
+      }),
+      batchCtx(id, 2, items, 0),
+    );
+    expect(after.includes(Buffer.from("NOT THE OFFICE'S"))).toBe(false);
+    expect(await batchFiles(after)).toEqual({ "f.txt": "error" });
+  });
+
+  it("the MOVE-locked server walks the list the lock recorded in the state, not live records", async () => {
+    const root = stateRoot();
+    const a = outsideDir("a");
+    const { code } = mintMoveCode(root, {
+      origin: "https://old.example.com",
+      by: "Morgan",
+      now: T0,
+    });
+    const res = redeemMoveCode(root, {
+      token: parseMoveCode(code)!.token,
+      newBox: BOX,
+      ours: BOX,
+      now: T0,
+    });
+    if (!res.ok) throw new Error(JSON.stringify(res));
+    markMoveLocked(root, { preflightId: "pf-1", now: T0, outside: [a] });
+    const now = () => new Date(T0.getTime() + 60_000);
+    const pull = createMovePull({
+      stateRoot: root,
+      home: join(root, ".."),
+      codeDir: REPO,
+      backupDir: join(dir, "backups"),
+      now,
+    });
+    const call = (method: string, path: string) =>
+      moveLockedResponse(
+        new Request(url(path), {
+          method,
+          headers: { Authorization: `Bearer ${res.session}` },
+        }),
+        { stateRoot: root, requestStop: () => {}, now, pull, audit: () => {} },
+      );
+    const start = await call("POST", "/api/move/manifest");
+    expect(start.status).toBe(202);
+    const { id } = (await start.json()) as { id: string };
+    const deadline = performance.now() + 10_000;
+    let s: { state: string; outside?: { path: string }[] } = {
+      state: "running",
+    };
+    while (s.state === "running" && performance.now() < deadline) {
+      await Bun.sleep(10);
+      s = (await (
+        await call("GET", `/api/move/manifest/${id}`)
+      ).json()) as typeof s;
+    }
+    expect(s.state).toBe("ready");
+    expect((s.outside ?? []).map((o) => o.path)).toEqual([a]);
   });
 });
 

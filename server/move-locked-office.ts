@@ -12,6 +12,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createMoveOutsideScope } from "./office-move-outside.ts";
 import { languageFromAcceptLanguage } from "../shared/languages.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import {
@@ -246,9 +247,13 @@ export async function servePull(
         : fail(404, "not_found", "No such manifest.");
     }
     case "manifestData": {
-      const file = route.id
-        ? pull.manifests.dataFile(route.id, state.sessionHash)
-        : null;
+      // Slice 5b: ?outside=<i> names a folder of the job's own list.
+      const raw = new URL(req.url).searchParams.get("outside");
+      const outside = raw === null ? undefined : outsideIndexOf(raw);
+      const file =
+        route.id && outside !== null
+          ? pull.manifests.dataFile(route.id, state.sessionHash, outside)
+          : null;
       if (!file) return fail(404, "not_found", "No ready manifest of that id.");
       const id = route.id;
       const signal = opts.signal;
@@ -257,12 +262,18 @@ export async function servePull(
           if (signal?.aborted) throw new Error("The move pairing ended.");
           yield chunk;
         }
-        pull.manifests.markServed(id);
+        if (outside === undefined) pull.manifests.markServed(id);
       }
       return sealed(
         sealMoveStream(
           key,
-          { route: "manifest", manifestId: id, batch: 0, itemsHash: "" },
+          {
+            route: "manifest",
+            manifestId: id,
+            batch: 0,
+            itemsHash: "",
+            ...(typeof outside === "number" ? { outside } : {}),
+          },
           data(),
         ),
       );
@@ -272,6 +283,12 @@ export async function servePull(
     case "done":
       return done(req, state as MoveStateMove, pull, opts);
   }
+}
+
+/** A folder index as a query value: digits only, else null. */
+function outsideIndexOf(raw: string): number | null {
+  if (!/^\d{1,6}$/.test(raw)) return null;
+  return Number(raw);
 }
 
 function sealed(body: ReadableStream<Uint8Array>): Response {
@@ -329,21 +346,43 @@ async function batch(
   const items = asItems(body?.items);
   const manifestId = body?.manifestId;
   const n = body?.batch;
+  const outside = body?.outside;
   if (
     !body ||
     !items ||
     typeof manifestId !== "string" ||
     typeof n !== "number" ||
     !Number.isSafeInteger(n) ||
-    n < 0
+    n < 0 ||
+    (outside !== undefined &&
+      (typeof outside !== "number" ||
+        !Number.isSafeInteger(outside) ||
+        outside < 0))
   )
     return fail(
       400,
       "invalid_request",
-      "The body must be {manifestId, batch, items: [{path, offset?, length?}]}.",
+      "The body must be {manifestId, batch, items: [{path, offset?, length?}], outside?}.",
     );
   if (!pull.manifests.dataFile(manifestId, state.sessionHash))
     return fail(409, "manifest_unknown", "No ready manifest of that id.");
+  // Slice 5b: a folder of the job's own list, never of the live records.
+  let source = pull.batch;
+  if (outside !== undefined) {
+    const folder = pull.manifests.outsideFolder(
+      manifestId,
+      state.sessionHash,
+      outside,
+    );
+    if (!folder)
+      return fail(409, "manifest_unknown", "The manifest has no such folder.");
+    source = {
+      scope: createMoveOutsideScope(folder),
+      scratchDir: pull.batch.scratchDir,
+      snapshot: (src, dst) => pull.batch.snapshot(src, dst),
+      exactRoot: true,
+    };
+  }
   try {
     if (markMoveServed(opts.stateRoot, opts.now()))
       opts.onFirstServed?.(
@@ -360,8 +399,9 @@ async function batch(
         manifestId,
         batch: n,
         itemsHash: moveItemsHash(items),
+        ...(outside !== undefined ? { outside } : {}),
       },
-      writeMoveBatch(pull.batch, items, {
+      writeMoveBatch(source, items, {
         ...(opts.signal ? { signal: opts.signal } : {}),
         snapshots: state.state !== "paired",
       }),

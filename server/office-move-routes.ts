@@ -23,6 +23,7 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
+import type { MoveOutsideFolders } from "../shared/office-move.ts";
 import { endOfficeLeftovers } from "./office-lockdown-route.ts";
 import {
   getStopFinalStep,
@@ -67,6 +68,10 @@ export interface OfficeMoveRouteDeps {
   /** Members with their own OS user, read now (slice 3): the lock refuses
    *  while any member has one. */
   memberOsUsers(): MovePreflightResult["memberOsUsers"];
+  /** Slice 5b: the folders outside the home, read now: the lock refuses
+   *  (409 folders_changed) when the move list differs from the preflight's,
+   *  and records it in the state. */
+  outsideFolders?(): MoveOutsideFolders;
   listUnits(): AgentUnit[];
   /** Locks this process (lockOfficeNow) and closes every socket. */
   lockProcess(): void;
@@ -318,6 +323,32 @@ export function createOfficeMoveFrontDoor(
         "Agents started working after the preflight. Run it again.",
         { turnsInFlight: current, newAgentIds: added.map((t) => t.agentId) },
       );
+    // Slice 5b: the folders that move must be the ones the new office
+    // checked (C4).
+    let outside: string[];
+    try {
+      outside = (deps.outsideFolders?.().move ?? []).map((f) => f.path).sort();
+    } catch (err) {
+      console.error("[move] could not read the folders outside the home:", err);
+      return fail(
+        500,
+        "lock_failed",
+        "The office could not read its folders outside the home. It is not locked.",
+      );
+    }
+    const agreed = (pf.result.outsideFolders?.move ?? [])
+      .map((f) => f.path)
+      .sort();
+    if (
+      outside.length !== agreed.length ||
+      outside.some((p, i) => p !== agreed[i])
+    )
+      return fail(
+        409,
+        "folders_changed",
+        "The folders outside the home changed after the preflight. Run it again.",
+        { outside, preflight: agreed },
+      );
     // The record and the state first: a failure changes nothing.
     let units: AgentUnit[];
     try {
@@ -333,7 +364,7 @@ export function createOfficeMoveFrontDoor(
       );
     }
     try {
-      markMoveLocked(deps.stateRoot, { preflightId, now });
+      markMoveLocked(deps.stateRoot, { preflightId, now, outside });
     } catch (err) {
       console.error("[move] could not write the move state:", err);
       rmSync(join(deps.stateRoot, MOVE_UNITS_FILE), {

@@ -11,25 +11,35 @@
 // boot that finds a phase from `locking` on sets `failed` (interrupted).
 
 import {
+  checkMoveInFolder,
+  createMoveOutsideScope,
+  dropMoveInOutside,
+  readMoveInOutside,
+  writeMoveInOutside,
+  type MoveInFolderFs,
+} from "./office-move-outside.ts";
+import {
   chmodSync,
   closeSync,
-  constants as fsConstants,
   existsSync,
-  fchmodSync,
+  lstatSync,
   mkdirSync,
   openSync,
-  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { userInfo } from "node:os";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 import type { AuditActor } from "../shared/audit.ts";
 import { errMessage } from "../shared/errors.ts";
 import type {
+  MoveInFolderCheck,
   MoveInLive,
+  MoveOutsideFolder,
+  MoveOutsideLeft,
   MoveInPreflight,
   MoveInProgress,
   MoveInStartBlocker,
@@ -61,9 +71,14 @@ import {
   type MoveManifestEntry,
   type MoveSealContext,
 } from "./office-move-pull.ts";
-import { createMoveScope, moveAlwaysFetch } from "./office-move-scope.ts";
+import {
+  createMoveScope,
+  moveAlwaysFetch,
+  type MoveScope,
+} from "./office-move-scope.ts";
 import {
   createMoveStage,
+  removeMoveTree,
   MOVE_IN_LEDGER,
   MOVE_IN_STAGE,
   MoveStageError,
@@ -150,6 +165,10 @@ export interface MoveInPairing {
   by: AuditActor;
   /** The old office, as its redeem answered. */
   office: MoveBoxInfo;
+  /** Slice 5b: the old office's folders outside its home, from the
+   *  preflight the owner agreed to (set at the lock). The final pass refuses
+   *  a manifest that lists others (C4). */
+  outside?: { move: MoveOutsideFolder[]; left: MoveOutsideLeft[] };
 }
 
 export type { MoveInLive, MoveInPreflight, MoveInProgress, MoveInStatus };
@@ -253,6 +272,9 @@ export interface MoveInManifestFacts {
   secretCount: number;
   /** The old office's units record. */
   units: AgentUnit[];
+  /** Slice 5b: the folders outside the home, as the manifest lists them
+   *  (each one's own mode and mtime go on it at the swap). Absent: none. */
+  outside?: { path: string; mode: number; mtime: number }[];
 }
 
 // ---- the job ----
@@ -321,6 +343,10 @@ export interface MoveInBox {
   publicOrigin: string | null;
   /** Whether the office listens on loopback only (absent: yes). */
   loopbackOnly?: boolean;
+  /** Slice 5b: the office OS user, for checkMoveInFolder (gid: the primary
+   *  group). Absent: the process's own (userInfo, getgid, the group's name
+   *  from /etc/group). */
+  osUser?: { uid: number; gid: number; user: string; group: string };
 }
 
 /** The job's own audit row (the routes audit start, lock, retry and
@@ -342,6 +368,18 @@ export interface MoveInDeps {
   box(): MoveInBox;
   /** Restarts the office process (the office's own self-restart path). */
   requestRestart(): void;
+  /** Slice 5b, a test seam: put in front of every outside folder's path on
+   *  this office (the check, the stage, outside.json, the swap inputs). The
+   *  status and the report keep the old office's paths. Production omits
+   *  it. */
+  outsideRoot?: string;
+  /** Slice 5b: checkMoveInFolder's reads. Default: node:fs. */
+  folderFs?: MoveInFolderFs;
+  /** Slice 5b: the device of a path, for the free-space check by device
+   *  (statfs runs once per device, on its first path; the home first). For
+   *  a folder not made yet, its deepest existing ancestor. Default:
+   *  lstat(path).dev. */
+  deviceOf?(path: string): number;
   now(): Date;
   timing: MoveInTiming;
   limits: MoveInLimits;
@@ -675,63 +713,191 @@ async function* manifestEntries(
 }
 
 const GIB = 1024 ** 3;
-const DIR_FLAGS =
-  fsConstants.O_RDONLY |
-  fsConstants.O_NOFOLLOW |
-  fsConstants.O_DIRECTORY |
-  fsConstants.O_NONBLOCK;
+// ---- the move-in ----
 
-/** Removes a move-in folder: a staged copy can hold read-only folders, so
- *  each folder gets u+rwx first (by fd, never through a link). */
-function removeTree(root: string): void {
-  const stack = [root];
-  while (stack.length > 0) {
-    const p = stack.pop()!;
-    let fd: number;
-    try {
-      fd = openSync(p, DIR_FLAGS);
-    } catch {
-      continue; // Not a folder (or a link, or gone): rm takes it.
-    }
-    try {
-      fchmodSync(fd, 0o700);
-    } catch {
-      // rm reports what it cannot remove.
-    } finally {
-      closeSync(fd);
-    }
-    let names: string[] = [];
-    try {
-      names = readdirSync(p);
-    } catch {
-      names = [];
-    }
-    for (const n of names) stack.push(join(p, n));
-  }
-  rmSync(root, { recursive: true, force: true });
+/** Slice 5b: one stage of a pass: the home, or a folder outside it. */
+interface PassTarget {
+  /** The index in the manifest's outside list; null for the home. */
+  outside: number | null;
+  /** The old office's path of the folder; null for the home. */
+  oldPath: string | null;
+  /** Where it lands here (the home, or the folder). */
+  local: string;
+  dir: string;
+  stageDir: string;
+  manifestFile: string;
+  ledgerFile: string;
+  prevStageDir: string;
+  prevLedgerFile: string;
+  fetchScope: MoveScope;
 }
 
-// ---- the move-in ----
+/** Slice 5b: a folder of a ready manifest answer. */
+interface OutsideListed {
+  path: string;
+  mode: number;
+  mtime: number;
+  totalBytes?: number;
+  unreadable?: unknown;
+}
+
+/** The office OS user of this process, for the folder checks. */
+function processOsUser(): {
+  uid: number;
+  gid: number;
+  user: string;
+  group: string;
+} {
+  const uid = process.getuid?.() ?? 0;
+  const gid = process.getgid?.() ?? 0;
+  const user = userInfo().username;
+  let group = String(gid);
+  try {
+    for (const line of readFileSync("/etc/group", "utf8").split("\n")) {
+      const [name, , id] = line.split(":");
+      if (id !== undefined && Number(id) === gid && name) {
+        group = name;
+        break;
+      }
+    }
+  } catch {
+    // No group file: the command names the group by its number.
+  }
+  return { uid, gid, user, group };
+}
+
+/** Slice 5b: the old office's folders outside its home, as its preflight
+ *  answered (an older release sends none). */
+function preflightOutside(pf: MoveInPreflight | undefined): {
+  move: MoveOutsideFolder[];
+  left: MoveOutsideLeft[];
+} {
+  const o = pf?.outsideFolders;
+  if (!isObject(o)) return { move: [], left: [] };
+  const move = Array.isArray(o.move)
+    ? o.move
+        .filter(
+          (f): f is MoveOutsideFolder =>
+            isObject(f) &&
+            typeof f.path === "string" &&
+            typeof f.mode === "number",
+        )
+        .map((f) => ({ path: f.path, mode: f.mode }))
+    : [];
+  const left = Array.isArray(o.left)
+    ? o.left
+        .filter(
+          (f): f is MoveOutsideLeft =>
+            isObject(f) &&
+            typeof f.path === "string" &&
+            typeof f.reason === "string",
+        )
+        .map((f) => ({ path: f.path, reason: f.reason }))
+    : [];
+  return { move, left };
+}
+
+/** Slice 5b: why a folder cannot land here, in plain words. */
+function blockedWhy(c: MoveInFolderCheck): string {
+  if (c.ok) return "";
+  switch (c.reason) {
+    case "in_home":
+      return "it would be inside this office's home";
+    case "link":
+      return `${c.at} is a link`;
+    case "not_dir":
+      return `${c.at} is not a folder`;
+    case "owner":
+      return `another user owns ${c.at}`;
+    case "unsafe_parent":
+      return `other users can write to ${c.at}`;
+    case "not_empty":
+      return `${c.at} is not empty`;
+    case "no_write":
+      return `this office cannot make folders in ${c.at}`;
+  }
+}
+
+function blockedMessage(blocked: MoveInFolderCheck[]): string {
+  return `These folders of the old office cannot be copied to this machine: ${blocked
+    .map((c) => `${c.path} (${blockedWhy(c)})`)
+    .join("; ")}. Fix them, then try again.`;
+}
 
 export function createMoveIn(deps: MoveInDeps): MoveIn {
   const stateFile = join(deps.stateRoot, MOVE_IN_STATE_FILE);
   const moveInDir = join(deps.home, MOVE_IN_DIR);
-  const stageDir = join(moveInDir, MOVE_IN_STAGE);
-  const manifestFile = join(moveInDir, "manifest.ndjson");
+  // Slice 5b: the old office's folder outside its home, at its place here.
+  const localOf = (p: string) =>
+    deps.outsideRoot === undefined ? p : join(deps.outsideRoot, p);
   // Slice 4: every pass builds on the last one. Its ledger lists what came
   // whole and clean; a new pass moves the last stage and ledger aside, keeps
   // what still matches, and removes the rest.
-  const ledgerFile = join(moveInDir, MOVE_IN_LEDGER);
-  const prevStageDir = join(moveInDir, `${MOVE_IN_STAGE}.prev`);
-  const prevLedgerFile = join(moveInDir, "ledger.prev.ndjson");
+  const targetOf = (
+    local: string,
+    outside: number | null,
+    oldPath: string | null,
+    fetchScope: MoveScope,
+  ): PassTarget => {
+    const dir = join(local, MOVE_IN_DIR);
+    return {
+      outside,
+      oldPath,
+      local,
+      dir,
+      stageDir: join(dir, MOVE_IN_STAGE),
+      manifestFile: join(dir, "manifest.ndjson"),
+      ledgerFile: join(dir, MOVE_IN_LEDGER),
+      prevStageDir: join(dir, `${MOVE_IN_STAGE}.prev`),
+      prevLedgerFile: join(dir, "ledger.prev.ndjson"),
+      fetchScope,
+    };
+  };
   // Only the state root's place matters to moveAlwaysFetch; it is the same
   // path on both boxes (the redeem refuses otherwise).
-  const fetchScope = createMoveScope({
-    home: deps.home,
-    stateRoot: deps.stateRoot,
-    codeDir: null,
-    backupDir: null,
-  });
+  const homeTarget = targetOf(
+    deps.home,
+    null,
+    null,
+    createMoveScope({
+      home: deps.home,
+      stateRoot: deps.stateRoot,
+      codeDir: null,
+      backupDir: null,
+    }),
+  );
+  const outsideTarget = (f: OutsideListed, i: number): PassTarget => {
+    const local = localOf(f.path);
+    return targetOf(local, i, f.path, createMoveOutsideScope(local));
+  };
+  const deviceOf = (path: string): number => {
+    if (deps.deviceOf) return deps.deviceOf(path);
+    for (let p = path; ; p = dirname(p)) {
+      try {
+        return lstatSync(p).dev;
+      } catch {
+        if (p === dirname(p)) return 0;
+      }
+    }
+  };
+  /** Slice 5b: where the old office's folder `path` lands here, checked. The
+   *  answer names the old office's path; `at`, `create` and `command` name
+   *  this box's. */
+  const checkFolder = (path: string, mode: number): MoveInFolderCheck => {
+    const own = deps.box().osUser ?? processOsUser();
+    return {
+      ...checkMoveInFolder(localOf(path), {
+        home: deps.home,
+        uid: own.uid,
+        gid: own.gid,
+        user: own.user,
+        group: own.group,
+        mode,
+        ...(deps.folderFs ? { fs: deps.folderFs } : {}),
+      }),
+      path,
+    };
+  };
 
   const readState = (): MoveInState | null => {
     let text: string;
@@ -828,6 +994,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     pairedAt: s.pairedAt,
     by: s.by,
     office: s.office,
+    ...(s.outside ? { outside: s.outside } : {}),
   });
 
   const lockedAtOf = (s: MoveInState): number | null =>
@@ -1082,6 +1249,13 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     liveStopping = false;
     const startedAt = deps.now().getTime();
     let manifestId: string | undefined;
+    // Slice 5b: the folders of the preflight the owner sees now.
+    const startChecked =
+      state?.phase === "confirm" ? preflightOutside(state.preflight).move : [];
+    const liveChecked = () =>
+      state?.phase === "confirm"
+        ? preflightOutside(state.preflight).move
+        : startChecked;
     const set = (live: Omit<MoveInLive, "startedAt">) =>
       writeLive(gen, {
         ...live,
@@ -1117,10 +1291,9 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
           ctl.signal,
           (b) => (b.state === "ready" ? b : null),
         );
-        await runPass(pair, manifestId, {
+        await runPass(pair, manifestId, summary, {
           live: true,
-          totalBytes:
-            typeof summary.totalBytes === "number" ? summary.totalBytes : 0,
+          checked: liveChecked(),
           signal: ctl.signal,
           gen,
           started: (prog) => {
@@ -1271,8 +1444,6 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       signal,
       (b) => (b.state === "ready" ? b : null),
     );
-    const totalBytes =
-      typeof summary.totalBytes === "number" ? summary.totalBytes : 0;
     // Slice 2c-1: the swap and the report keep these.
     const manifestFacts: MoveInManifestFacts = {
       excluded: Array.isArray(summary.excluded)
@@ -1291,14 +1462,20 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             (u): u is AgentUnit => isObject(u) && typeof u.name === "string",
           )
         : [],
+      // Slice 5b: at this box's path, for the swap.
+      outside: outsideOfSummary(summary).map((f) => ({
+        path: localOf(f.path),
+        mode: f.mode,
+        mtime: f.mtime,
+      })),
     };
     const unreadable = Array.isArray(summary.unreadable)
       ? summary.unreadable.filter((p): p is string => typeof p === "string")
       : [];
 
-    const { stage, prog } = await runPass(pair, manifestId, {
+    const { stages, prog } = await runPass(pair, manifestId, summary, {
       live: false,
-      totalBytes,
+      checked: pair.outside?.move ?? [],
       signal,
       gen,
       started: (prog) => {
@@ -1320,13 +1497,41 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       manifestId,
       progress: { ...prog },
     });
-    await stage.finish(manifestEntries(manifestFile));
-    const result = await stage.check(manifestEntries(manifestFile));
+    const result: MoveStageCheck = {
+      complete: true,
+      files: 0,
+      bytes: 0,
+      missing: [],
+      changed: [],
+    };
+    // Slice 5b: a folder outside the home names its paths absolute, as on
+    // the old office.
+    const shown = (t: PassTarget, p: string) =>
+      t.oldPath === null ? p : join(t.oldPath, p);
+    for (const { target, stage } of stages) {
+      await stage.finish(manifestEntries(target.manifestFile));
+      const r = await stage.check(manifestEntries(target.manifestFile));
+      result.files += r.files;
+      result.bytes += r.bytes;
+      for (const m of r.missing)
+        result.missing.push({ ...m, path: shown(target, m.path) });
+      for (const c of r.changed) result.changed.push(shown(target, c));
+    }
     for (const p of unreadable)
       result.missing.push({
         path: p,
         reason: "The old office could not read it.",
       });
+    outsideOfSummary(summary).forEach((f, i) => {
+      const t = outsideTarget(f, i);
+      const list = Array.isArray(f.unreadable) ? f.unreadable : [];
+      for (const p of list)
+        if (typeof p === "string")
+          result.missing.push({
+            path: shown(t, p),
+            reason: "The old office could not read it.",
+          });
+    });
     result.complete = result.missing.length === 0;
     if (result.complete) {
       setFor(gen, {
@@ -1381,100 +1586,202 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
 
   /** Whether an earlier pass's copy of a file may stay ([R]: the manifest
    *  values that pass recorded against this manifest's, never a stat). */
-  const keepable = (e: MoveManifestEntry, row: MoveLedgerRow | null) =>
+  const keepable = (
+    t: PassTarget,
+    e: MoveManifestEntry,
+    row: MoveLedgerRow | null,
+  ) =>
     row !== null &&
     e.t === "f" &&
     e.q !== 1 &&
     row.s === e.s &&
     row.m === e.m &&
-    !moveAlwaysFetch(fetchScope, e.p);
+    !moveAlwaysFetch(t.fetchScope, e.p);
+
+  /** Slice 5b: the outside folders of a ready manifest answer, as listed. */
+  const outsideOfSummary = (summary: JsonObject): OutsideListed[] =>
+    Array.isArray(summary.outside)
+      ? summary.outside.filter(
+          (f): f is OutsideListed =>
+            isObject(f) &&
+            typeof f.path === "string" &&
+            typeof f.mode === "number" &&
+            typeof f.mtime === "number",
+        )
+      : [];
+
+  /** Slice 5b: before a pass writes anything: the manifest's folders are the
+   *  checked ones (C4), each one can land here, the stage of a folder this
+   *  pass does not list goes (C5), and the folders to make are recorded,
+   *  then made. */
+  const prepareOutside = (
+    listed: OutsideListed[],
+    checked: { path: string; mode: number }[],
+  ): void => {
+    const a = listed.map((f) => f.path).sort();
+    const b = checked.map((f) => f.path).sort();
+    if (a.length !== b.length || a.some((p, i) => p !== b[i]))
+      throw new MoveInFail(
+        "outside_folders_changed",
+        "The old office lists other folders outside its home than the ones checked. Try again.",
+        true,
+      );
+    const checks = listed.map((f) => checkFolder(f.path, f.mode));
+    const blocked = checks.filter((c) => !c.ok);
+    if (blocked.length > 0)
+      throw new MoveInFail(
+        "outside_folders_blocked",
+        blockedMessage(blocked),
+        true,
+        502,
+        { checks },
+      );
+    dropMoveInOutside(
+      deps.home,
+      listed.map((f) => localOf(f.path)),
+    );
+    const rec = readMoveInOutside(deps.home);
+    const created = new Set(rec.created);
+    const staged = new Set(rec.staged);
+    const toMake: string[] = [];
+    for (const c of checks)
+      if (c.ok) {
+        // `create` names this box's paths already.
+        for (const part of c.create) {
+          created.add(part);
+          toMake.push(part);
+        }
+      }
+    for (const f of listed) staged.add(localOf(f.path));
+    // The record first: a cancel then removes what a crash left.
+    writeMoveInOutside(deps.home, {
+      staged: [...staged],
+      created: [...created],
+    });
+    // Two folders can share the parts to make; each is made once, top down.
+    for (const part of new Set(toMake)) mkdirSync(part, { mode: 0o755 });
+  };
 
   /** One pass (slice 4: the live pass, or the final pass after the lock):
    *  the manifest data, the free space, then pass 1 and the batches on a
    *  new stage that keeps what the last pass copied whole and still
-   *  matches. Writes the ledger whatever the end, unless cancelled. */
+   *  matches. Writes the ledger whatever the end, unless cancelled. Slice
+   *  5b: the home, then each folder outside it, each with its own stage. */
   const runPass = async (
     pair: MoveInPairing,
     manifestId: string,
+    summary: JsonObject,
     opts: {
       live: boolean;
-      totalBytes: number;
+      /** The folders the owner's check covered (C4). */
+      checked: { path: string; mode: number }[];
       signal: AbortSignal;
       gen: number;
       started(prog: MoveInProgress): void;
     },
-  ): Promise<{ stage: MoveStage; prog: MoveInProgress }> => {
+  ): Promise<{
+    stages: { target: PassTarget; stage: MoveStage }[];
+    prog: MoveInProgress;
+  }> => {
     const { signal, gen } = opts;
     if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
-    mkdirSync(moveInDir, { recursive: true, mode: 0o700 });
-    // A pass a crash cut left these.
-    removeTree(prevStageDir);
-    rmSync(prevLedgerFile, { force: true });
-    const fd = openSync(manifestFile, "w", 0o600);
-    try {
-      for await (const chunk of await requestSealed(
-        pair,
-        "GET",
-        `/api/move/manifest/${encodeURIComponent(manifestId)}/data`,
-        undefined,
-        { route: "manifest", manifestId, batch: 0, itemsHash: "" },
-        signal,
-      )) {
-        let off = 0;
-        while (off < chunk.byteLength)
-          off += writeSync(fd, chunk, off, chunk.byteLength - off);
+    const listed = outsideOfSummary(summary);
+    prepareOutside(listed, opts.checked);
+    const targets: PassTarget[] = [
+      homeTarget,
+      ...listed.map((f, i) => outsideTarget(f, i)),
+    ];
+    for (const t of targets) {
+      mkdirSync(t.dir, { recursive: true, mode: 0o700 });
+      // A pass a crash cut left these.
+      removeMoveTree(t.prevStageDir);
+      rmSync(t.prevLedgerFile, { force: true });
+      const fd = openSync(t.manifestFile, "w", 0o600);
+      const q = t.outside === null ? "" : `?outside=${t.outside}`;
+      try {
+        for await (const chunk of await requestSealed(
+          pair,
+          "GET",
+          `/api/move/manifest/${encodeURIComponent(manifestId)}/data${q}`,
+          undefined,
+          {
+            route: "manifest",
+            manifestId,
+            batch: 0,
+            itemsHash: "",
+            ...(t.outside === null ? {} : { outside: t.outside }),
+          },
+          signal,
+        )) {
+          let off = 0;
+          while (off < chunk.byteLength)
+            off += writeSync(fd, chunk, off, chunk.byteLength - off);
+        }
+      } finally {
+        closeSync(fd);
       }
-    } finally {
-      closeSync(fd);
+      if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
     }
-    if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
 
-    // The last pass's stage and ledger, when both are there.
-    const reuse = existsSync(ledgerFile) && existsSync(stageDir);
-
-    // D5: whole blocks and inodes, before the first batch; a file the last
-    // pass copied and that stays needs neither.
-    const fs = deps.statfs(deps.home);
-    const bsize = Math.max(1, fs.bsize);
-    let blocks = 0;
+    // D5: whole blocks and inodes, before the first batch, per device (the
+    // home's first); a file the last pass copied and that stays needs
+    // neither.
+    const devices = new Map<
+      number,
+      { fs: MoveInStatfs; blocks: number; entries: number }
+    >();
+    const reuse = new Map<PassTarget, boolean>();
     let entries = 0;
-    let needEntries = 0;
-    const spaceJoin = reuse ? ledgerJoin(ledgerFile) : null;
-    for await (const e of manifestEntries(manifestFile)) {
-      entries++;
-      if (e.t === "f") {
-        if (spaceJoin && keepable(e, await spaceJoin(e.p))) continue;
-        blocks += Math.ceil(e.s / bsize) * bsize;
-      } else if (e.t === "d") blocks += bsize;
-      needEntries++;
+    for (const t of targets) {
+      const dev = deviceOf(t.local);
+      let d = devices.get(dev);
+      if (!d) {
+        d = { fs: deps.statfs(t.local), blocks: 0, entries: 0 };
+        devices.set(dev, d);
+      }
+      const bsize = Math.max(1, d.fs.bsize);
+      // The last pass's stage and ledger, when both are there.
+      const again = existsSync(t.ledgerFile) && existsSync(t.stageDir);
+      reuse.set(t, again);
+      const spaceJoin = again ? ledgerJoin(t.ledgerFile) : null;
+      for await (const e of manifestEntries(t.manifestFile)) {
+        entries++;
+        if (e.t === "f") {
+          if (spaceJoin && keepable(t, e, await spaceJoin(e.p))) continue;
+          d.blocks += Math.ceil(e.s / bsize) * bsize;
+        } else if (e.t === "d") d.blocks += bsize;
+        d.entries++;
+      }
     }
-    const needBytes = blocks + Math.max(blocks * 0.1, GIB);
-    const haveBytes = fs.bavail * bsize;
-    const needInodes = needEntries + Math.ceil(needEntries * 0.1);
-    if (haveBytes < needBytes)
-      throw new MoveInFail(
-        "no_space",
-        `Not enough disk space: the copy needs ${Math.ceil(needBytes)} bytes, and ${haveBytes} are free. Free some space, then pull again.`,
-        true,
-      );
-    if (fs.ffree < needInodes)
-      throw new MoveInFail(
-        "no_space",
-        `The disk can hold ${fs.ffree} more files, and the copy needs ${needInodes}. Free some, then pull again.`,
-        true,
-      );
+    for (const d of devices.values()) {
+      const bsize = Math.max(1, d.fs.bsize);
+      const needBytes = d.blocks + Math.max(d.blocks * 0.1, GIB);
+      const haveBytes = d.fs.bavail * bsize;
+      const needInodes = d.entries + Math.ceil(d.entries * 0.1);
+      if (haveBytes < needBytes)
+        throw new MoveInFail(
+          "no_space",
+          `Not enough disk space: the copy needs ${Math.ceil(needBytes)} bytes, and ${haveBytes} are free. Free some space, then pull again.`,
+          true,
+        );
+      if (d.fs.ffree < needInodes)
+        throw new MoveInFail(
+          "no_space",
+          `The disk can hold ${d.fs.ffree} more files, and the copy needs ${needInodes}. Free some, then pull again.`,
+          true,
+        );
+    }
     if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
 
-    if (reuse) {
-      renameSync(stageDir, prevStageDir);
-      renameSync(ledgerFile, prevLedgerFile);
-    } else {
-      rmSync(ledgerFile, { force: true });
-      removeTree(stageDir);
-    }
+    const totalBytes =
+      (typeof summary.totalBytes === "number" ? summary.totalBytes : 0) +
+      listed.reduce(
+        (n, f) => n + (typeof f.totalBytes === "number" ? f.totalBytes : 0),
+        0,
+      );
     const prog: MoveInProgress = {
       entries,
-      totalBytes: opts.totalBytes,
+      totalBytes,
       filesDone: 0,
       bytesDone: 0,
       batchesDone: 0,
@@ -1483,37 +1790,55 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       filesKept: 0,
       bytesKept: 0,
     };
-    const stage = createMoveStage(stageDir);
-    try {
-      opts.started(prog);
-      await pullBatches(pair, manifestId, stage, signal, gen, {
-        live: opts.live,
-        prev: reuse ? { root: prevStageDir, ledger: prevLedgerFile } : null,
-        prog,
-      });
-    } finally {
-      // What the batches wrote stays usable for the next pass, also after a
-      // failure or a stop; never after a cancel (its folder is gone).
-      if (gen === generation)
-        try {
-          await stage.writeLedger(manifestEntries(manifestFile), ledgerFile);
-        } catch (err) {
-          console.error(
-            "[move-in] could not write the ledger:",
-            errMessage(err),
-          );
-          rmSync(ledgerFile, { force: true });
-        }
-      removeTree(prevStageDir);
-      rmSync(prevLedgerFile, { force: true });
+    const stages: { target: PassTarget; stage: MoveStage }[] = [];
+    opts.started(prog);
+    for (const t of targets) {
+      const again = reuse.get(t) === true;
+      if (again) {
+        renameSync(t.stageDir, t.prevStageDir);
+        renameSync(t.ledgerFile, t.prevLedgerFile);
+      } else {
+        rmSync(t.ledgerFile, { force: true });
+        removeMoveTree(t.stageDir);
+      }
+      const stage = createMoveStage(t.stageDir);
+      stages.push({ target: t, stage });
+      try {
+        await pullBatches(pair, manifestId, t, stage, signal, gen, {
+          live: opts.live,
+          prev: again
+            ? { root: t.prevStageDir, ledger: t.prevLedgerFile }
+            : null,
+          prog,
+        });
+      } finally {
+        // What the batches wrote stays usable for the next pass, also after
+        // a failure or a stop; never after a cancel (its folder is gone).
+        if (gen === generation)
+          try {
+            await stage.writeLedger(
+              manifestEntries(t.manifestFile),
+              t.ledgerFile,
+            );
+          } catch (err) {
+            console.error(
+              "[move-in] could not write the ledger:",
+              errMessage(err),
+            );
+            rmSync(t.ledgerFile, { force: true });
+          }
+        removeMoveTree(t.prevStageDir);
+        rmSync(t.prevLedgerFile, { force: true });
+      }
     }
-    return { stage, prog };
+    return { stages, prog };
   };
 
   /** Pass 1 over the manifest, and the batches it plans. */
   const pullBatches = async (
     pair: MoveInPairing,
     manifestId: string,
+    t: PassTarget,
     stage: MoveStage,
     signal: AbortSignal,
     gen: number,
@@ -1536,7 +1861,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         await new Promise<void>((r) => slots.push(r));
       if (firstError !== null) return;
       active++;
-      const p = runBatch(pair, manifestId, stage, batch, signal, opts.prog)
+      const p = runBatch(pair, manifestId, t, stage, batch, signal, opts.prog)
         .catch((err) => {
           if (firstError === null) firstError = err;
         })
@@ -1565,11 +1890,15 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
 
     const prevJoin = opts.prev ? ledgerJoin(opts.prev.ledger) : null;
     try {
-      for await (const e of manifestEntries(manifestFile)) {
+      for await (const e of manifestEntries(t.manifestFile)) {
         if (firstError !== null || gen !== generation || signal.aborted) break;
         if (e.t === "f" && prevJoin && opts.prev) {
           const row = await prevJoin(e.p);
-          if (row && keepable(e, row) && stage.keep(e, opts.prev.root, row)) {
+          if (
+            row &&
+            keepable(t, e, row) &&
+            stage.keep(e, opts.prev.root, row)
+          ) {
             opts.prog.filesKept = (opts.prog.filesKept ?? 0) + 1;
             opts.prog.bytesKept = (opts.prog.bytesKept ?? 0) + e.s;
             continue;
@@ -1624,6 +1953,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   const runBatch = async (
     pair: MoveInPairing,
     manifestId: string,
+    t: PassTarget,
     stage: MoveStage,
     batch: MoveStageBatch,
     signal: AbortSignal,
@@ -1639,6 +1969,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       manifestId,
       batch: batch.n,
       itemsHash: moveItemsHash(items),
+      ...(t.outside === null ? {} : { outside: t.outside }),
     };
     let last: unknown = null;
     for (let attempt = 1; attempt <= deps.limits.batchAttempts; attempt++) {
@@ -1648,7 +1979,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
           pair,
           "POST",
           "/api/move/batch",
-          { manifestId, batch: batch.n, items },
+          {
+            manifestId,
+            batch: batch.n,
+            items,
+            ...(t.outside === null ? {} : { outside: t.outside }),
+          },
           ctx,
           signal,
         );
@@ -1768,6 +2104,8 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         return "A member of the old office has the same id as this office's owner.";
       case "swap_unreadable":
         return `The move cannot read this machine's files: ${r.message}`;
+      case "outside_folder_not_empty":
+        return `${r.path} holds files that are not the move's copy. Move them away, then finish again.`;
     }
   };
 
@@ -1921,7 +2259,13 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         oldOfficeLocked: oldOfficeLocked(s),
       };
       if ("preflightId" in s) out.preflightId = s.preflightId;
-      if (s.phase === "confirm") out.preflight = s.preflight;
+      if (s.phase === "confirm") {
+        out.preflight = s.preflight;
+        // Slice 5b: checked at each request (a few reads).
+        const folders = preflightOutside(s.preflight).move;
+        if (folders.length > 0)
+          out.outsideChecks = folders.map((f) => checkFolder(f.path, f.mode));
+      }
       if ((s.phase === "preflight" || s.phase === "confirm") && s.live)
         out.live =
           s.live.phase === "copying" && liveProgress
@@ -1997,7 +2341,22 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             "not_confirming",
             "The move is not waiting for the owner's yes.",
           );
-        const pair = pairingOf(before);
+        // Slice 5b: every folder outside the home must land here.
+        const agreed = preflightOutside(before.preflight);
+        const checks = agreed.move.map((f) => checkFolder(f.path, f.mode));
+        const blocked = checks.filter((c) => !c.ok);
+        if (blocked.length > 0) {
+          writeState(before);
+          return refuse(
+            409,
+            "outside_folders_blocked",
+            blockedMessage(blocked),
+            {
+              checks,
+            },
+          );
+        }
+        const pair = { ...pairingOf(before), outside: agreed };
         writeState({ phase: "locking", ...pair, preflightId });
         let r: { status: number; body: unknown };
         try {
@@ -2079,7 +2438,12 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             excluded: s.manifest.excluded,
             secretCount: s.manifest.secretCount,
             missing: s.phase === "incomplete" ? s.result.missing : [],
+            outsideMoved: (pair.outside?.move ?? []).map((f) => f.path),
+            outsideLeft: pair.outside?.left ?? [],
           },
+          ...(s.manifest.outside && s.manifest.outside.length > 0
+            ? { outside: s.manifest.outside }
+            : {}),
         };
         const refusals = await checkMoveInSwap(inputs);
         if (refusals.length > 0)
@@ -2265,7 +2629,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       if (moved) {
         moved = null;
         writeState(null);
-        removeTree(moveInDir);
+        removeMoveTree(moveInDir);
         return {
           ok: true,
           status: 200,
@@ -2292,7 +2656,16 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             () => {},
           );
       writeState(null);
-      removeTree(moveInDir);
+      // Slice 5b (C5): every folder outside the home where this box staged.
+      try {
+        dropMoveInOutside(deps.home, []);
+      } catch (err) {
+        console.error(
+          "[move-in] could not remove the copies outside the home:",
+          errMessage(err),
+        );
+      }
+      removeMoveTree(moveInDir);
       const locked = s ? oldOfficeLocked(s) : false;
       return {
         ok: true,

@@ -918,3 +918,157 @@ describe("compareMoveWalkOrder", () => {
     expect([...walked].reverse().sort(compareMoveWalkOrder)).toEqual(walked);
   });
 });
+
+// Slice 5b: folders outside the home. The job walks the home, then each
+// folder of the list it read at its start (C4), each with its own manifest;
+// the seal binds which folder a response is about, and the home's context is
+// the one an office of an earlier release seals with.
+describe("slice 5b: folders outside the home", () => {
+  // Sealed by this code before slice 5b (key 32 x 0x11, CTX), so an old
+  // office of slice 4 still opens for a new office of slice 5b.
+  const SLICE4_KEY = Buffer.alloc(32, 0x11);
+  const SLICE4_SEALED = Buffer.from(
+    "GkqfhdMveQkmHxj9vP8mkBfsd6QT39tMzOGAX4cNVMIAAAAezmv4E18lImuane03TAoiWo7gYpketXQBbYufZUr/fHd31feTsi7a0BS2CA0Yiw==",
+    "base64",
+  );
+
+  it("the home's context is unchanged, and a response for one folder opens for no other folder and not as the home", async () => {
+    expect(
+      (await openAll(SLICE4_SEALED, CTX, SLICE4_KEY)).toString("utf8"),
+    ).toBe("sealed by an office of slice 4");
+    expect(
+      await sealError(SLICE4_SEALED, { ...CTX, outside: 0 }, SLICE4_KEY),
+    ).toBe("MoveSealError");
+    const plain = randomBytes(5_000);
+    const zero = await seal(plain, { ...CTX, outside: 0 });
+    expect(sha256(await openAll(zero, { ...CTX, outside: 0 }))).toBe(
+      sha256(plain),
+    );
+    expect([
+      await sealError(zero, CTX),
+      await sealError(zero, { ...CTX, outside: 1 }),
+      await sealError(await seal(plain, { ...CTX, outside: 1 }), {
+        ...CTX,
+        outside: 0,
+      }),
+    ]).toEqual(Array(3).fill("MoveSealError"));
+  });
+
+  async function ready(
+    jobs: ReturnType<typeof createMoveManifestJobs>,
+    id: string,
+    session: string,
+  ) {
+    const deadline = performance.now() + 10_000;
+    for (;;) {
+      const s = jobs.status(id, session);
+      if (s?.state !== "running" || performance.now() > deadline) return s;
+      await Bun.sleep(10);
+    }
+  }
+
+  function outsideFolder(f: Fixture, name: string, mode = 0o750): string {
+    const p = join(f.outside, name);
+    mkdirSync(join(p, "sub", ".isomux-move-in"), { recursive: true });
+    writeFileSync(join(p, "a.txt"), `in ${name}`);
+    writeFileSync(join(p, "sub", ".isomux-move-in", "nested.txt"), "moves");
+    mkdirSync(join(p, ".cache"));
+    writeFileSync(join(p, ".cache", "c.bin"), "moves too");
+    // The new office's stage, when this box was once a new office.
+    mkdirSync(join(p, ".isomux-move-in", "stage"), { recursive: true });
+    writeFileSync(join(p, ".isomux-move-in", "stage", "x.txt"), "stays");
+    chmodSync(p, mode);
+    return p;
+  }
+
+  it("C4: a job walks the folders it read once at its start; its status, data and folders keep that list when the records change", async () => {
+    const f = fixture();
+    put(f, "docs/a.txt", "alpha");
+    const p0 = outsideFolder(f, "p0", 0o750);
+    const p1 = outsideFolder(f, "p1", 0o700);
+    const late = outsideFolder(f, "late");
+    let list = [
+      { path: p0, mode: 0o750 },
+      { path: p1, mode: 0o700 },
+    ];
+    let reads = 0;
+    const jobs = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => [],
+      secretCount: () => 0,
+      outside: () => {
+        reads++;
+        return list;
+      },
+      now: () => new Date(),
+    });
+    const job = jobs.start("s1");
+    if (!job.ok) throw new Error(job.message);
+    // The records change while the job runs.
+    list = [{ path: late, mode: 0o755 }];
+    const s = await ready(jobs, job.id, "s1");
+    expect(reads).toBe(1);
+    if (s?.state !== "ready") throw new Error(JSON.stringify(s));
+    expect(s.outside.map((o) => [o.path, o.mode & 0o777])).toEqual([
+      [p0, 0o750],
+      [p1, 0o700],
+    ]);
+    expect(s.outside[0].mtime).toBe(statSync(p0).mtimeMs);
+    expect(jobs.outsideFolder(job.id, "s1", 0)).toBe(p0);
+    expect(jobs.outsideFolder(job.id, "s1", 1)).toBe(p1);
+    expect(jobs.outsideFolder(job.id, "s1", 2)).toBeNull();
+    expect(jobs.outsideFolder(job.id, "s2", 0)).toBeNull();
+    // Each folder's manifest is its own, relative to the folder; the home's
+    // is unchanged.
+    const home = readManifest(jobs.dataFile(job.id, "s1")!).map((e) => e.p);
+    expect(home).toContain("docs/a.txt");
+    expect(home.some((p) => p.includes("a.txt") && p !== "docs/a.txt")).toBe(
+      false,
+    );
+    const zero = readManifest(jobs.dataFile(job.id, "s1", 0)!).map((e) => e.p);
+    expect(zero.sort()).toEqual(
+      [
+        ".cache",
+        ".cache/c.bin",
+        "a.txt",
+        "sub",
+        "sub/.isomux-move-in",
+        "sub/.isomux-move-in/nested.txt",
+      ].sort(),
+    );
+    expect(s.outside[0]).toMatchObject({ entries: 6, totalBytes: 19 });
+    expect(jobs.dataFile(job.id, "s1", 2)).toBeNull();
+    expect(jobs.dataFile(job.id, "s2", 0)).toBeNull();
+  });
+
+  it("a folder of the list that is a link when the job walks it fails the job", async () => {
+    const f = fixture();
+    const real = outsideFolder(f, "real");
+    const ln = join(f.outside, "ln");
+    symlinkSync(real, ln);
+    const jobs = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => [],
+      secretCount: () => 0,
+      outside: () => [{ path: ln, mode: 0o755 }],
+      now: () => new Date(),
+    });
+    const job = jobs.start("s1");
+    if (!job.ok) throw new Error(job.message);
+    expect((await ready(jobs, job.id, "s1"))?.state).toBe("failed");
+    // The condition: the real folder walks.
+    const ok = createMoveManifestJobs({
+      scope: scopeOf(f),
+      dir: f.scratch,
+      units: () => [],
+      secretCount: () => 0,
+      outside: () => [{ path: real, mode: 0o755 }],
+      now: () => new Date(),
+    });
+    const job2 = ok.start("s1");
+    if (!job2.ok) throw new Error(job2.message);
+    expect((await ready(ok, job2.id, "s1"))?.state).toBe("ready");
+  });
+});

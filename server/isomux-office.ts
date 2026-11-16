@@ -581,7 +581,13 @@ import {
   legacyEnvFileExists,
   migrateManagedEnvAtBoot,
 } from "./managed-env-migration.ts";
-import { readEnvFile } from "./persistence.ts";
+import {
+  loadAgentHistory,
+  loadSessionsMap,
+  readEnvFile,
+} from "./persistence.ts";
+import { collectMoveOutsideFolders } from "./office-move-outside.ts";
+import type { MoveOutsideFolders } from "../shared/office-move.ts";
 import {
   memberUsageCap,
   resetMemberUsageCap,
@@ -1747,6 +1753,43 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       (h) => h !== "localhost" && !/^127\./.test(h) && h !== "[::1]",
     );
   };
+  let backupDir: string | null = null;
+  try {
+    backupDir = currentBackupDir();
+  } catch {
+    // No backup folder: nothing of it to leave out.
+  }
+  // Slice 5b: the folders outside the home that the office's records name.
+  const outsideFolders = (): MoveOutsideFolders => {
+    const paths: string[] = [];
+    const add = (p: string | null | undefined) => {
+      if (typeof p === "string" && p) paths.push(resolveCwd(p));
+    };
+    const agents = agentManager.getAllAgents();
+    const history = loadAgentHistory();
+    for (const a of agents) add(a.cwd);
+    for (const h of Object.values(history)) add(h.cwd);
+    for (const id of new Set([
+      ...agents.map((a) => a.id),
+      ...Object.keys(history),
+    ]))
+      for (const session of Object.values(loadSessionsMap(id)))
+        add(session?.cwd);
+    for (const room of agentManager.getRooms()) add(room.cwd);
+    for (const app of appRegistry.list()) {
+      add(app.cwd);
+      add(app.dataDir);
+    }
+    for (const job of cronjobManager.listCronjobs()) add(job.cwd);
+    return collectMoveOutsideFolders({
+      paths,
+      home,
+      stateRoot: STATE_ROOT,
+      codeDir: PROJECT_ROOT,
+      backupDir,
+      uid: process.getuid?.() ?? -1,
+    });
+  };
   const preflight = createMovePreflightJobs({
     home,
     hosts,
@@ -1756,6 +1799,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     listUnits,
     restartPolicy,
     memberOsUsers: moveMemberOsUsers,
+    outsideFolders,
     exec: seams.exec ?? spawnPreflightExec,
     osUser: userInfo().username,
     aptHistoryPath: seams.aptHistoryPath ?? "/var/log/apt/history.log",
@@ -1763,12 +1807,6 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
   });
   officeMovePreflights = preflight;
   const version = getVersionInfo();
-  let backupDir: string | null = null;
-  try {
-    backupDir = currentBackupDir();
-  } catch {
-    // No backup folder: nothing of it to leave out.
-  }
   return createOfficeMoveFrontDoor({
     // Slice 4: the live pass, while paired.
     pull: createMovePull({
@@ -1776,6 +1814,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
       home,
       codeDir: PROJECT_ROOT,
       backupDir,
+      outside: () => outsideFolders().move,
       now: () => new Date(),
     }),
     stateRoot: STATE_ROOT,
@@ -1790,6 +1829,7 @@ function buildOfficeMoveFrontDoor(seams: MoveSeams): OfficeMoveFrontDoor {
     turnsInFlight,
     restartPolicy: () => restartPolicy()?.restart ?? null,
     memberOsUsers: moveMemberOsUsers,
+    outsideFolders,
     listUnits,
     lockProcess: () => {
       lockOfficeNow();

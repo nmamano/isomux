@@ -47,7 +47,7 @@ Expiry drops `code` and `paired` only (an audit row `office.moveExpired`), at th
 
 ## The lock
 
-`POST /api/move/lock {preflightId}` refuses unless: the state is `paired`, the preflight is this pairing's, ready, and finished less than 15 min ago, the office unit has `Restart=always`, no member has their own OS user (read at the lock, not from the preflight: 409 `member_os_users` with `names` or `broken`; their homes and sign-ins move in slice 5), and no agent works that the preflight did not list (409 `turns_changed`). Then, in order:
+`POST /api/move/lock {preflightId}` refuses unless: the state is `paired`, the preflight is this pairing's, ready, and finished less than 15 min ago, the office unit has `Restart=always`, no member has their own OS user (read at the lock, not from the preflight: 409 `member_os_users` with `names` or `broken`; their homes and sign-ins move in slice 5c), the folders outside the home that move are the preflight's (409 `folders_changed`, slice 5b), and no agent works that the preflight did not list (409 `turns_changed`). Then, in order:
 
 1. write `move-units.json` and the state `move` (a failure answers 500, and nothing changed);
 2. lock the process and close every socket (as the lockdown route does);
@@ -205,6 +205,36 @@ The kept `sessions.json` keeps the owner who finished signed in on the moved off
 ### The report
 
 `GET /api/office/move-in` in `moved`: the old origin, who finished and when, the units left out with counts (the old office's `excluded`; an old office of slice 2 also lists its sign-ins), the secrets to set again (only when the old office left the secret store out), the missing paths the owner accepted, the fresh owner's new name after a clash, the old office's unit set aside, the units put back, and the top-level entries and size of the aside folder.
+
+## Folders outside the home (slice 5b)
+
+`server/office-move-outside.ts`. The move also copies the folders outside the office user's home that the office's records name. 5b-1 is the server; 5b-2 the UI.
+
+### The old office
+
+- Candidates: the folder of each agent (killed agents kept for revive included), of each saved session, room, app and app data folder, and schedule. `collectMoveOutsideFolders` applies the rules in this order: resolve each path (a path that is not absolute is dropped); drop a path in the home, a missing path and a path that is not a folder; give the left reasons; then fold.
+- Left reasons: `temp` (at or below `/tmp`, `/var/tmp`, `/dev/shm` or `/run`: scratch the box clears), `link` (a link on the path: the realpath is not the path), `office` (it holds or is inside the home, the state root, the code folder or the backup folder), `owner` (another user owns it; this covers a member's own OS user, slice 5c).
+- The fold: a candidate inside a folder that moves is listed nowhere (it travels in that folder's walk). A left folder is listed only when no ancestor moves. Only a named folder moves, never its parent.
+- The preflight lists `outsideFolders {move: [{path, mode, bytes, timedOut}], left}`. The sizes are a `du -sxb` estimate (it stops at mount points; the walk does not).
+- The lock reads the list again and refuses 409 `folders_changed` when the folders that move differ from the preflight's (a change of the left list only does not refuse). It records them in the state `move` (`outside`), and the MOVE-locked server, which loads no records, walks that list.
+- A manifest job reads the list once at its start, so a batch never reads a folder the walk did not list. It walks the home, then each folder (a folder that is a link or not a folder then fails the job), each into its own NDJSON. A ready status adds `outside: [{path, mode, mtime, entries, totalBytes, excluded, skipped, unreadable}]`; paths in a folder's manifest are relative to it. `GET .../data?outside=<i>` and a batch's `outside: i` index the job's own list, never the live records. In a folder, the scope is everything but specials and a top-level `.isomux-move-in`; a later pass fetches again only the SQLite side files. At each batch the folder must still be its own realpath, else every item gets an error record.
+- The seal context adds the index only for a folder, so the home's context string is the one of an office before slice 5b.
+
+### The new office
+
+- `checkMoveInFolder` (reads only): every existing part of the path from `/` down must be a real folder (`link`, `not_dir`), owned by root or the office user (`owner`), and not writable by others, or by a group other than root's and the office user's, without the sticky bit (`unsafe_parent`). The folder itself, when it exists, must be the office user's (`owner`, with a `sudo chown` command) and hold nothing but `.isomux-move-in` (`not_empty`), and be readable (`no_write`). When it is absent, its deepest existing part must be writable by the office user (`no_write`, with a `sudo install -d` command). A path in the home or holding it is `in_home`.
+- `GET /api/office/move-in` in `confirm` carries `outsideChecks`, computed at each request: the old office's path in `path`, this box's paths in `at`, `create` and `command`. The lock refuses 409 `outside_folders_blocked` with the checks and sends nothing. The lock keeps the preflight's folders in the pairing (`outside`).
+- Each pass first compares the manifest's folders with the checked ones (`outside_folders_changed`, retryable), checks each folder again (`outside_folders_blocked`, retryable), removes the stage of a recorded folder that the manifest does not list (a live pass can stage a folder the final list drops), then records and makes the missing folders. Nothing is written in a folder before these checks.
+- `<home>/.isomux-move-in/outside.json` records every folder where this box made a `.isomux-move-in`, and every folder it made. A cancel and DELETE remove each recorded stage, then each made folder, deepest first and only when empty; a made folder that is not empty stays recorded.
+- The stage of a folder is `<folder>/.isomux-move-in/stage`, on the folder's file system. A pass runs the home, then each folder, with its own manifest, ledger and keep rule. Free space and inodes are checked per device (the home's first, one statfs per device) before the first batch. A missing path of a folder is shown absolute, as on the old office.
+- Test seams: `MoveInDeps.outsideRoot` (put in front of every outside path, since both test offices share one disk), `folderFs`, `deviceOf`; `MoveInBox.osUser`.
+
+### The swap
+
+- `swap.json` gets `outside: [{path, mode, mtime}]` at this box's path. The plan adds one `outside` op per top-level entry of each folder's stage (a rename into the folder).
+- Before any rename, an entry in a folder that is not its stage and not an entry an earlier run of the swap put there fails the swap with its path. Finish's dry run refuses the same first (409 `outside_folder_not_empty`).
+- After the ops: each folder's `.isomux-move-in` and `outside.json` go, then each folder gets its old mode and mtime.
+- The report has `outsideMoved` and `outsideLeft` (from the preflight the owner agreed to).
 
 ## The Settings pane (slice 2c-2)
 

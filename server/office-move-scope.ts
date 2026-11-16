@@ -279,3 +279,24 @@ export function moveScope(
 export function moveAlwaysFetch(scope: MoveScope, relPath: string): boolean {
   return scope.rules.alwaysFetch.test(relPath);
 }
+
+/** Slice 5b: the scope of a folder outside the home. Out: the paths of
+ *  `out` (relative to the folder) and specials. No bound unit; a later pass
+ *  fetches again only the SQLite side files. */
+export function createMoveFolderScope(
+  folder: string,
+  out: string[],
+): MoveScope {
+  return {
+    home: folder,
+    stateRootRel: null,
+    codeDirRel: null,
+    backupDirRel: null,
+    rules: {
+      out: [...out],
+      anyBound: null,
+      bound: [],
+      alwaysFetch: /-(?:wal|shm|journal)$/,
+    },
+  };
+}

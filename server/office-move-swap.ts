@@ -28,6 +28,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
   type Dirent,
 } from "node:fs";
@@ -46,7 +47,8 @@ import {
   moveScope,
   type MoveEntryKind,
 } from "./office-move-scope.ts";
-import { MOVE_IN_STAGE } from "./office-move-stage.ts";
+import { MOVE_IN_STAGE, removeMoveTree } from "./office-move-stage.ts";
+import { clearMoveInOutside } from "./office-move-outside.ts";
 import { writeUnitsRecord, type AgentUnit } from "./office-move-units.ts";
 import { OFFICE_CONFIG_BOX_KEYS } from "./persistence.ts";
 import type { MoveInReport, MoveInReportInput } from "../shared/office-move.ts";
@@ -73,7 +75,10 @@ export type MoveInSwapOp =
   | { op: "in"; path: string }
   /** stage/path -> aside/.from-stage/path (a kept path, the old office's own
    *  unit). */
-  | { op: "drop"; path: string };
+  | { op: "drop"; path: string }
+  /** Slice 5b: <folder>/.isomux-move-in/stage/<name> -> <folder>/<name>.
+   *  `path` is the absolute <folder>/<name>. */
+  | { op: "outside"; path: string; folder: string };
 
 export type { MoveInReport, MoveInReportInput } from "../shared/office-move.ts";
 
@@ -104,6 +109,11 @@ export interface MoveInSwapInputs {
    *  A failed swap's page binds by it, never by the state root, which may
    *  hold the old office's settings by then. Absent: loopback. */
   loopbackOnly?: boolean;
+  /** Slice 5b: the folders outside the home, at the local path where the
+   *  swap works (MoveInDeps.outsideRoot already applied). Each one's stage
+   *  is `<path>/.isomux-move-in/stage`; its top-level entries are renamed
+   *  into `<path>`, then the folder gets `mode` and `mtime`. Absent: none. */
+  outside?: { path: string; mode: number; mtime: number }[];
 }
 
 export interface MoveInSwapFile {
@@ -117,7 +127,10 @@ export type MoveInSwapRefusal =
   | { code: "home_too_big"; entries: number }
   | { code: "home_has_mounts"; paths: string[] }
   | { code: "account_clash"; id: string }
-  | { code: "swap_unreadable"; message: string };
+  | { code: "swap_unreadable"; message: string }
+  /** Slice 5b: an outside folder holds an entry other than its stage
+   *  (`path` is the local path). */
+  | { code: "outside_folder_not_empty"; path: string };
 
 /** The walk of the fresh home passed its cap. */
 export class MoveInSwapTooBig extends Error {
@@ -309,9 +322,50 @@ function planWithKeep(
   return ops;
 }
 
+/** Slice 5b: an outside folder's stage. */
+const outsideStageOf = (folder: string) =>
+  join(folder, MOVE_IN_DIR, MOVE_IN_STAGE);
+
+/** Slice 5b: one op per top-level entry of each outside folder's stage. */
+function planOutside(inputs: MoveInSwapInputs): MoveInSwapOp[] {
+  const ops: MoveInSwapOp[] = [];
+  for (const { path: folder } of inputs.outside ?? [])
+    for (const d of listDir(outsideStageOf(folder)).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    ))
+      ops.push({ op: "outside", path: join(folder, d.name), folder });
+  return ops;
+}
+
+/** Slice 5b: the first entry of an outside folder that is not its stage and
+ *  not an entry the swap put there already, as "<folder>/<name>", or null. */
+function outsideStray(
+  inputs: MoveInSwapInputs,
+  ops: MoveInSwapOp[],
+): string | null {
+  for (const { path: folder } of inputs.outside ?? []) {
+    const placed = new Set(
+      ops
+        .filter((o) => o.op === "outside" && o.folder === folder)
+        .map((o) => o.path.slice(folder.length + 1)),
+    );
+    const stage = outsideStageOf(folder);
+    for (const d of listDir(folder)) {
+      if (d.name === MOVE_IN_DIR) continue;
+      // Put there by an earlier run of this swap: its stage entry is gone.
+      if (placed.has(d.name) && !exists(join(stage, d.name))) continue;
+      return join(folder, d.name);
+    }
+  }
+  return null;
+}
+
 /** The ops, from the home and the stage as they are now. */
 export function planMoveInSwap(inputs: MoveInSwapInputs): MoveInSwapOp[] {
-  return planWithKeep(inputs, moveInKeepPaths(inputs));
+  return [
+    ...planWithKeep(inputs, moveInKeepPaths(inputs)),
+    ...planOutside(inputs),
+  ];
 }
 
 // ---- finish's dry run ----
@@ -375,6 +429,10 @@ export async function checkMoveInSwap(
     check(moveInDirOf(inputs.home), MOVE_IN_DIR);
     check(stageOf(inputs.home), `${MOVE_IN_DIR}/${MOVE_IN_STAGE}`);
     check(asideOf(inputs.home), `${MOVE_IN_DIR}/${MOVE_IN_ASIDE}`);
+    // Slice 5b: a folder outside the home holds its stage only.
+    for (const { path: folder } of inputs.outside ?? [])
+      if (listDir(folder).some((d) => d.name !== MOVE_IN_DIR))
+        out.push({ code: "outside_folder_not_empty", path: folder });
     for (const op of planWithKeep(inputs, keep)) {
       if (op.op === "aside") check(join(inputs.home, op.path), op.path);
       else {
@@ -483,6 +541,32 @@ function runOp(home: string, op: MoveInSwapOp): void {
       move(src, dst);
       return;
     }
+    case "outside": {
+      const src = join(
+        outsideStageOf(op.folder),
+        op.path.slice(op.folder.length + 1),
+      );
+      if (!exists(src)) return;
+      if (exists(op.path))
+        throw new Error(
+          `${op.path} is in the copy and also on this machine. Move one of them away, then try again.`,
+        );
+      renameSync(src, op.path);
+      return;
+    }
+  }
+}
+
+/** Slice 5b: each outside folder after its entries are in place: its stage
+ *  folder and the record go, then the folder gets its old mode and mtime
+ *  (last: removing the stage changes the mtime). */
+function finishOutside(inputs: MoveInSwapInputs): void {
+  for (const { path: folder } of inputs.outside ?? [])
+    removeMoveTree(join(folder, MOVE_IN_DIR));
+  clearMoveInOutside(inputs.home);
+  for (const { path: folder, mode, mtime } of inputs.outside ?? []) {
+    chmodSync(folder, mode & 0o7777);
+    utimesSync(folder, mtime / 1000, mtime / 1000);
   }
 }
 
@@ -710,6 +794,12 @@ export function runMoveInSwapAtBoot(input: {
         `in ${conflict}`,
         `${conflict} is in the copy and also on this machine. Move one of them away, then try again.`,
       );
+    const stray = outsideStray(inputs, ops);
+    if (stray)
+      throw new StepFailed(
+        `outside ${stray}`,
+        `${stray} is not part of the copy. Move it away, then try again.`,
+      );
     for (const op of ops) run(`${op.op} ${op.path}`, () => runOp(home, op));
     run("check the copy is in place", () => {
       const left = stageLeft(home);
@@ -718,6 +808,16 @@ export function runMoveInSwapAtBoot(input: {
           `The copy still holds entries the move did not place: ${left.join(", ")}`,
         );
     });
+    run("check the folders outside the home", () => {
+      for (const { path: folder } of inputs.outside ?? []) {
+        const left = listDir(outsideStageOf(folder)).map((d) => d.name);
+        if (left.length > 0)
+          throw new Error(
+            `The copy of ${folder} still holds entries the move did not place: ${left.sort().join(", ")}`,
+          );
+      }
+    });
+    run("folders outside the home", () => finishOutside(inputs));
     run("users.json", () => mergeUsers(inputs, rel));
     run("office-config.json", () => mergeConfig(inputs, rel));
     run("backups", () => deleteBackups(inputs.backupDir));

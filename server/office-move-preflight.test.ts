@@ -293,3 +293,40 @@ describe("the sudo packages", () => {
     expect(sudoPackagesFromAptHistory(APT_HISTORY, "nobody")).toEqual([]);
   });
 });
+
+// Slice 5b: the folders outside the home, as the office's records give them,
+// with a real du size of each folder that moves; a folder whose du runs out
+// of time has no size.
+describe("slice 5b: folders outside the home", () => {
+  it("lists the folders that move with their size, and the ones left with their reason, as the read gives them", async () => {
+    const b0 = bed();
+    const fast = join(dir, "outside", "fast");
+    const slowDir = join(dir, "outside", "slow");
+    write(join(fast, "a.bin"), "q".repeat(5000));
+    write(join(slowDir, "b.bin"), "r");
+    const jobs = createMovePreflightJobs({
+      ...b0.deps,
+      exec: execWith([join(b0.home, "media"), slowDir]),
+      outsideFolders: () => ({
+        move: [
+          { path: fast, mode: 0o750 },
+          { path: slowDir, mode: 0o755 },
+        ],
+        left: [{ path: "/srv/theirs", reason: "owner" }],
+      }),
+    });
+    const started = jobs.start("pairing-1");
+    if (!started.ok) throw new Error(JSON.stringify(started));
+    const s = await settle(jobs, started.id, "pairing-1");
+    if (s.state !== "ready") throw new Error(JSON.stringify(s));
+    const { move, left } = s.result.outsideFolders;
+    expect(move.map((m) => [m.path, m.mode, m.timedOut])).toEqual([
+      [fast, 0o750, false],
+      [slowDir, 0o755, true],
+    ]);
+    // du counts the folder itself too.
+    expect(move[0].bytes).toBeGreaterThanOrEqual(5000);
+    expect(move[1].bytes).toBeNull();
+    expect(left).toEqual([{ path: "/srv/theirs", reason: "owner" }]);
+  });
+});

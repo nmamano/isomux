@@ -39,13 +39,17 @@ import {
   type Stats,
 } from "node:fs";
 import { join } from "node:path";
+import { createMoveOutsideScope } from "./office-move-outside.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   moveScope,
   type MoveEntryKind,
   type MoveScope,
 } from "./office-move-scope.ts";
-import type { MoveExcludedUnit } from "../shared/office-move.ts";
+import type {
+  MoveExcludedUnit,
+  MoveOutsideFolder,
+} from "../shared/office-move.ts";
 
 /** The most plaintext in one sealed chunk. */
 export const MOVE_SEAL_CHUNK_BYTES = 1024 * 1024;
@@ -111,6 +115,9 @@ export interface MoveSealContext {
   batch: number;
   /** sha256 hex of the item list (moveItemsHash); "" for the manifest. */
   itemsHash: string;
+  /** Slice 5b: the index of the outside folder in the manifest job's list;
+   *  absent for the home (whose context string is unchanged). */
+  outside?: number;
 }
 
 const sha256Hex = (b: Uint8Array | string) =>
@@ -178,7 +185,11 @@ async function fill(
 // ---- sealing ----
 
 function contextString(ctx: MoveSealContext): string {
-  return JSON.stringify([ctx.route, ctx.manifestId, ctx.batch, ctx.itemsHash]);
+  const base = [ctx.route, ctx.manifestId, ctx.batch, ctx.itemsHash];
+  // The home's string is the one of an office before slice 5b.
+  return JSON.stringify(
+    ctx.outside === undefined ? base : [...base, ctx.outside],
+  );
 }
 
 function responseKey(key: Uint8Array, salt: Uint8Array, ctx: string): Buffer {
@@ -483,6 +494,9 @@ export interface MoveBatchSource {
   /** VACUUM INTO src -> dst on a read-only connection. Production:
    *  snapshotOfficeDatabase with a time limit that grows with the file. */
   snapshot(src: string, dst: string): Promise<void>;
+  /** Slice 5b: an outside folder's root must still be its own realpath at
+   *  each batch (a link there gives every item an error record). */
+  exactRoot?: boolean;
 }
 
 class ItemRefused extends Error {}
@@ -760,7 +774,17 @@ async function* batchRecords(
   items: MoveBatchItem[],
   opts: MoveBatchOpts,
 ): AsyncGenerator<Uint8Array> {
-  const realHome = realpathSync(src.scope.home);
+  let realHome: string | null;
+  try {
+    realHome = realpathSync(src.scope.home);
+  } catch {
+    realHome = null;
+  }
+  // Slice 5b: an outside folder that is gone or became a link is read no
+  // more.
+  const rootGone =
+    realHome === null ||
+    (src.exactRoot === true && realHome !== src.scope.home);
   const parents = new Map<string, boolean>();
   const breathe = createBreather();
   const snapshots = opts.snapshots !== false;
@@ -770,10 +794,17 @@ async function* batchRecords(
   for (const item of items) {
     ended();
     const path = typeof item?.path === "string" ? item.path : "";
+    if (rootGone) {
+      yield jsonRecord(REC_ERROR, {
+        path,
+        error: "The folder is gone or is a link now.",
+      });
+      continue;
+    }
     try {
       for await (const rec of oneItem(
         src,
-        realHome,
+        realHome!,
         parents,
         item,
         snapshots,
@@ -948,11 +979,23 @@ export async function walkMoveManifest(
   return summary;
 }
 
+/** Slice 5b: one folder outside the home in a ready manifest. Its entries
+ *  are relative to `path`; `?outside=<i>` of the data route and a batch's
+ *  `outside: i` index this list. */
+export interface MoveOutsideManifest extends MoveManifestSummary {
+  path: string;
+  mode: number;
+  mtime: number;
+}
+
 export type MoveManifestStatus =
   | { state: "running"; id: string; entries: number }
   | ({
       state: "ready";
       id: string;
+      /** Slice 5b: the folders outside the home, frozen at the job's start
+       *  (C4). */
+      outside: MoveOutsideManifest[];
       /** The units record of the lock (move-units.json). */
       units: unknown[];
       secretCount: number;
@@ -973,8 +1016,11 @@ export interface MoveManifestJobs {
     sessionHash: string,
   ): { ok: true; id: string } | { ok: false; message: string };
   status(id: string, sessionHash: string): MoveManifestStatus | null;
-  /** The NDJSON file of a ready job of this session, or null. */
-  dataFile(id: string, sessionHash: string): string | null;
+  /** The NDJSON file of a ready job of this session, or null. Slice 5b:
+   *  `outside` picks a folder of the job's own list; out of range is null. */
+  dataFile(id: string, sessionHash: string, outside?: number): string | null;
+  /** Slice 5b: the job's outside folder `i`, as the job froze it, or null. */
+  outsideFolder(id: string, sessionHash: string, i: number): string | null;
   /** Records that the data of a ready job was served (done needs it). */
   markServed(id: string): void;
   served(id: string, sessionHash: string): boolean;
@@ -988,8 +1034,41 @@ interface ManifestJob {
   abort: AbortController;
   sessionHash: string;
   file: string;
+  /** Slice 5b: the outside folders, frozen at the start (C4), and their
+   *  NDJSON files, in the same order. */
+  outside: string[];
+  outsideFiles: string[];
   status: MoveManifestStatus;
   served: boolean;
+}
+
+/** Slice 5b: walks one outside folder. It must be a real folder and its own
+ *  realpath (a link fails the job). */
+async function walkOutsideFolder(
+  path: string,
+  file: string,
+  signal: AbortSignal,
+): Promise<MoveOutsideManifest> {
+  let st: Stats;
+  try {
+    st = lstatSync(path);
+  } catch (err) {
+    throw new Error(`The folder ${path} cannot be read: ${errMessage(err)}`, {
+      cause: err,
+    });
+  }
+  let real: string | null = null;
+  try {
+    real = realpathSync(path);
+  } catch {
+    real = null;
+  }
+  if (!st.isDirectory() || real !== path)
+    throw new Error(`The folder ${path} is a link or not a folder.`);
+  const summary = await walkMoveManifest(createMoveOutsideScope(path), file, {
+    signal,
+  });
+  return { path, mode: st.mode & 0o7777, mtime: st.mtimeMs, ...summary };
 }
 
 export function createMoveManifestJobs(deps: {
@@ -998,6 +1077,9 @@ export function createMoveManifestJobs(deps: {
   dir: string;
   units(): unknown[];
   secretCount(): number;
+  /** Slice 5b: the folders outside the home that move, read once at each
+   *  job's start (C4). */
+  outside?(): MoveOutsideFolder[];
   now(): Date;
 }): MoveManifestJobs {
   const jobs = new Map<string, ManifestJob>();
@@ -1005,6 +1087,11 @@ export function createMoveManifestJobs(deps: {
     const job = jobs.get(id);
     return job && job.sessionHash === sessionHash ? job : null;
   };
+  const removeFiles = (job: ManifestJob) => {
+    for (const f of [job.file, ...job.outsideFiles]) rmSync(f, { force: true });
+  };
+  const index = (job: ManifestJob, i: number) =>
+    Number.isSafeInteger(i) && i >= 0 && i < job.outside.length;
   return {
     start(sessionHash) {
       for (const job of jobs.values())
@@ -1012,8 +1099,17 @@ export function createMoveManifestJobs(deps: {
           return { ok: false, message: "A manifest walk is already running." };
       // A new walk replaces the earlier ones: the new office pulls from it.
       for (const [oldId, job] of jobs) {
-        rmSync(job.file, { force: true });
+        removeFiles(job);
         jobs.delete(oldId);
+      }
+      let outside: string[];
+      try {
+        outside = (deps.outside?.() ?? []).map((f) => f.path);
+      } catch (err) {
+        return {
+          ok: false,
+          message: `The folders outside the home cannot be read: ${errMessage(err)}`,
+        };
       }
       const id = randomBytes(12).toString("base64url");
       mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
@@ -1022,18 +1118,35 @@ export function createMoveManifestJobs(deps: {
         abort: new AbortController(),
         sessionHash,
         file,
+        outside,
+        outsideFiles: outside.map((_, i) =>
+          join(deps.dir, `${id}.outside-${i}.ndjson`),
+        ),
         status: { state: "running", id, entries: 0 },
         served: false,
       };
       jobs.set(id, job);
-      void walkMoveManifest(deps.scope, file, {
-        signal: job.abort.signal,
-        onProgress: (entries) => {
-          if (job.status.state === "running")
-            job.status = { state: "running", id, entries };
-        },
-      }).then(
-        (summary) => {
+      const walk = async () => {
+        const home = await walkMoveManifest(deps.scope, file, {
+          signal: job.abort.signal,
+          onProgress: (entries) => {
+            if (job.status.state === "running")
+              job.status = { state: "running", id, entries };
+          },
+        });
+        const folders: MoveOutsideManifest[] = [];
+        for (let i = 0; i < outside.length; i++)
+          folders.push(
+            await walkOutsideFolder(
+              outside[i],
+              job.outsideFiles[i],
+              job.abort.signal,
+            ),
+          );
+        return { home, folders };
+      };
+      void walk().then(
+        ({ home, folders }) => {
           if (job.abort.signal.aborted) return;
           let units: unknown[] = [];
           let secretCount = 0;
@@ -1049,19 +1162,17 @@ export function createMoveManifestJobs(deps: {
           job.status = {
             state: "ready",
             id,
-            ...summary,
+            ...home,
             units,
             secretCount,
+            outside: folders,
             finishedAt: deps.now().getTime(),
           };
         },
         (err: unknown) => {
-          if (job.abort.signal.aborted) {
-            rmSync(file, { force: true });
-            return;
-          }
+          removeFiles(job);
+          if (job.abort.signal.aborted) return;
           console.error("[move] the manifest walk failed:", errMessage(err));
-          rmSync(file, { force: true });
           job.status = { state: "failed", id, error: errMessage(err) };
         },
       );
@@ -1070,9 +1181,15 @@ export function createMoveManifestJobs(deps: {
     status(id, sessionHash) {
       return mine(id, sessionHash)?.status ?? null;
     },
-    dataFile(id, sessionHash) {
+    dataFile(id, sessionHash, outside) {
       const job = mine(id, sessionHash);
-      return job && job.status.state === "ready" ? job.file : null;
+      if (!job || job.status.state !== "ready") return null;
+      if (outside === undefined) return job.file;
+      return index(job, outside) ? job.outsideFiles[outside] : null;
+    },
+    outsideFolder(id, sessionHash, i) {
+      const job = mine(id, sessionHash);
+      return job && index(job, i) ? job.outside[i] : null;
     },
     markServed(id) {
       const job = jobs.get(id);
@@ -1084,7 +1201,7 @@ export function createMoveManifestJobs(deps: {
     clear() {
       for (const [id, job] of jobs) {
         job.abort.abort();
-        rmSync(job.file, { force: true });
+        removeFiles(job);
         jobs.delete(id);
       }
     },

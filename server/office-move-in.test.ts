@@ -12,7 +12,9 @@
 import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  accessSync,
   chmodSync,
+  constants as fsConstants,
   copyFileSync,
   cpSync,
   existsSync,
@@ -23,6 +25,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -69,7 +72,12 @@ import {
   MOVE_IN_STAGE,
   readMoveLedger,
 } from "./office-move-stage.ts";
-import type { MoveInLive } from "../shared/office-move.ts";
+import type { MoveInLive, MoveOutsideFolders } from "../shared/office-move.ts";
+import {
+  MOVE_IN_OUTSIDE_FILE,
+  readMoveInOutside,
+  type MoveInFolderFs,
+} from "./office-move-outside.ts";
 import {
   MOVE_IN_SWAP_FILE,
   type MoveInReport,
@@ -245,6 +253,9 @@ function oldOffice(
     /** Slice 4: the running office serves the pull (the live pass). Off,
      *  it answers 404 there, as a release before slice 4 does. */
     live?: boolean;
+    /** Slice 5b: what the read of the folders outside the home gives now
+     *  (the preflight, the lock and each manifest job read it). */
+    outside?: { value: MoveOutsideFolders };
   } = {},
 ): OldOffice {
   const home = join(dir, name, "home");
@@ -272,6 +283,7 @@ function oldOffice(
       restart: "always",
     }),
     memberOsUsers: () => ({ names: [] }),
+    ...(opts.outside ? { outsideFolders: () => opts.outside!.value } : {}),
     exec: async () => {
       if (preflightHold) await preflightHold;
       return { code: 0, stdout: "0\t.\n", timedOut: false };
@@ -293,6 +305,7 @@ function oldOffice(
       dir: scratch,
       units: () => [],
       secretCount: () => 0,
+      ...(opts.outside ? { outside: () => opts.outside!.value.move } : {}),
       now,
     }),
     batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
@@ -305,6 +318,7 @@ function oldOffice(
     turnsInFlight: () => turns.map((t) => ({ ...t })),
     restartPolicy: () => "always",
     memberOsUsers: () => ({ names: [] }),
+    ...(opts.outside ? { outsideFolders: () => opts.outside!.value } : {}),
     listUnits: () => [],
     lockProcess: () => {},
     audit: () => {},
@@ -385,6 +399,47 @@ interface NewOffice {
 
 const ROOMY: MoveInStatfs = { bavail: 1e9, bsize: 4096, ffree: 1e9 };
 
+/** Slice 5b: the disk as checkMoveInFolder reads it, with one change: in a
+ *  user namespace that maps only the test's user (an agent shell), "/" and
+ *  the temp folder show the overflow uid and gid, which stand for root here.
+ *  Outside a namespace no file has them, and this changes nothing. */
+const OVERFLOW_ID = (() => {
+  try {
+    return Number(readFileSync("/proc/sys/kernel/overflowuid", "utf8").trim());
+  } catch {
+    return 65534;
+  }
+})();
+function harnessFolderFs(): MoveInFolderFs {
+  return {
+    lstat(p) {
+      let st: ReturnType<typeof lstatSync>;
+      try {
+        st = lstatSync(p);
+      } catch {
+        return null;
+      }
+      const root = (id: number) => (id === OVERFLOW_ID ? 0 : id);
+      return {
+        isDirectory: () => st.isDirectory(),
+        isSymbolicLink: () => st.isSymbolicLink(),
+        uid: root(st.uid),
+        gid: root(st.gid),
+        mode: st.mode,
+      };
+    },
+    readdir: (p) => readdirSync(p),
+    writable(p) {
+      try {
+        accessSync(p, fsConstants.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
 function newOffice(
   old: OldOffice,
   over: {
@@ -395,6 +450,12 @@ function newOffice(
     limits?: Partial<MoveInDeps["limits"]>;
     box?: Partial<MoveInBox>;
     onRestart?: () => void;
+    /** Slice 5b seams. */
+    outsideRoot?: string;
+    folderFs?: MoveInDeps["folderFs"];
+    deviceOf?: MoveInDeps["deviceOf"];
+    /** Slice 5b: statfs by path (default: statfs.value for every path). */
+    statfsOf?: (path: string) => MoveInStatfs;
   } = {},
 ): NewOffice {
   const home = join(dir, over.name ?? "new", "home");
@@ -421,8 +482,13 @@ function newOffice(
     freshness: () => fresh,
     statfs: (p) => {
       statfsPaths.push(p);
-      return { ...statfs.value };
+      return over.statfsOf ? over.statfsOf(p) : { ...statfs.value };
     },
+    ...(over.outsideRoot !== undefined
+      ? { outsideRoot: over.outsideRoot }
+      : {}),
+    folderFs: over.folderFs ?? harnessFolderFs(),
+    ...(over.deviceOf ? { deviceOf: over.deviceOf } : {}),
     audit: (op) => {
       audits.push(op);
     },
@@ -2332,3 +2398,380 @@ function leftovers(n: NewOffice): string[] {
     (name) => name.startsWith("stage") || name.startsWith("ledger"),
   );
 }
+
+// ---- slice 5b: folders outside the home ----
+
+// Both offices share one disk here, so the new office puts NEWBOX in front of
+// every outside path (MoveInDeps.outsideRoot): the old office's folder P
+// lands at NEWBOX + P. The status and the report keep the old office's paths.
+describe("slice 5b: folders outside the home", () => {
+  const LEFT = [{ path: "/srv/theirs", reason: "owner" as const }];
+
+  interface Bed {
+    o: OldOffice;
+    n: NewOffice;
+    holder: { value: MoveOutsideFolders };
+    /** The old office's folders, and where each lands on the new office. */
+    p: string;
+    q: string;
+    newbox: string;
+    at: (oldPath: string) => string;
+  }
+
+  function outsideBed(
+    over: Parameters<typeof newOffice>[1] = {},
+    opts: { live?: boolean; withQ?: boolean } = {},
+  ): Bed {
+    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const p = join(dir, "old-out", "p");
+    const q = join(dir, "old-out", "q");
+    for (const f of [p, q]) {
+      mkdirSync(join(f, "sub"), { recursive: true });
+      writeFileSync(join(f, "a.txt"), `a of ${f}`);
+      writeFileSync(join(f, "sub", "b.txt"), "b");
+      symlinkSync("a.txt", join(f, "ln"));
+    }
+    chmodSync(p, 0o750);
+    const holder = {
+      value: {
+        move: [
+          { path: p, mode: 0o750 },
+          ...(opts.withQ ? [{ path: q, mode: 0o755 }] : []),
+        ],
+        left: LEFT,
+      },
+    };
+    const o = oldOffice("old", { outside: holder, live: opts.live });
+    const newbox = join(dir, "newbox");
+    mkdirSync(newbox);
+    const n = newOffice(o, { outsideRoot: newbox, ...over });
+    return { o, n, holder, p, q, newbox, at: (x) => join(newbox, x) };
+  }
+
+  const failure = (s: MoveInStatus) => ({
+    phase: s.phase,
+    code: (s as { error?: { code: string } }).error?.code ?? null,
+    retryable: (s as { retryable?: boolean }).retryable ?? null,
+  });
+
+  /** A fetch that runs `fn` once, after the old office answered the lock
+   *  (after both offices' checks at the lock, before the new office's pass). */
+  function atLock(b: () => Bed, fn: () => void): MoveInDeps["fetch"] {
+    let done = false;
+    return async (url, init) => {
+      const res = await b().o.fetch(url, init);
+      if (!done && new URL(url).pathname === "/api/move/lock") {
+        done = true;
+        fn();
+      }
+      return res;
+    };
+  }
+
+  const stageIn = (folder: string) => join(folder, MOVE_IN_DIR, MOVE_IN_STAGE);
+
+  it("confirm shows where each folder lands; the pull stages it inside the folder with its files and links, and records it; finish hands the swap the local paths and the report the old ones", async () => {
+    const b = outsideBed();
+    writeUsers(b.o.root, [{ id: "u-old", name: "Riley", role: "owner" }]);
+    writeUsers(b.n.root, [{ id: OWNER.id, name: OWNER.name, role: "owner" }]);
+    const preflightId = await toConfirm(b.o, b.n);
+    const checks = ((b.n.moveIn.status() as { outsideChecks?: unknown[] })
+      .outsideChecks ?? []) as {
+      path: string;
+      ok: boolean;
+      create?: string[];
+    }[];
+    expect(checks.map((c) => [c.path, c.ok])).toEqual([[b.p, true]]);
+    expect(checks[0].create?.at(-1)).toBe(b.at(b.p));
+    // A check reads only.
+    expect(existsSync(b.at(b.p))).toBe(false);
+
+    expect((await b.n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    const end = await waitPhase(b.n.moveIn, [...TERMINAL], 15_000);
+    expect(end.phase).toBe("staged");
+    const stage = stageIn(b.at(b.p));
+    expect(readFileSync(join(stage, "a.txt"), "utf8")).toBe(`a of ${b.p}`);
+    expect(readFileSync(join(stage, "sub", "b.txt"), "utf8")).toBe("b");
+    expect(readlinkSync(join(stage, "ln"))).toBe("a.txt");
+    // The folder holds the stage only until the swap.
+    expect(readdirSync(b.at(b.p))).toEqual([MOVE_IN_DIR]);
+    const rec = readMoveInOutside(b.n.home);
+    expect(rec.staged).toEqual([b.at(b.p)]);
+    expect(rec.created).toContain(b.at(b.p));
+    expect(rec.created.every((c) => c.startsWith(`${b.newbox}/`))).toBe(true);
+
+    const a = await finishAs(b.n);
+    expect(a.ok).toBe(true);
+    const sw = readSwap(b.n);
+    expect(sw.inputs.outside).toEqual([
+      { path: b.at(b.p), mode: 0o750, mtime: statSync(b.p).mtimeMs },
+    ]);
+    expect(sw.inputs.report.outsideMoved).toEqual([b.p]);
+    expect(sw.inputs.report.outsideLeft).toEqual(LEFT);
+  });
+
+  it("the lock refuses a folder that cannot land (409 outside_folders_blocked with the checks) and sends no lock; once it can, the lock goes", async () => {
+    const b = outsideBed();
+    mkdirSync(b.at(b.p), { recursive: true });
+    writeFileSync(join(b.at(b.p), "someone.txt"), "here before the move");
+    const preflightId = await toConfirm(b.o, b.n);
+    const checks = ((b.n.moveIn.status() as { outsideChecks?: unknown[] })
+      .outsideChecks ?? []) as { path: string; ok: boolean; reason?: string }[];
+    expect(checks.map((c) => [c.path, c.ok, c.reason])).toEqual([
+      [b.p, false, "not_empty"],
+    ]);
+    const refused = await b.n.moveIn.lock({ preflightId, by: OWNER });
+    expect([
+      refused.ok,
+      refused.ok ? 0 : refused.status,
+      errCode(refused),
+    ]).toEqual([false, 409, "outside_folders_blocked"]);
+    expect(paths(b.o, "/api/move/lock")).toBe(0);
+    expect(b.o.state()).toBe("paired");
+    expect(b.n.moveIn.status().phase).toBe("confirm");
+
+    rmSync(join(b.at(b.p), "someone.txt"));
+    expect((await b.n.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+  });
+
+  it("the lock refuses a folder another user owns on this box, read through the folder fs", async () => {
+    const real = harnessFolderFs();
+    let target = "";
+    const b = outsideBed({
+      folderFs: {
+        ...real,
+        lstat: (p) => {
+          const st = real.lstat(p);
+          return st && p === target
+            ? {
+                isDirectory: () => st.isDirectory(),
+                isSymbolicLink: () => st.isSymbolicLink(),
+                uid: process.getuid!() + 1,
+                gid: st.gid,
+                mode: st.mode,
+              }
+            : st;
+        },
+      },
+    });
+    target = b.at(b.p);
+    mkdirSync(target, { recursive: true });
+    const preflightId = await toConfirm(b.o, b.n);
+    const refused = await b.n.moveIn.lock({ preflightId, by: OWNER });
+    expect(errCode(refused)).toBe("outside_folders_blocked");
+    expect(JSON.stringify(refused)).toContain("owner");
+    expect(paths(b.o, "/api/move/lock")).toBe(0);
+  });
+
+  it("a pass checks again before it writes: a folder blocked after the lock fails the pass (retryable) with nothing written in it; the pull again then stages it", async () => {
+    let bed: Bed | null = null;
+    const b = outsideBed({
+      fetch: atLock(
+        () => bed!,
+        () => {
+          mkdirSync(bed!.at(bed!.p), { recursive: true });
+          writeFileSync(
+            join(bed!.at(bed!.p), "late.txt"),
+            "came after the check",
+          );
+        },
+      ),
+    });
+    bed = b;
+    const end = await toEnd(b.o, b.n);
+    expect(failure(end)).toEqual({
+      phase: "failed",
+      code: "outside_folders_blocked",
+      retryable: true,
+    });
+    expect(readdirSync(b.at(b.p))).toEqual(["late.txt"]);
+    rmSync(join(b.at(b.p), "late.txt"));
+    expect((await b.n.moveIn.retryPull({ by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    expect(existsSync(join(stageIn(b.at(b.p)), "a.txt"))).toBe(true);
+  });
+
+  it("C4: a manifest that lists folders other than the ones checked fails the pass (outside_folders_changed, retryable) and stages none of them", async () => {
+    let bed: Bed | null = null;
+    const b = outsideBed({
+      fetch: atLock(
+        () => bed!,
+        () => {
+          bed!.holder.value = {
+            ...bed!.holder.value,
+            move: [...bed!.holder.value.move, { path: bed!.q, mode: 0o755 }],
+          };
+        },
+      ),
+    });
+    bed = b;
+    const end = await toEnd(b.o, b.n);
+    expect(failure(end)).toEqual({
+      phase: "failed",
+      code: "outside_folders_changed",
+      retryable: true,
+    });
+    expect(existsSync(b.at(b.q))).toBe(false);
+    expect(existsSync(stageIn(b.at(b.p)))).toBe(false);
+  });
+
+  it("C5: a folder the live pass staged that the final list drops loses its stage, and the folder this box made goes", async () => {
+    const b = outsideBed({}, { live: true, withQ: true });
+    await toConfirm(b.o, b.n);
+    await liveReady(b.n);
+    expect(existsSync(join(stageIn(b.at(b.q)), "a.txt"))).toBe(true);
+    // The records drop q before the owner's yes; the owner checks again.
+    b.holder.value = { ...b.holder.value, move: [{ path: b.p, mode: 0o750 }] };
+    const before = (b.n.moveIn.status() as { preflightId: string }).preflightId;
+    expect((await b.n.moveIn.rerunPreflight({ by: OWNER })).ok).toBe(true);
+    await waitFor(() => {
+      const s = b.n.moveIn.status() as { phase: string; preflightId?: string };
+      return (
+        s.phase === "confirm" && !!s.preflightId && s.preflightId !== before
+      );
+    });
+    const s = b.n.moveIn.status() as { phase: string; preflightId: string };
+    expect(s.preflightId).not.toBe(before);
+    expect(
+      (await b.n.moveIn.lock({ preflightId: s.preflightId, by: OWNER })).ok,
+    ).toBe(true);
+    expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    expect(existsSync(b.at(b.q))).toBe(false);
+    expect(existsSync(join(stageIn(b.at(b.p)), "a.txt"))).toBe(true);
+    expect(readMoveInOutside(b.n.home).staged).toEqual([b.at(b.p)]);
+  });
+
+  it("a live pass stopped in the home's batches leaves each folder's copy and ledger as the last pass wrote them: the final pass keeps the folder's files", async () => {
+    let g: ReturnType<typeof liveGate> | null = null;
+    const b = outsideBed({ fetch: (u, i) => g!.fetch(u, i) }, { live: true });
+    g = liveGate(b.o);
+    await toConfirm(b.o, b.n);
+    await liveReady(b.n);
+    // The condition: the first live pass copied the folder.
+    expect(existsSync(join(stageIn(b.at(b.p)), "a.txt"))).toBe(true);
+    // A change in the home, so the next live pass has a home batch to stop
+    // in.
+    writeFileSync(join(b.o.home, "docs/a.txt"), "alpha, changed");
+    utimesSync(join(b.o.home, "docs/a.txt"), new Date(), new Date());
+    const home = g.hold(
+      (m) =>
+        m.path === "/api/move/batch" &&
+        m.state === "paired" &&
+        !(m.body ?? "").includes('"outside"'),
+    );
+    expect((await b.n.moveIn.copyLive({ by: OWNER })).ok).toBe(true);
+    await home.reached;
+    const s = b.n.moveIn.status() as { preflightId: string };
+    const mark = b.o.log.length;
+    expect(
+      (await b.n.moveIn.lock({ preflightId: s.preflightId, by: OWNER })).ok,
+    ).toBe(true);
+    expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+    const folderAsks = b.o.log
+      .slice(mark)
+      .filter(
+        (c) =>
+          c.path === "/api/move/batch" &&
+          c.state === "move" &&
+          (c.body ?? "").includes('"outside"'),
+      )
+      .flatMap((c) =>
+        (JSON.parse(c.body!) as { items: { path: string }[] }).items.map(
+          (i) => i.path,
+        ),
+      );
+    expect(folderAsks).toEqual([]);
+    expect(readFileSync(join(stageIn(b.at(b.p)), "a.txt"), "utf8")).toBe(
+      `a of ${b.p}`,
+    );
+  });
+
+  it("the cancel removes each folder's stage and the folders this box made, and keeps a folder that was there", async () => {
+    const b = outsideBed({}, { withQ: true });
+    // q was on this box before the move (empty); p is made by the move.
+    mkdirSync(b.at(b.q), { recursive: true });
+    expect((await toEnd(b.o, b.n)).phase).toBe("staged");
+    expect(existsSync(stageIn(b.at(b.p)))).toBe(true);
+    expect(existsSync(stageIn(b.at(b.q)))).toBe(true);
+    expect((await b.n.moveIn.cancel({ by: OWNER })).ok).toBe(true);
+    expect(existsSync(b.at(b.p))).toBe(false);
+    expect(readdirSync(b.at(b.q))).toEqual([]);
+    expect(existsSync(join(b.n.home, MOVE_IN_DIR, MOVE_IN_OUTSIDE_FILE))).toBe(
+      false,
+    );
+  });
+
+  it("a file in a folder that the old office cannot read is missing with its absolute path", async () => {
+    const b = outsideBed();
+    writeFileSync(join(b.p, "locked.txt"), "no");
+    chmodSync(join(b.p, "locked.txt"), 0o000);
+    const s = await toEnd(b.o, b.n);
+    expect(s.phase).toBe("incomplete");
+    const result = (s as { result?: { missing: { path: string }[] } }).result;
+    expect(result?.missing.map((m) => m.path)).toContain(
+      join(b.p, "locked.txt"),
+    );
+  });
+
+  it("checks free space per device: one statfs per device, the home's first; a folder's device short of room fails no_space before any batch, with the home's device roomy", async () => {
+    const tight: MoveInStatfs = { bavail: 1000, bsize: 4096, ffree: 1e9 };
+    let room = tight;
+    let newbox = "";
+    const b = outsideBed({
+      deviceOf: (p) => (newbox && p.startsWith(`${newbox}/`) ? 2 : 1),
+      statfsOf: (p) => (newbox && p.startsWith(`${newbox}/`) ? room : ROOMY),
+    });
+    newbox = b.newbox;
+    const end = await toEnd(b.o, b.n);
+    expect(failure(end)).toMatchObject({ phase: "failed", code: "no_space" });
+    expect(paths(b.o, "/api/move/batch")).toBe(0);
+    expect(b.n.statfsPaths.length).toBe(2);
+    expect(b.n.statfsPaths[0]).toBe(b.n.home);
+    expect(b.n.statfsPaths[1].startsWith(`${b.newbox}/`)).toBe(true);
+    // The condition: with room on the folder's device, the same pull stages.
+    room = ROOMY;
+    expect((await b.n.moveIn.retryPull({ by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+  });
+
+  it("on one device, the folders' bytes count with the home's: room for the home alone fails no_space", async () => {
+    const big = 4 * 1024 * 1024;
+    let bavail = 1e9;
+    const b = outsideBed({
+      deviceOf: () => 1,
+      statfsOf: () => ({ bavail, bsize: 4096, ffree: 1e9 }),
+    });
+    writeFileSync(join(b.p, "big.bin"), Buffer.alloc(big, 7));
+    const tmp = join(dir, "summary.ndjson");
+    const home = await walkMoveManifest(b.o.scope, tmp);
+    rmSync(tmp);
+    // Room for the home with its margin and a block per entry, and 50 blocks
+    // more: the folder's 1024 blocks do not fit.
+    bavail =
+      Math.ceil(
+        (home.totalBytes + Math.max(home.totalBytes * 0.1, 2 ** 30)) / 4096,
+      ) +
+      home.entries +
+      50;
+    const end = await toEnd(b.o, b.n);
+    expect(failure(end)).toMatchObject({ phase: "failed", code: "no_space" });
+    expect(b.n.statfsPaths.length).toBe(1);
+    // The condition: the same room with the big file gone stages.
+    rmSync(join(b.p, "big.bin"));
+    expect((await b.n.moveIn.retryPull({ by: OWNER })).ok).toBe(true);
+    expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
+      "staged",
+    );
+  });
+});

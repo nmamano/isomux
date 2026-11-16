@@ -17,7 +17,9 @@ import {
   createMoveManifestJobs,
   type MovePullDeps,
 } from "./office-move-pull.ts";
+import { readMoveState } from "./office-move.ts";
 import { MOVE_AUDIT_ACTOR } from "./office-move-routes.ts";
+import type { MoveOutsideFolder } from "../shared/office-move.ts";
 import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
 import { createSecretStore } from "./secret-store.ts";
 import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
@@ -32,6 +34,10 @@ export function createMovePull(input: {
   home: string;
   codeDir: string | null;
   backupDir: string | null;
+  /** Slice 5b: the folders outside the home that move. Absent: the list the
+   *  lock recorded in the move state (the MOVE-locked server loads no
+   *  records). */
+  outside?(): MoveOutsideFolder[];
   now(): Date;
 }): MovePullDeps {
   const scope = createMoveScope(input);
@@ -44,6 +50,10 @@ export function createMovePull(input: {
       dir: scratch,
       units: () => readUnitsRecord(input.stateRoot),
       secretCount: () => countSecrets(input.stateRoot),
+      outside: () =>
+        input.outside
+          ? input.outside()
+          : lockedOutside(input.stateRoot, input.now()),
       now: () => input.now(),
     }),
     batch: { scope, scratchDir: scratch, snapshot: moveSnapshot },
@@ -75,6 +85,16 @@ export function movePullForBoot(input: {
       }
     },
   };
+}
+
+/** Slice 5b: the folders the lock recorded in the move state (none in any
+ *  other state, or in a state of an earlier release). The walk reads each
+ *  one's mode itself. */
+function lockedOutside(stateRoot: string, now: Date): MoveOutsideFolder[] {
+  const current = readMoveState(stateRoot, now).current;
+  if (!current || (current.state !== "move" && current.state !== "moved"))
+    return [];
+  return (current.outside ?? []).map((path) => ({ path, mode: 0 }));
 }
 
 /** The time limit of a member database's snapshot: 60 s, plus 1 s per

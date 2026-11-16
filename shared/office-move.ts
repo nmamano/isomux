@@ -106,6 +106,57 @@ export interface MoveInLive {
   progress?: MoveInProgress;
 }
 
+/** Slice 5b: why the old office leaves a folder outside its home (C1-C3):
+ *  `temp`, at or below /tmp, /var/tmp, /dev/shm or /run; `link`, a link on
+ *  its path; `office`, it holds or is inside the home, the state root, the
+ *  code folder or the backup folder; `owner`, another user owns it. */
+export type MoveOutsideLeftReason = "temp" | "link" | "office" | "owner";
+
+export interface MoveOutsideLeft {
+  path: string;
+  reason: MoveOutsideLeftReason;
+}
+
+export interface MoveOutsideFolder {
+  path: string;
+  /** The folder's mode (permission bits). */
+  mode: number;
+}
+
+/** Slice 5b: the old office's folders outside its home. */
+export interface MoveOutsideFolders {
+  move: MoveOutsideFolder[];
+  left: MoveOutsideLeft[];
+}
+
+/** Slice 5b: why a folder cannot land on the new office. */
+export type MoveInFolderBlock =
+  | "in_home"
+  | "link"
+  | "not_dir"
+  | "owner"
+  | "unsafe_parent"
+  | "not_empty"
+  | "no_write";
+
+export type MoveInFolderCheck =
+  | {
+      path: string;
+      ok: true;
+      /** The folders to make, top down (empty: the folder exists). */
+      create: string[];
+    }
+  | {
+      path: string;
+      ok: false;
+      reason: MoveInFolderBlock;
+      /** The part of the path the reason is about. */
+      at: string;
+      /** A command for root on this box that clears it (owner on the folder
+       *  itself, no_write), or absent. */
+      command?: string;
+    };
+
 /** What the report starts with (the rest is filled at the swap and at the
  *  first normal boot). */
 export interface MoveInReportInput {
@@ -121,6 +172,12 @@ export interface MoveInReportInput {
   secretCount: number;
   /** The paths the owner accepted as missing (finish {acceptMissing}). */
   missing: { path: string; reason: string }[];
+  /** Slice 5b: the folders outside the home that moved (absent in a report
+   *  of an earlier release). */
+  outsideMoved?: string[];
+  /** Slice 5b: the folders outside the home the old office left, from the
+   *  preflight the owner agreed to. */
+  outsideLeft?: MoveOutsideLeft[];
 }
 
 /** The after-move report (GET /api/office/move-in in phase `moved`). */
@@ -191,6 +248,9 @@ export type MoveInStatus =
       preflight?: MoveInPreflight;
       /** Slice 4, phases `preflight` and `confirm`. */
       live?: MoveInLive;
+      /** Slice 5b, phase `confirm`: where each folder outside the home of
+       *  the preflight lands on this box, checked at this request. */
+      outsideChecks?: MoveInFolderCheck[];
       lockedAt?: number | null;
       progress?: MoveInProgress;
       result?: MoveStageCheck;

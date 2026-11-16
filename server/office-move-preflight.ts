@@ -6,6 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import type {
+  MoveOutsideFolder,
+  MoveOutsideFolders,
+  MoveOutsideLeft,
+} from "../shared/office-move.ts";
 import type { AgentUnit } from "./office-move-units.ts";
 
 /** One step's time limit for du on one top-level entry. */
@@ -46,6 +51,12 @@ export interface MovePreflightResult {
   /** Members with their own OS user (slice 3): the lock refuses while any
    *  member has one, or while their record cannot be read. */
   memberOsUsers: { names: string[] } | { broken: true };
+  /** Slice 5b: the folders outside the home, with a size estimate (du -sxb,
+   *  which stops at mount points) of each folder that moves. */
+  outsideFolders: {
+    move: (MoveOutsideFolder & { bytes: number | null; timedOut: boolean })[];
+    left: MoveOutsideLeft[];
+  };
 }
 
 export type MovePreflightStatus =
@@ -70,6 +81,8 @@ export interface MovePreflightDeps {
   listUnits(): AgentUnit[];
   restartPolicy(): MovePreflightResult["restart"];
   memberOsUsers(): MovePreflightResult["memberOsUsers"];
+  /** Slice 5b: collectMoveOutsideFolders over the office's records. */
+  outsideFolders?(): MoveOutsideFolders;
   exec: PreflightExec;
   /** The office OS user's name (the apt Requested-By match). */
   osUser: string;
@@ -170,6 +183,7 @@ async function runPreflight(
   for (const app of deps.apps())
     hostRefs.push(await hostRefsIn(deps, app.name, app.folder));
   const sizes = await homeSizes(deps);
+  const outsideFolders = await outsideSizes(deps);
   let sudoPackages: MovePreflightResult["sudoPackages"];
   try {
     sudoPackages = {
@@ -190,6 +204,7 @@ async function runPreflight(
     sizes,
     sudoPackages,
     memberOsUsers: deps.memberOsUsers(),
+    outsideFolders,
   };
 }
 
@@ -240,6 +255,36 @@ async function hostRefsIn(
     truncated: found.length > PREFLIGHT_MAX_HOST_PATHS,
     timedOut: false,
   };
+}
+
+/** Slice 5b: the folders outside the home, with a du estimate of each one
+ *  that moves. */
+async function outsideSizes(
+  deps: MovePreflightDeps,
+): Promise<MovePreflightResult["outsideFolders"]> {
+  let read: MoveOutsideFolders = { move: [], left: [] };
+  try {
+    read = deps.outsideFolders?.() ?? read;
+  } catch (err) {
+    console.error("[move] could not read the folders outside the home:", err);
+  }
+  const move: MovePreflightResult["outsideFolders"]["move"] = [];
+  for (const f of read.move) {
+    const r = await deps.exec(
+      ["du", "-sxb", "--", f.path],
+      PREFLIGHT_DU_TIMEOUT_MS,
+    );
+    const bytes = r.timedOut
+      ? null
+      : parseInt(r.stdout.trim().split(/\s+/)[0], 10);
+    move.push({
+      path: f.path,
+      mode: f.mode,
+      bytes: bytes !== null && Number.isFinite(bytes) ? bytes : null,
+      timedOut: r.timedOut,
+    });
+  }
+  return { move, left: read.left };
 }
 
 async function homeSizes(

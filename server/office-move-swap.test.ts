@@ -18,8 +18,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   lstatSync,
+  statSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -35,6 +37,7 @@ import { Database } from "bun:sqlite";
 import { MOVE_IN_DIR, MOVE_IN_STATE_FILE } from "./office-move.ts";
 import { MOVE_IN_STAGE } from "./office-move-stage.ts";
 import { MOVE_UNITS_FILE, type AgentUnit } from "./office-move-units.ts";
+import { MOVE_IN_OUTSIDE_FILE } from "./office-move-outside.ts";
 import { isValidMemberName } from "./users.ts";
 import {
   OFFICE_CONFIG_BOX_KEYS,
@@ -88,6 +91,22 @@ interface FixtureOpts {
   oldExtraNames?: string[];
   /** The old office's removed members (removed-members.json), by name. */
   removedNames?: string[];
+  /** Slice 5b: two folders outside the home with their stage (OUTSIDE). */
+  outside?: boolean;
+}
+
+/** Slice 5b: the outside folders of a fixture: `p` was on this box (empty),
+ *  `q/deep` was made by this box. Each holds its stage. */
+const OUTSIDE_MTIME = Date.parse("2026-10-01T12:00:00Z");
+function outsideOf(dir: string) {
+  const p = join(dir, "out", "p");
+  const q = join(dir, "out", "q", "deep");
+  return {
+    p,
+    q,
+    stageP: join(p, MOVE_IN_DIR, MOVE_IN_STAGE),
+    stageQ: join(q, MOVE_IN_DIR, MOVE_IN_STAGE),
+  };
 }
 
 const UNITS: AgentUnit[] = [
@@ -314,6 +333,28 @@ function fixture(dir: string, opts: FixtureOpts = {}): Fixture {
       missing: [],
     },
   };
+  if (opts.outside) {
+    const o = outsideOf(dir);
+    put(o.stageP, "a.txt", "old-outside-a");
+    put(o.stageP, "sub/b.txt", "old-outside-b");
+    link(o.stageP, "ln", "a.txt");
+    put(o.stageQ, "c.txt", "old-outside-c");
+    chmodSync(o.p, 0o700);
+    inputs.outside = [
+      { path: o.p, mode: 0o750, mtime: OUTSIDE_MTIME },
+      { path: o.q, mode: 0o711, mtime: OUTSIDE_MTIME + 1000 },
+    ];
+    // The record as writeMoveInOutside writes it (its own tests are in
+    // office-move-outside.test.ts).
+    put(
+      join(home, MOVE_IN_DIR),
+      MOVE_IN_OUTSIDE_FILE,
+      JSON.stringify({
+        staged: [o.p, o.q],
+        created: [join(dir, "out", "q"), o.q],
+      }),
+    );
+  }
   writeMoveInSwapFile(home, { inputs, ops: null });
   return { dir, home, root, stage, aside, backups, inputs };
 }
@@ -802,10 +843,73 @@ describe("B1: the ops come from the home at the swap boot", () => {
   });
 });
 
+// Slice 5b: each folder outside the home gets its stage's entries by rename,
+// then its own mode and mtime; its stage folder goes. A folder that holds
+// anything else fails the swap before any rename, and finish's dry run
+// refuses it first.
+describe("slice 5b: folders outside the home", () => {
+  it("renames each folder's stage into it, sets the folder's mode and mtime, and removes its stage folder and the record", () => {
+    const f = fixture(join(scratch(), "o"), { outside: true });
+    const o = outsideOf(f.dir);
+    const r = swap(f);
+    expect(r.kind).toBe("swapped");
+    expect(snap(o.p)).toEqual({
+      "a.txt": "old-outside-a",
+      ln: "link:a.txt",
+      sub: "dir",
+      "sub/b.txt": "old-outside-b",
+    });
+    expect(snap(o.q)).toEqual({ "c.txt": "old-outside-c" });
+    expect(statSync(o.p).mode & 0o7777).toBe(0o750);
+    expect(statSync(o.q).mode & 0o7777).toBe(0o711);
+    expect(Math.round(statSync(o.p).mtimeMs)).toBe(OUTSIDE_MTIME);
+    expect(Math.round(statSync(o.q).mtimeMs)).toBe(OUTSIDE_MTIME + 1000);
+    expect(existsSync(join(f.home, MOVE_IN_DIR, MOVE_IN_OUTSIDE_FILE))).toBe(
+      false,
+    );
+    // The home's swap ran as without outside folders.
+    expect(text(join(f.home, "docs/a.txt"))).toBe("old-docs");
+  });
+
+  it("a folder that holds an entry besides its stage fails the swap before any rename, naming the folder; nothing moved, in the home or outside", () => {
+    const f = fixture(join(scratch(), "o"), { outside: true });
+    const o = outsideOf(f.dir);
+    put(o.q, "someone.txt", "not the move's");
+    const r = swap(f);
+    expect(r.kind).toBe("failed");
+    if (r.kind === "failed") expect(`${r.step} ${r.message}`).toContain(o.q);
+    expect(text(join(o.stageP, "a.txt"))).toBe("old-outside-a");
+    expect(existsSync(join(o.p, "a.txt"))).toBe(false);
+    expect(text(join(o.q, "someone.txt"))).toBe("not the move's");
+    expect(text(join(f.stage, "docs/a.txt"))).toBe("old-docs");
+    expect(text(join(f.root, "users.json"))).toContain("u-fresh");
+    expect(existsSync(join(f.aside, ".isomux"))).toBe(false);
+    expect(existsSync(join(f.home, MOVE_IN_DIR, MOVE_IN_SWAP_FILE))).toBe(true);
+    // Moved away, the swap goes on.
+    rmSync(join(o.q, "someone.txt"));
+    expect(swap(f).kind).toBe("swapped");
+    expect(text(join(o.q, "c.txt"))).toBe("old-outside-c");
+  });
+
+  it("finish's dry run refuses a folder that holds an entry besides its stage, with its path, and passes the clean fixture", async () => {
+    const f = fixture(join(scratch(), "o"), { outside: true });
+    const o = outsideOf(f.dir);
+    expect(await checkMoveInSwap(f.inputs)).toEqual([]);
+    put(o.p, "stray.txt", "x");
+    const before = snap(f.dir);
+    expect(await checkMoveInSwap(f.inputs)).toContainEqual({
+      code: "outside_folder_not_empty",
+      path: o.p,
+    });
+    expect(snap(f.dir)).toEqual(before);
+  });
+});
+
 describe("D5: a crash at any point, then a resume", () => {
   for (const opts of [
     { label: "with a name clash", o: { oldOwnerName: "MORGAN" } },
     { label: "B2 with a system unit on the new box", o: { newUnit: null } },
+    { label: "slice 5b with folders outside the home", o: { outside: true } },
   ] as { label: string; o: FixtureOpts }[]) {
     it(`gives the same home as a run without a crash, before each op and each step (${opts.label})`, () => {
       const dir = join(scratch(), "o");

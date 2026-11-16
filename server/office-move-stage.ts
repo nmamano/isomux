@@ -32,6 +32,7 @@ import {
   lutimesSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readlinkSync,
   realpathSync,
   renameSync,
@@ -137,6 +138,36 @@ export interface MoveStage {
 
 /** Slice 4: the ledger of a pass, next to its stage. */
 export const MOVE_IN_LEDGER = "ledger.ndjson";
+
+/** Removes a move-in folder: a staged copy can hold read-only folders, so
+ *  each folder gets u+rwx first (by fd, never through a link). */
+export function removeMoveTree(root: string): void {
+  const stack = [root];
+  while (stack.length > 0) {
+    const p = stack.pop()!;
+    let fd: number;
+    try {
+      fd = openSync(p, DIR_FLAGS);
+    } catch {
+      continue; // Not a folder (or a link, or gone): rm takes it.
+    }
+    try {
+      fchmodSync(fd, 0o700);
+    } catch {
+      // rm reports what it cannot remove.
+    } finally {
+      closeSync(fd);
+    }
+    let names: string[] = [];
+    try {
+      names = readdirSync(p);
+    } catch {
+      names = [];
+    }
+    for (const n of names) stack.push(join(p, n));
+  }
+  rmSync(root, { recursive: true, force: true });
+}
 
 /** Slice 4: one regular file a pass copied whole and clean: the size and
  *  mtime of that pass's manifest (equal to the batch header's), and the
