@@ -591,6 +591,12 @@ Coses que pots fer per ell:
     "No està a punt: el trasllat dels seus fitxers a {name} no va acabar.",
   "settings.osUser.finishHint":
     "Per acabar d'activar-lo, executa això a la màquina de l'oficina:",
+  "settings.osUser.movedIn":
+    "No està llest: va arribar amb el trasllat de l'oficina. Els seus agents esperen fins que l'ordre d'activació s'executi en aquesta màquina.",
+  "settings.osUser.movedInEnableHint":
+    "Per acabar el trasllat, executa això a la màquina de l'oficina:",
+  "settings.osUser.movedInDisableHint":
+    "Per desactivar-lo i esborrar els fitxers que van arribar amb el trasllat, executa això a la màquina de l'oficina:",
   "settings.osUser.containerName":
     "Posa el nom del contenidor de l'oficina en lloc de CONTAINER.",
   "settings.osUser.runLocked":
@@ -3646,7 +3652,7 @@ Coses que pots fer per ell:
   "officeMove.in.confirm.restartUnknown":
     "L'oficina antiga no va dir com es reinicia el seu servei, així que no es pot bloquejar. Actualitza l'oficina antiga i torna a comprovar.",
   "officeMove.in.confirm.memberOsUsers":
-    "Membres amb usuari del sistema propi: {names}. Els seus fitxers encara no es traslladen, així que l'oficina antiga no es pot bloquejar. A l'oficina antiga, desactiva'l per a cadascun a Configuració → Membres → el membre → Usuari del sistema propi i torna a comprovar.",
+    "Membres amb usuari del sistema propi: {names}. La versió d'Isomux de l'oficina antiga no pot traslladar els seus fitxers, així que no es pot bloquejar. Actualitza l'oficina antiga, o desactiva'l allà per a cadascun a Configuració → Membres → el membre → Usuari del sistema propi, i torna a comprovar.",
   "officeMove.in.confirm.memberOsUsersBroken":
     "L'oficina antiga no pot llegir quins membres tenen usuari del sistema propi, així que no es pot bloquejar.",
   "officeMove.in.confirm.hostRefs":
@@ -3706,6 +3712,42 @@ Coses que pots fer per ell:
     "El bloqueig espera fins que cada carpeta es pugui copiar aquí.",
   "officeMove.in.outside.fixFirst":
     "Arregla aquestes carpetes i torna-ho a provar:",
+  "officeMove.in.members.heading":
+    "Membres amb usuari del sistema propi. Els seus fitxers també es traslladen, i després del trasllat els seus agents esperen fins que executis una ordre com a root per a cadascun aquí:",
+  "officeMove.in.members.lockWaits":
+    "El bloqueig espera fins que cada membre es pugui traslladar.",
+  "officeMove.in.members.fixFirst":
+    "Corregeix el que bloqueja aquests membres i torna-ho a provar:",
+  "officeMove.in.members.old.broken":
+    "A l'oficina antiga, el registre del seu usuari del sistema està malmès.",
+  "officeMove.in.members.old.unfinished":
+    "A l'oficina antiga, l'activació no va acabar. Torna a executar-hi l'ordre d'activació.",
+  "officeMove.in.members.old.busy":
+    "A l'oficina antiga, els seus fitxers s'estan traslladant. Torna a comprovar quan acabi.",
+  "officeMove.in.members.old.movedIn":
+    "Van arribar a l'oficina antiga amb un trasllat anterior, i l'ordre d'activació encara no s'hi ha executat.",
+  "officeMove.in.members.old.badHome":
+    "A l'oficina antiga, la seva carpeta personal no es pot traslladar:",
+  "officeMove.in.members.old.runnerDown":
+    "A l'oficina antiga, el seu usuari del sistema no respon.",
+  "officeMove.in.members.old.wrongRunner":
+    "A l'oficina antiga, un altre usuari del sistema respon per ells.",
+  "officeMove.in.members.old.oldRuntime":
+    "A l'oficina antiga, el seu usuari del sistema encara executa la versió anterior d'Isomux. Torna a comprovar d'aquí a un minut.",
+  "officeMove.in.members.old.unknown":
+    "L'oficina antiga encara no pot traslladar els seus fitxers.",
+  "officeMove.in.members.here.unchecked":
+    "Aquesta oficina encara no els ha comprovat. Torna a comprovar.",
+  "officeMove.in.members.here.unsupported":
+    "Aquesta màquina no pot crear usuaris del sistema per a membres.",
+  "officeMove.in.members.here.otherHome":
+    "La seva carpeta personal ha de mantenir el seu camí, i en aquesta màquina seria {home}, no {oldHome}.",
+  "officeMove.in.members.here.nameTaken":
+    "Ja existeix en aquesta màquina un usuari del sistema anomenat {osUser}.",
+  "officeMove.in.members.here.homeExists":
+    "{home} ja existeix en aquesta màquina. Mou-lo a un altre lloc.",
+  "officeMove.in.members.here.unknown":
+    "Els seus fitxers no poden arribar a aquesta màquina.",
   "officeMove.in.outside.left":
     "Carpetes fora de la carpeta personal que es queden a la màquina antiga:",
   "officeMove.in.outside.leftReason.temp": "temporal",
@@ -3716,6 +3758,12 @@ Coses que pots fer per ell:
     "Carpetes fora de la carpeta personal que s'han mogut:",
   "officeMove.report.outsideLeft":
     "Carpetes fora de la carpeta personal que s'han quedat a la màquina antiga:",
+  "officeMove.report.members":
+    "Membres els fitxers dels quals s'han traslladat. Els seus agents esperen fins que executis la seva ordre:",
+  "officeMove.report.memberSettings":
+    "Consulta Configuració → Membres → el membre → Usuari del sistema propi.",
+  "officeMove.report.membersSettings":
+    "Configuració → Membres → el membre → Usuari del sistema propi mostra la mateixa ordre.",
   "officeMove.in.acceptMissing": "Acabar sense aquests fitxers",
   "officeMove.in.finishWarning":
     "Acabar substitueix aquesta oficina per la còpia i la reinicia. Després l'oficina antiga mostra que s'ha traslladat.",

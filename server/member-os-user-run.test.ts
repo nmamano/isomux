@@ -438,6 +438,62 @@ describe("the end of a run", () => {
     }
   });
 
+  // Slice 5c-3 (task 78733adf, C3): the enable of a member who came with an
+  // office move runs the office's place job, which goes on when the run
+  // reaches its time limit. That end is not a failed move: the attempt is
+  // cleared, and the page keeps her moved-in line; the next enable collects
+  // the job's outcome. `placeRunning` is the new dep (member-user-admin.ts
+  // memberPlaceRunning).
+  it("clears the attempt of a run cut at its time limit while the member's place job runs; fails it as before when none runs", async () => {
+    const out =
+      "isomux-member-user: Placing the home of isomux-mia: 3 of 9 entries.";
+    for (const placing of [true, false]) {
+      resetMemberUserAttempts();
+      const asked: string[] = [];
+      const run = createMemberOsUserRun(
+        deps(
+          // `now` keeps the object a Partial of the deps (the new dep is
+          // not in the type until the code commit).
+          Object.assign(
+            { now: () => clock },
+            {
+              placeRunning: (id: string) => {
+                asked.push(id);
+                return placing;
+              },
+            },
+          ),
+        ),
+      );
+      await run.run(MIA, right);
+      starts.at(-1)!.end({
+        exitCode: null,
+        signal: "SIGKILL",
+        timedOut: true,
+        output: out,
+      });
+      await flush();
+      expect({ placing, asked, attempt: attemptOf(MIA)?.status }).toEqual({
+        placing,
+        asked: [MIA.id],
+        attempt: placing ? undefined : "failed",
+      });
+      // The member is free for the next run either way.
+      expect((await run.run(MIA, right)).ok).toBe(true);
+      starts.at(-1)!.end({ exitCode: 0 });
+      await flush();
+    }
+    // A run that failed on its own (not the time limit) fails, job or not.
+    resetMemberUserAttempts();
+    const run = createMemberOsUserRun(
+      deps(Object.assign({ now: () => clock }, { placeRunning: () => true })),
+    );
+    await run.run(MIA, right);
+    starts.at(-1)!.end({ exitCode: 1, output: out });
+    await flush();
+    expect(attemptOf(MIA)?.status).toBe("failed");
+  });
+
   it("keeps the message of a verb that failed after the start, and not one from before it", async () => {
     const run = createMemberOsUserRun(deps());
     noteMemberUserAttempt(MIA.id, "enable", "failed", "an earlier failure");

@@ -596,6 +596,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Not ready: the move of their files to {name} did not finish.",
   "settings.osUser.finishHint":
     "To finish turning it on, run this on the office's machine:",
+  "settings.osUser.movedIn":
+    "Not ready: they came with the office move. Their agents wait until the turn-on command runs on this machine.",
+  "settings.osUser.movedInEnableHint":
+    "To finish the move, run this on the office's machine:",
+  "settings.osUser.movedInDisableHint":
+    "To turn it off and delete the files that came with the move, run this on the office's machine:",
   "settings.osUser.containerName":
     "Put the name of the office's container in place of CONTAINER.",
   "settings.osUser.runLocked":
@@ -3537,7 +3543,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.confirm.restartUnknown":
     "The old office did not say how its service restarts, so it cannot lock. Update the old office, then check again.",
   "officeMove.in.confirm.memberOsUsers":
-    "Members with their own OS user: {names}. Their files do not move yet, so the old office cannot lock. On the old office, turn it off for each of them in Settings → Members → the member → Own OS user, then check again.",
+    "Members with their own OS user: {names}. The old office's Isomux version cannot move their files, so it cannot lock. Update the old office, or turn it off there for each of them in Settings → Members → the member → Own OS user, then check again.",
   "officeMove.in.confirm.memberOsUsersBroken":
     "The old office cannot read which members have their own OS user, so it cannot lock.",
   "officeMove.in.confirm.hostRefs":
@@ -3593,6 +3599,42 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.outside.lockWaits":
     "The lock waits until every folder can be copied here.",
   "officeMove.in.outside.fixFirst": "Fix these folders, then try again:",
+  "officeMove.in.members.heading":
+    "Members with their own OS user. Their files move too, and after the move their agents wait until you run a command as root for each of them here:",
+  "officeMove.in.members.lockWaits":
+    "The lock waits until every member can move.",
+  "officeMove.in.members.fixFirst":
+    "Fix what blocks these members, then try again:",
+  "officeMove.in.members.old.broken":
+    "On the old office, their OS user record is damaged.",
+  "officeMove.in.members.old.unfinished":
+    "On the old office, turning it on did not finish. Run the turn-on command there again.",
+  "officeMove.in.members.old.busy":
+    "On the old office, their files are moving. Check again when that ends.",
+  "officeMove.in.members.old.movedIn":
+    "They came to the old office with an earlier move, and the turn-on command has not run there yet.",
+  "officeMove.in.members.old.badHome":
+    "On the old office, their home folder cannot move:",
+  "officeMove.in.members.old.runnerDown":
+    "On the old office, their OS user does not answer.",
+  "officeMove.in.members.old.wrongRunner":
+    "On the old office, another OS user answers for them.",
+  "officeMove.in.members.old.oldRuntime":
+    "On the old office, their OS user still runs the previous Isomux version. Check again in a minute.",
+  "officeMove.in.members.old.unknown":
+    "The old office cannot move their files yet.",
+  "officeMove.in.members.here.unchecked":
+    "This office has not checked them yet. Check again.",
+  "officeMove.in.members.here.unsupported":
+    "This machine cannot make OS users for members.",
+  "officeMove.in.members.here.otherHome":
+    "Their home folder must keep its path, and on this machine it would be {home}, not {oldHome}.",
+  "officeMove.in.members.here.nameTaken":
+    "An OS user named {osUser} exists on this machine.",
+  "officeMove.in.members.here.homeExists":
+    "{home} exists on this machine. Move it away.",
+  "officeMove.in.members.here.unknown":
+    "Their files cannot land on this machine.",
   "officeMove.in.outside.left":
     "Folders outside the home folder that stay on the old machine:",
   "officeMove.in.outside.leftReason.temp": "temporary",
@@ -3603,6 +3645,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Folders outside the home folder that moved:",
   "officeMove.report.outsideLeft":
     "Folders outside the home folder that stayed on the old machine:",
+  "officeMove.report.members":
+    "Members whose files moved. Their agents wait until you run their command:",
+  "officeMove.report.memberSettings":
+    "See Settings → Members → the member → Own OS user.",
+  "officeMove.report.membersSettings":
+    "Settings → Members → the member → Own OS user shows the same command.",
   "officeMove.in.acceptMissing": "Finish without these files",
   "officeMove.in.finishWarning":
     "Finish replaces this office with the copy and restarts it. The old office then shows that it moved.",

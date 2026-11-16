@@ -175,8 +175,16 @@ export function memberOsUserView(
   const { support } = opts;
   const record = memberOsUserState(user.id);
   const attempt = attemptWire(attempts.get(user.id), now);
-  const commands =
+  // Slice 5c-3: a member who came with an office move is not ready until the
+  // enable command places her home, also while its job runs. The office
+  // refuses a plain disable of her: hers gives up the moved home.
+  const movedIn = record.kind === "isolated" && record.movedIn !== undefined;
+  const plain =
     user.role === "owner" ? null : memberUserCommands(user.id, support);
+  const commands =
+    plain && movedIn
+      ? { enable: plain.enable, disable: `${plain.disable} --keep-files` }
+      : plain;
   const common = {
     support: support.ok
       ? { ok: true as const }
@@ -196,14 +204,17 @@ export function memberOsUserView(
     return { state: "broken", reason: record.reason, ...common };
   const osUser = { name: record.osUser.name, uid: record.osUser.uid };
   // A move that a restart cut stays not ready until enable runs again.
-  const state = memberIsMoving(user.id)
-    ? "moving"
-    : memberHostConnected(user.id) && !record.unfinished
-      ? "on"
-      : "not_ready";
+  const state = movedIn
+    ? "not_ready"
+    : memberIsMoving(user.id)
+      ? "moving"
+      : memberHostConnected(user.id) && !record.unfinished
+        ? "on"
+        : "not_ready";
   return {
     state,
     osUser,
+    ...(movedIn ? { movedIn: true as const } : {}),
     ...(record.unfinished && state === "not_ready"
       ? { unfinished: true as const }
       : {}),

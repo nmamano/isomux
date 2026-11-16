@@ -31,6 +31,8 @@ import {
   leftBehindLines,
   listHead,
   lockAllowed,
+  memberLines,
+  membersBlocked,
   moveInPollDecision,
   moveOutPollDecision,
   outsideBlocked,
@@ -42,6 +44,7 @@ import type {
   MoveInFolderCheck,
   MoveInLive,
   MoveInLivePhase,
+  MoveInMemberHere,
   MoveInPhase,
   MoveInProgress,
   MoveInReport,
@@ -453,6 +456,7 @@ describe("phaseView", () => {
       retryable: true,
       oldOfficeLocked: true,
       outside: [],
+      members: [],
     });
     expect(
       phaseView(inPhase("failed", { error, retryable: false })),
@@ -684,7 +688,7 @@ describe("preflightView memberOsUsers and the lock", () => {
       other: read("yes"),
     }).toEqual({
       none: { kind: "none" },
-      list: { kind: "list", names: ["Mia", "Sam"] },
+      list: { kind: "list", names: ["Mia", "Sam"], members: null },
       broken: { kind: "broken" },
       absent: { kind: "unknown" },
       wrongNames: { kind: "unknown" },
@@ -1156,5 +1160,238 @@ describe("folders outside the home (slice 5b-2)", () => {
       failedClear: stop,
       failedOther: stop,
     });
+  });
+});
+
+// Slice 5c-3 (task 78733adf): the members with their own OS user. Their
+// homes move when the old office lists each of them with no block (5c-1+)
+// and this office's check has each of them, and only them, with no block.
+// The card's rule is never looser than the server's lock (C1).
+describe("members with their own OS user (slice 5c-3)", () => {
+  const mia = {
+    userId: "u-mia",
+    name: "Mia",
+    osUser: "isomux-mia",
+    home: "/home/isomux-mia",
+    block: null,
+    units: [],
+  };
+  const sam = {
+    userId: "u-sam",
+    name: "Sam",
+    osUser: "isomux-sam",
+    home: "/home/isomux-sam",
+    block: null,
+    units: [],
+  };
+  const here = (
+    m: { userId: string; name: string; osUser: string; home: string },
+    block: MoveInMemberHere["block"] = null,
+  ): MoveInMemberHere => ({
+    userId: m.userId,
+    name: m.name,
+    osUser: m.osUser,
+    oldHome: m.home,
+    home: m.home,
+    block,
+  });
+  const pfWith = (members: unknown[], pf: Record<string, unknown> = {}) =>
+    preflightView(
+      preflight({
+        memberOsUsers: {
+          names: members.map((m) => (m as { name: string }).name),
+          members,
+        },
+        ...pf,
+      }),
+    );
+  const confirmWith = (
+    members: unknown[],
+    checks: MoveInMemberHere[] | undefined,
+    pf: Record<string, unknown> = {},
+  ) =>
+    inPhase("confirm", {
+      preflightId: "pf-1",
+      preflight: preflight({
+        memberOsUsers: {
+          names: members.map((m) => (m as { name: string }).name),
+          members,
+        },
+        ...pf,
+      }),
+      ...(checks ? { membersHere: checks } : {}),
+    });
+
+  it("preflightView keeps each member with her block as sent, an unknown code too, and her detail as data", () => {
+    const read = pfWith([
+      mia,
+      { ...sam, block: "a_code_from_a_later_release", detail: "text" },
+    ]).memberOsUsers;
+    expect(read.kind).toBe("list");
+    if (read.kind !== "list") return;
+    expect(read.members).toEqual([
+      {
+        userId: "u-mia",
+        name: "Mia",
+        osUser: "isomux-mia",
+        home: "/home/isomux-mia",
+        block: null,
+        detail: null,
+      },
+      {
+        userId: "u-sam",
+        name: "Sam",
+        osUser: "isomux-sam",
+        home: "/home/isomux-sam",
+        block: "a_code_from_a_later_release",
+        detail: "text",
+      },
+    ]);
+    // An older release sends names only.
+    const old = preflightView(
+      preflight({ memberOsUsers: { names: ["Mia"] } }),
+    ).memberOsUsers;
+    expect(old).toEqual({ kind: "list", names: ["Mia"], members: null });
+  });
+
+  it("memberLines: one per preflight member in its order, this office's check joined by id; a check for a member the preflight does not list is a line too", () => {
+    const pf = pfWith([sam, mia]);
+    const stranger = { ...mia, userId: "u-x", name: "X", osUser: "isomux-x" };
+    const lines = memberLines(pf, [here(mia), here(stranger)]);
+    expect(lines.map((l) => [l.userId, l.here?.userId ?? null])).toEqual([
+      ["u-sam", null],
+      ["u-mia", "u-mia"],
+      ["u-x", "u-x"],
+    ]);
+    expect(lines[1]).toMatchObject({
+      name: "Mia",
+      osUser: "isomux-mia",
+      oldHome: "/home/isomux-mia",
+      oldBlock: null,
+    });
+    // With no preflight (a failure), one line per check, no old block.
+    const failed = memberLines(null, [here(mia, "name_taken")]);
+    expect(failed.map((l) => [l.userId, l.oldBlock, l.here?.block])).toEqual([
+      ["u-mia", null, "name_taken"],
+    ]);
+    expect(memberLines(null, undefined)).toEqual([]);
+  });
+
+  it("membersBlocked: an old block, a block here, or no check here; none or all clear is not blocked", () => {
+    const pf = pfWith([mia, sam]);
+    expect(membersBlocked([])).toBe(false);
+    expect(membersBlocked(memberLines(pf, [here(mia), here(sam)]))).toBe(false);
+    expect(membersBlocked(memberLines(pf, [here(mia)]))).toBe(true);
+    expect(
+      membersBlocked(memberLines(pf, [here(mia), here(sam, "home_exists")])),
+    ).toBe(true);
+    expect(
+      membersBlocked(
+        memberLines(pfWith([mia, { ...sam, block: "busy" }]), [
+          here(mia),
+          here(sam),
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it("lockAllowed: only every listed member clear on both offices, and only them; an older release, a block, a missing or an extra check refuse", () => {
+    const pf = pfWith([mia, sam]);
+    expect(lockAllowed(pf, [here(mia), here(sam)])).toBe(true);
+    // The order of the checks does not matter.
+    expect(lockAllowed(pf, [here(sam), here(mia)])).toBe(true);
+    expect(lockAllowed(pf, [here(mia)])).toBe(false);
+    expect(lockAllowed(pf, undefined)).toBe(false);
+    expect(lockAllowed(pf, [here(mia), here(sam, "other_home")])).toBe(false);
+    expect(
+      lockAllowed(pf, [
+        here(mia),
+        here(sam),
+        here({ ...mia, userId: "u-x", name: "X", osUser: "isomux-x" }),
+      ]),
+    ).toBe(false);
+    expect(
+      lockAllowed(pfWith([mia, { ...sam, block: "runner_down" }]), [
+        here(mia),
+        here(sam),
+      ]),
+    ).toBe(false);
+    // An older release: names, no members.
+    expect(
+      lockAllowed(
+        preflightView(preflight({ memberOsUsers: { names: ["Mia"] } })),
+        [here(mia)],
+      ),
+    ).toBe(false);
+    // No member: as before, with or without checks.
+    expect(
+      lockAllowed(preflightView(preflight({ memberOsUsers: { names: [] } }))),
+    ).toBe(true);
+    // Restart= still gates on its own, with every member clear.
+    expect(
+      lockAllowed(
+        pfWith([mia], {
+          restart: {
+            unit: "isomux.service",
+            manager: "user",
+            restart: "on-failure",
+          },
+        }),
+        [here(mia)],
+      ),
+    ).toBe(false);
+  });
+
+  it("phaseView confirm: the member lines from the preflight and the status's checks, and Lock follows lockAllowed", () => {
+    const clear = phaseView(confirmWith([mia], [here(mia)]));
+    expect(clear).toMatchObject({ kind: "confirm", lockAllowed: true });
+    expect(
+      clear.kind === "confirm" ? clear.members.map((l) => l.userId) : null,
+    ).toEqual(["u-mia"]);
+    const blocked = phaseView(confirmWith([mia], [here(mia, "name_taken")]));
+    expect(blocked).toMatchObject({ kind: "confirm", lockAllowed: false });
+    expect(
+      blocked.kind === "confirm" ? blocked.members[0].here?.block : null,
+    ).toBe("name_taken");
+  });
+
+  it("phaseView failed: the lines of a member_homes_blocked failure from the status's checks; none for another failure", () => {
+    const failed = (code: string) =>
+      phaseView(
+        inPhase("failed", {
+          error: { code, message: "m" },
+          retryable: true,
+          oldOfficeLocked: true,
+          membersHere: [here(mia, "home_exists"), here(sam)],
+        }),
+      );
+    const v = failed("member_homes_blocked");
+    expect(
+      v.kind === "failed"
+        ? v.members.map((l) => [l.userId, l.here?.block ?? null])
+        : null,
+    ).toEqual([
+      ["u-mia", "home_exists"],
+      ["u-sam", null],
+    ]);
+    const other = failed("no_space");
+    expect(other.kind === "failed" ? other.members.length : -1).toBe(0);
+  });
+
+  it("moveInPollDecision polls in confirm while a member is blocked, and after a member_homes_blocked failure while a check here still blocks", () => {
+    const quiet = { restartingSince: null, now: 1_000_000 };
+    const decide = (s: MoveInStatus) =>
+      moveInPollDecision({ kind: "status", status: s }, quiet).kind;
+    expect(decide(confirmWith([mia], [here(mia, "name_taken")]))).toBe("wait");
+    expect(decide(confirmWith([mia], [here(mia)]))).toBe("stop");
+    const failed = (checks: MoveInMemberHere[]) =>
+      inPhase("failed", {
+        error: { code: "member_homes_blocked", message: "m" },
+        retryable: true,
+        oldOfficeLocked: true,
+        membersHere: checks,
+      });
+    expect(decide(failed([here(mia, "home_exists")]))).toBe("wait");
+    expect(decide(failed([here(mia)]))).toBe("stop");
   });
 });

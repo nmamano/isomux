@@ -28,6 +28,7 @@ import type {
   MoveInFolderBlock,
   MoveInStartBlocker,
   MoveInStatus,
+  MoveMemberBlock,
   MoveOutsideLeftReason,
   OfficeMoveRes,
 } from "../../shared/office-move.ts";
@@ -38,11 +39,13 @@ import {
   finishAllowed,
   leftBehindLines,
   listHead,
+  membersBlocked,
   moveInPollDecision,
   moveOutPollDecision,
   phaseView,
   type LeftBehindLine,
   type LiveView,
+  type MemberLine,
   type MoveInView,
   type OutsideFolderLine,
   type PollDecision,
@@ -571,6 +574,7 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
           <ConfirmView
             preflight={view.preflight}
             outside={view.outside}
+            members={view.members}
             size={size}
             time={time}
           />
@@ -702,7 +706,12 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
           {/* With the folder checks, the blocked folders (why and the fix)
               replace the server's message, which is stale once they are
               fixed. */}
-          {view.outside.length > 0 ? (
+          {view.members.length > 0 ? (
+            <>
+              <p style={text}>{t("officeMove.in.members.fixFirst")}</p>
+              <MemberList lines={view.members} />
+            </>
+          ) : view.outside.length > 0 ? (
             <BlockedFolders lines={view.outside} />
           ) : (
             <ErrorLine error={view.error} />
@@ -987,11 +996,13 @@ function CheckAgain({ busy, onClick }: { busy: boolean; onClick: () => void }) {
 function ConfirmView({
   preflight: p,
   outside,
+  members,
   size,
   time,
 }: {
   preflight: PreflightView;
   outside: OutsideFolderLine[];
+  members: MemberLine[];
   size: (bytes: number) => string;
   time: (ts: number) => string;
 }) {
@@ -1023,7 +1034,7 @@ function ConfirmView({
       {p.restart.kind === "unknown" && (
         <p style={warning}>{t("officeMove.in.confirm.restartUnknown")}</p>
       )}
-      {p.memberOsUsers.kind === "list" && (
+      {p.memberOsUsers.kind === "list" && p.memberOsUsers.members === null && (
         <p data-testid="move-member-os-users" style={warning}>
           {t("officeMove.in.confirm.memberOsUsers", {
             names: p.memberOsUsers.names.join(", "),
@@ -1098,6 +1109,15 @@ function ConfirmView({
           <LeftFolders testId="move-outside-left" items={p.outside.left} />
         </>
       )}
+      {members.length > 0 && (
+        <>
+          <p style={text}>{t("officeMove.in.members.heading")}</p>
+          <MemberList lines={members} />
+          {membersBlocked(members) && (
+            <p style={warning}>{t("officeMove.in.members.lockWaits")}</p>
+          )}
+        </>
+      )}
       {p.sudoPackages.kind === "list" ? (
         p.sudoPackages.packages.length > 0 && (
           <p style={text}>
@@ -1153,14 +1173,20 @@ function FolderList({
   );
 }
 
-function RootCommand({ command }: { command: string }) {
+function RootCommand({
+  command,
+  testId = "move-outside-command",
+}: {
+  command: string;
+  testId?: string;
+}) {
   const { t } = useI18n();
   return (
     <div style={{ margin: "4px 0" }}>
       <span style={hint}>{t("officeMove.in.outside.command")}</span>
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         <code
-          data-testid="move-outside-command"
+          data-testid={testId}
           style={{
             ...mono,
             flex: 1,
@@ -1179,6 +1205,139 @@ function RootCommand({ command }: { command: string }) {
     </div>
   );
 }
+
+/** Slice 5c-3: the members with their own OS user, each with her home on
+ *  the old machine and, when she cannot move yet, why: the old office's
+ *  reason first (its detail shown as data), then this office's, from the
+ *  check's fields only (its detail is the server's English). */
+function MemberList({ lines }: { lines: MemberLine[] }) {
+  const { t } = useI18n();
+  const { shown, more } = listHead(lines);
+  return (
+    <ul data-testid="move-members" style={list}>
+      {shown.map((l) => {
+        const here = hereReason(l);
+        return (
+          <li key={l.userId} data-user-id={l.userId}>
+            {l.name}
+            {l.osUser !== null && (
+              <>
+                {" ("}
+                <span style={mono}>{l.osUser}</span>)
+              </>
+            )}
+            {l.oldHome !== null && (
+              <>
+                {": "}
+                <span style={mono}>{l.oldHome}</span>
+              </>
+            )}
+            {l.oldBlock !== null && (
+              <div
+                data-testid="move-member-blocked"
+                data-side="old"
+                data-block={oldBlockKey(l.oldBlock) ? l.oldBlock : "unknown"}
+                style={warning}
+              >
+                {t(
+                  oldBlockKey(l.oldBlock) ??
+                    "officeMove.in.members.old.unknown",
+                )}
+                {l.oldDetail !== null && (
+                  <>
+                    {" "}
+                    <span data-testid="move-member-detail" style={mono}>
+                      {l.oldDetail}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+            {here && (
+              <div
+                data-testid="move-member-blocked"
+                data-side="here"
+                data-block={here.block}
+                style={warning}
+              >
+                {here.text(t)}
+              </div>
+            )}
+          </li>
+        );
+      })}
+      {more > 0 && <li>{t("officeMove.in.more", { count: more })}</li>}
+    </ul>
+  );
+}
+
+type T = ReturnType<typeof useI18n>["t"];
+
+/** Slice 5c-3: this office's reason for a member, from the check's fields;
+ *  null when she can land here. A member with no check here waits for one. */
+function hereReason(
+  l: MemberLine,
+): { block: string; text: (t: T) => string } | null {
+  const c = l.here;
+  if (c === null)
+    return {
+      block: "unchecked",
+      text: (t) => t("officeMove.in.members.here.unchecked"),
+    };
+  switch (c.block) {
+    case null:
+      return null;
+    case "unsupported":
+      return {
+        block: c.block,
+        text: (t) => t("officeMove.in.members.here.unsupported"),
+      };
+    case "other_home":
+      return {
+        block: c.block,
+        text: (t) =>
+          t("officeMove.in.members.here.otherHome", {
+            home: c.home ?? "",
+            oldHome: c.oldHome,
+          }),
+      };
+    case "name_taken":
+      return {
+        block: c.block,
+        text: (t) =>
+          t("officeMove.in.members.here.nameTaken", { osUser: c.osUser }),
+      };
+    case "home_exists":
+      return {
+        block: c.block,
+        text: (t) =>
+          t("officeMove.in.members.here.homeExists", { home: c.home ?? "" }),
+      };
+    default:
+      return {
+        block: "unknown",
+        text: (t) => t("officeMove.in.members.here.unknown"),
+      };
+  }
+}
+
+/** Slice 5c-3: the copy of each reason the old office cannot carry a
+ *  member's home (MoveMemberBlock). */
+const OLD_BLOCK_KEY = {
+  broken: "officeMove.in.members.old.broken",
+  unfinished: "officeMove.in.members.old.unfinished",
+  busy: "officeMove.in.members.old.busy",
+  moved_in: "officeMove.in.members.old.movedIn",
+  bad_home: "officeMove.in.members.old.badHome",
+  runner_down: "officeMove.in.members.old.runnerDown",
+  wrong_runner: "officeMove.in.members.old.wrongRunner",
+  old_runtime: "officeMove.in.members.old.oldRuntime",
+} as const satisfies Record<MoveMemberBlock, string>;
+
+const oldBlockKey = (block: string) =>
+  Object.hasOwn(OLD_BLOCK_KEY, block)
+    ? OLD_BLOCK_KEY[block as MoveMemberBlock]
+    : null;
 
 /** Slice 5b: a pass failed for folders outside the home: the ones that
  *  cannot land here yet, until the owner fixes them. */
@@ -1338,6 +1497,29 @@ function ReportView({
               <li>{t("officeMove.in.more", { count: outsideMoved.more })}</li>
             )}
           </ul>
+        </>
+      )}
+      {r.members && r.members.length > 0 && (
+        <>
+          <p style={text}>{t("officeMove.report.members")}</p>
+          <ul data-testid="move-report-members" style={list}>
+            {r.members.map((m) => (
+              <li key={m.userId} data-user-id={m.userId}>
+                {m.name} (<span style={mono}>{m.osUser}</span>)
+                {m.command !== null ? (
+                  <RootCommand
+                    command={m.command}
+                    testId="move-member-command"
+                  />
+                ) : (
+                  <div data-testid="move-member-settings" style={hint}>
+                    {t("officeMove.report.memberSettings")}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p style={hint}>{t("officeMove.report.membersSettings")}</p>
         </>
       )}
       {r.outsideLeft && r.outsideLeft.length > 0 && (

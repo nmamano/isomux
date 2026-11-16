@@ -61,6 +61,10 @@ export interface MemberOsUserRunDeps {
   probe: () => Promise<SudoProbe>;
   start: (opts: SudoStartOptions) => Promise<SudoStart>;
   now: () => number;
+  // Whether the office's place job of a member who came with an office move
+  // runs (member-user-admin.ts memberPlaceRunning): it goes on after the run
+  // ends.
+  placeRunning?: (userId: string) => boolean;
 }
 
 export type MemberOsUserRunResult =
@@ -163,6 +167,14 @@ export function createMemberOsUserRun(
   ) => {
     busy.delete(id);
     if (result && result.exitCode === 0 && !result.timedOut) {
+      clearMemberUserAttempt(id);
+      return;
+    }
+    // Slice 5c-3: the time limit cut the command while the office still
+    // places the home of a member who came with a move. The move did not
+    // fail: the page keeps her moved-in line, and the next enable collects
+    // the job's outcome.
+    if (result?.timedOut && deps.placeRunning?.(id)) {
       clearMemberUserAttempt(id);
       return;
     }

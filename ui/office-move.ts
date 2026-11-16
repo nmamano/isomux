@@ -6,6 +6,7 @@
 import type {
   MoveInFolderCheck,
   MoveInLive,
+  MoveInMemberHere,
   MoveInLivePhase,
   MoveInProgress,
   MoveInReport,
@@ -81,7 +82,13 @@ export interface PreflightView {
    *  this part. */
   memberOsUsers:
     | { kind: "none" }
-    | { kind: "list"; names: string[] }
+    | {
+        kind: "list";
+        names: string[];
+        /** Slice 5c-1+: each member with her block on the old office; null
+         *  from an older release, which cannot move their files. */
+        members: PreflightMember[] | null;
+      }
     | { kind: "broken" }
     | Unknown;
   sudoPackages: { kind: "list"; packages: string[] } | Unknown;
@@ -95,6 +102,77 @@ export interface PreflightView {
         left: { path: string; reason: string }[];
       }
     | Unknown;
+}
+
+/** Slice 5c-3: a member with her own OS user as the old office's preflight
+ *  lists her. `block` is the old office's code as sent (a code this release
+ *  does not name is kept); `detail` is the old office's text (data). */
+export interface PreflightMember {
+  userId: string;
+  name: string;
+  osUser: string | null;
+  home: string | null;
+  block: string | null;
+  detail: string | null;
+}
+
+/** Slice 5c-3: one member as the card shows her: the old office's side (from
+ *  the preflight; absent in a failure) and this office's check (null when
+ *  the status has none for her). */
+export interface MemberLine {
+  userId: string;
+  name: string;
+  osUser: string | null;
+  /** Her home on the old machine. */
+  oldHome: string | null;
+  oldBlock: string | null;
+  oldDetail: string | null;
+  here: MoveInMemberHere | null;
+}
+
+/** Slice 5c-3: one line per member, in the preflight's order; with no
+ *  preflight (a failure), one per check. */
+export function memberLines(
+  preflight: PreflightView | null,
+  here: MoveInMemberHere[] | undefined,
+): MemberLine[] {
+  const checks = here ?? [];
+  const listed =
+    preflight?.memberOsUsers.kind === "list"
+      ? (preflight.memberOsUsers.members ?? [])
+      : [];
+  const lines: MemberLine[] = listed.map((m) => ({
+    userId: m.userId,
+    name: m.name,
+    osUser: m.osUser,
+    oldHome: m.home,
+    oldBlock: m.block,
+    oldDetail: m.detail,
+    here: checks.find((c) => c.userId === m.userId) ?? null,
+  }));
+  // A check for a member the preflight does not list is a line too, so the
+  // card shows it and the lock refuses it (as the server's lock does not
+  // agree to it).
+  for (const c of checks)
+    if (!listed.some((m) => m.userId === c.userId))
+      lines.push({
+        userId: c.userId,
+        name: c.name,
+        osUser: c.osUser,
+        oldHome: c.oldHome,
+        oldBlock: null,
+        oldDetail: null,
+        here: c,
+      });
+  return lines;
+}
+
+/** Slice 5c-3: a member cannot move yet (either office blocks her, or this
+ *  office has no check for her). */
+export function membersBlocked(lines: MemberLine[]): boolean {
+  return lines.some(
+    (l) => l.oldBlock !== null || l.here === null || l.here.block !== null,
+  );
 }
 
 /** Slice 5b: one folder outside the home as the card shows it: the server's
@@ -242,7 +320,32 @@ function readMemberOsUsers(v: unknown): PreflightView["memberOsUsers"] {
   if (v.broken === true) return { kind: "broken" };
   const names = readStrings(v.names);
   if (!names) return UNKNOWN;
-  return names.length === 0 ? { kind: "none" } : { kind: "list", names };
+  return names.length === 0
+    ? { kind: "none" }
+    : { kind: "list", names, members: readPreflightMembers(v.members) };
+}
+
+/** Slice 5c-3: the old office's members (5c-1+); null when absent or any
+ *  item lacks its shape (the lock then refuses, as for an older release). */
+function readPreflightMembers(v: unknown): PreflightMember[] | null {
+  const strOrNull = (x: unknown): x is string | null => x === null || isStr(x);
+  return readList(v, (x) =>
+    isObj(x) &&
+    isStr(x.userId) &&
+    isStr(x.name) &&
+    strOrNull(x.osUser) &&
+    strOrNull(x.home) &&
+    strOrNull(x.block)
+      ? {
+          userId: x.userId,
+          name: x.name,
+          osUser: x.osUser,
+          home: x.home,
+          block: x.block,
+          detail: isStr(x.detail) ? x.detail : null,
+        }
+      : null,
+  );
 }
 
 /** Slice 5b: an item of `move` needs its path, bytes (or null) and
@@ -284,14 +387,30 @@ export function preflightView(raw: unknown): PreflightView {
 
 /** The old office locks only when its unit has Restart=always and no
  *  member has their own OS user. An old office that does not report those
- *  members (unknown) does not refuse them either. */
-export function lockAllowed(preflight: PreflightView): boolean {
-  const members = preflight.memberOsUsers.kind;
-  return (
-    preflight.restart.kind === "set" &&
-    preflight.restart.restart === "always" &&
-    (members === "none" || members === "unknown")
-  );
+ *  members (unknown) does not refuse them either. Slice 5c-3: members move
+ *  when the old office lists each of them (5c-1+) with no block, and this
+ *  office's check (`membersHere`) has each of them, and only them, with no
+ *  block: never looser than the server's lock. */
+export function lockAllowed(
+  preflight: PreflightView,
+  membersHere?: MoveInMemberHere[],
+): boolean {
+  if (
+    preflight.restart.kind !== "set" ||
+    preflight.restart.restart !== "always"
+  )
+    return false;
+  const members = preflight.memberOsUsers;
+  if (members.kind === "none" || members.kind === "unknown") return true;
+  if (members.kind !== "list" || members.members === null) return false;
+  const listed = members.members;
+  // A check for a member the old office does not list: the server's lock
+  // would not agree to her (C1).
+  if (
+    (membersHere ?? []).some((c) => !listed.some((m) => m.userId === c.userId))
+  )
+    return false;
+  return !membersBlocked(memberLines(preflight, membersHere));
 }
 
 /** The copy while the old office still runs (slice 4), as the confirm
@@ -356,6 +475,8 @@ export type MoveInView =
       live: LiveView | null;
       /** Slice 5b: the folders outside the home (outsideLines). */
       outside: OutsideFolderLine[];
+      /** Slice 5c-3: the members with their own OS user (memberLines). */
+      members: MemberLine[];
     }
   | {
       kind: "copying";
@@ -381,6 +502,8 @@ export type MoveInView =
       oldOfficeLocked: boolean;
       /** Slice 5b: the checks of an outside_folders_blocked failure. */
       outside: OutsideFolderLine[];
+      /** Slice 5c-3: the checks of a member_homes_blocked failure. */
+      members: MemberLine[];
     }
   | { kind: "restarting"; oldOrigin: string }
   | {
@@ -429,10 +552,13 @@ export function phaseView(status: MoveInStatus): MoveInView {
         oldOrigin,
         preflightId: status.preflightId ?? "",
         preflight,
-        lockAllowed: lockAllowed(preflight) && !outsideBlocked(outside),
+        lockAllowed:
+          lockAllowed(preflight, status.membersHere) &&
+          !outsideBlocked(outside),
         oldOfficeLocked,
         live: liveView(status.live),
         outside,
+        members: memberLines(preflight, status.membersHere),
       };
     }
     case "pulling":
@@ -470,6 +596,10 @@ export function phaseView(status: MoveInStatus): MoveInView {
         retryable: status.retryable === true,
         oldOfficeLocked,
         outside: outsideLines(null, status.outsideChecks),
+        members:
+          status.error?.code === "member_homes_blocked"
+            ? memberLines(null, status.membersHere)
+            : [],
       };
     case "finishing":
     case "swapping":
@@ -516,6 +646,15 @@ const waitsForFolders = (status: MoveInStatus): boolean =>
       status.error?.code === "outside_folders_blocked")) &&
   (status.outsideChecks ?? []).some((c) => !c.ok);
 
+/** Slice 5c-3: in confirm, or after a pass failed for it, a member's home
+ *  cannot land here yet: the card polls this office's checks, so it sees
+ *  the owner's fix. An old office's block changes only with Check again. */
+const waitsForMembers = (status: MoveInStatus): boolean =>
+  (status.phase === "confirm" ||
+    (status.phase === "failed" &&
+      status.error?.code === "member_homes_blocked")) &&
+  (status.membersHere ?? []).some((m) => m.block !== null);
+
 /** What one poll got. `locked`: the answer carried LOCKED_HEADER. */
 export type PollOutcome<S> =
   | { kind: "status"; status: S }
@@ -548,7 +687,8 @@ export function moveInPollDecision(
     case "status":
       return MOVE_IN_JOB_PHASES.has(outcome.status.phase) ||
         liveRuns(outcome.status) ||
-        waitsForFolders(outcome.status)
+        waitsForFolders(outcome.status) ||
+        waitsForMembers(outcome.status)
         ? { kind: "wait", ms: MOVE_IN_POLL_MS }
         : { kind: "stop" };
   }

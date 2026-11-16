@@ -102,6 +102,10 @@ export interface MemberOsUserWire {
   commandHint?: "container_name";
   // not_ready because an enable did not finish moving their files.
   unfinished?: true;
+  // not_ready because they came with an office move and the enable command
+  // has not placed their files here (task 78733adf, slice 5c-3). Their
+  // commands.disable then carries --keep-files.
+  movedIn?: true;
 }
 
 // POST /api/users/:username/os-user/run: the owner's Run (202 at the start).

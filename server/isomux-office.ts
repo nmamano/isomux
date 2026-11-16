@@ -672,7 +672,7 @@ import { createEditorRoutes } from "./office-editor-routes.ts";
 import { createAgentsRoutes } from "./office-agents-routes.ts";
 import { createUsersRoutes } from "./office-users-routes.ts";
 import { createMemberOsUserRun } from "./member-os-user-run.ts";
-import { memberUsersSupport } from "./member-user-admin.ts";
+import { memberPlaceRunning, memberUsersSupport } from "./member-user-admin.ts";
 import { sweepMovedHomes } from "./office-move-members-in.ts";
 import {
   createInvitesRoutes,
@@ -5532,6 +5532,7 @@ function buildExecutorDeps(
         probe: () => probeSudo({ sudoPath }),
         start: (opts) => startSudo({ ...opts, sudoPath }),
         now: Date.now,
+        placeRunning: memberPlaceRunning,
       }),
     }),
   );

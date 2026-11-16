@@ -475,3 +475,75 @@ it("says how many tries are left after a wrong password, and that the member is 
   // The wait in minutes, from the answer's retryAfterS.
   expect(locked).toContain("15");
 });
+
+// Slice 5c-3 (task 78733adf): a member who came with an office move. The
+// page says why she is not ready, with its own hints; the disable command is
+// the one the server sends (it keeps the files); Run sits beside the enable
+// command only, since a plain disable of her is refused.
+it("a member who came with an office move: her own state and hints, the enable and the server's disable command, and Run beside enable only", async () => {
+  const osUser = { name: "isomux-mia", uid: 2001 };
+  const DISABLE_KEEP = `${COMMANDS.disable} --keep-files`;
+  const texts = async (over: Partial<MemberOsUserWire>) => {
+    answers = [
+      view({ state: "not_ready", osUser, run: "no_password", ...over }),
+    ];
+    const m = await mount();
+    const commands = [
+      ...m.rendered.container.querySelectorAll<HTMLElement>(
+        '[data-testid="member-os-user-command"]',
+      ),
+    ];
+    const out = {
+      stateEl: m.q("member-os-user-state"),
+      state: m.q("member-os-user-state")?.textContent ?? "",
+      hints: commands.map(
+        (el) =>
+          el.closest("div[style]")?.previousElementSibling?.textContent ?? "",
+      ),
+      lines: commands.map((el) => el.textContent),
+      // The command each Run sits beside: the command block that holds its
+      // form.
+      runs: runButtons(m).map(
+        (b) =>
+          b
+            .closest("form")
+            ?.parentElement?.querySelector(
+              '[data-testid="member-os-user-command"]',
+            )?.textContent ?? null,
+      ),
+      m,
+    };
+    return out;
+  };
+  const moved = await texts({
+    movedIn: true,
+    commands: { enable: COMMANDS.enable, disable: DISABLE_KEEP },
+  });
+  expect({
+    state: moved.stateEl?.dataset.state,
+    movedIn: moved.stateEl?.dataset.movedIn,
+    lines: moved.lines,
+    runs: moved.runs,
+  }).toEqual({
+    state: "not_ready",
+    movedIn: "true",
+    lines: [COMMANDS.enable, DISABLE_KEEP],
+    runs: [COMMANDS.enable],
+  });
+  await click(runButtons(moved.m)[0]);
+  expect(posts).toEqual([{ action: "enable" }]);
+  moved.m.rendered.unmount();
+  // The enabling case: a plain not-ready member, Run beside both.
+  const plain = await texts({});
+  expect(plain.runs).toEqual([COMMANDS.enable, COMMANDS.disable]);
+  expect(plain.stateEl?.dataset.movedIn).toBeUndefined();
+  // Her own lines, not the plain ones and not the cut-move ones.
+  plain.m.rendered.unmount();
+  const cut = await texts({ unfinished: true });
+  expect(moved.state).not.toBe(plain.state);
+  expect(moved.state).not.toBe(cut.state);
+  expect(moved.hints[0]).not.toBe(plain.hints[0]);
+  expect(moved.hints[0]).not.toBe(cut.hints[0]);
+  expect(moved.hints[1]).not.toBe(plain.hints[1]);
+  for (const h of moved.hints) expect(h).not.toBe("");
+});

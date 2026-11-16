@@ -134,11 +134,14 @@ export function MemberOsUserSection({
     );
 
   // Off: turn it on. Not ready: an enable that the office's restart cut
-  // finishes when it runs again, so both. Otherwise: turn it off.
+  // finishes when it runs again, so both. Came with an office move: the
+  // enable places her files; the disable deletes them. Otherwise: turn it
+  // off.
   const commands: {
     hint: string;
     line: string;
     action: "enable" | "disable";
+    noRun?: boolean;
   }[] =
     view.commands === null
       ? []
@@ -150,28 +153,44 @@ export function MemberOsUserSection({
               action: "enable",
             },
           ]
-        : view.state === "not_ready"
+        : view.state === "not_ready" && view.movedIn
           ? [
               {
-                hint: view.unfinished
-                  ? t("settings.osUser.finishHint")
-                  : t("settings.osUser.rerunHint"),
+                hint: t("settings.osUser.movedInEnableHint"),
                 line: view.commands.enable,
                 action: "enable",
               },
               {
-                hint: t("settings.osUser.disableHint"),
+                hint: t("settings.osUser.movedInDisableHint"),
                 line: view.commands.disable,
                 action: "disable",
+                // Run sends a plain disable, which the office refuses for
+                // a member who came with a move: copy only.
+                noRun: true,
               },
             ]
-          : [
-              {
-                hint: t("settings.osUser.disableHint"),
-                line: view.commands.disable,
-                action: "disable",
-              },
-            ];
+          : view.state === "not_ready"
+            ? [
+                {
+                  hint: view.unfinished
+                    ? t("settings.osUser.finishHint")
+                    : t("settings.osUser.rerunHint"),
+                  line: view.commands.enable,
+                  action: "enable",
+                },
+                {
+                  hint: t("settings.osUser.disableHint"),
+                  line: view.commands.disable,
+                  action: "disable",
+                },
+              ]
+            : [
+                {
+                  hint: t("settings.osUser.disableHint"),
+                  line: view.commands.disable,
+                  action: "disable",
+                },
+              ];
 
   return (
     <div data-testid="member-os-user">
@@ -180,6 +199,7 @@ export function MemberOsUserSection({
       <p
         data-testid="member-os-user-state"
         data-state={view.state}
+        data-moved-in={view.movedIn ? "true" : undefined}
         style={{ fontSize: 13, margin: "6px 0", color: "var(--text-primary)" }}
       >
         {stateLine(view, t)}
@@ -208,7 +228,7 @@ export function MemberOsUserSection({
           {t("settings.osUser.waiting")}
         </p>
       )}
-      {commands.map(({ hint, line: command, action }) => (
+      {commands.map(({ hint, line: command, action, noRun }) => (
         <div key={command}>
           <p style={{ ...hintStyle, marginTop: 8 }}>{hint}</p>
           <div
@@ -241,7 +261,7 @@ export function MemberOsUserSection({
               }}
             />
           </div>
-          {view.run && (
+          {view.run && !noRun && (
             <RunControl
               withPassword={view.run === "password"}
               blocked={running}
@@ -397,6 +417,7 @@ function stateLine(view: MemberOsUserWire, t: T): string {
     case "moving":
       return t("settings.osUser.moving", { name });
     case "not_ready":
+      if (view.movedIn) return t("settings.osUser.movedIn");
       return view.unfinished
         ? t("settings.osUser.unfinished", { name })
         : t("settings.osUser.notReady", { name });

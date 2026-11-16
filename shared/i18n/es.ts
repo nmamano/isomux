@@ -591,6 +591,12 @@ Cosas que puedes hacer por él:
     "No está listo: el traslado de sus archivos a {name} no terminó.",
   "settings.osUser.finishHint":
     "Para terminar de activarlo, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.movedIn":
+    "No está listo: llegó con el traslado de la oficina. Sus agentes esperan hasta que el comando de activación se ejecute en esta máquina.",
+  "settings.osUser.movedInEnableHint":
+    "Para terminar el traslado, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.movedInDisableHint":
+    "Para desactivarlo y borrar los archivos que llegaron con el traslado, ejecuta esto en la máquina de la oficina:",
   "settings.osUser.containerName":
     "Pon el nombre del contenedor de la oficina en lugar de CONTAINER.",
   "settings.osUser.runLocked":
@@ -3641,7 +3647,7 @@ Cosas que puedes hacer por él:
   "officeMove.in.confirm.restartUnknown":
     "La oficina antigua no dijo cómo se reinicia su servicio, así que no puede bloquearse. Actualiza la oficina antigua y vuelve a comprobar.",
   "officeMove.in.confirm.memberOsUsers":
-    "Miembros con usuario del sistema propio: {names}. Sus archivos aún no se trasladan, así que la oficina antigua no puede bloquearse. En la oficina antigua, desactívalo para cada uno en Ajustes → Miembros → el miembro → Usuario del sistema propio y vuelve a comprobar.",
+    "Miembros con usuario del sistema propio: {names}. La versión de Isomux de la oficina antigua no puede trasladar sus archivos, así que no puede bloquearse. Actualiza la oficina antigua, o desactívalo allí para cada uno en Ajustes → Miembros → el miembro → Usuario del sistema propio, y vuelve a comprobar.",
   "officeMove.in.confirm.memberOsUsersBroken":
     "La oficina antigua no puede leer qué miembros tienen usuario del sistema propio, así que no puede bloquearse.",
   "officeMove.in.confirm.hostRefs":
@@ -3701,6 +3707,42 @@ Cosas que puedes hacer por él:
     "El bloqueo espera hasta que cada carpeta se pueda copiar aquí.",
   "officeMove.in.outside.fixFirst":
     "Arregla estas carpetas y vuelve a intentarlo:",
+  "officeMove.in.members.heading":
+    "Miembros con usuario del sistema propio. Sus archivos también se trasladan, y tras el traslado sus agentes esperan hasta que ejecutes un comando como root para cada uno aquí:",
+  "officeMove.in.members.lockWaits":
+    "El bloqueo espera hasta que cada miembro se pueda trasladar.",
+  "officeMove.in.members.fixFirst":
+    "Corrige lo que bloquea a estos miembros y vuelve a intentarlo:",
+  "officeMove.in.members.old.broken":
+    "En la oficina antigua, el registro de su usuario del sistema está dañado.",
+  "officeMove.in.members.old.unfinished":
+    "En la oficina antigua, la activación no terminó. Vuelve a ejecutar allí el comando de activación.",
+  "officeMove.in.members.old.busy":
+    "En la oficina antigua, sus archivos se están trasladando. Vuelve a comprobar cuando termine.",
+  "officeMove.in.members.old.movedIn":
+    "Llegaron a la oficina antigua con un traslado anterior, y el comando de activación aún no se ha ejecutado allí.",
+  "officeMove.in.members.old.badHome":
+    "En la oficina antigua, su carpeta personal no se puede trasladar:",
+  "officeMove.in.members.old.runnerDown":
+    "En la oficina antigua, su usuario del sistema no responde.",
+  "officeMove.in.members.old.wrongRunner":
+    "En la oficina antigua, otro usuario del sistema responde por ellos.",
+  "officeMove.in.members.old.oldRuntime":
+    "En la oficina antigua, su usuario del sistema aún ejecuta la versión anterior de Isomux. Vuelve a comprobar en un minuto.",
+  "officeMove.in.members.old.unknown":
+    "La oficina antigua aún no puede trasladar sus archivos.",
+  "officeMove.in.members.here.unchecked":
+    "Esta oficina aún no los ha comprobado. Vuelve a comprobar.",
+  "officeMove.in.members.here.unsupported":
+    "Esta máquina no puede crear usuarios del sistema para miembros.",
+  "officeMove.in.members.here.otherHome":
+    "Su carpeta personal debe mantener su ruta, y en esta máquina sería {home}, no {oldHome}.",
+  "officeMove.in.members.here.nameTaken":
+    "Ya existe en esta máquina un usuario del sistema llamado {osUser}.",
+  "officeMove.in.members.here.homeExists":
+    "{home} ya existe en esta máquina. Muévelo a otro sitio.",
+  "officeMove.in.members.here.unknown":
+    "Sus archivos no pueden llegar a esta máquina.",
   "officeMove.in.outside.left":
     "Carpetas fuera de la carpeta personal que se quedan en la máquina antigua:",
   "officeMove.in.outside.leftReason.temp": "temporal",
@@ -3711,6 +3753,12 @@ Cosas que puedes hacer por él:
     "Carpetas fuera de la carpeta personal que se movieron:",
   "officeMove.report.outsideLeft":
     "Carpetas fuera de la carpeta personal que se quedaron en la máquina antigua:",
+  "officeMove.report.members":
+    "Miembros cuyos archivos se trasladaron. Sus agentes esperan hasta que ejecutes su comando:",
+  "officeMove.report.memberSettings":
+    "Consulta Ajustes → Miembros → el miembro → Usuario del sistema propio.",
+  "officeMove.report.membersSettings":
+    "Ajustes → Miembros → el miembro → Usuario del sistema propio muestra el mismo comando.",
   "officeMove.in.acceptMissing": "Terminar sin estos archivos",
   "officeMove.in.finishWarning":
     "Terminar sustituye esta oficina por la copia y la reinicia. Luego la oficina antigua muestra que se trasladó.",

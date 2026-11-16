@@ -382,6 +382,53 @@ describe("the state", () => {
     }
   });
 
+  // Slice 5c-3 (task 78733adf): a member who came with an office move is
+  // not ready until the enable command places her home, also while its job
+  // runs and her runner is connected for it. Her disable command gives up
+  // that home (--keep-files): the office refuses a plain disable of her.
+  it("is not ready and moved in while the record says movedIn, connected or not, during the place too; the disable command then keeps the files", async () => {
+    const plain = memberUserCommands(ID, INSTALLER)!;
+    recordMemberOsUser(
+      ID,
+      { name: "isomux-alice", uid: 2001 },
+      { movedIn: { home: "/home/isomux-alice" } },
+    );
+    const moved = view();
+    expect(moved).toMatchObject({ state: "not_ready", movedIn: true });
+    expect(moved.commands?.enable).toBe(plain.enable);
+    expect(moved.commands?.disable.endsWith(" --keep-files")).toBe(true);
+    expect(moved.commands?.disable.startsWith(plain.disable)).toBe(true);
+    // Her place job marks her moving: still not ready, still moved in.
+    markMemberMoving(ID);
+    expect(view()).toMatchObject({ state: "not_ready", movedIn: true });
+    clearMemberMoving(ID);
+    // The enabling case: without movedIn, the plain commands and no flag.
+    recordMemberOsUser(ID, { name: "isomux-alice", uid: 2001 });
+    const after = view();
+    expect(after.movedIn).toBeUndefined();
+    expect(after.commands?.disable).toBe(plain.disable);
+
+    // Connected for her place job: not on.
+    const made = createMember(`OsViewMoved${Date.now()}`, { role: "member" });
+    if (!made.ok) throw new Error(made.error);
+    let iso: IsolatedMember | null = null;
+    try {
+      iso = await isolateMember(made.user.id);
+      const on = memberOsUserView(made.user, { support: INSTALLER, now: NOW });
+      // The enabling condition: connected reads on.
+      expect(on.state).toBe("on");
+      recordMemberOsUser(made.user.id, on.osUser!, {
+        movedIn: { home: iso.home },
+      });
+      expect(
+        memberOsUserView(made.user, { support: INSTALLER, now: NOW }),
+      ).toMatchObject({ state: "not_ready", movedIn: true });
+    } finally {
+      iso?.dispose();
+      deleteUserById(made.user.id);
+    }
+  });
+
   it("gives an owner no command, and passes the gate through", () => {
     expect(view("owner").commands).toBeNull();
     expect(view("member").commands).toEqual(memberUserCommands(ID, INSTALLER));

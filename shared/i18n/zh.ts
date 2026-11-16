@@ -549,6 +549,11 @@ export const zh: Catalog = {
     "Codex：其代理会在用量上限时停止。它们不能使用办公室的 Codex 登录，因为共享它会让它们能使办公室退出登录。",
   "settings.osUser.unfinished": "未就绪：其文件迁移到 {name} 的过程没有完成。",
   "settings.osUser.finishHint": "要完成开启，请在办公室的机器上运行：",
+  "settings.osUser.movedIn":
+    "未就绪：他们是随办公室迁移来的。其代理会等到开启命令在这台机器上运行。",
+  "settings.osUser.movedInEnableHint": "要完成迁移，请在办公室的机器上运行：",
+  "settings.osUser.movedInDisableHint":
+    "要关闭并删除随迁移而来的文件，请在办公室的机器上运行：",
   "settings.osUser.containerName": "请把 CONTAINER 换成办公室容器的名称。",
   "settings.osUser.runLocked": "密码错误次数过多。请在 {minutes} 分钟后重试。",
   "settings.osUser.runInProgress": "此成员的命令正在运行。请在它结束后重试。",
@@ -3266,7 +3271,7 @@ export const zh: Catalog = {
   "officeMove.in.confirm.restartUnknown":
     "旧办公室没有说明其服务如何重启，因此无法锁定。请更新旧办公室，然后重新检查。",
   "officeMove.in.confirm.memberOsUsers":
-    "拥有专属系统用户的成员：{names}。他们的文件暂不迁移，因此旧办公室无法锁定。请在旧办公室的“设置 → 成员 → 该成员 → 专属系统用户”中为每人关闭，然后重新检查。",
+    "拥有专属系统用户的成员：{names}。旧办公室的 Isomux 版本无法迁移他们的文件，因此无法锁定。请更新旧办公室，或在那里的“设置 → 成员 → 该成员 → 专属系统用户”中为每人关闭，然后重新检查。",
   "officeMove.in.confirm.memberOsUsersBroken":
     "旧办公室无法读取哪些成员拥有专属系统用户，因此无法锁定。",
   "officeMove.in.confirm.hostRefs":
@@ -3315,6 +3320,34 @@ export const zh: Catalog = {
   "officeMove.in.outside.command": "在这台机器上以 root 身份运行：",
   "officeMove.in.outside.lockWaits": "锁定要等到每个文件夹都能复制到这里。",
   "officeMove.in.outside.fixFirst": "请修复这些文件夹，然后重试：",
+  "officeMove.in.members.heading":
+    "拥有专属系统用户的成员。他们的文件也会迁移；迁移后，他们的代理会等到你在这里为每人以 root 身份运行一条命令：",
+  "officeMove.in.members.lockWaits": "锁定要等到每个成员都能迁移。",
+  "officeMove.in.members.fixFirst": "请修复阻止这些成员的问题，然后重试：",
+  "officeMove.in.members.old.broken": "在旧办公室，其系统用户记录已损坏。",
+  "officeMove.in.members.old.unfinished":
+    "在旧办公室，开启没有完成。请在那里重新运行开启命令。",
+  "officeMove.in.members.old.busy":
+    "在旧办公室，他们的文件正在迁移。结束后请重新检查。",
+  "officeMove.in.members.old.movedIn":
+    "他们是随之前的一次迁移来到旧办公室的，那里还没有运行开启命令。",
+  "officeMove.in.members.old.badHome": "在旧办公室，他们的主文件夹无法迁移：",
+  "officeMove.in.members.old.runnerDown": "在旧办公室，其系统用户没有响应。",
+  "officeMove.in.members.old.wrongRunner":
+    "在旧办公室，另一个系统用户在替他们响应。",
+  "officeMove.in.members.old.oldRuntime":
+    "在旧办公室，其系统用户仍在运行上一个 Isomux 版本。请一分钟后重新检查。",
+  "officeMove.in.members.old.unknown": "旧办公室暂时无法迁移他们的文件。",
+  "officeMove.in.members.here.unchecked":
+    "这个办公室还没有检查他们。请重新检查。",
+  "officeMove.in.members.here.unsupported": "这台机器无法为成员创建系统用户。",
+  "officeMove.in.members.here.otherHome":
+    "他们的主文件夹必须保持原路径，而在这台机器上会是 {home}，不是 {oldHome}。",
+  "officeMove.in.members.here.nameTaken":
+    "这台机器上已有名为 {osUser} 的系统用户。",
+  "officeMove.in.members.here.homeExists":
+    "{home} 在这台机器上已存在。请把它移走。",
+  "officeMove.in.members.here.unknown": "他们的文件无法放到这台机器上。",
   "officeMove.in.outside.left": "留在旧机器上的主文件夹之外的文件夹：",
   "officeMove.in.outside.leftReason.temp": "临时",
   "officeMove.in.outside.leftReason.link": "链接",
@@ -3322,6 +3355,12 @@ export const zh: Catalog = {
   "officeMove.in.outside.leftReason.owner": "其他用户的",
   "officeMove.report.outsideMoved": "已迁移的主文件夹之外的文件夹：",
   "officeMove.report.outsideLeft": "留在旧机器上的主文件夹之外的文件夹：",
+  "officeMove.report.members":
+    "文件已迁移的成员。他们的代理会等到你运行其命令：",
+  "officeMove.report.memberSettings":
+    "请查看“设置 → 成员 → 该成员 → 专属系统用户”。",
+  "officeMove.report.membersSettings":
+    "“设置 → 成员 → 该成员 → 专属系统用户”中有同样的命令。",
   "officeMove.in.acceptMissing": "不含这些文件，直接完成",
   "officeMove.in.finishWarning":
     "完成后，副本将替换此办公室并重启。之后旧办公室会显示它已迁移。",

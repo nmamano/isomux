@@ -25,6 +25,11 @@
 //   folders left; Lock waits and the card polls while one is blocked, also
 //   after a lock refused for it and on a pass failed for it; the size counts
 //   them; the report lists what moved and what stayed.
+// - the members with their own OS user (slice 5c-3): the confirm card lists
+//   each with the office that blocks her and why (this office's English
+//   detail never shows); Lock waits and the card polls while one is
+//   blocked; a pass failed for them shows them; the report lists each enable
+//   command.
 //
 // Controls are found by data-testid (copy is not asserted).
 import { afterEach, beforeEach, expect, it, jest, spyOn } from "bun:test";
@@ -48,6 +53,7 @@ const { absoluteTime } = await import("../../shared/i18n/time.ts");
 const { formatBytes } = await import("../../shared/i18n/number.ts");
 import type {
   MoveInFolderCheck,
+  MoveInMemberHere,
   MoveInLive,
   MoveInLivePhase,
   MoveInProgress,
@@ -1220,4 +1226,232 @@ it("slice 5b-2: the failed card with folder checks shows the folders, not the se
   ];
   const other = await mount();
   expect(says(other, "A PART FAILED")).toBe(true);
+});
+
+// ---- slice 5c-3: members with their own OS user ----
+//
+// move-members (confirm, failed) and move-report-members (report) are lists
+// whose items carry data-user-id; move-member-blocked carries data-side
+// (old or here) and data-block (the code, or "unknown" for a code this
+// release does not name).
+
+const MIA = {
+  userId: "u-mia",
+  name: "Mia",
+  osUser: "isomux-mia",
+  home: "/home/isomux-mia",
+  block: null as string | null,
+  units: [],
+};
+const SAM = {
+  userId: "u-sam",
+  name: "Sam",
+  osUser: "isomux-sam",
+  home: "/home/isomux-sam",
+  block: null as string | null,
+  units: [],
+};
+// Text that must never reach the card: this office's `detail` is the
+// server's English (C2).
+const HERE_DETAIL = "HERE-DETAIL-NEVER-SHOWN";
+const OLD_DETAIL = "OLD-DETAIL-SHOWN-AS-DATA";
+const UNKNOWN_CODE = "a_code_from_a_later_release";
+const hereOf = (
+  m: typeof MIA,
+  block: MoveInMemberHere["block"] = null,
+): MoveInMemberHere => ({
+  userId: m.userId,
+  name: m.name,
+  osUser: m.osUser,
+  oldHome: m.home,
+  home: block === "other_home" ? `/srv/${m.osUser}` : m.home,
+  block,
+  ...(block ? { detail: HERE_DETAIL } : {}),
+});
+function membersPreflight(members: unknown[]) {
+  return {
+    ...preflight("always"),
+    memberOsUsers: {
+      names: members.map((m) => (m as { name: string }).name),
+      members,
+    },
+  };
+}
+const confirmMembers = (members: unknown[], checks: MoveInMemberHere[]) =>
+  inPhase("confirm", {
+    preflightId: "pf-1",
+    preflight: membersPreflight(members),
+    membersHere: checks,
+  });
+const usersIn = (list: HTMLElement | null) =>
+  list
+    ? [...list.querySelectorAll<HTMLElement>("[data-user-id]")].map(
+        (e) => e.dataset.userId,
+      )
+    : null;
+const blocksOf = (m: Awaited<ReturnType<typeof mount>>) =>
+  [...m.all("move-member-blocked")].map((e) => [
+    e.closest<HTMLElement>("[data-user-id]")?.dataset.userId ?? null,
+    e.dataset.side ?? null,
+    e.dataset.block ?? null,
+  ]);
+
+it("slice 5c-3: the confirm card lists each member; a blocked one says which office blocks her and why, the old office's detail shows as data, this office's never; Lock waits and sends nothing", async () => {
+  inAnswers = [
+    confirmMembers(
+      [MIA, { ...SAM, block: UNKNOWN_CODE, detail: OLD_DETAIL }],
+      [hereOf(MIA, "home_exists"), hereOf(SAM)],
+    ),
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("confirm");
+  expect(usersIn(m.q("move-members"))).toEqual(["u-mia", "u-sam"]);
+  expect(blocksOf(m)).toEqual([
+    ["u-mia", "here", "home_exists"],
+    ["u-sam", "old", "unknown"],
+  ]);
+  const detail = m.q("move-member-detail");
+  expect(
+    detail?.closest<HTMLElement>("[data-user-id]")?.dataset.userId ?? null,
+  ).toBe("u-sam");
+  expect(detail?.textContent ?? "").toContain(OLD_DETAIL);
+  const text = m.q("move-in")?.textContent ?? "";
+  expect(text.includes(HERE_DETAIL)).toBe(false);
+  expect(text.includes(UNKNOWN_CODE)).toBe(false);
+  // The structured fields carry this office's reason: her home here.
+  expect(text.includes("/home/isomux-mia")).toBe(true);
+  // The pre-5c-1 warning is not shown with the list.
+  expect(m.q("move-member-os-users")).toBeNull();
+  const lock = m.q("move-lock") as HTMLButtonElement;
+  expect(lock.disabled).toBe(true);
+  await click(lock);
+  expect(writesTo("/api/office/move-in/lock").length).toBe(0);
+  m.view.unmount();
+
+  // Every member clear on both offices: no reason, Lock on.
+  inAnswers = [confirmMembers([MIA, SAM], [hereOf(MIA), hereOf(SAM)])];
+  const c = await mount();
+  expect({
+    users: usersIn(c.q("move-members")),
+    blocked: c.all("move-member-blocked").length,
+    lockDisabled: (c.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ users: ["u-mia", "u-sam"], blocked: 0, lockDisabled: false });
+});
+
+it("slice 5c-3: other_home names both homes from the fields; a member with no check here holds Lock", async () => {
+  inAnswers = [confirmMembers([MIA, SAM], [hereOf(MIA, "other_home")])];
+  const m = await mount();
+  const reason = [...m.all("move-member-blocked")].find(
+    (e) => e.dataset.block === "other_home",
+  );
+  expect(reason?.textContent ?? "").toContain("/srv/isomux-mia");
+  expect(reason?.textContent ?? "").toContain("/home/isomux-mia");
+  expect((m.q("move-lock") as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("slice 5c-3: an old office of an earlier release names its members but cannot move them: the warning stays, no list, and Lock waits", async () => {
+  inAnswers = [
+    inPhase("confirm", {
+      preflightId: "pf-1",
+      preflight: {
+        ...preflight("always"),
+        memberOsUsers: { names: ["Mia"] },
+      },
+    }),
+  ];
+  const m = await mount();
+  expect({
+    warning: m.q("move-member-os-users") !== null,
+    list: m.q("move-members") !== null,
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ warning: true, list: false, lockDisabled: true });
+});
+
+it("slice 5c-3: while a member is blocked the confirm card polls; when the owner clears it, Lock turns on and the poll stops", async () => {
+  jest.useFakeTimers();
+  inAnswers = [
+    confirmMembers([MIA], [hereOf(MIA, "name_taken")]),
+    confirmMembers([MIA], [hereOf(MIA)]),
+  ];
+  const m = await mount();
+  expect((m.q("move-lock") as HTMLButtonElement).disabled).toBe(true);
+  await advance(MOVE_IN_POLL_MS);
+  expect({
+    blocked: m.all("move-member-blocked").length,
+    lockDisabled: (m.q("move-lock") as HTMLButtonElement).disabled,
+  }).toEqual({ blocked: 0, lockDisabled: false });
+  const reads = inReads;
+  await advance(MOVE_IN_POLL_MS * 3);
+  expect(inReads).toBe(reads);
+});
+
+it("slice 5c-3: a pass failed for a member: the failed card shows the blocked member in place of the server's message, with Try again", async () => {
+  inAnswers = [
+    inPhase("failed", {
+      error: { code: "member_homes_blocked", message: "SERVER-MEMBERS-MSG" },
+      retryable: true,
+      oldOfficeLocked: true,
+      membersHere: [hereOf(MIA, "name_taken"), hereOf(SAM)],
+    }),
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("failed");
+  expect({
+    users: usersIn(m.q("move-members")),
+    blocked: blocksOf(m),
+    retry: m.q("move-retry") !== null,
+  }).toEqual({
+    users: ["u-mia", "u-sam"],
+    blocked: [["u-mia", "here", "name_taken"]],
+    retry: true,
+  });
+  const text = m.q("move-in")?.textContent ?? "";
+  expect(text.includes("SERVER-MEMBERS-MSG")).toBe(false);
+  expect(text.includes(HERE_DETAIL)).toBe(false);
+});
+
+it("slice 5c-3: the report lists each member with the enable command and its copy button; a member with no command shows her name and the pointer to the Members page; an earlier report has no list", async () => {
+  const CMD = "sudo /opt/isomux/deploy/isomux-member-user.sh enable u-mia";
+  const base = moved([".bashrc"]) as Extract<MoveInStatus, { phase: "moved" }>;
+  inAnswers = [
+    {
+      ...base,
+      report: {
+        ...base.report,
+        members: [
+          { userId: "u-mia", name: "Mia", osUser: "isomux-mia", command: CMD },
+          { userId: "u-sam", name: "Sam", osUser: "isomux-sam", command: null },
+        ],
+      },
+    },
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("report");
+  expect(usersIn(m.q("move-report-members"))).toEqual(["u-mia", "u-sam"]);
+  const item = (id: string) =>
+    m
+      .q("move-report-members")
+      ?.querySelector<HTMLElement>(`[data-user-id="${id}"]`) ?? null;
+  const command = item("u-mia")?.querySelector<HTMLElement>(
+    '[data-testid="move-member-command"]',
+  );
+  expect(command?.textContent ?? "").toContain(CMD);
+  expect(item("u-mia")?.querySelectorAll("button").length ?? 0).toBeGreaterThan(
+    0,
+  );
+  expect({
+    // A boolean, never the node: a failed toEqual on a DOM node serialises
+    // it and never ends.
+    samCommand:
+      item("u-sam")?.querySelector('[data-testid="move-member-command"]') !==
+      null,
+    samPointer:
+      item("u-sam")?.querySelector('[data-testid="move-member-settings"]') !==
+      null,
+    samName: (item("u-sam")?.textContent ?? "").includes("Sam"),
+  }).toEqual({ samCommand: false, samPointer: true, samName: true });
+  m.view.unmount();
+  inAnswers = [base];
+  const old = await mount();
+  expect(old.q("move-report-members")).toBeNull();
 });
