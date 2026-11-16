@@ -3,7 +3,7 @@
 // git, flock and jq are real. Zero LLM, no network.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import {
   chmodSync,
   copyFileSync,
@@ -13,6 +13,8 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from "fs";
 import { connect } from "net";
@@ -69,6 +71,8 @@ type Local = {
       os?: string;
     },
   ): { status: number | null; out: string };
+  /** As run, with a target and merge, but does not wait for the exit. */
+  start(args: string[]): Promise<{ status: number | null; out: string }>;
   /** One line per `bun` call: its arguments and the commit checked out. */
   bunCalls(): string[];
   /** One line per remote half started: its arguments. */
@@ -164,8 +168,20 @@ if [[ -e $FIX/unreachable ]]; then
     exit 255
   fi
 fi
+# With init-barrier (a count), each call that creates the bare repo waits
+# until that many have arrived, so they start together.
+if [[ -e $FIX/init-barrier && $* == *"git init -q --bare"* ]]; then
+  flock "$FIX/init-barrier.lock" bash -c 'echo x >> "$FIX/init-arrived"'
+  for _ in $(seq 500); do
+    (($(wc -l < "$FIX/init-arrived") >= $(cat "$FIX/init-barrier"))) && break
+    sleep 0.02
+  done
+  (($(wc -l < "$FIX/init-arrived") >= $(cat "$FIX/init-barrier"))) || touch "$FIX/init-barrier-timeout"
+fi
 shift
 cd "$FIX/home" || exit 1
+# The remote's own tools, when a test gives it some.
+[[ -d $FIX/remote-bin ]] && PATH=$FIX/remote-bin:$PATH
 if [[ -e $FIX/push-fails && $* == *receive-pack* ]]; then
   n=$(($(cat "$FIX/push-count" 2>/dev/null || echo 0) + 1))
   echo "$n" > "$FIX/push-count"
@@ -200,6 +216,19 @@ exit ${localCode}`,
   );
 
   const script = retry ? patchRetry(dir, retry) : SCRIPT;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
+  }
+  Object.assign(env, {
+    PATH: `${bin}:${process.env.PATH}`,
+    TMPDIR: join(dir, "tmp"),
+    FIX: dir,
+    REAL_BUN: process.execPath,
+    // Only the fixture repo's own config names a target.
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+  });
 
   return {
     dir,
@@ -207,10 +236,6 @@ exit ${localCode}`,
     home,
     shas: [first, second],
     run(args, opts = {}) {
-      const env: Record<string, string> = {};
-      for (const [k, v] of Object.entries(process.env)) {
-        if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
-      }
       if (opts.target) git(repo, "config", "isomux.ciRemote", opts.target);
       if (opts.os)
         stub(
@@ -223,21 +248,28 @@ exit ${localCode}`,
         : entry;
       const r = spawnSync("bash", argv, {
         cwd: repo,
-        env: {
-          ...env,
-          PATH: `${bin}:${process.env.PATH}`,
-          TMPDIR: join(dir, "tmp"),
-          FIX: dir,
-          REAL_BUN: process.execPath,
-          // Only the fixture repo's own config names a target.
-          GIT_CONFIG_GLOBAL: "/dev/null",
-          GIT_CONFIG_NOSYSTEM: "1",
-        },
+        env,
         input: opts.stdin ?? "",
         encoding: "utf8",
         timeout: 30_000,
       });
       return { status: r.status, out: `${r.stdout}\n${r.stderr}` };
+    },
+    start(args) {
+      git(repo, "config", "isomux.ciRemote", TARGET);
+      const argv = ["-c", 'exec bash "$@" 2>&1', "_", script, ...args];
+      const child = spawn("bash", argv, {
+        cwd: repo,
+        env,
+        stdio: ["ignore", "pipe", "inherit"],
+        timeout: 30_000,
+      });
+      let out = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => (out += chunk));
+      return new Promise((resolve) =>
+        child.on("close", (status) => resolve({ status, out })),
+      );
     },
     bunCalls: () => read(join(dir, "bun.log")).split("\n").filter(Boolean),
     remoteRuns: () => read(join(dir, "remote.log")).split("\n").filter(Boolean),
@@ -1008,6 +1040,72 @@ describe("ci-remote, push repair", () => {
     const lines = causeLines(r.out, "fatal: bad object refs/ci-base (push 2)");
     expect(lines, r.out).toHaveLength(1);
   });
+});
+
+/**
+ * Gives the remote a git whose `git init` holds the new repo's config.lock
+ * for half a second, as git itself does for a few milliseconds: two inits of
+ * one repo that overlap then fail as on 2026-11-16 ("could not lock config
+ * file"). Every other git call is the real one.
+ */
+function slowInit(f: Local): void {
+  const bin = join(f.dir, "remote-bin");
+  mkdirSync(bin);
+  stub(
+    join(bin, "git"),
+    `if [[ " $* " == *" init "* ]]; then
+  repo=$FIX/home/${REMOTE_ROOT}/repo.git
+  mkdir -p "$repo"
+  if ! (set -C; : > "$repo/config.lock") 2>/dev/null; then
+    echo "error: could not lock config file $repo/config: File exists" >&2
+    exit 128
+  fi
+  sleep 0.5
+  rm -f "$repo/config.lock"
+fi
+exec ${Bun.which("git")} "$@"`,
+  );
+}
+
+describe("ci-remote, two pushes at once", () => {
+  it.each([
+    ["no cache yet", false],
+    ["an existing cache", true],
+  ])(
+    "%s: two gates started together both give a verdict",
+    async (_, existing) => {
+      const f = local(0);
+      const bare = join(f.home, REMOTE_ROOT, "repo.git");
+      const config = join(bare, "config");
+      // A rewrite gives the file the current time. (Not its inode: a
+      // filesystem can hand a freed inode number to the next new file.)
+      const old = new Date("2000-01-01T00:00:00Z");
+      if (existing) {
+        git(f.dir, "init", "-q", "--bare", bare);
+        utimesSync(config, old, old);
+      } else {
+        expect(existsSync(bare)).toBe(false);
+      }
+      slowInit(f);
+      writeFileSync(join(f.dir, "init-barrier"), "2");
+      const [a, b] = await Promise.all([
+        f.start(["--gate"]),
+        f.start(["--gate"]),
+      ]);
+      // Both pushes reached the remote together.
+      expect(
+        read(join(f.dir, "init-arrived")).split("\n").filter(Boolean),
+      ).toHaveLength(2);
+      expect(existsSync(join(f.dir, "init-barrier-timeout"))).toBe(false);
+      expectFrame(a, f.shas[1], 0);
+      expectFrame(b, f.shas[1], 0);
+      expect(f.remoteRuns()).toHaveLength(2);
+      expect(git(bare, "cat-file", "-t", f.shas[1])).toBe("commit");
+      // A push never rewrites an existing repo's config.
+      if (existing) expect(statSync(config).mtimeMs).toBe(old.getTime());
+    },
+    20_000,
+  );
 });
 
 // --- remote half --------------------------------------------------------

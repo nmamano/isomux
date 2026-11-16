@@ -112,7 +112,11 @@ push_commit() {
   PUSH_ERROR=""
   # --no-verify: this push is the transport, and the pre-push hook may be
   # what called us.
-  ssh "${SSH_OPTS[@]}" "$TARGET" "git init -q --bare $REMOTE_ROOT/repo.git" 2>&1 || return 255
+  # git init on an existing repo rewrites its config under config.lock, so
+  # two pushes at once collide there: init only a missing (or half-made) repo,
+  # under a lock of its own. Not root/lock, which a CI run holds for its whole
+  # run, and not toolchain.lock, which an install holds for minutes.
+  ssh "${SSH_OPTS[@]}" "$TARGET" "mkdir -p $REMOTE_ROOT && flock -w 60 $REMOTE_ROOT/repo.lock sh -c 'git --git-dir=$REMOTE_ROOT/repo.git rev-parse --git-dir >/dev/null 2>&1 || git init -q --bare $REMOTE_ROOT/repo.git'" 2>&1 || return 255
   GIT_SSH_COMMAND="ssh ${SSH_OPTS[*]}" "${push[@]}" 2>&1 && return 0
   echo "→ the push to $TARGET failed; repairing its cache"
   ssh "${SSH_OPTS[@]}" "$TARGET" bash -s -- --repair <"${BASH_SOURCE[0]}" 2>&1 || return 255
