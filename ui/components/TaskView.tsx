@@ -64,7 +64,6 @@ import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { groupAgentsByRoom } from "../agent-groups.ts";
-import { phoneTopPad } from "../safe-area.ts";
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
@@ -446,7 +445,7 @@ function TaskDetailPanel({
           justifyContent: "space-between",
           alignItems: "center",
           padding: fullScreen
-            ? `${phoneTopPad(14)} 20px 12px`
+            ? "max(14px, env(safe-area-inset-top, 0px)) 20px 12px"
             : "20px 24px 12px",
           borderBottom: "1px solid var(--border-subtle)",
           flexShrink: 0,
@@ -1368,7 +1367,9 @@ export function TaskView({
           alignItems: isMobile ? "stretch" : "center",
           justifyContent: "space-between",
           padding: isMobile ? "4px 12px 6px" : "0 20px",
-          paddingTop: isMobile ? phoneTopPad(4) : undefined,
+          paddingTop: isMobile
+            ? "max(4px, env(safe-area-inset-top, 0px))"
+            : undefined,
           gap: isMobile ? 6 : 0,
           minHeight: 44,
           background: "var(--bg-hud)",

@@ -25,7 +25,6 @@ import type {
   WebhookTarget,
   WebhookWire,
 } from "../../shared/types.ts";
-import { phoneTopPad } from "../safe-area.ts";
 
 // The server's limits (server/webhooks/match.ts, design section 3); the form
 // stops offering rows past them.
@@ -317,7 +316,9 @@ export function WebhookDialog({
             overflowY: "auto",
             overscrollBehavior: "contain",
             flex: 1,
-            padding: isMobile ? `${phoneTopPad(24)} 20px 0` : "24px 28px 0",
+            padding: isMobile
+              ? "max(24px, env(safe-area-inset-top)) 20px 0"
+              : "24px 28px 0",
           }}
         >
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>

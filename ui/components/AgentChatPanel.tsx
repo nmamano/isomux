@@ -21,13 +21,12 @@ import {
 } from "../AppWidgetPage.tsx";
 import { CloseIcon } from "./install-icons.tsx";
 import { AgentOptions } from "./AgentOptions.tsx";
-import { phoneTopPad } from "../safe-area.ts";
 
 // The top of the phone panel in the office's box: never under the status bar.
 // The site demo puts the office in a transformed box under its banner
 // (ui/demo-entry.tsx), so a fixed top counts from the banner's bottom.
 function phoneTop(windowTop: number): string {
-  return `max(${windowTop}px - var(--banner-h, 0px), ${phoneTopPad(8)})`;
+  return `max(${windowTop}px - var(--banner-h, 0px), max(8px, env(safe-area-inset-top, 0px)))`;
 }
 
 // The panel has no dock under it, as the app page has: it sits at the bottom.

@@ -122,7 +122,6 @@ import { MemberPinnedAgents } from "./MemberPinnedAgents.tsx";
 import type { MemberLevel } from "../member-access.ts";
 import { samePack } from "../../shared/pack-fit.ts";
 import type { MemberPack } from "../../shared/pack-fit.ts";
-import { phoneTopPad } from "../safe-area.ts";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -884,7 +883,7 @@ export function UserSettingsView({
             paddingTop:
               isMobile &&
               (selection.section === "storage" || selection.section === "usage")
-                ? phoneTopPad()
+                ? "env(safe-area-inset-top, 16px)"
                 : undefined,
             maxWidth: 720,
             width: "100%",

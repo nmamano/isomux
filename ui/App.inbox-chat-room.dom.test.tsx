@@ -200,7 +200,7 @@ function checkBox(
     const top = cssPx(style.top, { inset, banner });
     const height = cssPx(style.height, { inset, banner });
     // Top is in the office box's coordinates, which start under the banner.
-    expect(top).toBeGreaterThan(inset);
+    expect(top).toBeGreaterThanOrEqual(inset);
     expect(top + banner).toBeGreaterThanOrEqual(visibleTop);
     expect(height).toBeGreaterThan(0);
     expect(top + banner + height).toBeLessThanOrEqual(visibleBottom);

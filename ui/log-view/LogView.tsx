@@ -143,7 +143,6 @@ import {
 } from "../components/dialog-styles.ts";
 import { useCan, useHasPack } from "../hooks/useCan.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
-import { phoneTopPad } from "../safe-area.ts";
 
 // The terminal and editor libraries load when a panel first opens, not with
 // the office.
@@ -2425,7 +2424,7 @@ export function LogView({
                 flexDirection: "row",
                 alignItems: "stretch",
                 padding: "0 12px 0 0",
-                paddingTop: phoneTopPad(),
+                paddingTop: "env(safe-area-inset-top, 0px)",
                 background: "var(--bg-surface)",
                 borderBottom: "1px solid var(--border-strong)",
                 flexShrink: 0,
@@ -3620,7 +3619,7 @@ export function LogView({
             left: 0,
             right: 0,
             height: "100%",
-            paddingTop: phoneTopPad(),
+            paddingTop: "env(safe-area-inset-top, 0px)",
             boxSizing: "border-box",
             background: "var(--bg-base)",
             zIndex: 30,
@@ -3660,7 +3659,7 @@ export function LogView({
             // has no soft-key bar (CodeMirror 6 handles touch input natively),
             // so we don't need the keyboard-aware bottom-pad gymnastics that
             // TerminalPanel does.
-            paddingTop: phoneTopPad(),
+            paddingTop: "env(safe-area-inset-top, 0px)",
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
             boxSizing: "border-box",
             background: "var(--bg-base)",

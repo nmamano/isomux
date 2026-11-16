@@ -6,7 +6,6 @@ import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { useInboxCounts } from "../inbox.ts";
 import { CHAT_PANEL_RIGHT, CHAT_PANEL_WIDTH } from "../AppWidgetPage.tsx";
-import { phoneTopPad } from "../safe-area.ts";
 
 export function InboxView({
   onClose,
@@ -52,7 +51,9 @@ export function InboxView({
           alignItems: "center",
           gap: 10,
           padding: isMobile ? "4px 12px" : "0 20px",
-          paddingTop: isMobile ? phoneTopPad(4) : undefined,
+          paddingTop: isMobile
+            ? "max(4px, env(safe-area-inset-top, 0px))"
+            : undefined,
           minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",
