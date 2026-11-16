@@ -12,6 +12,6 @@ The member who typed /inbox wants your answer as an ask in their Inbox, to read 
    - Lead with the conclusion or the decision you need, then the reasons.
    - When the member must choose, add options and mark your pick with `recommended`. When nothing needs choosing, give one option, "Got it".
    - Attach images, plots or screenshots that help, as `readFiles`.
-   - If the answer does not fit, cut it until it fits. Do not open several asks.
+   - If the answer does not fit, cut it until it fits.
 3. In chat, write one line only: the answer is in their Inbox, with the ask id.
 4. Their reply comes back as a normal message. Answer follow-ups in chat unless they type /inbox again.

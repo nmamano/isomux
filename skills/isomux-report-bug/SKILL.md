@@ -8,5 +8,5 @@ Help the user file a bug report against the Isomux GitHub repo (https://github.c
 1. If you hit the bug yourself, describe what you saw and what you did instead. Otherwise, ask the user to describe the bug.
 2. Gather system info: Isomux version (find the Isomux install directory by checking where this skill file lives - it's under `skills/` in the Isomux repo - then run `git rev-parse --short HEAD` there), OS (`uname -a`), and the user's current room and desk (from `GET /agents`, agent reference page `discovery`: match your own agent ID, do NOT include the agent name).
 3. Draft a GitHub issue with the description from step 1 and a "System info" section at the bottom.
-4. Show the full draft to the user. Flag any potentially sensitive information (file paths, system details, project names, etc.) so the user can remove it. Do NOT file until they explicitly approve. Let them edit or remove anything.
-5. Once approved, file using `gh issue create --repo nmamano/isomux`.
+4. Show the full draft to the user. Flag any potentially sensitive information (file paths, system details, project names, etc.) so the user can remove it. Let them edit or remove anything.
+5. Once they explicitly approve, file using `gh issue create --repo nmamano/isomux`.

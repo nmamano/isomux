@@ -4,7 +4,7 @@ alias: peer-review
 description: Read another agent's current conversation and send them feedback directly. Optionally takes an agent name as a parameter.
 ---
 
-Review another agent's ongoing conversation and send feedback directly to that agent via the inter-agent message API. Note: reading a full conversation log can be token-hungry. Be selective about what you read - skim or skip thinking entries and tool results where possible.
+Review another agent's ongoing conversation and send feedback directly to that agent via the inter-agent message API.
 
 1. If a peer name was supplied, look up their agent ID with `GET /agents?back=1` (agent reference page `discovery`). Match the name case-insensitively. Otherwise try to infer the peer from context - e.g., an agent the member and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the member to pick. You need the peer's agent ID to POST messages to them.
 2. Find the target agent's current session: read sessions.json in their logDir to identify the most recent session.
@@ -15,4 +15,4 @@ Review another agent's ongoing conversation and send feedback directly to that a
    - Red flags like going in circles or ignoring member feedback?
    - Concrete suggestions for course-correction if needed.
      Frame the message clearly as peer-review feedback so the reviewed agent knows it's an outside perspective, not a member's instruction.
-5. Briefly confirm to the member which agent you reviewed and the gist of what you sent. Do not paste the full feedback back into your own chat - it already lives in the other agent's inbox.
+5. Briefly confirm to the member which agent you reviewed and the gist of what you sent.

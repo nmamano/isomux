@@ -10,7 +10,7 @@ Syntax: `/isomux-pair-programming {peer-agent-name} {feature prompt}`
 
 Setup: if a peer name was supplied, look up their agent ID with `GET /agents?back=1` (agent reference page `discovery`). Match the name case-insensitively. Otherwise try to infer the peer from context - e.g., an agent the member and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the member to pick. You need the peer's agent ID to POST messages to them. Work in the current cwd unless the member explicitly asks for a worktree.
 
-**Every time you message the peer, include an explicit instruction telling them they must reply by POSTing back to your agent endpoint, not just by writing in their own chat.** Replies that only appear in their own chat never reach you, so the iteration stalls.
+**Every time you message the peer, tell them to reply by POSTing back to your agent endpoint.**
 
 ### Phase 1: scope (solo)
 
@@ -38,5 +38,3 @@ When you're both satisfied, present to the member:
 1. What you built and why.
 2. Key decisions and alternatives considered.
 3. Open questions, if any.
-
-Pair programming is for end-to-end autonomous feature development. Don't rope the member in at any point that's not one of the two indicated checkpoints: after design (ONLY if needed) and after implementation.

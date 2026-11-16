@@ -34,10 +34,10 @@ Write a brief detailed enough that the member doesn't have to re-explain anythin
 Send the brief with `POST /api/agents/<peer-id>/messages`, as a `text/plain` body (agent reference page `messaging`), so the peer knows who's handing off. The body MUST also tell the peer:
 
 - That they own the work from here - they don't need to check in with you unless they're blocked.
-- **If they have clarifying questions, they must POST back to your agent endpoint, not just type in their own chat.** Replies that only land in their own chat never reach you. Give them your agent ID explicitly.
+- **If they have clarifying questions, they must POST back to your agent endpoint.** Give them your agent ID explicitly.
 
 ### 4. Confirm and stand by
 
 Tell the member which peer you handed off to and a one-line gist of what you sent. Suggest they switch to that agent's chat to continue.
 
-Then go idle. Don't start new work and don't check on the peer. If they POST you a question, answer concisely from the context you already have, then go idle again. The member will tell you when it's safe to `/clear`.
+Then go idle. If they POST you a question, answer concisely from the context you already have, then go idle again. The member will tell you when it's safe to `/clear`.

@@ -22,8 +22,8 @@ Send it with `POST /api/agents/<peer-id>/messages`, as a `text/plain` body (agen
 
 - **The question**, framed clearly.
 - **Just enough context** to form an opinion: the specific code path or decision, relevant constraints.
-- **What you want from them**: a concrete recommendation with reasoning. Not approval - you're not asking for permission.
-- **How to reply**: they must POST back to your agent endpoint, not type in their own chat. Give them your agent ID explicitly.
+- **What you want from them**: a concrete recommendation with reasoning.
+- **How to reply**: they must POST back to your agent endpoint. Give them your agent ID explicitly.
 - That they're advisory only - you're staying on the work.
 
 ### 4. Confirm and continue
