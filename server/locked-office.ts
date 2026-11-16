@@ -15,8 +15,9 @@ import { translatorFor } from "../shared/i18n/translate.ts";
 import {
   LOCKED_HEADER,
   LOCKED_READY_BODY,
+  disableAppsForLock,
   quarantineCredentials,
-  stopAppsForLock,
+  stopAppsForLockWithFailures,
   type LockdownApps,
 } from "./lockdown.ts";
 import { sweepExportFiles } from "./office-export-jobs.ts";
@@ -102,10 +103,22 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** What a lock does to the state, at the lockdown route's stop and at every
- *  locked boot: moves the credential files aside, ends an office move,
- *  deletes owner exports and stops apps, in that order. Synchronous; each step logs its own failure and
- *  does not skip the next. */
+/** What applyLockEffects did. */
+export interface LockEffectsResult {
+  /** Whether it moved credential files aside. */
+  revoked: boolean;
+  /** Apps it could not stop or disable: they may run after a reboot. */
+  appsLeft: string[];
+  /** Set when the apps step failed as a whole (the app list did not read):
+   *  any app may still run. */
+  appsUnknown?: true;
+}
+
+/** What a lock does to the state, at the lockdown route's stop, at the host
+ *  command's lock and at every locked boot: moves the credential files aside,
+ *  ends an office move, deletes owner exports, stops apps and disables their
+ *  units (so a reboot does not start them), in that order. Synchronous; each
+ *  step logs its own failure and does not skip the next. */
 export function applyLockEffects(opts: {
   stateRoot: string;
   apps: LockdownApps;
@@ -113,11 +126,16 @@ export function applyLockEffects(opts: {
    *  be read. */
   exportBaseDir: string | null;
   now: Date;
-}): void {
+}): LockEffectsResult {
+  let revoked = false;
+  let appsUnknown = false;
+  const appsLeft = new Set<string>();
   try {
     const moved = quarantineCredentials(opts.stateRoot, opts.now);
-    if (moved.dir)
+    if (moved.dir) {
+      revoked = true;
       console.log(`[lockdown] moved ${moved.moved.join(", ")} to ${moved.dir}`);
+    }
   } catch (err) {
     console.error("[lockdown] could not move the credentials aside:", err);
   }
@@ -136,12 +154,33 @@ export function applyLockEffects(opts: {
     console.error("[lockdown] could not delete the owner exports:", err);
   }
   try {
-    const stopped = stopAppsForLock(opts.stateRoot, opts.apps);
+    const { stopped, failed } = stopAppsForLockWithFailures(
+      opts.stateRoot,
+      opts.apps,
+    );
+    for (const name of failed) appsLeft.add(name);
     if (stopped.length > 0)
       console.log(`[lockdown] stopped apps: ${stopped.join(", ")}`);
   } catch (err) {
+    appsUnknown = true;
     console.error("[lockdown] could not stop the apps:", err);
   }
+  // A lock with --stop starts no locked office to stop the apps again after
+  // a reboot (task 367596bc), so every lock disables their units.
+  try {
+    const { disabled, failed } = disableAppsForLock(opts.stateRoot, opts.apps);
+    for (const name of failed) appsLeft.add(name);
+    if (disabled.length > 0)
+      console.log(`[lockdown] disabled apps: ${disabled.join(", ")}`);
+  } catch (err) {
+    appsUnknown = true;
+    console.error("[lockdown] could not disable the apps:", err);
+  }
+  return {
+    revoked,
+    appsLeft: [...appsLeft],
+    ...(appsUnknown ? { appsUnknown: true as const } : {}),
+  };
 }
 
 /** Applies the lock effects again (a safety net: the host command and the

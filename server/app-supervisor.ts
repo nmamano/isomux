@@ -671,6 +671,13 @@ export interface AppSupervisor {
   // rather than throws: a query that fails is false, never a throw.
   provablyNotRunning(appName: string): boolean;
   logs(appName: string, lines: number): string[];
+  // The lock's (task 367596bc, server/lockdown.ts disableAppsForLock): the
+  // named apps whose unit is "enabled", in one call; and the enabled bit of
+  // one unit, without a start or a stop. Only the systemd supervisor has
+  // them: a container's apps stop with the container.
+  enabledApps?(appNames: readonly string[]): string[];
+  enable?(appName: string): void;
+  disable?(appName: string): void;
 }
 
 interface AppSupervisorOptions {
@@ -1321,6 +1328,38 @@ export function createAppSupervisor(
       const out = r.stdout.split("\n");
       while (out.length > 0 && out[out.length - 1] === "") out.pop();
       return out;
+    },
+
+    // is-enabled prints one line per unit and exits 0 when any is enabled,
+    // so the exit code says nothing per unit: read the lines. Only "enabled"
+    // starts at boot here ("static" and "indirect" have no install of ours).
+    // An answer without one line per unit (no bus) throws.
+    enabledApps(appNames) {
+      if (appNames.length === 0) return [];
+      const r = host.run(
+        systemctl("is-enabled", ...appNames.map((n) => unitName(n))),
+      );
+      const lines = r.stdout.split("\n").filter((l) => l.trim() !== "");
+      if (lines.length !== appNames.length)
+        throw failed(
+          "the apps' enabled state could not be read",
+          r.stderr || r.stdout,
+        );
+      return appNames.filter((_, i) => lines[i].trim() === "enabled");
+    },
+
+    enable(appName) {
+      must(
+        systemctl("enable", unitName(appName)),
+        "the app could not be enabled",
+      );
+    },
+
+    disable(appName) {
+      must(
+        systemctl("disable", unitName(appName)),
+        "the app could not be disabled",
+      );
     },
   };
 }

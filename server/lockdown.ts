@@ -1,5 +1,5 @@
 // Office lockdown (task cdd7883d): the markers that lock an office, the
-// credential files a lock moves aside, and the apps a lock stops.
+// credential files a lock moves aside, and the apps a lock stops and disables.
 //
 // Shared by the server (server/locked-office.ts, the boot gate in
 // server/isomux-office.ts) and the host command (scripts/rescue.ts), so it
@@ -37,6 +37,9 @@ export const LOCKED_HEADER = "X-Isomux-Locked";
 export const LOCKED_READY_BODY = "locked\n";
 /** The apps a lock stopped, which the first normal boot starts again. */
 export const LOCKDOWN_APPS_FILE = "apps-stopped-by-lock.json";
+/** The apps whose unit a lock disabled, which the first normal boot enables
+ *  again (task 367596bc). */
+export const LOCKDOWN_DISABLED_APPS_FILE = "apps-disabled-by-lock.json";
 /** The prefix of the directory a lock moves the credential files into. */
 export const LOCKDOWN_DIR_PREFIX = "lockdown-";
 /** Credential files a lock moves aside: sign-in sessions, API tokens,
@@ -209,6 +212,66 @@ export interface LockdownApps {
   isActive(name: string): boolean;
   stop(name: string): void;
   start(name: string): void;
+  /** The named apps whose unit is enabled, in one call. Only a host whose
+   *  apps are systemd units has this and the two below. */
+  enabledApps?(names: readonly string[]): string[];
+  disable?(name: string): void;
+  enable?(name: string): void;
+}
+
+/** At every lock: disables the unit of every registered app that is enabled,
+ *  so a reboot does not start it while the office stays locked or stopped,
+ *  and adds the ones it disabled to LOCKDOWN_DISABLED_APPS_FILE. Returns
+ *  them, and the ones it could not disable. A host without enabledApps has
+ *  nothing to disable. */
+export function disableAppsForLock(
+  stateRoot: string,
+  apps: LockdownApps,
+): { disabled: string[]; failed: string[] } {
+  if (!apps.enabledApps || !apps.disable) return { disabled: [], failed: [] };
+  const registered = apps.list();
+  let enabled: string[];
+  try {
+    enabled = apps.enabledApps(registered);
+  } catch (err) {
+    console.error(
+      "[lockdown] could not read which app units are enabled:",
+      err,
+    );
+    return { disabled: [], failed: registered };
+  }
+  const disabled: string[] = [];
+  const failed: string[] = [];
+  for (const name of enabled) {
+    try {
+      apps.disable(name);
+      disabled.push(name);
+    } catch (err) {
+      console.error(`[lockdown] the app ${name} was not disabled:`, err);
+      failed.push(name);
+    }
+  }
+  if (disabled.length > 0) {
+    // A later lock adds to the record: the first lock's names still need
+    // their enable at the unlock.
+    const record = join(stateRoot, LOCKDOWN_DISABLED_APPS_FILE);
+    const names = new Set([...readNames(record), ...disabled]);
+    writeFileSync(record, `${JSON.stringify([...names])}\n`, { mode: 0o600 });
+  }
+  return { disabled, failed };
+}
+
+// The names in a record file; none when it is missing or does not read.
+function readNames(record: string): string[] {
+  if (!existsSync(record)) return [];
+  try {
+    const raw: unknown = JSON.parse(readFileSync(record, "utf8"));
+    if (Array.isArray(raw))
+      return raw.filter((n): n is string => typeof n === "string");
+  } catch (err) {
+    console.error(`[lockdown] ${record} is unreadable:`, err);
+  }
+  return [];
 }
 
 /** At a locked boot: stops every registered app that runs, and records the
@@ -218,7 +281,16 @@ export function stopAppsForLock(
   stateRoot: string,
   apps: LockdownApps,
 ): string[] {
+  return stopAppsForLockWithFailures(stateRoot, apps).stopped;
+}
+
+/** stopAppsForLock, and the apps that did not stop. */
+export function stopAppsForLockWithFailures(
+  stateRoot: string,
+  apps: LockdownApps,
+): { stopped: string[]; failed: string[] } {
   const stopped: string[] = [];
+  const failed: string[] = [];
   for (const name of apps.list()) {
     if (!apps.isActive(name)) continue;
     try {
@@ -226,33 +298,52 @@ export function stopAppsForLock(
       stopped.push(name);
     } catch (err) {
       console.error(`[lockdown] the app ${name} did not stop:`, err);
+      failed.push(name);
     }
   }
   const record = join(stateRoot, LOCKDOWN_APPS_FILE);
   if (!existsSync(record))
     writeFileSync(record, `${JSON.stringify(stopped)}\n`, { mode: 0o600 });
-  return stopped;
+  return { stopped, failed };
 }
 
-/** At the first normal boot after a lock: starts each app in
- *  LOCKDOWN_APPS_FILE that is still registered and `mayRun` allows, then
- *  removes the file. Returns the names it started. */
+/** At the first normal boot after a lock: enables each app in
+ *  LOCKDOWN_DISABLED_APPS_FILE that is still registered, then starts each app
+ *  in LOCKDOWN_APPS_FILE that is still registered and `mayRun` allows, and
+ *  removes both files. An app that does not enable stays in its record for
+ *  the next boot. Returns the names it started. */
 export function restartAppsAfterLock(
   stateRoot: string,
   apps: LockdownApps,
   mayRun: (name: string) => boolean,
 ): string[] {
+  // The enabled bit first, with or without a record of stopped apps (the
+  // unlock of an older release drops that one and keeps this one).
+  const disabledRecord = join(stateRoot, LOCKDOWN_DISABLED_APPS_FILE);
   const record = join(stateRoot, LOCKDOWN_APPS_FILE);
-  if (!existsSync(record)) return [];
-  let names: string[] = [];
-  try {
-    const raw: unknown = JSON.parse(readFileSync(record, "utf8"));
-    if (Array.isArray(raw))
-      names = raw.filter((n): n is string => typeof n === "string");
-  } catch (err) {
-    console.error("[lockdown] the record of stopped apps is unreadable:", err);
-  }
+  if (!existsSync(disabledRecord) && !existsSync(record)) return [];
   const registered = new Set(apps.list());
+  if (existsSync(disabledRecord)) {
+    // A unit that does not enable stays in the record: the next normal boot
+    // tries it again.
+    const notEnabled: string[] = [];
+    for (const name of readNames(disabledRecord)) {
+      if (!registered.has(name)) continue;
+      try {
+        apps.enable?.(name);
+      } catch (err) {
+        console.error(`[lockdown] the app ${name} was not enabled:`, err);
+        notEnabled.push(name);
+      }
+    }
+    if (notEnabled.length > 0)
+      writeFileSync(disabledRecord, `${JSON.stringify(notEnabled)}\n`, {
+        mode: 0o600,
+      });
+    else rmSync(disabledRecord, { force: true });
+  }
+  if (!existsSync(record)) return [];
+  const names = readNames(record);
   const started: string[] = [];
   for (const name of names) {
     if (!registered.has(name) || !mayRun(name)) continue;

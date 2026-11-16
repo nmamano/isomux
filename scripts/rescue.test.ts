@@ -19,14 +19,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createAppRegistry } from "../server/app-registry.ts";
 import {
   LOCK_MARKER_FILE,
+  LOCKDOWN_APPS_FILE,
+  LOCKDOWN_DISABLED_APPS_FILE,
   LOCKDOWN_DIR_PREFIX,
   QUARANTINED_FILES,
   ROOT_MARKER_FILE,
   lockMarkerBody,
   writeStateMarker,
 } from "../server/lockdown.ts";
+import { EXPORTS_SUBDIR } from "../server/office-export-jobs.ts";
+import { MOVE_LOCK_MARKER, MOVE_STATE_FILE } from "../server/office-move.ts";
+import { unitNameFor, unitPrefixFor } from "../server/office-units.ts";
 import {
   INSTRUCTION_FILE_NAMES,
   agentBrief,
@@ -47,14 +53,33 @@ const OFFICE_PID = 4242;
 const OUTSIDE_CGROUP = "0::/user.slice/user-1001.slice/session-3.scope\n";
 
 let dir = "";
+// A lock empties the owner exports in the backup folder, which
+// ISOMUX_BACKUP_DIR fixes; an agent shell may inherit the live office's. Each
+// bed pins it to its own temp dir (task 367596bc).
+const savedBackupDir = process.env.ISOMUX_BACKUP_DIR;
 afterEach(() => {
+  if (savedBackupDir === undefined) delete process.env.ISOMUX_BACKUP_DIR;
+  else process.env.ISOMUX_BACKUP_DIR = savedBackupDir;
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = "";
 });
 
+interface AppUnit {
+  active: boolean;
+  enabled: boolean;
+}
+
 interface Bed {
   config: RescueConfig;
   stateRoot: string;
+  /** ISOMUX_BACKUP_DIR for this bed. */
+  backupDir: string;
+  /** The office's apps, by name: their units in the fake user manager. */
+  apps: Record<string, AppUnit>;
+  /** Every systemctl call about an app unit (never in `calls`). */
+  appCalls: string[][];
+  /** Calls about app-like units the office never installed. */
+  strangerUnits: string[];
   host: RescueHost;
   unit: { active: boolean; enabled: boolean };
   /** Every systemctl call, flags included. */
@@ -122,13 +147,97 @@ function bed(
     readyz?: () => { status: number; body: string } | null;
     /** Runs at each start, before the unit is active. */
     onStart?: () => void;
+    /** The state root's name in the home: ".isomux" is the default root. */
+    stateName?: string;
+    /** Registered apps and their units. */
+    apps?: Record<string, AppUnit>;
+    /** Apps whose unit refuses to disable. */
+    refuseDisable?: string[];
   } = {},
 ): Bed {
   dir = mkdtempSync(join(tmpdir(), "rescue-test-"));
-  const stateRoot = join(dir, "state");
+  const stateRoot = join(dir, opts.stateName ?? "state");
   const etc = join(dir, "etc");
   mkdirSync(stateRoot, { recursive: true });
   mkdirSync(etc, { recursive: true });
+  const backupDir = join(dir, "backup");
+  process.env.ISOMUX_BACKUP_DIR = backupDir;
+  // The units the office installed: its own rule for this state root.
+  const apps: Record<string, AppUnit> = { ...(opts.apps ?? {}) };
+  const prefix = unitPrefixFor(stateRoot, opts.stateName === ".isomux");
+  const appOfUnit = new Map(
+    Object.keys(apps).map((name) => [unitNameFor(prefix, name), name]),
+  );
+  if (Object.keys(apps).length > 0) {
+    const registry = createAppRegistry({
+      dir: join(stateRoot, "apps"),
+      probePort: () => true,
+    });
+    for (const name of Object.keys(apps))
+      registry.register({
+        name,
+        command: "true",
+        cwd: dir,
+        userId: null,
+        username: null,
+        createdBy: "test",
+      });
+  }
+  const appCalls: string[][] = [];
+  const strangerUnits: string[] = [];
+  // The fake user manager's answer about app units, as systemd 255 gives it.
+  const appSystemctl = (
+    args: string[],
+  ): { code: number; stdout: string } | null => {
+    const units = args.filter((a) => a.startsWith("isomux-app-"));
+    if (units.length === 0) return null;
+    appCalls.push([...args]);
+    for (const u of units) if (!appOfUnit.has(u)) strangerUnits.push(u);
+    const unit = (u: string) => {
+      const name = appOfUnit.get(u);
+      return name === undefined ? undefined : apps[name];
+    };
+    const verb = args.find((a) => VERBS.has(a)) ?? "";
+    switch (verb) {
+      case "show":
+        return {
+          code: 0,
+          stdout: units
+            .map((u) => {
+              const a = unit(u);
+              return `Id=${u}\nLoadState=${a ? "loaded" : "not-found"}\nActiveState=${a?.active ? "active" : "inactive"}\nSubState=x\nNRestarts=0\n`;
+            })
+            .join("\n"),
+        };
+      case "is-enabled": {
+        const lines = units.map((u) => {
+          const a = unit(u);
+          return a ? (a.enabled ? "enabled" : "disabled") : "not-found";
+        });
+        return {
+          code: lines.includes("enabled") ? 0 : 1,
+          stdout: lines.map((l) => `${l}\n`).join(""),
+        };
+      }
+      case "stop":
+      case "start":
+      case "enable":
+      case "disable": {
+        const a = unit(units[0]);
+        if (!a) return { code: 1, stdout: "" };
+        if (
+          verb === "disable" &&
+          (opts.refuseDisable ?? []).includes(appOfUnit.get(units[0]) ?? "")
+        )
+          return { code: 1, stdout: "" };
+        if (verb === "stop" || verb === "start") a.active = verb === "start";
+        else a.enabled = verb === "enable";
+        return { code: 0, stdout: "" };
+      }
+      default:
+        return { code: 0, stdout: "" };
+    }
+  };
   const unit = { active: opts.active ?? true, enabled: opts.enabled ?? true };
   const calls: string[][] = [];
   const killed: number[] = [];
@@ -165,6 +274,8 @@ function bed(
   };
   const host: RescueHost = {
     systemctl(args) {
+      const forApp = appSystemctl(args);
+      if (forApp) return forApp;
       calls.push([...args]);
       const verb = args.find((a) => VERBS.has(a)) ?? "";
       const now = args.includes("--now");
@@ -249,6 +360,10 @@ function bed(
   return {
     config,
     stateRoot,
+    backupDir,
+    apps,
+    appCalls,
+    strangerUnits,
     host,
     unit,
     calls,
@@ -433,6 +548,142 @@ describe("lockdown", () => {
       code,
       marker: existsSync(join(b.stateRoot, LOCK_MARKER_FILE)),
     }).toEqual({ code: 0, marker: true });
+  });
+});
+
+// A lock with --stop starts no locked office, so the host command does the
+// lock's effects itself, and every lock disables the app units so a reboot
+// does not start them (task 367596bc).
+describe("lockdown: the lock's effects at the host", () => {
+  function effectsBed(opts: Parameters<typeof bed>[0] = {}) {
+    const b = bed({
+      apps: {
+        board: { active: true, enabled: true },
+        idle: { active: false, enabled: true },
+        off: { active: false, enabled: false },
+      },
+      ...opts,
+    });
+    seedCredentials(b.stateRoot);
+    writeFileSync(join(b.stateRoot, MOVE_STATE_FILE), '{"state":"move"}');
+    writeFileSync(join(b.stateRoot, MOVE_LOCK_MARKER), "");
+    mkdirSync(join(b.backupDir, EXPORTS_SUBDIR), { recursive: true });
+    writeFileSync(
+      join(b.backupDir, EXPORTS_SUBDIR, "office-export.zip"),
+      "zip",
+    );
+    return b;
+  }
+
+  const record = (stateRoot: string, file: string): string[] | null =>
+    existsSync(join(stateRoot, file))
+      ? (
+          JSON.parse(readFileSync(join(stateRoot, file), "utf8")) as string[]
+        ).sort()
+      : null;
+
+  const effects = (b: Bed) => ({
+    apps: b.apps,
+    strangerUnits: b.strangerUnits,
+    stopped: record(b.stateRoot, LOCKDOWN_APPS_FILE),
+    disabled: record(b.stateRoot, LOCKDOWN_DISABLED_APPS_FILE),
+    move: [MOVE_STATE_FILE, MOVE_LOCK_MARKER].filter((f) =>
+      existsSync(join(b.stateRoot, f)),
+    ),
+    exports: readdirSync(join(b.backupDir, EXPORTS_SUBDIR)),
+    moved: Object.keys(quarantined(b.stateRoot)).sort(),
+  });
+
+  const done = {
+    apps: {
+      board: { active: false, enabled: false },
+      idle: { active: false, enabled: false },
+      off: { active: false, enabled: false },
+    },
+    strangerUnits: [],
+    stopped: ["board"],
+    disabled: ["board", "idle"],
+    move: [],
+    exports: [],
+    moved: [...QUARANTINED_FILES].sort(),
+  };
+
+  // The default state root's units are isomux-app-<name>.service; any other
+  // root's carry a digest of its path. The command must name the office's.
+  for (const [args, stateName] of [
+    [["lockdown", "--stop", "--reason", "x"], "state"],
+    [["lockdown", "--reason", "x"], ".isomux"],
+  ] as const) {
+    test(`${args.slice(0, -2).join(" ")} (state root ${stateName}) stops the office's apps and disables their units, enabled ones only, ends the office move and empties the owner exports`, async () => {
+      const b = effectsBed({ stateName });
+      const code = await b.run([...args]);
+      if (code !== 0) console.error(b.out);
+      expect({ code, ...effects(b) }).toEqual({ code: 0, ...done });
+      if (stateName === ".isomux")
+        expect(
+          b.appCalls.some((c) => c.includes("isomux-app-board.service")),
+        ).toBe(true);
+    });
+  }
+
+  test("an app unit that does not disable is named, and the lock still stops and disables the office", async () => {
+    const b = effectsBed({ refuseDisable: ["board"] });
+    const code = await b.run(["lockdown", "--stop", "--reason", "x"]);
+    const said = [...b.out.log, ...b.out.err];
+    expect({
+      code,
+      unit: { ...b.unit },
+      board: b.apps.board,
+      idle: b.apps.idle,
+      named: said.some((l) => l.includes("board")),
+      idleNamed: said.some((l) => l.includes("idle")),
+    }).toEqual({
+      code: 0,
+      unit: { active: false, enabled: false },
+      board: { active: false, enabled: true },
+      idle: { active: false, enabled: false },
+      named: true,
+      idleNamed: false,
+    });
+  });
+
+  test("an app registry that does not read is said, and the lock still revokes, stops and disables the office", async () => {
+    const b = bed();
+    seedCredentials(b.stateRoot);
+    mkdirSync(join(b.stateRoot, "apps"), { recursive: true });
+    writeFileSync(join(b.stateRoot, "apps", "apps.json"), "{");
+    const code = await b.run(["lockdown", "--stop", "--reason", "x"]);
+    expect({
+      code,
+      unit: { ...b.unit },
+      moved: Object.keys(quarantined(b.stateRoot)).sort(),
+      // Which apps run is not known: the lock must say so, not stay quiet.
+      said: b.out.err.length > 0,
+    }).toEqual({
+      code: 0,
+      unit: { active: false, enabled: false },
+      moved: [...QUARANTINED_FILES].sort(),
+      said: true,
+    });
+  });
+
+  test("the root step lock-effects does the same effects with no unit change, names an app it could not disable, and exits 0", async () => {
+    const b = effectsBed({ active: false, refuseDisable: ["idle"] });
+    const code = await b.run(["_step", "lock-effects"]);
+    const said = [...b.out.log, ...b.out.err];
+    expect({
+      code,
+      ...effects(b),
+      named: said.some((l) => l.includes("idle")),
+      verbs: b.verbs(),
+    }).toEqual({
+      code: 0,
+      ...done,
+      apps: { ...done.apps, idle: { active: false, enabled: true } },
+      disabled: ["board"],
+      named: true,
+      verbs: [],
+    });
   });
 });
 

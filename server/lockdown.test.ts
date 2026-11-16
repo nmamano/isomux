@@ -20,9 +20,11 @@ import { join } from "node:path";
 import {
   LOCK_MARKER_FILE,
   LOCKDOWN_APPS_FILE,
+  LOCKDOWN_DISABLED_APPS_FILE,
   LOCKDOWN_DIR_PREFIX,
   QUARANTINED_FILES,
   ROOT_MARKER_FILE,
+  disableAppsForLock,
   lockMarkerBody,
   quarantineCredentials,
   readLockState,
@@ -228,9 +230,14 @@ describe("quarantineCredentials", () => {
   });
 });
 
-function fakeApps(registered: string[], active: string[]) {
+// `enabled`: the units are systemd units, and these are enabled (a reboot
+// starts them). Without it the host has no unit control (a container).
+function fakeApps(registered: string[], active: string[], enabled?: string[]) {
   const running = new Set(active);
+  const enabledSet = new Set(enabled ?? []);
   const calls: string[] = [];
+  /** Each enabledApps query, with the names it asked about. */
+  const queries: string[][] = [];
   const apps: LockdownApps = {
     list: () => [...registered],
     isActive: (name) => running.has(name),
@@ -243,8 +250,25 @@ function fakeApps(registered: string[], active: string[]) {
       running.add(name);
     },
   };
-  return { apps, calls, running };
+  if (enabled) {
+    apps.enabledApps = (names) => {
+      queries.push([...names]);
+      return names.filter((n) => enabledSet.has(n));
+    };
+    apps.disable = (name) => {
+      calls.push(`disable ${name}`);
+      enabledSet.delete(name);
+    };
+    apps.enable = (name) => {
+      calls.push(`enable ${name}`);
+      enabledSet.add(name);
+    };
+  }
+  return { apps, calls, running, enabled: enabledSet, queries };
 }
+
+const readRecord = (stateRoot: string, file: string): string[] =>
+  (JSON.parse(readFileSync(join(stateRoot, file), "utf8")) as string[]).sort();
 
 describe("the apps a lock stops", () => {
   test("every locked boot stops what runs; the first boot's record wins; the normal boot starts the recorded apps it may run and drops the record", () => {
@@ -289,6 +313,182 @@ describe("the apps a lock stops", () => {
   });
 });
 
+// A lock with --stop starts no locked office, so nothing stops the apps after
+// a reboot unless their units are disabled (task 367596bc). Every lock
+// disables them; the first normal boot enables the ones it disabled.
+describe("the app units a lock disables", () => {
+  test("disables each registered app whose unit is enabled, running or stopped, with one query; a later lock adds to the record and never drops a name", () => {
+    const { stateRoot } = bed();
+    // "off" was disabled before the lock; "ghost" is a unit of no registered
+    // app.
+    const first = fakeApps(
+      ["board", "idle", "off"],
+      ["board"],
+      ["board", "idle", "ghost"],
+    );
+    const result = disableAppsForLock(stateRoot, first.apps);
+    expect({
+      disabled: [...result.disabled].sort(),
+      failed: result.failed,
+      queries: first.queries.map((q) => [...q].sort()),
+      stillEnabled: [...first.enabled],
+      record: readRecord(stateRoot, LOCKDOWN_DISABLED_APPS_FILE),
+    }).toEqual({
+      disabled: ["board", "idle"],
+      failed: [],
+      queries: [["board", "idle", "off"]],
+      stillEnabled: ["ghost"],
+      record: ["board", "idle"],
+    });
+
+    // A second lock: someone enabled "late" by hand meanwhile.
+    const second = fakeApps(["board", "idle", "off", "late"], [], ["late"]);
+    expect(disableAppsForLock(stateRoot, second.apps).disabled).toEqual([
+      "late",
+    ]);
+    // A third finds nothing enabled.
+    const third = fakeApps(["board", "idle", "off", "late"], [], []);
+    expect(disableAppsForLock(stateRoot, third.apps).disabled).toEqual([]);
+    expect(readRecord(stateRoot, LOCKDOWN_DISABLED_APPS_FILE)).toEqual([
+      "board",
+      "idle",
+      "late",
+    ]);
+  });
+
+  test("a unit that does not disable is named as failed and kept out of the record; the others are still disabled", () => {
+    const { stateRoot } = bed();
+    const fake = fakeApps(["board", "idle"], [], ["board", "idle"]);
+    const apps: LockdownApps = {
+      ...fake.apps,
+      disable: (name) => {
+        if (name === "board") throw new Error("Access denied");
+        fake.apps.disable?.(name);
+      },
+    };
+    const result = disableAppsForLock(stateRoot, apps);
+    expect({
+      result,
+      stillEnabled: [...fake.enabled],
+      record: readRecord(stateRoot, LOCKDOWN_DISABLED_APPS_FILE),
+    }).toEqual({
+      result: { disabled: ["idle"], failed: ["board"] },
+      stillEnabled: ["board"],
+      record: ["idle"],
+    });
+  });
+
+  test("when the enabled units cannot be read, every registered app is named as failed; a host with no unit control disables nothing and writes no record", () => {
+    const { stateRoot } = bed();
+    const fake = fakeApps(["board", "idle"], [], ["board"]);
+    const unread = disableAppsForLock(stateRoot, {
+      ...fake.apps,
+      enabledApps: () => {
+        throw new Error("Failed to connect to bus");
+      },
+    });
+    expect({
+      disabled: unread.disabled,
+      failed: [...unread.failed].sort(),
+    }).toEqual({ disabled: [], failed: ["board", "idle"] });
+
+    const container = fakeApps(["board", "idle"], ["board"]);
+    expect({
+      result: disableAppsForLock(stateRoot, container.apps),
+      calls: container.calls,
+    }).toEqual({ result: { disabled: [], failed: [] }, calls: [] });
+    expect(existsSync(join(stateRoot, LOCKDOWN_DISABLED_APPS_FILE))).toBe(
+      false,
+    );
+  });
+
+  test("the first normal boot enables the recorded units still registered, then starts the recorded apps it may run, and drops both records; a unit disabled before the lock stays disabled", () => {
+    const { stateRoot } = bed();
+    const lock = fakeApps(
+      ["board", "chat", "idle", "off", "gone"],
+      ["board", "chat", "gone"],
+      ["board", "chat", "idle", "gone"],
+    );
+    stopAppsForLock(stateRoot, lock.apps);
+    disableAppsForLock(stateRoot, lock.apps);
+
+    // Unlocked: "gone" was removed meanwhile, "chat" may no longer run.
+    const normal = fakeApps(["board", "chat", "idle", "off"], [], []);
+    const started = restartAppsAfterLock(
+      stateRoot,
+      normal.apps,
+      (n) => n !== "chat",
+    );
+    const firstStart = normal.calls.findIndex((c) => c.startsWith("start "));
+    expect({
+      started,
+      // Every enable comes before the first start.
+      enables: normal.calls
+        .slice(0, firstStart === -1 ? undefined : firstStart)
+        .sort(),
+      starts: normal.calls.filter((c) => c.startsWith("start ")),
+      enabled: [...normal.enabled].sort(),
+      records: [LOCKDOWN_APPS_FILE, LOCKDOWN_DISABLED_APPS_FILE].filter((f) =>
+        existsSync(join(stateRoot, f)),
+      ),
+    }).toEqual({
+      started: ["board"],
+      enables: ["enable board", "enable chat", "enable idle"],
+      starts: ["start board"],
+      enabled: ["board", "chat", "idle"],
+      records: [],
+    });
+  });
+
+  test("a unit that does not enable stays in the record, so the next normal boot tries it again", () => {
+    const { stateRoot } = bed();
+    disableAppsForLock(
+      stateRoot,
+      fakeApps(["board", "idle"], [], ["board", "idle"]).apps,
+    );
+    const first = fakeApps(["board", "idle"], [], []);
+    restartAppsAfterLock(
+      stateRoot,
+      {
+        ...first.apps,
+        enable: (name) => {
+          if (name === "idle") throw new Error("Access denied");
+          first.apps.enable?.(name);
+        },
+      },
+      () => true,
+    );
+    const firstRecord = readRecord(stateRoot, LOCKDOWN_DISABLED_APPS_FILE);
+    const next = fakeApps(["board", "idle"], [], []);
+    restartAppsAfterLock(stateRoot, next.apps, () => true);
+    expect({
+      firstEnabled: [...first.enabled],
+      firstRecord,
+      nextCalls: next.calls,
+      record: existsSync(join(stateRoot, LOCKDOWN_DISABLED_APPS_FILE)),
+    }).toEqual({
+      firstEnabled: ["board"],
+      firstRecord: ["idle"],
+      nextCalls: ["enable idle"],
+      record: false,
+    });
+  });
+
+  test("a record of disabled units with no record of stopped apps (the unlock of an older release dropped it) is still enabled and dropped", () => {
+    const { stateRoot } = bed();
+    disableAppsForLock(stateRoot, fakeApps(["idle"], [], ["idle"]).apps);
+    expect(existsSync(join(stateRoot, LOCKDOWN_APPS_FILE))).toBe(false);
+    const normal = fakeApps(["idle"], [], []);
+    expect(restartAppsAfterLock(stateRoot, normal.apps, () => true)).toEqual(
+      [],
+    );
+    expect({
+      calls: normal.calls,
+      record: existsSync(join(stateRoot, LOCKDOWN_DISABLED_APPS_FILE)),
+    }).toEqual({ calls: ["enable idle"], record: false });
+  });
+});
+
 // What a lock does to the state, at the lockdown route's stop and at every
 // locked boot (task b1a56ba0). The route's stop runs it in the dying office,
 // so one failed step must not skip the others.
@@ -303,7 +503,7 @@ describe("applyLockEffects", () => {
     // What the root held when the apps stopped: the credentials go first,
     // so a hung app stop cannot hold them in the root.
     const atAppStop: string[][] = [];
-    const fake = fakeApps(["board", "idle"], ["board"]);
+    const fake = fakeApps(["board", "idle"], ["board"], ["board", "idle"]);
     const apps: LockdownApps = {
       ...fake.apps,
       stop: (name) => {
@@ -321,9 +521,9 @@ describe("applyLockEffects", () => {
   const lockdownDirs = (stateRoot: string) =>
     readdirSync(stateRoot).filter((n) => n.startsWith(LOCKDOWN_DIR_PREFIX));
 
-  test("moves the credentials aside first, empties the exports, stops what runs and records it", () => {
+  test("moves the credentials aside first, empties the exports, stops what runs, disables the enabled units and records both", () => {
     const b = lockBed();
-    applyLockEffects({
+    const result = applyLockEffects({
       stateRoot: b.stateRoot,
       apps: b.apps,
       exportBaseDir: b.backup,
@@ -335,19 +535,21 @@ describe("applyLockEffects", () => {
       dirs: dirs.length,
       moved: readdirSync(join(b.stateRoot, dirs[0] ?? "none")).sort(),
       exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
-      appCalls: b.fake.calls,
+      appCalls: [...b.fake.calls].sort(),
       atAppStop: b.atAppStop,
-      record: JSON.parse(
-        readFileSync(join(b.stateRoot, LOCKDOWN_APPS_FILE), "utf8"),
-      ),
+      record: readRecord(b.stateRoot, LOCKDOWN_APPS_FILE),
+      disabledRecord: readRecord(b.stateRoot, LOCKDOWN_DISABLED_APPS_FILE),
+      result,
     }).toEqual({
       inRoot: [],
       dirs: 1,
       moved: [...QUARANTINED_FILES].sort(),
       exports: [],
-      appCalls: ["stop board"],
+      appCalls: ["disable board", "disable idle", "stop board"],
       atAppStop: [[]],
       record: ["board"],
+      disabledRecord: ["board", "idle"],
+      result: { revoked: true, appsLeft: [] },
     });
   });
 
@@ -360,7 +562,7 @@ describe("applyLockEffects", () => {
       join(dir, "nowhere"),
       join(b.stateRoot, `${LOCKDOWN_DIR_PREFIX}${stamp}`),
     );
-    applyLockEffects({
+    const result = applyLockEffects({
       stateRoot: b.stateRoot,
       apps: b.apps,
       exportBaseDir: b.backup,
@@ -370,11 +572,13 @@ describe("applyLockEffects", () => {
       // The condition of this test: the quarantine did fail.
       inRoot: inRoot(b.stateRoot).length,
       exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
-      appCalls: b.fake.calls,
+      appCalls: [...b.fake.calls].sort(),
+      result,
     }).toEqual({
       inRoot: QUARANTINED_FILES.length,
       exports: [],
-      appCalls: ["stop board"],
+      appCalls: ["disable board", "disable idle", "stop board"],
+      result: { revoked: false, appsLeft: [] },
     });
   });
 
@@ -396,5 +600,37 @@ describe("applyLockEffects", () => {
       dirs: lockdownDirs(b.stateRoot).length,
       exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
     }).toEqual({ inRoot: [], dirs: 1, exports: [] });
+  });
+
+  test("names the apps it could not stop or disable, and still does the rest", () => {
+    const b = lockBed();
+    const result = applyLockEffects({
+      stateRoot: b.stateRoot,
+      apps: {
+        ...b.apps,
+        stop: () => {
+          throw new Error("Job for the unit failed");
+        },
+        disable: (name) => {
+          if (name === "idle") throw new Error("Access denied");
+          b.apps.disable?.(name);
+        },
+      },
+      exportBaseDir: b.backup,
+      now: NOW,
+    });
+    expect({
+      appsLeft: [...result.appsLeft].sort(),
+      revoked: result.revoked,
+      inRoot: inRoot(b.stateRoot),
+      exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
+      enabled: [...b.fake.enabled],
+    }).toEqual({
+      appsLeft: ["board", "idle"],
+      revoked: true,
+      inRoot: [],
+      exports: [],
+      enabled: ["idle"],
+    });
   });
 });

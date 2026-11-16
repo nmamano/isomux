@@ -118,7 +118,7 @@ A lockdown keeps provider keys and connection tokens, but nothing uses them whil
 
 From inside the office, an owner or an agent whose manager is an owner can lock the office and export its content with the `/isomux-rescue` skill. Only an owner signed in to the office in a browser can download the export, and the file is deleted an hour after it is ready. A lock signs everyone out at once, and the office stops. If its service manager starts it again, it starts locked. Code that runs as the office's user can remove a lock made from inside the office, on every install: for a lock it cannot remove, run `lockdown` on the machine.
 
-Run the command from a login shell on the machine, not from an office terminal or agent shell: stopping the office would end it. The lock holds against members, tokens and agents. On an install that is not run as root, code that already runs as the office's user can remove the lock. Apps start again at boot before the office stops them, so a locked office's apps can run for a few seconds after a reboot.
+Run the command from a login shell on the machine, not from an office terminal or agent shell: stopping the office would end it. The lock holds against members, tokens and agents. On an install that is not run as root, code that already runs as the office's user can remove the lock. In a container, apps start again at boot before the office stops them, so a locked office's apps can run for a few seconds after a reboot.
 
 A backup taken before the lock still holds the revoked sign-ins: restoring it brings them back.
 

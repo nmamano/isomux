@@ -1369,6 +1369,96 @@ describe("app-supervisor: reading state", () => {
 
 // --- logs -------------------------------------------------------------------
 
+// The lock's unit control (task 367596bc): which app units a reboot would
+// start, and the enabled bit without a start or a stop.
+describe("app-supervisor: the enabled bit", () => {
+  it("reads every app in one is-enabled call, one line per unit as systemd 255 prints it (exit 0 when one is enabled, non-zero when none is); enable and disable run that verb on the unit and nothing else; a failed verb throws", () => {
+    let answer: Partial<RunResult> = {};
+    let refuse = false;
+    const host = fakeHost((argv) => {
+      if (isRun(argv, "systemctl", "--user", "is-enabled")) return answer;
+      if (
+        refuse &&
+        (isRun(argv, "systemctl", "--user", "enable") ||
+          isRun(argv, "systemctl", "--user", "disable"))
+      )
+        return { code: 1, stderr: "Access denied" };
+      return undefined;
+    });
+    const sup = createAppSupervisor({ host, unitPrefix: "isomux-app-" });
+
+    answer = {
+      code: 0,
+      stdout: "enabled\ndisabled\nnot-found\nstatic\nenabled\n",
+    };
+    const enabled = sup.enabledApps?.(["a", "b", "c", "d", "e"]);
+    answer = { code: 1, stdout: "disabled\ndisabled\n" };
+    const none = sup.enabledApps?.(["a", "b"]);
+    const queries = host.runs.filter((r) =>
+      isRun(r, "systemctl", "--user", "is-enabled"),
+    );
+    host.runs.length = 0;
+    sup.disable?.("a");
+    sup.enable?.("b");
+    expect({
+      enabled,
+      none,
+      queries,
+      verbs: host.runs,
+    }).toEqual({
+      enabled: ["a", "e"],
+      none: [],
+      queries: [
+        [
+          "systemctl",
+          "--user",
+          "is-enabled",
+          "isomux-app-a.service",
+          "isomux-app-b.service",
+          "isomux-app-c.service",
+          "isomux-app-d.service",
+          "isomux-app-e.service",
+        ],
+        [
+          "systemctl",
+          "--user",
+          "is-enabled",
+          "isomux-app-a.service",
+          "isomux-app-b.service",
+        ],
+      ],
+      verbs: [
+        ["systemctl", "--user", "disable", "isomux-app-a.service"],
+        ["systemctl", "--user", "enable", "isomux-app-b.service"],
+      ],
+    });
+
+    refuse = true;
+    expect(() => sup.disable?.("a")).toThrow();
+    expect(() => sup.enable?.("a")).toThrow();
+  });
+
+  it("an answer that does not hold one line per unit (no bus) throws, never reads as nothing enabled", () => {
+    const host = fakeHost((argv) =>
+      isRun(argv, "systemctl", "--user", "is-enabled")
+        ? {
+            code: 1,
+            stdout: "",
+            stderr: "Failed to connect to bus: No medium found",
+          }
+        : undefined,
+    );
+    const sup = createAppSupervisor({ host, unitPrefix: "isomux-app-" });
+    expect(() => sup.enabledApps?.(["a", "b"])).toThrow();
+    // No app, no call.
+    host.runs.length = 0;
+    expect({ none: sup.enabledApps?.([]), runs: host.runs.length }).toEqual({
+      none: [],
+      runs: 0,
+    });
+  });
+});
+
 describe("app-supervisor: logs", () => {
   it("asks journald for the app's unit and returns the lines", () => {
     const host = fakeHost((argv) =>

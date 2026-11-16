@@ -575,6 +575,7 @@ import {
 } from "./lockdown.ts";
 import { readFileSync, rmSync } from "node:fs";
 import { applyLockEffects, startLockedOffice } from "./locked-office.ts";
+import { lockdownApps as lockdownAppsOver } from "./lockdown-apps.ts";
 import { defaultAppSupervisor } from "./app-supervisor-default.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
 import { createEventFanout } from "./office-event-fanout.ts";
@@ -6800,14 +6801,7 @@ function applyOfficeLockEffects(): void {
 }
 
 function lockdownApps(supervisor: AppSupervisor): LockdownApps {
-  return {
-    list: () => appRegistry.list().map((app) => app.name),
-    // Anything not known to be stopped is stopped (fail safe).
-    isActive: (name) =>
-      supervisor.states([name]).get(name)?.state !== "stopped",
-    stop: (name) => supervisor.stop(name),
-    start: (name) => supervisor.start(name),
-  };
+  return lockdownAppsOver(supervisor, appRegistry);
 }
 
 function lockExportBaseDir(): string | null {

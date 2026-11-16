@@ -29,6 +29,7 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
+import { createAppRegistry } from "../server/app-registry.ts";
 import {
   LOCK_MARKER_FILE,
   LOCKDOWN_DIR_PREFIX,
@@ -134,7 +135,20 @@ exec "$@"`,
   stub(
     bin,
     "systemctl",
-    `echo "systemctl $*" >> ${log}
+    `# An app unit, in the service user's manager: logged apart with the bus
+# environment it was reached through, every unit loaded, running, enabled.
+if [[ " $* " == *" isomux-app-"* ]]; then
+  echo "app XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR-unset} DBUS_SESSION_BUS_ADDRESS=\${DBUS_SESSION_BUS_ADDRESS-unset} $*" >> ${log}
+  for a in "$@"; do
+    [[ $a == isomux-app-* ]] || continue
+    case " $* " in
+      *" is-enabled "*) echo enabled ;;
+      *" show "*) printf 'Id=%s\\nLoadState=loaded\\nActiveState=active\\nSubState=running\\nNRestarts=0\\n\\n' "$a" ;;
+    esac
+  done
+  exit 0
+fi
+echo "systemctl $*" >> ${log}
 read -r state enabled < ${unitFile}
 verb=""
 for a in "$@"; do case $a in stop|start|restart|enable|disable|is-active|is-enabled|show) verb=$a; break;; esac; done
@@ -323,6 +337,51 @@ test("lockdown as root: both markers, the stop, the audit, this office's leftove
 
   const status = await r.run(["status"]);
   expect(status.code).toBe(2);
+});
+
+// A lock with --stop starts no locked office: the wrapper runs the lock's
+// effects as the service user, and the app units live in that user's
+// manager, which systemctl --user reaches through XDG_RUNTIME_DIR alone
+// (deploy/install.sh user_manager_reachable). Root's own bus address must
+// not leak in (task 367596bc).
+test("lockdown --stop as root runs the lock-effects step, which stops and disables the office's apps through the service user's manager, never root's bus", async () => {
+  const r = rig();
+  createAppRegistry({
+    dir: join(r.stateRoot, "apps"),
+    probePort: () => true,
+  }).register({
+    name: "board",
+    command: "true",
+    cwd: r.stateRoot,
+    userId: null,
+    username: null,
+    createdBy: "test",
+  });
+  r.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/0/bus";
+  r.env.XDG_RUNTIME_DIR = "/run/user/0";
+  const lock = await r.run(["lockdown", "--stop", "--reason", "x"]);
+  if (lock.code !== 0) console.error(lock.out);
+  const lines = readFileSync(r.log, "utf8").split("\n");
+  const app = lines.filter((l) => l.startsWith("app "));
+  const env = `XDG_RUNTIME_DIR=/run/user/${userInfo().uid} DBUS_SESSION_BUS_ADDRESS=unset`;
+  expect({
+    code: lock.code,
+    step: lines.some(
+      (l) => l.startsWith("runuser ") && / _step lock-effects( |$)/.test(l),
+    ),
+    // Every app call went to the service user's manager.
+    wrongBus: app.filter((l) => !l.startsWith(`app ${env} --user `)),
+    stopped: app.some((l) => / stop isomux-app-board\.service$/.test(l)),
+    disabled: app.some((l) => / disable isomux-app-board\.service$/.test(l)),
+    calls: r.calls(),
+  }).toEqual({
+    code: 0,
+    step: true,
+    wrongBus: [],
+    stopped: true,
+    disabled: true,
+    calls: [`stop ${SERVICE}`, `disable ${SERVICE}`],
+  });
 });
 
 // The checkout belongs to the service user, so on a root install everything

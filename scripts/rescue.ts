@@ -21,12 +21,14 @@
 //   _step state-marker --reason <text> --by <who>   write <state>/LOCKDOWN
 //   _step remove-state-marker                       quarantine, then remove the marker
 //   _step audit lockdown|unlock [--reason <text>]   only while the unit is down
-//   _step quarantine
+//   _step lock-effects                              the lock's effects on the state and the apps
+//   _step quarantine                                (a wrapper from an older release)
 //   _step report <file>|- [--journal-stdin] [--release <tag>] [--previous <tag>]
 //         [--update-result <text>] [--note <text>]
 //
-// Lockdown order: marker, stop, wait inactive, audit, kill leftovers,
-// quarantine, start. A cut at any point leaves the office stopped or locked.
+// Lockdown order: marker, stop, wait inactive, audit, kill leftovers, lock
+// effects (quarantine, move, exports, apps stopped and disabled), start. A
+// cut at any point leaves the office stopped or locked.
 
 import {
   closeSync,
@@ -45,17 +47,30 @@ import {
   writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import {
   LOCK_MARKER_FILE,
   LOCKED_READY_BODY,
   ROOT_MARKER_DIR,
   quarantineCredentials,
   readLockState,
+  type LockdownApps,
   unlockStateMarker,
   writeStateMarker,
 } from "../server/lockdown.ts";
 import { RESCUE_ACTOR, recordLockAudit } from "../server/lockdown-audit.ts";
+import { lockdownApps } from "../server/lockdown-apps.ts";
+import {
+  applyLockEffects,
+  type LockEffectsResult,
+} from "../server/locked-office.ts";
+import { createAppRegistry } from "../server/app-registry.ts";
+import {
+  createAppSupervisor,
+  createSystemdHost,
+} from "../server/app-supervisor.ts";
+import { resolveBackupDir } from "../server/backup.ts";
+import { unitPrefixFor } from "../server/office-units.ts";
 import { exportOffice } from "../server/office-export.ts";
 import { buildIncidentReport } from "../server/office-report.ts";
 import { CALVER_RELEASE_RE } from "../server/version.ts";
@@ -100,6 +115,53 @@ export function renameInstructionFiles(dir: string): string[] {
   };
   walk(dir);
   return renamed;
+}
+
+/** The office's apps as a lock stops and disables them, read from
+ *  `stateRoot` (never the module STATE_ROOT): its app registry, and the
+ *  systemd supervisor with the unit prefix of that root, whose systemctl
+ *  calls go through `host`. */
+export function hostLockdownApps(
+  stateRoot: string,
+  home: string,
+  host: Pick<RescueHost, "systemctl">,
+): LockdownApps {
+  const root = resolve(stateRoot);
+  const registry = createAppRegistry({ dir: join(root, "apps") });
+  const supervisor = createAppSupervisor({
+    unitPrefix: unitPrefixFor(root, root === join(home, ".isomux")),
+    host: {
+      ...createSystemdHost(),
+      // The supervisor runs systemctl only, for the calls a lock makes.
+      run: (argv) => {
+        if (argv[0] !== "systemctl")
+          return { code: 127, stdout: "", stderr: `not run: ${argv[0]}` };
+        return { ...host.systemctl(argv.slice(1)), stderr: "" };
+      },
+    },
+  });
+  return lockdownApps(supervisor, registry);
+}
+
+/** The backup folder of the office at `stateRoot`, as server/backup.ts
+ *  resolves it: ISOMUX_BACKUP_DIR, the office's setting, or the folder next
+ *  to the state root. */
+export function backupDirOf(stateRoot: string): string {
+  let setting: string | null = null;
+  try {
+    const config = JSON.parse(
+      readFileSync(join(stateRoot, "office-config.json"), "utf8"),
+    ) as { backupDir?: unknown };
+    if (typeof config.backupDir === "string" && isAbsolute(config.backupDir))
+      setting = config.backupDir;
+  } catch {
+    // No setting: the default folder.
+  }
+  return resolveBackupDir(
+    process.env.ISOMUX_BACKUP_DIR || undefined,
+    setting,
+    stateRoot,
+  ).dir;
 }
 
 /** The brief with RESCUE_COMMAND replaced by `prefix`, taken literally. */
@@ -435,8 +497,8 @@ class Rescue {
     const killed = await this.killLeftovers();
     if (killed.length > 0)
       this.out.log(`Ended ${killed.length} office process(es) left running.`);
-    const moved = quarantineCredentials(stateRoot, this.host.now());
-    if (moved.dir)
+    const effects = this.lockEffects();
+    if (effects.revoked)
       this.out.log(
         "Revoked every sign-in, API token, invite and browser extension pairing.",
       );
@@ -807,6 +869,28 @@ class Rescue {
     return 0;
   }
 
+  // What a lock does to the state and the apps (applyLockEffects), here
+  // because a lock with --stop starts no locked office to do it (task
+  // 367596bc). Names the apps it could not stop or disable.
+  private lockEffects(): LockEffectsResult {
+    const { stateRoot } = this.config;
+    const result = applyLockEffects({
+      stateRoot,
+      apps: hostLockdownApps(stateRoot, this.host.home, this.host),
+      exportBaseDir: backupDirOf(stateRoot),
+      now: this.host.now(),
+    });
+    if (result.appsUnknown)
+      this.out.err(
+        "Could not check the office's apps: they may still run, or start again after a reboot.",
+      );
+    if (result.appsLeft.length > 0)
+      this.out.err(
+        `These apps may still run, or start again after a reboot: ${result.appsLeft.join(", ")}`,
+      );
+    return result;
+  }
+
   // The root wrapper's steps, run as the service user.
   step(rest: string[], args: Args): number {
     const { stateRoot } = this.config;
@@ -824,6 +908,9 @@ class Rescue {
           reason: args.reason,
           now,
         });
+        return 0;
+      case "lock-effects":
+        this.lockEffects();
         return 0;
       case "quarantine": {
         const moved = quarantineCredentials(stateRoot, now);
@@ -864,24 +951,9 @@ function readText(path: string): string | null {
   }
 }
 
-// The backup folder as server/backup.ts resolves it: ISOMUX_BACKUP_DIR, the
-// office's setting, or the folder next to the state root.
+// The newest backup in the office's backup folder.
 function newestBackup(stateRoot: string): string | null {
-  let dir = process.env.ISOMUX_BACKUP_DIR || null;
-  if (!dir) {
-    try {
-      const config = JSON.parse(
-        readFileSync(join(stateRoot, "office-config.json"), "utf8"),
-      ) as { backupDir?: unknown };
-      if (typeof config.backupDir === "string") dir = config.backupDir;
-    } catch {
-      // No setting: the default folder.
-    }
-  }
-  dir ??= join(
-    dirname(stateRoot),
-    `${basename(stateRoot).replace(/^\./, "")}-backups`,
-  );
+  const dir = backupDirOf(stateRoot);
   try {
     const files = readdirSync(dir).filter((f) =>
       /^isomux-.*\.tar\.gz$/.test(f),

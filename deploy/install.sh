@@ -1434,12 +1434,17 @@ read_conf() {
   fi
 }
 
-# scripts/rescue.ts as the service user, in the checkout.
+# scripts/rescue.ts as the service user, in the checkout. Its systemctl
+# --user calls (the lock's app stops) reach that user's manager through
+# XDG_RUNTIME_DIR alone; root's bus address must not leak in
+# (deploy/install.sh user_manager_reachable).
 as_service() {
-  local home
+  local home uid
   home=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
   [[ -n $home ]] || die "no such user: $SERVICE_USER"
-  (cd "$REPO_DIR" && runuser -u "$SERVICE_USER" -- env "HOME=$home" \
+  uid=$(id -u "$SERVICE_USER")
+  (cd "$REPO_DIR" && runuser -u "$SERVICE_USER" -- env \
+    -u DBUS_SESSION_BUS_ADDRESS "XDG_RUNTIME_DIR=/run/user/$uid" "HOME=$home" \
     "ISOMUX_HOME=$STATE_ROOT" "ISOMUX_RESCUE_CONF=$CONF" \
     "ISOMUX_RESCUE_ROOT_MARKER_DIR=$MARKER_DIR" \
     "$BUN" scripts/rescue.ts "$@")
@@ -1584,7 +1589,11 @@ cmd_lockdown() {
     wait_inactive || die "the office did not stop within ${STOP_TIMEOUT_S} s. It stays locked; run lockdown again."
     as_service _step audit lockdown --reason "$reason"
     kill_leftovers
-    as_service _step quarantine >/dev/null
+    # The lock's effects: credentials, move, exports, and the apps stopped and
+    # disabled, since a lock with --stop starts no locked office to do it.
+    # A failure must not stop the lockdown before the office is disabled.
+    as_service _step lock-effects >/dev/null ||
+      echo "isomux-rescue: part of the lock did not finish; see the lines above." >&2
     echo "Revoked every sign-in, API token, invite and browser extension pairing."
     if ((stop)); then
       systemctl disable "$SERVICE_NAME"
@@ -7123,12 +7132,17 @@ read_conf() {
   fi
 }
 
-# scripts/rescue.ts as the service user, in the checkout.
+# scripts/rescue.ts as the service user, in the checkout. Its systemctl
+# --user calls (the lock's app stops) reach that user's manager through
+# XDG_RUNTIME_DIR alone; root's bus address must not leak in
+# (deploy/install.sh user_manager_reachable).
 as_service() {
-  local home
+  local home uid
   home=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
   [[ -n $home ]] || die "no such user: $SERVICE_USER"
-  (cd "$REPO_DIR" && runuser -u "$SERVICE_USER" -- env "HOME=$home" \
+  uid=$(id -u "$SERVICE_USER")
+  (cd "$REPO_DIR" && runuser -u "$SERVICE_USER" -- env \
+    -u DBUS_SESSION_BUS_ADDRESS "XDG_RUNTIME_DIR=/run/user/$uid" "HOME=$home" \
     "ISOMUX_HOME=$STATE_ROOT" "ISOMUX_RESCUE_CONF=$CONF" \
     "ISOMUX_RESCUE_ROOT_MARKER_DIR=$MARKER_DIR" \
     "$BUN" scripts/rescue.ts "$@")
@@ -7273,7 +7287,11 @@ cmd_lockdown() {
     wait_inactive || die "the office did not stop within ${STOP_TIMEOUT_S} s. It stays locked; run lockdown again."
     as_service _step audit lockdown --reason "$reason"
     kill_leftovers
-    as_service _step quarantine >/dev/null
+    # The lock's effects: credentials, move, exports, and the apps stopped and
+    # disabled, since a lock with --stop starts no locked office to do it.
+    # A failure must not stop the lockdown before the office is disabled.
+    as_service _step lock-effects >/dev/null ||
+      echo "isomux-rescue: part of the lock did not finish; see the lines above." >&2
     echo "Revoked every sign-in, API token, invite and browser extension pairing."
     if ((stop)); then
       systemctl disable "$SERVICE_NAME"
