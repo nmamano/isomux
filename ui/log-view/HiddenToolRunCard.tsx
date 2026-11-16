@@ -6,7 +6,7 @@
 // talked with. When the run ends a turn, the turn copy button sits beside it
 // and copies the whole turn (Nil, 2026-11-15, task 59aca671). A tap on the
 // line opens the cards the run holds. A reply that is only the no-update
-// keyword (task 51c187f4) adds "nothing for you" to the line; a run of only
+// keyword (task 51c187f4) adds "nothing new for you" to the line; a run of only
 // such replies is a still line, with nothing to open. A line that ends with
 // such a reply has no copy button: the turn has nothing for the member. A
 // line can hold the restart line (findHiddenRuns). The open state

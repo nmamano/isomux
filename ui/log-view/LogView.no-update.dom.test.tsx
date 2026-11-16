@@ -357,7 +357,7 @@ const restart = (id: string) => ({
 });
 const RESTARTED = EN.t("systemEntries.restartWake.resumed");
 
-it("a restart between quiet turns of agent traffic is one line, one nothing for you, no copy button", async () => {
+it("a restart between quiet turns of agent traffic is one line, one nothing new for you, no copy button", async () => {
   // Nil's sign-off image: three turns, the server restarted in the third.
   const logs = [
     member("u1", "Restart the server when Main asks."),
