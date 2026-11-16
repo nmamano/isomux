@@ -100,11 +100,11 @@ export function HiddenToolRunCard({
           onClick={onToggle}
           style={line}
         >
+          {avatars}
+          {label}
           <span style={{ fontSize: 8 }}>
             <StatusShape kind="triangle" rotate={90} />
           </span>
-          {avatars}
-          {label}
         </button>
         {entries.map((entry, at) => {
           const props = cardProps(entry);
