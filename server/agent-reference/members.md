@@ -2,7 +2,7 @@
 
 When your manager is an office owner, you can add a person to the office. `POST /api/users` with `{name,role:"member",allowedRooms?,instructions?,avatarColor?,avatarVariant?}` creates a member. The new member can sign in only through a sign-in link that an office owner mints in the UI; you cannot mint it. Tell the member to do that step.
 
-One member's special instructions can point to another member's instead of copying them: everyone who shares a room with that member can read them (see discovery). A privileged agent can edit its manager's special instructions, or any member's when its manager is an office owner. Read `GET /api/users/:username/instructions`, then send `PUT /api/users/:username/instructions` with `{instructions,version}`, using the version from that read. On 409, read again and merge the changes before retrying.
+One member's special instructions can point to another member's instead of copying them: everyone who shares a room with that member can read them (see discovery). A privileged agent can edit its manager's special instructions, or any member's when its manager is an office owner. Read `GET /api/users/:username/instructions`, then send `PUT /api/users/:username/instructions` with `{instructions,version}`, using the version from that read. On 409, read again and merge the changes before retrying. Write instructions as you write memory lines: the rule or a pointer, without the member's words quoted, evidence or history (see memory).
 
 A privileged agent can rename its manager, or any member when its manager is an office owner: `PATCH /api/users/:username` with `{name}`. Instructions, memory and other texts that use the old name keep it.
 
