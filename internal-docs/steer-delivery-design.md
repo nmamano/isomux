@@ -138,7 +138,7 @@ of one of them fails with the existing "could not locate" error. (Agent-sent ent
 never match a backend message, because the backend text carries the sender prefix; the exclusion makes that
 explicit.) The eligible-batch rule keeps every member message on the backend-user-message path.
 
-**Human "Send now" / Ctrl+Enter:** unchanged (abort, then flush). A member who presses it means stop now.
+**Human "Send now" / Ctrl+Enter:** unchanged (abort, then flush; not during a handoff's brief turn: auto-handoff-design.md section 3). A member who presses it means stop now.
 
 What the receiver sees, as the CLI renders it:
 

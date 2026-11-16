@@ -519,6 +519,40 @@ describe("/handoff refusals", () => {
     await settle();
     expect(h.fake.sessions).toHaveLength(2);
   });
+
+  // The automatic handoff's case is in auto-handoff.test.ts; this one shows
+  // the rule holds for each kind of brief turn (task 774df066).
+  it("during the brief turn, a send-now waits for the fresh session and the brief turn completes", async () => {
+    const h = makeHarness();
+    let briefSession: FakeSession | null = null;
+    h.brief.answer = (s) => {
+      briefSession = s;
+    };
+    const info = await spawn(h);
+    const old = await finishedTurn(h, info.id);
+    void h.mgr.sendMessage(info.id, "/handoff");
+    await waitUntil(() => briefSession !== null, "brief turn sent");
+    // The brief turn runs, so a send-now has a turn to stop.
+    expect(stateOf(h, info.id)).toBe("thinking");
+    await h.mgr.sendMessage(
+      info.id,
+      "NOW-DURING",
+      undefined,
+      undefined,
+      undefined,
+      { sendNow: true },
+    );
+    await settle();
+    expect(systemLines(h)).not.toContain(failedLine);
+    expect(stateOf(h, info.id)).toBe("thinking");
+    expect(queueOf(h, info.id)).toEqual(["NOW-DURING"]);
+    briefSession!.completeTurn({ text: BRIEF });
+    const fresh = await freshSession(h, info.id, old);
+    expect(texts(old).filter(isManualBrief)).toHaveLength(1);
+    expectInOrder(fresh.sent[0].text, [BRIEF, "NOW-DURING"]);
+    expect(sent(old, "NOW-DURING")).toBe(false);
+    expect(systemLines(h)).toContain(handedOff);
+  });
 });
 
 describe("/handoff failures: no switch, and the conversation continues", () => {

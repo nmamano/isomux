@@ -6541,6 +6541,10 @@ export function createAgentManager(deps: ManagerDeps) {
     // A conversation change holds the queue and ends the running turn itself;
     // its release delivers the queue to the next session.
     if (queueHeld(managed)) return { ok: true };
+    // A handoff's brief turn (or its reset) runs: the queue goes to the fresh
+    // session after the brief, and an abort would only cancel the handoff. No
+    // interrupt cause is stamped: nothing is interrupted.
+    if (managed.autoHandoffPhase?.briefStarted) return { ok: true };
     if (inMultiStepFlow(managed)) {
       return {
         ok: false,
@@ -6951,8 +6955,9 @@ export function createAgentManager(deps: ManagerDeps) {
         // multi-step flow, not a slash command) apply for free - everywhere
         // else a sendNow message takes the plain path. Fire-and-forget like
         // the endpoint's own wiring (sendNow handles its own state).
-        // Not when only an armed handoff made the agent busy: the enqueue
-        // above may have started the brief turn, and this would abort it.
+        // Only when a turn was running before the enqueue. sendNow also waits
+        // while a handoff's brief turn runs, including one the enqueue above
+        // started.
         void sendNow(agentId, "member_send_now");
       }
       if (result.ok) accept();

@@ -901,6 +901,58 @@ describe("automatic handoff: the next message starts it", () => {
     expect(sent(old, "NOW-NEXT")).toBe(false);
   });
 
+  // A send-now while the brief turn runs waits with the queue for the fresh
+  // session: stopping the brief turn would use up the automatic attempt for
+  // the rest of the conversation (Nil, 2026-11-16, task 774df066). Both front
+  // doors: the composer's Ctrl/Cmd+Enter and the queue's Send now.
+  for (const via of ["composer", "send-now route"] as const) {
+    it(`a send-now during the brief turn (${via}) waits for the fresh session, and the brief turn completes`, async () => {
+      const h = makeHarness();
+      let briefSession: FakeSession | null = null;
+      h.brief.answer = (s) => {
+        briefSession = s;
+      };
+      const info = await spawn(h);
+      const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+      await nextMessage(h, info.id);
+      await waitUntil(() => briefSession !== null, "brief turn sent");
+      // The brief turn runs, so a send-now has a turn to stop.
+      expect(stateOf(h, info.id)).toBe("thinking");
+      if (via === "composer") {
+        await h.mgr.sendMessage(
+          info.id,
+          "NOW-DURING",
+          undefined,
+          undefined,
+          undefined,
+          { sendNow: true },
+        );
+      } else {
+        await h.mgr.sendMessage(info.id, "NOW-DURING");
+        expect(h.mgr.sendNow(info.id, "member_send_now")).toEqual({
+          ok: true,
+        });
+      }
+      await settle();
+      expect(systemLines(h)).not.toContain(
+        en.t("systemEntries.autoHandoff.failed"),
+      );
+      expect(stateOf(h, info.id)).toBe("thinking");
+      expect(
+        h.mgr
+          .getAllAgents()
+          .find((a) => a.id === info.id)
+          ?.queue?.map((m) => m.text),
+      ).toEqual([NEXT, "NOW-DURING"]);
+      briefSession!.completeTurn({ text: BRIEF });
+      const fresh = await freshSession(h, info.id, old);
+      expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+      expectInOrder(fresh.sent[0].text, [BRIEF, NEXT, "NOW-DURING"]);
+      expect(sent(old, NEXT)).toBe(false);
+      expect(sent(old, "NOW-DURING")).toBe(false);
+    });
+  }
+
   it("an armed agent released while idle runs the brief turn in its resumed session when a message wakes it", async () => {
     const h = makeHarness();
     const info = await spawn(h);
