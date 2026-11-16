@@ -216,7 +216,7 @@ requires an existing `scopeId`. `office` rejects `scopeId`. For `member`, an omi
 name an existing user.
 
 `POST /api/memory` accepts `{ scope, scopeId?, text }` and appends one
-server-stamped trigger. The text must fit on one line of at most 400 characters.
+trigger as a `- {text}` line. The text must fit on one line of at most 400 characters.
 The response returns `{ item, version, size, cap }`, where `size` and `cap` show
 the scope's post-write cost. A duplicate returns 409. A line or scope-cap failure
 returns 422.

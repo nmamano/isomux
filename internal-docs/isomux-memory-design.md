@@ -5,14 +5,12 @@
 > routes) was built and then replaced, before shipping, with a simpler raw model
 > at Nil's call. What shipped:
 >
-> - Per-scope plain-markdown files of `- {Creator}, {date}: {text}` lines - **no
->   ids, no supersede/tombstone grammar**. One exception, added later by task
->   f9d2bbac: an agent APPENDing to its OWN agent scope writes
->   `- {date}: {text}`, because there the Creator names the reader and burns
->   cap + prompt space for nothing. Both shapes parse; nothing rewrites
->   existing lines.
+> - Per-scope plain-markdown files of `- {text}` lines - **no ids, no
+>   supersede/tombstone grammar**, and no author or date (task faee4332): the
+>   audit log records who wrote each line and when. Lines stamped by older
+>   versions stay as they are.
 > - **Three REST verbs on `/api/memory`:** READ (whole file + a sha256 `version`),
->   APPEND (one server-stamped line, text capped at 400 characters, with an
+>   APPEND (one line, text capped at 400 characters, with an
 >   exact-duplicate guard and post-write size/cap), REPLACE
 >   (whole-file overwrite guarded by the `version` from READ - 409 on mismatch).
 > - Every mutation is recorded to an append-only **op-log** (`memory/.oplog.jsonl`,
@@ -22,8 +20,7 @@
 >   reaches the room, member memory read by whoever shares a room with the member or has an office
 >   owner's reach,
 >   agent memory written by the agent and whoever can edit its instructions, office
->   memory open; `date` is server-stamped on APPEND, as is `author` except on the
->   self-note case above. A member's memory auto-loads solely into that member's
+>   memory open. A member's memory auto-loads solely into that member's
 >   own agents' prompts.
 > - **Humans curate through the same READ/REPLACE verbs** from each scope's
 >   settings field (a shared `useMemoryEditor` hook).
@@ -77,8 +74,7 @@ Memory is **plain markdown files on disk**. The directory tree _is_ the schema.
 Each scope file is a **flat list** of facts, one per line, raw and unstructured:
 
 ```
-- {Creator}, {YYYY-MM-DD}: {self-contained fact}
-- {YYYY-MM-DD}: {self-contained fact}            # an agent's note to ITSELF
+- {self-contained fact}
 ```
 
 That shape is the **APPEND convention, not an enforced grammar**: APPEND writes it,
@@ -89,13 +85,13 @@ append-safe. Editing or retracting a fact is a **whole-file REPLACE** (read the
 file, change the text, write it back), guarded by an optimistic `version` so two
 concurrent edits cannot silently clobber each other (section 4).
 
-**Provenance.** An APPEND stamps the date from the authenticated caller (never
-the request body), and the `Creator` too - unless the caller IS the agent whose
-scope it is, which writes the second shape above (task f9d2bbac). The op-log
-`actor` names the caller on every op, self-notes included, so dropping the
-in-file Creator loses no attribution. A REPLACE writes the file bytes **verbatim**, so
-after a human or agent hand-edit the in-file `Creator`/date are display text only - 
-the **op-log** is the authoritative record of who changed what and when.
+**Provenance.** A line carries no author or date (task faee4332). Memory text
+loads into agent context, and who wrote a line and when is audit data, so it
+lives only in the audit log: each APPEND and REPLACE records the authenticated
+actor, the time and the full file after the op. Lines that older versions
+stamped (`- {Creator}, {date}: {text}`, or `- {date}: {text}` for an agent's
+note to itself) stay as they are, and the duplicate guard compares a new text
+with both their whole text and their unstamped text.
 
 ### What to record (task-agnostic guidance)
 
@@ -144,9 +140,7 @@ existing target.
 - A scope the caller cannot read answers 404, as a missing target; one it reads
   but cannot write answers 403 `memory_write_forbidden`. Token rooms and a
   permission pack's memory area limit all of this further.
-- `author` + `date` are server-stamped on APPEND from the caller's identity; body
-  values are ignored. (`author` is omitted from the line - not taken from the
-  body - when an agent appends to its own agent scope; see Provenance above.)
+- The audit log records the caller of each write; the line names nobody.
 
 All office agents currently run as the **same OS user**, and agent reads under
 `~/.isomux` are explicitly allowed by `safety-hooks.ts`, so a capable agent can
@@ -183,10 +177,9 @@ agents," not their cron jobs.
 
 Injected as a **distinct, provenance-labeled layer, separate from the
 authoritative prompts** (after the office/room/agent _prompts_). Human-authored
-prompts are _policy_; agent-authored memory is _shared context and observations_,
-attributed. This separation shrinks the blast radius of a bad agent write from
-"injects a false rule everyone obeys" to "adds an attributed, weighable note to a
-shared pool."
+prompts are _policy_; agent-authored memory is _shared context and observations_.
+This separation shrinks the blast radius of a bad agent write from "injects a
+false rule everyone obeys" to "adds a weighable note to a shared pool."
 
 **Each scope has a hard maximum injected size** (`MEMORY_CAPS`: office 2500 / room
 10000 / agent 5000 / `member` 5000 chars). APPEND refuses a write that would exceed
@@ -217,12 +210,11 @@ Three verbs, two writers.
   the block in its prompt.
 - **`POST /api/memory` `{ scope, scopeId?, text }`** (APPEND) →
   `{ item, version, size, cap }`:
-  the safe default. Appends one `- {Creator}, {date}: {text}` line - or
-  `- {date}: {text}` when an agent writes to its own agent scope; server stamps
-  `date`, and `Creator` in every other case; validates the text is a single non-blank line; runs the
+  the safe default. Appends one `- {text}` line; validates the text is a single non-blank line; runs the
   exact-duplicate guard. Text over 400 characters is rejected 422 with guidance
   to keep detail in a doc or task record and save a pointer. **A normalized-exact
-  restatement already in the scope is rejected 409** (naming the matched text); a
+  restatement already in the scope is rejected 409** (naming the matched text;
+  a legacy stamped line matches on its whole text or its unstamped text); a
   genuine reword is allowed through. A write that would exceed the scope cap is
   rejected 422 with guidance to trim that scope, never widen it. A successful
   response exposes the post-write injected size and cap. If raw REPLACE content
@@ -246,7 +238,7 @@ the wider the scope, the more it should consult the member. The non-ceremony saf
 measures are:
 
 1. **Memory is injected as notes, not policy** (section 3) - bad lines are
-   attributed and weighable, not obeyed.
+   weighed, not obeyed, and the audit log names who wrote each one.
 2. **A system-prompt affordance that encodes restraint** (section 6) - it defines
    memory as a trigger, defaults to not writing, requires the narrowest scope,
    and tells agents not to make big changes to office memory.
@@ -314,14 +306,15 @@ guardrail. It tells agents:
   get it wrong without the line and could not find it by looking. Write the rule,
   not the incident story.
 - **Scope and cap guidance:** choose the narrowest scope that reaches every agent
-  that must act on the fact. When a scope is full, trim the agent's own lines,
+  that must act on the fact. When a scope is full, trim stale lines,
   propose the rest to a member, or drop the note; never widen it. Office memory is
   only for facts that change how agents act there, and agents do not make big
   changes to it.
-- **The three operations:** APPEND by default (safe; server-stamped; 409 on a
+- **The three operations:** APPEND by default (safe; 409 on a
   normalized-exact duplicate; 422 over the 400-character text limit or scope
   cap); EDIT or REMOVE is routine in the agent's own scope. In a shared scope,
-  agents fix their own line and propose other changes to a member. Unrelated lines
+  agents fix or remove a line they know is wrong or stale and take a larger
+  rewrite to a member. Unrelated lines
   stay byte-identical; a stale REPLACE returns 409, so re-READ and retry.
 - **The member caveat:** member memory is auto-loaded only for that member's agents; it
   is not a confidentiality boundary.
@@ -388,12 +381,12 @@ Deferred. Add only if real scale demands:
 
 ## 9. Decisions (as shipped)
 
-- **Raw, unstructured `- {Creator}, {date}: {text}` lines**, and
-  `- {date}: {text}` for an agent's note to its own scope. No ids, no
+- **Raw, unstructured `- {text}` lines**, with no author or date (the audit
+  log has both; older stamped lines stay). No ids, no
   supersede/tombstone, no persisted `factType`. Editing/retracting is whole-file
   REPLACE.
 - **Three verbs on `/api/memory`:** READ (text + version + size/cap), APPEND
-  (server-stamped, 400-character text limit, exact-dup 409, hard-cap 422,
+  (400-character text limit, exact-dup 409, hard-cap 422,
   post-write size/cap), REPLACE (verbatim, version-guarded 409).
 - **Access follows rooms** (section 2); office memory stays open to every caller,
   including the destructive REPLACE - restraint via the affordance, recovery via

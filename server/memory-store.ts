@@ -10,28 +10,23 @@ import { recordAudit, type AuditWrite } from "./audit-store.ts";
 //   <STATE_ROOT>/memory/members/<userId>.md
 // Full post-write content is retained in office.sqlite; an old .oplog.jsonl is left untouched.
 //
-// Each fact is one bullet line:
-//   - {Creator}, {YYYY-MM-DD}: {the self-contained fact}
-//   - {YYYY-MM-DD}: {the self-contained fact}          (agent's note to ITSELF)
-// The second shape exists only for an agent APPENDing to its own agent scope,
-// where the Creator names the reader and burns cap + prompt space for nothing.
-// Both shapes parse; nothing rewrites existing lines.
+// Each fact is one bullet line: "- {the self-contained fact}". Lines carry no
+// author or date: memory text loads into agent context, and who wrote a line
+// and when is audit data, so it lives in the audit log. Older offices hold
+// stamped lines ("- {Creator}, {YYYY-MM-DD}: {fact}" or "- {YYYY-MM-DD}: {fact}");
+// nothing rewrites them, and the dedup guard still reads both shapes.
 // There are NO ids and NO supersede/tombstone grammar. There are three verbs:
-//   APPEND  - add one server-stamped line (the safe default).
+//   APPEND  - add one line (the safe default).
 //   READ    - return the whole raw file plus an optimistic-concurrency version.
 //   REPLACE - overwrite the whole file, guarded by the version you READ (409 on
 //             mismatch). This is how edits and retractions happen.
-// Every mutating op is recorded to the audit log so a bad write can be restored by
-// re-REPLACEing an earlier `content` snapshot.
-//
-// Provenance: APPEND stamps the date from the authenticated caller, and the
-// Creator too unless the caller IS the agent whose scope it is. A REPLACE writes
-// the file bytes verbatim (free-form), so in-file creators are DISPLAY ONLY
-// after a rewrite - the audit log `actor` is the authoritative record of who
-// changed what, and it names the caller on every op including a self-note.
+// Every mutating op is recorded to the audit log, with the authenticated actor,
+// the time and the full file after the op. That row is the record of who
+// changed what and when, and a bad write can be restored by re-REPLACEing an
+// earlier snapshot.
 //
 // Pure helpers (format/parse/version) + an INJECTABLE store so unit tests can pin
-// deterministic dates/timestamps and a temp dir, while production uses the default
+// deterministic timestamps and a temp dir, while production uses the default
 // singleton against the real STATE_ROOT. Server-only; never reached by the bundle.
 
 import {
@@ -56,39 +51,27 @@ export function isSafeScopeId(id: string): boolean {
   return SAFE_ID.test(id);
 }
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function nowIsoUtc(): string {
   return new Date().toISOString();
 }
 
-// The APPEND line shape: "- {author}, {date}: {text}", or "- {date}: {text}" when
-// `author` is null. REPLACE writes raw bytes and does NOT go through here.
-//
-// The author-less shape exists only when an agent writes to its OWN agent
-// scope, where the author is
-// the reader. It costs twice otherwise - once against the scope's hard size cap,
-// and again in the agent's own prompt. Every other writer (another agent, a member,
-// a human rewrite) still gets named, because there the name carries information.
-function formatMemoryLine(input: {
-  author: string | null;
-  date: string;
-  text: string;
-}): string {
-  return input.author === null
-    ? `- ${input.date}: ${input.text}`
-    : `- ${input.author}, ${input.date}: ${input.text}`;
+// The APPEND line shape. REPLACE writes raw bytes and does NOT go through here.
+function formatMemoryLine(text: string): string {
+  return `- ${text}`;
 }
 
-// Best-effort parse of an APPEND-shaped line, used only for the exact-duplicate
-// guard and provenance display. The date (YYYY-MM-DD) is the anchor, so an author
-// containing a comma still parses (the author capture is lazy). A free-form line
-// written by a human REPLACE that doesn't match simply yields null and doesn't
-// participate in dedup - raw memory is allowed to be unstructured.
+// Parse of a bullet line, used only for the exact-duplicate guard. `text` is the
+// whole bullet text. A line that
+// is not a "- " bullet yields null and doesn't participate in dedup - raw
+// memory is allowed to be unstructured.
 //
-// TWO regexes, authorless tried FIRST, rather than one with an optional author
+// A legacy stamped line ("- {author}, {date}: {text}" or "- {date}: {text}",
+// written before APPEND stopped stamping) also yields its stamp-free text in
+// `legacyText`, so restating its fact still dedups. The date (YYYY-MM-DD) is
+// the anchor, so an author containing a comma still parses (the author capture
+// is lazy).
+//
+// TWO legacy regexes, authorless tried FIRST, rather than one with an optional author
 // group. An optional group is greedy and would try to fill itself: on the
 // authorless line "- 2026-06-28: shipped, 2026-07-01: done" it captures
 // author="2026-06-28: shipped" off the comma inside the TEXT. Anchoring the
@@ -98,21 +81,26 @@ function formatMemoryLine(input: {
 const AUTHORLESS_LINE_RE = /^- (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 const AUTHORED_LINE_RE = /^- (.+?), (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 
+const BULLET_LINE_RE = /^- (.*\S)\s*$/;
+
 function parseMemoryLine(
   raw: string,
   scope: MemoryScope,
   scopeId: string | null,
-): MemoryItem | null {
+): { item: MemoryItem; legacyText: string | null } | null {
+  const bullet = BULLET_LINE_RE.exec(raw);
+  if (!bullet) return null;
   const bare = AUTHORLESS_LINE_RE.exec(raw);
-  const m = bare ?? AUTHORED_LINE_RE.exec(raw);
-  if (!m) return null;
+  const legacy = bare ?? AUTHORED_LINE_RE.exec(raw);
+  const legacyText = legacy ? (bare ? legacy[2] : legacy[3]) : null;
   return {
-    scope,
-    scopeId,
-    author: bare ? null : m[1],
-    date: bare ? m[1] : m[2],
-    text: bare ? m[2] : m[3],
-    raw: raw.replace(/\s+$/, ""),
+    item: {
+      scope,
+      scopeId,
+      text: bullet[1],
+      raw: raw.replace(/\s+$/, ""),
+    },
+    legacyText,
   };
 }
 
@@ -175,20 +163,15 @@ export function injectedSize(text: string): number {
 // memory-surface imports keep working.
 export { versionOf } from "../shared/blob-version.ts";
 
-// One append-only audit/recovery record per successful mutating op. `content` is
-// the EXACT full file bytes after the op, so manual recovery is just re-REPLACEing
-// an earlier snapshot. `actor` is server-stamped (the authenticated caller) and is
-// the authoritative who-did-what, independent of in-file creators after a rewrite.
-export interface OpLogEntry {
+// One audit/recovery record per successful mutating op. `content` is the EXACT
+// full file bytes after the op, so manual recovery is just re-REPLACEing an
+// earlier snapshot. The actor comes from the audit context (the authenticated
+// caller).
+interface OpLogEntry {
   ts: string; // ISO-8601
-  actor: string;
   scope: MemoryScope;
   scopeId: string | null;
-  op: "append" | "replace";
-  text: string; // the appended fact, or "(full rewrite)" for replace
   content: string; // full file bytes after the op
-  version: string; // post-op version
-  previousVersion?: string; // pre-op version (replace only)
 }
 
 // One scope to fold into the auto-load block, with the plain label shown above
@@ -218,25 +201,19 @@ export type MemoryReplaceResult =
 export interface MemoryStore {
   // The whole raw file (verbatim bytes, "" if missing) plus its version. Uncapped.
   read(scope: MemoryScope, scopeId: string | null): MemoryReadResult;
-  // Append one server-stamped line. Returns the new item + post-write version.
-  // `authorAgentId` is the caller's OWN agentId when the caller is an agent (null
-  // otherwise); it is what lets an agent's notes to itself skip the redundant
-  // author stamp. It never affects the audit log actor, which comes from the authenticated actor.
+  // Append one "- {text}" line. Returns the new item + post-write version.
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
-    author: string;
-    authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult;
   // Overwrite the whole file. If expectedVersion no longer matches the current
   // file, returns a conflict (with the current version) and writes nothing.
-  // `author` is display attribution only - the file bytes are written verbatim.
+  // The file bytes are written verbatim.
   replace(input: {
     scope: MemoryScope;
     scopeId: string | null;
     text: string;
-    author: string;
     expectedVersion: string;
   }): MemoryReplaceResult;
   // The first line in this scope that `text` exactly restates (normalized), or
@@ -272,7 +249,6 @@ export interface MemoryScopeMeasurement {
 export interface MemoryStoreDeps {
   audit?: (entry: AuditWrite) => void;
   stateRoot?: string;
-  today?: () => string; // YYYY-MM-DD, for the in-file date
   now?: () => string; // ISO timestamp, for the audit log ts
   // Per-scope injected-size caps; defaults to MEMORY_CAPS. Tests inject tiny caps.
   caps?: Record<MemoryScope, number>;
@@ -280,7 +256,6 @@ export interface MemoryStoreDeps {
 
 export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   const stateRoot = deps.stateRoot ?? STATE_ROOT;
-  const today = deps.today ?? todayUtc;
   const now = deps.now ?? nowIsoUtc;
   const caps = deps.caps ?? MEMORY_CAPS;
 
@@ -332,28 +307,13 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   function append(input: {
     scope: MemoryScope;
     scopeId: string | null;
-    author: string;
-    authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult {
     requireAuditContext();
     if (input.text.length > MEMORY_LINE_MAX) {
       throw new MemoryLineTooLongError(input.text.length);
     }
-    const date = today();
-    // Self-authored agent memory drops the author from the stored line - see
-    // formatMemoryLine. The decision lives HERE, not in the handler, because the
-    // store is the only place that owns the line grammar. `author` stays the real
-    // caller either way: it is the audit log actor, which must always name someone.
-    const selfAuthored =
-      input.scope === "agent" &&
-      !!input.authorAgentId &&
-      input.authorAgentId === input.scopeId;
-    const line = formatMemoryLine({
-      author: selfAuthored ? null : input.author,
-      date,
-      text: input.text,
-    });
+    const line = formatMemoryLine(input.text);
     // Hard cap, checked BEFORE the write: appending must never push the scope
     // over its injected-size cap. Throws so no caller can ignore it.
     const cap = caps[input.scope];
@@ -369,20 +329,14 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     const version = versionOf(content);
     logOp({
       ts: now(),
-      actor: input.author,
       scope: input.scope,
       scopeId: input.scopeId,
-      op: "append",
-      text: input.text,
       content,
-      version,
     });
     return {
       item: {
         scope: input.scope,
         scopeId: input.scopeId,
-        author: selfAuthored ? null : input.author,
-        date,
         text: input.text,
         raw: line,
       },
@@ -396,7 +350,6 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scope: MemoryScope;
     scopeId: string | null;
     text: string;
-    author: string;
     expectedVersion: string;
   }): MemoryReplaceResult {
     requireAuditContext();
@@ -425,14 +378,9 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     const version = versionOf(content);
     logOp({
       ts: now(),
-      actor: input.author,
       scope: input.scope,
       scopeId: input.scopeId,
-      op: "replace",
-      text: "(full rewrite)",
       content,
-      version,
-      previousVersion: currentVersion,
     });
     return { ok: true, version };
   }
@@ -442,9 +390,19 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scopeId: string | null,
     text: string,
   ): MemoryItem | null {
+    // Compare with the whole bullet text AND, for a legacy stamped line, its
+    // stamp-free text: a new line can itself look like a stamp ("Nil, <date>:
+    // rule"), and an old stamped fact must still catch its restatement.
     for (const line of readText(scope, scopeId).split("\n")) {
-      const item = parseMemoryLine(line, scope, scopeId);
-      if (item && isExactDuplicateText(text, item.text)) return item;
+      const parsed = parseMemoryLine(line, scope, scopeId);
+      if (!parsed) continue;
+      // The returned `text` is what matched, which the 409 shows the caller.
+      if (isExactDuplicateText(text, parsed.item.text)) return parsed.item;
+      if (
+        parsed.legacyText !== null &&
+        isExactDuplicateText(text, parsed.legacyText)
+      )
+        return { ...parsed.item, text: parsed.legacyText };
     }
     return null;
   }

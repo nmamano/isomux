@@ -1348,7 +1348,6 @@ const {
   announceAppAudienceChanges,
   announceCronjobHookAudience,
   announceWebhookAudienceChanges,
-  appActorName,
   appViewerFacts,
   appVisibilityFacts,
   attributionFor,
@@ -4590,10 +4589,9 @@ function buildExecutorDeps(
     }),
   );
 
-  // Memory (isomux-memory). Author + date are server-stamped from the token
-  // (authorFor); scopeId is a target selector, not authority. Access follows
-  // the rooms through the guard deps. A write whose caller record can't be
-  // resolved fails 404 rather than being stamped "unknown".
+  // Memory (isomux-memory). scopeId is a target selector, not authority.
+  // Access follows the rooms through the guard deps; the audit log records
+  // who wrote each line.
   // Agent memory writes follow agents.setInstructions (Nil, 2026-11-05).
   const setAgentInstructionsRoute = API_ROUTES.find(
     (r) => r.opId === "agents.setInstructions",
@@ -4622,19 +4620,6 @@ function buildExecutorDeps(
       replace: (input) => memoryStore.replace(input),
       findDuplicate: (scope, scopeId, text) =>
         memoryStore.findDuplicate(scope, scopeId, text),
-      authorFor: (identity) => {
-        if (identity.scope === "agent" && identity.agentId) {
-          const d = agentManager.getAgentDisplay(identity.agentId);
-          return d ? d.name : null;
-        }
-        if (identity.scope === "app")
-          return identity.appName ? appActorName(identity.appName) : null;
-        if (identity.userId) {
-          const u = getUserById(identity.userId);
-          return u ? u.name : null;
-        }
-        return null;
-      },
       isSafeScopeId,
       // Existence checks; room and member names are the ones the auto-load
       // labels use.

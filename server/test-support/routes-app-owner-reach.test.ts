@@ -276,7 +276,9 @@ describe("app owner reach: writes name the app", () => {
     });
   });
 
-  it("records the app as the author of a memory line", async () => {
+  // The line carries no author (task faee4332); the audit row names the app,
+  // not the agent that owns it.
+  it("records the app as the author of a memory line in the audit log", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -289,10 +291,12 @@ describe("app owner reach: writes name the app", () => {
     expect(r.status).toBe(201);
     const read = await call(srv, "GET", "/api/memory?scope=office", appToken);
     expect(read.status).toBe(200);
-    const text = JSON.stringify(read.body);
-    expect(text).toContain("a line from the app");
-    expect(text).toContain("notes");
-    expect(text).not.toContain(owner.name);
+    expect((read.body as { text: string }).text).toBe(
+      "- a line from the app\n",
+    );
+    const row = latestAudit("memory.append");
+    expect(row?.targets).toEqual(["memory:office:office"]);
+    expect(row?.actor).toMatchObject({ kind: "app", name: "notes" });
   });
 });
 

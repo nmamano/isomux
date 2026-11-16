@@ -1820,9 +1820,8 @@ export type TaskUpdateReq = { version: string } & Partial<{
 }>;
 
 // isomux-memory: APPEND a durable fact (the safe default). scope/scopeId select
-// the TARGET file; author + date are server-stamped (never from the body) -
-// except on an agent's note to its OWN agent scope, where the stored line
-// carries no author at all.
+// the TARGET file. The stored line is "- {text}"; the audit log records who
+// wrote it and when.
 export interface MemoryCreateReq {
   scope: MemoryScope;
   scopeId?: string | null;

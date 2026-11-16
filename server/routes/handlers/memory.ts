@@ -2,9 +2,9 @@
 // verbs: READ (memory.read), APPEND (memory.append), REPLACE (memory.replace).
 // See internal-docs/isomux-memory-design.md.
 //
-// Scopes: agent, room, office, member. On APPEND the author + date are server-
-// stamped from the token identity, NEVER the body; scopeId is a TARGET selector,
-// not an authority claim. Access follows the rooms (task bf94d714):
+// Scopes: agent, room, office, member. APPEND stores "- {text}" with no author
+// or date; the audit log records who wrote it and when. scopeId is a TARGET
+// selector, not an authority claim. Access follows the rooms (task bf94d714):
 //   room   - read and write: whoever reaches the room.
 //   member - read: whoever shares a live ordinary room with the member
 //            (sharesRoomWithMember); write: the member, their agents and
@@ -54,22 +54,18 @@ export interface MemoryDeps {
     scope: MemoryScope,
     scopeId: string | null,
   ): { text: string; version: string };
-  // Append one server-stamped line; returns the new item + post-write version.
-  // authorAgentId is the caller's own agentId (agent tokens only) - the store
-  // uses it to skip the redundant author stamp on an agent's notes to itself.
-  append(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    author: string;
-    authorAgentId?: string | null;
-    text: string;
-  }): { item: MemoryItem; version: string; size: number; cap: number };
+  // Append one "- {text}" line; returns the new item + post-write version.
+  append(input: { scope: MemoryScope; scopeId: string | null; text: string }): {
+    item: MemoryItem;
+    version: string;
+    size: number;
+    cap: number;
+  };
   // Overwrite the whole file guarded by expectedVersion; conflict writes nothing.
   replace(input: {
     scope: MemoryScope;
     scopeId: string | null;
     text: string;
-    author: string;
     expectedVersion: string;
   }):
     | { ok: true; version: string }
@@ -80,9 +76,6 @@ export interface MemoryDeps {
     scopeId: string | null,
     text: string,
   ): MemoryItem | null;
-  // The caller's display author (agent name / user name), or null if the caller's
-  // record can't be resolved - so a write is never stamped "unknown".
-  authorFor(identity: Identity): string | null;
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
   // Target-EXISTENCE checks: the target's display name, or null when it does
@@ -293,27 +286,12 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           { matched: { text: dup.text } },
         );
       }
-      const author = deps.authorFor(ctx.identity);
-      if (!author) {
-        return fail(
-          404,
-          "agent_not_found",
-          "caller identity could not be resolved",
-        );
-      }
       // Caps are hard: a line that would put the scope over its injected-size
       // cap is refused here, loudly, instead of ever being trimmed later.
       try {
         const res = deps.append({
           scope: target.scope,
           scopeId: target.scopeId,
-          author,
-          // Only an AGENT token can be writing to its own agent scope; a user
-          // cookie always names a human, so it passes null and stays stamped.
-          authorAgentId:
-            ctx.identity.scope === "agent"
-              ? (ctx.identity.agentId ?? null)
-              : null,
           text,
         });
         return created(res);
@@ -360,14 +338,6 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         "write",
       );
       if ("error" in target) return target.error;
-      const author = deps.authorFor(ctx.identity);
-      if (!author) {
-        return fail(
-          404,
-          "agent_not_found",
-          "caller identity could not be resolved",
-        );
-      }
       // Caps are hard on growth too; a replace that shrinks a legacy over-cap
       // file is allowed (see memory-store), so incremental trims go through.
       let res;
@@ -376,7 +346,6 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           scope: target.scope,
           scopeId: target.scopeId,
           text: body.text,
-          author,
           expectedVersion: body.version,
         });
       } catch (e) {

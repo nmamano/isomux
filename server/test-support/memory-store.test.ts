@@ -1,7 +1,8 @@
 import { withAuditContextSync } from "../audit-context.ts";
 import type { AuditWrite } from "../audit-store.ts";
+import type { AuditActor } from "../../shared/audit.ts";
 // isomux-memory storage - T0 unit tests. Raw one-fact-per-line markdown + the
-// injectable store against a temp dir with deterministic date/timestamp. No
+// injectable store against a temp dir with a deterministic timestamp. No
 // server, no LLM, no network. See server/memory-store.ts.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -35,36 +36,34 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-const DATE = "2026-06-28";
 const TS = "2026-06-28T12:00:00.000Z";
+// The caller lives only in the audit context: the store API takes no author.
+const MEMBER: AuditActor = { kind: "member", id: "u1", name: "Nil" };
 function freshStore(opts?: { caps?: Record<string, number> }) {
   const root = tempRoot();
   const audits: AuditWrite[] = [];
   const rawStore = createMemoryStore({
     audit: (entry) => audits.push(entry),
     stateRoot: root,
-    today: () => DATE,
     now: () => TS,
     caps: opts?.caps as
       Record<"office" | "room" | "agent" | "member", number> | undefined,
   });
   const store = {
     ...rawStore,
-    append: (input: Parameters<typeof rawStore.append>[0]) =>
-      withAuditContextSync(
-        {
-          kind: input.authorAgentId ? "agent" : "member",
-          id: input.authorAgentId ?? "member",
-          name: input.author,
-        },
-        "memory.append",
-        () => rawStore.append(input),
+    append: (
+      input: Parameters<typeof rawStore.append>[0],
+      actor: AuditActor = MEMBER,
+    ) =>
+      withAuditContextSync(actor, "memory.append", () =>
+        rawStore.append(input),
       ),
-    replace: (input: Parameters<typeof rawStore.replace>[0]) =>
-      withAuditContextSync(
-        { kind: "member", id: "member", name: input.author },
-        "memory.replace",
-        () => rawStore.replace(input),
+    replace: (
+      input: Parameters<typeof rawStore.replace>[0],
+      actor: AuditActor = MEMBER,
+    ) =>
+      withAuditContextSync(actor, "memory.replace", () =>
+        rawStore.replace(input),
       ),
   };
   return { root, store, audits };
@@ -80,36 +79,61 @@ describe("memory-store: isSafeScopeId", () => {
 });
 
 describe("memory-store: append", () => {
-  it("writes a server-stamped raw line and bumps the version", () => {
-    const { root, store } = freshStore();
-    const before = store.read("agent", "a1");
-    expect(before).toEqual({ text: "", version: versionOf("") });
-
-    const res = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "Bot",
-      text: "a durable fact",
-    });
-    expect(res.item.raw).toBe("- Bot, 2026-06-28: a durable fact");
-    const after = store.read("agent", "a1");
-    expect(after.text).toBe("- Bot, 2026-06-28: a durable fact\n");
-    expect(after.version).toBe(res.version);
-    expect(after.version).not.toBe(before.version);
-    expect(res.size).toBe(injectedSize(after.text));
-    expect(res.cap).toBe(MEMORY_CAPS.agent);
-    void root;
+  // Task faee4332: the line in context is the rule only. Who wrote it and
+  // when lives in the audit row, so no scope and no caller gets a stamp.
+  it("writes the text alone as the line in every scope, and bumps the version", () => {
+    const scopes = [
+      ["office", null],
+      ["room", "r1"],
+      ["agent", "a1"],
+      ["member", "u1"],
+    ] as const;
+    for (const [scope, scopeId] of scopes) {
+      const { store } = freshStore();
+      const before = store.read(scope, scopeId);
+      expect(before).toEqual({ text: "", version: versionOf("") });
+      const res = store.append({ scope, scopeId, text: "a durable fact" });
+      expect(res.item).toStrictEqual({
+        scope,
+        scopeId,
+        text: "a durable fact",
+        raw: "- a durable fact",
+      });
+      const after = store.read(scope, scopeId);
+      expect(after.text).toBe("- a durable fact\n");
+      expect(after.version).toBe(res.version);
+      expect(after.version).not.toBe(before.version);
+      expect(res.size).toBe(injectedSize(after.text));
+      expect(res.cap).toBe(MEMORY_CAPS[scope]);
+    }
   });
 
-  // The audit target names the scope's file; office memory has no id, so
-  // it is named "office" (the audit filter matches on it).
-  it("audits each write against its scope's target", () => {
+  // The audit row is now the only record of who wrote a line: it names the
+  // caller from the audit context and keeps the whole file after the op.
+  // The office target has no id, so it is named "office" (the audit filter
+  // matches on it).
+  it("audits each write with the context actor, its scope's target and the full file", () => {
     const { store, audits } = freshStore();
-    store.append({ scope: "office", scopeId: null, author: "Nil", text: "x" });
-    store.append({ scope: "agent", scopeId: "a1", author: "Nil", text: "y" });
-    expect(audits.map((a) => a.targets)).toEqual([
-      ["memory:office:office"],
-      ["memory:agent:a1"],
+    const bot: AuditActor = { kind: "agent", id: "a1", name: "Bot" };
+    store.append({ scope: "office", scopeId: null, text: "x" });
+    store.append({ scope: "agent", scopeId: "a1", text: "y" }, bot);
+    store.append({ scope: "agent", scopeId: "a1", text: "z" }, MEMBER);
+    store.replace(
+      {
+        scope: "agent",
+        scopeId: "a1",
+        text: "- w\n",
+        expectedVersion: versionOf("- y\n- z\n"),
+      },
+      bot,
+    );
+    expect(
+      audits.map((a) => [a.actor, a.operation, a.targets, a.memoryContent]),
+    ).toEqual([
+      [MEMBER, "memory.append", ["memory:office:office"], "- x\n"],
+      [bot, "memory.append", ["memory:agent:a1"], "- y\n"],
+      [MEMBER, "memory.append", ["memory:agent:a1"], "- y\n- z\n"],
+      [bot, "memory.replace", ["memory:agent:a1"], "- w\n"],
     ]);
   });
 
@@ -120,64 +144,16 @@ describe("memory-store: append", () => {
       scope: "agent",
       scopeId: "a1",
       text: replaced,
-      author: "Nil",
       expectedVersion: versionOf(""),
     });
     const res = store.append({
       scope: "agent",
       scopeId: "a1",
-      author: "Bot",
       text: "second fact",
     });
-    const expected = `${replaced}\n- Bot, 2026-06-28: second fact\n`;
+    const expected = `${replaced}\n- second fact\n`;
     expect(store.read("agent", "a1").text).toBe(expected);
     expect(res.size).toBe(injectedSize(expected));
-  });
-
-  // The whole point of task f9d2bbac is cap space, so prove the bytes are
-  // actually reclaimed rather than just absent from the rendered line: with a
-  // cap that fits exactly one authored line, a self-note leaves room for a
-  // second one and the authored form does not.
-  it("the dropped author is reclaimed against the scope's hard cap", () => {
-    const { store } = freshStore({ caps: { ...MEMORY_CAPS, agent: 60 } });
-    // "- 2026-06-28: 0123456789" = 24 chars; authored adds "SomeAgent, " = 11.
-    const text = "0123456789";
-    const first = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "SomeAgent",
-      authorAgentId: "a1",
-      text,
-    });
-    expect(first.item.raw.length).toBe(24);
-    // 24 + 1 newline + 24 + 1 = 50 <= 60, so a second self-note fits.
-    store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "SomeAgent",
-      authorAgentId: "a1",
-      text: "9876543210",
-    });
-    // The same two lines WITH the author would be 35 + 1 + 35 + 1 = 72 > 60.
-    const { store: authored } = freshStore({
-      caps: { ...MEMORY_CAPS, agent: 60 },
-    });
-    authored.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "SomeAgent",
-      authorAgentId: "a2", // not the scope's own agent -> stays named
-      text,
-    });
-    expect(() =>
-      authored.append({
-        scope: "agent",
-        scopeId: "a1",
-        author: "SomeAgent",
-        authorAgentId: "a2",
-        text: "9876543210",
-      }),
-    ).toThrow(MemoryCapError);
   });
 
   it("findDuplicate matches an exact active restatement, not a reword", () => {
@@ -185,7 +161,6 @@ describe("memory-store: append", () => {
     store.append({
       scope: "room",
       scopeId: "r1",
-      author: "A",
       text: "Deploys at 9.",
     });
     expect(store.findDuplicate("room", "r1", "deploys at 9")).not.toBeNull();
@@ -195,7 +170,6 @@ describe("memory-store: append", () => {
     store.append({
       scope: "room",
       scopeId: "r1",
-      author: "A",
       text: "use ~/isomux-active.",
     });
     expect(store.findDuplicate("room", "r1", "use ~/isomuxactive")).toBeNull();
@@ -203,24 +177,18 @@ describe("memory-store: append", () => {
     expect(store.findDuplicate("office", null, "deploys at 9")).toBeNull();
   });
 
-  it("findDuplicate reads both line shapes, whatever the author or text holds", () => {
-    const { store } = freshStore();
-    // The date anchors the author, so a comma in it is fine.
-    store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "Dr. No, Esq.",
-      text: "spies are durable",
-    });
-    // A self-note has no author; a comma and a date in its text do not
-    // make one.
-    store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "Bot",
-      authorAgentId: "a1",
-      text: "shipped, 2026-07-01: done",
-    });
+  // Old offices keep their stamped lines (Nil: "left as are"), so a
+  // restatement of one is still a duplicate. The date anchors the author, so
+  // a comma in the author is fine, and a comma and a date in the TEXT of an
+  // authorless line do not make an author.
+  it("findDuplicate matches a restatement of a legacy stamped line of either shape", () => {
+    const { root, store } = freshStore();
+    mkdirSync(join(root, "memory", "agents"), { recursive: true });
+    writeFileSync(
+      join(root, "memory", "agents", "a1.md"),
+      "- Dr. No, Esq., 2026-06-28: spies are durable\n" +
+        "- 2026-06-28: shipped, 2026-07-01: done\n",
+    );
     expect(
       store.findDuplicate("agent", "a1", "spies are durable"),
     ).not.toBeNull();
@@ -228,6 +196,17 @@ describe("memory-store: append", () => {
       store.findDuplicate("agent", "a1", "shipped, 2026-07-01: done"),
     ).not.toBeNull();
     expect(store.findDuplicate("agent", "a1", "done")).toBeNull();
+  });
+
+  // An agent may still put its own "Name, date:" in the text. The new line
+  // then has a legacy shape, so the guard must also compare the whole text,
+  // or the same append goes in twice.
+  it("findDuplicate matches a new line whose text looks like a legacy stamp", () => {
+    const { store } = freshStore();
+    const text = "Nil, 2026-11-16: rule";
+    const res = store.append({ scope: "room", scopeId: "r1", text });
+    expect(res.item.raw).toBe(`- ${text}`);
+    expect(store.findDuplicate("room", "r1", text)).not.toBeNull();
   });
 });
 
@@ -239,7 +218,6 @@ describe("memory-store: replace", () => {
       scope: "agent",
       scopeId: "a1",
       text,
-      author: "Nil",
       expectedVersion: versionOf(""),
     });
     expect(res.ok).toBe(true);
@@ -247,13 +225,12 @@ describe("memory-store: replace", () => {
   });
   it("overwrites with the correct version and returns the new version", () => {
     const { store } = freshStore();
-    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
+    store.append({ scope: "agent", scopeId: "a1", text: "one" });
     const { version } = store.read("agent", "a1");
     const res = store.replace({
       scope: "agent",
       scopeId: "a1",
       text: "- hand-edited line\n- another\n",
-      author: "Nil",
       expectedVersion: version,
     });
     expect(res.ok).toBe(true);
@@ -270,7 +247,6 @@ describe("memory-store: replace", () => {
         scope: "agent",
         scopeId: "a1",
         text: "clobber",
-        author: "Nil",
         expectedVersion: version,
       }),
     ).toEqual({ ok: false, conflict: true, version: current.version });
@@ -280,7 +256,6 @@ describe("memory-store: replace", () => {
       scope: "agent",
       scopeId: "a1",
       text: "",
-      author: "Nil",
       expectedVersion: versionOf("- hand-edited line\n- another\n"),
     });
     expect(store.read("agent", "a1").text).toBe("");
@@ -301,7 +276,6 @@ describe("memory-store: replace", () => {
       scope: "office",
       scopeId: null,
       text: smaller,
-      author: "A",
       expectedVersion: versionOf(legacy),
     });
     expect(res.ok).toBe(true);
@@ -312,7 +286,6 @@ describe("memory-store: replace", () => {
         scope: "office",
         scopeId: null,
         text: smaller + "- A, 2026-01-03: cccccccccccccccc\n",
-        author: "A",
         expectedVersion: versionOf(smaller),
       });
     } catch (e) {
@@ -325,16 +298,14 @@ describe("memory-store: replace", () => {
 describe("memory-store: render for prompt", () => {
   it("renderForPromptMulti labels each non-empty scope and skips empties", () => {
     const { store } = freshStore();
-    store.append({ scope: "office", scopeId: null, author: "A", text: "o" });
-    store.append({ scope: "agent", scopeId: "a1", author: "B", text: "g" });
+    store.append({ scope: "office", scopeId: null, text: "o" });
+    store.append({ scope: "agent", scopeId: "a1", text: "g" });
     const out = store.renderForPromptMulti([
       { scope: "office", scopeId: null, label: "Office-wide" },
       { scope: "room", scopeId: "r1", label: 'Room "X"' }, // empty -> skipped
       { scope: "agent", scopeId: "a1", label: "Your agent" },
     ]);
-    expect(out).toBe(
-      "Office-wide:\n- A, 2026-06-28: o\n\nYour agent:\n- B, 2026-06-28: g",
-    );
+    expect(out).toBe("Office-wide:\n- o\n\nYour agent:\n- g");
     expect(
       store.renderForPromptMulti([
         { scope: "room", scopeId: "r9", label: "X" },
@@ -344,8 +315,8 @@ describe("memory-store: render for prompt", () => {
 
   it("measureForPromptMulti sizes each non-empty scope against its cap", () => {
     const { store } = freshStore({ caps: { ...MEMORY_CAPS, office: 100 } });
-    store.append({ scope: "office", scopeId: null, author: "A", text: "o" });
-    store.append({ scope: "agent", scopeId: "a1", author: "B", text: "g" });
+    store.append({ scope: "office", scopeId: null, text: "o" });
+    store.append({ scope: "agent", scopeId: "a1", text: "g" });
     const out = store.measureForPromptMulti([
       { scope: "office", scopeId: null, label: "Office-wide" },
       { scope: "room", scopeId: "r1", label: 'Room "X"' }, // empty -> skipped
@@ -355,13 +326,13 @@ describe("memory-store: render for prompt", () => {
       {
         scope: "office",
         label: "Office-wide",
-        contentChars: "- A, 2026-06-28: o".length,
+        contentChars: "- o".length,
         cap: 100,
       },
       {
         scope: "agent",
         label: "Your agent",
-        contentChars: "- B, 2026-06-28: g".length,
+        contentChars: "- g".length,
         cap: MEMORY_CAPS.agent,
       },
     ]);
@@ -393,7 +364,6 @@ it("refuses a memory write without an active actor before creating a file", () =
     store.append({
       scope: "office",
       scopeId: null,
-      author: "Untrusted display",
       text: "fact",
     }),
   ).toThrow();
@@ -418,7 +388,6 @@ it("preserves a legacy oplog and returns success if the new audit insert fails",
       store.append({
         scope: "office",
         scopeId: null,
-        author: "Member",
         text: "fact",
       }),
   );

@@ -973,7 +973,6 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
     announceAppAudienceChanges,
     announceCronjobHookAudience,
     announceWebhookAudienceChanges,
-    appActorName,
     appViewerFacts,
     appVisibilityFacts,
     attributionFor,

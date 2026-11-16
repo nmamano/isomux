@@ -1435,19 +1435,14 @@ export interface GithubLinkWire {
   status: GithubLinkStatus;
 }
 
-// isomux-memory - one durable, attributed fact line. Persisted as a single raw
-// markdown line ("- {Creator}, {date}: {text}") under STATE_ROOT/memory/. See
-// internal-docs/isomux-memory-design.md.
+// isomux-memory - one durable fact line. Persisted as a single raw markdown
+// line ("- {text}") under STATE_ROOT/memory/; who wrote it and when is in the
+// audit log. See internal-docs/isomux-memory-design.md.
 export type MemoryScope = "office" | "room" | "agent" | "member";
 
 export interface MemoryItem {
   scope: MemoryScope;
   scopeId: string | null; // office has none
-  // The in-file Creator (server-stamped on append; free-text after a rewrite).
-  // null when the line names no author, which an APPEND writes only for an
-  // agent's note to its OWN agent scope - there the author is the reader.
-  author: string | null;
-  date: string; // YYYY-MM-DD
   text: string; // the self-contained fact
   raw: string; // the exact persisted markdown line
 }

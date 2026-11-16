@@ -4072,7 +4072,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["webhook_upserted"],
   }),
 
-  // Three verbs: READ (whole file + version), APPEND (one server-stamped line),
+  // Three verbs: READ (whole file + version), APPEND (one line),
   // REPLACE (whole-file overwrite, version-guarded). All scopes; access by scope
   // follows the rooms and is checked in the handler (handlers/memory.ts).
   defineRoute<void, MemoryReadRes>({

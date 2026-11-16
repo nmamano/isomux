@@ -8,8 +8,8 @@ import { officeAuditStore } from "../audit-store.ts";
 // by the agent, its manager's identities and owners, and read also by whoever
 // reaches its room; office memory by any caller. Owners reach everything. No
 // read is a 404 like a missing target; a read without a write is 403
-// memory_write_forbidden. On APPEND author + date are server-stamped (never
-// body). APPEND has an exact-duplicate guard. REPLACE is whole-file, guarded by
+// memory_write_forbidden. APPEND stores "- {text}" with no author or date;
+// the audit row names the caller. APPEND has an exact-duplicate guard. REPLACE is whole-file, guarded by
 // the optimistic version from the preceding READ (409 on mismatch); it writes raw
 // text verbatim. Evidence = the persisted memory/*.md files + the op-log + REST
 // envelopes. Seam: startTestServer(). Zero LLM.
@@ -130,11 +130,10 @@ function asAppend(body: unknown): {
 }
 
 describe("routes/memory REST: APPEND (agent own scope)", () => {
-  // Task f9d2bbac: a note an agent writes to its OWN agent scope is stamped with
-  // the date only. The author there would name the reader, and it costs twice -
-  // against the scope's hard cap and again in that agent's own prompt. Every
-  // other writer stays named; the two cases below pin that.
-  it("self-note: date-only raw line, body author/date ignored; returns item+version", async () => {
+  // Task faee4332: the line in context is the rule only, for every caller and
+  // scope. Who wrote it lives in the audit row. The cases below cover an
+  // agent's own scope, another agent's scope, a room, and a user cookie.
+  it("self-note: the text alone, body author/date ignored; returns item+version; audit names the agent", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -156,26 +155,27 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     });
     expect(r.status).toBe(201);
     const { item, version, size, cap } = asAppend(r.body);
-    expect(item.author).toBeNull();
-    expect(item.text).toBe("no em dashes in prose");
-    expect(item.scopeId).toBe(bot.id);
-    expect(item.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(item.date).not.toBe("1999-12-31");
-    expect(item.raw).toBe(`- ${item.date}: no em dashes in prose`);
-    expect(item.raw).not.toContain("MemBot");
+    expect(item).toStrictEqual({
+      scope: "agent",
+      scopeId: bot.id,
+      text: "no em dashes in prose",
+      raw: "- no em dashes in prose",
+    });
     expect(version).toMatch(/^[0-9a-f]{12}$/);
     expect(size).toBe(item.raw.length);
     expect(cap).toBe(5000);
 
     const onDisk = readMem(srv, "agents", `${bot.id}.md`)!;
-    expect(onDisk).toBe(`- ${item.date}: no em dashes in prose\n`);
-    expect(onDisk).not.toContain("EVIL");
-    // The op-log actor is unaffected - it must always name someone, and it is
-    // the authoritative who-did-what.
-    expect(opLog(srv).at(-1)!.actor.name).toBe("MemBot");
+    expect(onDisk).toBe("- no em dashes in prose\n");
+    // The audit row is the only record of who wrote the line.
+    expect(opLog(srv).at(-1)!.actor).toMatchObject({
+      kind: "agent",
+      id: bot.id,
+      name: "MemBot",
+    });
   });
 
-  it("ANOTHER agent writing to this agent's scope stays named", async () => {
+  it("ANOTHER agent writing to this agent's scope: the text alone; audit names the writer", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -192,11 +192,23 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     });
     expect(r.status).toBe(201);
     const { item } = asAppend(r.body);
-    expect(item.author).toBe("Nosy");
-    expect(item.raw).toBe(`- Nosy, ${item.date}: MemBot owns the parser`);
+    expect(item).toStrictEqual({
+      scope: "agent",
+      scopeId: bot.id,
+      text: "MemBot owns the parser",
+      raw: "- MemBot owns the parser",
+    });
+    expect(readMem(srv, "agents", `${bot.id}.md`)).toBe(
+      "- MemBot owns the parser\n",
+    );
+    expect(opLog(srv).at(-1)!.actor).toMatchObject({
+      kind: "agent",
+      id: other.id,
+      name: "Nosy",
+    });
   });
 
-  it("an agent's note to ANOTHER scope (room) stays named", async () => {
+  it("an agent's note to ANOTHER scope (room): the text alone; audit names the agent", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -212,13 +224,25 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     });
     expect(r.status).toBe(201);
     const { item } = asAppend(r.body);
-    expect(item.author).toBe("MemBot");
-    expect(item.raw).toBe(`- MemBot, ${item.date}: the build needs bun`);
+    expect(item).toStrictEqual({
+      scope: "room",
+      scopeId: roomId,
+      text: "the build needs bun",
+      raw: "- the build needs bun",
+    });
+    expect(readMem(srv, "rooms", `${roomId}.md`)).toBe(
+      "- the build needs bun\n",
+    );
+    expect(opLog(srv).at(-1)!.actor).toMatchObject({
+      kind: "agent",
+      id: bot.id,
+      name: "MemBot",
+    });
   });
 
-  // The author-less line stays a first-class line: the normalized-duplicate
-  // guard parses it (409, not a silent second copy).
-  it("a self-note still participates in the duplicate guard", async () => {
+  // An unstamped line is a first-class line: the normalized-duplicate guard
+  // parses it (409, not a silent second copy).
+  it("an unstamped line participates in the duplicate guard", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -403,8 +427,13 @@ describe("routes/memory REST: APPEND existence gates", () => {
     });
     expect(explicit.status).toBe(201);
     const { item } = asAppend(explicit.body);
-    expect(item.author).toBe("Morgan");
-    expect(item.raw).toBe(`- Morgan, ${item.date}: from the morgan`);
+    expect(item).toStrictEqual({
+      scope: "agent",
+      scopeId: bot.id,
+      text: "from the morgan",
+      raw: "- from the morgan",
+    });
+    expect(opLog(srv).at(-1)!.actor.name).toBe("Morgan");
   });
 });
 
@@ -760,7 +789,7 @@ describe("routes/memory REST: room/office scope resolution", () => {
 });
 
 describe("routes/memory REST: op-log", () => {
-  it("records a server-stamped entry per append and replace", async () => {
+  it("records one audit row per append and replace, with the actor and the full file", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -788,7 +817,7 @@ describe("routes/memory REST: op-log", () => {
       actor: { kind: "agent", id: bot.id, name: "MemBot" },
       operation: "memory.append",
     });
-    expect(log[0].memoryContent).toContain("one");
+    expect(log[0].memoryContent).toBe("- one\n");
     expect(log[1]).toMatchObject({
       actor: { kind: "agent", id: bot.id, name: "MemBot" },
       operation: "memory.replace",
