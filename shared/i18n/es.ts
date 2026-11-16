@@ -4073,7 +4073,7 @@ Cosas que puedes hacer por él:
   "systemEntries.autoHandoff.retry":
     "El traspaso automático no se completó. Isomux lo intenta de nuevo tras la próxima respuesta del agente.",
   "systemEntries.autoHandoff.backoff":
-    "El traspaso automático no se completó {failures} veces seguidas. Isomux deja pasar las próximas {turns} respuestas y luego lo intenta de nuevo.",
+    "El traspaso automático falló {failures} veces seguidas. Lo vuelve a intentar después de {turns} respuestas más.",
   "systemEntries.autoHandoff.paused":
     "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
   "systemEntries.secretRequest.saved": "Secreto {name} guardado.",

@@ -3641,7 +3641,7 @@ export const zh: Catalog = {
   "systemEntries.autoHandoff.retry":
     "自动交接未完成。Isomux 会在智能体下次回复后再试。",
   "systemEntries.autoHandoff.backoff":
-    "自动交接已连续 {failures} 次未完成。Isomux 会跳过接下来的 {turns} 次回复，然后再试。",
+    "自动交接已连续失败 {failures} 次。再过 {turns} 次回复后会再试。",
   "systemEntries.autoHandoff.paused":
     "本对话的自动交接已暂停：它开始时已超过交接阈值。",
   "systemEntries.secretRequest.saved": "密钥 {name} 已保存。",
