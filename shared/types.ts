@@ -2091,6 +2091,11 @@ export interface Cronjob {
   lastFireAt: number | null;
   // null exactly when the schedule is "none".
   nextFireAt: number | null;
+  // A run stopped by a usage limit that resets at this time: the next
+  // scheduled fire is the first slot at or after it (task 420faed7). Dropped
+  // at a fire at or after it, and when a member changes the schedule or
+  // turns the job on.
+  limitWaitUntil?: number;
 }
 
 // A cronjob as its viewer receives it. canManage is the run/edit/delete

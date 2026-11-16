@@ -50,6 +50,9 @@ export interface SessionRun {
   // reset time): the run ends failed with this line, whatever the turn
   // status says.
   usageLimitReason?: LogText;
+  // The reset time of that usage limit: the job's next scheduled fire waits
+  // for it.
+  usageLimitResetsAt?: number;
 }
 
 // A send to a job's agent target that holds its run while it is in flight.

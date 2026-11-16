@@ -142,6 +142,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Browsable run history**: every run is preserved as a transcript.
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any schedule, independent of its timing.
+- **Failure notices**: a schedule that fails tells the agent that made it, else you. A schedule stopped by a usage limit waits for the reset.
 - **Agents can make schedules** too, in Bypass mode (Never ask for Codex).
 - **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. GitHub must reach the office from the internet.
 - **WhatsApp** - link your WhatsApp in Integrations and send chats with chosen contacts or groups to your agents. A reply goes out only when you tap Send in your Inbox, unless you turn that step off for the chat.

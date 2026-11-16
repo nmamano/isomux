@@ -28,6 +28,10 @@ import {
 } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
 import {
+  failurePageKey,
+  routeFailureNotice,
+} from "./cronjob-failure-notice.ts";
+import {
   createScheduledMessageManager,
   type ScheduledMessageManager,
 } from "./scheduled-messages.ts";
@@ -236,9 +240,10 @@ export let whatsappReplies: WhatsAppReplies;
 // agent.
 export let discordSupervisor: DiscordSupervisor;
 // What the WhatsApp and Discord supervisors page their member with: a paged
-// ask from the office itself (task 74e8fc07).
+// ask from the office itself (task 74e8fc07). Also a failing schedule's
+// member (task 420faed7).
 export let officePagers: Record<
-  "whatsapp" | "discord" | "claudeMemberToken",
+  "whatsapp" | "discord" | "claudeMemberToken" | "schedules",
   {
     raise(userId: string, key: string, title: string, body: string): void;
     close(userId: string, key: string): void;
@@ -558,6 +563,32 @@ export function createManagers(
     prepareSkillFolder: (agentType, userId) =>
       agentManager.prepareRunSkillFolder(agentType, userId),
     deliverToAgent: deliverCronjobToAgent,
+    // A failing schedule tells the agent that made it, else its member
+    // (cronjob-failure-notice.ts).
+    reportFailure: (job, notice) => {
+      routeFailureNotice(job, notice, {
+        messageAgent: (agentId, current, text) =>
+          agentManager.getAgent(agentId) !== undefined &&
+          agentManager.enqueueMessage(agentId, {
+            sender: {
+              kind: "cronjob",
+              cronjobId: current.id,
+              cronjobName: current.name,
+            },
+            text,
+          }).ok,
+        pageMember: (userId, key, title, body) =>
+          officePagers.schedules.raise(userId, key, title, body),
+        undeliverable: (current) =>
+          console.error(
+            `[cron] schedule ${current.id} failed, and it has no member or agent to tell`,
+          ),
+      });
+    },
+    clearFailure: (job) => {
+      if (job.userId)
+        officePagers.schedules.close(job.userId, failurePageKey(job.id));
+    },
   });
   // Register the production instance for the module-read bridge that
   // command-handlers/usage-report use (they don't hold the instance).
@@ -634,6 +665,7 @@ export function createManagers(
       feature: "claude-member-token",
       name: "Claude",
     }),
+    schedules: officePager(asks, { feature: "schedules", name: "Schedules" }),
   };
   // What both delivery channels send: the paged asks. A page is one; the
   // old pager store's pages become paged asks at boot (startServer).

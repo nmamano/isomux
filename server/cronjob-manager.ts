@@ -22,6 +22,13 @@ import {
 import { LocalizedError, errorText } from "./localized-error.ts";
 import { usageLimitStoppedText } from "./limit-resume.ts";
 import {
+  failureNotice,
+  failureStreak,
+  noticeDue,
+  unattended,
+  type FailureNotice,
+} from "./cronjob-failure-notice.ts";
+import {
   createMcpServerSources,
   mcpServersForUserId,
   type AgentMcpServer,
@@ -288,6 +295,13 @@ export interface CronjobManagerDeps {
     | { ok: true; messageId: string; agentName: string }
     | { ok: false; reason: LogText }
   >;
+  // An unattended run failed and a notice is due (cronjob-failure-notice.ts):
+  // production sends it to the agent that made the job, else pages its
+  // member. Omitted: nobody is told.
+  reportFailure?: (job: Cronjob, notice: FailureNotice) => void;
+  // A run of the job completed: production closes the member's failure
+  // page. Omitted: nothing.
+  clearFailure?: (job: Cronjob) => void;
 }
 
 // Public surface of a CronjobManager instance, derived from the explicitly
@@ -399,6 +413,64 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     now: number = clock.now(),
   ): number | null {
     return nextScheduledFire(schedule, anchor, now);
+  }
+
+  // The job's next slot after `now`, and not before its usage-limit wait:
+  // then the first slot at or after the reset (task 420faed7).
+  function nextSlot(job: Cronjob, anchor: number, now: number): number | null {
+    const slot = computeNextFire(job.schedule, anchor, now);
+    const wait = job.limitWaitUntil;
+    if (slot === null || wait === undefined || wait <= now) return slot;
+    const afterReset = computeNextFire(job.schedule, anchor, wait - 1);
+    return afterReset === null ? slot : Math.max(slot, afterReset);
+  }
+
+  // A run stopped by a usage limit that resets at `resetsAt`: the job's next
+  // scheduled fire waits for it. The wait is kept on the job, so a restart
+  // keeps it.
+  function waitForLimitReset(job: Cronjob, resetsAt: number): void {
+    const now = clock.now();
+    if (resetsAt <= now || job.schedule.type === "none") return;
+    job.limitWaitUntil = Math.max(job.limitWaitUntil ?? 0, resetsAt);
+    const next = nextSlot(job, job.lastFireAt ?? job.createdAt, now);
+    if (next !== null && (job.nextFireAt === null || next > job.nextFireAt))
+      job.nextFireAt = next;
+    saveCronjobs(cronjobs);
+    eventHandler({ type: "cronjob_updated", cronjob: job });
+  }
+
+  // After a run's end: a usage-limit wait, a cleared failure page on a
+  // completed run, and a failure notice when one is due
+  // (cronjob-failure-notice.ts). firstEnd: the run's own end, not the end of
+  // a follow-up into it. A deleted job gets nothing. Never throws: run ends
+  // happen in stream consumers and timers.
+  function afterRunEnd(
+    row: CronjobRun,
+    firstEnd: boolean,
+    limitResetsAt?: number,
+  ): void {
+    try {
+      const job = cronjobs.find((c) => c.id === row.cronjobId);
+      if (!job) return;
+      let waitUntil: number | null = null;
+      if (limitResetsAt !== undefined) {
+        waitForLimitReset(job, limitResetsAt);
+        waitUntil = job.limitWaitUntil ?? null;
+      }
+      if (row.status === "completed") {
+        deps.clearFailure?.(job);
+        return;
+      }
+      if (!firstEnd || !unattended(row.trigger)) return;
+      if (row.status !== "failed" && row.status !== "timed_out") return;
+      const streak = failureStreak(loadRuns(job.id));
+      if (!noticeDue(streak)) return;
+      deps.reportFailure?.(job, failureNotice(job, row, streak, waitUntil));
+    } catch (err) {
+      console.error(
+        `[cron] the failure notice of run ${row.id} of ${row.cronjobId} failed: ${errMessage(err)}`,
+      );
+    }
   }
 
   function clampSchedule(schedule: Schedule): Schedule {
@@ -634,6 +706,20 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     if (changes.roomId !== undefined) {
       if (changes.roomId) next.roomId = changes.roomId;
       else delete next.roomId;
+    }
+    // A member's change of the schedule, or turning the job on, ends a
+    // usage-limit wait.
+    if (
+      next.limitWaitUntil !== undefined &&
+      (changes.schedule !== undefined || (next.enabled && !prev.enabled))
+    ) {
+      delete next.limitWaitUntil;
+      if (changes.schedule === undefined)
+        next.nextFireAt = computeNextFire(
+          next.schedule,
+          next.lastFireAt ?? next.createdAt,
+          clock.now(),
+        );
     }
     if (changes.schedule !== undefined) {
       next.schedule = clampSchedule(changes.schedule);
@@ -1011,6 +1097,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         // The run's one error line and reason (OpenCode: the turn's error).
         if (ev.resetsAtMs === undefined) break;
         active.usageLimitReason = usageLimitStoppedText(ev.resetsAtMs);
+        active.usageLimitResetsAt = ev.resetsAtMs;
         writeLog(active, "error", active.usageLimitReason);
         break;
       }
@@ -1327,7 +1414,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   ): void {
     if (!slots.drop(owner)) return;
     if (owner.kind === "session") releaseSession(owner);
-    transitionRun(
+    const ended = transitionRun(
       owner.jobId,
       owner.runId,
       { kind: "end", end },
@@ -1343,6 +1430,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
         ...extra,
       },
     );
+    if (ended)
+      afterRunEnd(
+        ended,
+        !(owner.kind === "session" && owner.isResume),
+        owner.kind === "session" ? owner.usageLimitResetsAt : undefined,
+      );
     // tick() and the cwd-invalid branch in fire() already set lastFireAt and
     // nextFireAt at fire time - no further schedule update needed here.
   }
@@ -1389,7 +1482,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
     ...(deps.runCommand ? { runCommand: deps.runCommand } : {}),
     ...(deps.deliverToAgent ? { deliverToAgent: deps.deliverToAgent } : {}),
     appendRun,
-    announce: (run) => eventHandler({ type: "cronjob_run_updated", run }),
+    // A row that is appended already ended (a start that failed) ends here.
+    announce: (run) => {
+      eventHandler({ type: "cronjob_run_updated", run });
+      if (run.status !== "running") afterRunEnd(run, true);
+    },
     hold: (owner) => slots.hold(owner),
     endRun: (owner, end, extra) => endRun(owner, end, extra),
     findRun,
@@ -1476,10 +1573,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
       // Update next fire for scheduled trigger so we don't loop.
       if (trigger === "scheduled") {
         job.lastFireAt = now;
-        job.nextFireAt = computeNextFire(job.schedule, now, now);
+        job.nextFireAt = nextSlot(job, now, now);
         saveCronjobs(cronjobs);
         eventHandler({ type: "cronjob_updated", cronjob: job });
       }
+      afterRunEnd(run, true);
       return run;
     }
     return startRunSession(job, run, trigger, prompt);
@@ -1655,6 +1753,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           }),
         },
       });
+      if (updated) afterRunEnd(updated, true);
       return updated ?? run;
     }
     // For Claude and Codex, mint this run's bearer after cwd and env validation
@@ -1699,6 +1798,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           }),
         },
       });
+      if (updated) afterRunEnd(updated, true);
       return updated ?? run;
     }
 
@@ -1828,17 +1928,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
       if (job.nextFireAt === null || now < job.nextFireAt) continue;
       if (hasInFlightScheduledRun(job.id)) {
         recordSkippedRun(job);
-        job.nextFireAt = computeNextFire(
-          job.schedule,
-          job.lastFireAt ?? job.createdAt,
-          now,
-        );
+        job.nextFireAt = nextSlot(job, job.lastFireAt ?? job.createdAt, now);
         saveCronjobs(cronjobs);
         eventHandler({ type: "cronjob_updated", cronjob: job });
         continue;
       }
       job.lastFireAt = now;
-      job.nextFireAt = computeNextFire(job.schedule, job.lastFireAt, now);
+      // The fire the wait held back: the wait is over.
+      if (job.limitWaitUntil !== undefined && now >= job.limitWaitUntil)
+        delete job.limitWaitUntil;
+      job.nextFireAt = nextSlot(job, job.lastFireAt, now);
       saveCronjobs(cronjobs);
       eventHandler({ type: "cronjob_updated", cronjob: job });
       fire(job, "scheduled");
@@ -3043,7 +3142,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         continue;
       }
       const anchor = job.lastFireAt ?? job.createdAt;
-      const next = computeNextFire(schedule, anchor, now);
+      const next = nextSlot({ ...job, schedule }, anchor, now);
       if (next !== job.nextFireAt) {
         job.nextFireAt = next;
         dirty = true;
@@ -3163,6 +3262,8 @@ export function createProductionCronjobManager(overrides?: {
   memberLimitRefusal?: CronjobManagerDeps["memberLimitRefusal"];
   prepareSkillFolder?: CronjobManagerDeps["prepareSkillFolder"];
   deliverToAgent?: CronjobManagerDeps["deliverToAgent"];
+  reportFailure?: CronjobManagerDeps["reportFailure"];
+  clearFailure?: CronjobManagerDeps["clearFailure"];
   resolveOpenCodeSkillPaths?: CronjobManagerDeps["resolveOpenCodeSkillPaths"];
   resolveSkillFolder?: CronjobManagerDeps["resolveSkillFolder"];
   resolveOpenCodeLaunch?: CronjobManagerDeps["resolveOpenCodeLaunch"];
@@ -3179,6 +3280,12 @@ export function createProductionCronjobManager(overrides?: {
       : {}),
     ...(overrides?.deliverToAgent
       ? { deliverToAgent: overrides.deliverToAgent }
+      : {}),
+    ...(overrides?.reportFailure
+      ? { reportFailure: overrides.reportFailure }
+      : {}),
+    ...(overrides?.clearFailure
+      ? { clearFailure: overrides.clearFailure }
       : {}),
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     resolveEnv: defaultResolveEnv,
