@@ -18,13 +18,14 @@
 // not stop the run. A red step OpenCode refused with its free usage limit
 // is skipped instead. Engines without an office subscription are skipped:
 // OpenCode runs on a free model, Claude on a copy of the office Claude
-// sign-in without its refresh token, Codex not yet (the office has no Codex
-// subscription).
+// sign-in without its refresh token, Codex on a copy of the office Codex
+// sign-in without its refresh token, while it is on a paid ChatGPT plan with
+// usage left.
 //
 // Usage: bun run test:conformance [--engines claude,opencode] [--json FILE]
 //          [--dir DIR] [--keep] [--checkout DIR] [--claude-root DIR]
-//          [--claude-margin MINUTES] [--opencode-model PROVIDER/MODEL]
-//          [--steps office-call,room-call,...]
+//          [--claude-margin MINUTES] [--codex-root DIR] [--codex-model MODEL]
+//          [--opencode-model PROVIDER/MODEL] [--steps office-call,room-call,...]
 // Exit: 0 every run step green, 1 a red step or a leftover, 2 the run itself
 // failed (boot, claim, setup, a refused run dir or margin).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -55,6 +56,9 @@ import {
   buildServerEnv,
   claudeLogin,
   claudeRefreshEnv,
+  codexEnv,
+  codexLogin,
+  codexPlanSkip,
   officeVariables,
 } from "./env.ts";
 import {
@@ -112,10 +116,12 @@ const stepBudget = (step: Step) =>
   ABORT_WAIT_MS +
   STEP_SLACK_MS +
   (FRESH_STEPS.includes(step) ? FRESH_WAIT_MS : 0);
-// The longest the Claude column can run: the copied sign-in must outlive it.
-const CLAUDE_COLUMN_MS =
+// The longest a column can run: a copied sign-in must outlive it.
+const COLUMN_MS =
   SETUP_BUDGET_MS + STEPS.reduce((sum, step) => sum + stepBudget(step), 0);
 const CLAUDE_MODEL = "haiku";
+// Codex's "fast and affordable model for easier tasks" (codex-cli 0.166).
+const CODEX_MODEL = "gpt-6-luna";
 const OWNER = "Conformance Owner";
 const SKILL = "conformance-check";
 
@@ -269,10 +275,29 @@ interface RunContext {
   port: number;
   markers: Record<"office" | "room" | "member" | "skill", string>;
   bundledSkillsRoot: string;
-  // The user-skill roots the office gives the engines: the provider homes in
-  // the run dir.
+  // The user-skill roots in the provider homes in the run dir.
   userSkillRoots: string[];
   gitEnv: Record<string, string>;
+}
+
+// The skill folders the office builds for Codex agents, which link the
+// member's skills and the bundled ones (server/member-skill-folder.ts):
+// <state>/member-skills/<member or .office>/codex/<provider root key>/skills.
+// Read at judge time: the office builds them when an agent starts.
+function codexSkillFolders(stateRoot: string): string[] {
+  const list = (dir: string) => {
+    try {
+      return readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  const base = join(stateRoot, "member-skills");
+  return list(base).flatMap((member) =>
+    list(join(base, member, "codex")).map((key) =>
+      join(base, member, "codex", key, "skills"),
+    ),
+  );
 }
 
 // One step: the member's message, then wait for the agents to settle and
@@ -328,7 +353,7 @@ async function runStep(
           office.entries(subject.id),
           run.engine,
           SKILL,
-          ctx.userSkillRoots,
+          [...ctx.userSkillRoots, ...codexSkillFolders(office.stateRoot)],
           since,
         )
           ? markerJudge(ctx.markers.skill)(since)
@@ -342,7 +367,7 @@ async function runStep(
           office.entries(subject.id),
           run.engine,
           "wrap-session",
-          [ctx.bundledSkillsRoot],
+          [ctx.bundledSkillsRoot, ...codexSkillFolders(office.stateRoot)],
           since,
         )
           ? null
@@ -555,6 +580,166 @@ async function prepareClaude(
   return null;
 }
 
+// One JSON-RPC call to a Codex app-server on env's CODEX_HOME, started from
+// the checkout's Codex launcher and stopped after the answer.
+async function codexCall(
+  checkout: string,
+  env: Record<string, string>,
+  cwd: string,
+  method: string,
+  params: unknown,
+  timeoutMs: number,
+): Promise<unknown> {
+  const launcher = join(
+    checkout,
+    "node_modules",
+    "@openai",
+    "codex",
+    "bin",
+    "codex.js",
+  );
+  const child = spawn(
+    process.execPath,
+    [
+      launcher,
+      "app-server",
+      "--listen",
+      "stdio://",
+      "-c",
+      "analytics.enabled=false",
+    ],
+    { cwd, env, detached: true, stdio: ["pipe", "pipe", "ignore"] },
+  );
+  const send = (frame: unknown) =>
+    child.stdin!.write(`${JSON.stringify(frame)}\n`);
+  try {
+    return await new Promise<unknown>((done, fail) => {
+      const timer = setTimeout(
+        () => fail(new Error(`Codex did not answer ${method} in time`)),
+        timeoutMs,
+      );
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        fail(error);
+      });
+      child.once("exit", (exitCode) => {
+        clearTimeout(timer);
+        fail(new Error(`Codex exited with code ${exitCode} before ${method}`));
+      });
+      let buffer = "";
+      child.stdout!.on("data", (chunk: Buffer) => {
+        buffer += chunk.toString("utf8");
+        let newline: number;
+        while ((newline = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          let frame: { id?: number; result?: unknown; error?: unknown };
+          try {
+            frame = JSON.parse(line) as typeof frame;
+          } catch {
+            continue;
+          }
+          if (frame.id === 1) {
+            send({ method: "initialized", params: {} });
+            send({ id: 2, method, params });
+          } else if (frame.id === 2) {
+            clearTimeout(timer);
+            if (frame.error !== undefined)
+              fail(
+                new Error(
+                  `Codex refused ${method}: ${JSON.stringify(frame.error).slice(0, 200)}`,
+                ),
+              );
+            else done(frame.result);
+          }
+        }
+      });
+      send({
+        id: 1,
+        method: "initialize",
+        params: {
+          clientInfo: { name: "isomux-conformance", version: "1", title: null },
+          capabilities: {
+            experimentalApi: true,
+            requestAttestation: false,
+            optOutNotificationMethods: null,
+          },
+        },
+      });
+    });
+  } finally {
+    await stopServer(child);
+  }
+}
+
+// What the Codex column runs on: a copy of the office Codex sign-in with an
+// empty refresh token, written at mode 0600 into the scratch office's Codex
+// home. Codex rotates the refresh token on each use, so a copy that could
+// refresh would break the office sign-in. Returns null when the column runs,
+// else why it does not.
+async function prepareCodex(
+  codexRoot: string,
+  checkout: string,
+  runDir: string,
+): Promise<{ skip: string } | { fail: string } | null> {
+  const file = join(codexRoot, "auth.json");
+  const read = () => (existsSync(file) ? readFileSync(file, "utf8") : null);
+  let login = codexLogin(read(), Date.now(), COLUMN_MS);
+  if (login.kind === "refresh") {
+    log(
+      "codex",
+      `the office Codex sign-in in ${codexRoot} expires within the column; refreshing it`,
+    );
+    // account/read with refreshToken refreshes in place, as an office agent
+    // does: Codex reloads auth.json under its refresh lock first, and so do
+    // the office's running Codex processes before their own refresh or after
+    // a 401 (codex-rs 0.166 login/src/auth/manager.rs refresh_token), so they
+    // pick up the new token. The refresh comes before the account read
+    // (app-server get_account in account_processor/workspace_routing.rs).
+    let error = "";
+    await codexCall(
+      checkout,
+      codexEnv(process.env, codexRoot),
+      runDir,
+      "account/read",
+      { refreshToken: true },
+      60_000,
+    ).catch((e: Error) => (error = `: ${e.message}`));
+    login = codexLogin(read(), Date.now(), COLUMN_MS);
+    if (login.kind === "refresh")
+      return { fail: `the office Codex sign-in did not refresh${error}` };
+  }
+  if (login.kind === "skip") return { skip: login.reason };
+  if (login.kind === "invalid") return { fail: login.reason };
+  if (login.kind !== "copy") return { fail: "unexpected Codex sign-in state" };
+  const home = join(runDir, "codex");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  writeFileSync(join(home, "auth.json"), login.text, {
+    mode: 0o600,
+    flag: "wx",
+  });
+  // The token's plan claim lags the account by up to its 10-day life; the
+  // backend's answer, read on the copy, tells a lapsed plan or a used-up
+  // limit now.
+  let limits: unknown;
+  try {
+    limits = await codexCall(
+      checkout,
+      codexEnv(process.env, home),
+      runDir,
+      "account/rateLimits/read",
+      { excludeResetCreditDetails: true },
+      60_000,
+    );
+  } catch (e) {
+    return { fail: `the Codex usage read failed: ${(e as Error).message}` };
+  }
+  const plan = codexPlanSkip(limits);
+  if (plan?.kind === "skip") return { skip: plan.reason };
+  if (plan?.kind === "fail") return { fail: plan.reason };
+  return null;
+}
+
 // When a process started, in clock ticks since boot (/proc/<pid>/stat field
 // 22, counted after the command name in parentheses).
 function startTicks(pid: string): number {
@@ -650,6 +835,8 @@ async function main() {
       checkout: { type: "string" },
       "claude-root": { type: "string" },
       "claude-margin": { type: "string" },
+      "codex-root": { type: "string" },
+      "codex-model": { type: "string" },
       "opencode-model": { type: "string" },
       steps: { type: "string" },
     },
@@ -669,9 +856,9 @@ async function main() {
       process.exit(2);
     }
   const marginMs = Number(values["claude-margin"] ?? 70) * 60_000;
-  if (!(marginMs >= CLAUDE_COLUMN_MS)) {
+  if (!(marginMs >= COLUMN_MS)) {
     console.error(
-      `--claude-margin must cover the Claude column: at least ${Math.ceil(CLAUDE_COLUMN_MS / 60_000)} minutes`,
+      `--claude-margin must cover the Claude column: at least ${Math.ceil(COLUMN_MS / 60_000)} minutes`,
     );
     process.exit(2);
   }
@@ -684,6 +871,10 @@ async function main() {
     }).stdout?.trim() || null;
   const givenClaudeRoot = values["claude-root"] ?? null;
   const claudeRoot = givenClaudeRoot ?? join(homedir(), ".claude");
+  // The office Codex sign-in: the office's own Codex home, as agents of a
+  // member without a personal Codex sign-in use it.
+  const codexRoot =
+    values["codex-root"] ?? join(homedir(), ".isomux", "codex-home");
 
   // The run removes its dir at the end, so a given dir must be new or empty:
   // a typo must not delete a real folder.
@@ -778,9 +969,6 @@ async function main() {
       values: officeVariables(runDir),
     });
 
-    if (engines.includes("codex"))
-      columns.codex!.skip = "no office Codex subscription";
-
     // The four sources of an office call.
     const markers = {
       office: `CF-office-${token()}`,
@@ -851,17 +1039,22 @@ async function main() {
 
     const runEngine = async (engine: Engine) => {
       const column = columns[engine]!;
-      // Only the Claude column waits for a sign-in refresh.
-      if (engine === "claude") {
-        const claude = await prepareClaude(
-          claudeRoot,
-          givenClaudeRoot,
-          runDir,
-          marginMs,
-        ).catch((error: Error) => ({ fail: error.message }));
-        if (claude && "skip" in claude) column.skip = claude.skip;
-        if (claude && "fail" in claude) column.setupFailure = claude.fail;
-      }
+      // The Claude and Codex columns run on a copy of the office sign-in.
+      const prepared =
+        engine === "claude"
+          ? await prepareClaude(
+              claudeRoot,
+              givenClaudeRoot,
+              runDir,
+              marginMs,
+            ).catch((error: Error) => ({ fail: error.message }))
+          : engine === "codex"
+            ? await prepareCodex(codexRoot, checkout, runDir).catch(
+                (error: Error) => ({ fail: error.message }),
+              )
+            : null;
+      if (prepared && "skip" in prepared) column.skip = prepared.skip;
+      if (prepared && "fail" in prepared) column.setupFailure = prepared.fail;
       if (column.skip) {
         log(engine, `SKIP ${column.skip}`);
         return;
@@ -874,7 +1067,11 @@ async function main() {
       let identity: { name: string; email: string };
       try {
         const modelFamily =
-          engine === "claude" ? CLAUDE_MODEL : await opencodeModel();
+          engine === "claude"
+            ? CLAUDE_MODEL
+            : engine === "codex"
+              ? (values["codex-model"] ?? CODEX_MODEL)
+              : await opencodeModel();
         const repo = join(runDir, "repos", engine);
         mkdirSync(repo, { recursive: true });
         if (!git(repo, gitEnv, ["init", "-q"]).ok)
@@ -962,8 +1159,9 @@ async function main() {
     if (tornDown) return;
     tornDown = true;
     await stopServer(server);
-    // The copy of the office sign-in never outlives the run.
+    // The copies of the office sign-ins never outlive the run.
     rmSync(join(runDir, "claude", ".credentials.json"), { force: true });
+    rmSync(join(runDir, "codex", "auth.json"), { force: true });
     // A leftover is red, and then stopped: the nightly runs unattended.
     const left = leftovers(runDir);
     if (left.size) {
@@ -981,6 +1179,10 @@ async function main() {
     }
     if (existsSync(join(runDir, "claude", ".credentials.json"))) {
       log("run", "FAIL the copy of the office Claude sign-in is still there");
+      if (exitCode === 0) exitCode = 1;
+    }
+    if (existsSync(join(runDir, "codex", "auth.json"))) {
+      log("run", "FAIL the copy of the office Codex sign-in is still there");
       if (exitCode === 0) exitCode = 1;
     }
     // Only what the run made: an empty dir it was given stays.
