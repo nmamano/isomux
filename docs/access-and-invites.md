@@ -111,4 +111,12 @@ On Kubernetes, run it in the `recovery` container:
 kubectl -n isomux exec deployment/isomux -c recovery -- curl -s --unix-socket /run/isomux-admin/admin.sock -X POST http://localhost/admin/owner-login -H 'Content-Type: application/json' --data '{"name":"<your-display-name>"}'
 ```
 
+## Operator commands on the admin socket
+
+The same socket answers three more commands, for an operator with root on the box and no browser session. Each takes a JSON body, as above:
+
+- `POST /admin/sign-in-link {"name":"<name>"}`: a one-time sign-in link for any member or owner. An owner's link is valid for 15 minutes, a member's for 3 days. It replaces that person's earlier unused link.
+- `POST /admin/message {"agent":"<agent id or name>","text":"<text>"}`: sends a message to an agent as from its manager. It never answers a question that waits for the manager.
+- `POST /admin/revoke {"name":"<name>"}`: signs that person out on every device and removes their unused sign-in links. Their API tokens keep working: the answer counts them, and the person or an owner revokes them in Settings.
+
 How access works inside the server (cookies, state files, origin checks) is in the [security audit](security-audit.md#appendix-access-internals).

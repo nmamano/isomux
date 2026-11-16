@@ -2,6 +2,8 @@
 
 Status: approved by Nil on 2026-10-03 (Option 1 with Option 1b). Implemented in task 636901c1.
 
+Task 78733adf slice 5a added three operator verbs for the same callers: `/admin/sign-in-link` (any user; owner 15 min, member 3 days), `/admin/message` (as from the agent's current manager, with that member's pack limits, never answering a pending prompt) and `/admin/revoke` (every session, fail closed, then the unused links; API tokens stay). The member OS user verbs answer root only.
+
 ## Problem
 
 `server/admin-socket.ts` binds `<state root>/admin.sock` (mode 0600) and answers `POST /admin/owner-login` with a 15-minute owner sign-in URL. The file mode is the only check. Every agent, terminal panel and app runs as the server's OS user, so each of them can mint an owner URL in one call. The safety policy refuses the recognized command forms (this lane), but that is a guardrail: a Python one-liner or a renamed binary still connects.

@@ -163,7 +163,10 @@ describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
     expect(await logoutBySessionHash(l1.sessionIdHash)).toBe("not_found");
 
     // evict takes every remaining session for that user - and nobody else's.
-    expect(await evictSessionsForUserId(userIdOf("Alice"))).toBe(1);
+    expect(await evictSessionsForUserId(userIdOf("Alice"))).toEqual({
+      count: 1,
+      saved: true,
+    });
     expect(s2.closed).toBe(true);
     expect(s2.sent).toEqual([JSON.stringify({ type: "session_expired" })]);
     expect(sOwner.closed).toBe(false);

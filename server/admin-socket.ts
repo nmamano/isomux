@@ -16,7 +16,14 @@ import { recordAudit } from "./audit-store.ts";
 
 import { chmodSync, existsSync, statSync, unlinkSync } from "fs";
 import { ADMIN_SOCKET_PATH } from "./config.ts";
-import { buildPublicOrigin, mintInvite } from "./auth.ts";
+import {
+  buildPublicOrigin,
+  evictSessionsForUserId,
+  INVITE_TTL_MS,
+  mintInvite,
+  revokeInvitesForUser,
+} from "./auth.ts";
+import { listApiTokens } from "./api-tokens.ts";
 import { getUserByName, hasOwner } from "./users.ts";
 import { activeSetupKeySource, setupKeyFile } from "./setup-key.ts";
 import {
@@ -38,11 +45,34 @@ import {
 const OWNER_LOGIN_TTL_MS = 15 * 60 * 1000;
 const MAX_REQUEST_BYTES = 64 * 1024;
 
+// The answer of the office's send for POST /admin/message: the agent found
+// by id or exact name, the message sent as from its current manager.
+export type AdminMessageResult =
+  | { ok: true; agentId: string }
+  | { ok: false; status: number; code: string; error: string };
+
+// The device of a message sent through the socket, shown in the chat and to
+// the agent after the manager's name. Not a replies-only device: the text is
+// the manager's.
+export const ADMIN_SOCKET_DEVICE = "admin socket";
+
+// What the operator verbs need from the running office (isomux-office.ts
+// builds it), so this module imports no agent manager.
+export interface AdminSocketDeps {
+  // Find the agent (id, or its exact name: names are unique) and send `text`
+  // as from its current manager, with the manager's pack limits, never as an
+  // answer to a pending prompt.
+  sendMessage(agent: string, text: string): Promise<AdminMessageResult>;
+  // The invites list changed (a sign-in link minted, links revoked).
+  invitesChanged(): void;
+}
+
 export interface AdminSocketOptions {
   socketPath?: string;
   serverUid?: number;
   recoveryUidSetting?: string;
   readPeerUid?: (fd: number) => number | null;
+  deps?: AdminSocketDeps;
 }
 
 interface ConnectionData {
@@ -165,7 +195,7 @@ export function startAdminSocket(options: AdminSocketOptions = {}): {
             socket.end(jsonBytes(403, { ok: false, error: refusal(allowed) }));
             return;
           }
-          void handleParsed(request, peerUid)
+          void handleParsed(request, peerUid, options.deps)
             .then(toHttpAsync)
             .then(
               (bytes) => socket.end(bytes),
@@ -216,6 +246,7 @@ function refusal(allowed: Set<number>): string {
 function handleParsed(
   request: ParsedRequest,
   peerUid: number,
+  deps: AdminSocketDeps | undefined,
 ): Promise<Response> {
   const hasBody = request.method !== "GET" && request.body.length > 0;
   return handleAdmin(
@@ -225,6 +256,7 @@ function handleParsed(
       body: hasBody ? request.body.toString("utf8") : undefined,
     }),
     peerUid,
+    deps,
   );
 }
 
@@ -240,7 +272,11 @@ async function toHttpAsync(response: Response): Promise<Buffer> {
   );
 }
 
-async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
+async function handleAdmin(
+  req: Request,
+  peerUid: number,
+  deps: AdminSocketDeps | undefined,
+): Promise<Response> {
   const url = new URL(req.url);
   // The member OS user verbs (server/member-user-admin.ts) answer root only,
   // not the recovery uid: they make and remove OS users' runtimes.
@@ -261,6 +297,18 @@ async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
     }
     return handleMemberUserAdmin(url.pathname, body);
   }
+  // The operator verbs (task 78733adf slice 5a): the same callers as
+  // owner-login.
+  const operatorVerb = OPERATOR_VERBS[url.pathname];
+  if (req.method === "POST" && operatorVerb) {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse(400, { ok: false, error: "invalid JSON body" });
+    }
+    return operatorVerb(body, deps);
+  }
   if (req.method !== "POST" || url.pathname !== "/admin/owner-login") {
     return jsonResponse(404, { ok: false, error: "not found" });
   }
@@ -280,13 +328,7 @@ async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
   // Refuse pre-claim. The setup form is the right path before an
   // owner exists; pretending to "recover" an account that doesn't exist
   // would be confusing.
-  if (!hasOwner()) {
-    const port = process.env.PORT || "4000";
-    return jsonResponse(400, {
-      ok: false,
-      error: `No owner exists yet. Claim the office first: open http://localhost:${port}/setup on this machine (or via ssh -L from another) and enter the setup key, ${activeSetupKeySource() === "configured" ? "the value of ISOMUX_SETUP_KEY" : `which is in ${setupKeyFile()}`}. Once an owner is set, this command can mint a login URL.`,
-    });
-  }
+  if (!hasOwner()) return noOwnerYet();
   const user = getUserByName(name);
   if (!user) {
     return jsonResponse(404, {
@@ -297,7 +339,7 @@ async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
   if (user.role !== "owner") {
     return jsonResponse(400, {
       ok: false,
-      error: `User "${name}" is a member, not an owner. The owner-login CLI is for owner recovery; have an owner create a sign-in link from the Invites pane.`,
+      error: `User "${name}" is a member, not an owner. For a member's sign-in link, POST /admin/sign-in-link with the same body.`,
     });
   }
   // The mint replaces any prior unconsumed link for this user, so repeated
@@ -311,7 +353,7 @@ async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
     return jsonResponse(500, { ok: false, error: minted.error });
   }
   recordAudit({
-    actor: { kind: "admin_cli", id: "admin-cli", name: "admin-cli" },
+    actor: ADMIN_ACTOR,
     operation: "admin.ownerLogin",
     targets: [user.id],
     fields: [],
@@ -322,6 +364,172 @@ async function handleAdmin(req: Request, peerUid: number): Promise<Response> {
     url: `${origin}/i/${minted.rawToken}`,
     expiresAt: minted.invite.expiresAt,
     ttlMs: OWNER_LOGIN_TTL_MS,
+  });
+}
+
+const OPERATOR_VERBS: Record<
+  string,
+  (body: unknown, deps: AdminSocketDeps | undefined) => Promise<Response>
+> = {
+  "/admin/sign-in-link": (body, deps) => handleSignInLink(body, deps),
+  "/admin/message": (body, deps) => handleAdminMessage(body, deps),
+  "/admin/revoke": (body, deps) => handleRevoke(body, deps),
+};
+
+// POST /admin/sign-in-link {name}: a one-use sign-in link for any user,
+// owner (15 min, as owner-login) or member (INVITE_TTL_MS, as the Invites
+// pane). It replaces the user's earlier unused link.
+export async function handleSignInLink(
+  body: unknown,
+  deps: AdminSocketDeps | undefined,
+): Promise<Response> {
+  const name = stringField(body, "name").trim();
+  if (!name) return jsonResponse(400, { ok: false, error: "name is required" });
+  if (!hasOwner()) return noOwnerYet();
+  const user = getUserByName(name);
+  if (!user) return unknownUser(name);
+  const ttlMs = user.role === "owner" ? OWNER_LOGIN_TTL_MS : INVITE_TTL_MS;
+  const minted = await mintInvite({
+    userId: user.id,
+    createdBy: "(admin-cli)",
+    ttlMs,
+  });
+  if (!minted.ok) return jsonResponse(500, { ok: false, error: minted.error });
+  deps?.invitesChanged();
+  recordAudit({
+    actor: ADMIN_ACTOR,
+    operation: "admin.signInLink",
+    targets: [user.id],
+    fields: [],
+  });
+  return jsonResponse(200, {
+    ok: true,
+    url: `${buildPublicOrigin().origin}/i/${minted.rawToken}`,
+    expiresAt: minted.invite.expiresAt,
+    ttlMs,
+    role: user.role,
+  });
+}
+
+// POST /admin/message {agent, text}: a message to an agent as from its
+// current manager.
+export async function handleAdminMessage(
+  body: unknown,
+  deps: AdminSocketDeps | undefined,
+): Promise<Response> {
+  const agent = stringField(body, "agent").trim();
+  const text = stringField(body, "text");
+  if (!agent)
+    return jsonResponse(400, { ok: false, error: "agent is required" });
+  if (!text.trim())
+    return jsonResponse(400, { ok: false, error: "text is required" });
+  if (!deps)
+    return jsonResponse(503, {
+      ok: false,
+      error: "This office cannot send messages through the admin socket.",
+    });
+  const result = await deps.sendMessage(agent, text);
+  if (!result.ok)
+    return jsonResponse(result.status, {
+      ok: false,
+      code: result.code,
+      error: result.error,
+    });
+  recordAudit({
+    actor: ADMIN_ACTOR,
+    operation: "admin.message",
+    targets: [result.agentId],
+    fields: [],
+  });
+  return jsonResponse(200, { ok: true, agentId: result.agentId });
+}
+
+// POST /admin/revoke {name}: ends every browser session of the user (every
+// device, the last owner's too: root can mint a new link at once), then
+// removes their unused sign-in links. API tokens stay; the answer counts
+// the live ones.
+export async function handleRevoke(
+  body: unknown,
+  deps: AdminSocketDeps | undefined,
+): Promise<Response> {
+  const name = stringField(body, "name").trim();
+  if (!name) return jsonResponse(400, { ok: false, error: "name is required" });
+  const user = getUserByName(name);
+  if (!user) return unknownUser(name);
+  const now = Date.now();
+  const apiTokens = listApiTokens(user.id).filter(
+    (t) => t.expiresAt === null || t.expiresAt > now,
+  ).length;
+  // Sessions first, fail closed: they end in memory even when the write
+  // fails, and come back at a restart.
+  const sessions = await evictSessionsForUserId(user.id);
+  recordAudit({
+    actor: ADMIN_ACTOR,
+    operation: "admin.revoke",
+    targets: [user.id],
+    fields: [],
+  });
+  // Then the links, also when the sessions write failed: a live link would
+  // sign the person in again at once.
+  let links = 0;
+  let linksSaved = true;
+  try {
+    links = await revokeInvitesForUser(user);
+  } catch (err) {
+    linksSaved = false;
+    console.error(`[admin-socket] revoke: the invites write failed:`, err);
+  }
+  if (links > 0) deps?.invitesChanged();
+  if (!sessions.saved || !linksSaved)
+    return jsonResponse(500, {
+      ok: false,
+      sessions: sessions.count,
+      links,
+      apiTokens,
+      error: [
+        sessions.saved
+          ? "Signed out."
+          : "Signed out now, but the sessions file could not be written, so the sessions come back at a restart.",
+        linksSaved
+          ? "The sign-in links are removed."
+          : "The invites file could not be written, so the sign-in links still work.",
+        "Run the command again.",
+      ].join(" "),
+    });
+  return jsonResponse(200, {
+    ok: true,
+    sessions: sessions.count,
+    links,
+    apiTokens,
+  });
+}
+
+const ADMIN_ACTOR = {
+  kind: "admin_cli",
+  id: "admin-cli",
+  name: "admin-cli",
+} as const;
+
+function stringField(body: unknown, key: string): string {
+  if (!body || typeof body !== "object") return "";
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : "";
+}
+
+function unknownUser(name: string): Response {
+  return jsonResponse(404, {
+    ok: false,
+    error: `No user named "${name}" in this office.`,
+  });
+}
+
+// Before the office is claimed, the setup form is the way in: no verb mints
+// a link for an account no owner made.
+function noOwnerYet(): Response {
+  const port = process.env.PORT || "4000";
+  return jsonResponse(400, {
+    ok: false,
+    error: `No owner exists yet. Claim the office first: open http://localhost:${port}/setup on this machine (or via ssh -L from another) and enter the setup key, ${activeSetupKeySource() === "configured" ? "the value of ISOMUX_SETUP_KEY" : `which is in ${setupKeyFile()}`}. Once an owner is set, this command can mint a login URL.`,
   });
 }
 

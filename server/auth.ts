@@ -1174,28 +1174,34 @@ export async function logoutBySessionHash(
 // Evict all active sessions belonging to a user. Called by delete_user so
 // the deleted user's open tabs land on the login wall instead of idling
 // with an orphaned session that the per-message recheck would only catch
-// on the next interaction. Each socket gets `session_expired` then close
-// via forceExpireSocketsForSession.
+// on the next interaction, and by the admin socket's revoke. Each socket
+// gets `session_expired` then close via forceExpireSocketsForSession.
 //
 // Persist-failure semantics differ from logoutBySessionHash/revokeSessionByPrefix
 // on purpose: those are user-requested mutations on otherwise-valid sessions,
 // so a disk write failure rolls them back and surfaces the error. Here the
-// user record is already gone - leaving the in-memory sessions in place
-// would preserve authority for a deleted user until next message-time
-// orphan eviction. Log loudly and continue; the next validateSession on
-// any reused cookie will re-evict the disk row.
-export async function evictSessionsForUserId(userId: string): Promise<number> {
+// caller ends authority (a deleted user, an operator's revoke), and a rollback
+// would keep it. Log loudly and continue; `saved: false` tells the caller
+// the sessions come back at a restart. For a deleted user the next
+// validateSession on any reused cookie re-evicts the disk row.
+export async function evictSessionsForUserId(
+  userId: string,
+): Promise<{ count: number; saved: boolean }> {
   return mutate(() => {
     ensureLoaded();
     const hashes: string[] = [];
     for (const [hash, s] of sessions!) {
       if (s.userId === userId) hashes.push(hash);
     }
-    if (hashes.length === 0) return 0;
+    if (hashes.length === 0) return { count: 0, saved: true };
     for (const hash of hashes) sessions!.delete(hash);
+    // Fail closed: memory and sockets end the sessions now even when the
+    // write fails; `saved: false` tells the caller they come back at a restart.
+    let saved = true;
     try {
       persistSessions();
     } catch (err) {
+      saved = false;
       console.error(
         `[auth] evictSessionsForUserId persist failed (userId=${userId}, count=${hashes.length}):`,
         err,
@@ -1205,7 +1211,7 @@ export async function evictSessionsForUserId(userId: string): Promise<number> {
     // Fire once per batch - the broadcast replaces the whole list, so
     // per-hash firing would just be redundant fanout.
     fireSessionsChangedHook();
-    return hashes.length;
+    return { count: hashes.length, saved };
   });
 }
 

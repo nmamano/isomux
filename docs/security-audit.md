@@ -291,7 +291,7 @@ The safety hooks are a guardrail against mistakes by honest agents. They are not
 
 ### 6.4 Owner recovery
 
-An operator who loses the last owner session can mint a 15-minute owner sign-in link through a Unix socket (`admin.sock`). By default the socket is in the state directory. On Kubernetes, it is on a volume that the office and a recovery container share. The socket reads the OS user of the caller from the kernel. It answers only root. On Kubernetes, it also answers a separate recovery container that runs as a different user. It always refuses the server's own OS user, so an agent cannot mint a sign-in link through it.
+An operator who loses the last owner session can mint a 15-minute owner sign-in link through a Unix socket (`admin.sock`). By default the socket is in the state directory. On Kubernetes, it is on a volume that the office and a recovery container share. The socket reads the OS user of the caller from the kernel. It answers only root. On Kubernetes, it also answers a separate recovery container that runs as a different user. It always refuses the server's own OS user, so an agent cannot mint a sign-in link through it. The same callers can also mint a sign-in link for a member, send a message to an agent as from its manager, and sign a person out on every device.
 
 This closes the one-call route. It does not close the class in section 3.2: a process with the server's OS user can still change state that the server reads at start.
 

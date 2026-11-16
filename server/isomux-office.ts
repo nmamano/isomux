@@ -173,7 +173,11 @@ import {
   agentReachRefusal,
   promptAnswerRefused,
 } from "./identity/member-reach.ts";
-import { withMemberPack } from "./identity/member-pack.ts";
+import {
+  memberPackLimits,
+  memberPackOf,
+  withMemberPack,
+} from "./identity/member-pack.ts";
 import {
   cronjobOwnerOrOfficeOwner,
   hasOfficeOwnerReach,
@@ -237,7 +241,11 @@ import {
 import { lowercaseKey } from "../shared/identity.ts";
 import { BROWSER_SHARE_DEVICE } from "../shared/browser-share.ts";
 import { MAX_LOG_REQUEST_ID_LENGTH } from "../shared/log-stream.ts";
-import { startAdminSocket } from "./admin-socket.ts";
+import {
+  ADMIN_SOCKET_DEVICE,
+  startAdminSocket,
+  type AdminSocketDeps,
+} from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import {
   setOfficeAgentHost,
@@ -999,6 +1007,57 @@ export function mayReachExtension(member: string, agentId: string): boolean {
     deps.hasRoomAccess(identity, agent.roomId) &&
     identityFitsAgent(identity, agentId, deps)
   );
+}
+
+let adminSocket: { stop(): void } | null = null;
+
+// The admin socket's operator verbs (task 78733adf slice 5a).
+function adminSocketDeps(): AdminSocketDeps {
+  return {
+    sendMessage: async (agent, text) => {
+      const info =
+        agentManager.getAgent(agent) ??
+        agentManager.getAllAgents().find((a) => a.name === agent);
+      if (!info)
+        return {
+          ok: false,
+          status: 404,
+          code: "agent_not_found",
+          error: `No agent "${agent}" in this office.`,
+        };
+      const manager = info.userId ? getUserById(info.userId) : undefined;
+      if (!manager)
+        return {
+          ok: false,
+          status: 409,
+          code: "no_manager",
+          error: `The agent "${info.name}" has no manager to send as.`,
+        };
+      // The manager's own browser limits: root speaking as a pack member gets
+      // no area that member lacks.
+      const limits = memberPackLimits(
+        undefined,
+        memberPackOf(manager.id, getUserById)?.pack,
+      );
+      const sent = await sendMemberMessage(
+        info.id,
+        text,
+        manager.name,
+        ADMIN_SOCKET_DEVICE,
+        undefined,
+        { refusePromptAnswer: true, limits },
+      );
+      return sent.ok
+        ? { ok: true, agentId: info.id }
+        : {
+            ok: false,
+            status: sent.status,
+            code: sent.code,
+            error: sent.message,
+          };
+    },
+    invitesChanged: () => emitInvitesList(),
+  };
 }
 
 // A page the member shared from the browser extension (task 68da3968): the
@@ -6737,7 +6796,11 @@ function runBackgroundBoot(
   // Starts after the HTTP listener so the printed URL is immediately
   // openable. Optional surface; a startup failure logs but doesn't block the
   // server.
-  if (!startOpts.skipAdminSocket) startAdminSocket();
+  if (startOpts.adminSocket || !startOpts.skipAdminSocket)
+    adminSocket = startAdminSocket({
+      ...startOpts.adminSocket,
+      deps: adminSocketDeps(),
+    });
 
   return restorePromise;
 } // end runBackgroundBoot
@@ -6857,6 +6920,12 @@ export interface StartServerOpts {
   // can SIGTERM its own process. Tests pass a fake export child and folder.
   rescue?: RescueSeams;
   skipAdminSocket?: boolean;
+  // Starts the admin socket with the office's own deps at this path even
+  // with skipAdminSocket (tests of the operator verbs).
+  adminSocket?: {
+    socketPath: string;
+    readPeerUid?: (fd: number) => number | null;
+  };
   skipUpdateChecker?: boolean;
   // Internal backup status provider. The in-process harness supplies a fresh
   // value so a skipped backup scheduler cannot expose host backup state. The
@@ -6925,6 +6994,8 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // Delivers the waiting Discord messages, then ends the gateway children.
   await discordSupervisor?.shutdown();
   githubSync?.stop();
+  adminSocket?.stop();
+  adminSocket = null;
   uiBuildTracker?.stop();
   officeExportJobs?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
