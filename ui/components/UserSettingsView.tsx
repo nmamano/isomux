@@ -118,6 +118,7 @@ import {
   setSettingsGroupOpen,
 } from "../device-settings.ts";
 import { MemberAccessControl } from "./MemberAccessControl.tsx";
+import { MemberOsUserSection } from "./MemberOsUserSection.tsx";
 import { MemberPinnedAgents } from "./MemberPinnedAgents.tsx";
 import type { MemberLevel } from "../member-access.ts";
 import { samePack } from "../../shared/pack-fit.ts";
@@ -1828,6 +1829,14 @@ function UserEditPanel({
             }}
             headingStyle={sectionTitleStyle}
             disabled={saving}
+          />
+        )}
+
+        {isOwner && !creating && !targetIsOwner && (
+          <MemberOsUserSection
+            username={user.name}
+            headingStyle={sectionTitleStyle}
+            hintStyle={sectionHintStyle}
           />
         )}
 

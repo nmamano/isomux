@@ -306,6 +306,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
     ].map((opId) => [opId, OWN_SCOPE]),
   ),
   "users.update": ROLE,
+  "users.osUser.get": OWNERS,
   // Message routes of chat bridges: they deliver messages.
   ...Object.fromEntries(
     [

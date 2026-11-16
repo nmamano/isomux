@@ -535,6 +535,11 @@ export const officeSettingsOwner: Guard = ({ identity, deps }) =>
 export const memberPinsOwner: Guard = ({ identity, deps }) =>
   hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
 
+// A member's own OS user, as the owner's Members page reads it: an office
+// owner's reach (users.osUser.get).
+export const memberOsUserOwner: Guard = ({ identity, deps }) =>
+  hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
+
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").
 export const selfOrOwner: Guard = (ctx) =>

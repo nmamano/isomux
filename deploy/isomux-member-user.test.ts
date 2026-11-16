@@ -88,6 +88,14 @@ url=\${@: -1}; verb=\${url##*/}
 body=; prev=
 for a in "$@"; do [[ $prev == --data ]] && body=$a; prev=$a; done
 printf '%s\\n' "$body" > "$T/sent-$verb"
+# $T/signal: the owner stops the command (that signal to it) during go-on.
+if [[ $verb == go-on && -e $T/signal ]]; then
+  p=$PPID
+  until tr '\\0' ' ' <"/proc/$p/cmdline" | grep -q isomux-member-user.sh; do
+    p=$(awk '{print $4}' "/proc/$p/stat"); ((p > 1)) || exit 9
+  done
+  kill -"$(cat "$T/signal")" "$p"; exit 7
+fi
 f=$T/answers/$verb
 [[ -e $f ]] || { echo "curl: (7) connection refused" >&2; exit 7; }
 cat "$f"`,
@@ -407,10 +415,6 @@ describe("enable", () => {
       "the office does not answer prepare",
       () => rmSync(join(root, "answers", "prepare")),
     ],
-    [
-      "the office does not answer go-on",
-      () => rmSync(join(root, "answers", "go-on")),
-    ],
   ];
   for (const [name, setup] of failures)
     it(`undoes every change when ${name}`, () => {
@@ -424,6 +428,164 @@ describe("enable", () => {
       // is removed.
       if (called("systemctl disable"))
         expect(at("systemctl disable")).toBeLessThan(at("userdel"));
+    });
+});
+
+// An enable that the office cut during go-on (a restart, or the owner
+// stopped the command): the office may have recorded the user, so the
+// command undoes nothing, and a rerun of the same enable finishes it with
+// nothing to undo (design 2.2).
+describe("an enable that go-on did not finish", () => {
+  // The office's record of the member, as info answers it after the cut.
+  function recorded(over: { uid?: number; slug?: string } = {}) {
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      slug: over.slug ?? "alice",
+      osUser: { name: OS_USER, uid: over.uid ?? 2001 },
+      state: "isolated",
+    });
+  }
+  // Forget the first run's calls.
+  function fresh(): void {
+    rmSync(join(root, "log"), { force: true });
+    for (const verb of ["info", "prepare", "go-on"])
+      rmSync(join(root, `sent-${verb}`), { force: true });
+  }
+  function expectUserKept(): void {
+    expect(existsSync(join(root, "users", OS_USER))).toBe(true);
+    expect(readFileSync(etc(`${OS_USER}.made`), "utf8").trim()).toBe(USER_ID);
+    expect(existsSync(share())).toBe(true);
+    for (const undo of [
+      "userdel",
+      "systemctl disable",
+      "loginctl disable-linger",
+      "pkill",
+    ])
+      expect([undo, called(undo)]).toEqual([undo, false]);
+  }
+  const goOnAt = () =>
+    log().findIndex(
+      (l) => l.startsWith("curl ") && l.endsWith("/member-user/go-on"),
+    );
+
+  // Recorded: the office recorded the user before the cut (the member may
+  // have a new name since: the record wins). Not recorded: the cut came
+  // first.
+  for (const [name, record] of [
+    ["the office recorded the user", () => recorded({ slug: "renamed" })],
+    ["the office did not record the user", () => {}],
+  ] as const)
+    it(`keeps the user when the office does not answer, and a rerun finishes when ${name}`, () => {
+      rmSync(join(root, "answers", "go-on"));
+      const cut = run("enable", "Alice");
+      expect(cut.code).toBe(1);
+      expect(cut.stderr.length).toBeGreaterThan(0);
+      expect(sent("go-on")).not.toBeNull();
+      expectUserKept();
+
+      answer("go-on", 200, { ok: true, ready: true });
+      record();
+      fresh();
+      const rerun = run("enable", "Alice");
+      expect(rerun.code).toBe(0);
+      expect(called("useradd")).toBe(false);
+      expectUserKept();
+      const body = { member: USER_ID, osUser: OS_USER, uid: 2001 };
+      expect(sent("prepare")).toEqual(body);
+      expect(sent("go-on")).toEqual(body);
+      // The runner starts, and the root check runs, before go-on.
+      for (const step of [
+        "loginctl enable-linger",
+        `systemctl enable --now ${UNIT}`,
+        "sudo -n -l -U",
+      ])
+        expect([step, at(step) >= 0 && at(step) < goOnAt()]).toEqual([
+          step,
+          true,
+        ]);
+    });
+
+  for (const [signal, code] of [
+    ["INT", 130],
+    ["TERM", 143],
+  ] as const)
+    it(`keeps the user when the owner stops the command with ${signal} during go-on`, () => {
+      writeFileSync(join(root, "signal"), signal);
+      const result = run("enable", "Alice");
+      expect(result.code).toBe(code);
+      expect(sent("go-on")).not.toBeNull();
+      expectUserKept();
+    });
+
+  it("undoes nothing when the office refuses the rerun's go-on", () => {
+    rmSync(join(root, "answers", "go-on"));
+    expect(run("enable", "Alice").code).toBe(1);
+    answer("go-on", 200, { ok: false, ready: false, reason: "no runner" });
+    recorded();
+    fresh();
+    const rerun = run("enable", "Alice");
+    expect(rerun.code).toBe(1);
+    expect(sent("go-on")).not.toBeNull();
+    expectUserKept();
+  });
+
+  // The user that would be resumed is not one this command made for this
+  // member as the office records it: no change, no call to the office past
+  // info.
+  const refusals: [string, () => void, string[]][] = [
+    ["the office records another uid", () => recorded({ uid: 2999 }), []],
+    [
+      "the recorded user is no OS user here",
+      () => {
+        recorded();
+        rmSync(join(root, "users", OS_USER));
+      },
+      [],
+    ],
+    [
+      "this command did not make the user",
+      () => {
+        recorded();
+        rmSync(etc(`${OS_USER}.made`));
+      },
+      [],
+    ],
+    [
+      "this command made the user for another member",
+      () => {
+        recorded();
+        writeFileSync(etc(`${OS_USER}.made`), "u-other\n");
+      },
+      [],
+    ],
+    [
+      "--user names another user than the recorded one",
+      () => recorded(),
+      ["--user", "isomux-other"],
+    ],
+  ];
+  for (const [name, setup, extra] of refusals)
+    it(`refuses a rerun before any change when ${name}`, () => {
+      rmSync(join(root, "answers", "go-on"));
+      expect(run("enable", "Alice").code).toBe(1);
+      answer("go-on", 200, { ok: true, ready: true });
+      setup();
+      fresh();
+      const result = run("enable", "Alice", ...extra);
+      expect(result.code).toBe(1);
+      expect(result.stderr.length).toBeGreaterThan(0);
+      for (const change of [
+        "useradd",
+        "userdel",
+        "install -d",
+        "loginctl",
+        "systemctl",
+      ])
+        expect([change, called(change)]).toEqual([change, false]);
+      expect(sent("prepare")).toBeNull();
+      expect(sent("go-on")).toBeNull();
     });
 });
 
@@ -653,11 +815,6 @@ describe("in the container", () => {
       () => answer("go-on", 200, { ok: true, ready: false, reason: "no" }),
       all,
     ],
-    [
-      "the office does not answer go-on",
-      () => rmSync(join(root, "answers", "go-on")),
-      all,
-    ],
   ];
   for (const [name, setup, expected] of failures)
     it(`undoes in reverse when ${name}`, () => {
@@ -673,6 +830,60 @@ describe("in the container", () => {
       );
       expect(undone).toEqual(expected);
     });
+
+  // An enable that the office cut during go-on: nothing is undone, and a
+  // rerun checks the helper's mark, then starts the loop and goes on, with
+  // no new user and nothing to undo.
+  it("keeps the user when the office does not answer go-on, and a rerun finishes it", () => {
+    rmSync(join(root, "answers", "go-on"));
+    expect(run("enable", "Alice").code).toBe(1);
+    const undoes = (line: string) =>
+      [
+        `${HELPER_CALL} stop`,
+        `${HELPER_CALL} delete`,
+        "userdel",
+        "groupdel",
+      ].some((p) => line.startsWith(p));
+    expect(changes().filter(undoes)).toEqual([]);
+
+    answer("go-on", 200, { ok: true, ready: true });
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      slug: "alice",
+      osUser: { name: OS_USER, uid: 2001 },
+    });
+    rmSync(join(root, "log"));
+    expect(run("enable", "Alice").code).toBe(0);
+    expect(changes()).toEqual([
+      curl("info"),
+      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+      curl("prepare"),
+      `${HELPER_CALL} start ${OS_USER}`,
+      curl("go-on"),
+    ]);
+  });
+
+  it("refuses a rerun before any change when the helper did not make the user", () => {
+    rmSync(join(root, "answers", "go-on"));
+    expect(run("enable", "Alice").code).toBe(1);
+    answer("go-on", 200, { ok: true, ready: true });
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      slug: "alice",
+      osUser: { name: OS_USER, uid: 2001 },
+    });
+    fail("python3", "check-made");
+    rmSync(join(root, "log"));
+    expect(run("enable", "Alice").code).toBe(1);
+    expect(changes()).toEqual([
+      curl("info"),
+      `${HELPER_CALL} check-made ${OS_USER} ${USER_ID}`,
+    ]);
+  });
 
   function isolatedHere() {
     answer("info", 200, {

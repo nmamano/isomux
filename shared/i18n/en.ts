@@ -562,6 +562,34 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.members.onlineSessions.other": "online · {count} sessions",
   "settings.members.lastSeen": "last seen {when}",
   "settings.members.newMember": "New member",
+  "settings.osUser.title": "Own OS user",
+  "settings.osUser.hint":
+    "Their agents run as a separate OS user on the office's machine, so they cannot read the office's files or secrets.",
+  "settings.osUser.off": "Off: their agents run as the office's OS user.",
+  "settings.osUser.on": "On: their agents run as {name}.",
+  "settings.osUser.moving": "Moving their files for {name}…",
+  "settings.osUser.notReady":
+    "On: their agents run as {name}, which does not answer now. They wait until it does.",
+  "settings.osUser.broken": "Their OS user record is damaged: {reason}",
+  "settings.osUser.waiting": "Waiting for the command…",
+  "settings.osUser.enableHint":
+    "To turn it on, run this on the office's machine:",
+  "settings.osUser.disableHint":
+    "To turn it off, run this on the office's machine:",
+  "settings.osUser.rerunHint": "If it stays so, run the turn-on command again:",
+  "settings.osUser.turningOn": "Turning on…",
+  "settings.osUser.turningOff": "Turning off…",
+  "settings.osUser.stopped":
+    "The command stopped before it finished. Run it again.",
+  "settings.osUser.failedWith": "The command failed: {message}",
+  "settings.osUser.failed": "The command failed.",
+  "settings.osUser.claudeTokenSet":
+    "Claude: at their usage limit, their agents continue on the Claude token for members with their own OS user.",
+  "settings.osUser.claudeTokenMissing":
+    "Claude: no Claude token for members with their own OS user is set, so their agents stop at their usage limit.",
+  "settings.osUser.claudeTokenLink": "Model providers",
+  "settings.osUser.codexOff":
+    "Codex: their agents stop at their usage limit. They cannot use the office's Codex sign-in, because sharing it would let them sign the office out.",
   "settings.members.create": "Create member",
   "settings.members.neverSignedIn": "never signed in",
   "settings.members.signInLink.create": "Create sign-in link for {name}",
@@ -2447,6 +2475,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.rooms.saveInstructions": "Change room instructions",
   "apiCall.agents.saveInstructions": "Change agent instructions",
   "apiCall.users.read": "Read a member's profile",
+  "apiCall.users.readOsUser": "Read a member's own OS user",
   "apiCall.users.readInstructions": "Read member instructions",
   "apiCall.users.readSessions": "Read member sessions",
   "apiCall.users.saveInstructions": "Change member instructions",

@@ -62,6 +62,7 @@ import {
   officeOwnerOrOwnersAgent,
   officeSettingsOwner,
   memberPinsOwner,
+  memberOsUserOwner,
   auditOwner,
   officeEnvOwner,
   integrationOfficeOwner,
@@ -292,6 +293,7 @@ import type {
   InstructionsRes,
   UserSelfWire,
   UserProfileWire,
+  MemberOsUserWire,
   UserAdminWire,
   RemovedMemberListRes,
   MemberRestoreReq,
@@ -2977,6 +2979,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username",
     auth: authn(memberSharesRoom("username")),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  // A member's own OS user for the owner's Members page
+  // (server/member-os-user-view.ts): the state, the last run of the root
+  // command and the command to run. Read only.
+  defineRoute<void, MemberOsUserWire>({
+    opId: "users.osUser.get",
+    method: "GET",
+    path: "/api/users/:username/os-user",
+    auth: cap("office:read", memberOsUserOwner),
     tokenArea: { area: "office", level: "read" },
     emits: [],
   }),

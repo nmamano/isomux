@@ -555,6 +555,37 @@ Cosas que puedes hacer por él:
   "settings.members.onlineSessions.other": "en línea · {count} sesiones",
   "settings.members.lastSeen": "visto por última vez {when}",
   "settings.members.newMember": "Nuevo miembro",
+  "settings.osUser.title": "Usuario del sistema propio",
+  "settings.osUser.hint":
+    "Sus agentes se ejecutan como un usuario del sistema aparte en la máquina de la oficina, así que no pueden leer los archivos ni los secretos de la oficina.",
+  "settings.osUser.off":
+    "Desactivado: sus agentes se ejecutan como el usuario del sistema de la oficina.",
+  "settings.osUser.on": "Activado: sus agentes se ejecutan como {name}.",
+  "settings.osUser.moving": "Moviendo sus archivos para {name}…",
+  "settings.osUser.notReady":
+    "Activado: sus agentes se ejecutan como {name}, que ahora no responde. Esperan hasta que responda.",
+  "settings.osUser.broken":
+    "El registro de su usuario del sistema está dañado: {reason}",
+  "settings.osUser.waiting": "Esperando el comando…",
+  "settings.osUser.enableHint":
+    "Para activarlo, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.disableHint":
+    "Para desactivarlo, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.rerunHint":
+    "Si sigue así, ejecuta de nuevo el comando para activarlo:",
+  "settings.osUser.turningOn": "Activando…",
+  "settings.osUser.turningOff": "Desactivando…",
+  "settings.osUser.stopped":
+    "El comando se detuvo antes de terminar. Ejecútalo de nuevo.",
+  "settings.osUser.failedWith": "El comando falló: {message}",
+  "settings.osUser.failed": "El comando falló.",
+  "settings.osUser.claudeTokenSet":
+    "Claude: al llegar a su límite de uso, sus agentes siguen con el token de Claude para miembros con su propio usuario del sistema.",
+  "settings.osUser.claudeTokenMissing":
+    "Claude: no hay un token de Claude para miembros con su propio usuario del sistema, así que sus agentes se detienen en su límite de uso.",
+  "settings.osUser.claudeTokenLink": "Proveedores de modelos",
+  "settings.osUser.codexOff":
+    "Codex: sus agentes se detienen en su límite de uso. No pueden usar la sesión de Codex de la oficina, porque compartirla les permitiría cerrar la sesión de la oficina.",
   "settings.members.create": "Crear miembro",
   "settings.members.neverSignedIn": "nunca ha iniciado sesión",
   "settings.members.signInLink.create":
@@ -2521,6 +2552,7 @@ Cosas que puedes hacer por él:
   "apiCall.rooms.saveInstructions": "Cambiar las instrucciones de la sala",
   "apiCall.agents.saveInstructions": "Cambiar las instrucciones del agente",
   "apiCall.users.read": "Leer el perfil del miembro",
+  "apiCall.users.readOsUser": "Leer el usuario del sistema propio del miembro",
   "apiCall.users.readInstructions": "Leer las instrucciones del miembro",
   "apiCall.users.readSessions": "Leer las sesiones del miembro",
   "apiCall.users.saveInstructions": "Cambiar las instrucciones del miembro",

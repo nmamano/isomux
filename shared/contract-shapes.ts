@@ -75,6 +75,30 @@ export type UserSelfWire = UserRecord;
 // Any user's full record; delivered ONLY to owners managing them.
 export type UserAdminWire = UserRecord;
 
+// What the root command last did for a member (server/member-os-user-view.ts):
+// running, failed (with the office's message), or stopped (it began an
+// enable and did not come back).
+export interface MemberOsUserAttemptWire {
+  action: "enable" | "disable";
+  status: "running" | "failed" | "stopped";
+  at: number;
+  message?: string;
+}
+
+// GET /api/users/:username/os-user: a member's own OS user, for the owner's
+// Members page. gate false: the office does not offer it yet, and the page
+// shows nothing. commands: null where the root command cannot run here, or
+// for an owner. run: how the page can run it itself (null: copy only).
+export interface MemberOsUserWire {
+  state: "off" | "on" | "moving" | "not_ready" | "broken";
+  osUser?: { name: string; uid: number };
+  reason?: string;
+  attempt?: MemberOsUserAttemptWire;
+  commands: { enable: string; disable: string } | null;
+  run: "password" | "no_password" | null;
+  gate: boolean;
+}
+
 // A member's profile (GET /api/users/:username): what an agent needs to
 // write to them. Anyone who reads their instructions reads it.
 export type UserProfileWire = Pick<

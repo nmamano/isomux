@@ -555,6 +555,37 @@ Coses que pots fer per ell:
   "settings.members.onlineSessions.other": "en línia · {count} sessions",
   "settings.members.lastSeen": "vist per última vegada {when}",
   "settings.members.newMember": "Membre nou",
+  "settings.osUser.title": "Usuari del sistema propi",
+  "settings.osUser.hint":
+    "Els seus agents s'executen com un usuari del sistema a part a la màquina de l'oficina, així que no poden llegir els fitxers ni els secrets de l'oficina.",
+  "settings.osUser.off":
+    "Desactivat: els seus agents s'executen com l'usuari del sistema de l'oficina.",
+  "settings.osUser.on": "Activat: els seus agents s'executen com {name}.",
+  "settings.osUser.moving": "Movent els seus fitxers per a {name}…",
+  "settings.osUser.notReady":
+    "Activat: els seus agents s'executen com {name}, que ara no respon. Esperen fins que respongui.",
+  "settings.osUser.broken":
+    "El registre del seu usuari del sistema està malmès: {reason}",
+  "settings.osUser.waiting": "Esperant l'ordre…",
+  "settings.osUser.enableHint":
+    "Per activar-lo, executa això a la màquina de l'oficina:",
+  "settings.osUser.disableHint":
+    "Per desactivar-lo, executa això a la màquina de l'oficina:",
+  "settings.osUser.rerunHint":
+    "Si continua així, torna a executar l'ordre per activar-lo:",
+  "settings.osUser.turningOn": "Activant…",
+  "settings.osUser.turningOff": "Desactivant…",
+  "settings.osUser.stopped":
+    "L'ordre s'ha aturat abans d'acabar. Torna-la a executar.",
+  "settings.osUser.failedWith": "L'ordre ha fallat: {message}",
+  "settings.osUser.failed": "L'ordre ha fallat.",
+  "settings.osUser.claudeTokenSet":
+    "Claude: quan arriben al seu límit d'ús, els seus agents continuen amb el token de Claude per a membres amb usuari del sistema propi.",
+  "settings.osUser.claudeTokenMissing":
+    "Claude: no hi ha cap token de Claude per a membres amb usuari del sistema propi, així que els seus agents s'aturen al seu límit d'ús.",
+  "settings.osUser.claudeTokenLink": "Proveïdors de models",
+  "settings.osUser.codexOff":
+    "Codex: els seus agents s'aturen al seu límit d'ús. No poden fer servir la sessió de Codex de l'oficina, perquè compartir-la els permetria tancar la sessió de l'oficina.",
   "settings.members.create": "Crea el membre",
   "settings.members.neverSignedIn": "no ha iniciat mai la sessió",
   "settings.members.signInLink.create":
@@ -2525,6 +2556,7 @@ Coses que pots fer per ell:
   "apiCall.rooms.saveInstructions": "Canviar les instruccions de la sala",
   "apiCall.agents.saveInstructions": "Canviar les instruccions de l'agent",
   "apiCall.users.read": "Llegir el perfil del membre",
+  "apiCall.users.readOsUser": "Llegir l'usuari del sistema propi del membre",
   "apiCall.users.readInstructions": "Llegir les instruccions del membre",
   "apiCall.users.readSessions": "Llegir les sessions del membre",
   "apiCall.users.saveInstructions": "Canviar les instruccions del membre",

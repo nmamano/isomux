@@ -85,13 +85,13 @@ An office-user process must never run code that an isolated member can write, an
 
 ### 2.1 What the owner sees
 
-Settings → Members → a member → **Own OS user**. Off by default. Turning it on shows one command and what it does, in two lines. Where the office's user has sudo, a button puts the command in a terminal panel, where the owner types the sudo password. The section then shows "waiting for the command", and after it, "on: runs as `isomux-alice`", or the failed check.
+Settings → Members → a member → **Own OS user**. Off by default. Turning it on shows one command and what it does, in two lines, with Copy (a terminal panel belongs to an agent, and Settings has none). The owner runs it on the office's machine; a Hosted owner signs in as root over SSH. The section then shows "waiting for the command", and after it, "on: runs as `isomux-alice`", or the failed check. The command holds only the member id (`server/member-os-user-view.ts`), and the section reads `GET /api/users/:username/os-user`: the state from the records, and what the root command last did (in memory, from the admin.sock verbs).
 
 The command never runs a file that the office's user can write (an agent could change it before the owner runs it as root):
 
 - installer and Hosted: `/usr/local/sbin/isomux-member-user`, installed root-owned by the installer and the updater;
 - container: the same file in the image, run with `docker exec -u 0`;
-- self-hosted from a checkout: the script at the office's release tag, fetched from GitHub over HTTPS and piped to `sudo bash`.
+- a user-level install (a checkout run as a user service): not supported. The command needs the installer's root install (`/etc/isomux/update.conf` with `SERVICE_KIND=system`).
 
 Until the last slice ships, the server answers "not ready" on `admin.sock` and the command stops before it changes anything.
 

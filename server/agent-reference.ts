@@ -164,6 +164,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "rooms.setInstructions": "rooms",
   "users.create": "members",
   "users.read": "discovery",
+  "users.osUser.get": "members",
   "users.readInstructions": "discovery",
   "users.setInstructions": "members",
   "users.readPinned": "members",

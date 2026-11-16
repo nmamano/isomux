@@ -133,6 +133,11 @@ export function clearMemberMoving(userId: string): void {
   moving.delete(userId);
 }
 
+// True while the member's files move (enable or disable).
+export function memberIsMoving(userId: string): boolean {
+  return moving.has(userId);
+}
+
 // The connected runner host of a member whose files move; undefined when
 // they are not moving or not connected.
 export function memberMoveHost(userId: string): AgentHost | undefined {

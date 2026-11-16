@@ -85,13 +85,17 @@ ADMIN_STATUS= ADMIN_BODY=
 # 7230 s, plus a margin.
 MOVE_VERB_LIMIT_S=10800
 admin() {
+  admin_call "$@" || die "the office did not answer $1"
+}
+# As admin, but returns 1 when the office does not answer.
+admin_call() {
   local verb=$1 body=$2 out limit=120
   [[ $verb != go-on && $verb != disable ]] || limit=$MOVE_VERB_LIMIT_S
   [[ -S $ADMIN_SOCK ]] || die "$ADMIN_SOCK is missing; is the office running?"
   out=$(curl -sS --max-time "$limit" --unix-socket "$ADMIN_SOCK" -X POST \
     -H 'Content-Type: application/json' --data "$body" \
     -w '\n%{http_code}' "http://localhost/admin/member-user/$verb") ||
-    die "the office did not answer $verb"
+    return 1
   ADMIN_STATUS=${out##*$'\n'}
   ADMIN_BODY=${out%$'\n'*}
 }
@@ -116,10 +120,14 @@ fail() {
   exit 1
 }
 # Every exit with steps left to undo (fail, die, a set -e failure, a
-# signal) undoes them.
+# signal) undoes them, except while go-on is out: the office may have
+# recorded the user, so the user stays and a rerun of enable finishes.
+GO_ON_OUT=
 on_exit() {
   local status=$?
-  if ((${#UNDO[@]})); then
+  if [[ -n $GO_ON_OUT ]]; then
+    echo "isomux-member-user: the office may have taken the OS user; it stays. Run the same enable command again when the office runs." >&2
+  elif ((${#UNDO[@]})); then
     undo_all
     echo "isomux-member-user: nothing was changed" >&2
   fi
@@ -157,7 +165,7 @@ cannot_become_root() {
 }
 
 enable() {
-  local member=$1 os_user=$2 info role user_id slug current
+  local member=$1 os_user=$2 info role user_id slug current current_uid
   [[ -n $IN_CONTAINER || -d $SYSTEMD_DIR ]] || die "this box does not run systemd."
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
@@ -166,10 +174,26 @@ enable() {
   user_id=$(field .userId "$info")
   slug=$(field .slug "$info")
   current=$(field .osUser.name "$info")
+  current_uid=$(field .osUser.uid "$info")
   [[ $role != owner ]] || die "$member is an owner; an owner cannot have their own OS user."
-  [[ -z $current ]] || die "$member already runs as $current."
+  if [[ -n $current ]]; then
+    [[ -z $os_user || $os_user == "$current" ]] || die "$member already runs as $current."
+    os_user=$current
+  fi
   [[ -n $os_user ]] || os_user=isomux-$slug
   [[ $os_user =~ $NAME_RE ]] || die "$os_user is not a user name."
+  # A user that this command made for this member, from an enable that did
+  # not finish (the office stopped during go-on): finish it.
+  if getent passwd "$os_user" >/dev/null && made_by_command "$os_user" "$user_id"; then
+    resume "$user_id" "$os_user" "$current_uid"
+    echo "$member runs as $os_user."
+    return
+  fi
+  if [[ -n $current ]]; then
+    getent passwd "$current" >/dev/null ||
+      die "$member is recorded as $current, which is no OS user here: run disable $member --keep-files, then enable again."
+    die "$member already runs as $current, and this command did not make that user."
+  fi
   # Only a user that this command makes: disable --delete-user removes it.
   ! getent passwd "$os_user" >/dev/null || die "the OS user $os_user exists; choose another with --user."
 
@@ -182,6 +206,30 @@ enable() {
   go_on "$user_id" "$os_user"
   UNDO=()
   echo "$member runs as $os_user."
+}
+
+# The second run of an enable that did not finish: the user, its home and
+# its share are there. Nothing here is undone: the office may hold the
+# record. Start the runner again and send go-on.
+resume() {
+  local user_id=$1 os_user=$2 recorded_uid=$3 uid
+  uid=$(id -u "$os_user") || fail "cannot look up $os_user"
+  [[ -z $recorded_uid || $recorded_uid == "$uid" ]] ||
+    fail "the office records uid $recorded_uid for $os_user, which has uid $uid"
+  prepare "$user_id" "$os_user" "$uid"
+  if [[ -n $IN_CONTAINER ]]; then
+    helper start "$os_user" || fail "cannot start the runner of $os_user"
+  else
+    [[ -e $ETC_DIR/$os_user.env ]] || {
+      printf 'ISOMUX_OFFICE_UID=%s\n' "$OFFICE_UID" >"$ETC_DIR/$os_user.env" &&
+        chmod 644 "$ETC_DIR/$os_user.env"
+    } || fail "cannot write $ETC_DIR/$os_user.env"
+    loginctl enable-linger "$os_user" || fail "cannot enable the linger of $os_user"
+    systemctl enable --now "$UNIT@$os_user.service" || fail "cannot start $UNIT@$os_user"
+  fi
+  MEMBER_UID=$uid
+  cannot_become_root "$os_user" || fail "$os_user can become root (a privileged group or a sudo rule)"
+  go_on "$user_id" "$os_user"
 }
 
 # The office installs the runtime in the share; root writes no code.
@@ -197,8 +245,12 @@ prepare() {
 MEMBER_UID=
 go_on() {
   local user_id=$1 os_user=$2
-  admin go-on "$(jq -n --arg m "$user_id" --arg u "$os_user" \
-    --argjson uid "$MEMBER_UID" '{member: $m, osUser: $u, uid: $uid}')"
+  GO_ON_OUT=1
+  admin_call go-on "$(jq -n --arg m "$user_id" --arg u "$os_user" \
+    --argjson uid "$MEMBER_UID" '{member: $m, osUser: $u, uid: $uid}')" ||
+    die "the office did not answer go-on"
+  # The office answered: a refusal removed what this call recorded.
+  GO_ON_OUT=
   if [[ $ADMIN_STATUS != 200 || $(field .ready "$ADMIN_BODY") != true ]]; then
     fail "the office did not take the OS user: $(field .reason "$ADMIN_BODY")$(field .message "$ADMIN_BODY")"
   fi

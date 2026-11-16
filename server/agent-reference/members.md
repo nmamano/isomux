@@ -8,6 +8,8 @@ A privileged agent can rename its manager, or any member when its manager is an 
 
 When your manager is an office owner, you can set up a member's sidebar, also before they sign in. `GET /api/users/:username/pinned` reads their Pinned list; `PUT /api/users/:username/pinned` with `{pinned}` replaces it. An entry is an agent id, or `member:<userId>` for a member. Read first, then send the whole list in order.
 
+When your manager is an office owner, `GET /api/users/:username/os-user` tells whether the member's agents run as their own OS user: `state` (`off`, `on`, `moving`, `not_ready` or `broken`), `osUser`, the last run of the root command (`attempt`), and `commands`, the `enable` and `disable` lines an office owner runs as root to turn it on or off. You cannot run them. `gate: false` means this office does not offer it yet.
+
 Safe example: `GET /api/users/:username/instructions`.
 
 ## Route contract
@@ -17,5 +19,7 @@ Safe example: `GET /api/users/:username/instructions`.
 `GET /api/users/:username/instructions` and `PUT /api/users/:username/instructions` return `{instructions,version}`. The instructions are a string or null. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Invalid instructions return 422. A read of an unknown member returns 403. A read of a member who shares no room with you also returns 403, unless your manager is an office owner. A write by an ordinary agent, or of a member outside your reach, returns 403.
 
 `GET /api/users/:username/pinned` returns `{pinned}`. `PUT /api/users/:username/pinned` returns 204. The server drops entries for agents and members that do not exist, repeats, and the member's own entry. A body that is not a list of strings returns 422 `invalid_pinned`; more than 200 entries return 422 `too_many_pinned`. An unknown member returns 404 `user_not_found`. An ordinary agent, or one whose manager is not an office owner, gets 403.
+
+`GET /api/users/:username/os-user` returns the object above; `commands` is null for an owner and where the root command cannot run. Other callers get 403, and an unknown member 404.
 
 `PATCH /api/users/:username` returns `{user}`. A body with any field other than `name` returns 403; a body with no name returns 422. A rename by an ordinary agent, or of a member outside your reach, returns 403. A name that another member has returns 409 `name_taken`.

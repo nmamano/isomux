@@ -39,6 +39,11 @@ import {
 } from "./agent-host.ts";
 import { memberSharePath } from "./member-runtime.ts";
 import { createMember, deleteUserById, getUserByName } from "./users.ts";
+import {
+  memberOsUserView,
+  noteMemberUserAttempt,
+  resetMemberUserAttempts,
+} from "./member-os-user-view.ts";
 
 const OFFICE_UID = 1000;
 const MEMBER_UID = 2001;
@@ -130,6 +135,7 @@ afterEach(() => {
   reloadMemberOsUsers();
   rmSync(dir, { recursive: true, force: true });
   for (const id of created.splice(0)) deleteUserById(id);
+  resetMemberUserAttempts();
 });
 
 describe("the gate", () => {
@@ -735,5 +741,127 @@ describe("go-on moves the member's files", () => {
     recordMemberOsUser(alice, { name: "isomux-other", uid: 2002 });
     expect((await goOn(alice)).body.error).toBe("already_isolated");
     expect(steps).toEqual([]);
+  });
+});
+
+// Task b94dfd25 4c-i: what the owner's page hears of the root command. The
+// verbs tell the page what the command does for a member: prepare and go-on
+// are an enable, disable a disable, info nothing. A refusal or a failed move
+// shows its reason; nothing is heard while the gate is closed.
+describe("what the owner's page hears", () => {
+  const attemptOf = (userId: string) =>
+    memberOsUserView(
+      { id: userId, role: "member" },
+      { gate: true, shape: null },
+    ).attempt;
+
+  it("an enable reads running from prepare through go-on, and nothing once go-on succeeds", async () => {
+    const alice = member("Alice");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    deps({
+      connect: async (userId) => {
+        connects.push(userId);
+        await held;
+        return true;
+      },
+    });
+    const prepared = await call("prepare", {
+      member: alice,
+      osUser: "isomux-alice",
+      uid: MEMBER_UID,
+    });
+    expect(prepared.status).toBe(200);
+    expect(attemptOf(alice)).toMatchObject({
+      action: "enable",
+      status: "running",
+    });
+    // go-on says running itself, also with no prepare heard before it (a
+    // restart in between).
+    resetMemberUserAttempts();
+    const pending = goOn(alice);
+    // The enabling condition: go-on is in its connect.
+    for (let i = 0; i < 100 && connects.length === 0; i++)
+      await new Promise((r) => setTimeout(r, 5));
+    expect(connects.length).toBeGreaterThan(0);
+    expect(attemptOf(alice)).toMatchObject({
+      action: "enable",
+      status: "running",
+    });
+    release();
+    expect((await pending).body).toEqual({ ok: true, ready: true });
+    expect(attemptOf(alice)).toBeUndefined();
+  });
+
+  it("a go-on that fails shows the office's reason", async () => {
+    const alice = member("Alice");
+    deps({ answers: [false] });
+    const answer = await goOn(alice);
+    expect(answer.body).toMatchObject({ ok: false, ready: false });
+    const reason = answer.body.reason as string;
+    expect(reason.length).toBeGreaterThan(0);
+    expect(attemptOf(alice)).toMatchObject({
+      action: "enable",
+      status: "failed",
+      message: reason,
+    });
+  });
+
+  it("a refused disable and a failed prepare show their message", async () => {
+    const alice = member("Alice");
+    recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
+    deps();
+    const refused = await call("disable", { member: alice });
+    expect(refused.body.error).toBe("not_connected");
+    expect(attemptOf(alice)).toMatchObject({
+      action: "disable",
+      status: "failed",
+      message: refused.body.message,
+    });
+    const bob = member("Bob");
+    deps({
+      prepare: async () => {
+        throw new Error("disk full");
+      },
+    });
+    const failed = await call("prepare", {
+      member: bob,
+      osUser: "isomux-alice",
+      uid: MEMBER_UID,
+    });
+    expect(failed.status).toBe(500);
+    expect(attemptOf(bob)).toMatchObject({
+      action: "enable",
+      status: "failed",
+      message: failed.body.message,
+    });
+  });
+
+  it("info changes nothing, and nothing is heard while the gate is closed", async () => {
+    const alice = member("Alice");
+    deps();
+    expect((await call("info", { member: alice })).status).toBe(200);
+    expect(attemptOf(alice)).toBeUndefined();
+    // The command reads info first: it leaves an earlier failure as it was.
+    noteMemberUserAttempt(alice, "enable", "failed", "earlier");
+    expect((await call("info", { member: alice })).status).toBe(200);
+    expect(attemptOf(alice)).toMatchObject({
+      status: "failed",
+      message: "earlier",
+    });
+    resetMemberUserAttempts();
+    deps({ enabled: false });
+    for (const verb of ["prepare", "go-on", "disable"]) {
+      const answer = await call(verb, {
+        member: alice,
+        osUser: "isomux-alice",
+        uid: MEMBER_UID,
+      });
+      expect({ verb, status: answer.status }).toEqual({ verb, status: 409 });
+      expect({ verb, attempt: attemptOf(alice) }).toEqual({
+        verb,
+        attempt: undefined,
+      });
+    }
   });
 });

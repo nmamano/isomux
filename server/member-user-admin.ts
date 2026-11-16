@@ -52,6 +52,10 @@ import { checkMemberShare } from "./member-share-check.ts";
 import { appsArrive, appsLeave, type LeftApp } from "./member-app-move.ts";
 import { readAgentIdentity } from "./split/start.ts";
 import { getUserById, getUserByName } from "./users.ts";
+import {
+  clearMemberUserAttempt,
+  noteMemberUserAttempt,
+} from "./member-os-user-view.ts";
 
 type UserRecord = NonNullable<ReturnType<typeof getUserById>>;
 
@@ -237,10 +241,64 @@ function ownerRefusal(user: UserRecord): Response | null {
     : null;
 }
 
+// The gate of the root command: closed until the product slice ships.
+export function memberUsersGateOpen(): boolean {
+  return deps.enabled;
+}
+
+// The verbs, with the owner's page told what the command does
+// (member-os-user-view.ts): prepare and go-on are an enable, disable is a
+// disable; info changes nothing. A member removed during a call is looked up
+// by id only, so the record names no one else.
 export async function handleMemberUserAdmin(
   pathname: string,
   body: unknown,
 ): Promise<Response> {
+  const verb = pathname.slice(MEMBER_USER_PATH_PREFIX.length);
+  const action =
+    verb === "disable"
+      ? "disable"
+      : verb === "prepare" || verb === "go-on"
+        ? "enable"
+        : null;
+  const user =
+    action && deps.enabled && typeof body === "object" && body !== null
+      ? findMember((body as Record<string, unknown>).member)
+      : undefined;
+  if (!user || !action) return handleVerb(pathname, body);
+  if (verb !== "prepare") noteMemberUserAttempt(user.id, action, "running");
+  let response: Response;
+  try {
+    response = await handleVerb(pathname, body);
+  } catch (error) {
+    noteMemberUserAttempt(user.id, action, "failed", (error as Error).message);
+    throw error;
+  }
+  try {
+    // A refusal says `message`; go-on's and disable's failures say `reason`
+    // (with ready: false), as the root command reads them.
+    const answer = (await response.clone().json()) as {
+      ok?: boolean;
+      message?: string;
+      reason?: string;
+    };
+    if (!answer.ok)
+      noteMemberUserAttempt(
+        user.id,
+        action,
+        "failed",
+        answer.message ?? answer.reason,
+      );
+    else if (verb === "prepare")
+      noteMemberUserAttempt(user.id, action, "prepared");
+    else clearMemberUserAttempt(user.id);
+  } catch {
+    noteMemberUserAttempt(user.id, action, "failed");
+  }
+  return response;
+}
+
+async function handleVerb(pathname: string, body: unknown): Promise<Response> {
   const verb = pathname.slice(MEMBER_USER_PATH_PREFIX.length);
   if (!["info", "prepare", "go-on", "disable"].includes(verb))
     return json(404, { ok: false, error: "not found" });

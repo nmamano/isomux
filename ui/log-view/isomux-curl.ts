@@ -895,6 +895,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["PUT", "/api/rooms/*/instructions", "apiCall.rooms.saveInstructions"],
   ["PUT", "/api/agents/*/instructions", "apiCall.agents.saveInstructions"],
   ["GET", "/api/users/*/instructions", "apiCall.users.readInstructions"],
+  ["GET", "/api/users/*/os-user", "apiCall.users.readOsUser"],
   ["GET", "/api/users/*/sessions", "apiCall.users.readSessions"],
   ["PUT", "/api/users/*/instructions", "apiCall.users.saveInstructions"],
   ["GET", "/api/users/*/pinned", "apiCall.users.readPinned"],

@@ -1757,6 +1757,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Authenticated: who reads is the room-overlap guard (memberSharesRoom).
   // The profile has the instructions' reach (task b94dfd25 4b).
   "users.read": { caps: [], emits: [] },
+  // A member's own OS user for the owner's page (task b94dfd25 4c-i): read
+  // only, an office owner's reach (memberOsUserOwner).
+  "users.osUser.get": { caps: ["office:read"], emits: [] },
   "users.readInstructions": { caps: [], emits: [] },
   // Writes only the text, so no role change and no full_state.
   "users.setInstructions": {
@@ -2703,6 +2706,7 @@ const API_REACHABLE_OPIDS = [
   "apiTokenInbox.drain",
   "users.readInstructions",
   "users.read",
+  "users.osUser.get",
   "users.setInstructions",
   "users.readPinned",
   "users.setPinned",

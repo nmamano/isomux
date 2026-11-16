@@ -4,6 +4,8 @@
 // server/isomux-office.ts, which registers them and keeps their
 // userDeleteNotSelfOwner and userDeleteNotLastOwner preconditions.
 import { hasMemberOsUser } from "./member-os-users.ts";
+import { memberOsUserView } from "./member-os-user-view.ts";
+import { memberUsersGateOpen } from "./member-user-admin.ts";
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
 import type { AgentInfo, UserRecord, WebhookRecord } from "../shared/types.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
@@ -384,6 +386,12 @@ export function createUsersRoutes(
     readMemberPrompt: (username) => {
       const user = getUser(username);
       return user ? { memberPrompt: user.memberPrompt } : null;
+    },
+    readMemberOsUser: (username) => {
+      const user = getUser(username);
+      return user
+        ? memberOsUserView(user, { gate: memberUsersGateOpen() })
+        : null;
     },
     readMemberProfile: (username) => {
       const user = getUser(username);
