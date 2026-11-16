@@ -146,6 +146,7 @@ import {
 import {
   agentCwdProblem,
   memberFolderHost,
+  folderForRules,
   validateAgentCwd,
 } from "./agent-folder.ts";
 import { modelFamilyMismatchError } from "./agent-validators.ts";
@@ -638,7 +639,7 @@ import {
   type Identity,
 } from "./identity/index.ts";
 import { hidesManagerData } from "./system-prompt.ts";
-import { scheduleExceedsAgent } from "./cron-agent-limits.ts";
+import { scheduleExceedsAgentFor } from "./cron-agent-limits.ts";
 import { appVisibleTo } from "./app-visibility.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
@@ -3862,7 +3863,7 @@ function buildExecutorDeps(
         cronjobManager.listCronjobs().some((job) => job.id === cronjobId),
       // An ordinary agent's own job must also still be within its limits,
       // as for its Run now.
-      callerManagesCronjob: (identity, cronjobId) => {
+      callerManagesCronjob: async (identity, cronjobId) => {
         const manages = cronjobOwnerOrOfficeOwner("id")({
           identity,
           params: { id: cronjobId },
@@ -3873,7 +3874,16 @@ function buildExecutorDeps(
           .listCronjobs()
           .find((c) => c.id === cronjobId);
         const limits = ownScheduleLimitsFor(identity);
-        return !!job && !!limits && scheduleExceedsAgent(job, limits) === null;
+        return (
+          !!job &&
+          !!limits &&
+          (await scheduleExceedsAgentFor(
+            job,
+            limits,
+            job.userId,
+            limits.userId,
+          )) === null
+        );
       },
       userMayRunCronjob: (userId, cronjobId) =>
         webhookCronjobRunnable(userId, cronjobId) === "ok",
@@ -4068,17 +4078,22 @@ function buildExecutorDeps(
       emitCronjobRunDiff: (jobId, runId, dir, commit) =>
         cronjobManager.emitCronjobRunDiff(jobId, runId, dir, commit),
       attributionFor,
-      validateCwd: (cwd) => {
+      // On the job owner's host: an isolated member's folder as the member.
+      validateCwd: async (cwd, ownerUserId) => {
         try {
-          agentManager.validateCwd(cwd);
+          await validateAgentCwd(cwd, ownerUserId);
           return null;
         } catch (err) {
           return errMessage(err, "Invalid directory");
         }
       },
-      folderRefusal: (cwd) =>
-        stateFolderRefusal(resolveCwd(cwd), STATE_ROOT) ??
-        folderOverlapRefusal(resolveCwd(cwd), null, folderRuleState()),
+      folderRefusal: async (cwd, ownerUserId) => {
+        const dir = await folderForRules(cwd, ownerUserId);
+        return (
+          stateFolderRefusal(dir, STATE_ROOT) ??
+          folderOverlapRefusal(dir, null, folderRuleState())
+        );
+      },
       modelFamilyError: modelFamilyMismatchError,
       saveRecentCwd,
     }),

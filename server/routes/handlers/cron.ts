@@ -42,7 +42,7 @@ import {
 import {
   SCHEDULE_EXCEEDS_AGENT,
   SCHEDULE_ROOM_REFUSAL,
-  scheduleExceedsAgent,
+  scheduleExceedsAgentFor,
   type ScheduleLimitAgent,
   type ScheduleLimitJob,
 } from "../../cron-agent-limits.ts";
@@ -110,7 +110,7 @@ export interface CronDeps {
   // agent is gone or the caller acts for no agent.
   ownScheduleLimits(
     identity: Identity,
-  ): (ScheduleLimitAgent & { roomId: string }) | null;
+  ): (ScheduleLimitAgent & { roomId: string; userId: string | null }) | null;
   // The caller decides whether the maker's special instructions show.
   buildCronjobSystemPrompt(cronjob: Cronjob, caller: Identity): string;
   createCronjob(input: {
@@ -182,10 +182,15 @@ export interface CronDeps {
     createdBy: string;
     username: string | undefined;
   };
-  validateCwd(cwd: string): string | null;
-  // The overlap of `cwd` with the folder of an agent at the folder or web
-  // stop (server/agent-folder-rules.ts), else null.
-  folderRefusal?(cwd: string): string | null;
+  // The problem of `cwd` for a job of `ownerUserId`, checked on their host,
+  // else null.
+  validateCwd(cwd: string, ownerUserId: string | null): Promise<string | null>;
+  // The overlap of `cwd` (of a job of `ownerUserId`) with the folder of an
+  // agent at the folder or web stop (server/agent-folder-rules.ts), else null.
+  folderRefusal?(
+    cwd: string,
+    ownerUserId: string | null,
+  ): Promise<string | null>;
   saveRecentCwd(cwd: string): void;
   modelFamilyError(
     agentType: Cronjob["agentType"],
@@ -260,18 +265,26 @@ function scheduleError(schedule: unknown): string | null {
 // refusal when the job, as it would be, reaches more than the agent's current
 // mode or folder, or when a request sets a room other than the agent's own.
 // Null for every other caller, and within the limits.
-function ownScheduleRefusal(
+// The folders resolve on the host of the agent's manager; `jobUserId` is the
+// job's owner.
+async function ownScheduleRefusal(
   identity: Identity,
   deps: CronDeps,
   job: ScheduleLimitJob,
+  jobUserId: string | null,
   roomId?: string,
-): ReturnType<typeof fail> | null {
+): Promise<ReturnType<typeof fail> | null> {
   if (!cronOwnOnly(identity)) return null;
   const limits = deps.ownScheduleLimits(identity);
   if (!limits) return fail(404, "not_found");
   if (roomId !== undefined && roomId !== "" && roomId !== limits.roomId)
     return fail(403, SCHEDULE_EXCEEDS_AGENT, SCHEDULE_ROOM_REFUSAL);
-  const reason = scheduleExceedsAgent(job, limits);
+  const reason = await scheduleExceedsAgentFor(
+    job,
+    limits,
+    jobUserId,
+    limits.userId,
+  );
   return reason === null ? null : fail(403, SCHEDULE_EXCEEDS_AGENT, reason);
 }
 
@@ -317,11 +330,11 @@ function jobById(deps: CronDeps, id: string | undefined): Cronjob | undefined {
 export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
   // A run started or steered by an ordinary agent: the job as it is must be
   // within the agent's current limits.
-  const runRefusal = (identity: Identity, jobId: string | undefined) => {
+  const runRefusal = async (identity: Identity, jobId: string | undefined) => {
     if (!cronOwnOnly(identity)) return null;
     const job = jobById(deps, jobId);
     return job
-      ? ownScheduleRefusal(identity, deps, job)
+      ? ownScheduleRefusal(identity, deps, job, job.userId)
       : fail(404, "not_found");
   };
   return {
@@ -409,9 +422,12 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         );
       }
       if (body.cwd !== undefined) {
-        const cwdErr = deps.validateCwd(body.cwd);
+        const cwdErr = await deps.validateCwd(body.cwd, ctx.identity.userId);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
-        const folderErr = deps.folderRefusal?.(body.cwd);
+        const folderErr = await deps.folderRefusal?.(
+          body.cwd,
+          ctx.identity.userId,
+        );
         if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
       }
       if (body.modelFamily !== undefined) {
@@ -440,7 +456,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         return fail(404, "not_found");
       }
       const cwd = body.cwd ?? HOME_CWD;
-      const refusal = ownScheduleRefusal(
+      const refusal = await ownScheduleRefusal(
         ctx.identity,
         deps,
         {
@@ -450,6 +466,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
           target,
           ...(command !== undefined ? { command } : {}),
         },
+        ctx.identity.userId,
         room.roomId,
       );
       if (refusal) return refusal;
@@ -571,9 +588,10 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       const folderFrom = sessionFrom ?? commandFrom;
       const cwdToCheck = folderFrom ? (body.cwd ?? folderFrom.cwd) : body.cwd;
       if (cwdToCheck !== undefined) {
-        const cwdErr = deps.validateCwd(cwdToCheck);
+        const owner = existing?.userId ?? null;
+        const cwdErr = await deps.validateCwd(cwdToCheck, owner);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
-        const folderErr = deps.folderRefusal?.(cwdToCheck);
+        const folderErr = await deps.folderRefusal?.(cwdToCheck, owner);
         if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
       }
       if (
@@ -590,7 +608,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       if (!onlyTurnsOff(body) && cronOwnOnly(ctx.identity)) {
         if (!existing) return fail(404, "not_found");
-        const refusal = ownScheduleRefusal(
+        const refusal = await ownScheduleRefusal(
           ctx.identity,
           deps,
           {
@@ -605,6 +623,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
             target: nextTarget,
             ...(nextCommand !== undefined ? { command: nextCommand } : {}),
           },
+          existing.userId,
           room.roomId,
         );
         if (refusal) return refusal;
@@ -629,8 +648,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
     "cron.delete": (ctx) =>
       deps.deleteCronjob(ctx.params.id) ? noContent() : fail(404, "not_found"),
 
-    "cron.runNow": (ctx) => {
-      const refusal = runRefusal(ctx.identity, ctx.params.id);
+    "cron.runNow": async (ctx) => {
+      const refusal = await runRefusal(ctx.identity, ctx.params.id);
       if (refusal) return refusal;
       const { username } = deps.attributionFor(ctx.identity);
       const run = deps.runNow(ctx.params.id, username ?? "unknown");
@@ -710,7 +729,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       const { id: jobId, runId } = ctx.params;
       if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
-      const refusal = runRefusal(ctx.identity, jobId);
+      const refusal = await runRefusal(ctx.identity, jobId);
       if (refusal) return refusal;
       const messageId = crypto.randomUUID();
       const { username } = deps.attributionFor(ctx.identity);
@@ -727,7 +746,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       return ok({ messageId: r.deduped ? "" : messageId });
     },
 
-    "cron.editRunMessage": (ctx) => {
+    "cron.editRunMessage": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<EditMessageReq>;
       if (typeof body.newText !== "string" || body.newText.length === 0) {
         return fail(400, "invalid_request", "newText is required");
@@ -735,7 +754,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       const { id: jobId, runId, logEntryId } = ctx.params;
       const run = deps.findRun(jobId, runId);
       if (!run) return fail(404, "not_found");
-      const refusal = runRefusal(ctx.identity, jobId);
+      const refusal = await runRefusal(ctx.identity, jobId);
       if (refusal) return refusal;
       const noSession = runWithoutSession(run);
       if (noSession) return fail(409, "run_not_resumable", noSession);

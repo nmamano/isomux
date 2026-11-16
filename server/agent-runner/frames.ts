@@ -103,6 +103,9 @@ export type RunnerRequest =
 // reply is member data.
 export const RUNNER_READ_MAX = 256 * 1024 * 1024;
 
+// The longest path a realpath answers (Linux PATH_MAX).
+export const RUNNER_PATH_MAX = 4096;
+
 // File operations in agent space, done by the runner as the agent user. A
 // readText or readBytes answers with stdout frames, a stat with the fs
 // message's stat; a writeText takes its bytes as stdin
@@ -117,6 +120,9 @@ export type FsRequest =
   | { call: "rm"; path: string; recursive?: boolean }
   | { call: "exists"; path: string }
   | { call: "enter"; path: string }
+  // The path with every link resolved, as the agent user sees it, as stdout
+  // bytes (at most RUNNER_PATH_MAX).
+  | { call: "realpath"; path: string }
   | { call: "chmod"; path: string; mode: number };
 
 // Control messages after the request.

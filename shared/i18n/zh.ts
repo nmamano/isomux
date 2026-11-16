@@ -3793,6 +3793,8 @@ export const zh: Catalog = {
     "运行已停止：运行时间超过 {minutes} 分钟。",
   "systemEntries.scheduleRun.skippedInFlight":
     "已跳过：此定时任务的上一次运行仍在进行。",
+  "systemEntries.scheduleRun.startNotReady":
+    "无法启动：{member} 自己的系统用户尚未就绪。如果再次发生，请联系办公室所有者。",
   "systemEntries.scheduleRun.serverRestarted":
     "运行已停止：Isomux 服务器已重启。",
   "systemEntries.scheduleRun.sessionFailed": "无法启动会话：{error}",

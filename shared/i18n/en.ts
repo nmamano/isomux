@@ -4161,6 +4161,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Run stopped: it ran longer than {minutes} minutes.",
   "systemEntries.scheduleRun.skippedInFlight":
     "Skipped: the previous run of this schedule was still running.",
+  "systemEntries.scheduleRun.startNotReady":
+    "Cannot start: {member}'s own OS user is not ready. If this happens again, ask an office owner.",
   "systemEntries.scheduleRun.serverRestarted":
     "Run stopped: the Isomux server restarted.",
   "systemEntries.scheduleRun.sessionFailed": "Cannot start session: {error}",

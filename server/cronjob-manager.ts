@@ -2,8 +2,15 @@ import {
   claudeConfigRoot,
   claudeSessionRootIsPinnable,
   resolveClaudeSessionRoot,
+  resolveClaudeSessionRootOnHost,
 } from "./claude-session-root.ts";
-import { hostFor } from "./member-hosts.ts";
+import { hostFor, memberHostConnected } from "./member-hosts.ts";
+import {
+  agentCwdProblem,
+  memberFolderHost,
+  resolveAgentCwd,
+} from "./agent-folder.ts";
+import { serverStopping } from "./server-stop.ts";
 import { english } from "./i18n.ts";
 import {
   logTextFields,
@@ -158,6 +165,7 @@ import {
 } from "./cronjob-run-state.ts";
 import {
   createRunSlots,
+  type PreparingRun,
   type RunOwner,
   type SessionRun,
 } from "./cronjob-run-slots.ts";
@@ -249,6 +257,20 @@ export interface CronjobManagerDeps {
   // Null to start. A refusal makes a failed run, like a missing folder.
   // Omitted: no limit.
   limitRefusal?: (job: Cronjob) => LogText | null;
+  // True once the server is stopping (production: serverStopping, which
+  // never resets; a test sets its own). An isolated member's run that waits
+  // for its checks starts nothing then.
+  isStopping?: () => boolean;
+  // limitRefusal for a job of an isolated member, whose folders resolve
+  // through their runner. Omitted: no limit.
+  memberLimitRefusal?: (job: Cronjob) => Promise<LogText | null>;
+  // An isolated member's run: their skill folder for the run's engine,
+  // built before the start (within the build's time bound). False when they
+  // get none. Omitted: nothing to wait for.
+  prepareSkillFolder?: (
+    agentType: AgentBackendType,
+    userId: string | null | undefined,
+  ) => Promise<boolean>;
   // Starts the command of a command job (production: the terminal panel's
   // shell and environment for the job's member, through the member's host,
   // with TERM=dumb). Rejects when the command cannot start; `done` resolves
@@ -468,6 +490,15 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     return next;
   }
 
+  // The folder a job of `userId` stores: an isolated member's `~` and
+  // relative paths are in their home (resolveAgentCwd, which throws while
+  // their host has no home); everyone else's as resolveCwd.
+  function jobFolder(cwd: string, userId: string | null | undefined): string {
+    return memberFolderHost(userId)
+      ? resolveAgentCwd(cwd, userId)
+      : resolveCwd(cwd);
+  }
+
   function addCronjob(input: AddCronjobInput): Cronjob {
     const schedule = clampSchedule(input.schedule);
     const now = clock.now();
@@ -482,6 +513,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       agentType === "codex"
         ? validateCodexSandbox(input.codexSandbox)
         : undefined;
+    const userId =
+      input.userId ??
+      (input.username ? (getUserByName(input.username)?.id ?? null) : null);
     const cronjob: Cronjob = {
       id: generateCronjobId(cronjobs.map((c) => c.id)),
       name: input.name.trim() || "Untitled schedule",
@@ -491,7 +525,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         ? { target: { kind: "agent" as const, agentId: input.target.agentId } }
         : {}),
       ...(input.command !== undefined ? { command: input.command } : {}),
-      cwd: resolveCwd(input.cwd),
+      cwd: jobFolder(input.cwd, userId),
       agentType,
       modelFamily,
       effort,
@@ -499,9 +533,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       ...(codexSandbox ? { codexSandbox } : {}),
       enabled: true,
       createdBy: input.username,
-      userId:
-        input.userId ??
-        (input.username ? (getUserByName(input.username)?.id ?? null) : null),
+      userId,
       username: input.username,
       ...(input.createdByAgentId
         ? { createdByAgentId: input.createdByAgentId }
@@ -560,7 +592,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     if (changes.name !== undefined)
       next.name = changes.name.trim() || prev.name;
     if (changes.prompt !== undefined) next.prompt = changes.prompt;
-    if (changes.cwd !== undefined) next.cwd = resolveCwd(changes.cwd);
+    if (changes.cwd !== undefined)
+      next.cwd = jobFolder(changes.cwd, prev.userId);
     if (
       engineChanged ||
       changes.modelFamily !== undefined ||
@@ -638,6 +671,14 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         reason: msg("systemEntries.scheduleRun.jobDeleted"),
       });
     }
+    // A run that prepares its start (an isolated member's) has no session
+    // log yet: its row carries the reason, and it starts nothing.
+    for (const preparing of slots.preparingOwners())
+      if (preparing.jobId === id)
+        endRun(preparing, {
+          status: "failed",
+          reason: msg("systemEntries.scheduleRun.jobDeleted"),
+        });
     eventHandler({ type: "cronjob_deleted", id, cronjob: removed });
     return true;
   }
@@ -1342,6 +1383,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
   const agentFireDeps: AgentFireDeps = {
     now: () => clock.now(),
     ...(deps.limitRefusal ? { limitRefusal: deps.limitRefusal } : {}),
+    ...(deps.memberLimitRefusal
+      ? { memberLimitRefusal: deps.memberLimitRefusal }
+      : {}),
     ...(deps.runCommand ? { runCommand: deps.runCommand } : {}),
     ...(deps.deliverToAgent ? { deliverToAgent: deps.deliverToAgent } : {}),
     appendRun,
@@ -1386,6 +1430,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
         prompt,
       );
 
+    // An isolated member's job: the checks below go through their host, so
+    // they run after the record (fireMemberSessionJob).
+    if (memberFolderHost(job.userId))
+      return fireMemberSessionJob(job, trigger, extra, prompt);
+
     // Validate cwd before spawning so a moved directory surfaces as a failed
     // run rather than an opaque backend process-exit message. A job that
     // reaches more than the ordinary agent that made it fails the same way,
@@ -1411,31 +1460,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
 
     const runId = generateCronjobRunId();
-    const placeholderSessionId = `pending-${runId}`;
     const now = clock.now();
     const startState = startable
       ? runStartFields()
       : runEndFields({ status: "failed", reason: startError }, now);
-    const run: CronjobRun = {
-      id: runId,
-      cronjobId: jobId,
-      cronjobName: job.name,
-      trigger,
-      startedAt: now,
-      ...startState,
-      promptSnapshot: prompt,
-      agentTypeSnapshot: job.agentType,
-      modelFamilySnapshot: job.modelFamily,
-      effortSnapshot: job.effort,
-      cwdSnapshot: job.cwd,
-      permissionModeSnapshot: job.permissionMode,
-      ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
-      rootSessionId: placeholderSessionId,
-      currentSessionId: placeholderSessionId,
-      previewText: startState.errorReason ?? "",
-      ...(triggeredBy ? { triggeredBy } : {}),
-      ...(webhook ? { webhook } : {}),
-    };
+    const run = sessionRunRecord(job, runId, trigger, now, startState, {
+      prompt,
+      triggeredBy,
+      webhook,
+    });
     appendRun(jobId, run);
     eventHandler({ type: "cronjob_run_updated", run });
 
@@ -1449,7 +1482,149 @@ How to answer questions about Isomux itself: the source lives at https://github.
       }
       return run;
     }
+    return startRunSession(job, run, trigger, prompt);
+  }
 
+  // The row of a session job's run, before its session.
+  function sessionRunRecord(
+    job: Cronjob,
+    runId: string,
+    trigger: CronjobRun["trigger"],
+    now: number,
+    startState: RunTerminalFields,
+    extra: {
+      prompt: string;
+      triggeredBy?: string;
+      webhook?: NonNullable<CronjobRun["webhook"]>;
+    },
+  ): CronjobRun {
+    const placeholderSessionId = `pending-${runId}`;
+    return {
+      id: runId,
+      cronjobId: job.id,
+      cronjobName: job.name,
+      trigger,
+      startedAt: now,
+      ...startState,
+      promptSnapshot: extra.prompt,
+      agentTypeSnapshot: job.agentType,
+      modelFamilySnapshot: job.modelFamily,
+      effortSnapshot: job.effort,
+      cwdSnapshot: job.cwd,
+      permissionModeSnapshot: job.permissionMode,
+      ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
+      rootSessionId: placeholderSessionId,
+      currentSessionId: placeholderSessionId,
+      previewText: startState.errorReason ?? "",
+      ...(extra.triggeredBy ? { triggeredBy: extra.triggeredBy } : {}),
+      ...(extra.webhook ? { webhook: extra.webhook } : {}),
+    };
+  }
+
+  // An isolated member's session job (member-os-user-design.md, slice 3):
+  // the run is recorded running and holds a "preparing" slot, so a tick
+  // meanwhile records a skip and a send or an edit into it is busy; the
+  // checks then run through the member's host (startMemberRun). The tick
+  // set lastFireAt and nextFireAt before fire(), so a check that fails sets
+  // nothing more.
+  function fireMemberSessionJob(
+    job: Cronjob,
+    trigger: CronjobRun["trigger"],
+    extra: {
+      triggeredBy?: string;
+      webhook?: NonNullable<CronjobRun["webhook"]>;
+    },
+    prompt: string,
+  ): CronjobRun {
+    const runId = generateCronjobRunId();
+    const run = sessionRunRecord(
+      job,
+      runId,
+      trigger,
+      clock.now(),
+      runStartFields(),
+      { prompt, triggeredBy: extra.triggeredBy, webhook: extra.webhook },
+    );
+    appendRun(job.id, run);
+    eventHandler({ type: "cronjob_run_updated", run });
+    const owner: PreparingRun = {
+      kind: "preparing",
+      jobId: job.id,
+      runId,
+      trigger,
+    };
+    slots.hold(owner);
+    void startMemberRun(job, run, owner, prompt);
+    return run;
+  }
+
+  // The checks of an isolated member's run through their host, then the
+  // start, all for the job as it was at the fire (the row's snapshot). After
+  // each await it stops, starting nothing, when the run lost its slot (a
+  // delete ended it) or the server is stopping (the next boot ends the row,
+  // start()). Any throw ends the run failed: nothing here rejects.
+  async function startMemberRun(
+    job: Cronjob,
+    run: CronjobRun,
+    owner: PreparingRun,
+    prompt: string,
+  ): Promise<void> {
+    const fail = (reason: LogText) =>
+      endRun(
+        owner,
+        { status: "failed", reason },
+        { previewText: renderLogText(english, reason) },
+      );
+    const goOn = () =>
+      owns(owner) &&
+      !(deps.isStopping ?? serverStopping)() &&
+      cronjobs.some((value) => value.id === job.id);
+    try {
+      if (!memberHostConnected(job.userId!)) {
+        const member = job.username ?? job.userId ?? "";
+        fail(msg("systemEntries.scheduleRun.startNotReady", { member }));
+        return;
+      }
+      const problem = await agentCwdProblem(job.cwd, job.userId);
+      if (!goOn()) return;
+      if (problem) {
+        fail(runCwdText(problem, "start"));
+        return;
+      }
+      const refusal = (await deps.memberLimitRefusal?.(job)) ?? null;
+      if (!goOn()) return;
+      if (refusal !== null) {
+        fail(refusal);
+        return;
+      }
+      const skills =
+        (await deps.prepareSkillFolder?.(job.agentType, job.userId)) ?? true;
+      if (!goOn()) return;
+      if (!skills)
+        console.error(
+          `[cron] run ${run.id} of ${job.id} starts without the member's skills: their runner gave no skill folder`,
+        );
+      startRunSession(job, run, owner.trigger, prompt);
+    } catch (err) {
+      fail(errMessage(err) || "Cannot start");
+    } finally {
+      // A start that failed before its session ended the row itself; the
+      // slot goes too. A session that started holds its own slot.
+      slots.drop(owner);
+    }
+  }
+
+  // The session of a run whose checks passed: the office's run in fire(),
+  // an isolated member's after startMemberRun's checks.
+  function startRunSession(
+    job: Cronjob,
+    run: CronjobRun,
+    trigger: CronjobRun["trigger"],
+    prompt: string,
+  ): CronjobRun {
+    const jobId = job.id;
+    const runId = run.id;
+    const placeholderSessionId = run.rootSessionId;
     // One decision for the spawn and the prompt line (task 8db21c8b).
     const isolation = sessionIsolationForm({
       agentType: job.agentType,
@@ -1732,8 +1907,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     // An isolated member's run: read through their runner, at most
     // MAX_RUN_READ_FILE_BYTES (internal-docs/member-os-user-design.md, 1.4).
+    // Only the office's own local host reads with the office's fs below.
     const onHost =
-      host.kind === "local"
+      host.member === undefined && host.kind === "local"
         ? null
         : await readHostFile(host, absPath, MAX_RUN_READ_FILE_BYTES);
     if (onHost && !onHost.ok) {
@@ -2187,12 +2363,27 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const leaf = run.currentSessionId ?? run.rootSessionId;
     if (leaf.startsWith("pending-") || leaf.startsWith("skipped-"))
       return refuse(msg("systemEntries.scheduleRun.resumeNoInit"));
-    const cwdIssue = cwdProblem(run.cwdSnapshot);
-    if (cwdIssue) return refuse(runCwdText(cwdIssue, "resume"));
+    // The office's checks stay synchronous up to its claim; an isolated
+    // member's run claims first (memberRunFolderCheck).
+    const memberUserId = memberRunUserId(run);
+    const checked =
+      memberUserId !== null
+        ? await memberRunFolderCheck(run, leaf, memberUserId)
+        : { claim: null, problem: cwdProblem(run.cwdSnapshot) };
+    const release = () => {
+      if (checked.claim) slots.release(runId, checked.claim);
+    };
+    if (checked.problem) {
+      release();
+      return refuse(runCwdText(checked.problem, "resume"));
+    }
     const precheckError = checkResumableSession(run, leaf);
-    if (precheckError) return refuse(precheckError);
+    if (precheckError) {
+      release();
+      return refuse(precheckError);
+    }
 
-    const claim = slots.claim(runId);
+    const claim = checked.claim ?? slots.claim(runId);
     try {
       const cap = await runTurnCap(run, username);
       if (cap.kind === "abandon")
@@ -2370,6 +2561,45 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // the rollout-file lookup happens under the *same* sessions/ dir the
   // actual session would use at resume - preventing a precheck pass under
   // process.env's CODEX_HOME and a resume-time failure under the user's.
+  // The owner of `run`'s job when they are an isolated member, else null.
+  function memberRunUserId(run: CronjobRun): string | null {
+    const userId =
+      cronjobs.find((value) => value.id === run.cronjobId)?.userId ?? null;
+    return memberFolderHost(userId) ? userId : null;
+  }
+
+  // The folder check of a follow-up or an edit of an isolated member's run,
+  // through their host. The claim comes first, before any await, so a second
+  // send or edit meanwhile is busy; the caller releases it on a refusal. A
+  // Claude run's session root is searched through their host and pinned, so
+  // checkResumableSession and the turn's env read the pin.
+  async function memberRunFolderCheck(
+    run: CronjobRun,
+    leaf: string,
+    userId: string,
+  ): Promise<{
+    claim: ReturnType<typeof slots.claim>;
+    problem: CwdProblem | null;
+  }> {
+    const claim = slots.claim(run.id);
+    const problem = await agentCwdProblem(run.cwdSnapshot, userId);
+    if (!problem && run.agentTypeSnapshot === "claude") {
+      try {
+        const root = await resolveClaudeSessionRootOnHost(
+          leaf,
+          run.cwdSnapshot,
+          buildEnvForUserId(userId),
+          getRunSessionClaudeConfigDir(run.cronjobId, run.id, leaf),
+          userId,
+        );
+        ensureRunSessionClaudeConfigDir(run.cronjobId, run.id, leaf, root);
+      } catch {
+        // No root found (or no env): the precheck reports it.
+      }
+    }
+    return { claim, problem };
+  }
+
   function checkResumableSession(
     run: CronjobRun,
     leaf: string,
@@ -2447,19 +2677,29 @@ How to answer questions about Isomux itself: the source lives at https://github.
       failEdit(msg("systemEntries.scheduleRun.editNoInit"));
       return;
     }
-    const cwdIssue = cwdProblem(run.cwdSnapshot);
-    if (cwdIssue) {
-      failEdit(runCwdText(cwdIssue, "edit"));
+    // As in sendRunMessage: an isolated member's run claims first.
+    const memberUserId = memberRunUserId(run);
+    const checked =
+      memberUserId !== null
+        ? await memberRunFolderCheck(run, leaf, memberUserId)
+        : { claim: null, problem: cwdProblem(run.cwdSnapshot) };
+    const release = () => {
+      if (checked.claim) slots.release(runId, checked.claim);
+    };
+    if (checked.problem) {
+      release();
+      failEdit(runCwdText(checked.problem, "edit"));
       return;
     }
     // The precheck sentence states the whole problem, so it stands alone.
     const precheckError = checkResumableSession(run, leaf);
     if (precheckError) {
+      release();
       failEdit(precheckError);
       return;
     }
 
-    const claim = slots.claim(runId);
+    const claim = checked.claim ?? slots.claim(runId);
     try {
       const cap = await runTurnCap(run, username);
       if (cap.kind === "abandon") return;
@@ -2902,6 +3142,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
 export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
   limitRefusal?: CronjobManagerDeps["limitRefusal"];
+  memberLimitRefusal?: CronjobManagerDeps["memberLimitRefusal"];
+  prepareSkillFolder?: CronjobManagerDeps["prepareSkillFolder"];
   deliverToAgent?: CronjobManagerDeps["deliverToAgent"];
   resolveOpenCodeSkillPaths?: CronjobManagerDeps["resolveOpenCodeSkillPaths"];
   resolveSkillFolder?: CronjobManagerDeps["resolveSkillFolder"];
@@ -2910,6 +3152,12 @@ export function createProductionCronjobManager(overrides?: {
   return createCronjobManager({
     ...(overrides?.limitRefusal
       ? { limitRefusal: overrides.limitRefusal }
+      : {}),
+    ...(overrides?.memberLimitRefusal
+      ? { memberLimitRefusal: overrides.memberLimitRefusal }
+      : {}),
+    ...(overrides?.prepareSkillFolder
+      ? { prepareSkillFolder: overrides.prepareSkillFolder }
       : {}),
     ...(overrides?.deliverToAgent
       ? { deliverToAgent: overrides.deliverToAgent }

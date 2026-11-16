@@ -2089,6 +2089,166 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Page).serve_forever()
     }, 200_000);
   });
 
+  // Part 3a: an isolated member's schedules are checked and started through
+  // her host. Before 3a, Alice's `~` was stored as the office home and her
+  // run there failed with the engine's launch error (step 0 of the part).
+  describe("the schedules of a member", () => {
+    const home = `${MEMBERS}/home/${ALICE}`;
+    const aliceUid = () => String(uidOf(name, ALICE));
+    type Run = { status: string; errorReason?: string | null };
+    const makeJob = (who: string, label: string, body: object) =>
+      api(name, who, "POST", "/api/cronjobs", {
+        name: `rig s ${label}`,
+        schedule: { type: "none" },
+        ...body,
+      }) as { id?: string; cwd?: string };
+    const sessionJob = (who: string, label: string, cwd: string) =>
+      makeJob(who, label, {
+        prompt: "one",
+        cwd,
+        agentType: "claude",
+        modelFamily: "sonnet",
+        effort: "low",
+        permissionMode: "bypassPermissions",
+      });
+    const runNow = (who: string, jobId: string) => {
+      const ran = api(name, who, "POST", `/api/cronjobs/${jobId}/runs`, {});
+      const runId = ran.runId as string | undefined;
+      if (!runId) throw new Error(`run now ${jobId}: ${JSON.stringify(ran)}`);
+      return runId;
+    };
+    // The run once it ends, and the RIG_REPORT lines of its session.
+    const ended = async (who: string, jobId: string, runId: string) => {
+      const deadline = Date.now() + 90_000;
+      for (;;) {
+        const got = api(
+          name,
+          who,
+          "GET",
+          `/api/cronjobs/${jobId}/runs/${runId}`,
+          undefined,
+        ) as {
+          run?: Run;
+          entries?: { kind: string; content: unknown }[];
+        };
+        if ((got.run && got.run.status !== "running") || Date.now() > deadline)
+          return {
+            run: got.run,
+            reports: (got.entries ?? [])
+              .filter(
+                (l) =>
+                  l.kind === "text" &&
+                  typeof l.content === "string" &&
+                  l.content.startsWith("RIG_REPORT "),
+              )
+              .map(
+                (l) =>
+                  JSON.parse(
+                    (l.content as string).slice("RIG_REPORT ".length),
+                  ) as Record<string, unknown>,
+              ),
+          };
+        await Bun.sleep(500);
+      }
+    };
+
+    // S1, S3: Alice's `~` is stored as her home and her run is there as her;
+    // the owner's `~` is the office home, run as the office (the flip).
+    it("stores and runs Alice's `~` in her home as her, and the owner's as the office", async () => {
+      const jobs = {
+        alice: sessionJob(aliceCookie, "alice tilde", "~"),
+        owner: sessionJob(cookie, "owner tilde", "~"),
+      };
+      const got: Record<string, unknown> = {};
+      for (const [key, who] of [
+        ["alice", aliceCookie],
+        ["owner", cookie],
+      ] as const) {
+        const job = jobs[key];
+        if (!job.id) throw new Error(`job ${key}: ${JSON.stringify(job)}`);
+        const r = await ended(who, job.id, runNow(who, job.id));
+        got[key] = {
+          stored: job.cwd,
+          status: r.run?.status,
+          ran: r.reports.map((x) => [x.uid, x.home, x.cwd]),
+        };
+      }
+      expect(got).toEqual({
+        alice: {
+          stored: home,
+          status: "completed",
+          ran: [[aliceUid(), home, home]],
+        },
+        owner: {
+          stored: "/var/data/home",
+          status: "completed",
+          ran: [[String(OFFICE_UID), "/var/data/home", "/var/data/home"]],
+        },
+      });
+    }, 300_000);
+
+    // S2: a folder Alice could enter at create and cannot at the run: the
+    // run fails at start with the reason that names the folder, and no
+    // session runs (before 3a: the engine's launch error).
+    it("fails Alice's run at start in a folder she cannot enter, with the folder in the reason", async () => {
+      const dir = "/srv/rig-s2";
+      expect(root(name, `mkdir -p ${dir} && chmod 755 ${dir}`).status).toBe(0);
+      const job = sessionJob(aliceCookie, "locked", dir);
+      if (!job.id) throw new Error(`job: ${JSON.stringify(job)}`);
+      // The enabling condition: a run there works as Alice.
+      const first = await ended(
+        aliceCookie,
+        job.id,
+        runNow(aliceCookie, job.id),
+      );
+      expect([
+        first.run?.status,
+        first.reports.map((x) => [x.uid, x.cwd]),
+      ]).toEqual(["completed", [[aliceUid(), dir]]]);
+      expect(root(name, `chmod 700 ${dir}`).status).toBe(0);
+      expect(tryAs(name, ALICE, `os.listdir("${dir}")`)).toBe("EACCES");
+      const r = await ended(aliceCookie, job.id, runNow(aliceCookie, job.id));
+      const reason = String(r.run?.errorReason ?? "");
+      expect({
+        status: r.run?.status,
+        names: reason.includes(dir),
+        engine: reason.includes("/runtime/"),
+        reports: r.reports.length,
+      }).toEqual({ status: "failed", names: true, engine: false, reports: 0 });
+    }, 300_000);
+
+    // S4: Alice's command job runs its command as her, in her home.
+    it("runs Alice's command job as her", async () => {
+      const made = api(name, aliceCookie, "POST", "/api/agents", {
+        name: "Rig Alice s4",
+        cwd: home,
+        roomId,
+        desk: null,
+        agentType: "claude",
+      });
+      const agentId = (made.agent as { id: string } | undefined)?.id;
+      if (!agentId) throw new Error(`spawn: ${JSON.stringify(made)}`);
+      const out = `${home}/rig-s4-uid`;
+      const job = makeJob(aliceCookie, "command", {
+        prompt: "",
+        cwd: "~",
+        command: `id -u > ${out}; pwd >> ${out}`,
+        target: { kind: "agent", agentId },
+      });
+      if (!job.id) throw new Error(`job: ${JSON.stringify(job)}`);
+      runNow(aliceCookie, job.id);
+      await waitFor(
+        "the command's file",
+        () => root(name, `test -s ${out}`).status === 0,
+      );
+      await Bun.sleep(500);
+      expect([
+        root(name, `stat -c %u ${out}`).out.trim(),
+        root(name, `cat ${out}`).out.trim().split("\n"),
+      ]).toEqual([aliceUid(), [aliceUid(), home]]);
+    }, 200_000);
+  });
+
   it("moves a member's office conversations into their space at enable, they resume there, and disable moves them back", async () => {
     const erinUser = "isomux-erin";
     const erinHome = `${MEMBERS}/home/${erinUser}`;

@@ -4253,6 +4253,8 @@ Cosas que puedes hacer por él:
     "Ejecución detenida: duró más de {minutes} minutos.",
   "systemEntries.scheduleRun.skippedInFlight":
     "Omitida: la ejecución anterior de esta programación seguía en curso.",
+  "systemEntries.scheduleRun.startNotReady":
+    "No se puede iniciar: el usuario del sistema propio de {member} no está listo. Si vuelve a pasar, pregunta a un propietario de la oficina.",
   "systemEntries.scheduleRun.serverRestarted":
     "Ejecución detenida: el servidor de Isomux se reinició.",
   "systemEntries.scheduleRun.sessionFailed":

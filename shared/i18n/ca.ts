@@ -4259,6 +4259,8 @@ Coses que pots fer per ell:
     "Execució aturada: ha durat més de {minutes} minuts.",
   "systemEntries.scheduleRun.skippedInFlight":
     "Omesa: l'execució anterior d'aquesta programació encara estava en curs.",
+  "systemEntries.scheduleRun.startNotReady":
+    "No es pot iniciar: l'usuari del sistema propi de {member} no està llest. Si torna a passar, pregunta a un propietari de l'oficina.",
   "systemEntries.scheduleRun.serverRestarted":
     "Execució aturada: el servidor d'Isomux s'ha reiniciat.",
   "systemEntries.scheduleRun.sessionFailed":

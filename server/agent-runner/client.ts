@@ -38,6 +38,7 @@ import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
 import { ISOLATION_SETUP_FAILED } from "../process-isolation.ts";
 import {
   createFrameDecoder,
+  RUNNER_PATH_MAX,
   RUNNER_READ_MAX,
   encodeData,
   encodeJson,
@@ -658,6 +659,24 @@ export function runnerAgentFs(
         0,
         timeoutMs,
       );
+    },
+    realpath: async (path) => {
+      const real = (
+        await runnerFs(
+          socketPath,
+          { call: "realpath", path },
+          undefined,
+          RUNNER_PATH_MAX,
+          timeoutMs,
+        )
+      ).data.toString("utf8");
+      // A member's runner answers: only an absolute path counts.
+      if (!real.startsWith("/") || real.includes("\0"))
+        throw errnoError(
+          "EPROTO",
+          `the agent runner sent a bad realpath of ${path}`,
+        );
+      return real;
     },
   };
 }

@@ -786,7 +786,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       emitCronjobRunReadFile: async () => ({ ok: true }),
       emitCronjobRunDiff: async () => ({ ok: true }),
       attributionFor: () => ({ createdBy: "Morgan", username: "Morgan" }),
-      validateCwd: () => null,
+      validateCwd: async () => null,
       saveRecentCwd: () => {},
       modelFamilyError: () => null,
     };

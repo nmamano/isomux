@@ -14,6 +14,8 @@ import {
   type Cronjob,
 } from "../shared/types.ts";
 import { resolveCwd } from "./cwd-utils.ts";
+import { memberFolderHost, resolveAgentCwd } from "./agent-folder.ts";
+import { sameAgentHost } from "./member-os-users.ts";
 import { belowStandard } from "../shared/agent-access.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
@@ -80,12 +82,14 @@ export function agentMakesSchedules(
   return agent.privileged === true || agentReach(agent) > 0;
 }
 
-// Where the job reaches more than the agent, else null.
-export function scheduleLimitBreach(
+export type ScheduleLimitBreach = "access" | "mode" | "folder";
+
+// The breach found before the folder, or "check folder" when only the folder
+// is left to compare.
+function breachBeforeFolder(
   job: ScheduleLimitJob,
   agent: ScheduleLimitAgent,
-  realpath: (path: string) => string = realpathSync,
-): "access" | "mode" | "folder" | null {
+): ScheduleLimitBreach | null | "check folder" {
   // A job runs as its own run, with a shell: an agent below Standard reaches
   // less than any job.
   if (agent.access && belowStandard(agent.access)) return "access";
@@ -93,7 +97,50 @@ export function scheduleLimitBreach(
   // never used.
   if (!runsInFolder(job)) return null;
   if (jobReach(job) > agentReach(agent)) return "mode";
+  return "check folder";
+}
+
+// Where the job reaches more than the agent, else null. For an agent that
+// runs as the office user: scheduleLimitBreachFor picks the host.
+export function scheduleLimitBreach(
+  job: ScheduleLimitJob,
+  agent: ScheduleLimitAgent,
+  realpath: (path: string) => string = realpathSync,
+): ScheduleLimitBreach | null {
+  const before = breachBeforeFolder(job, agent);
+  if (before !== "check folder") return before;
   return folderInside(job.cwd, agent.cwd, realpath) ? null : "folder";
+}
+
+// scheduleLimitBreach on the host of the agent's manager (`agentUserId`):
+// an isolated member's folders resolve as the member, through their runner.
+// A job owned on another host than the agent's is refused ("folder"): the
+// two cannot share a folder (member-os-user-design.md 2.4).
+export async function scheduleLimitBreachFor(
+  job: ScheduleLimitJob,
+  agent: ScheduleLimitAgent,
+  jobUserId: string | null,
+  agentUserId: string | null,
+): Promise<ScheduleLimitBreach | null> {
+  const before = breachBeforeFolder(job, agent);
+  if (before !== "check folder") return before;
+  if (!sameAgentHost(jobUserId, agentUserId)) {
+    console.error(
+      `[schedule-limits] a job of ${jobUserId ?? "no member"} and an agent of ${agentUserId ?? "no member"} run as different OS users; refused`,
+    );
+    return "folder";
+  }
+  return (await folderInsideFor(job.cwd, agent.cwd, agentUserId))
+    ? null
+    : "folder";
+}
+
+// Whether `dir` is `agentDir` or inside it; both already resolved.
+export function insideResolved(dir: string, agentDir: string): boolean {
+  return (
+    dir === agentDir ||
+    dir.startsWith(agentDir.endsWith(sep) ? agentDir : agentDir + sep)
+  );
 }
 
 // Whether `cwd` is the agent's folder or a folder inside it. `realpath`
@@ -112,10 +159,27 @@ export function folderInside(
   } catch {
     return false;
   }
-  return (
-    dir === agentDir ||
-    dir.startsWith(agentDir.endsWith(sep) ? agentDir : agentDir + sep)
-  );
+  return insideResolved(dir, agentDir);
+}
+
+// folderInside on the host of `userId`: for an isolated member, `~` is their
+// home and both paths resolve through their runner, as the member. A host
+// that is not ready or a runner error is outside, never the office's
+// realpath.
+export async function folderInsideFor(
+  cwd: string,
+  agentCwd: string,
+  userId: string | null,
+): Promise<boolean> {
+  const host = memberFolderHost(userId);
+  if (!host) return folderInside(cwd, agentCwd);
+  try {
+    const dir = await host.fs.realpath(resolveAgentCwd(cwd, userId));
+    const agentDir = await host.fs.realpath(resolveAgentCwd(agentCwd, userId));
+    return insideResolved(dir, agentDir);
+  } catch {
+    return false;
+  }
 }
 
 // The refusal reason for the agent that asks, else null.
@@ -124,7 +188,27 @@ export function scheduleExceedsAgent(
   agent: ScheduleLimitAgent,
   realpath: (path: string) => string = realpathSync,
 ): string | null {
-  const breach = scheduleLimitBreach(job, agent, realpath);
+  return scheduleExceedsText(scheduleLimitBreach(job, agent, realpath), job);
+}
+
+// scheduleExceedsAgent on the host of the agent's manager
+// (scheduleLimitBreachFor).
+export async function scheduleExceedsAgentFor(
+  job: ScheduleLimitJob,
+  agent: ScheduleLimitAgent,
+  jobUserId: string | null,
+  agentUserId: string | null,
+): Promise<string | null> {
+  return scheduleExceedsText(
+    await scheduleLimitBreachFor(job, agent, jobUserId, agentUserId),
+    job,
+  );
+}
+
+function scheduleExceedsText(
+  breach: ScheduleLimitBreach | null,
+  job: ScheduleLimitJob,
+): string | null {
   if (breach === "access")
     return "An agent below Standard cannot make or run a schedule.";
   if (breach === "mode")

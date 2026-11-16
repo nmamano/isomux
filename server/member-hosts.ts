@@ -206,6 +206,7 @@ export function createNotReadyHost(userId: string, reason: string): AgentHost {
     exists: reject,
     chmod: reject,
     enter: reject,
+    realpath: reject,
   };
   const host: AgentHost = {
     kind: "runner",

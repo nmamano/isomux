@@ -13,6 +13,7 @@ import {
   mkdir,
   open,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -214,6 +215,8 @@ export interface AgentFs {
   // counts ACLs as chdir does); else rejects with the errno. A stat needs
   // search access to the parent only, so it cannot tell.
   enter(path: string): Promise<void>;
+  // The path with every link resolved, as the agent user resolves it.
+  realpath(path: string): Promise<string>;
 }
 
 export interface AgentHost {
@@ -484,6 +487,7 @@ export const localAgentFs: AgentFs = {
   exists: async (path) => existsSync(path),
   chmod: (path, mode) => chmod(path, mode),
   enter: (path) => access(path, constants.X_OK),
+  realpath: (path) => realpath(path),
 };
 
 export const localAgentHost: AgentHost = {

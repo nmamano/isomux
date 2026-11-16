@@ -8,12 +8,14 @@ import {
   runsInFolder,
   type AgentInfo,
   type AskEntry,
+  type Cronjob,
   type BackendModelWire,
   type ServerMessage,
   type UserRecord,
 } from "../shared/types.ts";
 import { STATE_ROOT } from "./config.ts";
 import { stateFolderRefusal } from "./agent-folder-rules.ts";
+import { folderForRules } from "./agent-folder.ts";
 import { resolveCwd } from "./cwd-utils.ts";
 import {
   createProductionAgentManager,
@@ -93,6 +95,7 @@ import type { StorageRoots } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import {
   scheduleLimitBreach,
+  scheduleLimitBreachFor,
   scheduleRunRefusal,
 } from "./cron-agent-limits.ts";
 import type { SecretStore } from "./secret-store.ts";
@@ -426,6 +429,24 @@ export function createManagers(
     mayUseExtension,
     startOpts.browserExtensionActionDeadline,
   );
+  // The refusals of a run start before its maker agent's limits: the
+  // office state (`dir`: the job's folder for the rules) and the owner's
+  // permission pack.
+  const limitRefusalBeforeMaker = (job: Cronjob, dir: string) => {
+    // No schedule works inside the office state (agent-folder-rules.ts).
+    if (runsInFolder(job) && stateFolderRefusal(dir, STATE_ROOT) !== null)
+      return msg("systemEntries.scheduleRun.startCwd.insideState", {
+        path: job.cwd,
+      });
+    // A schedule that runs a session or a command runs at Standard, above
+    // every agent ceiling of a member permission pack (task 134b8f77).
+    const owner = job.userId ? getUserById(job.userId) : undefined;
+    if (runsInFolder(job) && owner?.role === "member" && owner.pack)
+      return msg("systemEntries.scheduleRun.aboveMemberCeiling", {
+        member: owner.name,
+      });
+    return null;
+  };
   cronjobManager = createProductionCronjobManager({
     resolveBackend: startOpts.resolveBackend,
     resolveOpenCodeSkillPaths: (userId) =>
@@ -438,27 +459,32 @@ export function createManagers(
         agentManager.openCodeEnvironmentRevisionForUserId(userId),
     }),
     limitRefusal: (job) => {
-      // No schedule works inside the office state (agent-folder-rules.ts).
-      if (
-        runsInFolder(job) &&
-        stateFolderRefusal(resolveCwd(job.cwd), STATE_ROOT) !== null
-      )
-        return msg("systemEntries.scheduleRun.startCwd.insideState", {
-          path: job.cwd,
-        });
-      // A schedule that runs a session or a command runs at Standard, above
-      // every agent ceiling of a member permission pack (task 134b8f77).
-      const owner = job.userId ? getUserById(job.userId) : undefined;
-      if (runsInFolder(job) && owner?.role === "member" && owner.pack)
-        return msg("systemEntries.scheduleRun.aboveMemberCeiling", {
-          member: owner.name,
-        });
+      const before = limitRefusalBeforeMaker(job, resolveCwd(job.cwd));
+      if (before !== null) return before;
       const maker = job.createdByAgentId
         ? ordinaryScheduleMaker(job.createdByAgentId)
         : null;
       const breach = maker ? scheduleLimitBreach(job, maker) : null;
       return maker && breach ? scheduleRunRefusal(breach, maker, job) : null;
     },
+    // An isolated member's job: the same checks, with its folder and the
+    // maker's resolved through the member's runner.
+    memberLimitRefusal: async (job) => {
+      const before = limitRefusalBeforeMaker(
+        job,
+        await folderForRules(job.cwd, job.userId),
+      );
+      if (before !== null) return before;
+      const maker = job.createdByAgentId
+        ? ordinaryScheduleMaker(job.createdByAgentId)
+        : null;
+      const breach = maker
+        ? await scheduleLimitBreachFor(job, maker, job.userId, maker.userId)
+        : null;
+      return maker && breach ? scheduleRunRefusal(breach, maker, job) : null;
+    },
+    prepareSkillFolder: (agentType, userId) =>
+      agentManager.prepareRunSkillFolder(agentType, userId),
     deliverToAgent: deliverCronjobToAgent,
   });
   // Register the production instance for the module-read bridge that

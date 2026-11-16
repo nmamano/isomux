@@ -145,6 +145,26 @@ export async function statMemberFolder(
   return stat;
 }
 
+// The folder `cwd` of `userId`'s agent or job with its links resolved, for
+// the folder rules (agent-folder-rules.ts), which compare paths. The office:
+// resolveCwd, and the rules resolve links themselves. An isolated member:
+// resolved through their runner, as the member, since the office cannot
+// resolve a link inside their home; when the runner cannot, the path as
+// written (resolveAgentCwd), never the office's realpath.
+export async function folderForRules(
+  cwd: string,
+  userId: string | null | undefined,
+): Promise<string> {
+  const host = memberFolderHost(userId);
+  if (!host) return resolveCwd(cwd);
+  const path = resolveAgentCwd(cwd, userId);
+  try {
+    return await host.fs.realpath(path);
+  } catch {
+    return path;
+  }
+}
+
 // validateCwd for an agent managed by `userId`: the resolved folder, or a
 // throw with the same English as validateCwd.
 export async function validateAgentCwd(

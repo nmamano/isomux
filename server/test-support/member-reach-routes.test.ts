@@ -563,3 +563,48 @@ describe("a manager change between hosts", () => {
     ).toEqual([bobs.id]);
   });
 });
+
+// Part 3a: a job's folder is checked and stored on its owner's host. Alice's
+// `~` is her home, and a folder she has not got is refused through her
+// host; the owner's job is checked as before.
+describe("the folder of a new schedule", () => {
+  // MUTANT: the cron validateCwd dep as the office's validateCwd (dies on
+  // Alice's missing folder: the office stat of a path under her home), or
+  // jobFolder as resolveCwd (dies on her `~`).
+  it("of Alice is checked and stored on her host; the owner's as before", async () => {
+    const o = await office();
+    const create = (auth: Auth, cwd: string) =>
+      call(o.srv, "POST", "/api/cronjobs", auth, {
+        name: "Folder job",
+        prompt: "do it",
+        schedule: { type: "interval", minutes: 60 },
+        agentType: "claude",
+        modelFamily: "opus",
+        effort: "medium",
+        permissionMode: "default",
+        cwd,
+      });
+    const mine = await create(o.alice.auth, "~");
+    expect(mine.status).toBe(201);
+    const cwdOf = (body: unknown) => {
+      const b = body as { cwd?: string; cronjob?: { cwd?: string } };
+      return b.cronjob?.cwd ?? b.cwd;
+    };
+    expect(cwdOf(mine.body)).toBe(iso!.home);
+    // A folder in her home that the office's home has not got.
+    mkdirSync(join(iso!.home, "reach-sub"));
+    const sub = await create(o.alice.auth, "~/reach-sub");
+    expect([sub.status, cwdOf(sub.body)]).toEqual([
+      201,
+      join(iso!.home, "reach-sub"),
+    ]);
+    const missing = await create(o.alice.auth, "~/not-there");
+    expect([missing.status, missing.code]).toEqual([400, "invalid_cwd"]);
+    const owners = await create(o.ownerAuth, "~");
+    expect(owners.status).toBe(201);
+    expect([
+      typeof cwdOf(owners.body),
+      cwdOf(owners.body) === iso!.home,
+    ]).toEqual(["string", false]);
+  });
+});

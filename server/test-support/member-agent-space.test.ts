@@ -111,6 +111,7 @@ function member(name: string): string {
 // goes to the local fs, as the fixture's does.
 function recordingFs(): AgentFs {
   return {
+    realpath: (path) => localAgentFs.realpath(path),
     readText: (path) => {
       fsCalls.push({ op: "readText", path });
       const text = served.get(path);

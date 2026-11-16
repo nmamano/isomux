@@ -69,7 +69,18 @@ export interface CommandRun {
   trigger: CronjobRun["trigger"];
 }
 
-export type RunOwner = SessionRun | DeliveryRun | CommandRun;
+// A session job's run of an isolated member from its record to its session
+// start: the checks through the member's host run meanwhile
+// (cronjob-manager.ts, startMemberRun). Like a session turn, a scheduled one
+// makes the job's next slot a skip, and a send or an edit into it is busy.
+export interface PreparingRun {
+  kind: "preparing";
+  jobId: string;
+  runId: string;
+  trigger: CronjobRun["trigger"];
+}
+
+export type RunOwner = SessionRun | DeliveryRun | CommandRun | PreparingRun;
 
 type RunSlot = { kind: "starting" } | { kind: "running"; owner: RunOwner };
 
@@ -101,8 +112,17 @@ export function createRunSlots() {
         .map(sessionOwner)
         .filter((a): a is SessionRun => a !== null);
     },
-    // Whether a scheduled session turn or command of job `jobId` still runs.
-    // A send to an agent never counts.
+    // The runs that wait for their session start (PreparingRun).
+    preparingOwners(): PreparingRun[] {
+      const found: PreparingRun[] = [];
+      for (const slot of slots.values())
+        if (slot.kind === "running" && slot.owner.kind === "preparing")
+          found.push(slot.owner);
+      return found;
+    },
+    // Whether a scheduled session turn or command of job `jobId` still runs,
+    // or a scheduled run of it prepares its start. A send to an agent never
+    // counts.
     scheduledInFlight(jobId: string): boolean {
       for (const slot of slots.values()) {
         if (slot.kind !== "running" || slot.owner.kind === "delivery") continue;

@@ -83,7 +83,7 @@ import {
   SPAWN_EXCEEDS_AGENT,
   SPAWN_LIMIT,
   SPAWN_TREE_LIMIT,
-  spawnExceedsAgent,
+  spawnExceedsAgentFor,
   type SpawnLimitAgent,
 } from "./spawn-agent-limits.ts";
 import type { TaskViewer } from "./task-visibility.ts";
@@ -148,7 +148,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
   // The refusal of an agent's spawn: its tree is full, or the child, with the
   // mode and sandbox the core will resolve, reaches more than its limited
   // spawner. Else null.
-  function spawnRefusal(
+  async function spawnRefusal(
     input: {
       agentType?: AgentInfo["agentType"];
       permissionMode?: AgentInfo["permissionMode"];
@@ -158,11 +158,11 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
     },
     spawner: { spawnRootAgentId: string; limits?: SpawnLimitAgent },
     modelFamily: string | undefined,
-  ): {
+  ): Promise<{
     ok: false;
     reason: "spawn_limit" | "spawn_exceeds_agent";
     message: string;
-  } | null {
+  } | null> {
     const inTree = agentManager
       .getAllAgents()
       .filter((a) => a.spawnRootAgentId === spawner.spawnRootAgentId).length;
@@ -183,7 +183,9 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
       },
       limitedClaudeFamiliesForUserId(input.userId),
     );
-    const reason = spawnExceedsAgent(
+    // The folders resolve on the host of the spawner's manager, who is the
+    // child's manager too.
+    const reason = await spawnExceedsAgentFor(
       {
         agentType,
         permissionMode: resolved.permissionMode,
@@ -191,6 +193,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
         cwd: input.cwd,
       },
       spawner.limits,
+      input.userId,
     );
     return reason
       ? { ok: false, reason: SPAWN_EXCEEDS_AGENT, message: reason }
@@ -541,7 +544,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
   // its own schedules.
   function ownScheduleLimitsFor(
     identity: Identity,
-  ): (ScheduleLimitAgent & { roomId: string }) | null {
+  ): (ScheduleLimitAgent & { roomId: string; userId: string | null }) | null {
     const agentId = reachAgentId(identity);
     const agent = agentId ? agentManager.getAgent(agentId) : undefined;
     if (!agent) return null;
@@ -552,6 +555,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
       ...(agent.access ? { access: agent.access } : {}),
       cwd: agent.cwd,
       roomId: agent.roomId,
+      userId: agent.userId,
     };
   }
 

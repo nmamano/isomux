@@ -17,6 +17,7 @@ import {
   chmod,
   mkdir,
   open as openFile,
+  realpath,
   rm,
   stat as statFile,
   writeFile,
@@ -395,6 +396,12 @@ async function runFs(
       case "enter":
         await access(request.path, constants.X_OK);
         break;
+      case "realpath":
+        send(
+          socket,
+          encodeData(FRAME_STDOUT, Buffer.from(await realpath(request.path))),
+        );
+        break;
     }
     finish(socket, { type: "fs" });
   } catch (error) {
@@ -421,6 +428,7 @@ function handleFs(socket: RunnerSocket, request: FsRequest): void {
       "exists",
       "chmod",
       "enter",
+      "realpath",
     ].includes(request.call) ||
     (needsMode && !validMode((request as { mode?: unknown }).mode)) ||
     (request.call === "readBytes" &&

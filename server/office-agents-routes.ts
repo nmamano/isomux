@@ -298,7 +298,7 @@ export function createAgentsRoutes(
       if (input.agentType === "codex" && !modelFamily && input.userId)
         modelFamily = await resolveCodexDefaultModel(input.userId, input.cwd);
       if (input.spawner) {
-        const refusal = spawnRefusal(input, input.spawner, modelFamily);
+        const refusal = await spawnRefusal(input, input.spawner, modelFamily);
         if (refusal) return refusal;
       }
       saveRecentCwd(input.cwd);

@@ -85,7 +85,7 @@ export interface WebhookTargetDeps {
   callerReachesAgent(identity: Identity, agentId: string): boolean;
   cronjobExists(cronjobId: string): boolean;
   // The caller passes cronjobOwnerOrOfficeOwner for this cronjob.
-  callerManagesCronjob(identity: Identity, cronjobId: string): boolean;
+  callerManagesCronjob(identity: Identity, cronjobId: string): Promise<boolean>;
   // The hook owner created the cronjob or is an office owner: the rule each
   // dispatch checks again.
   userMayRunCronjob(userId: string | null, cronjobId: string): boolean;
@@ -199,7 +199,7 @@ export function resolveWebhookFields(
 export function webhookTargetPrecondition(
   deps: WebhookTargetDeps,
 ): PreconditionFn {
-  return (ctx: RouteHandlerContext) => {
+  return async (ctx: RouteHandlerContext) => {
     const id = ctx.params.id;
     const before = id === undefined ? null : deps.get(id);
     // An update of an unknown id: the handler answers 404.
@@ -227,7 +227,7 @@ export function webhookTargetPrecondition(
     }
     const allowed =
       deps.cronjobExists(target.cronjobId) &&
-      deps.callerManagesCronjob(ctx.identity, target.cronjobId) &&
+      (await deps.callerManagesCronjob(ctx.identity, target.cronjobId)) &&
       deps.userMayRunCronjob(ownerUserId, target.cronjobId);
     return allowed
       ? null

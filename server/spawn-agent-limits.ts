@@ -6,7 +6,7 @@
 
 import { realpathSync } from "fs";
 import { CODEX_DEFAULT_SANDBOX, type AgentInfo } from "../shared/types.ts";
-import { folderInside } from "./cron-agent-limits.ts";
+import { folderInside, folderInsideFor } from "./cron-agent-limits.ts";
 
 // Live agents in one spawn tree, its root not counted.
 export const SPAWN_TREE_LIMIT = 50;
@@ -101,10 +101,38 @@ export function spawnExceedsAgent(
   spawner: SpawnLimitAgent,
   realpath: (path: string) => string = realpathSync,
 ): string | null {
+  const before = refusalBeforeFolder(child, spawner);
+  if (typeof before !== "object" || before === null) return before;
+  return folderInside(child.cwd, spawner.cwd, realpath)
+    ? null
+    : SPAWN_FOLDER_REFUSAL;
+}
+
+const SPAWN_FOLDER_REFUSAL =
+  "An agent you spawn must work in your working folder or a folder inside it.";
+
+// The refusal found before the folder, or `{ checkFolder: true }`.
+function refusalBeforeFolder(
+  child: SpawnLimitAgent,
+  spawner: SpawnLimitAgent,
+): string | null | { checkFolder: true } {
   if (hasFullReach(spawner)) return null;
   if (!modeWithin(child, spawner))
     return "An agent you spawn cannot have more permissions than you. Use your engine with your mode or a stricter one, or another engine in its strictest mode: permissionMode default for Claude and OpenCode, untrusted with codexSandbox read-only for Codex.";
-  if (!folderInside(child.cwd, spawner.cwd, realpath))
-    return "An agent you spawn must work in your working folder or a folder inside it.";
-  return null;
+  return { checkFolder: true };
+}
+
+// spawnExceedsAgent on the host of the spawner's manager `userId` (the
+// child's too): an isolated member's folders resolve as the member
+// (folderInsideFor).
+export async function spawnExceedsAgentFor(
+  child: SpawnLimitAgent,
+  spawner: SpawnLimitAgent,
+  userId: string | null,
+): Promise<string | null> {
+  const before = refusalBeforeFolder(child, spawner);
+  if (typeof before !== "object" || before === null) return before;
+  return (await folderInsideFor(child.cwd, spawner.cwd, userId))
+    ? null
+    : SPAWN_FOLDER_REFUSAL;
 }

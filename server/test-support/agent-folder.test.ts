@@ -81,6 +81,7 @@ function recordingFs(): AgentFs {
     exists: passthrough("exists"),
     chmod: passthrough("chmod"),
     readBytes: passthrough("readBytes"),
+    realpath: passthrough("realpath"),
     stat: async (path) => {
       fsCalls.push({ op: "stat", path });
       const own = memberOnly.get(path);

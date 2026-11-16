@@ -20,6 +20,7 @@ import {
   type AskRunResult,
 } from "./ask-command-runner.ts";
 import { cwdProblem } from "./cwd-utils.ts";
+import { agentCwdProblem, memberFolderHost } from "./agent-folder.ts";
 import { errMessage } from "../shared/errors.ts";
 import { errorText } from "./localized-error.ts";
 import { hostFor } from "./member-hosts.ts";
@@ -156,6 +157,9 @@ function commandResultOf(result: AskRunResult): CronjobCommandResult {
 export interface AgentFireDeps {
   now: () => number;
   limitRefusal?: (job: Cronjob) => LogText | null;
+  // limitRefusal for a job of an isolated member, whose folders resolve
+  // through their runner.
+  memberLimitRefusal?: (job: Cronjob) => Promise<LogText | null>;
   runCommand?: RunCommand;
   deliverToAgent?: DeliverToAgent;
   appendRun: (jobId: string, run: CronjobRun) => void;
@@ -184,7 +188,10 @@ export function fireCommandJob(
   const runId = generateCronjobRunId();
   const now = deps.now();
   // The limits refuse the job as a whole: nothing runs and nobody is told.
-  const refusal = deps.limitRefusal?.(job) ?? null;
+  // An isolated member's job is checked through their host, after the
+  // record (below).
+  const member = memberFolderHost(job.userId) !== null;
+  const refusal = member ? null : (deps.limitRefusal?.(job) ?? null);
   const startState =
     refusal === null
       ? runStartFields()
@@ -288,9 +295,26 @@ export function fireCommandJob(
   };
 
   void (async () => {
+    if (member) {
+      // A refusal ends the run with nobody told, as the office's limits do;
+      // a check that throws ends it failed too, so the slot never stays held.
+      let refused: LogText | null;
+      try {
+        refused = (await deps.memberLimitRefusal?.(job)) ?? null;
+      } catch (err) {
+        refused = errMessage(err) || "Cannot check the schedule's limits";
+      }
+      if (refused !== null) {
+        deps.endRun(owner, { status: "failed", reason: refused });
+        return;
+      }
+    }
     let problem: CwdProblem | null;
     try {
-      problem = cwdProblem(job.cwd);
+      // An isolated member's folder: through their host, as the member.
+      problem = member
+        ? await agentCwdProblem(job.cwd, job.userId)
+        : cwdProblem(job.cwd);
     } catch (err) {
       await failStart(errMessage(err) || "Invalid cwd");
       return;

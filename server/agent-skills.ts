@@ -290,13 +290,12 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
   }
 
   // A scheduled run's member skill folder: the member's env, as the run's.
+  // An isolated member's: the path once their runner's build answered
+  // (prepareRunSkillFolder, which the run awaits before its start).
   function skillFolderForUserId(
     agentType: "claude" | "codex",
     userId: string | null | undefined,
   ): string | null {
-    // An isolated member's runs come with slice 3; until then they run as
-    // the office user, who cannot read their agent space.
-    if (memberFolderHost(userId)) return null;
     let env: { [key: string]: string | undefined } | undefined;
     try {
       env = buildEnvForUserId(userId ?? null);
@@ -304,6 +303,28 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
       return null;
     }
     return memberSkillFolderFor({ agentType, userId: userId ?? null }, env);
+  }
+
+  // An isolated member's run: their runner builds the skill folder for the
+  // run's engine before the run starts, within the build's own time bound
+  // (SKILL_FOLDER_TIMEOUT_MS). False when it gave no folder: the run starts
+  // without the member's skills. True for every other user (nothing to wait
+  // for).
+  async function prepareRunSkillFolder(
+    agentType: AgentBackendType,
+    userId: string | null | undefined,
+  ): Promise<boolean> {
+    const host = memberFolderHost(userId);
+    if (!host || !userId) return true;
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(userId);
+    } catch {
+      return false;
+    }
+    const input = memberSkillFolderInput({ agentType, userId }, env, host);
+    if (!input) return false;
+    return (await memberSkillFolders.build(host, userId, input)) !== null;
   }
 
   function openCodeSkillInput(
@@ -784,6 +805,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     memberSkillFolderFor,
     openCodeSkillPathsForUserId,
     skillFolderForUserId,
+    prepareRunSkillFolder,
     openCodeSkillInput,
     userSkillRootsFor,
     discoverSkillsFor,
