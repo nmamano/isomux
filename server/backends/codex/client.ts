@@ -32,6 +32,7 @@
 import { resolve } from "path";
 import { errMessage } from "../../../shared/errors.ts";
 import type { AgentChild } from "../../agent-host.ts";
+import { runAtServerStop, serverStopping } from "../../server-stop.ts";
 import { hostForEnv } from "../../member-hosts.ts";
 import {
   codexEnvApiKeyWins,
@@ -53,6 +54,48 @@ const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch
 // subprocess group. Long enough for a healthy process to flush and exit, short
 // enough that a hung (mid-turn) process is reclaimed promptly.
 export const CODEX_KILL_GRACE_MS = 2000;
+
+// How often the end of a group is checked during its grace.
+const GROUP_POLL_MS = 25;
+// After the SIGKILL, how long the end of a group is waited for at most.
+const AFTER_KILL_WAIT_MS = 500;
+
+// Every client whose App Server process group may still hold a live process:
+// in from its spawn, out once the group is empty or has had its SIGKILL. The
+// office's stop ends them all (task 36e2ae21): each group is its own (the
+// agent host starts it detached), so a stop that is not a systemd unit's
+// cgroup kill (Ctrl-C, another supervisor, a scratch office in an agent
+// shell) signals none of them, and a native codex outlives the office.
+const liveClients = new Set<JsonRpcLiteClient>();
+
+/**
+ * Ends every App Server process group this office started that can still
+ * hold a live process: the office's stop hook (task 36e2ae21). Resolves once
+ * each group is empty or has had its SIGKILL. Never throws.
+ */
+export async function stopAllCodexClients(): Promise<void> {
+  await Promise.all(
+    [...liveClients].map((client) => client.endGroup().catch(() => {})),
+  );
+}
+
+/** How many clients still have a process group that may hold a live process. */
+export function liveCodexClientCount(): number {
+  return liveClients.size;
+}
+
+runAtServerStop(stopAllCodexClients);
+
+// False only when the group is known to be empty. A runner's pid belongs to
+// another OS user (kill reports EPERM), so there it is never known.
+function localGroupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
 
 // Two App Servers that start at the same time on a fresh CODEX_HOME race to
 // create its state database, and one exits 1 before it answers initialize
@@ -158,6 +201,10 @@ export class JsonRpcLiteClient {
   // Guards the OS-process kill in close(), tracked separately from `closed`
   // (which the error/exit handlers set while the process may still be alive).
   private killed = false;
+  // The end of this client's process group, once begun (endGroup).
+  private groupEnd: Promise<void> | null = null;
+  // Set by start(): the App Server runs under a runner, as another OS user.
+  private onRunner = false;
   private exitInfo: {
     code: number | null;
     signal: NodeJS.Signals | null;
@@ -260,9 +307,11 @@ export class JsonRpcLiteClient {
       this.launchHome = resolve(effectiveEnv.CODEX_HOME);
       await this.passLaunchGate(this.launchHome);
     }
-    // A close() during the awaits above found no child to kill: spawning
-    // now would leave an App Server that nothing stops.
-    if (this.killed) {
+    // A close() during the awaits above found no child to kill, and the
+    // office's stop hook (stopAllCodexClients) may have run already: spawning
+    // now would leave an App Server that nothing stops. Checked in the same
+    // tick as the spawn, so no stop can come between.
+    if (this.killed || serverStopping()) {
       this.starting = false;
       this.releaseLaunchGate?.();
       throw new Error("JsonRpcLiteClient is closed");
@@ -274,15 +323,17 @@ export class JsonRpcLiteClient {
       // grandchild too - the launcher does not forward signals, so without
       // this a SIGTERM/SIGKILL to the launcher alone leaks the native child.
       // The native does not setsid away, so it stays in this group. Safe
-      // because the group is the launcher's own, never isomux's. Note: the
-      // group is a POSIX process group, not a cgroup, so a systemd service
-      // restart still reaps the subtree via the cgroup.
+      // because the group is the launcher's own, never isomux's. Because the
+      // group is not the office's, nothing ends it when the office stops but
+      // the stop hook above (stopAllCodexClients).
       child = this.child = host.spawnChild([bin, ...spawnArgs], {
         cwd: this.opts.cwd,
         env: effectiveEnv,
         stderr: "pipe",
         ...(opts.isolate ? { isolate: true } : {}),
       });
+      this.onRunner = host.kind === "runner";
+      liveClients.add(this);
     } catch (err) {
       this.releaseLaunchGate?.();
       throw err;
@@ -325,6 +376,12 @@ export class JsonRpcLiteClient {
         `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
       );
       this.failAllPending(this.closedReason);
+      // A launcher that exits with no close() (a crash, out of memory) can
+      // leave its native codex running in the group: end the group now.
+      if (!this.killed) {
+        this.killed = true;
+        void this.endGroup();
+      }
       for (const h of this.exitHandlers) {
         try {
           h(code, signal);
@@ -397,39 +454,7 @@ export class JsonRpcLiteClient {
     // exactly once regardless of teardown races.
     if (!this.killed) {
       this.killed = true;
-      const child = this.child;
-      if (child && !child.killed) {
-        try {
-          child.stdin.end();
-        } catch {}
-        // The launcher leads its own process group, so signalGroup hits the
-        // whole group - launcher AND the native codex grandchild - without
-        // depending on the launcher forwarding signals. SIGTERM first, then
-        // escalate to SIGKILL if the group hasn't exited within the grace
-        // window (the fallback the old comment promised but never implemented).
-        child.signalGroup("SIGTERM");
-        const timer = setTimeout(
-          () => child.signalGroup("SIGKILL"),
-          CODEX_KILL_GRACE_MS,
-        );
-        // The SIGKILL goes out even when the launcher has exited by then: its
-        // exit says nothing about the native, which can still be in (or stuck
-        // in) its own SIGTERM shutdown. The group number stays in use while
-        // any member lives; once the group is empty, a new group taking the
-        // same number within the grace is the residual risk the agent runner
-        // accepts too (agent-runner/runner.ts stopGroup).
-        //
-        // Don't let the escalation timer keep the event loop alive on its own.
-        //
-        // Edge: because it's unref'd, a graceful IN-PROCESS server shutdown that
-        // exits within the grace window would skip the SIGKILL for a child that
-        // also ignores SIGTERM. That's covered in production by systemd's
-        // KillMode=control-group, which cgroup-kills the whole subtree on
-        // service stop/restart regardless of POSIX process group. The unref is
-        // the right tradeoff (don't pin the loop for 2s on every close); the
-        // cgroup is the backstop for the in-process-exit corner.
-        timer.unref?.();
-      }
+      void this.endGroup();
     }
     this.closed = true;
     this.wakeLaunchWaiter?.();
@@ -745,6 +770,52 @@ export class JsonRpcLiteClient {
   }
   pid(): number | undefined {
     return this.child?.pid;
+  }
+
+  /**
+   * End this client's process group: SIGTERM, then SIGKILL when the group
+   * is not empty after CODEX_KILL_GRACE_MS. Runs once; a later call joins it.
+   * Resolves once the group is empty or has had its SIGKILL, and the client
+   * then leaves the registry (stopAllCodexClients). Never rejects.
+   */
+  endGroup(): Promise<void> {
+    this.groupEnd ??= this.runGroupEnd().finally(() =>
+      liveClients.delete(this),
+    );
+    return this.groupEnd;
+  }
+
+  private async runGroupEnd(): Promise<void> {
+    const child = this.child;
+    if (!child) return;
+    // The group is gone only when it is known to be empty: the launcher's
+    // exit says nothing about the native codex, which can still be in (or
+    // stuck in) its own SIGTERM shutdown, writing its state.
+    const groupGone = () =>
+      !this.onRunner &&
+      (child.pid === undefined || !localGroupAlive(child.pid));
+    if (groupGone()) return;
+    try {
+      child.stdin.end();
+    } catch {}
+    // The launcher leads its own process group, so signalGroup hits the
+    // whole group - launcher AND the native codex grandchild - without
+    // depending on the launcher forwarding signals.
+    child.signalGroup("SIGTERM");
+    const deadline = Date.now() + CODEX_KILL_GRACE_MS;
+    while (Date.now() < deadline) {
+      await Bun.sleep(Math.min(GROUP_POLL_MS, deadline - Date.now()));
+      if (groupGone()) return;
+    }
+    // Once the group is empty, a new group taking the same number within the
+    // grace is the residual risk the agent runner accepts too
+    // (agent-runner/runner.ts stopGroup); on a runner, it sends this SIGKILL.
+    child.signalGroup("SIGKILL");
+    // A killed group empties once its launcher is reaped: wait for that, so
+    // a caller that resolves after this finds the group gone.
+    const killDeadline = Date.now() + AFTER_KILL_WAIT_MS;
+    while (!this.onRunner && !groupGone() && Date.now() < killDeadline)
+      await Bun.sleep(GROUP_POLL_MS);
   }
   exitStatus(): { code: number | null; signal: NodeJS.Signals | null } | null {
     return this.exitInfo;

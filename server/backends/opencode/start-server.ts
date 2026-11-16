@@ -81,6 +81,14 @@ if (action === "stop") {
   process.stdout.write(JSON.stringify({ stopped: prior?.pid ?? null }));
   process.exit(0);
 }
+// A start runs to its end through the office's stop signals (task 36e2ae21).
+// This helper is in the office's process group, so a SIGTERM to that group or
+// a Ctrl-C reaches it too: dying between the server's spawn and its record
+// would leave a server that no stop finds. Finished, the record names the
+// server, and the stop helper, which waits for the record lock, ends it.
+// Listeners, not an ignored disposition: the server must keep its defaults.
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const)
+  process.on(signal, () => {});
 const binary = required("OPENCODE_BINARY");
 const password = required("OPENCODE_SERVER_PASSWORD");
 const serverCwd = required("OPENCODE_SERVER_CWD");

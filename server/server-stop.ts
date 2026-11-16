@@ -1,5 +1,12 @@
-// The office process's stop: SIGTERM (a service manager's stop or restart) or
-// SIGINT (Ctrl-C on a foreground server).
+// The office process's stop: SIGTERM (a service manager's stop or restart),
+// SIGINT (Ctrl-C on a foreground server) or SIGHUP (the terminal or SSH
+// session of a foreground server closes).
+//
+// SIGHUP stops the office only when it did not come in ignored: under nohup,
+// Bun keeps SIGHUP ignored, but a listener would replace the ignore, and a
+// `nohup` office would stop when its SSH session ends. Read from
+// /proc/self/status at load; without /proc (macOS) there is no listener, so
+// there a hang-up still ends the office with no hook run.
 //
 // systemd stops the unit with SIGTERM to its whole control group, so every
 // agent backend gets the signal in the same moment as the server and dies with
@@ -9,7 +16,7 @@
 // signal handler and a backend's exit event is guaranteed; measured 2026-10-19,
 // the flag was already set in 10 of 10 runs, child killed first included.
 //
-// This module is the process's only SIGTERM/SIGINT listener: a second
+// This module is the process's only SIGTERM/SIGINT/SIGHUP listener: a second
 // listener that re-raises on its own would kill the process before a slower
 // hook settles. The first signal sets the flag, runs every hook, and re-raises
 // the same signal once all have settled, so the process dies by that signal. A
@@ -26,7 +33,9 @@
 // After the hooks, one final step runs before the re-raise: the office's
 // SIGKILL of what outlived the signal (stop-reap.ts). It fails like a hook.
 
-type StopSignal = "SIGINT" | "SIGTERM";
+import { readFileSync } from "fs";
+
+type StopSignal = "SIGINT" | "SIGTERM" | "SIGHUP";
 
 // How soon after the first signal a repeat is taken as a forwarded copy.
 const FORWARDED_COPY_MS = 500;
@@ -68,6 +77,7 @@ export function getStopFinalStep():
 function dieBy(signal: StopSignal): void {
   process.off("SIGINT", onSigint);
   process.off("SIGTERM", onSigterm);
+  process.off("SIGHUP", onSighup);
   process.kill(process.pid, signal);
 }
 
@@ -95,5 +105,20 @@ function onStopSignal(signal: StopSignal): void {
 
 const onSigint = () => onStopSignal("SIGINT");
 const onSigterm = () => onStopSignal("SIGTERM");
+const onSighup = () => onStopSignal("SIGHUP");
+
+// True when SIGHUP is ignored (bit 0 of SigIgn), null without /proc.
+function sighupIgnored(): boolean | null {
+  try {
+    const mask = /^SigIgn:\s*([0-9a-f]+)$/m.exec(
+      readFileSync("/proc/self/status", "utf8"),
+    )?.[1];
+    return mask === undefined ? null : (BigInt(`0x${mask}`) & 1n) === 1n;
+  } catch {
+    return null;
+  }
+}
+
 process.on("SIGINT", onSigint);
 process.on("SIGTERM", onSigterm);
+if (sighupIgnored() === false) process.on("SIGHUP", onSighup);

@@ -7,6 +7,8 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { OpenCodeSupervisor } from "./supervisor.ts";
@@ -221,4 +223,111 @@ await Bun.stdin.text();`,
         if (pid) process.kill(Number(pid), "SIGKILL");
     }
   });
+});
+
+// An office stop that comes while a server starts (task 36e2ae21). The start
+// helper runs in the office's process group, so Ctrl-C (SIGINT to the
+// foreground group), a closed terminal (SIGHUP) and a group SIGTERM reach it
+// too. A helper cut between the server's spawn and the record write left a
+// server that the stop helper did not know about.
+describe("an office stop during a server start", () => {
+  // Health answers this long after the launch, so the signal lands while the
+  // helper waits for it.
+  const HEALTH_DELAY_MS = 1_500;
+
+  async function slowHealthBinary(path: string) {
+    const binary = join(path, "slow-health-opencode");
+    const launches = join(path, "launches");
+    await writeFile(
+      binary,
+      `#!/usr/bin/env bun
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(launches)}, process.pid + "\\n");
+await Bun.sleep(${HEALTH_DELAY_MS});
+const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+  if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
+  if (new URL(request.url).pathname !== "/api/info")
+    return new Response("not found", { status: 404 });
+  return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
+}});
+await new Promise(() => {});
+`,
+    );
+    await chmod(binary, 0o700);
+    return { binary, launches };
+  }
+
+  // macOS has no /proc: the office does not listen to SIGHUP there.
+  const signals = existsSync("/proc/self/status")
+    ? (["SIGTERM", "SIGINT", "SIGHUP"] as const)
+    : (["SIGTERM", "SIGINT"] as const);
+
+  for (const signal of signals)
+    it(`${signal} to the office's group: the server that was starting does not outlive the office`, async () => {
+      const path = await root();
+      const { binary, launches } = await slowHealthBinary(path);
+      const profileDir = join(path, "profile");
+      // A fresh office process with the stop module and this supervisor, as
+      // the office registers its supervisors' shutdown at the stop.
+      const code = `
+        const { runAtServerStop } = await import(${JSON.stringify(join(import.meta.dir, "..", "..", "server-stop.ts"))});
+        const { OpenCodeSupervisor } = await import(${JSON.stringify(join(import.meta.dir, "supervisor.ts"))});
+        const supervisor = new OpenCodeSupervisor({
+          profileDir: ${JSON.stringify(profileDir)},
+          serverCwd: ${JSON.stringify(path)},
+          config: { autoupdate: false, share: "disabled" },
+          binary: ${JSON.stringify(binary)},
+        });
+        runAtServerStop(() => supervisor.shutdown());
+        void supervisor.acquire().catch(() => {});
+        setInterval(() => {}, 1000);
+      `;
+      // Its own process group, as a foreground office in a terminal.
+      const office = spawn(process.execPath, ["-e", code], {
+        detached: true,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      let stderr = "";
+      office.stderr!.on("data", (chunk: Buffer) => (stderr += String(chunk)));
+      const died = new Promise<string | null>((resolve) =>
+        office.once("exit", (_code, signalCode) => resolve(signalCode)),
+      );
+      let serverPid = 0;
+      try {
+        for (let i = 0; i < 500 && !serverPid; i++) {
+          serverPid = Number(
+            (await readFile(launches, "utf8").catch(() => "")).split("\n")[0],
+          );
+          if (!serverPid) await Bun.sleep(20);
+        }
+        expect(serverPid, "the helper launched the server").toBeGreaterThan(0);
+        // The case's condition: the start was not finished at the signal.
+        const record = await readFile(
+          join(profileDir, "server.lock"),
+          "utf8",
+        ).catch(() => "");
+        expect(record).not.toContain(`"pid":${serverPid}`);
+
+        process.kill(-office.pid!, signal);
+        const hang = setTimeout(() => office.kill("SIGKILL"), 15_000);
+        const signalCode = await died;
+        clearTimeout(hang);
+        expect({
+          signalCode,
+          stderr: signalCode === signal ? "" : stderr,
+        }).toEqual({
+          signalCode: signal,
+          stderr: "",
+        });
+
+        for (let i = 0; i < 100 && alive(serverPid); i++) await Bun.sleep(20);
+        expect(alive(serverPid), "the server outlived the office").toBe(false);
+      } finally {
+        if (serverPid && alive(serverPid)) process.kill(serverPid, "SIGKILL");
+        try {
+          process.kill(-office.pid!, "SIGKILL");
+        } catch {}
+      }
+    }, 30_000);
 });

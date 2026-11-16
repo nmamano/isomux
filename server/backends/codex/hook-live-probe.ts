@@ -19,6 +19,7 @@ import { basename, dirname, join } from "path";
 import { performance } from "perf_hooks";
 import { JsonRpcLiteClient, PASS } from "./client.ts";
 import { closeAndReap, waitForGroupExit } from "./live-client-reap.ts";
+import { runAtServerStop } from "../../server-stop.ts";
 import {
   copyScratchAuth,
   readHookPayloads,
@@ -78,7 +79,7 @@ const includeMatrix = process.env.ISOMUX_TEST_CODEX_HOOK_MATRIX !== "0";
 const includeManaged = process.env.ISOMUX_TEST_CODEX_HOOK_MANAGED !== "0";
 const includeReload = process.env.ISOMUX_TEST_CODEX_HOOK_RELOAD !== "0";
 const scratchRoots = new Set<string>();
-// App Server clients that run now; the signal handler stops their groups.
+// App Server clients that run now; the signal cleanup stops their groups.
 const liveClients = new Set<JsonRpcLiteClient>();
 
 function makeScratchRoot(prefix: string): string {
@@ -92,13 +93,13 @@ function removeScratchRoot(root: string): void {
   rmSync(root, { recursive: true, force: true });
 }
 
-// The signal handler sets this first. Its SIGKILL fails the current reading,
+// The signal cleanup sets this first. Its SIGKILL fails the current reading,
 // which is caught, and the probe starts the next reading at once: no App Server
 // may start after this, or it outlives the process and writes into a removed
 // root.
 let stopping = false;
 const pendingStarts = new Set<Promise<unknown>>();
-// The handler re-raises the signal and the process dies; until then a reading
+// server-stop.ts re-raises the signal and the process dies; until then a reading
 // that would start an App Server waits here.
 const halted = new Promise<never>(() => {});
 
@@ -114,7 +115,7 @@ async function startClient(client: JsonRpcLiteClient): Promise<void> {
     pendingStarts.delete(started);
   }
   if (stopping) {
-    // The handler stops it too, unless this start outlasted its wait.
+    // The cleanup stops it too, unless this start outlasted its wait.
     const pgid = client.pid();
     if (pgid !== undefined) {
       try {
@@ -134,48 +135,48 @@ async function stopClient(client: JsonRpcLiteClient | null): Promise<void> {
 }
 
 // Each App Server leads its own process group, so a terminal Ctrl-C does not
-// reach it: the handler stops the groups before it removes the roots.
+// reach it: the cleanup stops the groups before it removes the roots. It runs
+// as an office stop hook, because client.ts loads server-stop.ts, the
+// process's only SIGINT/SIGTERM listener; that module re-raises the signal
+// once every hook has settled.
 const SIGNAL_REAP_MS = 1000;
+let signalCleanupArmed = 0;
+let signalCleanupRegistered = false;
 
 function installSignalCleanup(): () => void {
-  const handlers = new Map<NodeJS.Signals, () => void>();
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    const handler = () => {
+  signalCleanupArmed++;
+  if (!signalCleanupRegistered) {
+    signalCleanupRegistered = true;
+    runAtServerStop(async () => {
+      if (signalCleanupArmed === 0) return;
       stopping = true;
-      // Off first: a second signal kills the process at once.
-      for (const [registeredSignal, registeredHandler] of handlers) {
-        process.off(registeredSignal, registeredHandler);
+      // A start in flight has no pid yet; wait for it, bounded.
+      await Promise.race([
+        Promise.allSettled(pendingStarts),
+        Bun.sleep(SIGNAL_REAP_MS),
+      ]);
+      const groups: number[] = [];
+      for (const client of liveClients) {
+        const pgid = client.pid();
+        if (pgid === undefined) continue;
+        groups.push(pgid);
+        try {
+          process.kill(-pgid, "SIGKILL");
+        } catch {}
       }
-      void (async () => {
-        // A start in flight has no pid yet; wait for it, bounded.
-        await Promise.race([
-          Promise.allSettled(pendingStarts),
-          Bun.sleep(SIGNAL_REAP_MS),
-        ]);
-        const groups: number[] = [];
-        for (const client of liveClients) {
-          const pgid = client.pid();
-          if (pgid === undefined) continue;
-          groups.push(pgid);
-          try {
-            process.kill(-pgid, "SIGKILL");
-          } catch {}
-        }
-        await Promise.all(
-          groups.map((pgid) => waitForGroupExit(pgid, SIGNAL_REAP_MS)),
-        );
-        for (const root of scratchRoots) {
-          rmSync(root, { recursive: true, force: true });
-        }
-        scratchRoots.clear();
-        process.kill(process.pid, signal);
-      })();
-    };
-    handlers.set(signal, handler);
-    process.on(signal, handler);
+      await Promise.all(
+        groups.map((pgid) => waitForGroupExit(pgid, SIGNAL_REAP_MS)),
+      );
+      for (const root of scratchRoots) {
+        rmSync(root, { recursive: true, force: true });
+      }
+      scratchRoots.clear();
+    });
   }
+  let armed = true;
   return () => {
-    for (const [signal, handler] of handlers) process.off(signal, handler);
+    if (armed) signalCleanupArmed--;
+    armed = false;
   };
 }
 
@@ -223,7 +224,7 @@ export async function runSignalCleanupFixture(
 ): Promise<never> {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   scratchRoots.add(root);
-  // Handlers first: the parent sends SIGTERM as soon as it sees "ready".
+  // The cleanup first: the parent sends SIGTERM as soon as it sees "ready".
   installSignalCleanup();
   if (opts) {
     const client = await startFixtureClient(root, opts.codexBin);

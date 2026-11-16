@@ -8,6 +8,7 @@
 // in-process would stop the test runner.
 
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "fs";
 
 import { msg } from "../shared/i18n/log-message.ts";
 
@@ -33,17 +34,28 @@ interface StopRun {
  * the process `signal`. `body` can call out(value) to report a JSON line.
  */
 async function runStop(
-  signal: "SIGTERM" | "SIGINT",
+  signal: "SIGTERM" | "SIGINT" | "SIGHUP",
   body: string,
+  options: { hupIgnoredAtStart?: boolean } = {},
 ): Promise<StopRun> {
   const code = `
+    const out0 = (value) => console.log(JSON.stringify(value));
+    // Read before server-stop.ts loads: whether SIGHUP came in ignored.
+    const fs0 = require("fs");
+    out0({ phase: "start", hupIgnored: fs0.existsSync("/proc/self/status")
+      ? (BigInt("0x" + fs0.readFileSync("/proc/self/status", "utf8").match(/SigIgn:\\s*([0-9a-f]+)/)[1]) & 1n) === 1n
+      : null });
     const { serverStopping, runAtServerStop, setStopFinalStep } = await import(${JSON.stringify(STOP_MODULE)});
     const out = (value) => console.log(JSON.stringify(value));
     ${body}
     setInterval(() => {}, 1000);
     process.kill(process.pid, ${JSON.stringify(signal)});
   `;
-  const proc = Bun.spawn(["bun", "-e", code], {
+  // `nohup` starts the office with SIGHUP ignored; exec keeps the ignore.
+  const argv = options.hupIgnoredAtStart
+    ? ["bash", "-c", 'trap "" HUP; exec "$@"', "bash", "bun", "-e", code]
+    : ["bun", "-e", code];
+  const proc = Bun.spawn(argv, {
     env: process.env,
     stdout: "pipe",
     stderr: "pipe",
@@ -59,12 +71,19 @@ async function runStop(
     proc.exited,
   ]);
   clearTimeout(timer);
-  const lines = stdout
+  const all = stdout
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+  // The case's condition, asserted in every run: SIGHUP came in ignored
+  // exactly when the case asked for it (Bun.spawn starts a child with every
+  // signal at its default, whatever this runner has).
+  expect(all[0]).toEqual({
+    phase: "start",
+    hupIgnored: HAS_PROC ? options.hupIgnoredAtStart === true : null,
+  });
   return {
-    lines,
+    lines: all.slice(1),
     signalCode: proc.signalCode === null ? null : String(proc.signalCode),
     exitCode: proc.exitCode,
     stderr,
@@ -92,31 +111,69 @@ const SLOW_HOOK = `
   });
 `;
 
+// /proc/self/status tells whether SIGHUP came in ignored. Without it (macOS)
+// the office does not listen to SIGHUP (server-stop.ts).
+const HAS_PROC = existsSync("/proc/self/status");
+
 describe("the server's stop signal", () => {
-  for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    test(`${signal}: the flag is set before the hooks run, and the process dies by ${signal} after they settle`, async () => {
-      const run = await runStop(
-        signal,
-        `out({ phase: "before", stopping: serverStopping() });
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    // SIGHUP: the terminal or SSH session of a foreground office closed.
+    test.skipIf(signal === "SIGHUP" && !HAS_PROC)(
+      `${signal}: the flag is set before the hooks run, and the process dies by ${signal} after they settle`,
+      async () => {
+        const run = await runStop(
+          signal,
+          `out({ phase: "before", stopping: serverStopping() });
          ${SLOW_HOOK}`,
+        );
+        expect(run.lines).toEqual([
+          // Not stopping until the signal arrives.
+          { phase: "before", stopping: false },
+          // Already stopping when the first hook starts.
+          { phase: "hook-start", stopping: true },
+          // The process lived until the slow hook settled, and the flag stays set.
+          { phase: "hook-end", stopping: true },
+        ]);
+        // Died by the same signal: systemd and a shell read the death that way.
+        expect(death(run)).toEqual({
+          signalCode: signal,
+          exitCode: null,
+          hung: false,
+          stderr: "",
+        });
+      },
+    );
+  }
+
+  test.skipIf(!HAS_PROC)(
+    "SIGHUP does not stop an office that started with SIGHUP ignored (nohup)",
+    async () => {
+      // `nohup bun run start &`: the office must outlive the SSH session that
+      // started it. A SIGHUP listener would replace the ignore.
+      const run = await runStop(
+        "SIGHUP",
+        `${SLOW_HOOK}
+         setTimeout(() => {
+           out({ phase: "alive", stopping: serverStopping() });
+           process.kill(process.pid, "SIGTERM");
+         }, 300);`,
+        { hupIgnoredAtStart: true },
       );
       expect(run.lines).toEqual([
-        // Not stopping until the signal arrives.
-        { phase: "before", stopping: false },
-        // Already stopping when the first hook starts.
+        // Lived past the SIGHUP, and it did not start a stop.
+        { phase: "alive", stopping: false },
+        // A later SIGTERM still stops it as usual.
         { phase: "hook-start", stopping: true },
-        // The process lived until the slow hook settled, and the flag stays set.
         { phase: "hook-end", stopping: true },
       ]);
-      // Died by the same signal: systemd and a shell read the death that way.
       expect(death(run)).toEqual({
-        signalCode: signal,
+        signalCode: "SIGTERM",
         exitCode: null,
         hung: false,
         stderr: "",
       });
-    });
-  }
+    },
+  );
 
   test("a hook that throws or rejects does not stop the other hooks or the re-raise", async () => {
     // The failing hooks register first, so a loop that stops at the first
