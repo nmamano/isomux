@@ -3,7 +3,8 @@
 // move-in fails, the state root holds parts of two offices: a normal boot
 // would read and write it (users, sessions, SQLite migrations, a backup) and
 // make the damage last. This server loads no state module. It serves
-// /readyz, a page with the error and the failed step, and a retry that ends
+// /readyz, a page with the error (the log line names the failed step), and a
+// retry that ends
 // the process: the service manager (Restart=always) starts it again, and the
 // swap resumes.
 
@@ -79,7 +80,6 @@ function page(
     kind === "restarting"
       ? p(t("moveSwap.restarting"))
       : `${p(t("moveSwap.body"))}<dl>
-<dt>${escapeHtml(t("moveSwap.stepLabel"))}</dt><dd><code>${escapeHtml(opts.failure.step)}</code></dd>
 <dt>${escapeHtml(t("moveSwap.errorLabel"))}</dt><dd><code>${escapeHtml(opts.failure.message)}</code></dd>
 </dl>
 ${kind === "wait" ? p(t("moveSwap.wait"), "error") : ""}<form method="post" action="${SWAP_RETRY_PATH}">

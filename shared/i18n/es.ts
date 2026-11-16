@@ -3657,8 +3657,7 @@ Cosas que puedes hacer por él:
   "officeMove.in.live.lockStops":
     "Bloquea cuando termine esta copia, y la oficina antigua se detiene menos tiempo. Si bloqueas ahora, se conserva lo copiado.",
   "officeMove.in.live.ready":
-    "La oficina antigua se copió mientras funcionaba. Tras el bloqueo, solo se copia lo que ha cambiado desde entonces.",
-  "officeMove.in.live.readyAt": "Copiada a las {time}.",
+    "Copiada a las {time}, mientras la oficina antigua funcionaba. Tras el bloqueo, solo se copia lo que ha cambiado.",
   "officeMove.in.live.stopped":
     "El bloqueo detuvo esta copia. Se conserva lo copiado.",
   "officeMove.in.live.failed":
@@ -3727,7 +3726,6 @@ Cosas que puedes hacer por él:
   "moveSwap.heading": "El traslado a esta oficina se detuvo a medias",
   "moveSwap.body":
     "La oficina se inicia cuando termina el traslado. Corrige el error de abajo y vuelve a intentarlo.",
-  "moveSwap.stepLabel": "Paso",
   "moveSwap.errorLabel": "Error",
   "moveSwap.retry": "Volver a intentarlo",
   "moveSwap.wait": "Espera 30 segundos y vuelve a intentarlo.",

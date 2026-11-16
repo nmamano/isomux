@@ -909,15 +909,10 @@ function LiveLine({
       {(live.phase === "manifest" || live.phase === "copying") && (
         <p style={hint}>{t("officeMove.in.live.lockStops")}</p>
       )}
-      {live.phase === "ready" && (
-        <>
-          <p style={text}>{t("officeMove.in.live.ready")}</p>
-          {live.finishedAt !== null && (
-            <p style={hint}>
-              {t("officeMove.in.live.readyAt", { time: time(live.finishedAt) })}
-            </p>
-          )}
-        </>
+      {live.phase === "ready" && live.finishedAt !== null && (
+        <p style={text}>
+          {t("officeMove.in.live.ready", { time: time(live.finishedAt) })}
+        </p>
       )}
       {live.phase === "stopped" && (
         <p style={text}>{t("officeMove.in.live.stopped")}</p>

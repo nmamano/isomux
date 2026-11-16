@@ -35,6 +35,7 @@ import { Database } from "bun:sqlite";
 import { MOVE_IN_DIR, MOVE_IN_STATE_FILE } from "./office-move.ts";
 import { MOVE_IN_STAGE } from "./office-move-stage.ts";
 import { MOVE_UNITS_FILE, type AgentUnit } from "./office-move-units.ts";
+import { isValidMemberName } from "./users.ts";
 import {
   OFFICE_CONFIG_BOX_KEYS,
   OFFICE_CONFIG_OFFICE_KEYS,
@@ -83,6 +84,10 @@ interface FixtureOpts {
   newUnit?: string | null;
   /** The old office's own user unit name; null: a system unit. */
   oldUnit?: string | null;
+  /** More live members of the old office, by name. */
+  oldExtraNames?: string[];
+  /** The old office's removed members (removed-members.json), by name. */
+  removedNames?: string[];
 }
 
 const UNITS: AgentUnit[] = [
@@ -200,8 +205,39 @@ function fixture(dir: string, opts: FixtureOpts = {}): Fixture {
         createdAt: 1,
       },
       "u-old2": { id: "u-old2", name: "Sam", role: "member", createdAt: 2 },
+      ...Object.fromEntries(
+        (opts.oldExtraNames ?? []).map((name, i) => [
+          `u-extra${i}`,
+          { id: `u-extra${i}`, name, role: "member", createdAt: 3 + i },
+        ]),
+      ),
     }),
   );
+  if (opts.removedNames)
+    put(
+      stage,
+      ".isomux/removed-members.json",
+      JSON.stringify(
+        Object.fromEntries(
+          opts.removedNames.map((name, i) => [
+            `u-gone${i}`,
+            {
+              user: { id: `u-gone${i}`, name, role: "member", createdAt: 9 },
+              removedAt: 10,
+              removedBy: "Riley",
+              heirId: null,
+              heirName: null,
+              passed: {
+                agentIds: [],
+                killedAgentIds: [],
+                cronjobIds: [],
+                webhookIds: [],
+              },
+            },
+          ]),
+        ),
+      ),
+    );
   put(stage, ".isomux/office-id", "bbbbbbbbbbbb\n");
   sqliteDb(join(stage, ".isomux/office.sqlite"), "old");
   put(
@@ -480,11 +516,75 @@ describe("the swap at boot", () => {
     expect(kept.name.startsWith("Morgan")).toBe(true);
     expect(kept.role).toBe("owner");
     expect(r.report.ownerRenamedTo).toBe(kept.name);
-    // The new name clashes with no one.
+    // The new name clashes with no one, and is a name a member may have.
     const names = Object.values(users).map((u) =>
       (u as { name: string }).name.toLowerCase(),
     );
     expect(new Set(names).size).toBe(names.length);
+    expect(isValidMemberName(kept.name)).toBe(true);
+  });
+
+  /** The fresh owner's name after a swap of this fixture, and the report's. */
+  function ownerNameAfter(opts: FixtureOpts) {
+    // One scratch dir per test: fixture() empties the dir it builds in.
+    const f = fixture(join(base || scratch(), "o"), opts);
+    const r = swap(f);
+    if (r.kind !== "swapped") throw new Error(JSON.stringify(r));
+    const users = json(join(f.root, "users.json"));
+    return {
+      name: (users["u-fresh"] as { name: string }).name,
+      renamedTo: r.report.ownerRenamedTo,
+      liveNames: Object.entries(users)
+        .filter(([id]) => id !== "u-fresh")
+        .map(([, u]) => (u as { name: string }).name.toLowerCase()),
+    };
+  }
+
+  it("D6: when the first new name is taken too, the next one is free and valid", () => {
+    const first = ownerNameAfter({ oldOwnerName: "Morgan" }).name;
+    const second = ownerNameAfter({
+      oldOwnerName: "Morgan",
+      oldExtraNames: [first.toUpperCase()],
+    });
+    expect(second.renamedTo).toBe(second.name);
+    expect(second.liveNames).not.toContain(second.name.toLowerCase());
+    expect(second.name.toLowerCase()).not.toBe(first.toLowerCase());
+    expect(second.name.startsWith("Morgan")).toBe(true);
+    expect(isValidMemberName(second.name)).toBe(true);
+  });
+
+  it("D6: a removed member's name is reserved: the fresh owner does not take it, nor a new name it holds", () => {
+    // No live clash: Morgan is taken only by a removed member.
+    const reserved = ownerNameAfter({ removedNames: ["MORGAN"] });
+    expect(reserved.name.toLowerCase()).not.toBe("morgan");
+    expect(reserved.name.startsWith("Morgan")).toBe(true);
+    expect(reserved.renamedTo).toBe(reserved.name);
+    expect(isValidMemberName(reserved.name)).toBe(true);
+
+    // The first new name is held by a removed member: the owner skips it.
+    const first = ownerNameAfter({ oldOwnerName: "Morgan" }).name;
+    const next = ownerNameAfter({
+      oldOwnerName: "Morgan",
+      removedNames: [first.toLowerCase()],
+    });
+    expect(next.name.toLowerCase()).not.toBe(first.toLowerCase());
+    expect(next.name.toLowerCase()).not.toBe("morgan");
+    expect(isValidMemberName(next.name)).toBe(true);
+
+    // Without removed members the name stays (the enabling condition).
+    expect(ownerNameAfter({}).renamedTo).toBeNull();
+  });
+
+  it("D6: an unreadable removed-members index reserves no name and does not stop the swap", () => {
+    const f = fixture(join(scratch(), "o"), { removedNames: ["Morgan"] });
+    const index = join(f.stage, ".isomux/removed-members.json");
+    expect(existsSync(index)).toBe(true);
+    writeFileSync(index, "{ not json");
+    const r = swap(f);
+    if (r.kind !== "swapped") throw new Error(JSON.stringify(r));
+    expect(r.report.ownerRenamedTo).toBeNull();
+    const users = json(join(f.root, "users.json"));
+    expect((users["u-fresh"] as { name: string }).name).toBe("Morgan");
   });
 
   it("D7: office-config.json is the old office's with the box's values of the fresh one (absent there: deleted)", () => {

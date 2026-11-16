@@ -3281,8 +3281,7 @@ export const zh: Catalog = {
   "officeMove.in.live.lockStops":
     "等这次复制完成后再锁定，旧办公室停机的时间会更短。现在锁定会保留已复制的内容。",
   "officeMove.in.live.ready":
-    "已在旧办公室运行时复制了它。锁定后，只复制此后变化的内容。",
-  "officeMove.in.live.readyAt": "复制于 {time}。",
+    "于 {time} 在旧办公室运行时复制。锁定后，只复制变化的内容。",
   "officeMove.in.live.stopped": "锁定停止了这次复制。已复制的内容会保留。",
   "officeMove.in.live.failed":
     "这次复制失败了。请重新复制，或者锁定：锁定会复制缺少的内容。",
@@ -3343,7 +3342,6 @@ export const zh: Catalog = {
   "moveSwap.title": "迁移已中断",
   "moveSwap.heading": "迁入此办公室的过程中途停止",
   "moveSwap.body": "迁移完成后办公室才会启动。请修正下方的错误，然后重试。",
-  "moveSwap.stepLabel": "步骤",
   "moveSwap.errorLabel": "错误",
   "moveSwap.retry": "重试",
   "moveSwap.wait": "请等待 30 秒后重试。",

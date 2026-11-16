@@ -3661,8 +3661,7 @@ Coses que pots fer per ell:
   "officeMove.in.live.lockStops":
     "Bloqueja quan acabi aquesta còpia, i l'oficina antiga s'atura menys temps. Si bloqueges ara, es conserva el que s'ha copiat.",
   "officeMove.in.live.ready":
-    "L'oficina antiga es va copiar mentre funcionava. Després del bloqueig, només es copia el que ha canviat des de llavors.",
-  "officeMove.in.live.readyAt": "Copiada a les {time}.",
+    "Copiada a les {time}, mentre l'oficina antiga funcionava. Després del bloqueig, només es copia el que ha canviat.",
   "officeMove.in.live.stopped":
     "El bloqueig va aturar aquesta còpia. Es conserva el que s'ha copiat.",
   "officeMove.in.live.failed":
@@ -3731,7 +3730,6 @@ Coses que pots fer per ell:
   "moveSwap.heading": "El trasllat a aquesta oficina s'ha aturat a mitges",
   "moveSwap.body":
     "L'oficina s'inicia quan acaba el trasllat. Corregeix l'error de sota i torna-ho a provar.",
-  "moveSwap.stepLabel": "Pas",
   "moveSwap.errorLabel": "Error",
   "moveSwap.retry": "Torna-ho a provar",
   "moveSwap.wait": "Espera 30 segons i torna-ho a provar.",

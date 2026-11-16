@@ -3552,8 +3552,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.live.lockStops":
     "Lock when this copy is done, and the old office stops for a shorter time. A lock now keeps what it copied.",
   "officeMove.in.live.ready":
-    "The old office was copied while it ran. After the lock, only what changed since then is copied.",
-  "officeMove.in.live.readyAt": "Copied at {time}.",
+    "Copied at {time}, while the old office ran. After the lock, only what changed is copied.",
   "officeMove.in.live.stopped":
     "The lock stopped this copy. What it copied is kept.",
   "officeMove.in.live.failed":
@@ -3621,7 +3620,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "moveSwap.heading": "The move into this office stopped halfway",
   "moveSwap.body":
     "The office starts when the move ends. Fix the error below, then try again.",
-  "moveSwap.stepLabel": "Step",
   "moveSwap.errorLabel": "Error",
   "moveSwap.retry": "Try again",
   "moveSwap.wait": "Wait 30 seconds, then try again.",

@@ -668,6 +668,32 @@ it("the confirm card shows the live pass by phase, Copy again only after a pass 
   });
 });
 
+it("a ready pass says when it copied in one line, and says nothing without a time", async () => {
+  const seen: Record<string, unknown> = {};
+  for (const withTime of [true, false]) {
+    const live = liveOf("ready");
+    if (!withTime) delete live.finishedAt;
+    inAnswers = [confirmLive("pf-1", live)];
+    const m = await mount();
+    const block = m.q("move-live");
+    expect(block?.dataset.phase).toBe("ready");
+    const lines = [...(block?.querySelectorAll("p") ?? [])].map(
+      (p) => p.textContent ?? "",
+    );
+    seen[String(withTime)] = {
+      lines: lines.length,
+      time:
+        live.finishedAt !== undefined &&
+        lines.some((l) => l.includes(absoluteTime("en", live.finishedAt!))),
+    };
+    m.view.unmount();
+  }
+  expect(seen).toEqual({
+    true: { lines: 1, time: true },
+    false: { lines: 0, time: false },
+  });
+});
+
 it("Lock while the live pass copies sends the shown preflight id; Copy again posts the live pass and shows the status after it", async () => {
   inAnswers = [confirmLive("pf-1", liveOf("copying"))];
   writeAnswers["POST /api/office/move-in/lock"] = inPhase("locking", {

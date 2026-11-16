@@ -33,6 +33,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { errMessage } from "../shared/errors.ts";
+import { lowercaseKey } from "../shared/identity.ts";
 import { isBackupEntryName } from "./backup.ts";
 import {
   MOVE_IN_DIR,
@@ -522,14 +523,30 @@ function stageLeft(home: string): string[] {
 
 type UserRec = Record<string, unknown> & { name?: unknown };
 
-/** The name the fresh owner gets: its own, or a free "<name> new box". */
+/** The name the fresh owner gets: its own, or a free "<name> new machine".
+ *  `taken` holds lowercaseKey names. */
 function freeName(name: string, taken: Set<string>): string {
-  if (!taken.has(name.toLowerCase())) return name;
+  if (!taken.has(lowercaseKey(name))) return name;
   for (let n = 1; ; n++) {
-    const suffix = n === 1 ? " new box" : ` new box ${n}`;
+    const suffix = n === 1 ? " new machine" : ` new machine ${n}`;
     const candidate = `${name.slice(0, 64 - suffix.length).trimEnd()}${suffix}`;
-    if (!taken.has(candidate.toLowerCase())) return candidate;
+    if (!taken.has(lowercaseKey(candidate))) return candidate;
   }
+}
+
+/** The names the old office's removed members keep reserved until a restore
+ *  or a delete (removed-members.ts). A missing or unreadable index reserves
+ *  none: it must not stop the swap. */
+function removedNames(home: string, rel: string): string[] {
+  let index: Record<string, unknown> | null;
+  try {
+    index = readJsonObject(join(home, rel, "removed-members.json"));
+  } catch {
+    return [];
+  }
+  return Object.values(index ?? {})
+    .map((m) => (m as { user?: UserRec } | null)?.user?.name)
+    .filter((n): n is string => typeof n === "string");
 }
 
 function mergeUsers(inputs: MoveInSwapInputs, rel: string): void {
@@ -541,10 +558,12 @@ function mergeUsers(inputs: MoveInSwapInputs, rel: string): void {
   if (!rec || typeof rec.name !== "string")
     throw new Error("The fresh office's owner is not in its users.json.");
   const taken = new Set(
-    Object.values(users)
-      .map((u) => (u as UserRec)?.name)
+    [
+      ...Object.values(users).map((u) => (u as UserRec)?.name),
+      ...removedNames(inputs.home, rel),
+    ]
       .filter((n): n is string => typeof n === "string")
-      .map((n) => n.toLowerCase()),
+      .map(lowercaseKey),
   );
   users[inputs.ownerId] = { ...rec, name: freeName(rec.name, taken) };
   writeAtomic(path, JSON.stringify(users, null, 2));

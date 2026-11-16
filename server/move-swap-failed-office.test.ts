@@ -44,16 +44,17 @@ function server() {
 }
 
 describe("the swap-failed server", () => {
-  it("serves a page with the failed step and the error, escaped", async () => {
+  it("serves a page with the error, escaped, and without the failed step", async () => {
     const s = server();
     const res = s.get("/");
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(res.headers.get("content-type") ?? "").toContain("text/html");
     const html = await res.text();
-    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
     expect(html).toContain("&lt;b&gt;docs&lt;/b&gt;");
-    expect(html).not.toContain("<img src=x");
     expect(html).not.toContain("<b>docs</b>");
+    // The step is for the operator's boot log only (Nil, sign-off of
+    // 78733adf): the page shows it in no form, raw or escaped.
+    expect(html).not.toContain("onerror");
     // The page offers the retry.
     expect(html).toContain(SWAP_RETRY_PATH);
   });
