@@ -1,9 +1,11 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
+  createWidgetMetadataCache,
   readWidgetMetadata,
   applyWidgetMetadata,
   appManifest,
   WIDGET_METADATA_MAX_BYTES,
+  type WidgetMetadata,
 } from "./app-widget-metadata.ts";
 import type { RelayContext } from "./app-proxy.ts";
 import { appFavicon, appFaviconSvg } from "./app-favicon.ts";
@@ -312,3 +314,222 @@ for (const [label, icons, kept] of [
     }
   });
 }
+
+// The per-office cache (task ac70b38c): an open answers from it at once and
+// reads the app again in the background. The read is injected, so each case
+// decides when and how the app answers.
+describe("the widget metadata cache", () => {
+  interface Read {
+    ctx: RelayContext;
+    answer(value: WidgetMetadata | null): Promise<void>;
+    fail(error: Error): Promise<void>;
+  }
+  // A read the case answers by hand, and every read the cache started.
+  function reads() {
+    const started: Read[] = [];
+    const fetch = (ctx: RelayContext) =>
+      new Promise<WidgetMetadata | null>((resolve, reject) => {
+        started.push({
+          ctx,
+          answer: async (value) => {
+            resolve(value);
+            await flush();
+          },
+          fail: async (error) => {
+            reject(error);
+            await flush();
+          },
+        });
+      });
+    return { started, cache: createWidgetMetadataCache(fetch) };
+  }
+  // Lets the cache's promise chains run to their end.
+  async function flush() {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  // Whether the promise has settled after the cache ran what it can.
+  async function settled(promise: Promise<unknown>): Promise<boolean> {
+    let done = false;
+    void promise.then(
+      () => (done = true),
+      () => (done = true),
+    );
+    await flush();
+    return done;
+  }
+  function cacheContext(
+    host = "sample.office.example",
+    createdAt = 1_763_251_200_000,
+  ): RelayContext {
+    const app = {
+      name: "sample",
+      hostLabel: "sample",
+      hostGen: 1,
+      port: 1,
+      createdAt,
+    } as RelayContext["app"];
+    return {
+      app,
+      host,
+      apps: [app],
+      supervisor: {} as RelayContext["supervisor"],
+      proxySecret: () => "proxy-secret-sample",
+    };
+  }
+  const meta = (title: string): WidgetMetadata => ({
+    title,
+    icons: [{ href: `https://sample.office.example/${title}.png` }],
+  });
+
+  it("answers a repeat open at once and takes the background read on the next open", async () => {
+    const { started, cache } = reads();
+    const ctx = cacheContext();
+    const first = cache.get(ctx, 1);
+    expect(await settled(first)).toBe(false);
+    expect(started).toHaveLength(1);
+    expect(started[0].ctx).toBe(ctx);
+    await started[0].answer(meta("A"));
+    expect(await first).toEqual(meta("A"));
+
+    // The app does not answer the refresh: the open does not wait for it.
+    const second = cache.get(ctx, 1);
+    expect(await settled(second)).toBe(true);
+    expect(await second).toEqual(meta("A"));
+    expect(started).toHaveLength(2);
+    // One read per app at a time: an open during the refresh starts none.
+    expect(await cache.get(ctx, 1)).toEqual(meta("A"));
+    await flush();
+    expect(started).toHaveLength(2);
+
+    await started[1].answer(meta("B"));
+    expect(await cache.get(ctx, 1)).toEqual(meta("B"));
+    expect(started).toHaveLength(3);
+  });
+
+  it("keeps the last good answer when a refresh gets none or throws", async () => {
+    const { started, cache } = reads();
+    const ctx = cacheContext();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const first = cache.get(ctx, 1);
+      await flush();
+      await started[0].answer(meta("A"));
+      expect(await first).toEqual(meta("A"));
+
+      expect(await cache.get(ctx, 1)).toEqual(meta("A"));
+      await started[1].answer(null);
+      expect(await cache.get(ctx, 1)).toEqual(meta("A"));
+      expect(started).toHaveLength(3);
+      await started[2].fail(new Error("relay broke"));
+      expect(await cache.get(ctx, 1)).toEqual(meta("A"));
+      // A failed refresh ends its flight: this open started a new read.
+      expect(started).toHaveLength(4);
+      await started[3].answer(meta("B"));
+      expect(await cache.get(ctx, 1)).toEqual(meta("B"));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("keeps the fallback of a failed first read only until a read succeeds", async () => {
+    const { started, cache } = reads();
+    const ctx = cacheContext();
+    const first = cache.get(ctx, 1);
+    await flush();
+    await started[0].answer(null);
+    const fallback = await first;
+    expect(fallback.title).toBe("sample");
+    expect(await hostIconBody(fallback.icons)).toBe(
+      await appFavicon(ctx.app).text(),
+    );
+
+    expect(await cache.get(ctx, 1)).toEqual(fallback);
+    await started[1].answer(meta("A"));
+    expect(await cache.get(ctx, 1)).toEqual(meta("A"));
+  });
+
+  // A registration generation starts at 1 for a name with no history, so
+  // another office state (a restore, a test office in the same process) can
+  // hold the same name, generation and host: the app's creation time tells
+  // them apart, as it does for app sessions.
+  it("waits for a new read for a new registration, host or app", async () => {
+    for (const change of ["registration", "host", "app"] as const) {
+      const { started, cache } = reads();
+      const ctx = cacheContext();
+      const first = cache.get(ctx, 1);
+      await flush();
+      await started[0].answer(meta("A"));
+      expect(await first).toEqual(meta("A"));
+
+      const next =
+        change === "registration"
+          ? cache.get(ctx, 2)
+          : change === "host"
+            ? cache.get(cacheContext("sample-2.office.example"), 1)
+            : cache.get(cacheContext(undefined, 1_763_251_201_000), 1);
+      expect({ change, settled: await settled(next) }).toEqual({
+        change,
+        settled: false,
+      });
+      expect({ change, reads: started.length }).toEqual({ change, reads: 2 });
+      await started[1].answer(meta("C"));
+      expect({ change, answer: await next }).toEqual({
+        change,
+        answer: meta("C"),
+      });
+    }
+  });
+
+  it("starts one read for opens that come together before any answer", async () => {
+    const { started, cache } = reads();
+    const ctx = cacheContext();
+    const opens = [cache.get(ctx, 1), cache.get(ctx, 1), cache.get(ctx, 1)];
+    await flush();
+    expect(started).toHaveLength(1);
+    await started[0].answer(meta("A"));
+    expect(await Promise.all(opens)).toEqual([meta("A"), meta("A"), meta("A")]);
+  });
+
+  it("never gives a new registration the answer of a read for the old one", async () => {
+    for (const oldEndsFirst of [true, false]) {
+      const { started, cache } = reads();
+      const ctx = cacheContext();
+      const first = cache.get(ctx, 1);
+      await flush();
+      await started[0].answer(meta("A"));
+      expect(await first).toEqual(meta("A"));
+      // A refresh for registration 1 is in flight when registration 2 opens.
+      expect(await cache.get(ctx, 1)).toEqual(meta("A"));
+      expect(started).toHaveLength(2);
+      const renewed = cache.get(ctx, 2);
+      await flush();
+      expect({ oldEndsFirst, reads: started.length }).toEqual({
+        oldEndsFirst,
+        reads: 3,
+      });
+      if (oldEndsFirst) {
+        await started[1].answer(meta("old"));
+        expect({ oldEndsFirst, settled: await settled(renewed) }).toEqual({
+          oldEndsFirst,
+          settled: false,
+        });
+        await started[2].answer(meta("new"));
+      } else {
+        await started[2].answer(meta("new"));
+        await started[1].answer(meta("old"));
+      }
+      expect({ oldEndsFirst, open: await renewed }).toEqual({
+        oldEndsFirst,
+        open: meta("new"),
+      });
+      expect({ oldEndsFirst, next: await cache.get(ctx, 2) }).toEqual({
+        oldEndsFirst,
+        next: meta("new"),
+      });
+    }
+  });
+});

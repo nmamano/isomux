@@ -162,7 +162,7 @@ for (const serverLive of [false, true]) {
         view = render(<AppWidgetPage boot={boot} />);
       });
       if (serverLive) {
-        const frame = view!.container.querySelector("iframe")!;
+        const frame = document.body.querySelector("iframe")!;
         expect(frame).not.toBeNull();
         // No remote iframe loads in the DOM test; supply its window identity.
         const frameWindow = {} as Window;
@@ -188,7 +188,7 @@ for (const serverLive of [false, true]) {
       expect(
         view!.container.querySelector(".app-widget-unavailable"),
       ).not.toBeNull();
-      expect(view!.container.querySelector("iframe")).toBeNull();
+      expect(document.body.querySelector("iframe")).toBeNull();
     } finally {
       view?.unmount();
       assign.mockRestore();
@@ -571,7 +571,7 @@ for (const [device, phone, homeScreen, touch] of [
       };
       // Opening and closing the chat keeps the app's frame: same element, same
       // page, no reload.
-      const frame = () => view!.container.querySelector("iframe");
+      const frame = () => document.body.querySelector("iframe");
       const src = frame()!.getAttribute("src");
       expect(src).toBeTruthy();
       frame()!.setAttribute("data-test-first-frame", "");
@@ -817,7 +817,7 @@ for (const [variant, homeScreen] of [
       const links = view!.container.querySelectorAll<HTMLAnchorElement>("a");
       expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
       expect(view!.container.querySelector(".app-widget-launcher")).toBeNull();
-      expect(view!.container.querySelector("iframe")).not.toBeNull();
+      expect(document.body.querySelector("iframe")).not.toBeNull();
       // With nothing stored, the Home Screen dock has nothing to hold.
       if (homeScreen) {
         expect(links).toHaveLength(0);
@@ -912,7 +912,7 @@ for (const [variant, device, stored, chat, back, mark = false] of [
       });
       const dock = view!.container.querySelector(".app-widget-dock")!;
       expect(dock).not.toBeNull();
-      expect(view!.container.querySelector("iframe")).not.toBeNull();
+      expect(document.body.querySelector("iframe")).not.toBeNull();
       // The launcher is there exactly when there is a chat.
       expect(dock.querySelector(".app-widget-launcher") !== null).toBe(chat);
       const backLinks = () =>
@@ -1458,7 +1458,7 @@ it("opens the frame at the page its address names, and keeps that page through s
       ["/hello/?x=1", appUrl + "/?x=1"],
     ]) {
       const view = await mount(address);
-      const frame = view.container.querySelector("iframe");
+      const frame = document.body.querySelector("iframe");
       const tokens = (frame?.getAttribute("sandbox") ?? "").split(/\s+/);
       expect({
         address,
@@ -1546,7 +1546,7 @@ for (const failure of ["offline", "503", "404"] as const) {
         );
       });
       const seen = () => {
-        const frame = view!.container.querySelector("iframe");
+        const frame = document.body.querySelector("iframe");
         return {
           // Set on the first frame below: a new frame has no marker.
           frame: frame?.dataset.testMark ?? (frame ? "new" : "none"),
@@ -1559,8 +1559,8 @@ for (const failure of ["offline", "503", "404"] as const) {
               ?.getAttribute("aria-expanded") ?? "none",
         };
       };
-      const src = view!.container.querySelector("iframe")!.getAttribute("src");
-      view!.container.querySelector("iframe")!.dataset.testMark = "first";
+      const src = document.body.querySelector("iframe")!.getAttribute("src");
+      document.body.querySelector("iframe")!.dataset.testMark = "first";
       await act(async () => {
         fireEvent.click(view!.container.querySelector(".app-widget-launcher")!);
       });
@@ -1606,7 +1606,7 @@ it("a first load that fails for a moment shows unavailable", async () => {
     expect({
       unavailable:
         view!.container.querySelector(".app-widget-unavailable") !== null,
-      frame: view!.container.querySelector("iframe") !== null,
+      frame: document.body.querySelector("iframe") !== null,
     }).toEqual({ unavailable: true, frame: false });
   } finally {
     view?.unmount();
@@ -1649,7 +1649,7 @@ it("waits for the end of a long app session, and reads the status again at the e
       await act(async () => {
         view = render(<AppWidgetPage boot={boot} />);
       });
-      expect(view!.container.querySelector("iframe")).not.toBeNull();
+      expect(document.body.querySelector("iframe")).not.toBeNull();
       await wait(150);
       expect({ lasts, gets }).toEqual({ lasts, gets: reads });
     } finally {

@@ -1,4 +1,10 @@
 import type { AppView } from "../shared/contract-shapes.ts";
+export {
+  APP_WIDGET_ALLOW,
+  APP_WIDGET_SANDBOX,
+  frameStart,
+  widgetAppPath,
+} from "../shared/app-widget-frame.ts";
 
 export const APP_WIDGET_RECHECK_MS = 60_000;
 export const APP_VIEW_MESSAGE = "isomux:app-view";
@@ -11,17 +17,13 @@ export const APP_RELOAD_POLL_TRIES = 60;
 // widget mounts a new frame instead.
 export const APP_RELOAD_FALLBACK_MS = 5000;
 const APP_WIDGET_AUTH_COOLDOWN_MS = 60_000;
-// allow-popups-to-escape-sandbox: the office tab the frame opens for a page of
-// the app (task 469e8886) must not inherit the frame's sandbox.
-export const APP_WIDGET_SANDBOX =
-  "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox allow-modals";
-// A video's full-screen button calls requestFullscreen, which the browser
-// refuses inside a frame without this policy (task b0b728ed).
-export const APP_WIDGET_ALLOW = "fullscreen";
 
 export interface AppWidgetBoot {
   name: string;
   registration: number;
+  // Set when the shell holds the app frame: the app's URL, which the widget
+  // otherwise learns from its first status read.
+  appUrl?: string;
 }
 
 export function widgetDraftKey(boot: AppWidgetBoot, agentId: string): string {
@@ -76,38 +78,6 @@ export function isAppViewReport(
 export function framePath(frameUrl: string): string {
   const url = new URL(frameUrl);
   return url.pathname + url.search + url.hash;
-}
-
-// The app page a widget address names (task 469e8886): /<app>/blog?x#y names
-// /blog?x#y, and /<app> or /<app>/ the root.
-export function widgetAppPath(
-  name: string,
-  pathname: string,
-  search: string,
-  hash: string,
-): string {
-  const page = pathname.slice(name.length + 1) || "/";
-  return page + search + hash;
-}
-
-// The frame's src: the given page, when it is on the app, or else the page
-// the widget address names. A path such as //other.example must not move the
-// frame off the app: it falls back to the root.
-export function frameStart(
-  appUrl: string,
-  startPath: string,
-  page?: string | null,
-): string {
-  const onApp = (path: string) => {
-    try {
-      const url = new URL(path, appUrl + "/");
-      if (url.origin === new URL(appUrl).origin) return url.href;
-    } catch {
-      // Not a path.
-    }
-    return null;
-  };
-  return (page ? onApp(page) : null) ?? onApp(startPath || "/") ?? appUrl + "/";
 }
 
 export function beginAppHandshake(

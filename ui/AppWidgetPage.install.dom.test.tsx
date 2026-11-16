@@ -392,7 +392,7 @@ for (const [label, chat] of [
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/hello/");
     expect(window.location.search).toBe("?view=details");
-    const frame = page.container.querySelector("iframe");
+    const frame = document.body.querySelector("iframe");
     expect(frame).not.toBeNull();
     expect(frame!.getAttribute("src")).not.toContain("install");
   });

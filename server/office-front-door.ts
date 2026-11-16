@@ -3,9 +3,18 @@
 // server/isomux-office.ts, which creates it once and calls buildServer from
 // startServer.
 import {
-  readWidgetMetadata,
   applyWidgetMetadata,
+  type WidgetMetadata,
 } from "./app-widget-metadata.ts";
+import {
+  APP_FRAME_BUFFER,
+  APP_FRAME_ID,
+  APP_FRAME_LOADED_ATTR,
+  APP_WIDGET_ALLOW,
+  APP_WIDGET_SANDBOX,
+  frameStart,
+  widgetAppPath,
+} from "../shared/app-widget-frame.ts";
 import { stopHasPack } from "../shared/agent-access.ts";
 import {
   EXTENSION_SOCKET_PATH,
@@ -82,7 +91,7 @@ import {
 } from "./webhooks/ingress.ts";
 import { handleAppHostRequest, normalizeRequestHost } from "./app-hosts.ts";
 import { appHostDomain, appPublicUrl } from "./app-domain.ts";
-import { APP_MINT_PATH } from "./app-auth.ts";
+import { APP_MINT_PATH, appSessionExpiresAt } from "./app-auth.ts";
 import { neutralNotFound } from "./app-host-responses.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
 import { type AppRelayWsData } from "./app-ws-relay.ts";
@@ -128,6 +137,25 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// The same, for a double-quoted attribute value.
+function escapeAttribute(s: string): string {
+  return escapeHtml(s).replace(/"/g, "&quot;");
+}
+
+// The app frame the short-link shell starts (task ac70b38c), first in <body>
+// so the widget's overlays paint above it. Its script gives the src once,
+// with the page's hash, which the server never sees (#install is the
+// widget's own); holds the window's messages until the widget takes them;
+// and marks a load that comes before the widget listens. No "<" in the
+// script: it is written straight into the page.
+function appFrameMarkup(name: string, src: string): string {
+  const script = `(function(){var f=document.getElementById(${JSON.stringify(APP_FRAME_ID)});var held={messages:[],stop:function(){removeEventListener("message",hold)}};function hold(e){held.messages.push(e)}addEventListener("message",hold);window[${JSON.stringify(APP_FRAME_BUFFER)}]=held;f.addEventListener("load",function(){f.setAttribute(${JSON.stringify(APP_FRAME_LOADED_ATTR)},"")});var h=location.hash;f.src=f.getAttribute("data-src")+(h&&h!=="#install"?h:"")})();`;
+  return (
+    `<iframe id="${APP_FRAME_ID}" class="app-widget-frame" title="${escapeAttribute(name)}" data-src="${escapeAttribute(src)}" sandbox="${APP_WIDGET_SANDBOX}" allow="${APP_WIDGET_ALLOW}" style="position:fixed;inset:0;width:100%;height:100%;border:0;display:block"></iframe>` +
+    `<script>${script}</script>`
+  );
+}
+
 // Serve index.html with the office name substituted into the <title>. The UI
 // has `<title>__OFFICE_TITLE__</title>`; we replace that placeholder per-request
 // so the tab title is correct before the WS connects (and on the auth page).
@@ -137,9 +165,12 @@ async function serveIndexHtml(
   widget?: {
     name: string;
     registration: number;
-    metadata: Awaited<ReturnType<typeof readWidgetMetadata>>;
+    metadata: WidgetMetadata;
     // The app's own origin: the wrapper shows the app's icon from there.
     origin: string;
+    // Set when the member's browser holds a live session for the app: the
+    // shell starts the frame at src, and the widget learns appUrl at once.
+    frame?: { appUrl: string; src: string };
   },
 ): Promise<Response> {
   // A missing bundle (ui/dist not built yet) must be a clean 503, not an
@@ -159,9 +190,13 @@ async function serveIndexHtml(
   let html = raw.replace("__OFFICE_TITLE__", title);
   if (widget) {
     html = await applyWidgetMetadata(html, widget.metadata);
-    const boot = escapeHtml(
-      JSON.stringify({ name: widget.name, registration: widget.registration }),
-    ).replace(/"/g, "&quot;");
+    const boot = escapeAttribute(
+      JSON.stringify({
+        name: widget.name,
+        registration: widget.registration,
+        ...(widget.frame ? { appUrl: widget.frame.appUrl } : {}),
+      }),
+    );
     // The app's own manifest replaces the office's, which applyWidgetMetadata
     // removed. Chrome fetches a manifest without cookies unless the link asks
     // for them.
@@ -172,6 +207,11 @@ async function serveIndexHtml(
       "</head>",
       `<meta name="isomux-app-widget" content="${boot}"><link rel="manifest" href="${manifest}" crossorigin="use-credentials"></head>`,
     );
+    if (widget.frame)
+      html = html.replace(
+        /<body[^>]*>/,
+        (body) => body + appFrameMarkup(widget.name, widget.frame!.src),
+      );
   }
   const res = new Response(html, {
     headers: {
@@ -220,6 +260,8 @@ Policy: https://github.com/nmamano/isomux/security/policy
 export interface FrontDoorDeps {
   agentVisibleForSession: (session: SessionLookup, agentId: string) => boolean;
   apiTokenSockets: Set<ServerWebSocket<ApiTokenWsData>>;
+  // The app's title and icons from the office's cache (task ac70b38c).
+  appWidgetMetadata: (app: AppRecord) => Promise<WidgetMetadata>;
   browsers: Set<ServerWebSocket<OfficeWsData>>;
   canUserAccessApp: (
     app: AppRecord,
@@ -265,6 +307,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
   const {
     agentVisibleForSession,
     apiTokenSockets,
+    appWidgetMetadata,
     browsers,
     canUserAccessApp,
     currentOfficeMove,
@@ -814,17 +857,34 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                   },
                 });
               } else {
+                // The frame starts with the page only when the app will let
+                // the browser in; else the widget's sign-in round trip runs
+                // first, as the widget decides from its status read.
+                const expiresAt = appSessionExpiresAt(
+                  app,
+                  auth.session?.sessionIdHash ?? null,
+                );
                 return serveIndexHtml(req, auth.session, {
                   name: app.name,
                   registration: appRegistrationGeneration(app),
                   origin: new URL(publicUrl!).origin,
-                  metadata: await readWidgetMetadata({
-                    app,
-                    host: new URL(publicUrl!).host,
-                    apps: appRegistry.list(),
-                    supervisor: appSupervisor,
-                    proxySecret: () => productionAppProxySecret(app),
-                  }),
+                  metadata: await appWidgetMetadata(app),
+                  ...(expiresAt !== null && expiresAt > Date.now()
+                    ? {
+                        frame: {
+                          appUrl: publicUrl!,
+                          src: frameStart(
+                            publicUrl!,
+                            widgetAppPath(
+                              app.name,
+                              url.pathname,
+                              url.search,
+                              "",
+                            ),
+                          ),
+                        },
+                      }
+                    : {}),
                 });
               }
             }

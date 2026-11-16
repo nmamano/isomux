@@ -1,4 +1,7 @@
-import { readWidgetMetadata } from "./app-widget-metadata.ts";
+import {
+  createWidgetMetadataCache,
+  type WidgetMetadata,
+} from "./app-widget-metadata.ts";
 import { setMemberAppMoveDeps } from "./member-app-move.ts";
 import type { AppSupervisorRouterDeps } from "./app-supervisor-router.ts";
 import {
@@ -1759,9 +1762,26 @@ const MCP_OAUTH_TICK_MS = 60_000;
 // Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
 const editorWatchers = new Map<string, Map<string, FileWatcher>>();
 
+// Each app's title and icons, for its short-link page and its manifest
+// (task ac70b38c): one cache, so both read the same entry.
+const widgetMetadataCache = createWidgetMetadataCache();
+function appWidgetMetadata(app: AppRecord): Promise<WidgetMetadata> {
+  return widgetMetadataCache.get(
+    {
+      app,
+      host: new URL(appPublicUrl(app.hostLabel, appHostDomain())!).host,
+      apps: appRegistry.list(),
+      supervisor: appSupervisor,
+      proxySecret: () => productionAppProxySecret(app),
+    },
+    appRegistrationGeneration(app),
+  );
+}
+
 // The HTTP and WebSocket front door (server/office-front-door.ts). Created
 // here, right after the last const it reads; startServer calls buildServer.
 const { buildServer } = createFrontDoor({
+  appWidgetMetadata,
   agentVisibleForSession,
   apiTokenSockets,
   browsers,
@@ -3723,14 +3743,7 @@ function buildExecutorDeps(
           sessionId: agentManager.getCurrentSessionId(target.id),
         };
       },
-      metadata: (app) =>
-        readWidgetMetadata({
-          app,
-          host: new URL(appPublicUrl(app.hostLabel, appHostDomain())!).host,
-          apps: appRegistry.list(),
-          supervisor: appSupervisor,
-          proxySecret: () => productionAppProxySecret(app),
-        }),
+      metadata: appWidgetMetadata,
       revision: appFilesRevision,
       serving: (app) => {
         let running = false;

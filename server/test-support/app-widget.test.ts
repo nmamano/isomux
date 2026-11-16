@@ -9,17 +9,29 @@ import { afterEach, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInContext, type Context } from "node:vm";
 import { decodeHTMLAttribute } from "entities";
+import { Window } from "happy-dom";
 import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
   OFFICE_HOST,
   anOfficeWithAnApp,
+  grantMemberAppRoom,
   proxySecretOf,
   raw,
   type RawResponse,
+  signIn,
   TEST_APP_RESPONSE_HEADERS,
 } from "./app-host-test-kit.ts";
+import {
+  APP_FRAME_BUFFER,
+  APP_FRAME_ID,
+  APP_FRAME_LOADED_ATTR,
+  APP_WIDGET_ALLOW,
+  APP_WIDGET_SANDBOX,
+  type AppFrameBuffer,
+} from "../../shared/app-widget-frame.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry, appRegistrationGeneration } from "../app-registry.ts";
 import { getUserByName, updateUserById } from "../users.ts";
@@ -122,6 +134,13 @@ async function elements(
     .transform(new Response(html))
     .text();
   return found;
+}
+
+// Waits, bounded, for a condition that background work makes true.
+async function until(condition: () => boolean, ms = 2000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!condition() && Date.now() < end)
+    await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 async function titleOf(html: string): Promise<string> {
@@ -285,6 +304,9 @@ it("serves the wrapper only to a member who can see the app, and reads the app o
       asset,
       absolute: true,
     });
+  // The second open answers from the office's cache and reads the app again
+  // in the background (task ac70b38c).
+  await until(() => seen.length === 2);
   expect(seen).toHaveLength(2);
 
   updateUserById(getUserByName("Member")!.id, { allowedRooms: [] });
@@ -836,4 +858,222 @@ it("serves the app's manifest to a member's credentialed manifest fetch only", a
   });
   expect(agent.status).toBe(403);
   expect((await agent.json()).error.code).toBe("forbidden");
+});
+
+// The app frame starts with the page (task ac70b38c): for a member whose
+// browser holds a live session for this app, the shell itself carries the
+// frame, so the app loads while the office bundle loads. The shell's script
+// adds the page's hash, holds the window's messages until the widget listens,
+// and marks a load the widget would miss.
+const SCRIPT = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/g;
+
+// The shell's markup in a happy-dom window at `url`, with the inline scripts
+// of its body run in order. No frame page, script file or stylesheet loads.
+function runShell(html: string, url: string): Window {
+  const window = new Window({
+    url,
+    settings: {
+      disableIframePageLoading: true,
+      disableJavaScriptFileLoading: true,
+      disableCSSFileLoading: true,
+    },
+  });
+  const body = html.slice(html.indexOf("<body"));
+  window.document.write(html.replace(SCRIPT, ""));
+  for (const [, attributes, source] of body.matchAll(SCRIPT))
+    if (!/\ssrc=/.test(attributes ?? ""))
+      runInContext(source, window as unknown as Context);
+  return window;
+}
+
+it("starts the app frame in the shell for a member with a live app session", async () => {
+  const { srv, label, rawSessionId } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  upstream = startApp(appRegistry.get("hello")!.port, []);
+  await signIn(srv, label, rawSessionId);
+  const appUrl = "https://hello.office.example";
+  const page = "/hello/blog/post-1?x=1";
+  const shell = await navigate(srv.port, page, rawSessionId);
+  expect(shell.status).toBe(200);
+
+  expect(
+    await elements(shell.body, "iframe", [
+      "id",
+      "src",
+      "sandbox",
+      "allow",
+      "title",
+    ]),
+  ).toEqual([
+    {
+      id: APP_FRAME_ID,
+      // The shell's script gives the src, once, with the hash the server
+      // never sees.
+      src: null,
+      sandbox: APP_WIDGET_SANDBOX,
+      allow: APP_WIDGET_ALLOW,
+      title: "hello",
+    },
+  ]);
+  // The frame comes before the widget's root, so every overlay the widget
+  // draws paints above it.
+  const order: string[] = [];
+  await new HTMLRewriter()
+    .on("body iframe, body #root", {
+      element(el) {
+        order.push(el.tagName);
+      },
+    })
+    .transform(new Response(shell.body))
+    .text();
+  expect(order).toEqual(["iframe", "div"]);
+  // The widget knows the app's address from the start, so it can read the
+  // messages the shell held for it.
+  const [boot] = await elements(shell.body, 'meta[name="isomux-app-widget"]', [
+    "content",
+  ]);
+  expect(JSON.parse(boot.content!)).toEqual({
+    name: "hello",
+    registration: appRegistrationGeneration(appRegistry.get("hello")!),
+    appUrl,
+  });
+
+  // The page the address names, with its hash; #install is the widget's own.
+  for (const [hash, src] of [
+    ["", `${appUrl}/blog/post-1?x=1`],
+    ["#sec", `${appUrl}/blog/post-1?x=1#sec`],
+    ["#install", `${appUrl}/blog/post-1?x=1`],
+  ]) {
+    const window = runShell(shell.body, `${HTTPS_ORIGIN}${page}${hash}`);
+    try {
+      const frame = window.document.getElementById(APP_FRAME_ID);
+      expect({ hash, src: frame?.getAttribute("src") }).toEqual({ hash, src });
+    } finally {
+      await window.happyDOM.close();
+    }
+  }
+
+  const window = runShell(shell.body, `${HTTPS_ORIGIN}${page}`);
+  try {
+    const frame = window.document.getElementById(APP_FRAME_ID)!;
+    const held = (window as unknown as Record<string, AppFrameBuffer>)[
+      APP_FRAME_BUFFER
+    ];
+    const post = (data: string) =>
+      window.dispatchEvent(
+        new window.MessageEvent("message", { data, origin: appUrl }),
+      );
+    post("isomux:app-session-required");
+    expect(held.messages.map((event) => event.data)).toEqual([
+      "isomux:app-session-required",
+    ]);
+    held.stop();
+    post("after the widget listens");
+    expect(held.messages).toHaveLength(1);
+    // A load before the widget runs is marked for it.
+    expect(frame.hasAttribute(APP_FRAME_LOADED_ATTR)).toBe(false);
+    frame.dispatchEvent(new window.Event("load"));
+    expect(frame.hasAttribute(APP_FRAME_LOADED_ATTR)).toBe(true);
+  } finally {
+    await window.happyDOM.close();
+  }
+});
+
+it("leaves the frame to the widget when the member's browser holds no session for the app", async () => {
+  const { srv, label, rawSessionId } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  upstream = startApp(appRegistry.get("hello")!.port, []);
+  // Another member's app session is not this member's.
+  const other = await srv.seedMember("Other");
+  grantMemberAppRoom(srv, other.username);
+  await signIn(srv, label, other.rawSessionId);
+  expect(
+    await elements(
+      (await navigate(srv.port, "/hello/", other.rawSessionId)).body,
+      "iframe",
+      ["id"],
+    ),
+  ).toHaveLength(1);
+
+  const shell = await navigate(srv.port, "/hello/", rawSessionId);
+  expect(shell.status).toBe(200);
+  expect(await elements(shell.body, "iframe", ["id"])).toEqual([]);
+  const [boot] = await elements(shell.body, 'meta[name="isomux-app-widget"]', [
+    "content",
+  ]);
+  expect(JSON.parse(boot.content!)).toEqual({
+    name: "hello",
+    registration: appRegistrationGeneration(appRegistry.get("hello")!),
+  });
+});
+
+// The app's title and icons come from the office's cache (task ac70b38c): an
+// open waits for the app only the first time, and each open reads the app
+// again in the background.
+it("opens from the cached title without waiting for the app, and shows a changed title on a later open", async () => {
+  const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  const app = appRegistry.get("hello")!;
+  let answer: { title: string } | "hang" = { title: "First title" };
+  let reads = 0;
+  upstream = Bun.serve({
+    hostname: "127.0.0.1",
+    port: app.port,
+    fetch() {
+      reads++;
+      if (answer === "hang") return new Promise<Response>(() => {});
+      return new Response(`<title>${answer.title}</title>`, {
+        headers: { ...TEST_APP_RESPONSE_HEADERS, "Content-Type": "text/html" },
+      });
+    },
+  });
+  const open = async () => {
+    const response = await navigate(srv.port, "/hello/", rawSessionId);
+    expect(response.status).toBe(200);
+    return titleOf(response.body);
+  };
+
+  expect(await open()).toBe("First title");
+  expect(reads).toBe(1);
+  answer = { title: "Second title" };
+  // This open answers from the cache; its background read takes the new one.
+  expect(await open()).toBe("First title");
+  await until(() => reads === 2);
+  expect(reads).toBe(2);
+  // Each open reads again; the first one after that read ended shows it.
+  let shown = "";
+  for (let i = 0; i < 100 && shown !== "Second title"; i++) {
+    if (i > 0) await new Promise((resolve) => setTimeout(resolve, 10));
+    shown = await open();
+  }
+  expect(shown).toBe("Second title");
+
+  // An app that does not answer holds neither the page nor the manifest. The
+  // office gives up on the app after 2 s; a cached answer takes no wait.
+  answer = "hang";
+  const within = <T>(work: Promise<T>) =>
+    Promise.race([
+      work.catch((error: Error) => `failed: ${error.message}`),
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("no answer within 1 s"), 1000),
+      ),
+    ]);
+  expect(await within(open())).toBe("Second title");
+  const manifest = await within(
+    raw(srv.port, {
+      host: OFFICE_HOST,
+      path: "/api/apps/hello/manifest",
+      headers: {
+        "Sec-Fetch-Dest": "manifest",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        Origin: HTTPS_ORIGIN,
+        Cookie: `${sessionCookieName()}=${rawSessionId}`,
+      },
+    }).then((response) => JSON.parse(response.body).name as string),
+  );
+  expect(manifest).toBe("Second title");
 });

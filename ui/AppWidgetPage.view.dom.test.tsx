@@ -92,7 +92,7 @@ async function mountWidget(
   await act(async () => {
     view = render(tree("idle"));
   });
-  const iframe = () => view!.container.querySelector("iframe");
+  const iframe = () => document.body.querySelector("iframe");
   // No remote page loads in a DOM test: give the mounted frame a window that
   // records what the widget posts to it, and a marker that a new frame lacks.
   const posted: [unknown, string][] = [];

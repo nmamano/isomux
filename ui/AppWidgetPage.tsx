@@ -62,9 +62,7 @@ import {
   APP_RELOAD_MESSAGE,
   APP_RELOAD_POLL_MS,
   APP_RELOAD_POLL_TRIES,
-  APP_WIDGET_ALLOW,
   APP_WIDGET_RECHECK_MS,
-  APP_WIDGET_SANDBOX,
   beginAppHandshake,
   framePath,
   frameStart,
@@ -76,6 +74,7 @@ import {
   screenshotHint,
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
+import { takeBufferedFrameMessages, useAppFrame } from "./app-frame.ts";
 import { isTouchPrimary } from "./touch-primary.ts";
 import { useComposerVoice } from "./hooks/useComposerVoice.ts";
 import { joinSpoken } from "./spoken-punctuation.ts";
@@ -150,8 +149,8 @@ export const CHAT_PANEL_CSS = `
 // server/agent-reference/apps.md tells apps where .app-widget-dock sits and
 // its size: update it when they change.
 const WIDGET_CSS = `
-.app-widget { position:fixed; inset:0; background:var(--bg-base); color:var(--text-primary); font-family:var(--font-ui); }
-.app-widget-frame { border:0; width:100%; height:100%; display:block; }
+.app-widget { color:var(--text-primary); font-family:var(--font-ui); }
+.app-widget-frame { position:fixed; inset:0; border:0; width:100%; height:100%; display:block; }
 .app-widget button:where(:not(.app-widget-log *)),.app-widget a:where(:not(.app-widget-log *)) { font:inherit; }
 .app-widget button:where(:not(.app-widget-log *)) { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
 .app-widget-dock { display:flex; gap:8px; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; }
@@ -169,7 +168,7 @@ const WIDGET_CSS = `
 .app-widget-install p { margin:0; }
 .app-widget .app-widget-install-close { display:flex; padding:4px; border:0; background:none; color:var(--text-secondary); }
 .app-widget-install-close:hover { color:var(--text-primary); }
-.app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
+.app-widget-unavailable { position:fixed; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
 
 // window.sessionStorage and window.localStorage themselves throw where
@@ -268,10 +267,11 @@ export function usePhonePanelBox(
 export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const { t } = useI18n();
   const state = useAppState();
-  const frame = useRef<HTMLIFrameElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
   const dock = useRef<HTMLDivElement>(null);
-  const [appUrl, setAppUrl] = useState<string | null>(null);
+  // A shell that started the frame gives the app's URL at once, so the
+  // messages it held can be matched to the frame (task ac70b38c).
+  const [appUrl, setAppUrl] = useState<string | null>(boot.appUrl ?? null);
   const requestSeq = useRef(0);
   const recovering = useRef(false);
   const recoveryStopped = useRef(false);
@@ -279,7 +279,21 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   // Set while a status from the office is live: a recheck that then fails for
   // a moment keeps the frame and the chat.
   const hasLive = useRef(false);
-  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  // The frame the shell started, if any: its src as the widget computes it.
+  const [adoptedSrc] = useState(() =>
+    boot.appUrl
+      ? frameStart(
+          boot.appUrl,
+          widgetAppPath(
+            boot.name,
+            window.location.pathname,
+            window.location.search,
+            window.location.hash === INSTALL_HASH ? "" : window.location.hash,
+          ),
+        )
+      : null,
+  );
+  const [frameUrl, setFrameUrl] = useState<string | null>(adoptedSrc);
   const [unavailable, setUnavailable] = useState(false);
   const [open, setOpen] = useState(false);
   // What the member sees (task d7ac4f73): the frame's last report, or null
@@ -290,6 +304,15 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   // rechecks must not move it back to the first page.
   const [frameKey, setFrameKey] = useState(0);
   const [remountSrc, setRemountSrc] = useState<string | null>(null);
+  // Set below, once frameLoaded exists: the frame's load handler.
+  const onFrameLoad = useRef<() => void>(() => {});
+  const frame = useAppFrame({
+    src: remountSrc ?? frameUrl,
+    adoptedSrc,
+    frameKey,
+    title: boot.name,
+    onLoad: () => onFrameLoad.current(),
+  });
   // Armed by an in-place reload request, cleared by the frame's next load.
   const reloadFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The app's revision when the target agent's turn started.
@@ -503,9 +526,11 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       const reported = isAppViewReport(event, frameWindow, appUrl);
       if (reported) frameView.current = reported;
     };
+    // What the frame sent before the widget listened, held by the shell.
+    for (const event of takeBufferedFrameMessages()) listener(event);
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [recover, appUrl]);
+  }, [recover, appUrl, frame]);
 
   const target = liveStatus?.chat;
   // Loads this chat when the server loads chats on open (task 9ebe887d).
@@ -566,7 +591,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       reloadFallback.current = null;
       remountFrame(reported.path);
     }, APP_RELOAD_FALLBACK_MS);
-  }, [appUrl, remountFrame]);
+  }, [appUrl, remountFrame, frame]);
   // Reload once the app serves, checking every second for up to a minute.
   const reloadWhenServing = useCallback(
     async (first: AppWidgetStatus) => {
@@ -683,6 +708,22 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       void reloadWhenServing(next);
     });
   };
+  // A layout effect: it runs before the frame hook's effect, which may call
+  // it at once for a load that came before the widget listened.
+  useLayoutEffect(() => {
+    onFrameLoad.current = frameLoaded;
+  });
+  // A file dropped outside the chat must not open in place of the page. The
+  // frame takes drops over the app itself.
+  useEffect(() => {
+    const keep = (event: DragEvent) => event.preventDefault();
+    window.addEventListener("dragover", keep);
+    window.addEventListener("drop", keep);
+    return () => {
+      window.removeEventListener("dragover", keep);
+      window.removeEventListener("drop", keep);
+    };
+  }, []);
   const currentView = (): AppView =>
     frameView.current ?? {
       path: (remountSrc ?? frameUrl) ? framePath(remountSrc ?? frameUrl!) : "/",
@@ -742,25 +783,9 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       </p>
     );
   return (
-    <main
-      className="app-widget"
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => event.preventDefault()}
-    >
+    <main className="app-widget">
       <style>{CSS + CHAT_PANEL_CSS + WIDGET_CSS}</style>
       <LinkedImageLightbox />
-      {frameUrl && (
-        <iframe
-          key={frameKey}
-          ref={frame}
-          onLoad={frameLoaded}
-          className="app-widget-frame"
-          title={boot.name}
-          src={remountSrc ?? frameUrl}
-          sandbox={APP_WIDGET_SANDBOX}
-          allow={APP_WIDGET_ALLOW}
-        />
-      )}
       {unavailable && (
         <p role="status" className="app-widget-unavailable">
           {t("appWidget.unavailable")}

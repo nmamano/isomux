@@ -45,13 +45,21 @@ function iconUrl(href: string, base: string, origin: string): string | null {
   return null;
 }
 
-// Called only after the wrapper's member/app access check. Fresh requests
-// deliberately carry no member cookies, authorization, or app-supplied target.
-// The relay checks the running registration and never starts a stopped app.
+// The app's metadata, or the fallback when the app gives no usable answer.
 export async function readWidgetMetadata(
   ctx: RelayContext,
 ): Promise<WidgetMetadata> {
-  const initial = fallback(ctx.app);
+  return (await fetchWidgetMetadata(ctx)) ?? fallback(ctx.app);
+}
+
+// Called only after the wrapper's member/app access check. Fresh requests
+// deliberately carry no member cookies, authorization, or app-supplied target.
+// The relay checks the running registration and never starts a stopped app.
+// Null when the app gives no usable answer: an error, the time limit, a
+// status other than 200, a page that is not HTML or is too large.
+export async function fetchWidgetMetadata(
+  ctx: RelayContext,
+): Promise<WidgetMetadata | null> {
   const origin = `https://${ctx.host}`;
   const controller = new AbortController();
   const timer = setTimeout(
@@ -77,20 +85,20 @@ export async function readWidgetMetadata(
       response.headers.has("content-encoding")
     ) {
       await response.body?.cancel();
-      return initial;
+      return null;
     }
     reader = response.body?.getReader();
-    if (!reader) return initial;
+    if (!reader) return null;
     let bytes = 0;
     const chunks: Uint8Array[] = [];
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > WIDGET_METADATA_MAX_BYTES) return initial;
+      if (bytes > WIDGET_METADATA_MAX_BYTES) return null;
       chunks.push(chunk.value);
     }
-    if (controller.signal.aborted) return initial;
+    if (controller.signal.aborted) return null;
     let title = "";
     let titleSeen = false;
     let inTitle = false;
@@ -170,18 +178,78 @@ export async function readWidgetMetadata(
       const href = iconUrl(link.href, base, origin);
       return href ? [{ ...link, href }] : [];
     });
-    if (controller.signal.aborted) return initial;
+    if (controller.signal.aborted) return null;
+    const empty = fallback(ctx.app);
     return {
-      title: decodeHTML(title).trim() || initial.title,
-      icons: icons.length ? icons : initial.icons,
+      title: decodeHTML(title).trim() || empty.title,
+      icons: icons.length ? icons : empty.icons,
     };
   } catch {
-    return initial;
+    return null;
   } finally {
     controller.abort();
     clearTimeout(timer);
     await reader?.cancel().catch(() => {});
   }
+}
+
+// Each app's metadata, kept so an open does not wait for the app (task
+// ac70b38c). A hit answers at once and reads the app again in the
+// background; only a usable answer replaces what is kept. The first open of a
+// registration waits for the read, as an open did before. The answer carries
+// no member credentials, so one entry serves every member.
+export interface WidgetMetadataCache {
+  // registration: the app's registration generation. A new one, or a new
+  // host, starts a new entry.
+  get(ctx: RelayContext, registration: number): Promise<WidgetMetadata>;
+}
+
+export function createWidgetMetadataCache(
+  fetch: (
+    ctx: RelayContext,
+  ) => Promise<WidgetMetadata | null> = fetchWidgetMetadata,
+): WidgetMetadataCache {
+  interface Entry {
+    // registration, host and the app's createdAt: an app deleted and made
+    // again under its name can get the same registration and host.
+    key: string;
+    value: WidgetMetadata | null;
+    // The read in flight for this entry, the first one or a refresh.
+    reading: Promise<WidgetMetadata | null> | null;
+  }
+  const entries = new Map<string, Entry>();
+  // One read per entry at a time. Its answer goes only into the entry that
+  // started it, and only when usable; it never rejects.
+  const read = (entry: Entry, ctx: RelayContext) => {
+    const reading = fetch(ctx)
+      .catch(() => null)
+      .then((value) => {
+        if (value) entry.value = value;
+        entry.reading = null;
+        return value;
+      });
+    entry.reading = reading;
+    return reading;
+  };
+  return {
+    async get(ctx, registration) {
+      const key = `${registration}|${ctx.host}|${ctx.app.createdAt}`;
+      let entry = entries.get(ctx.app.name);
+      if (!entry || entry.key !== key) {
+        entry = { key, value: null, reading: null };
+        entries.set(ctx.app.name, entry);
+      }
+      if (entry.value) {
+        if (!entry.reading) void read(entry, ctx);
+        return entry.value;
+      }
+      // The first open waits; concurrent first opens share its read. A
+      // failed first read keeps the fallback until a read succeeds.
+      await (entry.reading ?? read(entry, ctx));
+      entry.value ??= fallback(ctx.app);
+      return entry.value;
+    },
+  };
 }
 
 export interface AppManifest {
