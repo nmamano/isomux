@@ -121,8 +121,16 @@ export const CHAT_PANEL_CSS = `
 .app-widget-image img { width:104px; height:80px; object-fit:contain; display:block; }
 .app-widget-panel .app-widget-image button { font-size:12px; padding:3px 8px; }
 .app-widget-hint { flex:1; min-width:0; font-size:12px; color:var(--text-secondary); margin:0; }
-/* On a phone the hint took three lines of a small panel. */
+/* On a phone the hint took three lines of a small panel. Without it, Send or
+   Queue message fits on the Attach image row from 375px wide; a longer label
+   wraps to its own row. */
 .app-widget-panel-phone .app-widget-hint { display:none; }
+.app-widget-panel-phone .app-widget-actions { gap:8px; }
+.app-widget-panel-phone .app-widget-attach { flex:0 1 auto; gap:8px; }
+.app-widget-panel-phone .app-widget-send { gap:8px; }
+.app-widget-panel-phone .app-widget-status:empty { display:none; }
+.app-widget-panel-phone .app-widget-actions button { padding:9px 10px; }
+.app-widget-panel-phone .app-widget-actions .app-widget-mic { padding:9px 8px; }
 .app-widget-queue-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
 .app-widget-queue { display:inline-block; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
 .app-widget-status { font-size:12px; color:var(--text-secondary); }
