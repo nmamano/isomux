@@ -296,14 +296,12 @@ export function chatCopyEntries(
   if (scope === "myMessages") {
     // A viewer with no name (an office without sign-in) gets every message a
     // member sent.
-    const me = self?.trim().toLowerCase();
+    const anyMember = !self?.trim();
     return entries.filter(
       (e) =>
         e.kind === "user_message" &&
         senderIsHuman(e.metadata) &&
-        (!me ||
-          (e.metadata?.username as string | undefined)?.trim().toLowerCase() ===
-            me),
+        (anyMember || isViewerMessage(e.metadata, self)),
     );
   }
   if (scope === "messages")
@@ -607,6 +605,18 @@ export function senderIsHuman(
   // script rather than the composer, so it reads as machine-sent (and is not
   // editable) like the app, agent and cron senders above.
   return !isApiTokenDevice(metadata?.device as string | undefined);
+}
+
+// Whether a message carries the viewer's name (trim, any case). False when
+// the viewer has no name (an office without sign-in) or the message has none.
+export function isViewerMessage(
+  metadata: Record<string, unknown> | undefined,
+  self: string | null | undefined,
+): boolean {
+  const me = self?.trim().toLowerCase();
+  if (!me) return false;
+  const username = metadata?.username as string | undefined;
+  return username?.trim().toLowerCase() === me;
 }
 
 // The device part of a member's sender label ("Windows", or an app widget's

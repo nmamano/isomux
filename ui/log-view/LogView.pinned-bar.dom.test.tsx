@@ -14,6 +14,8 @@ const { PINNED_BAR_HEIGHT } = await import("./pinned-message.ts");
 const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
+const { setUsername } = await import("../device-settings.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 setShim(() => {});
 afterAll(() => {
   connect(
@@ -61,13 +63,13 @@ const logs: LogEntry[] = [
   { id: "t1", agentId: "a1", timestamp: 2, kind: "text", content: "reply" },
 ];
 
-function Page() {
+function Page({ entries = logs }: { entries?: LogEntry[] }) {
   const state = useAppState();
   return (
     <StateCtx.Provider value={state}>
       <LogView
         agent={agent}
-        logs={logs}
+        logs={entries}
         onBack={() => {}}
         onEditAgent={() => {}}
       />
@@ -148,4 +150,63 @@ it("pins a message hidden under the bar's band, and the bar takes no layout spac
   await scrollWith(rect(bandEdge - 20, bandEdge + 1));
   expect(bar()).toBeUndefined();
   view.unmount();
+});
+
+// Task b364e680: the bar said "You" for every member message, so Yu's message
+// read as the viewer's. It names the sender, and "You" only for the viewer.
+it("names the member who wrote the pinned message, and You only for the viewer's own", async () => {
+  setApiShim(async () => ({ counts: {} }));
+  setUsername("Nil");
+  const you = translatorFor("en").t("common.you");
+  // The label part of the bar (before the message text) once the message
+  // sits under the band.
+  const labelFor = async (username: string) => {
+    const entries: LogEntry[] = [
+      { ...logs[0], metadata: { username, device: "Windows" } },
+      logs[1],
+    ];
+    const view = render(
+      <StoreProvider>
+        <Page entries={entries} />
+      </StoreProvider>,
+    );
+    const scroller =
+      view.container.querySelector<HTMLElement>(".chat-messages")!;
+    const message = view.container.querySelector<HTMLElement>(
+      '[data-log-entry-id="u1"]',
+    )!;
+    scroller.getBoundingClientRect = () => rect(100, 600);
+    message.getBoundingClientRect = () =>
+      rect(100, 100 + PINNED_BAR_HEIGHT - 5);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await act(async () => {
+      fireEvent.scroll(scroller);
+    });
+    const bar = [
+      ...view.container.querySelectorAll<HTMLElement>("[title]"),
+    ].find(
+      (element) =>
+        element.getAttribute("title") === QUESTION &&
+        !scroller.contains(element),
+    );
+    // The bar must show, or the label checks below pass on nothing.
+    expect(bar).toBeDefined();
+    const label = bar!.querySelector("span")!.textContent ?? "";
+    view.unmount();
+    return label;
+  };
+  try {
+    const other = await labelFor("Yu");
+    expect(other).toContain("Yu");
+    expect(other).not.toContain(you);
+    expect(other).not.toContain("Windows");
+
+    const own = await labelFor("Nil");
+    expect(own).toContain(you);
+    expect(own).not.toContain("Nil");
+  } finally {
+    localStorage.removeItem("isomux-username");
+  }
 });

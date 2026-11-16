@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
-import { pinnedHumanMessageId, type VerticalRect } from "./pinned-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import {
+  pinnedHumanMessageId,
+  pinnedMessageSenderLabel,
+  type VerticalRect,
+} from "./pinned-message.ts";
 
 function message(id: string, metadata?: Record<string, unknown>): LogEntry {
   return {
@@ -42,5 +47,39 @@ describe("pinnedHumanMessageId", () => {
       }),
     ];
     expect(pinnedHumanMessageId(logs, () => above, viewport)).toBeNull();
+  });
+});
+
+// Task b364e680: the bar named every pinned message "You", so another
+// member's message read as the viewer's own.
+describe("pinnedMessageSenderLabel", () => {
+  const EN = translatorFor("en");
+  const you = EN.t("common.you");
+
+  it("names another member by the name the chat card shows, without the device", () => {
+    expect(
+      pinnedMessageSenderLabel(
+        EN,
+        { username: "Yu", device: "Windows" },
+        "Nil",
+      ),
+    ).toBe("Yu");
+  });
+
+  it("says You for the viewer's own message, in any case and spacing", () => {
+    expect(pinnedMessageSenderLabel(EN, { username: "Nil" }, "Nil")).toBe(you);
+    expect(pinnedMessageSenderLabel(EN, { username: " nil " }, "NIL")).toBe(
+      you,
+    );
+  });
+
+  it("says You for a message with no name, as the chat card does", () => {
+    expect(pinnedMessageSenderLabel(EN, {}, "Nil")).toBe(you);
+    expect(pinnedMessageSenderLabel(EN, undefined, "Nil")).toBe(you);
+  });
+
+  it("names the sender when the viewer has no name", () => {
+    expect(pinnedMessageSenderLabel(EN, { username: "Yu" }, null)).toBe("Yu");
+    expect(pinnedMessageSenderLabel(EN, { username: "Yu" }, "")).toBe("Yu");
   });
 });

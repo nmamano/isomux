@@ -2775,7 +2775,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.noTopicFailed": "No topic: generation failed",
   "logView.editTopic": "Click to edit topic",
   "logView.regenerateTopic": "Regenerate topic from conversation",
-  "logView.lastMessagePrefix": "↑ You:",
+  "logView.lastMessageFrom": "↑ {name}:",
   "logView.emptyStart": "Send a message to start a conversation or",
   "logView.emptyResume": "resume a past one",
   "logView.outbox.sending": "Sending",

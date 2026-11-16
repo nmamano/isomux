@@ -2865,7 +2865,7 @@ Coses que pots fer per ell:
   "logView.noTopicFailed": "Sense tema: no s'ha pogut generar",
   "logView.editTopic": "Fes clic per editar el tema",
   "logView.regenerateTopic": "Regenera el tema a partir de la conversa",
-  "logView.lastMessagePrefix": "↑ Tu:",
+  "logView.lastMessageFrom": "↑ {name}:",
   "logView.emptyStart": "Envia un missatge per començar una conversa o",
   "logView.emptyResume": "reprèn-ne una d'anterior",
   "logView.outbox.sending": "Enviant",

@@ -2546,7 +2546,7 @@ export const zh: Catalog = {
   "logView.noTopicFailed": "无话题：生成失败",
   "logView.editTopic": "点击编辑话题",
   "logView.regenerateTopic": "根据对话重新生成话题",
-  "logView.lastMessagePrefix": "↑ 你：",
+  "logView.lastMessageFrom": "↑ {name}：",
   "logView.emptyStart": "发送消息以开始对话，或",
   "logView.emptyResume": "继续过去的对话",
   "logView.outbox.sending": "发送中",

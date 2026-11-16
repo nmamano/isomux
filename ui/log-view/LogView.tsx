@@ -70,6 +70,7 @@ import type { ChatCopyFormat } from "./plain-copy.ts";
 import {
   PINNED_BAR_HEIGHT,
   pinnedHumanMessageId,
+  pinnedMessageSenderLabel,
   pinnedViewport,
 } from "./pinned-message.ts";
 import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
@@ -2674,7 +2675,13 @@ export function LogView({
                     fontWeight: 600,
                   }}
                 >
-                  {i18n.t("logView.lastMessagePrefix")}
+                  {i18n.t("logView.lastMessageFrom", {
+                    name: pinnedMessageSenderLabel(
+                      i18n,
+                      pinnedMessage.metadata,
+                      sessionContext?.username ?? getUsername(),
+                    ),
+                  })}
                 </span>
                 <span
                   style={{
