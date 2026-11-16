@@ -2603,6 +2603,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.webhooks.list": "List webhooks",
   "apiCall.webhooks.create": "Create webhook",
   "apiCall.messaging.reply": "Reply in a messaging app",
+  "apiCall.messaging.read": "Read a messaging app chat",
+  "apiCall.messaging.routes": "List messaging app routes",
   "apiCall.messaging.discordList": "List Discord bots",
   "apiCall.messaging.discordDisconnect": "Disconnect Discord bot",
   "apiCall.messaging.discordGuilds": "List Discord servers",

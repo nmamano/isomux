@@ -1024,6 +1024,8 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/webhooks/*/deliveries", "apiCall.webhooks.deliveries"],
   ["POST", "/api/webhooks/*/dry-run", "apiCall.webhooks.dryRun"],
   ["POST", "/api/messaging/routes/*/messages", "apiCall.messaging.reply"],
+  ["GET", "/api/messaging/routes/*/messages", "apiCall.messaging.read"],
+  ["GET", "/api/messaging/routes", "apiCall.messaging.routes"],
   ["GET", "/api/discord", "apiCall.messaging.discordList"],
   ["DELETE", "/api/discord/bots/*", "apiCall.messaging.discordDisconnect"],
   ["GET", "/api/discord/bots/*/guilds", "apiCall.messaging.discordGuilds"],

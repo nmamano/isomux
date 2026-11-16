@@ -1,15 +1,21 @@
 // WhatsApp messages from routed chats to agents (task d03a61d8, slice 2).
 //
 // A message is dropped when its chat has no live row, its id was delivered
-// before, it is older than the link or than WHATSAPP_MAX_AGE_MS, or it is an
-// agent's own send, also one whose id the bridge reports after the message
-// itself (it is dropped at the delivery). The member's own phone text, unless
-// the row has ownMessages, and in a group with trigger "mention" every other
-// message that neither mentions the linked account nor answers an agent's
-// message, is context: it goes with the next delivery, never alone. Messages
-// that count, in one chat, make one delivery WHATSAPP_BURST_QUIET_MS after
-// the last, or WHATSAPP_BURST_MAX_MS after the first. A message id is marked
-// seen when it is delivered.
+// before, or it is older than the link. Every other text message goes in the
+// chat's log (chat-log.ts, task 682fd65a), an agent's own send too, marked as
+// the agent's (also one whose id the bridge reports after the message
+// itself: the delivery marks it). A message counts, and wakes the agent,
+// unless it is the member's own phone text on a row without ownMessages, a
+// message in a group with trigger "mention" that neither mentions the linked
+// account nor answers an agent's message, or a message over
+// WHATSAPP_MAX_AGE_MS old when it arrives. Messages that count, in one chat,
+// make one delivery WHATSAPP_BURST_QUIET_MS after the last, or
+// WHATSAPP_BURST_MAX_MS after the first. A delivery carries every logged
+// line not yet delivered and not the agent's; the lines that did not count
+// in this burst go as context. The log is on disk, so the context survives a
+// restart, and a line that counted in a burst a crash cut goes as context
+// with the next delivery. A delivered line is marked in the log and in the
+// seen ring.
 
 import { formatMessagingSenderPrefix } from "../../shared/identity.ts";
 import {
@@ -17,18 +23,14 @@ import {
   type WhatsAppRoute,
   type WhatsAppRouteDead,
 } from "../../shared/whatsapp.ts";
-import {
-  WHATSAPP_UNKNOWN_SENDER,
-  buildWhatsAppBlock,
-  type WhatsAppBlockLine,
-} from "./block.ts";
+import { WHATSAPP_UNKNOWN_SENDER, buildWhatsAppBlock } from "./block.ts";
+import type { ChatLog } from "./chat-log.ts";
 import type { BridgeMessage } from "./protocol.ts";
 import type { IdRing } from "./routes-store.ts";
 import type { WhatsAppClock } from "./supervisor.ts";
 
 export const WHATSAPP_BURST_QUIET_MS = 5_000;
 export const WHATSAPP_BURST_MAX_MS = 30_000;
-export const WHATSAPP_CONTEXT_MAX = 10;
 export const WHATSAPP_MAX_AGE_MS = 24 * 60 * 60_000;
 
 export interface WhatsAppInboundDeps {
@@ -39,6 +41,8 @@ export interface WhatsAppInboundDeps {
   linkedAt(userId: string): number | null;
   seen(userId: string): IdRing;
   sent(userId: string): IdRing;
+  // The chat's log (chat-log.ts).
+  chatLog(userId: string, chat: string): ChatLog;
   // Re-reads the row's agent; a reason marks the row dead and delivers
   // nothing.
   check(userId: string, route: WhatsAppRoute): WhatsAppRouteDead | null;
@@ -55,19 +59,11 @@ export interface WhatsAppInbound {
   dropMember(userId: string): void;
 }
 
-interface PendingLine {
-  id: string;
-  ts: number;
-  line: WhatsAppBlockLine;
-}
-
-// One chat's lines since its last delivery, in arrival order.
+// One chat's burst: the ids that counted since its last delivery.
 interface Pending {
   userId: string;
   chat: string;
-  lines: PendingLine[];
-  // Set from the first line that counts until the delivery.
-  firstAt: number | null;
+  counted: Set<string>;
   quietTimer: unknown;
   maxTimer: unknown;
 }
@@ -108,45 +104,35 @@ export function createWhatsAppInbound(
   function clearTimers(p: Pending): void {
     clock.clearTimeout(p.quietTimer);
     clock.clearTimeout(p.maxTimer);
-    p.quietTimer = null;
-    p.maxTimer = null;
   }
 
   function flush(key: string): void {
     const p = pending.get(key);
-    if (!p || p.firstAt === null) return;
+    if (!p) return;
     clearTimers(p);
     pending.delete(key);
     try {
+      const log = deps.chatLog(p.userId, p.chat);
       // An agent's own send whose id came after the message: never delivered.
       const sent = deps.sent(p.userId);
-      p.lines = p.lines.filter((l) => !sent.has(l.id));
-      if (!p.lines.some((l) => !l.line.context)) {
-        // Nothing counts: the context waits for the next line that does.
-        p.firstAt = null;
-        if (p.lines.length > 0) pending.set(key, p);
-        return;
-      }
+      const all = log.lines().filter((l) => !l.delivered && !l.agent);
+      const echoes = all.filter((l) => sent.has(l.id)).map((l) => l.id);
+      if (echoes.length > 0) log.mark(echoes, "agent");
+      const lines = all.filter((l) => !sent.has(l.id));
+      // Nothing counts: the context waits for the next line that does.
+      if (!lines.some((l) => p.counted.has(l.id))) return;
       const route = deps.route(p.userId, p.chat);
       if (!route || deps.check(p.userId, route) !== null) return;
-      const now = clock.now();
-      // Context older than the age limit goes; the cap keeps the newest.
-      let lines = p.lines.filter(
-        (l) => !l.line.context || now - l.ts <= WHATSAPP_MAX_AGE_MS,
-      );
-      const context = lines.filter((l) => l.line.context);
-      if (context.length > WHATSAPP_CONTEXT_MAX) {
-        const drop = new Set(
-          context.slice(0, context.length - WHATSAPP_CONTEXT_MAX),
-        );
-        lines = lines.filter((l) => !drop.has(l));
-      }
       const text = buildWhatsAppBlock({
         routeId: route.id,
         routeName: route.name,
         memberName: deps.memberName(p.userId),
         direct: route.sendDirect === true,
-        lines: lines.map((l) => l.line),
+        lines: lines.map((l) => ({
+          from: l.from,
+          text: l.text,
+          ...(p.counted.has(l.id) ? {} : { context: true as const }),
+        })),
         reservedChars:
           formatMessagingSenderPrefix(WHATSAPP_APP, route.name).length + 1,
       });
@@ -154,8 +140,12 @@ export function createWhatsAppInbound(
         console.warn("[whatsapp] an agent did not take a WhatsApp delivery");
         return;
       }
+      // The lines the block left out for space are delivered too: the agent
+      // reads them with messaging_read.
+      const ids = lines.map((l) => l.id);
+      log.mark(ids, "delivered");
       const seen = deps.seen(p.userId);
-      for (const l of lines) seen.add(l.id);
+      for (const id of ids) seen.add(id);
     } catch {
       console.error("[whatsapp] a WhatsApp delivery failed");
     }
@@ -168,8 +158,24 @@ export function createWhatsAppInbound(
       const linkedAt = deps.linkedAt(userId);
       const now = clock.now();
       if (linkedAt === null || msg.ts < linkedAt) return;
-      if (now - msg.ts > WHATSAPP_MAX_AGE_MS) return;
-      if (deps.seen(userId).has(msg.id) || deps.sent(userId).has(msg.id))
+      if (deps.seen(userId).has(msg.id)) return;
+      const log = deps.chatLog(userId, msg.chat);
+      const line = {
+        id: msg.id,
+        ts: msg.ts,
+        from: senderOf(userId, route, msg),
+        fromMe: msg.fromMe,
+        text: msg.text,
+      };
+      if (deps.sent(userId).has(msg.id)) {
+        // An agent's own send: logged as the agent's, never delivered.
+        if (!log.append({ ...line, agent: true })) log.mark([msg.id], "agent");
+        return;
+      }
+      // A redelivery of a line already logged.
+      if (!log.append(line)) return;
+      // A message over the age limit rides along as context only.
+      if (now - msg.ts > WHATSAPP_MAX_AGE_MS || !counts(userId, route, msg))
         return;
       const key = keyOf(userId, msg.chat);
       let p = pending.get(key);
@@ -177,40 +183,15 @@ export function createWhatsAppInbound(
         p = {
           userId,
           chat: msg.chat,
-          lines: [],
-          firstAt: null,
+          counted: new Set(),
           quietTimer: null,
-          maxTimer: null,
+          maxTimer: clock.setTimeout(() => flush(key), WHATSAPP_BURST_MAX_MS),
         };
         pending.set(key, p);
       }
-      // A redelivery of a line already waiting.
-      if (p.lines.some((l) => l.id === msg.id)) return;
-      const counted = counts(userId, route, msg);
-      const line: WhatsAppBlockLine = {
-        from: senderOf(userId, route, msg),
-        text: msg.text,
-        ...(counted ? {} : { context: true as const }),
-      };
-      p.lines.push({ id: msg.id, ts: msg.ts, line });
-      if (!counted) {
-        // Context alone waits for the next line that counts; the cap keeps
-        // memory bounded meanwhile.
-        const context = p.lines.filter((l) => l.line.context);
-        if (context.length > WHATSAPP_CONTEXT_MAX)
-          p.lines.splice(p.lines.indexOf(context[0]), 1);
-        return;
-      }
-      const target = p;
-      if (target.firstAt === null) {
-        target.firstAt = now;
-        target.maxTimer = clock.setTimeout(
-          () => flush(key),
-          WHATSAPP_BURST_MAX_MS,
-        );
-      }
-      clock.clearTimeout(target.quietTimer);
-      target.quietTimer = clock.setTimeout(
+      p.counted.add(msg.id);
+      clock.clearTimeout(p.quietTimer);
+      p.quietTimer = clock.setTimeout(
         () => flush(key),
         WHATSAPP_BURST_QUIET_MS,
       );

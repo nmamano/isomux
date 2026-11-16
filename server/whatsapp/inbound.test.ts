@@ -2,16 +2,22 @@
 // what is dropped, what is only context, how a burst makes one delivery, the
 // sender names the agent sees, the dead-row check, and that a failing
 // delivery never escapes a timer. Fake clock and fake delivery; the block is
-// the real one, parsed back.
+// the real one, parsed back. The chat log is the real one on a temp
+// STATE_ROOT (task 682fd65a): a second harness over the same root is a
+// restart.
 
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import {
   WHATSAPP_BURST_MAX_MS,
   WHATSAPP_BURST_QUIET_MS,
-  WHATSAPP_CONTEXT_MAX,
   WHATSAPP_MAX_AGE_MS,
   createWhatsAppInbound,
 } from "./inbound.ts";
+import { openChatLog } from "./chat-log.ts";
+import { ensureMemberDir } from "./store.ts";
 import { WHATSAPP_UNKNOWN_SENDER, buildWhatsAppBlock } from "./block.ts";
 import type { BridgeMessage } from "./protocol.ts";
 import type { IdRing } from "./routes-store.ts";
@@ -55,6 +61,11 @@ class Clock {
   }
 }
 
+const roots: string[] = [];
+afterEach(() => {
+  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
+});
+
 function ring(): IdRing & { ids: Set<string> } {
   const ids = new Set<string>();
   return { ids, has: (id) => ids.has(id), add: (id) => void ids.add(id) };
@@ -86,14 +97,27 @@ interface Line {
   context?: true;
 }
 
-function harness() {
+type Ring = ReturnType<typeof ring>;
+
+// `from` is an earlier harness: the same state root and id rings, a new
+// inbound and clock at its time (the office restarted).
+function harness(from?: { root: string; seen: Ring; sent: Ring; t: number }) {
   const clock = new Clock();
-  const seen = ring();
-  const sent = ring();
+  if (from) clock.t = from.t;
+  const seen = from?.seen ?? ring();
+  const sent = from?.sent ?? ring();
+  let root = from?.root;
+  if (!root) {
+    root = mkdtempSync(join(tmpdir(), "t-682fd65a-inbound-"));
+    roots.push(root);
+    ensureMemberDir(root, U);
+  }
+  const stateRoot = root;
   const h = {
     clock,
     seen,
     sent,
+    root: stateRoot,
     routes: { ...ROUTES } as Record<string, WhatsAppRoute>,
     dead: null as WhatsAppRouteDead | null,
     linkedAt: LINKED_AT as number | null,
@@ -113,6 +137,7 @@ function harness() {
     linkedAt: () => h.linkedAt,
     seen: () => seen,
     sent: () => sent,
+    chatLog: (userId, chat) => openChatLog(stateRoot, userId, chat),
     check: () => {
       h.checks++;
       return h.dead;
@@ -158,7 +183,11 @@ function harness() {
       ...over,
     });
   const texts = () => h.deliveries.map((d) => d.lines.map((l) => l.text));
-  return { h, inbound, msg, groupMsg, texts };
+  // The chat's log as on disk.
+  const logged = (chat = MOM) => openChatLog(stateRoot, U, chat).lines();
+  // The same office after a restart.
+  const restart = () => harness({ root: stateRoot, seen, sent, t: clock.t });
+  return { h, inbound, msg, groupMsg, texts, logged, restart };
 }
 
 describe("whatsapp inbound: a contact", () => {
@@ -213,8 +242,8 @@ describe("whatsapp inbound: a contact", () => {
     );
   });
 
-  it("drops an unrouted chat, a seen id, a message from before the link or over a day old, and everything when not linked", () => {
-    const { h, inbound, msg } = harness();
+  it("drops an unrouted chat, a seen id, a message from before the link, and everything when not linked", () => {
+    const { h, inbound, msg, logged } = harness();
     h.seen.add("m-old");
     const dropped = (linkedAt: number | null, m: BridgeMessage, userId = U) => {
       h.linkedAt = linkedAt;
@@ -232,12 +261,10 @@ describe("whatsapp inbound: a contact", () => {
     dropped(LINKED_AT, msg({ text: "another member's chat" }), "u-bob");
     dropped(LINKED_AT, msg({ id: "m-old", text: "again" }));
     dropped(LINKED_AT, msg({ ts: LINKED_AT - 1, text: "before the link" }));
-    dropped(
-      h.clock.now() - 2 * WHATSAPP_MAX_AGE_MS,
-      msg({ ts: h.clock.now() - WHATSAPP_MAX_AGE_MS - 1, text: "too old" }),
-    );
     dropped(null, msg({ text: "not linked" }));
     expect([...h.seen.ids]).toEqual(["m-old"]);
+    // Nothing dropped is logged either.
+    expect(logged()).toEqual([]);
 
     // The condition: the same harness does deliver a fresh routed message.
     h.linkedAt = LINKED_AT;
@@ -248,16 +275,23 @@ describe("whatsapp inbound: a contact", () => {
     ]);
   });
 
-  it("the member's own phone text is context for the next delivery, never one of its own; an agent's own send is dropped", () => {
-    const { h, inbound, msg } = harness();
+  it("the member's own phone text is context for the next delivery, never one of its own; an agent's own send is logged as the agent's and never delivered", () => {
+    const { h, inbound, msg, logged } = harness();
     h.sent.add("m-agent");
     inbound.onMessage(
       U,
       msg({ id: "m-agent", fromMe: true, text: "agent reply" }),
     );
-    inbound.onMessage(U, msg({ fromMe: true, text: "I'll ask my agent" }));
+    inbound.onMessage(
+      U,
+      msg({ id: "m-own", fromMe: true, text: "I'll ask my agent" }),
+    );
     h.clock.advance(WHATSAPP_BURST_MAX_MS);
     expect(h.deliveries).toEqual([]);
+    expect(logged().map((l) => [l.id, l.agent === true])).toEqual([
+      ["m-agent", true],
+      ["m-own", false],
+    ]);
 
     inbound.onMessage(U, msg({ text: "ok, ask it" }));
     h.clock.advance(WHATSAPP_BURST_QUIET_MS);
@@ -274,16 +308,112 @@ describe("whatsapp inbound: a contact", () => {
     expect(h.deliveries[1].lines).toEqual([{ from: "Mom", text: "thanks" }]);
   });
 
-  it("keeps the newest context lines up to the cap", () => {
+  it("context has no line cap below the log's and no age limit: every line since the last delivery goes", () => {
     const { h, inbound, msg } = harness();
-    for (let i = 0; i < WHATSAPP_CONTEXT_MAX + 3; i++)
+    for (let i = 0; i < 30; i++)
       inbound.onMessage(U, msg({ fromMe: true, text: `own ${i}` }));
+    // Two days pass before the contact writes.
+    h.clock.advance(2 * WHATSAPP_MAX_AGE_MS);
     inbound.onMessage(U, msg({ text: "go" }));
     h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.deliveries).toHaveLength(1);
     const lines = h.deliveries[0].lines;
-    expect(lines.filter((l) => l.context)).toHaveLength(WHATSAPP_CONTEXT_MAX);
-    expect(lines[0].text).toBe("own 3");
+    expect(lines.filter((l) => l.context).map((l) => l.text)).toEqual(
+      Array.from({ length: 30 }, (_, i) => `own ${i}`),
+    );
     expect(lines.at(-1)).toEqual({ from: "Mom", text: "go" });
+  });
+
+  it("a message over a day old when it arrives is logged but never counts: it goes as context with the next line that does", () => {
+    const { h, inbound, msg, logged } = harness();
+    // Linked before it was sent: only its age keeps it from counting.
+    h.linkedAt = h.clock.now() - 2 * WHATSAPP_MAX_AGE_MS;
+    const old = msg({
+      id: "m-late",
+      ts: h.clock.now() - WHATSAPP_MAX_AGE_MS - 1,
+      text: "sent yesterday",
+    });
+    inbound.onMessage(U, old);
+    h.clock.advance(10 * WHATSAPP_BURST_MAX_MS);
+    expect(h.deliveries).toEqual([]);
+    expect(logged().map((l) => l.id)).toEqual(["m-late"]);
+
+    // The condition: a fresh message from the same contact counts.
+    inbound.onMessage(U, msg({ text: "today" }));
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.deliveries.map((d) => d.lines)).toEqual([
+      [
+        { from: "Mom", text: "sent yesterday", context: true },
+        { from: "Mom", text: "today" },
+      ],
+    ]);
+  });
+});
+
+// The chat log keeps what the office's memory loses at a restart (task
+// 682fd65a): the next delivery carries every line since the last one.
+describe("whatsapp inbound: a restart", () => {
+  it("context logged before a restart goes with the first delivery after it", () => {
+    const { inbound, msg, restart } = harness();
+    inbound.onMessage(U, msg({ fromMe: true, text: "I told Mom yes" }));
+    inbound.onMessage(U, msg({ fromMe: true, text: "and Sunday" }));
+    // The office stops: context alone delivers nothing.
+    inbound.flushAll();
+
+    const after = restart();
+    after.inbound.onMessage(U, after.msg({ id: "m-new", text: "great" }));
+    after.h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(after.h.deliveries.map((d) => d.lines)).toEqual([
+      [
+        { from: "Morgan", text: "I told Mom yes", context: true },
+        { from: "Morgan", text: "and Sunday", context: true },
+        { from: "Mom", text: "great" },
+      ],
+    ]);
+  });
+
+  it("a delivered line is not delivered again after a restart", () => {
+    const { h, inbound, msg, restart } = harness();
+    inbound.onMessage(U, msg({ id: "m-a", text: "first" }));
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.deliveries).toHaveLength(1);
+
+    const after = restart();
+    after.inbound.onMessage(U, after.msg({ id: "m-b", text: "second" }));
+    after.h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(after.h.deliveries.map((d) => d.lines)).toEqual([
+      [{ from: "Mom", text: "second" }],
+    ]);
+  });
+
+  it("a line that counted in a burst cut by a crash goes as context with the next delivery", () => {
+    const { inbound, msg, restart } = harness();
+    inbound.onMessage(U, msg({ id: "m-a", text: "are you there?" }));
+    // A crash: no flushAll, the timers die with the process.
+
+    const after = restart();
+    after.h.clock.advance(10 * WHATSAPP_BURST_MAX_MS);
+    expect(after.h.deliveries).toEqual([]);
+    after.inbound.onMessage(U, after.msg({ id: "m-b", text: "hello?" }));
+    after.h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(after.h.deliveries.map((d) => d.lines)).toEqual([
+      [
+        { from: "Mom", text: "are you there?", context: true },
+        { from: "Mom", text: "hello?" },
+      ],
+    ]);
+  });
+
+  it("a redelivery of a logged id after a restart is not logged or delivered twice", () => {
+    const { inbound, msg, logged, restart } = harness();
+    const m = msg({ id: "m-a", fromMe: true, text: "context once" });
+    inbound.onMessage(U, m);
+    const after = restart();
+    after.inbound.onMessage(U, m);
+    expect(logged().map((l) => l.id)).toEqual(["m-a"]);
+    after.inbound.onMessage(U, after.msg({ id: "m-b", text: "go" }));
+    after.h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(after.texts()).toEqual([["context once", "go"]]);
   });
 });
 
@@ -384,16 +514,19 @@ describe("whatsapp inbound: the row and the office", () => {
     expect(h.deliveries).toHaveLength(2);
   });
 
-  it("a delivery that throws never escapes the timer, and the next one works", () => {
+  it("a delivery that throws never escapes the timer, and the next one works and carries the undelivered line as context", () => {
     const { h, inbound, msg } = harness();
     h.deliverThrows = true;
-    inbound.onMessage(U, msg({ text: "lost" }));
+    inbound.onMessage(U, msg({ text: "not taken" }));
     h.clock.advance(WHATSAPP_BURST_QUIET_MS);
     h.deliverThrows = false;
     inbound.onMessage(U, msg({ text: "next" }));
     h.clock.advance(WHATSAPP_BURST_QUIET_MS);
-    expect(h.deliveries.map((d) => d.lines.map((l) => l.text))).toEqual([
-      ["next"],
+    expect(h.deliveries.map((d) => d.lines)).toEqual([
+      [
+        { from: "Mom", text: "not taken", context: true },
+        { from: "Mom", text: "next" },
+      ],
     ]);
   });
 });
@@ -460,7 +593,7 @@ describe("whatsapp inbound: own messages", () => {
   });
 
   it("an agent's send whose id reaches the sent ring after it arrived is not delivered; alone, it delivers nothing and the context waits for the next line that counts", () => {
-    const { h, inbound, groupMsg } = harness();
+    const { h, inbound, groupMsg, logged } = harness();
     h.routes[FAMILY] = { ...ROUTES[FAMILY], ownMessages: true };
     inbound.onMessage(U, groupMsg({ id: "m-ctx", text: "who is cooking?" }));
     // The echo of the agent's own send, before the bridge's "sent" event.
@@ -471,6 +604,13 @@ describe("whatsapp inbound: own messages", () => {
     h.sent.add("m-echo");
     h.clock.advance(WHATSAPP_BURST_MAX_MS);
     expect(h.deliveries).toEqual([]);
+    // The flush found it in the sent ring: the log says it is the agent's.
+    expect(
+      logged(FAMILY).map((l) => [l.id, l.agent === true, l.delivered === true]),
+    ).toEqual([
+      ["m-ctx", false, false],
+      ["m-echo", true, false],
+    ]);
     // No timer runs for it any more: much later, still nothing.
     h.clock.advance(10 * WHATSAPP_BURST_MAX_MS);
     expect(h.deliveries).toEqual([]);

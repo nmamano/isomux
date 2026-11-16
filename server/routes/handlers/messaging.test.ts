@@ -13,6 +13,7 @@ import {
   type Identity,
 } from "../../identity/index.ts";
 import type {
+  MessagingReadOutcome,
   MessagingReplyBody,
   MessagingReplyResult,
 } from "../../messaging/replies.ts";
@@ -42,6 +43,12 @@ function rig(result: MessagingReplyResult) {
       reply: async (agentId, routeId, body) => {
         calls.push({ agentId, routeId, body });
         return result;
+      },
+      read: () => {
+        throw new Error("not a read");
+      },
+      routes: () => {
+        throw new Error("not a list");
       },
     },
   })["messaging.reply"];
@@ -125,5 +132,125 @@ describe("messaging.reply", () => {
       status: 403,
     });
     expect(t.calls).toEqual([]);
+  });
+});
+
+// An agent reads its route (task 682fd65a).
+describe("messaging.read", () => {
+  function readRig(result: MessagingReadOutcome) {
+    const calls: { agentId: string; routeId: string; limit: unknown }[] = [];
+    const handler = messagingHandlers({
+      replies: {
+        reply: () => {
+          throw new Error("not a reply");
+        },
+        read: (agentId, routeId, limit) => {
+          calls.push({ agentId, routeId, limit });
+          return result;
+        },
+        routes: () => {
+          throw new Error("not a list");
+        },
+      },
+    })["messaging.read"];
+    const run = (identity: Identity, query: string) =>
+      Promise.resolve(
+        handler({
+          identity,
+          params: { routeId: "r_00000001" },
+          body: undefined,
+          rawBody: "",
+          query: new URLSearchParams(query),
+          req: new Request("http://localhost/"),
+        } as RouteHandlerContext),
+      ) as Promise<HandlerResult>;
+    return { calls, run };
+  }
+  const messages = [
+    { from: "Mom", text: "hi", at: "2027-01-15T08:00:00.000Z" },
+    {
+      from: "Morgan",
+      text: "hello",
+      at: "2027-01-15T08:00:01.000Z",
+      agent: true as const,
+    },
+  ];
+
+  it("passes the limit on as given, absent as undefined, and answers 200 with the messages", async () => {
+    const t = readRig({ ok: true, messages });
+    expect(await t.run(agent, "limit=7")).toEqual({
+      kind: "json",
+      status: undefined,
+      body: { messages },
+    });
+    await t.run(agent, "");
+    expect(t.calls).toEqual([
+      { agentId: "agent-a", routeId: "r_00000001", limit: "7" },
+      { agentId: "agent-a", routeId: "r_00000001", limit: undefined },
+    ]);
+  });
+
+  it("a refusal keeps its status and code; a member is 403 and the replies are not asked", async () => {
+    const refused = readRig({
+      ok: false,
+      status: 400,
+      code: "messaging_read_unsupported",
+      error: "WhatsApp only",
+    });
+    expect(await refused.run(agent, "")).toMatchObject({
+      kind: "error",
+      status: 400,
+      code: "messaging_read_unsupported",
+    });
+    const t = readRig({ ok: true, messages });
+    expect(await t.run(member, "")).toMatchObject({
+      kind: "error",
+      status: 403,
+    });
+    expect(t.calls).toEqual([]);
+  });
+});
+
+// An agent lists its own routes (task 682fd65a).
+describe("messaging.routes", () => {
+  function listRig() {
+    const calls: string[] = [];
+    const handler = messagingHandlers({
+      replies: {
+        reply: () => {
+          throw new Error("not a reply");
+        },
+        read: () => {
+          throw new Error("not a read");
+        },
+        routes: (agentId) => {
+          calls.push(agentId);
+          return [{ id: "r_1", app: "whatsapp", name: "Mom" }];
+        },
+      },
+    })["messaging.routes"];
+    const run = (identity: Identity) =>
+      Promise.resolve(
+        handler({
+          identity,
+          params: {},
+          body: undefined,
+          rawBody: "",
+          query: new URLSearchParams(),
+          req: new Request("http://localhost/"),
+        } as RouteHandlerContext),
+      ) as Promise<HandlerResult>;
+    return { calls, run };
+  }
+
+  it("answers 200 with the calling agent's routes; a member is 403 and the replies are not asked", async () => {
+    const t = listRig();
+    expect(await t.run(agent)).toEqual({
+      kind: "json",
+      status: undefined,
+      body: { routes: [{ id: "r_1", app: "whatsapp", name: "Mom" }] },
+    });
+    expect(await t.run(member)).toMatchObject({ kind: "error", status: 403 });
+    expect(t.calls).toEqual(["agent-a"]);
   });
 });

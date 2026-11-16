@@ -14,6 +14,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { getUserByName } from "../users.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { readRoutes, writeRoutes } from "../whatsapp/routes-store.ts";
+import { openChatLog } from "../whatsapp/chat-log.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -202,6 +203,108 @@ describe("a reply draft (slice 2b)", () => {
     expect((await asks()).map((e) => e.id)).toEqual([askId]);
     expect((await reply("Don't send")).status).toBe(204);
     expect(await asks()).toEqual([]);
+  });
+});
+
+// The row's agent reads its chat (task 682fd65a); what the read returns is
+// pinned in server/whatsapp/replies.test.ts.
+describe("read the chat (task 682fd65a)", () => {
+  it("the row's agent reads the last lines with GET; another agent gets 404, a member 403, a bad limit 400", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName(owner.username)!.id;
+    const room = srv.agentManager.getRooms()[0].id;
+    const spawn = async (name: string) => {
+      const a = await srv.agentManager.spawn(
+        name,
+        srv.workDir,
+        "default",
+        undefined,
+        undefined,
+        room,
+        undefined,
+        undefined,
+        undefined,
+        owner.username,
+        "claude",
+        undefined,
+        ownerId,
+      );
+      if (!a) throw new Error(`spawn ${name} failed`);
+      return a;
+    };
+    const helper = await spawn("Helper");
+    const other = await spawn("Other");
+    const chat = "447700900123@s.whatsapp.net";
+    writeRoutes(srv.stateRoot, ownerId, {
+      phone: "447700900111",
+      routes: [
+        {
+          id: "r1",
+          chat,
+          group: false,
+          name: "Mom",
+          agentId: helper.id,
+          createdAt: 1,
+        },
+      ],
+    });
+    const log = openChatLog(srv.stateRoot, ownerId, chat);
+    for (const [i, text] of ["lunch on Sunday?", "yes, at 1"].entries())
+      log.append({
+        id: `m${i}`,
+        ts: 1_800_000_000_000 + i,
+        from: i ? "Morgan" : "Mom",
+        fromMe: i === 1,
+        text,
+      });
+    const get = (
+      auth: { bearer: string } | { rawSessionId: string },
+      query = "",
+    ) =>
+      srv.http(`/api/messaging/routes/r1/messages${query}`, {
+        method: "GET",
+        headers:
+          "bearer" in auth ? { Authorization: `Bearer ${auth.bearer}` } : {},
+        ...("rawSessionId" in auth ? { rawSessionId: auth.rawSessionId } : {}),
+      });
+    const helperAuth = { bearer: mintAgentToken(helper.id, ownerId) };
+
+    const all = await get(helperAuth);
+    expect(all.status).toBe(200);
+    expect(
+      ((await all.json()) as { messages: { text: string }[] }).messages.map(
+        (m) => m.text,
+      ),
+    ).toEqual(["lunch on Sunday?", "yes, at 1"]);
+    const last = await get(helperAuth, "?limit=1");
+    expect(
+      ((await last.json()) as { messages: { text: string }[] }).messages.map(
+        (m) => m.text,
+      ),
+    ).toEqual(["yes, at 1"]);
+    expect((await get(helperAuth, "?limit=0")).status).toBe(400);
+    expect(
+      (await get({ bearer: mintAgentToken(other.id, ownerId) })).status,
+    ).toBe(404);
+    expect((await get({ rawSessionId: owner.rawSessionId })).status).toBe(403);
+
+    // The list of the agent's own routes, where a fresh session finds the id.
+    const list = (auth: { bearer: string } | { rawSessionId: string }) =>
+      srv.http("/api/messaging/routes", {
+        method: "GET",
+        headers:
+          "bearer" in auth ? { Authorization: `Bearer ${auth.bearer}` } : {},
+        ...("rawSessionId" in auth ? { rawSessionId: auth.rawSessionId } : {}),
+      });
+    const mine = await list(helperAuth);
+    expect(mine.status).toBe(200);
+    expect(await mine.json()).toEqual({
+      routes: [{ id: "r1", app: "whatsapp", name: "Mom" }],
+    });
+    const others = await list({ bearer: mintAgentToken(other.id, ownerId) });
+    expect(await others.json()).toEqual({ routes: [] });
+    expect((await list({ rawSessionId: owner.rawSessionId })).status).toBe(403);
   });
 });
 

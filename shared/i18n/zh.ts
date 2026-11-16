@@ -2382,6 +2382,8 @@ export const zh: Catalog = {
   "apiCall.webhooks.list": "列出 Webhook",
   "apiCall.webhooks.create": "创建 Webhook",
   "apiCall.messaging.reply": "在消息应用中回复",
+  "apiCall.messaging.read": "读取消息应用中的聊天",
+  "apiCall.messaging.routes": "列出消息应用路由",
   "apiCall.messaging.discordList": "列出 Discord 机器人",
   "apiCall.messaging.discordDisconnect": "断开 Discord 机器人",
   "apiCall.messaging.discordGuilds": "列出 Discord 服务器",

@@ -125,6 +125,55 @@ describe("buildWhatsAppBlock", () => {
   });
 });
 
+// Context has no line cap of its own (task 682fd65a): every line since the
+// last delivery goes, so it must never push out the lines that woke the agent.
+describe("buildWhatsAppBlock: context and the limit", () => {
+  const context = (n: number, len: number, tag = "c") =>
+    Array.from({ length: n }, (_, i) => ({
+      from: "Aunt Jo",
+      text: `${tag}${i} ` + "y".repeat(len),
+      context: true as const,
+    }));
+
+  it("over the limit, the oldest context lines go first, counted in omitted, and the lines that count arrive whole", () => {
+    const question = "q ".repeat(700) + "end of the question";
+    const lines = [
+      ...context(100, 80),
+      { from: "Mom", text: question },
+      ...context(2, 10, "d"),
+      { from: "Mom", text: "and one more" },
+    ];
+    const text = buildWhatsAppBlock(input({ lines, reservedChars: 40 }));
+    expect(40 + text.length).toBeLessThanOrEqual(APP_MESSAGE_MAX_CHARS);
+    const parsed = structure(text) as Parsed & { omitted?: number };
+    const counted = parsed.messages.filter((m) => !m.context);
+    expect(counted).toEqual([
+      { from: "Mom", text: question },
+      { from: "Mom", text: "and one more" },
+    ]);
+    // Some context still fits; what went is the oldest, and counted.
+    const kept = parsed.messages.filter((m) => m.context).map((m) => m.text);
+    expect(kept.length).toBeGreaterThan(0);
+    expect(parsed.omitted).toBe(102 - kept.length);
+    expect(kept.slice(-2)).toEqual(
+      ["d0 ", "d1 "].map((t) => t + "y".repeat(10)),
+    );
+    const firstKept = Number(/^c(\d+) /.exec(kept[0])?.[1]);
+    expect(firstKept).toBe(100 - (kept.length - 2));
+  });
+
+  it("a long context line is not cut while it fits; under the limit nothing goes", () => {
+    const lines = [...context(3, 500), { from: "Mom", text: "hi" }];
+    const parsed = structure(buildWhatsAppBlock(input({ lines }))) as Parsed & {
+      omitted?: number;
+    };
+    expect(parsed.omitted).toBeUndefined();
+    expect(parsed.messages.map((m) => m.text)).toEqual(
+      lines.map((l) => l.text),
+    );
+  });
+});
+
 // The head tells the agent whether its reply waits for the member's Send or
 // goes out at once (task 70fae82c). The words are copy; the rule is that the
 // two modes read differently and both still name the row and the route.

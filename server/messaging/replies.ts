@@ -1,10 +1,15 @@
 // An agent's reply to a messaging route (POST
-// /api/messaging/routes/:routeId/messages), dispatched by app (task
+// /api/messaging/routes/:routeId/messages), and its read of one (GET, WhatsApp
+// only, task 682fd65a), dispatched by app (task
 // 7fd44c30, slice 2). The route id names a WhatsApp row (r_...) or a Discord
 // route (d_...) of the agent's member. A route that is not the caller's, in
 // either app, is the same 404, and every field check comes after that one.
 
 import { DISCORD_APP } from "../../shared/discord.ts";
+import type {
+  MessagingReadResult,
+  MessagingRouteListed,
+} from "../../shared/messaging.ts";
 import type { AskEntry } from "../../shared/types.ts";
 
 export type MessagingReplyFailure = {
@@ -55,17 +60,40 @@ export interface MessagingAppReplies {
   ): Promise<MessagingAnswerResult>;
 }
 
+// An agent's read of its route: WhatsApp only.
+export type MessagingReadOutcome =
+  ({ ok: true } & MessagingReadResult) | MessagingReplyFailure;
+
+export interface MessagingRoutesApi extends MessagingAppReplies {
+  // The agent's own live routes in every app, WhatsApp first.
+  routes(agentId: string): MessagingRouteListed[];
+  // limit is the raw query value, undefined when absent.
+  read(agentId: string, routeId: string, limit: unknown): MessagingReadOutcome;
+}
+
 export interface MessagingRepliesDeps {
-  whatsapp: MessagingAppReplies;
+  whatsapp: MessagingAppReplies & {
+    read(
+      agentId: string,
+      routeId: string,
+      limit: unknown,
+    ): MessagingReadOutcome;
+  };
   discord: MessagingAppReplies;
   // The app of the route when it is the agent's own (same member, the
   // route's agent), else null.
   routeApp(agentId: string, routeId: string): "whatsapp" | "discord" | null;
+  // Each app's live routes to the agent (WhatsAppRoutes and DiscordRoutes
+  // routesOf).
+  routesOf: Record<
+    "whatsapp" | "discord",
+    (agentId: string) => { id: string; name: string }[]
+  >;
 }
 
 export function createMessagingReplies(
   deps: MessagingRepliesDeps,
-): MessagingAppReplies {
+): MessagingRoutesApi {
   // One answer for every route that is not the caller's: no agent learns
   // which routes exist, in either app.
   const notFound: MessagingReplyFailure = {
@@ -75,6 +103,30 @@ export function createMessagingReplies(
     error: "no such route",
   };
   return {
+    routes(agentId) {
+      const apps = ["whatsapp", "discord"] as const;
+      return apps.flatMap((app) =>
+        deps.routesOf[app](agentId).map((r) => ({
+          id: r.id,
+          app,
+          name: r.name,
+        })),
+      );
+    },
+
+    read(agentId, routeId, limit) {
+      const app = deps.routeApp(agentId, routeId);
+      if (app === null) return notFound;
+      if (app === "discord")
+        return {
+          ok: false,
+          status: 400,
+          code: "messaging_read_unsupported",
+          error: "only a WhatsApp route can be read",
+        };
+      return deps.whatsapp.read(agentId, routeId, limit);
+    },
+
     async reply(agentId, routeId, body) {
       const app = deps.routeApp(agentId, routeId);
       if (app === null) return notFound;

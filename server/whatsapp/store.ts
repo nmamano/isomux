@@ -123,9 +123,9 @@ export function writeChatTimes(
   renameSync(tmp, join(dir, CHAT_TIMES_FILE));
 }
 
-// Deletes the member's session (credentials, link, id rings) and keeps their
-// contact rows, for a new link after a dead one (routes-store.ts drops the
-// rows if the new link has another phone).
+// Deletes the member's session (credentials, link, id rings, chat logs) and
+// keeps their contact rows, for a new link after a dead one (routes-store.ts
+// drops the rows if the new link has another phone).
 export function removeSession(stateRoot: string, userId: string): void {
   const dir = memberDir(stateRoot, userId);
   if (!existsSync(dir)) return;

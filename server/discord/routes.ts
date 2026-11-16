@@ -69,6 +69,9 @@ export interface DiscordRoutes {
   // its route through this, since the route's member need not manage the
   // agent (task 386ec4d6).
   rowMember(agentId: string, routeId: string): string | null;
+  // The live routes that reach agent `agentId`, of the members rowMember
+  // looks at: the ones a reply from the agent can use (task 682fd65a).
+  routesOf(agentId: string): { id: string; name: string }[];
   // The member's routes as stored, with no check of their agents: a read
   // that never writes, for the step-ask predicate.
   rows(userId: string): DiscordRoute[];
@@ -301,6 +304,24 @@ export function createDiscordRoutes(deps: DiscordRoutesDeps): DiscordRoutes {
 
     get: (userId, routeId) =>
       read(userId).find((r) => r.id === routeId) ?? null,
+
+    routesOf(agentId) {
+      const manager = deps.agent(agentId)?.userId ?? null;
+      const owners = deps
+        .membersWithBots()
+        .filter((userId) => userId !== manager && deps.isOfficeOwner(userId));
+      // A read-only route takes no reply.
+      return (manager ? [manager, ...owners] : owners).flatMap((userId) =>
+        live(userId)
+          .filter(
+            (r) =>
+              r.agentId === agentId &&
+              r.replyMode !== "read" &&
+              routes.check(userId, r) === null,
+          )
+          .map((r) => ({ id: r.id, name: r.name })),
+      );
+    },
 
     rowMember(agentId, routeId) {
       const manager = deps.agent(agentId)?.userId ?? null;

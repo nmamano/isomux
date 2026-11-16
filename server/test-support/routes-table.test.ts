@@ -1624,6 +1624,11 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["self:affordance"],
     emits: ["ask_upserted", "others_ask_upserted"],
   },
+  // The row's own agent reads its chat (task 682fd65a); the handler refuses
+  // every other agent with 404.
+  "messaging.read": { caps: ["self:affordance"], emits: [] },
+  // The agent's own routes (task 682fd65a).
+  "messaging.routes": { caps: ["self:affordance"], emits: [] },
   // Voice input spends the caller's user's OPENAI_API_KEY; it changes no state.
   "voice.status": { caps: ["voice:use"], emits: [] },
   "voice.transcribe": { caps: ["voice:use"], emits: [] },
@@ -2316,6 +2321,9 @@ const APP_REFUSED_OPIDS = [
   "pager.raise",
   // A WhatsApp reply speaks as the row's agent, to a contact (slice 2b).
   "messaging.reply",
+  // A chat's messages are the row's agent's to read (task 682fd65a).
+  "messaging.read",
+  "messaging.routes",
   // No app shape in the record: it would name the member.
   "agents.sendMessage",
   "agents.editMessage",

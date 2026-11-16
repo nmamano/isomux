@@ -22,6 +22,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { getUserByName } from "../users.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { writeRoutes } from "../whatsapp/routes-store.ts";
+import { openChatLog } from "../whatsapp/chat-log.ts";
 import { API_ROUTES } from "../routes/table.ts";
 import { routeAllowedByLimits } from "../../shared/api-token-limits.ts";
 import {
@@ -824,6 +825,8 @@ const FIXED_TOOLS = [
   "list_my_asks",
   "open_ask",
   "messaging_reply",
+  "messaging_read",
+  "messaging_routes",
 ].sort();
 
 describe("/mcp for an agent below Standard", () => {
@@ -921,6 +924,56 @@ describe("/mcp for an agent below Standard", () => {
       expect({ extra, isError: res.isError }).toEqual({ extra, isError: true });
     }
     expect((await asMember(o, "GET", "/api/asks")).body).toHaveLength(1);
+  });
+
+  // A contact's agent is usually below Standard: it reads its own row's chat
+  // (task 682fd65a).
+  it("reads its own WhatsApp row's chat; a row it does not have is an error", async () => {
+    const o = await office();
+    const agent = await spawn(o, "Reader");
+    expect((await setAccess(o, agent.id, { access: "office" })).status).toBe(
+      200,
+    );
+    const chat = "447700900123@s.whatsapp.net";
+    writeRoutes(o.srv.stateRoot, o.userId, {
+      phone: "447700900111",
+      routes: [
+        {
+          id: "r1",
+          chat,
+          group: false,
+          name: "Mom",
+          agentId: agent.id,
+          createdAt: 1,
+        },
+      ],
+    });
+    const log = openChatLog(o.srv.stateRoot, o.userId, chat);
+    for (const i of [0, 1, 2])
+      log.append({
+        id: `m${i}`,
+        ts: 1_800_000_000_000 + i,
+        from: "Mom",
+        fromMe: false,
+        text: `text ${i}`,
+      });
+    const client = await connect(o, tokenOf(agent.id));
+    const read = toolJson<{ messages: { text: string }[] }>(
+      await call(client, "messaging_read", { routeId: "r1", limit: 2 }),
+    );
+    expect(read.messages.map((m) => m.text)).toEqual(["text 1", "text 2"]);
+    const whole = toolJson<{ messages: { text: string }[] }>(
+      await call(client, "messaging_read", { routeId: "r1" }),
+    );
+    expect(whole.messages).toHaveLength(3);
+    const refused = await call(client, "messaging_read", { routeId: "r2" });
+    expect(refused.isError).toBe(true);
+    // A fresh session finds the route id here.
+    expect(
+      toolJson<{ routes: unknown[] }>(
+        await call(client, "messaging_routes", {}),
+      ),
+    ).toEqual({ routes: [{ id: "r1", app: "whatsapp", name: "Mom" }] });
   });
 
   it("creates a marked task, refuses another's, opens an ask the member sees, and sends a message as itself", async () => {

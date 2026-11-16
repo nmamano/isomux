@@ -14,6 +14,7 @@ import {
   WHATSAPP_DIRECT_SENDS_WINDOW_MS,
   WHATSAPP_DONT_SEND_OPTION,
   WHATSAPP_DRAFTS_PER_ROUTE_MAX,
+  WHATSAPP_READ_DEFAULT,
   WHATSAPP_REPLY_MAX_CHARS,
   WHATSAPP_SEND_OPTION,
   createWhatsAppReplies,
@@ -22,6 +23,7 @@ import {
 } from "./replies.ts";
 import { createWhatsAppRoutes } from "./routes.ts";
 import { openIdRing, readRoutes } from "./routes-store.ts";
+import { WHATSAPP_CHAT_LOG_MAX, openChatLog } from "./chat-log.ts";
 import { memberDir } from "./store.ts";
 import type { WhatsAppSendResult } from "./supervisor.ts";
 import { createAskStore } from "../asks.ts";
@@ -80,6 +82,8 @@ function harness() {
   const answers: WhatsAppSendResult[] = [];
   // The replies' clock (the direct-send window).
   const clock = { t: 1_800_000_000_000 };
+  // The chat log's disk fails (a full disk): every write throws.
+  const flags = { logThrows: false };
   const make = (): WhatsAppReplies =>
     createWhatsAppReplies({
       routes,
@@ -95,6 +99,15 @@ function harness() {
         },
       },
       sent: (userId) => openIdRing(root, userId, "sent"),
+      chatLog: (userId, chat) => {
+        const log = openChatLog(root, userId, chat);
+        if (!flags.logThrows) return log;
+        const fail = () => {
+          throw new Error("ENOSPC");
+        };
+        return { lines: log.lines, append: fail, mark: fail };
+      },
+      memberName: () => "Morgan",
       now: () => clock.t,
     });
   const mom = routes.create(U, { chat: MOM, name: "Mom", agentId: "agent-a" });
@@ -108,6 +121,7 @@ function harness() {
     sends,
     answers,
     clock,
+    flags,
     make,
     replies: make(),
     momId: mom.route.id,
@@ -635,5 +649,204 @@ describe("whatsapp replies: a row that sends at once", () => {
     );
     await h.replies.reply("agent-a", h.momId, "hi");
     expect(h.sends).toEqual([]);
+  });
+});
+
+// The agent's own sends go in the chat log (task 682fd65a), so a read shows
+// them; the bridge's echo of a send can come before or after the send result.
+describe("whatsapp replies: the chat log of a send", () => {
+  const logged = (h: Harness, chat = MOM) =>
+    openChatLog(h.root, U, chat)
+      .lines()
+      .map((l) => ({ id: l.id, text: l.text, agent: l.agent === true }));
+
+  it("a send at once is logged as the agent's, with the text that went out; a failed send is not logged", async () => {
+    const h = harness();
+    h.routes.update(U, h.momId, { sendDirect: true, prefix: "[bot]" });
+    h.answers.push({ ok: false, reason: "failed" });
+    await h.replies.reply("agent-a", h.momId, "not out");
+    expect(logged(h)).toEqual([]);
+    await h.replies.reply("agent-a", h.momId, "see *you*");
+    expect(logged(h)).toEqual([
+      { id: "3EB02", text: h.sends[1].text, agent: true },
+    ]);
+    // The condition: the logged text is the prefixed one.
+    expect(h.sends[1].text).not.toBe("see *you*");
+  });
+
+  it("a draft the member sends is logged as the agent's once it went out; Don't send logs nothing", async () => {
+    const h = harness();
+    const kept = await drafted(h, "not this one");
+    await h.replies.answer(kept, { dismissed: false, text: "Don't send" });
+    expect(logged(h)).toEqual([]);
+    const entry = await drafted(h, "see you at 5");
+    await h.replies.answer(entry, sendAnswer);
+    expect(logged(h)).toEqual([
+      { id: "3EB01", text: "see you at 5", agent: true },
+    ]);
+  });
+
+  // The message went out: an answer that says otherwise makes the agent, or
+  // the member, send it twice.
+  it("a chat log that cannot be written never fails a send that went out, on either path", async () => {
+    const h = harness();
+    h.flags.logThrows = true;
+    const entry = await drafted(h, "see you at 5");
+    expect(await h.replies.answer(entry, sendAnswer)).toMatchObject({
+      kind: "deliver",
+      outcome: "replied",
+    });
+    expect(h.routes.update(U, h.dadId, { sendDirect: true }).ok).toBe(true);
+    expect(await h.replies.reply("agent-a", h.dadId, "bye")).toEqual({
+      ok: true,
+      sent: true,
+    });
+    expect(h.sends.map((s) => s.text)).toEqual(["see you at 5", "bye"]);
+    // The own-send filter still has both ids.
+    const sent = openIdRing(h.root, U, "sent");
+    expect([sent.has("3EB01"), sent.has("3EB02")]).toEqual([true, true]);
+  });
+
+  it("an echo logged before the send result is marked the agent's, not logged twice", async () => {
+    const h = harness();
+    h.routes.update(U, h.momId, { sendDirect: true });
+    openChatLog(h.root, U, MOM).append({
+      id: "3EB01",
+      ts: 1,
+      from: "Morgan",
+      fromMe: true,
+      text: "see you",
+    });
+    await h.replies.reply("agent-a", h.momId, "see you");
+    expect(logged(h)).toEqual([{ id: "3EB01", text: "see you", agent: true }]);
+  });
+});
+
+// An agent reads its own row's chat (task 682fd65a): the last lines of the
+// chat log, oldest first. What reaches the log is inbound.test.ts.
+describe("whatsapp replies: read", () => {
+  const T = 1_800_000_000_000;
+  // n lines m0..m(n-1); m3 is marked the agent's in the log, m5 is only in
+  // the sent ring (its echo came first).
+  function seed(h: Harness, n: number) {
+    const log = openChatLog(h.root, U, MOM);
+    for (let i = 0; i < n; i++)
+      log.append({
+        id: `m${i}`,
+        ts: T + i * 1_000,
+        from: i % 2 ? "Morgan" : "Mom",
+        fromMe: i % 2 === 1,
+        text: `text ${i}`,
+      });
+    log.mark(["m3"], "agent");
+    log.mark(["m0", "m1"], "delivered");
+    openIdRing(h.root, U, "sent").add("m5");
+  }
+  const texts = (r: Awaited<ReturnType<WhatsAppReplies["read"]>>) =>
+    r.ok ? r.messages.map((m) => m.text) : r;
+  const range = (from: number, to: number) =>
+    Array.from({ length: to - from }, (_, i) => `text ${from + i}`);
+
+  it("the last lines, oldest first: the default count, a limit, and the whole log; each with its sender, ISO time and the agent's mark", () => {
+    const h = harness();
+    seed(h, 60);
+    expect(texts(h.replies.read("agent-a", h.momId, undefined))).toEqual(
+      range(60 - WHATSAPP_READ_DEFAULT, 60),
+    );
+    expect(texts(h.replies.read("agent-a", h.momId, "3"))).toEqual(
+      range(57, 60),
+    );
+    const all = h.replies.read(
+      "agent-a",
+      h.momId,
+      String(WHATSAPP_CHAT_LOG_MAX),
+    );
+    if (!all.ok) throw new Error(`read refused: ${all.status}`);
+    expect(all.messages.map((m) => m.text)).toEqual(range(0, 60));
+    expect(all.messages.slice(0, 6)).toEqual([
+      { from: "Mom", text: "text 0", at: new Date(T).toISOString() },
+      { from: "Morgan", text: "text 1", at: new Date(T + 1_000).toISOString() },
+      { from: "Mom", text: "text 2", at: new Date(T + 2_000).toISOString() },
+      {
+        from: "Morgan",
+        text: "text 3",
+        at: new Date(T + 3_000).toISOString(),
+        agent: true,
+      },
+      { from: "Mom", text: "text 4", at: new Date(T + 4_000).toISOString() },
+      {
+        from: "Morgan",
+        text: "text 5",
+        at: new Date(T + 5_000).toISOString(),
+        agent: true,
+      },
+    ]);
+    expect(all.messages.filter((m) => m.agent).map((m) => m.text)).toEqual([
+      "text 3",
+      "text 5",
+    ]);
+  });
+
+  it("a read marks nothing: the lines are delivered later as before", () => {
+    const h = harness();
+    seed(h, 4);
+    const before = openChatLog(h.root, U, MOM).lines();
+    expect(h.replies.read("agent-a", h.momId, "100").ok).toBe(true);
+    expect(openChatLog(h.root, U, MOM).lines()).toEqual(before);
+  });
+
+  it("an empty chat is an empty list; another row's chat is not read", () => {
+    const h = harness();
+    seed(h, 2);
+    expect(h.replies.read("agent-a", h.dadId, undefined)).toEqual({
+      ok: true,
+      messages: [],
+    });
+  });
+
+  it("a limit that is not a whole number from 1 to the log's cap is 400", () => {
+    const h = harness();
+    seed(h, 2);
+    for (const limit of [
+      "0",
+      "-1",
+      String(WHATSAPP_CHAT_LOG_MAX + 1),
+      "1.5",
+      "abc",
+      "",
+      "1e2",
+      " 5",
+    ]) {
+      const r = h.replies.read("agent-a", h.momId, limit);
+      expect({ limit, status: r.ok === false && r.status }).toEqual({
+        limit,
+        status: 400,
+      });
+    }
+    expect(texts(h.replies.read("agent-a", h.momId, "1"))).toEqual(["text 1"]);
+  });
+
+  it("every agent but the row's gets the reply's 404; a row that fails its check is 409", async () => {
+    const h = harness();
+    seed(h, 2);
+    const reply404 = await h.replies.reply("agent-bob", h.momId, "hi");
+    for (const [agentId, routeId] of [
+      ["agent-std", h.momId],
+      ["agent-bob", h.momId],
+      ["agent-free", h.momId],
+      ["agent-gone", h.momId],
+      ["agent-a", "r-none"],
+    ])
+      expect({
+        agentId,
+        routeId,
+        r: h.replies.read(agentId, routeId, "5"),
+      }).toEqual({ agentId, routeId, r: reply404 as never });
+    h.agents.set("agent-a", { userId: U, access: "chat", name: "Helper" });
+    const dead = h.replies.read("agent-a", h.momId, "5");
+    expect(dead.ok === false && [dead.status, dead.code]).toEqual([
+      409,
+      "messaging_route_dead",
+    ]);
   });
 });

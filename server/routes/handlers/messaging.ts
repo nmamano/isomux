@@ -1,14 +1,15 @@
-// The reply route of the messaging apps (opId messaging.reply): an agent
-// answers on its own route, in WhatsApp or Discord (server/messaging/
-// replies.ts dispatches by app).
+// The routes of the messaging apps (opIds messaging.reply and
+// messaging.read): an agent answers on its own route, in WhatsApp or Discord,
+// and reads a WhatsApp route's chat (server/messaging/replies.ts dispatches
+// by app).
 //
 // LEAF over the executor and the replies.
 
 import { fail, ok, type RouteHandler } from "../executor.ts";
-import type { MessagingAppReplies } from "../../messaging/replies.ts";
+import type { MessagingRoutesApi } from "../../messaging/replies.ts";
 
 export interface MessagingDeps {
-  replies: Pick<MessagingAppReplies, "reply">;
+  replies: Pick<MessagingRoutesApi, "reply" | "read" | "routes">;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -18,6 +19,28 @@ export function messagingHandlers(
   deps: MessagingDeps,
 ): Record<string, RouteHandler> {
   return {
+    // The agent's own live routes, in every app.
+    "messaging.routes": (ctx) => {
+      const agentId = ctx.identity.agentId;
+      if (ctx.identity.scope !== "agent" || !agentId)
+        return fail(403, "forbidden");
+      return ok({ routes: deps.replies.routes(agentId) });
+    },
+
+    // The last messages of the agent's own route (WhatsApp only).
+    "messaging.read": (ctx) => {
+      const agentId = ctx.identity.agentId;
+      if (ctx.identity.scope !== "agent" || !agentId)
+        return fail(403, "forbidden");
+      const res = deps.replies.read(
+        agentId,
+        ctx.params.routeId,
+        ctx.query.get("limit") ?? undefined,
+      );
+      if (!res.ok) return fail(res.status, res.code, res.error);
+      return ok({ messages: res.messages });
+    },
+
     // A draft that waits for the member (202), or the message sent (200).
     "messaging.reply": async (ctx) => {
       const agentId = ctx.identity.agentId;

@@ -18,6 +18,7 @@ import {
   type WhatsAppRouteTrigger,
   type WhatsAppRouteUpdateReq,
 } from "../../shared/whatsapp.ts";
+import { WHATSAPP_CHAT_RE, removeChatLog } from "./chat-log.ts";
 import { readRoutes, writeRoutes, type RoutesFile } from "./routes-store.ts";
 
 export interface WhatsAppRoutesDeps {
@@ -54,6 +55,9 @@ export interface WhatsAppRoutes {
   // agent's manager first, then each office owner with a link. A reply finds
   // its row through this, since the row's member need not manage the agent.
   rowMember(agentId: string, routeId: string): string | null;
+  // The live rows that reach agent `agentId`, of the members rowMember
+  // looks at: the ones a reply from the agent can use (task 682fd65a).
+  routesOf(agentId: string): { id: string; name: string }[];
   // The member's rows as stored, with no check of their agents: a read that
   // never writes, for the step-ask predicate.
   rows(userId: string): WhatsAppRoute[];
@@ -68,9 +72,6 @@ export interface WhatsAppRoutes {
   // A link was accepted: rows made for another phone are dropped.
   onLinked(userId: string, phone: string): void;
 }
-
-// A contact (<digits>@s.whatsapp.net or <digits>@lid) or a group (@g.us).
-const CHAT_RE = /^(?:[0-9]{5,20}@(?:s\.whatsapp\.net|lid)|[0-9-]{5,40}@g\.us)$/;
 
 const isTrigger = (v: unknown): v is WhatsAppRouteTrigger =>
   v === "mention" || v === "all";
@@ -179,7 +180,7 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
           );
         chat = `${digits}@s.whatsapp.net`;
       } else {
-        if (typeof req.chat !== "string" || !CHAT_RE.test(req.chat))
+        if (typeof req.chat !== "string" || !WHATSAPP_CHAT_RE.test(req.chat))
           return refuse(400, "not a WhatsApp chat");
         chat = req.chat;
       }
@@ -254,12 +255,32 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
       const routes = file.routes.filter((r) => r.id !== routeId);
       if (routes.length === file.routes.length) return false;
       write(userId, { ...file, routes });
+      // The chat's log goes with its row.
+      for (const r of file.routes)
+        if (r.id === routeId) removeChatLog(deps.stateRoot, userId, r.chat);
       deps.onChange(userId);
       return true;
     },
 
     get: (userId, routeId) =>
       read(userId).routes.find((r) => r.id === routeId) ?? null,
+
+    routesOf(agentId) {
+      const manager = deps.agent(agentId)?.userId ?? null;
+      const owners = deps
+        .linkedMembers()
+        .filter((userId) => userId !== manager && deps.isOfficeOwner(userId));
+      return (manager ? [manager, ...owners] : owners).flatMap((userId) =>
+        read(userId)
+          .routes.filter(
+            (r) =>
+              r.agentId === agentId &&
+              !r.dead &&
+              routes.check(userId, r) === null,
+          )
+          .map((r) => ({ id: r.id, name: r.name })),
+      );
+    },
 
     rowMember(agentId, routeId) {
       const manager = deps.agent(agentId)?.userId ?? null;
@@ -302,6 +323,9 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
       if (file.phone === phone) return;
       const dropped = file.phone !== null && file.routes.length > 0;
       write(userId, { phone, routes: file.phone === null ? file.routes : [] });
+      if (dropped)
+        for (const r of file.routes)
+          removeChatLog(deps.stateRoot, userId, r.chat);
       if (dropped) deps.onChange(userId);
     },
   };

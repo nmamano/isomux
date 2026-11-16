@@ -29,3 +29,29 @@ export interface MessagingReplyReq {
 export type MessagingReplyAccepted =
   | { askId: string; status: "waiting_for_member" }
   | { status: "sent"; messageId?: string };
+
+// An agent's own live route (GET /api/messaging/routes): one a reply can
+// use.
+export interface MessagingRouteListed {
+  id: string;
+  app: "whatsapp" | "discord";
+  name: string;
+}
+
+export interface MessagingRoutesResult {
+  routes: MessagingRouteListed[];
+}
+
+// A line of an agent's read of its route (GET /api/messaging/routes/:routeId/
+// messages), oldest first. `at` is an ISO time; `agent` marks an agent's own
+// send.
+export interface MessagingReadLine {
+  from: string;
+  text: string;
+  at: string;
+  agent?: true;
+}
+
+export interface MessagingReadResult {
+  messages: MessagingReadLine[];
+}

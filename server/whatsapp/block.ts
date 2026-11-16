@@ -1,8 +1,9 @@
 // The text a WhatsApp delivery puts in the agent's chat (task d03a61d8): the
 // server's own lines around one data block, with the JSON rules of
 // server/messaging/block-json.ts. The whole text fits APP_MESSAGE_MAX_CHARS:
-// a text that does not fit is cut, longest first; the JSON line itself is
-// never cut.
+// the oldest context lines go first (task 682fd65a: context has no line cap,
+// and it never pushes out a line that woke the agent), then a text that does
+// not fit is cut, longest first; the JSON line itself is never cut.
 
 import { APP_MESSAGE_MAX_CHARS } from "../app-message-limits.ts";
 import {
@@ -18,9 +19,7 @@ export interface WhatsAppBlockLine {
   // phone text. Never the contact's own WhatsApp name.
   from: string;
   text: string;
-  // A line that did not wake the agent: the member's own phone text on a row
-  // without ownMessages, or a group message that did not mention or answer
-  // it.
+  // A line since the last delivery that did not wake the agent (inbound.ts).
   context?: true;
 }
 
@@ -59,7 +58,18 @@ export function buildWhatsAppBlock(input: WhatsAppBlockInput): string {
     text: line.text,
     ...(line.context ? { context: true as const } : {}),
   }));
+  let omitted = 0;
   let json = escapedJson({ messages });
+  // The oldest context lines go first, and the JSON says how many.
+  for (
+    let i = messages.findIndex((m) => m.context);
+    json.length > budget && i >= 0;
+    i = messages.findIndex((m) => m.context)
+  ) {
+    messages.splice(i, 1);
+    omitted++;
+    json = escapedJson({ omitted, messages });
+  }
   // Cut the longest text by what is over, until the line fits.
   for (
     let round = 0;
@@ -75,11 +85,9 @@ export function buildWhatsAppBlock(input: WhatsAppBlockInput): string {
     const over = json.length - budget;
     const share = Math.max(0, escapedLength(messages[longest].text) - over);
     messages[longest].text = cutTo(messages[longest].text, share);
-    json = escapedJson({ messages });
+    json = escapedJson(omitted ? { omitted, messages } : { messages });
   }
-  // Still over (many short lines): the oldest lines go, and the JSON says
-  // how many.
-  let omitted = 0;
+  // Still over (many short lines): the oldest lines go.
   while (json.length > budget && messages.length > 1) {
     messages.shift();
     omitted++;

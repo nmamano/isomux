@@ -15,6 +15,7 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 import { createWhatsAppRoutes, type WhatsAppRoutes } from "./routes.ts";
+import { openChatLog } from "./chat-log.ts";
 import { WHATSAPP_ID_RING_MAX, openIdRing } from "./routes-store.ts";
 import { memberDir, removeSession, writeLink } from "./store.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
@@ -56,6 +57,8 @@ function harness(stateRoot?: string) {
       [V, "447700900222"],
     ]),
     changes: [] as string[],
+    // The office owners (an owner routes a chat to any agent).
+    owners: new Set<string>(),
     n: 0,
     routes: undefined as unknown as WhatsAppRoutes,
   };
@@ -65,7 +68,7 @@ function harness(stateRoot?: string) {
     newId: () => `r${++h.n}`,
     agent: (id) => h.agents.get(id) ?? null,
     linkedPhone: (userId) => h.phones.get(userId) ?? null,
-    isOfficeOwner: () => false,
+    isOfficeOwner: (userId) => h.owners.has(userId),
     linkedMembers: () => [...h.phones.keys()],
     onChange: (userId) => void h.changes.push(userId),
   });
@@ -282,6 +285,54 @@ describe("whatsapp rows: on disk", () => {
       });
     expect(harness(h.root).routes.list(U)).toHaveLength(1);
     expect(openIdRing(h.root, U, "seen").has("m1")).toBe(false);
+  });
+});
+
+// A row's chat log (task 682fd65a) goes with the row.
+describe("whatsapp rows: the chat log", () => {
+  const logLine = (id: string) => ({
+    id,
+    ts: 1,
+    from: "Mom",
+    fromMe: false,
+    text: `text ${id}`,
+  });
+  const ids = (root: string, chat: string) =>
+    openChatLog(root, U, chat)
+      .lines()
+      .map((l) => l.id);
+
+  it("removing a row deletes its chat's log and keeps the other rows' logs", () => {
+    const h = harness();
+    const a = h.routes.create(U, mom);
+    const b = h.routes.create(U, {
+      chat: FAMILY,
+      name: "Family",
+      agentId: "agent-a",
+    });
+    if (!a.ok || !b.ok) throw new Error("rows not made");
+    openChatLog(h.root, U, MOM).append(logLine("m1"));
+    openChatLog(h.root, U, FAMILY).append(logLine("m2"));
+    // A refused remove keeps the log.
+    expect(h.routes.remove(U, "r-none")).toBe(false);
+    expect(ids(h.root, MOM)).toEqual(["m1"]);
+    expect(h.routes.remove(U, a.route.id)).toBe(true);
+    expect(ids(h.root, MOM)).toEqual([]);
+    expect(ids(h.root, FAMILY)).toEqual(["m2"]);
+  });
+
+  it("a new link with the same phone keeps the logs; another phone drops them with the rows", () => {
+    const h = harness();
+    h.routes.create(U, mom);
+    h.routes.create(U, { chat: FAMILY, name: "Family", agentId: "agent-a" });
+    h.routes.onLinked(U, PHONE);
+    openChatLog(h.root, U, MOM).append(logLine("m1"));
+    openChatLog(h.root, U, FAMILY).append(logLine("m2"));
+    h.routes.onLinked(U, PHONE);
+    expect([ids(h.root, MOM), ids(h.root, FAMILY)]).toEqual([["m1"], ["m2"]]);
+    h.routes.onLinked(U, "447700900999");
+    expect(h.routes.list(U)).toEqual([]);
+    expect([ids(h.root, MOM), ids(h.root, FAMILY)]).toEqual([[], []]);
   });
 });
 
@@ -519,5 +570,66 @@ describe("whatsapp rows: own messages", () => {
       }),
     );
     expect(harness(h.root).routes.get(U, "r1")?.ownMessages).toBe(true);
+  });
+});
+
+// The agent's own live rows (task 682fd65a): what GET /api/messaging/routes
+// lists, so an agent with no delivery in context finds its route id.
+describe("whatsapp rows: an agent's own", () => {
+  const FRIEND = "447700900777@s.whatsapp.net";
+
+  it("the live rows to the agent, of its manager and of an owner who routed a chat to it, as id and name", () => {
+    const h = harness();
+    const a = h.routes.create(U, mom);
+    const b = h.routes.create(U, {
+      chat: FAMILY,
+      name: "Family",
+      agentId: "agent-std",
+    });
+    if (!a.ok || !b.ok) throw new Error("rows not made");
+    // Bob is an owner and routes a chat of his to Alice's agent.
+    h.owners.add(V);
+    const c = h.routes.create(V, {
+      chat: FRIEND,
+      name: "Bob's friend",
+      agentId: "agent-a",
+    });
+    if (!c.ok) throw new Error("owner row not made");
+    expect(
+      h.routes.routesOf("agent-a").sort((x, y) => x.id.localeCompare(y.id)),
+    ).toEqual(
+      [
+        { id: a.route.id, name: "Mom" },
+        { id: c.route.id, name: "Bob's friend" },
+      ].sort((x, y) => x.id.localeCompare(y.id)),
+    );
+    expect(h.routes.routesOf("agent-std")).toEqual([
+      { id: b.route.id, name: "Family" },
+    ]);
+    expect(h.routes.routesOf("agent-bob")).toEqual([]);
+    expect(h.routes.routesOf("agent-none")).toEqual([]);
+
+    // Bob is an owner no more: his row is not the agent's to use.
+    h.owners.delete(V);
+    expect(h.routes.routesOf("agent-a")).toEqual([
+      { id: a.route.id, name: "Mom" },
+    ]);
+  });
+
+  it("a row a reply would refuse as dead is left out: the agent at Chat stop, and still after it is back, until the member fixes the row", () => {
+    const h = harness();
+    const a = h.routes.create(U, mom);
+    if (!a.ok) throw new Error("row not made");
+    expect(h.routes.routesOf("agent-a")).toHaveLength(1);
+    h.agents.set("agent-a", { userId: U, access: "chat", name: "Helper" });
+    expect(h.routes.routesOf("agent-a")).toEqual([]);
+    h.agents.set("agent-a", { userId: U, access: "office", name: "Helper" });
+    expect(h.routes.get(U, a.route.id)?.dead).toBe("agent_chat_only");
+    expect(h.routes.routesOf("agent-a")).toEqual([]);
+    // The member saves the row again: live again, and listed.
+    expect(h.routes.update(U, a.route.id, { name: "Mom" }).ok).toBe(true);
+    expect(h.routes.routesOf("agent-a")).toEqual([
+      { id: a.route.id, name: "Mom" },
+    ]);
   });
 });

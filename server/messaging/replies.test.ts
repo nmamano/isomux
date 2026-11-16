@@ -10,6 +10,7 @@ import type { AskEntry } from "../../shared/types.ts";
 import {
   createMessagingReplies,
   type MessagingAppReplies,
+  type MessagingReadOutcome,
   type MessagingReplyBody,
 } from "./replies.ts";
 
@@ -34,11 +35,32 @@ function harness() {
     "agent-a r_1": "whatsapp",
   };
   const replies = createMessagingReplies({
-    whatsapp: fakeApp("whatsapp", calls),
+    whatsapp: {
+      ...fakeApp("whatsapp", calls),
+      read: (agentId, routeId, limit): MessagingReadOutcome => {
+        calls.push(`whatsapp.read ${agentId} ${routeId} ${String(limit)}`);
+        return { ok: true, messages: [] };
+      },
+    },
     discord: fakeApp("discord", calls),
     routeApp: (agentId, routeId) => {
       calls.push(`routeApp ${agentId} ${routeId}`);
       return own[`${agentId} ${routeId}`] ?? null;
+    },
+    routesOf: {
+      whatsapp: (agentId) => {
+        calls.push(`whatsapp.routesOf ${agentId}`);
+        return agentId === "agent-a"
+          ? [
+              { id: "r_1", name: "Mom" },
+              { id: "r_2", name: "Family" },
+            ]
+          : [];
+      },
+      discord: (agentId) => {
+        calls.push(`discord.routesOf ${agentId}`);
+        return agentId === "agent-a" ? [{ id: "d_1", name: "general" }] : [];
+      },
     },
   });
   return { calls, replies };
@@ -124,6 +146,62 @@ describe("messaging replies: the dispatch", () => {
       "discord.answer ask-discord",
       "whatsapp.answer ask-whatsapp",
       "whatsapp.answer ask-telegram",
+    ]);
+  });
+});
+
+// An agent reads its route (task 682fd65a): WhatsApp only.
+describe("messaging replies: read", () => {
+  it("a route that is not the caller's is the reply's 404, and no app is asked", async () => {
+    const { calls, replies } = harness();
+    const reply404 = await replies.reply("agent-b", "r_1", { text: "hi" });
+    for (const [agentId, routeId] of [
+      ["agent-b", "r_1"],
+      ["agent-b", "d_1"],
+      ["agent-a", "r_9"],
+    ])
+      expect({
+        agentId,
+        routeId,
+        r: replies.read(agentId, routeId, "5"),
+      }).toEqual({ agentId, routeId, r: reply404 as never });
+    expect(calls.filter((c) => !c.startsWith("routeApp"))).toEqual([]);
+  });
+
+  it("a WhatsApp row is read with the limit as given; a Discord route is 400 and Discord is not asked", () => {
+    const { calls, replies } = harness();
+    expect(replies.read("agent-a", "r_1", "7")).toEqual({
+      ok: true,
+      messages: [],
+    });
+    replies.read("agent-a", "r_1", undefined);
+    const discord = replies.read("agent-a", "d_1", "7");
+    expect(discord.ok === false && [discord.status, discord.code]).toEqual([
+      400,
+      "messaging_read_unsupported",
+    ]);
+    expect(calls.filter((c) => !c.startsWith("routeApp"))).toEqual([
+      "whatsapp.read agent-a r_1 7",
+      "whatsapp.read agent-a r_1 undefined",
+    ]);
+  });
+});
+
+// An agent lists its own routes (task 682fd65a).
+describe("messaging replies: routes", () => {
+  it("each app's routes to the agent, WhatsApp first, tagged with the app; none is an empty list", () => {
+    const { calls, replies } = harness();
+    expect(replies.routes("agent-a")).toEqual([
+      { id: "r_1", app: "whatsapp", name: "Mom" },
+      { id: "r_2", app: "whatsapp", name: "Family" },
+      { id: "d_1", app: "discord", name: "general" },
+    ]);
+    expect(replies.routes("agent-b")).toEqual([]);
+    expect(calls).toEqual([
+      "whatsapp.routesOf agent-a",
+      "discord.routesOf agent-a",
+      "whatsapp.routesOf agent-b",
+      "discord.routesOf agent-b",
     ]);
   });
 });

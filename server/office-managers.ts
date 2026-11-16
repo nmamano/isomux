@@ -129,6 +129,7 @@ import {
   type WhatsAppRoutes,
 } from "./whatsapp/routes.ts";
 import { createWhatsAppInbound } from "./whatsapp/inbound.ts";
+import { openChatLog } from "./whatsapp/chat-log.ts";
 import {
   createWhatsAppReplies,
   type WhatsAppReplies,
@@ -164,7 +165,7 @@ import { DISCORD_APP } from "../shared/discord.ts";
 import { createDiscordReplies } from "./discord/replies.ts";
 import {
   createMessagingReplies,
-  type MessagingAppReplies,
+  type MessagingRoutesApi,
 } from "./messaging/replies.ts";
 import type { EmitContext } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
@@ -245,7 +246,7 @@ export let officePagers: Record<
 >;
 export let discordRoutes: DiscordRoutes;
 // An agent's reply on any messaging route, dispatched by app (slice 2).
-export let messagingReplies: MessagingAppReplies;
+export let messagingReplies: MessagingRoutesApi;
 // GitHub issues into the board (task 7fc83592), in office.sqlite.
 export let githubLinks: GithubLinkStore;
 export let githubSync: GithubSync;
@@ -738,6 +739,7 @@ export function createManagers(
     linkedAt: (userId) => readLink(STATE_ROOT, userId)?.linkedAt ?? null,
     seen: (userId) => openIdRing(STATE_ROOT, userId, "seen"),
     sent: (userId) => openIdRing(STATE_ROOT, userId, "sent"),
+    chatLog: (userId, chat) => openChatLog(STATE_ROOT, userId, chat),
     check: (userId, route) => routes.check(userId, route),
     memberName: (userId) => getUserById(userId)?.name ?? "the member",
     deliver: (_userId, route, text) =>
@@ -790,6 +792,8 @@ export function createManagers(
     asks: askStore,
     supervisor: whatsappSupervisor,
     sent: (userId) => openIdRing(STATE_ROOT, userId, "sent"),
+    chatLog: (userId, chat) => openChatLog(STATE_ROOT, userId, chat),
+    memberName: (userId) => getUserById(userId)?.name ?? "the member",
     now: () => Date.now(),
   });
   const discordClock = {
@@ -896,6 +900,8 @@ export function createManagers(
       reply: (agentId, routeId, body) =>
         whatsappReplies.reply(agentId, routeId, body.text),
       answer: (entry, input) => whatsappReplies.answer(entry, input),
+      read: (agentId, routeId, limit) =>
+        whatsappReplies.read(agentId, routeId, limit),
     },
     discord: discordReplies,
     // A route or row may be an office owner's, to an agent they do not
@@ -904,6 +910,10 @@ export function createManagers(
       if (discordRoutes.rowMember(agentId, routeId)) return "discord";
       if (whatsappRoutes.rowMember(agentId, routeId)) return "whatsapp";
       return null;
+    },
+    routesOf: {
+      whatsapp: (agentId) => whatsappRoutes.routesOf(agentId),
+      discord: (agentId) => discordRoutes.routesOf(agentId),
     },
   });
   turnEndWatch = createTurnEndWatch({

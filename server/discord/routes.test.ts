@@ -73,6 +73,8 @@ function harness(stateRoot?: string) {
       [BOT2, SEEN],
       [BOB_BOT, SEEN],
     ]),
+    // The office owners (an owner routes a place to any agent).
+    owners: new Set<string>(),
     n: 0,
     routes: undefined as unknown as DiscordRoutes,
   };
@@ -83,8 +85,8 @@ function harness(stateRoot?: string) {
     agent: (id) => h.agents.get(id) ?? null,
     botIds: (userId) => h.bots.get(userId) ?? [],
     guilds: (botId) => h.guilds.get(botId) ?? null,
-    isOfficeOwner: () => false,
-    membersWithBots: () => [],
+    isOfficeOwner: (userId) => h.owners.has(userId),
+    membersWithBots: () => [...h.bots.keys()],
     onChange: () => {},
   });
   return h;
@@ -446,5 +448,66 @@ describe("discord routes: on disk", () => {
     h.routes.create(U, general);
     h.routes.create(U, { ...general, scope: "category", targetId: CAT });
     expect(harness(h.root).routes.list(U)).toEqual(h.routes.list(U));
+  });
+});
+
+// The agent's own routes that a reply can use (task 682fd65a): what GET
+// /api/messaging/routes lists.
+describe("discord routes: an agent's own", () => {
+  it("the live routes to the agent that can reply, of its manager and of an owner, as id and name; a read-only route is left out", () => {
+    const h = harness();
+    const a = h.routes.create(U, general);
+    const ro = h.routes.create(U, {
+      ...general,
+      targetId: LOOSE,
+      name: "random",
+      replyMode: "read",
+    });
+    const std = h.routes.create(U, {
+      ...general,
+      targetId: FORUM,
+      name: "help",
+      agentId: "agent-std",
+    });
+    if (!a.ok || !ro.ok || !std.ok) throw new Error("routes not made");
+    // The condition: the read-only route is the agent's.
+    expect(h.routes.get(U, ro.route.id)?.agentId).toBe("agent-a");
+    h.owners.add(V);
+    const bob = h.routes.create(V, {
+      ...general,
+      botId: BOB_BOT,
+      name: "Bob's general",
+      agentId: "agent-a",
+      replyMode: "bot",
+    });
+    if (!bob.ok) throw new Error("owner route not made");
+    const byId = (x: { id: string }, y: { id: string }) =>
+      x.id.localeCompare(y.id);
+    expect(h.routes.routesOf("agent-a").sort(byId)).toEqual(
+      [
+        { id: a.route.id, name: "general" },
+        { id: bob.route.id, name: "Bob's general" },
+      ].sort(byId),
+    );
+    expect(h.routes.routesOf("agent-std")).toEqual([
+      { id: std.route.id, name: "help" },
+    ]);
+    expect(h.routes.routesOf("agent-none")).toEqual([]);
+    h.owners.delete(V);
+    expect(h.routes.routesOf("agent-a")).toEqual([
+      { id: a.route.id, name: "general" },
+    ]);
+  });
+
+  it("a route a reply would refuse as dead is left out: the agent at Chat stop, and still after it is back", () => {
+    const h = harness();
+    const a = h.routes.create(U, general);
+    if (!a.ok) throw new Error("route not made");
+    expect(h.routes.routesOf("agent-a")).toHaveLength(1);
+    h.agents.set("agent-a", { userId: U, access: "chat", name: "Helper" });
+    expect(h.routes.routesOf("agent-a")).toEqual([]);
+    h.agents.set("agent-a", { userId: U, access: "office", name: "Helper" });
+    expect(h.routes.get(U, a.route.id)?.dead).toBe("agent_chat_only");
+    expect(h.routes.routesOf("agent-a")).toEqual([]);
   });
 });

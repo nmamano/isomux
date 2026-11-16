@@ -2687,6 +2687,8 @@ Coses que pots fer per ell:
   "apiCall.webhooks.list": "Llistar els webhooks",
   "apiCall.webhooks.create": "Crear un webhook",
   "apiCall.messaging.reply": "Respondre en una app de missatgeria",
+  "apiCall.messaging.read": "Llegir un xat d'una app de missatgeria",
+  "apiCall.messaging.routes": "Veure rutes d'apps de missatgeria",
   "apiCall.messaging.discordList": "Llistar bots de Discord",
   "apiCall.messaging.discordDisconnect": "Desconnectar bot de Discord",
   "apiCall.messaging.discordGuilds": "Llistar servidors de Discord",

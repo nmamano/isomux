@@ -3,10 +3,12 @@
 // the member's Send answer sends it. On a row where the member turned the Send
 // step off (sendDirect, task 70fae82c), the reply goes out at once.
 
+import type { MessagingReadResult } from "../../shared/messaging.ts";
 import type { AskEntry } from "../../shared/types.ts";
 import { WHATSAPP_APP } from "../../shared/whatsapp.ts";
 import { randomUUID } from "crypto";
 import type { AskStore } from "../asks.ts";
+import { WHATSAPP_CHAT_LOG_MAX, type ChatLog } from "./chat-log.ts";
 import type { IdRing } from "./routes-store.ts";
 import type { WhatsAppRoutes } from "./routes.ts";
 import type { WhatsAppSupervisor } from "./supervisor.ts";
@@ -30,8 +32,18 @@ export interface WhatsAppRepliesDeps {
   // The ids the agents sent, per member (the own-send filter and the quote
   // trigger of inbound.ts).
   sent(userId: string): IdRing;
+  // The chat's log (chat-log.ts): an agent's send goes in it, and a read
+  // reads it.
+  chatLog(userId: string, chat: string): ChatLog;
+  memberName(userId: string): string;
   now(): number;
 }
+
+export const WHATSAPP_READ_DEFAULT = 50;
+
+export type WhatsAppReadResult =
+  | ({ ok: true } & MessagingReadResult)
+  | { ok: false; status: 400 | 404 | 409; code: string; error: string };
 
 // A draft that waits for the member (askId), or a direct send that went out.
 export type WhatsAppReplyResult =
@@ -69,6 +81,10 @@ export interface WhatsAppReplies {
     routeId: string,
     text: unknown,
   ): Promise<WhatsAppReplyResult>;
+  // GET /api/messaging/routes/:routeId/messages by agent `agentId`: the
+  // last `limit` lines of the row's chat log (1 to WHATSAPP_CHAT_LOG_MAX,
+  // default WHATSAPP_READ_DEFAULT), oldest first. Marks nothing.
+  read(agentId: string, routeId: string, limit: unknown): WhatsAppReadResult;
   // The row's member answered the draft `entry` (entry.messaging is set).
   answer(
     entry: AskEntry,
@@ -154,10 +170,86 @@ export function createWhatsAppReplies(
     code: "not_found",
     error: "no such row",
   };
+  const routeDead = {
+    status: 409 as const,
+    code: "messaging_route_dead",
+    error:
+      "this row no longer delivers; the member must fix it on the Integrations page",
+  };
   // The times of each row's recent direct sends, by member and row id.
   const directSends = new Map<string, number[]>();
 
+  // An agent's send in the chat log, or its echo, logged first, marked as
+  // the agent's.
+  // The message already went out: a log that cannot be written never fails
+  // the send.
+  function logSend(userId: string, chat: string, id: string, text: string) {
+    try {
+      logSendOrThrow(userId, chat, id, text);
+    } catch {
+      console.error("[whatsapp] a sent message was not saved in the chat log");
+    }
+  }
+  function logSendOrThrow(
+    userId: string,
+    chat: string,
+    id: string,
+    text: string,
+  ) {
+    const log = deps.chatLog(userId, chat);
+    const line = {
+      id,
+      ts: deps.now(),
+      from: deps.memberName(userId),
+      fromMe: true,
+      text,
+      agent: true as const,
+    };
+    if (!log.append(line)) log.mark([id], "agent");
+  }
+
   return {
+    read(agentId, routeId, limit) {
+      const userId = deps.routes.rowMember(agentId, routeId);
+      const route = userId ? deps.routes.get(userId, routeId) : null;
+      if (
+        !deps.agent(agentId) ||
+        !userId ||
+        !route ||
+        route.agentId !== agentId
+      )
+        return notFound;
+      let count = WHATSAPP_READ_DEFAULT;
+      if (limit !== undefined) {
+        const n =
+          typeof limit === "string" && /^[0-9]+$/.test(limit)
+            ? Number(limit)
+            : NaN;
+        if (!(n >= 1 && n <= WHATSAPP_CHAT_LOG_MAX))
+          return {
+            ok: false,
+            status: 400,
+            code: "invalid_limit",
+            error: `limit must be a whole number from 1 to ${WHATSAPP_CHAT_LOG_MAX}`,
+          };
+        count = n;
+      }
+      if (route.dead || deps.routes.check(userId, route))
+        return { ok: false, ...routeDead };
+      const sent = deps.sent(userId);
+      const messages = deps
+        .chatLog(userId, route.chat)
+        .lines()
+        .slice(-count)
+        .map((l) => ({
+          from: l.from,
+          text: l.text,
+          at: new Date(l.ts).toISOString(),
+          ...(l.agent || sent.has(l.id) ? { agent: true as const } : {}),
+        }));
+      return { ok: true, messages };
+    },
+
     async reply(agentId, routeId, text) {
       const agent = deps.agent(agentId);
       // The row's member: the agent's manager, or an office owner who routed
@@ -178,13 +270,7 @@ export function createWhatsAppReplies(
           error: `text must be 1 to ${WHATSAPP_REPLY_MAX_CHARS} characters`,
         };
       if (route.dead || deps.routes.check(userId, route))
-        return {
-          ok: false,
-          status: 409,
-          code: "messaging_route_dead",
-          error:
-            "this row no longer delivers; the member must fix it on the Integrations page",
-        };
+        return { ok: false, ...routeDead };
       if (route.sendDirect === true) {
         const key = `${userId}\n${routeId}`;
         const now = deps.now();
@@ -202,10 +288,11 @@ export function createWhatsAppReplies(
         // A try counts: one that failed may still have gone out. Not linked
         // is the exception: that answer comes before the bridge.
         recent.push(now);
+        const outgoing = whatsappOutgoingText(text, route.prefix);
         const result = await deps.supervisor.send(userId, {
           requestId: randomUUID(),
           chat: route.chat,
-          text: whatsappOutgoingText(text, route.prefix),
+          text: outgoing,
         });
         if (!result.ok) {
           // The map's list: another call may have pruned it meanwhile.
@@ -216,6 +303,7 @@ export function createWhatsAppReplies(
         }
         // The own-send filter and the quote trigger (A7).
         deps.sent(userId).add(result.id);
+        logSend(userId, route.chat, result.id, outgoing);
         return { ok: true, sent: true };
       }
       const open = deps.asks
@@ -309,10 +397,11 @@ export function createWhatsAppReplies(
         };
 
       // A4: the ask id is the request id, so the bridge sends a retry once.
+      const outgoing = whatsappOutgoingText(draft.text, route.prefix);
       const result = await deps.supervisor.send(userId, {
         requestId: entry.id,
         chat: route.chat,
-        text: whatsappOutgoingText(draft.text, route.prefix),
+        text: outgoing,
       });
       if (!result.ok)
         return { kind: "fail", ...sendError(result.reason, "reply") };
@@ -320,6 +409,7 @@ export function createWhatsAppReplies(
       // message id feeds the own-send filter and the quote trigger (A7).
       ring.add(sentAskKey(entry.id));
       ring.add(result.id);
+      logSend(userId, route.chat, result.id, outgoing);
       return { kind: "deliver", outcome: "replied", text: sentText };
     },
   };

@@ -8,6 +8,7 @@
 //   sent.json   - the last WHATSAPP_ID_RING_MAX ids of messages the agents
 //                 sent, so an agent's own send is not read as the member's
 //                 phone text, and a reply to it counts in a group
+//   chats/      - each chat's recent messages (chat-log.ts)
 // Files are 0600 and written atomically.
 
 import { readFileSync, renameSync, writeFileSync } from "fs";

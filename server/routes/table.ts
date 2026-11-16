@@ -343,7 +343,9 @@ import type {
 } from "../../shared/whatsapp.ts";
 import type {
   MessagingReplyAccepted,
+  MessagingReadResult,
   MessagingReplyReq,
+  MessagingRoutesResult,
 } from "../../shared/messaging.ts";
 import type {
   DiscordBot,
@@ -2116,6 +2118,25 @@ export const API_ROUTES: readonly RouteDef[] = [
     plainText: { params: MESSAGING_REPLY_PLAIN_TEXT_PARAMS },
     tokenArea: { area: "asks", level: "write" },
     emits: ["ask_upserted", "others_ask_upserted"],
+  }),
+  // An agent lists its own live routes, in every messaging app.
+  defineRoute<void, MessagingRoutesResult>({
+    opId: "messaging.routes",
+    method: "GET",
+    path: "/api/messaging/routes",
+    auth: cap("self:affordance", agentTokenSender),
+    tokenArea: { area: "asks", level: "read" },
+    emits: [],
+  }),
+  // An agent reads the last messages of its route's chat (WhatsApp only).
+  // Only the route's agent: any other agent gets 404.
+  defineRoute<void, MessagingReadResult>({
+    opId: "messaging.read",
+    method: "GET",
+    path: "/api/messaging/routes/:routeId/messages",
+    auth: cap("self:affordance", agentTokenSender),
+    tokenArea: { area: "asks", level: "read" },
+    emits: [],
   }),
   defineRoute<void, NoContent>({
     opId: "whatsappRoutes.delete",

@@ -179,6 +179,8 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
   "cron.runReadFile": SELF_CALL,
   "cron.runDiff": SELF_CALL,
   "messaging.reply": SELF_CALL,
+  "messaging.read": SELF_CALL,
+  "messaging.routes": SELF_CALL,
   "agentConnections.list": SELF_CALL,
   "secretRequests.save": OWN_SCOPE,
   "secretRequests.decline": OWN_SCOPE,
