@@ -31,6 +31,8 @@ const DARK_VARS = {
   "--bg-code": "rgba(255,255,255,0.06)",
   "--bg-code-block": "rgba(0,0,0,0.3)",
   "--bg-hud": "rgba(10,14,22,0.7)",
+  // --bg-hud over --bg-base, opaque: the phone top bar (PhoneTopBar.tsx).
+  "--bg-hud-solid": "#0a0e16",
   "--bg-tag": "rgba(10,14,25,0.88)",
   "--bg-tooltip": "rgba(10,14,25,0.94)",
 
@@ -157,6 +159,7 @@ const LIGHT_VARS: ThemeVars = {
   "--bg-code": "rgba(0,0,0,0.05)",
   "--bg-code-block": "rgba(0,0,0,0.04)",
   "--bg-hud": "rgba(255,255,255,0.85)",
+  "--bg-hud-solid": "#fdfdfe",
   "--bg-tag": "rgba(255,255,255,0.92)",
   "--bg-tooltip": "rgba(255,255,255,0.96)",
 
@@ -269,6 +272,7 @@ const NORD_VARS: ThemeVars = {
   "--bg-code": "rgba(255,255,255,0.06)",
   "--bg-code-block": "rgba(0,0,0,0.3)",
   "--bg-hud": "rgba(46,52,64,0.7)",
+  "--bg-hud-solid": "#2e3440",
   "--bg-tag": "rgba(46,52,64,0.88)",
   "--bg-tooltip": "rgba(46,52,64,0.94)",
 
@@ -379,6 +383,7 @@ const DRACULA_VARS: ThemeVars = {
   "--bg-code": "rgba(255,255,255,0.06)",
   "--bg-code-block": "rgba(0,0,0,0.3)",
   "--bg-hud": "rgba(30,32,42,0.7)",
+  "--bg-hud-solid": "#21232e",
   "--bg-tag": "rgba(30,32,42,0.88)",
   "--bg-tooltip": "rgba(30,32,42,0.94)",
 
@@ -489,6 +494,7 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
   "--bg-code": "rgba(255,255,255,0.06)",
   "--bg-code-block": "rgba(0,0,0,0.3)",
   "--bg-hud": "rgba(0,43,54,0.7)",
+  "--bg-hud-solid": "#002b36",
   "--bg-tag": "rgba(0,43,54,0.88)",
   "--bg-tooltip": "rgba(0,43,54,0.94)",
 
@@ -598,6 +604,7 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--bg-code": "rgba(0,0,0,0.05)",
   "--bg-code-block": "rgba(0,0,0,0.04)",
   "--bg-hud": "rgba(253,246,227,0.85)",
+  "--bg-hud-solid": "#fdf6e3",
   "--bg-tag": "rgba(253,246,227,0.92)",
   "--bg-tooltip": "rgba(253,246,227,0.96)",
 

@@ -3,6 +3,7 @@ import { useI18n } from "../i18n.tsx";
 import { SidebarIcon } from "./NavIcons.tsx";
 import { SidebarUnreadDot } from "../members-chat/SidebarUnreadDot.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 export type RoomCounts = {
   working: number;
@@ -40,8 +41,8 @@ export function MobileHeader({
         alignItems: "center",
         justifyContent: "space-between",
         padding: "0 12px",
-        paddingTop: "env(safe-area-inset-top, 0px)",
-        height: "calc(40px + env(safe-area-inset-top, 0px))",
+        paddingTop: PHONE_TOP,
+        height: `calc(40px + ${PHONE_TOP})`,
         background: "var(--bg-hud)",
         backdropFilter: "blur(16px)",
         borderBottom: "1px solid var(--border-subtle)",

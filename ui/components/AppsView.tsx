@@ -49,6 +49,7 @@ import {
   filledDangerBtn,
   ownDisabledLook,
 } from "./dialog-styles.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -1354,7 +1355,7 @@ export function AppsView({
           alignItems: "center",
           gap: 8,
           padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          paddingTop: isMobile ? PHONE_TOP : undefined,
           minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",

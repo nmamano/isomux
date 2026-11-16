@@ -12,6 +12,9 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 
+const { recordRawStyles, rawStyle } =
+  await import("./test-support/raw-style.ts");
+recordRawStyles();
 const { act, fireEvent } = await import("@testing-library/react");
 const { CHAT_PANEL_WIDTH, CHAT_PANEL_RIGHT } =
   await import("./AppWidgetPage.tsx");
@@ -186,8 +189,8 @@ async function onPhone(
 // The panel's box in window px for a status-bar inset, checked to lie in
 // the visible area [visibleTop, visibleBottom]: placed by its top (a bottom
 // placement is measured from the full screen's bottom, which the iPhone
-// Home Screen keyboard covers), clear of the status bar, and in the demo
-// under the banner.
+// Home Screen keyboard covers), clear of the phone's top bar (task
+// d60726c7, which covers the status bar), and in the demo under the banner.
 function checkBox(
   view: View,
   banner: number,
@@ -196,11 +199,17 @@ function checkBox(
 ): { top: number; height: number }[] {
   const style = chatPanel(view)!.style;
   expect(style.bottom === "" || style.bottom === "auto").toBe(true);
+  const bars = view.baseElement.querySelectorAll<HTMLElement>(
+    "[data-phone-top-bar]",
+  );
+  expect(bars.length).toBe(1);
+  const barHeight = rawStyle(bars[0]).get("height") ?? "";
   return [0, 59].map((inset) => {
     const top = cssPx(style.top, { inset, banner });
     const height = cssPx(style.height, { inset, banner });
-    // Top is in the office box's coordinates, which start under the banner.
-    expect(top).toBeGreaterThanOrEqual(inset);
+    // Top is in the office box's coordinates, which start under the banner,
+    // as the bar's do.
+    expect(top).toBeGreaterThanOrEqual(cssPx(barHeight, { inset, banner }));
     expect(top + banner).toBeGreaterThanOrEqual(visibleTop);
     expect(height).toBeGreaterThan(0);
     expect(top + banner + height).toBeLessThanOrEqual(visibleBottom);

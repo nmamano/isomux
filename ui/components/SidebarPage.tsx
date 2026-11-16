@@ -7,6 +7,7 @@
 import type { ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { PHONE_TOP } from "../safe-area.ts";
 
 export function SidebarPage({
   title,
@@ -61,7 +62,7 @@ export function SidebarPage({
     >
       {/* Header - same bar as the Tasks/Cronjobs pages, apart from the
           labelled close control (see below). minHeight (not height) so the
-          safe-area-inset-top padding extends the bar below the camera notch
+          phone top padding (PHONE_TOP) extends the bar below the status bar
           instead of being squashed into the 44px box. */}
       <div
         style={{
@@ -69,7 +70,7 @@ export function SidebarPage({
           alignItems: "center",
           gap: 10,
           padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          paddingTop: isMobile ? PHONE_TOP : undefined,
           minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",

@@ -38,6 +38,7 @@ import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 import { useCan } from "../hooks/useCan.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // The two ways to start work, then the history of both (Nil, 2026-10-06).
 type Tab = "cronjobs" | "webhooks" | "runs";
@@ -333,8 +334,8 @@ export function CronjobsView({
         color: "var(--text-primary)",
       }}
     >
-      {/* Header. Use minHeight (not height) so the safe-area-inset-top
-          padding extends the bar below the camera notch instead of being
+      {/* Header. Use minHeight (not height) so the phone top padding
+          (PHONE_TOP) extends the bar below the status bar instead of being
           squashed into the 44px box (box-sizing: border-box is global). */}
       <div
         data-automations-header=""
@@ -344,7 +345,7 @@ export function CronjobsView({
           justifyContent: "space-between",
           gap: 8,
           padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          paddingTop: isMobile ? PHONE_TOP : undefined,
           minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",

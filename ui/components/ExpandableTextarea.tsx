@@ -29,7 +29,9 @@ import {
 } from "react";
 import { Portal } from "./Portal.tsx";
 import { useI18n } from "../i18n.tsx";
+import { useAppState } from "../store.tsx";
 import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // How many expanded editors are currently mounted (0 or 1 in practice; a
 // counter rather than a boolean so an unmount can never zero out a newer one).
@@ -177,6 +179,7 @@ function ExpandedEditor({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const { isMobile } = useAppState();
   const ref = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -248,7 +251,9 @@ function ExpandedEditor({
           background: "var(--bg-base)",
           display: "flex",
           flexDirection: "column",
-          padding: "env(safe-area-inset-top, 0px) 0 0",
+          padding: isMobile
+            ? `${PHONE_TOP} 0 0`
+            : "env(safe-area-inset-top, 0px) 0 0",
         }}
       >
         <div

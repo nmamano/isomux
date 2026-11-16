@@ -64,6 +64,7 @@ import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
+import { PhoneTopBar } from "./components/PhoneTopBar.tsx";
 import { CSS, OFFICE_PAGE_CSS } from "./styles.ts";
 import {
   getUsername,
@@ -1537,6 +1538,7 @@ export function App({ routing = true }: { routing?: boolean }) {
             <ConnectionBanner />
             <UpdateOverlay />
             <UiBuildNotice />
+            <PhoneTopBar isMobile={isMobile} />
             {sidebarView ? (
               <div
                 data-chat-shell=""

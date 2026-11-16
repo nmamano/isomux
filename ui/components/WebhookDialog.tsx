@@ -25,6 +25,7 @@ import type {
   WebhookTarget,
   WebhookWire,
 } from "../../shared/types.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // The server's limits (server/webhooks/match.ts, design section 3); the form
 // stops offering rows past them.
@@ -317,7 +318,7 @@ export function WebhookDialog({
             overscrollBehavior: "contain",
             flex: 1,
             padding: isMobile
-              ? "max(24px, env(safe-area-inset-top)) 20px 0"
+              ? `max(24px, ${PHONE_TOP}) 20px 0`
               : "24px 28px 0",
           }}
         >

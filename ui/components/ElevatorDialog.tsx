@@ -42,6 +42,7 @@ import {
   type FloorBrowser,
   type SafariEnv,
 } from "../safari-link.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // The lobby elevator: one button per office on this browser's panel
 // (shared/elevator-panel.ts) - the offices it rode through, their floors and
@@ -264,7 +265,9 @@ export function ElevatorDialog({
         backdropFilter: "blur(10px)",
         display: "flex",
         justifyContent: "center",
-        paddingTop: "max(16px, env(safe-area-inset-top, 0px))",
+        paddingTop: isMobile
+          ? `max(16px, ${PHONE_TOP})`
+          : "max(16px, env(safe-area-inset-top, 0px))",
         paddingBottom: "max(16px, env(safe-area-inset-bottom, 0px))",
         boxSizing: "border-box",
         overflowY: "auto",

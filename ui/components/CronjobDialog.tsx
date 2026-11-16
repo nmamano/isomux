@@ -49,6 +49,7 @@ import { useI18n } from "../i18n.tsx";
 import { effortLabel } from "../effort-label.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { roomFilterOptions } from "../room-filter.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // The weekday select. The day is an id, its name is a catalog key: no hand-built
 // weekday table survives here (ruling 12 keeps date words out of the code, and
@@ -627,7 +628,7 @@ export function CronjobDialog({
             overscrollBehavior: "contain",
             flex: 1,
             padding: isMobile
-              ? "max(24px, env(safe-area-inset-top)) 20px 0"
+              ? `max(24px, ${PHONE_TOP}) 20px 0`
               : "24px 28px 0",
           }}
         >

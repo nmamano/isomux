@@ -1,5 +1,6 @@
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // Brief grace window - covers reconnect blips so the banner doesn't flash on
 // every transient cycle. Implemented as a CSS animation-delay (with fill-mode
@@ -11,7 +12,7 @@ import { useI18n } from "../i18n.tsx";
 const SHOW_DELAY_MS = 600;
 
 export function ConnectionBanner() {
-  const { connected, hasReceivedInitialState } = useAppState();
+  const { connected, hasReceivedInitialState, isMobile } = useAppState();
   const { t } = useI18n();
   if (connected || !hasReceivedInitialState) return null;
 
@@ -27,7 +28,9 @@ export function ConnectionBanner() {
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
-        paddingTop: "calc(4px + env(safe-area-inset-top, 0px))",
+        paddingTop: isMobile
+          ? `calc(4px + ${PHONE_TOP})`
+          : "calc(4px + env(safe-area-inset-top, 0px))",
         paddingBottom: 4,
         paddingLeft: 16,
         paddingRight: 16,

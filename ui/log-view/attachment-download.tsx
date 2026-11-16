@@ -25,6 +25,7 @@ import {
   type Size,
   type ZoomView,
 } from "./image-zoom.ts";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // The chat's download control for attachments (image cards, file chips and the
 // lightbox). The server keeps only a sanitized file name, so the link asks the
@@ -571,7 +572,9 @@ function LightboxContent({
         }}
         style={{
           position: "absolute",
-          top: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          top: isMobile
+            ? `calc(${PHONE_TOP} + 12px)`
+            : "calc(env(safe-area-inset-top, 0px) + 12px)",
           right: "calc(env(safe-area-inset-right, 0px) + 12px)",
           width: 40,
           height: 40,

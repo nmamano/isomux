@@ -28,6 +28,7 @@ import {
 } from "../composer-height.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 import { CommandRunDetails } from "./CommandRunDetails.tsx";
+import { PHONE_TOP } from "../safe-area.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -412,7 +413,7 @@ export function CronjobRunView({
           display: "flex",
           alignItems: "center",
           padding: isMobile ? "0 8px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          paddingTop: isMobile ? PHONE_TOP : undefined,
           minHeight: 48,
           background: "var(--bg-surface)",
           borderBottom: "1px solid var(--border-strong)",

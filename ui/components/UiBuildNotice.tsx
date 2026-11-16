@@ -8,9 +8,11 @@ import { useI18n } from "../i18n.tsx";
 import { reloadBrowser } from "../reload-browser.ts";
 import { ownUiBuild, showUiBuildNotice } from "../ui-build.ts";
 import { NoticeCloseButton } from "./NoticeCloseButton.tsx";
+import { PHONE_TOP } from "../safe-area.ts";
 
 export function UiBuildNotice(): React.ReactElement | null {
-  const { serverUiBuild, uiBuildDismissed, connected } = useAppState();
+  const { serverUiBuild, uiBuildDismissed, connected, isMobile } =
+    useAppState();
   const dispatch = useDispatch();
   const { t } = useI18n();
   const own = ownUiBuild();
@@ -27,7 +29,7 @@ export function UiBuildNotice(): React.ReactElement | null {
       style={{
         position: "fixed",
         // Below the reconnecting banner (ConnectionBanner) while it shows.
-        top: `calc(${connected ? 8 : 34}px + env(safe-area-inset-top, 0px))`,
+        top: `calc(${connected ? 8 : 34}px + ${isMobile ? PHONE_TOP : "env(safe-area-inset-top, 0px)"})`,
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 8900,
