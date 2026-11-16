@@ -268,12 +268,18 @@ exit 0`,
   // This case runs the real apt-get on a scratch apt root: no sources, no
   // network, dpkg replaced by /bin/true, so nothing is installed. A local .deb
   // is how the installer installs caddy.
+  // apt reads its config files before -o, so -o Dir::Etc alone still runs the
+  // host's dpkg hooks (needrestart, apt-check, ...) on the install half; on a
+  // busy CI runner they outlasted the run's bound (task a8efae09). APT_CONFIG
+  // is read first and moves Dir::Etc before any host file is read.
   it.skipIf(!REAL_APT)("real apt installs a local .deb", () => {
     const r = runCase({
       apt: `S="$FIX/apt"
-/usr/bin/apt-get -o Dir::State="$S/state" -o Dir::State::status="$S/state/status" \
-  -o Dir::Cache="$S/cache" -o Dir::Etc="$S/etc" -o Dir::Log="$S/log" \
-  -o Debug::NoLocking=1 -o Dir::Bin::dpkg=/bin/true "$@"
+printf 'Dir::Etc "%s/etc";\nDPkg::Pre-Invoke { "true isomux-scratch-hook"; };\n' "$S" > "$S/apt.conf"
+APT_CONFIG="$S/apt.conf" /usr/bin/apt-get \
+  -o Dir::State="$S/state" -o Dir::State::status="$S/state/status" \
+  -o Dir::Cache="$S/cache" -o Dir::Log="$S/log" \
+  -o Debug::NoLocking=1 -o Dir::Bin::dpkg=/bin/true -o Debug::RunScripts=1 "$@"
 rc=$?
 echo $rc >> "$FIX/rcs"
 exit $rc`,
@@ -290,6 +296,14 @@ rc=0
 apt_install "$FIX/probe.deb" || rc=$?
 echo RC=$rc`,
     });
+    // The run ended on its own: a kill at the bound is not a missing call.
+    expect(r.signal).toBeNull();
+    // apt ran the scratch config's one hook and none of the host's:
+    // Debug::RunScripts traces each, and the scratch hook proves the trace is on.
+    const hooks = `${r.stdout}\n${r.stderr}`
+      .split("\n")
+      .filter((l) => l.includes("Running external script"));
+    expect(hooks).toEqual([expect.stringContaining("isomux-scratch-hook")]);
     // Both halves reached real apt: the download half did not stop the run.
     expect(r.calls).toHaveLength(2);
     expect(r.calls.every((c) => has(c, `${r.fix}/probe.deb`))).toBe(true);
