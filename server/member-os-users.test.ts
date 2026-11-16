@@ -164,6 +164,56 @@ describe("the uid ties", () => {
 // Task 78733adf, slice 3: an office move's preflight and lock read the record
 // of the state root they are given, now (no cache), and list every member it
 // holds, so a lock never misses one the move would strand.
+// Slice 5c-2 (task 78733adf, E4): a member who came with an office move
+// keeps her entry with the old box's uid until the enable command places her
+// home here. That uid can belong to anyone on this box.
+describe("a moved-in member", () => {
+  const OLD_UID = 1501;
+
+  it("reads as isolated with her old home, and keeps the old uid out of the ties", () => {
+    writeRegistry(
+      JSON.stringify({
+        "u-alice": {
+          name: "isomux-alice",
+          uid: OLD_UID,
+          movedIn: { home: "/home/isomux-alice" },
+        },
+        // The enabling case: an entry that did not move is tied.
+        "u-bob": { name: "isomux-bob", uid: 2002 },
+      }),
+    );
+    expect(memberOsUserState("u-alice")).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: OLD_UID },
+      movedIn: { home: "/home/isomux-alice" },
+    });
+    const uids = memberOsUidTies().map((t) => t.uid);
+    expect(uids).toContain(2002);
+    expect(uids).not.toContain(OLD_UID);
+  });
+
+  it("keeps movedIn when go-on records her new uid, and drops it when recorded without it", () => {
+    recordMemberOsUser(
+      "u-alice",
+      { name: "isomux-alice", uid: 2001 },
+      { moving: true, movedIn: { home: "/home/isomux-alice" } },
+    );
+    reloadMemberOsUsers();
+    expect(memberOsUserState("u-alice")).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: 2001 },
+      unfinished: true,
+      movedIn: { home: "/home/isomux-alice" },
+    });
+    recordMemberOsUser("u-alice", { name: "isomux-alice", uid: 2001 });
+    reloadMemberOsUsers();
+    expect(memberOsUserState("u-alice")).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: 2001 },
+    });
+  });
+});
+
 describe("the members with their own OS user, for an office move", () => {
   let root = "";
   const write = (text: string) =>

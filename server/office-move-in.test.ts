@@ -12,9 +12,7 @@
 import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { createHash } from "node:crypto";
 import {
-  accessSync,
   chmodSync,
-  constants as fsConstants,
   copyFileSync,
   cpSync,
   existsSync,
@@ -33,33 +31,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import type { AuditActor } from "../shared/audit.ts";
 import {
-  mintMoveCode,
   MOVE_STATE_FILE,
   parseMoveCode,
-  readMoveState,
   type MoveBoxInfo,
 } from "./office-move.ts";
-import {
-  createMovePreflightJobs,
-  type TurnInFlight,
-} from "./office-move-preflight.ts";
-import { createOfficeMoveFrontDoor } from "./office-move-routes.ts";
-import type { MemberHomeSource, MoveMember } from "./office-move-members.ts";
-import { moveLockedResponse } from "./move-locked-office.ts";
-import {
-  compareMoveWalkOrder,
-  createMoveManifestJobs,
-  walkMoveManifest,
-} from "./office-move-pull.ts";
-import { createMoveScope, MOVE_SCRATCH_DIR } from "./office-move-scope.ts";
-import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
+import { compareMoveWalkOrder, walkMoveManifest } from "./office-move-pull.ts";
 import {
   checkMoveInFresh,
-  createMoveIn,
   MOVE_IN_STATE_FILE,
-  type MoveIn,
   type MoveInBox,
   type MoveInDeps,
   type MoveInFreshInput,
@@ -73,523 +53,50 @@ import {
   MOVE_IN_STAGE,
   readMoveLedger,
 } from "./office-move-stage.ts";
-import type { MoveInLive, MoveOutsideFolders } from "../shared/office-move.ts";
+import type { MoveOutsideFolders } from "../shared/office-move.ts";
 import {
   MOVE_IN_OUTSIDE_FILE,
   readMoveInOutside,
-  type MoveInFolderFs,
 } from "./office-move-outside.ts";
+import { type MoveInReport } from "./office-move-swap.ts";
 import {
-  MOVE_IN_SWAP_FILE,
-  type MoveInReport,
-  type MoveInSwapFile,
-} from "./office-move-swap.ts";
+  ORIGIN,
+  OWNER,
+  FILE_MTIME,
+  moveInBed,
+  cleanupMoveInHarness,
+  waitFor,
+  TERMINAL,
+  waitPhase,
+  type OldOffice,
+  rnd,
+  bodyText,
+  oldOffice,
+  type NewOffice,
+  ROOMY,
+  harnessFolderFs,
+  newOffice,
+  SEEDED,
+  stageOf,
+  paths,
+  errCode,
+  toConfirm,
+  toEnd,
+  REQ_ORIGIN,
+  writeUsers,
+  swapFileOf,
+  readSwap,
+  finishAs,
+  liveOf,
+  liveReady,
+} from "./test-support/office-move-in-harness.ts";
 
-const REPO = join(import.meta.dir, "..");
-const ORIGIN = "https://old.example.com";
-const OWNER: AuditActor = { kind: "member", id: "u-owner", name: "Morgan" };
-const FILE_MTIME = new Date("2026-10-01T12:00:00Z");
 const STATE_ROOT_CODES = ["state_root_outside_home", "state_root_differs"];
-
 // Each wait below ends in an assertion well before this: a broken move-in
 // fails on what it got wrong, not on the runner's timeout.
 setDefaultTimeout(30_000);
 
-let dir = "";
-const cleanups: (() => Promise<void> | void)[] = [];
-afterEach(async () => {
-  for (const c of cleanups.splice(0).reverse()) await c();
-  if (dir) {
-    // Read-only and unreadable entries of the fixtures must not stop the
-    // cleanup.
-    for (const p of walkPaths(dir))
-      try {
-        if (!lstatSync(p).isSymbolicLink()) chmodSync(p, 0o700);
-      } catch {
-        // Gone already.
-      }
-    rmSync(dir, { recursive: true, force: true });
-  }
-  dir = "";
-});
-
-function walkPaths(root: string): string[] {
-  const out: string[] = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const p = stack.pop()!;
-    out.push(p);
-    try {
-      const st = lstatSync(p);
-      if (st.isDirectory() && !st.isSymbolicLink()) {
-        chmodSync(p, 0o700);
-        for (const n of readdirSync(p)) stack.push(join(p, n));
-      }
-    } catch {
-      // Skip.
-    }
-  }
-  return out;
-}
-
-async function waitFor(check: () => boolean, ms = 8_000): Promise<void> {
-  const deadline = performance.now() + ms;
-  while (!check() && performance.now() < deadline) await Bun.sleep(5);
-}
-
-const TERMINAL = new Set(["staged", "incomplete", "failed"]);
-
-async function waitPhase(m: MoveIn, phases: string[], ms = 8_000) {
-  await waitFor(() => phases.includes(m.status().phase), ms);
-  return m.status();
-}
-
-// ---- the old office ----
-
-interface FetchCall {
-  method: string;
-  path: string;
-  url: string;
-  redirect: RequestRedirect | undefined;
-  body: string | null;
-  /** The old office's state when the request came (slice 4: a batch in
-   *  "paired" is the live pass's, in "move" the final pass's). */
-  state: string | null;
-}
-
-interface OldOffice {
-  home: string;
-  root: string;
-  box: MoveBoxInfo;
-  turns: TurnInFlight[];
-  scope: ReturnType<typeof createMoveScope>;
-  log: FetchCall[];
-  /** The move sessions the redeem gave. */
-  sessions: string[];
-  fetch: MoveInDeps["fetch"];
-  mint(): string;
-  state(): string | null;
-  /** Holds every preflight step until released (slice 4). */
-  holdPreflight(): () => void;
-}
-
-const rnd = (n: number, seed: number) =>
-  Buffer.from(Array.from({ length: n }, (_, i) => (i * 31 + seed * 7) % 256));
-
-// A home with a little of everything the move must carry.
-function fillHome(home: string): void {
-  const w = (p: string, data: string | Buffer, mode?: number) => {
-    mkdirSync(join(home, p, ".."), { recursive: true });
-    writeFileSync(join(home, p), data);
-    if (mode !== undefined) chmodSync(join(home, p), mode);
-  };
-  w(".isomux/agents.json", '{"agents":[]}\n');
-  w("docs/a.txt", "alpha", 0o640);
-  w("docs/sub/deep/n.txt", "deep");
-  for (let i = 0; i < 30; i++)
-    w(`files/f${String(i).padStart(3, "0")}.bin`, rnd(700 + i * 37, i));
-  // Several batches of ranges at the test's 8 KiB batch size.
-  w("big.bin", rnd(50_000, 99));
-  w("bin/tool", "#!/bin/sh\necho hi\n", 0o4755);
-  w("empty.txt", "");
-  mkdirSync(join(home, "emptydir"));
-  symlinkSync("a.txt", join(home, "docs/ln"));
-  symlinkSync(join(home, "docs/a.txt"), join(home, "abs-ln"));
-  symlinkSync("gone", join(home, "dangling"));
-  w("ro/inside.txt", "read only folder");
-  // Left out of the move (a cache).
-  w(".cache/junk.bin", rnd(1000, 1));
-  // Slice 3: sign-ins and secrets move; the box's SSH login keys and the
-  // origin-bound sessions stay.
-  w(".claude/.credentials.json", '{"token":"old-claude"}', 0o600);
-  w(".ssh/id_ed25519", "OLD-SSH-ID", 0o600);
-  w(".ssh/authorized_keys", "ssh-ed25519 AAAA old-box-login", 0o600);
-  w(".config/gh/hosts.yml", "github.com: {oauth_token: old}");
-  w(".isomux/secrets/office.json", '{"secrets":[]}', 0o600);
-  w(".isomux/sessions.json", '{"old":"sessions"}', 0o600);
-  // A SQLite database whose snapshot is smaller than the live file (freed
-  // pages): its trailer, not the manifest size, is the right size.
-  mkdirSync(join(home, "data"), { recursive: true });
-  const db = new Database(join(home, "data/app.sqlite"));
-  db.run("PRAGMA journal_mode=WAL");
-  db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
-  const ins = db.prepare("INSERT INTO t (v) VALUES (?)");
-  db.transaction(() => {
-    for (let i = 0; i < 3000; i++) ins.run("x".repeat(200));
-  })();
-  db.run("DELETE FROM t WHERE id > 100");
-  db.close();
-  for (const p of walkFiles(home))
-    if (!p.endsWith(".sqlite")) utimesSync(p, FILE_MTIME, FILE_MTIME);
-  chmodSync(join(home, "ro"), 0o500);
-}
-
-function walkFiles(root: string): string[] {
-  const out: string[] = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const p = stack.pop()!;
-    const st = lstatSync(p);
-    if (st.isSymbolicLink()) continue;
-    if (st.isDirectory())
-      for (const n of readdirSync(p)) stack.push(join(p, n));
-    else if (st.isFile()) out.push(p);
-  }
-  return out;
-}
-
-function bodyText(body: unknown): string | null {
-  if (typeof body === "string") return body;
-  if (body instanceof ArrayBuffer) return new TextDecoder().decode(body);
-  if (ArrayBuffer.isView(body))
-    return new TextDecoder().decode(
-      new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
-    );
-  return null;
-}
-
-// Slice 5c-1: a member's runner whose home holds one file.
-const oneFileMember: MemberHomeSource = () => ({
-  async *list() {
-    yield Buffer.from(
-      `${JSON.stringify({ p: "m.txt", t: "f", s: 3, m: 1000, mode: 0o644 })}\n{"end":true}\n`,
-    );
-  },
-  async *files() {
-    yield Buffer.alloc(4);
-  },
-});
-
-function oldOffice(
-  name = "old",
-  opts: {
-    /** Slice 4: the running office serves the pull (the live pass). Off,
-     *  it answers 404 there, as a release before slice 4 does. */
-    live?: boolean;
-    /** Slice 5b: what the read of the folders outside the home gives now
-     *  (the preflight, the lock and each manifest job read it). */
-    outside?: { value: MoveOutsideFolders };
-    /** Slice 5c-1: members with their own OS user, ready to move, whose
-     *  runners each list one file. */
-    members?: MoveMember[];
-  } = {},
-): OldOffice {
-  const home = join(dir, name, "home");
-  const root = join(home, ".isomux");
-  mkdirSync(root, { recursive: true });
-  fillHome(home);
-  const box: MoveBoxInfo = {
-    release: "v2026.11.12",
-    commit: "a".repeat(40),
-    homePath: home,
-    stateRoot: root,
-  };
-  const turns: TurnInFlight[] = [];
-  const now = () => new Date();
-  let preflightHold: Promise<void> | null = null;
-  const preflight = createMovePreflightJobs({
-    home,
-    hosts: () => ["old.example.com"],
-    apps: () => [],
-    turnsInFlight: () => turns.map((t) => ({ ...t })),
-    listUnits: () => [],
-    restartPolicy: () => ({
-      unit: "isomux.service",
-      manager: "system",
-      restart: "always",
-    }),
-    memberOsUsers: () => ({ names: [] }),
-    ...(opts.outside ? { outsideFolders: () => opts.outside!.value } : {}),
-    exec: async () => {
-      if (preflightHold) await preflightHold;
-      return { code: 0, stdout: "0\t.\n", timedOut: false };
-    },
-    osUser: "isomux",
-    aptHistoryPath: join(dir, "no-apt-log"),
-    now: () => Date.now(),
-  });
-  const scope = createMoveScope({
-    home,
-    stateRoot: root,
-    codeDir: REPO,
-    backupDir: join(dir, "backups"),
-  });
-  const scratch = join(root, MOVE_SCRATCH_DIR);
-  const pull = {
-    manifests: createMoveManifestJobs({
-      scope,
-      dir: scratch,
-      units: () => [],
-      secretCount: () => 0,
-      ...(opts.outside ? { outside: () => opts.outside!.value.move } : {}),
-      ...(opts.members
-        ? { members: () => opts.members!, memberSource: oneFileMember }
-        : {}),
-      now,
-    }),
-    batch: { scope, scratchDir: scratch, snapshot: snapshotOfficeDatabase },
-    ...(opts.members ? { memberSource: oneFileMember } : {}),
-  };
-  const door = createOfficeMoveFrontDoor({
-    ...(opts.live ? { pull } : {}),
-    stateRoot: root,
-    ours: () => box,
-    preflight,
-    turnsInFlight: () => turns.map((t) => ({ ...t })),
-    restartPolicy: () => "always",
-    memberOsUsers: () => ({ names: [] }),
-    ...(opts.members
-      ? {
-          moveMembers: async () => ({
-            members: opts.members!.map((m) => ({
-              userId: m.userId,
-              name: m.name,
-              osUser: m.osUser,
-              home: m.home,
-              block: null,
-              units: [],
-            })),
-            ready: opts.members!,
-          }),
-        }
-      : {}),
-    ...(opts.outside ? { outsideFolders: () => opts.outside!.value } : {}),
-    listUnits: () => [],
-    lockProcess: () => {},
-    audit: () => {},
-    requestStop: () => {},
-    allow: () => true,
-    now,
-  });
-  const log: FetchCall[] = [];
-  const sessions: string[] = [];
-  const state = () => readMoveState(root, now()).current?.state ?? null;
-  const fetch: MoveInDeps["fetch"] = async (url, init) => {
-    const u = new URL(url);
-    log.push({
-      method: init.method ?? "GET",
-      path: u.pathname,
-      url,
-      redirect: init.redirect,
-      body: bodyText(init.body),
-      state: state(),
-    });
-    if (u.origin !== ORIGIN) throw new TypeError("fetch failed");
-    const req = new Request(url, init);
-    // The office restarts into the MOVE-locked server at the lock.
-    const s = state();
-    if (s === "move" || s === "moved")
-      return moveLockedResponse(req, {
-        stateRoot: root,
-        requestStop: () => {},
-        now,
-        pull,
-        audit: () => {},
-      });
-    const res =
-      (await door.handle(req, u, { onBox: false, client: "203.0.113.9" })) ??
-      new Response("not found", { status: 404 });
-    if (u.pathname === "/api/move/redeem" && res.status === 200)
-      sessions.push(
-        ((await res.clone().json()) as { session: string }).session,
-      );
-    return res;
-  };
-  return {
-    home,
-    root,
-    box,
-    turns,
-    scope,
-    log,
-    sessions,
-    fetch,
-    mint: () =>
-      mintMoveCode(root, { origin: ORIGIN, by: "Morgan", now: now() }).code,
-    state,
-    holdPreflight() {
-      let release!: () => void;
-      preflightHold = new Promise<void>((r) => (release = r));
-      return () => {
-        preflightHold = null;
-        release();
-      };
-    },
-  };
-}
-
-// ---- the new office ----
-
-interface NewOffice {
-  home: string;
-  root: string;
-  moveIn: MoveIn;
-  fresh: MoveInFreshInput;
-  statfs: { value: MoveInStatfs };
-  statfsPaths: string[];
-  audits: string[];
-  /** requestRestart calls (slice 2c-1). */
-  restarts: { n: number };
-}
-
-const ROOMY: MoveInStatfs = { bavail: 1e9, bsize: 4096, ffree: 1e9 };
-
-/** Slice 5b: the disk as checkMoveInFolder reads it, with one change: in a
- *  user namespace that maps only the test's user (an agent shell), "/" and
- *  the temp folder show the overflow uid and gid, which stand for root here.
- *  Outside a namespace no file has them, and this changes nothing. */
-const OVERFLOW_ID = (() => {
-  try {
-    return Number(readFileSync("/proc/sys/kernel/overflowuid", "utf8").trim());
-  } catch {
-    return 65534;
-  }
-})();
-function harnessFolderFs(): MoveInFolderFs {
-  return {
-    lstat(p) {
-      let st: ReturnType<typeof lstatSync>;
-      try {
-        st = lstatSync(p);
-      } catch {
-        return null;
-      }
-      const root = (id: number) => (id === OVERFLOW_ID ? 0 : id);
-      return {
-        isDirectory: () => st.isDirectory(),
-        isSymbolicLink: () => st.isSymbolicLink(),
-        uid: root(st.uid),
-        gid: root(st.gid),
-        mode: st.mode,
-      };
-    },
-    readdir: (p) => readdirSync(p),
-    writable(p) {
-      try {
-        accessSync(p, fsConstants.W_OK);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-  };
-}
-
-function newOffice(
-  old: OldOffice,
-  over: {
-    name?: string;
-    fetch?: MoveInDeps["fetch"];
-    ours?: () => MoveBoxInfo;
-    timing?: Partial<MoveInDeps["timing"]>;
-    limits?: Partial<MoveInDeps["limits"]>;
-    box?: Partial<MoveInBox>;
-    onRestart?: () => void;
-    /** Slice 5b seams. */
-    outsideRoot?: string;
-    folderFs?: MoveInDeps["folderFs"];
-    deviceOf?: MoveInDeps["deviceOf"];
-    /** Slice 5b: statfs by path (default: statfs.value for every path). */
-    statfsOf?: (path: string) => MoveInStatfs;
-  } = {},
-): NewOffice {
-  const home = join(dir, over.name ?? "new", "home");
-  const root = join(home, ".isomux");
-  mkdirSync(root, { recursive: true });
-  const fresh: MoveInFreshInput = {
-    users: [{ role: "owner" }],
-    agents: [],
-    seededAgents: SEEDED,
-    apps: 0,
-    tasks: 0,
-  };
-  const statfs = { value: { ...ROOMY } };
-  const statfsPaths: string[] = [];
-  const audits: string[] = [];
-  const restarts = { n: 0 };
-  const moveIn = createMoveIn({
-    stateRoot: root,
-    home,
-    fetch: over.fetch ?? old.fetch,
-    // The home path is the same on both boxes (the redeem refuses
-    // otherwise): this box answers with the old office's paths.
-    ours: over.ours ?? (() => old.box),
-    freshness: () => fresh,
-    statfs: (p) => {
-      statfsPaths.push(p);
-      return over.statfsOf ? over.statfsOf(p) : { ...statfs.value };
-    },
-    ...(over.outsideRoot !== undefined
-      ? { outsideRoot: over.outsideRoot }
-      : {}),
-    folderFs: over.folderFs ?? harnessFolderFs(),
-    ...(over.deviceOf ? { deviceOf: over.deviceOf } : {}),
-    audit: (op) => {
-      audits.push(op);
-    },
-    box: () => ({
-      codeDir: null,
-      backupDir: null,
-      officeUnit: null,
-      restartPolicy: "always",
-      publicOrigin: null,
-      ...over.box,
-    }),
-    requestRestart: () => {
-      restarts.n++;
-      over.onRestart?.();
-    },
-    now: () => new Date(),
-    timing: {
-      requestMs: 2_000,
-      idleMs: 400,
-      pollMs: 10,
-      restartWaitMs: 3_000,
-      preflightWaitMs: 3_000,
-      manifestWaitMs: 5_000,
-      ...over.timing,
-    },
-    limits: {
-      batchBytes: 8 * 1024,
-      batchItemsJsonBytes: 800 * 1024,
-      concurrency: 3,
-      batchAttempts: 3,
-      jsonMaxBytes: 1024 * 1024,
-      ...over.limits,
-    },
-  });
-  cleanups.push(() => moveIn.settled());
-  return { home, root, moveIn, fresh, statfs, statfsPaths, audits, restarts };
-}
-
-const SEEDED = [
-  { name: "Claude Welcome Agent", roomId: "welcome" },
-  { name: "Codex Welcome Agent", roomId: "welcome" },
-  { name: "Free Welcome Agent", roomId: "welcome" },
-  { name: "Receptionist", roomId: "lobby" },
-];
-
-const stageOf = (n: NewOffice) => join(n.home, MOVE_IN_DIR, MOVE_IN_STAGE);
-const paths = (o: OldOffice, p: string) =>
-  o.log.filter((c) => c.path === p).length;
-const errCode = (a: { ok: boolean }) => (a as { code?: string }).code ?? null;
-
-/** start -> confirm; returns the preflight id. */
-async function toConfirm(o: OldOffice, n: NewOffice): Promise<string> {
-  const a = await n.moveIn.start({ code: o.mint(), by: OWNER });
-  if (!a.ok) throw new Error(`start: ${JSON.stringify(a)}`);
-  const s = await waitPhase(n.moveIn, ["confirm", "failed"]);
-  if (s.phase !== "confirm" || !("preflightId" in s) || !s.preflightId)
-    throw new Error(`no confirm: ${JSON.stringify(s)}`);
-  return s.preflightId;
-}
-
-async function toEnd(o: OldOffice, n: NewOffice): Promise<MoveInStatus> {
-  const preflightId = await toConfirm(o, n);
-  const locked = await n.moveIn.lock({ preflightId, by: OWNER });
-  if (!locked.ok) throw new Error(`lock: ${JSON.stringify(locked)}`);
-  return waitPhase(n.moveIn, [...TERMINAL]);
-}
+afterEach(cleanupMoveInHarness);
 
 // ---- the tree compare ----
 
@@ -728,7 +235,7 @@ describe("checkMoveInFresh", () => {
 
 describe("the move-in, start to staged, against the real old office", () => {
   it("pairs, shows the old office's preflight, locks on the owner's yes, pulls, checks, and stops at staged: the old office stays locked and gets no done", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const code = o.mint();
@@ -803,7 +310,7 @@ describe("the move-in, start to staged, against the real old office", () => {
 
 describe("before the redeem", () => {
   it("refuses an office that is not fresh: 409 office_not_fresh with the reasons, and no request to the old office", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     n.fresh.apps = 1;
@@ -820,7 +327,7 @@ describe("before the redeem", () => {
   });
 
   it("refuses a code that does not parse with 400 and no request", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const a = await n.moveIn.start({ code: "not a move code", by: OWNER });
@@ -833,11 +340,11 @@ describe("before the redeem", () => {
   });
 
   it("refuses when this office's own state root is a link or outside its home, with no request", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const link = join(o.home, ".isomux-link");
     symlinkSync(o.root, link);
-    const outside = join(dir, "outside-state");
+    const outside = join(moveInBed.dir, "outside-state");
     mkdirSync(outside);
     const results = [];
     for (const stateRoot of [link, outside]) {
@@ -860,7 +367,7 @@ describe("before the redeem", () => {
   });
 
   it("passes the old office's refusal through with both boxes, and the code stays usable", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     // This box runs an older release than the old office.
     const n = newOffice(o, {
@@ -881,7 +388,7 @@ describe("before the redeem", () => {
   // D11: an old office that does not check the state root (or names none)
   // is refused by this box after the pair; nothing goes on from there.
   it("refuses a redeem answer with no state root, or another one, and starts no preflight", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const results = [];
     const variants = [
       (b: MoveBoxInfo) =>
@@ -947,7 +454,7 @@ describe("before the redeem", () => {
   });
 
   it("slice 2c-1: refuses a start when the office unit does not restart by itself, before the redeem", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o, { box: { restartPolicy: "on-failure" } });
     const a = await n.moveIn.start({ code: o.mint(), by: OWNER });
@@ -957,7 +464,7 @@ describe("before the redeem", () => {
   });
 
   it("D9: two starts at the same time: one 202, one 409 move_in_running, one redeem", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o, {
       fetch: async (url, init) => {
@@ -983,7 +490,7 @@ describe("before the redeem", () => {
   });
 
   it("D6: a redeem that never answers fails within the request limit", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o, {
       timing: { requestMs: 200 },
@@ -1004,7 +511,7 @@ describe("before the redeem", () => {
   });
 
   it("D6: a JSON answer over the cap is not read: the move-in fails before confirm", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o, {
       limits: { jsonMaxBytes: 64 * 1024 },
@@ -1027,7 +534,7 @@ describe("before the redeem", () => {
 
 describe("the lock", () => {
   it("checks freshness again: an app made since the start refuses, and nothing is sent", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const preflightId = await toConfirm(o, n);
@@ -1042,7 +549,7 @@ describe("the lock", () => {
   });
 
   it("passes the old office's turns_changed through, and the old office stays paired", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const preflightId = await toConfirm(o, n);
@@ -1057,7 +564,7 @@ describe("the lock", () => {
   });
 
   it("the pull again is refused before the lock, and never sends one", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     await toConfirm(o, n);
@@ -1073,14 +580,14 @@ describe("the lock", () => {
 // D5: blocks and inodes, before the first batch.
 describe("the free-space check", () => {
   async function manifestSummary(o: OldOffice) {
-    const tmp = join(dir, "summary.ndjson");
+    const tmp = join(moveInBed.dir, "summary.ndjson");
     const s = await walkMoveManifest(o.scope, tmp);
     rmSync(tmp);
     return s;
   }
 
   it("counts whole blocks: enough bytes but too few blocks fails no_space before any batch; the retry with room gives staged", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const sum = await manifestSummary(o);
@@ -1109,7 +616,7 @@ describe("the free-space check", () => {
   });
 
   it("counts inodes: free inodes equal to the entries fails no_space before any batch", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const sum = await manifestSummary(o);
@@ -1164,7 +671,7 @@ async function cut(
 describe("a batch that fails", () => {
   for (const end of ["close", "error", "stall"] as const)
     it(`runs again when its stream ends early (${end}), and the copy is whole`, async () => {
-      dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+      moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
       const o = oldOffice();
       const cuts = { n: 0 };
       const n = newOffice(o, {
@@ -1185,7 +692,7 @@ describe("a batch that fails", () => {
     });
 
   it("fails the pull (retryable) when one batch fails every attempt; no done, the old office stays locked", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o, {
       fetch: batchFetch(o, (res) => cut(res, "close")),
@@ -1202,7 +709,7 @@ describe("a batch that fails", () => {
   // D6: a request past its time limit is aborted, not left open next to its
   // retry (each one holds a connection to the old office).
   it("a batch whose answer never starts is aborted at the request limit, and runs again", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const hung: AbortSignal[] = [];
     const n = newOffice(o, {
@@ -1234,7 +741,7 @@ describe("a batch that fails", () => {
   });
 
   it("a fetch that throws ends in failed, never an unhandled error", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o, {
       fetch: (url, init) => {
@@ -1250,7 +757,7 @@ describe("a batch that fails", () => {
 
 describe("a file the old office cannot read", () => {
   it("gives incomplete with its path, is asked once, and sends no done", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     mkdirSync(join(o.home, "secret"));
     writeFileSync(join(o.home, "secret/locked.txt"), "no");
@@ -1293,18 +800,18 @@ function holding(o: OldOffice, path: string) {
 // writes nothing more).
 describe("a restart of the new office", () => {
   it("mid-pull gives failed (interrupted, retryable); the pull again wipes the stage and ends staged", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const h = holding(o, "/api/move/batch");
     const n1 = newOffice(o, { fetch: h.fetch });
     // Released before n1.settled() runs (the cleanups run in reverse).
-    cleanups.push(h.release);
+    moveInBed.cleanups.push(h.release);
     const preflightId = await toConfirm(o, n1);
     expect((await n1.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
     await waitFor(() => h.held.n > 0);
     expect(n1.moveIn.status().phase).toBe("pulling");
 
-    const n2Home = join(dir, "new2", "home");
+    const n2Home = join(moveInBed.dir, "new2", "home");
     mkdirSync(join(n2Home, ".isomux"), { recursive: true });
     copyFileSync(
       join(n1.root, MOVE_IN_STATE_FILE),
@@ -1330,17 +837,17 @@ describe("a restart of the new office", () => {
   });
 
   it("while the lock was in flight: the pull again finds the old office still paired and goes back to confirm, sending no lock", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const h = holding(o, "/api/move/lock");
     const n1 = newOffice(o, { fetch: h.fetch });
-    cleanups.push(h.release);
+    moveInBed.cleanups.push(h.release);
     const preflightId = await toConfirm(o, n1);
     void n1.moveIn.lock({ preflightId, by: OWNER });
     await waitFor(() => h.held.n > 0);
     expect(n1.moveIn.status().phase).toBe("locking");
 
-    const n2Home = join(dir, "new2", "home");
+    const n2Home = join(moveInBed.dir, "new2", "home");
     mkdirSync(join(n2Home, ".isomux"), { recursive: true });
     copyFileSync(
       join(n1.root, MOVE_IN_STATE_FILE),
@@ -1378,11 +885,11 @@ describe("the cancel", () => {
   // A cancel while the redeem or the preflight request is in flight: the
   // request that comes back after it must not bring the move-in back.
   it("during the redeem: nothing comes back after it, no preflight starts", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const g = gated(o, "POST", "/api/move/redeem");
     const n = newOffice(o, { fetch: g.fetch });
-    cleanups.push(g.release);
+    moveInBed.cleanups.push(g.release);
     const started = n.moveIn.start({ code: o.mint(), by: OWNER });
     await waitFor(() => g.held.n > 0);
     expect((await n.moveIn.cancel({ by: OWNER })).ok).toBe(true);
@@ -1398,7 +905,7 @@ describe("the cancel", () => {
   });
 
   it("during the preflight again: the move-in stays cancelled", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n0 = newOffice(o);
     await toConfirm(o, n0);
@@ -1406,7 +913,7 @@ describe("the cancel", () => {
     // The same state file, read by an office whose preflight start waits.
     const g = gated(o, "POST", "/api/move/preflight");
     const n = newOffice(o, { fetch: g.fetch });
-    cleanups.push(g.release);
+    moveInBed.cleanups.push(g.release);
     expect(n.moveIn.status().phase).toBe("confirm");
     const again = n.moveIn.rerunPreflight({ by: OWNER });
     await waitFor(() => g.held.n > 0);
@@ -1421,7 +928,7 @@ describe("the cancel", () => {
   });
 
   it("before the lock: the state file goes, the status is none, the old office is not locked", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     await toConfirm(o, n);
@@ -1433,7 +940,7 @@ describe("the cancel", () => {
   });
 
   it("after staged: the stage goes too", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     expect((await toEnd(o, n)).phase).toBe("staged");
@@ -1449,25 +956,7 @@ describe("the cancel", () => {
 // ---- slice 2c-1: finish ----
 
 const NEW_ORIGIN = "https://new.example.com";
-const REQ_ORIGIN = "https://req.example.com";
 
-function writeUsers(
-  root: string,
-  users: { id: string; name: string; role: string }[],
-) {
-  mkdirSync(root, { recursive: true });
-  writeFileSync(
-    join(root, "users.json"),
-    JSON.stringify(
-      Object.fromEntries(users.map((u) => [u.id, { ...u, createdAt: 1 }])),
-    ),
-  );
-}
-
-const swapFileOf = (n: NewOffice) =>
-  join(n.home, MOVE_IN_DIR, MOVE_IN_SWAP_FILE);
-const readSwap = (n: NewOffice) =>
-  JSON.parse(readFileSync(swapFileOf(n), "utf8")) as MoveInSwapFile;
 const phaseOnDisk = (n: NewOffice) =>
   (
     JSON.parse(readFileSync(join(n.root, MOVE_IN_STATE_FILE), "utf8")) as {
@@ -1494,7 +983,7 @@ async function stagedPair(
   /** Wraps the old office's fetch (the new office's view of it). */
   wrap?: (o: OldOffice) => MoveInDeps["fetch"],
 ) {
-  dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+  moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
   const o = oldOffice();
   writeUsers(o.root, oldUsers);
   const n = newOffice(o, wrap ? { ...over, fetch: wrap(o) } : over);
@@ -1502,9 +991,6 @@ async function stagedPair(
   const s = await toEnd(o, n);
   return { o, n, s };
 }
-
-const finishAs = (n: NewOffice, acceptMissing = false) =>
-  n.moveIn.finish({ acceptMissing, by: OWNER, requestOrigin: REQ_ORIGIN });
 
 describe("finish (slice 2c-1)", () => {
   it("staged: done with the public origin, swap.json with the inputs and no ops, phase swapping, then one restart; 202", async () => {
@@ -1605,7 +1091,7 @@ describe("finish (slice 2c-1)", () => {
   });
 
   it("refuses a phase before staged (confirm) and sends nothing", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     await toConfirm(o, n);
@@ -1616,7 +1102,7 @@ describe("finish (slice 2c-1)", () => {
   });
 
   it("incomplete: refused without acceptMissing (409 copy_incomplete); with it, done and the missing paths in the report", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     writeUsers(o.root, [{ id: "u-old", name: "Riley", role: "owner" }]);
     mkdirSync(join(o.home, "secret"));
@@ -1750,14 +1236,14 @@ describe("finish (slice 2c-1)", () => {
         return res;
       },
     );
-    cleanups.push(() => release!());
+    moveInBed.cleanups.push(() => release!());
     void finishAs(n1);
     await waitFor(() => held.n > 0);
     expect(phaseOnDisk(n1)).toBe("finishing");
     expect(o.state()).toBe("moved");
 
     // The second process: a copy of the first one's disk.
-    const n2Home = join(dir, "new2", "home");
+    const n2Home = join(moveInBed.dir, "new2", "home");
     mkdirSync(n2Home, { recursive: true });
     cpSync(join(n1.home, ".isomux"), join(n2Home, ".isomux"), {
       recursive: true,
@@ -1781,7 +1267,7 @@ describe("finish (slice 2c-1)", () => {
 
 describe("moved (slice 2c-1)", () => {
   function movedOffice() {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const report: MoveInReport = {
@@ -1858,9 +1344,9 @@ describe("moved (slice 2c-1)", () => {
 
 describe("the status for the Settings pane (slice 2c-2)", () => {
   it("phase none carries the start's own refusal as the blocker, and null on an office that can take a move", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
-    const outside = join(dir, "outside-state");
+    const outside = join(moveInBed.dir, "outside-state");
     mkdirSync(outside);
     const variants: [
       string,
@@ -1913,7 +1399,7 @@ describe("the status for the Settings pane (slice 2c-2)", () => {
   });
 
   it("oldOfficeLocked says what the cancel would say: not before the lock, yes while it is in flight and after it, yes on a failure after it", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const locked = (s: MoveInStatus) =>
       (s as { oldOfficeLocked?: boolean }).oldOfficeLocked;
@@ -1935,12 +1421,12 @@ describe("the status for the Settings pane (slice 2c-2)", () => {
     const o2 = oldOffice("old2");
     const h = holding(o2, "/api/move/batch");
     const n2 = newOffice(o2, { name: "n2", fetch: h.fetch });
-    cleanups.push(h.release);
+    moveInBed.cleanups.push(h.release);
     const preflightId = await toConfirm(o2, n2);
     expect((await n2.moveIn.lock({ preflightId, by: OWNER })).ok).toBe(true);
     await waitFor(() => h.held.n > 0);
     const atPulling = locked(n2.moveIn.status());
-    const n3Home = join(dir, "n3", "home");
+    const n3Home = join(moveInBed.dir, "n3", "home");
     mkdirSync(join(n3Home, ".isomux"), { recursive: true });
     copyFileSync(
       join(n2.root, MOVE_IN_STATE_FILE),
@@ -1957,7 +1443,7 @@ describe("the status for the Settings pane (slice 2c-2)", () => {
     const o4 = oldOffice("old4");
     const h4 = holding(o4, "/api/move/lock");
     const n4 = newOffice(o4, { name: "n4", fetch: h4.fetch });
-    cleanups.push(h4.release);
+    moveInBed.cleanups.push(h4.release);
     const pf4 = await toConfirm(o4, n4);
     void n4.moveIn.lock({ preflightId: pf4, by: OWNER });
     await waitFor(() => h4.held.n > 0);
@@ -2004,9 +1490,6 @@ describe("the status for the Settings pane (slice 2c-2)", () => {
 // never a stat taken at read time; every SQLite file and every sign-in or
 // secret file is fetched again; the running office never takes a snapshot.
 
-const liveOf = (n: NewOffice) =>
-  (n.moveIn.status() as { live?: MoveInLive }).live;
-
 async function waitLive(n: NewOffice, phases: string[], ms = 10_000) {
   await waitFor(() => phases.includes(liveOf(n)?.phase ?? ""), ms);
   return liveOf(n);
@@ -2022,29 +1505,6 @@ const asked = (o: OldOffice, state: string, from = 0) =>
         (i) => i.path,
       ),
     );
-
-/** The live pass is done and the preflight after it (N3) is ready: the id
- *  the owner's Lock sends. Settled: the same id over two reads. */
-async function liveReady(n: NewOffice): Promise<string> {
-  const now = () => {
-    const s = n.moveIn.status();
-    return s.phase === "confirm" && liveOf(n)?.phase === "ready"
-      ? (s as { preflightId: string }).preflightId
-      : null;
-  };
-  const deadline = performance.now() + 12_000;
-  while (performance.now() < deadline) {
-    const id = now();
-    if (id !== null) {
-      await Bun.sleep(100);
-      if (now() === id) return id;
-    }
-    await Bun.sleep(10);
-  }
-  const s = n.moveIn.status();
-  expect([s.phase, liveOf(n)?.phase]).toEqual(["confirm", "ready"]);
-  throw new Error("the live pass did not settle");
-}
 
 /** A fetch that can hold or fail chosen requests to the old office. `k`
  *  counts the earlier requests with the same path in the same old state. */
@@ -2116,7 +1576,7 @@ function liveGate(o: OldOffice) {
         resolve: () => {},
       };
       holds.push(h);
-      cleanups.push(() => h.resolve());
+      moveInBed.cleanups.push(() => h.resolve());
       return { reached, release: () => h.resolve() };
     },
     fail(match: ((m: Match) => boolean) | null) {
@@ -2150,7 +1610,7 @@ const LATER = new Date(FILE_MTIME.getTime() + 5_000);
 
 describe("the live pass (slice 4)", () => {
   it("copies while the old office runs, then the lock's pass fetches only what changed, the SQLite file and the sign-ins; the stage is the old home at the lock", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     // The first live batch ends last.
@@ -2209,7 +1669,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("an old office without the live routes (404): live is unsupported and the lock copies everything", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice();
     const n = newOffice(o);
     const preflightId = await toConfirm(o, n);
@@ -2224,7 +1684,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("the lock during the live pass stops it, keeps what came whole, and ends staged", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     // One batch at a time: when the tenth is asked, nine are written, the
@@ -2248,7 +1708,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("C4: while the lock waits for the live pass to end, every other verb is refused, and the lock then goes on", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     const held = g.hold(liveBatch(0), 400);
@@ -2281,7 +1741,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("C4: a cancel while the lock waits for the live pass ends both: the lock answers cancelled, nothing is locked, nothing is left", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     const held = g.hold(liveBatch(0), 400);
@@ -2302,7 +1762,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("C5: a cancel during the live pass leaves no stage and no ledger, also when a batch ends after it", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     const held = g.hold(liveBatch(1), 300);
@@ -2319,7 +1779,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("C6: a preflight again that ends after the live pass changed keeps the live pass's phase", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     const held = g.hold(liveBatch(0));
@@ -2327,7 +1787,7 @@ describe("the live pass (slice 4)", () => {
     await toConfirm(o, n);
     await held.reached;
     const releasePreflight = o.holdPreflight();
-    cleanups.push(releasePreflight);
+    moveInBed.cleanups.push(releasePreflight);
     expect((await n.moveIn.rerunPreflight({ by: OWNER })).ok).toBe(true);
     held.release();
     await waitLive(n, ["ready"]);
@@ -2342,12 +1802,12 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("an old-stage file swapped for a link between the passes is fetched again; the link's target is never read or written", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const n = newOffice(o);
     await toConfirm(o, n);
     const preflightId = await liveReady(n);
-    const outside = join(dir, "outside.txt");
+    const outside = join(moveInBed.dir, "outside.txt");
     writeFileSync(outside, "OUTSIDE");
     const staged = join(stageOf(n), "docs/a.txt");
     // The condition: the live pass copied it.
@@ -2365,7 +1825,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("the pull again after a failed final pass keeps what the passes copied", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     const n = newOffice(o, { fetch: g.fetch });
@@ -2400,7 +1860,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("a final pass that fails before its walk ends still keeps what the live pass copied: the pull again fetches none of it", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     // One batch at a time, and docs/a.txt grows past one batch below: the
@@ -2444,7 +1904,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("a live pass the lock stops keeps what the earlier live pass copied: the final pass fetches none of it", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const g = liveGate(o);
     const n = newOffice(o, { fetch: g.fetch, limits: { concurrency: 1 } });
@@ -2478,7 +1938,7 @@ describe("the live pass (slice 4)", () => {
   });
 
   it("Copy again runs the live pass again on what changed; a second one while it runs is refused", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
     const o = oldOffice("old", { live: true });
     const n = newOffice(o);
     await toConfirm(o, n);
@@ -2535,9 +1995,9 @@ describe("slice 5b: folders outside the home", () => {
     over: Parameters<typeof newOffice>[1] = {},
     opts: { live?: boolean; withQ?: boolean } = {},
   ): Bed {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
-    const p = join(dir, "old-out", "p");
-    const q = join(dir, "old-out", "q");
+    moveInBed.dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
+    const p = join(moveInBed.dir, "old-out", "p");
+    const q = join(moveInBed.dir, "old-out", "q");
     for (const f of [p, q]) {
       mkdirSync(join(f, "sub"), { recursive: true });
       writeFileSync(join(f, "a.txt"), `a of ${f}`);
@@ -2555,7 +2015,7 @@ describe("slice 5b: folders outside the home", () => {
       },
     };
     const o = oldOffice("old", { outside: holder, live: opts.live });
-    const newbox = join(dir, "newbox");
+    const newbox = join(moveInBed.dir, "newbox");
     mkdirSync(newbox);
     const n = newOffice(o, { outsideRoot: newbox, ...over });
     return { o, n, holder, p, q, newbox, at: (x) => join(newbox, x) };
@@ -2900,7 +2360,7 @@ describe("slice 5b: folders outside the home", () => {
       statfsOf: () => ({ bavail, bsize: 4096, ffree: 1e9 }),
     });
     writeFileSync(join(b.p, "big.bin"), Buffer.alloc(big, 7));
-    const tmp = join(dir, "summary.ndjson");
+    const tmp = join(moveInBed.dir, "summary.ndjson");
     const home = await walkMoveManifest(b.o.scope, tmp);
     rmSync(tmp);
     // Room for the home with its margin and a block per entry, and 50 blocks
@@ -2920,38 +2380,5 @@ describe("slice 5b: folders outside the home", () => {
     expect((await waitPhase(b.n.moveIn, [...TERMINAL], 15_000)).phase).toBe(
       "staged",
     );
-  });
-});
-
-// Slice 5c-1, until slice 5c-2: an old office of 5c-1 locks with members
-// whose homes move, and lists them in its manifest. This office cannot take
-// their homes yet, so it must fail the pass, not move the office without
-// them.
-describe("slice 5c-1: an old office with members whose homes move", () => {
-  it("fails the pass with member_homes_unsupported, not retryable, and swaps nothing", async () => {
-    dir = mkdtempSync(join(tmpdir(), "office-move-in-"));
-    const mia: MoveMember = {
-      userId: "u-mia",
-      name: "Mia",
-      osUser: "isomux-mia",
-      uid: 60001,
-      home: "/home/isomux-mia",
-      bundleHash: "a".repeat(64),
-    };
-    const o = oldOffice("old", { members: [mia] });
-    const n = newOffice(o);
-    const end = await toEnd(o, n);
-    expect({
-      phase: end.phase,
-      code: (end as { error?: { code: string } }).error?.code ?? null,
-      retryable: (end as { retryable?: boolean }).retryable ?? null,
-    }).toEqual({
-      phase: "failed",
-      code: "member_homes_unsupported",
-      retryable: false,
-    });
-    // The old office did lock: the pass, not the lock, refused.
-    expect(o.state()).toBe("move");
-    expect(n.restarts.n).toBe(0);
   });
 });

@@ -39,6 +39,7 @@ import { isBackupEntryName } from "./backup.ts";
 import {
   MOVE_IN_DIR,
   MOVE_IN_STATE_FILE,
+  MOVE_MEMBERS_DIR,
   type MoveBoxInfo,
   type MoveOfficeUnit,
 } from "./office-move.ts";
@@ -51,6 +52,8 @@ import { MOVE_IN_STAGE, removeMoveTree } from "./office-move-stage.ts";
 import { clearMoveInOutside } from "./office-move-outside.ts";
 import { writeUnitsRecord, type AgentUnit } from "./office-move-units.ts";
 import { OFFICE_CONFIG_BOX_KEYS } from "./persistence.ts";
+import { MEMBER_OS_USERS_FILE } from "./member-os-users.ts";
+import { MOVED_MEMBER_ID } from "./office-move-members-in.ts";
 import type { MoveInReport, MoveInReportInput } from "../shared/office-move.ts";
 
 /** The swap file, in the move-in folder (MOVE_IN_DIR). */
@@ -65,6 +68,55 @@ export const MOVE_IN_FROM_STAGE = ".from-stage";
  *  fresh home is small). */
 export const MOVE_IN_SWAP_WALK_MAX = 200_000;
 
+/** Slice 5c-2: every entry of the moved member-os-users.json under
+ *  `stateRoot` gets `movedIn: {home}`, the home from `members` (an entry
+ *  not listed there gets home "": it has no stage, and its go-on refuses).
+ *  Name and uid stay. Runs again with the same result. */
+export function markMembersMovedIn(
+  stateRoot: string,
+  members: { userId: string; home: string }[],
+): void {
+  const path = join(stateRoot, MEMBER_OS_USERS_FILE);
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  const record = JSON.parse(text) as unknown;
+  if (typeof record !== "object" || record === null || Array.isArray(record))
+    throw new Error(`${MEMBER_OS_USERS_FILE} is not a JSON object`);
+  const homes = new Map(members.map((m) => [m.userId, m.home]));
+  const next: Record<string, unknown> = {};
+  for (const [userId, entry] of Object.entries(record))
+    next[userId] =
+      typeof entry === "object" && entry !== null && !Array.isArray(entry)
+        ? { ...entry, movedIn: { home: homes.get(userId) ?? "" } }
+        : entry;
+  const out = `${JSON.stringify(next, null, 2)}\n`;
+  if (out !== text) writeAtomic(path, out);
+}
+
+/** Slice 5c-2: a member's stage in the move-in folder. */
+const memberStageOf = (home: string, userId: string) =>
+  join(home, MOVE_IN_DIR, "members", userId, MOVE_IN_STAGE);
+
+/** Slice 5c-2: one op per member, after every other op. */
+function planMembers(inputs: MoveInSwapInputs): MoveInSwapOp[] {
+  const rel = stateRel(inputs);
+  if (rel === null) return [];
+  return (inputs.members ?? [])
+    .filter((m) => MOVED_MEMBER_ID.test(m.userId))
+    .map((m) => ({
+      op: "member" as const,
+      userId: m.userId,
+      path: [rel, MOVE_MEMBERS_DIR, m.userId, "home"]
+        .filter((part) => part !== "")
+        .join("/"),
+    }));
+}
+
 /** One rename. Paths are relative to the home, with "/". */
 export type MoveInSwapOp =
   /** home/path -> aside/path, only when home/path exists and aside/path
@@ -78,7 +130,12 @@ export type MoveInSwapOp =
   | { op: "drop"; path: string }
   /** Slice 5b: <folder>/.isomux-move-in/stage/<name> -> <folder>/<name>.
    *  `path` is the absolute <folder>/<name>. */
-  | { op: "outside"; path: string; folder: string };
+  | { op: "outside"; path: string; folder: string }
+  /** Slice 5c-2: .isomux-move-in/members/<userId>/stage -> `path`, which is
+   *  <state>/move-members/<userId>/home relative to the home (its folder
+   *  made 0700 first), only when the stage is there and `path` is not.
+   *  After the home's ops. */
+  | { op: "member"; path: string; userId: string };
 
 export type { MoveInReport, MoveInReportInput } from "../shared/office-move.ts";
 
@@ -114,6 +171,9 @@ export interface MoveInSwapInputs {
    *  is `<path>/.isomux-move-in/stage`; its top-level entries are renamed
    *  into `<path>`, then the folder gets `mode` and `mtime`. Absent: none. */
   outside?: { path: string; mode: number; mtime: number }[];
+  /** Slice 5c-2: the members whose homes moved (the manifest's list), with
+   *  their homes on the old machine. Absent: none. */
+  members?: { userId: string; home: string }[];
 }
 
 export interface MoveInSwapFile {
@@ -365,6 +425,7 @@ export function planMoveInSwap(inputs: MoveInSwapInputs): MoveInSwapOp[] {
   return [
     ...planWithKeep(inputs, moveInKeepPaths(inputs)),
     ...planOutside(inputs),
+    ...planMembers(inputs),
   ];
 }
 
@@ -552,6 +613,20 @@ function runOp(home: string, op: MoveInSwapOp): void {
           `${op.path} is in the copy and also on this machine. Move one of them away, then try again.`,
         );
       renameSync(src, op.path);
+      return;
+    }
+    case "member": {
+      const src = memberStageOf(home, op.userId);
+      const dst = join(home, op.path);
+      if (!exists(src)) return;
+      if (exists(dst))
+        throw new Error(
+          `The moved home of ${op.userId} is in the copy and also on this machine. Move one of them away, then try again.`,
+        );
+      // Office data, readable by the office user only.
+      mkdirSync(dirname(dst), { recursive: true, mode: 0o700 });
+      chmodSync(dirname(dst), 0o700);
+      renameSync(src, dst);
       return;
     }
   }
@@ -820,6 +895,9 @@ export function runMoveInSwapAtBoot(input: {
     run("folders outside the home", () => finishOutside(inputs));
     run("users.json", () => mergeUsers(inputs, rel));
     run("office-config.json", () => mergeConfig(inputs, rel));
+    run("member-os-users.json", () =>
+      markMembersMovedIn(inputs.stateRoot, inputs.members ?? []),
+    );
     run("backups", () => deleteBackups(inputs.backupDir));
     run("move-units.json", () =>
       writeUnitsRecord(inputs.stateRoot, inputs.units),

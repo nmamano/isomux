@@ -45,6 +45,7 @@ import {
 } from "./persistence.ts";
 import {
   checkMoveInSwap,
+  markMembersMovedIn,
   MOVE_IN_ASIDE,
   MOVE_IN_FROM_STAGE,
   MOVE_IN_SWAP_FILE,
@@ -93,6 +94,15 @@ interface FixtureOpts {
   removedNames?: string[];
   /** Slice 5b: two folders outside the home with their stage (OUTSIDE). */
   outside?: boolean;
+  /** Slice 5c-2: two members with their own OS user in the old office's
+   *  record; Alice's home is staged, Bob's is not (MEMBERS). */
+  members?: boolean;
+}
+
+/** Slice 5c-2: the members of a fixture with `members`. */
+const ALICE_HOME = "/home/isomux-alice";
+function memberStageOf(home: string, userId: string): string {
+  return join(home, MOVE_IN_DIR, "members", userId, MOVE_IN_STAGE);
 }
 
 /** Slice 5b: the outside folders of a fixture: `p` was on this box (empty),
@@ -354,6 +364,21 @@ function fixture(dir: string, opts: FixtureOpts = {}): Fixture {
         created: [join(dir, "out", "q"), o.q],
       }),
     );
+  }
+  if (opts.members) {
+    put(
+      stage,
+      ".isomux/member-os-users.json",
+      JSON.stringify({
+        "u-alice": { name: "isomux-alice", uid: 1501 },
+        "u-bob": { name: "isomux-bob", uid: 1502 },
+      }),
+    );
+    const ms = memberStageOf(home, "u-alice");
+    put(ms, ".bashrc", "alice-bashrc");
+    put(ms, ".isomux-agent/settings.json", "alice-settings");
+    link(ms, "docs-link", "/etc/passwd");
+    inputs.members = [{ userId: "u-alice", home: ALICE_HOME }];
   }
   writeMoveInSwapFile(home, { inputs, ops: null });
   return { dir, home, root, stage, aside, backups, inputs };
@@ -905,11 +930,59 @@ describe("slice 5b: folders outside the home", () => {
   });
 });
 
+describe("slice 5c-2: the homes of members with their own OS user", () => {
+  it("renames each member's stage to <state>/move-members/<userId>/home in a 0700 folder, after the home's ops, and leaves no member stage", () => {
+    const f = fixture(join(scratch(), "o"), { members: true });
+    const ops = planMoveInSwap(f.inputs);
+    const at = ops.findIndex((o) => o.op === "member");
+    expect(at).toBeGreaterThan(-1);
+    expect(ops.slice(at + 1).every((o) => o.op === "member")).toBe(true);
+    expect(swap(f).kind).toBe("swapped");
+    const moved = join(f.root, "move-members", "u-alice");
+    expect(statSync(moved).mode & 0o777).toBe(0o700);
+    expect(snap(join(moved, "home"))).toEqual({
+      ".bashrc": "alice-bashrc",
+      ".isomux-agent": "dir",
+      ".isomux-agent/settings.json": "alice-settings",
+      "docs-link": "link:/etc/passwd",
+    });
+    expect(existsSync(join(f.root, "move-members", "u-bob"))).toBe(false);
+    expect(existsSync(memberStageOf(f.home, "u-alice"))).toBe(false);
+  });
+
+  it("marks every entry of the moved record movedIn with her old home; an entry with no stage gets an empty home", () => {
+    const f = fixture(join(scratch(), "o"), { members: true });
+    expect(swap(f).kind).toBe("swapped");
+    expect(json(join(f.root, "member-os-users.json"))).toEqual({
+      "u-alice": {
+        name: "isomux-alice",
+        uid: 1501,
+        movedIn: { home: ALICE_HOME },
+      },
+      "u-bob": { name: "isomux-bob", uid: 1502, movedIn: { home: "" } },
+    });
+  });
+
+  it("markMembersMovedIn gives the same file when it runs again, and does nothing with no record", () => {
+    const f = fixture(join(scratch(), "o"), { members: true });
+    expect(swap(f).kind).toBe("swapped");
+    const path = join(f.root, "member-os-users.json");
+    const once = text(path);
+    markMembersMovedIn(f.root, f.inputs.members!);
+    expect(text(path)).toBe(once);
+    const empty = join(f.dir, "empty-state");
+    mkdirSync(empty);
+    markMembersMovedIn(empty, f.inputs.members!);
+    expect(readdirSync(empty)).toEqual([]);
+  });
+});
+
 describe("D5: a crash at any point, then a resume", () => {
   for (const opts of [
     { label: "with a name clash", o: { oldOwnerName: "MORGAN" } },
     { label: "B2 with a system unit on the new box", o: { newUnit: null } },
     { label: "slice 5b with folders outside the home", o: { outside: true } },
+    { label: "slice 5c-2 with members' homes", o: { members: true } },
   ] as { label: string; o: FixtureOpts }[]) {
     it(`gives the same home as a run without a crash, before each op and each step (${opts.label})`, () => {
       const dir = join(scratch(), "o");

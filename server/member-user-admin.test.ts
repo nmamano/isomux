@@ -20,22 +20,28 @@ import { startAdminSocket } from "./admin-socket.ts";
 import {
   claimMemberMoves,
   handleMemberUserAdmin,
+  memberPlaceRunning,
   memberSlug,
   releaseMemberMoves,
   memberUsersSupport,
   setMemberUserAdminDeps,
   type MemberUserAdminDeps,
+  type MovedInDeps,
 } from "./member-user-admin.ts";
 import {
   connectMemberHost,
   hostFor,
+  memberIsMoving,
   memberCodeTreeChecks,
   memberHostRefusal,
   resetMemberHosts,
   setMemberHostDeps,
   type MemberCheckInput,
 } from "./member-hosts.ts";
+import { STATE_ROOT } from "./config.ts";
 import {
+  MEMBER_OS_UID_TIES_FILE,
+  memberOsUidTies,
   memberOsUsersPath,
   memberOsUserState,
   recordMemberOsUser,
@@ -134,6 +140,9 @@ beforeEach(() => {
   prepared = [];
   connects = [];
   rmSync(memberOsUsersPath(), { force: true });
+  // A tie outlives its entry: clear it, or a uid an earlier test recorded
+  // stays tied.
+  rmSync(join(STATE_ROOT, MEMBER_OS_UID_TIES_FILE), { force: true });
   reloadMemberOsUsers();
 });
 
@@ -142,6 +151,9 @@ afterEach(() => {
   setMemberHostDeps(null);
   resetMemberHosts();
   rmSync(memberOsUsersPath(), { force: true });
+  // A tie outlives its entry: clear it, or a uid an earlier test recorded
+  // stays tied.
+  rmSync(join(STATE_ROOT, MEMBER_OS_UID_TIES_FILE), { force: true });
   reloadMemberOsUsers();
   rmSync(dir, { recursive: true, force: true });
   for (const id of created.splice(0)) deleteUserById(id);
@@ -1090,5 +1102,336 @@ describe("what the owner's page hears", () => {
         attempt: undefined,
       });
     }
+  });
+});
+
+// Slice 5c-2 (task 78733adf, E6 and D1-D9): a member who came with an office
+// move. Her record holds the old box's uid and `movedIn` until her go-on
+// places the home that waits in the state, as a job; the root command asks
+// again until the job's outcome comes back.
+describe("go-on of a member who came with an office move", () => {
+  const OLD_UID = 1501;
+  const OLD_HOME = "/home/isomux-alice";
+  const MOVE_HOST = { kind: "runner" } as unknown as AgentHost;
+  let steps: string[];
+  let places: { onProgress: (placed: number, total: number) => void }[];
+  let finishPlace: (error?: Error) => void;
+  let stage: string | null;
+  let passwdHome: string | null;
+  let warnings: string[];
+  // What the record said at a step.
+  let seen: Record<string, ReturnType<typeof memberOsUserState>>;
+  // The place running at each connect (D5).
+  let runningAtConnect: boolean[];
+
+  function movedInRecord(userId: string, extra: Record<string, unknown> = {}) {
+    writeFileSync(
+      memberOsUsersPath(),
+      JSON.stringify({
+        [userId]: {
+          name: "isomux-alice",
+          uid: OLD_UID,
+          movedIn: { home: OLD_HOME },
+        },
+        ...extra,
+      }),
+    );
+    reloadMemberOsUsers();
+  }
+
+  function movedDeps(
+    alice: string,
+    over: Partial<MovedInDeps> = {},
+    connectError?: Error,
+  ) {
+    steps = [];
+    places = [];
+    seen = {};
+    runningAtConnect = [];
+    stage = join(dir, "move-members", alice, "home");
+    mkdirSync(stage, { recursive: true });
+    passwdHome = OLD_HOME;
+    warnings = ["tunnel.service: no such unit here"];
+    const step = (name: string) => {
+      steps.push(name);
+      seen[name] = memberOsUserState(alice);
+    };
+    deps({
+      connect: async (userId) => {
+        step("connect");
+        runningAtConnect.push(memberPlaceRunning(userId));
+        if (connectError) throw connectError;
+        return true;
+      },
+      holdMember: async () => step("hold"),
+      releaseMember: () => step("release"),
+      memberAgents: () => [],
+      planMove: (userId) => (
+        step("plan"),
+        { userId, trees: [], codex: [], claude: [] }
+      ),
+      appsLeave: async () => (step("appsLeave"), []),
+      appsArrive: () => step("appsArrive"),
+      moveHost: () => MOVE_HOST,
+      movedIn: {
+        stageDir: () => stage,
+        passwdHome: () => passwdHome,
+        place: (input) => {
+          step("place");
+          places.push(input);
+          return new Promise<void>((resolve, reject) => {
+            finishPlace = (error) => (error ? reject(error) : resolve());
+          });
+        },
+        removeStage: () => step("removeStage"),
+        restoreUnits: async () => (step("restoreUnits"), warnings),
+        ...over,
+      },
+    });
+  }
+
+  async function until(what: string, test: () => boolean) {
+    for (let i = 0; i < 400 && !test(); i++) await Bun.sleep(5);
+    expect([what, test()]).toEqual([what, true]);
+  }
+
+  const recordText = () => readFileSync(memberOsUsersPath(), "utf8");
+
+  it("info says she came with a move, with her old home", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    deps();
+    const answer = await call("info", { member: alice });
+    expect(answer.body).toMatchObject({
+      ok: true,
+      userId: alice,
+      osUser: { name: "isomux-alice", uid: OLD_UID },
+      movedIn: true,
+      oldHome: OLD_HOME,
+    });
+  });
+
+  // D1: before the job records the new uid, the record is the move's, not
+  // this call's: no `kept`, so the root command removes the user it made.
+  for (const [label, set] of [
+    [
+      "passwd's home differs from her old home",
+      () => (passwdHome = "/srv/isomux-alice"),
+    ],
+    ["her OS user has no home in passwd", () => (passwdHome = null)],
+    ["her home did not come with the move", () => (stage = null)],
+  ] as [string, () => void][])
+    it(`refuses without kept when ${label}, and changes nothing`, async () => {
+      const alice = member("Alice");
+      movedInRecord(alice);
+      movedDeps(alice);
+      set();
+      const before = recordText();
+      const answer = await goOn(alice);
+      expect(answer.status).toBe(200);
+      expect(answer.body.ok).toBe(false);
+      expect(answer.body.ready).toBe(false);
+      expect("kept" in answer.body).toBe(false);
+      expect(typeof answer.body.reason).toBe("string");
+      expect(recordText()).toBe(before);
+      expect(memberOsUidTies().map((t) => t.uid)).not.toContain(MEMBER_UID);
+      expect(steps.filter((s) => ["connect", "place"].includes(s))).toEqual([]);
+      expect(steps.filter((s) => s === "hold").length).toBe(
+        steps.filter((s) => s === "release").length,
+      );
+      expect(memberPlaceRunning(alice)).toBe(false);
+    });
+
+  it("runs the place as a job: answers running, records the new uid with movedIn, and answers the progress to a go-on that comes while it runs", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    movedDeps(alice);
+    const first = await goOn(alice);
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ ok: true, ready: false, running: true });
+    await until("the place started", () => places.length === 1);
+    expect(memberPlaceRunning(alice)).toBe(true);
+    // Her runner connects only while her place runs (D5).
+    expect(runningAtConnect).toEqual([true]);
+    expect(seen.connect).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+      unfinished: true,
+      movedIn: { home: OLD_HOME },
+    });
+    places[0].onProgress(3, 10);
+    const again = await goOn(alice);
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({
+      ok: true,
+      ready: false,
+      running: true,
+      placed: 3,
+      total: 10,
+    });
+    expect(places.length).toBe(1);
+    // D6: the job is a running call.
+    for (const keepFiles of [false, true])
+      expect(
+        (await call("disable", { member: alice, keepFiles })).body.error,
+      ).toBe("move_in_progress");
+    expect(steps).not.toContain("removeStage");
+    finishPlace();
+    await until("the job ended", () => !memberPlaceRunning(alice));
+  });
+
+  it("on success clears movedIn before it removes the stage, brings the units back, and answers ready once to the next go-on", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    movedDeps(alice);
+    await goOn(alice);
+    await until("the place started", () => places.length === 1);
+    finishPlace();
+    await until("the job ended", () => !memberPlaceRunning(alice));
+    const order = (name: string) => steps.indexOf(name);
+    for (const [a, b] of [
+      ["hold", "appsLeave"],
+      ["appsLeave", "connect"],
+      ["connect", "place"],
+      ["place", "removeStage"],
+      ["removeStage", "restoreUnits"],
+      ["restoreUnits", "appsArrive"],
+      ["appsArrive", "release"],
+    ])
+      expect([a, b, order(a) > -1 && order(a) < order(b)]).toEqual([
+        a,
+        b,
+        true,
+      ]);
+    // The record no longer says movedIn when the stage goes (a crash between
+    // the two leaves a stage the boot sweep removes, never a movedIn member
+    // with no stage).
+    expect(seen.removeStage).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+    });
+    expect(memberOsUserState(alice)).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+    });
+    const ready = await goOn(alice);
+    expect(ready.body).toMatchObject({ ok: true, ready: true });
+    expect(ready.body.warnings).toEqual(warnings);
+    // D2: the outcome answered; nothing ran again for it.
+    expect(places.length).toBe(1);
+    expect(steps.filter((s) => s === "hold").length).toBe(1);
+  });
+
+  it("on failure keeps movedIn and the new uid, answers the failure with kept once, and the go-on after that starts a new job", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    movedDeps(alice);
+    await goOn(alice);
+    await until("the place started", () => places.length === 1);
+    finishPlace(new Error("no room in her home"));
+    await until("the job ended", () => !memberPlaceRunning(alice));
+    expect(memberOsUserState(alice)).toEqual({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+      unfinished: true,
+      movedIn: { home: OLD_HOME },
+    });
+    expect(steps).not.toContain("removeStage");
+    expect(steps).not.toContain("restoreUnits");
+    expect(steps.filter((s) => s === "release").length).toBe(1);
+    const failed = await goOn(alice);
+    expect(failed.status).toBe(200);
+    expect(failed.body).toMatchObject({ ok: false, ready: false, kept: true });
+    expect(places.length).toBe(1);
+    // The owner runs enable again: a new job from the start.
+    const rerun = await goOn(alice);
+    expect(rerun.body).toMatchObject({ ok: true, ready: false, running: true });
+    await until("the second place started", () => places.length === 2);
+    finishPlace();
+    await until("the second job ended", () => !memberPlaceRunning(alice));
+  });
+
+  // A step that throws after the job marked her moving (here the connect)
+  // ends the job as a failure: her agents are released, the moving mark goes
+  // (D5: it is what lets her runner connect), and the record keeps the new
+  // uid, so the root command keeps the user.
+  it("a step that throws after the record ends the job as a kept failure, releases her agents and clears the moving mark", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    movedDeps(alice, {}, new Error("the share check threw"));
+    const first = await goOn(alice);
+    expect(first.body).toMatchObject({ ok: true, running: true });
+    await until("the job ended", () => !memberPlaceRunning(alice));
+    // The condition: the step that threw ran.
+    expect(steps).toContain("connect");
+    expect(steps.filter((s) => s === "release").length).toBe(1);
+    expect(memberIsMoving(alice)).toBe(false);
+    expect(memberOsUserState(alice)).toMatchObject({
+      kind: "isolated",
+      osUser: { name: "isomux-alice", uid: MEMBER_UID },
+      movedIn: { home: OLD_HOME },
+    });
+    const failed = await goOn(alice);
+    expect(failed.body).toMatchObject({ ok: false, ready: false, kept: true });
+  });
+
+  it("D9: disable with keepFiles removes her moved home with the record and says so; without it, refuses and keeps both", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    movedDeps(alice);
+    const refused = await call("disable", { member: alice });
+    expect(refused.status).toBe(409);
+    expect(steps).not.toContain("removeStage");
+    expect(memberOsUserState(alice).kind).toBe("isolated");
+    const answer = await call("disable", { member: alice, keepFiles: true });
+    expect(answer.body).toMatchObject({
+      ok: true,
+      kept: true,
+      movedHomeRemoved: true,
+    });
+    expect(steps).toContain("removeStage");
+    expect(memberOsUserState(alice).kind).toBe("none");
+  });
+
+  it("D5: her runner does not connect while no place runs", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    let lookups = 0;
+    setMemberHostDeps({
+      lookupUser: () => {
+        lookups++;
+        throw new Error("no such user");
+      },
+    });
+    expect(await connectMemberHost(alice)).toBe(false);
+    expect(lookups).toBe(0);
+    // Not ready, and never the office user.
+    expect(hostFor(alice)).not.toBe(officeAgentHost());
+    // The enabling case: a member who did not move gets a connect attempt.
+    recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
+    expect(await connectMemberHost(alice)).toBe(false);
+    expect(lookups).toBe(1);
+  });
+
+  it("a moved-in member's old uid does not take that uid from a member enabled here", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    // Bob came with the move; on the old box he had the uid that Alice's
+    // new user has here.
+    writeFileSync(
+      memberOsUsersPath(),
+      JSON.stringify({
+        [bob]: {
+          name: "isomux-bob",
+          uid: MEMBER_UID,
+          movedIn: { home: "/home/isomux-bob" },
+        },
+      }),
+    );
+    reloadMemberOsUsers();
+    deps();
+    const answer = await goOn(alice);
+    expect(answer.body.error).not.toBe("os_user_taken");
+    expect(answer.body).toMatchObject({ ok: true, ready: true });
   });
 });

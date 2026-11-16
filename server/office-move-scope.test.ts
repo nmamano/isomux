@@ -138,6 +138,9 @@ describe("the move scope", () => {
       // by her runner; it never moves as office data.
       "move-members",
       "move-members/u-mia/home/.ssh/id_ed25519",
+      // Slice 5c-2 (E3): it ties uids of the old box to members; on the new
+      // box such a uid can be another local user, who would get her secrets.
+      "member-os-uid-ties.json",
     ])
       expect([name, file(s, `.isomux/${name}`)]).toEqual([name, OUT]);
     expect(moveScope(s, "work/agent.sock", "other")).toEqual(OUT);

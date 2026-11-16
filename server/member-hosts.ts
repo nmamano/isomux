@@ -78,6 +78,9 @@ const retries = new Map<string, ReturnType<typeof setTimeout>>();
 const moving = new Set<string>();
 const MOVING_REASON = "the member's files are moving";
 // The record's mark of a go-on that did not finish (member-os-users.ts).
+// Slice 5c-2: a member who came with an office move.
+const MOVED_IN_REASON =
+  "the member came with an office move; run the turn-on command on this machine";
 const UNFINISHED_REASON =
   "the move of the member's files did not finish; run the turn-on command again";
 let connectedHook: ((userId: string) => void) | null = null;
@@ -118,16 +121,20 @@ export function hostFor(userId: string | null | undefined): AgentHost {
   )
     return moving.has(userId!)
       ? createMovingHost(entry.host, userId!)
-      : state.unfinished
-        ? createNotReadyHost(userId!, UNFINISHED_REASON)
-        : entry.host;
+      : state.movedIn
+        ? createNotReadyHost(userId!, MOVED_IN_REASON)
+        : state.unfinished
+          ? createNotReadyHost(userId!, UNFINISHED_REASON)
+          : entry.host;
   return createNotReadyHost(
     userId!,
     moving.has(userId!)
       ? MOVING_REASON
-      : state.unfinished
-        ? UNFINISHED_REASON
-        : "the member's OS user is not ready",
+      : state.movedIn
+        ? MOVED_IN_REASON
+        : state.unfinished
+          ? UNFINISHED_REASON
+          : "the member's OS user is not ready",
   );
 }
 
@@ -632,6 +639,13 @@ async function connectNow(userId: string): Promise<boolean> {
     return false;
   }
   const { osUser } = state;
+  // Slice 5c-2 (D5): a moved-in member's record holds the old box's uid
+  // until her go-on runs; her runner connects only while it does.
+  if (state.movedIn && !moving.has(userId)) {
+    connected.delete(userId);
+    refusals.set(userId, MOVED_IN_REASON);
+    return false;
+  }
   const refuse = (reason: string): false => {
     connected.delete(userId);
     refusals.set(userId, reason);

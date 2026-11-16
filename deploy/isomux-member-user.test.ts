@@ -76,6 +76,8 @@ if [[ $path == "$SHARE_ROOT" ]]; then printf '0 %s\\n' "$(command -p stat -c %a 
   sudo: `echo "User $OS_USER is not allowed to run sudo on box."`,
   groupadd: `:`,
   groupdel: `:`,
+  // Slice 5c-2: the go-on loop waits between its calls; the log counts them.
+  sleep: `:`,
   // The container's helper (python3 -I <helper> <verb> ...): next-id prints
   // $T/next-id, or 1005.
   python3: `
@@ -97,6 +99,13 @@ if [[ $verb == go-on && -e $T/signal ]]; then
   kill -"$(cat "$T/signal")" "$p"; exit 7
 fi
 f=$T/answers/$verb
+# Slice 5c-2: $T/answers/<verb>.<n> answers the n-th call of the verb (the
+# last one repeats).
+n=$(( $(cat "$T/count-$verb" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$T/count-$verb"
+if [[ -e $f.1 ]]; then
+  while (( n > 1 )) && [[ ! -e $f.$n ]]; do n=$((n - 1)); done
+  f=$f.$n
+fi
 [[ -e $f ]] || { echo "curl: (7) connection refused" >&2; exit 7; }
 cat "$f"`,
 };
@@ -183,6 +192,8 @@ function run(...args: string[]) {
       ISOMUX_MEMBER_USER_ETC: join(root, "etc"),
       ISOMUX_MEMBER_USER_SYSTEMD_DIR: join(root, "systemd"),
       ISOMUX_MEMBER_USER_HELPER: "/helper",
+      // Slice 5c-2: useradd's defaults, where its home base is read.
+      ISOMUX_MEMBER_USER_USERADD_DEFAULTS: join(root, "useradd-defaults"),
     },
   });
   return { code: result.status, stderr: result.stderr, stdout: result.stdout };
@@ -625,6 +636,102 @@ describe("an enable that go-on did not finish", () => {
       expect(sent("prepare")).toBeNull();
       expect(sent("go-on")).toBeNull();
     });
+});
+
+// Slice 5c-2 (task 78733adf, E8, D1-D3): a member who came with an office
+// move. The office records her with the old box's uid and no OS user here;
+// enable makes the user as a fresh enable does, and go-on places her home as
+// a job that the command asks after until it ends.
+describe("a member who came with an office move", () => {
+  function movedIn(): void {
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      name: "Alice",
+      role: "member",
+      slug: "alice",
+      osUser: { name: OS_USER, uid: 1501 },
+      state: "isolated",
+      movedIn: true,
+      oldHome: `${root}/home/${OS_USER}`,
+    });
+    writeFileSync(join(root, "useradd-defaults"), `HOME=${root}/home\n`);
+  }
+  function goOnAnswers(...bodies: object[]): void {
+    rmSync(join(root, "answers", "go-on"), { force: true });
+    bodies.forEach((body, i) => answer(`go-on.${i + 1}`, 200, body));
+  }
+  const goOnCalls = () =>
+    log().filter(
+      (l) => l.startsWith("curl ") && l.endsWith("/member-user/go-on"),
+    ).length;
+
+  it("makes her OS user as a fresh enable does, and asks go-on again while her home is placed, until it is ready", () => {
+    movedIn();
+    goOnAnswers(
+      { ok: true, ready: false, running: true, placed: 1, total: 3 },
+      { ok: true, ready: false, running: true, placed: 2, total: 3 },
+      { ok: true, ready: true, warnings: [] },
+    );
+    const result = run("enable", "Alice");
+    expect([result.code, result.stderr]).toEqual([0, ""]);
+    expect(log()).toContain(
+      `useradd --create-home --user-group --shell /bin/bash ${OS_USER}`,
+    );
+    expect(goOnCalls()).toBe(3);
+    // It waits between two calls.
+    expect(log().filter((l) => l.startsWith("sleep")).length).toBeGreaterThan(
+      1,
+    );
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: OS_USER,
+      uid: 2001,
+    });
+    expect(called("userdel")).toBe(false);
+  });
+
+  it("refuses before any change when her home's path exists here before the user does", () => {
+    movedIn();
+    mkdirSync(join(root, "home", OS_USER), { recursive: true });
+    writeFileSync(join(root, "home", OS_USER, "someone.txt"), "here before");
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(1);
+    expect(result.stderr.length).toBeGreaterThan(0);
+    expect(called("useradd")).toBe(false);
+    expect(goOnCalls()).toBe(0);
+    expect(
+      readFileSync(join(root, "home", OS_USER, "someone.txt"), "utf8"),
+    ).toBe("here before");
+  });
+
+  it("D1: undoes the user it made when go-on refuses without kept (her home here is not her old one)", () => {
+    movedIn();
+    goOnAnswers({
+      ok: false,
+      ready: false,
+      reason: "her home here differs from her home on the old machine",
+    });
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(1);
+    expect(called("useradd")).toBe(true);
+    expectNothingLeft();
+  });
+
+  it("keeps the user when the place fails after it started (kept), so the same enable resumes", () => {
+    movedIn();
+    goOnAnswers(
+      { ok: true, ready: false, running: true, placed: 1, total: 3 },
+      { ok: false, ready: false, kept: true, reason: "no room in her home" },
+    );
+    const result = run("enable", "Alice");
+    expect(result.code).toBe(1);
+    expect(result.stderr.length).toBeGreaterThan(0);
+    expect(goOnCalls()).toBe(2);
+    expect(existsSync(join(root, "users", OS_USER))).toBe(true);
+    expect(readFileSync(etc(`${OS_USER}.made`), "utf8").trim()).toBe(USER_ID);
+    expect(called("userdel")).toBe(false);
+  });
 });
 
 describe("disable", () => {

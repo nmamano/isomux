@@ -27,7 +27,15 @@ export type MemberOsUserState =
   // unfinished: an enable's go-on began moving their files and has not
   // finished (the office stopped during it). Their agents stay not ready
   // until enable runs again.
-  | { kind: "isolated"; osUser: MemberOsUser; unfinished?: true }
+  // movedIn (task 78733adf, slice 5c-2): she came with an office move and
+  // her home waits in <state>/move-members/<userId>/home until the enable
+  // command places it; `home` is her home on the old machine.
+  | {
+      kind: "isolated";
+      osUser: MemberOsUser;
+      unfinished?: true;
+      movedIn?: { home: string };
+    }
   // A malformed entry, or a file that does not parse: the not-ready host.
   | { kind: "broken"; reason: string };
 
@@ -115,7 +123,16 @@ function stateIn(
     ...((entry as { moving?: unknown }).moving === true
       ? { unfinished: true as const }
       : {}),
+    ...movedInOf(entry),
   };
+}
+
+// Slice 5c-2: `movedIn: {home}` of an entry, when it is one.
+function movedInOf(entry: unknown): { movedIn?: { home: string } } {
+  const v = (entry as { movedIn?: unknown }).movedIn;
+  if (typeof v !== "object" || v === null) return {};
+  const home = (v as { home?: unknown }).home;
+  return { movedIn: { home: typeof home === "string" ? home : "" } };
 }
 
 // The state of `userId`. Null or undefined: "none" (an agent with no manager).
@@ -211,7 +228,8 @@ function writableEntries(): Record<string, unknown> {
 export function recordMemberOsUser(
   userId: string,
   osUser: MemberOsUser,
-  opts: { moving?: boolean } = {},
+  // Slice 5c-2: kept until her moved home is placed.
+  opts: { moving?: boolean; movedIn?: { home: string } } = {},
 ): void {
   if (!userId) throw new Error("a member OS user needs a user id");
   if (!validOsUser(osUser))
@@ -222,6 +240,7 @@ export function recordMemberOsUser(
     name: osUser.name,
     uid: osUser.uid,
     ...(opts.moving ? { moving: true } : {}),
+    ...(opts.movedIn ? { movedIn: { home: opts.movedIn.home } } : {}),
   };
   writeEntries(entries);
 }
@@ -300,7 +319,10 @@ export function memberOsUidTies(): MemberUidTie[] {
   const loaded = load();
   if (loaded.kind === "ok")
     for (const [userId, entry] of Object.entries(loaded.entries))
-      if (validOsUser(entry)) byUid.set(entry.uid, userId);
+      // Slice 5c-2: a moved-in entry's uid is the old box's; on this box it
+      // can be anyone's, so it ties nothing.
+      if (validOsUser(entry) && !movedInOf(entry).movedIn)
+        byUid.set(entry.uid, userId);
   return [...byUid]
     .sort(([a], [b]) => a - b)
     .map(([uid, userId]) => ({ uid, userId }));

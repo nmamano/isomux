@@ -483,6 +483,51 @@ describe("a folder copy", () => {
     ).toBe(0o600);
   });
 
+  // Slice 5c-2 (task 78733adf, E5): a moved-in member's home waits in the
+  // state until the enable command places it. The copy holds what her
+  // member backup holds (her agent space, less its own locations and her
+  // sign-ins), and nothing else of her home.
+  test("keeps only the agent space of a moved-in member's home, as her member backup does", async () => {
+    const f = fixture();
+    const home = "move-members/u-mia/home";
+    const excluded = [
+      `${home}/.bashrc`,
+      `${home}/.ssh/id_ed25519`,
+      `${home}/projects/app/src/main.ts`,
+      `${home}/.claude/.credentials.json`,
+      // Her agent space's own locations and sign-ins (memberSpaceExcluded).
+      `${home}/.isomux-agent/apps/units/hello.sh`,
+      `${home}/.isomux-agent/apps/secrets/hello.env`,
+      `${home}/.isomux-agent/.move-in/x`,
+      `${home}/.isomux-agent/skill-folders/a/SKILL.md`,
+      `${home}/.isomux-agent/a1/.claude/.credentials.json`,
+      `${home}/.isomux-agent/a1/.codex/auth.json`,
+      // A name that only starts like her agent space.
+      `${home}/.isomux-agent-old/notes.md`,
+    ];
+    const kept = [
+      `${home}/.isomux-agent/a1/.claude/projects/p/s.jsonl`,
+      `${home}/.isomux-agent/apps/notes.json`,
+      `${home}/.isomux-agent/settings.json`,
+    ];
+    for (const relativePath of excluded)
+      write(f.state, relativePath, `EXCLUDED:${relativePath}\n`);
+    for (const relativePath of kept)
+      write(f.state, relativePath, `KEPT:${relativePath}\n`);
+    const name = await runBackupOnceForTest(config(f), deps());
+    const restored = extract(f, name);
+    expect(
+      excluded.filter((p) => fs.existsSync(path.join(restored, p))),
+    ).toEqual([]);
+    for (const relativePath of kept)
+      expect([relativePath, read(path.join(restored, relativePath))]).toEqual([
+        relativePath,
+        `KEPT:${relativePath}\n`,
+      ]);
+    // Her home's folder itself stays, so a restore keeps the move-in's shape.
+    expect(fs.statSync(path.join(restored, home)).isDirectory()).toBe(true);
+  });
+
   test("no file in the copy holds a secret or variable value", async () => {
     // Secrets read-path audit (internal-docs/secrets-design.md): a known fake
     // value in the store, a store temp file and an office-env temp file.

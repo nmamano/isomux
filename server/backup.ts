@@ -71,6 +71,8 @@ import {
   tarGlobSource,
 } from "./backup-exclusions.ts";
 import { STATE_ROOT } from "./config.ts";
+import { memberSpaceExcluded } from "./member-space-exclusions.ts";
+import { MOVE_MEMBERS_DIR } from "./office-move.ts";
 import {
   copyMemberSpace,
   findPreviousMemberTree,
@@ -851,7 +853,22 @@ function exclusionTest(
   const backupRel = relative(stateRoot, config.backupDir);
   if (backupRel && !backupRel.startsWith("..") && !isAbsolute(backupRel))
     literal.add(backupRel.split(sep).join("/"));
-  return (rel) => literal.has(rel) || glob.test(`${root}/${rel}`);
+  return (rel) =>
+    literal.has(rel) || glob.test(`${root}/${rel}`) || movedHomeExcluded(rel);
+}
+
+// Slice 5c-2 (task 78733adf): the home of a member who came with an office
+// move waits in move-members/<id>/home until the enable command places it.
+// The copy holds what her member backup holds: her agent space, less what
+// memberSpaceExcluded leaves out. The rest of her home stays out.
+// Her agent space's name in her home (agent-host.ts MEMBER_AGENT_DIR).
+const MEMBER_AGENT_SPACE = ".isomux-agent";
+function movedHomeExcluded(rel: string): boolean {
+  const parts = rel.split("/");
+  if (parts[0] !== MOVE_MEMBERS_DIR || parts[2] !== "home" || parts.length < 4)
+    return false;
+  if (parts[3] !== MEMBER_AGENT_SPACE) return true;
+  return memberSpaceExcluded(parts.slice(4).join("/"));
 }
 
 interface ManifestFile {

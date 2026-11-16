@@ -18,6 +18,7 @@ import {
 } from "./office-move.ts";
 import { MOVE_UNITS_FILE } from "./office-move-units.ts";
 import { MOVE_HOME_CACHES } from "./member-home-send.ts";
+import { MEMBER_OS_UID_TIES_FILE } from "./member-os-users.ts";
 
 /** The kind of a home entry, from lstat (a symlink is never followed). */
 export type MoveEntryKind = "file" | "dir" | "symlink" | "other";
@@ -80,6 +81,10 @@ const MOVE_OWN_FILES = [
   MOVE_SCRATCH_DIR,
   // Slice 5c: the homes of moved-in members, waiting for their OS user.
   MOVE_MEMBERS_DIR,
+  // Slice 5c-2: it ties uids of the old box to members; on the new box such
+  // a uid can be another local user, who would get her secrets. Go-on
+  // writes her tie here.
+  MEMBER_OS_UID_TIES_FILE,
 ];
 
 /** Units bound to the old box or its origin (slice 3): left out, counted for

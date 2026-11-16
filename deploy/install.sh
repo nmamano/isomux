@@ -948,8 +948,9 @@ install_member_user_command() {
 # and leaves every change under /var/data/members to
 # deploy/container/member-users.py. Every external command is called by name
 # through PATH. ISOMUX_MEMBER_USER_CONF, ISOMUX_MEMBER_USER_SHARE_ROOT,
-# ISOMUX_MEMBER_USER_ETC, ISOMUX_MEMBER_USER_SYSTEMD_DIR and
-# ISOMUX_MEMBER_USER_HELPER override the paths for tests.
+# ISOMUX_MEMBER_USER_ETC, ISOMUX_MEMBER_USER_SYSTEMD_DIR,
+# ISOMUX_MEMBER_USER_HELPER and ISOMUX_MEMBER_USER_USERADD_DEFAULTS override
+# the paths for tests.
 #
 #   isomux-member-user enable <member> [--user <osuser>]
 #   isomux-member-user disable <member> [--delete-user] [--keep-files]
@@ -968,6 +969,8 @@ SHARE_ROOT=${ISOMUX_MEMBER_USER_SHARE_ROOT:-/var/lib/isomux-share}
 ETC_DIR=${ISOMUX_MEMBER_USER_ETC:-/etc/isomux/member-runner}
 SYSTEMD_DIR=${ISOMUX_MEMBER_USER_SYSTEMD_DIR:-/run/systemd/system}
 HELPER=${ISOMUX_MEMBER_USER_HELPER:-/opt/isomux/deploy/container/member-users.py}
+# useradd's defaults: HOME= is the base of the homes it makes.
+USERADD_DEFAULTS=${ISOMUX_MEMBER_USER_USERADD_DEFAULTS:-/etc/default/useradd}
 # Homes in the container: on the data volume (member-users.py, ROOT).
 CONTAINER_HOMES=/var/data/members/home
 UNIT=isomux-member-runner
@@ -1107,8 +1110,20 @@ cannot_become_root() {
   return 0
 }
 
+# The base of the homes useradd makes: HOME= of its defaults, else /home.
+useradd_home_base() {
+  local line base=/home
+  if [[ -r $USERADD_DEFAULTS ]]; then
+    while IFS= read -r line || [[ -n $line ]]; do
+      [[ $line =~ ^[[:space:]]*HOME=(/[^[:space:]]*)[[:space:]]*$ ]] && base=${BASH_REMATCH[1]}
+    done <"$USERADD_DEFAULTS"
+  fi
+  [[ $base == / ]] || base=${base%/}
+  printf '%s\n' "$base"
+}
+
 enable() {
-  local member=$1 os_user=$2 info role user_id slug current current_uid
+  local member=$1 os_user=$2 info role user_id slug current current_uid moved_in home
   [[ -n $IN_CONTAINER || -d $SYSTEMD_DIR ]] || die "this box does not run systemd."
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
@@ -1118,6 +1133,9 @@ enable() {
   slug=$(field .slug "$info")
   current=$(field .osUser.name "$info")
   current_uid=$(field .osUser.uid "$info")
+  # A member who came with an office move: the record names her user and
+  # the old machine's uid, and this machine has no such user yet.
+  moved_in=$(field .movedIn "$info")
   [[ $role != owner ]] || die "$member is an owner; an owner cannot have their own OS user."
   if [[ -n $current ]]; then
     [[ -z $os_user || $os_user == "$current" ]] || die "$member already runs as $current."
@@ -1128,11 +1146,25 @@ enable() {
   # A user that this command made for this member, from an enable that did
   # not finish (the office stopped during go-on): finish it.
   if getent passwd "$os_user" >/dev/null && made_by_command "$os_user" "$user_id"; then
+    # The uid of a moved-in record is the old machine's until go-on
+    # records the new one.
+    [[ $moved_in != true ]] || current_uid=
     resume "$user_id" "$os_user" "$current_uid"
     echo "$member runs as $os_user."
     return
   fi
-  if [[ -n $current ]]; then
+  if [[ -n $current && $moved_in == true ]]; then
+    getent passwd "$current" >/dev/null &&
+      die "the OS user $current exists here; $member came with an office move and needs a new user of that name."
+    # The home must be new: the move places her old home over it.
+    if [[ -n $IN_CONTAINER ]]; then
+      home=$CONTAINER_HOMES/$os_user
+    else
+      home=$(useradd_home_base)/$os_user
+    fi
+    [[ ! -e $home && ! -L $home ]] ||
+      die "$home exists here; move it away, then run enable again."
+  elif [[ -n $current ]]; then
     getent passwd "$current" >/dev/null ||
       die "$member is recorded as $current, which is no OS user here: run disable $member --keep-files, then enable again."
     die "$member already runs as $current, and this command did not make that user."
@@ -1189,13 +1221,21 @@ MEMBER_UID=
 go_on() {
   local user_id=$1 os_user=$2
   GO_ON_OUT=1
-  admin_call go-on "$(jq -n --arg m "$user_id" --arg u "$os_user" \
-    --argjson uid "$MEMBER_UID" '{member: $m, osUser: $u, uid: $uid}')" ||
-    die "the office did not answer go-on"
-  [[ $ADMIN_STATUS == 200 && $(field .ready "$ADMIN_BODY") == true ]] && {
-    GO_ON_OUT=
-    return 0
-  }
+  while :; do
+    admin_call go-on "$(jq -n --arg m "$user_id" --arg u "$os_user" \
+      --argjson uid "$MEMBER_UID" '{member: $m, osUser: $u, uid: $uid}')" ||
+      die "the office did not answer go-on"
+    [[ $ADMIN_STATUS == 200 && $(field .ready "$ADMIN_BODY") == true ]] && {
+      GO_ON_OUT=
+      jq -r '.warnings[]? | "isomux-member-user: \(.)"' <<<"$ADMIN_BODY" >&2
+      return 0
+    }
+    # A home that came with an office move is placed as a job: ask again
+    # until it ends.
+    [[ $ADMIN_STATUS == 200 && $(field .running "$ADMIN_BODY") == true ]] || break
+    echo "Placing the home of $os_user: $(field .placed "$ADMIN_BODY") of $(field .total "$ADMIN_BODY") entries."
+    sleep 5
+  done
   # kept: the office still records the user, so it stays (GO_ON_OUT) and
   # the same enable finishes. Else the refusal removed what this call
   # recorded, and the steps are undone.
@@ -1288,7 +1328,13 @@ disable() {
   [[ $ADMIN_STATUS == 200 ]] || die "the office refused: $(field .message "$answer")"
   [[ $(field .ok "$answer") == true ]] ||
     die "the office could not move the files back: $(field .reason "$answer")"
-  if [[ -n $keep_files ]]; then
+  if [[ $(field .movedHomeRemoved "$answer") == true ]]; then
+    echo "The home of $member that came with the office move is deleted."
+    getent passwd "$os_user" >/dev/null || {
+      echo "$member runs as the office's user again."
+      return 0
+    }
+  elif [[ -n $keep_files ]]; then
     echo "The files of $member stay in the home of $os_user: copy what you need as root before --delete-user deletes them."
   fi
   if [[ -n $IN_CONTAINER ]]; then

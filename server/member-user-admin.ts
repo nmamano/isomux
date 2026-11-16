@@ -8,6 +8,7 @@
 // root command cannot run (memberUserSupport), each answers 409
 // not_supported with the reason.
 
+import { lstatSync } from "node:fs";
 import type { AgentHost } from "./agent-host.ts";
 import {
   clearMemberMoving,
@@ -50,6 +51,11 @@ import {
 } from "./member-runtime.ts";
 import { checkMemberShare } from "./member-share-check.ts";
 import { appsArrive, appsLeave, type LeftApp } from "./member-app-move.ts";
+import { placeMemberHome } from "./member-home-place.ts";
+import { STATE_ROOT } from "./config.ts";
+import { restoreMemberUnits } from "./office-move-members.ts";
+import { movedHomeDir, removeMovedHome } from "./office-move-members-in.ts";
+import { memberUnitRunner, passwdEntry } from "./office-move-member-wiring.ts";
 import { readAgentIdentity } from "./split/start.ts";
 import { getUserById, getUserByName } from "./users.ts";
 import type { MemberUserUnsupported } from "../shared/contract-shapes.ts";
@@ -100,6 +106,52 @@ export interface MemberUserAdminDeps {
   // that runs them before the files move, installed on the new one after.
   appsLeave: (userId: string) => Promise<LeftApp[]>;
   appsArrive: (userId: string, left: readonly LeftApp[]) => void;
+  // Slice 5c-2 (task 78733adf): a member who came with an office move. Her
+  // go-on places her moved home through her new runner as a job (E6, D1-D9).
+  movedIn: MovedInDeps;
+}
+
+// The steps of a movedIn member's go-on job (internal-docs/office-move-design.md
+// "Members with their own OS user (slice 5c)").
+export interface MovedInDeps {
+  // <state>/move-members/<userId>/home when it is a folder, else null.
+  stageDir: (userId: string) => string | null;
+  // passwd's home of an OS user name here, or null.
+  passwdHome: (name: string) => string | null;
+  // tree-in, then tree-place (member-home-place.ts placeMemberHome).
+  place: (input: {
+    userId: string;
+    stageDir: string;
+    home: string;
+    host: AgentHost;
+    onProgress: (placed: number, total: number) => void;
+  }) => Promise<void>;
+  // Removes <state>/move-members/<userId> (office-move-members-in.ts).
+  removeStage: (userId: string) => void;
+  // systemctl --user daemon-reload, then her units of
+  // move-member-units.json through her runner; the units that could not
+  // come back, as warnings.
+  restoreUnits: (userId: string) => Promise<string[]>;
+}
+
+// What a go-on of a movedIn member answers while her job runs, and once
+// after it ended (D2). `kept`: the job recorded her new uid, so the root
+// command keeps the user (D1).
+export type MovedInOutcome =
+  | { running: true; placed: number; total: number }
+  | { ready: true; warnings: string[] }
+  | { failed: string; kept: boolean };
+
+// The place jobs that run, and the outcome of each one that ended and has
+// not been answered yet (in memory: a restart forgets both, and the root
+// command's next go-on starts a new job).
+const placeJobs = new Map<string, { placed: number; total: number }>();
+const placeOutcomes = new Map<string, MovedInOutcome>();
+
+// Whether the place job of a movedIn member runs now: only then may her
+// host connect (D5).
+export function memberPlaceRunning(userId: string): boolean {
+  return placeJobs.has(userId);
 }
 
 // What the agent manager gives the move (setMemberMoveWiring, at startup).
@@ -151,7 +203,46 @@ const DEFAULT_DEPS: MemberUserAdminDeps = {
   transferOut: transferMemberFilesOut,
   appsLeave,
   appsArrive,
+  movedIn: {
+    stageDir: (userId) => {
+      try {
+        const dir = movedHomeDir(STATE_ROOT, userId);
+        return lstatSync(dir).isDirectory() ? dir : null;
+      } catch {
+        return null;
+      }
+    },
+    passwdHome: (name) => passwdEntry(name)?.home ?? null,
+    place: async (input) => {
+      await placeMemberHome(input);
+    },
+    removeStage: (userId) => removeMovedHome(STATE_ROOT, userId),
+    restoreUnits: async (userId) => restoreMovedUnits(userId),
+  },
 };
+
+// Her units that the old office stopped at the lock (move-member-units.json),
+// through her new runner, after systemd reads her placed unit files.
+function restoreMovedUnits(userId: string): string[] {
+  const state = memberOsUserState(userId);
+  if (state.kind !== "isolated") return [];
+  const pw = passwdEntry(state.osUser.name);
+  if (!pw) return [`cannot read the home of ${state.osUser.name}`];
+  const run = memberUnitRunner({
+    osUser: state.osUser.name,
+    uid: state.osUser.uid,
+    home: pw.home,
+  });
+  const warnings: string[] = [];
+  const reload = run(["systemctl", "--user", "daemon-reload"]);
+  if (reload.code !== 0)
+    warnings.push(
+      `systemctl daemon-reload: ${reload.stderr.trim() || `exit ${reload.code}`}`,
+    );
+  const result = restoreMemberUnits(STATE_ROOT, userId, run);
+  for (const f of result?.failed ?? []) warnings.push(`${f.name}: ${f.reason}`);
+  return warnings;
+}
 let deps = DEFAULT_DEPS;
 
 // Tests: replace some dependencies; null restores the defaults.
@@ -337,11 +428,14 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
       slug: memberSlug(user.name),
       osUser: state.kind === "isolated" ? state.osUser : null,
       state: state.kind,
+      ...(state.kind === "isolated" && state.movedIn
+        ? { movedIn: true, oldHome: state.movedIn.home }
+        : {}),
     });
   }
 
   if (verb === "disable") {
-    if (goingOn.has(user.id))
+    if (goingOn.has(user.id) || placeJobs.has(user.id))
       return refusal(
         409,
         "move_in_progress",
@@ -354,6 +448,21 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
         "not_isolated",
         `${user.name} has no OS user of their own`,
       );
+    // Slice 5c-2 (D9): a member who came with a move has no runner here;
+    // her moved home goes with the record, and only on keepFiles.
+    if (state.kind === "isolated" && state.movedIn) {
+      if (request.keepFiles !== true)
+        return refusal(
+          409,
+          "moved_in",
+          `${user.name} came with an office move and has no runner here; run enable, or disable with --keep-files to delete their moved home`,
+        );
+      forgetMemberHost(user.id);
+      forgetMemberOsUser(user.id);
+      placeOutcomes.delete(user.id);
+      deps.movedIn.removeStage(user.id);
+      return json(200, { ok: true, kept: true, movedHomeRemoved: true });
+    }
     // keepFiles: the owner gives up the member's files in their home (their
     // runner cannot run). A broken record has no runner to move them.
     if (request.keepFiles === true || state.kind === "broken") {
@@ -389,6 +498,31 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
     }
   }
 
+  // Slice 5c-2 (D2): the place job of a moved-in member runs, or ended and
+  // its outcome waits for this go-on.
+  const job = placeJobs.get(user.id);
+  if (job)
+    return json(200, {
+      ok: true,
+      ready: false,
+      running: true,
+      placed: job.placed,
+      total: job.total,
+    });
+  const outcome = placeOutcomes.get(user.id);
+  if (outcome) {
+    placeOutcomes.delete(user.id);
+    if ("ready" in outcome)
+      return json(200, { ok: true, ready: true, warnings: outcome.warnings });
+    if ("failed" in outcome)
+      return json(200, {
+        ok: false,
+        ready: false,
+        reason: outcome.failed,
+        ...(outcome.kept ? { kept: true } : {}),
+      });
+  }
+
   // go-on: record, connect (the runner may not listen yet), or undo.
   const state = memberOsUserState(user.id);
   if (state.kind === "broken")
@@ -403,8 +537,11 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
   const taken = memberOsUserIds().find((id) => {
     if (id === user.id) return false;
     const other = memberOsUserState(id);
+    // A moved-in record names the old box's uid and a user enable has not
+    // made here yet.
     return (
       other.kind === "isolated" &&
+      !other.movedIn &&
       (other.osUser.name === osUser.name || other.osUser.uid === osUser.uid)
     );
   });
@@ -422,6 +559,8 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
       "move_in_progress",
       `the files of ${user.name} are moving; wait for that go-on to answer`,
     );
+  if (state.kind === "isolated" && state.movedIn)
+    return startPlace(user.id, osUser, state.movedIn.home);
   goingOn.add(user.id);
   try {
     return await goOn(
@@ -533,6 +672,211 @@ function notTaken(userId: string, reason: string): Response {
     reason,
     ...(memberOsUserState(userId).kind !== "none" ? { kept: true } : {}),
   });
+}
+
+// A refusal of a moved-in member's go-on before her new uid is recorded:
+// no `kept`, so the root command undoes the user it made (D1).
+function movedInRefusal(reason: string): Response {
+  return json(200, { ok: false, ready: false, reason });
+}
+
+// go-on of a member who came with an office move (slice 5c-2, E6): checks
+// her home here and her moved home, then starts the place job and answers
+// running. The root command asks again until the outcome comes (D2).
+function startPlace(
+  userId: string,
+  osUser: { name: string; uid: number },
+  oldHome: string,
+): Response {
+  const home = deps.movedIn.passwdHome(osUser.name);
+  if (home === null)
+    return movedInRefusal(`${osUser.name} has no home in passwd here`);
+  if (home !== oldHome)
+    return movedInRefusal(
+      `the home of ${osUser.name} is ${home} here and was ${oldHome} on the old machine`,
+    );
+  const stageDir = deps.movedIn.stageDir(userId);
+  if (stageDir === null)
+    return movedInRefusal(
+      "their home did not come with the move; disable with --keep-files gives it up",
+    );
+  const job = { placed: 0, total: 0 };
+  placeJobs.set(userId, job);
+  // D6: the job is a running call.
+  goingOn.add(userId);
+  void runPlace(userId, osUser, { oldHome, home, stageDir }, job)
+    .then(
+      (outcome) => placeOutcomes.set(userId, outcome),
+      (error: unknown) =>
+        placeOutcomes.set(userId, {
+          failed: (error as Error).message,
+          kept: memberOsUserState(userId).kind !== "none",
+        }),
+    )
+    .finally(() => {
+      placeJobs.delete(userId);
+      goingOn.delete(userId);
+    });
+  return json(200, {
+    ok: true,
+    ready: false,
+    running: true,
+    placed: 0,
+    total: 0,
+  });
+}
+
+// The place job (D6): hold, appsLeave, record the new uid (moving,
+// movedIn), connect, tree-in and tree-place, record without movedIn, the
+// stage delete, her units, the office's files of her agents, appsArrive,
+// release.
+async function runPlace(
+  userId: string,
+  osUser: { name: string; uid: number },
+  where: { oldHome: string; home: string; stageDir: string },
+  job: { placed: number; total: number },
+): Promise<MovedInOutcome> {
+  try {
+    await deps.holdMember(userId);
+  } catch (error) {
+    deps.releaseMember(userId);
+    return {
+      failed: `cannot stop the member's agents: ${(error as Error).message}`,
+      kept: false,
+    };
+  }
+  let left: LeftApp[];
+  try {
+    left = await deps.appsLeave(userId);
+  } catch (error) {
+    deps.releaseMember(userId);
+    return { failed: (error as Error).message, kept: false };
+  }
+  markMemberMoving(userId);
+  // Every exit from here on brings her apps back, releases her agents and
+  // clears the moving mark (which opens her connect gate, D5), also when a
+  // step throws. Returns what could not be done.
+  const end = (): string[] => {
+    const left2: string[] = [];
+    clearMemberMoving(userId);
+    try {
+      deps.appsArrive(userId, left);
+    } catch (error) {
+      left2.push(`cannot start their apps: ${(error as Error).message}`);
+    }
+    try {
+      deps.releaseMember(userId);
+    } catch (error) {
+      left2.push(`cannot release their agents: ${(error as Error).message}`);
+    }
+    return left2;
+  };
+  const fail = (reason: string): MovedInOutcome => {
+    // The record keeps movedIn with the new uid: the same enable resumes.
+    try {
+      forgetMemberHost(userId);
+    } catch (error) {
+      console.error(
+        `[member-move] ${userId}: cannot forget the host: ${(error as Error).message}`,
+      );
+    }
+    for (const line of end()) console.error(`[member-move] ${userId}: ${line}`);
+    return { failed: reason, kept: true };
+  };
+  try {
+    recordMemberOsUser(userId, osUser, {
+      moving: true,
+      movedIn: { home: where.oldHome },
+    });
+  } catch (error) {
+    for (const line of end()) console.error(`[member-move] ${userId}: ${line}`);
+    return {
+      failed: `cannot record the OS user: ${(error as Error).message}`,
+      kept: false,
+    };
+  }
+  let placed = false;
+  try {
+    forgetMemberCodeVerdicts(osUser.uid);
+    const until = Date.now() + deps.connectWaitMs;
+    let connected = false;
+    for (;;) {
+      if (await deps.connect(userId)) {
+        connected = true;
+        break;
+      }
+      if (Date.now() >= until) break;
+      await new Promise((r) => setTimeout(r, deps.connectPollMs));
+    }
+    if (!connected)
+      return fail(memberHostRefusal(userId) ?? "the runner did not connect");
+    const host = deps.moveHost(userId);
+    if (!host) return fail("the member's runner is not connected");
+    try {
+      await deps.movedIn.place({
+        userId,
+        stageDir: where.stageDir,
+        home: where.home,
+        host,
+        onProgress: (n, total) => {
+          job.placed = n;
+          job.total = total;
+        },
+      });
+    } catch (error) {
+      return fail(`cannot place their moved home: ${(error as Error).message}`);
+    }
+    // Her home is in place: the record says so before the stage goes (a
+    // crash between the two leaves a stage that the boot sweep removes).
+    try {
+      recordMemberOsUser(userId, osUser);
+    } catch (error) {
+      return fail(
+        `their home is placed, but the record still says it moves (${(error as Error).message}); run enable again`,
+      );
+    }
+    placed = true;
+    const warnings: string[] = [];
+    try {
+      deps.movedIn.removeStage(userId);
+    } catch (error) {
+      warnings.push(
+        `cannot delete the moved copy of their home: ${(error as Error).message}`,
+      );
+    }
+    try {
+      warnings.push(...(await deps.movedIn.restoreUnits(userId)));
+    } catch (error) {
+      warnings.push(`cannot restore their units: ${(error as Error).message}`);
+    }
+    // Files of her agents in the office's folders (none, as a rule: her
+    // agents ran as her on the old machine).
+    try {
+      const plan = deps.planMove(userId, deps.memberAgents(userId));
+      if (!memberMovePlanIsEmpty(plan)) {
+        const staged = await deps.stageMove(plan, host);
+        deps.applyPins(staged.pins);
+        await staged.done();
+        staged.deleteOfficeCopies();
+      }
+    } catch (error) {
+      warnings.push(
+        `cannot move the office's files of their agents: ${(error as Error).message}`,
+      );
+    }
+    warnings.push(...end());
+    return { ready: true, warnings };
+  } catch (error) {
+    // Her home is placed and her record says so: what is left are warnings.
+    if (placed) {
+      const lines = [
+        `the job ended early: ${(error as Error).message}`,
+        ...end(),
+      ];
+      return { ready: true, warnings: lines };
+    }
+    return fail((error as Error).message);
+  }
 }
 
 // go-on (design 2.2): hold the member's agents, plan the move from the

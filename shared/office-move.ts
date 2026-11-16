@@ -215,6 +215,32 @@ export interface MoveInReportInput {
   /** Slice 5b: the folders outside the home the old office left, from the
    *  preflight the owner agreed to. */
   outsideLeft?: MoveOutsideLeft[];
+  /** Slice 5c-2: the members whose homes moved and wait for the enable
+   *  command here, with that command. */
+  members?: MoveInMovedMember[];
+}
+
+/** Slice 5c-2: a member of the old office with her own OS user, as this
+ *  office checked her (server/office-move-members-in.ts memberHomesHere). */
+export interface MoveInMemberHere {
+  userId: string;
+  name: string;
+  osUser: string;
+  oldHome: string;
+  /** The home the enable command makes here; null when it cannot run. */
+  home: string | null;
+  block: "unsupported" | "other_home" | "name_taken" | "home_exists" | null;
+  detail?: string;
+}
+
+/** Slice 5c-2: a member whose home moved, in the report. */
+export interface MoveInMovedMember {
+  userId: string;
+  name: string;
+  osUser: string;
+  /** The enable command to run here as root; null when this office cannot
+   *  name it. */
+  command: string | null;
 }
 
 /** The after-move report (GET /api/office/move-in in phase `moved`). */
@@ -290,6 +316,10 @@ export type MoveInStatus =
        *  phase `failed` with error code outside_folders_blocked: the
        *  folders the lock kept. */
       outsideChecks?: MoveInFolderCheck[];
+      /** Slice 5c-2: each member with her own OS user on the old office,
+       *  checked here at this request (phase `confirm`; phase `failed` with
+       *  error code member_homes_blocked). */
+      membersHere?: MoveInMemberHere[];
       lockedAt?: number | null;
       progress?: MoveInProgress;
       result?: MoveStageCheck;

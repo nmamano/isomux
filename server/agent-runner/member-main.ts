@@ -32,6 +32,8 @@ const ENTRIES: Record<string, () => Promise<unknown>> = {
   "file-read": () => import("./entries/file-read.ts"),
   "home-files": () => import("./entries/home-files.ts"),
   "home-list": () => import("./entries/home-list.ts"),
+  "tree-in": () => import("./entries/tree-in.ts"),
+  "tree-place": () => import("./entries/tree-place.ts"),
   "claude-cwd-move": () => import("./entries/claude-cwd-move.ts"),
   "folder-files": () => import("./entries/folder-files.ts"),
   "opencode-inspect": () => import("./entries/opencode-inspect.ts"),

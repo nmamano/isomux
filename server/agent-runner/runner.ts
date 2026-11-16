@@ -81,6 +81,8 @@ export const ENTRY_NAMES = new Set([
   "session-move",
   "skill-catalog",
   "skill-folder",
+  "tree-in",
+  "tree-place",
   "url-probe",
   "user-skills",
   "user-skill",

@@ -565,6 +565,7 @@ import {
   hasMemberOsUser,
   sameAgentHost,
   memberOsUidTies,
+  memberOsUserRecordsForMove,
   memberOsUserIds,
   memberOsUsersForMove,
   memberOsUserState,
@@ -672,6 +673,7 @@ import { createAgentsRoutes } from "./office-agents-routes.ts";
 import { createUsersRoutes } from "./office-users-routes.ts";
 import { createMemberOsUserRun } from "./member-os-user-run.ts";
 import { memberUsersSupport } from "./member-user-admin.ts";
+import { sweepMovedHomes } from "./office-move-members-in.ts";
 import {
   createInvitesRoutes,
   createSessionsRoutes,
@@ -1919,6 +1921,7 @@ function finishMoveAtBoot(seams: MoveSeams): void {
     clearMoveCancelled(STATE_ROOT);
   }
   if (readMoveState(STATE_ROOT, new Date()).current?.state === "move") return;
+  sweepMovedHomesAtBoot();
   const runUnits: UnitRunner =
     seams.runUnits ?? ((argv) => createSystemdHost().run(argv));
   // The first boot after a move-in (slice 2c-1): the unit files came with
@@ -1941,10 +1944,31 @@ function finishMoveAtBoot(seams: MoveSeams): void {
     console.error(`[move] could not put back the unit ${f.name}: ${f.reason}`);
 }
 
+/** Slice 5c-2: the moved home of a member who is no longer movedIn goes (a
+ *  crash between her go-on's record write and the delete). Not while the
+ *  record cannot be read: then no one counts as movedIn. */
+function sweepMovedHomesAtBoot(): void {
+  try {
+    const read = memberOsUserRecordsForMove(STATE_ROOT, () => null);
+    if ("broken" in read) return;
+    const movedIn = new Set(
+      read.members.filter((m) => m.movedIn).map((m) => m.userId),
+    );
+    const removed = sweepMovedHomes(STATE_ROOT, (id) => movedIn.has(id));
+    if (removed.length > 0)
+      console.log(
+        `[move-in] removed the moved homes that were placed already: ${removed.join(", ")}`,
+      );
+  } catch (err) {
+    console.error("[move-in] could not check the moved homes:", err);
+  }
+}
+
 /** Slice 5c-1: a member's units that a move stopped come back at her
  *  runner's first connect after a normal boot (a cancel, a lockdown that
- *  won and was unlocked). Not on a moved-in office: the enable command
- *  places her home first (slice 5c-2). */
+ *  won and was unlocked). Not for a member who came with a move: the
+ *  enable command's go-on places her home, then restores her units
+ *  (slice 5c-2). */
 function restoreMemberUnitsAtConnect(userId: string): void {
   try {
     if (!existsSync(join(STATE_ROOT, MOVE_MEMBER_UNITS_FILE))) return;
@@ -1952,9 +1976,8 @@ function restoreMemberUnitsAtConnect(userId: string): void {
       return;
     if (officeLockedNow()) return;
     if (readMoveState(STATE_ROOT, new Date()).current?.state === "move") return;
-    if (readMovedIn(STATE_ROOT)) return;
     const state = memberOsUserState(userId);
-    if (state.kind !== "isolated") return;
+    if (state.kind !== "isolated" || state.movedIn) return;
     const home = passwdEntry(state.osUser.name);
     if (!home || home.uid !== state.osUser.uid) return;
     const result = restoreMemberUnits(

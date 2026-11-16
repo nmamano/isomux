@@ -19,12 +19,29 @@ import {
   type MoveInFolderFs,
 } from "./office-move-outside.ts";
 import {
+  memberHomesHere,
+  membersBlockedMessage,
+  membersOfSummary,
+  MOVED_MEMBER_ID,
+  preflightMembers,
+  readUseraddHomeBase,
+  type MemberHere,
+  type MemberListed,
+  type MemberToMove,
+} from "./office-move-members-in.ts";
+import {
+  memberUserCommands,
+  memberUserSupport,
+} from "./member-os-user-view.ts";
+import { passwdEntry } from "./office-move-member-wiring.ts";
+import {
   chmodSync,
   closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -169,6 +186,10 @@ export interface MoveInPairing {
    *  preflight the owner agreed to (set at the lock). The final pass refuses
    *  a manifest that lists others (C4). */
   outside?: { move: MoveOutsideFolder[]; left: MoveOutsideLeft[] };
+  /** Slice 5c-2: the old office's members with their own OS user, from the
+   *  preflight the owner agreed to (set at the lock). The final pass
+   *  refuses a manifest that lists others (C4). */
+  members?: MemberToMove[];
 }
 
 export type { MoveInLive, MoveInPreflight, MoveInProgress, MoveInStatus };
@@ -275,6 +296,9 @@ export interface MoveInManifestFacts {
   /** Slice 5b: the folders outside the home, as the manifest lists them
    *  (each one's own mode and mtime go on it at the swap). Absent: none. */
   outside?: { path: string; mode: number; mtime: number }[];
+  /** Slice 5c-2: the members whose homes the pass staged, with their homes
+   *  on the old machine. Absent: none. */
+  members?: MemberToMove[];
 }
 
 // ---- the job ----
@@ -380,6 +404,15 @@ export interface MoveInDeps {
    *  a folder not made yet, its deepest existing ancestor. Default:
    *  lstat(path).dev. */
   deviceOf?(path: string): number;
+  /** Slice 5c-2: each member of the old office's preflight, checked on this
+   *  box (office-move-members-in.ts memberHomesHere), at the status in
+   *  `confirm`, at the lock and at each pass. Also gives the report's
+   *  enable command. Default: memberHomesHere with this box's reads. STUB:
+   *  not called yet. */
+  membersHere?(members: MemberToMove[]): MemberHere[];
+  /** Slice 5c-2: the enable command for a member here, for the report;
+   *  null when this office cannot name it. */
+  enableCommand?(userId: string): string | null;
   now(): Date;
   timing: MoveInTiming;
   limits: MoveInLimits;
@@ -719,6 +752,9 @@ const GIB = 1024 ** 3;
 interface PassTarget {
   /** The index in the manifest's outside list; null for the home. */
   outside: number | null;
+  /** Slice 5c-2: a member's home: her id, her index in this manifest's
+   *  member list, and her home on the old machine. */
+  member?: { userId: string; index: number; oldHome: string };
   /** The old office's path of the folder; null for the home. */
   oldPath: string | null;
   /** Where it lands here (the home, or the folder). */
@@ -866,6 +902,47 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       backupDir: null,
     }),
   );
+  // Slice 5c-2: each member's stage, keyed by her id (N3), in
+  // <home>/.isomux-move-in/members/<userId>/.
+  const membersDir = join(moveInDir, "members");
+  const memberTarget = (m: MemberListed, index: number): PassTarget => {
+    const dir = join(membersDir, m.userId);
+    return {
+      outside: null,
+      member: { userId: m.userId, index, oldHome: m.home },
+      oldPath: m.home,
+      local: dir,
+      dir,
+      stageDir: join(dir, MOVE_IN_STAGE),
+      manifestFile: join(dir, "manifest.ndjson"),
+      ledgerFile: join(dir, MOVE_IN_LEDGER),
+      prevStageDir: join(dir, `${MOVE_IN_STAGE}.prev`),
+      prevLedgerFile: join(dir, "ledger.prev.ndjson"),
+      fetchScope: createMoveOutsideScope(dir),
+    };
+  };
+  const membersHere = (members: MemberToMove[]): MemberHere[] => {
+    if (members.length === 0) return [];
+    if (deps.membersHere) return deps.membersHere(members);
+    const support = memberUserSupport();
+    return memberHomesHere(members, {
+      support,
+      passwd: passwdEntry,
+      exists: (path) => {
+        try {
+          lstatSync(path);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      homeBase: readUseraddHomeBase,
+    });
+  };
+  const enableCommand = (userId: string): string | null =>
+    deps.enableCommand
+      ? deps.enableCommand(userId)
+      : (memberUserCommands(userId, memberUserSupport())?.enable ?? null);
   const outsideTarget = (f: OutsideListed, i: number): PassTarget => {
     const local = localOf(f.path);
     return targetOf(local, i, f.path, createMoveOutsideScope(local));
@@ -995,6 +1072,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     by: s.by,
     office: s.office,
     ...(s.outside ? { outside: s.outside } : {}),
+    ...(s.members ? { members: s.members } : {}),
   });
 
   const lockedAtOf = (s: MoveInState): number | null =>
@@ -1256,6 +1334,13 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       state?.phase === "confirm"
         ? preflightOutside(state.preflight).move
         : startChecked;
+    // Slice 5c-2: the members of the same preflight.
+    const startMembers =
+      state?.phase === "confirm" ? preflightMembers(state.preflight) : [];
+    const liveMembers = () =>
+      state?.phase === "confirm"
+        ? preflightMembers(state.preflight)
+        : startMembers;
     const set = (live: Omit<MoveInLive, "startedAt">) =>
       writeLive(gen, {
         ...live,
@@ -1294,6 +1379,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         await runPass(pair, manifestId, summary, {
           live: true,
           checked: liveChecked(),
+          checkedMembers: liveMembers(),
           signal: ctl.signal,
           gen,
           started: (prog) => {
@@ -1468,6 +1554,19 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         mode: f.mode,
         mtime: f.mtime,
       })),
+      // Slice 5c-2: with the names the owner saw.
+      ...(membersOfSummary(summary).length > 0
+        ? {
+            members: membersOfSummary(summary).map((m) => ({
+              userId: m.userId,
+              name:
+                (pair.members ?? []).find((c) => c.userId === m.userId)?.name ??
+                m.userId,
+              osUser: m.osUser,
+              home: m.home,
+            })),
+          }
+        : {}),
     };
     const unreadable = Array.isArray(summary.unreadable)
       ? summary.unreadable.filter((p): p is string => typeof p === "string")
@@ -1476,6 +1575,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
     const { stages, prog } = await runPass(pair, manifestId, summary, {
       live: false,
       checked: pair.outside?.move ?? [],
+      checkedMembers: pair.members ?? [],
       signal,
       gen,
       started: (prog) => {
@@ -1522,6 +1622,13 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         path: p,
         reason: "The old office could not read it.",
       });
+    for (const m of membersOfSummary(summary))
+      for (const p of Array.isArray(m.unreadable) ? m.unreadable : [])
+        if (typeof p === "string")
+          result.missing.push({
+            path: join(m.home, p),
+            reason: "Their runner on the old office could not read it.",
+          });
     outsideOfSummary(summary).forEach((f, i) => {
       const t = outsideTarget(f, i);
       const list = Array.isArray(f.unreadable) ? f.unreadable : [];
@@ -1610,6 +1717,68 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         )
       : [];
 
+  /** Slice 5c-2: which part of the manifest a request asks for. */
+  const whichOf = (t: PassTarget): { outside?: number; member?: number } =>
+    t.member
+      ? { member: t.member.index }
+      : t.outside === null
+        ? {}
+        : { outside: t.outside };
+
+  /** Slice 5c-2: the manifest's members are the checked ones (C4), each
+   *  one's home can land here (E1), and the folder of a member this pass
+   *  does not list goes (C5). Returns the manifest's members. */
+  const prepareMembers = (
+    listed: MemberListed[],
+    checked: MemberToMove[],
+  ): MemberListed[] => {
+    const a = listed.map((m) => m.userId).sort();
+    const b = checked.map((m) => m.userId).sort();
+    if (a.length !== b.length || a.some((id, i) => id !== b[i]))
+      throw new MoveInFail(
+        "members_changed",
+        "The old office lists other members with their own OS user than the ones checked. Try again.",
+        true,
+      );
+    for (const m of listed)
+      if (!MOVED_MEMBER_ID.test(m.userId))
+        throw new MoveInFail(
+          "members_changed",
+          "The old office lists a member id this office cannot use.",
+          false,
+        );
+    const here = membersHere(
+      listed.map((m) => ({
+        ...checked.find((c) => c.userId === m.userId)!,
+        osUser: m.osUser,
+        home: m.home,
+      })),
+    );
+    const blocked = here.filter((m) => m.block !== null);
+    if (blocked.length > 0)
+      throw new MoveInFail(
+        "member_homes_blocked",
+        membersBlockedMessage(blocked),
+        true,
+        502,
+        { members: here },
+      );
+    const keep = new Set(listed.map((m) => m.userId));
+    let names: string[] = [];
+    try {
+      names = readdirSync(membersDir);
+    } catch {
+      // None yet.
+    }
+    for (const name of names)
+      if (!keep.has(name)) removeMoveTree(join(membersDir, name));
+    if (listed.length > 0) {
+      mkdirSync(membersDir, { recursive: true, mode: 0o700 });
+      chmodSync(membersDir, 0o700);
+    }
+    return listed;
+  };
+
   /** Slice 5b: before a pass writes anything: the manifest's folders are the
    *  checked ones (C4), each one can land here, the stage of a folder this
    *  pass does not list goes (C5), and the folders to make are recorded,
@@ -1675,6 +1844,8 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       live: boolean;
       /** The folders the owner's check covered (C4). */
       checked: { path: string; mode: number }[];
+      /** Slice 5c-2: the members the owner's check covered (C4). */
+      checkedMembers: MemberToMove[];
       signal: AbortSignal;
       gen: number;
       started(prog: MoveInProgress): void;
@@ -1685,20 +1856,19 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
   }> => {
     const { signal, gen } = opts;
     if (gen !== generation) throw new MoveInFail("cancelled", "Cancelled.");
-    // Slice 5c-1: the old office carries the homes of its members with
-    // their own OS user; this office takes them in slice 5c-2. Until then
-    // it refuses rather than move the office without them.
-    if (Array.isArray(summary.members) && summary.members.length > 0)
-      throw new MoveInFail(
-        "member_homes_unsupported",
-        "The old office has members with their own OS user, and this office cannot take their homes yet. Turn off their own OS user on the old office, then start the move again.",
-        false,
-      );
+    // Slice 5c-2: before any write, the members are the checked ones (C4)
+    // and each one's home can still land here; the folder of a member this
+    // pass does not list goes (C5).
+    const members = prepareMembers(
+      membersOfSummary(summary),
+      opts.checkedMembers,
+    );
     const listed = outsideOfSummary(summary);
     prepareOutside(listed, opts.checked);
     const targets: PassTarget[] = [
       homeTarget,
       ...listed.map((f, i) => outsideTarget(f, i)),
+      ...members.map((m, i) => memberTarget(m, i)),
     ];
     for (const t of targets) {
       mkdirSync(t.dir, { recursive: true, mode: 0o700 });
@@ -1706,7 +1876,11 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       removeMoveTree(t.prevStageDir);
       rmSync(t.prevLedgerFile, { force: true });
       const fd = openSync(t.manifestFile, "w", 0o600);
-      const q = t.outside === null ? "" : `?outside=${t.outside}`;
+      const q = t.member
+        ? `?member=${t.member.index}`
+        : t.outside === null
+          ? ""
+          : `?outside=${t.outside}`;
       try {
         for await (const chunk of await requestSealed(
           pair,
@@ -1718,7 +1892,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             manifestId,
             batch: 0,
             itemsHash: "",
-            ...(t.outside === null ? {} : { outside: t.outside }),
+            ...whichOf(t),
           },
           signal,
         )) {
@@ -1784,7 +1958,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
 
     const totalBytes =
       (typeof summary.totalBytes === "number" ? summary.totalBytes : 0) +
-      listed.reduce(
+      [...listed, ...members].reduce(
         (n, f) => n + (typeof f.totalBytes === "number" ? f.totalBytes : 0),
         0,
       );
@@ -1992,7 +2166,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
       manifestId,
       batch: batch.n,
       itemsHash: moveItemsHash(items),
-      ...(t.outside === null ? {} : { outside: t.outside }),
+      ...whichOf(t),
     };
     let last: unknown = null;
     for (let attempt = 1; attempt <= deps.limits.batchAttempts; attempt++) {
@@ -2006,7 +2180,7 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             manifestId,
             batch: batch.n,
             items,
-            ...(t.outside === null ? {} : { outside: t.outside }),
+            ...whichOf(t),
           },
           ctx,
           signal,
@@ -2288,6 +2462,9 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         const folders = preflightOutside(s.preflight).move;
         if (folders.length > 0)
           out.outsideChecks = folders.map((f) => checkFolder(f.path, f.mode));
+        // Slice 5c-2: the same for the members' homes.
+        const members = preflightMembers(s.preflight);
+        if (members.length > 0) out.membersHere = membersHere(members);
       }
       if ((s.phase === "preflight" || s.phase === "confirm") && s.live)
         out.live =
@@ -2309,6 +2486,9 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
         const folders = s.outside?.move ?? [];
         if (s.error.code === "outside_folders_blocked" && folders.length > 0)
           out.outsideChecks = folders.map((f) => checkFolder(f.path, f.mode));
+        const members = s.members ?? [];
+        if (s.error.code === "member_homes_blocked" && members.length > 0)
+          out.membersHere = membersHere(members);
       }
       return out;
     },
@@ -2384,7 +2564,24 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             },
           );
         }
-        const pair = { ...pairingOf(before), outside: agreed };
+        // Slice 5c-2: every member's home must land here.
+        const agreedMembers = preflightMembers(before.preflight);
+        const here = membersHere(agreedMembers);
+        const blockedMembers = here.filter((m) => m.block !== null);
+        if (blockedMembers.length > 0) {
+          writeState(before);
+          return refuse(
+            409,
+            "member_homes_blocked",
+            membersBlockedMessage(blockedMembers),
+            { members: here },
+          );
+        }
+        const pair = {
+          ...pairingOf(before),
+          outside: agreed,
+          ...(agreedMembers.length > 0 ? { members: agreedMembers } : {}),
+        };
         writeState({ phase: "locking", ...pair, preflightId });
         let r: { status: number; body: unknown };
         try {
@@ -2468,9 +2665,27 @@ export function createMoveIn(deps: MoveInDeps): MoveIn {
             missing: s.phase === "incomplete" ? s.result.missing : [],
             outsideMoved: (pair.outside?.move ?? []).map((f) => f.path),
             outsideLeft: pair.outside?.left ?? [],
+            ...(s.manifest.members && s.manifest.members.length > 0
+              ? {
+                  members: s.manifest.members.map((m) => ({
+                    userId: m.userId,
+                    name: m.name,
+                    osUser: m.osUser,
+                    command: enableCommand(m.userId),
+                  })),
+                }
+              : {}),
           },
           ...(s.manifest.outside && s.manifest.outside.length > 0
             ? { outside: s.manifest.outside }
+            : {}),
+          ...(s.manifest.members && s.manifest.members.length > 0
+            ? {
+                members: s.manifest.members.map((m) => ({
+                  userId: m.userId,
+                  home: m.home,
+                })),
+              }
             : {}),
         };
         const refusals = await checkMoveInSwap(inputs);
