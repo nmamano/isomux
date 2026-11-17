@@ -21,8 +21,13 @@ const { setApiShim } = await import("../api.ts");
 const { ask, mount } = await import("../test-support/asks-view.ts");
 const { stateWithSelfUser, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
-const { FakeRecorder, installBrowser, voice, realSetTimeout } =
-  await import("../test-support/openai-voice-fixture.tsx");
+const {
+  FakeRecorder,
+  installBrowser,
+  resetOpenAIVoice,
+  voice,
+  realSetTimeout,
+} = await import("../test-support/openai-voice-fixture.tsx");
 
 type AppState = import("../store.tsx").AppState;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
@@ -84,11 +89,7 @@ let posts: { path: string; body: unknown }[] = [];
 beforeEach(() => {
   posts = [];
   Recognition.instances = [];
-  voice.uploads = [];
-  voice.replies = [];
-  voice.tracksStopped = 0;
-  FakeRecorder.instances = [];
-  FakeRecorder.supported = ["audio/webm"];
+  resetOpenAIVoice();
   setApiShim(async (method, path, body) => {
     if (method === "GET" && path === "/api/voice")
       return { keySource: "member_variable", keyName: "OPENAI_VOICE_API_KEY" };

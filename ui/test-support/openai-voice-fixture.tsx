@@ -18,6 +18,7 @@ import { stubGlobal } from "./dom.ts";
 import { StateCtx, DispatchCtx, reducer } from "../store.tsx";
 import { LanguageProvider } from "../i18n.tsx";
 import { setApiShim } from "../api.ts";
+import { resetBetweenTestFiles } from "../test-file-resets.ts";
 
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type VoiceInput = import("../../shared/voice.ts").VoiceInput;
@@ -131,21 +132,25 @@ interface Upload {
   keywords: FormDataEntryValue[];
 }
 
-// What a test reads and sets. setUpOpenAIVoice resets it before each test.
-export const voice = {
-  tracksStopped: 0,
-  micDenied: false,
-  // When set, getUserMedia waits until the test calls voice.releaseMic().
-  holdMic: false,
-  releaseMic: (() => {}) as () => void,
-  uploads: [] as Upload[],
-  replies: [] as Array<() => Promise<Response>>,
-  sent: [] as string[],
-  // GET /api/voice answers, one per press; a usable member variable when none
-  // is queued.
-  statusReplies: [] as Array<() => Promise<Response>>,
-  statusRequests: 0,
-};
+// What a test reads and sets. resetOpenAIVoice puts these defaults back.
+function freshVoice() {
+  return {
+    tracksStopped: 0,
+    micDenied: false,
+    // When set, getUserMedia waits until the test calls voice.releaseMic().
+    holdMic: false,
+    releaseMic: (() => {}) as () => void,
+    uploads: [] as Upload[],
+    replies: [] as Array<() => Promise<Response>>,
+    sent: [] as string[],
+    // GET /api/voice answers, one per press; a usable member variable when none
+    // is queued.
+    statusReplies: [] as Array<() => Promise<Response>>,
+    statusRequests: 0,
+  };
+}
+
+export const voice = freshVoice();
 
 export const usableKey = {
   keySource: "member_variable",
@@ -229,22 +234,22 @@ export function installBrowser(opts: { speechRecognition: boolean }) {
   stubGlobal("fetch", fakeFetch);
 }
 
+// Puts every stand-in back to its default. Bun loads this module once for
+// all files in a process, so the DOM harness also runs it at the start of each
+// file. A file that does not call setUpOpenAIVoice calls it in its own beforeEach.
+export function resetOpenAIVoice(): void {
+  Object.assign(voice, freshVoice());
+  FakeRecorder.instances = [];
+  FakeRecorder.supported = ["audio/webm"];
+  CountingRecognition.constructed = 0;
+}
+resetBetweenTestFiles(resetOpenAIVoice);
+
 // Resets the stand-ins before each test. The render harness gives the
 // browser globals back after the file (stubGlobal). Call it once, in the test file's body.
 export function setUpOpenAIVoice(): void {
   beforeEach(() => {
-    voice.uploads = [];
-    voice.replies = [];
-    voice.sent = [];
-    voice.tracksStopped = 0;
-    voice.micDenied = false;
-    voice.holdMic = false;
-    voice.releaseMic = () => {};
-    voice.statusReplies = [];
-    voice.statusRequests = 0;
-    FakeRecorder.instances = [];
-    FakeRecorder.supported = ["audio/webm"];
-    CountingRecognition.constructed = 0;
+    resetOpenAIVoice();
     setApiShim(async (method, path, body) => {
       // As apiFetch on the network: a non-2xx throws, and a body that is not
       // JSON reads as undefined.
