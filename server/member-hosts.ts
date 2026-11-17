@@ -37,7 +37,9 @@ import {
 import { CODE_ROOT, readAgentIdentity } from "./split/start.ts";
 import {
   agentAccess,
+  describeFailures,
   privateChecks,
+  SEARCH,
   realFs,
   type CheckFailure,
   type CheckId,
@@ -303,8 +305,6 @@ export interface MemberCheckInput {
   // group, and the owner's page says so.
   rootCapable?: boolean;
 }
-
-const SEARCH = 1;
 
 // Design section 1.2, the part the office user can make: the member's uid,
 // its groups, no effective search on the office home and no effective write
@@ -653,10 +653,12 @@ async function connectNow(userId: string): Promise<boolean> {
   }
   const refuse = (reason: string): false => {
     connected.delete(userId);
+    // A poll or a retry with the same reason logs it once.
+    if (refusals.get(userId) !== reason)
+      console.error(
+        `[member-hosts] ${userId} (${osUser.name}) is not ready: ${reason}`,
+      );
     refusals.set(userId, reason);
-    console.error(
-      `[member-hosts] ${userId} (${osUser.name}) is not ready: ${reason}`,
-    );
     scheduleRetry(userId);
     return false;
   };
@@ -738,12 +740,7 @@ async function connectNow(userId: string): Promise<boolean> {
   } catch (error) {
     return refuse(`the trusted checks failed: ${(error as Error).message}`);
   }
-  if (failures.length > 0)
-    return refuse(
-      failures
-        .map((f) => `${f.check}${f.path ? ` at ${f.path}` : ""}: ${f.detail}`)
-        .join("; "),
-    );
+  if (failures.length > 0) return refuse(describeFailures(failures));
   if (runner.runtimeHash !== wanted) {
     // Not ready from here to the reconnect: the runner runs another
     // runtime than runtime/current.

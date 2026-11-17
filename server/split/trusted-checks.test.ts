@@ -7,11 +7,12 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "fs";
 import { tmpdir, userInfo } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import {
   ACL_GROUP,
   ACL_GROUP_OBJ,
@@ -25,7 +26,10 @@ import {
 } from "./acl.ts";
 import {
   agentAccess,
+  describeFailure,
+  describeFailures,
   runTrustedChecks,
+  type CheckFailure,
   type AgentIdentity,
   type FileFacts,
   type FsProbe,
@@ -368,6 +372,11 @@ describe("runTrustedChecks", () => {
   it("resolves a relative target the way the kernel does", () => {
     const root = mkdtempSync(join(tmpdir(), "split-links-"));
     try {
+      // The agent user (uid 4242) must reach the tree by name: the checks
+      // count only entries it can reach (task 39ec1276).
+      chmodSync(root, 0o755);
+      for (let up = root; up !== "/"; up = dirname(up))
+        expect([up, statSync(up).mode & 0o001]).toEqual([up, 0o001]);
       const at = (name: string) => join(root, name);
       for (const d of ["outside", "agent", "agent/deeper", "code", "state"])
         mkdirSync(at(d), { mode: 0o755 });
@@ -500,5 +509,236 @@ describe("runTrustedChecks", () => {
       },
     }).map((f) => f.check);
     expect(failures).toContain("acl-unreadable");
+  });
+});
+
+// Task 39ec1276: the write and owner checks count only entries the agent can
+// reach by name, that is with search on every directory on the real path.
+describe("reach", () => {
+  // /opt/code/closed is the office's 0750 directory the agent is not in;
+  // below it, everything is the agent's to write.
+  function tree(closedMode = 0o750): Map<string, FakeEntry> {
+    const t = cleanTree();
+    t.set("/opt/code/closed", dir(SERVER, SERVER, closedMode));
+    t.set("/opt/code/closed/w.js", file(SERVER, SERVER, 0o666));
+    t.set("/opt/code/closed/mine.js", file(1000, 1000, 0o444));
+    t.set("/opt/code/closed/sub", dir(SERVER, SERVER, 0o777));
+    t.set("/opt/code/closed/sub/x.js", file(SERVER, SERVER, 0o666));
+    return t;
+  }
+  const BELOW = [
+    "private-agent-write /opt/code/closed/w.js",
+    "private-owner /opt/code/closed/mine.js",
+    "private-agent-write /opt/code/closed/sub",
+    "private-agent-write /opt/code/closed/sub/x.js",
+  ];
+  const sorted = (list: string[]) => [...list].sort();
+  const named = (failures: CheckFailure[]) =>
+    failures.map((f) => `${f.check} ${f.path ?? ""}`.trim());
+  function run(
+    t: Map<string, FakeEntry>,
+    over: { codeRoot?: string; fs?: Partial<FsProbe> } = {},
+  ): CheckFailure[] {
+    return runTrustedChecks({
+      serverUid: SERVER,
+      serverGid: SERVER,
+      agent: AGENT,
+      stateRoot: "/srv/server/.isomux",
+      shareRoot: "/srv/server/share",
+      codeRoot: over.codeRoot ?? "/opt/code",
+      codeDepth: Infinity,
+      fs: { ...probe(t), ...over.fs },
+    });
+  }
+
+  it("skips the entries below a directory the agent cannot search", () => {
+    expect(named(run(tree()))).toEqual([]);
+  });
+
+  it("checks them when the directory gives search by other bits, group or owner", () => {
+    // Each flip gives the agent search on /opt/code/closed by one property.
+    const flips: [string, (t: Map<string, FakeEntry>) => void][] = [
+      ["other x", (t) => (t.get("/opt/code/closed")!.mode = 0o751)],
+      ["other rx", (t) => (t.get("/opt/code/closed")!.mode = 0o755)],
+      [
+        "an agent group",
+        (t) => (t.get("/opt/code/closed")!.gid = AGENT.groups[1]),
+      ],
+    ];
+    for (const [label, flip] of flips) {
+      const t = tree();
+      flip(t);
+      expect([label, sorted(named(run(t)))]).toEqual([label, sorted(BELOW)]);
+    }
+    // The agent owns the directory: it is reached, and itself a failure.
+    const owned = tree(0o700);
+    owned.get("/opt/code/closed")!.uid = 1000;
+    expect(sorted(named(run(owned)))).toEqual(
+      sorted([
+        "private-owner /opt/code/closed",
+        "private-agent-write /opt/code/closed",
+        ...BELOW,
+      ]),
+    );
+  });
+
+  it("still checks the unsearchable directory itself, which its parent reaches", () => {
+    // 0752: other may write the directory but not search it.
+    expect(named(run(tree(0o752)))).toEqual([
+      "private-agent-write /opt/code/closed",
+    ]);
+  });
+
+  it("reads search from the access ACL, limited by the mask", () => {
+    const grant = (maskPerm: number) =>
+      acl(
+        [ACL_USER_OBJ, 7],
+        [ACL_USER, 5, AGENT.uid],
+        [ACL_GROUP_OBJ, 5],
+        [ACL_MASK, maskPerm],
+        [ACL_OTHER, 0],
+      );
+    const reached = tree();
+    reached.get("/opt/code/closed")!.access = grant(5);
+    expect(sorted(named(run(reached)))).toEqual(sorted(BELOW));
+    const masked = tree();
+    masked.get("/opt/code/closed")!.access = grant(4);
+    expect(named(run(masked))).toEqual([]);
+    // A group entry for one of the agent's groups also gives search.
+    const group = tree();
+    group.get("/opt/code/closed")!.access = acl(
+      [ACL_USER_OBJ, 7],
+      [ACL_GROUP_OBJ, 5],
+      [ACL_GROUP, 1, AGENT.groups[1]],
+      [ACL_MASK, 5],
+      [ACL_OTHER, 0],
+    );
+    expect(sorted(named(run(group)))).toEqual(sorted(BELOW));
+  });
+
+  it("judges reach on the real path of a link's target, not on the link", () => {
+    // A link the agent reaches, to a target below the closed directory: the
+    // kernel needs search on the target's path too.
+    const t = tree();
+    t.set("/opt/code/to-sub", {
+      ...file(0, 0, 0o777),
+      kind: "symlink",
+      target: "/opt/code/closed/sub",
+    });
+    t.set("/opt/code/to-file", {
+      ...file(0, 0, 0o777),
+      kind: "symlink",
+      target: "/opt/code/closed/w.js",
+    });
+    expect(named(run(t))).toEqual([]);
+    t.get("/opt/code/closed")!.mode = 0o751;
+    expect(sorted(named(run(t)))).toEqual(sorted(BELOW));
+  });
+
+  it("checks a reachable target that the requested path reaches through a closed directory", () => {
+    // The code root is named through the closed home, but its real path is
+    // reachable: the entries there count.
+    const t = tree();
+    t.set("/home", dir(0, 0, 0o755));
+    t.set("/home/office", dir(SERVER, SERVER, 0o750));
+    t.set("/home/office/code", {
+      ...file(SERVER, SERVER, 0o777),
+      kind: "symlink",
+      target: "/opt/code/server",
+    });
+    t.get("/opt/code/server/a.ts")!.mode = 0o666;
+    expect(named(run(t, { codeRoot: "/home/office/code" }))).toEqual([
+      "private-agent-write /opt/code/server/a.ts",
+    ]);
+  });
+
+  it("reads no directory below one the agent cannot search", () => {
+    const read: string[] = [];
+    const t = tree();
+    const base = probe(t);
+    const fs = {
+      readdir: (path: string) => {
+        read.push(path);
+        return base.readdir(path);
+      },
+    };
+    expect(named(run(t, { fs }))).toEqual([]);
+    // The enabling condition: the walk read the code tree around it.
+    expect(read).toContain("/opt/code");
+    expect(read.filter((p) => p.startsWith("/opt/code/closed"))).toEqual([]);
+    read.length = 0;
+    t.get("/opt/code/closed")!.mode = 0o751;
+    run(t, { fs });
+    expect(read).toContain("/opt/code/closed/sub");
+  });
+
+  it("fails closed when the ACL of a directory on the way cannot be read", () => {
+    const t = tree();
+    const base = probe(t);
+    const failures = named(
+      run(t, {
+        fs: {
+          acl: (path, kind) => {
+            if (path === "/opt/code/closed") throw new Error("EIO");
+            return base.acl(path, kind);
+          },
+        },
+      }),
+    );
+    // Named once, and the directory counts as searchable.
+    expect(
+      failures.filter((f) => f === "acl-unreadable /opt/code/closed").length,
+    ).toBe(1);
+    expect(sorted(failures)).toEqual(
+      sorted([
+        "acl-unreadable /opt/code/closed",
+        "private-agent-write /opt/code/closed",
+        ...BELOW,
+      ]),
+    );
+  });
+
+  it("keeps the state root closed when the agent cannot reach it", () => {
+    const t = cleanTree();
+    t.get("/srv/server")!.mode = 0o750;
+    t.get("/srv/server/.isomux")!.mode = 0o755;
+    expect(named(run(t))).toContain("state-root-closed /srv/server/.isomux");
+  });
+});
+
+describe("describeFailures", () => {
+  const list = (n: number): CheckFailure[] =>
+    Array.from({ length: n }, (_, i) => ({
+      check: "private-agent-write" as const,
+      path: `/opt/code/f${i}.js`,
+      detail: "the agent user can write it",
+    }));
+
+  it("describes every failure when there are at most five", () => {
+    for (const n of [1, 5]) {
+      const failures = list(n);
+      expect(describeFailures(failures)).toBe(
+        failures.map(describeFailure).join("; "),
+      );
+    }
+  });
+
+  it("describes the first five, then counts the rest", () => {
+    const failures = list(14358);
+    const text = describeFailures(failures);
+    const head = failures.slice(0, 5).map(describeFailure).join("; ");
+    expect(text.startsWith(head)).toBe(true);
+    const tail = text.slice(head.length);
+    expect(tail).toContain(String(14358 - 5));
+    expect(tail).not.toContain("/opt/code/f5.js");
+    expect(tail.length).toBeLessThan(40);
+  });
+
+  it("takes another limit", () => {
+    const failures = list(3);
+    const text = describeFailures(failures, 1);
+    expect(text.startsWith(describeFailure(failures[0]))).toBe(true);
+    expect(text).not.toContain("/opt/code/f1.js");
+    expect(text.slice(describeFailure(failures[0]).length)).toContain("2");
   });
 });

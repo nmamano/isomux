@@ -6,7 +6,8 @@
 // Slice 6 of task 01f5038c runs it from isomux-split-users --check.
 
 import { STATE_ROOT } from "../config.ts";
-import { checkSplit, describeFailure } from "./start.ts";
+import { checkSplit } from "./start.ts";
+import { describeFailure } from "./trusted-checks.ts";
 
 const { failures } = checkSplit(STATE_ROOT, Infinity);
 for (const failure of failures)

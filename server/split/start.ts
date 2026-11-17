@@ -11,6 +11,7 @@ import { join, resolve } from "path";
 import { RunnerAgentHost } from "../agent-runner/client.ts";
 import { readSplitConfig, type SplitConfig } from "./roots.ts";
 import {
+  describeFailureLines,
   runTrustedChecks,
   type AgentIdentity,
   type CheckFailure,
@@ -18,7 +19,7 @@ import {
 
 export const CODE_ROOT = resolve(import.meta.dir, "..", "..");
 // Depth of the code walk at start: the whole tree (ruling 10 of task 01f5038c;
-// bun install leaves dependency files at mode 0666).
+// a bun install under umask 000 leaves dependency files at mode 0666).
 export const START_CODE_DEPTH = Infinity;
 
 // The agent user's uid, primary group and groups, from the system's user
@@ -78,10 +79,6 @@ export function checkSplit(
   return { setup: { config, agent }, failures };
 }
 
-export function describeFailure(failure: CheckFailure): string {
-  return `${failure.check}${failure.path ? ` at ${failure.path}` : ""}: ${failure.detail}`;
-}
-
 const DIAGNOSTIC_TRIES = [
   "readState",
   "writeCode",
@@ -139,7 +136,7 @@ export async function startSplitMode(
     };
   const { setup, failures } = checkSplit(stateRoot, START_CODE_DEPTH);
   if (!setup || failures.length > 0)
-    return { mode: "refused", reasons: failures.map(describeFailure) };
+    return { mode: "refused", reasons: describeFailureLines(failures) };
   let host: RunnerAgentHost;
   try {
     host = await RunnerAgentHost.connect(socketPath);

@@ -5,7 +5,7 @@
 //
 // One user runs these tests, so the peer uid comes from an injected reader, as
 // in server/agent-runner/runner.test.ts; the split rig checks real uids.
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -974,6 +974,55 @@ describe("connectMemberHost", () => {
     });
   }
 
+  // Task 39ec1276: a refusal names the first failures and counts the rest,
+  // and the log has it once while the reason stays the same.
+  it("caps a refusal's failures, and logs a repeated reason once", async () => {
+    recordMemberOsUser("u-alice", { name: NAME, uid: UID });
+    startMemberRunner(memberRunnerSocketPath(NAME));
+    const many = (prefix: string) =>
+      Array.from({ length: 200 }, (_, i) => ({
+        check: "private-agent-write",
+        path: `/code/${prefix}${i}.js`,
+        detail: "the agent user can write it",
+      }));
+    let failures = many("a");
+    setMemberHostDeps({
+      readPeerUid: () => UID,
+      lookupUser: () => ({ uid: UID, gid: 4242, groups: [4242] }),
+      checks: async () => failures as never,
+      ...TEST_RUNTIME_DEPS,
+      retryMs: 60_000,
+    });
+    const logged: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation(
+      (...args: unknown[]) => {
+        logged.push(args.map(String).join(" "));
+      },
+    );
+    try {
+      const naming = (path: string) =>
+        logged.filter((line) => line.includes(path)).length;
+      for (let i = 0; i < 3; i++)
+        expect(await connectMemberHost("u-alice")).toBe(false);
+      const reason = memberHostRefusal("u-alice") ?? "";
+      expect(reason).toContain("/code/a0.js");
+      expect(reason).toContain("/code/a4.js");
+      expect(reason).not.toContain("/code/a5.js");
+      expect(reason).toContain("195");
+      expect(naming("/code/a0.js")).toBe(1);
+      expect(logged.some((line) => line.includes("/code/a5.js"))).toBe(false);
+      // Another reason is logged, once.
+      failures = many("b");
+      for (let i = 0; i < 2; i++)
+        expect(await connectMemberHost("u-alice")).toBe(false);
+      expect(memberHostRefusal("u-alice")).toContain("/code/b0.js");
+      expect(naming("/code/b0.js")).toBe(1);
+      expect(naming("/code/a0.js")).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("connects at boot and retries a runner that starts later", async () => {
     recordMemberOsUser("u-alice", { name: NAME, uid: UID });
     deps();
@@ -1257,6 +1306,33 @@ describe("memberTrustedChecks", () => {
     );
   });
 
+  // Task 39ec1276: a code tree under the closed office home is out of the
+  // member's reach, so its modes do not count.
+  it("takes a writable code tree that is under the closed office home", () => {
+    const build = (homeMode: number) => {
+      const c = clean();
+      c.facts.set("/home/office", DIR(homeMode, OFFICE, OFFICE));
+      c.facts.set("/home/office/isomux", DIR(0o755, OFFICE, OFFICE));
+      c.facts.set("/home/office/isomux/site", DIR(0o777, OFFICE, OFFICE));
+      c.facts.set("/home/office/isomux/site/xterm.css", {
+        uid: OFFICE,
+        gid: OFFICE,
+        mode: 0o666,
+        kind: "file",
+      });
+      return { ...c.input, codeRoot: "/home/office/isomux" };
+    };
+    expect(memberTrustedChecks(build(0o700))).toEqual([]);
+    // The home opened for search: the home and the tree below it count.
+    const open = memberTrustedChecks(build(0o701));
+    for (const path of [
+      "/home/office",
+      "/home/office/isomux/site",
+      "/home/office/isomux/site/xterm.css",
+    ])
+      expect([path, named(open, path)]).toEqual([path, true]);
+  });
+
   it("fails closed on a path it cannot read", () => {
     const c = clean();
     c.facts.delete("/opt/isomux");
@@ -1285,7 +1361,10 @@ describe("the code walk of the connect", () => {
   it("names a file the member can write deep in the tree, and keeps the verdict", async () => {
     const code = join(dir, "code");
     const deep = join(code, "node_modules", "dep", "index.js");
-    mkdirSync(dirname(deep), { recursive: true });
+    // The member reaches the tree by name: the checks count only what it
+    // can reach (task 39ec1276).
+    chmodSync(dir, 0o755);
+    mkdirSync(dirname(deep), { recursive: true, mode: 0o755 });
     writeFileSync(deep, "x");
     chmodSync(deep, 0o666);
     const input = {

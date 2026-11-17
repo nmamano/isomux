@@ -41,6 +41,25 @@ export interface CheckFailure {
   detail: string;
 }
 
+export function describeFailure(failure: CheckFailure): string {
+  return `${failure.check}${failure.path ? ` at ${failure.path}` : ""}: ${failure.detail}`;
+}
+
+// The first `limit` failures, described, then how many more there are.
+export function describeFailureLines(
+  failures: CheckFailure[],
+  limit = 5,
+): string[] {
+  const lines = failures.slice(0, limit).map(describeFailure);
+  const more = failures.length - limit;
+  if (more > 0) lines.push(`and ${more} more`);
+  return lines;
+}
+
+export function describeFailures(failures: CheckFailure[], limit = 5): string {
+  return describeFailureLines(failures, limit).join("; ");
+}
+
 export interface FileFacts {
   uid: number;
   gid: number;
@@ -77,6 +96,7 @@ export interface TrustedCheckInput {
 
 const S_ISGID = 0o2000;
 const WRITE = 2;
+export const SEARCH = 1;
 // The one socket the share may hold, relative to SHARE_ROOT.
 const SHARE_SOCKET = join("authority", "authority.sock");
 // The kernel's limit on links followed in one resolution (ELOOP).
@@ -162,6 +182,25 @@ export function privateChecks(
       return { ok: false as const, entries: null };
     }
   };
+  // Whether the agent can search `dir` and every directory above it. The
+  // probe is silent: checkEntry already named any error on the way, and an
+  // error counts as searchable (fail closed).
+  const searchCache = new Map<string, boolean>();
+  const searchable = (dir: string): boolean => {
+    const known = searchCache.get(dir);
+    if (known !== undefined) return known;
+    let result = dir === sep || searchable(dirname(dir));
+    if (result)
+      try {
+        const entry = fs.lstat(dir);
+        result =
+          (agentAccess(entry, fs.acl(dir, "access"), agent) & SEARCH) !== 0;
+      } catch {
+        result = true;
+      }
+    searchCache.set(dir, result);
+    return result;
+  };
   // Write the agent gets on the entry, or on a new entry a directory's
   // default ACL would create (as the entry's owner and group).
   const agentWrites = (path: string, entry: FileFacts): boolean => {
@@ -180,11 +219,13 @@ export function privateChecks(
   // Private: owned by root or the server user, no agent write. A path is
   // resolved the way the kernel resolves it: every directory on the way and
   // every link it follows is a private entry, and so is everything on the way
-  // to each link's target.
+  // to each link's target. These checks count only entries the agent reaches
+  // by name: the kernel needs search on every directory on the way.
   const checked = new Set<string>();
   const checkEntry = (path: string, entry: FileFacts): void => {
     if (checked.has(path)) return;
     checked.add(path);
+    if (path !== sep && !searchable(dirname(path))) return;
     if (entry.uid !== 0 && entry.uid !== serverUid)
       fail("private-owner", `owned by uid ${entry.uid}`, path);
     // A link's own mode bits mean nothing: its directory decides who can
@@ -255,6 +296,8 @@ export function privateChecks(
     if ((visited.get(real) ?? -1) >= remaining) return;
     const entry = facts(real);
     if (!entry || entry.kind !== "dir") return;
+    // Nothing below a directory the agent cannot search is reachable by name.
+    if (!searchable(real)) return;
     visited.set(real, remaining);
     let names: string[];
     try {

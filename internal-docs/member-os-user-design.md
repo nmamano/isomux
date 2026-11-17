@@ -37,7 +37,7 @@ The split design's trusted checks (section 2.4 there; server/split/trusted-check
 
 - its uid is not 0 and not the office uid;
 - it is not in any group of the office user, nor in `sudo`, `wheel`, `admin`, `adm` or `docker`;
-- it has no effective search on the office user's home, and no effective write on `STATE_ROOT`, the code tree or their ancestors (mode bits and ACLs; on a self-hosted box whose home is `o+x`, the command refuses and names the `chmod`);
+- it has no effective search on the office user's home, and no effective write on `STATE_ROOT`, the code tree or their ancestors (mode bits and ACLs; on a self-hosted box whose home is `o+x`, the command refuses and names the `chmod`). Only entries that the member user reaches by name count, as in the split design: nothing below a directory it cannot search is checked. A hard link, an open file or a working directory that it got while it could still reach a file is not seen;
 - it cannot become root (the installer's hardening gate, for that user).
 
 A failed check stops that member's agents, not the office. The runner diagnostic (denied reads tried by the runner) is logged and is never the proof.
