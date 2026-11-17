@@ -21,8 +21,8 @@ export type SidebarRow<T> = {
   // The row is a part of the item open in the pane (your own member parts
   // in Settings > You).
   partOfOpenItem?: boolean;
-  // A row that starts a new thing (Settings > You > New device): a + before
-  // the label, in the muted color of the New member row.
+  // A row that starts a new thing (Settings > You > New device): drawn as the
+  // New member row, a + in a glyph's box before the muted label.
   add?: true;
   // The row takes no click (an add row while its action runs).
   disabled?: boolean;
@@ -96,105 +96,104 @@ export function SidebarGroupRows<T>({
       )}
       {group.rows
         .filter((row) => !collapsed || row.add)
-        .map((row) => (
-          <Fragment key={row.key}>
-            <button
-              {...rowAttrs?.(row)}
-              onClick={() => onSelect(row.target)}
-              disabled={row.disabled}
-              aria-current={row.selected ? "true" : undefined}
-              style={{
-                display: dynamic ? "flex" : undefined,
-                alignItems: dynamic ? "center" : undefined,
-                gap: dynamic ? 10 : undefined,
-                width: "100%",
-                textAlign: "left",
-                font: "inherit",
-                // Fixed rows sit indented under their header; with no header
-                // there is nothing to indent from.
-                padding:
-                  dynamic || group.label === undefined
-                    ? "8px 14px"
-                    : "8px 14px 8px 22px",
-                fontSize: 13,
-                fontWeight: row.add ? undefined : 600,
-                color: row.add ? "var(--text-muted)" : "var(--text-primary)",
-                border: "none",
-                cursor: row.disabled ? "default" : "pointer",
-                background: row.selected ? "var(--bg-hover)" : "transparent",
-                borderLeft: row.selected
-                  ? "2px solid var(--accent)"
-                  : "2px solid transparent",
-              }}
-            >
-              {row.add ? (
-                // In a dynamic group the + takes the glyph's box, so the label
-                // lines up with the names above it.
-                <span
-                  aria-hidden="true"
-                  style={
-                    dynamic
-                      ? {
-                          width: 22,
-                          flexShrink: 0,
-                          textAlign: "center",
-                          fontSize: 16,
-                        }
-                      : { marginRight: 6 }
-                  }
-                >
-                  +
-                </span>
-              ) : (
-                dynamic && <RoomGlyph />
-              )}
-              {dynamic ? (
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {row.label}
-                </span>
-              ) : (
-                row.label
-              )}
-              {row.dirty && (
-                <span
-                  role="img"
-                  aria-label={t("settings.part.unsaved")}
-                  title={t("settings.part.unsaved")}
-                  style={{
-                    display: "inline-block",
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "var(--accent)",
-                    marginLeft: 8,
-                    verticalAlign: "middle",
-                    flexShrink: 0,
-                  }}
-                />
-              )}
-            </button>
-            {row.error && (
-              <p
-                role="alert"
+        .map((row) => {
+          // An add row takes the roster's shape in every group, so it looks
+          // like the New member row: the + in a glyph's box, then the label.
+          const flat = dynamic || !!row.add;
+          return (
+            <Fragment key={row.key}>
+              <button
+                {...rowAttrs?.(row)}
+                onClick={() => onSelect(row.target)}
+                disabled={row.disabled}
+                aria-current={row.selected ? "true" : undefined}
                 style={{
-                  fontSize: 11,
-                  color: "var(--red-text)",
-                  margin: "2px 14px 6px",
+                  display: flat ? "flex" : undefined,
+                  alignItems: flat ? "center" : undefined,
+                  gap: flat ? 10 : undefined,
+                  width: "100%",
+                  textAlign: "left",
+                  font: "inherit",
+                  // Fixed rows sit indented under their header; with no header
+                  // there is nothing to indent from.
+                  padding:
+                    flat || group.label === undefined
+                      ? "8px 14px"
+                      : "8px 14px 8px 22px",
+                  fontSize: 13,
+                  fontWeight: row.add ? undefined : 600,
+                  color: row.add ? "var(--text-muted)" : "var(--text-primary)",
+                  border: "none",
+                  cursor: row.disabled ? "default" : "pointer",
+                  background: row.selected ? "var(--bg-hover)" : "transparent",
+                  borderLeft: row.selected
+                    ? "2px solid var(--accent)"
+                    : "2px solid transparent",
                 }}
               >
-                {row.error}
-              </p>
-            )}
-          </Fragment>
-        ))}
+                {row.add ? (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 22,
+                      flexShrink: 0,
+                      textAlign: "center",
+                      fontSize: 16,
+                    }}
+                  >
+                    +
+                  </span>
+                ) : (
+                  dynamic && <RoomGlyph />
+                )}
+                {flat ? (
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.label}
+                  </span>
+                ) : (
+                  row.label
+                )}
+                {row.dirty && (
+                  <span
+                    role="img"
+                    aria-label={t("settings.part.unsaved")}
+                    title={t("settings.part.unsaved")}
+                    style={{
+                      display: "inline-block",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "var(--accent)",
+                      marginLeft: 8,
+                      verticalAlign: "middle",
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+              </button>
+              {row.error && (
+                <p
+                  role="alert"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--red-text)",
+                    margin: "2px 14px 6px",
+                  }}
+                >
+                  {row.error}
+                </p>
+              )}
+            </Fragment>
+          );
+        })}
     </>
   );
 }
