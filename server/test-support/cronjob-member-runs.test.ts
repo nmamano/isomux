@@ -12,7 +12,14 @@
 // - a send into a member run claims first and frees the claim on a refusal;
 // - the folder limits resolve a member's links as the member.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { FakeBackend } from "./fake-backend.ts";
@@ -31,6 +38,14 @@ import type { LogText } from "../../shared/i18n/log-message.ts";
 import type { AskRunResult } from "../ask-command-runner.ts";
 import { ownOsUserLine } from "../system-prompt.ts";
 import { STATE_ROOT } from "../config.ts";
+import { claudeProjectDir } from "../cwd-utils.ts";
+import {
+  buildEnvForUserId,
+  setPersonalProviderActiveProvider,
+} from "../env-loader.ts";
+import { effectiveProviderDirectory } from "../provider-account-manager.ts";
+import { personalProviderHome } from "../provider-homes.ts";
+import type { OfficeAuth, OfficeLoginSync } from "../office-login-sync.ts";
 
 type CronDeps = Parameters<typeof createCronjobManager>[0];
 type AddCronjobInput = Parameters<
@@ -552,4 +567,160 @@ describe("the prompt of a schedule run", () => {
       });
     }
   });
+});
+
+// Task 56b68f0f: a schedule run of an isolated member with no sign-in of
+// her own runs on the office sign-in in her own space, as her agents do
+// (server/office-login-sync.ts): a Claude run after a sync of her file, a
+// Codex run with the office login. With a sign-in of her own, neither.
+describe("a member's run on the office sign-in", () => {
+  const AUTH: OfficeAuth = {
+    tokens: async () => ({
+      accessToken: "office-codex-access",
+      chatgptAccountId: "acct-office",
+      chatgptPlanType: "plus",
+    }),
+    refresh: async () => {
+      throw new Error("not used");
+    },
+  };
+  function recordingSync(fake: () => FakeBackend | undefined) {
+    const calls: { op: string; userId: string; sessions: number }[] = [];
+    const sessions = () => fake()?.createSessionCount ?? 0;
+    const sync: OfficeLoginSync = {
+      syncClaude: async (userId) => {
+        calls.push({ op: "claude", userId, sessions: sessions() });
+      },
+      prepareCodex: async (userId) => {
+        calls.push({ op: "codex", userId, sessions: sessions() });
+      },
+      codexOfficeAuth: () => AUTH,
+      start: () => {},
+      close: () => {},
+    };
+    return { sync, calls };
+  }
+  let restore: ReturnType<typeof setPersonalProviderActiveProvider>;
+  const personal = { claude: false, codex: false };
+  beforeEach(() => {
+    personal.claude = false;
+    personal.codex = false;
+    restore = setPersonalProviderActiveProvider(
+      (userId, provider) => userId === alice && personal[provider] === true,
+    );
+  });
+  afterEach(() => setPersonalProviderActiveProvider(restore));
+
+  for (const agentType of ["claude", "codex"] as const)
+    for (const own of [false, true])
+      it(`${agentType}, ${own ? "with" : "with no"} sign-in of her own: ${own ? "her own, with no office login" : "her member office folder, after the office login is ready"}`, async () => {
+        personal[agentType] = own;
+        const ref: { fake?: FakeBackend } = {};
+        const rec = recordingSync(() => ref.fake);
+        const made = manager({
+          resolveEnv: buildEnvForUserId,
+          officeLoginSync: rec.sync,
+        });
+        ref.fake = made.fake;
+        const job = made.mgr.addCronjob(
+          input({
+            agentType,
+            modelFamily: agentType === "codex" ? "gpt" : "opus",
+          }),
+        );
+        made.mgr.runCronjobNow(job.id, "Alice");
+        await waitFor(
+          () => made.fake.createSessionCount === 1,
+          "session start",
+        );
+        const s = made.fake.sessions[0]!;
+        const officeFolder =
+          agentType === "claude"
+            ? join(iso.home, ".claude")
+            : join(iso.member.host.agentRoot(), "codex-home");
+        expect({
+          dir: effectiveProviderDirectory(agentType, s.opts.env ?? {}),
+          login: s.opts.officeAuth === AUTH,
+          prepared: rec.calls.some(
+            (c) => c.op === agentType && c.userId === alice && c.sessions === 0,
+          ),
+        }).toEqual({
+          dir: own ? personalProviderHome(alice, agentType) : officeFolder,
+          login: !own && agentType === "codex",
+          prepared: !own,
+        });
+        closeAll(made.fake);
+      });
+
+  // A follow-up resumes a finished run in her member office folder: the
+  // file is written (Claude) or her own auth.json moved out (Codex) before
+  // the session resumes, as at the run's start.
+  for (const agentType of ["claude", "codex"] as const)
+    it(`${agentType}: a follow-up into her run resumes after the office login is ready`, async () => {
+      const ref: { fake?: FakeBackend } = {};
+      const calls: { op: string; resumes: number }[] = [];
+      const sync: OfficeLoginSync = {
+        syncClaude: async () => {
+          calls.push({ op: "claude", resumes: ref.fake!.resumeSessionCount });
+        },
+        prepareCodex: async () => {
+          calls.push({ op: "codex", resumes: ref.fake!.resumeSessionCount });
+        },
+        codexOfficeAuth: () => AUTH,
+        start: () => {},
+        close: () => {},
+      };
+      const made = manager({
+        resolveEnv: buildEnvForUserId,
+        officeLoginSync: sync,
+      });
+      ref.fake = made.fake;
+      const job = made.mgr.addCronjob(
+        input({
+          agentType,
+          modelFamily: agentType === "codex" ? "gpt" : "opus",
+        }),
+      );
+      const run = made.mgr.runCronjobNow(job.id, "Alice")!;
+      await waitFor(
+        () => made.mgr.findRun(job.id, run.id)?.status === "completed",
+        "run done",
+      );
+      // The conversation on disk in her member office folder, as the engine
+      // writes it.
+      const sid = made.fake.sessions[0]!.sessionId;
+      const file =
+        agentType === "claude"
+          ? join(
+              claudeProjectDir(job.cwd, {
+                CLAUDE_CONFIG_DIR: join(iso.home, ".claude"),
+              }),
+              `${sid}.jsonl`,
+            )
+          : join(
+              iso.member.host.agentRoot(),
+              "codex-home",
+              "sessions",
+              "2026",
+              "11",
+              "17",
+              `rollout-2026-11-17T10-00-00-${sid}.jsonl`,
+            );
+      mkdirSync(join(file, ".."), { recursive: true });
+      writeFileSync(file, "{}\n");
+      calls.length = 0;
+      const sent = await made.mgr.sendRunMessage(
+        job.id,
+        run.id,
+        "again",
+        "Alice",
+      );
+      // The enabling condition: the follow-up resumed the run's session.
+      expect(sent.ok).toBe(true);
+      await waitFor(() => made.fake.resumeSessionCount === 1, "resumed");
+      expect(calls.some((c) => c.op === agentType && c.resumes === 0)).toBe(
+        true,
+      );
+      closeAll(made.fake);
+    });
 });

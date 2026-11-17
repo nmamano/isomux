@@ -591,13 +591,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.failedWith": "The command failed: {message}",
   "settings.osUser.failed": "The command failed.",
   "settings.osUser.failedDetails": "Details",
-  "settings.osUser.claudeTokenSet":
-    "Claude: at their usage limit, their agents continue on the Claude token for members with their own OS user.",
-  "settings.osUser.claudeTokenMissing":
-    "Claude: no Claude token for members with their own OS user is set, so their agents stop at their usage limit.",
-  "settings.osUser.claudeTokenLink": "Model providers",
-  "settings.osUser.codexOff":
-    "Codex: their agents stop at their usage limit. They cannot use the office's Codex sign-in, because sharing it would let them sign the office out.",
   "settings.osUser.unfinished":
     "Not ready: the move of their files to {name} did not finish.",
   "settings.osUser.finishHint":
@@ -1376,18 +1369,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.memberIntro":
     "Owners set up what agents use. You can add your own for the agents you start.",
   "integrations.tabs.providers": "Model providers",
-  "integrations.memberToken.title":
-    "Claude token for members with their own OS user",
-  "integrations.memberToken.hint":
-    "When their own sign-in reaches its usage limit, their agents continue on this token. Make it with <code>claude setup-token</code>, signed in as the office's Claude account.",
-  "integrations.memberToken.token": "Token",
-  "integrations.memberToken.tokenHint":
-    "It lasts one year. Their agents can read it.",
-  "integrations.memberToken.madeOn": "Made on",
-  "integrations.memberToken.expires": "Set. Expires on {date}.",
-  "integrations.memberToken.replace": "Replace",
-  "integrations.memberToken.remove": "Remove",
-  "integrations.memberToken.failed": "The token could not be saved. Try again.",
   "integrations.tabs.mcp": "MCP servers",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
@@ -2497,12 +2478,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.setEnterprise": "Turn the Enterprise Contract on or off",
   "apiCall.office.setEnterpriseSecret": "Set the enterprise secret",
   "apiCall.office.checkEnterprise": "Check enterprise seats",
-  "apiCall.office.readMemberToken":
-    "Read the Claude token for members with their own OS user",
-  "apiCall.office.setMemberToken":
-    "Set the Claude token for members with their own OS user",
-  "apiCall.office.clearMemberToken":
-    "Remove the Claude token for members with their own OS user",
   "apiCall.office.lockdown": "Lock the office",
   "apiCall.office.restart": "Restart the office",
   "apiCall.office.startExport": "Start an office export",
@@ -4555,6 +4530,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Sign-out is not available for OpenCode agents.",
   "systemEntries.signOutNoScope":
     "Sign-out is not available because this {provider} account scope could not be resolved.",
+  // /login or /logout on an agent of a member with their own OS user that
+  // runs on the office sign-in (server/agent-auth.ts).
+  "systemEntries.officeSignInInIntegrations":
+    "Manage the office {provider} sign-in in Integrations → Model providers (Office-wide).",
   "systemEntries.runInTerminal": "Run `{command}` in the built-in terminal.",
 
   // The commit-mode update notice (shared/update-notice.ts). Worded by

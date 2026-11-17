@@ -18,8 +18,6 @@ import type {
   EnterpriseEnableReq,
   EnterpriseSecretReq,
   EnterpriseViewRes,
-  MemberTokenSetReq,
-  MemberTokenViewRes,
   MemberSessionWire,
 } from "../../shared/contract-shapes.ts";
 import {
@@ -3524,34 +3522,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "POST",
     path: "/api/office/enterprise/check",
-    auth: cap("office:settings", officeSettingsOwner),
-    tokenArea: { area: "office", level: "write" },
-    emits: [],
-  }),
-  // The Claude token of members with their own OS user
-  // (server/claude-member-token.ts). No route returns the token.
-  defineRoute<void, MemberTokenViewRes>({
-    opId: "office.memberToken.get",
-    method: "GET",
-    path: "/api/office/claude-member-token",
-    auth: cap("office:settings", officeSettingsOwner),
-    tokenArea: { area: "office", level: "read" },
-    emits: [],
-  }),
-  defineRoute<MemberTokenSetReq, MemberTokenViewRes>({
-    opId: "office.memberToken.set",
-    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
-    method: "PUT",
-    path: "/api/office/claude-member-token",
-    auth: cap("office:settings", officeSettingsOwner),
-    tokenArea: { area: "office", level: "write" },
-    emits: [],
-  }),
-  defineRoute<void, MemberTokenViewRes>({
-    opId: "office.memberToken.clear",
-    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
-    method: "DELETE",
-    path: "/api/office/claude-member-token",
     auth: cap("office:settings", officeSettingsOwner),
     tokenArea: { area: "office", level: "write" },
     emits: [],

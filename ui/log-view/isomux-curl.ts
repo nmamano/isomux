@@ -868,13 +868,6 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
     "apiCall.office.setEnterpriseSecret",
   ],
   ["POST", "/api/office/enterprise/check", "apiCall.office.checkEnterprise"],
-  ["GET", "/api/office/claude-member-token", "apiCall.office.readMemberToken"],
-  ["PUT", "/api/office/claude-member-token", "apiCall.office.setMemberToken"],
-  [
-    "DELETE",
-    "/api/office/claude-member-token",
-    "apiCall.office.clearMemberToken",
-  ],
   ["POST", "/api/office/lockdown", "apiCall.office.lockdown"],
   ["POST", "/api/office/restart", "apiCall.office.restart"],
   ["POST", "/api/office/exports", "apiCall.office.startExport"],

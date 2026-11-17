@@ -587,13 +587,6 @@ Coses que pots fer per ell:
   "settings.osUser.failedWith": "L'ordre ha fallat: {message}",
   "settings.osUser.failed": "L'ordre ha fallat.",
   "settings.osUser.failedDetails": "Detalls",
-  "settings.osUser.claudeTokenSet":
-    "Claude: quan arriben al seu límit d'ús, els seus agents continuen amb el token de Claude per a membres amb usuari del sistema propi.",
-  "settings.osUser.claudeTokenMissing":
-    "Claude: no hi ha cap token de Claude per a membres amb usuari del sistema propi, així que els seus agents s'aturen al seu límit d'ús.",
-  "settings.osUser.claudeTokenLink": "Proveïdors de models",
-  "settings.osUser.codexOff":
-    "Codex: els seus agents s'aturen al seu límit d'ús. No poden fer servir la sessió de Codex de l'oficina, perquè compartir-la els permetria tancar la sessió de l'oficina.",
   "settings.osUser.unfinished":
     "No està a punt: el trasllat dels seus fitxers a {name} no va acabar.",
   "settings.osUser.finishHint":
@@ -1402,19 +1395,6 @@ Coses que pots fer per ell:
   "integrations.memberIntro":
     "Els propietaris configuren el que fan servir els agents. Pots afegir-hi el teu per als agents que inicies.",
   "integrations.tabs.providers": "Proveïdors de models",
-  "integrations.memberToken.title":
-    "Token de Claude per als membres amb el seu propi usuari del sistema",
-  "integrations.memberToken.hint":
-    "Quan la seva pròpia sessió arriba al límit d'ús, els seus agents continuen amb aquest token. Crea'l amb <code>claude setup-token</code>, amb la sessió del compte de Claude de l'oficina.",
-  "integrations.memberToken.token": "Token",
-  "integrations.memberToken.tokenHint":
-    "Dura un any. Els seus agents el poden llegir.",
-  "integrations.memberToken.madeOn": "Creat el",
-  "integrations.memberToken.expires": "Desat. Caduca el {date}.",
-  "integrations.memberToken.replace": "Substitueix",
-  "integrations.memberToken.remove": "Treu",
-  "integrations.memberToken.failed":
-    "No s'ha pogut desar el token. Torna-ho a provar.",
   "integrations.tabs.mcp": "Servidors MCP",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
@@ -2578,12 +2558,6 @@ Coses que pots fer per ell:
   "apiCall.office.setEnterprise": "Activa o desactiva el contracte Enterprise",
   "apiCall.office.setEnterpriseSecret": "Desa el secret Enterprise",
   "apiCall.office.checkEnterprise": "Comprova les places Enterprise",
-  "apiCall.office.readMemberToken":
-    "Llegeix el token de Claude per als membres amb el seu propi usuari del sistema",
-  "apiCall.office.setMemberToken":
-    "Desa el token de Claude per als membres amb el seu propi usuari del sistema",
-  "apiCall.office.clearMemberToken":
-    "Treu el token de Claude per als membres amb el seu propi usuari del sistema",
   "apiCall.office.lockdown": "Bloquejar l'oficina",
   "apiCall.office.restart": "Reiniciar l'oficina",
   "apiCall.office.startExport": "Iniciar una exportació de l'oficina",
@@ -4666,6 +4640,8 @@ Coses que pots fer per ell:
     "Tancar la sessió no està disponible als agents d'OpenCode.",
   "systemEntries.signOutNoScope":
     "Tancar la sessió no està disponible perquè no s'ha pogut resoldre l'àmbit d'aquest compte de {provider}.",
+  "systemEntries.officeSignInInIntegrations":
+    "Gestiona la sessió de {provider} de l’oficina a Integracions → Proveïdors de models (De tota l’oficina).",
   "systemEntries.runInTerminal": "Executa `{command}` al terminal integrat.",
   "updateNotice.pill.updateAvailable": "hi ha una actualització",
   "updateNotice.pill.newRelease": "versió nova",

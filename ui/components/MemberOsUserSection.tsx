@@ -10,7 +10,6 @@ import {
   OS_USER_NAME_PATTERN,
   type MemberOsUserRunReq,
   type MemberOsUserWire,
-  type MemberTokenViewRes,
   type MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
@@ -49,7 +48,6 @@ export function MemberOsUserSection({
 }) {
   const { t } = useI18n();
   const [view, setView] = useState<MemberOsUserWire | null>(null);
-  const [token, setToken] = useState<MemberTokenViewRes | null>(null);
   // Set at a Copy: the state then, until the page sees another.
   const [waitingFrom, setWaitingFrom] = useState<string | null>(null);
   const pollStart = useRef<number | null>(null);
@@ -100,9 +98,6 @@ export function MemberOsUserSection({
     apiFetch<MemberOsUserWire>("GET", route)
       .then((next) => live && setView(next))
       .catch(() => live && setView(null));
-    apiFetch<MemberTokenViewRes>("GET", "/api/office/claude-member-token")
-      .then((next) => live && setToken(next))
-      .catch(() => live && setToken(null));
     return () => {
       live = false;
     };
@@ -459,23 +454,6 @@ export function MemberOsUserSection({
           {t("settings.osUser.containerName")}
         </p>
       )}
-      <p
-        data-testid="member-os-user-claude"
-        style={{ ...hintStyle, marginTop: 10 }}
-      >
-        {token?.set
-          ? t("settings.osUser.claudeTokenSet")
-          : t("settings.osUser.claudeTokenMissing")}{" "}
-        <a
-          href="/integrations/providers"
-          style={{ color: "inherit", textDecoration: "underline" }}
-        >
-          {t("settings.osUser.claudeTokenLink")}
-        </a>
-      </p>
-      <p data-testid="member-os-user-codex" style={hintStyle}>
-        {t("settings.osUser.codexOff")}
-      </p>
     </div>
   );
 }

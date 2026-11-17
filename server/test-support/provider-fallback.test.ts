@@ -60,12 +60,9 @@ import {
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
 import { resetStateRoot } from "./temp-state.ts";
-import { isolateMember } from "./member-host-fixture.ts";
-import {
-  createMemberTokenStore,
-  onMemberTokenRejected,
-  type MemberTokenStore,
-} from "../claude-member-token.ts";
+import { isolateMember, type IsolatedMember } from "./member-host-fixture.ts";
+import { type OfficeAuth, type OfficeLoginSync } from "../office-login-sync.ts";
+import { effectiveProviderDirectory } from "../provider-account-manager.ts";
 import {
   FakeBackend,
   type FakeBackendConfig,
@@ -235,8 +232,8 @@ function makeHarness(
     oneShot?: FakeBackendConfig["oneShot"];
     // Every session's allowance reading, as the backend reports it.
     subscriptionUsage?: () => Promise<SubscriptionUsageResult>;
-    // The Claude token of members with their own OS user.
-    memberToken?: MemberTokenStore;
+    // The office sign-in in isolated members' own space.
+    officeLoginSync?: OfficeLoginSync;
   } = {},
 ): Harness {
   const fake = new FakeBackend({
@@ -270,7 +267,7 @@ function makeHarness(
     // record (turns-in-flight.json).
     restartWakeClock: office.clock,
     providerFallback: office.store,
-    ...(opts.memberToken ? { memberToken: opts.memberToken } : {}),
+    ...(opts.officeLoginSync ? { officeLoginSync: opts.officeLoginSync } : {}),
     ...(opts.realOffice
       ? {}
       : {
@@ -696,49 +693,298 @@ describe("a stop with no fallback", () => {
 });
 
 // An isolated member (own OS user, internal-docs/member-os-user-design.md
-// 1.6): no Claude or Codex fallback to the office sign-in in slice 1a. The
-// office account folder must not reach her agents' env in any session.
-describe("an isolated member: no office fallback", () => {
+// 1.6, task 56b68f0f): the office sign-in reaches her as it reaches any
+// member, through her member office folder (server/office-login-sync.ts),
+// which Isomux keeps signed in with the office's current credential. The
+// office's own folder never reaches her agents' env. The properties:
+// - the fallback and the default (no sign-in of her own) run there, and her
+//   agent reads the office sign-in, as a member without her own OS user;
+// - each Claude launch there (session, one-shot) comes after a sync of her
+//   file; each Codex launch there carries the office login (officeAuth),
+//   after her own auth.json, if any, moved away; her own sign-in gets
+//   neither;
+// - the member usage cap counts a turn there as the office's;
+// - a Claude key the office set wins there as for anyone.
+describe("an isolated member: the office sign-in in her own space", () => {
+  const AUTH: OfficeAuth = {
+    tokens: async () => ({
+      accessToken: "office-codex-access",
+      chatgptAccountId: "acct-office",
+      chatgptPlanType: "plus",
+    }),
+    refresh: async () => {
+      throw new Error("not used");
+    },
+  };
+  // The sync, recording each call with the number of sessions made before
+  // it.
+  function recordingSync() {
+    const calls: { op: string; userId: string; sessions: number }[] = [];
+    let harness: Harness | undefined;
+    const sessions = () => harness?.fake.sessions.length ?? 0;
+    const sync: OfficeLoginSync = {
+      syncClaude: async (userId) => {
+        calls.push({ op: "claude", userId, sessions: sessions() });
+      },
+      prepareCodex: async (userId) => {
+        calls.push({ op: "codex", userId, sessions: sessions() });
+      },
+      codexOfficeAuth: () => AUTH,
+      start: () => {},
+      close: () => {},
+    };
+    return {
+      sync,
+      calls,
+      attach(h: Harness) {
+        harness = h;
+      },
+      // Whether `engine`'s sync for Alice ran before session `s` was made.
+      before(h: Harness, s: FakeSession, engine: Engine): boolean {
+        const index = h.fake.sessions.indexOf(s);
+        return calls.some(
+          (c) =>
+            c.op === engine && c.userId === aliceId() && c.sessions <= index,
+        );
+      },
+    };
+  }
+  function isolatedHarness(opts: Parameters<typeof makeHarness>[2] = {}): {
+    h: Harness;
+    rec: ReturnType<typeof recordingSync>;
+  } {
+    const rec = recordingSync();
+    const h = makeHarness(undefined, [], {
+      ...opts,
+      officeLoginSync: rec.sync,
+    });
+    rec.attach(h);
+    return { h, rec };
+  }
+  // Her default Claude root and Codex home (memberOfficeFolder, whose own
+  // test is in server/office-login-sync.test.ts).
+  const folder = (iso: IsolatedMember, engine: Engine) =>
+    engine === "claude"
+      ? join(iso.home, ".claude")
+      : join(iso.member.host.agentRoot(), "codex-home");
+  // The folder the engine reads in a session's env.
+  const effective = (
+    env: { [key: string]: string | undefined } | undefined,
+    engine: Engine,
+  ) => effectiveProviderDirectory(engine, env ?? {});
+  const everyEnv = (h: Harness) =>
+    h.fake.sessions.flatMap((x) => Object.values(x.opts.env ?? {}));
+
   for (const engine of ["claude", "codex"] as const) {
-    it(`${engine}: a stop on her own sign-in moves nothing to the office sign-in, and a new agent starts on her own`, async () => {
+    it(`${engine}: a stop on her own sign-in continues on her member office folder, with the conversation moved there`, async () => {
       const iso = await isolateMember(aliceId());
       try {
-        const h = makeHarness();
+        const { h, rec } = isolatedHarness();
         const info = await spawn(h, engine);
         const reset = h.office.clock.now() + 5 * HOUR;
-        const s = await memberTurn(h, info.id, "work", engine);
-        // The enabling condition: her turn ran on her own sign-in.
-        expect(accountOf(s, engine)).toBe(memberDir(engine));
-        stopTurn(s, engine, { resetsAtMs: reset });
-        await waitUntil(
-          () => lines(h, info.id, STOPPED).length === 1,
-          "stop line",
+        const { before, after } = await toOffice(h, info.id, engine, reset);
+        expect({
+          // The enabling condition: her turn ran on her own sign-in.
+          before: effective(before.opts.env, engine),
+          beforeLogin: before.opts.officeAuth,
+          after: effective(after.opts.env, engine),
+          afterLogin: after.opts.officeAuth === AUTH,
+          prepared: rec.before(h, after, engine),
+          sameConversation:
+            after.sessionId === before.sessionId && after.isResume,
+          conversation: conversationAt(
+            engine,
+            folder(iso, engine),
+            before.sessionId,
+          ),
+          officeFolder: everyEnv(h).includes(officeDir(engine)),
+        }).toEqual({
+          before: memberDir(engine),
+          beforeLogin: undefined,
+          after: folder(iso, engine),
+          // Claude reads its file; only Codex logs in.
+          afterLogin: engine === "codex",
+          prepared: true,
+          sameConversation: true,
+          conversation: `conversation ${before.sessionId}\n`,
+          officeFolder: false,
+        });
+        expect(lines(h, info.id, TO_OFFICE)).toHaveLength(1);
+        expect((await h.mgr.getAgentSubscriptionUsage(info.id)).signIn).toBe(
+          "office",
         );
-        await settle();
-        expect(continuesTo(h, info.id)).toBe(0);
-        expect(lines(h, info.id, TO_OFFICE)).toEqual([]);
-
-        const c = await spawn(h, engine, { name: "C" });
-        void h.mgr.sendMessage(c.id, "hello", "Alice");
-        await waitUntil(
-          () => !!sessionWith(h, c.id, (t) => t.endsWith("hello")),
-          "C's first turn sent",
-        );
-        for (const session of h.fake.sessions) {
-          expect(accountOf(session, engine)).not.toBe(officeDir(engine));
-          expect(Object.values(session.opts.env ?? {})).not.toContain(
-            officeDir(engine),
-          );
-        }
       } finally {
         iso.dispose();
       }
     });
 
-    // An agent that went to the office sign-in before its member was
-    // isolated keeps officeFallback = true (and, for Claude, a pin on the
-    // office folder) in its record. Neither may bring the office folder back.
-    it(`${engine}: an agent left on the office sign-in from before the isolation names her own sign-in and runs its next turn there`, async () => {
+    it(`${engine}: with no sign-in of her own, her agents run on her member office folder and read the office sign-in, as a member without her own OS user`, async () => {
+      personal[engine] = false;
+      // The same member without her own OS user: the office sign-in.
+      const plain = makeHarness();
+      const p = await spawn(plain, engine, { name: "Plain" });
+      const plainSession = await memberTurn(
+        plain,
+        p.id,
+        "plain",
+        engine,
+        false,
+      );
+      const plainSignIn = (await plain.mgr.getAgentSubscriptionUsage(p.id))
+        .signIn;
+      expect(plainSession.opts.officeAuth).toBeUndefined();
+
+      const iso = await isolateMember(aliceId());
+      try {
+        const { h, rec } = isolatedHarness();
+        const info = await spawn(h, engine);
+        const s = await memberTurn(h, info.id, "work", engine, false);
+        expect({
+          plainSignIn,
+          dir: effective(s.opts.env, engine),
+          login: s.opts.officeAuth === AUTH,
+          prepared: rec.before(h, s, engine),
+          signIn: (await h.mgr.getAgentSubscriptionUsage(info.id)).signIn,
+          officeFolder: everyEnv(h).includes(officeDir(engine)),
+        }).toEqual({
+          plainSignIn: "office",
+          dir: folder(iso, engine),
+          login: engine === "codex",
+          prepared: true,
+          signIn: "office",
+          officeFolder: false,
+        });
+      } finally {
+        iso.dispose();
+      }
+    });
+
+    it(`${engine}: her topic runs on her member office folder while her agents do, and on her own sign-in otherwise`, async () => {
+      // A key the office set signs every topic in, so the topic's sign-in
+      // check passes on both folders; the folder and the login are the
+      // route's.
+      setTestManagedOfficeEnv({
+        ANTHROPIC_API_KEY: "sk-ant-office",
+        OPENAI_API_KEY: "sk-openai-office",
+      });
+      const iso = await isolateMember(aliceId());
+      try {
+        const topics: {
+          dir: string;
+          login: boolean;
+          synced: boolean;
+        }[] = [];
+        const ref: { rec?: ReturnType<typeof recordingSync> } = {};
+        const made = isolatedHarness({
+          oneShot: async (_prompt, opts) => {
+            topics.push({
+              dir: effective(opts.env, engine),
+              login: opts.officeAuth === AUTH,
+              synced: ref.rec!.calls.some(
+                (c) => c.op === engine && c.userId === aliceId(),
+              ),
+            });
+            return "A label";
+          },
+        });
+        ref.rec = made.rec;
+        const h = made.h;
+        // Her own sign-in first.
+        const info = await spawn(h, engine);
+        await memberTurn(h, info.id, "work", engine, false);
+        await waitUntil(() => topics.length === 1, "first topic");
+        // Then none of her own.
+        personal[engine] = false;
+        const other = await spawn(h, engine, { name: "Other agent" });
+        await memberTurn(h, other.id, "more", engine, false);
+        await waitUntil(() => topics.length === 2, "second topic");
+        expect(topics).toEqual([
+          { dir: memberDir(engine), login: false, synced: false },
+          { dir: folder(iso, engine), login: engine === "codex", synced: true },
+        ]);
+      } finally {
+        iso.dispose();
+      }
+    });
+  }
+
+  it("the member usage cap counts a continue on her member office folder as the office's", async () => {
+    const reads = { count: 0 };
+    setMemberUsageCapForTests(
+      createMemberUsageCap({
+        reader: {
+          async read() {
+            reads.count++;
+            return {
+              kind: "weekly",
+              usedPercent: 99,
+              resetsAtMs: Date.now() + WEEK_MS / 2,
+              observedAtMs: Date.now(),
+            };
+          },
+          invalidate() {},
+          close() {},
+        },
+        officeDir: (provider) => officeDir(provider),
+        load: () => true,
+        save: () => {},
+        loadShare: () => 80,
+        saveShare: () => {},
+      }),
+    );
+    const iso = await isolateMember(aliceId());
+    try {
+      const { h } = isolatedHarness();
+      const info = await spawn(h);
+      const s = await memberTurn(h, info.id, "work");
+      stopTurn(s, "claude", { resetsAtMs: h.office.clock.now() + HOUR });
+      await waitUntil(
+        () => lines(h, info.id, TO_OFFICE).length === 1,
+        "moved to the office",
+      );
+      await waitUntil(
+        () =>
+          h.logs.some(
+            (e) =>
+              e.kind === "error" &&
+              (e.message ?? []).some(
+                (p) =>
+                  typeof p === "object" &&
+                  p.key === "systemEntries.usageCap.pace",
+              ),
+          ),
+        "the cap refused the continue",
+      );
+      await settle();
+      expect([reads.count > 0, continuesTo(h, info.id)]).toEqual([true, 0]);
+    } finally {
+      iso.dispose();
+    }
+  });
+
+  it("a Claude key the office set reaches her member office folder session, as it reaches any member", async () => {
+    personal.claude = false;
+    setTestManagedOfficeEnv({ ANTHROPIC_API_KEY: "sk-ant-office" });
+    const iso = await isolateMember(aliceId());
+    try {
+      const { h } = isolatedHarness();
+      const info = await spawn(h);
+      const s = await memberTurn(h, info.id, "work", "claude", false);
+      expect([
+        effective(s.opts.env, "claude"),
+        s.opts.env?.ANTHROPIC_API_KEY,
+      ]).toEqual([folder(iso, "claude"), "sk-ant-office"]);
+    } finally {
+      iso.dispose();
+    }
+  });
+
+  // An agent that went to the office sign-in before its member was
+  // isolated keeps officeFallback = true (and, for Claude, a pin on the
+  // office folder) in its record. Neither may bring the office's own folder
+  // into her env.
+  for (const engine of ["claude", "codex"] as const) {
+    it(`${engine}: an agent left on the office's folder from before the isolation never runs there again`, async () => {
       const h = makeHarness();
       const info = await spawn(h, engine);
       const reset = h.office.clock.now() + 5 * HOUR;
@@ -748,16 +994,9 @@ describe("an isolated member: no office fallback", () => {
       // The enabling condition: the record says the office sign-in.
       expect(persisted(info.id)?.officeFallback).toBe(true);
       expect(accountOf(after, engine)).toBe(officeDir(engine));
-      if (engine === "claude")
-        expect(getSessionClaudeConfigDir(info.id, after.sessionId)).toBe(
-          officeDir("claude"),
-        );
 
       const iso = await isolateMember(aliceId());
       try {
-        expect((await h.mgr.getAgentSubscriptionUsage(info.id)).signIn).toBe(
-          "individual",
-        );
         const before = h.fake.sessions.length;
         void h.mgr.sendMessage(info.id, "isolated", "Alice");
         await waitUntil(
@@ -766,273 +1005,14 @@ describe("an isolated member: no office fallback", () => {
         );
         const next = sessionWith(h, info.id, (t) => t.endsWith("isolated"))!;
         expect(h.fake.sessions.indexOf(next)).toBeGreaterThanOrEqual(before);
-        expect(accountOf(next, engine)).toBe(memberDir(engine));
         expect(Object.values(next.opts.env ?? {})).not.toContain(
           officeDir(engine),
         );
-        expect(lines(h, info.id, TO_OFFICE)).toHaveLength(1);
       } finally {
         iso.dispose();
       }
     });
   }
-});
-
-// Slice 4a: an isolated member's Claude agents fall back to the office through
-// the member token (claude-member-token.ts): their own CLAUDE_CONFIG_DIR, the
-// token as CLAUDE_CODE_OAUTH_TOKEN, and no key Claude prefers to it. Nobody
-// else ever gets the token, and a session restarts only when the token
-// changes, never because Claude rejected it.
-describe("an isolated member: the member token", () => {
-  const TOKEN = "sk-test-member-token-0000000001";
-  const TOKEN_2 = "sk-test-member-token-0000000002";
-  let rejected = 0;
-  beforeEach(() => {
-    rejected = 0;
-    onMemberTokenRejected(() => rejected++);
-  });
-  afterEach(() => onMemberTokenRejected(() => {}));
-
-  let stores = 0;
-  // Each store its own folder: a store reads what an earlier one wrote.
-  const tokenStore = (token: string | null) => {
-    const store = createMemberTokenStore(
-      join(STATE_ROOT, `token-test-${++stores}`),
-    );
-    if (token) store.set(token, Date.now(), Date.now());
-    return store;
-  };
-  const tokenOf = (s: FakeSession | undefined) =>
-    s?.opts.env?.CLAUDE_CODE_OAUTH_TOKEN;
-  const everyEnv = (h: Harness) =>
-    h.fake.sessions.map((x) => Object.values(x.opts.env ?? {}));
-
-  it("continues on her own folder with the token and without the keys Claude prefers to it", async () => {
-    writeManagedUserEnv(aliceId(), {
-      ANTHROPIC_API_KEY: "sk-ant-api-hers",
-      ANTHROPIC_AUTH_TOKEN: "hers-auth",
-    });
-    const iso = await isolateMember(aliceId());
-    try {
-      const h = makeHarness(undefined, [], { memberToken: tokenStore(TOKEN) });
-      const info = await spawn(h, "claude");
-      const reset = h.office.clock.now() + 5 * HOUR;
-      const { before, after } = await toOffice(h, info.id, "claude", reset);
-      const env = after.opts.env ?? {};
-      expect({
-        // The enabling condition: her own turn carried her keys.
-        beforeKeys: [
-          before.opts.env?.ANTHROPIC_API_KEY,
-          before.opts.env?.ANTHROPIC_AUTH_TOKEN,
-        ],
-        beforeToken: tokenOf(before),
-        sameConversation:
-          after.sessionId === before.sessionId && after.isResume,
-        dir: accountOf(after),
-        token: env.CLAUDE_CODE_OAUTH_TOKEN,
-        keys: [env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH_TOKEN],
-        office: everyEnv(h).flat().includes(officeDir("claude")),
-        conversation: conversationAt(
-          "claude",
-          memberDir("claude"),
-          before.sessionId,
-        ),
-      }).toEqual({
-        beforeKeys: ["sk-ant-api-hers", "hers-auth"],
-        beforeToken: undefined,
-        sameConversation: true,
-        dir: memberDir("claude"),
-        token: TOKEN,
-        keys: [undefined, undefined],
-        office: false,
-        conversation: `conversation ${before.sessionId}\n`,
-      });
-      // T2: the token is in the env only. After the turns and a lazy
-      // release (the records written), no file of the office's state or of
-      // her home holds it, but the token's own.
-      await endTurn(h, info.id, after);
-      expect(await h.mgr.demoteToLazy(info.id)).toBe(true);
-      const found = [STATE_ROOT, iso.home]
-        .flatMap((dir) =>
-          Bun.spawnSync(["grep", "-rlF", TOKEN, dir])
-            .stdout.toString()
-            .split("\n"),
-        )
-        .filter((path) => path !== "");
-      // The enabling condition: the grep finds the token's own file.
-      expect(found.some((path) => path.includes("/token-test-"))).toBe(true);
-      expect(found.filter((path) => !path.includes("/token-test-"))).toEqual(
-        [],
-      );
-    } finally {
-      iso.dispose();
-    }
-  });
-
-  it("never reaches an office member's agent, her Codex agent, or her Claude agent with no token", async () => {
-    // A member who is not isolated: the office folder, never the token.
-    const plain = makeHarness(undefined, [], {
-      memberToken: tokenStore(TOKEN),
-    });
-    const a = await spawn(plain, "claude");
-    const { after: officeTurn } = await toOffice(
-      plain,
-      a.id,
-      "claude",
-      plain.office.clock.now() + HOUR,
-    );
-    expect([accountOf(officeTurn), tokenOf(officeTurn)]).toEqual([
-      officeDir("claude"),
-      undefined,
-    ]);
-
-    const iso = await isolateMember(aliceId());
-    try {
-      for (const [engine, token] of [
-        ["codex", TOKEN],
-        ["claude", null],
-      ] as const) {
-        const h = makeHarness(undefined, [], {
-          memberToken: tokenStore(token),
-        });
-        const info = await spawn(h, engine);
-        const s = await memberTurn(h, info.id, "work", engine);
-        stopTurn(s, engine, { resetsAtMs: h.office.clock.now() + HOUR });
-        await waitUntil(
-          () => lines(h, info.id, STOPPED).length === 1,
-          "stop line",
-        );
-        await settle();
-        expect([
-          engine,
-          continuesTo(h, info.id),
-          everyEnv(h).flat().includes(TOKEN),
-        ]).toEqual([engine, 0, false]);
-      }
-    } finally {
-      iso.dispose();
-    }
-  });
-
-  // T5: a cleared or replaced token reaches her next turn.
-  it("starts her next turn without the token once it is cleared, and with the new one once it is replaced", async () => {
-    const iso = await isolateMember(aliceId());
-    try {
-      const store = tokenStore(TOKEN);
-      const h = makeHarness(undefined, [], { memberToken: store });
-      const info = await spawn(h, "claude");
-      const { after } = await toOffice(
-        h,
-        info.id,
-        "claude",
-        h.office.clock.now() + 5 * HOUR,
-      );
-      await endTurn(h, info.id, after);
-      store.set(TOKEN_2, Date.now(), Date.now());
-      const replaced = await memberTurn(
-        h,
-        info.id,
-        "replaced",
-        "claude",
-        false,
-      );
-      await endTurn(h, info.id, replaced);
-      store.clear();
-      const cleared = await memberTurn(h, info.id, "cleared", "claude", false);
-      expect([
-        tokenOf(after),
-        tokenOf(replaced),
-        tokenOf(cleared),
-        accountOf(cleared),
-      ]).toEqual([TOKEN, TOKEN_2, undefined, memberDir("claude")]);
-    } finally {
-      iso.dispose();
-    }
-  });
-
-  // U3: a rejection pages, and changes nothing else.
-  it("reports a rejected token at each turn on it, and does not restart her session for it", async () => {
-    const iso = await isolateMember(aliceId());
-    try {
-      const h = makeHarness(undefined, [], { memberToken: tokenStore(TOKEN) });
-      const info = await spawn(h, "claude");
-      const { after } = await toOffice(
-        h,
-        info.id,
-        "claude",
-        h.office.clock.now() + 5 * HOUR,
-      );
-      after.push({ kind: "auth_needed" });
-      after.completeTurn();
-      await waitUntil(() => stateOf(h, info.id) !== "thinking", "turn ended");
-      const sessions = h.fake.sessions.length;
-      const next = await memberTurn(h, info.id, "again", "claude", false);
-      next.push({ kind: "auth_needed" });
-      next.completeTurn();
-      await waitUntil(
-        () => stateOf(h, info.id) !== "thinking",
-        "second turn ended",
-      );
-      expect([
-        rejected,
-        h.fake.sessions.length - sessions,
-        next === after,
-        tokenOf(next),
-      ]).toEqual([2, 0, true, TOKEN]);
-    } finally {
-      iso.dispose();
-    }
-  });
-
-  it("runs her topic on the token only while she is on the fallback", async () => {
-    const iso = await isolateMember(aliceId());
-    try {
-      const topics: { token?: string; dir?: string; keys?: string }[] = [];
-      writeManagedUserEnv(aliceId(), { ANTHROPIC_API_KEY: "sk-ant-api-hers" });
-      const h = makeHarness(undefined, [], {
-        memberToken: tokenStore(TOKEN),
-        oneShot: async (_prompt, opts) => {
-          topics.push({
-            token: opts.env?.CLAUDE_CODE_OAUTH_TOKEN,
-            dir: opts.env?.CLAUDE_CONFIG_DIR,
-            keys: opts.env?.ANTHROPIC_API_KEY,
-          });
-          return "A label";
-        },
-      });
-      const info = await spawn(h, "claude");
-      const before = await memberTurn(h, info.id, "work");
-      await waitUntil(() => topics.length === 1, "first topic");
-      stopTurn(before, "claude", {
-        resetsAtMs: h.office.clock.now() + 5 * HOUR,
-      });
-      await waitUntil(() => continuesTo(h, info.id) === 1, "continue sent");
-      await endTurn(h, info.id, sessionWith(h, info.id, isContinue)!);
-      h.mgr.resetTopic(info.id);
-      await waitUntil(() => topics.length === 2, "refreshed topic");
-      expect(topics).toEqual([
-        { token: undefined, dir: memberDir("claude"), keys: "sk-ant-api-hers" },
-        { token: TOKEN, dir: memberDir("claude"), keys: undefined },
-      ]);
-    } finally {
-      iso.dispose();
-    }
-  });
-
-  it("does not report a rejection for a turn on her own sign-in", async () => {
-    const iso = await isolateMember(aliceId());
-    try {
-      const h = makeHarness(undefined, [], { memberToken: tokenStore(TOKEN) });
-      const info = await spawn(h, "claude");
-      const s = await memberTurn(h, info.id, "work");
-      s.push({ kind: "auth_needed" });
-      s.completeTurn();
-      await waitUntil(() => stateOf(h, info.id) !== "thinking", "turn ended");
-      expect([tokenOf(s), rejected]).toEqual([undefined, 0]);
-    } finally {
-      iso.dispose();
-    }
-  });
 });
 
 // Each turn start checks the account: every agent of the member on that

@@ -36,6 +36,7 @@ import {
   readPeerCredentials,
   socketFileDescriptor,
 } from "../unix-socket-server.ts";
+import { writeFileAtomic } from "./atomic-write.ts";
 import {
   createFrameDecoder,
   encodeData,
@@ -380,10 +381,17 @@ async function runFs(
         return;
       }
       case "writeText":
-        await writeFile(request.path, data ?? Buffer.alloc(0), {
-          mode: request.mode,
-          flag: request.exclusive ? "wx" : "w",
-        });
+        if (request.atomic === true && request.exclusive !== true)
+          await writeFileAtomic(
+            request.path,
+            data ?? Buffer.alloc(0),
+            request.mode,
+          );
+        else
+          await writeFile(request.path, data ?? Buffer.alloc(0), {
+            mode: request.mode,
+            flag: request.exclusive ? "wx" : "w",
+          });
         break;
       case "mkdir":
         await mkdir(request.path, { recursive: true, mode: request.mode });

@@ -29,6 +29,7 @@
 // isolation, simpler auth/request-id scoping). The transport layer is
 // designed to support sharing later without breaking the contract.
 
+import type { OfficeAuth, OfficeCodexTokens } from "../../office-login-sync.ts";
 import { resolve } from "path";
 import { errMessage } from "../../../shared/errors.ts";
 import type { AgentChild } from "../../agent-host.ts";
@@ -170,7 +171,18 @@ export interface JsonRpcLiteClientOptions {
   // read or write the stored sign-in (the sign-in card, the office plan
   // probe) pass false.
   envApiKeyLogin?: boolean;
+  // The home is a member office folder (server/office-login-sync.ts): the
+  // app-server keeps its sign-in in memory, initialize() logs it in with
+  // the office's access token, and a 401's refresh request is answered from
+  // here. When the office has no ChatGPT sign-in, the env OPENAI_API_KEY
+  // logs in instead, if there is one; else Codex runs signed out.
+  officeAuth?: OfficeAuth;
 }
+
+// The code of OfficeAuth.refresh's refusal when the office signed in to
+// another ChatGPT account: the app-server that holds the old one ends, and
+// the next turn starts a new one on the new account.
+export const OFFICE_ACCOUNT_CHANGED = "office_account_changed";
 
 export type NotificationHandler = (notification: JsonRpcNotification) => void;
 
@@ -219,6 +231,8 @@ export class JsonRpcLiteClient {
   private wakeLaunchWaiter: (() => void) | null = null;
   // The key initialize() signs in with; set by start().
   private envApiKey: string | null = null;
+  // The office access token this app-server holds (officeAuth).
+  private officeAccess: string | null = null;
 
   private notificationHandlers = new Set<NotificationHandler>();
   private serverRequestHandlers: ServerRequestHandler[] = [];
@@ -268,17 +282,21 @@ export class JsonRpcLiteClient {
     // Analytics starts with the App Server, before thread config overrides.
     // A launch override also covers per-user CODEX_HOME without file writes.
     const baseArgs = this.opts.args ?? ["app-server", "--listen", "stdio://"];
+    const officeAuth =
+      this.opts.officeAuth !== undefined && baseArgs[0] === "app-server";
     this.envApiKey =
       this.opts.envApiKeyLogin !== false &&
       baseArgs[0] === "app-server" &&
-      (await codexEnvApiKeyWins(effectiveEnv))
+      (officeAuth
+        ? !!effectiveEnv.OPENAI_API_KEY
+        : await codexEnvApiKeyWins(effectiveEnv))
         ? effectiveEnv.OPENAI_API_KEY!
         : null;
     const codexArgs = [
       ...baseArgs,
       "-c",
       "analytics.enabled=false",
-      ...(this.envApiKey
+      ...(this.envApiKey || officeAuth
         ? ["-c", 'cli_auth_credentials_store="ephemeral"']
         : []),
     ];
@@ -424,6 +442,7 @@ export class JsonRpcLiteClient {
     this.releaseLaunchGate?.();
     this.initialized = true;
     this.notify("initialized", {});
+    if (this.opts.officeAuth && (await this.officeLogin())) return response;
     const apiKey = this.envApiKey;
     if (apiKey) {
       // Codex refuses an API-key login only by its own config (a bad key
@@ -443,6 +462,39 @@ export class JsonRpcLiteClient {
         );
     }
     return response;
+  }
+
+  // The office ChatGPT login (officeAuth). False when the office has no
+  // ChatGPT sign-in: an env key logs in instead, or, with none, the
+  // app-server starts signed out and Codex refuses the turn, which the
+  // sign-in path handles as for any member on the office sign-in.
+  private async officeLogin(): Promise<boolean> {
+    let tokens: OfficeCodexTokens;
+    try {
+      tokens = await this.opts.officeAuth!.tokens();
+    } catch {
+      return false;
+    }
+    await this.request("account/login/start", {
+      type: "chatgptAuthTokens",
+      ...tokens,
+    });
+    this.officeAccess = tokens.accessToken;
+    return true;
+  }
+
+  // Codex was refused the office token: the office's newer one.
+  private async officeRefresh(params: unknown): Promise<OfficeCodexTokens> {
+    const previous =
+      params && typeof params === "object"
+        ? (params as { previousAccountId?: unknown }).previousAccountId
+        : undefined;
+    const tokens = await this.opts.officeAuth!.refresh(
+      this.officeAccess ?? "",
+      typeof previous === "string" ? previous : null,
+    );
+    this.officeAccess = tokens.accessToken;
+    return tokens;
   }
 
   async close(): Promise<void> {
@@ -730,6 +782,25 @@ export class JsonRpcLiteClient {
   }
 
   private async handleServerRequest(request: JsonRpcRequest): Promise<void> {
+    if (
+      this.officeAccess !== null &&
+      request.method === "account/chatgptAuthTokens/refresh"
+    ) {
+      try {
+        this.respond(request.id, await this.officeRefresh(request.params));
+      } catch (err) {
+        this.respondWithError(
+          request.id,
+          JSONRPC_INTERNAL_ERROR,
+          errMessage(err, "the office Codex sign-in did not renew"),
+        );
+        // Never a thread on another account mid-turn: this app-server ends,
+        // and the next turn starts one that logs in to the new account.
+        if ((err as { code?: unknown }).code === OFFICE_ACCOUNT_CHANGED)
+          void this.close().catch(() => {});
+      }
+      return;
+    }
     for (const handler of [...this.serverRequestHandlers]) {
       try {
         const result = await handler(request);

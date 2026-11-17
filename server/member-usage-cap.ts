@@ -28,6 +28,7 @@ import {
   saveMemberUsageCap,
   saveMemberUsageShare,
 } from "./persistence.ts";
+import { memberOfficeFolderOwner } from "./office-login-sync.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
   createOfficeUsageReader,
@@ -197,7 +198,13 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
       // The cap cannot tell the office account: members go through.
       return { kind: "error" };
     }
-    if (resolve(billing.dir) !== officeDir) return { kind: "other" };
+    // A member with their own OS user runs on the office sign-in in a
+    // folder of their own (server/office-login-sync.ts): the same account.
+    if (
+      resolve(billing.dir) !== officeDir &&
+      memberOfficeFolderOwner(billing.dir)?.provider !== billing.provider
+    )
+      return { kind: "other" };
     return {
       kind: "office",
       key: `${billing.provider}:${officeDir}`,

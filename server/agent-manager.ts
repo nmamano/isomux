@@ -257,11 +257,9 @@ import {
   type ProviderFallback,
 } from "./provider-fallback.ts";
 import {
-  memberTokenGenerationIn,
-  memberTokenRejected,
-  memberTokenStore,
-  type MemberTokenStore,
-} from "./claude-member-token.ts";
+  officeLoginSync as sharedOfficeLoginSync,
+  type OfficeLoginSync,
+} from "./office-login-sync.ts";
 import {
   createOpenCodeFreeLimit,
   type OpenCodeFreeLimit,
@@ -529,9 +527,9 @@ export interface ManagerDeps {
   fallbackOfficeAccount?: (
     provider: FallbackProvider,
   ) => FallbackAccount | null;
-  // The Claude token of members with their own OS user. Defaults to the
-  // office's (claude-member-token.ts).
-  memberToken?: MemberTokenStore;
+  // The office sign-in in isolated members' own space
+  // (server/office-login-sync.ts). Defaults to the office's; tests inject it.
+  officeLoginSync?: OfficeLoginSync;
 }
 
 export interface LimitResumeClock {
@@ -1080,6 +1078,9 @@ export function createAgentManager(deps: ManagerDeps) {
     fallbackStop,
     queueFallbackContinue,
     refreshLimitedClaudeFamilies,
+    prepareOfficeLogin,
+    officeAuthFor,
+    officeClaudeMembers,
   } = createSessionAccounts({
     agents,
     refreshSignIn,
@@ -1104,7 +1105,7 @@ export function createAgentManager(deps: ManagerDeps) {
     limitResumeEnabled,
     providerFallback: deps.providerFallback,
     fallbackOfficeAccount: deps.fallbackOfficeAccount,
-    ...(deps.memberToken ? { memberToken: deps.memberToken } : {}),
+    officeLoginSync: () => deps.officeLoginSync ?? sharedOfficeLoginSync(),
     noteSwitchRelease: (managed, reason) => noteSwitchRelease(managed, reason),
   });
   // Skill menus, member skill folders and the OpenCode server environment
@@ -3329,13 +3330,16 @@ export function createAgentManager(deps: ManagerDeps) {
     return `${managed.info.agentType}:${oneShotModel(managed)}:${target?.account ?? ""}`;
   }
 
-  function runOneShot(
+  async function runOneShot(
     managed: ManagedAgent,
     prompt: string,
     systemPrompt: string,
     target: OneShotTarget,
   ): Promise<string> {
+    const { userId, agentType } = managed.info;
+    await prepareOfficeLogin(userId, agentType, target.account || null);
     return getBackend(managed.info.agentType).oneShotPrompt(prompt, {
+      officeAuth: officeAuthFor(managed, target.env),
       isolation: sessionIsolationForm({
         agentType: managed.info.agentType,
         codexSandbox: managed.info.codexSandbox,
@@ -3689,8 +3693,6 @@ export function createAgentManager(deps: ManagerDeps) {
         // managed.turnFlags.authNeeded; emitDetectedAuthInstructions sets it.
         const managed = agents.get(agentId);
         if (managed) managed.pendingFreshRecoveryNotice = false;
-        // A turn on the member token: the token no longer works.
-        if (managed?.launchedMemberToken) memberTokenRejected();
         emitDetectedAuthInstructions(agentId, managed);
         break;
       }
@@ -5833,16 +5835,13 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(skillFolder ? { skillFolder } : {}),
       ...(access !== "standard" ? { access } : {}),
     };
+    opts.officeAuth = officeAuthFor(managed, env);
     const backend = getBackend(managed.info.agentType);
     // Plan mode is session state the engine may not keep (a resumed Claude
     // session does not), so every new session is asked to start in it.
     if (backend.planMode) opts.planMode = managed.planMode;
     managed.launchedClaudeConfigDir =
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
-    managed.launchedMemberToken =
-      managed.info.agentType === "claude"
-        ? memberTokenGenerationIn(env, deps.memberToken ?? memberTokenStore())
-        : undefined;
     managed.launchedClaudeCloud =
       managed.info.agentType === "claude" &&
       isClaudeCloudSelected(env ?? officeAgentHost().baseEnv());
@@ -10572,6 +10571,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
     stop,
+    officeClaudeMembers,
     holdMember,
     releaseMember,
     memberAgents,

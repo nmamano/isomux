@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { hostForEnv } from "./member-hosts.ts";
+import { memberOfficeFolder } from "./office-login-sync.ts";
 import { unlinkSync } from "node:fs";
 import type { MemberProviderStatus } from "../shared/contract-shapes.ts";
 import { isAbsolute, resolve } from "node:path";
@@ -235,7 +236,12 @@ export class ProviderAccountManager {
       return { provider, scope: target.scope, dir: target.dir };
     }
     const effectiveDir = effectiveProviderDirectory(provider, env);
-    if (effectiveDir === resolve(office.dir)) {
+    // A member with their own OS user runs on the office sign-in in their
+    // own space (server/office-login-sync.ts): the office's scope.
+    if (
+      effectiveDir === resolve(office.dir) ||
+      effectiveDir === memberOfficeFolder(userId, provider)
+    ) {
       return { provider, scope: "office", dir: effectiveDir };
     }
     const personal = this.target(userId, provider, "personal");

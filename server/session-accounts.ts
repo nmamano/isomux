@@ -4,9 +4,13 @@
 // of createAgentManager (server/agent-manager.ts), which wires it.
 import { hasMemberOsUser } from "./member-os-users.ts";
 import {
-  memberTokenStore,
-  type MemberTokenStore,
-} from "./claude-member-token.ts";
+  memberOfficeFolder,
+  membersOnOfficeClaude,
+  officeAuthFor as officeAuthOf,
+  prepareOfficeLogin as prepareOfficeLoginIn,
+  type OfficeAuth,
+  type OfficeLoginSync,
+} from "./office-login-sync.ts";
 import { resolve } from "path";
 import type {
   AgentBackendType,
@@ -128,14 +132,10 @@ export interface SessionAccountsDeps {
   // After the switch installs the new process: what its close carried (an
   // environment change, ended background work) reaches the agent.
   noteSwitchRelease: (managed: ManagedAgent, reason: DormantReason) => void;
-  // The Claude token of members with their own OS user. Defaults to the
-  // office's (claude-member-token.ts).
-  memberToken?: MemberTokenStore;
+  // The office sign-in in the own space of members with their own OS user
+  // (server/office-login-sync.ts). Null: no member has one to keep.
+  officeLoginSync: () => OfficeLoginSync | null;
 }
-
-// Variables that Claude prefers to CLAUDE_CODE_OAUTH_TOKEN: a fallback turn
-// on the member token runs without them.
-const CLAUDE_KEYS_OVER_TOKEN = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
 export function createSessionAccounts(deps: SessionAccountsDeps) {
   const {
@@ -156,36 +156,59 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     limitResumeEnabled,
   } = deps;
 
-  const memberToken = (): MemberTokenStore =>
-    deps.memberToken ?? memberTokenStore();
+  // A member with their own OS user (server/member-os-users.ts) never gets
+  // the office account folder: their office sign-in is a folder in their
+  // own space that Isomux keeps signed in (server/office-login-sync.ts).
+  // Their default folders are that folder, so a member with no sign-in of
+  // their own runs there, as any member runs in the office's.
 
-  // An isolated member (own OS user, server/member-os-users.ts) never gets
-  // the office account folder. Their Claude fallback is the member token
-  // (claude-member-token.ts), while one is set; Codex has none.
-  function fallbackOff(
+  // Before a launch or a turn in `dir` (server/office-login-sync.ts).
+  const prepareOfficeLogin = (
     userId: string | null | undefined,
-    provider: FallbackProvider,
-  ): boolean {
-    if (provider === "opencode" || !hasMemberOsUser(userId)) return false;
-    return provider === "codex" || memberToken().generation() === 0;
-  }
+    provider: AgentBackendType,
+    dir: string | null,
+  ): Promise<void> =>
+    prepareOfficeLoginIn(deps.officeLoginSync(), userId, provider, dir);
 
-  const onMemberToken = (
-    userId: string | null | undefined,
-    provider: FallbackProvider,
-  ) => provider === "claude" && hasMemberOsUser(userId);
+  // The Codex office login of the agent's launch with `env`.
+  const officeAuthFor = (
+    managed: ManagedAgent,
+    env: { [key: string]: string | undefined } | undefined,
+  ): OfficeAuth | undefined =>
+    officeAuthOf(
+      deps.officeLoginSync(),
+      managed.info.userId,
+      managed.info.agentType,
+      env,
+    );
 
-  // `base` with the member token in place of any key Claude prefers to it.
-  // Null when no token is set.
-  function withMemberToken(base: {
-    [key: string]: string | undefined;
-  }): { [key: string]: string | undefined } | null {
-    const record = memberToken().get();
-    if (!record) return null;
-    const env = { ...base };
-    for (const name of CLAUDE_KEYS_OVER_TOKEN) delete env[name];
-    env.CLAUDE_CODE_OAUTH_TOKEN = record.token;
-    return env;
+  // Isolated members whose live Claude session runs in their member office
+  // folder: an office token change is written to them at once.
+  const officeClaudeMembers = (): string[] =>
+    membersOnOfficeClaude(
+      [...agents.values()]
+        .filter((managed) => managed.sessionManager.session)
+        .map((managed) => ({
+          userId: managed.info.userId,
+          dir: managed.launchedClaudeConfigDir,
+        })),
+    );
+
+  // The folder the agent's next turn runs in: the live session's, else the
+  // one its session launches with. Null when unknown.
+  function turnFolder(managed: ManagedAgent): string | null {
+    const live = liveAccount(managed);
+    if (live) return "dir" in live ? live.dir : null;
+    const provider = managed.info.agentType;
+    if (provider === "opencode") return null;
+    try {
+      return effectiveProviderDirectory(
+        provider,
+        buildSessionEnv(managed) ?? officeAgentHost().baseEnv(),
+      );
+    } catch {
+      return null;
+    }
   }
 
   // Merge process.env with office variables and the agent owner's managed personal variables.
@@ -250,15 +273,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     if (provider === "opencode")
       return buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId);
     const base = buildEnvForUserId(managed.info.userId);
-    // An isolated member keeps their own folder; the fallback adds the token.
-    if (onMemberToken(managed.info.userId, provider))
-      return (
-        (managed.officeFallback && base ? withMemberToken(base) : null) ?? base
-      );
-    const office =
-      managed.officeFallback && !fallbackOff(managed.info.userId, provider)
-        ? officeAccountDir(provider)
-        : null;
+    const office = managed.officeFallback
+      ? officeAccountDir(provider, managed.info.userId)
+      : null;
     if (!office) return base;
     const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
     return { ...(base ?? officeAgentHost().baseEnv()), [name]: office };
@@ -297,18 +314,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     const { userId, agentType: provider } = managed.info;
     const base = buildEnvForUserId(userId);
     if (provider === "opencode") return base;
-    if (onMemberToken(userId, provider))
-      return (
-        (base &&
-        !fallbackOff(userId, provider) &&
-        (managed.officeFallback || officeWanted(userId, provider, modelFamily))
-          ? withMemberToken(base)
-          : null) ?? base
-      );
     const office =
-      !fallbackOff(userId, provider) &&
-      (managed.officeFallback || officeWanted(userId, provider, modelFamily))
-        ? officeAccountDir(provider)
+      managed.officeFallback || officeWanted(userId, provider, modelFamily)
+        ? officeAccountDir(provider, userId)
         : null;
     if (!office) return base;
     const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
@@ -323,7 +331,19 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // The office sign-in a member's agents fall back to, or null when the
   // office has none for the provider.
+  // A member with their own OS user: their member office folder, while the
+  // office's own sign-in is there to keep it signed in.
   function officeFallbackAccount(
+    provider: FallbackProvider,
+    userId?: string | null,
+  ): FallbackAccount | null {
+    const office = officeOwnFallbackAccount(provider);
+    if (provider === "opencode" || !office || !("dir" in office)) return office;
+    const folder = memberOfficeFolder(userId, provider);
+    return folder ? { dir: folder } : office;
+  }
+
+  function officeOwnFallbackAccount(
     provider: FallbackProvider,
   ): FallbackAccount | null {
     if (deps.fallbackOfficeAccount) return deps.fallbackOfficeAccount(provider);
@@ -349,7 +369,17 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // The office account folder, signed in or not: where an agent on the
   // office sign-in keeps its conversation.
-  function officeAccountDir(provider: "claude" | "codex"): string | null {
+  // A member with their own OS user: their member office folder.
+  function officeAccountDir(
+    provider: "claude" | "codex",
+    userId: string | null | undefined,
+  ): string | null {
+    return (
+      memberOfficeFolder(userId, provider) ?? officeOwnAccountDir(provider)
+    );
+  }
+
+  function officeOwnAccountDir(provider: "claude" | "codex"): string | null {
     if (deps.fallbackOfficeAccount) {
       const account = deps.fallbackOfficeAccount(provider);
       return account && "dir" in account ? account.dir : null;
@@ -401,7 +431,6 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   }
 
   function sameAccount(a: FallbackAccount, b: FallbackAccount): boolean {
-    if ("token" in a && "token" in b) return a.token === b.token;
     if ("dir" in a && "dir" in b) return resolve(a.dir) === resolve(b.dir);
     if ("apiKey" in a && "apiKey" in b) return a.apiKey === b.apiKey;
     return false;
@@ -415,17 +444,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     provider: FallbackProvider,
   ): { member: FallbackAccount; office: FallbackAccount } | null {
     if (!userId || !fallbackState().isEnabled()) return null;
-    if (fallbackOff(userId, provider)) return null;
-    // An isolated member always runs on their own sign-in; the office's is
-    // the member token.
-    if (onMemberToken(userId, provider))
-      return {
-        member: { token: 0 },
-        office: { token: memberToken().generation() },
-      };
     const own = ownAccount(userId, provider);
     if (!own?.own) return null;
-    const office = officeFallbackAccount(provider);
+    const office = officeFallbackAccount(provider, userId);
     if (!office || sameAccount(own.account, office)) return null;
     return { member: own.account, office };
   }
@@ -448,7 +469,6 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // Whether a Codex thread may be in either home.
   function fallbackInPlay(managed: ManagedAgent): boolean {
-    if (fallbackOff(managed.info.userId, "codex")) return false;
     return managed.officeFallback || fallbackState().isEnabled();
   }
 
@@ -456,9 +476,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   // env picks.
   function fallbackHomes(managed: ManagedAgent): string[] {
     const own = ownAccount(managed.info.userId, "codex");
-    const office = fallbackOff(managed.info.userId, "codex")
-      ? null
-      : officeAccountDir("codex");
+    const office = officeAccountDir("codex", managed.info.userId);
     return [
       ...(own && "dir" in own.account ? [own.account.dir] : []),
       ...(office ? [office] : []),
@@ -473,8 +491,6 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
         ? { apiKey: managed.launchedOpenCodeKey }
         : null;
     if (managed.info.agentType === "claude") {
-      if (onMemberToken(managed.info.userId, "claude"))
-        return { token: managed.launchedMemberToken ?? 0 };
       return managed.launchedClaudeConfigDir
         ? { dir: managed.launchedClaudeConfigDir }
         : null;
@@ -527,9 +543,25 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     managed: ManagedAgent,
   ): Promise<"same" | "switched" | "failed"> | null {
     const pin = pinIsolatedClaudeRoot(agentId, managed);
-    if (!pin) return alignOfficeAccount(agentId, managed);
-    return pin.then(() => alignOfficeAccount(agentId, managed) ?? "same");
+    if (!pin && !inOwnSpace(managed))
+      return alignOfficeAccount(agentId, managed);
+    return (pin ?? Promise.resolve()).then(async () => {
+      const result = (await alignOfficeAccount(agentId, managed)) ?? "same";
+      await prepareOfficeLogin(
+        managed.info.userId,
+        managed.info.agentType,
+        turnFolder(managed),
+      );
+      return result;
+    });
   }
+
+  // Whether the agent's member has their own OS user and the engine has an
+  // office sign-in there to keep ready (server/office-login-sync.ts).
+  const inOwnSpace = (managed: ManagedAgent) =>
+    !!deps.officeLoginSync() &&
+    managed.info.agentType !== "opencode" &&
+    hasMemberOsUser(managed.info.userId);
 
   // An isolated member's Claude session: the root that holds its transcript,
   // searched through their host before the turn and pinned, so that
@@ -621,7 +653,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
       folder = resolve(pinned);
     }
     if (folder === mine) return false;
-    const office = officeAccountDir(provider);
+    const office = officeAccountDir(provider, userId);
     if (!office || resolve(office) === mine) return false;
     if (folder !== null && folder !== resolve(office)) return false;
     if (!ownAccount(userId, provider)?.own) return false;
@@ -635,9 +667,6 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     managed: ManagedAgent,
     wanted: { office: FallbackAccount } | null,
   ): FallbackAccount | null {
-    // An isolated member's own: their folder with no member token.
-    if (!wanted && onMemberToken(managed.info.userId, managed.info.agentType))
-      return { token: 0 };
     return (
       wanted?.office ??
       ownAccount(managed.info.userId, managed.info.agentType)?.account ??
@@ -705,8 +734,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // What nextAccount depends on besides the agent's session and env, read
   // from memory only: a change here can move the next account with no
-  // event (an entry ends by time, or the member gets an OS user, which turns
-  // the office fallback off). The idle usage key is cached under it.
+  // event (an entry ends by time, or the member gets an OS user, which moves
+  // their office sign-in to their own space). The idle usage key is cached
+  // under it.
   function nextAccountStamp(managed: ManagedAgent): string {
     const { userId, agentType: provider, modelFamily } = managed.info;
     const state = fallbackState();
@@ -719,7 +749,6 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
       entry,
       modelFamily ?? null,
       hasMemberOsUser(userId),
-      memberToken().generation(),
       !!sessionId &&
         failedOfficeMoves.has(conversationKey(managed.info.id, sessionId)),
     ]);
@@ -827,7 +856,14 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     // One OpenCode server serves all of the member's OpenCode work: no turn
     // starts until it runs with the key this agent now wants.
     if (provider === "opencode") await awaitOpenCodeServer(managed);
-    if (liveMoves) reinstallAfterAccountCheck(managed);
+    if (liveMoves) {
+      await prepareOfficeLogin(
+        managed.info.userId,
+        provider,
+        turnFolder(managed),
+      );
+      reinstallAfterAccountCheck(managed);
+    }
     return "switched";
   }
 
@@ -893,13 +929,6 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
           ? "individual"
           : "office";
       }
-    }
-    // An isolated member's Claude: the office's only through the token.
-    if (onMemberToken(userId, provider)) {
-      const account = liveAccount(managed) ?? nextAccount(managed);
-      return account && "token" in account && account.token !== 0
-        ? "office"
-        : "individual";
     }
     const own = ownAccount(userId, provider);
     if (!own?.own) return "office";
@@ -1010,5 +1039,8 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     fallbackStop,
     queueFallbackContinue,
     refreshLimitedClaudeFamilies,
+    prepareOfficeLogin,
+    officeAuthFor,
+    officeClaudeMembers,
   };
 }

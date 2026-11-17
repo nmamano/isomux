@@ -10,6 +10,7 @@ import { msg } from "../shared/i18n/log-message.ts";
 import { LocalizedError } from "./localized-error.ts";
 import { hostForEnv } from "./member-hosts.ts";
 import { hasMemberOsUser } from "./member-os-users.ts";
+import { memberOfficeFolder } from "./office-login-sync.ts";
 
 type Env = Record<string, string | undefined>;
 export function claudeConfigRoot(env: Env = process.env): string {
@@ -64,16 +65,19 @@ export function claudeSessionRootIsPinnable(userId: string | null): boolean {
   return !hasMemberOsUser(userId);
 }
 
-// The roots an isolated member's sessions can be in: the current env's and
-// their personal provider home (in their agent space). Never the office's.
+// The roots an isolated member's sessions can be in: the current env's,
+// their personal provider home (in their agent space) and their member
+// office folder (server/office-login-sync.ts). Never the office's.
 export function isolatedMemberClaudeRoots(
   currentEnv: Env | undefined,
   userId: string | null,
 ): string[] {
+  const office = memberOfficeFolder(userId, "claude");
   return [
     ...new Set([
       claudeConfigRoot(currentEnv),
       ...(userId ? [resolve(personalProviderHome(userId, "claude"))] : []),
+      ...(office ? [office] : []),
     ]),
   ];
 }

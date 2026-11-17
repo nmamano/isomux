@@ -175,9 +175,7 @@ its caches in the copy.
 The secrets exclusion covers all of `secrets/`, the placeholder key and the
 office CA key included. Secrets put back without those keys get new ones at
 the next start: every placeholder changes, and agents get the new ones when
-their processes start again. It also covers the Claude token for members
-with their own OS user (`secrets/claude-member-token.json`): after a restore,
-an owner sets it again in Integrations.
+their processes start again.
 A copy is not free of secrets. Conversation logs
 and provider transcripts remain because they are history, even though user text
 can incidentally contain sensitive values.

@@ -1,4 +1,5 @@
 import type { AgentAccess } from "../../shared/agent-access.ts";
+import type { OfficeAuth } from "../office-login-sync.ts";
 import type { LogMessage, LogText } from "../../shared/i18n/log-message.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
 import type { IsolationForm } from "../process-isolation.ts";
@@ -63,6 +64,10 @@ export interface CreateSessionOptions {
   // "danger-full-access"). Claude backend ignores. Undefined falls back to
   // CODEX_DEFAULT_SANDBOX.
   sandbox?: string;
+  // Codex: the home is a member office folder (server/office-login-sync.ts):
+  // the app-server keeps its sign-in in memory and logs in with the office's
+  // access token, and asks this for a new one on a 401.
+  officeAuth?: OfficeAuth;
   env?: { [key: string]: string | undefined };
   // Stable identity of the configured environment sources. Backends that
   // share a process use this for grouping instead of restart-volatile
@@ -623,6 +628,10 @@ export interface OneShotOptions {
   modelFamily: string;
   systemPrompt?: string;
   env?: { [key: string]: string | undefined };
+  // Codex: the home is a member office folder (server/office-login-sync.ts):
+  // the app-server keeps its sign-in in memory and logs in with the office's
+  // access token, and asks this for a new one on a 401.
+  officeAuth?: OfficeAuth;
   environmentKey?: string;
   environmentRevision?: string;
   // OpenCode: see SessionEnvironmentOptions.
@@ -635,6 +644,11 @@ export interface OneShotOptions {
 export interface ListModelsOptions {
   cwd: string;
   env?: { [key: string]: string | undefined };
+  // Codex: the home is a member office folder (server/office-login-sync.ts):
+  // the app-server keeps its sign-in in memory and logs in with the office's
+  // access token, and asks this for a new one on a 401.
+  officeAuth?: OfficeAuth;
+
   environmentKey?: string;
   environmentRevision?: string;
   // OpenCode: see SessionEnvironmentOptions.

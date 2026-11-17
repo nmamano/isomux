@@ -1783,24 +1783,6 @@ export interface EnterpriseSecretReq {
   secret: string;
 }
 
-// office.memberToken.* response: the Claude token of members with their own
-// OS user (server/claude-member-token.ts). It never carries the token.
-export interface MemberTokenViewRes {
-  set: boolean;
-  // A member has their own OS user: the token has a use.
-  inUse: boolean;
-  // Epoch ms; null while no token is set.
-  madeAt: number | null;
-  expiresAt: number | null;
-}
-
-// office.memberToken.set request. `madeOn`: the day the owner made the
-// token, YYYY-MM-DD; today when absent.
-export interface MemberTokenSetReq {
-  token: string;
-  madeOn?: string;
-}
-
 // office.getMemberUsageStatus response: the member usage cap's status lines,
 // all providers or the one the query names. Empty while the cap is off.
 export type OfficeUsageStatusRes = {

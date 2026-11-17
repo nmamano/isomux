@@ -27,6 +27,7 @@
 //      --experimental, so missing this flag would silently strip experimental
 //      fields on the wire.
 
+import type { OfficeAuth } from "../../office-login-sync.ts";
 import {
   belowStandard,
   INLINE_IMAGE_TYPES,
@@ -1102,6 +1103,7 @@ const CODEX_ONE_SHOT_FOLDER = "one-shot";
 type CodexOneShotClientFactory = (opts: {
   cwd?: string;
   env?: { [key: string]: string | undefined };
+  officeAuth?: OfficeAuth;
 }) => CodexTransport;
 
 const defaultCodexOneShotClientFactory: CodexOneShotClientFactory = (opts) =>
@@ -1128,6 +1130,8 @@ export interface CodexSessionInitOpts {
   permissionMode: string;
   sandbox?: string; // SandboxMode enum string; falls back to CODEX_DEFAULT_SANDBOX
   env?: { [key: string]: string | undefined };
+  // The office login of a member office folder (server/office-login-sync.ts).
+  officeAuth?: OfficeAuth;
   resumeThreadId?: string;
   // Remote MCP servers for the thread config (codexThreadConfig).
   mcpServers?: AgentMcpServer[];
@@ -1481,6 +1485,7 @@ export class CodexSession implements BackendSession {
             }),
           }
         : opts.env,
+      ...(opts.officeAuth ? { officeAuth: opts.officeAuth } : {}),
     };
     this.client = opts.client ?? new JsonRpcLiteClient(clientOpts);
     this.client.onStderr((chunk) => this.handleStderr(chunk));
@@ -4422,6 +4427,7 @@ export async function listCodexModels(
     ...launcher,
     cwd: opts.cwd,
     env: opts.env,
+    ...(opts.officeAuth ? { officeAuth: opts.officeAuth } : {}),
   });
   const started = client.start();
   if (!signal) return listModelsOver(client, started, opts);
@@ -4522,6 +4528,7 @@ export const codexBackend: Backend = {
       access: opts.access,
       isolation: opts.isolation,
       officeTools: opts.officeTools,
+      ...(opts.officeAuth ? { officeAuth: opts.officeAuth } : {}),
     });
   },
 
@@ -4542,6 +4549,7 @@ export const codexBackend: Backend = {
       access: opts.access,
       isolation: opts.isolation,
       officeTools: opts.officeTools,
+      ...(opts.officeAuth ? { officeAuth: opts.officeAuth } : {}),
     });
   },
 
@@ -4701,7 +4709,11 @@ export const codexBackend: Backend = {
       // One folder for every one-shot: nothing writes to it.
       cwd = await codexEmptyCwd(CODEX_ONE_SHOT_FOLDER, opts.env);
     }
-    const client = codexOneShotClientFactory({ cwd, env: opts.env });
+    const client = codexOneShotClientFactory({
+      cwd,
+      env: opts.env,
+      ...(opts.officeAuth ? { officeAuth: opts.officeAuth } : {}),
+    });
     try {
       await client.start();
       await client.initialize({

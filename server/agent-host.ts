@@ -24,6 +24,7 @@ import { Readable, Writable } from "stream";
 import { resolveCodexLauncherPath } from "./backends/codex/native-bin.ts";
 import { resolveOpenCodeBinary } from "./backends/opencode/runtime.ts";
 import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import { writeFileAtomic } from "./agent-runner/atomic-write.ts";
 import { AGENT_ROOT } from "./split/roots.ts";
 import {
   isolatedArgv,
@@ -199,10 +200,12 @@ export interface AgentFs {
   // A regular file of at most `max` bytes. The open does not block on a
   // FIFO; a file that grows past `max` while it is read is refused (EFBIG).
   readBytes(path: string, max: number): Promise<Buffer>;
+  // `atomic`: through a new file and a rename, so a reader sees the old
+  // file or the new one, never a part.
   writeText(
     path: string,
     text: string,
-    options: { mode: number; exclusive?: boolean },
+    options: { mode: number; exclusive?: boolean; atomic?: boolean },
   ): Promise<void>;
   // Recursive; mode applies to the directories it creates.
   mkdir(path: string, mode: number): Promise<void>;
@@ -479,8 +482,10 @@ export const localAgentFs: AgentFs = {
   readText: (path) => readFile(path, "utf8"),
   stat: statForAgentFs,
   readBytes: readBoundedFile,
-  writeText: (path, text, { mode, exclusive }) =>
-    writeFile(path, text, { mode, flag: exclusive ? "wx" : "w" }),
+  writeText: (path, text, { mode, exclusive, atomic }) =>
+    atomic && !exclusive
+      ? writeFileAtomic(path, text, mode)
+      : writeFile(path, text, { mode, flag: exclusive ? "wx" : "w" }),
   mkdir: async (path, mode) => {
     await mkdir(path, { recursive: true, mode });
   },

@@ -3,6 +3,8 @@ import { getSessionClaudeConfigDir } from "../persistence.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createMember, deleteUserById } from "../users.ts";
+import { isolateMember } from "./member-host-fixture.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type {
   AgentBackendType,
@@ -1182,6 +1184,8 @@ describe("provider auth affordances", () => {
       provider?: "claude" | "codex";
       scope?: "office" | "personal";
       canBrowserLogin?: boolean;
+      // The account folder the agent runs in.
+      dir?: string;
     }) {
       const provider = opts.provider ?? "claude";
       const scope = opts.scope ?? "office";
@@ -1225,7 +1229,7 @@ describe("provider auth affordances", () => {
         target: () => ({
           provider,
           scope,
-          dir: `/accounts/${scope} ${provider}`,
+          dir: opts.dir ?? `/accounts/${scope} ${provider}`,
         }),
       });
       const logs = () => h.mgr.getAgentLogs(h.agentId);
@@ -1286,6 +1290,62 @@ describe("provider auth affordances", () => {
       expect(h.card()).toBe(false);
       expect(h.asked()).toBe(false);
     });
+
+    // Task 56b68f0f: an agent of a member with their own OS user runs on
+    // the office sign-in in a folder of theirs that Isomux keeps signed in.
+    // No command there signs the office in or out: an owner gets a line
+    // that points at Integrations, and no command in the member's space.
+    for (const provider of ["claude", "codex"] as const)
+      for (const command of ["/login", "/logout"] as const)
+        it(`gives an owner who types ${command} on a ${provider} agent in a member office folder no command`, async () => {
+          const made = createMember(`Iso${crypto.randomUUID().slice(0, 8)}`, {
+            role: "member",
+          });
+          if (!made.ok) throw new Error(made.error);
+          const iso = await isolateMember(made.user.id);
+          try {
+            const dir =
+              provider === "claude"
+                ? join(iso.home, ".claude")
+                : join(iso.member.host.agentRoot(), "codex-home");
+            const h = await officeAgent({
+              typist: "owner",
+              manager: "member",
+              provider,
+              dir,
+            });
+            await h.mgr.sendMessage(h.agentId, command, "tester");
+            await h.settled();
+            await settle(() =>
+              h.mgr
+                .getAgentLogs(h.agentId)
+                .some((entry) =>
+                  (entry.message ?? []).some(
+                    (part) =>
+                      typeof part === "object" &&
+                      part.key === "systemEntries.officeSignInInIntegrations",
+                  ),
+                ),
+            );
+            const pointed = h.mgr
+              .getAgentLogs(h.agentId)
+              .some((entry) =>
+                (entry.message ?? []).some(
+                  (part) =>
+                    typeof part === "object" &&
+                    part.key === "systemEntries.officeSignInInIntegrations",
+                ),
+              );
+            expect({
+              commands: h.commands(),
+              pointed,
+              asked: h.asked(),
+            }).toEqual({ commands: [], pointed: true, asked: false });
+          } finally {
+            iso.dispose();
+            deleteUserById(made.user.id);
+          }
+        });
 
     for (const manager of ["member", "owner"] as const) {
       it(`keeps the card for a ${manager} manager who types /login`, async () => {

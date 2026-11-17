@@ -32,6 +32,7 @@ import {
 } from "./internal-types.ts";
 import { getSessionClaudeConfigDir } from "./persistence.ts";
 import { holdBackend } from "./queue-flush.ts";
+import { memberOfficeFolderOwner } from "./office-login-sync.ts";
 import {
   effectiveProviderDirectory,
   type EffectiveProviderAccountTarget,
@@ -279,11 +280,14 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     if (
       managed &&
       instructions.kind === "login" &&
-      officeSignInWithheld(managed, fallbackProviderTarget(managed), username)
-    ) {
-      addLogEntry(agentId, "system", msg("settings.signIn.askOfficeOwner"));
+      officeSignInElsewhere(
+        agentId,
+        managed,
+        fallbackProviderTarget(managed),
+        username,
+      )
+    )
       return;
-    }
     addLogEntry(agentId, "system", instructions.text);
     for (const command of instructions.commands ?? []) {
       emitAgentTerminalCommand(agentId, command);
@@ -316,6 +320,28 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     const userId = managed.info.userId;
     if (!userId || target?.scope !== "office") return false;
     return findUser(username ? { username } : { userId })?.role !== "owner";
+  }
+
+  // An agent of a member with their own OS user on the office sign-in runs
+  // in a folder of theirs that Isomux keeps signed in
+  // (server/office-login-sync.ts): no command there signs the office in or
+  // out. An owner manages it in Integrations; a member asks an owner.
+  function officeSignInElsewhere(
+    agentId: string,
+    managed: ManagedAgent,
+    target: EffectiveProviderAccountTarget | null,
+    username: string | undefined,
+  ): boolean {
+    let line: LogText;
+    if (officeSignInWithheld(managed, target, username))
+      line = msg("settings.signIn.askOfficeOwner");
+    else if (target?.scope === "office" && memberOfficeFolderOwner(target.dir))
+      line = msg("systemEntries.officeSignInInIntegrations", {
+        provider: providerDisplayName(managed.info.agentType),
+      });
+    else return false;
+    addLogEntry(agentId, "system", line);
+    return true;
   }
 
   // The sign-in card renders only for the agent's manager. Another person
@@ -531,10 +557,7 @@ export function createAgentAuth(deps: AgentAuthDeps) {
         }
       } catch {}
     }
-    if (officeSignInWithheld(managed, target, username)) {
-      addLogEntry(agentId, "system", msg("settings.signIn.askOfficeOwner"));
-      return;
-    }
+    if (officeSignInElsewhere(agentId, managed, target, username)) return;
     // The backend names the command, so it resolves the binary the same way
     // its sign-in does. Without one, the member gets no command to run.
     let baseCommand: string | undefined;

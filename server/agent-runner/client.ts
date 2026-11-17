@@ -603,10 +603,10 @@ export function runnerAgentFs(
         );
       return stat;
     },
-    writeText: async (path, text, { mode, exclusive }) => {
+    writeText: async (path, text, { mode, exclusive, atomic }) => {
       await runnerFs(
         socketPath,
-        { call: "writeText", path, mode, exclusive },
+        { call: "writeText", path, mode, exclusive, atomic },
         Buffer.from(text),
         0,
         timeoutMs,

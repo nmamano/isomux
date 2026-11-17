@@ -5,6 +5,8 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { AgentBackendType } from "../shared/types.ts";
+import { buildOfficeEnv } from "./env-loader.ts";
+import { memberOfficeFolderOwner } from "./office-login-sync.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 
 // The keys and tokens that bypass the config directory's sign-in. Whoever set
@@ -46,7 +48,12 @@ export function usageAccountKey(
     env[name] ?? null,
   ]);
   const hash = createHash("sha256").update(JSON.stringify(auth)).digest("hex");
-  return `${agentType}\0${effectiveProviderDirectory(agentType, env)}\0${hash}`;
+  // The office sign-in in the own space of a member with their own OS user
+  // (server/office-login-sync.ts) is the office's account.
+  let dir = effectiveProviderDirectory(agentType, env);
+  if (memberOfficeFolderOwner(dir)?.provider === agentType)
+    dir = effectiveProviderDirectory(agentType, buildOfficeEnv());
+  return `${agentType}\0${dir}\0${hash}`;
 }
 
 // Whether `key` is an account in `dir` of `provider`, with any auth variables.

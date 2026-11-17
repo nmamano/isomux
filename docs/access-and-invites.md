@@ -61,7 +61,7 @@ On Linux, an owner can run a member's agents, terminals, apps and scheduled runs
 - An existing user is a person's own account. Isomux adds only its own parts to it, and turning it off never deletes or locks it. If that account can become root (sudo), the page says that the member's agents can read the office's files. A member who runs as an existing user cannot come with an office move: turn it off first.
 - If the page says that it is not ready after a restart, run the turn-on command again. On a member whose own OS user works, it stops their agents for a moment and moves their apps again.
 - After an [office move](hosting-reference.md#moving-an-office-to-another-machine), run the turn-on command on the new machine: it puts their files in place.
-- At their usage limit, their Claude agents can continue on the office's Claude token for members with their own OS user (`Integrations` → `Model providers`). They cannot use the office's Codex sign-in.
+- They use the office's Claude and Codex sign-ins as any member does. Their agents can read the office's current access tokens.
 - It works on an office set up with the installer and in a Docker container, not on Kubernetes, Render, macOS or a checkout run as your own user ([hosting reference](hosting-reference.md#member-os-users)).
 - To remove the member, turn it off first.
 

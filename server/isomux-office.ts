@@ -405,20 +405,13 @@ import {
 } from "./app-proxy-secret.ts";
 import { OAUTH_SECRET_NAME } from "../shared/mcp-servers.ts";
 import { createSecretsRuntime } from "./secret-proxy/runtime.ts";
+import { setSecretValuesForRedaction } from "./log-redaction.ts";
 import {
-  setMemberTokenForRedaction,
-  setSecretValuesForRedaction,
-} from "./log-redaction.ts";
-import { memberTokenHandlers } from "./claude-member-token-routes.ts";
-import {
-  memberTokenStore,
-  onMemberTokenChange,
-  onMemberTokenRejected,
-} from "./claude-member-token.ts";
-import {
-  CHECK_EVERY_MS,
-  createMemberTokenPager,
-} from "./claude-member-token-pager.ts";
+  memberOfficeFolder,
+  officeAuthFor,
+  officeLoginSync,
+  removeLegacyMemberToken,
+} from "./office-login-sync.ts";
 import { SHARE_ROOT } from "./split/roots.ts";
 import {
   createConnectionTester,
@@ -689,7 +682,6 @@ import {
   floors,
   pagerSettings,
   pagerDelivery,
-  officePagers,
   webPushStore,
   webPushDelivery,
   whatsappSupervisor,
@@ -871,32 +863,6 @@ setMemberSecretHooks({
   caBundle: () => secretsRuntime.caBundle(),
 });
 setSecretEnvironmentProvider((userId) => secretsRuntime.environmentFor(userId));
-// The Claude token of members with their own OS user is redacted as a secret.
-const redactMemberToken = () =>
-  setMemberTokenForRedaction(memberTokenStore().get()?.token ?? null);
-redactMemberToken();
-
-// The owners' pages about that token: its expiry and a rejection.
-function startMemberTokenPages(): void {
-  const pages = createMemberTokenPager({
-    tokens: memberTokenStore,
-    pager: officePagers.claudeMemberToken,
-    owners: () =>
-      listUsers()
-        .filter((user) => user.role === "owner")
-        .map((user) => user.id),
-    anyIsolated: anyMemberOsUser,
-  });
-  onMemberTokenChange(() => {
-    redactMemberToken();
-    pages.changed();
-  });
-  onMemberTokenRejected(() => pages.rejected());
-  pages.check();
-  if (memberTokenTimer) clearInterval(memberTokenTimer);
-  memberTokenTimer = setInterval(() => pages.check(), CHECK_EVERY_MS);
-  memberTokenTimer.unref?.();
-}
 // The share of a member's agent, for the copies of its uploads and
 // screenshots (member-share-files.ts).
 setAgentShareResolver((agentId) => {
@@ -2212,9 +2178,6 @@ const folderMcpDeps: FolderMcpDeps = {
 // The OAuth MCP flow of this boot (integrations A2b) and its refresh timer.
 let mcpOAuth: McpOAuth | null = null;
 let mcpOAuthTimer: ReturnType<typeof setInterval> | null = null;
-// The hourly check of the Claude token for members with their own OS user
-// (claude-member-token-pager.ts).
-let memberTokenTimer: ReturnType<typeof setInterval> | null = null;
 let sudoRequests: SudoRequests | null = null;
 // The Enterprise Contract seats of this boot (server/enterprise-seats.ts).
 let enterpriseSeats: EnterpriseSeats | null = null;
@@ -2792,6 +2755,13 @@ async function listBackendModels(input: {
     const models = await backend.listModels({
       cwd,
       env,
+      // Codex in a member office folder logs in with the office's token.
+      officeAuth: officeAuthFor(
+        officeLoginSync(),
+        input.userId,
+        input.agentType as AgentBackendType,
+        env,
+      ),
       environmentKey: agentManager.environmentSourceKeyForUserId(input.userId),
       environmentRevision:
         input.agentType === "opencode"
@@ -3856,12 +3826,6 @@ function buildExecutorDeps(
   };
 
   register(agentReferenceHandlers());
-  register(
-    memberTokenHandlers({
-      tokens: memberTokenStore,
-      anyIsolated: anyMemberOsUser,
-    }),
-  );
   register(
     enterpriseSeatsHandlers({
       seats: () => {
@@ -6304,7 +6268,10 @@ function buildExecutorDeps(
             return claudeEngineServersFor(
               agentManager.agentIdsOfUser(userId),
               (dir) =>
-                dir === officeDir
+                dir === officeDir ||
+                // The office sign-in in the member's own space
+                // (server/office-login-sync.ts).
+                dir === memberOfficeFolder(userId, "claude")
                   ? "office"
                   : dir === personalDir
                     ? "personal"
@@ -7263,8 +7230,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   officeExportJobs?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
   mcpOAuthTimer = null;
-  if (memberTokenTimer) clearInterval(memberTokenTimer);
-  memberTokenTimer = null;
+  officeLoginSync()?.close();
   await server.stop(true);
   // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no
@@ -7406,7 +7372,10 @@ export async function startServer(
     UI_DIST,
   });
   bootPagedAsks();
-  startMemberTokenPages();
+  // The office sign-in in the own space of members with their own OS user
+  // (server/office-login-sync.ts) replaces the members' Claude token.
+  removeLegacyMemberToken();
+  officeLoginSync()?.start();
   configureWelcomeModelTiming(opts);
   migrateManagedEnvAtBoot({
     office: {

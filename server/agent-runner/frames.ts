@@ -115,7 +115,15 @@ export type FsRequest =
   | { call: "readText"; path: string }
   | { call: "readBytes"; path: string; max: number }
   | { call: "stat"; path: string }
-  | { call: "writeText"; path: string; mode: number; exclusive?: boolean }
+  | {
+      call: "writeText";
+      path: string;
+      mode: number;
+      exclusive?: boolean;
+      // Through a new file and a rename (atomic-write.ts). A runner that
+      // predates it writes in place.
+      atomic?: boolean;
+    }
   | { call: "mkdir"; path: string; mode: number }
   | { call: "rm"; path: string; recursive?: boolean }
   | { call: "exists"; path: string }

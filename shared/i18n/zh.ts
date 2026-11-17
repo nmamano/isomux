@@ -545,13 +545,6 @@ export const zh: Catalog = {
   "settings.osUser.failedWith": "命令失败：{message}",
   "settings.osUser.failed": "命令失败。",
   "settings.osUser.failedDetails": "详细信息",
-  "settings.osUser.claudeTokenSet":
-    "Claude：达到其用量上限时，其代理会继续使用为拥有专属系统用户的成员设置的 Claude 令牌。",
-  "settings.osUser.claudeTokenMissing":
-    "Claude：没有为拥有专属系统用户的成员设置 Claude 令牌，因此其代理会在用量上限时停止。",
-  "settings.osUser.claudeTokenLink": "模型提供商",
-  "settings.osUser.codexOff":
-    "Codex：其代理会在用量上限时停止。它们不能使用办公室的 Codex 登录，因为共享它会让它们能使办公室退出登录。",
   "settings.osUser.unfinished": "未就绪：其文件迁移到 {name} 的过程没有完成。",
   "settings.osUser.finishHint": "要完成开启，请在办公室的机器上运行：",
   "settings.osUser.movedIn":
@@ -1248,16 +1241,6 @@ export const zh: Catalog = {
   "integrations.memberIntro":
     "所有者设置智能体使用的内容。你可以为自己启动的智能体添加自己的内容。",
   "integrations.tabs.providers": "模型提供商",
-  "integrations.memberToken.title": "拥有独立系统用户的成员所用的 Claude 令牌",
-  "integrations.memberToken.hint":
-    "当他们自己的登录达到使用上限时，他们的智能体会继续使用此令牌。登录办公室的 Claude 账户后，用 <code>claude setup-token</code> 生成。",
-  "integrations.memberToken.token": "令牌",
-  "integrations.memberToken.tokenHint": "有效期一年。他们的智能体可以读取它。",
-  "integrations.memberToken.madeOn": "生成日期",
-  "integrations.memberToken.expires": "已设置。{date} 到期。",
-  "integrations.memberToken.replace": "替换",
-  "integrations.memberToken.remove": "移除",
-  "integrations.memberToken.failed": "无法保存令牌。请重试。",
   "integrations.tabs.mcp": "MCP 服务器",
   "integrations.tabs.secrets": "密钥",
   "integrations.tabs.variables": "变量",
@@ -2273,12 +2256,6 @@ export const zh: Catalog = {
   "apiCall.office.setEnterprise": "开启或关闭企业合同",
   "apiCall.office.setEnterpriseSecret": "设置企业密钥",
   "apiCall.office.checkEnterprise": "检查企业席位",
-  "apiCall.office.readMemberToken":
-    "读取拥有独立系统用户的成员所用的 Claude 令牌",
-  "apiCall.office.setMemberToken":
-    "设置拥有独立系统用户的成员所用的 Claude 令牌",
-  "apiCall.office.clearMemberToken":
-    "移除拥有独立系统用户的成员所用的 Claude 令牌",
   "apiCall.office.lockdown": "锁定办公室",
   "apiCall.office.restart": "重启办公室",
   "apiCall.office.startExport": "开始导出办公室",
@@ -4142,6 +4119,8 @@ export const zh: Catalog = {
   "systemEntries.signOutOpenCode": "OpenCode 智能体不提供退出登录功能。",
   "systemEntries.signOutNoScope":
     "无法确定此 {provider} 账户的范围，因此不能退出登录。",
+  "systemEntries.officeSignInInIntegrations":
+    "在集成 → 模型提供商（办公室通用）中管理办公室的 {provider} 登录。",
   "systemEntries.runInTerminal": "在内置终端中运行 `{command}`。",
   "updateNotice.pill.updateAvailable": "有可用更新",
   "updateNotice.pill.newRelease": "新版本",

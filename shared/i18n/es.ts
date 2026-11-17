@@ -587,13 +587,6 @@ Cosas que puedes hacer por él:
   "settings.osUser.failedWith": "El comando falló: {message}",
   "settings.osUser.failed": "El comando falló.",
   "settings.osUser.failedDetails": "Detalles",
-  "settings.osUser.claudeTokenSet":
-    "Claude: al llegar a su límite de uso, sus agentes siguen con el token de Claude para miembros con su propio usuario del sistema.",
-  "settings.osUser.claudeTokenMissing":
-    "Claude: no hay un token de Claude para miembros con su propio usuario del sistema, así que sus agentes se detienen en su límite de uso.",
-  "settings.osUser.claudeTokenLink": "Proveedores de modelos",
-  "settings.osUser.codexOff":
-    "Codex: sus agentes se detienen en su límite de uso. No pueden usar la sesión de Codex de la oficina, porque compartirla les permitiría cerrar la sesión de la oficina.",
   "settings.osUser.unfinished":
     "No está listo: el traslado de sus archivos a {name} no terminó.",
   "settings.osUser.finishHint":
@@ -1404,19 +1397,6 @@ Cosas que puedes hacer por él:
   "integrations.memberIntro":
     "Los propietarios configuran lo que usan los agentes. Puedes añadir lo tuyo para los agentes que inicias.",
   "integrations.tabs.providers": "Proveedores de modelos",
-  "integrations.memberToken.title":
-    "Token de Claude para los miembros con su propio usuario del sistema",
-  "integrations.memberToken.hint":
-    "Cuando su propia sesión llega a su límite de uso, sus agentes siguen con este token. Créalo con <code>claude setup-token</code>, con la sesión de la cuenta de Claude de la oficina.",
-  "integrations.memberToken.token": "Token",
-  "integrations.memberToken.tokenHint":
-    "Dura un año. Sus agentes pueden leerlo.",
-  "integrations.memberToken.madeOn": "Creado el",
-  "integrations.memberToken.expires": "Guardado. Caduca el {date}.",
-  "integrations.memberToken.replace": "Sustituir",
-  "integrations.memberToken.remove": "Quitar",
-  "integrations.memberToken.failed":
-    "No se pudo guardar el token. Inténtalo de nuevo.",
   "integrations.tabs.mcp": "Servidores MCP",
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
@@ -2573,12 +2553,6 @@ Cosas que puedes hacer por él:
   "apiCall.office.setEnterprise": "Activar o desactivar el contrato Enterprise",
   "apiCall.office.setEnterpriseSecret": "Guardar el secreto Enterprise",
   "apiCall.office.checkEnterprise": "Comprobar las plazas Enterprise",
-  "apiCall.office.readMemberToken":
-    "Leer el token de Claude para los miembros con su propio usuario del sistema",
-  "apiCall.office.setMemberToken":
-    "Guardar el token de Claude para los miembros con su propio usuario del sistema",
-  "apiCall.office.clearMemberToken":
-    "Quitar el token de Claude para los miembros con su propio usuario del sistema",
   "apiCall.office.lockdown": "Bloquear la oficina",
   "apiCall.office.restart": "Reiniciar la oficina",
   "apiCall.office.startExport": "Iniciar una exportación de la oficina",
@@ -4662,6 +4636,8 @@ Cosas que puedes hacer por él:
     "Cerrar sesión no está disponible en los agentes de OpenCode.",
   "systemEntries.signOutNoScope":
     "Cerrar sesión no está disponible porque no se pudo resolver el ámbito de esta cuenta de {provider}.",
+  "systemEntries.officeSignInInIntegrations":
+    "Gestiona la sesión de {provider} de la oficina en Integraciones → Proveedores de modelos (De toda la oficina).",
   "systemEntries.runInTerminal":
     "Ejecuta `{command}` en el terminal integrado.",
   "updateNotice.pill.updateAvailable": "hay una actualización",

@@ -43,6 +43,10 @@ import {
   type AskStore,
 } from "./asks.ts";
 import { createPageItemSource } from "./page-items.ts";
+import {
+  createOfficeLoginSync,
+  setOfficeLoginSync,
+} from "./office-login-sync.ts";
 import { officeAskHistory } from "./ask-history.ts";
 import {
   createPagerSettingsFilePersistence,
@@ -243,7 +247,7 @@ export let discordSupervisor: DiscordSupervisor;
 // ask from the office itself (task 74e8fc07). Also a failing schedule's
 // member (task 420faed7), with an ask that rings nobody (task 323bc273).
 export let officePagers: Record<
-  "whatsapp" | "discord" | "claudeMemberToken" | "schedules",
+  "whatsapp" | "discord" | "schedules",
   {
     raise(userId: string, key: string, title: string, body: string): void;
     close(userId: string, key: string): void;
@@ -447,6 +451,16 @@ export function createManagers(
   // agentManager is created just below.
   providerAccountManager.onAccountChanged = (provider, dir) =>
     agentManager?.providerAccountChanged(provider, dir);
+  // The office sign-in in isolated members' own space, for agents and
+  // schedule runs (server/office-login-sync.ts); startServer starts it.
+  setOfficeLoginSync(
+    createOfficeLoginSync({
+      liveClaudeMembers: () => [
+        ...(agentManager?.officeClaudeMembers() ?? []),
+        ...(cronjobManager?.officeClaudeMembers() ?? []),
+      ],
+    }),
+  );
   agentManager = createProductionAgentManager({
     runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
     // An action ask closes when its agent reaches the grant (task e3d1bc63).
@@ -665,10 +679,6 @@ export function createManagers(
   officePagers = {
     whatsapp: officePager(asks, { feature: "whatsapp", name: "WhatsApp" }),
     discord: officePager(asks, { feature: "discord", name: "Discord" }),
-    claudeMemberToken: officePager(asks, {
-      feature: "claude-member-token",
-      name: "Claude",
-    }),
     schedules: officePager(
       asks,
       { feature: "schedules", name: "Schedules" },

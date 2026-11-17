@@ -80,7 +80,7 @@ What stays open:
 - A message from the member to an agent that runs as the office's user, with a shell, can ask it to read office files for them (soft, as section 3.2).
 - Office agents load the shared memory and skills that the member writes; a skill can hold a script that an office agent runs.
 - A service of the office's user on the loopback address without its own sign-in is reachable from any OS user on the machine. The office's own services check a token or a password.
-- With the Claude token for members with their own OS user set, their agents can read that token.
+- On the office sign-in, their agents can read the office's current Claude and Codex access tokens, with the office's claude.ai connectors.
 - Their agents can see the process lists of other users.
 - The office checks only the office files that the member's user can reach by path. A hard link or an open file that the user got while it could still reach such a file is not checked.
 - An owner can give them an existing account that can become root (sudo). Then none of this section holds for them, and the page says so.

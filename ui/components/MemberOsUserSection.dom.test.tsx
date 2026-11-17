@@ -22,7 +22,6 @@
 // - the page reads again every OS_USER_POLL_MS only while the state can
 //   change (an attempt running, or after a Copy until the state changes), and
 //   stops on a final state, on unmount and at OS_USER_POLL_CAP_MS;
-// - the Claude row follows the office's member token;
 // - Run (4c-iii): with a password field where sudo asks for one, a button
 //   only where it does not, nothing without run; each command's own verb,
 //   the field cleared and the state read again after a start; no Run while
@@ -52,7 +51,6 @@ const COMMANDS = {
 // What the next reads answer: the head of the queue, the last one repeats.
 let answers: (MemberOsUserWire | "fail")[] = [];
 let reads = 0;
-let tokenSet = false;
 // The owner's Run (4c-iii): each POST, and what the next one answers.
 const RUN_ROUTE = "/api/users/Mia/os-user/run";
 let posts: unknown[] = [];
@@ -70,8 +68,6 @@ setApiShim(async (method, path, body) => {
       throw new ApiError(500, "boom", "internal");
     return next;
   }
-  if (method === "GET" && path === "/api/office/claude-member-token")
-    return { set: tokenSet };
   throw new Error(`unexpected ${method} ${path}`);
 });
 
@@ -82,7 +78,6 @@ beforeEach(() => {
   reads = 0;
   posts = [];
   runAnswer = null;
-  tokenSet = false;
   copied = [];
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -443,20 +438,6 @@ it("stops reading at OS_USER_POLL_CAP_MS", async () => {
   expect(atCap).toBeGreaterThan(1);
   await advance(OS_USER_POLL_MS * 10);
   expect(reads).toBe(atCap);
-});
-
-it("the Claude row says whether the member token is set", async () => {
-  answers = [view()];
-  tokenSet = false;
-  const missing = await mount();
-  const missingText = missing.q("member-os-user-claude")?.textContent ?? "";
-  expect(missingText).toContain(t("settings.osUser.claudeTokenMissing"));
-  missing.rendered.unmount();
-  tokenSet = true;
-  const set = await mount();
-  const setText = set.q("member-os-user-claude")?.textContent ?? "";
-  expect(setText).toContain(t("settings.osUser.claudeTokenSet"));
-  expect(setText).not.toBe(missingText);
 });
 
 // Task b94dfd25 4c-iii: Run on the page.
