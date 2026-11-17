@@ -16,6 +16,12 @@ import {
 } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useAppState } from "../store.tsx";
+import {
+  getMoveInLayout,
+  setMoveInLayout,
+  type MoveInLayout,
+} from "../device-settings.ts";
 import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { reloadBrowser } from "../reload-browser.ts";
 import { absoluteTime } from "../../shared/i18n/time.ts";
@@ -143,6 +149,8 @@ const heading: React.CSSProperties = {
   margin: 0,
   color: "var(--text-primary)",
 };
+// Keeps a held line at its height: an empty element collapses.
+const BLANK = "\u00a0";
 const list: React.CSSProperties = {
   ...text,
   paddingLeft: 18,
@@ -179,9 +187,20 @@ function ErrorLine({ error }: { error: CardError | null }) {
 
 export function OfficeMovePane(): React.ReactElement {
   const { t } = useI18n();
+  const { users, apps, tasks } = useAppState();
+  // Until the move-in status answers, the card shows the start form or the
+  // not-fresh blocker as this device saw last. On a first visit, a guess from
+  // what a new office never has (the seed agents do not count against it)
+  // (task 69c5f413).
+  const [held] = useState(() => {
+    // No users yet means the list has not loaded, not a new office.
+    const reasons = [users.size > 1, apps.length > 0, tasks.length > 0];
+    const count = reasons.filter(Boolean).length;
+    return getMoveInLayout({ blocked: count > 0, reasons: count });
+  });
   // The move-in card's phase decides the order: it comes first on a new
   // office and while a move-in runs or is done (the report on top).
-  const [inFirst, setInFirst] = useState(false);
+  const [inFirst, setInFirst] = useState(!held.blocked);
   return (
     <div style={{ marginTop: 24 }}>
       <h3
@@ -198,7 +217,7 @@ export function OfficeMovePane(): React.ReactElement {
       {/* Keyed, so a reorder moves the cards and keeps their state. */}
       {(inFirst ? ["in", "out"] : ["out", "in"]).map((card) =>
         card === "in" ? (
-          <MoveInCard key="in" onFirst={setInFirst} />
+          <MoveInCard key="in" held={held} onFirst={setInFirst} />
         ) : (
           <MoveOutCard key="out" />
         ),
@@ -391,7 +410,13 @@ const RESTART_PHASES = new Set<MoveInStatus["phase"]>([
   "swapping",
 ]);
 
-function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
+function MoveInCard({
+  held,
+  onFirst,
+}: {
+  held: MoveInLayout;
+  onFirst: (first: boolean) => void;
+}) {
   const { t, tn, language } = useI18n();
   const [state, setState] = useState<InState>({
     status: null,
@@ -447,8 +472,19 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
   const status = state.status;
   const view: MoveInView | null = status ? phaseView(status) : null;
   const first =
-    status !== null && (status.phase !== "none" || status.blocker === null);
+    status === null
+      ? !held.blocked
+      : status.phase !== "none" || status.blocker === null;
   useEffect(() => onFirst(first), [first, onFirst]);
+  // The start view is what a later visit holds.
+  const blocker = status?.phase === "none" ? status.blocker : undefined;
+  useEffect(() => {
+    if (blocker === undefined) return;
+    setMoveInLayout({
+      blocked: blocker !== null,
+      reasons: blocker ? (notFreshReasons(blocker)?.length ?? 0) : 0,
+    });
+  }, [blocker]);
 
   async function write(
     action: NonNullable<InState["action"]>,
@@ -556,6 +592,7 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
       {(view === null || view.kind === "start") && (
         <StartView
           blocker={view?.blocker ?? null}
+          held={view === null ? held : null}
           loading={view === null}
           code={state.code}
           busy={busy}
@@ -795,6 +832,7 @@ function MoveInCard({ onFirst }: { onFirst: (first: boolean) => void }) {
 
 function StartView({
   blocker,
+  held,
   loading,
   code,
   busy,
@@ -802,6 +840,8 @@ function StartView({
   onStart,
 }: {
   blocker: MoveInStartBlocker | null;
+  /** No status yet: the view this device saw last, or the guess. */
+  held: MoveInLayout | null;
   /** No status yet: the controls show disabled. */
   loading: boolean;
   code: string;
@@ -810,6 +850,19 @@ function StartView({
   onStart: () => void;
 }) {
   const { t, tn } = useI18n();
+  if (held?.blocked)
+    return (
+      <div aria-busy="true" style={{ opacity: 0.45 }}>
+        <p style={text}>{t("officeMove.in.blocked")}</p>
+        {held.reasons > 0 && (
+          <ul style={list}>
+            {Array.from({ length: held.reasons }, (_, i) => (
+              <li key={i}>{BLANK}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
   if (blocker) {
     const reasons = notFreshReasons(blocker);
     return (

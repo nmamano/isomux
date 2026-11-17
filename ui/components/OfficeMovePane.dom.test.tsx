@@ -32,14 +32,25 @@
 //   command.
 //
 // Controls are found by data-testid (copy is not asserted).
-import { afterEach, beforeEach, expect, it, jest, spyOn } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  spyOn,
+} from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent, render } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render } =
+  await import("@testing-library/react");
 const { createElement } = await import("react");
-const { onLanguage } = await import("../test-support/language-fixture.tsx");
+const { onLanguage, stateWithSelfUser } =
+  await import("../test-support/language-fixture.tsx");
+const heldShape = await import("../test-support/held-shape.ts");
 const { setApiShim, ApiError } = await import("../api.ts");
 const browser = await import("../reload-browser.ts");
 const { OfficeMovePane } = await import("./OfficeMovePane.tsx");
@@ -173,6 +184,9 @@ function next<T>(queue: Answer<T>[]): T {
 let reload: ReturnType<typeof spyOn<typeof browser, "reloadBrowser">> | null =
   null;
 beforeEach(() => {
+  // A loaded move-in card saves its layout for the next visit (task
+  // 69c5f413): each case starts on a device that never loaded it.
+  window.localStorage.clear();
   outAnswers = [{ state: "none" }];
   inAnswers = [{ phase: "none", blocker: NOT_FRESH }];
   outReads = 0;
@@ -1473,4 +1487,187 @@ it("slice 5c-3: the report lists each member with the enable command and its cop
   inAnswers = [base];
   const old = await mount();
   expect(old.q("move-report-members")).toBeNull();
+});
+
+// Task 69c5f413, the UI rule that a view keeps its layout while it loads:
+// until the move-in status answers, the pane holds the move-in card it showed
+// last on this device, in its place in the card order. On a device that
+// never loaded it, it guesses from what the office shows the reader: one
+// member and no apps or tasks is a new office (the start form, the move-in
+// card first); else the office is not new, with a reason for each of those.
+// happy-dom lays nothing out: blockShape compares the block tree held with
+// the tree once the status answered.
+describe("Move office while the move-in status loads", () => {
+  const { blockShape, deferred } = heldShape;
+  const APP = { name: "app-1" } as never;
+  const TASK = { id: "task-1", title: "Task" } as never;
+  const SECOND_USER = [
+    "second",
+    { id: "u2", name: "Second", role: "member" },
+  ] as never;
+
+  // The move-in GET answers when the returned function runs; the move-out
+  // GET at once.
+  function holdMoveIn(answer: MoveInStatus) {
+    const read = deferred<MoveInStatus>();
+    setApiShim(async (method, path) => {
+      if (method === "GET" && path === "/api/office/move")
+        return { state: "none" };
+      if (method === "GET" && path === "/api/office/move-in")
+        return read.promise;
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    return () => read.resolve(answer);
+  }
+
+  async function mountOn(over: Record<string, unknown>) {
+    const view = render(
+      onLanguage("en", createElement(OfficeMovePane), over as never),
+    );
+    await settle();
+    return view;
+  }
+
+  const inFirst = (root: Element) => {
+    const out = root.querySelector('[data-testid="move-out"]')!;
+    const inCard = root.querySelector('[data-testid="move-in"]')!;
+    return (
+      (inCard.compareDocumentPosition(out) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
+      0
+    );
+  };
+
+  // Shape and order held, then once the status answered.
+  async function heldThenShown(
+    answer: () => void,
+    view: ReturnType<typeof render>,
+  ) {
+    const root = view.container;
+    const held = { shape: blockShape(root), inFirst: inFirst(root) };
+    await act(async () => answer());
+    await settle();
+    expect(
+      root.querySelector<HTMLElement>('[data-testid="move-in"]')!.dataset.view,
+    ).toBe("start");
+    return {
+      held,
+      shown: { shape: blockShape(root), inFirst: inFirst(root) },
+    };
+  }
+
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  it("holds the start form, the move-in card first, for an office that looks new", async () => {
+    const answer = holdMoveIn({ phase: "none", blocker: null });
+    const view = await mountOn({});
+    const code = view.container.querySelector<HTMLInputElement>(
+      '[data-testid="move-in-code"]',
+    );
+    expect(code?.disabled).toBe(true);
+    const { held, shown } = await heldThenShown(answer, view);
+    expect(shown.inFirst).toBe(true);
+    expect(held).toEqual(shown);
+  });
+
+  it("holds the not-new line with a reason per sign the office shows, the move-out card first", async () => {
+    const reasons = [
+      { kind: "users", count: 1 },
+      { kind: "apps", count: 1 },
+      { kind: "tasks", count: 1 },
+    ];
+    for (const [over, count] of [
+      [{ apps: [APP] }, 1],
+      [{ tasks: [TASK] }, 1],
+      [{ users: new Map([...stateWithSelfUser(null).users, SECOND_USER]) }, 1],
+      [{ apps: [APP], tasks: [TASK] }, 2],
+    ] as const) {
+      window.localStorage.clear();
+      const answer = holdMoveIn({
+        phase: "none",
+        blocker: { ...NOT_FRESH, extra: { reasons: reasons.slice(0, count) } },
+      });
+      const view = await mountOn(over);
+      const card = view.container.querySelector('[data-testid="move-in"]')!;
+      expect(
+        card.closest('[aria-busy="true"]') ??
+          card.querySelector('[aria-busy="true"]'),
+      ).not.toBeNull();
+      expect(
+        view.container.querySelector('[data-testid="move-in-code"]'),
+      ).toBeNull();
+      const root = view.container;
+      const held = { shape: blockShape(root), inFirst: inFirst(root) };
+      await act(async () => answer());
+      await settle();
+      expect(card.querySelector('[data-testid="move-blocker"]')).not.toBeNull();
+      expect(
+        root.querySelectorAll('[data-testid="move-blocker"] li').length,
+      ).toBe(count);
+      const shown = { shape: blockShape(root), inFirst: inFirst(root) };
+      expect(shown.inFirst).toBe(false);
+      expect({ over: Object.keys(over), ...held }).toEqual({
+        over: Object.keys(over),
+        ...shown,
+      });
+      cleanup();
+    }
+  });
+
+  it("holds the move-in card this device saw last, over the guess", async () => {
+    const notNew: MoveInStatus = {
+      phase: "none",
+      blocker: {
+        ...NOT_FRESH,
+        extra: {
+          reasons: [
+            { kind: "users", count: 2 },
+            { kind: "agents", count: 4 },
+            { kind: "tasks", count: 9 },
+          ],
+        },
+      },
+    } as MoveInStatus;
+    // The first load, in an office that looks new to the reader.
+    let answer = holdMoveIn(notNew);
+    let view = await mountOn({});
+    await act(async () => answer());
+    await settle();
+    expect(
+      view.container.querySelectorAll('[data-testid="move-blocker"] li').length,
+    ).toBe(3);
+    view.unmount();
+
+    answer = holdMoveIn(notNew);
+    view = await mountOn({});
+    const root = view.container;
+    expect(root.querySelector('[data-testid="move-in-code"]')).toBeNull();
+    const held = { shape: blockShape(root), inFirst: inFirst(root) };
+    await act(async () => answer());
+    await settle();
+    expect(held).toEqual({ shape: blockShape(root), inFirst: inFirst(root) });
+
+    // And back: a load that showed the start form holds it next time.
+    view.unmount();
+    answer = holdMoveIn({ phase: "none", blocker: null });
+    view = await mountOn({ apps: [APP] });
+    await act(async () => answer());
+    await settle();
+    view.unmount();
+    answer = holdMoveIn({ phase: "none", blocker: null });
+    view = await mountOn({ apps: [APP] });
+    const again = view.container;
+    const heldStart = { shape: blockShape(again), inFirst: inFirst(again) };
+    expect(heldStart.inFirst).toBe(true);
+    await act(async () => answer());
+    await settle();
+    expect(heldStart).toEqual({
+      shape: blockShape(again),
+      inFirst: inFirst(again),
+    });
+  });
 });

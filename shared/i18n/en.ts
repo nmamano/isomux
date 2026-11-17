@@ -73,6 +73,7 @@ export const en = {
   "audit.memory.agent": "Agent memory",
   "audit.memory.member": "Member memory",
   "audit.older": "Older",
+  "audit.empty": "No entries.",
   "audit.history": "History",
   "audit.taskCreated": "created",
   "audit.taskDeleted": "deleted",

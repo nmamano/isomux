@@ -59,6 +59,7 @@ export const ca: Catalog = {
   "audit.memory.agent": "Memòria de l’agent",
   "audit.memory.member": "Memòria del membre",
   "audit.older": "Anteriors",
+  "audit.empty": "Cap entrada.",
   "audit.history": "Historial",
   "audit.taskCreated": "ha creat la tasca",
   "audit.taskDeleted": "ha eliminat la tasca",

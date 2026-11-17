@@ -109,13 +109,18 @@ async function settle(): Promise<void> {
   });
 }
 
-// The office the reader sees: two agents in three rooms.
-async function mount(role: "owner" | "member" = "owner") {
+// The office the reader sees: two agents in three rooms, and `schedules`
+// schedules.
+async function mount(role: "owner" | "member" = "owner", schedules = 0) {
   const session = stateWithSelfUser(null).sessionContext!;
   const view = render(
     onLanguage(null, createElement(UsagePane), {
       rooms: [room(1), room(2), room(3)],
       agents: [agent(1, "room0001"), agent(2, "room0002")],
+      cronjobs: Array.from(
+        { length: schedules },
+        (_, i) => ({ id: `cron-${i + 1}`, name: `Schedule ${i + 1}` }) as never,
+      ),
       sessionContext: { ...session, role },
     }),
   );
@@ -124,8 +129,12 @@ async function mount(role: "owner" | "member" = "owner") {
 }
 
 // Shape while the report waits, then once it answered.
-async function shapes(answer: () => void, role: "owner" | "member") {
-  const view = await mount(role);
+async function shapes(
+  answer: () => void,
+  role: "owner" | "member",
+  schedules = 0,
+) {
+  const view = await mount(role, schedules);
   const busy = () => view.container.querySelector('[aria-busy="true"]');
   expect(busy()).not.toBeNull();
   const held = blockShape(view.container);
@@ -158,6 +167,55 @@ describe("Usage while the report loads", () => {
       "owner",
     );
     expect(held).toBe(shown);
+  });
+
+  // Task 69c5f413: the report lists the schedules to an owner only.
+  it("draws a row per schedule the office shows an owner, on a device that never loaded it", async () => {
+    const { held, shown } = await shapes(
+      serve(report(2, 3, 2, false)),
+      "owner",
+      2,
+    );
+    expect(shown).toContain("TR(TD()TD()TD()TD())");
+    expect(held).toBe(shown);
+  });
+
+  it("draws no schedule table for a member who sees schedules in the office", async () => {
+    const { held, shown } = await shapes(
+      serve(report(2, 3, 0, true)),
+      "member",
+      2,
+    );
+    expect(shown).not.toContain("TR(TD()TD()TD()TD())");
+    expect(held).toBe(shown);
+  });
+
+  // Task 69c5f413: the number columns keep their width when the numbers come;
+  // the name column takes the rest of the table.
+  it("gives each number column a fixed width and the name column the rest, held and loaded", async () => {
+    const answer = serve(report(2, 3, 2, false));
+    const view = await mount("owner", 2);
+    const widths = () =>
+      [...view.container.querySelectorAll("table")].map((table) => {
+        const heads = table.querySelectorAll("thead th").length;
+        const cols = [...table.querySelectorAll("col")].map(
+          (col) => (col as HTMLElement).style.width,
+        );
+        expect(cols.length).toBe(heads);
+        return cols;
+      });
+    const held = widths();
+    // The agent, room, schedule and office total tables.
+    expect(held.length).toBe(4);
+    for (const cols of held) {
+      expect(cols[0]).toBe("");
+      for (const width of cols.slice(1))
+        expect(width).toMatch(/^\d+(\.\d+)?(px|em|rem|ch)$/);
+    }
+    await act(async () => answer());
+    await settle();
+    expect(view.container.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(widths()).toEqual(held);
   });
 
   it("draws the scoped line for a member before the report answers", async () => {

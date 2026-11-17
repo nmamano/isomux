@@ -327,6 +327,8 @@ export function AuditPane() {
   const [error, setError] = useState("");
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const loading = loadedQuery !== requestKey;
+  // An answer came once: the rows on screen stand in for the next one.
+  const answered = loadedQuery !== null;
   useEffect(() => {
     let live = true;
     apiFetch<AuditPage>("GET", `/api/audit-log?${query}`)
@@ -507,14 +509,27 @@ export function AuditPane() {
         )}
       </form>
       {error && <p role="alert">{error}</p>}
-      {loading ? (
-        <p>{t("common.loading")}</p>
-      ) : (
-        <AuditRows items={page.items} names={names} onError={setError} />
-      )}
+      {/* Before the first answer, one loading line; an empty answer puts
+          one line in its place. A later query keeps the rows it shows,
+          dimmed and inert, until its answer replaces them (task 69c5f413). */}
+      <div
+        aria-busy={loading || undefined}
+        inert={(loading && answered) || undefined}
+        style={loading && answered ? { opacity: 0.45 } : undefined}
+      >
+        {!answered ? (
+          <p>{t("common.loading")}</p>
+        ) : page.items.length === 0 ? (
+          // A failed read: the error line above takes its place.
+          !error && <p>{t("audit.empty")}</p>
+        ) : (
+          <AuditRows items={page.items} names={names} onError={setError} />
+        )}
+      </div>
       {page.nextBefore !== null && (
         <button
           style={dialogCancelBtn}
+          disabled={loading}
           onClick={() => {
             const params = new URLSearchParams(query);
             params.set("before", String(page.nextBefore));

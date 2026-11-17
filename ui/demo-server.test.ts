@@ -5,6 +5,7 @@ import type {
   UsageBucketWire,
   UsageReportWire,
   MemoryReadRes,
+  OfficeSettingsRes,
 } from "../shared/contract-shapes.ts";
 import type {
   CronjobRun,
@@ -392,6 +393,30 @@ describe("demo fixture data", () => {
       expect(demoAppMockContent(app.name)).not.toEqual(fallback);
       expect(Object.keys(app)).not.toContain("page");
     }
+  });
+
+  // Task 69c5f413: an owner's switch saved in the demo stays saved, and a
+  // save of one switch leaves the others as they were.
+  it("keeps the office switches a settings save writes", async () => {
+    const read = async () =>
+      (await demoApi("GET", "/api/office/settings")) as OfficeSettingsRes;
+    const before = await read();
+    expect(typeof before.limitResume).toBe("boolean");
+    expect(typeof before.processIsolation).toBe("boolean");
+    await demoApi("PUT", "/api/office/settings", {
+      version: before.version,
+      limitResume: !before.limitResume,
+    });
+    const after = await read();
+    expect(after).toEqual({
+      ...before,
+      version: after.version,
+      limitResume: !before.limitResume,
+    });
+    await demoApi("PUT", "/api/office/settings", {
+      version: after.version,
+      limitResume: before.limitResume,
+    });
   });
 });
 

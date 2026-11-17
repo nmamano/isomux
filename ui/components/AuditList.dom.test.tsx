@@ -404,3 +404,93 @@ it("suggests agent actors by room in office order, each labelled with its room",
     else for (const r of GROUP_ROOMS) expect(label).not.toContain(r.name);
   }
 });
+// The office settings the pane's Record terminals switch reads.
+const SETTINGS = { name: null, version: "v", recordTerminals: false };
+// Task 69c5f413, the UI rule that a view keeps its layout while it loads. An
+// empty answer puts one line where the loading line was: the pane does not
+// shrink when the log is empty.
+it("an empty answer takes the place of the loading line", async () => {
+  const { blockShape, deferred } =
+    await import("../test-support/held-shape.ts");
+  const read = deferred<unknown>();
+  setApiShim(async (_method, path) =>
+    path.startsWith("/api/audit-log") ? read.promise : SETTINGS,
+  );
+  const view = render(<AuditPane />);
+  const section = view.container.querySelector("section")!;
+  const held = blockShape(section);
+  await act(async () => read.resolve({ items: [], nextBefore: null }));
+  expect(view.container.querySelectorAll("li").length).toBe(0);
+  expect(blockShape(section)).toBe(held);
+  view.unmount();
+});
+// After the first answer, a new query (Older, Filter, Clear) keeps the rows it
+// shows until its answer replaces them: busy, with nothing to act on, and no
+// loading line in their place.
+it("keeps the shown rows, busy and inert, while a new query loads", async () => {
+  const { blockShape, deferred } =
+    await import("../test-support/held-shape.ts");
+  const entry = (sequence: number) => ({
+    sequence,
+    time: sequence,
+    actor: { kind: "member", id: "u", name: "Member" },
+    operation: "tasks.delete",
+    targets: [`task-${sequence}`],
+    fields: [],
+    deletedTask: { id: `task-${sequence}`, title: `Task ${sequence}` },
+  });
+  const reads: {
+    path: string;
+    answer: ReturnType<typeof deferred<unknown>>;
+  }[] = [];
+  setApiShim(async (_method, path) => {
+    if (!path.startsWith("/api/audit-log")) return SETTINGS;
+    const answer = deferred<unknown>();
+    reads.push({ path, answer });
+    return answer.promise;
+  });
+  const view = render(<AuditPane />);
+  await act(async () =>
+    reads[0]!.answer.resolve({ items: [entry(3), entry(2)], nextBefore: 2 }),
+  );
+  const section = view.container.querySelector("section")!;
+  const rows = () => [...view.container.querySelectorAll("li")];
+  expect(
+    rows().map((li) => li.querySelector('[title^="task-"]')?.textContent),
+  ).toEqual(["Task 3", "Task 2"]);
+  const shown = blockShape(section);
+
+  // Older: the next page is asked for and does not answer yet.
+  const older = [
+    ...section.querySelectorAll<HTMLButtonElement>(":scope > button"),
+  ];
+  expect(older.length).toBe(1);
+  await act(async () => {
+    fireEvent.click(older[0]!);
+  });
+  expect(reads).toHaveLength(2);
+  expect(
+    new URL(reads[1]!.path, "http://fixture").searchParams.get("before"),
+  ).toBe("2");
+  expect(rows().length).toBe(2);
+  expect(blockShape(section)).toBe(shown);
+  for (const li of rows()) {
+    expect(li.closest('[aria-busy="true"]')).not.toBeNull();
+    for (const button of li.querySelectorAll<HTMLButtonElement>("button"))
+      expect(button.disabled || button.closest("[inert]") !== null).toBe(true);
+  }
+  expect(
+    rows().flatMap((li) => [...li.querySelectorAll("button")]).length,
+  ).toBe(2);
+
+  // Its answer replaces the rows, which are live again.
+  await act(async () =>
+    reads[1]!.answer.resolve({ items: [entry(1)], nextBefore: null }),
+  );
+  expect(
+    rows().map((li) => li.querySelector('[title^="task-"]')?.textContent),
+  ).toEqual(["Task 1"]);
+  expect(view.container.querySelector('[aria-busy="true"]')).toBeNull();
+  expect(view.container.querySelector("[inert]")).toBeNull();
+  view.unmount();
+});

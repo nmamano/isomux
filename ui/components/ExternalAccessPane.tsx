@@ -32,7 +32,6 @@ import {
   hint,
   cardStyle,
 } from "./access-shared.tsx";
-import { Reserved } from "./Reserved.tsx";
 import {
   getExternalAccessLayout,
   setExternalAccessLayout,
@@ -74,6 +73,8 @@ function ExternalAccessSection({
   const [error, setError] = useState<string | null>(null);
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
+  // "Saved" shows only after this pane's own save, as on the Office pane.
+  const [savedHere, setSavedHere] = useState(false);
   // While the settings load, the card shows the form it showed last on this
   // device with nothing to act on, so it keeps its height when they arrive.
   const [held] = useState(getExternalAccessLayout);
@@ -127,6 +128,7 @@ function ExternalAccessSection({
         setExternalAccessLayout({ hosted, enabled: nextEnabled });
         setSignInUrl(typeof r.signInUrl === "string" ? r.signInUrl : null);
         setRestartRequired(!!r.restartRequired);
+        setSavedHere(true);
       })
       .catch((err) => {
         setError(
@@ -189,11 +191,14 @@ function ExternalAccessSection({
   }
 
   const showUrl = loaded ? enabled : held.enabled;
+  // Held: a blank line in its place.
   const reachLine = (
     <p style={hint}>
-      {boundLoopback
-        ? t("settings.externalAccess.loopback")
-        : t("settings.externalAccess.external")}
+      {!loaded
+        ? "\u00a0"
+        : boundLoopback
+          ? t("settings.externalAccess.loopback")
+          : t("settings.externalAccess.external")}
     </p>
   );
   return (
@@ -202,7 +207,7 @@ function ExternalAccessSection({
       <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
         {t("settings.externalAccess.title")}
       </h5>
-      {loaded ? reachLine : <Reserved>{reachLine}</Reserved>}
+      {reachLine}
       <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
         <input
           type="checkbox"
@@ -299,9 +304,9 @@ function ExternalAccessSection({
         >
           {pending
             ? t("common.saving")
-            : dirty || !loaded
-              ? t("common.save")
-              : t("common.saved")}
+            : savedHere && !dirty
+              ? t("common.saved")
+              : t("common.save")}
         </button>
         {!loaded && <span style={hint}>{t("common.loading")}</span>}
       </div>

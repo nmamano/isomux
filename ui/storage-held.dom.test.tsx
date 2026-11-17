@@ -149,6 +149,31 @@ describe("Storage while its reads load", () => {
     expect(blockShape(view.container)).toBe(held);
   });
 
+  // Task 69c5f413: the size and file columns keep their width when the
+  // numbers come; the name column takes the rest of the table.
+  it("gives the size and file columns a fixed width and the name column the rest, held and loaded", async () => {
+    const answer = serve(RAN);
+    const view = await mount();
+    const widths = () => {
+      const tables = [...view.container.querySelectorAll("table")];
+      expect(tables.length).toBe(1);
+      const cols = [...tables[0]!.querySelectorAll("col")].map(
+        (col) => (col as HTMLElement).style.width,
+      );
+      return cols;
+    };
+    expect(busy(view.container)).toBeGreaterThanOrEqual(3);
+    const held = widths();
+    expect(held.length).toBe(3);
+    expect(held[0]).toBe("");
+    for (const width of held.slice(1))
+      expect(width).toMatch(/^\d+(\.\d+)?(px|em|rem|ch)$/);
+    await act(async () => answer());
+    await settle();
+    expect(busy(view.container)).toBe(0);
+    expect(widths()).toEqual(held);
+  });
+
   it("holds the cleanup form without a last run when the last answer had none", async () => {
     // A first visit shows an office whose cleanup never ran.
     serve(NEVER_RAN, true);

@@ -9,6 +9,7 @@
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
+import { isLoopbackUrl } from "./webhook-helpers.ts";
 import {
   clampSidebarWidth,
   parseChatSidebarPages,
@@ -586,7 +587,9 @@ export function getExternalAccessLayout(): ExternalAccessLayout {
       typeof hosted === "boolean" && typeof enabled === "boolean"
         ? { hosted, enabled }
         : null,
-    { hosted: false, enabled: true },
+    // A first visit: a page served from outside this machine reached the
+    // office from outside, so its external access is on.
+    { hosted: false, enabled: !isLoopbackUrl(window.location.origin) },
   );
 }
 
@@ -656,6 +659,28 @@ export function getUsageLayout(fallback: UsageLayout): UsageLayout {
 
 export function setUsageLayout(layout: UsageLayout): void {
   setHeldLayout(KEY_USAGE_LAYOUT, layout);
+}
+
+// Settings → Move office: whether the move-in card showed the not-fresh
+// blocker, and how many reasons it listed. The held card order follows it.
+export type MoveInLayout = { blocked: boolean; reasons: number };
+
+const KEY_MOVE_IN_LAYOUT = "isomux-move-in-layout";
+
+// `fallback` is the caller's guess from the office state, for a first visit.
+export function getMoveInLayout(fallback: MoveInLayout): MoveInLayout {
+  return getHeldLayout(
+    KEY_MOVE_IN_LAYOUT,
+    ({ blocked, reasons }) =>
+      typeof blocked === "boolean" && isRowCount(reasons)
+        ? { blocked, reasons }
+        : null,
+    fallback,
+  );
+}
+
+export function setMoveInLayout(layout: MoveInLayout): void {
+  setHeldLayout(KEY_MOVE_IN_LAYOUT, layout);
 }
 
 // Settings → Storage: whether the automatic cleanup showed its last-run line.

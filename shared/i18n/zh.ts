@@ -55,6 +55,7 @@ export const zh: Catalog = {
   "audit.memory.agent": "智能体记忆",
   "audit.memory.member": "成员记忆",
   "audit.older": "更早",
+  "audit.empty": "没有记录。",
   "audit.history": "历史记录",
   "audit.taskCreated": "创建了任务",
   "audit.taskDeleted": "删除了任务",

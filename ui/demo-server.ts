@@ -24,6 +24,7 @@ import type {
   InstructionsReq,
   BackupStatusWire,
   OfficeSettingsReq,
+  OfficeSettingsRes,
   TaskCreateReq,
   RoomCreateReq,
   RoomRenameReq,
@@ -181,10 +182,51 @@ let demoLogRetention: LogRetentionWire = {
   compressAfterDays: 7,
   deleteAfterDays: null,
   keepPerAgent: 2,
-  lastRunAt: null,
-  lastRun: null,
+  // The cleanup runs once a day, so an office as old as the demo's has a
+  // last run (the Storage pane holds a line for it while it loads).
+  lastRunAt: Date.now() - 5 * 60 * 60 * 1000,
+  lastRun: {
+    compressed: 14,
+    compressBytesSaved: 21_400_000,
+    transcriptsDeleted: 0,
+    filesDeleted: 0,
+    bytesDeleted: 0,
+  },
   lastError: null,
   running: false,
+};
+// Why the demo office cannot take a move in, counted as the real server's
+// check counts them (server/office-move-in.ts checkMoveInFresh): the lobby
+// Receptionist is a seed, every other agent was made here.
+function demoNotFreshReasons(): { kind: string; count: number }[] {
+  const made = state
+    .getAllAgents()
+    .filter((a) => a.name !== "Receptionist").length;
+  return [
+    ...(users.size !== 1
+      ? [{ kind: "users", count: Math.max(1, users.size - 1) }]
+      : []),
+    ...(made > 0 ? [{ kind: "agents", count: made }] : []),
+    ...(demoApps.length > 0 ? [{ kind: "apps", count: demoApps.length }] : []),
+    ...(state.tasks.length > 0
+      ? [{ kind: "tasks", count: state.tasks.length }]
+      : []),
+  ];
+}
+// The owner's office switches (GET/PUT /api/office/settings), with the
+// values a real office starts with. The Office and Audit log panes draw a
+// switch only for a field the server sends.
+const demoOfficeSwitches: Required<
+  Omit<OfficeSettingsRes, "name" | "version">
+> = {
+  memberUsageCap: false,
+  memberUsageShare: 80,
+  recordTerminals: false,
+  providerFallback: false,
+  processIsolation: true,
+  processIsolationStatus: "on",
+  claudeIsomuxLabel: false,
+  limitResume: true,
 };
 const demoAudit: AuditEntry[] = [];
 let restoringDemoTask = false;
@@ -3302,6 +3344,7 @@ export async function demoApi(
       return {
         name: state.office.name,
         version: "demo-version",
+        ...demoOfficeSwitches,
       };
     // Settings > Move office (task 78733adf): the demo office has no move
     // and is not new, so the pane shows its two cards with nothing to run.
@@ -3313,7 +3356,7 @@ export async function demoApi(
         blocker: {
           code: "office_not_fresh",
           message: "This office already has agents of its own.",
-          extra: { reasons: [{ kind: "agents", count: 1 }] },
+          extra: { reasons: demoNotFreshReasons() },
         },
       };
     case "POST /api/office/move/code":
@@ -3440,6 +3483,24 @@ export async function demoApi(
           name,
         ),
       );
+      // Omitted preserves, as on the real server.
+      for (const key of [
+        "memberUsageCap",
+        "memberUsageShare",
+        "recordTerminals",
+        "providerFallback",
+        "processIsolation",
+        "claudeIsomuxLabel",
+        "limitResume",
+      ] as const) {
+        if (b[key] !== undefined)
+          (demoOfficeSwitches as Record<typeof key, boolean | number>)[key] =
+            b[key];
+      }
+      if (b.processIsolation !== undefined)
+        demoOfficeSwitches.processIsolationStatus = b.processIsolation
+          ? "on"
+          : "turned_off";
       return undefined;
     }
     // tasks.create - push + broadcast the `tasks` event; return the created task

@@ -60,17 +60,18 @@ function dollars(language: SupportedLanguageCode, n: number): string {
 // footer: the sidebar is the way out.
 export function UsagePane() {
   const { t } = useI18n();
-  const { agents, rooms, sessionContext } = useAppState();
+  const { agents, rooms, cronjobs, sessionContext } = useAppState();
   const [usage, setUsage] = useState<UsageReportWire | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Until the report answers, the tables are drawn with blank rows, as many
   // as this device saw last, or as the reader sees in the office on a first
-  // visit (task 3755fad4).
+  // visit (task 3755fad4). The report lists schedules to an owner only
+  // (task 69c5f413).
   const [held] = useState(() =>
     getUsageLayout({
       agents: agents.length,
       rooms: rooms.length,
-      schedules: 0,
+      schedules: sessionContext?.role === "owner" ? cronjobs.length : 0,
     }),
   );
   // The server scopes the report for everyone but an owner.
@@ -233,6 +234,7 @@ function UsageTable({
       {note && <p style={noteStyle}>{note}</p>}
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
+          <NumberColumns count={6} />
           <thead>
             <tr>
               <th style={leftHead}>{firstHeader}</th>
@@ -277,6 +279,7 @@ function LifetimeTable({
       <h4 style={heading}>{title}</h4>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
+          <NumberColumns count={3} />
           <thead>
             <tr>
               <th style={leftHead}>{t("common.schedule")}</th>
@@ -300,6 +303,21 @@ function LifetimeTable({
     </section>
   );
 }
+
+// The number columns keep one width, so the name column does not take a new
+// share of the table when the names arrive (task 69c5f413).
+function NumberColumns({ count }: { count: number }) {
+  return (
+    <colgroup>
+      <col />
+      {Array.from({ length: count }, (_, i) => (
+        <col key={i} style={{ width: NUMBER_COLUMN_WIDTH }} />
+      ))}
+    </colgroup>
+  );
+}
+
+const NUMBER_COLUMN_WIDTH = 80;
 
 function RowLabel({
   row,

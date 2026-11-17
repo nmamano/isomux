@@ -551,6 +551,13 @@ function UsageBlock({
           fontSize: 11,
         }}
       >
+        {/* The number columns keep one width, so the names do not take a new
+            share of the table when the sizes arrive (task 69c5f413). */}
+        <colgroup>
+          <col />
+          <col style={{ width: 90 }} />
+          <col style={{ width: 50 }} />
+        </colgroup>
         <tbody>
           {IN_ROOT_ORDER.map(row)}
           <tr>
