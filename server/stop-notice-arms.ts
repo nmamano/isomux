@@ -1,4 +1,5 @@
-// The stop-notice slot (ManagedAgent.stopNotice) for agent-initiated aborts.
+// The stop-notice slot (ManagedAgent.stopNotice) for agent-initiated aborts
+// and for a backend's own stop (turn_completed.backendStopped).
 // An arm goes in before its abort runs and settles when the abort answers.
 // Each arm is a fresh object, so runAgentTurn can tell the arm it sent from a
 // later one. `backing` links the arms an arm replaced; after every failure the

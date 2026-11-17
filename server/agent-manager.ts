@@ -687,6 +687,10 @@ export const AGENT_INTERRUPT_NOTE =
 // target's next turn carries this one instead (runAgentTurn's stop-notice).
 export const AGENT_STOP_NOTE =
   "[Isomux: another agent stopped your previous turn. Any rejection or interruption text at the end of that turn came from that stop, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]";
+// The backend stopped the turn itself (turn_completed.backendStopped): the
+// engine may tell the model the user interrupted it.
+export const BACKEND_STOP_NOTE =
+  "[Isomux: Isomux stopped your previous turn. Any rejection or interruption text at the end of that turn came from that stop, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]";
 export const MEMBER_INTERRUPT_NOTE =
   "[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]";
 // Messages a conversation change carried to the next session (QueuedMessage.
@@ -3806,6 +3810,15 @@ export function createAgentManager(deps: ManagerDeps) {
             const resetsAtMs = m.turnFlags.limitStopResetsAtMs;
             m.turnFlags.limitStopResetsAtMs = null;
             armLimitResume(agentId, m, resetsAtMs);
+          }
+          // The backend stopped this turn in the engine itself, so the engine
+          // may tell the model the user did: the next turn says who did. Armed
+          // here, before the idle transition and the deferred below start the
+          // queue's flush. Not during a member's or agent's stop: that stop's
+          // own notice (or the engine's) is the true one.
+          if (ev.backendStopped && m && !m.sessionManager.aborting) {
+            const arm = pushStopArm(m, BACKEND_STOP_NOTE);
+            settleStopArm(m, arm, true);
           }
         }
         // Backends report token totals per turn. We accumulate cumulative

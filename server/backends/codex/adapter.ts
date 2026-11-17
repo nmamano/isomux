@@ -1285,6 +1285,10 @@ export class CodexSession implements BackendSession {
   // turn/completed handler maps it back to status="failed" + the standard
   // auth summary so the user sees a clear failure, not a vague "interrupted".
   private selfInterruptedForAuth = false;
+  // Set when a turn watchdog sent turn/interrupt for the turn it ends. Codex
+  // then tells the model the user interrupted it, so the turn's end carries
+  // backendStopped.
+  private watchdogInterruptSent = false;
   private capacityErrorThisAttempt: string | null = null;
   // The refusal line of this attempt's terminal error notification. Codex
   // sends the same error again on the failed turn/completed, which shows it.
@@ -1920,6 +1924,7 @@ export class CodexSession implements BackendSession {
       this.authSignalsAllowedThisTurn = false;
       this.authSignalEmittedThisTurn = false;
       this.selfInterruptedForAuth = false;
+      this.watchdogInterruptSent = false;
       if (this.turn === starting) this.setTurn(IDLE_TURN);
       throw err;
     }
@@ -2060,6 +2065,7 @@ export class CodexSession implements BackendSession {
     const turnId = this.activeTurnId;
     this.abandonedTurn = { id: turnId };
     if (this.threadId && turnId) {
+      this.watchdogInterruptSent = true;
       this.client
         .request("turn/interrupt", { threadId: this.threadId, turnId })
         .catch(() => {});
@@ -2148,6 +2154,7 @@ export class CodexSession implements BackendSession {
     this.abandonedTurn = { id: turnId };
     // Direct, not requestSelfInterruptForAuth: that latch remaps the status.
     if (this.threadId && turnId) {
+      this.watchdogInterruptSent = true;
       this.client
         .request("turn/interrupt", { threadId: this.threadId, turnId })
         .catch(() => {});
@@ -2851,6 +2858,13 @@ export class CodexSession implements BackendSession {
     const rawError = turnError?.message ?? undefined;
     const capacityError = this.capacityErrorThisAttempt;
     const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
+    // Isomux interrupted the turn and codex ended it as interrupted, so codex
+    // tells the model the user did. A watchdog's end is synthesized; codex
+    // gets the interrupt all the same.
+    const backendStopped =
+      this.watchdogInterruptSent ||
+      (wasSelfInterruptForAuth && rawStatus === "interrupted");
+    this.watchdogInterruptSent = false;
     this.terminalErrorThisAttempt = null;
     // hook/completed comes before turn/completed: no card claims these now.
     this.flushHeldRefusalRecords();
@@ -2906,6 +2920,7 @@ export class CodexSession implements BackendSession {
         status,
         error: noAnswer ?? capacityError ?? error,
         ...(noAnswer ? { providerNoAnswer: true as const } : {}),
+        ...(backendStopped ? { backendStopped: true as const } : {}),
         ...(capacityError && !noAnswer
           ? { causedByProviderCapacity: true }
           : {}),
@@ -3987,6 +4002,7 @@ export class CodexSession implements BackendSession {
     this.authSignalsAllowedThisTurn = false;
     this.authSignalEmittedThisTurn = false;
     this.selfInterruptedForAuth = false;
+    this.watchdogInterruptSent = false;
     // If a turn was in flight when codex died, synthesize a failed
     // turn_completed so the orchestrator's pendingTurn unblocks.
     if (this.endTurn()) {

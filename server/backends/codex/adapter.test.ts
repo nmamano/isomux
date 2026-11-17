@@ -4336,6 +4336,43 @@ describe("CodexSession auth coalescing", () => {
     expect(done.status).toBe("failed");
     expect(done.error).toBeUndefined();
     expect(fake.interruptCount()).toBe(1);
+    // Codex aborted the turn on our interrupt, so its history now says the
+    // user interrupted it: the turn end says the backend did.
+    expect(done.backendStopped).toBe(true);
+  });
+
+  // Codex failed the turn before it took our interrupt: it wrote no
+  // interruption note, so there is nothing to correct.
+  it("an auth interrupt that codex did not act on does not mark the turn as stopped by the backend", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("do the thing");
+    fake.fireNotification("turn/started", { turn: { id: "turn-1" } });
+    fake.fireStderr("ERROR: 401 Unauthorized while connecting to OpenAI");
+    expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
+    expect(fake.interruptCount()).toBe(1);
+    fake.fireNotification("turn/completed", {
+      turn: { status: "failed", error: null },
+    });
+    const done = expectKind(
+      await nextEvent(it, "turn_completed"),
+      "turn_completed",
+    );
+    expect(done.status).toBe("failed");
+    expect(done.backendStopped).toBeUndefined();
+
+    // The latch does not leak into the next turn: codex's own interrupted
+    // end (the member's stop) is not the backend's.
+    await session.send("next");
+    fake.fireNotification("turn/started", { turn: { id: "turn-2" } });
+    fake.fireNotification("turn/completed", {
+      turn: { status: "interrupted", error: null },
+    });
+    const next = expectKind(
+      await nextEvent(it, "next turn_completed"),
+      "turn_completed",
+    );
+    expect(next.status).toBe("interrupted");
+    expect(next.backendStopped).toBeUndefined();
   });
 
   // Only the sign-in failure loses its line: a turn that ends on another
@@ -4356,6 +4393,7 @@ describe("CodexSession auth coalescing", () => {
     );
     expect(done.status).toBe("failed");
     expect(done.error).toContain("model exploded");
+    expect(done.backendStopped).toBeUndefined();
   });
 
   it("a retrying auth-shaped provider error is a sign-in signal, not a notice", async () => {
@@ -4627,7 +4665,11 @@ describe("CodexSession turn watchdog", () => {
     await watchdog.runNext();
     expect(
       expectKind(await nextEvent(it, "watchdog end"), "turn_completed"),
-    ).toMatchObject({ status: "failed", error: "stream broke" });
+    ).toMatchObject({
+      status: "failed",
+      error: "stream broke",
+      backendStopped: true,
+    });
     expect(
       fake.requests
         .filter((r) => r.method === "turn/interrupt")
@@ -4649,9 +4691,9 @@ describe("CodexSession turn watchdog", () => {
       threadId: FIXTURE_THREAD_ID,
       turn: { id: "turn-2", status: "completed" },
     });
-    expect(
-      expectKind(await nextEvent(it, "next turn"), "turn_completed").status,
-    ).toBe("completed");
+    const next = expectKind(await nextEvent(it, "next turn"), "turn_completed");
+    expect(next.status).toBe("completed");
+    expect(next.backendStopped).toBeUndefined();
   });
 
   it("only traffic on our own thread keeps the turn alive", async () => {
@@ -4700,9 +4742,12 @@ describe("CodexSession turn watchdog", () => {
       threadId: FIXTURE_THREAD_ID,
       turn: { status: "failed", error: { message: "stream broke" } },
     });
-    expect(
-      expectKind(await nextEvent(it, "codex end"), "turn_completed"),
-    ).toMatchObject({ status: "failed", error: "stream broke" });
+    const codexEnd = expectKind(
+      await nextEvent(it, "codex end"),
+      "turn_completed",
+    );
+    expect(codexEnd).toMatchObject({ status: "failed", error: "stream broke" });
+    expect(codexEnd.backendStopped).toBeUndefined();
 
     // Any timer still live from the first turn fires during a healthy one.
     await session.send("next");
@@ -4725,7 +4770,11 @@ describe("CodexSession turn watchdog", () => {
     terminalError(fake, "stream broke");
     expectKind(await nextEvent(it, "terminal error"), "error");
     await watchdog.runNext();
-    expectKind(await nextEvent(it, "watchdog end"), "turn_completed");
+    // No interrupt went to codex, so it wrote no interruption note.
+    expect(
+      expectKind(await nextEvent(it, "watchdog end"), "turn_completed")
+        .backendStopped,
+    ).toBeUndefined();
     expect(fake.interruptCount()).toBe(0);
 
     fake.fireNotification("turn/completed", {
@@ -4934,6 +4983,7 @@ describe("CodexSession no-answer watchdog", () => {
     expect(done.providerNoAnswer).toBe(true);
     expect(done.error).toEqual(NO_ANSWER);
     expect(done.causedByProviderCapacity).toBeFalsy();
+    expect(done.backendStopped).toBe(true);
     expect(
       fake.requests
         .filter((r) => r.method === "turn/interrupt")
@@ -4968,6 +5018,7 @@ describe("CodexSession no-answer watchdog", () => {
     const next = expectKind(await nextEvent(it, "next turn"), "turn_completed");
     expect(next.status).toBe("completed");
     expect(next.providerNoAnswer).toBeUndefined();
+    expect(next.backendStopped).toBeUndefined();
   });
 
   it("only traffic on our own thread keeps the turn alive", async () => {
@@ -5149,6 +5200,7 @@ describe("CodexSession no-answer watchdog", () => {
     const done = expectKind(await nextEvent(it, "abort end"), "turn_completed");
     expect(done.status).toBe("interrupted");
     expect(done.providerNoAnswer).toBeUndefined();
+    expect(done.backendStopped).toBeUndefined();
     expect(armed(silence)).toHaveLength(0);
   });
 

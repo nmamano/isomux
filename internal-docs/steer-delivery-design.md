@@ -171,6 +171,11 @@ and uses it in place of the "queued while you were processing" note:
 The strings are exported from `server/agent-manager.ts` (`AGENT_INTERRUPT_NOTE`, `MEMBER_INTERRUPT_NOTE`)
 and `server/message-queue.ts` (`TOOL_BOUNDARY_NOTE`). Nil signs off agent-facing copy.
 
+A stop with no message to carry a note arms the stop-notice slot (`server/stop-notice-arms.ts`), and the next turn
+carries the note in its envelope: `AGENT_STOP_NOTE` after an agent's abort, `BACKEND_STOP_NOTE` after a backend
+stopped the turn itself (`turn_completed.backendStopped`: the Codex watchdogs and sign-in short-cut send `turn/interrupt`,
+and Codex then tells the model the user interrupted it; no arm while a member's or agent's stop is in flight).
+
 ### 3.3 System prompt (server/system-prompt.ts, all engines)
 
 Replace *"To interrupt their current turn instead of waiting, add "steer":true."* with:

@@ -303,6 +303,10 @@ export type NormalizedEvent =
       // backend stopped the turn. As for capacity, the session stays usable:
       // `error` is the chat line and the queue is delivered next.
       providerNoAnswer?: true;
+      // The backend itself interrupted the turn in the engine (a watchdog, a
+      // sign-in short-cut), so the engine may tell the model the user did:
+      // the orchestrator's next turn says who stopped it.
+      backendStopped?: true;
       // `error` is a provider refusal line (server/backends/provider-text.ts):
       // the orchestrator shows it as it is, without auth detection.
       providerRefusal?: boolean;

@@ -10,7 +10,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { AGENT_STOP_NOTE } from "../agent-manager.ts";
+import { AGENT_STOP_NOTE, BACKEND_STOP_NOTE } from "../agent-manager.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -424,4 +424,136 @@ describe("the stop notice", () => {
     )!;
     expect(flushed).toContain(AGENT_STOP_NOTE);
   });
+});
+
+// A backend that interrupts the turn in the engine itself (Codex's watchdogs,
+// its sign-in short-cut) reports turn_completed.backendStopped: the engine then
+// tells the model the user stopped it, and the next turn corrects that.
+describe("the stop notice after a backend's own stop", () => {
+  // The no-answer watchdog's turn end: the session stays usable and the queue
+  // goes next.
+  const noAnswerEnd = {
+    kind: "turn_completed",
+    status: "failed",
+    error: "The provider did not answer.",
+    providerNoAnswer: true,
+    backendStopped: true,
+  } as const;
+
+  function sessionOf(srv: TestServer, agentId: string) {
+    const s = srv.fakeBackend.sessionForAgent(agentId);
+    if (!s) throw new Error(`no session for ${agentId}`);
+    return s;
+  }
+
+  it("rides the target's next turn once", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const [r1] = server.agentManager.getRooms();
+    const target = await spawnAgent(server, "Target", r1.id);
+    const sender = await spawnAgent(server, "Sender", r1.id);
+    await startTurn(server, target.id, sender.id, "first");
+    sessionOf(server, target.id).push(noAnswerEnd);
+    await waitUntil(
+      () => agentOf(server!, target.id).state === "waiting_for_response",
+      3000,
+      "backend stop settled",
+    );
+    await startTurn(server, target.id, sender.id, "second");
+    sessionOf(server, target.id).completeTurn();
+    await waitUntil(
+      () => agentOf(server!, target.id).state === "waiting_for_response",
+    );
+    await startTurn(server, target.id, sender.id, "third");
+
+    const texts = sentTexts(server, target.id);
+    const turn = (marker: string) => texts.find((t) => t.includes(marker))!;
+    expect(turn("first")).not.toContain(BACKEND_STOP_NOTE);
+    expect(turn("second")).toContain(BACKEND_STOP_NOTE);
+    expect(turn("second")).not.toContain(AGENT_STOP_NOTE);
+    expect(turn("third")).not.toContain(BACKEND_STOP_NOTE);
+  });
+
+  it("rides the flush that delivers the queue after the stop", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const [r1] = server.agentManager.getRooms();
+    const target = await spawnAgent(server, "Target", r1.id);
+    const sender = await spawnAgent(server, "Sender", r1.id);
+    await startTurn(server, target.id, sender.id, "first");
+    const queued = await post(
+      server,
+      `/api/agents/${target.id}/messages`,
+      { bearer: getAgentTokenRaw(sender.id)! },
+      { text: "waiting-in-queue" },
+    );
+    expect((queued.body as { queued?: boolean }).queued).toBe(true);
+
+    sessionOf(server, target.id).push(noAnswerEnd);
+    await waitUntil(
+      () =>
+        sentTexts(server!, target.id).some((t) =>
+          t.includes("waiting-in-queue"),
+        ),
+      3000,
+      "queued message flushed",
+    );
+    const flushed = sentTexts(server, target.id).find((t) =>
+      t.includes("waiting-in-queue"),
+    )!;
+    expect(flushed).toContain(BACKEND_STOP_NOTE);
+  });
+
+  // A member's or an agent's stop already sent its own interrupt, so the
+  // engine's "the user interrupted" note is true for the member and is
+  // corrected by AGENT_STOP_NOTE for an agent. A backend stop that ends the
+  // same turn while that stop is in flight adds nothing.
+  for (const who of ["member", "agent"] as const) {
+    it(`a backend stop during a ${who}'s stop leaves that stop's notice`, async () => {
+      server = await startTestServer({
+        fakeBackend: new FakeBackend({
+          storedSessionState: "durable",
+          session: {
+            abortInPlace: true,
+            onSend: (_t, _a, s) =>
+              s.push({ kind: "assistant_text", text: "..." }),
+          },
+        }),
+      });
+      const [r1] = server.agentManager.getRooms();
+      const target = await spawnAgent(server, "Target", r1.id);
+      const sender = await spawnAgent(server, "Sender", r1.id);
+      await startTurn(server, target.id, sender.id, "first");
+      const session = sessionOf(server, target.id);
+
+      const stopping =
+        who === "member"
+          ? server.agentManager.abort(target.id)
+          : server.agentManager.abortByAgent(target.id);
+      let stopSettled = false;
+      void stopping.then(() => {
+        stopSettled = true;
+      });
+      // The engine took the interrupt; the stop now waits for the turn end.
+      await waitUntil(() => session.abortCount === 1, 3000, "interrupt sent");
+      expect(stopSettled).toBe(false);
+      // The error watchdog ends the same turn before codex answers.
+      session.push({
+        kind: "turn_completed",
+        status: "failed",
+        error: "stream broke",
+        backendStopped: true,
+      });
+      expect((await stopping).ok).toBe(true);
+      await waitUntil(
+        () => agentOf(server!, target.id).state === "waiting_for_response",
+      );
+      await startTurn(server, target.id, sender.id, "second");
+
+      const second = sentTexts(server, target.id).find((t) =>
+        t.includes("second"),
+      )!;
+      expect(second).not.toContain(BACKEND_STOP_NOTE);
+      if (who === "agent") expect(second).toContain(AGENT_STOP_NOTE);
+      else expect(second).not.toContain(AGENT_STOP_NOTE);
+    });
+  }
 });
