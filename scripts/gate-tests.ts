@@ -44,9 +44,14 @@ export type GateTests = {
  * of server/test-support/harness.ts that a longer path reaches. Without a stop,
  * any copy edit selected 687 of 1149 test files. A facade that many modules
  * import with few tests behind them, such as
- * control-plane/web/lib/services.server.ts, is no hub. Over the last 150
- * commits on main, on the tree of 2026-11-07 (1258 test files), the tests
- * this selects per commit: median 62, p90 549, max 755.
+ * control-plane/web/lib/services.server.ts, is no hub. Past a hub, a test
+ * that reaches a changed source file still runs when its file name shares a
+ * word (nameWords) with that file's name: a change to server/message-queue.ts
+ * runs server/test-support/queue-reliability.test.ts, which reaches it only
+ * through harness.ts. Over the last 150 commits on main, on the tree of
+ * 2026-11-17 (1473 test files), the tests this selects per commit: median
+ * 287, p90 669, max 842 (median 267, p90 658, max 836 without the name
+ * match).
  */
 export const HUB_IMPORTERS = 20;
 
@@ -152,6 +157,39 @@ function namesPath(test: string, pieces: Set<string>, path: string): boolean {
   let shared = 0;
   while (shared < dirs.length && dirs[shared] === own[shared]) shared++;
   return dirs.slice(shared).every((d) => pieces.has(d));
+}
+
+// Pieces of a file name that say what kind of file it is, not its subject.
+const KIND_WORDS = new Set([
+  "test",
+  "dom",
+  "di",
+  "live",
+  "e2e",
+  "index",
+  "ts",
+  "tsx",
+  "js",
+  "mjs",
+  "cjs",
+  "jsx",
+]);
+
+/**
+ * The words of a file name: camelCase split (an acronym run splits before its
+ * last capital, so URLBar is url and bar), lowercased, split on every
+ * character that is not a letter or a digit, less KIND_WORDS. The directory
+ * names do not count.
+ */
+function nameWords(path: string): Set<string> {
+  const name = path
+    .slice(path.lastIndexOf("/") + 1)
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
+  return new Set(
+    name.split(/[^a-z0-9]+/).filter((w) => w && !KIND_WORDS.has(w)),
+  );
 }
 
 function isTest(path: string): boolean {
@@ -296,6 +334,23 @@ export function selectGateTests(input: GateTestsInput): GateTests {
         reached.add(f);
         queue.push(f);
       }
+  }
+
+  // A test behind a hub that reaches a changed source file, with no stop,
+  // and whose file name shares a word with that file's name.
+  for (const file of changed) {
+    if (isTest(file) || !SOURCE.test(file)) continue;
+    const own = nameWords(file);
+    if (own.size === 0) continue;
+    const seen = new Set([file]);
+    const queue = [file];
+    while (queue.length > 0)
+      for (const f of importers.get(queue.pop()!) ?? [])
+        if (!seen.has(f)) {
+          seen.add(f);
+          if (!isTest(f)) queue.push(f);
+          else if ([...nameWords(f)].some((w) => own.has(w))) selected.add(f);
+        }
   }
 
   // Every file that reaches a changed one, with no stop at hubs.

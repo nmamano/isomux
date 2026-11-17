@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "child_process";
-import { join } from "path";
+import { join, posix } from "path";
 import {
   HUB_IMPORTERS,
   WHOLE_TREE_TESTS,
@@ -652,5 +652,159 @@ describe("selectGateTests, control-plane", () => {
     ["a module control-plane/web does not reach", "server/y.ts", false],
   ])("asks for ci:web for a change to %s: %p", (_, changed, web) => {
     expect(select(tree, [changed]).web).toBe(web);
+  });
+});
+
+// Task ac49d858: server/test-support/queue-reliability.test.ts reaches
+// message-queue.ts only through harness.ts, a hub, so the walk stopped there.
+// A test behind a hub runs when it reaches a changed source file and its name
+// shares a word with that file's name.
+describe("selectGateTests, name affinity", () => {
+  // server/harness.ts: a hub over HUB_IMPORTERS + 1 tests whose names share
+  // no word with any changed file, and that reaches each target through
+  // server/core.ts, which imports nothing else. `tests` also import it.
+  const rel = (from: string, to: string) => {
+    const r = posix.relative(posix.dirname(from), to);
+    return r.startsWith(".") ? r : `./${r}`;
+  };
+  const behindHub = (targets: string[], tests: string[]): Tree => {
+    const tree: Tree = {
+      "server/core.ts": `${targets.map((t, i) => `import * as m${i} from "${rel("server/core.ts", t)}";\n`).join("")}export const core = 1;\n`,
+      "server/harness.ts":
+        'import { core } from "./core";\nexport const harness = core;\n',
+    };
+    for (const t of targets) tree[t] = "export const x = 1;\n";
+    const fillers = Array.from(
+      { length: HUB_IMPORTERS + 1 },
+      (_, i) => `server/h${i}.test.ts`,
+    );
+    for (const t of [...fillers, ...tests])
+      tree[t] = `import { harness } from "${rel(t, "server/harness.ts")}";\n`;
+    return tree;
+  };
+
+  // Each row: the changed file, a test behind the hub, whether it runs.
+  const rows: [string, string, string, boolean][] = [
+    [
+      "shares a word",
+      "server/message-queue.ts",
+      "server/queue-reliability.test.ts",
+      true,
+    ],
+    [
+      "shares no word",
+      "server/message-queue.ts",
+      "server/session-lifecycle.test.ts",
+      false,
+    ],
+    [
+      "holds a word of the changed file only as part of a longer word",
+      "server/queue.ts",
+      "server/queued-item.test.ts",
+      false,
+    ],
+    [
+      "shares a word of a camelCase changed file",
+      "ui/AppWidgetPage.tsx",
+      "ui/app-shell.test.ts",
+      true,
+    ],
+    [
+      "has a camelCase name that shares a word",
+      "ui/panel-frame.ts",
+      "ui/widgetPanel.test.ts",
+      true,
+    ],
+    [
+      "shares the acronym of a changed file",
+      "ui/URLBar.tsx",
+      "ui/url-parse.test.ts",
+      true,
+    ],
+    [
+      "shares the word after the acronym of a changed file",
+      "ui/URLBar.tsx",
+      "ui/bar-chart.test.ts",
+      true,
+    ],
+    [
+      "shares a word split by an underscore",
+      "server/message_queue.ts",
+      "server/queue.test.ts",
+      true,
+    ],
+    [
+      "shares only a directory name with the changed file",
+      "ui/office/chair.ts",
+      "ui/office-map.test.ts",
+      false,
+    ],
+    // File-kind words name no subject.
+    ["shares only test", "server/test-env.ts", "server/session.test.ts", false],
+    ["shares only dom", "ui/dom-helper.ts", "ui/chat.dom.test.tsx", false],
+    ["shares only di", "server/di-wire.ts", "server/chat.di.test.ts", false],
+    [
+      "shares only live",
+      "server/live-feed.ts",
+      "server/agent.live.test.ts",
+      false,
+    ],
+    ["shares only e2e", "ui/e2e-runner.ts", "ui/flow.e2e.test.ts", false],
+    ["shares only index", "ui/lib/index.ts", "ui/index-page.test.ts", false],
+    [
+      "shares only an extension",
+      "ui/tsx-loader.ts",
+      "ui/panel.test.tsx",
+      false,
+    ],
+  ];
+  it.each(rows)(
+    "a test behind a hub that %s: %s, %s, selected: %p",
+    (_, changed, test, runs) => {
+      expect(select(behindHub([changed], [test]), [changed]).tests).toEqual(
+        runs ? [test] : [],
+      );
+    },
+  );
+
+  it("does not select a test that shares a word but does not reach the changed file", () => {
+    const tree: Tree = {
+      ...behindHub(["server/message-queue.ts"], []),
+      "server/other.ts": "export const other = 1;\n",
+      "server/queue-other.test.ts": 'import { other } from "./other";\n',
+    };
+    expect(select(tree, ["server/message-queue.ts"]).tests).toEqual([]);
+  });
+
+  // The word must be shared with a changed file the test reaches, not with
+  // any changed file: queue-reliability reaches agent-manager.ts, not
+  // queue-store.ts.
+  it("pairs each changed file with the tests that reach it", () => {
+    const tree: Tree = {
+      ...behindHub(
+        ["server/agent-manager.ts"],
+        ["server/queue-reliability.test.ts", "server/agent-restore.test.ts"],
+      ),
+      "server/queue-store.ts": "export const store = 1;\n",
+    };
+    expect(
+      select(tree, ["server/agent-manager.ts", "server/queue-store.ts"]).tests,
+    ).toEqual(["server/agent-restore.test.ts"]);
+  });
+
+  it("selects a test two hubs away", () => {
+    // server/harness.ts reaches server/outer.ts, a second hub over its own
+    // HUB_IMPORTERS + 1 tests; queue-flow.test.ts imports outer.ts.
+    const tree: Tree = {
+      ...behindHub(["server/message-queue.ts"], []),
+      "server/outer.ts":
+        'import { harness } from "./harness";\nexport const outer = harness;\n',
+      "server/queue-flow.test.ts": 'import { outer } from "./outer";\n',
+    };
+    for (let i = 0; i <= HUB_IMPORTERS; i++)
+      tree[`server/o${i}.test.ts`] = 'import { outer } from "./outer";\n';
+    expect(select(tree, ["server/message-queue.ts"]).tests).toEqual([
+      "server/queue-flow.test.ts",
+    ]);
   });
 });
