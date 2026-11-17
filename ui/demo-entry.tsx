@@ -15,6 +15,7 @@ import {
   handleCommand,
   seedDemoHeldLayouts,
   sendInitialState,
+  setDemoStill,
   setEmbedMode,
 } from "./demo-server.ts";
 import { held, hold, release } from "./demo-hold.ts";
@@ -28,11 +29,15 @@ if (isEmbed) setEmbedMode();
 // on the bus; the API shim handles commands already migrated to apiFetch.
 // scripts/loading-check.sh holds the demo server to show a view while it
 // loads: from boot when it sets __isomuxDemoHoldAtBoot, and later through
-// window.__isomuxDemoHold. The shipped demo never holds.
+// window.__isomuxDemoHold. The shipped demo never holds. It also sets
+// __isomuxDemoStill, so no demo timer (Stephen's ghost) changes the view
+// between its snapshots.
 const demoHold = { hold, release };
 Object.assign(window, { __isomuxDemoHold: demoHold });
 if ((window as { __isomuxDemoHoldAtBoot?: unknown }).__isomuxDemoHoldAtBoot)
   hold();
+if ((window as { __isomuxDemoStill?: unknown }).__isomuxDemoStill)
+  setDemoStill(true);
 
 const heldCommand = held(handleCommand);
 const heldInitialState = held(sendInitialState);

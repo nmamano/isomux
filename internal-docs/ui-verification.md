@@ -31,6 +31,10 @@ drew (the sidebar, the office) need `--warm`: the demo loads once and is left
 before the checked load. Without it a boot check is a first visit, and only
 the default shape can draw.
 `ui/demo-hold.ts` holds every answer of the demo server until release.
+The check also keeps the demo still (`setDemoStill` in `ui/demo-server.ts`):
+Stephen's ghost stays at its first stop. A new demo timer must stop there too.
+An endless animation that only moves its element (a bob, a shake) is paused
+at its start before each snapshot.
 
 The report names each element that moved or changed size relative to its
 parent, and each new element in space no removed placeholder held. Elements

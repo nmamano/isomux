@@ -21,7 +21,12 @@ import {
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../shared/memory-caps.ts";
-import { DEMO_ROOM_NAMES, demoApi, sendInitialState } from "./demo-server.ts";
+import {
+  DEMO_ROOM_NAMES,
+  demoApi,
+  sendInitialState,
+  setDemoStill,
+} from "./demo-server.ts";
 import {
   discordPlacesMatching,
   type DiscordGuildSeen,
@@ -631,6 +636,36 @@ it("shows demo task history and restores a deleted task once", async () => {
   expect(
     demoApi("POST", `/api/tasks/${task.id}/restore`, undefined),
   ).rejects.toMatchObject({ status: 409 });
+});
+
+// Task c9cf3a4b: scripts/loading-check.mjs keeps the demo still, so the ghost
+// cannot move between its snapshots and read as a layout jump. This test runs
+// before the cycle test below: the cycle timer is module state.
+it("keeps Stephen's ghost at one stop while the demo is still", () => {
+  const seen: ServerMessage[] = [];
+  const listen = (data: string) => seen.push(JSON.parse(data));
+  addRawListener(listen);
+  jest.useFakeTimers();
+  try {
+    setDemoStill(true);
+    sendInitialState();
+    const full = seen.find((m) => m.type === "full_state");
+    if (full?.type !== "full_state") throw new Error("no full_state sent");
+    const roomIds = new Set(ordinaryRooms(full.rooms).map((r) => r.id));
+    const stopCount = full.agents.filter((a) => roomIds.has(a.roomId)).length;
+    // The condition this test needs: more than one stop, so a cycle would move.
+    expect(stopCount).toBeGreaterThan(1);
+    jest.advanceTimersByTime(4000 * stopCount);
+  } finally {
+    setDemoStill(false);
+    jest.useRealTimers();
+    removeRawListener(listen);
+  }
+  const stops: PresenceInfo[] = seen.flatMap((m) =>
+    m.type === "presence_list" ? m.entries : [],
+  );
+  expect(stops.length).toBeGreaterThan(0);
+  expect(new Set(stops.map((s) => s.focusedAgentId)).size).toBe(1);
 });
 
 // Task d587f975: Stephen's phone ghost walks the whole office, so a visitor

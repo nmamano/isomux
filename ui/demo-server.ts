@@ -1045,6 +1045,7 @@ function seedOffice() {
 const STEPHEN_PHONE_CONNECTION_ID = "demo-stephen-phone";
 let cycleIndex = 0;
 let cycleTimer: ReturnType<typeof setInterval> | null = null;
+let demoStill = false;
 
 // Read live on each tick, so agents spawned or moved since are included.
 function stephenStops(): AgentInfo[] {
@@ -1086,12 +1087,23 @@ function startStephenGhostCycle() {
   // Initial emission so the ghost appears immediately at agent 0 rather
   // than 4 seconds later.
   emitStephenPresence();
+  if (demoStill) return;
   cycleTimer = setInterval(() => {
     const total = stephenStops().length;
     if (total === 0) return;
     cycleIndex = (cycleIndex + 1) % total;
     emitStephenPresence();
   }, 4000);
+}
+
+// The loading check (scripts/loading-check.mjs) keeps the demo still: with
+// still set, Stephen's ghost stays at its stop and no timer moves it.
+export function setDemoStill(still: boolean): void {
+  demoStill = still;
+  if (still && cycleTimer) {
+    clearInterval(cycleTimer);
+    cycleTimer = null;
+  }
 }
 
 let seeded = false;

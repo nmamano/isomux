@@ -171,7 +171,10 @@ function quiet([sel, quietMs, capMs]) {
   });
 }
 
-// In the page: fonts loaded, finite animations done, SVG animations paused.
+// In the page: fonts loaded, finite animations done, SVG animations paused,
+// and each endless animation that only moves a box (a bob, a shake) paused at
+// its start, so every snapshot sees that box in the same place. An endless
+// fade or pulse runs on: its first frame can hide its element.
 async function still(capMs) {
   await document.fonts.ready;
   const end = Date.now() + capMs;
@@ -186,6 +189,17 @@ async function still(capMs) {
     Date.now() < end
   )
     await new Promise((r) => setTimeout(r, 50));
+  const motion = new Set(["transform", "translate", "rotate", "scale"]);
+  const timing = new Set(["offset", "computedOffset", "easing", "composite"]);
+  for (const a of document.getAnimations()) {
+    if (a.effect?.getTiming().iterations !== Infinity) continue;
+    const props = (a.effect.getKeyframes?.() ?? []).flatMap((k) =>
+      Object.keys(k).filter((p) => !timing.has(p)),
+    );
+    if (props.length === 0 || !props.every((p) => motion.has(p))) continue;
+    a.pause();
+    a.currentTime = 0;
+  }
   for (const svg of document.querySelectorAll("svg")) svg.pauseAnimations?.();
 }
 
@@ -203,6 +217,11 @@ try {
     deviceScaleFactor: 1,
     hasTouch: phone,
     isMobile: phone,
+  });
+  // The demo's timers (Stephen's ghost) stay still, so only the held data
+  // changes the view between the snapshots.
+  await context.addInitScript(() => {
+    window.__isomuxDemoStill = true;
   });
   await context.addInitScript((mode) => {
     localStorage.setItem("isomux-theme", mode);
