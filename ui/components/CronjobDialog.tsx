@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
@@ -32,6 +32,7 @@ import {
 import { shortenCwd } from "../cwd-display.ts";
 import { noTranslate } from "../no-translate.ts";
 import { AgentOptions } from "./AgentOptions.tsx";
+import { EngineTiles } from "./EngineTiles.tsx";
 import {
   defaultBackendModel,
   fetchBackendModels,
@@ -229,6 +230,7 @@ export function CronjobDialog({
   const engineUnavailable = unavailableEngines[agentType] !== undefined;
   const engineChoiceBlocked =
     engineUnavailable && agentType !== cronjob?.agentType;
+  const engineLabelId = useId();
 
   const [modelFamily, setModelFamily] = useState<string>(
     cronjob?.modelFamily ?? MODEL_FAMILIES[0].family,
@@ -331,7 +333,7 @@ export function CronjobDialog({
   }
 
   // Fetch the auth-appropriate Codex model list. Fires when the dialog opens
-  // on a Codex cronjob, or when the user flips the Engine select to Codex.
+  // on a Codex cronjob, or when the user picks the Codex engine tile.
   // POST backends.listModels: a DOMAIN failure (auth/transport in the executor's
   // model probe) comes back as a 200 carrying { models: [], authError, error },
   // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
@@ -986,30 +988,24 @@ export function CronjobDialog({
 
           {!isAgentTarget && (
             <>
-              <label style={{ ...labelStyle, marginTop: 14 }}>
+              <label
+                id={engineLabelId}
+                style={{ ...labelStyle, marginTop: 14 }}
+              >
                 {t("common.field.engine")}
               </label>
-              <select
+              <EngineTiles
+                labelId={engineLabelId}
                 value={agentType}
-                onChange={(e) =>
-                  handleEngineChange(e.target.value as AgentBackendType)
+                onChange={handleEngineChange}
+                unavailable={(engine) =>
+                  unavailableEngines[engine] !== undefined
                 }
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-              >
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-                <option
-                  value="opencode"
-                  disabled={
-                    unavailableEngines.opencode !== undefined &&
-                    cronjob?.agentType !== "opencode"
-                  }
-                >
-                  {unavailableEngines.opencode !== undefined
-                    ? `OpenCode (${t("dialogs.agent.engineNeedsLinux")})`
-                    : "OpenCode"}
-                </option>
-              </select>
+                isDisabled={(engine) =>
+                  unavailableEngines[engine] !== undefined &&
+                  engine !== cronjob?.agentType
+                }
+              />
 
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 {t("common.field.model")}

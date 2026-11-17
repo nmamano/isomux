@@ -2,6 +2,7 @@ import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type MutableRefObject,
@@ -104,6 +105,7 @@ import {
   type AgentTemplate,
 } from "../agent-templates.ts";
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
+import { EngineTiles } from "./EngineTiles.tsx";
 import {
   templateAvatarStyle,
   templateCardDescriptionStyle,
@@ -450,6 +452,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
   // The office host cannot run this engine: no model discovery, and a new
   // agent or an engine switch cannot pick it.
   const engineUnavailable = unavailableEngines[targetEngine] !== undefined;
+  const engineLabelId = useId();
   const engineChoiceBlocked =
     engineUnavailable && (isSpawn || targetEngine !== agentType);
   // Privilege toggle visibility mirrors the (i-b) server gate (agents.setPrivileged):
@@ -1939,122 +1942,41 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
       <h4 className="agent-settings-group-title">
         {t("dialogs.agent.group.engine")}
       </h4>
-      {isSpawn ? (
-        <div className="agent-engine-control">
-          <label style={labelStyle}>{t("common.field.engine")}</label>
-          <div className="spawn-engine-options">
-            {ENGINE_OPTIONS.map((option) => {
-              const selected = targetEngine === option.agentType;
-              const unavailable =
-                unavailableEngines[option.agentType] !== undefined;
-              const cannotRunStop = !engineRunsAccessOnSomeModel(
-                option.agentType,
-                access,
-              );
-              return (
-                <button
-                  key={option.agentType}
-                  type="button"
-                  aria-pressed={selected}
-                  disabled={unavailable || cannotRunStop}
-                  onClick={() => setTargetEngine(option.agentType)}
-                  style={{
-                    background: selected
-                      ? "var(--bg-hover)"
-                      : "var(--bg-surface)",
-                    border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
-                    borderRadius: 8,
-                    padding: "12px 14px",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    color:
-                      unavailable || cannotRunStop
-                        ? "var(--text-hint)"
-                        : "var(--text-primary)",
-                    boxShadow: selected ? `0 0 0 1px ${option.accent}` : "none",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      marginBottom: 4,
-                    }}
-                  >
-                    {option.label}
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 12,
-                      color: "var(--text-dim)",
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {unavailable
-                      ? t("dialogs.agent.engineNeedsLinux")
-                      : t(option.blurbKey)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        /* Editable in edit mode: switching starts a fresh conversation
-        on the new engine. The current conversation stays in resume
-        history, and the settings use the new engine's options. */
-        <div className="agent-engine-control">
-          <label style={labelStyle}>{t("common.field.engine")}</label>
-          <select
-            value={targetEngine}
-            onChange={(e) =>
-              setTargetEngine(e.target.value as AgentBackendType)
-            }
+      {/* Editable in edit mode: switching starts a fresh conversation on the
+      new engine. The current conversation stays in resume history, and the
+      settings use the new engine's options. */}
+      <div className="agent-engine-control">
+        <label id={engineLabelId} style={labelStyle}>
+          {t("common.field.engine")}
+        </label>
+        <EngineTiles
+          labelId={engineLabelId}
+          value={targetEngine}
+          onChange={setTargetEngine}
+          unavailable={(engine) => unavailableEngines[engine] !== undefined}
+          isDisabled={(engine) =>
+            (unavailableEngines[engine] !== undefined &&
+              (isSpawn || engine !== agentType)) ||
+            !engineRunsAccessOnSomeModel(engine, access)
+          }
+        />
+        {!isSpawn && targetEngine !== agentType && (
+          <p
             style={{
-              ...inputStyle,
-              appearance: "none",
-              cursor: "pointer",
+              ...dialogHint,
+              margin: "6px 0 0",
+              lineHeight: 1.4,
             }}
           >
-            {ENGINE_OPTIONS.map((option) => {
-              const unavailable =
-                unavailableEngines[option.agentType] !== undefined;
-              return (
-                <option
-                  key={option.agentType}
-                  value={option.agentType}
-                  disabled={
-                    (unavailable && option.agentType !== agentType) ||
-                    !engineRunsAccessOnSomeModel(option.agentType, access)
-                  }
-                >
-                  {unavailable
-                    ? `${option.label} (${t("dialogs.agent.engineNeedsLinux")})`
-                    : option.label}
-                </option>
-              );
+            {t("dialogs.agent.engineSwitchHint", {
+              engine:
+                ENGINE_OPTIONS.find(
+                  (option) => option.agentType === targetEngine,
+                )?.label ?? targetEngine,
             })}
-          </select>
-          {targetEngine !== agentType && (
-            <p
-              style={{
-                ...dialogHint,
-                margin: "6px 0 0",
-                lineHeight: 1.4,
-              }}
-            >
-              {t("dialogs.agent.engineSwitchHint", {
-                engine:
-                  ENGINE_OPTIONS.find(
-                    (option) => option.agentType === targetEngine,
-                  )?.label ?? targetEngine,
-              })}
-            </p>
-          )}
-        </div>
-      )}
+          </p>
+        )}
+      </div>
       {engineSettingsBlock}
       {showAutoHandoff && (
         <div className="agent-auto-handoff-field">

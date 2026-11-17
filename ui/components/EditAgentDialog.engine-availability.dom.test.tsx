@@ -12,6 +12,8 @@ const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { settingsAt } = await import("../test-support/settings-item.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
+const { engineTile, enginesDisabled, pickEngine } =
+  await import("../test-support/engine-tiles.ts");
 const {
   CODEX_MODELS,
   DEFAULT_AGENT_CAPABILITIES,
@@ -104,29 +106,10 @@ function stateWith(
   };
 }
 
-function engineCard(container: HTMLElement, engine: string): HTMLButtonElement {
-  const card = [
-    ...container.querySelectorAll<HTMLButtonElement>(
-      ".spawn-engine-options button",
-    ),
-  ].find((button) => button.textContent?.startsWith(engine));
-  if (!card) throw new Error(`no ${engine} engine card`);
-  return card;
-}
-
 // The Agent settings page's Save, or the spawn dialog's last button (Spawn).
 const saveButton = (container: HTMLElement) =>
   container.querySelector<HTMLButtonElement>("[data-settings-save]") ??
   [...container.querySelectorAll("button")].at(-1)!;
-
-function engineOption(
-  select: HTMLSelectElement,
-  engine: string,
-): HTMLOptionElement {
-  const option = [...select.options].find((o) => o.value === engine);
-  if (!option) throw new Error(`no ${engine} option`);
-  return option;
-}
 
 describe("spawn dialog", () => {
   it("the OpenCode card is disabled, with the reason in place of its blurb, only when OpenCode is unavailable", async () => {
@@ -148,8 +131,8 @@ describe("spawn dialog", () => {
       );
       try {
         await settle();
-        const openCode = engineCard(view.container, "OpenCode");
-        expect(engineCard(view.container, "Codex").disabled).toBe(false);
+        const openCode = engineTile(view.container, "opencode");
+        expect(engineTile(view.container, "codex").disabled).toBe(false);
         cards.push({
           disabled: openCode.disabled,
           text: openCode.textContent ?? "",
@@ -179,11 +162,11 @@ describe("Agent settings page", () => {
     );
     try {
       await settle();
-      const select = view.container.querySelector(
-        ".agent-engine-control select",
-      ) as HTMLSelectElement;
-      expect(engineOption(select, "opencode").disabled).toBe(true);
-      expect(engineOption(select, "codex").disabled).toBe(false);
+      expect(enginesDisabled(view.container)).toEqual({
+        claude: false,
+        codex: false,
+        opencode: true,
+      });
     } finally {
       view.unmount();
     }
@@ -211,10 +194,12 @@ describe("Agent settings page", () => {
         expect(
           requests.filter((r) => r.includes("/api/backends/opencode/models")),
         ).toHaveLength(unavailable === NO_OPENCODE ? 0 : 1);
-        const select = view.container.querySelector(
-          ".agent-engine-control select",
-        ) as HTMLSelectElement;
-        expect(engineOption(select, "opencode").disabled).toBe(false);
+        // Its own engine stays pickable, the others too.
+        expect(enginesDisabled(view.container)).toEqual({
+          claude: false,
+          codex: false,
+          opencode: false,
+        });
         // OpenCode's two modes, and no other engine's.
         const modes = [...view.container.querySelectorAll("select")].find(
           (candidate) =>
@@ -290,13 +275,7 @@ describe("Codex defaults", () => {
     );
     try {
       await settle();
-      const select = view.container.querySelector(
-        ".agent-engine-control select",
-      ) as HTMLSelectElement;
-      await act(async () => {
-        fireEvent.change(select, { target: { value: "codex" } });
-      });
-      await settle();
+      await pickEngine(view.container, "codex");
       await act(async () => {
         fireEvent.click(saveButton(view.container));
       });
@@ -392,13 +371,7 @@ describe("Claude defaults", () => {
       );
       try {
         await settle();
-        const select = view.container.querySelector(
-          ".agent-engine-control select",
-        ) as HTMLSelectElement;
-        await act(async () => {
-          fireEvent.change(select, { target: { value: "claude" } });
-        });
-        await settle();
+        await pickEngine(view.container, "claude");
         expect(offersAuto(view.container)).toBe(limited.length === 0);
         await act(async () => {
           fireEvent.click(saveButton(view.container));

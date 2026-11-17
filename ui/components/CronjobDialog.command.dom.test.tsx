@@ -101,7 +101,7 @@ it("run a command shows the command, folder and agent fields, hides the engine, 
   const { view, q, change, pick, save } = open();
   expect(q('[data-field="command"]') === null).toBe(true);
   pick("command");
-  expect(q('option[value="codex"]') === null).toBe(true);
+  expect(q('.engine-options button[data-engine="codex"]') === null).toBe(true);
   const command = q<HTMLTextAreaElement>('[data-field="command"]');
   const cwd = q<HTMLInputElement>('[data-field="cwd"]');
   const agent = q<HTMLSelectElement>('[data-field="agentId"]');
@@ -154,7 +154,7 @@ it("switching a command job to message an agent sends command null and keeps the
 it("switching a command job to a new session sends command null and target null", async () => {
   const { view, pick, change, q, save } = open(commandJob());
   pick("session");
-  expect(q('option[value="codex"]') !== null).toBe(true);
+  expect(q('.engine-options button[data-engine="codex"]') !== null).toBe(true);
   change(q("textarea")!, "Run the health check.");
   const { body } = await save();
   expect(body).toMatchObject({ command: null, target: null });

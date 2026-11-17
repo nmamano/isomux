@@ -113,12 +113,12 @@ it("offers monthly with a day of the month, and saves it", async () => {
 it("message an agent hides the session fields and saves the target", async () => {
   const { view, q, change, save } = open();
   // A new schedule opens as a session, with its engine choice.
-  expect(q('option[value="codex"]')).not.toBeNull();
+  expect(q('.engine-options button[data-engine="codex"]')).not.toBeNull();
   expect(q('[data-field="agentId"]')).toBeNull();
   act(() => {
     fireEvent.click(q('[data-target-kind="agent"]')!);
   });
-  expect(q('option[value="codex"]')).toBeNull();
+  expect(q('.engine-options button[data-engine="codex"]')).toBeNull();
   change(q('[data-field="agentId"]')!, "a1");
   change(q("textarea")!, "Run the health check.");
   const { method, body } = await save();
@@ -135,7 +135,7 @@ it("an edit of a job whose agent is gone keeps that agent selected and does not 
   expect(q<HTMLSelectElement>('[data-field="agentId"]')!.value).toBe(
     "agent-gone",
   );
-  expect(q('option[value="codex"]')).toBeNull();
+  expect(q('.engine-options button[data-engine="codex"]')).toBeNull();
   change(q("textarea")!, "Run the health check, then report.");
   const { method, body } = await save();
   expect(method).toBe("PATCH");
@@ -149,7 +149,7 @@ it("switching an agent-target job back to a new session sends target null", asyn
   act(() => {
     fireEvent.click(q('[data-target-kind="session"]')!);
   });
-  expect(q('option[value="codex"]')).not.toBeNull();
+  expect(q('.engine-options button[data-engine="codex"]')).not.toBeNull();
   const { method, body } = await save();
   expect(method).toBe("PATCH");
   expect((body as { target?: unknown }).target).toBeNull();

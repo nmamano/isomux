@@ -121,11 +121,9 @@ describe("a new agent", () => {
 });
 
 function codexCard(container: HTMLElement): HTMLButtonElement {
-  const card = [
-    ...container.querySelectorAll<HTMLButtonElement>(
-      ".spawn-engine-options button",
-    ),
-  ].find((b) => b.textContent?.startsWith("Codex"));
+  const card = container.querySelector<HTMLButtonElement>(
+    '.engine-options button[data-engine="codex"]',
+  );
   if (!card) throw new Error("no Codex card");
   return card;
 }

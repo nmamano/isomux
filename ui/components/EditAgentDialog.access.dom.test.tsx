@@ -24,6 +24,7 @@ const {
   stopChecked,
   viewer,
 } = await import("../test-support/access-slider-fixture.tsx");
+const { pickEngine } = await import("../test-support/engine-tiles.ts");
 type AgentAccess = import("../../shared/agent-access.ts").AgentAccess;
 
 describe("the access slider saves", () => {
@@ -147,12 +148,7 @@ describe("the save order", () => {
       await settle();
       await pick(view.container, "standard");
       await openSection(view.container, "engine");
-      await change(
-        view.container.querySelector<HTMLSelectElement>(
-          ".agent-engine-control select",
-        )!,
-        "codex",
-      );
+      await pickEngine(view.container, "codex");
       await save(view.container);
       expect(calls.map(route)).toEqual(["PUT :id/access", "PATCH :id"]);
       expect(calls[1].body).toMatchObject({ agentType: "codex" });

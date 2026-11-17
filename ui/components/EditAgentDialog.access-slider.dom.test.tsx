@@ -34,6 +34,8 @@ const {
   stopDisabled,
   stopRadio,
 } = await import("../test-support/access-slider-fixture.tsx");
+const { enginesDisabled, pickEngine } =
+  await import("../test-support/engine-tiles.ts");
 
 function codexAt(access: AgentAccess, modelFamily: string): AgentInfo {
   return {
@@ -182,14 +184,7 @@ describe("the engine and the stops", () => {
     );
     try {
       await settle();
-      const engines = () =>
-        Object.fromEntries(
-          [
-            ...view.container.querySelector<HTMLSelectElement>(
-              ".agent-engine-control select",
-            )!.options,
-          ].map((o) => [o.value, o.disabled]),
-        );
+      const engines = () => enginesDisabled(view.container);
       expect(engines()).toMatchObject({ claude: false, codex: false });
       // Codex runs every stop on one model.
       for (const stop of ["office", "folder", "web"] as const) {
@@ -247,10 +242,7 @@ describe("the engine and the stops", () => {
     const view = renderEdit(agentAt("office"), undefined, undefined, "engine");
     try {
       await settle();
-      const engine = view.container.querySelector<HTMLSelectElement>(
-        ".agent-engine-control select",
-      )!;
-      await change(engine, "codex");
+      await pickEngine(view.container, "codex");
       await settle();
       expect(modelSelect(view.container)().value).toBe("gpt-5.5");
     } finally {

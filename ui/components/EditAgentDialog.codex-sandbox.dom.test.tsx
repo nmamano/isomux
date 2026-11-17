@@ -6,7 +6,6 @@ import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { act, fireEvent } = await import("@testing-library/react");
 const {
   claudeAgent,
   renameAndSave,
@@ -16,6 +15,7 @@ const {
   shimRequests,
 } = await import("../test-support/claude-limits-fixture.tsx");
 const { CODEX_MODELS } = await import("../../shared/types.ts");
+const { pickEngine } = await import("../test-support/engine-tiles.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
 function codexAgentWithoutSandbox(): AgentInfo {
@@ -31,12 +31,7 @@ const sandboxSelect = (container: HTMLElement) =>
   selectWith(container, "workspace-write");
 
 async function switchEngine(container: HTMLElement, engine: string) {
-  const select = container.querySelector(
-    ".agent-engine-control select",
-  ) as HTMLSelectElement;
-  await act(async () => {
-    fireEvent.change(select, { target: { value: engine } });
-  });
+  await pickEngine(container, engine);
   await settle();
 }
 

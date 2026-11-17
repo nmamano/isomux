@@ -14,6 +14,8 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
 const { CODEX_MODELS, DEFAULT_EFFORT } = await import("../../shared/types.ts");
+const { pickEngine, pressedEngines } =
+  await import("../test-support/engine-tiles.ts");
 
 // The login's default is neither first in the list nor Isomux's canonical
 // Codex model, so only the defaultBackendModel rule picks it.
@@ -59,14 +61,10 @@ it("closes on Escape after Claude, Codex, Claude, and picks the login's default 
       { rooms: [], hasReceivedInitialState: true },
     ),
   );
-  const engine = view.container
-    .querySelector('option[value="codex"]')!
-    .closest("select") as HTMLSelectElement;
-  expect(engine.value).toBe("claude");
+  expect(pressedEngines(view.container)).toEqual(["claude"]);
 
-  act(() => {
-    fireEvent.change(engine, { target: { value: "codex" } });
-  });
+  await pickEngine(view.container, "codex");
+  expect(pressedEngines(view.container)).toEqual(["codex"]);
   // The model list loaded and the dialog picked from it: the condition under
   // which the old code re-stamped the discard baseline.
   await waitFor(() => {
@@ -82,10 +80,8 @@ it("closes on Escape after Claude, Codex, Claude, and picks the login's default 
   expect(closes).toBe(0);
   pressEscape(); // dismisses the discard prompt
 
-  act(() => {
-    fireEvent.change(engine, { target: { value: "claude" } });
-  });
-  expect(engine.value).toBe("claude");
+  await pickEngine(view.container, "claude");
+  expect(pressedEngines(view.container)).toEqual(["claude"]);
   pressEscape();
   expect(closes).toBe(1);
 });

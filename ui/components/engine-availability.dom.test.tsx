@@ -13,6 +13,7 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { reducer, initialState } = await import("../store.tsx");
 const { DEFAULT_AGENT_CAPABILITIES } = await import("../../shared/types.ts");
+const { enginesDisabled } = await import("../test-support/engine-tiles.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type UnavailableEngines = import("../../shared/types.ts").UnavailableEngines;
 
@@ -92,15 +93,6 @@ function stateWith(
   };
 }
 
-function engineOption(
-  select: HTMLSelectElement,
-  engine: string,
-): HTMLOptionElement {
-  const option = [...select.options].find((o) => o.value === engine);
-  if (!option) throw new Error(`no ${engine} option`);
-  return option;
-}
-
 describe("full_state carries the unavailable engines", () => {
   const base = {
     type: "full_state" as const,
@@ -174,11 +166,11 @@ describe("cronjob dialog", () => {
     );
     try {
       await settle();
-      const select = [...view.container.querySelectorAll("select")].find((s) =>
-        [...s.options].some((o) => o.value === "opencode"),
-      )!;
-      expect(engineOption(select, "opencode").disabled).toBe(true);
-      expect(engineOption(select, "codex").disabled).toBe(false);
+      expect(enginesDisabled(view.container)).toEqual({
+        claude: false,
+        codex: false,
+        opencode: true,
+      });
     } finally {
       view.unmount();
     }
