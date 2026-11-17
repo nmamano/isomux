@@ -20,7 +20,7 @@ import { removeStateDir } from "./temp-state.ts";
 describe("test state helpers outside the preload's temp root", () => {
   const CONFIG = join(import.meta.dir, "..", "config.ts");
   const ENV_HELPERS = join(import.meta.dir, "managed-office-env.ts");
-  const APP_KIT = join(import.meta.dir, "app-host-test-kit.ts");
+  const CONFIG_FILE = join(import.meta.dir, "office-config-file.ts");
   let dir = "";
   let childTmp = "";
   let home = "";
@@ -44,11 +44,11 @@ test("probe", async () => {
     return;
   }
   const env = await import(${JSON.stringify(ENV_HELPERS)});
-  const kit = await import(${JSON.stringify(APP_KIT)});
+  const configFile = await import(${JSON.stringify(CONFIG_FILE)});
   const calls: [string, () => void][] = [
     ["clearTestManagedOfficeEnv", () => env.clearTestManagedOfficeEnv()],
     ["setTestManagedOfficeEnv", () => env.setTestManagedOfficeEnv({ PROBE_VAR: "written" })],
-    ["patchOfficeConfig", () => kit.patchOfficeConfig({ probe: "written" })],
+    ["patchOfficeConfig", () => configFile.patchOfficeConfig({ probe: "written" })],
   ];
   const refused: Record<string, string | null> = {};
   for (const [name, call] of calls) {
@@ -89,9 +89,46 @@ test("probe", async () => {
     return files;
   }
 
-  // Quarantined (task 78a55448): in desktop CI on 2026-11-17 the probe child
-  // spun at full CPU, ignored SIGKILL and held the CI scope open.
-  it.skip.each<
+  // Waits for the probe for at most PROBE_DEADLINE_MS. A probe still running
+  // then gets SIGKILL and KILL_GRACE_MS to exit, so the case ends red inside
+  // its own timeout and never awaits an unbounded child (task 78a55448: in
+  // desktop CI a probe spun at full CPU past the case timeout). The stderr
+  // read is raced too: it waits for EOF, which a stuck child never sends.
+  const PROBE_DEADLINE_MS = 15_000;
+  const KILL_GRACE_MS = 3_000;
+  async function waitBounded(
+    proc: Bun.Subprocess<"ignore", "ignore", "pipe">,
+  ): Promise<
+    | { code: number; stderr: string }
+    | { finishedInTime: false; exitedAfterKill: boolean }
+  > {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const after = <T>(ms: number, value: T) =>
+      new Promise<T>((resolve) => {
+        timers.push(setTimeout(() => resolve(value), ms));
+      });
+    try {
+      const finished = Promise.all([
+        new Response(proc.stderr).text().catch(() => ""),
+        proc.exited,
+      ]).then(([stderr, code]) => ({ code, stderr }));
+      const result = await Promise.race([
+        finished,
+        after(PROBE_DEADLINE_MS, null),
+      ]);
+      if (result) return result;
+      proc.kill("SIGKILL");
+      const exitedAfterKill = await Promise.race([
+        proc.exited.then(() => true),
+        after(KILL_GRACE_MS, false),
+      ]);
+      return { finishedInTime: false, exitedAfterKill };
+    } finally {
+      for (const t of timers) clearTimeout(t);
+    }
+  }
+
+  it.each<
     [string, { root: () => string; extraEnv: () => Record<string, string> }]
   >([
     [
@@ -123,17 +160,14 @@ test("probe", async () => {
           PROBE_ROOT: root,
           ...c.extraEnv(),
         },
-        stdout: "pipe",
+        stdin: "ignore",
+        stdout: "ignore",
         stderr: "pipe",
       });
-      const [stderr, code] = await Promise.all([
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      expect({ code, stderr: code === 0 ? "" : stderr }).toEqual({
-        code: 0,
-        stderr: "",
-      });
+      const run = await waitBounded(proc);
+      expect(
+        "code" in run && run.code === 0 ? { code: 0, stderr: "" } : run,
+      ).toEqual({ code: 0, stderr: "" });
       const result = JSON.parse(readFileSync(out, "utf8")) as {
         aborted?: unknown;
         refused?: Record<string, string | null>;

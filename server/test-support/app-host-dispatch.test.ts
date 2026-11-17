@@ -43,7 +43,6 @@ import {
   anOfficeWithAnApp,
   deleteApp,
   expectPlaceholder,
-  patchOfficeConfig,
   raw,
   rawFramingCompletion,
   type RawResponse,
@@ -53,6 +52,7 @@ import {
   withAppCookie,
   wsConnect,
 } from "./app-host-test-kit.ts";
+import { patchOfficeConfig } from "./office-config-file.ts";
 import { sessionCookieName } from "../auth.ts";
 import { webhookRegistry } from "../webhooks/registry.ts";
 import { MALFORMED_HOSTS } from "./bad-host.ts";

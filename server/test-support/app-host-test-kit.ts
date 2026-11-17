@@ -14,10 +14,8 @@
 
 import { expect } from "bun:test";
 import { connect } from "net";
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { readFileSync } from "fs";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { assertTestStatePath } from "./temp-state.ts";
 import { STATE_ROOT } from "../config.ts";
 import { appRegistry } from "../app-registry.ts";
 import { appSecretsDir, appSecretsPath } from "../app-secrets.ts";
@@ -45,18 +43,6 @@ export const HTTPS_ORIGIN = `https://${OFFICE_HOST}`;
 // 54c24a17). With this header Bun's fetch opens a new connection for each
 // request, so no socket outlives its test.
 export const TEST_APP_RESPONSE_HEADERS = { Connection: "close" } as const;
-
-export function patchOfficeConfig(patch: Record<string, unknown>): void {
-  const file = join(STATE_ROOT, "office-config.json");
-  assertTestStatePath(file);
-  let current: Record<string, unknown> = {};
-  try {
-    current = JSON.parse(readFileSync(file, "utf-8"));
-  } catch {
-    current = {};
-  }
-  writeFileSync(file, JSON.stringify({ ...current, ...patch }, null, 2));
-}
 
 // An office reachable at https://office.example - which, under the flat shape,
 // is all it takes for its children to become app hostnames. The signal is
