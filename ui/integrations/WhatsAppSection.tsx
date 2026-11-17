@@ -12,6 +12,7 @@ import { useCan } from "../hooks/useCan.ts";
 import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { Reserved } from "../components/Reserved.tsx";
+import { QrImage } from "../components/QrImage.tsx";
 import { getWhatsAppLayout, setWhatsAppLayout } from "../device-settings.ts";
 import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
 import {
@@ -296,18 +297,10 @@ export function WhatsAppSection() {
       {status?.state === "linking" && (
         <>
           {status.method === "qr" && status.qrSvg && (
-            <img
+            <QrImage
               data-whatsapp-qr=""
               alt={t("integrations.whatsapp.qrAlt")}
-              src={`data:image/svg+xml;utf8,${encodeURIComponent(status.qrSvg)}`}
-              style={{
-                width: 220,
-                height: 220,
-                background: "#fff",
-                padding: 8,
-                borderRadius: 6,
-                display: "block",
-              }}
+              svg={status.qrSvg}
             />
           )}
           {status.method === "code" && status.pairingCode && (

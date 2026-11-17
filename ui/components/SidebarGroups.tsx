@@ -21,6 +21,9 @@ export type SidebarRow<T> = {
   // The row is a part of the item open in the pane (your own member parts
   // in Settings > You).
   partOfOpenItem?: boolean;
+  // A row that starts a new thing (Settings > You > New device): a + before
+  // the label, in the muted color of the New member row.
+  add?: true;
 };
 
 // A group of sidebar entries. The Members group carries no rows: it renders
@@ -107,8 +110,8 @@ export function SidebarGroupRows<T>({
                   ? "8px 14px"
                   : "8px 14px 8px 22px",
               fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-primary)",
+              fontWeight: row.add ? undefined : 600,
+              color: row.add ? "var(--text-muted)" : "var(--text-primary)",
               border: "none",
               cursor: "pointer",
               background: row.selected ? "var(--bg-hover)" : "transparent",
@@ -118,6 +121,11 @@ export function SidebarGroupRows<T>({
             }}
           >
             {dynamic && <RoomGlyph />}
+            {row.add && (
+              <span aria-hidden="true" style={{ marginRight: 6 }}>
+                +
+              </span>
+            )}
             {dynamic ? (
               <span
                 style={{

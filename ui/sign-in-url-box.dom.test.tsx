@@ -1,6 +1,6 @@
 // The box that shows a freshly minted sign-in URL (access-shared's
 // MintedUrlBox) words itself for who opens the link. A link the member mints
-// for their own device (Sign-in links, and External access after a bind
+// for their own device (New device, and External access after a bind
 // change) is not an invite: it must not say "invite" or tell them to send it
 // to an invitee. A link an owner mints for another member (Invites) keeps the
 // invite wording.
@@ -16,7 +16,7 @@ import type { MessageKey, ParamsFor } from "../shared/i18n/translate.ts";
 setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { MyDevicesPane } = await import("./components/MyDevicesPane.tsx");
+const { NewDevicePane } = await import("./components/MyDevicesPane.tsx");
 const { InvitesPane } = await import("./components/InvitesPane.tsx");
 const { ExternalAccessPane } =
   await import("./components/ExternalAccessPane.tsx");
@@ -100,10 +100,8 @@ function expectSelfWording(view: View, url: string): void {
 }
 
 describe("the minted sign-in URL box", () => {
-  it("on Sign-in links, reads as the member's own sign-in URL", async () => {
-    const view = mount(() => createElement(MyDevicesPane));
-    expect(count(view, URL_SELF), "no URL before Generate").toBe(0);
-    fireEvent.click(button(view, en("settings.devices.generate")));
+  it("on New device, reads as the member's own sign-in URL", async () => {
+    const view = mount(() => createElement(NewDevicePane));
     await settle();
     expectSelfWording(view, URL_SELF);
     view.unmount();

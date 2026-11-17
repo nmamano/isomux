@@ -548,6 +548,7 @@ Coses que pots fer per ell:
   "settings.part.unsaved": "Canvis sense desar",
   "settings.sidebar.apiTokens": "Tokens d'API",
   "settings.sidebar.signInLinks": "Enllaços d'inici de sessió",
+  "settings.sidebar.newDevice": "Dispositiu nou",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositiu",
   "settings.sidebar.members": "Membres",
   "settings.members.editHint":
@@ -854,12 +855,14 @@ Coses que pots fer per ell:
   "settings.devices.title": "Enllaços d'inici de sessió",
   "settings.devices.outstandingLinks": "Enllaços de dispositiu pendents",
   "settings.devices.activeSessions": "Les meves sessions actives",
-  "settings.devices.generateHint":
-    "Genera un enllaç d'un sol ús per iniciar la sessió amb un altre dels teus dispositius al teu compte. L'enllaç caduca en 1 hora; generar-ne un de nou substitueix l'anterior.",
+  "settings.devices.newDeviceHint":
+    "Escaneja el codi amb el dispositiu nou o obre-hi l'enllaç. L'enllaç funciona una vegada i caduca en 1 hora. Tornar a obrir Dispositiu nou el substitueix.",
+  "settings.devices.qrAlt":
+    "Codi QR per iniciar la sessió en un dispositiu nou",
+  "settings.devices.retry": "Torna-ho a provar",
   "settings.devices.generateWarning":
     "Qualsevol que tingui l'enllaç pot iniciar la sessió com tu fins que caduqui o es faci servir - tracta'l com una contrasenya d'un sol ús i obre'l només al teu propi dispositiu.",
   "settings.devices.generating": "Generant…",
-  "settings.devices.generate": "Genera un enllaç de dispositiu",
   "settings.devices.generateFailed":
     "No s'ha pogut generar l'enllaç de dispositiu",
 

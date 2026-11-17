@@ -85,7 +85,7 @@ import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import { useLeaveGuard } from "../page-leave-guard.ts";
 import { InvitesPane, PendingMemberSignInLink } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
-import { MyDevicesPane } from "./MyDevicesPane.tsx";
+import { MyDevicesPane, NewDevicePane } from "./MyDevicesPane.tsx";
 import { ChatChoiceBox, PreferencesPane } from "./PreferencesPane.tsx";
 import {
   RemovedMembersPane,
@@ -164,6 +164,7 @@ export type SettingsSection =
   | "sessions"
   | "prefs"
   | "signInLinks"
+  | "newDevice"
   | "updates"
   | "move"
   | "deviceLabel"
@@ -628,6 +629,10 @@ export function UserSettingsView({
               ...selfRows(),
               sectionRow("prefs", t("settings.sidebar.languageAndChat")),
               sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
+              {
+                ...sectionRow("newDevice", t("settings.sidebar.newDevice")),
+                add: true,
+              },
             ],
           },
           {
@@ -1201,6 +1206,8 @@ export function UserSettingsView({
             <SessionsPane />
           ) : selection.section === "signInLinks" && sessionContext ? (
             <MyDevicesPane />
+          ) : selection.section === "newDevice" && sessionContext ? (
+            <NewDevicePane />
           ) : selection.section === "prefs" && sessionContext ? (
             <PreferencesPane />
           ) : selection.section === "office" ? (

@@ -555,6 +555,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.part.unsaved": "Unsaved changes",
   "settings.sidebar.apiTokens": "API tokens",
   "settings.sidebar.signInLinks": "Sign-in links",
+  "settings.sidebar.newDevice": "New device",
   "settings.sidebar.deviceLabel": "Device label",
   "settings.sidebar.members": "Members",
   "settings.members.editHint":
@@ -850,12 +851,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.devices.title": "Sign-in links",
   "settings.devices.outstandingLinks": "Outstanding device links",
   "settings.devices.activeSessions": "My active sessions",
-  "settings.devices.generateHint":
-    "Generate a single-use link to sign another of your devices into your account. The link expires in 1 hour; generating a new one replaces the previous.",
+  "settings.devices.newDeviceHint":
+    "Scan the code with your new device, or open the link on it. The link works once and expires in 1 hour. Opening New device again replaces it.",
+  "settings.devices.qrAlt": "QR code to sign in a new device",
+  "settings.devices.retry": "Try again",
   "settings.devices.generateWarning":
     "Anyone with the link can sign in as you until it expires or is used - treat it like a one-time password and only open it on your own device.",
   "settings.devices.generating": "Generating…",
-  "settings.devices.generate": "Generate device link",
   "settings.devices.generateFailed": "Failed to generate device link",
 
   "settings.update.newRelease": "New Release Available",

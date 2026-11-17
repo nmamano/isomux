@@ -1,7 +1,7 @@
 ## Add people and devices
 
-For another device of your own, open **Settings → You → Sign-in links** and
-create a device link. Open it on that device.
+For another device of your own, open **Settings → You → New device** and scan
+the QR code with that device, or open the link on it.
 
 To invite another person, first create them: in **Settings**, select **New
 member** at the end of the Members list, fill in the form and select **Create

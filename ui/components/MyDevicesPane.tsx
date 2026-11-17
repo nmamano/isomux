@@ -1,20 +1,22 @@
-// Self-scoped "My devices" pane: device links + the caller's own outstanding
-// invites and sessions, small enough to stay ONE sidebar entry. Since the
-// eb3354e6 revision it mounts for EVERY role (device links are self-service;
-// owners cannot mint them for others), so the lists are filtered to the
+// Settings > You > Sign-in links: the caller's own outstanding device links
+// and sessions. It mounts for EVERY role, so the lists are filtered to the
 // current user CLIENT-side too: the server scopes them for members, but an
-// owner's store holds the office-wide rows. The generate button rides
-// POST /api/invites/self (the server fixes the role to the caller's own,
-// TTL to 1 hour, target to the caller's own username, and replaces any
-// prior outstanding self-invite). List seeding happens in UserSettingsView
-// (useAccessListsSeed).
+// owner's store holds the office-wide rows. List seeding happens in
+// UserSettingsView (useAccessListsSeed).
+//
+// Settings > You > New device (NewDevicePane, below) mints the links. It rides
+// POST /api/invites/self: the server fixes the role to the caller's own, TTL
+// to 1 hour, target to the caller's own username, and replaces any prior
+// outstanding self-invite.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { renderSVG } from "uqr";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire } from "../../shared/types.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
 import { dialogSaveBtn } from "./dialog-styles.ts";
+import { QrImage } from "./QrImage.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
   InvitesTable,
@@ -26,7 +28,6 @@ import {
   sectionHeader,
   subsectionHeader,
   hint,
-  cardStyle,
 } from "./access-shared.tsx";
 
 export function MyDevicesPane() {
@@ -72,8 +73,6 @@ export function MyDevicesPane() {
         />
       )}
 
-      <GenerateDeviceLinkForm />
-
       <h5 style={subsectionHeader}>{t("settings.devices.outstandingLinks")}</h5>
       {renderListSection(i18n, myInvites, invitesLoaded, (rows) => (
         <InvitesTable invites={rows} />
@@ -87,11 +86,18 @@ export function MyDevicesPane() {
   );
 }
 
-function GenerateDeviceLinkForm() {
+// Settings > You > New device: the one click that adds a device. Opening the
+// pane mints a sign-in link for one more of the caller's own devices and shows
+// it as a QR code and a URL. It mints once per mount: the ref holds through
+// StrictMode's second effect run, and re-selecting the open row does not
+// remount it. Leaving and coming back mints a new link, which replaces the
+// previous one on the server.
+export function NewDevicePane() {
   const { t } = useI18n();
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const minted = useRef(false);
 
   function generate() {
     setPending(true);
@@ -112,32 +118,49 @@ function GenerateDeviceLinkForm() {
       .finally(() => setPending(false));
   }
 
+  useEffect(() => {
+    if (minted.current) return;
+    minted.current = true;
+    generate();
+    // Mount only: one link per visit to the pane.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div style={cardStyle}>
-      <p style={{ ...hint, marginTop: 0 }}>
-        {t("settings.devices.generateHint")}
-      </p>
+    <div style={{ marginTop: 24 }}>
+      <h4 style={sectionHeader}>{t("settings.sidebar.newDevice")}</h4>
+      <p style={hint}>{t("settings.devices.newDeviceHint")}</p>
       <p style={hint}>{t("settings.devices.generateWarning")}</p>
-      <button
-        onClick={generate}
-        disabled={pending}
-        style={{
-          ...dialogSaveBtn,
-          marginTop: 10,
-        }}
-      >
-        {pending
-          ? t("settings.devices.generating")
-          : t("settings.devices.generate")}
-      </button>
-      {error && (
-        <p
-          style={{ fontSize: 11, color: "var(--red-text)", margin: "6px 0 0" }}
-        >
-          {error}
-        </p>
+      {pending && <p style={hint}>{t("settings.devices.generating")}</p>}
+      {mintedUrl && (
+        <div style={{ marginTop: 10 }}>
+          <QrImage
+            svg={renderSVG(mintedUrl)}
+            alt={t("settings.devices.qrAlt")}
+            data-device-qr=""
+          />
+          <MintedUrlBox url={mintedUrl} forSelf />
+        </div>
       )}
-      {mintedUrl && <MintedUrlBox url={mintedUrl} forSelf />}
+      {error && (
+        <>
+          <p
+            style={{
+              fontSize: 11,
+              color: "var(--red-text)",
+              margin: "6px 0 0",
+            }}
+          >
+            {error}
+          </p>
+          <button
+            onClick={generate}
+            style={{ ...dialogSaveBtn, marginTop: 10 }}
+          >
+            {t("settings.devices.retry")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

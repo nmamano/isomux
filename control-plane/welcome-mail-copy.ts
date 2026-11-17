@@ -51,7 +51,7 @@ I set up your office so three welcome agents are waiting for you: one each for C
 
 One advantage of running your office on your own private virtual server is that you can connect from any of your devices. I especially like to check in from my phone.
 
-To add your phone: in the office, Settings → Sign-in links → Generate device link. Send the link to yourself and open it on your phone. For the native app feel, you can "install" the website as an app. On iPhone, open the Share menu in the browser and "Add to Home Screen" (here's what it looks like: https://isomux.com/hosted-welcome#home-screen). On Android, Chrome offers to install it.
+To add your phone: in the office, open Settings → You → New device and scan the QR code with your phone. For the native app feel, you can "install" the website as an app. On iPhone, open the Share menu in the browser and "Add to Home Screen" (here's what it looks like: https://isomux.com/hosted-welcome#home-screen). On Android, Chrome offers to install it.
 
 Over the next two weeks, I'll send you a few short tips. Reply to any of them if something does not work; I'll read every email and make sure to improve Isomux.
 

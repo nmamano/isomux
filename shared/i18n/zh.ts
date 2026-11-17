@@ -515,6 +515,7 @@ export const zh: Catalog = {
   "settings.part.unsaved": "未保存的更改",
   "settings.sidebar.apiTokens": "API 令牌",
   "settings.sidebar.signInLinks": "登录链接",
+  "settings.sidebar.newDevice": "新设备",
   "settings.sidebar.deviceLabel": "设备标签",
   "settings.sidebar.members": "成员",
   "settings.members.editHint": "只有成员本人和办公室所有者可以编辑成员资料",
@@ -776,12 +777,13 @@ export const zh: Catalog = {
   "settings.devices.title": "登录链接",
   "settings.devices.outstandingLinks": "尚未使用的设备链接",
   "settings.devices.activeSessions": "我的活动会话",
-  "settings.devices.generateHint":
-    "生成一次性链接，在另一台设备上登录你的账户。链接在 1 小时后过期；生成新链接会替换上一个链接。",
+  "settings.devices.newDeviceHint":
+    "用新设备扫描二维码，或在新设备上打开链接。链接只能使用一次，1 小时后过期。再次打开“新设备”会替换它。",
+  "settings.devices.qrAlt": "用于在新设备上登录的二维码",
+  "settings.devices.retry": "重试",
   "settings.devices.generateWarning":
     "任何获得链接的人都可以在链接过期或被使用前以你的身份登录。请像保护一次性密码一样保护它，只在自己的设备上打开。",
   "settings.devices.generating": "正在生成…",
-  "settings.devices.generate": "生成设备链接",
   "settings.devices.generateFailed": "生成设备链接失败",
   "settings.update.newRelease": "有新版本可用",
   "settings.update.upToDateTitle": "已是最新版本",

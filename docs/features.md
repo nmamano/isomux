@@ -43,7 +43,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 ## Multiple members
 
 - **Real-time collaboration** - multiple authenticated members can chime in to the same conversation simultaneously.
-- **Sign-in links** - an owner creates a member and sends them a one-use sign-in link. No passwords. Members add their own devices from Settings → You → Sign-in links.
+- **Sign-in links** - an owner creates a member and sends them a one-use sign-in link. No passwords. Members add their own devices from Settings → You → New device.
 - **Permission packs for members** - owners limit a member to some areas and a highest agent level, for example a contractor who reads tasks only.
 - **A member's own OS user** - on Linux, an owner runs a member's agents as a separate OS user, so they cannot read the office's files or other members' credentials.
 - **Per-member room access** - owners pick which rooms each member sees: when they create the member (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.

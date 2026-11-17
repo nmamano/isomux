@@ -38,9 +38,9 @@ Saving a pack moves the member's agents down to its highest level, stops their a
 
 ## Add your own devices
 
-Open `Settings` → `You` → `Sign-in links` and click `Generate device link`. The URL shows once. Open it on the other device, and you are signed in there as yourself.
+Open `Settings` → `You` → `New device`. It makes a device link and shows it as a QR code and a URL, once. Scan the code with the other device, or open the URL on it, and you are signed in there as yourself.
 
-A device link works once and expires after 1 hour. You can have one at a time: a new link replaces the previous one. The pane also lists your unused device links and your active sessions.
+A device link works once and expires after 1 hour. You can have one at a time: a new link replaces the previous one. `Settings` → `You` → `Sign-in links` lists your unused device links and your active sessions.
 
 If you are signed out of every device, you cannot make a device link. An owner sends you a sign-in link, the same as for a new member.
 

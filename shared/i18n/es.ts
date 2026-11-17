@@ -548,6 +548,7 @@ Cosas que puedes hacer por él:
   "settings.part.unsaved": "Cambios sin guardar",
   "settings.sidebar.apiTokens": "Tokens de API",
   "settings.sidebar.signInLinks": "Enlaces de inicio de sesión",
+  "settings.sidebar.newDevice": "Nuevo dispositivo",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositivo",
   "settings.sidebar.members": "Miembros",
   "settings.members.editHint":
@@ -855,12 +856,14 @@ Cosas que puedes hacer por él:
   "settings.devices.title": "Enlaces de inicio de sesión",
   "settings.devices.outstandingLinks": "Enlaces de dispositivo pendientes",
   "settings.devices.activeSessions": "Mis sesiones activas",
-  "settings.devices.generateHint":
-    "Genera un enlace de un solo uso para iniciar sesión con otro de tus dispositivos en tu cuenta. El enlace caduca en 1 hora; generar uno nuevo sustituye al anterior.",
+  "settings.devices.newDeviceHint":
+    "Escanea el código con tu nuevo dispositivo o abre el enlace en él. El enlace funciona una vez y caduca en 1 hora. Abrir Nuevo dispositivo de nuevo lo sustituye.",
+  "settings.devices.qrAlt":
+    "Código QR para iniciar sesión en un nuevo dispositivo",
+  "settings.devices.retry": "Reintentar",
   "settings.devices.generateWarning":
     "Cualquiera con el enlace puede iniciar sesión como tú hasta que caduque o se use - trátalo como una contraseña de un solo uso y ábrelo solo en tu propio dispositivo.",
   "settings.devices.generating": "Generando…",
-  "settings.devices.generate": "Generar enlace de dispositivo",
   "settings.devices.generateFailed":
     "No se pudo generar el enlace de dispositivo",
 
