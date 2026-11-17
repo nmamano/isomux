@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { RoomWire } from "../../shared/types.ts";
-import { apiFetch } from "../api.ts";
+import { createRoom } from "./create-room.ts";
 import { useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { dialogCancelBtn, dialogSaveBtn } from "../components/dialog-styles.ts";
@@ -63,17 +62,8 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
     setPending(true);
     setFailed(false);
     try {
-      // A new room opens with the default look; its look is chosen later in
-      // the room's settings (Nil, 2026-09-27).
-      const { room } = await apiFetch<{ room: RoomWire }>(
-        "POST",
-        "/api/rooms",
-        {},
-      );
-      // The HTTP response can precede the owner's broadcast or the member's
-      // projected full_state. Install the room before selecting it.
+      const room = await createRoom(dispatch);
       opened.current = true;
-      dispatch({ type: "room_created", room });
       dispatch({ type: "set_current_room", roomId: room.id });
       onClose();
     } catch {

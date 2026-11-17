@@ -22,7 +22,7 @@ import { ordinaryRooms } from "../../shared/types.ts";
 // Non-owner viewers get only the dot and a bare "online".
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAppState } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import { RECORDING_PRIVATE_ATTR } from "../recording-mode.ts";
@@ -77,6 +77,8 @@ import { OfficeMovePane } from "./OfficeMovePane.tsx";
 import { StoragePane } from "./StoragePane.tsx";
 import { UsagePane } from "./UsagePane.tsx";
 import { RoomPane } from "./RoomPane.tsx";
+import { createRoom } from "../office/create-room.ts";
+import { useCreatesRooms } from "../hooks/useCan.ts";
 import { ThemePane } from "./ThemePane.tsx";
 import { RecordingPane } from "./RecordingPane.tsx";
 import { UpdatePane } from "./UpdatePane.tsx";
@@ -171,8 +173,11 @@ export type SettingsSection =
   | "theme"
   | "recording";
 
-type SidebarRow = SharedSidebarRow<Selection>;
-type SidebarGroup = SharedSidebarGroup<Selection>;
+// What a sidebar row does: open a selection, or create a room (the Rooms
+// group's New room row), which is an action and never a selection.
+type SidebarTarget = Selection | { kind: "newRoom" };
+type SidebarRow = SharedSidebarRow<SidebarTarget>;
+type SidebarGroup = SharedSidebarGroup<SidebarTarget>;
 
 // What the detail pane shows: a user's editor, or one settings section.
 // null = nothing selected - on mobile that means the list is showing; on
@@ -312,6 +317,8 @@ export function UserSettingsView({
   const i18n = useI18n();
   const { t } = i18n;
   const isOwner = sessionContext?.role === "owner";
+  const createsRooms = useCreatesRooms();
+  const dispatch = useDispatch();
   useRemovedMembersSeed(isOwner);
   const enterpriseAvailable = useEnterpriseAvailable(isOwner);
   const userList = useMemo(
@@ -457,6 +464,45 @@ export function UserSettingsView({
       return;
     }
     leaveEdit(() => show(next));
+  }
+  // A sidebar row: open its selection, or run New room.
+  function pick(target: SidebarTarget) {
+    if (target.kind === "newRoom") newRoom();
+    else select(target);
+  }
+  // Settings > Rooms > New room: one click, one room. It leaves the open
+  // editor through the unsaved-changes check, creates the room and opens its
+  // General part. The ref, not the disabled row, stops a second click in the
+  // same tick.
+  const creatingRoom = useRef(false);
+  const [newRoomState, setNewRoomState] = useState<
+    { kind: "idle" } | { kind: "pending" } | { kind: "failed"; message: string }
+  >({ kind: "idle" });
+  function newRoom() {
+    if (creatingRoom.current) return;
+    defaultAppliedRef.current = true;
+    leaveEdit(() => {
+      if (creatingRoom.current) return;
+      creatingRoom.current = true;
+      setNewRoomState({ kind: "pending" });
+      createRoom(dispatch)
+        .then((room) => {
+          setNewRoomState({ kind: "idle" });
+          show({ kind: "room", roomId: room.id, part: "general" });
+        })
+        .catch((err) =>
+          setNewRoomState({
+            kind: "failed",
+            message:
+              err instanceof ApiError
+                ? err.message
+                : t("office.newRoom.failed"),
+          }),
+        )
+        .finally(() => {
+          creatingRoom.current = false;
+        });
+    });
   }
   // A part row of the open item.
   function selectPart(part: string | null) {
@@ -652,13 +698,32 @@ export function UserSettingsView({
             // glyph and read as a list of live things - like the roster below,
             // and unlike the fixed rows above.
             dynamic: true,
-            rows: rooms.map((room) => ({
-              key: `room:${room.id}`,
-              label: room.name,
-              selected:
-                selection?.kind === "room" && selection.roomId === room.id,
-              target: { kind: "room" as const, roomId: room.id },
-            })),
+            rows: [
+              ...rooms.map((room) => ({
+                key: `room:${room.id}`,
+                label: room.name,
+                selected:
+                  selection?.kind === "room" && selection.roomId === room.id,
+                target: { kind: "room" as const, roomId: room.id },
+              })),
+              // Last, and shown while the group is closed, like New member.
+              ...(createsRooms
+                ? [
+                    {
+                      key: "newRoom",
+                      label: t("office.newRoom.door"),
+                      selected: false,
+                      target: { kind: "newRoom" as const },
+                      add: true as const,
+                      disabled: newRoomState.kind === "pending",
+                      error:
+                        newRoomState.kind === "failed"
+                          ? newRoomState.message
+                          : null,
+                    },
+                  ]
+                : []),
+            ],
           },
           {
             id: "members",
@@ -738,9 +803,7 @@ export function UserSettingsView({
             key={group.id}
             group={group}
             first={i === 0}
-            // select runs on a click, never during render.
-            // eslint-disable-next-line react-hooks/refs
-            onSelect={(target) => select(target)}
+            onSelect={(target) => pick(target)}
             rowAttrs={selfRowAttrs}
             {...collapsible(group.id)}
           />
@@ -783,7 +846,9 @@ export function UserSettingsView({
                     editable
                       ? () =>
                           // Yourself: You > General, the one path to your
-                          // own settings.
+                          // own settings. select runs on a click, never
+                          // during render.
+                          // eslint-disable-next-line react-hooks/refs
                           select(
                             isMe
                               ? { kind: "user", id: u.id, part: "general" }
@@ -965,7 +1030,7 @@ export function UserSettingsView({
             key={group.id}
             group={group}
             first={false}
-            onSelect={(target) => select(target)}
+            onSelect={(target) => pick(target)}
             rowAttrs={selfRowAttrs}
             {...collapsible(group.id)}
           />

@@ -32,3 +32,16 @@ export function useHasPack(): boolean {
   const { sessionContext } = useAppState();
   return sessionContext?.role === "member" && !!self?.pack;
 }
+
+// Whether the signed-in member may create a room: anyone but a member with a
+// permission pack, whatever areas the pack gives (rooms.create refuses every
+// pack). Every door that creates a room reads this.
+export function createsRooms(
+  self: Pick<UserRecord, "role" | "pack"> | null,
+): boolean {
+  return !(self?.role === "member" && self.pack);
+}
+
+export function useCreatesRooms(): boolean {
+  return createsRooms(useSelfUser());
+}

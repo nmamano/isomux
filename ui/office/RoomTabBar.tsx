@@ -1,4 +1,5 @@
-import { useSelfUser } from "../hooks/useSelfUser.ts";
+import { useCreatesRooms } from "../hooks/useCan.ts";
+import { createRoom } from "./create-room.ts";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useRoomList } from "../store.tsx";
 import { apiFetch } from "../api.ts";
@@ -194,9 +195,7 @@ export function RoomTabBar({
     lobbyOpen,
   } = useAppState();
   const { t } = useI18n();
-  // A member with a permission pack creates no room (task 329974fe).
-  const self = useSelfUser();
-  const createsRooms = !(self?.role === "member" && self.pack);
+  const createsRooms = useCreatesRooms();
   const mobileLobby = isMobile && lobbyOpen;
   const selfConnectionId = sessionContext?.connectionId ?? null;
   // The room list the doors and swipes read too. A drop or a tuck shows at
@@ -789,9 +788,9 @@ export function RoomTabBar({
             {createsRooms && (
               <button
                 onClick={() => {
-                  // Fire-and-forget; the room_created broadcast adds the tab (parity
-                  // with the old WS create_room, which carried no name and no ack).
-                  apiFetch<void>("POST", "/api/rooms", {}).catch(() => {});
+                  // Fire-and-forget: the answer adds the tab, and the tab bar
+                  // stays on the current room.
+                  createRoom(dispatch).catch(() => {});
                 }}
                 style={{
                   padding: "4px 8px",

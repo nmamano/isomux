@@ -105,7 +105,7 @@ import {
   promptInstall,
   readInstallEnv,
 } from "../app-install.ts";
-import { useCan } from "../hooks/useCan.ts";
+import { useCan, useCreatesRooms } from "../hooks/useCan.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -357,9 +357,9 @@ export function OfficeView({
   // these, so a skin repaints them with no branch in the drawing; the tab bar,
   // the HUD and the panels sit outside that container and never see them.
   const skinVars = useRoomSkinVars();
-  const canWriteRooms = useCan("rooms", "write");
+  const createsRooms = useCreatesRooms();
   const newRoomDoor =
-    embed || !canWriteRooms
+    embed || !createsRooms
       ? null
       : {
           label: t("office.newRoom.door"),
