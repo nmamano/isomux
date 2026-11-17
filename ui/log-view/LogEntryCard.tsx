@@ -1457,13 +1457,17 @@ export function UserMessage({
           data-chat-export="omit"
           onClick={onEdit}
           title={editTitle ?? t("cards.userMessage.editAndBranch")}
+          // The Copy button's box, beside it.
           style={{
-            background: "transparent",
-            border: "none",
+            width: 24,
+            height: 24,
+            background: "var(--btn-surface)",
+            border: "1px solid var(--border-medium)",
             cursor: "pointer",
             color: "var(--text-ghost)",
-            padding: 2,
-            borderRadius: 4,
+            padding: 0,
+            borderRadius: 6,
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

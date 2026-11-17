@@ -9,6 +9,7 @@ import {
   COPY_ICON,
   CHECK_ICON,
 } from "../components/CopyButton.tsx";
+import { secondaryFill } from "../components/dialog-styles.ts";
 
 export function AskIdChip({
   id,
@@ -33,9 +34,10 @@ export function AskIdChip({
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
-        background: "none",
+        background: secondaryFill,
         border: "none",
-        padding: 0,
+        borderRadius: 4,
+        padding: "0 4px",
         color: copied ? "var(--green-text)" : "var(--text-ghost)",
         fontFamily: "'JetBrains Mono',monospace",
         fontSize: isMobile ? 12 : 11,

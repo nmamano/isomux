@@ -674,8 +674,11 @@ function AppActionsMenu({
           placeItems: "center",
           padding: 0,
           borderRadius: 6,
-          border: `1px solid ${at ? "var(--border-light)" : "transparent"}`,
-          background: at ? "var(--bg-hover)" : "transparent",
+          border: secondaryBorder,
+          // Open, one step stronger than the closed fill.
+          background: at
+            ? "color-mix(in srgb, var(--text-primary) 16%, transparent)"
+            : secondaryFill,
           color: "var(--text-muted)",
           cursor: "pointer",
         }}

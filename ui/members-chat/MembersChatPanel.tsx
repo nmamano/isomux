@@ -58,6 +58,7 @@ import { SidebarIcon } from "../components/NavIcons.tsx";
 import { SidebarUnreadDot } from "./SidebarUnreadDot.tsx";
 import { useDmPeer } from "./member-rows.ts";
 import {
+  composerToolBtn,
   secondaryBorder,
   secondaryFill,
   tintedFill,
@@ -160,6 +161,20 @@ function TrashIcon() {
 
 // Two clicks to delete: the first turns the icon into a "sure?" that expires
 // on its own, so a stray click never removes a line and no dialog interrupts.
+// A row in a message's actions menu (Reply, Pin, Edit): filled, as every
+// button is.
+const menuItemStyle = {
+  border: "none",
+  borderRadius: 4,
+  background: secondaryFill,
+  color: "var(--text-primary)",
+  textAlign: "left",
+  font: "inherit",
+  fontSize: 12,
+  cursor: "pointer",
+  padding: "4px 6px",
+} as const;
+
 function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
   const { t } = useI18n();
   const [armed, setArmed] = useState(false);
@@ -962,16 +977,7 @@ export function MembersChatPanel({
                       <>
                         <button
                           type="button"
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "var(--text-primary)",
-                            textAlign: "left",
-                            font: "inherit",
-                            fontSize: 12,
-                            cursor: "pointer",
-                            padding: "4px 0",
-                          }}
+                          style={menuItemStyle}
                           title={t("membersChat.reply")}
                           onClick={() => {
                             close();
@@ -984,16 +990,7 @@ export function MembersChatPanel({
                         {chatApi.setPinned && (
                           <button
                             type="button"
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              color: "var(--text-primary)",
-                              textAlign: "left",
-                              font: "inherit",
-                              fontSize: 12,
-                              cursor: "pointer",
-                              padding: "4px 0",
-                            }}
+                            style={menuItemStyle}
                             onClick={() => {
                               close();
                               setPinned(m.id, m.pinnedAt === undefined);
@@ -1009,16 +1006,7 @@ export function MembersChatPanel({
                         {mine && (
                           <button
                             type="button"
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              color: "var(--text-primary)",
-                              textAlign: "left",
-                              font: "inherit",
-                              fontSize: 12,
-                              cursor: "pointer",
-                              padding: "4px 0",
-                            }}
+                            style={menuItemStyle}
                             title={t("common.edit")}
                             onClick={() => {
                               close();
@@ -1231,17 +1219,7 @@ export function MembersChatPanel({
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  lineHeight: "20px",
-                  fontSize: 16,
-                  flexShrink: 0,
-                  opacity: 0.7,
-                }}
+                style={composerToolBtn}
                 title={t("logView.attachFiles")}
               >
                 <svg

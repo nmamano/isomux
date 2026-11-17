@@ -1334,8 +1334,8 @@ function ReplyAskCard({
               borderRadius: 8,
               border: "1px solid var(--accent-text)",
               // The option that sends is the Reply button's colours; the
-              // others are outlined.
-              background: sends ? "var(--accent-text)" : "transparent",
+              // others take an accent tint.
+              background: sends ? "var(--accent-text)" : "var(--accent-bg)",
               color: sends ? "var(--bg-base)" : "var(--accent-text)",
               fontFamily: "var(--font-ui)",
               fontSize: isMobile ? 14 : 12,

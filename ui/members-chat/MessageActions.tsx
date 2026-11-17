@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n.tsx";
+import { secondaryFill } from "../components/dialog-styles.ts";
 
 export function MessageActions({
   children,
@@ -43,6 +44,9 @@ export function MessageActions({
           cursor: "pointer",
           color: "var(--text-ghost)",
           padding: 2,
+          display: "flex",
+          borderRadius: 4,
+          background: secondaryFill,
         }}
       >
         <svg

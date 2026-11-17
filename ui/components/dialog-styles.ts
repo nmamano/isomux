@@ -75,6 +75,25 @@ export const filledSecondaryBtn: Readonly<CSSProperties> = Object.freeze({
 
 export const dialogCancelBtn = filledSecondaryBtn;
 
+// A small icon button on a chat composer's 20 px input line (Attach files):
+// a filled 24 px box whose negative margin keeps the line's height.
+export const composerToolBtn: Readonly<CSSProperties> = Object.freeze({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 24,
+  height: 24,
+  margin: "-2px 0",
+  padding: 0,
+  boxSizing: "border-box",
+  borderRadius: 6,
+  border: "none",
+  background: secondaryFill,
+  color: "var(--text-muted)",
+  cursor: "pointer",
+  flexShrink: 0,
+});
+
 export function tintedFill(color: string): string {
   return `color-mix(in srgb, ${color} 12%, transparent)`;
 }

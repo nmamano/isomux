@@ -137,6 +137,7 @@ import {
 } from "../composer-height.ts";
 import {
   armedConfirmLook,
+  composerToolBtn,
   ownDisabledLook,
   secondaryBorder,
   secondaryFill,
@@ -2286,21 +2287,33 @@ export function LogView({
                     {...ownDisabledLook}
                     title={i18n.t("logView.regenerateTopic")}
                     style={{
-                      background: "none",
+                      background: secondaryFill,
                       border: "none",
+                      borderRadius: 5,
                       cursor: topicGenerating ? "default" : "pointer",
                       color: "var(--text-secondary)",
                       fontSize: 15,
-                      padding: "0 4px",
-                      opacity: 0.8,
+                      width: 20,
+                      height: 20,
+                      padding: 0,
                       lineHeight: 1,
-                      display: "inline-block",
-                      animation: topicGenerating
-                        ? "topicSpin 1s linear infinite"
-                        : undefined,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
                     }}
                   >
-                    ↻
+                    {/* The glyph spins, not its box. */}
+                    <span
+                      style={{
+                        display: "inline-block",
+                        animation: topicGenerating
+                          ? "topicSpin 1s linear infinite"
+                          : undefined,
+                      }}
+                    >
+                      ↻
+                    </span>
                   </button>
                 )}
                 {editingTopic && (
@@ -3134,18 +3147,7 @@ export function LogView({
             >
               <button
                 onClick={() => fileInputRef.current?.click()}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  lineHeight: "20px",
-                  fontSize: 16,
-                  flexShrink: 0,
-                  opacity: 0.7,
-                  transition: "opacity 0.15s",
-                }}
+                style={composerToolBtn}
                 title={i18n.t("logView.attachFiles")}
               >
                 <svg
@@ -3179,27 +3181,18 @@ export function LogView({
                     data-skills-toggle
                     onClick={() => setSkillsOpen((o) => !o)}
                     style={{
-                      background: "none",
-                      border: "none",
-                      padding: 0,
+                      ...composerToolBtn,
+                      padding: "0 5px",
+                      background: skillsOpen
+                        ? tintedFill("var(--green)")
+                        : composerToolBtn.background,
                       color: skillsOpen
                         ? "var(--green-text)"
                         : "var(--text-muted)",
-                      cursor: "pointer",
-                      // Flex-center the glyph in the same 20px box the paperclip
-                      // occupies, then nudge up to optically match the svg's
-                      // baseline-driven position (it sat visibly low before).
-                      display: "flex",
-                      alignItems: "center",
-                      height: 20,
-                      position: "relative",
-                      top: -2,
                       fontSize: 12,
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono',monospace",
-                      flexShrink: 0,
-                      opacity: skillsOpen ? 1 : 0.7,
-                      transition: "opacity 0.15s, color 0.15s",
+                      transition: "color 0.15s, background 0.15s",
                     }}
                     title={i18n.t("logView.skills.title")}
                   >
@@ -3326,10 +3319,10 @@ export function LogView({
                     borderRadius: 6,
                     border: listening
                       ? "1px solid var(--red)"
-                      : "1px solid var(--border)",
+                      : secondaryBorder,
                     background: listening
                       ? "rgba(255,50,50,0.15)"
-                      : "transparent",
+                      : secondaryFill,
                     color: listening ? "var(--red-text)" : "var(--text-muted)",
                     cursor:
                       recorded.state === "transcribing"

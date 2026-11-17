@@ -2286,8 +2286,12 @@ function UserEditPanel({
               style={{
                 padding: "7px 14px",
                 borderRadius: 6,
-                border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                background: confirmDelete ? "var(--red-text)" : "transparent",
+                border: confirmDelete
+                  ? "1px solid var(--red)"
+                  : filledDangerBtn.border,
+                background: confirmDelete
+                  ? "var(--red-text)"
+                  : filledDangerBtn.background,
                 color: confirmDelete ? "var(--bg-base)" : "var(--red-text)",
                 fontSize: 11,
                 fontWeight: 600,

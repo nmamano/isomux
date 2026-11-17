@@ -1,6 +1,11 @@
 import { useId, useState, useRef, useLayoutEffect } from "react";
 import { useI18n } from "../i18n.tsx";
-import { ownDisabledLook } from "../components/dialog-styles.ts";
+import {
+  ownDisabledLook,
+  secondaryBorder,
+  secondaryFill,
+  tintedFill,
+} from "../components/dialog-styles.ts";
 
 export function ThumbsUpReaction({
   active,
@@ -59,9 +64,11 @@ export function ThumbsUpReaction({
         position: "relative",
         flexShrink: 0,
         gap: 0,
-        border: "1px solid var(--border)",
+        border: active
+          ? "1px solid color-mix(in srgb, var(--accent) 45%, transparent)"
+          : secondaryBorder,
         borderRadius: 10,
-        background: active ? "var(--bg-subtle)" : "transparent",
+        background: active ? tintedFill("var(--accent)") : secondaryFill,
         // A long press on the chip must not select the count as text.
         userSelect: "none",
         WebkitUserSelect: "none",
