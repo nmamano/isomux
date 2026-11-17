@@ -6,7 +6,7 @@ Start an export only when a member or an agent with the same manager asks for on
 
 Lock the office with `POST /api/office/lockdown` and `{reason}`, only after a member gave the reason and a clear yes. The office signs everyone out, ends every agent (you included), and then stops or shows only a locked page. Only `unlock` on the office's machine ends the lock.
 
-Restart the office with `POST /api/office/restart`, only when a member or an agent with the same manager asks. Every turn in flight ends, yours included; the office wakes those agents when it is back.
+Restart the office with `POST /api/office/restart`. Every turn in flight ends, yours included; the office wakes those agents when it is back.
 
 An owner moves the office to another machine with a move code from Settings > Move office in their browser; you cannot get the code. `GET /api/office/move` shows the move. Cancel it with `DELETE /api/office/move` only when a member or an agent with the same manager asks. On the new machine, the owner starts the move in and agrees to the lock from their browser. `GET /api/office/move-in` shows it; `POST /api/office/move-in/preflight` checks the old office again, `POST /api/office/move-in/live` copies it again while it still runs, `POST /api/office/move-in/pull` pulls it again after a failure, and `DELETE /api/office/move-in` cancels it. Use these four only when a member or an agent with the same manager asks.
 
