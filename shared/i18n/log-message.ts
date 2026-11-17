@@ -573,15 +573,39 @@ export interface LogSegment {
 /**
  * The line a reader sees for an entry (logEntryText), with its values and
  * backtick spans kept apart, so a view can show them unlike the words around
- * them. A code segment's text has no backticks.
+ * them. A code segment's text has no backticks. A value or code span alone
+ * in a pair of quote marks loses the marks: its box shows where it ends. The
+ * stored line keeps them for plain-text readers.
  */
 export function logEntrySegments(
   tr: Translator,
   entry: { content: string; message?: unknown },
 ): LogSegment[] {
-  if (entry.message !== undefined) {
-    const segments = segmentParts(tr, entry.message, true);
-    if (segments !== null) return segments;
+  const segments =
+    (entry.message !== undefined
+      ? segmentParts(tr, entry.message, true)
+      : null) ?? splitCode(entry.content, "text");
+  return dropQuotesAroundBoxes(segments);
+}
+
+// Opening mark to closing mark. ' is left out: it is also an apostrophe.
+const QUOTE_PAIRS: Readonly<Record<string, string>> = {
+  '"': '"',
+  "\u201c": "\u201d",
+  "\u300c": "\u300d",
+};
+
+function dropQuotesAroundBoxes(segments: Segments): Segments {
+  const out = segments.map((s) => ({ ...s }));
+  for (let i = 1; i < out.length - 1; i++) {
+    const [before, box, after] = [out[i - 1], out[i], out[i + 1]];
+    if (box.kind === "text" || before.kind !== "text" || after.kind !== "text")
+      continue;
+    const open = before.text.slice(-1);
+    const close = QUOTE_PAIRS[open];
+    if (close === undefined || !after.text.startsWith(close)) continue;
+    before.text = before.text.slice(0, -1);
+    after.text = after.text.slice(close.length);
   }
-  return splitCode(entry.content, "text");
+  return out.filter((s) => s.kind !== "text" || s.text !== "");
 }

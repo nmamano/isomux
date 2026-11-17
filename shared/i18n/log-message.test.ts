@@ -697,14 +697,36 @@ describe("logEntrySegments: the line a reader sees, values kept apart", () => {
     ...logTextFields(message),
     message: logTextFields(message).message,
   });
+  // The quote pairs a box replaces (task 4e2aed38): the box already shows
+  // where a value ends. ' is not one: it is also an apostrophe.
+  const QUOTE_PAIRS = [
+    ['"', '"'],
+    ["\u201c", "\u201d"],
+    ["\u300c", "\u300d"],
+  ] as const;
+  // `line` with each quote pair around exactly one boxed span taken out.
+  const dropBoxQuotes = (line: string, segments: LogSegment[]) => {
+    let out = line;
+    for (const s of segments) {
+      if (s.kind === "text") continue;
+      const shown = s.kind === "code" ? "`" + s.text + "`" : s.text;
+      for (const [open, close] of QUOTE_PAIRS)
+        out = out.replaceAll(open + shown + close, shown);
+    }
+    return out;
+  };
+  const quoted = (line: string, inner: string) =>
+    QUOTE_PAIRS.some(([open, close]) => line.includes(open + inner + close));
   const segmentsOf = (
     tr: typeof en,
     entry: { content: string; message?: unknown },
   ) => {
     const segments = logEntrySegments(tr, entry);
-    // Every reader gets the same text as before, and no raw backtick sits in
-    // a value or code span.
-    expect(rewrap(segments)).toBe(logEntryText(tr, entry));
+    // Every reader gets the stored text, less the quotes around a lone box,
+    // and no raw backtick sits in a value or code span.
+    expect(rewrap(segments)).toBe(
+      dropBoxQuotes(logEntryText(tr, entry), segments),
+    );
     for (const s of segments)
       if (s.kind !== "text") expect(s.text).not.toContain("`");
     return segments;
@@ -908,6 +930,73 @@ describe("logEntrySegments: the line a reader sees, values kept apart", () => {
     expect(marked(badParam)).toEqual([{ kind: "code", text: "y" }]);
   });
 
+  it("a lone boxed value or code span loses its quotes; the stored line keeps them", () => {
+    const ready = entryOf([
+      msg("systemEntries.agentReady", {
+        name: "Ada",
+        cwd: "/home/ada/proj",
+        mode: "plan",
+      }),
+    ]);
+    for (const tr of [en, es, translatorFor("ca"), zh]) {
+      // The catalog puts the name in a quote pair, and the stored line
+      // (what agents and search read) keeps it.
+      const stored = logEntryText(tr, ready);
+      expect(quoted(stored, "Ada")).toBe(true);
+      const segments = segmentsOf(tr, ready);
+      const at = segments.findIndex(
+        (s) => s.kind === "value" && s.text === "Ada",
+      );
+      expect(at).toBeGreaterThan(0);
+      const before = segments[at - 1].text;
+      const after = segments[at + 1].text;
+      for (const [open, close] of QUOTE_PAIRS)
+        expect(before.endsWith(open) && after.startsWith(close)).toBe(false);
+      expect(quoted(rewrap(segments), "Ada")).toBe(false);
+    }
+    // A code span alone in quotes, in the content and in a stored part; a
+    // text segment left empty is dropped.
+    for (const [open, close] of QUOTE_PAIRS) {
+      const line = `Run ${open}\`ls -la\`${close} now.`;
+      for (const entry of [
+        { content: line },
+        { content: "stored", message: [line] },
+      ]) {
+        const segments = segmentsOf(en, entry);
+        expect(marked(segments)).toEqual([{ kind: "code", text: "ls -la" }]);
+        expect(rewrap(segments)).toBe("Run `ls -la` now.");
+      }
+      const whole = segmentsOf(en, { content: `${open}\`ls\`${close}` });
+      expect(whole).toEqual([{ kind: "code", text: "ls" }]);
+    }
+  });
+
+  it("quotes stay around prose, around several spans, and when the marks do not match", () => {
+    const refusal = "Model overloaded";
+    for (const tr of [en, zh]) {
+      const entry = entryOf([
+        msg("systemEntries.providerRefused", {
+          provider: "openrouter",
+          message: refusal,
+        }),
+      ]);
+      const stored = logEntryText(tr, entry);
+      expect(quoted(stored, refusal)).toBe(true);
+      expect(rewrap(segmentsOf(tr, entry))).toBe(stored);
+    }
+    for (const content of [
+      'Run "`ls`\u300d now.',
+      'Run \u300c`ls`" now.',
+      "Run \u201d`ls`\u201c now.",
+      'Run "`a` `b`" now.',
+      'Run "`a` and" now.',
+    ]) {
+      const segments = segmentsOf(en, { content });
+      expect(segments.some((s) => s.kind === "code")).toBe(true);
+      expect(rewrap(segments)).toBe(content);
+    }
+  });
+
   // Every system line in every language, with a string value per
   // placeholder: the text is the plain template fill (independent of the
   // walk under test), a value outside backticks is a value segment unless its
@@ -915,6 +1004,8 @@ describe("logEntrySegments: the line a reader sees, values kept apart", () => {
   it("every systemEntries line keeps its text and splits its values", () => {
     const PAIR = /`[^`\n]+`/g;
     const PH = /\{(\w+)\}/g;
+    const LONE = /(["\u201c\u300c])(\{(\w+)\}|`[^`\n]+`)(["\u201d\u300d])/g;
+    const dropped = new Set<string>();
     const english = CATALOGS.en as Record<string, string>;
     const value = (name: string) => `v-${name}`;
     let checked = 0;
@@ -984,7 +1075,20 @@ describe("logEntrySegments: the line a reader sees, values kept apart", () => {
         const entry = { content: "stored", message: [message] };
         expect(localizeLogParts(tr, [message])).toBe(filled);
         const segments = logEntrySegments(tr, entry);
-        expect(rewrap(segments)).toBe(filled);
+        // A box replaces the quote pair around a lone value or code span:
+        // the pair goes, a prose placeholder keeps it.
+        const boxed = template
+          .replace(LONE, (whole, open: string, inner: string, name, close) =>
+            QUOTE_PAIRS.some(([o, c]) => o === open && c === close) &&
+            (name === undefined || !PROSE.has(name))
+              ? inner
+              : whole,
+          )
+          .replace(PH, (whole, n: string) =>
+            n === "count" ? whole : value(n),
+          );
+        if (boxed !== filled) dropped.add(language);
+        expect(rewrap(segments)).toBe(boxed);
         const codeText = segments
           .filter((s) => s.kind === "code")
           .map((s) => s.text)
@@ -1008,5 +1112,7 @@ describe("logEntrySegments: the line a reader sees, values kept apart", () => {
     }
     // Every language and the many system lines were walked.
     expect(checked).toBeGreaterThan(4 * 250);
+    // Each language has a line whose box dropped its quotes.
+    expect([...dropped].sort()).toEqual(Object.keys(CATALOGS).sort());
   });
 });
