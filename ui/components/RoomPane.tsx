@@ -8,7 +8,11 @@ import type {
   InstructionsReq,
   InstructionsRes,
 } from "../../shared/contract-shapes.ts";
-import { dialogInput, filledDangerBtn } from "./dialog-styles.ts";
+import {
+  dialogInput,
+  filledDangerBtn,
+  settingsSectionTitle,
+} from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
@@ -449,11 +453,14 @@ export function RoomPane({
           style={inputStyle}
         />
 
-        {/* The look: a field of General, not a part of its own, after the
-            folder (Nil, 2026-11-17: name, folder, look, then Delete). */}
+        {/* The look: in General, not a part of its own, after the folder
+            (Nil, 2026-11-17: name, folder, look, then Delete), under the
+            same section heading as a member's Appearance. */}
         {room.type !== "lobby" && (
           <>
-            <label style={fieldLabel}>{t("dialogs.agent.appearance")}</label>
+            <h5 style={{ ...settingsSectionTitle, marginBottom: 10 }}>
+              {t("dialogs.agent.appearance")}
+            </h5>
             <RoomDecorPicker
               room={room}
               rooms={rooms}

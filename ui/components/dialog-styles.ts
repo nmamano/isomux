@@ -14,6 +14,17 @@ export const dialogLabel: Readonly<CSSProperties> = Object.freeze({
   marginBottom: 5,
 });
 
+// A section heading inside a settings part (for example Appearance in
+// General): one look on the member, agent and room pages.
+export const settingsSectionTitle: Readonly<CSSProperties> = Object.freeze({
+  fontSize: 13,
+  fontWeight: 700,
+  color: "var(--text-primary)",
+  margin: "24px 0 0",
+  paddingBottom: 5,
+  borderBottom: "1px solid var(--border-subtle)",
+});
+
 export const dialogInput: Readonly<CSSProperties> = Object.freeze({
   width: "100%",
   padding: "9px 12px",

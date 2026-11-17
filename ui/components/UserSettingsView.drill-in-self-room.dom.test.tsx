@@ -181,8 +181,9 @@ describe("a room, drilled in from Rooms", () => {
       current: current(view),
       back: backRow(view) !== null,
       fields,
-      // One heading, the part's title: the look is a field like the
-      // others, not a heading over the folder after it.
+      // Two headings: the part's title, and Appearance over the look
+      // (Nil, 2026-11-17: as on a member). The look comes after the
+      // folder, so no other field sits under that heading.
       headings: general?.querySelectorAll("h4, h5").length,
     };
     await openPart(view, "instructions");
@@ -198,7 +199,7 @@ describe("a room, drilled in from Rooms", () => {
       current: ["general"],
       back: true,
       fields: ["name", "folder", "look", "delete"],
-      headings: 1,
+      headings: 2,
       promptInInstructions: true,
       levelInView: true,
     });

@@ -68,6 +68,7 @@ import {
   dialogInput,
   dialogLabel,
   filledDangerBtn,
+  settingsSectionTitle,
 } from "./dialog-styles.ts";
 import { DevicePane } from "./DevicePane.tsx";
 import { SidebarPage } from "./SidebarPage.tsx";
@@ -2741,14 +2742,7 @@ const onlineDotStyle: React.CSSProperties = {
 
 // Section headers inside the user editor: a titled rule that groups the
 // fields the old modal ran together in one long column.
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: "var(--text-primary)",
-  margin: "24px 0 0",
-  paddingBottom: 5,
-  borderBottom: "1px solid var(--border-subtle)",
-};
+const sectionTitleStyle: React.CSSProperties = settingsSectionTitle;
 const sectionHintStyle: React.CSSProperties = {
   fontSize: 12,
   color: "var(--text-muted)",
