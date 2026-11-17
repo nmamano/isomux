@@ -13,6 +13,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "./Data.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
@@ -64,7 +65,7 @@ function RemovedMemberCard({
   member: RemovedMemberWire;
   onRestored: (userId: string) => void;
 }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const { user, heirName, passed } = member;
   const passedAny = passed.agents + passed.schedules + passed.webhooks > 0;
   const [moveBack, setMoveBack] = useState(true);
@@ -126,9 +127,9 @@ function RemovedMemberCard({
         </span>
       </div>
       <p style={hint}>
-        {t("settings.removedMembers.removedOn", {
+        {rich("settings.removedMembers.removedOn", {
           date: formatDateTime(language, member.removedAt, "date"),
-          name: member.removedBy,
+          name: <Data>{member.removedBy}</Data>,
           expires: formatDateTime(language, member.expiresAt, "date"),
         })}
       </p>
@@ -148,7 +149,12 @@ function RemovedMemberCard({
             onChange={(e) => setMoveBack(e.target.checked)}
             data-removed-member-move-back=""
           />
-          {t("settings.removedMembers.moveBack", { heir: heirName })}
+          {/* One flex item: the sentence and its value stay one line. */}
+          <span>
+            {rich("settings.removedMembers.moveBack", {
+              heir: <Data>{heirName}</Data>,
+            })}
+          </span>
         </label>
       )}
       {error && <p style={{ ...hint, color: "var(--red-text)" }}>{error}</p>}

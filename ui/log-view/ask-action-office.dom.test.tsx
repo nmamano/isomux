@@ -7,6 +7,7 @@
 // DOM time cap.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { asData, sentenceValues } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -585,3 +586,50 @@ it.each([
     view.unmount();
   },
 );
+
+// As on the Removed members page: who removed them and the heir are values
+// in the card's lines, with or without the move back (AGENTS.md "UI rules").
+it("a restore card shows who removed the member and the heir as values", async () => {
+  read = (path) =>
+    path === "/api/removed-members"
+      ? {
+          members: [
+            {
+              ...REMOVED.members[0],
+              removedBy: "Avery Remover",
+              heirName: "Harper Heir",
+              passed: { agents: 1, schedules: 0, webhooks: 0 },
+            },
+          ],
+        }
+      : undefined;
+  const { view, block } = await mount([
+    memberAsk("val00001", {
+      kind: "member-restore",
+      userId: "u4",
+      agents: true,
+    }),
+    memberAsk("val00002", {
+      kind: "member-restore",
+      userId: "u4",
+      agents: false,
+    }),
+  ]);
+  await waitFor(() =>
+    expect(block("val00001")!.textContent).toContain("Harper Heir"),
+  );
+  await waitFor(() =>
+    expect(block("val00002")!.textContent).toContain("Harper Heir"),
+  );
+  for (const id of ["val00001", "val00002"]) {
+    expect([id, sentenceValues(block(id)!, ["Avery Remover"])]).toEqual([
+      id,
+      asData(["Avery Remover"]),
+    ]);
+    expect([id, sentenceValues(block(id)!, ["Harper Heir"])]).toEqual([
+      id,
+      asData(["Harper Heir"]),
+    ]);
+  }
+  view.unmount();
+});

@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "./Data.tsx";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import {
@@ -113,9 +114,7 @@ const SKIP_KEYS: Record<
 
 // The wraps of the catalog's rich entries (ruling 16).
 const inStrong = (chunk: ReactNode) => <strong>{chunk}</strong>;
-const inCode = (chunk: ReactNode) => (
-  <code style={{ fontFamily: "'JetBrains Mono',monospace" }}>{chunk}</code>
-);
+const inData = (chunk: ReactNode) => <Data>{chunk}</Data>;
 
 // Enough candidates to recognize what is about to go, not so many that the
 // preview becomes the thing you scroll past to reach the button.
@@ -958,7 +957,7 @@ function BackupBlock({
             {rich("settings.storage.backupKeeping", {
               retention: backup.retention,
               destDir: backup.destDir,
-              code: inCode,
+              code: inData,
             })}{" "}
             {tn("settings.storage.backupEvery", backup.intervalHours)}
           </p>
@@ -968,7 +967,7 @@ function BackupBlock({
         <p style={{ ...backupText, marginTop: 6 }}>
           {rich("settings.storage.oldBackupsStay", {
             dir: oldBackupsDir,
-            code: inCode,
+            code: inData,
           })}
         </p>
       )}

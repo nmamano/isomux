@@ -1,6 +1,7 @@
 import { afterAll, test, expect } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom";
 import { expectMasked } from "../test-support/masked";
+import { asData, sentenceValues } from "../test-support/data-values";
 setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
 const { PagerSettingsPane } = await import("./PagerSettingsPane");
@@ -228,5 +229,32 @@ test("the held webhook row paints with bars, not a webhook or its absence, eithe
   await act(async () =>
     resolve({ webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 }),
   );
+  view.unmount();
+});
+
+// Another member's pager (an owner on their page): their name is a value in
+// the intro and in the user ID help, each time it shows (AGENTS.md "UI
+// rules").
+test("on another member's pager, their name shows as a value in the intro and the user ID help", async () => {
+  const MEMBER = "Robin Member";
+  setApiShim(async (method, path) => {
+    if (method === "GET" && path === PATH)
+      return { webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 };
+    if (method === "GET" && path === "/api/users/morgan/push-devices")
+      return { publicKey: "", devices: [] };
+    throw new Error(`no shim for ${method} ${path}`);
+  });
+  const view = render(<PagerSettingsPane username="morgan" member={MEMBER} />);
+  await act(async () => {});
+  const pane = view.getByTestId("pager-settings");
+  expect(sentenceValues(pane, [MEMBER])).toEqual(asData([MEMBER]));
+  const tip = view.container.querySelector<HTMLElement>(
+    'label[for="pager-user-id"] [data-help-tip]',
+  );
+  expect(tip).not.toBeNull();
+  await act(async () => fireEvent.click(tip!));
+  const note = view.container.querySelector('[role="note"]');
+  expect(note).not.toBeNull();
+  expect(sentenceValues(note!, [MEMBER])).toEqual(asData([MEMBER, MEMBER]));
   view.unmount();
 });

@@ -32,6 +32,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useAppState, useDispatch, type AskResult } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "../components/Data.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
 import {
@@ -250,7 +251,7 @@ export function AskActionBlock({
   isMobile: boolean;
 }) {
   const i18n = useI18n();
-  const { t, tn, language } = i18n;
+  const { t, tn, rich, language } = i18n;
   const {
     agents,
     users,
@@ -1204,9 +1205,9 @@ export function AskActionBlock({
       lines: [
         removed && (
           <div key="removed" style={muted}>
-            {t("settings.removedMembers.removedOn", {
+            {rich("settings.removedMembers.removedOn", {
               date: date(removed.removedAt),
-              name: removed.removedBy,
+              name: <Data>{removed.removedBy}</Data>,
               expires: date(removed.expiresAt),
             })}
           </div>
@@ -1216,14 +1217,14 @@ export function AskActionBlock({
           passedAny &&
           (s.agents ? (
             <div key="agents" style={{ fontSize: small }}>
-              {t("settings.removedMembers.moveBack", {
-                heir: removed.heirName,
+              {rich("settings.removedMembers.moveBack", {
+                heir: <Data>{removed.heirName}</Data>,
               })}
             </div>
           ) : (
             <div key="agents" style={{ fontSize: small }}>
-              {t("asks.action.restoreKeepsAgents", {
-                heir: removed.heirName,
+              {rich("asks.action.restoreKeepsAgents", {
+                heir: <Data>{removed.heirName}</Data>,
               })}
             </div>
           )),

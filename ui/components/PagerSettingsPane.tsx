@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "./Data.tsx";
 import { useCan } from "../hooks/useCan.ts";
 import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import type {
@@ -57,7 +58,7 @@ export function PagerSettingsPane({
   username: string;
   member?: string;
 }) {
-  const { t, tn } = useI18n();
+  const { t, tn, rich } = useI18n();
   // A pack that gives pager at read shows the settings, not their changes.
   const pagerWrite = useCan("pager", "write");
   const path = `/api/users/${encodeURIComponent(username)}/pager-settings`;
@@ -272,7 +273,9 @@ export function PagerSettingsPane({
       <h4 style={sectionHeader}>{t("settings.sidebar.pager")}</h4>
       <p style={{ ...hint, marginTop: 4 }}>
         {member
-          ? t("pager.settings.introTheirs", { member })
+          ? rich("pager.settings.introTheirs", {
+              member: <Data>{member}</Data>,
+            })
           : t("pager.settings.intro")}
       </p>
 
@@ -328,7 +331,9 @@ export function PagerSettingsPane({
               <HelpTip
                 text={
                   member
-                    ? t("pager.settings.userIdHintTheirs", { member })
+                    ? rich("pager.settings.userIdHintTheirs", {
+                        member: <Data>{member}</Data>,
+                      })
                     : `${t("pager.settings.userIdHint")} ${t("pager.settings.phoneHint")}`
                 }
               />

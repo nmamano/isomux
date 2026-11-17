@@ -8,14 +8,17 @@
 // a failed swap here) reloads the page, so the owner sees that server's page.
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "./Data.tsx";
 import { useAppState } from "../store.tsx";
 import {
   getMoveInLayout,
@@ -160,6 +163,18 @@ const mono: React.CSSProperties = {
   fontFamily: "'JetBrains Mono', monospace",
   fontSize: 11,
 };
+// A list of values in a sentence: each value its own Data, plain commas
+// between them (AGENTS.md "UI rules").
+function dataList(items: ReactNode[]): ReactNode {
+  return items.map((item, i) => (
+    <Fragment key={i}>
+      {i > 0 && ", "}
+      {item}
+    </Fragment>
+  ));
+}
+const values = (names: string[]) =>
+  dataList(names.map((n) => <Data>{n}</Data>));
 const row: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
@@ -239,7 +254,7 @@ interface OutState {
 }
 
 function MoveOutCard() {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const [state, setState] = useState<OutState>({
     status: null,
     minted: null,
@@ -300,7 +315,9 @@ function MoveOutCard() {
       <p style={text}>{t("officeMove.out.signIns")}</p>
       {minted?.loopbackOrigin && (
         <p data-testid="move-loopback-warning" style={warning}>
-          {t("officeMove.out.loopback", { origin: minted.origin })}
+          {rich("officeMove.out.loopback", {
+            origin: <Data>{minted.origin}</Data>,
+          })}
         </p>
       )}
       {minted && (
@@ -417,7 +434,7 @@ function MoveInCard({
   held: MoveInLayout;
   onFirst: (first: boolean) => void;
 }) {
-  const { t, tn, language } = useI18n();
+  const { t, tn, rich, language } = useI18n();
   const [state, setState] = useState<InState>({
     status: null,
     action: null,
@@ -585,7 +602,9 @@ function MoveInCard({
       {/* The report names the old office in its first line. */}
       {view && view.kind !== "start" && view.kind !== "report" && (
         <p style={{ ...hint, margin: "4px 0 0" }}>
-          {t("officeMove.in.from", { origin: view.oldOrigin })}
+          {rich("officeMove.in.from", {
+            origin: <Data>{view.oldOrigin}</Data>,
+          })}
         </p>
       )}
       {/* Before the first status, the start controls show disabled. */}
@@ -1059,7 +1078,7 @@ function ConfirmView({
   size: (bytes: number) => string;
   time: (ts: number) => string;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   // Slice 5b: the folders outside the home are copied too.
   const outsideBytes = outside.reduce((n, l) => n + (l.bytes ?? 0), 0);
   const sizePartial =
@@ -1078,7 +1097,9 @@ function ConfirmView({
       )}
       {p.restart.kind === "set" && p.restart.restart !== "always" && (
         <p style={warning}>
-          {t("officeMove.in.confirm.restartOff", { unit: p.restart.unit })}
+          {rich("officeMove.in.confirm.restartOff", {
+            unit: <Data>{p.restart.unit}</Data>,
+          })}
         </p>
       )}
       {p.restart.kind === "none" && (
@@ -1089,8 +1110,8 @@ function ConfirmView({
       )}
       {p.memberOsUsers.kind === "list" && p.memberOsUsers.members === null && (
         <p data-testid="move-member-os-users" style={warning}>
-          {t("officeMove.in.confirm.memberOsUsers", {
-            names: p.memberOsUsers.names.join(", "),
+          {rich("officeMove.in.confirm.memberOsUsers", {
+            names: values(p.memberOsUsers.names),
           })}
         </p>
       )}
@@ -1104,19 +1125,25 @@ function ConfirmView({
           ? t("officeMove.in.confirm.turnsUnknown")
           : p.turnsInFlight.agents.length === 0
             ? t("officeMove.in.confirm.noTurns")
-            : t("officeMove.in.confirm.turns", {
-                names: p.turnsInFlight.agents
-                  .map((a) =>
-                    a.roomName ? `${a.name} (${a.roomName})` : a.name,
-                  )
-                  .join(", "),
+            : rich("officeMove.in.confirm.turns", {
+                names: dataList(
+                  p.turnsInFlight.agents.map((a) =>
+                    a.roomName ? (
+                      <>
+                        <Data>{a.name}</Data> (<Data>{a.roomName}</Data>)
+                      </>
+                    ) : (
+                      <Data>{a.name}</Data>
+                    ),
+                  ),
+                ),
               })}
       </p>
       {p.units.kind === "list" ? (
         p.units.units.length > 0 && (
           <p style={text}>
-            {t("officeMove.in.confirm.units", {
-              names: p.units.units.map((u) => u.name).join(", "),
+            {rich("officeMove.in.confirm.units", {
+              names: values(p.units.units.map((u) => u.name)),
             })}
           </p>
         )
@@ -1174,8 +1201,8 @@ function ConfirmView({
       {p.sudoPackages.kind === "list" ? (
         p.sudoPackages.packages.length > 0 && (
           <p style={text}>
-            {t("officeMove.in.confirm.sudo", {
-              packages: p.sudoPackages.packages.join(", "),
+            {rich("officeMove.in.confirm.sudo", {
+              packages: values(p.sudoPackages.packages),
             })}
           </p>
         )
@@ -1197,7 +1224,7 @@ function FolderList({
   lines: OutsideFolderLine[];
   size?: (bytes: number) => string;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   // The cap never hides a folder that cannot land (the owner must see why):
   // it drops only folders that can, and keeps the checks' order.
   const blocked = lines.filter((l) => !l.check.ok).length;
@@ -1214,7 +1241,9 @@ function FolderList({
           {!l.check.ok && (
             <>
               <div data-testid="move-outside-blocked" style={warning}>
-                {t(BLOCK_REASON_KEY[l.check.reason], { at: l.check.at })}
+                {rich(BLOCK_REASON_KEY[l.check.reason], {
+                  at: <Data>{l.check.at}</Data>,
+                })}
               </div>
               {l.check.command && <RootCommand command={l.check.command} />}
             </>
@@ -1264,7 +1293,8 @@ function RootCommand({
  *  reason first, then this office's, both from their codes and fields only
  *  (never a detail: that is the server's English or a raw error). */
 function MemberList({ lines }: { lines: MemberLine[] }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const { shown, more } = listHead(lines);
   return (
     <ul data-testid="move-members" style={list}>
@@ -1305,7 +1335,7 @@ function MemberList({ lines }: { lines: MemberLine[] }) {
                 data-block={here.block}
                 style={warning}
               >
-                {here.text(t)}
+                {here.text(i18n)}
               </div>
             )}
           </li>
@@ -1316,18 +1346,18 @@ function MemberList({ lines }: { lines: MemberLine[] }) {
   );
 }
 
-type T = ReturnType<typeof useI18n>["t"];
+type I18n = ReturnType<typeof useI18n>;
 
 /** Slice 5c-3: this office's reason for a member, from the check's fields;
  *  null when she can land here. A member with no check here waits for one. */
 function hereReason(
   l: MemberLine,
-): { block: string; text: (t: T) => string } | null {
+): { block: string; text: (i18n: I18n) => ReactNode } | null {
   const c = l.here;
   if (c === null)
     return {
       block: "unchecked",
-      text: (t) => t("officeMove.in.members.here.unchecked"),
+      text: ({ t }) => t("officeMove.in.members.here.unchecked"),
     };
   switch (c.block) {
     case null:
@@ -1335,33 +1365,37 @@ function hereReason(
     case "unsupported":
       return {
         block: c.block,
-        text: (t) => t("officeMove.in.members.here.unsupported"),
+        text: ({ t }) => t("officeMove.in.members.here.unsupported"),
       };
     case "other_home":
       return {
         block: c.block,
-        text: (t) =>
-          t("officeMove.in.members.here.otherHome", {
-            home: c.home ?? "",
-            oldHome: c.oldHome,
+        text: ({ rich }) =>
+          rich("officeMove.in.members.here.otherHome", {
+            home: <Data>{c.home ?? ""}</Data>,
+            oldHome: <Data>{c.oldHome}</Data>,
           }),
       };
     case "name_taken":
       return {
         block: c.block,
-        text: (t) =>
-          t("officeMove.in.members.here.nameTaken", { osUser: c.osUser }),
+        text: ({ rich }) =>
+          rich("officeMove.in.members.here.nameTaken", {
+            osUser: <Data>{c.osUser}</Data>,
+          }),
       };
     case "home_exists":
       return {
         block: c.block,
-        text: (t) =>
-          t("officeMove.in.members.here.homeExists", { home: c.home ?? "" }),
+        text: ({ rich }) =>
+          rich("officeMove.in.members.here.homeExists", {
+            home: <Data>{c.home ?? ""}</Data>,
+          }),
       };
     default:
       return {
         block: "unknown",
-        text: (t) => t("officeMove.in.members.here.unknown"),
+        text: ({ t }) => t("officeMove.in.members.here.unknown"),
       };
   }
 }
@@ -1499,15 +1533,17 @@ function ReportView({
   return (
     <>
       <p style={text}>
-        {t("officeMove.report.from", {
-          origin: view.oldOrigin,
+        {rich("officeMove.report.from", {
+          origin: <Data>{view.oldOrigin}</Data>,
           time: time(r.swappedAt),
-          name: r.by.name ?? r.by.id,
+          name: <Data>{r.by.name ?? r.by.id}</Data>,
         })}
       </p>
       {r.ownerRenamedTo && (
         <p style={text}>
-          {t("officeMove.report.renamed", { name: r.ownerRenamedTo })}
+          {rich("officeMove.report.renamed", {
+            name: <Data>{r.ownerRenamedTo}</Data>,
+          })}
         </p>
       )}
       {r.missing.length > 0 && (
@@ -1579,8 +1615,8 @@ function ReportView({
       )}
       {r.oldOfficeUnitSetAside && (
         <p style={text}>
-          {t("officeMove.report.unitSetAside", {
-            name: r.oldOfficeUnitSetAside,
+          {rich("officeMove.report.unitSetAside", {
+            name: <Data>{r.oldOfficeUnitSetAside}</Data>,
           })}
         </p>
       )}
@@ -1590,15 +1626,15 @@ function ReportView({
         <>
           {r.units.restored.length > 0 && (
             <p style={text}>
-              {t("officeMove.report.unitsRestored", {
-                names: r.units.restored.join(", "),
+              {rich("officeMove.report.unitsRestored", {
+                names: values(r.units.restored),
               })}
             </p>
           )}
           {r.units.failed.map((f) => (
             <p key={f.name} style={warning}>
-              {t("officeMove.report.unitFailed", {
-                name: f.name,
+              {rich("officeMove.report.unitFailed", {
+                name: <Data>{f.name}</Data>,
                 reason: f.reason,
               })}
             </p>
@@ -1608,8 +1644,8 @@ function ReportView({
       <p style={text}>
         {rich("officeMove.report.aside", {
           path: (
-            <span data-testid="move-aside-path" style={mono}>
-              {view.asidePath}
+            <span data-testid="move-aside-path">
+              <Data>{view.asidePath}</Data>
             </span>
           ),
           size: size(r.aside.bytes),

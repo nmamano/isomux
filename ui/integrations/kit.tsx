@@ -519,7 +519,7 @@ export function FormButtons({
 
 // A (?) that opens a short explanation in place. A title tooltip never shows
 // on a phone, so it is a button.
-export function HelpTip({ text }: { text: string }) {
+export function HelpTip({ text }: { text: ReactNode }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (

@@ -11,6 +11,7 @@
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import { asData, sentenceValues } from "./test-support/data-values.ts";
 import type { MessageKey, ParamsFor } from "../shared/i18n/translate.ts";
 
 setUpDomTestFile();
@@ -21,6 +22,7 @@ const { InvitesPane } = await import("./components/InvitesPane.tsx");
 const { ExternalAccessPane } =
   await import("./components/ExternalAccessPane.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
+const { MintedUrlBox } = await import("./components/access-shared.tsx");
 const { setApiShim } = await import("./api.ts");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
 const { createElement } = await import("react");
@@ -147,4 +149,20 @@ describe("the minted sign-in URL box", () => {
     expect(count(view, en("settings.access.openUrlSelf")), "self hint").toBe(0);
     view.unmount();
   });
+});
+
+// A link for an existing member (an ask's result, a member's page): the hint
+// names them, and the name is a value (AGENTS.md "UI rules").
+it("a link for a named member shows their name as a value in the hint", () => {
+  const view = render(
+    onLanguage(
+      "en",
+      createElement(MintedUrlBox, { url: URL_OTHER, sendTo: "Quinn Member" }),
+    ),
+  );
+  expect(count(view, URL_OTHER), "minted URL on screen").toBe(1);
+  expect(sentenceValues(view.container, ["Quinn Member"])).toEqual(
+    asData(["Quinn Member"]),
+  );
+  view.unmount();
 });

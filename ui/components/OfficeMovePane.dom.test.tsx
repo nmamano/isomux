@@ -42,6 +42,7 @@ import {
   spyOn,
 } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { asData, sentenceValues } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -1487,6 +1488,155 @@ it("slice 5c-3: the report lists each member with the enable command and its cop
   inAnswers = [base];
   const old = await mount();
   expect(old.q("move-report-members")).toBeNull();
+});
+
+// ---- values in sentences (task b30036d9) ----
+//
+// A name, a path, a host or a service inside a sentence is a value (AGENTS.md
+// "UI rules"): each one sits whole in its own Data element, list items one
+// each with plain separators, while times, sizes and free-text reasons stay
+// words of the sentence. sentenceValues reads the line that holds the first
+// value given.
+
+/** `lines` with each list of values read by `read`, keyed as `lines`. */
+const each = <R,>(
+  lines: Record<string, string[]>,
+  read: (values: string[], key: string) => R,
+) =>
+  Object.fromEntries(
+    Object.entries(lines).map(([key, values]) => [key, read(values, key)]),
+  );
+
+it("the confirm card shows each name, host, service and path in its sentences as a value", async () => {
+  inAnswers = [
+    inPhase("confirm", {
+      preflightId: "pf-1",
+      preflight: {
+        ...outsidePreflight(),
+        restart: {
+          unit: "old-isomux.service",
+          manager: "user",
+          restart: "on-failure",
+        },
+        turnsInFlight: [
+          { agentId: "a1", name: "Agent Ada", roomName: "Room Rho" },
+          { agentId: "a2", name: "Agent Bo", roomName: null },
+        ],
+        units: ["unit-one.service", "unit-two.service"].map((name) => ({
+          name,
+          unitFileState: "enabled",
+          activeState: "active",
+          transient: false,
+        })),
+        sudoPackages: { packages: ["pkg-alpha", "pkg-beta"] },
+        memberOsUsers: { names: ["Old Mia", "Old Sam"] },
+      },
+      outsideChecks: [
+        okCheck(OUT_P),
+        { path: OUT_Q, ok: false, reason: "unsafe_parent", at: "/opt/at-dir" },
+      ],
+    }),
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("confirm");
+  const card = m.q("move-in")!;
+  const lines = {
+    from: [OLD],
+    restartOff: ["old-isomux.service"],
+    memberOsUsers: ["Old Mia", "Old Sam"],
+    turns: ["Agent Ada", "Room Rho", "Agent Bo"],
+    units: ["unit-one.service", "unit-two.service"],
+    sudo: ["pkg-alpha", "pkg-beta"],
+    outsideReason: ["/opt/at-dir"],
+  };
+  expect(each(lines, (values) => sentenceValues(card, values))).toEqual(
+    each(lines, asData),
+  );
+});
+
+it("each reason this office gives for a member names the home or OS user as a value", async () => {
+  const LEE = {
+    ...SAM,
+    userId: "u-lee",
+    name: "Lee",
+    osUser: "isomux-lee",
+    home: "/home/isomux-lee",
+  };
+  inAnswers = [
+    confirmMembers(
+      [MIA, SAM, LEE],
+      [
+        hereOf(MIA, "other_home"),
+        hereOf(SAM, "name_taken"),
+        hereOf(LEE, "home_exists"),
+      ],
+    ),
+  ];
+  const m = await mount();
+  const reason = (block: string) =>
+    [...m.all("move-member-blocked")].find((e) => e.dataset.block === block);
+  const lines = {
+    other_home: ["/srv/isomux-mia", "/home/isomux-mia"],
+    name_taken: ["isomux-sam"],
+    home_exists: ["/home/isomux-lee"],
+  };
+  expect(
+    each(lines, (values, block) => {
+      const el = reason(block);
+      return el ? sentenceValues(el, values) : null;
+    }),
+  ).toEqual(each(lines, asData));
+});
+
+it("the report shows the old office, the members, the services and the set-aside folder in its sentences as values", async () => {
+  const base = moved([".bashrc"]) as Extract<MoveInStatus, { phase: "moved" }>;
+  inAnswers = [
+    {
+      ...base,
+      report: {
+        ...base.report,
+        by: { kind: "member", id: "u1", name: "Morgan Mover" },
+        ownerRenamedTo: "Renamed Owner",
+        oldOfficeUnitSetAside: "isomux-old.service",
+        units: {
+          restored: ["app-one.service", "app-two.service"],
+          failed: [{ name: "app-three.service", reason: "exit code 1" }],
+        },
+      },
+    },
+  ];
+  const m = await mount();
+  expect(m.inView()).toBe("report");
+  const card = m.q("move-in")!;
+  const lines = {
+    from: [OLD, "Morgan Mover"],
+    renamed: ["Renamed Owner"],
+    unitSetAside: ["isomux-old.service"],
+    unitsRestored: ["app-one.service", "app-two.service"],
+    unitFailed: ["app-three.service"],
+    aside: [ASIDE],
+  };
+  expect(each(lines, (values) => sentenceValues(card, values))).toEqual(
+    each(lines, asData),
+  );
+  // The aside path keeps its test id.
+  expect(m.q("move-aside-path")?.textContent).toBe(ASIDE);
+});
+
+it("the loopback warning names the address as a value", async () => {
+  const ORIGIN = "http://127.0.0.1:4000";
+  writeAnswers["POST /api/office/move/code"] = {
+    code: "isomux-move:c0de",
+    origin: ORIGIN,
+    expiresAt: Date.now() + 15 * 60_000,
+    loopbackOrigin: true,
+  } satisfies MintMoveCodeRes;
+  const m = await mount();
+  outAnswers = [{ state: "code", expiresAt: Date.now() + 15 * 60_000 }];
+  await click(m.q("move-mint"));
+  const warning = m.q("move-loopback-warning");
+  expect(warning).not.toBeNull();
+  expect(sentenceValues(warning!, [ORIGIN])).toEqual(asData([ORIGIN]));
 });
 
 // Task 69c5f413, the UI rule that a view keeps its layout while it loads:

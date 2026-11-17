@@ -4,6 +4,7 @@
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { asData, sentenceValues } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -136,4 +137,18 @@ it("Delete now forgets the first click when the button loses focus", async () =>
   });
   await click(button);
   expect(calls).toEqual([]);
+});
+
+// A name in a sentence is a value (AGENTS.md "UI rules"): who removed them
+// and the heir show in Data; the dates stay words of the sentence.
+it("the card names who removed them and the heir as values", () => {
+  const { card } = mount([
+    removed("a1", { removedBy: "Avery Remover", heirName: "Harper Heir" }),
+  ]);
+  expect(sentenceValues(card("a1"), ["Avery Remover"])).toEqual(
+    asData(["Avery Remover"]),
+  );
+  expect(sentenceValues(card("a1"), ["Harper Heir"])).toEqual(
+    asData(["Harper Heir"]),
+  );
 });

@@ -18,6 +18,7 @@ import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { absoluteTime, timeSince, timeUntil } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "./Data.tsx";
 import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import {
   dialogHint,
@@ -89,7 +90,7 @@ export function MintedSecretBox({
 }: {
   value: string;
   label: string;
-  hint: string;
+  hint: ReactNode;
   blocked: string;
   copyTitle?: string;
 }) {
@@ -210,7 +211,7 @@ export function MintedUrlBox({
   forSelf?: boolean;
   sendTo?: string;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const member = !forSelf && sendTo !== undefined;
   return (
     <MintedSecretBox
@@ -222,7 +223,9 @@ export function MintedUrlBox({
       )}
       hint={
         member && sendTo
-          ? t("asks.result.sendSignInLink", { member: sendTo })
+          ? rich("asks.result.sendSignInLink", {
+              member: <Data>{sendTo}</Data>,
+            })
           : t(
               forSelf || member
                 ? "settings.access.openUrlSelf"
