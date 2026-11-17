@@ -257,7 +257,7 @@ export function PushDevicesBlock({ username }: { username: string }) {
   return (
     <div style={cardStyle} data-testid="push-devices">
       {support === "ok" ? (
-        <div style={row}>
+        <div style={{ ...row, minHeight: FIRST_LINE_MIN_HEIGHT }}>
           {pagerWrite && (
             <>
               <button
@@ -301,7 +301,7 @@ export function PushDevicesBlock({ username }: { username: string }) {
         <p
           data-testid="push-unsupported"
           data-reason={support}
-          style={{ ...dialogHint, margin: 0 }}
+          style={{ ...dialogHint, margin: 0, minHeight: FIRST_LINE_MIN_HEIGHT }}
         >
           {support === "ios-install"
             ? t("push.settings.iosInstall")
@@ -392,6 +392,12 @@ export function PushDevicesBlock({ username }: { username: string }) {
     </div>
   );
 }
+
+// The block's first line, the switch row or the line that says this browser
+// cannot take push, keeps one height: before the devices answer, the block
+// guesses from the browser, and the answer can say the office has no push key.
+// The switch track's height.
+const FIRST_LINE_MIN_HEIGHT = 18;
 
 const row: React.CSSProperties = {
   display: "flex",

@@ -128,6 +128,14 @@ import { demoSecretsRoute } from "./demo-secrets.ts";
 import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { nextVariableNotes } from "../shared/connection-notes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
+import {
+  drawnProviderRow,
+  getProviderLayout,
+  setDiscordLayout,
+  setMemberUsageLayout,
+  setPagerLayout,
+  setProviderLayout,
+} from "./device-settings.ts";
 import type { WhatsAppChatSeen, WhatsAppRoute } from "../shared/whatsapp.ts";
 import {
   discordInviteUrl,
@@ -591,6 +599,37 @@ export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
   undefined,
   undefined,
 ];
+
+// The demo's member (demo-entry signs in as them), an owner.
+export const DEMO_USERNAME = "Ricky";
+
+// Writes, for each Integrations card whose held layout the demo's own data
+// decides, the layout that data gives, so a demo visitor's first visit holds
+// the shape the answers bring. demo-entry calls it at each boot.
+export function seedDemoHeldLayouts(): void {
+  setDiscordLayout({
+    bots: demoDiscordBots.length,
+    rows: demoDiscordBots.length ? demoDiscordRoutes.length : 0,
+  });
+  setPagerLayout({
+    webhook: !!demoPagerSettingsOf(DEMO_USERNAME).webhookUrlMasked,
+  });
+  // The demo answers no member usage status: with the cap on, every
+  // provider's read fails and draws no line.
+  setMemberUsageLayout({
+    share:
+      demoOfficeSwitches.memberUsageCap &&
+      demoOfficeSwitches.memberUsageShare !== undefined,
+    status: 0,
+  });
+  // The demo's member is an owner: they may change every sign-in.
+  const layout = getProviderLayout();
+  for (const account of demoProviderAccounts()) {
+    const row = drawnProviderRow(account, true);
+    if (row) layout[account.scope][account.provider] = row;
+  }
+  setProviderLayout(layout);
+}
 
 export function setEmbedMode() {
   embedMode = true;

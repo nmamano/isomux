@@ -43,6 +43,7 @@ import {
   ItemRow,
   Panel,
   Pill,
+  Placeholder,
   errorText,
   input,
   mono,
@@ -273,6 +274,15 @@ function OpenCodeCard({
     />
   );
 
+  // A held line: a bar where the answer's line goes.
+  const heldLine = (
+    <Reserved dim>
+      <span style={{ display: "block" }}>
+        <Placeholder width="50%" />
+      </span>
+    </Reserved>
+  );
+
   const headerPill =
     freeLimitAt !== null ? (
       <Pill tone="orange">
@@ -301,6 +311,13 @@ function OpenCodeCard({
       >
         <ProviderMark provider="opencode" />
         OpenCode
+        {!statusIn && (
+          <Reserved dim>
+            <Pill tone="neutral">
+              <Placeholder width="7em" />
+            </Pill>
+          </Reserved>
+        )}
         {statusIn && (
           <span
             title={
@@ -321,7 +338,7 @@ function OpenCodeCard({
       <ItemRow
         data-opencode-row="free"
         title={t("integrations.providers.opencode.free.title")}
-        detail={freeIn ? freeContent : <Reserved>{freeContent}</Reserved>}
+        detail={freeIn ? freeContent : heldLine}
       />
       <KeyRow
         target={target}
@@ -339,7 +356,7 @@ function OpenCodeCard({
               : undefined,
         }}
         title={t("integrations.providers.opencode.paid.title")}
-        detail={paidIn ? paidContent : <Reserved>{paidContent}</Reserved>}
+        detail={paidIn ? paidContent : heldLine}
         status={paidCountPill}
         ready={paidIn}
       />
@@ -357,7 +374,7 @@ function OpenCodeCard({
                 ),
               })}
             </span>
-            {!office && (modelsIn ? ownLine : <Reserved>{ownLine}</Reserved>)}
+            {!office && (modelsIn ? ownLine : heldLine)}
           </>
         }
       />
@@ -402,7 +419,15 @@ function MemberOpenCodeRow({
         <span
           data-opencode-key={set === null ? undefined : set ? "set" : "none"}
         >
-          {set === null ? <Reserved>{pill}</Reserved> : pill}
+          {set === null ? (
+            <Reserved dim>
+              <Pill tone="neutral">
+                <Placeholder width="5em" />
+              </Pill>
+            </Reserved>
+          ) : (
+            pill
+          )}
         </span>
       }
       ready={set !== null}

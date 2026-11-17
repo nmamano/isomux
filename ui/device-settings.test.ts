@@ -68,6 +68,8 @@ const {
   setSkillsLayout,
   SKILLS_HELD_ROWS_MAX,
   SKILLS_LAYOUT_FALLBACK,
+  getProviderLayout,
+  setProviderLayout,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -598,6 +600,42 @@ describe("integrations held layouts", () => {
   ])("reads the stored Discord value %s as no bot", (raw) => {
     store.set("isomux-discord-layout", raw);
     expect(getDiscordLayout()).toEqual({ bots: 0, rows: 0 });
+  });
+});
+
+// The row each Codex and Claude sign-in card drew under its status (task
+// da868bd9). A first visit holds an office that is signed in and a viewer who
+// is not.
+describe("provider held layout", () => {
+  const FIRST = {
+    office: { codex: "signOut", claude: "signOut" },
+    personal: { codex: "signIn", claude: "signIn" },
+  } as const;
+  beforeEach(() => store.delete("isomux-provider-layout"));
+
+  it("keeps each card's row, and holds the first-visit rows before a first save", () => {
+    expect(getProviderLayout()).toEqual(FIRST);
+    const saved = {
+      office: { codex: "none", claude: "signIn" },
+      personal: { codex: "signOut", claude: "none" },
+    } as const;
+    setProviderLayout(saved);
+    expect(getProviderLayout()).toEqual(saved);
+  });
+
+  it.each([
+    "junk",
+    "[]",
+    "null",
+    "{}",
+    '{"office":{"codex":"signIn","claude":"signIn"}}',
+    '{"office":{"codex":"signIn","claude":"signIn"},"personal":{"codex":"signIn"}}',
+    '{"office":{"codex":"maybe","claude":"signIn"},"personal":{"codex":"signIn","claude":"signIn"}}',
+    '{"office":{"codex":true,"claude":"signIn"},"personal":{"codex":"signIn","claude":"signIn"}}',
+    '{"office":[],"personal":{"codex":"signIn","claude":"signIn"}}',
+  ])("reads the stored value %s as the first-visit rows", (raw) => {
+    store.set("isomux-provider-layout", raw);
+    expect(getProviderLayout()).toEqual(FIRST);
   });
 });
 

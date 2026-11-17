@@ -1,4 +1,10 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   EnvVariableSource,
@@ -20,6 +26,12 @@ import { Reserved } from "./Reserved.tsx";
 import { BuildingIcon, PersonIcon } from "./NavIcons.tsx";
 import { HelpTip } from "../integrations/kit.tsx";
 import { Data } from "./Data.tsx";
+import {
+  drawnProviderRow,
+  getProviderLayout,
+  setProviderLayout,
+  type ProviderRow,
+} from "../device-settings.ts";
 
 // Not a component (it labels a button inside one), so it takes the translator
 // rather than reaching for the hook.
@@ -507,6 +519,101 @@ function ProviderScopeConnection({
     </div>
   );
 
+  // The row this card draws under its status once it knows the account,
+  // remembered on this device so the next load holds its space; null while
+  // a sign-in runs. A member's card, which their owner opens, holds the Sign
+  // in row and remembers nothing.
+  const canAct = !readOnly && environmentWrite;
+  const drawnRow = account ? drawnProviderRow(account, canAct) : null;
+  const [remembered] = useState<ProviderRow>(() =>
+    member ? "signIn" : getProviderLayout()[scope][provider],
+  );
+  const heldRow = remembered === "signIn" && !canAct ? "none" : remembered;
+  useEffect(() => {
+    if (!pageLook || member || drawnRow === null) return;
+    const layout = getProviderLayout();
+    if (layout[scope][provider] === drawnRow) return;
+    setProviderLayout({
+      ...layout,
+      [scope]: { ...layout[scope], [provider]: drawnRow },
+    });
+  }, [pageLook, member, drawnRow, scope, provider]);
+
+  // The row under a signed-in status: Sign out (for whoever may change the
+  // sign-in) and Test. `live` false: its held space, with nothing to act on.
+  const connectedRow = (live: boolean) => (
+    <div style={connectedRowStyle}>
+      {readOnly || !environmentWrite ? null : !live || !confirmingSignOut ? (
+        <button
+          data-provider-sign-out={live ? "" : undefined}
+          style={{
+            ...filledSecondaryBtn,
+            color: "var(--red-text)",
+            flexShrink: 0,
+          }}
+          onClick={live ? () => setConfirmingSignOut(true) : undefined}
+          disabled={pending}
+        >
+          {t("common.signOut")}
+        </button>
+      ) : (
+        <div
+          role="dialog"
+          aria-label={t("settings.signIn.signOutDialog", {
+            provider: title,
+          })}
+          style={{ display: "flex", gap: 8, flexShrink: 0 }}
+        >
+          <button
+            autoFocus
+            style={{
+              ...filledSecondaryBtn,
+            }}
+            onClick={() => setConfirmingSignOut(false)}
+            disabled={pending}
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            style={{
+              ...filledSecondaryBtn,
+              color: "var(--red-text)",
+            }}
+            onClick={() => void disconnect()}
+            disabled={pending}
+          >
+            {signOutButtonLabel(i18n, pending)}
+          </button>
+        </div>
+      )}
+      {pageLook && (!live || !confirmingSignOut) && environmentWrite && (
+        <button
+          style={{ ...filledSecondaryBtn, flexShrink: 0 }}
+          disabled={live && test.state === "running"}
+          onClick={live ? () => void runTest() : undefined}
+          data-sign-in-test={live ? "" : undefined}
+        >
+          {live && test.state === "running"
+            ? t("settings.connections.test.running")
+            : t("settings.connections.test.button")}
+        </button>
+      )}
+      {live && externalWarning && (
+        <p
+          style={{
+            ...hint,
+            color: "var(--red-text)",
+            margin: 0,
+            flex: 1,
+            minWidth: 180,
+          }}
+        >
+          {externalWarning}
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <div
       style={
@@ -704,91 +811,14 @@ function ProviderScopeConnection({
           </div>
         </div>
       )}
-      {/* While the status loads, the page holds the space of the usual
-          buttons: the office is mostly signed in, a member mostly not. */}
-      {pageLook && statusState === "checking" && (
-        <Reserved>
-          {scope === "office" ? (
-            <div style={connectedRowStyle}>
-              <button style={filledSecondaryBtn}>{t("common.signOut")}</button>
-            </div>
-          ) : (
-            signInRow(false)
-          )}
+      {/* While the status loads, the page holds the row this card drew last
+          on this device (a member's card: the Sign in row). */}
+      {pageLook && statusState === "checking" && heldRow !== "none" && (
+        <Reserved dim>
+          {heldRow === "signOut" ? connectedRow(false) : signInRow(false)}
         </Reserved>
       )}
-      {account?.accountStatus === "connected" && (
-        <div style={connectedRowStyle}>
-          {readOnly || !environmentWrite ? null : !confirmingSignOut ? (
-            <button
-              data-provider-sign-out
-              style={{
-                ...filledSecondaryBtn,
-                color: "var(--red-text)",
-                flexShrink: 0,
-              }}
-              onClick={() => setConfirmingSignOut(true)}
-              disabled={pending}
-            >
-              {t("common.signOut")}
-            </button>
-          ) : (
-            <div
-              role="dialog"
-              aria-label={t("settings.signIn.signOutDialog", {
-                provider: title,
-              })}
-              style={{ display: "flex", gap: 8, flexShrink: 0 }}
-            >
-              <button
-                autoFocus
-                style={{
-                  ...filledSecondaryBtn,
-                }}
-                onClick={() => setConfirmingSignOut(false)}
-                disabled={pending}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                style={{
-                  ...filledSecondaryBtn,
-                  color: "var(--red-text)",
-                }}
-                onClick={() => void disconnect()}
-                disabled={pending}
-              >
-                {signOutButtonLabel(i18n, pending)}
-              </button>
-            </div>
-          )}
-          {pageLook && !confirmingSignOut && environmentWrite && (
-            <button
-              style={{ ...filledSecondaryBtn, flexShrink: 0 }}
-              disabled={test.state === "running"}
-              onClick={() => void runTest()}
-              data-sign-in-test
-            >
-              {test.state === "running"
-                ? t("settings.connections.test.running")
-                : t("settings.connections.test.button")}
-            </button>
-          )}
-          {externalWarning && (
-            <p
-              style={{
-                ...hint,
-                color: "var(--red-text)",
-                margin: 0,
-                flex: 1,
-                minWidth: 180,
-              }}
-            >
-              {externalWarning}
-            </p>
-          )}
-        </div>
-      )}
+      {account?.accountStatus === "connected" && connectedRow(true)}
       {/* A "Works" from before a sign-out no longer holds. */}
       {pageLook && (connected || test.state !== "works") && (
         <SignInTestResult test={test} provider={provider} />

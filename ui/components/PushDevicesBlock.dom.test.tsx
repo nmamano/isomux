@@ -113,7 +113,7 @@ function removePushApis() {
 
 let devices: { id: string; label: string; createdAt: number }[] = [];
 const writes: unknown[] = [];
-setApiShim(async (method, path, body) => {
+const shim: Parameters<typeof setApiShim>[0] = async (method, path, body) => {
   if (method === "GET" && path === PATH) return { publicKey: KEY, devices };
   writes.push([method, path, body]);
   if (method === "POST" && path === PATH) {
@@ -126,7 +126,8 @@ setApiShim(async (method, path, body) => {
     return undefined;
   }
   return { delivered: true };
-});
+};
+setApiShim(shim);
 afterAll(() => setApiShim(null));
 afterEach(removePushApis);
 
@@ -252,6 +253,50 @@ describe("push devices block", () => {
 // A member whose permission pack gives pager at read only (task 119d0b47):
 // every device change is pager write, so the block lists the devices with no
 // switch, Test or Remove, and the room view's Turn on is gone.
+// Task da868bd9: before the devices answer, the block guesses this browser
+// can take push and draws the switch row; an office without a push key
+// answers with the one "unsupported" line. The first line of the block keeps
+// one height across that change: both share one min height.
+describe("the block's first line while the devices load", () => {
+  it("keeps the min height of the switch row when the answer brings the unsupported line", async () => {
+    installPushApis();
+    let resolve!: (value: unknown) => void;
+    setApiShim(
+      (method, path) =>
+        new Promise((done) => {
+          if (method !== "GET" || path !== PATH)
+            throw new Error(`Unexpected request: ${method} ${path}`);
+          resolve = done;
+        }),
+    );
+    try {
+      const view = render(<PushDevicesBlock username="morgan" />);
+      await act(async () => {});
+      const first = () =>
+        view.getByTestId("push-devices").firstElementChild as HTMLElement;
+      const before = {
+        unsupported: first().getAttribute("data-testid") === "push-unsupported",
+        minHeight: first().style.minHeight,
+      };
+      await act(async () => resolve({ publicKey: "", devices: [] }));
+      const after = {
+        unsupported: first().getAttribute("data-testid") === "push-unsupported",
+        minHeight: first().style.minHeight,
+      };
+      // The guess and the answer differ, so the test reaches the change.
+      expect({ before: before.unsupported, after: after.unsupported }).toEqual({
+        before: false,
+        after: true,
+      });
+      expect(before.minHeight).not.toBe("");
+      expect(after.minHeight).toBe(before.minHeight);
+      view.unmount();
+    } finally {
+      setApiShim(shim);
+    }
+  });
+});
+
 describe("a pack that gives pager at read only", () => {
   const atLevel = (level: "read" | "write") => {
     const record = {

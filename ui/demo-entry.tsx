@@ -10,8 +10,10 @@ import { App } from "./App.tsx";
 import { setShim } from "./ws.ts";
 import { setApiShim } from "./api.ts";
 import {
+  DEMO_USERNAME,
   demoApi,
   handleCommand,
+  seedDemoHeldLayouts,
   sendInitialState,
   setEmbedMode,
 } from "./demo-server.ts";
@@ -42,7 +44,10 @@ setApiShim(held(demoApi));
 
 // Hardcode username so the modal is skipped.
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).
-localStorage.setItem("isomux-username", "Ricky");
+localStorage.setItem("isomux-username", DEMO_USERNAME);
+// The demo's data resets at each load, so it knows the layout each held card
+// will get: a first visit holds that, not a real office's first-visit guess.
+seedDemoHeldLayouts();
 
 const isMobile =
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||

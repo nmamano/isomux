@@ -14,6 +14,7 @@ import {
 } from "../../shared/member-usage-share.ts";
 import { cardStyle } from "./access-shared.tsx";
 import { Reserved } from "./Reserved.tsx";
+import { Placeholder } from "../integrations/kit.tsx";
 import {
   getMemberUsageLayout,
   setMemberUsageLayout,
@@ -227,20 +228,23 @@ export function MemberUsageCard({
         <span>{t("settings.office.memberUsageCap")}</span>
       </label>
       <p style={switchHintStyle}>{t("settings.office.memberUsageCapHint")}</p>
-      {loading && (
+      {/* It takes the place of one held status line: with none, the
+          disabled switch alone says the settings load. */}
+      {loading && reserve.status > 0 && (
         <p role="status" style={{ ...statusLineStyle, color: mutedText }}>
           {t("common.loading")}
         </p>
       )}
       {loading
-        ? reserve.share && <Reserved>{shareRow}</Reserved>
+        ? reserve.share && <Reserved dim>{shareRow}</Reserved>
         : usageCap && shareKnown && shareRow}
-      {/* The loading line above takes the place of one held status line. */}
+      {/* The loading line above takes the place of one held status line;
+          bars stand for the others, which have no answer to say yet. */}
       {loading && reserve.status > 1 && (
-        <Reserved>
+        <Reserved dim>
           {Array.from({ length: reserve.status - 1 }, (_, i) => (
             <p key={i} style={statusLineStyle}>
-              {"\u00a0"}
+              <Placeholder width="50%" />
             </p>
           ))}
         </Reserved>

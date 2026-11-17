@@ -27,7 +27,7 @@ import {
   disabledFieldLook,
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
-import { HelpTip } from "../integrations/kit.tsx";
+import { HelpTip, Placeholder } from "../integrations/kit.tsx";
 import { MaskedInput } from "./MaskedInput.tsx";
 import { Reserved } from "./Reserved.tsx";
 import { getPagerLayout, setPagerLayout } from "../device-settings.ts";
@@ -44,9 +44,6 @@ export const PAGER_FAILURE_KEYS = {
   network: "pager.failure.network",
 } as const satisfies Record<PagerDeliveryFailure, MessageKey>;
 const NEVER = "never";
-// The space a saved webhook's row takes while the settings load: the shape of
-// a masked URL (server/pager-settings.ts maskWebhookUrl).
-const HELD_WEBHOOK = "https://discord.com/api/webhooks/…0000";
 
 // `member`: the member's name when an owner sets another member's pager
 // (task 7a3b4114). The copy then names them, and this device's
@@ -180,9 +177,10 @@ export function PagerSettingsPane({
   }
 
   // The saved webhook, or the line that says there is none. `masked` null:
-  // none. The held copy, while loading, carries no test ids.
-  const webhookCurrent = (masked: string | null, live = true) =>
-    masked ? (
+  // none. The held copy, while loading (`masked` undefined: the row of a saved
+  // one), carries no test ids, and bars stand for what the answer will say.
+  const webhookCurrent = (masked: string | null | undefined, live = true) =>
+    masked !== null ? (
       <div
         data-testid={live ? "pager-webhook-current" : undefined}
         style={{
@@ -200,7 +198,7 @@ export function PagerSettingsPane({
             color: "var(--green-text)",
           }}
         >
-          {t("pager.settings.webhookSaved")}
+          {live ? t("pager.settings.webhookSaved") : <Placeholder />}
         </span>
         <code
           style={{
@@ -212,7 +210,7 @@ export function PagerSettingsPane({
             wordBreak: "break-all",
           }}
         >
-          {masked}
+          {masked ?? <Placeholder width="16em" />}
         </code>
         {pagerWrite && (
           <button
@@ -232,7 +230,7 @@ export function PagerSettingsPane({
         style={{ ...dialogHint, margin: "6px 0 0" }}
         data-testid={live ? "pager-webhook-current" : undefined}
       >
-        {t("pager.settings.webhookNone")}
+        {live ? t("pager.settings.webhookNone") : <Placeholder />}
       </p>
     );
 
@@ -300,8 +298,8 @@ export function PagerSettingsPane({
               }}
             />
             {loading ? (
-              <Reserved>
-                {webhookCurrent(held.webhook ? HELD_WEBHOOK : null, false)}
+              <Reserved dim>
+                {webhookCurrent(held.webhook ? undefined : null, false)}
               </Reserved>
             ) : (
               webhookCurrent(saved?.webhookUrlMasked ?? null)

@@ -107,6 +107,46 @@ describe("the rows", () => {
     }
   });
 
+  // Task da868bd9: a held line paints, dimmed, and says nothing the answer
+  // has not said yet: a bar stands in for its text. The header holds a pill.
+  it("paints its held lines and header pill with bars, not text, while the reads are out", async () => {
+    const releases = [
+      fake.hold(ME),
+      fake.hold(MODELS),
+      fake.hold("/api/me/connections"),
+    ];
+    const view = await open();
+    // Per held block: painted, with a bar, and no text of its own.
+    const looks = (root: Element) =>
+      [...held(root)].map((node) => ({
+        painted: (node as HTMLElement).style.visibility !== "hidden",
+        bars: node.querySelectorAll("[data-placeholder]").length > 0,
+        text: (node.textContent ?? "").trim(),
+      }));
+    const bare = { painted: true, bars: true, text: "" };
+    for (const which of ["office", "personal"] as const) {
+      const root = section(view, which);
+      const rows = (["free", "paid", "own-server"] as const).filter(
+        // Your own server's models show on the viewer's card only.
+        (name) => which === "personal" || name !== "own-server",
+      );
+      for (const name of rows)
+        expect({ which, name, held: looks(row(root, name)) }).toEqual({
+          which,
+          name,
+          held: [bare],
+        });
+      // The header's pill is held too.
+      expect({ which, pill: looks(root.querySelector("h5")!) }).toEqual({
+        which,
+        pill: [bare],
+      });
+    }
+    await act(async () => {
+      for (const release of releases) release();
+    });
+  });
+
   it("lists the viewer's free models, counts OpenCode's paid ones, and puts other providers under your own server", async () => {
     fake.openCode = { freeLimitAt: null, keySource: "member_variable" };
     fake.openCodeModels = MODELS_LISTED;

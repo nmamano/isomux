@@ -168,3 +168,49 @@ test("while the settings load, the pane shows its form with nothing to act on, a
   );
   view.unmount();
 });
+
+// Task da868bd9: the held webhook row paints, dimmed, and says nothing the
+// answer has not said yet: bars stand in for whether a webhook is saved and
+// for its address. A control's caption is not an answer.
+test("the held webhook row paints with bars, not a webhook or its absence, either way it was last shown", async () => {
+  let resolve!: (value: unknown) => void;
+  setApiShim(async (method, path) => {
+    if (method === "GET" && path === "/api/users/morgan/push-devices")
+      return { publicKey: "", devices: [] };
+    if (method !== "GET" || path !== PATH)
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    return new Promise((done) => {
+      resolve = done;
+    });
+  });
+  const looks = (root: Element) =>
+    [...root.querySelectorAll<HTMLElement>("[data-reserved]")].map((node) => {
+      const copy = node.cloneNode(true) as Element;
+      for (const button of copy.querySelectorAll("button")) button.remove();
+      return {
+        painted: node.style.visibility !== "hidden",
+        bars: node.querySelectorAll("[data-placeholder]").length > 0,
+        text: (copy.textContent ?? "").trim(),
+      };
+    });
+  const bare = { painted: true, bars: true, text: "" };
+
+  // A first visit holds a saved webhook's row.
+  window.localStorage.clear();
+  let view = render(<PagerSettingsPane username="morgan" />);
+  await act(async () => {});
+  expect({ saved: looks(view.container) }).toEqual({ saved: [bare] });
+  await act(async () =>
+    resolve({ webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 }),
+  );
+  view.unmount();
+
+  // That load had none: the next holds the "none" line.
+  view = render(<PagerSettingsPane username="morgan" />);
+  await act(async () => {});
+  expect({ none: looks(view.container) }).toEqual({ none: [bare] });
+  await act(async () =>
+    resolve({ webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 }),
+  );
+  view.unmount();
+});

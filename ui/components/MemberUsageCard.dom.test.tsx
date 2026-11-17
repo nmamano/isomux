@@ -307,6 +307,9 @@ it("saves and says so when Save is clicked with nothing changed", async () => {
 // take seconds. The card says it loads in words, and each provider's line
 // loads on its own once the settings are in.
 it("says in words that the settings load, and stops once they arrive", async () => {
+  // A first visit: on a device that last drew no status line, the card
+  // holds no loading line (task da868bd9).
+  window.localStorage.clear();
   const settings = deferred<unknown>();
   setApiShim(async (method, path) =>
     statusProvider(method, path) ? NEVER : settings.promise,
@@ -591,5 +594,69 @@ it("shows the card without the fallback switch for a server without the setting"
   await act(async () => {});
   expect(paceBox(view).disabled).toBe(false);
   expect(fallbackBox(view)).toBeNull();
+  view.unmount();
+});
+
+// Task da868bd9: while settings load, the card holds what it last drew on
+// this device, line for line. With no status line, no line says the
+// settings load (it would take a place no answer fills). A held status line
+// paints, dimmed, as a bar: it has no answer to say yet.
+it("holds no loading line where it last drew no status line, and its held status lines paint as bars", async () => {
+  const { blockShape } = await import("../test-support/held-shape.ts");
+  // The block shape, with each Reserved wrapper replaced by its children.
+  const shape = (root: Element) => {
+    const copy = root.cloneNode(true) as Element;
+    for (const wrapper of [
+      ...copy.querySelectorAll("[data-reserved]"),
+    ].reverse())
+      wrapper.replaceWith(...wrapper.childNodes);
+    return blockShape(copy);
+  };
+  const mount = () => render(onLanguage(null, createElement(MemberUsageCard)));
+  let resolve!: (value: unknown) => void;
+  setApiShim(async (method, path) => {
+    if (statusProvider(method, path))
+      return {
+        memberUsageStatus: [{ provider: "claude", state: "no_limit" }],
+      };
+    return new Promise((done) => {
+      resolve = done;
+    });
+  });
+
+  // A load with the cap off: the card draws no share row and no line.
+  window.localStorage.clear();
+  const off = {
+    version: "1",
+    memberUsageCap: false,
+    memberUsageShare: 80,
+    providerFallback: false,
+  };
+  let view = mount();
+  await act(async () => resolve(off));
+  view.unmount();
+  view = mount();
+  const held = shape(view.container);
+  const saying = view.queryAllByRole("status").length;
+  await act(async () => resolve(off));
+  expect({ saying, held }).toEqual({ saying: 0, held: shape(view.container) });
+  view.unmount();
+
+  // A first visit holds two status lines: the loading line and one held
+  // line, which paints as a bar.
+  window.localStorage.clear();
+  view = mount();
+  const lines = [
+    ...view.container.querySelectorAll<HTMLElement>("[data-reserved]"),
+  ]
+    .filter((node) => node.querySelector("p") !== null)
+    .flatMap((node) =>
+      [...node.querySelectorAll("p")].map((line) => ({
+        painted: node.style.visibility !== "hidden",
+        bar: line.querySelector("[data-placeholder]") !== null,
+      })),
+    );
+  expect(lines).toEqual([{ painted: true, bar: true }]);
+  await act(async () => resolve(off));
   view.unmount();
 });

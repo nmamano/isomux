@@ -7,7 +7,10 @@
 // the Settings page, so they follow a member across devices. What stays here is what
 // is genuinely about THIS browser.
 
-import type { NotifRoomsSetting } from "../shared/types.ts";
+import type {
+  NotifRoomsSetting,
+  ProviderAccountWire,
+} from "../shared/types.ts";
 import type { SkillEngine, SkillSource } from "../shared/contract-shapes.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import { isLoopbackUrl } from "./webhook-helpers.ts";
@@ -978,6 +981,61 @@ export function setDiscordLayout(layout: DiscordLayout): void {
     bots: Math.min(layout.bots, DISCORD_HELD_MAX),
     rows: Math.min(layout.rows, DISCORD_HELD_MAX),
   });
+}
+
+// Integrations → Model providers: the row each Codex and Claude sign-in
+// card drew under its status (a Sign out row, a Sign in row, or none), on
+// the office card and on the viewer's own.
+const KEY_PROVIDER_LAYOUT = "isomux-provider-layout";
+
+export type ProviderRow = "signOut" | "signIn" | "none";
+export type ProviderLayout = {
+  office: { codex: ProviderRow; claude: ProviderRow };
+  personal: { codex: ProviderRow; claude: ProviderRow };
+};
+
+const PROVIDER_ROWS: readonly unknown[] = ["signOut", "signIn", "none"];
+
+const providerRows = (
+  raw: unknown,
+): { codex: ProviderRow; claude: ProviderRow } | null => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const { codex, claude } = raw as Record<string, unknown>;
+  return PROVIDER_ROWS.includes(codex) && PROVIDER_ROWS.includes(claude)
+    ? { codex: codex as ProviderRow, claude: claude as ProviderRow }
+    : null;
+};
+
+// The row a sign-in card draws under an account it knows: null while a
+// sign-in runs (its controls, not a row to hold). `canAct`: the viewer may
+// change this sign-in.
+export function drawnProviderRow(
+  account: ProviderAccountWire,
+  canAct: boolean,
+): ProviderRow | null {
+  if (account.login || account.loginQueue) return null;
+  if (account.accountStatus === "connected") return "signOut";
+  return canAct && account.canBrowserLogin ? "signIn" : "none";
+}
+
+// A first visit holds an office that is signed in and a viewer who is not.
+export function getProviderLayout(): ProviderLayout {
+  return getHeldLayout(
+    KEY_PROVIDER_LAYOUT,
+    ({ office, personal }) => {
+      const o = providerRows(office);
+      const p = providerRows(personal);
+      return o && p ? { office: o, personal: p } : null;
+    },
+    {
+      office: { codex: "signOut", claude: "signOut" },
+      personal: { codex: "signIn", claude: "signIn" },
+    },
+  );
+}
+
+export function setProviderLayout(layout: ProviderLayout): void {
+  setHeldLayout(KEY_PROVIDER_LAYOUT, layout);
 }
 
 // Integrations → GitHub issues: whether the room the card opens on was

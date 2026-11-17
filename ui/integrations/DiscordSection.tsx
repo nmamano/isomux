@@ -518,6 +518,12 @@ export function DiscordSection() {
           {held.bots > 0 ? (
             <>
               {Array.from({ length: held.bots }, (_, i) => botRow(null, i))}
+              {environmentWrite && held.bots < DISCORD_BOTS_MAX && (
+                <AddRow
+                  label={t("integrations.discord.connectAnother")}
+                  disabled
+                />
+              )}
               <DiscordRoutes
                 bots={[]}
                 routes={null}
