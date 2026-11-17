@@ -8,7 +8,7 @@
 // ask, only who does it. An MCP sign-in started here comes back to this
 // ask (/inbox/asks/<askId>?mcpSignIn=<code>); a failure shows in the card.
 
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
@@ -190,12 +190,13 @@ function AskMcpSignIn({
   name: string;
   isMobile: boolean;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const returned = useContext(AskSignInResult);
   const [busy, setBusy] = useState(false);
   // A fixed code from the way back, or the text of a refused start.
   const [failure, setFailure] = useState<
-    { code: string } | { text: string } | null
+    { code: string } | { text: ReactNode } | null
   >(() =>
     returned.result?.askId === askId && returned.result.code !== "ok"
       ? { code: returned.result.code }
@@ -217,7 +218,7 @@ function AskMcpSignIn({
       setFailure({
         text:
           caught instanceof ApiError
-            ? signInErrorText(t, caught.detail?.reason, name)
+            ? signInErrorText(i18n, caught.detail?.reason, name)
             : t("settings.mcpServers.signInFailed"),
       });
       setBusy(false);
@@ -239,7 +240,7 @@ function AskMcpSignIn({
           }}
         >
           {"code" in failure
-            ? signInErrorText(t, failure.code, name)
+            ? signInErrorText(i18n, failure.code, name)
             : failure.text}
         </p>
       )}

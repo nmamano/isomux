@@ -406,10 +406,15 @@ it("the key line links to Variables with environment read, and names an owner wi
     await settle();
     const alert = view.getByRole("alert");
     // The line itself: the switch to browser voices is there in every case.
-    const line = alert.querySelector("span")!.textContent.trim();
+    const span = alert.querySelector("span")!;
+    const line = span.textContent.trim();
     const row = {
       environment: environment ?? "no pack",
       text: line,
+      // The variable's name is Data (AGENTS.md "UI rules", task ea76bd44).
+      data: [...span.querySelectorAll("[data-integrations-data]")].map(
+        (d) => d.textContent,
+      ),
       link: alert.querySelector('a[href="/integrations/variables"]') !== null,
       useBrowser:
         alert.querySelector('[data-voice-action="use-browser"]') !== null,
@@ -422,15 +427,21 @@ it("the key line links to Variables with environment read, and names an owner wi
   const writer = await lineFor("missing", "write");
   const reader = await lineFor("missing", "read");
   const without = await lineFor("missing", "none");
-  expect(full).toMatchObject({ link: true, useBrowser: true });
+  expect(full).toMatchObject({
+    link: true,
+    useBrowser: true,
+    data: ["OPENAI_VOICE_API_KEY"],
+  });
   expect(writer).toEqual({ ...full, environment: "write" });
   expect(reader.link).toBe(true);
   expect(reader.text).not.toBe(full.text);
   expect(reader.text).toContain("OPENAI_VOICE_API_KEY");
+  expect(reader.data).toEqual(["OPENAI_VOICE_API_KEY"]);
   expect(without).toEqual({ ...reader, environment: "none", link: false });
 
   const refused = await lineFor("rejected");
   expect(refused.link).toBe(true);
+  expect(refused.data).toEqual([]);
   expect(await lineFor("rejected", "none")).toEqual({
     ...refused,
     environment: "none",

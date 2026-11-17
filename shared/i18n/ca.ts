@@ -1620,12 +1620,12 @@ Coses que pots fer per ell:
   "integrations.voice.key.secret":
     "{name} està desada com a secret. OpenAI la necessita com a variable.",
   "integrations.voice.key.none":
-    "Afegeix OPENAI_VOICE_API_KEY per fer servir OpenAI.",
+    "Afegeix <code>OPENAI_VOICE_API_KEY</code> per fer servir OpenAI.",
   "integrations.voice.saveFailed": "El canvi no s'ha desat.",
   "integrations.voice.key.theirs":
     "OpenAI fa servir {name} de les variables de {member}.",
   "integrations.voice.key.noneTheirs":
-    "Afegeix OPENAI_VOICE_API_KEY a les variables de {member} per fer servir OpenAI.",
+    "Afegeix <code>OPENAI_VOICE_API_KEY</code> a les variables de {member} per fer servir OpenAI.",
   "integrations.changes.signedOut":
     "{by} ha tancat la teva sessió de {provider}",
   "integrations.changes.signedOutUnknown":
@@ -3023,9 +3023,9 @@ Coses que pots fer per ell:
   "voice.retry": "Torna-ho a provar",
   "voice.useBrowser": "Fes servir les veus del navegador",
   "voice.keyMissing.askOwner":
-    "Demana a un propietari de l'oficina que afegeixi OPENAI_VOICE_API_KEY per fer servir OpenAI.",
+    "Demana a un propietari de l'oficina que afegeixi <code>OPENAI_VOICE_API_KEY</code> per fer servir OpenAI.",
   "voice.mic.keyMissing":
-    "Afegeix OPENAI_VOICE_API_KEY per fer servir el micròfon d'OpenAI.",
+    "Afegeix <code>OPENAI_VOICE_API_KEY</code> per fer servir el micròfon d'OpenAI.",
   "voice.mic.tooLarge": "La gravació supera els 25 MB.",
   "voice.mic.rejected": "OpenAI no ha pogut transcriure la gravació.",
   "voice.mic.failed": "La transcripció ha fallat.",
@@ -3035,7 +3035,7 @@ Coses que pots fer per ell:
   "voice.mic.talk": "Fes clic per parlar",
   "voice.mic.recording": "S'està gravant",
   "voice.speak.keyMissing":
-    "Afegeix OPENAI_VOICE_API_KEY per llegir en veu alta amb OpenAI.",
+    "Afegeix <code>OPENAI_VOICE_API_KEY</code> per llegir en veu alta amb OpenAI.",
   "voice.speak.rejected": "OpenAI no ha pogut llegir aquesta resposta.",
   "voice.speak.failed": "La lectura en veu alta ha fallat.",
   "panels.resizer.label": "Canvia l'amplada del plafó lateral",

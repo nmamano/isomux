@@ -41,10 +41,12 @@ import {
 import {
   CATALOGS,
   lookupIn,
+  pluralFormKeyFor,
   translatorFor,
   type EnglishText,
   type MessageKey,
   type Placeholders,
+  type PluralKey,
   type Translator,
 } from "../shared/i18n/translate.ts";
 import { displayLanguage } from "./preference-form.ts";
@@ -73,9 +75,27 @@ export type RichPartsFor<K extends MessageKey> = [
         Record<Tags<EnglishText<K>>, Wrap>,
     ];
 
+/** Like RichPartsFor, for richN(): `{count}` is supplied by richN itself. */
+export type RichPluralPartsFor<K extends PluralKey> = [
+  Exclude<Placeholders<EnglishText<`${K}.other` & MessageKey>>, "count">,
+] extends [never]
+  ? []
+  : [
+      Record<
+        Exclude<Placeholders<EnglishText<`${K}.other` & MessageKey>>, "count">,
+        ReactNode
+      >,
+    ];
+
 export interface UiTranslator extends Translator {
   /** The message for `key` as React nodes, its tags wrapped and placeholders filled. */
   rich: <K extends MessageKey>(key: K, ...parts: RichPartsFor<K>) => ReactNode;
+  /** rich() for a plural pair: the form tn() picks for `count`, `{count}` filled. */
+  richN: <K extends PluralKey>(
+    key: K,
+    count: number,
+    ...parts: RichPluralPartsFor<K>
+  ) => ReactNode;
 }
 
 type RichParts = Record<string, ReactNode | Wrap>;
@@ -146,6 +166,11 @@ export function uiTranslatorFor(language: SupportedLanguageCode): UiTranslator {
       renderRich(
         lookupIn(catalog, fallback, key),
         (rest as [RichParts?])[0] ?? {},
+      ),
+    richN: (key, count, ...rest) =>
+      renderRich(
+        lookupIn(catalog, fallback, pluralFormKeyFor(language, key, count)),
+        { ...(rest as [RichParts?])[0], count },
       ),
   };
   uiTranslators.set(language, translator);

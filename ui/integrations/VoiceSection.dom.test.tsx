@@ -204,3 +204,83 @@ it("links to Variables with environment read, and sends a member without environ
     link: false,
   });
 });
+
+// AGENTS.md "UI rules" (task ea76bd44): a value inside a sentence is Data -
+// the variable's name and the member's name, on the member's own card and on
+// another member's. Sorted, so a translation may move them.
+it("shows the variable and the member named in the key and where lines as data", async () => {
+  const dataIn = (el: Element) =>
+    [...el.querySelectorAll("[data-integrations-data]")]
+      .map((d) => d.textContent)
+      .sort();
+  const linesFor = async (
+    source: string | null,
+    options: { member?: boolean; environment?: "read" } = {},
+  ) => {
+    keySource = source;
+    keyName = source ? "OPENAI_VOICE_API_KEY" : null;
+    const target = options.member
+      ? ({ kind: "member", username: "Stephen" } as const)
+      : undefined;
+    if (target)
+      setApiShim(async (method, path) => {
+        if (method === "GET" && path === "/api/users/Stephen/voice")
+          return {
+            voiceInput: "browser",
+            voiceOutput: "browser",
+            voiceName: DEFAULT_VOICE_NAME,
+            keySource,
+            keyName,
+          };
+        return {};
+      });
+    const member = options.environment
+      ? asMember(options.environment)
+      : { record: {}, state: {} };
+    const self = { ...selfUserRecord(null), ...member.record };
+    const view = render(
+      onLanguage(null, createElement(VoiceSection, { target } as never), {
+        users: new Map([[self.name.toLowerCase(), self]]),
+        ...member.state,
+      }),
+    );
+    await settle();
+    const section = view.container.querySelector("[data-integrations-card]")!;
+    const key = section.querySelector("[data-key-source]")!;
+    // The card's other lines (the "where" line): its Data outside the key line.
+    const rest = [...section.querySelectorAll("[data-integrations-data]")]
+      .filter((d) => !key.contains(d))
+      .map((d) => d.textContent)
+      .sort();
+    const row = { source: source ?? "none", key: dataIn(key), rest };
+    view.unmount();
+    return row;
+  };
+  const KEY = "OPENAI_VOICE_API_KEY";
+  // The member's own card.
+  for (const source of [
+    "member_variable",
+    "office_variable",
+    "server",
+    "member_secret",
+    null,
+  ])
+    expect(await linesFor(source)).toEqual({
+      source: source ?? "none",
+      key: [KEY],
+      rest: [],
+    });
+  // No key and no environment write: the line sends the member to an owner.
+  expect(await linesFor(null, { environment: "read" })).toEqual({
+    source: "none",
+    key: [KEY],
+    rest: [],
+  });
+  // Another member's card: their name too, in the key line and the where line.
+  for (const source of ["member_variable", null])
+    expect(await linesFor(source, { member: true })).toEqual({
+      source: source ?? "none",
+      key: [KEY, "Stephen"],
+      rest: ["Stephen"],
+    });
+});

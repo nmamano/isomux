@@ -170,6 +170,17 @@ it("saves a preset secret, lists it without a value, and clears the value field"
   await click(row.querySelector("[data-secret-edit]"));
   await click(view.container.querySelector("[data-secret-reissue]"));
   expect(fake.requests("POST", /\/reissue$/)).toHaveLength(0);
+  // The confirm text names the secret as Data, not only its heading
+  // (AGENTS.md "UI rules", task ea76bd44).
+  expect(
+    [
+      ...view.container.querySelectorAll(
+        "[data-secret-reissue-panel] [data-integrations-data]",
+      ),
+    ]
+      .filter((d) => !d.closest("[data-panel-heading]"))
+      .map((d) => d.textContent),
+  ).toEqual(["GH_TOKEN"]);
   await click(view.container.querySelector("[data-panel-save]"));
   const reissue = fake.requests("POST", /\/reissue$/)[0];
   expect(reissue.path).toBe("/api/users/alice/secrets/GH_TOKEN/reissue");
@@ -262,6 +273,12 @@ it("names the refused host when a host is on the never-list", async () => {
   expect(view.getByRole("alert").textContent).toBe(
     t("settings.secrets.error.neverListed", { host: "api.openai.com" }),
   );
+  // The host is Data (AGENTS.md "UI rules", task ea76bd44).
+  expect(
+    [
+      ...view.getByRole("alert").querySelectorAll("[data-integrations-data]"),
+    ].map((d) => d.textContent),
+  ).toEqual(["api.openai.com"]);
 });
 
 // Task f51e4ab9: a model sign-in key with an address breaks the agents'

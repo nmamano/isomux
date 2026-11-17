@@ -1435,11 +1435,11 @@ export const zh: Catalog = {
   "integrations.voice.key.secret":
     "{name} 保存为密钥。OpenAI 需要将它设为变量。",
   "integrations.voice.key.none":
-    "添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI。",
+    "添加 <code>OPENAI_VOICE_API_KEY</code> 后才能使用 OpenAI。",
   "integrations.voice.saveFailed": "更改未保存。",
   "integrations.voice.key.theirs": "OpenAI 使用 {member} 的变量中的 {name}。",
   "integrations.voice.key.noneTheirs":
-    "在 {member} 的变量中添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI。",
+    "在 {member} 的变量中添加 <code>OPENAI_VOICE_API_KEY</code> 后才能使用 OpenAI。",
   "integrations.changes.signedOut": "{by} 让你退出了 {provider}",
   "integrations.changes.signedOutUnknown":
     "一位已离开的成员让你退出了 {provider}",
@@ -2679,9 +2679,9 @@ export const zh: Catalog = {
   "voice.retry": "重试",
   "voice.useBrowser": "使用浏览器语音",
   "voice.keyMissing.askOwner":
-    "请让办公室所有者添加 OPENAI_VOICE_API_KEY，以便使用 OpenAI。",
+    "请让办公室所有者添加 <code>OPENAI_VOICE_API_KEY</code>，以便使用 OpenAI。",
   "voice.mic.keyMissing":
-    "添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI 麦克风。",
+    "添加 <code>OPENAI_VOICE_API_KEY</code> 后才能使用 OpenAI 麦克风。",
   "voice.mic.tooLarge": "录音超过 25 MB。",
   "voice.mic.rejected": "OpenAI 无法转写这段录音。",
   "voice.mic.failed": "转写失败。",
@@ -2690,7 +2690,8 @@ export const zh: Catalog = {
   "voice.mic.transcribing": "正在转写",
   "voice.mic.talk": "点击说话",
   "voice.mic.recording": "正在录音",
-  "voice.speak.keyMissing": "添加 OPENAI_VOICE_API_KEY 后才能用 OpenAI 朗读。",
+  "voice.speak.keyMissing":
+    "添加 <code>OPENAI_VOICE_API_KEY</code> 后才能用 OpenAI 朗读。",
   "voice.speak.rejected": "OpenAI 无法朗读这条回复。",
   "voice.speak.failed": "朗读失败。",
   "panels.resizer.label": "调整侧面板大小",

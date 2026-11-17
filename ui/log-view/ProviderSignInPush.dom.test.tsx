@@ -138,11 +138,12 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
       ],
     });
   });
+  // The account shows as Data in the connected line (task ea76bd44).
   expect(
-    view.getByText(
-      t("settings.signIn.connectedAs", { account: "probe@example.test" }),
-    ),
-  ).toBeDefined();
+    view.container.querySelector(
+      '[data-provider-account-state="connected"] [data-integrations-data]',
+    )?.textContent,
+  ).toBe("probe@example.test");
   expect(signIn()).toHaveLength(0);
   // A refreshed connected account has idle login status. The auth-error card
   // must still expose the existing clear action.

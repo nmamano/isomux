@@ -137,8 +137,17 @@ it("offers the owner the member's own sign-ins, and runs a start on the member's
   );
   expect(providerCard(view, "codex")!.textContent).toContain(MEMBER_CODEX);
   expect(theirs.textContent).not.toContain(OWNER_ACCOUNT);
-  // The card says whose account the sign-in takes.
+  // The card says whose account the sign-in takes: the member's name is Data
+  // in the scope line and in the hint under it (AGENTS.md "UI rules", task
+  // ea76bd44).
   expect(providerCard(view, "claude")!.textContent).toContain("Stephen");
+  expect(
+    [
+      ...providerCard(view, "claude")!.querySelectorAll(
+        "[data-integrations-data]",
+      ),
+    ].filter((d) => d.textContent === "Stephen").length,
+  ).toBe(2);
 
   await click(
     providerCard(view, "claude")!.querySelector("[data-start-provider-login]"),
@@ -333,6 +342,15 @@ it("lists an owner's sign-out on the member's own Model providers tab, with who 
   expect(lines.length).toBe(1);
   expect(lines[0]).toContain("Ricky");
   expect(lines[0].toLowerCase()).toContain("claude");
+  // Who signed the member out is Data; the provider is a product name, words
+  // (AGENTS.md "UI rules", task ea76bd44).
+  expect(
+    [
+      ...card(view, "personal").querySelectorAll(
+        "[data-integration-change] [data-integrations-data]",
+      ),
+    ].map((d) => d.textContent),
+  ).toEqual(["Ricky"]);
   // On its own tab only.
   await tab(view, "variables");
   expect(listed().length).toBe(0);

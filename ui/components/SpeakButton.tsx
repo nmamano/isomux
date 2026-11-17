@@ -19,6 +19,7 @@ import { apiFetch } from "../api.ts";
 import { DEFAULT_VOICE_NAME, type VoiceName } from "../../shared/voice.ts";
 import { VoiceVariablesLink } from "./VoiceVariablesLink.tsx";
 import { useCan } from "../hooks/useCan.ts";
+import { Data } from "./Data.tsx";
 import type {
   PlainMessageKey,
   Translator,
@@ -166,11 +167,14 @@ function useVoices(): SpeechSynthesisVoice[] {
   return voices;
 }
 
+// keyMissing names the variable as Data, so it reads through rich().
 const SPEAK_ERROR: Record<
-  NonNullable<ReturnType<typeof useOpenAISpeech>["error"]>["kind"],
+  Exclude<
+    NonNullable<ReturnType<typeof useOpenAISpeech>["error"]>["kind"],
+    "keyMissing"
+  >,
   PlainMessageKey
 > = {
-  keyMissing: "voice.speak.keyMissing",
   keyRejected: "voice.keyRejected",
   rejected: "voice.speak.rejected",
   failed: "voice.speak.failed",
@@ -344,11 +348,14 @@ function OpenAISpeakButton({
           }}
         >
           <span>
-            {i18n.t(
-              error.kind === "keyMissing" && !canAddKey
-                ? "voice.keyMissing.askOwner"
-                : SPEAK_ERROR[error.kind],
-            )}
+            {error.kind === "keyMissing"
+              ? i18n.rich(
+                  canAddKey
+                    ? "voice.speak.keyMissing"
+                    : "voice.keyMissing.askOwner",
+                  { code: (chunk) => <Data>{chunk}</Data> },
+                )
+              : i18n.t(SPEAK_ERROR[error.kind])}
           </span>
           {(error.kind === "keyMissing" || error.kind === "keyRejected") && (
             <VoiceVariablesLink />

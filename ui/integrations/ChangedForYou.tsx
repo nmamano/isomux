@@ -3,7 +3,7 @@
 // settings in the last 30 days, with who made them. The server keeps the
 // list (GET /api/me/integration-changes); it never holds a value.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { timeSince } from "../../shared/i18n/time.ts";
@@ -13,6 +13,7 @@ import type {
   IntegrationChangesRes,
 } from "../../shared/contract-shapes.ts";
 import type { IntegrationsTab } from "../../shared/office-links.ts";
+import { Data } from "../components/Data.tsx";
 import { hintText } from "./kit.tsx";
 
 // The kind of change each tab shows.
@@ -58,30 +59,35 @@ export function ChangedForYou({
   tab: IntegrationsTab;
   items: IntegrationChange[] | null;
 }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const kind = TAB_KIND[tab];
   const shown = kind ? (items ?? []).filter((item) => item.kind === kind) : [];
   if (shown.length === 0) return null;
-  const line = (item: IntegrationChange): string => {
-    const name = item.name ?? "";
+  // The member and the setting it names show as Data; the provider is a
+  // product name and stays plain.
+  const line = (item: IntegrationChange): ReactNode => {
+    const name = <Data>{item.name ?? ""}</Data>;
     // A sign-out names the provider as the server stores it.
     if (item.kind === "provider") {
-      const provider = PROVIDER_LABEL[name] ?? name;
+      const provider = PROVIDER_LABEL[item.name ?? ""] ?? item.name ?? "";
       return item.by === null
         ? t("integrations.changes.signedOutUnknown", { provider })
-        : t("integrations.changes.signedOut", { by: item.by, provider });
+        : rich("integrations.changes.signedOut", {
+            by: <Data>{item.by}</Data>,
+            provider,
+          });
     }
     if (item.by === null) {
       if (!item.name) return t("integrations.changes.changedUnknown");
       return item.action === "removed"
-        ? t("integrations.changes.removedUnknown", { name })
-        : t("integrations.changes.setUnknown", { name });
+        ? rich("integrations.changes.removedUnknown", { name })
+        : rich("integrations.changes.setUnknown", { name });
     }
-    const by = item.by;
-    if (!item.name) return t("integrations.changes.changed", { by });
+    const by = <Data>{item.by}</Data>;
+    if (!item.name) return rich("integrations.changes.changed", { by });
     return item.action === "removed"
-      ? t("integrations.changes.removed", { by, name })
-      : t("integrations.changes.set", { by, name });
+      ? rich("integrations.changes.removed", { by, name })
+      : rich("integrations.changes.set", { by, name });
   };
   return (
     <div data-integration-changes="" style={{ margin: "0 0 12px" }}>

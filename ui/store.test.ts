@@ -239,10 +239,9 @@ describe("ProviderSignInCard", () => {
         accounts: after.providerAccounts,
       }),
     );
-    expect(html).toContain(
-      en.t("settings.signIn.connectedAs", {
-        account: "signed-in@example.com",
-      }),
+    // The account shows as Data in the connected line (task ea76bd44).
+    expect(html).toMatch(
+      /data-provider-account-state="connected".*<span data-integrations-data=""[^>]*>signed-in@example\.com<\/span>/s,
     );
     expect(html).not.toContain("Codex did not report a connected account.");
   });

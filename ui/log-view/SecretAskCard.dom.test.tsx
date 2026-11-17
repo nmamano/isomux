@@ -227,6 +227,22 @@ it("a refusal keeps the field and names the reason; a closed request takes the c
   );
   expect(valueInput(view)!.value).toBe(FAKE);
 
+  // A host on the never-list is named as Data, as on the Secrets tab
+  // (AGENTS.md "UI rules", task ea76bd44).
+  answer = async () => {
+    throw new ApiError(400, "host_not_allowed", "x", {
+      host: "api.openai.com",
+    });
+  };
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(
+    [
+      ...view.getByRole("alert").querySelectorAll("[data-integrations-data]"),
+    ].map((d) => d.textContent),
+  ).toEqual(["api.openai.com"]);
+
   answer = async () => {
     throw new ApiError(404, "not_found", "Not found");
   };

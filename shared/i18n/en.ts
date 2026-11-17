@@ -1582,11 +1582,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "OpenAI uses {name} from the server's environment.",
   "integrations.voice.key.secret":
     "{name} is saved as a secret. OpenAI needs it as a variable.",
-  "integrations.voice.key.none": "Add OPENAI_VOICE_API_KEY to use OpenAI.",
+  "integrations.voice.key.none":
+    "Add <code>OPENAI_VOICE_API_KEY</code> to use OpenAI.",
   "integrations.voice.key.theirs":
     "OpenAI uses {name} from {member}'s variables.",
   "integrations.voice.key.noneTheirs":
-    "Add OPENAI_VOICE_API_KEY to {member}'s variables to use OpenAI.",
+    "Add <code>OPENAI_VOICE_API_KEY</code> to {member}'s variables to use OpenAI.",
   "integrations.voice.saveFailed": "The change was not saved.",
   "integrations.changes.signedOut": "{by} signed you out of {provider}",
   "integrations.changes.signedOutUnknown":
@@ -2926,8 +2927,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "voice.retry": "Retry",
   "voice.useBrowser": "Use browser voices",
   "voice.keyMissing.askOwner":
-    "Ask an office owner to add OPENAI_VOICE_API_KEY to use OpenAI.",
-  "voice.mic.keyMissing": "Add OPENAI_VOICE_API_KEY to use the OpenAI mic.",
+    "Ask an office owner to add <code>OPENAI_VOICE_API_KEY</code> to use OpenAI.",
+  "voice.mic.keyMissing":
+    "Add <code>OPENAI_VOICE_API_KEY</code> to use the OpenAI mic.",
   "voice.mic.tooLarge": "The recording is over 25 MB.",
   "voice.mic.rejected": "OpenAI could not transcribe the recording.",
   "voice.mic.failed": "Transcription failed.",
@@ -2937,7 +2939,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "voice.mic.talk": "Click to talk",
   "voice.mic.recording": "Recording",
   "voice.speak.keyMissing":
-    "Add OPENAI_VOICE_API_KEY to read aloud with OpenAI.",
+    "Add <code>OPENAI_VOICE_API_KEY</code> to read aloud with OpenAI.",
   "voice.speak.rejected": "OpenAI could not read this reply.",
   "voice.speak.failed": "Read aloud failed.",
   "panels.resizer.label": "Resize side panel",

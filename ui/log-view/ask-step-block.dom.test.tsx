@@ -13,7 +13,8 @@ const { act, render, fireEvent, waitFor } =
   await import("@testing-library/react");
 const { useEffect } = await import("react");
 const { StoreProvider, useDispatch } = await import("../store.tsx");
-const { setApiShim } = await import("../api.ts");
+const { ApiError, setApiShim } = await import("../api.ts");
+const { oauthSecretNames } = await import("../../shared/mcp-servers.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { OfficeLinkOpener } = await import("../office-link.tsx");
@@ -298,6 +299,39 @@ it("signs in to an MCP server from the card with the ask's id, for the scope the
   ]);
   // Same tab: the browser leaves for the authorization server.
   expect(assign).toHaveBeenCalledWith(AUTHORIZE);
+  view.unmount();
+});
+
+// AGENTS.md "UI rules" (task ea76bd44): a refused sign-in names the secret
+// in its way as Data, with the look it has on the Integrations page.
+it("names the secret in the way of a refused MCP sign-in as data", async () => {
+  setApiShim(async (method) => {
+    if (method !== "GET")
+      throw new ApiError(502, "sign_in_failed", "x", {
+        reason: "secret_exists",
+      });
+    return undefined;
+  });
+  const { view, card } = await mount([
+    stepAsk(
+      "0000bb04",
+      { kind: "mcp-sign-in", name: "mail", scope: "office" },
+      "/integrations/mcp",
+    ),
+  ]);
+  await act(async () =>
+    fireEvent.click(
+      card("0000bb04").querySelector(
+        '[data-ask-step="mcp-sign-in"] [data-ask-mcp-sign-in]',
+      )!,
+    ),
+  );
+  const alert = card("0000bb04").querySelector('[role="alert"]')!;
+  expect(
+    [...alert.querySelectorAll("[data-integrations-data]")].map(
+      (d) => d.textContent,
+    ),
+  ).toEqual([oauthSecretNames("mail").refreshToken]);
   view.unmount();
 });
 

@@ -4,7 +4,7 @@
 // A service preset fills and hides the name, the addresses and how the value
 // is sent; Other starts every field empty.
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   AppListWire,
   SecretListRes,
@@ -138,13 +138,13 @@ function rowsOf(result: unknown): SecretRow[] | null {
 }
 
 export function useSecretErrorText() {
-  const { t } = useI18n();
-  return (caught: unknown): string => {
+  const { t, rich } = useI18n();
+  return (caught: unknown): ReactNode => {
     if (!(caught instanceof ApiError)) return t("settings.secrets.saveFailed");
     const detail = caught.detail ?? {};
     if (caught.code === "host_not_allowed")
-      return t("settings.secrets.error.neverListed", {
-        host: typeof detail.host === "string" ? detail.host : "",
+      return rich("settings.secrets.error.neverListed", {
+        host: <Data>{typeof detail.host === "string" ? detail.host : ""}</Data>,
       });
     if (caught.code === "secret_exists")
       return t("settings.secrets.error.exists");
@@ -508,7 +508,9 @@ function SecretItem({
           heading={whoseHeading("integrations.secrets.reissueHeading", target, {
             name: secret.name,
           })}
-          text={t("settings.secrets.reissueConfirm", { name: secret.name })}
+          text={rich("settings.secrets.reissueConfirm", {
+            name: <Data>{secret.name}</Data>,
+          })}
           action={t("settings.secrets.reissue")}
           request={() => apiFetch("POST", `${path}/reissue`)}
           errorFor={errorFor}
@@ -627,19 +629,19 @@ export function Confirm({
   ...data
 }: {
   heading: Heading;
-  text?: string;
+  text?: ReactNode;
   action: string;
   danger?: boolean;
   request: () => Promise<unknown>;
   onCancel: () => void;
   onDone: () => Promise<void>;
-  errorFor?: (caught: unknown) => string;
+  errorFor?: (caught: unknown) => ReactNode;
   [data: `data-${string}`]: string | undefined;
 }) {
   const { t } = useI18n();
   const alive = useAlive();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   return (
     <Panel heading={heading} {...data}>
       {text && <p style={{ ...hintText, margin: "6px 0 0" }}>{text}</p>}
@@ -690,7 +692,7 @@ function ReplaceValue({
   const errorFor = useSecretErrorText();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   return (
     <Panel heading={heading} data-secret-replace-panel="">
       <Field label={t("integrations.secrets.value")}>
@@ -990,7 +992,7 @@ function AddSecret({
   const [apps, setApps] = useState<string[]>([]);
   const [showHosts, setShowHosts] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
 
   // A preset fills its fields; Other clears what a preset filled (Nil,
   // 2026-10-13).
@@ -1194,7 +1196,7 @@ function EditSecret({
   const [note, setNote] = useState(secret.note ?? "");
   const [apps, setApps] = useState<string[]>(secret.apps);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   const hasTarget = hostsOf(hosts).length > 0 || apps.length > 0;
   const ready = hasTarget && exchangeFilled(exchange);
 

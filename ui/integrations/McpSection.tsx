@@ -73,7 +73,6 @@ import {
   type Role,
   type Target,
 } from "./target.ts";
-import type { Translator } from "../../shared/i18n/translate.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
 
 // A row as the list shows it. A member reading the office's servers gets the
@@ -157,10 +156,10 @@ function problemText(
 
 // A sign-in failure: a fixed code from the server, never its own text.
 export function signInErrorText(
-  t: Translator["t"],
+  { t, rich }: Pick<UiTranslator, "t" | "rich">,
   reason: unknown,
   name: string | null,
-): string {
+): ReactNode {
   switch (reason) {
     case "client_needed":
       return t("settings.mcpServers.signInError.clientNeeded");
@@ -173,8 +172,8 @@ export function signInErrorText(
       return t("settings.mcpServers.signInError.metadata");
     case "secret_exists":
       return name
-        ? t("settings.mcpServers.signInError.secretExists", {
-            name: oauthSecretNames(name).refreshToken,
+        ? rich("settings.mcpServers.signInError.secretExists", {
+            name: <Data>{oauthSecretNames(name).refreshToken}</Data>,
           })
         : t("settings.secrets.error.exists");
     case "state_unknown":
@@ -203,7 +202,8 @@ export function SignInNotice({
   scroll?: boolean;
   style?: CSSProperties;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const ref = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -248,7 +248,7 @@ export function SignInNotice({
         ? server
           ? t("integrations.mcp.signedIn")
           : t("settings.mcpServers.signInDone")
-        : signInErrorText(t, code, server)}
+        : signInErrorText(i18n, code, server)}
     </p>
   );
 }
@@ -263,9 +263,9 @@ function tokenSecretName(server: string): string {
 // An MCP server route's refusal, a fixed sentence per code. `host` is the
 // server's host, for the secret that does not list it.
 export function useMcpErrorText(host: string) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const secretError = useSecretErrorText();
-  return (caught: unknown): string => {
+  return (caught: unknown): ReactNode => {
     if (!(caught instanceof ApiError))
       return t("settings.mcpServers.saveFailed");
     const detail = caught.detail ?? {};
@@ -275,7 +275,9 @@ export function useMcpErrorText(host: string) {
       case "secret_not_found":
         return t("settings.mcpServers.error.secretNotFound");
       case "secret_host_mismatch":
-        return t("settings.mcpServers.error.secretHost", { host });
+        return rich("settings.mcpServers.error.secretHost", {
+          host: <Data>{host}</Data>,
+        });
       case "invalid_mcp_server":
         if (detail.field === "name") return t("settings.mcpServers.error.name");
         if (detail.field === "url") return t("settings.mcpServers.error.url");
@@ -314,7 +316,8 @@ export function McpSection({
   // A sign-in to one of this card's servers that came back.
   signIn?: { code: string; server: string } | null;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const alive = useAlive();
   const base = basePath(target);
   const path = `${base}/mcp-servers`;
@@ -329,7 +332,7 @@ export function McpSection({
   const [secrets, setSecrets] = useState<SecretWire[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () =>
@@ -390,7 +393,7 @@ export function McpSection({
       if (!alive.current) return;
       setError(
         caught instanceof ApiError
-          ? signInErrorText(t, caught.detail?.reason, name)
+          ? signInErrorText(i18n, caught.detail?.reason, name)
           : t("settings.mcpServers.signInFailed"),
       );
       setBusy(false);
@@ -715,7 +718,7 @@ function McpEditor({
   const [clientSecret, setClientSecret] = useState("");
   const [note, setNote] = useState(editing?.note ?? "");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
 
   const host = mcpServerHost(url.trim());
   const secretName = tokenName ?? tokenSecretName(name.trim());

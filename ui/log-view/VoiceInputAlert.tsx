@@ -16,15 +16,15 @@ import {
   secondaryBorder,
   secondaryFill,
 } from "../components/dialog-styles.ts";
+import { Data } from "../components/Data.tsx";
 
 const MESSAGE: Record<
   Exclude<
     NonNullable<RecordedDictation["error"]>["kind"],
-    "limitReached" | "keySecret"
+    "limitReached" | "keySecret" | "keyMissing"
   >,
   PlainMessageKey
 > = {
-  keyMissing: "voice.mic.keyMissing",
   keyRejected: "voice.keyRejected",
   tooLarge: "voice.mic.tooLarge",
   rejected: "voice.mic.rejected",
@@ -145,9 +145,16 @@ function ErrorLine({
               minutes: VOICE_MAX_RECORDING_MS / 60_000,
             })
           : kind === "keySecret"
-            ? i18n.t("integrations.voice.key.secret", { name: error.name })
-            : kind === "keyMissing" && !canAddKey
-              ? i18n.t("voice.keyMissing.askOwner")
+            ? i18n.rich("integrations.voice.key.secret", {
+                name: <Data>{error.name}</Data>,
+              })
+            : kind === "keyMissing"
+              ? i18n.rich(
+                  canAddKey
+                    ? "voice.mic.keyMissing"
+                    : "voice.keyMissing.askOwner",
+                  { code: (chunk) => <Data>{chunk}</Data> },
+                )
               : i18n.t(MESSAGE[kind])}
         {failedUpload && hasClip ? ` ${i18n.t("voice.mic.kept")}` : ""}
       </span>

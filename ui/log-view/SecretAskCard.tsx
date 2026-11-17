@@ -11,7 +11,7 @@
 // names, or an office owner for an office request). A save or a decline
 // closes it; the typed value lives in this component's state only.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   knownValueRequest,
@@ -44,6 +44,7 @@ import {
   filledSecondaryBtn,
 } from "../components/dialog-styles.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
+import { Data } from "../components/Data.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
@@ -87,7 +88,7 @@ export function SecretAskCard({
   onFocusAgent?: (agentId: string) => void;
   onChatAgent?: (agentId: string) => void;
 }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
   const { users, sessionContext } = useAppState();
   const [hosts, setHosts] = useState(secret.hosts.join("\n"));
@@ -113,7 +114,7 @@ export function SecretAskCard({
     [],
   );
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReactNode>(null);
   const app = secret.kind === undefined ? secret.app?.name : undefined;
   const host = mcpServerHost(url.trim());
   const mcpErrorText = useMcpErrorText(host);
@@ -175,7 +176,7 @@ export function SecretAskCard({
   const age = since.kind === "now" ? t("common.justNow") : since.text;
   const base = `/api/agents/${encodeURIComponent(entry.agentId)}/secret-requests/${encodeURIComponent(secret.requestId)}`;
 
-  function errorText(caught: unknown, kind: "save" | "decline"): string {
+  function errorText(caught: unknown, kind: "save" | "decline"): ReactNode {
     if (kind === "save" && secret.kind === "mcp-server")
       return mcpErrorText(caught);
     if (kind === "save" && secret.kind === "discord-bot") {
@@ -205,8 +206,8 @@ export function SecretAskCard({
     if (caught.code === "forbidden") return t("cards.secretRequest.forbidden");
     if (caught.code === "app_gone") return t("cards.secretRequest.appGone");
     if (caught.code === "host_not_allowed")
-      return t("settings.secrets.error.neverListed", {
-        host: typeof detail.host === "string" ? detail.host : "",
+      return rich("settings.secrets.error.neverListed", {
+        host: <Data>{typeof detail.host === "string" ? detail.host : ""}</Data>,
       });
     if (caught.code === "secret_exists")
       return t("settings.secrets.error.exists");

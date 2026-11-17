@@ -193,6 +193,68 @@ describe("changed for you", () => {
     expect(listed(view)).toHaveLength(0);
   });
 
+  // AGENTS.md "UI rules" (task ea76bd44): who made the change and the
+  // setting's name are Data; a former member is words, not a value. Sorted,
+  // so a translation may move them.
+  it("shows who made each change and the setting's name as data", async () => {
+    fake = new IntegrationsFake({ username: "Stephen", owner: false }, [
+      "Ricky",
+      "Stephen",
+    ]).install();
+    fake.changes = [
+      {
+        time: hoursAgo(1),
+        by: "Ricky",
+        kind: "variable",
+        action: "set",
+        name: "SET_BY_RICKY",
+      },
+      {
+        time: hoursAgo(2),
+        by: null,
+        kind: "variable",
+        action: "removed",
+        name: "REMOVED_BY_FORMER",
+      },
+      {
+        time: hoursAgo(3),
+        by: "Ricky",
+        kind: "secret",
+        action: "removed",
+        name: "REMOVED_BY_RICKY",
+      },
+      {
+        time: hoursAgo(4),
+        by: null,
+        kind: "secret",
+        action: "set",
+        name: "SET_BY_FORMER",
+      },
+      { time: hoursAgo(5), by: "Ricky", kind: "voice", action: "set" },
+    ];
+    const view = await open(MEMBER);
+    const dataPerLine = () =>
+      [...personal(view).querySelectorAll("[data-integration-change]")].map(
+        (line) =>
+          [...line.querySelectorAll("[data-integrations-data]")]
+            .map((d) => d.textContent)
+            .sort(),
+      );
+    await tab(view, "variables");
+    expect(dataPerLine()).toEqual([
+      ["Ricky", "SET_BY_RICKY"],
+      ["REMOVED_BY_FORMER"],
+    ]);
+    await tab(view, "secrets");
+    expect(dataPerLine()).toEqual([
+      ["REMOVED_BY_RICKY", "Ricky"],
+      ["SET_BY_FORMER"],
+    ]);
+    // A change with no setting name ("changed these settings").
+    await tab(view, "voice");
+    expect(dataPerLine()).toEqual([["Ricky"]]);
+  });
+
   // The list is the viewer's own: an owner looking at a member's card does
   // not see it there.
   it("is on the viewer's own card only", async () => {

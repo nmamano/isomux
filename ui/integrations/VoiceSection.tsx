@@ -24,6 +24,7 @@ import {
   type VoiceOutput,
   type VoiceStatusRes,
 } from "../../shared/voice.ts";
+import { Data } from "../components/Data.tsx";
 import { errorText, hintText, input } from "./kit.tsx";
 import { basePath, isGone, type Target } from "./target.ts";
 
@@ -57,7 +58,7 @@ export function VoiceSection({
   target?: Target;
   onGone?: () => void;
 } = {}) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const self = useSelfUser();
   const member = target?.kind === "member" ? target : null;
   const path = member ? `${basePath(member)}/voice` : null;
@@ -145,20 +146,27 @@ export function VoiceSection({
   const source = status?.keySource ?? null;
   const name = status?.keyName ?? VOICE_KEY_NAME;
   const usable = source ? USABLE[source] : undefined;
+  const code = (chunk: ReactNode) => <Data>{chunk}</Data>;
+  const keyName = <Data>{name}</Data>;
+  const memberName = member ? <Data>{member.username}</Data> : null;
   const keyLine =
     member && source === "member_variable"
-      ? t("integrations.voice.key.theirs", { name, member: member.username })
+      ? rich("integrations.voice.key.theirs", {
+          name: keyName,
+          member: memberName,
+        })
       : usable
-        ? t(usable, { name })
+        ? rich(usable, { name: keyName })
         : source
-          ? t("integrations.voice.key.secret", { name })
+          ? rich("integrations.voice.key.secret", { name: keyName })
           : member
-            ? t("integrations.voice.key.noneTheirs", {
-                member: member.username,
+            ? rich("integrations.voice.key.noneTheirs", {
+                member: memberName,
+                code,
               })
             : canUse(self, "environment", "write")
-              ? t("integrations.voice.key.none")
-              : t("voice.keyMissing.askOwner");
+              ? rich("integrations.voice.key.none", { code })
+              : rich("voice.keyMissing.askOwner", { code });
   // A member whose permission pack hides the Variables tab gets no link to it
   // (task 93191798). An owner on another member's card has no pack.
   const variablesShown = canUse(self, "environment", "read");
@@ -227,7 +235,7 @@ export function VoiceSection({
       </p>
       <p style={{ ...hintText, margin: "6px 0 0" }}>
         {member
-          ? t("integrations.voice.whereTheirs", { member: member.username })
+          ? rich("integrations.voice.whereTheirs", { member: memberName })
           : t("integrations.voice.where")}
       </p>
     </section>

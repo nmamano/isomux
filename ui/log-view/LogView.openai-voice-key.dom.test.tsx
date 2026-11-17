@@ -32,6 +32,11 @@ function variablesLink(alert: HTMLElement): Element | null {
   return alert.querySelector('a[href="/integrations/variables"]');
 }
 
+const dataIn = (el: Element) =>
+  [...el.querySelectorAll("[data-integrations-data]")].map(
+    (d) => d.textContent,
+  );
+
 function keptClipActions(container: HTMLElement): number {
   return container.querySelectorAll("[data-voice-action]").length;
 }
@@ -117,9 +122,17 @@ it("a key saved as a secret is reported at the press with its name", async () =>
     expect({
       keySource,
       named: alert.textContent.includes("OPENAI_API_KEY"),
+      // The name is Data (AGENTS.md "UI rules", task ea76bd44).
+      data: dataIn(alert),
       link: variablesLink(alert) !== null,
       recording: FakeRecorder.instances.some((r) => r.state === "recording"),
-    }).toEqual({ keySource, named: true, link: true, recording: false });
+    }).toEqual({
+      keySource,
+      named: true,
+      data: ["OPENAI_API_KEY"],
+      link: true,
+      recording: false,
+    });
     expect(keptClipActions(view.container)).toBe(0);
     view.unmount();
   }
@@ -309,6 +322,7 @@ it("the key line links to Variables with environment read, and names an owner wi
     const row = {
       environment: environment ?? "no pack",
       text: bare.textContent.trim(),
+      data: dataIn(alert),
       link: variablesLink(alert) !== null,
     };
     view.unmount();
@@ -320,6 +334,10 @@ it("the key line links to Variables with environment read, and names an owner wi
   const reader = await lineFor("read");
   const without = await lineFor("none");
   expect(full.link).toBe(true);
+  // The variable's name is Data in both lines (AGENTS.md "UI rules", task
+  // ea76bd44).
+  expect(full.data).toEqual(["OPENAI_VOICE_API_KEY"]);
+  expect(reader.data).toEqual(["OPENAI_VOICE_API_KEY"]);
   expect(writer).toEqual({ ...full, environment: "write" });
   expect(reader.link).toBe(true);
   expect(reader.text).not.toBe(full.text);

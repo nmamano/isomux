@@ -113,6 +113,46 @@ describe("uiTranslatorFor", () => {
   });
 });
 
+// richN is rich() for a plural pair (task ea76bd44): the form tn() picks for
+// the count, in each language, with {count} filled and the other parts as
+// nodes. With string parts it renders tn()'s text exactly.
+describe("richN", () => {
+  const KEY = "settings.signIn.queueHeldMinutes";
+  it("picks the form tn() picks, and fills the count, in each language", () => {
+    for (const language of ["en", "ca", "es", "zh"] as const) {
+      const ui = uiTranslatorFor(language);
+      for (const count of [1, 2, 5]) {
+        const parts = { name: "Ana", provider: "Claude" };
+        expect({
+          language,
+          count,
+          text: html(ui.richN(KEY, count, parts)),
+        }).toEqual({
+          language,
+          count,
+          text: html(ui.tn(KEY, count, parts)),
+        });
+      }
+    }
+  });
+
+  it("fills a placeholder with a node", () => {
+    const en = uiTranslatorFor("en");
+    const out = html(
+      en.richN(KEY, 4, {
+        name: createElement("b", null, "Ana"),
+        provider: "Claude",
+      }),
+    );
+    expect(out).toBe(
+      html(en.tn(KEY, 4, { name: "NAME", provider: "Claude" })).replace(
+        "NAME",
+        "<b>Ana</b>",
+      ),
+    );
+  });
+});
+
 it("renders Chinese rich text while preserving code and interpolated paths", () => {
   expect(
     html(

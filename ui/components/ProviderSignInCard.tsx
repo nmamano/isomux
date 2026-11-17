@@ -17,7 +17,7 @@ import type {
 } from "../../shared/types.ts";
 import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
 import { dialogSaveBtn, filledSecondaryBtn } from "./dialog-styles.ts";
-import { useI18n } from "../i18n.tsx";
+import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { useDispatch } from "../store.tsx";
 import { useCan } from "../hooks/useCan.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
@@ -41,20 +41,19 @@ export function signOutButtonLabel(i18n: Translator, pending: boolean): string {
     : i18n.t("settings.signIn.confirmSignOut");
 }
 
+// The member who holds the queue shows as Data; the provider is a product name.
 function sharedLoginQueueMessage(
-  i18n: Translator,
+  i18n: UiTranslator,
   provider: string,
   queue: ProviderLoginQueueWire,
   now = Date.now(),
-): string {
+): ReactNode {
   const minutes = Math.floor(Math.max(0, now - queue.startedAt) / 60_000);
+  const name = <Data>{queue.holderName}</Data>;
   return minutes < 1
-    ? i18n.t("settings.signIn.queueHeldUnderMinute", {
-        name: queue.holderName,
-        provider,
-      })
-    : i18n.tn("settings.signIn.queueHeldMinutes", minutes, {
-        name: queue.holderName,
+    ? i18n.rich("settings.signIn.queueHeldUnderMinute", { name, provider })
+    : i18n.richN("settings.signIn.queueHeldMinutes", minutes, {
+        name,
         provider,
       });
 }
@@ -285,7 +284,9 @@ function ProviderScopeConnection({
     ? scope === "office"
       ? t("integrations.signIn.office")
       : member
-        ? t("integrations.signIn.member", { member: member.username })
+        ? rich("integrations.signIn.member", {
+            member: <Data>{member.username}</Data>,
+          })
         : t("integrations.signIn.personal")
     : scope === "office"
       ? t("settings.signIn.scopeOffice")
@@ -294,7 +295,9 @@ function ProviderScopeConnection({
   // cross-link rather than plain words - one key, the pointer inside it
   // (ruling 16).
   const scopeHint = member
-    ? t("integrations.signIn.memberHint", { member: member.username })
+    ? rich("integrations.signIn.memberHint", {
+        member: <Data>{member.username}</Data>,
+      })
     : scope === "office"
       ? rich("settings.signIn.officeHint", {
           link: (chunk) => (
@@ -308,7 +311,7 @@ function ProviderScopeConnection({
 
   // Ends this card's request, unless a newer one replaced it. Only the push
   // moves the accounts: an answer can be older than a push that overtook it.
-  function settle(action: SignInRequest["action"], failed?: string) {
+  function settle(action: SignInRequest["action"], failed?: ReactNode) {
     setRequest((current) =>
       current?.action === action && current.failed === undefined
         ? failed === undefined
@@ -465,13 +468,9 @@ function ProviderScopeConnection({
         ? t("settings.signIn.waiting")
         : statusState === "connected"
           ? account?.accountLabel
-            ? pageLook
-              ? i18n.rich("settings.signIn.connectedAs", {
-                  account: <Data>{account.accountLabel}</Data>,
-                })
-              : t("settings.signIn.connectedAs", {
-                  account: account.accountLabel,
-                })
+            ? rich("settings.signIn.connectedAs", {
+                account: <Data>{account.accountLabel}</Data>,
+              })
             : t("settings.signIn.connected")
           : statusState === "unavailable"
             ? t("settings.signIn.unavailable")
@@ -856,7 +855,7 @@ function ProviderScopeConnection({
 type SignInRequest = {
   action: "signIn" | "submit" | "cancel" | "signOut";
   // Its reason, once it failed.
-  failed?: string;
+  failed?: ReactNode;
 };
 
 type SignInTest =

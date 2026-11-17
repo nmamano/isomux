@@ -13,7 +13,8 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { ApiError, setApiShim } = await import("../api.ts");
-const { McpSection } = await import("./McpSection.tsx");
+const { McpSection, SignInNotice } = await import("./McpSection.tsx");
+const { oauthSecretNames } = await import("../../shared/mcp-servers.ts");
 const { MyConnectionsProvider } = await import("./my-connections.tsx");
 const { takeSignIn } = await import("./sign-in-return.ts");
 const { demoSecretsRoute } = await import("../demo-secrets.ts");
@@ -240,6 +241,63 @@ it("explains a refused sign-in redirect by its code", async () => {
   expect(view.getByRole("alert").textContent).toBe(
     t("settings.mcpServers.signInError.redirectRefused"),
   );
+});
+
+const dataIn = (el: Element) =>
+  [...el.querySelectorAll("[data-integrations-data]")].map(
+    (d) => d.textContent,
+  );
+
+// AGENTS.md "UI rules" (task ea76bd44): the secret a sign-in would make,
+// named in its refusal, is Data.
+it("names the secret in the way of a sign-in as data", async () => {
+  setApiShim(async (method, path) => {
+    if (path === "/api/me/connections") return EMPTY_CONNECTIONS;
+    if (path.endsWith("/secrets")) return { secrets: [] };
+    if (method === "GET")
+      return {
+        servers: [
+          server("mail", { oauth: { clientId: "c1", signedIn: true } }),
+        ],
+      };
+    throw new ApiError(502, "sign_in_failed", "x", {
+      reason: "secret_exists",
+    });
+  });
+  const view = await mount();
+  await click(view.container.querySelector("[data-mcp-edit]"));
+  await click(view.container.querySelector("[data-mcp-sign-in-again]"));
+  expect(dataIn(view.getByRole("alert"))).toEqual([
+    oauthSecretNames("mail").refreshToken,
+  ]);
+});
+
+// The returned sign-in's notice says the same, with the same look.
+it("names the secret in the returned sign-in's notice as data", async () => {
+  const view = render(
+    createElement(SignInNotice, { code: "secret_exists", server: "mail" }),
+  );
+  expect(dataIn(view.getByRole("alert"))).toEqual([
+    oauthSecretNames("mail").refreshToken,
+  ]);
+});
+
+// The address's host, named in the refusal of a secret that does not list
+// it, is Data.
+it("names the host a saved secret does not list as data", async () => {
+  setApiShim(async (method, path) => {
+    if (path === "/api/me/connections") return EMPTY_CONNECTIONS;
+    if (path.endsWith("/secrets")) return { secrets: [] };
+    if (method === "GET") return { servers: [] };
+    throw new ApiError(400, "secret_host_mismatch", "x");
+  });
+  const view = await mount();
+  await click(view.container.querySelector("[data-integrations-add]"));
+  await type(view, "[data-mcp-name]", "docs");
+  await type(view, "[data-mcp-url]", "https://docs.example.com/mcp");
+  await click(view.container.querySelector('[data-choice="none"]'));
+  await click(view.container.querySelector("[data-panel-save]"));
+  expect(dataIn(view.getByRole("alert"))).toEqual(["docs.example.com"]);
 });
 
 it("shows why a server is left out, and a Test only when it can run", async () => {

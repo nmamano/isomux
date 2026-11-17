@@ -1617,12 +1617,13 @@ Cosas que puedes hacer por él:
     "OpenAI usa {name} del entorno del servidor.",
   "integrations.voice.key.secret":
     "{name} está guardada como secreto. OpenAI la necesita como variable.",
-  "integrations.voice.key.none": "Añade OPENAI_VOICE_API_KEY para usar OpenAI.",
+  "integrations.voice.key.none":
+    "Añade <code>OPENAI_VOICE_API_KEY</code> para usar OpenAI.",
   "integrations.voice.saveFailed": "El cambio no se guardó.",
   "integrations.voice.key.theirs":
     "OpenAI usa {name} de las variables de {member}.",
   "integrations.voice.key.noneTheirs":
-    "Añade OPENAI_VOICE_API_KEY a las variables de {member} para usar OpenAI.",
+    "Añade <code>OPENAI_VOICE_API_KEY</code> a las variables de {member} para usar OpenAI.",
   "integrations.changes.signedOut": "{by} cerró tu sesión de {provider}",
   "integrations.changes.signedOutUnknown":
     "Un antiguo miembro cerró tu sesión de {provider}",
@@ -3020,9 +3021,9 @@ Cosas que puedes hacer por él:
   "voice.retry": "Reintentar",
   "voice.useBrowser": "Usar las voces del navegador",
   "voice.keyMissing.askOwner":
-    "Pide a un propietario de la oficina que añada OPENAI_VOICE_API_KEY para usar OpenAI.",
+    "Pide a un propietario de la oficina que añada <code>OPENAI_VOICE_API_KEY</code> para usar OpenAI.",
   "voice.mic.keyMissing":
-    "Añade OPENAI_VOICE_API_KEY para usar el micrófono de OpenAI.",
+    "Añade <code>OPENAI_VOICE_API_KEY</code> para usar el micrófono de OpenAI.",
   "voice.mic.tooLarge": "La grabación supera los 25 MB.",
   "voice.mic.rejected": "OpenAI no pudo transcribir la grabación.",
   "voice.mic.failed": "La transcripción falló.",
@@ -3032,7 +3033,7 @@ Cosas que puedes hacer por él:
   "voice.mic.talk": "Haz clic para hablar",
   "voice.mic.recording": "Grabando",
   "voice.speak.keyMissing":
-    "Añade OPENAI_VOICE_API_KEY para leer en voz alta con OpenAI.",
+    "Añade <code>OPENAI_VOICE_API_KEY</code> para leer en voz alta con OpenAI.",
   "voice.speak.rejected": "OpenAI no pudo leer esta respuesta.",
   "voice.speak.failed": "La lectura en voz alta falló.",
   "panels.resizer.label": "Cambiar el ancho del panel lateral",
