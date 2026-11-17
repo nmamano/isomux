@@ -527,7 +527,7 @@ export const zh: Catalog = {
   "settings.members.newMember": "新成员",
   "settings.osUser.title": "系统用户",
   "settings.osUser.hint":
-    "其代理可以以办公室机器上的专属系统用户运行，因此无法读取办公室的文件或密钥。",
+    "其代理可以以办公室机器上的专属系统用户运行，因此无法读取办公室的文件。",
   "settings.osUser.off": "关闭：其代理以办公室的系统用户运行。",
   "settings.osUser.offAs": "关闭：其代理以办公室的系统用户 {name} 运行。",
   "settings.osUser.on": "开启：其代理以 {name} 运行。",

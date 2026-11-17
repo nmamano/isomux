@@ -568,7 +568,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.members.newMember": "New member",
   "settings.osUser.title": "OS user",
   "settings.osUser.hint":
-    "Their agents can run as their own OS user on the office's machine, so they cannot read the office's files or secrets.",
+    "Their agents can run as their own OS user on the office's machine, so they cannot read the office's files.",
   "settings.osUser.off": "Off: their agents run as the office's OS user.",
   "settings.osUser.offAs":
     "Off: their agents run as {name}, the office's OS user.",

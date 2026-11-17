@@ -561,7 +561,7 @@ Cosas que puedes hacer por él:
   "settings.members.newMember": "Nuevo miembro",
   "settings.osUser.title": "Usuario del sistema",
   "settings.osUser.hint":
-    "Sus agentes pueden ejecutarse como su propio usuario del sistema en la máquina de la oficina, así que no pueden leer los archivos ni los secretos de la oficina.",
+    "Sus agentes pueden ejecutarse como su propio usuario del sistema en la máquina de la oficina, así que no pueden leer los archivos de la oficina.",
   "settings.osUser.off":
     "Desactivado: sus agentes se ejecutan como el usuario del sistema de la oficina.",
   "settings.osUser.offAs":

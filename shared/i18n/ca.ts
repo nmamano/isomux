@@ -561,7 +561,7 @@ Coses que pots fer per ell:
   "settings.members.newMember": "Membre nou",
   "settings.osUser.title": "Usuari del sistema",
   "settings.osUser.hint":
-    "Els seus agents es poden executar com el seu propi usuari del sistema a la màquina de l'oficina, així que no poden llegir els fitxers ni els secrets de l'oficina.",
+    "Els seus agents es poden executar com el seu propi usuari del sistema a la màquina de l'oficina, així que no poden llegir els fitxers de l'oficina.",
   "settings.osUser.off":
     "Desactivat: els seus agents s'executen com l'usuari del sistema de l'oficina.",
   "settings.osUser.offAs":
