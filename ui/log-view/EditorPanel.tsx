@@ -43,7 +43,8 @@ import {
 import { citationBlock, citedLines } from "./cite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { Markdown } from "./Markdown.tsx";
-import { tintedFill } from "../components/dialog-styles.ts";
+import { tintedFill, armedConfirmLook } from "../components/dialog-styles.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 
 interface Tab {
   path: string;
@@ -1012,6 +1013,17 @@ export function EditorPanel({
     [closeWatch, setTabsAndPersist],
   );
 
+  // Closing a tab with unsaved edits, or one whose file was deleted (the
+  // buffer is then the only copy), cannot be undone: it asks "Confirm?" first.
+  const closeStep = useConfirmStep();
+  const closeLosesContent = (t: Tab) => t.dirty || t.banner?.kind === "deleted";
+  const tabCloseKey = (path: string) => `tab:${path}`;
+  const requestCloseTab = (t: Tab) => {
+    if (closeLosesContent(t))
+      closeStep.confirm(tabCloseKey(t.path), () => closeTab(t.path));
+    else closeTab(t.path);
+  };
+
   const activeTab = useMemo(
     () => tabs.find((t) => t.path === activePath) ?? null,
     [tabs, activePath],
@@ -1300,9 +1312,10 @@ export function EditorPanel({
                       {t.dirty ? "*" : ""}
                     </span>
                     <button
+                      {...closeStep.bind(tabCloseKey(t.path))}
                       onClick={(e) => {
                         e.stopPropagation();
-                        closeTab(t.path);
+                        requestCloseTab(t);
                       }}
                       style={{
                         background: "none",
@@ -1321,10 +1334,19 @@ export function EditorPanel({
                         padding: 0,
                         lineHeight: 1,
                         flexShrink: 0,
+                        ...(closeStep.armed === tabCloseKey(t.path)
+                          ? {
+                              ...armedConfirmLook,
+                              fontSize: 13,
+                              padding: "0 8px",
+                            }
+                          : {}),
                       }}
                       title={i18n.t("panels.editor.closeTab")}
                     >
-                      &times;
+                      {closeStep.armed === tabCloseKey(t.path)
+                        ? i18n.t("common.confirmQuestion")
+                        : "\u00d7"}
                     </button>
                   </div>
                 );
@@ -1412,9 +1434,10 @@ export function EditorPanel({
                   {t.dirty ? "*" : ""}
                 </span>
                 <button
+                  {...closeStep.bind(tabCloseKey(t.path))}
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeTab(t.path);
+                    requestCloseTab(t);
                   }}
                   style={{
                     background: "none",
@@ -1424,10 +1447,20 @@ export function EditorPanel({
                     fontSize: 14,
                     padding: "0 2px",
                     lineHeight: 1,
+                    ...(closeStep.armed === tabCloseKey(t.path)
+                      ? {
+                          ...armedConfirmLook,
+                          fontSize: 11,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                        }
+                      : {}),
                   }}
                   title={i18n.t("panels.editor.closeTab")}
                 >
-                  &times;
+                  {closeStep.armed === tabCloseKey(t.path)
+                    ? i18n.t("common.confirmQuestion")
+                    : "\u00d7"}
                 </button>
               </div>
             ))}
@@ -1529,10 +1562,23 @@ export function EditorPanel({
                 {i18n.t("panels.editor.saveToRecreate")}
               </button>
               <button
-                onClick={() => closeTab(activeTab.path)}
-                style={bannerBtn("var(--text-secondary)")}
+                {...closeStep.bind(`banner:${activeTab.path}`)}
+                onClick={() => {
+                  const path = activeTab.path;
+                  closeStep.confirm(`banner:${path}`, () => closeTab(path));
+                }}
+                style={{
+                  ...bannerBtn("var(--text-secondary)"),
+                  ...(closeStep.armed === `banner:${activeTab.path}`
+                    ? armedConfirmLook
+                    : {}),
+                }}
               >
-                {i18n.t("panels.editor.closeTab")}
+                {i18n.t(
+                  closeStep.armed === `banner:${activeTab.path}`
+                    ? "common.confirmQuestion"
+                    : "panels.editor.closeTab",
+                )}
               </button>
             </>
           )}
