@@ -161,6 +161,7 @@ export const zh: Catalog = {
   "browser.reconnect": "重新连接",
   "browser.disconnect": "断开连接",
   "browser.unpair": "解除配对",
+  "browser.confirmUnpair": "确认？",
   "browser.focus": "显示标签页",
   "browser.stop": "停止控制",
   "browser.retained": "停止控制后，页面保持打开。",

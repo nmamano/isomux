@@ -176,6 +176,7 @@ export const es: Catalog = {
   "browser.reconnect": "Reconectar",
   "browser.disconnect": "Desconectar",
   "browser.unpair": "Desvincular",
+  "browser.confirmUnpair": "¿Confirmar?",
   "browser.focus": "Mostrar pestaña",
   "browser.stop": "Detener control",
   "browser.retained": "Detener el control deja las páginas abiertas.",

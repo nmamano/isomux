@@ -108,6 +108,16 @@ let busy = false,
 // The office the popup shows (task 811ed3de). Unset until the first answer,
 // which names the office that holds this tab, else the last one picked.
 let picked: string | undefined;
+// Whether Unpair is armed, and for which office.
+const unpair = element("unpair") as HTMLButtonElement;
+let armed = false;
+let armedFor: string | undefined;
+function disarm() {
+  if (!armed) return;
+  armed = false;
+  delete unpair.dataset.confirmArmed;
+  unpair.textContent = t("browser.unpair");
+}
 // The picker's Add an office: the pair form shows, empty.
 let adding = false;
 const ADD_OFFICE = "add";
@@ -212,7 +222,9 @@ function render(next: typeof state) {
     "offline",
   ].includes(state.state);
   element("reconnect").hidden = !["disabled", "offline"].includes(state.state);
-  element("unpair").hidden = state.state !== "connected";
+  unpair.hidden = state.state !== "connected";
+  // An armed Unpair ends when it hides or the popup shows another office.
+  if (unpair.hidden || armedFor !== picked) disarm();
   element("offline-help").hidden =
     state.state === "connected" || state.state === "unpaired";
   // Chrome updates a store install by itself: no download and no Reload.
@@ -305,6 +317,7 @@ function renderOffices() {
   officePicker.disabled = busy;
 }
 officePicker.addEventListener("change", () => {
+  disarm();
   if (officePicker.value === ADD_OFFICE) {
     adding = true;
     showPair = true;
@@ -547,8 +560,31 @@ element("pair-form").addEventListener("submit", (event) => {
   revealCode(false);
   void command("pair", { office: office.value, code: code.value });
 });
-for (const action of ["disconnect", "reconnect", "unpair"])
+for (const action of ["disconnect", "reconnect"])
   element(action).addEventListener("click", () => void command(action));
+// Pairing again needs a new code from the office, so Unpair asks first
+// (AGENTS.md "UI rules"), as useConfirmStep does in the web app: the first
+// click arms it for the office shown, the second sends it. A blur or Escape
+// ends it.
+unpair.addEventListener("click", () => {
+  if (!armed) {
+    armed = true;
+    armedFor = picked;
+    unpair.dataset.confirmArmed = "";
+    unpair.textContent = t("browser.confirmUnpair");
+    unpair.focus();
+    return;
+  }
+  const office = armedFor;
+  disarm();
+  if (office === picked) void command("unpair");
+});
+unpair.addEventListener("blur", disarm);
+unpair.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !armed) return;
+  event.stopPropagation();
+  disarm();
+});
 picker.addEventListener("change", () =>
   sendAccess({ agents: picker.value as BrowserAccess["agents"] }),
 );

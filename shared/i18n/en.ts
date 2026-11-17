@@ -184,6 +184,7 @@ export const en = {
   "browser.reconnect": "Reconnect",
   "browser.disconnect": "Disconnect",
   "browser.unpair": "Unpair",
+  "browser.confirmUnpair": "Confirm?",
   "browser.focus": "Show tab",
   "browser.stop": "Stop control",
   "browser.retained": "Stopping control leaves pages open.",

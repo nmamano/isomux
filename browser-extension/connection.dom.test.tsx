@@ -1486,3 +1486,149 @@ test("Share and Use this tab come before the member list, and the browser owner 
     window.dispatchEvent(new Event("pagehide"));
   }
 });
+
+// Task 160e223e: Unpair cannot be undone (pairing again needs a new code), so
+// it asks first, as useConfirmStep does in the web app: the first click arms
+// it, a second click sends it, and a blur, Escape, a hidden button or another
+// office ends it.
+const unpairButton = () =>
+  document.getElementById("unpair") as HTMLButtonElement;
+const armed = () => unpairButton().hasAttribute("data-confirm-armed");
+
+test("the first Unpair click only arms it, and keeps the focus through a poll; the second click sends unpair and disarms", async () => {
+  const p = await openPopup(connected);
+  try {
+    const button = unpairButton();
+    const label = button.textContent;
+    // The enabling condition: Unpair shows, labelled, and is not armed.
+    expect([shown(button), !!label, armed()]).toEqual([true, true, false]);
+    button.click();
+    await settleDom();
+    expect(p.sent("unpair")).toEqual([]);
+    expect(armed()).toBe(true);
+    expect(button.textContent).toBeTruthy();
+    expect(button.textContent).not.toBe(label);
+    expect(document.activeElement?.id).toBe("unpair");
+    // A poll that changes nothing keeps it armed.
+    await p.poll();
+    expect([armed(), button.textContent !== label]).toEqual([true, true]);
+    button.click();
+    await settleDom();
+    expect(p.sent("unpair")).toHaveLength(1);
+    expect(p.sent("unpair")[0]).toMatchObject({ office: ONE_OFFICE });
+    expect([armed(), button.textContent]).toEqual([false, label]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("a blur, Escape or a hidden Unpair disarms it, and the next click arms it again without sending", async () => {
+  const p = await openPopup(connected);
+  try {
+    const button = unpairButton();
+    const label = button.textContent;
+    const arm = async () => {
+      button.click();
+      await settleDom();
+      // The enabling condition of each disarm below.
+      expect(armed()).toBe(true);
+    };
+    const disarmed = () => {
+      expect([armed(), button.textContent]).toEqual([false, label]);
+    };
+
+    await arm();
+    expect(document.activeElement?.id).toBe("unpair");
+    button.blur();
+    disarmed();
+
+    await arm();
+    button.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    disarmed();
+
+    await arm();
+    p.set({ ...connected, state: "offline" });
+    await p.poll();
+    expect(shown(button)).toBe(false);
+    disarmed();
+    p.set(connected);
+    await p.poll();
+    expect(shown(button)).toBe(true);
+    disarmed();
+
+    // After every disarm, a click arms again and sends nothing.
+    await arm();
+    expect(p.sent("unpair")).toEqual([]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("an Unpair armed for one office never unpairs another: a pick or an answer for another office disarms it", async () => {
+  const two = (): PopupState => ({
+    ...bothOffices("connected"),
+    office: TWO_OFFICE,
+    generation: "g2",
+  });
+  // The answer for the second office waits until the test lets it go.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const p = await openPopup(bothOffices("connected"), (message) =>
+    message.office === TWO_OFFICE && message.action === "state"
+      ? held.then(() => structuredClone(two()))
+      : undefined,
+  );
+  try {
+    const button = unpairButton();
+    const label = button.textContent;
+    button.click();
+    await settleDom();
+    expect(armed()).toBe(true);
+    // A pick of the second office, before its answer comes: Unpair still
+    // shows, and a click on it must not unpair either office.
+    await choose(officePicker()!, TWO_OFFICE);
+    expect(p.messages.at(-1)).toMatchObject({ office: TWO_OFFICE });
+    expect(shown(button)).toBe(true);
+    expect([armed(), button.textContent]).toEqual([false, label]);
+    button.click();
+    await settleDom();
+    expect(p.sent("unpair")).toEqual([]);
+    expect(armed()).toBe(true);
+    release();
+    await settleDom();
+    await settleDom();
+    expect(officePicker()!.value).toBe(TWO_OFFICE);
+    // A full confirm now unpairs the second office only.
+    button.blur();
+    button.click();
+    await settleDom();
+    button.click();
+    await settleDom();
+    expect(p.sent("unpair")).toHaveLength(1);
+    expect(p.sent("unpair")[0]).toMatchObject({ office: TWO_OFFICE });
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+
+  // An answer that names another office (the shown one was unpaired
+  // elsewhere) disarms too.
+  const q = await openPopup(bothOffices("connected"));
+  try {
+    unpairButton().click();
+    await settleDom();
+    expect(armed()).toBe(true);
+    q.set(two());
+    await q.poll();
+    expect(shown(unpairButton())).toBe(true);
+    expect(armed()).toBe(false);
+    unpairButton().click();
+    await settleDom();
+    expect(q.sent("unpair")).toEqual([]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});

@@ -50,6 +50,12 @@ button {
   color: inherit;
   cursor: pointer;
 }
+/* An armed confirm step (Unpair): the second click runs it. */
+button[data-confirm-armed] {
+  border-color: #e06c6c;
+  background: #5a2a2e;
+  color: #ffb8b8;
+}
 button:disabled {
   opacity: 0.5;
   cursor: default;
