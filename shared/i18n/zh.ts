@@ -3331,7 +3331,7 @@ export const zh: Catalog = {
     "在旧办公室，他们的文件正在迁移。结束后请重新检查。",
   "officeMove.in.members.old.movedIn":
     "他们是随之前的一次迁移来到旧办公室的，那里还没有运行开启命令。",
-  "officeMove.in.members.old.badHome": "在旧办公室，他们的主文件夹无法迁移：",
+  "officeMove.in.members.old.badHome": "在旧办公室，他们的主文件夹无法迁移。",
   "officeMove.in.members.old.runnerDown": "在旧办公室，其系统用户没有响应。",
   "officeMove.in.members.old.wrongRunner":
     "在旧办公室，另一个系统用户在替他们响应。",

@@ -1222,21 +1222,21 @@ describe("members with their own OS user (slice 5c-3)", () => {
       ...(checks ? { membersHere: checks } : {}),
     });
 
-  it("preflightView keeps each member with her block as sent, an unknown code too, and her detail as data", () => {
+  it("preflightView keeps each member with her block as sent, an unknown code too, and drops the old office's detail (the card shows the reason only)", () => {
     const read = pfWith([
       mia,
       { ...sam, block: "a_code_from_a_later_release", detail: "text" },
     ]).memberOsUsers;
     expect(read.kind).toBe("list");
     if (read.kind !== "list") return;
-    expect(read.members).toEqual([
+    // As unknown: the field is gone from the type too.
+    expect(read.members as unknown).toEqual([
       {
         userId: "u-mia",
         name: "Mia",
         osUser: "isomux-mia",
         home: "/home/isomux-mia",
         block: null,
-        detail: null,
       },
       {
         userId: "u-sam",
@@ -1244,7 +1244,6 @@ describe("members with their own OS user (slice 5c-3)", () => {
         osUser: "isomux-sam",
         home: "/home/isomux-sam",
         block: "a_code_from_a_later_release",
-        detail: "text",
       },
     ]);
     // An older release sends names only.

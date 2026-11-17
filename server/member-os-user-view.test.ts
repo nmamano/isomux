@@ -384,9 +384,10 @@ describe("the state", () => {
 
   // Slice 5c-3 (task 78733adf): a member who came with an office move is
   // not ready until the enable command places her home, also while its job
-  // runs and her runner is connected for it. Her disable command gives up
-  // that home (--keep-files): the office refuses a plain disable of her.
-  it("is not ready and moved in while the record says movedIn, connected or not, during the place too; the disable command then keeps the files", async () => {
+  // runs and her runner is connected for it. Her disable command deletes
+  // that home (--delete-moved-home): the office refuses a plain disable of
+  // her, and --keep-files does not delete it.
+  it("is not ready and moved in while the record says movedIn, connected or not, during the place too; the disable command then deletes the moved home", async () => {
     const plain = memberUserCommands(ID, INSTALLER)!;
     recordMemberOsUser(
       ID,
@@ -396,8 +397,10 @@ describe("the state", () => {
     const moved = view();
     expect(moved).toMatchObject({ state: "not_ready", movedIn: true });
     expect(moved.commands?.enable).toBe(plain.enable);
-    expect(moved.commands?.disable.endsWith(" --keep-files")).toBe(true);
-    expect(moved.commands?.disable.startsWith(plain.disable)).toBe(true);
+    expect(moved.commands?.disable).toBe(
+      `${plain.disable} --delete-moved-home`,
+    );
+    expect(moved.commands?.disable.includes("--keep-files")).toBe(false);
     // Her place job marks her moving: still not ready, still moved in.
     markMemberMoving(ID);
     expect(view()).toMatchObject({ state: "not_ready", movedIn: true });

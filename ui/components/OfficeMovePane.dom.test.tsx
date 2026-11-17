@@ -1254,7 +1254,9 @@ const SAM = {
 // Text that must never reach the card: this office's `detail` is the
 // server's English (C2).
 const HERE_DETAIL = "HERE-DETAIL-NEVER-SHOWN";
-const OLD_DETAIL = "OLD-DETAIL-SHOWN-AS-DATA";
+// Nor the old office's detail (connect ENOENT ...): the card shows the
+// reason only (task 29b5ba13).
+const OLD_DETAIL = "OLD-DETAIL-NEVER-SHOWN";
 const UNKNOWN_CODE = "a_code_from_a_later_release";
 const hereOf = (
   m: typeof MIA,
@@ -1296,27 +1298,44 @@ const blocksOf = (m: Awaited<ReturnType<typeof mount>>) =>
     e.dataset.block ?? null,
   ]);
 
-it("slice 5c-3: the confirm card lists each member; a blocked one says which office blocks her and why, the old office's detail shows as data, this office's never; Lock waits and sends nothing", async () => {
+it("slice 5c-3: the confirm card lists each member; a blocked one says which office blocks her and why, with the reason only: neither office's detail shows; Lock waits and sends nothing", async () => {
+  const LEE = { ...SAM, userId: "u-lee", name: "Lee", osUser: "isomux-lee" };
   inAnswers = [
     confirmMembers(
-      [MIA, { ...SAM, block: UNKNOWN_CODE, detail: OLD_DETAIL }],
-      [hereOf(MIA, "home_exists"), hereOf(SAM)],
+      [
+        MIA,
+        { ...SAM, block: UNKNOWN_CODE, detail: OLD_DETAIL },
+        {
+          ...LEE,
+          home: "/home/isomux-lee",
+          block: "bad_home",
+          detail: OLD_DETAIL,
+        },
+      ],
+      [hereOf(MIA, "home_exists"), hereOf(SAM), hereOf(LEE)],
     ),
   ];
   const m = await mount();
   expect(m.inView()).toBe("confirm");
-  expect(usersIn(m.q("move-members"))).toEqual(["u-mia", "u-sam"]);
+  expect(usersIn(m.q("move-members"))).toEqual(["u-mia", "u-sam", "u-lee"]);
   expect(blocksOf(m)).toEqual([
     ["u-mia", "here", "home_exists"],
     ["u-sam", "old", "unknown"],
+    ["u-lee", "old", "bad_home"],
   ]);
-  const detail = m.q("move-member-detail");
-  expect(
-    detail?.closest<HTMLElement>("[data-user-id]")?.dataset.userId ?? null,
-  ).toBe("u-sam");
-  expect(detail?.textContent ?? "").toContain(OLD_DETAIL);
+  expect(m.all("move-member-detail").length).toBe(0);
+  // Each old-side line is its reason and nothing more.
+  const { t } = translatorFor("en");
+  const oldLines = [...m.all("move-member-blocked")]
+    .filter((e) => e.dataset.side === "old")
+    .map((e) => e.textContent);
+  expect(oldLines).toEqual([
+    t("officeMove.in.members.old.unknown"),
+    t("officeMove.in.members.old.badHome"),
+  ]);
   const text = m.q("move-in")?.textContent ?? "";
   expect(text.includes(HERE_DETAIL)).toBe(false);
+  expect(text.includes(OLD_DETAIL)).toBe(false);
   expect(text.includes(UNKNOWN_CODE)).toBe(false);
   // The structured fields carry this office's reason: her home here.
   expect(text.includes("/home/isomux-mia")).toBe(true);

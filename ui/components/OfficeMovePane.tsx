@@ -1208,8 +1208,8 @@ function RootCommand({
 
 /** Slice 5c-3: the members with their own OS user, each with her home on
  *  the old machine and, when she cannot move yet, why: the old office's
- *  reason first (its detail shown as data), then this office's, from the
- *  check's fields only (its detail is the server's English). */
+ *  reason first, then this office's, both from their codes and fields only
+ *  (never a detail: that is the server's English or a raw error). */
 function MemberList({ lines }: { lines: MemberLine[] }) {
   const { t } = useI18n();
   const { shown, more } = listHead(lines);
@@ -1242,14 +1242,6 @@ function MemberList({ lines }: { lines: MemberLine[] }) {
                 {t(
                   oldBlockKey(l.oldBlock) ??
                     "officeMove.in.members.old.unknown",
-                )}
-                {l.oldDetail !== null && (
-                  <>
-                    {" "}
-                    <span data-testid="move-member-detail" style={mono}>
-                      {l.oldDetail}
-                    </span>
-                  </>
                 )}
               </div>
             )}

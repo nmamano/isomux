@@ -478,11 +478,11 @@ it("says how many tries are left after a wrong password, and that the member is 
 
 // Slice 5c-3 (task 78733adf): a member who came with an office move. The
 // page says why she is not ready, with its own hints; the disable command is
-// the one the server sends (it keeps the files); Run sits beside the enable
+// the one the server sends (it deletes her moved home); Run sits beside the enable
 // command only, since a plain disable of her is refused.
 it("a member who came with an office move: her own state and hints, the enable and the server's disable command, and Run beside enable only", async () => {
   const osUser = { name: "isomux-mia", uid: 2001 };
-  const DISABLE_KEEP = `${COMMANDS.disable} --keep-files`;
+  const DISABLE_MOVED = `${COMMANDS.disable} --delete-moved-home`;
   const texts = async (over: Partial<MemberOsUserWire>) => {
     answers = [
       view({ state: "not_ready", osUser, run: "no_password", ...over }),
@@ -517,7 +517,7 @@ it("a member who came with an office move: her own state and hints, the enable a
   };
   const moved = await texts({
     movedIn: true,
-    commands: { enable: COMMANDS.enable, disable: DISABLE_KEEP },
+    commands: { enable: COMMANDS.enable, disable: DISABLE_MOVED },
   });
   expect({
     state: moved.stateEl?.dataset.state,
@@ -527,7 +527,7 @@ it("a member who came with an office move: her own state and hints, the enable a
   }).toEqual({
     state: "not_ready",
     movedIn: "true",
-    lines: [COMMANDS.enable, DISABLE_KEEP],
+    lines: [COMMANDS.enable, DISABLE_MOVED],
     runs: [COMMANDS.enable],
   });
   await click(runButtons(moved.m)[0]);

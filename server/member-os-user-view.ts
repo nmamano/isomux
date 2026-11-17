@@ -183,7 +183,10 @@ export function memberOsUserView(
     user.role === "owner" ? null : memberUserCommands(user.id, support);
   const commands =
     plain && movedIn
-      ? { enable: plain.enable, disable: `${plain.disable} --keep-files` }
+      ? {
+          enable: plain.enable,
+          disable: `${plain.disable} --delete-moved-home`,
+        }
       : plain;
   const common = {
     support: support.ok

@@ -806,6 +806,23 @@ describe("disable", () => {
     expect(called(`usermod --lock`)).toBe(true);
   });
 
+  // Task 29b5ba13: a member who came with an office move gives up her moved
+  // home with its own flag; --keep-files never asks for that.
+  it("asks the office to delete the moved home with --delete-moved-home, and sends no keepFiles", () => {
+    isolated(USER_ID);
+    answer("disable", 200, { ok: true, kept: true, movedHomeRemoved: true });
+    const result = run("disable", "Alice", "--delete-moved-home");
+    expect(result.code).toBe(0);
+    expect(sent("disable")).toEqual({ member: USER_ID, deleteMovedHome: true });
+  });
+
+  it("does not take --delete-moved-home for enable, and asks the office nothing", () => {
+    isolated(USER_ID);
+    const result = run("enable", "Alice", "--delete-moved-home");
+    expect(result.code).toBe(2);
+    expect(log().filter((l) => l.startsWith("curl")).length).toBe(0);
+  });
+
   it("deletes the user with --delete-user when this command made it for this member", () => {
     isolated(USER_ID);
     expect(run("disable", "Alice", "--delete-user").code).toBe(0);

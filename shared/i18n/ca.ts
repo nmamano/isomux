@@ -3727,7 +3727,7 @@ Coses que pots fer per ell:
   "officeMove.in.members.old.movedIn":
     "Van arribar a l'oficina antiga amb un trasllat anterior, i l'ordre d'activació encara no s'hi ha executat.",
   "officeMove.in.members.old.badHome":
-    "A l'oficina antiga, la seva carpeta personal no es pot traslladar:",
+    "A l'oficina antiga, la seva carpeta personal no es pot traslladar.",
   "officeMove.in.members.old.runnerDown":
     "A l'oficina antiga, el seu usuari del sistema no respon.",
   "officeMove.in.members.old.wrongRunner":

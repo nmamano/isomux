@@ -1271,9 +1271,9 @@ describe("go-on of a member who came with an office move", () => {
     });
     expect(places.length).toBe(1);
     // D6: the job is a running call.
-    for (const keepFiles of [false, true])
+    for (const body of [{}, { keepFiles: true }, { deleteMovedHome: true }])
       expect(
-        (await call("disable", { member: alice, keepFiles })).body.error,
+        (await call("disable", { member: alice, ...body })).body.error,
       ).toBe("move_in_progress");
     expect(steps).not.toContain("removeStage");
     finishPlace();
@@ -1375,21 +1375,83 @@ describe("go-on of a member who came with an office move", () => {
     expect(failed.body).toMatchObject({ ok: false, ready: false, kept: true });
   });
 
-  it("D9: disable with keepFiles removes her moved home with the record and says so; without it, refuses and keeps both", async () => {
+  it("D9: disable with deleteMovedHome removes her moved home with the record and says so; plain and keepFiles alone refuse and keep both", async () => {
     const alice = member("Alice");
     movedInRecord(alice);
     movedDeps(alice);
-    const refused = await call("disable", { member: alice });
-    expect(refused.status).toBe(409);
-    expect(steps).not.toContain("removeStage");
-    expect(memberOsUserState(alice).kind).toBe("isolated");
-    const answer = await call("disable", { member: alice, keepFiles: true });
+    // keepFiles keeps files: it never deletes the home that came with the
+    // move.
+    for (const body of [{}, { keepFiles: true }, { deleteMovedHome: false }]) {
+      const refused = await call("disable", { member: alice, ...body });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe("moved_in");
+      expect(steps).not.toContain("removeStage");
+      expect(memberOsUserState(alice).kind).toBe("isolated");
+    }
+    const answer = await call("disable", {
+      member: alice,
+      keepFiles: true,
+      deleteMovedHome: true,
+    });
+    expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({
       ok: true,
       kept: true,
       movedHomeRemoved: true,
     });
     expect(steps).toContain("removeStage");
+    expect(memberOsUserState(alice).kind).toBe("none");
+  });
+
+  it("D9: deleteMovedHome alone is enough for a moved-in member", async () => {
+    const alice = member("Alice");
+    movedInRecord(alice);
+    movedDeps(alice);
+    const answer = await call("disable", {
+      member: alice,
+      deleteMovedHome: true,
+    });
+    expect(answer.body).toMatchObject({ ok: true, movedHomeRemoved: true });
+    expect(steps).toContain("removeStage");
+    expect(memberOsUserState(alice).kind).toBe("none");
+  });
+
+  it("D9: deleteMovedHome on a member who did not move refuses and changes nothing, also with keepFiles", async () => {
+    const alice = member("Alice");
+    recordMemberOsUser(alice, { name: "isomux-alice", uid: MEMBER_UID });
+    movedDeps(alice);
+    // Her record, as a scalar: hostFor builds a new not-ready host on each
+    // call while her runner is not connected, so host identity says nothing.
+    const record = () => {
+      const state = memberOsUserState(alice);
+      return state.kind === "isolated"
+        ? `${state.osUser.name}:${state.osUser.uid}:${state.movedIn ? "moved" : "here"}`
+        : state.kind;
+    };
+    const onOffice = () => hostFor(alice) === officeAgentHost();
+    // The enabling condition: isolated, never on the office host.
+    expect([record(), onOffice()]).toEqual([
+      `isomux-alice:${MEMBER_UID}:here`,
+      false,
+    ]);
+    for (const body of [
+      { deleteMovedHome: true },
+      { deleteMovedHome: true, keepFiles: true },
+    ]) {
+      const refused = await call("disable", { member: alice, ...body });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe("not_moved_in");
+      expect([record(), onOffice()]).toEqual([
+        `isomux-alice:${MEMBER_UID}:here`,
+        false,
+      ]);
+      expect(steps).not.toContain("removeStage");
+    }
+    // keepFiles alone still gives up her files (the case above is not a
+    // refusal of every disable).
+    expect(
+      (await call("disable", { member: alice, keepFiles: true })).body,
+    ).toEqual({ ok: true, kept: true });
     expect(memberOsUserState(alice).kind).toBe("none");
   });
 

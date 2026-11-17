@@ -3614,7 +3614,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.members.old.movedIn":
     "They came to the old office with an earlier move, and the turn-on command has not run there yet.",
   "officeMove.in.members.old.badHome":
-    "On the old office, their home folder cannot move:",
+    "On the old office, their home folder cannot move.",
   "officeMove.in.members.old.runnerDown":
     "On the old office, their OS user does not answer.",
   "officeMove.in.members.old.wrongRunner":

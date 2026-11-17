@@ -3,7 +3,7 @@
 //   POST /admin/member-user/info     {member}
 //   POST /admin/member-user/prepare  {member, osUser, uid}
 //   POST /admin/member-user/go-on    {member, osUser, uid}
-//   POST /admin/member-user/disable  {member, keepFiles?}
+//   POST /admin/member-user/disable  {member, keepFiles?, deleteMovedHome?}
 // Only a peer with uid 0 reaches them (server/admin-socket.ts). Where the
 // root command cannot run (memberUserSupport), each answers 409
 // not_supported with the reason.
@@ -449,13 +449,13 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
         `${user.name} has no OS user of their own`,
       );
     // Slice 5c-2 (D9): a member who came with a move has no runner here;
-    // her moved home goes with the record, and only on keepFiles.
+    // her moved home goes with the record, and only on deleteMovedHome.
     if (state.kind === "isolated" && state.movedIn) {
-      if (request.keepFiles !== true)
+      if (request.deleteMovedHome !== true)
         return refusal(
           409,
           "moved_in",
-          `${user.name} came with an office move and has no runner here; run enable, or disable with --keep-files to delete their moved home`,
+          `${user.name} came with an office move and has no runner here; run enable, or disable with --delete-moved-home to delete their moved home`,
         );
       forgetMemberHost(user.id);
       forgetMemberOsUser(user.id);
@@ -463,6 +463,12 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
       deps.movedIn.removeStage(user.id);
       return json(200, { ok: true, kept: true, movedHomeRemoved: true });
     }
+    if (request.deleteMovedHome === true)
+      return refusal(
+        409,
+        "not_moved_in",
+        `${user.name} did not come with an office move; run disable without --delete-moved-home`,
+      );
     // keepFiles: the owner gives up the member's files in their home (their
     // runner cannot run). A broken record has no runner to move them.
     if (request.keepFiles === true || state.kind === "broken") {
@@ -698,7 +704,7 @@ function startPlace(
   const stageDir = deps.movedIn.stageDir(userId);
   if (stageDir === null)
     return movedInRefusal(
-      "their home did not come with the move; disable with --keep-files gives it up",
+      "their home did not come with the move; disable with --delete-moved-home gives it up",
     );
   const job = { placed: 0, total: 0 };
   placeJobs.set(userId, job);

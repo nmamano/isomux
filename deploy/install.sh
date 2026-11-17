@@ -953,7 +953,7 @@ install_member_user_command() {
 # the paths for tests.
 #
 #   isomux-member-user enable <member> [--user <osuser>]
-#   isomux-member-user disable <member> [--delete-user] [--keep-files]
+#   isomux-member-user disable <member> [--delete-user] [--keep-files] [--delete-moved-home]
 set -euo pipefail
 
 # Only the image has the container conf. Its update.conf (the host's
@@ -986,10 +986,12 @@ usage() {
   cat >&2 <<'EOF'
 usage: isomux-member-user <command>
   enable <member> [--user <osuser>]   run the member's agents as a new OS user
-  disable <member> [--delete-user] [--keep-files]
+  disable <member> [--delete-user] [--keep-files] [--delete-moved-home]
                                       run them as the office's user again
       --keep-files: when the member's runner cannot run, leave their files
       in their home and do not move them back to the office
+      --delete-moved-home: for a member who came with an office move,
+      delete the home that came with it
 EOF
   exit 2
 }
@@ -1308,7 +1310,8 @@ enable_systemd() {
 }
 
 disable() {
-  local member=$1 delete_user=$2 keep_files=$3 info user_id os_user answer
+  local member=$1 delete_user=$2 keep_files=$3 delete_moved_home=$4
+  local info user_id os_user answer
   admin info "$(jq -n --arg m "$member" '{member: $m}')"
   info=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "$(field .message "$info")"
@@ -1321,9 +1324,12 @@ disable() {
       die "this command did not make $os_user, so it does not delete it; run disable without --delete-user."
   fi
   # The office moves the member's files back and stops using their host
-  # first. With --keep-files it only stops using the host.
+  # first. With --keep-files it only stops using the host. With
+  # --delete-moved-home it deletes the home of a member who came with a move.
   admin disable "$(jq -n --arg m "$user_id" --arg k "$keep_files" \
-    '{member: $m} + (if $k == "1" then {keepFiles: true} else {} end)')"
+    --arg d "$delete_moved_home" \
+    '{member: $m} + (if $k == "1" then {keepFiles: true} else {} end)
+      + (if $d == "1" then {deleteMovedHome: true} else {} end)')"
   answer=$ADMIN_BODY
   [[ $ADMIN_STATUS == 200 ]] || die "the office refused: $(field .message "$answer")"
   [[ $(field .ok "$answer") == true ]] ||
@@ -1405,6 +1411,7 @@ main() {
   [[ $# -ge 2 ]] || usage
   [[ $(id -u) == 0 ]] || die "run this as root."
   local command=$1 member=$2 os_user= delete_user= keep_files=
+  local delete_moved_home=
   shift 2
   while [[ $# -gt 0 ]]; do
     case $command:$1 in
@@ -1421,13 +1428,17 @@ main() {
         keep_files=1
         shift
         ;;
+      disable:--delete-moved-home)
+        delete_moved_home=1
+        shift
+        ;;
       *) usage ;;
     esac
   done
   read_conf
   case $command in
     enable) enable "$member" "$os_user" ;;
-    disable) disable "$member" "$delete_user" "$keep_files" ;;
+    disable) disable "$member" "$delete_user" "$keep_files" "$delete_moved_home" ;;
     *) usage ;;
   esac
 }

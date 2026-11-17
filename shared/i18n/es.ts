@@ -3722,7 +3722,7 @@ Cosas que puedes hacer por él:
   "officeMove.in.members.old.movedIn":
     "Llegaron a la oficina antigua con un traslado anterior, y el comando de activación aún no se ha ejecutado allí.",
   "officeMove.in.members.old.badHome":
-    "En la oficina antigua, su carpeta personal no se puede trasladar:",
+    "En la oficina antigua, su carpeta personal no se puede trasladar.",
   "officeMove.in.members.old.runnerDown":
     "En la oficina antigua, su usuario del sistema no responde.",
   "officeMove.in.members.old.wrongRunner":

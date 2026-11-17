@@ -104,7 +104,7 @@ export interface MemberOsUserWire {
   unfinished?: true;
   // not_ready because they came with an office move and the enable command
   // has not placed their files here (task 78733adf, slice 5c-3). Their
-  // commands.disable then carries --keep-files.
+  // commands.disable then carries --delete-moved-home.
   movedIn?: true;
 }
 

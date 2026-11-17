@@ -106,14 +106,13 @@ export interface PreflightView {
 
 /** Slice 5c-3: a member with her own OS user as the old office's preflight
  *  lists her. `block` is the old office's code as sent (a code this release
- *  does not name is kept); `detail` is the old office's text (data). */
+ *  does not name is kept). The card does not show the old office's detail. */
 export interface PreflightMember {
   userId: string;
   name: string;
   osUser: string | null;
   home: string | null;
   block: string | null;
-  detail: string | null;
 }
 
 /** Slice 5c-3: one member as the card shows her: the old office's side (from
@@ -126,7 +125,6 @@ export interface MemberLine {
   /** Her home on the old machine. */
   oldHome: string | null;
   oldBlock: string | null;
-  oldDetail: string | null;
   here: MoveInMemberHere | null;
 }
 
@@ -147,7 +145,6 @@ export function memberLines(
     osUser: m.osUser,
     oldHome: m.home,
     oldBlock: m.block,
-    oldDetail: m.detail,
     here: checks.find((c) => c.userId === m.userId) ?? null,
   }));
   // A check for a member the preflight does not list is a line too, so the
@@ -161,7 +158,6 @@ export function memberLines(
         osUser: c.osUser,
         oldHome: c.oldHome,
         oldBlock: null,
-        oldDetail: null,
         here: c,
       });
   return lines;
@@ -342,7 +338,6 @@ function readPreflightMembers(v: unknown): PreflightMember[] | null {
           osUser: x.osUser,
           home: x.home,
           block: x.block,
-          detail: isStr(x.detail) ? x.detail : null,
         }
       : null,
   );
