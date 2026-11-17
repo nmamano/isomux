@@ -476,6 +476,7 @@ export const REACH_TABLE: Readonly<Record<string, ReachRule>> = {
       "office.updateInfo",
       "office.triggerUpdate",
       "office.lockdown",
+      "office.restart",
       "office.startExport",
       "office.exportStatus",
       "office.downloadExport",

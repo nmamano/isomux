@@ -2565,6 +2565,7 @@ Cosas que puedes hacer por él:
   "apiCall.office.clearMemberToken":
     "Quitar el token de Claude para los miembros con su propio usuario del sistema",
   "apiCall.office.lockdown": "Bloquear la oficina",
+  "apiCall.office.restart": "Reiniciar la oficina",
   "apiCall.office.startExport": "Iniciar una exportación de la oficina",
   "apiCall.office.exportStatus": "Comprobar una exportación de la oficina",
   "apiCall.office.getMove": "Comprobar el traslado de la oficina",

@@ -481,6 +481,7 @@ import {
   type AgentUnit,
   type UnitRunner,
 } from "./office-move-units.ts";
+import { officeRestartsAfterExit } from "./office-restart-route.ts";
 import {
   clearMoveCancelled,
   MOVE_SCRATCH_DIR,
@@ -3891,6 +3892,22 @@ function buildExecutorDeps(
             )),
         now: () => new Date(),
       },
+      restart: {
+        restartsAfterExit: () =>
+          officeRestartsAfterExit(
+            officeRestartPolicy(
+              moveCgroupText(rescue.move ?? {}),
+              moveUnitRunner(rescue.move ?? {}),
+            )?.restart ?? null,
+            readUpdateConf(),
+          ),
+        requestRestart:
+          rescue.requestRestart ??
+          (() =>
+            console.log(
+              "[restart] restart requested; no stop wired in this process (harness)",
+            )),
+      },
       exports: (officeExportJobs = createOfficeExportJobs({
         stateRoot: STATE_ROOT,
         baseDir: () => rescue.exportBaseDir ?? currentBackupDir(),
@@ -7062,6 +7079,8 @@ function runBackgroundBoot(
 
 export interface RescueSeams {
   requestStop?: () => void;
+  /** The restart route's stop. Production: restartOfficeProcess. */
+  requestRestart?: () => void;
   /** The move seams (task 78733adf). Production: the systemd host's run,
    *  async child processes, requestStopForMove, /proc/self/cgroup and the apt
    *  history log. */
@@ -7787,7 +7806,10 @@ export async function runOfficeMain(): Promise<void> {
     console.error("[codex safety] artifact unavailable at boot:", err);
   });
   const handle = await startServer({
-    rescue: { requestStop: () => requestStopForLock(applyOfficeLockEffects) },
+    rescue: {
+      requestStop: () => requestStopForLock(applyOfficeLockEffects),
+      requestRestart: restartOfficeProcess,
+    },
   });
   // An owner export's child ends with the office.
   runAtServerStop(async () => officeExportJobs?.stop());

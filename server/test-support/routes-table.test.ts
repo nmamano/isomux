@@ -1838,6 +1838,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // The rescue kit inside the office (task cdd7883d): owners and their agents
   // lock and start an export; only an owner's session downloads it.
   "office.lockdown": { caps: ["office:rescue"], emits: [] },
+  "office.restart": { caps: ["office:rescue"], emits: [] },
   "office.startExport": { caps: ["office:rescue"], emits: [] },
   "office.exportStatus": { caps: ["office:rescue"], emits: [] },
   "office.downloadExport": { caps: ["office:admin"], emits: [] },
@@ -2365,8 +2366,9 @@ const APP_REFUSED_OPIDS = [
   "chatFiles.get",
   "chatFiles.getImage",
   // App code serves strangers: it neither locks the office nor starts an
-  // export of it (task cdd7883d).
+  // export of it (task cdd7883d), nor restarts it (task d3d229a8).
   "office.lockdown",
+  "office.restart",
   "office.startExport",
   "office.exportStatus",
   // Nor does it read or cancel a move of the office (task 78733adf).

@@ -876,6 +876,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
     "apiCall.office.clearMemberToken",
   ],
   ["POST", "/api/office/lockdown", "apiCall.office.lockdown"],
+  ["POST", "/api/office/restart", "apiCall.office.restart"],
   ["POST", "/api/office/exports", "apiCall.office.startExport"],
   ["GET", "/api/office/exports/*", "apiCall.office.exportStatus"],
   ["GET", "/api/office/move", "apiCall.office.getMove"],

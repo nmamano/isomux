@@ -184,6 +184,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "office.memberToken.set": "office-settings",
   "office.memberToken.clear": "office-settings",
   "office.lockdown": "rescue",
+  "office.restart": "rescue",
   "office.startExport": "rescue",
   "office.exportStatus": "rescue",
   "office.getMove": "rescue",

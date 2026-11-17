@@ -150,6 +150,7 @@ export const AUDIT_OPERATIONS = [
   "office.pairMove",
   "office.rerunMoveInPreflight",
   "office.retryMoveIn",
+  "office.restart",
   "office.setAccess",
   "office.startMoveIn",
   "office.setInstructions",

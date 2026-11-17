@@ -2266,6 +2266,7 @@ export const zh: Catalog = {
   "apiCall.office.clearMemberToken":
     "移除拥有独立系统用户的成员所用的 Claude 令牌",
   "apiCall.office.lockdown": "锁定办公室",
+  "apiCall.office.restart": "重启办公室",
   "apiCall.office.startExport": "开始导出办公室",
   "apiCall.office.exportStatus": "查看办公室导出",
   "apiCall.office.getMove": "查看办公室迁移",

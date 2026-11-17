@@ -2490,6 +2490,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.clearMemberToken":
     "Remove the Claude token for members with their own OS user",
   "apiCall.office.lockdown": "Lock the office",
+  "apiCall.office.restart": "Restart the office",
   "apiCall.office.startExport": "Start an office export",
   "apiCall.office.getMove": "Check the office move",
   "apiCall.office.cancelMove": "Cancel the office move",

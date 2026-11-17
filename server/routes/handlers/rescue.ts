@@ -1,5 +1,6 @@
 // The rescue routes inside the office (task cdd7883d, slice 4): the lockdown
-// route and the owner export. server/office-lockdown-route.ts and
+// route, the restart route (task d3d229a8) and the owner export.
+// server/office-lockdown-route.ts, server/office-restart-route.ts and
 // server/office-export-jobs.ts hold the logic.
 
 import { basename } from "node:path";
@@ -10,10 +11,15 @@ import {
   lockOfficeFromRoute,
   type OfficeLockdownDeps,
 } from "../../office-lockdown-route.ts";
+import {
+  officeRestarter,
+  type OfficeRestartDeps,
+} from "../../office-restart-route.ts";
 import type { OfficeExportJobs } from "../../office-export-jobs.ts";
 
 export interface RescueHandlerDeps {
   lockdown: OfficeLockdownDeps;
+  restart: OfficeRestartDeps;
   exports: OfficeExportJobs;
   /** The marker's `by`: the member's name, or "<agent> for <manager>". */
   byName(identity: Identity): string;
@@ -22,6 +28,8 @@ export interface RescueHandlerDeps {
 export function rescueHandlers(
   deps: RescueHandlerDeps,
 ): Record<string, RouteHandler> {
+  // Per boot: the harness boots several offices in one process.
+  const restart = officeRestarter(deps.restart);
   return {
     "office.lockdown": (ctx) => {
       const body = ctx.body;
@@ -38,6 +46,11 @@ export function rescueHandlers(
       return result.status === 422
         ? fail(422, "invalid_request", result.message)
         : fail(500, "lock_failed", result.message);
+    },
+    "office.restart": (ctx) => {
+      const result = restart(deps.byName(ctx.identity));
+      if (result.ok) return ok({ restarting: true }, 202);
+      return fail(result.status, result.code, result.message);
     },
     "office.startExport": () => {
       const result = deps.exports.start();

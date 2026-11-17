@@ -67,6 +67,7 @@ interface Bed {
   srv: TestServer;
   exportBase: string;
   stops: () => number;
+  restarts: () => number;
   children: HeldChild[];
 }
 
@@ -82,6 +83,7 @@ async function boot(
   const exportBase = join(scratch, "backups");
   opts.beforeBoot?.(exportBase);
   let stops = 0;
+  let restarts = 0;
   const children: HeldChild[] = [];
   const spawnExportChild = ({ outFile }: { outFile: string }): ExportChild => {
     let exit!: (code: number) => void;
@@ -108,6 +110,9 @@ async function boot(
         requestStop: () => {
           stops++;
         },
+        requestRestart: () => {
+          restarts++;
+        },
         exportBaseDir: exportBase,
         ...(opts.realChild ? {} : { spawnExportChild }),
         ...(opts.move ? { move: opts.move } : {}),
@@ -115,7 +120,13 @@ async function boot(
     },
   });
   server = srv;
-  return { srv, exportBase, stops: () => stops, children };
+  return {
+    srv,
+    exportBase,
+    stops: () => stops,
+    restarts: () => restarts,
+    children,
+  };
 }
 
 async function spawn(
@@ -379,6 +390,163 @@ describe("the lockdown route", () => {
     expect(rows[0].actor.id).toBe(c.ownerAgent.agentId);
     expect(rows[0].lockdown).toEqual({ reason: "prompt injection in a task" });
     expect((await call(b.srv, "GET", "/api/tasks", c.owner)).status).toBe(503);
+  });
+});
+
+// Task d3d229a8: an owner, or an owner's agent, restarts the office from
+// inside it. The route stops the office (the recorder here) only when its
+// service manager starts it again: the office's own unit has Restart=always,
+// or update.conf says the office runs in the container image. Both are read
+// through the real readers, with the cgroup text, the unit runner and the
+// update.conf path injected.
+describe("the restart route", () => {
+  const SYSTEM_UNIT = "0::/system.slice/isomux.service\n";
+  // A foreground office in an SSH session: no unit.
+  const NO_UNIT = "0::/user.slice/user-1001.slice/session-3.scope\n";
+
+  // `restart` is read at each call, so one boot walks several policies.
+  function restartSeams(restart: string | null): MoveSeams & {
+    restart: string | null;
+    shows: string[][];
+  } {
+    const seams: MoveSeams & { restart: string | null; shows: string[][] } = {
+      restart,
+      shows: [],
+      cgroupText: SYSTEM_UNIT,
+      runUnits: (argv) => {
+        if (argv.includes("show") && argv.some((a) => a.includes("Restart"))) {
+          seams.shows.push(argv);
+          return seams.restart === null
+            ? { code: 1, stdout: "", stderr: "Unit isomux.service not found." }
+            : { code: 0, stdout: `${seams.restart}\n`, stderr: "" };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    };
+    return seams;
+  }
+
+  let savedConf: string | undefined;
+  let confSet = false;
+  function useUpdateConf(content: string | null): void {
+    if (!confSet) {
+      savedConf = process.env.ISOMUX_UPDATE_CONF;
+      confSet = true;
+    }
+    const path = join(scratch, "update.conf");
+    if (content === null) rmSync(path, { force: true });
+    else writeFileSync(path, content);
+    process.env.ISOMUX_UPDATE_CONF = path;
+  }
+  afterEach(() => {
+    if (!confSet) return;
+    if (savedConf === undefined) delete process.env.ISOMUX_UPDATE_CONF;
+    else process.env.ISOMUX_UPDATE_CONF = savedConf;
+    confSet = false;
+  });
+
+  const restartAudits = () =>
+    officeAuditStore().list({ operation: "office.restart", limit: 10 }).items;
+
+  async function settle(b: Bed, atLeast: number): Promise<void> {
+    const deadline = performance.now() + 2_000;
+    while (b.restarts() < atLeast && performance.now() < deadline)
+      await Bun.sleep(10);
+  }
+
+  it("on a system unit with Restart=always: the rescue kit's refused callers get 403; an owner's agent and the owner's session, at once, both get 202 and the office stops once, after the answer, with an audit row each; a call after the stop gets 202 and no second stop", async () => {
+    const seams = restartSeams("always");
+    const b = await boot({ move: seams });
+    useUpdateConf(null);
+    const c = await cast(b.srv);
+
+    for (const name of REFUSED)
+      expect({
+        name,
+        ...outcome(await call(b.srv, "POST", "/api/office/restart", c[name])),
+      }).toEqual({ name, status: 403, code: "forbidden" });
+    expect(restartAudits()).toEqual([]);
+
+    // Two calls from cold, before the first stop is due.
+    const both = await Promise.all(
+      [c.ownerAgent, c.owner].map((who) =>
+        call(b.srv, "POST", "/api/office/restart", who),
+      ),
+    );
+    expect(both.map((r) => ({ status: r.status, body: r.body }))).toEqual([
+      { status: 202, body: { restarting: true } },
+      { status: 202, body: { restarting: true } },
+    ]);
+    // The enabling condition: the policy was read from the system manager
+    // (no --user) for the office's own unit.
+    expect(seams.shows.at(-1)).toContain("isomux.service");
+    expect(seams.shows.at(-1)).not.toContain("--user");
+    // The answers go out before the stop.
+    expect(b.restarts()).toBe(0);
+    await settle(b, 1);
+    // Past every stop either call could have scheduled.
+    await Bun.sleep(300);
+    expect(b.restarts()).toBe(1);
+    const rows = restartAudits();
+    expect(
+      rows
+        .map((r) => `${r.actor.kind}:${r.actor.id}:${r.targets.join()}`)
+        .sort(),
+    ).toEqual(
+      [
+        `agent:${c.ownerAgent.agentId}:office`,
+        `member:${c.ownerId}:office`,
+      ].sort(),
+    );
+
+    // A second stop while the first one's hooks run would end the process
+    // at once and skip the rest: a call after the stop schedules none.
+    const again = await call(b.srv, "POST", "/api/office/restart", c.owner);
+    expect(again.status).toBe(202);
+    await Bun.sleep(600);
+    expect(b.restarts()).toBe(1);
+  });
+
+  it("refuses with 409 no_service_manager and never stops the office when nothing would start it again: Restart=on-failure, a unit whose policy cannot be read, no unit and no update.conf, no unit and a git install's update.conf; no unit and a container update.conf gets 202", async () => {
+    const seams = restartSeams("on-failure");
+    const b = await boot({ move: seams });
+    useUpdateConf(null);
+    const owner = await b.srv.seedOwner("Morgan");
+    const who: Caller = { session: owner.rawSessionId };
+
+    // Each call must be refused; a unit case must also have read the
+    // policy (the enabling condition).
+    const refused = async (name: string, readsPolicy: boolean) => {
+      const before = seams.shows.length;
+      const res = await call(b.srv, "POST", "/api/office/restart", who);
+      expect({
+        name,
+        ...outcome(res),
+        readPolicy: seams.shows.length > before,
+      }).toEqual({
+        name,
+        status: 409,
+        code: "no_service_manager",
+        readPolicy: readsPolicy,
+      });
+    };
+
+    await refused("on-failure", true);
+    seams.restart = null;
+    await refused("unreadable policy", true);
+    seams.cgroupText = NO_UNIT;
+    await refused("no unit, no update.conf", false);
+    useUpdateConf("DEPLOYMENT_KIND=git\nSERVICE_KIND=system\n");
+    await refused("no unit, git install", false);
+    await Bun.sleep(600);
+    expect(b.restarts()).toBe(0);
+    expect(restartAudits()).toEqual([]);
+
+    useUpdateConf("DEPLOYMENT_KIND=container\nSERVICE_KIND=system\n");
+    const res = await call(b.srv, "POST", "/api/office/restart", who);
+    expect(outcome(res)).toEqual({ status: 202, code: null });
+    await settle(b, 1);
+    expect(b.restarts()).toBe(1);
   });
 });
 

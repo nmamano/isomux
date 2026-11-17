@@ -3316,6 +3316,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "write" },
     emits: [],
   }),
+  // Task d3d229a8: the office stops itself and its service manager starts it
+  // again, so an agent restarts a system install without root.
+  defineRoute<void, { restarting: true }>({
+    opId: "office.restart",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/restart",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
   defineRoute<void, { id: string }>({
     opId: "office.startExport",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },

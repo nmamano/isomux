@@ -2570,6 +2570,7 @@ Coses que pots fer per ell:
   "apiCall.office.clearMemberToken":
     "Treu el token de Claude per als membres amb el seu propi usuari del sistema",
   "apiCall.office.lockdown": "Bloquejar l'oficina",
+  "apiCall.office.restart": "Reiniciar l'oficina",
   "apiCall.office.startExport": "Iniciar una exportació de l'oficina",
   "apiCall.office.exportStatus": "Comprovar una exportació de l'oficina",
   "apiCall.office.getMove": "Comprovar el trasllat de l'oficina",
