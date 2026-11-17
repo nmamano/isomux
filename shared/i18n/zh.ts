@@ -605,7 +605,6 @@ export const zh: Catalog = {
     "办公室所有者：可以邀请成员、撤销会话，以及设置各成员的房间访问权限",
   "settings.role.memberHint":
     "成员：可以在办公室所有者授权的房间中操作；不能邀请成员或撤销会话",
-  "settings.profile.identity": "身份",
   "settings.profile.displayName": "显示名称",
   "settings.profile.accessHint":
     "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",

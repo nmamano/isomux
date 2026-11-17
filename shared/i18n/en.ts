@@ -666,7 +666,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Member - can act in rooms an office owner allowed; can't invite or revoke",
 
   // The member editor (the Profile row and the roster rows).
-  "settings.profile.identity": "Identity",
   "settings.profile.displayName": "Display Name",
   "settings.profile.accessHint":
     "Access: rooms this member can see and act in (office-owner managed).",

@@ -663,7 +663,6 @@ Coses que pots fer per ell:
   "settings.role.memberHint":
     "Membre - pot actuar a les sales que el propietari de l'oficina li ha permès; no pot convidar ni revocar",
 
-  "settings.profile.identity": "Identitat",
   "settings.profile.displayName": "Nom visible",
   "settings.profile.accessHint":
     "Accés: sales que aquest membre pot veure i on pot actuar (ho gestiona el propietari de l'oficina).",

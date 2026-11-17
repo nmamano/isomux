@@ -154,7 +154,7 @@ describe("yourself", () => {
 });
 
 describe("a room, drilled in from Rooms", () => {
-  it("lists General, Instructions and memory, Your view, each with its fields; General is name, look, folder, then Delete; the lobby has the same parts", async () => {
+  it("lists General, Instructions and memory, Your view, each with its fields; General is name, folder, look, then Delete; the lobby has the same parts", async () => {
     const view = await mount({
       initialTarget: { kind: "room", roomId: ROOM.id },
     });
@@ -197,7 +197,7 @@ describe("a room, drilled in from Rooms", () => {
       parts: ["general", "instructions", "view"],
       current: ["general"],
       back: true,
-      fields: ["name", "look", "folder", "delete"],
+      fields: ["name", "folder", "look", "delete"],
       headings: 1,
       promptInInstructions: true,
       levelInView: true,

@@ -663,7 +663,6 @@ Cosas que puedes hacer por él:
   "settings.role.memberHint":
     "Miembro - puede actuar en las salas que el propietario de la oficina le permitió; no puede invitar ni revocar",
 
-  "settings.profile.identity": "Identidad",
   "settings.profile.displayName": "Nombre visible",
   "settings.profile.accessHint":
     "Acceso: salas que este miembro puede ver y en las que puede actuar (lo gestiona el propietario de la oficina).",

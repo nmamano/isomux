@@ -114,7 +114,6 @@ const CA = {
   rooms: translationsFor("common.rooms").ca,
   members: translationsFor("settings.sidebar.members").ca,
   signOut: translationsFor("common.signOut").ca,
-  identity: translationsFor("settings.profile.identity").ca,
   discardPrompt: translationsFor("common.discardPrompt").ca,
   discard: translationsFor("common.discard").ca,
   officeTitle: translationsFor("settings.office.title").ca,
@@ -210,10 +209,14 @@ describe("the settings page", () => {
     expect(view.queryByText(CA.signOut)).not.toBeNull();
     expect(view.queryByText(STORAGE.en)).toBeNull();
 
-    // Desktop opens on the signed-in user's editor, on the Profile row. The
+    // Desktop opens on the signed-in user's editor, on the General row, and
+    // its open part is titled General like a room's and an agent's. The
     // Members group stays collapsed, so no "(you)" shows: the editor has no
     // heading of its own since task 1f79f2e3.
-    expect(view.queryByText(CA.identity)).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-settings-part-body="general"] h4')
+        ?.textContent,
+    ).toBe(CA.general);
     expect(row(view, CA.general).getAttribute("aria-current")).toBe("true");
 
     // Its inline discard prompt, in Catalan, holds the navigation until

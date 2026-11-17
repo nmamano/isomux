@@ -2150,7 +2150,9 @@ function UserEditPanel({
   const bodies: Record<MemberPart, React.ReactNode> = {
     general: (
       <>
-        <h5 style={sectionTitleStyle}>{t("settings.profile.identity")}</h5>
+        <h4 className="agent-settings-group-title">
+          {t("settings.part.general")}
+        </h4>
         <label style={subLabelStyle}>{t("settings.profile.displayName")}</label>
         <input
           value={name}

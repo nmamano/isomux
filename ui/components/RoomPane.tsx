@@ -430,15 +430,6 @@ export function RoomPane({
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
             />
-            {/* The look: a field of General, not a part of its own (Nil,
-                2026-11-17: name, look, folder). */}
-            <label style={fieldLabel}>{t("dialogs.agent.appearance")}</label>
-            <RoomDecorPicker
-              room={room}
-              rooms={rooms}
-              look={look}
-              onChange={setLook}
-            />
           </>
         )}
 
@@ -457,6 +448,20 @@ export function RoomPane({
           placeholder="~"
           style={inputStyle}
         />
+
+        {/* The look: a field of General, not a part of its own, after the
+            folder (Nil, 2026-11-17: name, folder, look, then Delete). */}
+        {room.type !== "lobby" && (
+          <>
+            <label style={fieldLabel}>{t("dialogs.agent.appearance")}</label>
+            <RoomDecorPicker
+              room={room}
+              rooms={rooms}
+              look={look}
+              onChange={setLook}
+            />
+          </>
+        )}
 
         {/* The item's destructive action, at the end of its first part. */}
         {canDeleteRoom && (

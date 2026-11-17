@@ -2429,18 +2429,20 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         body: (
           <>
             {/* The fields of General have no group title of their own:
-                one title over name, look, room and folder. */}
+                one title over name, room, folder and look. The look goes
+                last (Nil, 2026-11-17), so the folder does not sit below
+                the long picker. */}
             <h4 className="agent-settings-group-title">
               {t("settings.part.general")}
             </h4>
             {identitySection}
-            {appearanceSection(true)}
             <section className="agent-settings-group">
               <div className="agent-settings-fields">
                 {roomField}
                 {directoryField}
               </div>
             </section>
+            {appearanceSection(true)}
           </>
         ),
       },

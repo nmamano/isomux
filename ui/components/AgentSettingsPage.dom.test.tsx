@@ -43,13 +43,13 @@ type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type Section = import("./EditAgentDialog.tsx").AgentSettingsSection;
 
 // Each part's fields, in the order the part shows them: General is name,
-// look, room, folder (Nil, 2026-11-17).
+// room, folder, then the look (Nil, 2026-11-17).
 const PART_FIELDS: Record<Section, string[]> = {
   general: [
     "agent-identity-section",
-    "agent-appearance-section",
     "agent-room-field",
     "agent-directory-field",
+    "agent-appearance-section",
   ],
   access: ["agent-manager-field", "agent-access-field"],
   instructions: ["agent-instructions-section"],
