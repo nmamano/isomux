@@ -9,6 +9,7 @@
 // transform, so each round trip moved the front down by its rest offset.
 import { expect, it } from "bun:test";
 import { useEffect } from "react";
+import { runTestFileResets } from "../test-file-resets.ts";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -116,9 +117,7 @@ function Office({
   );
 }
 
-// Quarantined (task 015c571f): fails when BackRoomScreen.dom.test.tsx runs
-// before it in the same process.
-it.skip("brings the front back at the same view after the back screen closes", () => {
+it("brings the front back at the same view after the back screen closes", () => {
   const undo = fakeLayout();
   try {
     check();
@@ -143,6 +142,39 @@ function check() {
   }
   view.unmount();
 }
+
+// The saved view is shared by every mount in the process, so a file that
+// zooms leaves it touched for the next file, whose first mount then keeps
+// that view instead of fitting the rest view. The harness reset clears it.
+it("the harness's per-file reset forgets a zoom that another file left", () => {
+  const undo = fakeLayout();
+  try {
+    const api: { current: Viewport | null } = { current: null };
+    const first = render(<Office front apiRef={api} />);
+    const scene = () => first.container.querySelector("[data-test-scene]")!;
+    act(() => api.current!.resetView(false));
+    const rest = transformOf(scene());
+    // The rest view moved the scene; otherwise the test proves nothing.
+    expect(rest.y).not.toBe(0);
+    act(() => api.current!.zoomIn());
+    // The zoom left the view touched; otherwise the test proves nothing.
+    expect(transformOf(scene()).s).toBeGreaterThan(rest.s);
+    first.unmount();
+
+    runTestFileResets();
+
+    const next = render(<Office front />);
+    const after = transformOf(
+      next.container.querySelector("[data-test-scene]")!,
+    );
+    expect(after.x).toBeCloseTo(rest.x, 3);
+    expect(after.y).toBeCloseTo(rest.y, 3);
+    expect(after.s).toBeCloseTo(rest.s, 6);
+    next.unmount();
+  } finally {
+    undo();
+  }
+});
 
 // ---- Wheel, pinch and Safari gestures (task 7dfe3044) ----------------------
 // On a Mac trackpad a two-finger scroll is a plain wheel stream with an

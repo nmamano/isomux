@@ -78,6 +78,11 @@ const savedView: { state: ViewportState; rest: ViewportState } = {
   state: { ...DEFAULT_STATE },
   rest: { ...DEFAULT_STATE },
 };
+// In place: a mounted hook's refs hold these objects.
+resetBetweenTestFiles(() => {
+  Object.assign(savedView.state, DEFAULT_STATE);
+  Object.assign(savedView.rest, DEFAULT_STATE);
+});
 
 /** What differs between the front and the back room. Every field defaults to the front. */
 export interface ViewportOptions {
