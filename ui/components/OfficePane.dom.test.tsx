@@ -130,11 +130,18 @@ it("sends only the request whose fields changed", async () => {
   view.unmount();
 });
 
-it("states the memory cap while the memory loads", async () => {
+// The size count sits in a slot as wide as the cap's digits from the first
+// frame, so the hint keeps its width when "…" turns into the size (task
+// f8e77177). happy-dom cannot measure width: the min width stands for it, and
+// scripts/loading-check.sh is the proof in a real browser.
+it("keeps the memory hint's size slot as wide as the cap, before and after the memory loads", async () => {
   const { MEMORY_CAPS } = await import("../../shared/memory-caps.ts");
   const { t } = translatorFor("en");
+  const cap = MEMORY_CAPS.office;
+  let answer!: (r: unknown) => void;
   setApiShim(async (method, path) => {
-    if (path.startsWith("/api/memory")) return new Promise(() => {});
+    if (path.startsWith("/api/memory"))
+      return new Promise((resolve) => (answer = resolve));
     if (path === "/api/office/settings" && method === "GET")
       return { prompt: null, name: null, version: "1" };
     if (path === "/api/office/instructions" && method === "GET")
@@ -143,9 +150,31 @@ it("states the memory cap while the memory loads", async () => {
   });
   const view = render(onLanguage(null, createElement(OfficePane)));
   await act(async () => {});
+  const slot = () => {
+    const all = view.container.querySelectorAll<HTMLElement>(
+      "label [data-memory-size]",
+    );
+    expect(all.length).toBe(1);
+    return all[0];
+  };
+  const reserved = `${String(cap).length}ch`;
+
+  // Loading: the cap is known, the size is not.
   expect(view.container.textContent).toContain(
-    t("settings.office.memoryHint", { size: "…", cap: MEMORY_CAPS.office }),
+    t("settings.office.memoryHint", { size: "…", cap }),
   );
+  expect(slot().textContent).toBe("…");
+  expect(slot().style.minWidth).toBe(reserved);
+
+  // Loaded: a size with fewer digits than the cap fills the same slot.
+  await act(async () =>
+    answer({ text: "one\ntwo", version: "0", size: 7, cap }),
+  );
+  expect(view.container.textContent).toContain(
+    t("settings.office.memoryHint", { size: 7, cap }),
+  );
+  expect(slot().textContent).toBe("7");
+  expect(slot().style.minWidth).toBe(reserved);
   view.unmount();
 });
 

@@ -48,6 +48,7 @@ import {
   type RoomField,
   type RoomPart,
 } from "../settings-parts.ts";
+import { MemorySizeCount } from "./MemorySizeCount.tsx";
 
 // One room's settings, as parts (task 1f79f2e3): Settings draws them with
 // SettingsItemPage. Mounted keyed by roomId, so switching rooms in the
@@ -74,7 +75,7 @@ export function RoomPane({
   children: (view: SettingsItemView<RoomPart>) => React.ReactNode;
 }) {
   const { agents, rooms, users, sessionContext, isMobile } = useAppState();
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried on the wire:
   // room.canCloseWhenEmpty is false only for the lobby. Emptiness stays a
@@ -529,18 +530,30 @@ export function RoomPane({
             <label style={fieldLabel}>
               {t("common.memory")}{" "}
               <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                {t("settings.room.memoryHint", {
-                  size: mem.loaded ? mem.size : "…",
-                  cap: mem.cap ?? "…",
+                {rich("settings.room.memoryHint", {
+                  size: (
+                    <MemorySizeCount
+                      size={mem.size}
+                      cap={mem.cap}
+                      loaded={mem.loaded}
+                    />
+                  ),
+                  cap: mem.cap,
                 })}
               </span>
             </label>
             <ExpandableTextarea
               title={t("settings.room.memoryTitle", { room: room.name })}
               hint={t("common.memoryEditorHint")}
-              status={t("common.memorySize", {
-                size: mem.loaded ? mem.size : "…",
-                cap: mem.cap ?? "…",
+              status={rich("common.memorySize", {
+                size: (
+                  <MemorySizeCount
+                    size={mem.size}
+                    cap={mem.cap}
+                    loaded={mem.loaded}
+                  />
+                ),
+                cap: mem.cap,
               })}
               value={mem.memory}
               onChange={mem.setMemory}

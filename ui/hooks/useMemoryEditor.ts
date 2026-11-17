@@ -24,7 +24,7 @@ export interface MemoryEditor {
   // Revert unsaved edits back to the loaded baseline.
   reset: () => void;
   size: number;
-  cap: number | null;
+  cap: number;
   // Save the current text if loaded + dirty; a no-op success otherwise. On a 409
   // the file changed under us - returns { conflict } so the caller keeps the
   // dialog open and tells the user to reopen.
