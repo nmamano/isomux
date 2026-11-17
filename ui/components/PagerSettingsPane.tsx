@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useCan } from "../hooks/useCan.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import type {
   PagerSettingsReq,
   PagerSettingsRes,
@@ -19,6 +20,7 @@ import type {
 import type { PagerDeliveryFailure } from "../../shared/types.ts";
 import type { MessageKey } from "../../shared/i18n/en.ts";
 import {
+  armedConfirmLook,
   cardActionBtn,
   dialogHint,
   dialogInput,
@@ -72,6 +74,9 @@ export function PagerSettingsPane({
     at: "discord" | "repeat";
   } | null>(null);
   const mounted = useRef(true);
+  // The server returns only the masked URL, so a removed webhook comes back
+  // only from Discord: Remove asks first.
+  const removeStep = useConfirmStep();
   // While the settings load, the pane shows the form it showed last on this
   // device with nothing to act on, so it keeps its height when they arrive.
   const [held] = useState(getPagerLayout);
@@ -215,13 +220,26 @@ export function PagerSettingsPane({
         {pagerWrite && (
           <button
             data-testid={live ? "pager-webhook-remove" : undefined}
-            onClick={() => void save({ webhookUrl: null })}
+            {...(live ? removeStep.bind("webhook") : null)}
+            onClick={() =>
+              removeStep.confirm(
+                "webhook",
+                () => void save({ webhookUrl: null }),
+              )
+            }
             disabled={busy}
             style={{
               ...secondaryBtn,
+              ...(live && removeStep.armed === "webhook"
+                ? armedConfirmLook
+                : null),
             }}
           >
-            {t("pager.settings.webhookRemove")}
+            {t(
+              live && removeStep.armed === "webhook"
+                ? "common.confirmQuestion"
+                : "pager.settings.webhookRemove",
+            )}
           </button>
         )}
       </div>

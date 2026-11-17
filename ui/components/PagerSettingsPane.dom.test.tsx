@@ -108,9 +108,25 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
   await act(async () => fireEvent.click(send));
   expect(view.getByTestId("pager-status").dataset.ok).toBe("false");
 
-  await act(async () =>
-    fireEvent.click(view.getByTestId("pager-webhook-remove")),
-  );
+  // Remove asks first: the server keeps only the mask, so a removed webhook
+  // must be copied from Discord again. The first click arms the button and
+  // writes nothing; Escape disarms it; only a second click removes.
+  const remove = () => view.getByTestId("pager-webhook-remove");
+  const label = remove().textContent;
+  const before = writes.length;
+  await act(async () => fireEvent.click(remove()));
+  expect(writes.length).toBe(before);
+  expect(remove().hasAttribute("data-confirm-armed")).toBe(true);
+  expect(remove().textContent).not.toBe(label);
+  await act(async () => fireEvent.keyDown(remove(), { key: "Escape" }));
+  expect(remove().hasAttribute("data-confirm-armed")).toBe(false);
+  expect(remove().textContent).toBe(label);
+  // A click after Escape arms again; it does not remove.
+  await act(async () => fireEvent.click(remove()));
+  expect(writes.length).toBe(before);
+  expect(remove().hasAttribute("data-confirm-armed")).toBe(true);
+  await act(async () => fireEvent.click(remove()));
+  expect(writes.length).toBe(before + 1);
   expect(writes.at(-1)).toEqual(["PATCH", PATH, { webhookUrl: null }]);
   expect(view.queryByTestId("pager-webhook-remove")).toBeNull();
   view.unmount();
