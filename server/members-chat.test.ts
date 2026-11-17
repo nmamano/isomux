@@ -425,6 +425,9 @@ describe("pinned history index", () => {
     expect(
       store.page({ limit: 1 }).messages.map((message) => message.id),
     ).toEqual([latest.id]);
+    // full_state's count (task 133710db) is the page's pinned length, not the
+    // loaded messages': one message on the page, two pins.
+    expect(store.pinCount()).toBe(2);
     store.edit(old.id, "updated pin");
     expect(store.page().pinned[1].content).toBe("updated pin");
     store.setThumbsUp(old.id, { ...pau, kind: "user" }, true);
@@ -434,11 +437,16 @@ describe("pinned history index", () => {
         .page()
         .pinned.map((message) => message.id),
     ).toEqual([latest.id, old.id]);
+    // A cold store counts from the history scan.
+    expect(createMembersChatStore(dir).pinCount()).toBe(2);
     store.setPinned(latest.id, false);
     expect(store.page().pinned.map((message) => message.id)).toEqual([old.id]);
+    expect(store.pinCount()).toBe(1);
     store.delete(old.id);
     expect(store.page().pinned).toEqual([]);
+    expect(store.pinCount()).toBe(0);
     expect(createMembersChatStore(dir).page().pinned).toEqual([]);
+    expect(createMembersChatStore(dir).pinCount()).toBe(0);
   });
 
   it("serves 21 as a sentinel, permits more pins, and keeps repeated desired state idempotent", () => {
@@ -449,6 +457,8 @@ describe("pinned history index", () => {
     }
     const pins = store.page().pinned;
     expect(pins).toHaveLength(21);
+    // The count is capped like the list, so the strip reads "20+" either way.
+    expect(store.pinCount()).toBe(21);
     expect(pins.map((message) => message.id)).toEqual(ids.slice(1).reverse());
     const before = readFileSync(join(dir, "2026-08.jsonl"), "utf8");
     clock++;
@@ -459,6 +469,7 @@ describe("pinned history index", () => {
     expect(store.page().pinned.at(-1)?.id).toBe(ids[0]);
     store.setPinned(ids[20], false);
     expect(store.page().pinned).toHaveLength(20);
+    expect(store.pinCount()).toBe(20);
     expect(store.setPinned("unknown", true)).toBeNull();
   });
 });

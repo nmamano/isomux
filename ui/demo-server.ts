@@ -5006,6 +5006,7 @@ export function sendInitialState() {
     membersChat: {
       readPointer: demoMembersChat.at(-1)?.id ?? null,
       unread: 0,
+      pins: recentMembersChatPins(demoMembersChat).length,
     },
     memberDms: demoDmSummaries(),
   });

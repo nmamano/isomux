@@ -820,7 +820,7 @@ export function MembersChatPanel({
         )}
       </div>
 
-      {membersChat.pinned?.[0] && (
+      {membersChat.pinned?.[0] ? (
         <PinnedMessageStrip
           key={membersChat.pinned[0].id}
           message={membersChat.pinned[0]}
@@ -830,6 +830,15 @@ export function MembersChatPanel({
           onJump={() => jumpTo(membersChat.pinned![0].id)}
           onUnpin={() => setPinned(membersChat.pinned![0].id, false)}
         />
+      ) : (
+        // full_state's count holds the bar's place until the page brings
+        // the pins (a 1:1 chat has none).
+        membersChat.pinned === undefined &&
+        !loadFailed &&
+        peerId === null &&
+        (membersChat.pinCount ?? 0) > 0 && (
+          <PinnedMessageStrip count={membersChat.pinCount!} />
+        )
       )}
 
       <div
@@ -873,6 +882,7 @@ export function MembersChatPanel({
             )}
           </div>
         )}
+        {!loaded && !loadFailed && messages.length === 0 && <HeldMessages />}
         {loaded && messages.length === 0 && (
           <div
             style={{
@@ -1328,6 +1338,67 @@ export function MembersChatPanel({
     </div>
   );
 }
+
+// The list's place while the first page loads: message-shaped rows,
+// dimmed, filling the list (UI rule: a view keeps its layout while it loads).
+function HeldMessages() {
+  const bar = (width: string, height: number) => (
+    <div
+      style={{
+        width,
+        height,
+        borderRadius: 4,
+        background: "var(--border)",
+      }}
+    />
+  );
+  return (
+    <div
+      aria-busy="true"
+      style={{ height: "100%", overflow: "hidden", opacity: 0.6 }}
+    >
+      {HELD_ROW_WIDTHS.map((width, i) => (
+        <div
+          key={i}
+          style={{ display: "flex", gap: 8, padding: "8px 0", minHeight: 42 }}
+        >
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              flexShrink: 0,
+              borderRadius: "50%",
+              background: "var(--border)",
+            }}
+          />
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              paddingTop: 3,
+            }}
+          >
+            {bar("120px", 10)}
+            {bar(width, 12)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const HELD_ROW_WIDTHS = [
+  "55%",
+  "70%",
+  "40%",
+  "65%",
+  "50%",
+  "75%",
+  "45%",
+  "60%",
+];
 
 const EMPTY_CHAT: MembersChatState = {
   messages: [],

@@ -319,7 +319,7 @@ describe("members chat", () => {
       ownerWs.close();
     });
 
-    it("full_state carries each user's own pointer and unread count", async () => {
+    it("full_state carries each user's own pointer and unread count, and the office's pin count", async () => {
       server = await startTestServer();
       const owner = await server.seedOwner("Nil");
       const member = await server.seedMember("Pau");
@@ -332,6 +332,7 @@ describe("members chat", () => {
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: null,
         unread: 0,
+        pins: 0,
       });
 
       const a = (await post(server, owner.rawSessionId, "a"))
@@ -347,12 +348,28 @@ describe("members chat", () => {
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: a.id,
         unread: 2,
+        pins: 0,
       });
       // Same count as GET: every live message after the pointer, own included.
       expect(await summaryAt(member.rawSessionId)).toEqual({
         readPointer: null,
         unread: 3,
+        pins: 0,
       });
+
+      // Pins are the office's, so both members' summaries count one; the
+      // panel holds the pinned bar's place with it (task 133710db).
+      expect(
+        (
+          await api(server, `/api/members-chat/${c.id}/pin`, {
+            method: "PUT",
+            body: { active: true },
+            rawSessionId: owner.rawSessionId,
+          })
+        ).status,
+      ).toBe(200);
+      expect(await summaryAt(owner.rawSessionId)).toMatchObject({ pins: 1 });
+      expect(await summaryAt(member.rawSessionId)).toMatchObject({ pins: 1 });
 
       // A deleted message is not unread.
       expect(
@@ -363,13 +380,16 @@ describe("members chat", () => {
           })
         ).status,
       ).toBe(204);
+      // A deleted pin no longer counts.
       expect(await summaryAt(owner.rawSessionId)).toEqual({
         readPointer: a.id,
         unread: 1,
+        pins: 0,
       });
       expect(await summaryAt(member.rawSessionId)).toEqual({
         readPointer: null,
         unread: 2,
+        pins: 0,
       });
     });
   });

@@ -1710,6 +1710,41 @@ describe("reducer: members chat slice", () => {
     expect(read.membersChat.readPointer).toBe("202609-00000001");
     expect(read.membersChat.unread).toBe(0);
   });
+
+  // The panel holds the pinned bar's place from this count until the page
+  // fills pinned (task 133710db).
+  it("takes the pin count from full_state's summary and replaces it on the next one", () => {
+    const fullState = (membersChat?: {
+      readPointer: string | null;
+      unread: number;
+      pins?: number;
+    }) =>
+      ({
+        type: "full_state",
+        agents: [],
+        recentCwds: [],
+        office: { prompt: null, name: null },
+        rooms: [],
+        killedAgents: [],
+        interactions: [],
+        ...(membersChat ? { membersChat } : {}),
+      }) as unknown as Parameters<typeof reducer>[1];
+    const first = reducer(
+      withMe,
+      fullState({ readPointer: null, unread: 3, pins: 2 }),
+    );
+    expect(first.membersChat.pinCount).toBe(2);
+    expect(first.membersChat.unread).toBe(3);
+    const next = reducer(
+      first,
+      fullState({ readPointer: null, unread: 3, pins: 0 }),
+    );
+    expect(next.membersChat.pinCount).toBe(0);
+    // An older server sends no count: nothing to hold a place for.
+    const older = reducer(withMe, fullState({ readPointer: null, unread: 1 }));
+    expect(older.membersChat.unread).toBe(1);
+    expect(older.membersChat.pinCount).toBeUndefined();
+  });
 });
 
 describe("reducer: the Lobby tab", () => {

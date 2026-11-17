@@ -1043,6 +1043,10 @@ export interface MembersChatReply {
 export interface MembersChatSummary {
   readPointer: string | null;
   unread: number;
+  // How many messages are pinned (capped like the page), so the panel holds
+  // the pinned bar's place before its page loads. Absent on older servers
+  // and in the 1:1 chats, which have no pins.
+  pins?: number;
 }
 
 // One 1:1 chat between the caller and another member (server/member-dms.ts),

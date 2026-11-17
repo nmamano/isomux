@@ -119,6 +119,9 @@ import {
 
 export interface MembersChatState {
   pinned?: MembersChatMessage[];
+  // full_state's pin count: the panel holds the pinned bar's place until the
+  // page (or a pin event) fills pinned.
+  pinCount?: number;
   pinsRevision?: number;
   pinsStale?: boolean;
   messages: MembersChatMessage[];
@@ -1069,6 +1072,7 @@ export function reducer(state: AppState, action: Action): AppState {
           ...(action.membersChat && {
             readPointer: action.membersChat.readPointer,
             unread: action.membersChat.unread,
+            pinCount: action.membersChat.pins,
           }),
           loaded: false,
         },

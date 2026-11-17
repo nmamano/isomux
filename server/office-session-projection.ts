@@ -365,7 +365,12 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
         // Every office session is a person, who holds chat:members.
         ...(can("membersChat")
-          ? { membersChat: membersChat.summary(session.userId) }
+          ? {
+              membersChat: {
+                ...membersChat.summary(session.userId),
+                pins: membersChat.pinCount(),
+              },
+            }
           : {}),
         ...(can("directMessages")
           ? {

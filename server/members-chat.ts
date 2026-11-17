@@ -142,6 +142,9 @@ export interface MembersChatStore {
   unreadCount(userId: string): number;
   // The user's pointer, unread count and the newest live id, in one pass.
   summary(userId: string): MembersChatSummary;
+  // How many pins the page carries (capped like the page's pinned list).
+  // Only the members chat's full_state summary asks; the DM stores never do.
+  pinCount(): number;
   // When the newest live message was posted; null when none is left.
   newestAt(): number | null;
   saveAttachment(
@@ -577,6 +580,10 @@ export function createMembersChatStore(
     };
   }
 
+  function pinCount(): number {
+    return pinnedMessages().length;
+  }
+
   function newestAt(): number | null {
     for (const month of listMonths().reverse()) {
       const folded = fold(month);
@@ -601,6 +608,7 @@ export function createMembersChatStore(
     setReadPointer,
     unreadCount,
     summary,
+    pinCount,
     saveAttachment,
     attachmentPath,
   };
