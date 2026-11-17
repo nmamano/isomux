@@ -676,6 +676,34 @@ export function setStorageLayout(layout: StorageLayout): void {
   setHeldLayout(KEY_STORAGE_LAYOUT, layout);
 }
 
+// Automations → Webhooks: how many rows the list showed, after the room
+// filter (at most WEBHOOKS_HELD_ROWS_MAX).
+const KEY_WEBHOOKS_LAYOUT = "isomux-webhooks-layout";
+export const WEBHOOKS_HELD_ROWS_MAX = 20;
+
+export type WebhooksLayout = { rows: number };
+
+export function getWebhooksLayout(): WebhooksLayout {
+  return getHeldLayout(
+    KEY_WEBHOOKS_LAYOUT,
+    ({ rows }) =>
+      typeof rows === "number" &&
+      Number.isInteger(rows) &&
+      rows >= 0 &&
+      rows <= WEBHOOKS_HELD_ROWS_MAX
+        ? { rows }
+        : null,
+    // The fuller layout: the table with one row, not the empty box.
+    { rows: 1 },
+  );
+}
+
+export function setWebhooksLayout(layout: WebhooksLayout): void {
+  setHeldLayout(KEY_WEBHOOKS_LAYOUT, {
+    rows: Math.min(layout.rows, WEBHOOKS_HELD_ROWS_MAX),
+  });
+}
+
 // Integrations → Pager: whether a webhook was saved (its row is taller than
 // the "not set" line).
 const KEY_PAGER_LAYOUT = "isomux-pager-layout";

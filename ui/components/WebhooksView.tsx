@@ -24,6 +24,7 @@ import {
   webhookRoomId,
 } from "../room-filter.ts";
 import { formatDateTime, timeSince } from "../../shared/i18n/time.ts";
+import { getWebhooksLayout, setWebhooksLayout } from "../device-settings.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import type {
@@ -264,18 +265,31 @@ export function WebhooksView({
           {error}
         </p>
       )}
-      <WebhooksTable
-        onOpen={onOpenHook}
-        roomFilter={roomFilter}
-        roomOptions={roomOptions}
-      />
-      {webhooksLoaded && (
+      {/* Until the list answers, the table and the Refresh row hold their
+          layout (task 8caa3022). A failed load ends the wait: Refresh retries. */}
+      <div aria-busy={(!webhooksLoaded && !error) || undefined}>
+        <WebhooksTable
+          onOpen={onOpenHook}
+          roomFilter={roomFilter}
+          roomOptions={roomOptions}
+          failed={error !== null}
+        />
         <div style={{ padding: "12px 20px", textAlign: "center" }}>
-          <button type="button" onClick={refresh} style={smallBtn}>
+          <button
+            type="button"
+            data-webhooks-refresh=""
+            onClick={refresh}
+            disabled={!webhooksLoaded && !error}
+            style={
+              !webhooksLoaded && !error
+                ? { ...smallBtn, opacity: 0.5, cursor: "default" }
+                : smallBtn
+            }
+          >
             {t("webhooks.refresh")}
           </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -284,10 +298,13 @@ function WebhooksTable({
   onOpen,
   roomFilter,
   roomOptions,
+  failed,
 }: {
   onOpen: (id: string) => void;
   roomFilter: string;
   roomOptions: readonly { id: string }[];
+  // The list's read failed before it ever answered: the held rows stay, blank.
+  failed: boolean;
 }) {
   const {
     webhooks,
@@ -305,6 +322,12 @@ function WebhooksTable({
     ),
   );
   const targetLabel = useTargetLabel();
+  // Until the list answers, as many blank rows as it showed when it last
+  // loaded on this device (task 8caa3022).
+  const [held] = useState(getWebhooksLayout);
+  useEffect(() => {
+    if (webhooksLoaded) setWebhooksLayout({ rows: shown.length });
+  }, [webhooksLoaded, shown.length]);
   const cellPad = isMobile ? "8px 6px" : "10px 12px";
   const thStyle: React.CSSProperties = {
     padding: cellPad,
@@ -318,13 +341,17 @@ function WebhooksTable({
     borderBottom: "1px solid var(--border-subtle)",
   };
 
-  if (shown.length === 0) {
+  // The first held row says the list loads; after a failed read the error
+  // line above says why it is empty.
+  const loadingText = failed ? BLANK : t("common.loading");
+
+  if (webhooksLoaded ? shown.length === 0 : held.rows === 0) {
     return (
       <div
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
         {!webhooksLoaded
-          ? t("common.loading")
+          ? loadingText
           : webhooks.length > 0
             ? t("webhooks.noMatch")
             : t("webhooks.empty")}
@@ -344,21 +371,84 @@ function WebhooksTable({
       : t("webhooks.noDeliveries");
 
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    // Fixed column widths: the held blank rows and the loaded rows give the
+    // columns the same place (task 8caa3022).
+    <table
+      style={{
+        width: "100%",
+        borderCollapse: "collapse",
+        tableLayout: "fixed",
+        overflowWrap: "anywhere",
+      }}
+    >
       <thead>
         <tr>
           <th style={{ ...thStyle, width: 30 }}></th>
-          <th style={thStyle}>{t("webhooks.col.name")}</th>
-          {!isMobile && <th style={thStyle}>{t("webhooks.col.target")}</th>}
+          <th style={{ ...thStyle, width: isMobile ? undefined : "30%" }}>
+            {t("webhooks.col.name")}
+          </th>
           {!isMobile && (
-            <th style={thStyle}>{t("webhooks.col.lastDelivery")}</th>
+            <th style={{ ...thStyle, width: "25%" }}>
+              {t("webhooks.col.target")}
+            </th>
+          )}
+          {!isMobile && (
+            <th style={{ ...thStyle, width: "27%" }}>
+              {t("webhooks.col.lastDelivery")}
+            </th>
           )}
           {!isMobile && <th style={thStyle}>{t("schedules.col.by")}</th>}
           <th style={{ ...thStyle, width: 30 }}></th>
         </tr>
       </thead>
       <tbody>
-        {shown.map((hook) => {
+        {!webhooksLoaded &&
+          Array.from({ length: held.rows }, (_, i) => (
+            <tr
+              key={`held${i}`}
+              style={{ borderBottom: "1px solid var(--border-subtle)" }}
+            >
+              <td style={{ padding: cellPad }}>
+                {/* The size of the enabled dot, which sets the row's line. */}
+                <span
+                  style={{ display: "inline-block", width: 10, height: 10 }}
+                />
+              </td>
+              <td style={{ padding: cellPad, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: i === 0 ? undefined : 600,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {i === 0 ? loadingText : BLANK}
+                </div>
+                {isMobile && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontFamily: MONO,
+                      marginTop: 2,
+                    }}
+                  >
+                    {BLANK}
+                  </div>
+                )}
+              </td>
+              {!isMobile && (
+                <td style={{ padding: cellPad, fontSize: 12 }}>{BLANK}</td>
+              )}
+              {!isMobile && (
+                <td style={{ padding: cellPad, fontSize: 11 }}>{BLANK}</td>
+              )}
+              {!isMobile && (
+                <td style={{ padding: cellPad, fontSize: 11 }}>{BLANK}</td>
+              )}
+              <td style={{ padding: cellPad, fontSize: 14 }} />
+            </tr>
+          ))}
+        {(webhooksLoaded ? shown : []).map((hook) => {
           const target = targetLabel(hook.target);
           const attention = webhookNeedsAttention(hook);
           const manageable = canManageWebhook(hook, sessionContext);
@@ -1433,6 +1523,9 @@ const ruleLine: React.CSSProperties = {
   color: "var(--text-secondary)",
   wordBreak: "break-all",
 };
+
+// Keeps a held cell at its height: an empty element collapses.
+const BLANK = "\u00a0";
 
 const smallBtn: React.CSSProperties = {
   padding: "4px 10px",

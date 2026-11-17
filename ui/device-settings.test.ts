@@ -58,6 +58,9 @@ const {
   getDiscordLayout,
   setDiscordLayout,
   DISCORD_HELD_MAX,
+  getWebhooksLayout,
+  setWebhooksLayout,
+  WEBHOOKS_HELD_ROWS_MAX,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -588,5 +591,31 @@ describe("integrations held layouts", () => {
   ])("reads the stored Discord value %s as no bot", (raw) => {
     store.set("isomux-discord-layout", raw);
     expect(getDiscordLayout()).toEqual({ bots: 0, rows: 0 });
+  });
+});
+
+// The row count the Webhooks list holds while it loads (task 8caa3022).
+describe("webhooks held layout", () => {
+  beforeEach(() => store.delete("isomux-webhooks-layout"));
+
+  it("keeps the count, at most the cap, and holds one row before a first save", () => {
+    expect(getWebhooksLayout()).toEqual({ rows: 1 });
+    setWebhooksLayout({ rows: 0 });
+    expect(getWebhooksLayout()).toEqual({ rows: 0 });
+    setWebhooksLayout({ rows: WEBHOOKS_HELD_ROWS_MAX + 5 });
+    expect(getWebhooksLayout()).toEqual({ rows: WEBHOOKS_HELD_ROWS_MAX });
+  });
+
+  it.each([
+    "junk",
+    "[]",
+    "{}",
+    '{"rows":-1}',
+    '{"rows":1.5}',
+    '{"rows":"2"}',
+    `{"rows":${WEBHOOKS_HELD_ROWS_MAX + 1}}`,
+  ])("reads the stored value %s as one row", (raw) => {
+    store.set("isomux-webhooks-layout", raw);
+    expect(getWebhooksLayout()).toEqual({ rows: 1 });
   });
 });
