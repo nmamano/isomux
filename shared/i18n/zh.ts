@@ -3815,7 +3815,7 @@ export const zh: Catalog = {
   "systemEntries.backendFailure.signal":
     "智能体后端被信号 {signal} 停止（退出码 {code}）。对话已保存，可以继续。",
   "systemEntries.backendFailure.providerNoAnswer":
-    "Codex 已有 {minutes} 分钟没有任何活动，因此 Isomux 停止了本轮次。发送一条消息即可继续。",
+    "Codex 已有 {minutes} 分钟没有任何活动，因此 Isomux 停止了本轮次。",
   "systemEntries.backendFailure.providerCapacity":
     "模型提供方已达到容量上限。这是提供方的问题，与此账户的订阅或速率限额无关。请稍等一分钟后重试，或选择其他模型。对话已保存，可以继续。",
   "systemEntries.providerCapacityRetry":

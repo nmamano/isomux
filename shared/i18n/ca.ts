@@ -4287,7 +4287,7 @@ Coses que pots fer per ell:
   "systemEntries.backendFailure.signal":
     "El backend de l'agent s'ha aturat amb el senyal {signal} (codi de sortida {code}). La conversa està desada i es pot reprendre.",
   "systemEntries.backendFailure.providerNoAnswer":
-    "Codex no ha mostrat activitat durant {minutes} minuts, així que Isomux ha aturat el torn. Envia un missatge per continuar.",
+    "Codex no ha mostrat activitat durant {minutes} minuts, així que Isomux ha aturat el torn.",
   "systemEntries.backendFailure.providerCapacity":
     "El proveïdor del model està saturat. És un problema del costat del proveïdor, no de la subscripció ni dels límits d'ús d'aquest compte. Torna-ho a provar d'aquí a un minut o tria un altre model. La conversa està desada i es pot reprendre.",
   "systemEntries.providerCapacityRetry":
