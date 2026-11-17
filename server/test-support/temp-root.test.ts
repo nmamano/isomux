@@ -454,7 +454,10 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
 });
 
 describe.skipIf(!linux)("sweepStaleTestTempRoots: which processes", () => {
-  it("stops the processes that hold a path in a dead run's folder, and only those", async () => {
+  // Quarantined (task 44f159af): in the pre-push CI of 2026-11-17 the sweep
+  // removed nothing (line "expect(result.removed).toEqual([dead])"), on a
+  // commit that passed full CI 20 minutes before.
+  it.skip("stops the processes that hold a path in a dead run's folder, and only those", async () => {
     const base = scratchDir();
     const dead = deadRoot(base);
     mkdirSync(join(dead, "work"));
