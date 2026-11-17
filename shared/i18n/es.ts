@@ -567,7 +567,8 @@ Cosas que puedes hacer por él:
   "settings.osUser.offAs":
     "Desactivado: sus agentes se ejecutan como {name}, el usuario del sistema de la oficina.",
   "settings.osUser.on": "Activado: sus agentes se ejecutan como {name}.",
-  "settings.osUser.moving": "Moviendo sus archivos para {name}…",
+  "settings.osUser.moving":
+    "Moviendo los chats y los inicios de sesión de sus agentes…",
   "settings.osUser.notReady":
     "Activado: sus agentes se ejecutan como {name}, que ahora no responde. Esperan hasta que responda.",
   "settings.osUser.broken":
@@ -585,6 +586,7 @@ Cosas que puedes hacer por él:
     "El comando se detuvo antes de terminar. Ejecútalo de nuevo.",
   "settings.osUser.failedWith": "El comando falló: {message}",
   "settings.osUser.failed": "El comando falló.",
+  "settings.osUser.failedDetails": "Detalles",
   "settings.osUser.claudeTokenSet":
     "Claude: al llegar a su límite de uso, sus agentes siguen con el token de Claude para miembros con su propio usuario del sistema.",
   "settings.osUser.claudeTokenMissing":

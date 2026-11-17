@@ -573,7 +573,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.offAs":
     "Off: their agents run as {name}, the office's OS user.",
   "settings.osUser.on": "On: their agents run as {name}.",
-  "settings.osUser.moving": "Moving their files for {name}…",
+  "settings.osUser.moving": "Moving their agent chats and sign-ins…",
   "settings.osUser.notReady":
     "On: their agents run as {name}, which does not answer now. They wait until it does.",
   "settings.osUser.broken": "Their OS user record is damaged: {reason}",
@@ -590,6 +590,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The command stopped before it finished. Run it again.",
   "settings.osUser.failedWith": "The command failed: {message}",
   "settings.osUser.failed": "The command failed.",
+  "settings.osUser.failedDetails": "Details",
   "settings.osUser.claudeTokenSet":
     "Claude: at their usage limit, their agents continue on the Claude token for members with their own OS user.",
   "settings.osUser.claudeTokenMissing":

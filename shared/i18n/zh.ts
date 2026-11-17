@@ -531,7 +531,7 @@ export const zh: Catalog = {
   "settings.osUser.off": "关闭：其代理以办公室的系统用户运行。",
   "settings.osUser.offAs": "关闭：其代理以办公室的系统用户 {name} 运行。",
   "settings.osUser.on": "开启：其代理以 {name} 运行。",
-  "settings.osUser.moving": "正在为 {name} 移动其文件…",
+  "settings.osUser.moving": "正在移动其智能体的对话和登录信息…",
   "settings.osUser.notReady":
     "开启：其代理以 {name} 运行，但它现在没有响应。代理会等到它响应。",
   "settings.osUser.broken": "其系统用户记录已损坏：{reason}",
@@ -544,6 +544,7 @@ export const zh: Catalog = {
   "settings.osUser.stopped": "命令在完成前停止了。请再运行一次。",
   "settings.osUser.failedWith": "命令失败：{message}",
   "settings.osUser.failed": "命令失败。",
+  "settings.osUser.failedDetails": "详细信息",
   "settings.osUser.claudeTokenSet":
     "Claude：达到其用量上限时，其代理会继续使用为拥有专属系统用户的成员设置的 Claude 令牌。",
   "settings.osUser.claudeTokenMissing":

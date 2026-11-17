@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { ApiError, apiFetch } from "../api.ts";
 import {
   OS_USER_NAME_PATTERN,
@@ -20,6 +26,11 @@ import { useI18n } from "../i18n.tsx";
 // While off, a server that sends newUserName (task e15a82e7) gets a picker:
 // the office's user (no command), an existing user from its list or typed by
 // name, or a new user. The enable command and Run carry the pick.
+//
+// Task 77b253f0: while a command runs or the files move, one status row
+// shows alone: no state line, commands or picker. Otherwise the state line,
+// with a failure row under it after a failed or stopped command; a long
+// failure shows its first reason and folds the rest.
 //
 // The page reads the state again every 3 s while it can still change: while
 // the command runs, and after a Copy until the state changes. It stops on
@@ -98,7 +109,8 @@ export function MemberOsUserSection({
   }, [route]);
 
   const fingerprint = view ? stateKey(view) : null;
-  const running = view?.attempt?.status === "running";
+  const running =
+    view?.attempt?.status === "running" || view?.state === "moving";
   const waiting = waitingFrom !== null && waitingFrom === fingerprint;
   const polling = !!view?.support?.ok && (running || waiting);
 
@@ -194,7 +206,7 @@ export function MemberOsUserSection({
     noRun?: boolean;
     target?: OsUserTarget;
   }[] =
-    view.commands === null
+    view.commands === null || running
       ? []
       : picking
         ? target
@@ -258,6 +270,26 @@ export function MemberOsUserSection({
   // replaces the hint that says it cannot.
   const rootWarning = view.rootCapable === true && view.state !== "off";
 
+  // One row for a transition; else the state line, and a failure row.
+  const transition = running
+    ? {
+        kind: "running" as const,
+        text:
+          view.attempt?.status === "running"
+            ? view.attempt.action === "enable"
+              ? t("settings.osUser.turningOn")
+              : t("settings.osUser.turningOff")
+            : t("settings.osUser.moving"),
+      }
+    : waiting
+      ? { kind: "waiting" as const, text: t("settings.osUser.waiting") }
+      : null;
+  const failed =
+    !transition &&
+    (view.attempt?.status === "failed" || view.attempt?.status === "stopped")
+      ? view.attempt
+      : null;
+
   return (
     <div data-testid="member-os-user">
       <h5 style={headingStyle}>{t("settings.osUser.title")}</h5>
@@ -266,18 +298,24 @@ export function MemberOsUserSection({
           {t("settings.osUser.hint")}
         </p>
       )}
-      <p
-        data-testid="member-os-user-state"
-        data-state={view.state}
-        data-moved-in={view.movedIn ? "true" : undefined}
-        data-adopted={view.adopted ? "true" : undefined}
-        style={{ fontSize: 13, margin: "6px 0", color: "var(--text-primary)" }}
-      >
-        {stateLine(view, t)}
-      </p>
-      {view.adopted && view.state !== "off" && (
-        <p style={hintStyle}>{t("settings.osUser.adopted")}</p>
+      {transition ? (
+        <StatusRow kind={transition.kind} text={transition.text} />
+      ) : (
+        <p
+          data-testid="member-os-user-state"
+          data-state={view.state}
+          data-moved-in={view.movedIn ? "true" : undefined}
+          data-adopted={view.adopted ? "true" : undefined}
+          style={{
+            fontSize: 13,
+            margin: "6px 0",
+            color: "var(--text-primary)",
+          }}
+        >
+          {stateLine(view, t)}
+        </p>
       )}
+      {failed && <FailureRow attempt={failed} />}
       {rootWarning && (
         <p
           data-testid="member-os-user-root-capable"
@@ -287,7 +325,7 @@ export function MemberOsUserSection({
           {t("settings.osUser.rootCapable", { name: view.osUser?.name ?? "" })}
         </p>
       )}
-      {picking && (
+      {picking && !running && (
         <div style={{ marginTop: 8 }}>
           <label style={hintStyle}>
             {t("settings.osUser.pick")}
@@ -361,33 +399,14 @@ export function MemberOsUserSection({
           )}
         </div>
       )}
-      {view.attempt && (
-        <p
-          data-testid="member-os-user-attempt"
-          data-status={view.attempt.status}
-          style={{
-            fontSize: 12,
-            margin: "4px 0",
-            color:
-              view.attempt.status === "running"
-                ? "var(--text-muted)"
-                : "var(--red-text)",
-          }}
-        >
-          {attemptLine(view.attempt, t)}
-        </p>
-      )}
-      {waiting && !running && (
-        <p
-          data-testid="member-os-user-waiting"
-          style={{ fontSize: 12, margin: "4px 0", color: "var(--text-muted)" }}
-        >
-          {t("settings.osUser.waiting")}
-        </p>
-      )}
       {commands.map(({ hint, line: command, action, noRun, target }) => (
         <div key={action}>
           <p style={{ ...hintStyle, marginTop: 8 }}>{hint}</p>
+          {action === "disable" && view.adopted && (
+            <p data-testid="member-os-user-adopted" style={hintStyle}>
+              {t("settings.osUser.adopted")}
+            </p>
+          )}
           <div
             style={{
               display: "flex",
@@ -421,7 +440,6 @@ export function MemberOsUserSection({
           {view.run && !noRun && (
             <RunControl
               withPassword={view.run === "password"}
-              blocked={running}
               onRun={(password) => runCommand(action, password, target ?? null)}
             />
           )}
@@ -466,17 +484,15 @@ export function MemberOsUserSection({
 // password is sent once and never kept: the field is cleared after a start.
 function RunControl({
   withPassword,
-  blocked,
   onRun,
 }: {
   withPassword: boolean;
-  blocked: boolean;
   onRun: (password: string | null) => Promise<boolean>;
 }) {
   const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [sending, setSending] = useState(false);
-  const disabled = blocked || sending || (withPassword && password === "");
+  const disabled = sending || (withPassword && password === "");
   return (
     <form
       onSubmit={(event) => {
@@ -597,7 +613,7 @@ function stateLine(view: MemberOsUserWire, t: T): string {
     case "on":
       return t("settings.osUser.on", { name });
     case "moving":
-      return t("settings.osUser.moving", { name });
+      return t("settings.osUser.moving");
     case "not_ready":
       if (view.movedIn) return t("settings.osUser.movedIn");
       return view.unfinished
@@ -608,16 +624,123 @@ function stateLine(view: MemberOsUserWire, t: T): string {
   }
 }
 
-function attemptLine(
-  attempt: NonNullable<MemberOsUserWire["attempt"]>,
-  t: T,
-): string {
-  if (attempt.status === "running")
-    return attempt.action === "enable"
-      ? t("settings.osUser.turningOn")
-      : t("settings.osUser.turningOff");
-  if (attempt.status === "stopped") return t("settings.osUser.stopped");
-  return attempt.message
-    ? t("settings.osUser.failedWith", { message: attempt.message })
-    : t("settings.osUser.failed");
+// A status row: a dot (pulsing while it runs) and the line.
+function StatusRow({
+  kind,
+  text,
+  children,
+}: {
+  kind: "running" | "waiting" | "failed";
+  text: string;
+  children?: ReactNode;
+}) {
+  const color = kind === "failed" ? "var(--red-text)" : "var(--text-muted)";
+  return (
+    <div
+      data-testid="member-os-user-status"
+      data-kind={kind}
+      role={kind === "failed" ? "alert" : "status"}
+      style={{
+        margin: "6px 0",
+        padding: "6px 10px",
+        borderRadius: 6,
+        border: `1px solid ${kind === "failed" ? "var(--red-text)" : "var(--border)"}`,
+        background: "var(--bg-base)",
+        fontSize: 13,
+        color,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span
+          aria-hidden
+          className="os-user-status-dot"
+          data-pulse={kind === "failed" ? undefined : "true"}
+          style={{
+            flex: "none",
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            background: kind === "failed" ? "var(--red-text)" : "var(--accent)",
+          }}
+        />
+        <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{text}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// A failed or stopped command: the first reason, the whole message folded
+// when it says more.
+function FailureRow({
+  attempt,
+}: {
+  attempt: NonNullable<MemberOsUserWire["attempt"]>;
+}) {
+  const { t } = useI18n();
+  if (attempt.status === "stopped")
+    return <StatusRow kind="failed" text={t("settings.osUser.stopped")} />;
+  const { short, folded } = splitFailure(attempt.message ?? "");
+  if (!short)
+    return <StatusRow kind="failed" text={t("settings.osUser.failed")} />;
+  return (
+    <StatusRow
+      kind="failed"
+      text={t("settings.osUser.failedWith", { message: short })}
+    >
+      {folded !== null && (
+        <details
+          data-testid="member-os-user-attempt-details"
+          style={{ marginTop: 4, marginLeft: 16 }}
+        >
+          <summary style={{ cursor: "pointer", fontSize: 12 }}>
+            {t("settings.osUser.failedDetails")}
+          </summary>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              marginTop: 4,
+              maxHeight: 200,
+              overflow: "auto",
+              overflowWrap: "anywhere",
+              fontFamily: "monospace",
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            {folded.map((reason, i) => (
+              <div key={i}>{reason}</div>
+            ))}
+          </div>
+        </details>
+      )}
+    </StatusRow>
+  );
+}
+
+// The root command and the trusted checks join their reasons with "; " or
+// new lines (server/member-hosts.ts): the short reason is the first one,
+// clipped to FAILURE_CLIP characters; folded is every reason, or null when
+// the short reason says it all.
+const FAILURE_CLIP = 200;
+function splitFailure(message: string): {
+  short: string;
+  folded: string[] | null;
+} {
+  const reasons = message
+    .split(/\n|; /)
+    .map((reason) => reason.trim())
+    .filter((reason) => reason !== "");
+  const first = reasons[0] ?? "";
+  const chars = Array.from(first);
+  const short =
+    chars.length > FAILURE_CLIP
+      ? `${chars.slice(0, FAILURE_CLIP).join("")}…`
+      : first;
+  return {
+    short,
+    folded: reasons.length === 1 && short === first ? null : reasons,
+  };
 }

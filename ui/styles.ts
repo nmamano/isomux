@@ -420,6 +420,12 @@ ${emitThemesCss()}
     .phone-sidebar-backdrop,
     .phone-sidebar-panel { animation: none; }
   }
+  /* The OS user section's status dot (MemberOsUserSection.tsx) pulses while
+     a command runs, not with reduced motion. */
+  .os-user-status-dot[data-pulse] { animation: dotPulse 1.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .os-user-status-dot[data-pulse] { animation: none; }
+  }
   .phone-sidebar .chat-sidebar-row { min-height: 44px; }
   .phone-sidebar [data-sidebar-collapse],
   .phone-sidebar .chat-sidebar-row-action {

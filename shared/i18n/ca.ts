@@ -567,7 +567,8 @@ Coses que pots fer per ell:
   "settings.osUser.offAs":
     "Desactivat: els seus agents s'executen com {name}, l'usuari del sistema de l'oficina.",
   "settings.osUser.on": "Activat: els seus agents s'executen com {name}.",
-  "settings.osUser.moving": "Movent els seus fitxers per a {name}…",
+  "settings.osUser.moving":
+    "Movent els xats i els inicis de sessió dels seus agents…",
   "settings.osUser.notReady":
     "Activat: els seus agents s'executen com {name}, que ara no respon. Esperen fins que respongui.",
   "settings.osUser.broken":
@@ -585,6 +586,7 @@ Coses que pots fer per ell:
     "L'ordre s'ha aturat abans d'acabar. Torna-la a executar.",
   "settings.osUser.failedWith": "L'ordre ha fallat: {message}",
   "settings.osUser.failed": "L'ordre ha fallat.",
+  "settings.osUser.failedDetails": "Detalls",
   "settings.osUser.claudeTokenSet":
     "Claude: quan arriben al seu límit d'ús, els seus agents continuen amb el token de Claude per a membres amb usuari del sistema propi.",
   "settings.osUser.claudeTokenMissing":

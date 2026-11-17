@@ -9,8 +9,16 @@
 // - not ready after a move that a stop cut says so, with its own hint over
 //   the enable command; a command with the container placeholder adds the
 //   hint to name the container;
-// - the section shows the state, the last attempt, and the command for the
-//   state: enable while off, disable otherwise; Copy copies that command;
+// - the section shows the state, and the command for the state: enable
+//   while off, disable otherwise; Copy copies that command;
+// - one status row (member-os-user-status, task 77b253f0) while the state
+//   can change: running (an attempt runs, or the files move) before waiting
+//   (after a Copy) before failed (the last attempt failed or stopped). A
+//   transition shows the row alone: no state line, no command, Copy, Run,
+//   command hint or picker (a wait keeps the commands to copy again). A
+//   failure shows under the state line: a short reason, the full message
+//   folded in a closed <details>;
+// - an adopted user's hint sits in each disable command's block;
 // - the page reads again every OS_USER_POLL_MS only while the state can
 //   change (an attempt running, or after a Copy until the state changes), and
 //   stops on a final state, on unmount and at OS_USER_POLL_CAP_MS;
@@ -122,6 +130,19 @@ async function mount() {
     rendered.container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
   return { rendered, q };
 }
+
+const commandLines = (m: Awaited<ReturnType<typeof mount>>) =>
+  [
+    ...m.rendered.container.querySelectorAll<HTMLElement>(
+      '[data-testid="member-os-user-command"]',
+    ),
+  ].map((el) => el.textContent);
+const statusKinds = (m: Awaited<ReturnType<typeof mount>>) =>
+  [
+    ...m.rendered.container.querySelectorAll<HTMLElement>(
+      '[data-testid="member-os-user-status"]',
+    ),
+  ].map((el) => el.dataset.kind ?? "");
 
 // Advance the fake clock by `ms` and let the reads it starts answer.
 async function advance(ms: number) {
@@ -245,7 +266,7 @@ it("shows the enable command while off, and the disable command with the failed 
   const off = await mount();
   expect(off.q("member-os-user-state")?.dataset.state).toBe("off");
   expect(off.q("member-os-user-command")?.textContent).toBe(COMMANDS.enable);
-  expect(off.q("member-os-user-attempt")).toBeNull();
+  expect(off.q("member-os-user-status")).toBeNull();
   off.rendered.unmount();
 
   answers = [
@@ -264,8 +285,8 @@ it("shows the enable command while off, and the disable command with the failed 
   expect(on.q("member-os-user-state")?.dataset.state).toBe("on");
   expect(on.q("member-os-user-state")?.textContent).toContain("isomux-mia");
   expect(on.q("member-os-user-command")?.textContent).toBe(COMMANDS.disable);
-  expect(on.q("member-os-user-attempt")?.dataset.status).toBe("failed");
-  expect(on.q("member-os-user-attempt")?.textContent).toContain(
+  expect(on.q("member-os-user-status")?.dataset.kind).toBe("failed");
+  expect(on.q("member-os-user-status")?.textContent).toContain(
     "the member's runner is not connected",
   );
   on.rendered.unmount();
@@ -349,7 +370,7 @@ it("reads again while an attempt runs, and stops when it ends and on unmount", a
   answers = [running, running, done];
   const m = await mount();
   expect(reads).toBe(1);
-  expect(m.q("member-os-user-attempt")?.dataset.status).toBe("running");
+  expect(m.q("member-os-user-status")?.dataset.kind).toBe("running");
   await advance(OS_USER_POLL_MS);
   expect(reads).toBe(2);
   await advance(OS_USER_POLL_MS);
@@ -383,7 +404,7 @@ it("after a Copy, waits and reads until the state changes", async () => {
   // Nothing can change before a Copy: no reads.
   await advance(OS_USER_POLL_MS * 3);
   expect(reads).toBe(1);
-  expect(m.q("member-os-user-waiting")).toBeNull();
+  expect(m.q("member-os-user-status")).toBeNull();
   const copy = m.rendered.container.querySelector<HTMLButtonElement>(
     '[data-testid="member-os-user"] button',
   )!;
@@ -392,21 +413,23 @@ it("after a Copy, waits and reads until the state changes", async () => {
   });
   await settle();
   expect(copied).toEqual([COMMANDS.enable]);
-  expect(m.q("member-os-user-waiting")).not.toBeNull();
+  // Waiting is the status: the state line goes, the command stays to copy
+  // again.
+  expect(statusKinds(m)).toEqual(["waiting"]);
+  expect(m.q("member-os-user-state")).toBeNull();
+  expect(commandLines(m)).toEqual([COMMANDS.enable]);
   await advance(OS_USER_POLL_MS);
   expect(reads).toBe(2);
-  expect(m.q("member-os-user-waiting")).not.toBeNull();
+  expect(statusKinds(m)).toEqual(["waiting"]);
   await advance(OS_USER_POLL_MS);
   expect(reads).toBe(3);
-  // The command began: the attempt shows, the wait line goes.
-  expect(m.q("member-os-user-waiting")).toBeNull();
-  expect(m.q("member-os-user-attempt")?.dataset.status).toBe("running");
+  // The command began: running replaces waiting.
+  expect(statusKinds(m)).toEqual(["running"]);
   await advance(OS_USER_POLL_MS);
   expect(reads).toBe(4);
   expect(m.q("member-os-user-state")?.dataset.state).toBe("off");
-  expect(m.q("member-os-user-attempt")).toBeNull();
   // Not waiting again, and no more reads.
-  expect(m.q("member-os-user-waiting")).toBeNull();
+  expect(statusKinds(m)).toEqual([]);
   await advance(OS_USER_POLL_MS * 5);
   expect(reads).toBe(4);
 });
@@ -511,17 +534,6 @@ it("shows Run alone where sudo asks for no password, and nothing where the page 
     0, 0,
   ]);
   expect(none.q("member-os-user-command")?.textContent).toBe(COMMANDS.enable);
-});
-
-it("allows no Run while a run goes on", async () => {
-  answers = [
-    view({
-      run: "no_password",
-      attempt: { action: "enable", status: "running", at: 1 },
-    }),
-  ];
-  const m = await mount();
-  expect(runButtons(m).map((b) => b.disabled)).toEqual([true]);
 });
 
 it("says how many tries are left after a wrong password, and that the member is locked after the last", async () => {
@@ -635,12 +647,6 @@ const pickOf = (m: Awaited<ReturnType<typeof mount>>) =>
   m.q("member-os-user-pick") as HTMLSelectElement | null;
 const optionValues = (m: Awaited<ReturnType<typeof mount>>) =>
   [...(pickOf(m)?.options ?? [])].map((o) => o.value);
-const commandLines = (m: Awaited<ReturnType<typeof mount>>) =>
-  [
-    ...m.rendered.container.querySelectorAll<HTMLElement>(
-      '[data-testid="member-os-user-command"]',
-    ),
-  ].map((el) => el.textContent);
 const pick = async (m: Awaited<ReturnType<typeof mount>>, value: string) => {
   await act(async () => {
     fireEvent.change(pickOf(m)!, { target: { value } });
@@ -804,4 +810,337 @@ it("on: says an adopted user is the person's own, and warns only for a root-capa
     warning: false,
     hint: true,
   });
+});
+
+// Task 77b253f0: one status row while the state can change.
+const all = (m: Awaited<ReturnType<typeof mount>>, id: string) => [
+  ...m.rendered.container.querySelectorAll<HTMLElement>(
+    `[data-testid="${id}"]`,
+  ),
+];
+// What a transition must not show beside its status row.
+const transitionLeaks = (m: Awaited<ReturnType<typeof mount>>) => ({
+  state: m.q("member-os-user-state") !== null,
+  // The rows that each said part of a transition before.
+  oldRows:
+    all(m, "member-os-user-attempt").length +
+    all(m, "member-os-user-waiting").length,
+  commands: commandLines(m).length,
+  // Copy and Run are the section's only buttons.
+  buttons: m.rendered.container.querySelectorAll("button").length,
+  passwords: passwordFields(m).length,
+  commandHint: m.q("member-os-user-command-hint") !== null,
+  picker: pickOf(m) !== null,
+  adopted: all(m, "member-os-user-adopted").length,
+});
+const NO_LEAKS = {
+  state: false,
+  oldRows: 0,
+  commands: 0,
+  buttons: 0,
+  passwords: 0,
+  commandHint: false,
+  picker: false,
+  adopted: 0,
+};
+
+it("while a command runs or the files move, shows one running row alone: no state line, command, Copy, Run, hint or picker", async () => {
+  const bob = { name: "bob", uid: 1001 };
+  const cases: { name: string; over: Partial<MemberOsUserWire> }[] = [
+    // A turn-on from off, with the picker that off shows.
+    {
+      name: "enable running",
+      over: picker({
+        commandHint: "container_name",
+        run: "password",
+        attempt: { action: "enable", status: "running", at: 1 },
+      }),
+    },
+    {
+      name: "disable running",
+      over: {
+        state: "on",
+        osUser: bob,
+        adopted: true,
+        commandHint: "container_name",
+        run: "password",
+        attempt: { action: "disable", status: "running", at: 1 },
+      },
+    },
+    {
+      name: "moving, no attempt",
+      over: {
+        state: "moving",
+        osUser: bob,
+        adopted: true,
+        commandHint: "container_name",
+        run: "no_password",
+      },
+    },
+    {
+      name: "moving, enable running",
+      over: {
+        state: "moving",
+        osUser: bob,
+        commandHint: "container_name",
+        run: "no_password",
+        attempt: { action: "enable", status: "running", at: 1 },
+      },
+    },
+  ];
+  const texts: Record<string, string> = {};
+  for (const { name, over } of cases) {
+    answers = [view(over)];
+    const m = await mount();
+    // The enabling condition: the supported section rendered.
+    expect({ name, section: m.q("member-os-user") !== null }).toEqual({
+      name,
+      section: true,
+    });
+    expect({ name, kinds: statusKinds(m) }).toEqual({
+      name,
+      kinds: ["running"],
+    });
+    expect({ name, leaks: transitionLeaks(m) }).toEqual({
+      name,
+      leaks: NO_LEAKS,
+    });
+    texts[name] = m.q("member-os-user-status")?.textContent ?? "";
+    m.rendered.unmount();
+  }
+  // The row says which way it goes: the attempt's action names it, a move
+  // with no attempt has its own line.
+  expect(texts["enable running"]).not.toBe("");
+  expect(texts["disable running"]).not.toBe(texts["enable running"]);
+  expect(texts["moving, enable running"]).toBe(texts["enable running"]);
+  expect(texts["moving, no attempt"]).not.toBe(texts["enable running"]);
+  expect(texts["moving, no attempt"]).not.toBe(texts["disable running"]);
+});
+
+it("keeps the root-capable warning while the command runs", async () => {
+  answers = [
+    view({
+      state: "on",
+      osUser: { name: "bob", uid: 1001 },
+      adopted: true,
+      rootCapable: true,
+      attempt: { action: "disable", status: "running", at: 1 },
+    }),
+  ];
+  const m = await mount();
+  expect(statusKinds(m)).toEqual(["running"]);
+  expect(m.q("member-os-user-root-capable")).not.toBeNull();
+});
+
+it("an adopted user's hint sits in each disable command's block, and nowhere without one", async () => {
+  const bob = { name: "bob", uid: 1001 };
+  // The command lines in the smallest block around each hint.
+  const hintBlocks = (m: Awaited<ReturnType<typeof mount>>) =>
+    all(m, "member-os-user-adopted").map((hint) => {
+      let el: HTMLElement | null = hint.parentElement;
+      while (el && !el.querySelector('[data-testid="member-os-user-command"]'))
+        el = el.parentElement;
+      return [
+        ...(el?.querySelectorAll<HTMLElement>(
+          '[data-testid="member-os-user-command"]',
+        ) ?? []),
+      ].map((c) => c.textContent);
+    });
+  const DISABLE_MOVED = `${COMMANDS.disable} --delete-moved-home`;
+  const cases: {
+    name: string;
+    over: Partial<MemberOsUserWire>;
+    blocks: string[][];
+  }[] = [
+    { name: "on", over: { state: "on" }, blocks: [[COMMANDS.disable]] },
+    // Enable and disable both show: the hint goes with disable only.
+    {
+      name: "not ready",
+      over: { state: "not_ready" },
+      blocks: [[COMMANDS.disable]],
+    },
+    // The copy-only disable of a member who came with a move.
+    {
+      name: "moved in",
+      over: {
+        state: "not_ready",
+        movedIn: true,
+        commands: { enable: COMMANDS.enable, disable: DISABLE_MOVED },
+      },
+      blocks: [[DISABLE_MOVED]],
+    },
+    // No disable command, no hint.
+    { name: "no commands", over: { state: "on", commands: null }, blocks: [] },
+  ];
+  for (const { name, over, blocks } of cases) {
+    answers = [
+      view({ osUser: bob, adopted: true, run: "no_password", ...over }),
+    ];
+    const m = await mount();
+    expect({
+      name,
+      adopted: m.q("member-os-user-state")?.dataset.adopted,
+    }).toEqual({ name, adopted: "true" });
+    expect({ name, blocks: hintBlocks(m) }).toEqual({ name, blocks });
+    m.rendered.unmount();
+  }
+});
+
+// The failure row: the row's own text, without the folded details.
+const failureShort = (m: Awaited<ReturnType<typeof mount>>) => {
+  const row = m.q("member-os-user-status");
+  if (!row) return null;
+  const copy = row.cloneNode(true) as HTMLElement;
+  copy
+    .querySelector('[data-testid="member-os-user-attempt-details"]')
+    ?.remove();
+  return copy.textContent ?? "";
+};
+const failedView = (message: string | undefined) =>
+  view({
+    officeOsUser: "svc-office",
+    attempt: {
+      action: "enable",
+      status: "failed",
+      at: 1,
+      ...(message === undefined ? {} : { message }),
+    },
+  });
+// The row's text around an empty message, and the clip.
+const FRAME = t("settings.osUser.failedWith", { message: "" }).length;
+const CLIP = 200;
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+it("a failure with many reasons shows the state line and the first reason only, with the rest in closed details", async () => {
+  // As member-hosts.ts joins the trusted-check failures.
+  const reasons = Array.from(
+    { length: 300 },
+    (_, i) =>
+      `private-agent-write at /home/office/isomux/node_modules/pkg/file-${i}.d.ts: the agent user can write it`,
+  );
+  answers = [failedView(reasons.join("; "))];
+  const m = await mount();
+  // The state stays: a failure is not a transition.
+  expect(m.q("member-os-user-state")?.dataset.state).toBe("off");
+  expect(statusKinds(m)).toEqual(["failed"]);
+  const row = m.q("member-os-user-status")!;
+  expect(row.getAttribute("role")).toBe("alert");
+  const short = failureShort(m)!;
+  expect(short).toContain(reasons[0]);
+  expect(short).not.toContain("file-1.d.ts");
+  expect(short.length).toBeLessThanOrEqual(FRAME + CLIP + 1);
+  const details = all(m, "member-os-user-attempt-details");
+  expect(details.length).toBe(1);
+  expect(details[0].tagName).toBe("DETAILS");
+  expect((details[0] as HTMLDetailsElement).open).toBe(false);
+  const full = details[0].textContent ?? "";
+  expect(full).toContain(reasons[1]);
+  expect(full).toContain(reasons[299]);
+  // One reason per line, not the joined wall.
+  expect(full).not.toContain(`; ${reasons[1]}`);
+});
+
+it("clips one long reason, cuts at the first line, and never splits a character", async () => {
+  const cases: { name: string; message: string; first: string }[] = [
+    {
+      name: "one long reason",
+      message: "x".repeat(600),
+      first: "x".repeat(50),
+    },
+    {
+      name: "two lines",
+      message: "the runner did not start\nstack line 1\nstack line 2",
+      first: "the runner did not start",
+    },
+    // A cut at any count of UTF-16 units splits one of these two.
+    { name: "emoji even", message: "😀".repeat(300), first: "😀" },
+    { name: "emoji odd", message: `a${"😀".repeat(300)}`, first: "a😀" },
+  ];
+  for (const { name, message, first } of cases) {
+    answers = [failedView(message)];
+    const m = await mount();
+    const short = failureShort(m) ?? "";
+    expect({ name, kinds: statusKinds(m) }).toEqual({
+      name,
+      kinds: ["failed"],
+    });
+    expect({ name, first: short.includes(first) }).toEqual({
+      name,
+      first: true,
+    });
+    // In characters: the clip counts code points.
+    expect({
+      name,
+      bounded: Array.from(short).length <= FRAME + CLIP + 1,
+    }).toEqual({
+      name,
+      bounded: true,
+    });
+    expect({ name, lone: LONE_SURROGATE.test(short) }).toEqual({
+      name,
+      lone: false,
+    });
+    expect({ name, short: short.includes("stack line") }).toEqual({
+      name,
+      short: false,
+    });
+    const details = all(m, "member-os-user-attempt-details");
+    expect({ name, details: details.length }).toEqual({ name, details: 1 });
+    expect({
+      name,
+      full: details[0]?.textContent?.includes(
+        message.split("\n")[1] ?? message,
+      ),
+    }).toEqual({ name, full: true });
+    m.rendered.unmount();
+  }
+});
+
+it("a short failure shows whole with no details, and a failure with no message or a stop shows its line", async () => {
+  answers = [failedView("the member's runner is not connected")];
+  const short = await mount();
+  expect(statusKinds(short)).toEqual(["failed"]);
+  expect(failureShort(short)).toContain("the member's runner is not connected");
+  expect(all(short, "member-os-user-attempt-details").length).toBe(0);
+  short.rendered.unmount();
+
+  const lines = new Set<string>();
+  for (const attempt of [
+    { action: "enable" as const, status: "failed" as const, at: 1 },
+    { action: "enable" as const, status: "stopped" as const, at: 1 },
+  ]) {
+    answers = [view({ attempt })];
+    const m = await mount();
+    expect({
+      s: attempt.status,
+      state: m.q("member-os-user-state")?.dataset.state,
+    }).toEqual({ s: attempt.status, state: "off" });
+    expect({ s: attempt.status, kinds: statusKinds(m) }).toEqual({
+      s: attempt.status,
+      kinds: ["failed"],
+    });
+    expect(m.q("member-os-user-status")?.getAttribute("role")).toBe("alert");
+    expect(all(m, "member-os-user-attempt-details").length).toBe(0);
+    lines.add(failureShort(m) ?? "");
+    m.rendered.unmount();
+  }
+  expect(lines.size).toBe(2);
+  expect(lines.has("")).toBe(false);
+});
+
+it("a Copy after a failure shows the wait, not the old failure", async () => {
+  jest.useFakeTimers();
+  answers = [failedView("the member's runner is not connected")];
+  const m = await mount();
+  expect(statusKinds(m)).toEqual(["failed"]);
+  const copy = m
+    .q("member-os-user-command")
+    ?.parentElement?.querySelector<HTMLButtonElement>("button");
+  expect(copy ? copy.tagName : null).toBe("BUTTON");
+  await click(copy!);
+  expect(copied).toEqual([COMMANDS.enable]);
+  expect(statusKinds(m)).toEqual(["waiting"]);
+  expect(all(m, "member-os-user-attempt-details").length).toBe(0);
+  expect(commandLines(m)).toEqual([COMMANDS.enable]);
 });
