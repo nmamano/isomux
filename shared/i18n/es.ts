@@ -587,6 +587,22 @@ Cosas que puedes hacer por él:
   "settings.osUser.failedWith": "El comando falló: {message}",
   "settings.osUser.failed": "El comando falló.",
   "settings.osUser.failedDetails": "Detalles",
+  "settings.osUser.check.write":
+    "El comando falló: su usuario del sistema podría cambiar los archivos de la oficina.",
+  "settings.osUser.check.owner":
+    "El comando falló: algunos archivos de la oficina tienen un propietario o unos permisos incorrectos.",
+  "settings.osUser.check.open":
+    "El comando falló: su usuario del sistema podría abrir las carpetas de la oficina.",
+  "settings.osUser.check.root":
+    "El comando falló: su usuario del sistema es root.",
+  "settings.osUser.check.office":
+    "El comando falló: su usuario del sistema es el usuario del sistema de la oficina.",
+  "settings.osUser.check.group":
+    "El comando falló: su usuario del sistema comparte un grupo con el usuario del sistema de la oficina.",
+  "settings.osUser.check.admin":
+    "El comando falló: su usuario del sistema está en un grupo de administración, como sudo o docker.",
+  "settings.osUser.check.unchecked":
+    "El comando falló: la oficina no pudo comprobar algunos de sus archivos.",
   "settings.osUser.unfinished":
     "No está listo: el traslado de sus archivos a {name} no terminó.",
   "settings.osUser.finishHint":

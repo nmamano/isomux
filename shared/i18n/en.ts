@@ -591,6 +591,21 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.failedWith": "The command failed: {message}",
   "settings.osUser.failed": "The command failed.",
   "settings.osUser.failedDetails": "Details",
+  "settings.osUser.check.write":
+    "The command failed: their OS user could change the office's files.",
+  "settings.osUser.check.owner":
+    "The command failed: some of the office's files have the wrong owner or permissions.",
+  "settings.osUser.check.open":
+    "The command failed: their OS user could open the office's folders.",
+  "settings.osUser.check.root": "The command failed: their OS user is root.",
+  "settings.osUser.check.office":
+    "The command failed: their OS user is the office's OS user.",
+  "settings.osUser.check.group":
+    "The command failed: their OS user shares a group with the office's OS user.",
+  "settings.osUser.check.admin":
+    "The command failed: their OS user is in an admin group, such as sudo or docker.",
+  "settings.osUser.check.unchecked":
+    "The command failed: the office could not check some of its files.",
   "settings.osUser.unfinished":
     "Not ready: the move of their files to {name} did not finish.",
   "settings.osUser.finishHint":

@@ -545,6 +545,17 @@ export const zh: Catalog = {
   "settings.osUser.failedWith": "命令失败：{message}",
   "settings.osUser.failed": "命令失败。",
   "settings.osUser.failedDetails": "详细信息",
+  "settings.osUser.check.write": "命令失败：其系统用户可以更改办公室的文件。",
+  "settings.osUser.check.owner":
+    "命令失败：办公室的部分文件所有者或权限不正确。",
+  "settings.osUser.check.open": "命令失败：其系统用户可以打开办公室的文件夹。",
+  "settings.osUser.check.root": "命令失败：其系统用户是 root。",
+  "settings.osUser.check.office": "命令失败：其系统用户就是办公室的系统用户。",
+  "settings.osUser.check.group":
+    "命令失败：其系统用户与办公室的系统用户在同一个组中。",
+  "settings.osUser.check.admin":
+    "命令失败：其系统用户属于管理员组，例如 sudo 或 docker。",
+  "settings.osUser.check.unchecked": "命令失败：办公室无法检查其部分文件。",
   "settings.osUser.unfinished": "未就绪：其文件迁移到 {name} 的过程没有完成。",
   "settings.osUser.finishHint": "要完成开启，请在办公室的机器上运行：",
   "settings.osUser.movedIn":

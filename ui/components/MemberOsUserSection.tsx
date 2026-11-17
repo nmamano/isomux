@@ -15,6 +15,8 @@ import {
 import { CopyButton } from "./CopyButton.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import { failureCheckId, type CheckId } from "../../shared/trusted-checks.ts";
 
 // Settings > Members > a member > OS user (server/member-os-user-view.ts,
 // internal-docs/member-os-user-design.md 2.1): an office owner turns their
@@ -658,13 +660,17 @@ function FailureRow({
   const { t } = useI18n();
   if (attempt.status === "stopped")
     return <StatusRow kind="failed" text={t("settings.osUser.stopped")} />;
-  const { short, folded } = splitFailure(attempt.message ?? "");
+  const { short, folded, check } = splitFailure(attempt.message ?? "");
   if (!short)
     return <StatusRow kind="failed" text={t("settings.osUser.failed")} />;
   return (
     <StatusRow
       kind="failed"
-      text={t("settings.osUser.failedWith", { message: short })}
+      text={
+        check
+          ? t(CHECK_SENTENCE[check])
+          : t("settings.osUser.failedWith", { message: short })
+      }
     >
       {folded !== null && (
         <details
@@ -698,14 +704,36 @@ function FailureRow({
   );
 }
 
+// A failed trusted check in plain words: its id and path stay in Details.
+const CHECK_SENTENCE: Record<CheckId, PlainMessageKey> = {
+  "private-agent-write": "settings.osUser.check.write",
+  "share-agent-write": "settings.osUser.check.write",
+  "private-owner": "settings.osUser.check.owner",
+  "share-owner": "settings.osUser.check.owner",
+  "share-group": "settings.osUser.check.owner",
+  "share-setgid": "settings.osUser.check.owner",
+  "share-entry-type": "settings.osUser.check.owner",
+  "office-home-closed": "settings.osUser.check.open",
+  "state-root-closed": "settings.osUser.check.open",
+  "agent-not-root": "settings.osUser.check.root",
+  "agent-not-server": "settings.osUser.check.office",
+  "server-group-private": "settings.osUser.check.group",
+  "member-privileged-group": "settings.osUser.check.admin",
+  missing: "settings.osUser.check.unchecked",
+  "acl-unreadable": "settings.osUser.check.unchecked",
+  "agent-user": "settings.osUser.check.unchecked",
+};
+
 // The root command and the trusted checks join their reasons with "; " or
 // new lines (server/member-hosts.ts): the short reason is the first one,
 // clipped to FAILURE_CLIP characters; folded is every reason, or null when
-// the short reason says it all.
+// the short reason says it all. check: the trusted check the first reason
+// names, whose plain sentence replaces it, so folded is then always there.
 const FAILURE_CLIP = 200;
 function splitFailure(message: string): {
   short: string;
   folded: string[] | null;
+  check: CheckId | null;
 } {
   const reasons = message
     .split(/\n|; /)
@@ -717,8 +745,13 @@ function splitFailure(message: string): {
     chars.length > FAILURE_CLIP
       ? `${chars.slice(0, FAILURE_CLIP).join("")}…`
       : first;
+  const check = failureCheckId(first);
   return {
     short,
-    folded: reasons.length === 1 && short === first ? null : reasons,
+    folded:
+      check === null && reasons.length === 1 && short === first
+        ? null
+        : reasons,
+    check,
   };
 }

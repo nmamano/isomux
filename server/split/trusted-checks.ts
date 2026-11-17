@@ -16,34 +16,13 @@ import {
   readAcl,
   type AclEntry,
 } from "./acl.ts";
+import {
+  describeFailure,
+  type CheckFailure,
+  type CheckId,
+} from "../../shared/trusted-checks.ts";
 
-export type CheckId =
-  | "agent-user"
-  | "agent-not-root"
-  | "agent-not-server"
-  | "server-group-private"
-  | "missing"
-  | "acl-unreadable"
-  | "private-owner"
-  | "private-agent-write"
-  | "state-root-closed"
-  | "share-owner"
-  | "share-group"
-  | "share-setgid"
-  | "share-agent-write"
-  | "share-entry-type"
-  | "member-privileged-group"
-  | "office-home-closed";
-
-export interface CheckFailure {
-  check: CheckId;
-  path?: string;
-  detail: string;
-}
-
-export function describeFailure(failure: CheckFailure): string {
-  return `${failure.check}${failure.path ? ` at ${failure.path}` : ""}: ${failure.detail}`;
-}
+export { describeFailure, type CheckFailure, type CheckId };
 
 // The first `limit` failures, described, then how many more there are.
 export function describeFailureLines(

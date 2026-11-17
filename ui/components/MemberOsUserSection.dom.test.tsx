@@ -18,6 +18,10 @@
 //   command hint or picker (a wait keeps the commands to copy again). A
 //   failure shows under the state line: a short reason, the full message
 //   folded in a closed <details>;
+// - a trusted-check failure (task caa5ca07) shows a plain sentence for the
+//   first reason's check family instead of that raw reason, with every raw
+//   reason folded in a closed <details>, even a single one; a reason that
+//   names no known check keeps the raw headline;
 // - an adopted user's hint sits in each disable command's block;
 // - the page reads again every OS_USER_POLL_MS only while the state can
 //   change (an attempt running, or after a Copy until the state changes), and
@@ -40,6 +44,15 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 import type { MemberOsUserWire } from "../../shared/contract-shapes.ts";
+import {
+  CHECK_IDS,
+  describeFailure,
+  type CheckId,
+} from "../../shared/trusted-checks.ts";
+import {
+  describeFailureLines,
+  describeFailures,
+} from "../../server/split/trusted-checks.ts";
 
 const t = translatorFor("en").t;
 const ROUTE = "/api/users/Mia/os-user";
@@ -994,11 +1007,12 @@ const LONE_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 it("a failure with many reasons shows the state line and the first reason only, with the rest in closed details", async () => {
-  // As member-hosts.ts joins the trusted-check failures.
+  // Reasons joined as member-hosts.ts joins them, none a trusted check (those
+  // get plain words, below).
   const reasons = Array.from(
     { length: 300 },
     (_, i) =>
-      `private-agent-write at /home/office/isomux/node_modules/pkg/file-${i}.d.ts: the agent user can write it`,
+      `cannot install the runtime at /home/office/isomux/node_modules/pkg/file-${i}.d.ts: EACCES`,
   );
   answers = [failedView(reasons.join("; "))];
   const m = await mount();
@@ -1108,6 +1122,176 @@ it("a short failure shows whole with no details, and a failure with no message o
   }
   expect(lines.size).toBe(2);
   expect(lines.has("")).toBe(false);
+});
+
+// Task caa5ca07: a trusted-check failure in plain words. The sentence each
+// check id's family gets (the component keeps the same map).
+type CheckSentence = `settings.osUser.check.${
+  | "write"
+  | "owner"
+  | "open"
+  | "root"
+  | "office"
+  | "group"
+  | "admin"
+  | "unchecked"}`;
+const CHECK_SENTENCE: Record<CheckId, CheckSentence> = {
+  "private-agent-write": "settings.osUser.check.write",
+  "share-agent-write": "settings.osUser.check.write",
+  "private-owner": "settings.osUser.check.owner",
+  "share-owner": "settings.osUser.check.owner",
+  "share-group": "settings.osUser.check.owner",
+  "share-setgid": "settings.osUser.check.owner",
+  "share-entry-type": "settings.osUser.check.owner",
+  "office-home-closed": "settings.osUser.check.open",
+  "state-root-closed": "settings.osUser.check.open",
+  "agent-not-root": "settings.osUser.check.root",
+  "agent-not-server": "settings.osUser.check.office",
+  "server-group-private": "settings.osUser.check.group",
+  "member-privileged-group": "settings.osUser.check.admin",
+  missing: "settings.osUser.check.unchecked",
+  "acl-unreadable": "settings.osUser.check.unchecked",
+  "agent-user": "settings.osUser.check.unchecked",
+};
+// The failure row's folded reasons, one entry per line.
+const foldedLines = (m: Awaited<ReturnType<typeof mount>>) => {
+  const details = all(m, "member-os-user-attempt-details");
+  if (details.length !== 1) return null;
+  return {
+    open: (details[0] as HTMLDetailsElement).open,
+    text: details[0].textContent ?? "",
+  };
+};
+
+it("a trusted-check failure says its check's family in plain words, with the raw reason in closed details even when it is the only one", async () => {
+  // Enabling: every family reads differently, so a wrong family shows.
+  expect(new Set(Object.values(CHECK_SENTENCE).map((k) => t(k))).size).toBe(8);
+  const seen: Record<string, unknown> = {};
+  const want: Record<string, unknown> = {};
+  for (const [i, check] of CHECK_IDS.entries()) {
+    const reason = describeFailure({
+      check,
+      ...(i % 2 ? { path: `/home/office/isomux/f-${i}` } : {}),
+      detail: `the agent user can write it ${i}`,
+    });
+    answers = [failedView(reason)];
+    const m = await mount();
+    const folded = foldedLines(m);
+    seen[check] = {
+      kinds: statusKinds(m),
+      headline: failureShort(m),
+      open: folded?.open,
+      raw: folded?.text.includes(reason),
+    };
+    want[check] = {
+      kinds: ["failed"],
+      headline: t(CHECK_SENTENCE[check]),
+      open: false,
+      raw: true,
+    };
+    m.rendered.unmount();
+  }
+  expect(seen).toEqual(want);
+});
+
+it("many trusted-check failures, as the server joins them, show one plain sentence and every raw line in closed details", async () => {
+  const failures = Array.from({ length: 300 }, (_, i) => ({
+    check: "private-agent-write" as const,
+    path: `/home/office/isomux/node_modules/pkg/file-${i}.d.ts`,
+    detail: "the agent user can write it",
+  }));
+  const lines = describeFailureLines(failures);
+  // Enabling: the server cuts the list and says how many more.
+  expect(lines.length).toBe(6);
+  answers = [failedView(describeFailures(failures))];
+  const m = await mount();
+  expect(statusKinds(m)).toEqual(["failed"]);
+  expect(failureShort(m)).toBe(t("settings.osUser.check.write"));
+  const folded = foldedLines(m);
+  expect(folded?.open).toBe(false);
+  expect(lines.filter((line) => !folded?.text.includes(line))).toEqual([]);
+  // One reason per line, not the joined wall.
+  expect(folded?.text.includes("; ")).toBe(false);
+});
+
+it("the first reason decides the headline when reasons mix", async () => {
+  const owner = describeFailure({
+    check: "private-owner",
+    path: "/home/office/isomux/state",
+    detail: "owned by uid 1002",
+  });
+  const write = describeFailure({
+    check: "private-agent-write",
+    path: "/home/office/isomux/code",
+    detail: "the agent user can write it",
+  });
+  const raw = "cannot reach the runner: connect ECONNREFUSED";
+  const cases: { message: string; headline: string }[] = [
+    {
+      message: `${owner}; ${write}`,
+      headline: t("settings.osUser.check.owner"),
+    },
+    {
+      message: `${write}; ${owner}`,
+      headline: t("settings.osUser.check.write"),
+    },
+    {
+      message: `${owner}\n${write}`,
+      headline: t("settings.osUser.check.owner"),
+    },
+    {
+      message: `${raw}; ${write}`,
+      headline: t("settings.osUser.failedWith", { message: raw }),
+    },
+  ];
+  const seen: unknown[] = [];
+  for (const { message } of cases) {
+    answers = [failedView(message)];
+    const m = await mount();
+    const folded = foldedLines(m);
+    seen.push({
+      message,
+      headline: failureShort(m),
+      open: folded?.open,
+      both:
+        folded !== null &&
+        message.split(/\n|; /).every((r) => folded.text.includes(r)),
+    });
+    m.rendered.unmount();
+  }
+  expect(seen).toEqual(
+    cases.map(({ message, headline }) => ({
+      message,
+      headline,
+      open: false,
+      both: true,
+    })),
+  );
+});
+
+it("a reason shaped like a check but naming none keeps the raw headline", async () => {
+  const seen: unknown[] = [];
+  const reasons = [
+    "runtime-install: no space left on device",
+    "private-ownerx at /home/office/isomux: wrong owner",
+  ];
+  for (const reason of reasons) {
+    answers = [failedView(reason)];
+    const m = await mount();
+    seen.push({
+      reason,
+      headline: failureShort(m),
+      details: all(m, "member-os-user-attempt-details").length,
+    });
+    m.rendered.unmount();
+  }
+  expect(seen).toEqual(
+    reasons.map((reason) => ({
+      reason,
+      headline: t("settings.osUser.failedWith", { message: reason }),
+      details: 0,
+    })),
+  );
 });
 
 it("a Copy after a failure shows the wait, not the old failure", async () => {

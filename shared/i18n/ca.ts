@@ -587,6 +587,22 @@ Coses que pots fer per ell:
   "settings.osUser.failedWith": "L'ordre ha fallat: {message}",
   "settings.osUser.failed": "L'ordre ha fallat.",
   "settings.osUser.failedDetails": "Detalls",
+  "settings.osUser.check.write":
+    "L'ordre ha fallat: el seu usuari del sistema podria canviar els fitxers de l'oficina.",
+  "settings.osUser.check.owner":
+    "L'ordre ha fallat: alguns fitxers de l'oficina tenen un propietari o uns permisos incorrectes.",
+  "settings.osUser.check.open":
+    "L'ordre ha fallat: el seu usuari del sistema podria obrir les carpetes de l'oficina.",
+  "settings.osUser.check.root":
+    "L'ordre ha fallat: el seu usuari del sistema és root.",
+  "settings.osUser.check.office":
+    "L'ordre ha fallat: el seu usuari del sistema és l'usuari del sistema de l'oficina.",
+  "settings.osUser.check.group":
+    "L'ordre ha fallat: el seu usuari del sistema comparteix un grup amb l'usuari del sistema de l'oficina.",
+  "settings.osUser.check.admin":
+    "L'ordre ha fallat: el seu usuari del sistema és en un grup d'administració, com sudo o docker.",
+  "settings.osUser.check.unchecked":
+    "L'ordre ha fallat: l'oficina no ha pogut comprovar alguns dels seus fitxers.",
   "settings.osUser.unfinished":
     "No està a punt: el trasllat dels seus fitxers a {name} no va acabar.",
   "settings.osUser.finishHint":
