@@ -768,8 +768,8 @@ export interface AskStore {
   // ask that has none. A row write failure is logged.
   backfillPages(): void;
   // Acks a ringing paged ask: its alarm stops, the ask stays open.
-  // "unchanged" when it was acked already; null when the entry is gone or not
-  // paged.
+  // "unchanged" when it was acked already; null when the entry is gone, not
+  // paged, or rings nobody.
   ack(
     id: string,
     byUserId: string,
@@ -786,6 +786,15 @@ export interface AskStore {
   // Every entry of a removed agent, each recorded as agent_removed, except
   // an app's paged ask: it stays open with no agent. Returns how many went.
   removeAgent(agentId: string): number;
+}
+
+// A paged ask with no recipients rings nobody (task 323bc273): it keeps the
+// page's dedupe key and close, so every release loads it, but no reader
+// treats it as a page (no wire page, no ack, no pager list or page id).
+export function ringsNobody(entry: Pick<AskEntry, "page">): boolean {
+  return (
+    entry.page !== undefined && Object.keys(entry.page.delivery).length === 0
+  );
 }
 
 // Who opened a paged ask, for its dedupe key and its cap: an agent on its
@@ -949,6 +958,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     entry: AskEntry,
     event: "created" | "acked" | "closed",
   ): void {
+    if (ringsNobody(entry)) return;
     try {
       deps.onPage?.({ ...entry }, event);
     } catch (err) {
@@ -1054,7 +1064,11 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
                       ackedAt: migrated.acked.at,
                     }
                   : { state: "ringing" as const }),
-                pageId: migrated?.pageId ?? freshPageId(),
+                // No page id for one that rings nobody: no pager route
+                // finds it.
+                ...(migrated || page.recipients.length > 0
+                  ? { pageId: migrated?.pageId ?? freshPageId() }
+                  : {}),
                 ...(page.key !== undefined ? { key: page.key } : {}),
                 ...(migrated
                   ? {
@@ -1279,10 +1293,13 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       check();
       // A paged ask from a build before page ids (slice 1 or 2) gets one;
       // each id drawn is held before the next is drawn.
-      if (entries.some((e) => e.page && e.page.pageId === undefined)) {
+      // One that rings nobody keeps none.
+      const needsId = (e: AskEntry) =>
+        e.page !== undefined && e.page.pageId === undefined && !ringsNobody(e);
+      if (entries.some(needsId)) {
         const next = [...entries];
         next.forEach((e, i) => {
-          if (e.page && e.page.pageId === undefined)
+          if (e.page && needsId(e))
             next[i] = { ...e, page: { ...e.page, pageId: freshPageId(next) } };
         });
         deps.persistence.save(next);
@@ -1339,7 +1356,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     ack(id, byUserId) {
       check();
       const prev = entries.find((e) => e.id === id);
-      if (!prev?.page) return null;
+      if (!prev?.page || ringsNobody(prev)) return null;
       if (prev.page.state === "acked")
         return { outcome: "unchanged", entry: { ...prev } };
       const at = now();
@@ -1425,7 +1442,9 @@ export function askMemberWire(
     members: askMemberIds(entry, audience).map(
       (userId) => memberName(userId) ?? userId,
     ),
-    ...(page ? { page: askPageWire(page, memberName) } : {}),
+    ...(page && !ringsNobody({ page })
+      ? { page: askPageWire(page, memberName) }
+      : {}),
   };
 }
 

@@ -193,7 +193,8 @@ describe("a failing schedule reports, then every 5 failures in a row", () => {
     }
     expect(counts).toEqual([1, 1, 1, 1, 1, 2, 2]);
     expect(o.reports.map((r) => r.jobId)).toEqual([job.id, job.id]);
-    expect(o.reports[0].notice.body).toContain("boom");
+    expect(o.reports[0].notice.agentBody).toContain("boom");
+    expect(o.reports[0].notice.memberBody).toContain("boom");
     expect(o.clears.length).toBe(0);
   });
 
@@ -493,7 +494,10 @@ describe("a run a usage limit stopped makes the job wait for the reset", () => {
       .map((e) => (e as { cronjob: Cronjob }).cronjob.nextFireAt);
     expect(announced.at(-1)).toBe(waitSlot);
     expect(o.reports.length).toBe(1);
-    expect(o.reports[0].notice.body).toContain(
+    expect(o.reports[0].notice.agentBody).toContain(
+      new Date(resetsAt).toISOString(),
+    );
+    expect(o.reports[0].notice.memberBody).not.toContain(
       new Date(resetsAt).toISOString(),
     );
   });

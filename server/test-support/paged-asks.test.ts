@@ -8,11 +8,13 @@
 // and webPushFetch. FakeBackend only, no Discord, no push service.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
-import type { AskMemberWire } from "../../shared/types.ts";
+import type { AskEntry, AskMemberWire } from "../../shared/types.ts";
 import type {
   AskAgentWire,
   AskClosedWire,
@@ -446,35 +448,36 @@ describe("what a paged ask's wire carries", () => {
   });
 });
 
-describe("a paged ask's alarm on Discord and Web Push", () => {
-  async function webhook(w: W, who: Who, n: number) {
-    const r = await call(
-      w.srv,
-      "PATCH",
-      `/api/users/${who.username}/pager-settings`,
-      who.auth,
-      { json: { webhookUrl: hookOf(n), discordUserId: String(n).repeat(18) } },
-    );
-    expect(r.status).toBe(200);
-  }
-  async function device(w: W, who: Who, n: number) {
-    const dev = await browserDevice(n);
-    const r = await call(
-      w.srv,
-      "POST",
-      `/api/users/${who.username}/push-devices`,
-      who.auth,
-      {
-        json: {
-          endpoint: dev.input.endpoint,
-          keys: { p256dh: dev.input.p256dh, auth: dev.input.auth },
-        },
+// The member's own Discord webhook, and a browser device with pushes on.
+async function webhook(w: W, who: Who, n: number) {
+  const r = await call(
+    w.srv,
+    "PATCH",
+    `/api/users/${who.username}/pager-settings`,
+    who.auth,
+    { json: { webhookUrl: hookOf(n), discordUserId: String(n).repeat(18) } },
+  );
+  expect(r.status).toBe(200);
+}
+async function device(w: W, who: Who, n: number) {
+  const dev = await browserDevice(n);
+  const r = await call(
+    w.srv,
+    "POST",
+    `/api/users/${who.username}/push-devices`,
+    who.auth,
+    {
+      json: {
+        endpoint: dev.input.endpoint,
+        keys: { p256dh: dev.input.p256dh, auth: dev.input.auth },
       },
-    );
-    expect(r.status).toBe(200);
-    return dev;
-  }
+    },
+  );
+  expect(r.status).toBe(200);
+  return dev;
+}
 
+describe("a paged ask's alarm on Discord and Web Push", () => {
   it("each member it is for gets it on their own webhook, linking to the ask; a plain ask sends nothing", async () => {
     const w = await world();
     await webhook(w, w.pat, 1);
@@ -700,5 +703,162 @@ describe("an office page", () => {
     expect(
       (await call(w.srv, "GET", `/api/asks/${ask.id}`, w.nil.auth)).status,
     ).toBe(404);
+  });
+});
+
+// A failing schedule's ask (task 323bc273): the office's schedules raiser
+// opens a P2 ask for the job's member that rings nobody. It is stored as a
+// page with no recipients, so every release loads it, but no reader treats
+// it as a page: no alarm on the wire, no Discord or Web Push, no ack, no
+// pager entry. A raise with the same key edits it; a close closes it. The
+// WhatsApp raiser on the same member is the control: it still rings.
+describe("a failing schedule's ask", () => {
+  const key = "cronjob:job-1";
+  const raiseSchedule = (userId: string, body: string) =>
+    managers.officePagers.schedules.raise(
+      userId,
+      key,
+      'Schedule "Mark main" failed',
+      body,
+    );
+  const raiseWhatsApp = (userId: string) =>
+    managers.officePagers.whatsapp.raise(
+      userId,
+      `whatsapp:${userId}:dead`,
+      "WhatsApp stopped",
+      "The bridge exited.",
+    );
+  const scheduleAsk = async (w: W) => {
+    const all = (await listed(w, w.pat)).filter(
+      (e) => e.office?.feature === "schedules",
+    );
+    expect(all.length).toBe(1);
+    return all[0];
+  };
+  const stored = (w: W, id: string) =>
+    (
+      JSON.parse(
+        readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+      ) as AskEntry[]
+    ).find((e) => e.id === id);
+  const pagerIds = async (w: W, who: Who, q = "?state=all") => {
+    const r = await call(w.srv, "GET", `/api/pager${q}`, who.auth);
+    expect(r.status).toBe(200);
+    return (r.body as { askId?: string }[]).map((e) => e.askId);
+  };
+
+  it("opens a P2 ask for the member with no alarm on the wire, stored as a page with no recipients", async () => {
+    const w = await world();
+    raiseSchedule(w.pat.id, "A run failed: boom");
+    const ask = await scheduleAsk(w);
+    expect(ask.priority).toBe("P2");
+    expect(ask.office?.feature).toBe("schedules");
+    expect(ask.prompt).toContain("boom");
+    expect(keysIn(ask).has("page")).toBe(false);
+    expect(keysIn(ask).has("pageId")).toBe(false);
+    // Nobody else sees it.
+    expect(await listed(w, w.kim)).toEqual([]);
+    // On disk: a page with its key and no delivery, and no page id.
+    const entry = stored(w, ask.id);
+    expect(entry?.page?.key).toBe(key);
+    expect(Object.keys(entry?.page?.delivery ?? { x: 1 })).toEqual([]);
+    expect(entry?.page?.pageId).toBeUndefined();
+    // The control: a WhatsApp page on the same member still rings, P1.
+    raiseWhatsApp(w.pat.id);
+    const wa = (await listed(w, w.pat)).find(
+      (e) => e.office?.feature === "whatsapp",
+    );
+    expect(wa?.page?.state).toBe("ringing");
+    expect(wa?.priority).toBe("P1");
+  });
+
+  it("sends nothing to Discord or Web Push, where a WhatsApp page on the same member does", async () => {
+    const w = await world();
+    await webhook(w, w.pat, 1);
+    const pat = await device(w, w.pat, 1);
+    raiseSchedule(w.pat.id, "A run failed: boom");
+    const ask = await scheduleAsk(w);
+    raiseWhatsApp(w.pat.id);
+    const wa = (await listed(w, w.pat)).find(
+      (e) => e.office?.feature === "whatsapp",
+    );
+    const toPat = () => w.pushed.filter((c) => c.url === pat.input.endpoint);
+    await waitUntil(() => w.discord.length >= 1, "the WhatsApp Discord send");
+    await waitUntil(() => toPat().length >= 1, "the WhatsApp push");
+    await sleep(100);
+    const discordUrls = w.discord.map((c) => c.body.embeds?.[0].url ?? "");
+    expect(discordUrls.length).toBe(1);
+    expect(discordUrls[0].endsWith(`/inbox/asks/${wa?.id}`)).toBe(true);
+    const pushUrls = await Promise.all(
+      toPat().map(async (c) => (await decrypt(c.body, pat)).url),
+    );
+    expect(pushUrls).toEqual([`/inbox/asks/${wa?.id}`]);
+    expect(pushUrls.some((u) => u.includes(ask.id))).toBe(false);
+  });
+
+  it("is no page: ack is 409 not_paged, and the pager lists it neither open nor closed", async () => {
+    const w = await world();
+    raiseSchedule(w.pat.id, "A run failed: boom");
+    raiseWhatsApp(w.pat.id);
+    const ask = await scheduleAsk(w);
+    const wa = (await listed(w, w.pat)).find(
+      (e) => e.office?.feature === "whatsapp",
+    )!;
+    const acked = await ack(w, w.pat.auth, ask.id);
+    expect([acked.status, acked.code]).toEqual([409, "not_paged"]);
+    // The control is listed; the schedule's ask is not.
+    expect(await pagerIds(w, w.pat)).toEqual([wa.id]);
+    expect(await pagerIds(w, w.pat, "")).toEqual([wa.id]);
+    // Closed, the WhatsApp page is a resolved page; the schedule's ask is
+    // still in no pager list.
+    managers.officePagers.schedules.close(w.pat.id, key);
+    managers.officePagers.whatsapp.close(w.pat.id, `whatsapp:${w.pat.id}:dead`);
+    expect(await listed(w, w.pat)).toEqual([]);
+    expect(await pagerIds(w, w.pat, "?state=resolved")).toEqual([wa.id]);
+    expect(await pagerIds(w, w.pat)).toEqual([wa.id]);
+    const closed = await call(w.srv, "GET", `/api/asks/${ask.id}`, w.pat.auth);
+    expect(closed.status).toBe(200);
+    expect(
+      (closed.body as { closed?: { outcome?: string } }).closed?.outcome,
+    ).toBe("done");
+  });
+
+  it("a raise with the same key edits it in place, still with no alarm; after a close the key opens a new one", async () => {
+    const w = await world();
+    raiseSchedule(w.pat.id, "First: boom");
+    const first = await scheduleAsk(w);
+    raiseSchedule(w.pat.id, "Second: boom again");
+    const again = await scheduleAsk(w);
+    expect(again.id).toBe(first.id);
+    expect(again.prompt).toContain("Second");
+    expect(again.prompt).not.toContain("First");
+    expect(keysIn(again).has("page")).toBe(false);
+    expect(
+      Object.keys(stored(w, again.id)?.page?.delivery ?? { x: 1 }),
+    ).toEqual([]);
+    managers.officePagers.schedules.close(w.pat.id, key);
+    expect(await listed(w, w.pat)).toEqual([]);
+    raiseSchedule(w.pat.id, "Third: boom");
+    const fresh = await scheduleAsk(w);
+    expect(fresh.id).not.toBe(first.id);
+    expect(keysIn(fresh).has("page")).toBe(false);
+  });
+
+  it("survives a restart as it was: still for the member, still with no page id and no pager entry", async () => {
+    let w = await world();
+    raiseSchedule(w.pat.id, "A run failed: boom");
+    const ask = await scheduleAsk(w);
+    server = await w.srv.restart();
+    w = { ...w, srv: server };
+    const after = await scheduleAsk(w);
+    expect(after.id).toBe(ask.id);
+    expect(keysIn(after).has("page")).toBe(false);
+    expect(stored(w, ask.id)?.page?.pageId).toBeUndefined();
+    expect(await pagerIds(w, w.pat)).toEqual([]);
+    // Its key still finds it: a raise edits it, a close closes it.
+    raiseSchedule(w.pat.id, "Again: boom");
+    expect((await scheduleAsk(w)).id).toBe(ask.id);
+    managers.officePagers.schedules.close(w.pat.id, key);
+    expect(await listed(w, w.pat)).toEqual([]);
   });
 });

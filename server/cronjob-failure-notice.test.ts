@@ -119,30 +119,81 @@ describe("failureNotice", () => {
     id: "job-7f3a",
     name: "Mark main",
   } as Cronjob;
-  const run = { ...fail(1), errorReason: "Usage limit reached (canary-71)" };
+  const run = {
+    ...fail(1),
+    id: "run-c0ffee",
+    errorReason: "Usage limit reached (canary-71)",
+  };
+  // Nov 20, 2:30 PM in the office's own time zone.
+  const reset = new Date(2026, 10, 20, 14, 30).getTime();
+  const isoLike = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
-  it("names the job, its id, the run's reason, the streak and where to read the runs", () => {
+  it("the agent's text names the job, its id, the run, its reason, the streak and the runs route", () => {
     const n = failureNotice(job, run, 6, null);
-    const all = `${n.title}\n${n.body}`;
+    const all = `${n.title}\n${n.agentBody}`;
     expect(n.title.length).toBeGreaterThan(0);
     expect(all).toContain("Mark main");
     expect(all).toContain("job-7f3a");
+    expect(all).toContain("run-c0ffee");
     expect(all).toContain("canary-71");
     expect(all).toMatch(/\b6\b/);
     expect(all).toContain("/api/cronjobs/job-7f3a/runs");
   });
 
-  it("names the reset time the next run waits for, only when there is one", () => {
-    const reset = Date.UTC(2026, 10, 20, 12, 0, 0);
+  it("the agent's text names the reset as an ISO time, only when there is one", () => {
     const iso = new Date(reset).toISOString();
-    expect(failureNotice(job, run, 1, reset).body).toContain(iso);
+    expect(failureNotice(job, run, 1, reset).agentBody).toContain(iso);
     const plain = failureNotice(job, run, 1, null);
-    expect(`${plain.title}\n${plain.body}`).not.toContain("2026-11-20");
+    expect(`${plain.title}\n${plain.agentBody}`).not.toMatch(isoLike);
+  });
+
+  it("the member's text keeps the job's name, the reason and the streak, with no run id, job id or API path", () => {
+    const n = failureNotice(job, run, 6, reset);
+    const member = `${n.title}\n${n.memberBody}`;
+    expect(member).toContain("Mark main");
+    expect(member).toContain("canary-71");
+    expect(member).toMatch(/\b6\b/);
+    expect(member).not.toContain("job-7f3a");
+    expect(member).not.toContain("run-c0ffee");
+    expect(member).not.toContain("/api/");
+    expect(member).not.toContain("GET ");
+    // The same lines as the agent's text, each one shorter or the same.
+    const agentLines = n.agentBody.split("\n");
+    const memberLines = n.memberBody.split("\n");
+    expect(memberLines.length).toBe(agentLines.length);
+    // At the first failure too.
+    const first = failureNotice(job, run, 1, null);
+    expect(first.memberBody.split("\n").length).toBe(
+      first.agentBody.split("\n").length,
+    );
+  });
+
+  it("the member's text names the reset in the office's time with its zone, not as an ISO time", () => {
+    const withReset = failureNotice(job, run, 1, reset).memberBody;
+    const without = failureNotice(job, run, 1, null).memberBody;
+    expect(withReset).not.toMatch(isoLike);
+    expect(withReset).not.toContain(new Date(reset).toISOString());
+    const added = withReset
+      .split("\n")
+      .filter((line) => !without.split("\n").includes(line));
+    expect(added.length).toBe(1);
+    const zone = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+      .formatToParts(reset)
+      .find((p) => p.type === "timeZoneName")?.value;
+    expect(zone).toBeDefined();
+    expect(added[0]).toContain("Nov");
+    expect(added[0]).toMatch(/\b20\b/);
+    expect(added[0]).toContain("2:30");
+    expect(added[0]).toContain(zone!);
   });
 });
 
 describe("routeFailureNotice", () => {
-  const notice: FailureNotice = { title: "T-canary", body: "B-canary" };
+  const notice: FailureNotice = {
+    title: "T-canary",
+    agentBody: "A-canary",
+    memberBody: "M-canary",
+  };
   function rig(agentTakes: boolean | "throws") {
     const messaged: { agentId: string; text: string }[] = [];
     const paged: {
@@ -185,7 +236,8 @@ describe("routeFailureNotice", () => {
     expect(to).toBe("agent");
     expect(r.messaged.map((m) => m.agentId)).toEqual(["agent-maker"]);
     expect(r.messaged[0].text).toContain("T-canary");
-    expect(r.messaged[0].text).toContain("B-canary");
+    expect(r.messaged[0].text).toContain("A-canary");
+    expect(r.messaged[0].text).not.toContain("M-canary");
     expect(r.paged.length).toBe(0);
   });
 
@@ -204,7 +256,7 @@ describe("routeFailureNotice", () => {
           userId: "u-1",
           key: failurePageKey("job-1"),
           title: "T-canary",
-          body: "B-canary",
+          body: "M-canary",
         },
       ]);
     }

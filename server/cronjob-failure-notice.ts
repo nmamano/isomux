@@ -1,8 +1,9 @@
 // Who hears about a failing schedule, and when (task 420faed7). An
 // unattended run (scheduled or webhook) that fails tells the agent that made
 // the job at the first failure in a row and again after every 5 more; when
-// that agent is gone or cannot take the message, the job's member gets a
-// page. A run stopped by a usage limit makes the job wait for the reset.
+// that agent is gone or cannot take the message, the job's member gets an
+// ask that rings nobody (task 323bc273), with a shorter text. A run stopped
+// by a usage limit makes the job wait for the reset.
 //
 // This module holds the pure parts; cronjob-manager.ts calls them at each
 // run end, and office-managers.ts wires the delivery.
@@ -20,11 +21,12 @@ export function unattended(trigger: CronjobRun["trigger"]): boolean {
   return trigger === "scheduled" || trigger === "webhook";
 }
 
-// What a notice says: the page's title and body, and the agent message is
-// both joined.
+// What a notice says: the agent's message is the title and agentBody joined;
+// the member's ask is the title and memberBody, which has no ids or API path.
 export interface FailureNotice {
   title: string;
-  body: string;
+  agentBody: string;
+  memberBody: string;
 }
 
 // How many unattended runs in a row failed, newest first. A completed run of
@@ -71,25 +73,51 @@ export function failureNotice(
   const reason =
     run.errorReason ??
     (run.status === "timed_out" ? "It ran out of time." : "No reason given.");
-  const lines = [
-    `Run ${run.id} of schedule "${job.name}" (id ${job.id}) failed: ${reason}`,
-    ...(streak > 1 ? [`${streak} runs in a row failed.`] : []),
-    ...(waitUntil !== null
-      ? [
-          `The next run waits for the usage limit to reset at ${new Date(waitUntil).toISOString()}.`,
-        ]
-      : []),
-    `Its runs are on the Runs tab of the Automations page (GET /api/cronjobs/${job.id}/runs).`,
-    `Isomux tells you again after ${NOTICE_EVERY} more failed runs in a row.`,
+  const streakLine = streak > 1 ? [`${streak} runs in a row failed.`] : [];
+  const again = `Isomux tells you again after ${NOTICE_EVERY} more failed runs in a row.`;
+  const resetLine = (at: string) => [
+    `The next run waits for the usage limit to reset at ${at}.`,
   ];
-  return { title, body: lines.join("\n") };
+  const agentBody = [
+    `Run ${run.id} of schedule "${job.name}" (id ${job.id}) failed: ${reason}`,
+    ...streakLine,
+    ...(waitUntil !== null ? resetLine(new Date(waitUntil).toISOString()) : []),
+    `Its runs are on the Runs tab of the Automations page (GET /api/cronjobs/${job.id}/runs).`,
+    again,
+  ];
+  // The member's text: no ids or API path, and the reset in the office's
+  // time, which the schedule's own times use.
+  const memberBody = [
+    `A run of schedule "${job.name}" failed: ${reason}`,
+    ...streakLine,
+    ...(waitUntil !== null ? resetLine(officeTime(waitUntil)) : []),
+    `Its runs are on the Runs tab of the Automations page.`,
+    again,
+  ];
+  return {
+    title,
+    agentBody: agentBody.join("\n"),
+    memberBody: memberBody.join("\n"),
+  };
+}
+
+// A time in the office's local time with its zone, for a member to read:
+// "Nov 20, 2:00 PM GMT+1".
+function officeTime(at: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(at));
 }
 
 export interface FailureRouteDeps {
   // Sends the notice to this agent as a message from the job. False when the
   // agent does not exist or does not take the message.
   messageAgent: (agentId: string, job: Cronjob, text: string) => boolean;
-  // Opens or re-raises the member's page with this key.
+  // Opens or re-raises the member's ask with this key.
   pageMember: (
     userId: string,
     key: string,
@@ -100,7 +128,7 @@ export interface FailureRouteDeps {
   undeliverable?: (job: Cronjob) => void;
 }
 
-// The page key of a job's failure page.
+// The dedupe key of a job's failure ask.
 export function failurePageKey(jobId: string): string {
   return `cronjob:${jobId}`;
 }
@@ -118,7 +146,7 @@ export function routeFailureNotice(
       taken = deps.messageAgent(
         job.createdByAgentId,
         job as Cronjob,
-        `${notice.title}\n\n${notice.body}`,
+        `${notice.title}\n\n${notice.agentBody}`,
       );
     } catch {
       taken = false;
@@ -130,7 +158,7 @@ export function routeFailureNotice(
       job.userId,
       failurePageKey(job.id),
       notice.title,
-      notice.body,
+      notice.memberBody,
     );
     return "member";
   }

@@ -114,6 +114,7 @@ import {
   checkPromptField,
   type AskAudienceDeps,
   type AskStore,
+  ringsNobody,
 } from "../../asks.ts";
 import {
   AGENT_LINK_PREFIX,
@@ -932,7 +933,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const entry = readableBy(ctx.identity, ctx.params.askId);
     if (!entry || !userId)
       return closedOrNotFound(ctx.identity, ctx.params.askId);
-    if (!entry.page) return fail(409, "not_paged", "This ask is not paged.");
+    if (!entry.page || ringsNobody(entry))
+      return fail(409, "not_paged", "This ask is not paged.");
     const acked = store.ack(entry.id, userId);
     if (!acked) return closedOrNotFound(ctx.identity, ctx.params.askId);
     return ok(

@@ -296,11 +296,11 @@ export interface CronjobManagerDeps {
     | { ok: false; reason: LogText }
   >;
   // An unattended run failed and a notice is due (cronjob-failure-notice.ts):
-  // production sends it to the agent that made the job, else pages its
-  // member. Omitted: nobody is told.
+  // production sends it to the agent that made the job, else opens an ask
+  // for its member. Omitted: nobody is told.
   reportFailure?: (job: Cronjob, notice: FailureNotice) => void;
   // A run of the job completed: production closes the member's failure
-  // page. Omitted: nothing.
+  // ask. Omitted: nothing.
   clearFailure?: (job: Cronjob) => void;
 }
 
@@ -439,7 +439,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     eventHandler({ type: "cronjob_updated", cronjob: job });
   }
 
-  // After a run's end: a usage-limit wait, a cleared failure page on a
+  // After a run's end: a usage-limit wait, a cleared failure ask on a
   // completed run, and a failure notice when one is due
   // (cronjob-failure-notice.ts). firstEnd: the run's own end, not the end of
   // a follow-up into it. A deleted job gets nothing. Never throws: run ends

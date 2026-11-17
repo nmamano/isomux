@@ -37,6 +37,7 @@ import {
   ASK_PAGES_MAX_OPEN_PER_SOURCE,
   type AskAudienceDeps,
   type AskStore,
+  ringsNobody,
 } from "../../asks.ts";
 import type { AskHistory, AskHistoryRecord } from "../../ask-history.ts";
 import {
@@ -382,7 +383,7 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
           ? []
           : asks
               .listAll()
-              .filter((e) => e.page && sees(e, ctx.identity))
+              .filter((e) => e.page && !ringsNobody(e) && sees(e, ctx.identity))
               .map((e) => build(e))
               .filter(
                 (e) =>

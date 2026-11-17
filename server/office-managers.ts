@@ -241,7 +241,7 @@ export let whatsappReplies: WhatsAppReplies;
 export let discordSupervisor: DiscordSupervisor;
 // What the WhatsApp and Discord supervisors page their member with: a paged
 // ask from the office itself (task 74e8fc07). Also a failing schedule's
-// member (task 420faed7).
+// member (task 420faed7), with an ask that rings nobody (task 323bc273).
 export let officePagers: Record<
   "whatsapp" | "discord" | "claudeMemberToken" | "schedules",
   {
@@ -299,9 +299,13 @@ export let extensionSessions: ExtensionBrowserSessions | undefined;
 // A page about one member's own feature opens a P1 paged ask for that member
 // alone, with no agent, or re-raises the open one with the same key. The
 // supervisors call it from timers and exit handlers: it never throws.
-function officePager(
+// ring: false opens a P2 ask that rings nobody (asks.ts ringsNobody): no
+// alarm, no Discord or web push, no Ack (task 323bc273). It keeps the paged
+// shape, which every release loads, for the key and the close.
+export function officePager(
   store: AskStore,
   office: { feature: string; name: string },
+  { ring = true }: { ring?: boolean } = {},
 ) {
   return {
     // Closes the open page of `userId` with this key, if any.
@@ -332,8 +336,8 @@ function officePager(
           memberUserId: userId,
           office,
           prompt,
-          priority: "P1",
-          page: { recipients: [userId], key },
+          priority: ring ? "P1" : "P2",
+          page: { recipients: ring ? [userId] : [], key },
         });
         if (!made.ok)
           console.error(
@@ -563,8 +567,8 @@ export function createManagers(
     prepareSkillFolder: (agentType, userId) =>
       agentManager.prepareRunSkillFolder(agentType, userId),
     deliverToAgent: deliverCronjobToAgent,
-    // A failing schedule tells the agent that made it, else its member
-    // (cronjob-failure-notice.ts).
+    // A failing schedule tells the agent that made it, else its member with
+    // an ask (cronjob-failure-notice.ts).
     reportFailure: (job, notice) => {
       routeFailureNotice(job, notice, {
         messageAgent: (agentId, current, text) =>
@@ -665,7 +669,11 @@ export function createManagers(
       feature: "claude-member-token",
       name: "Claude",
     }),
-    schedules: officePager(asks, { feature: "schedules", name: "Schedules" }),
+    schedules: officePager(
+      asks,
+      { feature: "schedules", name: "Schedules" },
+      { ring: false },
+    ),
   };
   // What both delivery channels send: the paged asks. A page is one; the
   // old pager store's pages become paged asks at boot (startServer).
