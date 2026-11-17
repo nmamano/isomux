@@ -166,7 +166,7 @@ import {
   validateCwd,
   cwdProblem,
   type CwdProblem,
-  claudeSessionFileExists,
+  claudeSessionFileExistsOnHost,
   claudeSessionInterruptedByShutdown,
   moveClaudeSessionFileOnHost,
   diagnoseProcessExit,
@@ -2170,9 +2170,26 @@ export function createAgentManager(deps: ManagerDeps) {
         // - either we just moved it, or it was already there. (Live edits are also
         // covered: createSession's resume preflight would catch a missing file,
         // but failing here is a cleaner error and skips a pointless session spawn.)
-        const fileAtTarget =
-          moved.moved ||
-          claudeSessionFileExists(targetCwd, activeSessionId, cwdMoveEnv);
+        // An isolated member's transcript is looked up through their host.
+        let fileAtTarget = moved.moved;
+        if (!fileAtTarget) {
+          try {
+            fileAtTarget = await claudeSessionFileExistsOnHost(
+              targetCwd,
+              activeSessionId,
+              cwdMoveEnv,
+            );
+          } catch (err) {
+            // Nothing moved (moved.moved is false), so only the mirror rolls back.
+            officeState.updateAgent(agentId, snapshot);
+            throw new Error(
+              `Could not look for the session files in ${targetCwd}: ` +
+                `${errMessage(err)}. cwd change aborted; the session stays in ` +
+                `${oldCwd}.`,
+              { cause: err },
+            );
+          }
+        }
         if (!fileAtTarget) {
           officeState.updateAgent(agentId, snapshot);
           throw new Error(
