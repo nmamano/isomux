@@ -26,6 +26,7 @@ import type {
   SkillFileRes,
   SkillSaveReq,
   SkillSaveRes,
+  SkillSource,
 } from "../../shared/contract-shapes.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
@@ -56,6 +57,12 @@ import {
 } from "./skills-page.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import {
+  getSkillsLayout,
+  setSkillsLayout,
+  SKILLS_LAYOUT_FALLBACK,
+  type SkillsLayout,
+} from "../device-settings.ts";
 
 // CodeMirror loads with the first skill opened for editing, not with the
 // office.
@@ -238,12 +245,45 @@ const pillBtn = (active: boolean): React.CSSProperties => ({
   whiteSpace: "nowrap",
 });
 
+// A dim bar of a placeholder, while the data it stands for loads.
+const placeholderBar = (
+  width: string | number,
+  height: number,
+): React.CSSProperties => ({
+  width,
+  height,
+  flexShrink: 0,
+  borderRadius: height / 2,
+  background: "var(--bg-code)",
+});
+
+// A count that waits for the catalog holds the count this device showed
+// last, as an invisible number on a dim bar: the tab keeps its width.
+// Tabular digits: a held count of as many digits takes the same width.
+const countStyle = (held: boolean): React.CSSProperties => ({
+  fontVariantNumeric: "tabular-nums",
+  ...(held
+    ? { color: "transparent", background: "var(--bg-code)", borderRadius: 4 }
+    : {}),
+});
+
+// A measured height in the range the held layout keeps; 0 when the element
+// has no box (not laid out).
+function heldHeight(el: Element | null | undefined): number {
+  if (!el) return 0;
+  const h = Math.round(el.getBoundingClientRect().height);
+  return h <= 0 ? 0 : Math.min(h, 400);
+}
+
 export function SkillsView({ onClose }: { onClose: () => void }) {
   const { isMobile, hydrationEpoch } = useAppState();
   const { t, tn } = useI18n();
   const [catalog, setCatalog] = useState<SkillCatalogRes | null>(null);
   const canWriteSkills = useCan("skills", "write");
   const [loadError, setLoadError] = useState<PageError | null>(null);
+  // What this device showed when the page last loaded: the page holds it
+  // until the catalog arrives (AGENTS.md "UI rules").
+  const [held] = useState<SkillsLayout>(getSkillsLayout);
   const [engine, setEngineState] = useState<SkillTab>(readEngine);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -270,6 +310,11 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
   // The selection as of now, for the desktop auto-open: its effect can run
   // after a click that its render did not see yet.
   const selectedRef = useRef<string | null>(null);
+  // The skill the desktop opened on its own with no search: the next load
+  // opens it first, so the held detail header is measured from it only.
+  const autoOpenedRef = useRef<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   const dirty = editing && file !== null && draft !== file.content;
   // The editor text as of now, for a save answer that lands after more typing.
@@ -383,10 +428,66 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (isMobile || selected !== null || selectedRef.current !== null) return;
     const first = groups[0]?.skills[0];
+    if (!first) return;
+    autoOpenedRef.current = query.trim() === "" ? entryKey(first) : null;
     // Opening reads the file; its state changes land after the fetch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (first) void openEntry(first);
-  }, [isMobile, selected, groups, openEntry]);
+    void openEntry(first);
+  }, [isMobile, selected, groups, query, openEntry]);
+
+  // After a load, store what the page drew, so the next load holds it: the
+  // counts, the open tab's rows, and the header and controls of the skill
+  // the desktop opened on its own. Not for a search (the next visit starts
+  // with none) or the Commands tab, and not while the list is hidden.
+  useEffect(() => {
+    if (!catalog || query.trim() !== "" || engine === "commands") return;
+    const listEl = listRef.current;
+    if (!listEl) return;
+    const groupsShape: SkillsLayout["groups"] = [];
+    for (const section of listEl.querySelectorAll(
+      "section[data-skill-group]",
+    )) {
+      const rows = [...section.querySelectorAll("[data-skill-row]")].map(
+        heldHeight,
+      );
+      if (rows.includes(0)) return;
+      if (rows.length > 0)
+        groupsShape.push({
+          source: section.getAttribute("data-skill-group") as SkillSource,
+          rows,
+        });
+    }
+    const last = getSkillsLayout();
+    let detail = last.detail;
+    const detailEl = detailRef.current;
+    if (
+      !isMobile &&
+      file &&
+      selected !== null &&
+      selected === autoOpenedRef.current &&
+      detailEl
+    ) {
+      const head = heldHeight(detailEl.querySelector("[data-skill-head]"));
+      const controls = heldHeight(
+        detailEl.querySelector("[data-skill-controls]"),
+      );
+      if (head > 0 && controls > 0) detail = { head, controls };
+    }
+    const count = (e: SkillEngine) =>
+      partition.engines.find((p) => p.engine === e)?.skills.length ?? 0;
+    const next: SkillsLayout = {
+      counts: {
+        all: partition.shared.length,
+        claude: count("claude"),
+        codex: count("codex"),
+        opencode: count("opencode"),
+      },
+      tab: engine,
+      groups: groupsShape,
+      detail,
+    };
+    if (JSON.stringify(next) !== JSON.stringify(last)) setSkillsLayout(next);
+  }, [catalog, partition, engine, query, file, selected, isMobile]);
 
   function setEngine(next: SkillTab) {
     guarded(() => {
@@ -637,9 +738,67 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     );
   }
 
+  // Until the catalog arrives, the list holds the groups this tab showed last
+  // (the first-visit shape for another tab), one placeholder per row.
+  const holding = !catalog && !loadError;
+  const heldGroups =
+    held.tab === engine ? held.groups : SKILLS_LAYOUT_FALLBACK.groups;
+
+  const groupHead = (source: SkillSource, count: number, isHeld: boolean) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "14px 6px 6px",
+        fontSize: 10.5,
+        fontWeight: 700,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        color: "var(--text-muted)",
+      }}
+    >
+      {t(SOURCE_GROUP_KEYS[source])}
+      <span
+        aria-hidden={isHeld ? "true" : undefined}
+        style={{
+          fontWeight: 600,
+          color: "var(--text-hint)",
+          letterSpacing: 0,
+          ...countStyle(isHeld),
+        }}
+      >
+        {count}
+      </span>
+    </div>
+  );
+
+  const placeholderRow = (height: number, i: number) => (
+    <div
+      key={i}
+      data-skill-placeholder-row=""
+      aria-hidden="true"
+      style={{
+        height,
+        margin: "1px 0",
+        padding: isMobile ? "11px 12px" : "9px 12px",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        gap: 7,
+        overflow: "hidden",
+      }}
+    >
+      <span style={placeholderBar(`${30 + ((i * 17) % 25)}%`, 10)} />
+      <span style={placeholderBar(`${70 + ((i * 11) % 22)}%`, 8)} />
+    </div>
+  );
+
   const list = (
     <div
+      ref={listRef}
       data-skills-list=""
+      aria-busy={holding ? "true" : undefined}
       style={{
         width: isMobile ? "100%" : 360,
         flexShrink: 0,
@@ -660,42 +819,102 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           {t("skills.empty")}
         </div>
       )}
-      {groups.map((g) => (
-        <section key={g.source} data-skill-group={g.source}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "14px 6px 6px",
-              fontSize: 10.5,
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--text-muted)",
-            }}
-          >
-            {t(SOURCE_GROUP_KEYS[g.source])}
-            <span
-              style={{
-                fontWeight: 600,
-                color: "var(--text-hint)",
-                letterSpacing: 0,
-              }}
-            >
-              {g.skills.length}
-            </span>
-          </div>
-          {g.skills.map(renderRow)}
-        </section>
-      ))}
+      {holding
+        ? heldGroups.map((g) => (
+            <section key={g.source} data-skill-group={g.source}>
+              {groupHead(g.source, g.rows.length, true)}
+              {g.rows.map(placeholderRow)}
+            </section>
+          ))
+        : groups.map((g) => (
+            <section key={g.source} data-skill-group={g.source}>
+              {groupHead(g.source, g.skills.length, false)}
+              {g.skills.map(renderRow)}
+            </section>
+          ))}
     </div>
   );
 
   const engineLabel =
     ENGINE_OPTIONS.find((o) => o.agentType === engine)?.label ?? engine;
 
+  // The detail fills the pane in every state, so its parts load in place.
+  const detailStyle: React.CSSProperties = {
+    width: "100%",
+    maxWidth: 960,
+    flex: "1 0 auto",
+    padding: isMobile ? "12px 12px 32px" : "22px 28px 40px",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  };
+  const fileBlockStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    flex: "1 0 auto",
+  };
+  const bodyPlaceholder = (
+    <div
+      data-skill-body-placeholder=""
+      aria-hidden="true"
+      style={{
+        flex: 1,
+        minHeight: 120,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        padding: isMobile ? "4px 2px" : "6px 4px",
+      }}
+    >
+      {["38%", "92%", "84%", "88%", "60%"].map((w, i) => (
+        <span key={i} style={placeholderBar(w, i === 0 ? 14 : 9)} />
+      ))}
+    </div>
+  );
+
   function renderDetail() {
+    // Desktop, catalog loading: the header and controls of the skill the
+    // page will open, at the heights they had last time, and the body.
+    if (!entry && holding && !isMobile) {
+      const shape = held.detail ?? SKILLS_LAYOUT_FALLBACK.detail!;
+      return (
+        <div
+          ref={detailRef}
+          data-skill-detail=""
+          aria-hidden="true"
+          style={detailStyle}
+        >
+          <div
+            data-skill-head=""
+            style={{
+              height: shape.head,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              overflow: "hidden",
+            }}
+          >
+            <span style={placeholderBar(180, 18)} />
+            <span style={placeholderBar("70%", 10)} />
+          </div>
+          <div style={fileBlockStyle}>
+            <div
+              data-skill-controls=""
+              style={{
+                height: shape.controls,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <span style={placeholderBar(150, Math.min(shape.controls, 30))} />
+            </div>
+            {bodyPlaceholder}
+          </div>
+        </div>
+      );
+    }
     if (!entry) {
       return (
         <div
@@ -718,213 +937,210 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           ? t("skills.readOnly.plugin", { plugin: entry.plugin ?? "" })
           : null;
     return (
-      <div
-        data-skill-detail={entry.name}
-        style={{
-          width: "100%",
-          maxWidth: 960,
-          padding: isMobile ? "12px 12px 32px" : "22px 28px 40px",
-          boxSizing: "border-box",
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
-        }}
-      >
-        {isMobile && (
-          <button
-            onClick={() => guarded(closeEntry)}
-            style={{
-              alignSelf: "flex-start",
-              background: "none",
-              border: "none",
-              color: "var(--accent-text)",
-              fontSize: 13,
-              padding: "2px 0",
-              cursor: "pointer",
-            }}
-          >
-            ← {t("skills.backToList")}
-          </button>
-        )}
+      <div ref={detailRef} data-skill-detail={entry.name} style={detailStyle}>
         <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
+          data-skill-head=""
+          style={{ display: "flex", flexDirection: "column", gap: 14 }}
         >
+          {isMobile && (
+            <button
+              onClick={() => guarded(closeEntry)}
+              style={{
+                alignSelf: "flex-start",
+                background: "none",
+                border: "none",
+                color: "var(--accent-text)",
+                fontSize: 13,
+                padding: "2px 0",
+                cursor: "pointer",
+              }}
+            >
+              ← {t("skills.backToList")}
+            </button>
+          )}
           <div
             style={{
-              flex: isMobile ? "1 1 100%" : 1,
-              minWidth: 0,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 12,
+              flexWrap: "wrap",
             }}
           >
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                flexWrap: "wrap",
+                flex: isMobile ? "1 1 100%" : 1,
+                minWidth: 0,
               }}
             >
-              <h2
+              <div
                 style={{
-                  margin: 0,
-                  fontFamily: "'JetBrains Mono',monospace",
-                  fontSize: isMobile ? 18 : 21,
-                  fontWeight: 700,
-                  letterSpacing: "-0.01em",
-                  overflowWrap: "anywhere",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flexWrap: "wrap",
                 }}
               >
-                /{entry.name}
-              </h2>
-              {entry.uses > 0 && (
-                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                  ×{entry.uses}
-                </span>
-              )}
-              <SourceBadge entry={entry} />
-              {!entry.editable && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    fontSize: 10.5,
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  <LockIcon />
-                  {t("skills.readOnly")}
-                </span>
-              )}
-            </div>
-            <p
-              style={{
-                margin: "8px 0 0",
-                fontSize: 13.5,
-                lineHeight: 1.55,
-                color: entry.description
-                  ? "var(--text-secondary)"
-                  : "var(--text-hint)",
-              }}
-            >
-              {entry.description || t("skills.noDescription")}
-            </p>
-          </div>
-        </div>
-
-        <div
-          style={{
-            margin: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            minWidth: 0,
-          }}
-        >
-          <code
-            data-skill-path=""
-            style={{
-              fontFamily: "'JetBrains Mono',monospace",
-              fontSize: 11.5,
-              color: "var(--text-primary)",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {breakAfterSlashes(tildePath(entry.path, home))}
-          </code>
-          <CopyButton getText={() => entry.path} size={22} />
-        </div>
-        {(entry.project || entry.aliasFor) && (
-          <dl
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto minmax(0, 1fr)",
-              columnGap: 14,
-              rowGap: 6,
-              margin: 0,
-              fontSize: 12,
-            }}
-          >
-            {entry.project && (
-              <>
-                <dt style={{ color: "var(--text-muted)" }}>
-                  {t("skills.field.project")}
-                </dt>
-                <dd
+                <h2
                   style={{
                     margin: 0,
                     fontFamily: "'JetBrains Mono',monospace",
-                    fontSize: 11.5,
+                    fontSize: isMobile ? 18 : 21,
+                    fontWeight: 700,
+                    letterSpacing: "-0.01em",
                     overflowWrap: "anywhere",
                   }}
                 >
-                  {breakAfterSlashes(tildePath(entry.project, home))}
-                </dd>
-              </>
-            )}
-            {entry.aliasFor && (
-              <>
-                <dt style={{ color: "var(--text-muted)" }}>
-                  {t("skills.field.alias")}
-                </dt>
-                <dd
-                  style={{
-                    margin: 0,
-                    fontFamily: "'JetBrains Mono',monospace",
-                    fontSize: 11.5,
-                  }}
-                >
-                  /{entry.aliasFor}
-                </dd>
-              </>
-            )}
-          </dl>
-        )}
-
-        {entry.shadowedBy && (
-          <div
-            role="note"
-            style={{
-              padding: "9px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--orange-border)",
-              background: "var(--orange-bg)",
-              color: "var(--orange-text)",
-              fontSize: 12,
-              lineHeight: 1.5,
-            }}
-          >
-            {t("skills.shadowed", { engine: engineLabel })}{" "}
-            <code
-              style={{
-                fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 11.5,
-                overflowWrap: "anywhere",
-              }}
-            >
-              {breakAfterSlashes(tildePath(entry.shadowedBy, home))}
-            </code>
+                  /{entry.name}
+                </h2>
+                {entry.uses > 0 && (
+                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                    ×{entry.uses}
+                  </span>
+                )}
+                <SourceBadge entry={entry} />
+                {!entry.editable && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 10.5,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    <LockIcon />
+                    {t("skills.readOnly")}
+                  </span>
+                )}
+              </div>
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  fontSize: 13.5,
+                  lineHeight: 1.55,
+                  color: entry.description
+                    ? "var(--text-secondary)"
+                    : "var(--text-hint)",
+                }}
+              >
+                {entry.description || t("skills.noDescription")}
+              </p>
+            </div>
           </div>
-        )}
-        {readOnlyNote && (
+
           <div
             style={{
+              margin: 0,
               display: "flex",
               alignItems: "center",
               gap: 8,
-              fontSize: 12,
-              color: "var(--text-muted)",
+              minWidth: 0,
             }}
           >
-            <LockIcon />
-            {readOnlyNote}
+            <code
+              data-skill-path=""
+              style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 11.5,
+                color: "var(--text-primary)",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {breakAfterSlashes(tildePath(entry.path, home))}
+            </code>
+            <CopyButton getText={() => entry.path} size={22} />
           </div>
-        )}
+          {(entry.project || entry.aliasFor) && (
+            <dl
+              style={{
+                display: "grid",
+                gridTemplateColumns: "auto minmax(0, 1fr)",
+                columnGap: 14,
+                rowGap: 6,
+                margin: 0,
+                fontSize: 12,
+              }}
+            >
+              {entry.project && (
+                <>
+                  <dt style={{ color: "var(--text-muted)" }}>
+                    {t("skills.field.project")}
+                  </dt>
+                  <dd
+                    style={{
+                      margin: 0,
+                      fontFamily: "'JetBrains Mono',monospace",
+                      fontSize: 11.5,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {breakAfterSlashes(tildePath(entry.project, home))}
+                  </dd>
+                </>
+              )}
+              {entry.aliasFor && (
+                <>
+                  <dt style={{ color: "var(--text-muted)" }}>
+                    {t("skills.field.alias")}
+                  </dt>
+                  <dd
+                    style={{
+                      margin: 0,
+                      fontFamily: "'JetBrains Mono',monospace",
+                      fontSize: 11.5,
+                    }}
+                  >
+                    /{entry.aliasFor}
+                  </dd>
+                </>
+              )}
+            </dl>
+          )}
 
+          {entry.shadowedBy && (
+            <div
+              role="note"
+              style={{
+                padding: "9px 12px",
+                borderRadius: 8,
+                border: "1px solid var(--orange-border)",
+                background: "var(--orange-bg)",
+                color: "var(--orange-text)",
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              {t("skills.shadowed", { engine: engineLabel })}{" "}
+              <code
+                style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: 11.5,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {breakAfterSlashes(tildePath(entry.shadowedBy, home))}
+              </code>
+            </div>
+          )}
+          {readOnlyNote && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "var(--text-muted)",
+              }}
+            >
+              <LockIcon />
+              {readOnlyNote}
+            </div>
+          )}
+        </div>
+
+        {/* Shows only once the file has arrived and is broken: it depends on
+            the file, so the page cannot hold its place, and it may push the
+            controls down. */}
         {fileProblem && !saveProblem && (
           <div
             data-skill-file-problem=""
@@ -991,8 +1207,10 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
             {errorText(fileError)}
           </div>
         )}
-        {file && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* While the file loads, the controls draw (Edit and Delete
+            disabled) above a body placeholder. */}
+        {(file || !fileError) && (
+          <div style={fileBlockStyle}>
             <div
               data-skill-controls=""
               style={{
@@ -1029,9 +1247,9 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               )}
-              {entry.editable && file && (
+              {entry.editable && (
                 <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                  {editing ? (
+                  {editing && file ? (
                     <>
                       <button
                         onClick={() =>
@@ -1059,7 +1277,9 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                   ) : (
                     <button
                       data-skill-edit=""
+                      disabled={!file}
                       onClick={() => {
+                        if (!file) return;
                         setDraft(file.content);
                         setEditing(true);
                         setView("source");
@@ -1076,8 +1296,9 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                   )}
                   <button
                     data-skill-delete=""
-                    disabled={saving || deleting}
+                    disabled={!file || saving || deleting}
                     onClick={() => {
+                      if (!file) return;
                       setDeleteProblem(null);
                       setDeleteTarget({ entry, file, gen: readGenRef.current });
                     }}
@@ -1091,7 +1312,9 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                 </div>
               )}
             </div>
-            {view === "preview" && !editing ? (
+            {!file ? (
+              bodyPlaceholder
+            ) : view === "preview" && !editing ? (
               <div
                 data-skill-preview=""
                 style={{
@@ -1245,9 +1468,17 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               }}
             >
               {t("skills.allAgents")}
-              {catalog && (
-                <span style={{ fontSize: 10.5, color: "var(--text-hint)" }}>
-                  {partition.shared.length}
+              {(catalog || holding) && (
+                <span
+                  data-skill-count=""
+                  aria-hidden={catalog ? undefined : "true"}
+                  style={{
+                    fontSize: 10.5,
+                    color: "var(--text-hint)",
+                    ...countStyle(!catalog),
+                  }}
+                >
+                  {catalog ? partition.shared.length : held.counts.all}
                 </span>
               )}
             </button>
@@ -1304,15 +1535,18 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                     }}
                   />
                   {o.label}
-                  {catalog && (
+                  {(catalog || holding) && (
                     <span
+                      data-skill-count=""
+                      aria-hidden={catalog ? undefined : "true"}
                       style={{
                         fontSize: 10.5,
                         color: "var(--text-hint)",
                         fontWeight: 600,
+                        ...countStyle(!catalog),
                       }}
                     >
-                      {n}
+                      {catalog ? n : held.counts[o.agentType]}
                     </span>
                   )}
                 </button>

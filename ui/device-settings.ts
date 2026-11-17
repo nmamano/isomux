@@ -8,6 +8,7 @@
 // is genuinely about THIS browser.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
+import type { SkillEngine, SkillSource } from "../shared/contract-shapes.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import { isLoopbackUrl } from "./webhook-helpers.ts";
 import {
@@ -771,6 +772,114 @@ export function setAppsLayout(layout: AppsLayout): void {
     stopped: cap(layout.stopped),
     archived: cap(layout.archived),
   });
+}
+
+// Skills: what the page showed when it last loaded on this device: each
+// engine tab's count, the groups of one tab with each row's height, and on
+// desktop the heights of the auto-opened skill's header and controls row.
+// The heights depend on the width (padding, line wraps): one device, the
+// last width wins.
+export const SKILLS_HELD_ROWS_MAX = 40;
+
+export type SkillsHeldTab = "all" | SkillEngine;
+
+export type SkillsLayout = {
+  counts: Record<SkillsHeldTab, number>;
+  tab: SkillsHeldTab;
+  groups: { source: SkillSource; rows: number[] }[];
+  detail: { head: number; controls: number } | null;
+};
+
+// A first visit: the built-in skills (more than nine, most with a two-line
+// description) shared by every engine, and nothing else yet.
+export const SKILLS_LAYOUT_FALLBACK: SkillsLayout = {
+  counts: { all: 10, claude: 0, codex: 0, opencode: 0 },
+  tab: "all",
+  groups: [{ source: "isomux", rows: Array.from({ length: 10 }, () => 72) }],
+  detail: { head: 90, controls: 32 },
+};
+
+const KEY_SKILLS_LAYOUT = "isomux-skills-layout";
+const SKILLS_HELD_TABS: readonly SkillsHeldTab[] = [
+  "all",
+  "claude",
+  "codex",
+  "opencode",
+];
+const SKILL_SOURCES: readonly SkillSource[] = [
+  "user",
+  "project",
+  "plugin",
+  "isomux",
+];
+
+const isInt = (v: unknown, min: number, max: number): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
+const isHeight = (v: unknown): v is number => isInt(v, 1, 400);
+
+function readSkillsLayout(raw: Record<string, unknown>): SkillsLayout | null {
+  const { counts, tab, groups, detail } = raw;
+  if (!counts || typeof counts !== "object") return null;
+  const c = counts as Record<string, unknown>;
+  if (!SKILLS_HELD_TABS.every((k) => isInt(c[k], 0, 99999))) return null;
+  if (!SKILLS_HELD_TABS.includes(tab as SkillsHeldTab)) return null;
+  if (!Array.isArray(groups)) return null;
+  const seen = new Set<unknown>();
+  let rowCount = 0;
+  for (const g of groups as unknown[]) {
+    if (!g || typeof g !== "object") return null;
+    const { source, rows } = g as Record<string, unknown>;
+    if (!SKILL_SOURCES.includes(source as SkillSource) || seen.has(source))
+      return null;
+    seen.add(source);
+    if (!Array.isArray(rows) || rows.length === 0 || !rows.every(isHeight))
+      return null;
+    rowCount += rows.length;
+  }
+  if (rowCount > SKILLS_HELD_ROWS_MAX) return null;
+  let held: SkillsLayout["detail"] = null;
+  if (detail !== null) {
+    if (!detail || typeof detail !== "object") return null;
+    const { head, controls } = detail as Record<string, unknown>;
+    if (!isHeight(head) || !isHeight(controls)) return null;
+    held = { head, controls };
+  }
+  return {
+    counts: {
+      all: c.all as number,
+      claude: c.claude as number,
+      codex: c.codex as number,
+      opencode: c.opencode as number,
+    },
+    tab: tab as SkillsHeldTab,
+    groups: (groups as { source: SkillSource; rows: number[] }[]).map((g) => ({
+      source: g.source,
+      rows: [...g.rows],
+    })),
+    detail: held,
+  };
+}
+
+export function getSkillsLayout(): SkillsLayout {
+  return getHeldLayout(
+    KEY_SKILLS_LAYOUT,
+    readSkillsLayout,
+    SKILLS_LAYOUT_FALLBACK,
+  );
+}
+
+// Keeps the first SKILLS_HELD_ROWS_MAX rows: the rows past the cap are below
+// the fold.
+export function setSkillsLayout(layout: SkillsLayout): void {
+  let left = SKILLS_HELD_ROWS_MAX;
+  const groups: SkillsLayout["groups"] = [];
+  for (const g of layout.groups) {
+    if (left === 0) break;
+    const rows = g.rows.slice(0, left);
+    left -= rows.length;
+    if (rows.length > 0) groups.push({ source: g.source, rows });
+  }
+  setHeldLayout(KEY_SKILLS_LAYOUT, { ...layout, groups });
 }
 
 // Integrations → Pager: whether a webhook was saved (its row is taller than

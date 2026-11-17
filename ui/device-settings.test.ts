@@ -64,6 +64,10 @@ const {
   getAppsLayout,
   setAppsLayout,
   APPS_HELD_ROWS_MAX,
+  getSkillsLayout,
+  setSkillsLayout,
+  SKILLS_HELD_ROWS_MAX,
+  SKILLS_LAYOUT_FALLBACK,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -675,4 +679,140 @@ describe("apps held layout", () => {
     store.set("isomux-apps-layout", JSON.stringify(ok));
     expect(getAppsLayout()).toEqual(ok);
   });
+});
+
+// What the Skills page holds while its catalog loads (task 299d7b03): the tab
+// counts, one tab's groups with each row's height, and the desktop detail's
+// header and controls heights.
+describe("skills held layout", () => {
+  const KEY = "isomux-skills-layout";
+  beforeEach(() => store.delete(KEY));
+  type SkillsLayout = import("./device-settings.ts").SkillsLayout;
+  const saved: SkillsLayout = {
+    counts: { all: 12, claude: 0, codex: 3, opencode: 99999 },
+    tab: "codex",
+    groups: [
+      { source: "user", rows: [61, 44] },
+      { source: "project", rows: [1] },
+      { source: "plugin", rows: [400] },
+      { source: "isomux", rows: [44, 44, 44] },
+    ],
+    detail: { head: 90, controls: 30 },
+  };
+
+  it("keeps what it stored, with or without a detail, and holds the fallback before a first save", () => {
+    expect(getSkillsLayout()).toEqual(SKILLS_LAYOUT_FALLBACK);
+    setSkillsLayout(saved);
+    expect(getSkillsLayout()).toEqual(saved);
+    setSkillsLayout({ ...saved, detail: null });
+    expect(getSkillsLayout()).toEqual({ ...saved, detail: null });
+  });
+
+  it("stores at most the cap of rows in all, dropping the rows after it", () => {
+    const over = SKILLS_HELD_ROWS_MAX - 3;
+    setSkillsLayout({
+      ...saved,
+      groups: [
+        { source: "user", rows: Array.from({ length: over }, () => 50) },
+        { source: "isomux", rows: [40, 41, 42, 43, 44, 45] },
+        { source: "plugin", rows: [60] },
+      ],
+    });
+    const back = getSkillsLayout();
+    expect(back.counts).toEqual(saved.counts);
+    expect(back.groups.flatMap((g) => g.rows)).toHaveLength(
+      SKILLS_HELD_ROWS_MAX,
+    );
+    expect(back.groups.map((g) => g.source)).toEqual(["user", "isomux"]);
+    expect(back.groups[1]!.rows).toEqual([40, 41, 42]);
+  });
+
+  // Each one breaks one field of a good value; the read falls back whole.
+  const good = JSON.stringify(saved);
+  const bad: [string, (l: Record<string, unknown>) => void][] = [
+    ["no counts", (l) => delete l.counts],
+    [
+      "a count missing",
+      (l) => delete (l.counts as Record<string, unknown>).opencode,
+    ],
+    [
+      "a negative count",
+      (l) => ((l.counts as Record<string, unknown>).all = -1),
+    ],
+    [
+      "a fractional count",
+      (l) => ((l.counts as Record<string, unknown>).all = 1.5),
+    ],
+    [
+      "a count as text",
+      (l) => ((l.counts as Record<string, unknown>).all = "4"),
+    ],
+    [
+      "a count past the cap",
+      (l) => ((l.counts as Record<string, unknown>).all = 100000),
+    ],
+    ["an unknown tab", (l) => (l.tab = "commands")],
+    ["groups not a list", (l) => (l.groups = {})],
+    [
+      "an unknown source",
+      (l) => ((l.groups as { source: string }[])[0]!.source = "shell"),
+    ],
+    [
+      "a source twice",
+      (l) => ((l.groups as { source: string }[])[1]!.source = "user"),
+    ],
+    [
+      "a group with no rows",
+      (l) => ((l.groups as { rows: unknown }[])[1]!.rows = []),
+    ],
+    [
+      "a zero height",
+      (l) => ((l.groups as { rows: unknown[] }[])[0]!.rows[0] = 0),
+    ],
+    [
+      "a height past 400",
+      (l) => ((l.groups as { rows: unknown[] }[])[0]!.rows[0] = 401),
+    ],
+    [
+      "a fractional height",
+      (l) => ((l.groups as { rows: unknown[] }[])[0]!.rows[0] = 44.5),
+    ],
+    [
+      "rows past the cap",
+      (l) =>
+        ((l.groups as { rows: unknown[] }[])[3]!.rows = Array.from(
+          { length: SKILLS_HELD_ROWS_MAX },
+          () => 44,
+        )),
+    ],
+    [
+      "a detail with no head",
+      (l) => delete (l.detail as Record<string, unknown>).head,
+    ],
+    [
+      "a zero detail height",
+      (l) => ((l.detail as Record<string, unknown>).controls = 0),
+    ],
+    [
+      "a detail height past 400",
+      (l) => ((l.detail as Record<string, unknown>).head = 401),
+    ],
+  ];
+  it.each(bad)(
+    "reads a stored value with %s as the fallback",
+    (_name, breakIt) => {
+      const l = JSON.parse(good) as Record<string, unknown>;
+      breakIt(l);
+      store.set(KEY, JSON.stringify(l));
+      expect(getSkillsLayout()).toEqual(SKILLS_LAYOUT_FALLBACK);
+    },
+  );
+
+  it.each(["junk", "[]", "null", "{}"])(
+    "reads the stored value %s as the fallback",
+    (raw) => {
+      store.set(KEY, raw);
+      expect(getSkillsLayout()).toEqual(SKILLS_LAYOUT_FALLBACK);
+    },
+  );
 });
