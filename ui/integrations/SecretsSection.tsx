@@ -44,9 +44,9 @@ import {
   input,
   mono,
   type Heading,
-  Data,
   useWhose,
 } from "./kit.tsx";
+import { Data } from "../components/Data.tsx";
 import {
   TestButton,
   TestResult,

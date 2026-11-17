@@ -9,7 +9,8 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import { Btn, Data, HelpTip } from "./kit.tsx";
+import { Btn, HelpTip } from "./kit.tsx";
+import { Data } from "../components/Data.tsx";
 
 // What a secret's test called, by the host of its identity check
 // (IDENTITY_CHECKS in server/connection-tests.ts; ConnectionTest.dom.test.tsx

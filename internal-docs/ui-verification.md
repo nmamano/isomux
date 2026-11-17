@@ -19,6 +19,24 @@ box-sizing/theme vars are silently wrong; headless Chrome ignores
 `--window-size`, use `Emulation.setDeviceMetricsOverride`. Delete harness
 files before committing.
 
+## Loading state
+
+`bash scripts/loading-check.sh <out-dir under /tmp> [--phone] [--light]
+[--root <css>] [--name <name>] [-- <selector to click>...]` shows a view of
+the demo while its data is held, then loaded, and lists what jumped. With no
+selectors the demo is held from boot (the office state and every fetch); with
+selectors, the hold starts before the last click, the one that opens the view.
+`ui/demo-hold.ts` holds every answer of the demo server until release.
+
+The report names each element that moved or changed size relative to its
+parent, and each new element in space no removed placeholder held. Elements
+that still change after load (timers, animations) are left out. It writes
+`loading-<name>.png` (Loading and Loaded, a red box on each jump) for the
+sign-off packet. Exit 0: no jump; 1: jumps; 2: the check failed. A view whose
+data the demo does not serve needs a demo arm first. It needs Google Chrome
+and playwright-core: `--playwright <path to playwright-core/index.mjs>`, else
+the bare `playwright-core` package, else the path in the script.
+
 ## Demo-bundle dialog testing
 
 The demo drives the REAL EditAgentDialog: click a desk sprite (the nameplate

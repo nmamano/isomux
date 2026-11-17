@@ -2,7 +2,8 @@
 
 import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 
-const OUT_DIR = "site/demo";
+// site/demo by default; scripts/loading-check.mjs builds into its own /tmp dir.
+const OUT_DIR = process.argv[2] ?? "site/demo";
 
 mkdirSync(OUT_DIR, { recursive: true });
 

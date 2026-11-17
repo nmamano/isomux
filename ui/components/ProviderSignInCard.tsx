@@ -18,7 +18,8 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 import { ProviderMark } from "./ProviderMark.tsx";
 import { Reserved } from "./Reserved.tsx";
 import { BuildingIcon, PersonIcon } from "./NavIcons.tsx";
-import { Data, HelpTip } from "../integrations/kit.tsx";
+import { HelpTip } from "../integrations/kit.tsx";
+import { Data } from "./Data.tsx";
 
 // Not a component (it labels a button inside one), so it takes the translator
 // rather than reaching for the hook.

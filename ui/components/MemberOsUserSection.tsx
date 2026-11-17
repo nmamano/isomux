@@ -13,7 +13,7 @@ import {
   type MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
-import { Data } from "../integrations/kit.tsx";
+import { Data } from "./Data.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";

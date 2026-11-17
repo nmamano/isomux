@@ -13,33 +13,11 @@ import {
 } from "../components/dialog-styles.ts";
 import { whose, type Target, type WhoseKey } from "./target.ts";
 import { BrandMark, hasBrandMark } from "./brand-logos.tsx";
+import { Data } from "../components/Data.tsx";
 
 export const mono: CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
 };
-
-// Data inside the page's prose (an email, a member's name, a path, a host,
-// a server or variable name) looks unlike the words around it (Nil,
-// 2026-10-13): one style for all of it, the Data component below.
-const dataStyle: CSSProperties = {
-  fontFamily: "'JetBrains Mono',monospace",
-  fontSize: "0.92em",
-  fontWeight: 500,
-  color: "var(--text-primary)",
-  background: "var(--bg-code)",
-  padding: "1px 5px",
-  borderRadius: 4,
-  overflowWrap: "anywhere",
-};
-
-// Service-authored and member-authored text: rendered as text only.
-export function Data({ children }: { children: ReactNode }) {
-  return (
-    <span data-integrations-data="" style={dataStyle}>
-      {children}
-    </span>
-  );
-}
 
 export const hintText: CSSProperties = {
   fontSize: 12,

@@ -17,15 +17,8 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { CLAUDE_CONNECTORS_URL } from "../connection-rows.ts";
 import { useI18n } from "../i18n.tsx";
-import {
-  Data,
-  HelpTip,
-  ItemRow,
-  Pill,
-  hintText,
-  mono,
-  type Tone,
-} from "./kit.tsx";
+import { HelpTip, ItemRow, Pill, hintText, mono, type Tone } from "./kit.tsx";
+import { Data } from "../components/Data.tsx";
 import { useMemberConnections, useMyConnections } from "./my-connections.tsx";
 
 const STATUS: Record<

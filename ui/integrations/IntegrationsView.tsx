@@ -51,7 +51,8 @@ import {
   MemberClaudeLists,
 } from "./ClaudeLists.tsx";
 import { takeSignIn, type SignInNote } from "./sign-in-return.ts";
-import { Btn, Data, card, hintText, input } from "./kit.tsx";
+import { Btn, card, hintText, input } from "./kit.tsx";
+import { Data } from "../components/Data.tsx";
 import { targetKey, type Role, type Target } from "./target.ts";
 import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
 import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";

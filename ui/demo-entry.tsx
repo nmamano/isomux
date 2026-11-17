@@ -15,6 +15,7 @@ import {
   sendInitialState,
   setEmbedMode,
 } from "./demo-server.ts";
+import { held, hold, release } from "./demo-hold.ts";
 
 const isEmbed = new URLSearchParams(window.location.search).has("embed");
 
@@ -23,8 +24,21 @@ if (isEmbed) setEmbedMode();
 
 // Wire the shims before anything connects: the WS shim handles commands still
 // on the bus; the API shim handles commands already migrated to apiFetch.
-setShim(handleCommand, sendInitialState);
-setApiShim(demoApi);
+// scripts/loading-check.sh holds the demo server to show a view while it
+// loads: from boot when it sets __isomuxDemoHoldAtBoot, and later through
+// window.__isomuxDemoHold. The shipped demo never holds.
+const demoHold = { hold, release };
+Object.assign(window, { __isomuxDemoHold: demoHold });
+if ((window as { __isomuxDemoHoldAtBoot?: unknown }).__isomuxDemoHoldAtBoot)
+  hold();
+
+const heldCommand = held(handleCommand);
+const heldInitialState = held(sendInitialState);
+setShim(
+  (cmd) => void heldCommand(cmd),
+  () => void heldInitialState(),
+);
+setApiShim(held(demoApi));
 
 // Hardcode username so the modal is skipped.
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).
