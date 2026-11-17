@@ -20,6 +20,7 @@ const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
+const { resetRouteAskData } = await import("../route-ask-data.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 const NOW = Date.now();
@@ -88,6 +89,8 @@ let bots: unknown[] = [];
 let guilds: Record<string, unknown[]> = {};
 let routes: unknown[] = [];
 beforeEach(() => {
+  // The cards' lists are held per process (ui/route-ask-data.ts).
+  resetRouteAskData();
   posts = [];
   gets = [];
   postBodies = [];

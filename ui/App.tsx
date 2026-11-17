@@ -61,6 +61,7 @@ import {
   useInboxCounts,
 } from "./inbox.ts";
 import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
+import { useRouteAskPrefetch } from "./route-ask-data.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
@@ -336,6 +337,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     [changePages],
   );
   useAsksSync();
+  useRouteAskPrefetch();
   useOthersAsksSync();
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /

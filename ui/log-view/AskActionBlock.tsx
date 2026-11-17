@@ -41,11 +41,8 @@ import {
 } from "../../shared/whatsapp.ts";
 import {
   discordPlacesMatching,
-  type DiscordBotListed,
-  type DiscordGuildSeen,
   type DiscordPlace,
   type DiscordReplyMode,
-  type DiscordRoute,
   type DiscordRouteTrigger,
 } from "../../shared/discord.ts";
 import type { ActionStepRequest } from "../../shared/types.ts";
@@ -72,6 +69,10 @@ import { formatNumber } from "../../shared/i18n/number.ts";
 import { accessSummary, roomsSummary } from "../components/ApiTokensPane.tsx";
 import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
 import { DEFAULT_VOICE_NAME } from "../../shared/voice.ts";
+import {
+  useDiscordRouteData,
+  useWhatsAppRouteData,
+} from "../route-ask-data.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { AREA_LABEL as PACK_AREA_LABEL } from "../components/AreaLevelsGrid.tsx";
 import {
@@ -296,30 +297,17 @@ export function AskActionBlock({
   const [fetched, setFetched] = useState<unknown>(undefined);
   // A whatsapp-route step reads the chats and rows of the viewer, so only the
   // member the ask is for reads them: another viewer (an owner) would see
-  // their own chats.
+  // their own chats. The data is shared and read at boot
+  // (ui/route-ask-data.ts), so the card draws its shape at once.
   const viewerId = sessionContext?.userId ?? null;
   const waMember =
     step.kind === "whatsapp-route" &&
     !!memberUserId &&
     viewerId === memberUserId;
-  const [waChats, setWaChats] = useState<WhatsAppChatSeen[] | null>(null);
-  const [waRows, setWaRows] = useState<WhatsAppRoute[] | null>(null);
+  const waData = useWhatsAppRouteData(waMember ? viewerId : null);
+  const waChats = waData?.chats ?? null;
+  const waRows = waData?.rows ?? null;
   const [waPick, setWaPick] = useState<string | null>(null);
-  useEffect(() => {
-    if (!waMember) return;
-    let live = true;
-    void Promise.allSettled([
-      apiFetch<WhatsAppChatSeen[]>("GET", "/api/whatsapp/chats"),
-      apiFetch<WhatsAppRoute[]>("GET", "/api/whatsapp/routes"),
-    ]).then(([chats, rows]) => {
-      if (!live) return;
-      setWaChats(chats.status === "fulfilled" ? chats.value : []);
-      setWaRows(rows.status === "fulfilled" ? rows.value : []);
-    });
-    return () => {
-      live = false;
-    };
-  }, [waMember]);
   const waCandidates =
     step.kind === "whatsapp-route" && waChats && waRows
       ? whatsappCandidates(step.chatName, waChats, waRows)
@@ -338,45 +326,10 @@ export function AskActionBlock({
     step.kind === "discord-route" &&
     !!memberUserId &&
     viewerId === memberUserId;
-  const [dcBots, setDcBots] = useState<
-    { botId: string; name: string; guilds: DiscordGuildSeen[] }[] | null
-  >(null);
-  const [dcRoutes, setDcRoutes] = useState<DiscordRoute[]>([]);
+  const dcData = useDiscordRouteData(dcMember ? viewerId : null);
+  const dcBots = dcData?.bots ?? null;
+  const dcRoutes = dcData?.routes ?? [];
   const [dcPick, setDcPick] = useState<string | null>(null);
-  useEffect(() => {
-    if (!dcMember) return;
-    let live = true;
-    void Promise.allSettled([
-      apiFetch<DiscordBotListed[]>("GET", "/api/discord"),
-      apiFetch<DiscordRoute[]>("GET", "/api/discord/routes"),
-    ]).then(async ([listed, routes]) => {
-      const bots = listed.status === "fulfilled" ? listed.value : [];
-      // A bot that is not connected yet (404) sees no server.
-      const seen = await Promise.allSettled(
-        bots.map((b) =>
-          apiFetch<DiscordGuildSeen[]>(
-            "GET",
-            `/api/discord/bots/${encodeURIComponent(b.id)}/guilds`,
-          ),
-        ),
-      );
-      if (!live) return;
-      setDcRoutes(routes.status === "fulfilled" ? routes.value : []);
-      setDcBots(
-        bots.map((b, i) => {
-          const res = seen[i];
-          return {
-            botId: b.id,
-            name: b.name,
-            guilds: res.status === "fulfilled" ? res.value : [],
-          };
-        }),
-      );
-    });
-    return () => {
-      live = false;
-    };
-  }, [dcMember]);
   const dcPlaces =
     step.kind === "discord-route" && dcBots
       ? discordPlacesMatching(step.placeName, step.scope, dcBots)
