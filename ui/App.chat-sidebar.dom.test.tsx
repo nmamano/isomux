@@ -4,7 +4,7 @@
 // beside the office view (a room, the lobby, a back room screen), an agent's
 // chat and every page, Settings included; on a phone only as a drawer
 // (ui/App.phone-sidebar.dom.test.tsx); never in the site embed. That no
-// entry of the sidebar hides it is in ui/App.chat-sidebar-walk.dom.test.tsx.
+// entry of the sidebar hides it is in ui/App.chat-sidebar-walk*.dom.test.tsx.
 // The setup is in ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";

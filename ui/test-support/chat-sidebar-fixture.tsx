@@ -564,3 +564,100 @@ export async function openBackAgent(
   expect(chatOpen(view)).toBe(true);
   expect(currentRows(view)).toEqual([agentId]);
 }
+
+// The walk of every sidebar button (task c61316be: no entry hides the
+// sidebar), in two files because the 5 s cap is per file (task ecc302ca):
+// ui/App.chat-sidebar-walk.dom.test.tsx walks the buttons outside an agent
+// row, ui/App.chat-sidebar-walk-agents.dom.test.tsx the buttons inside one.
+// The two picks are complements, so a button added later is walked by one of
+// them. A picked button that shows only after a click of the other pick is
+// not walked; each file's expected list holds today's buttons.
+
+/** A third room the member tucked, with one agent at a desk and one in its
+ *  back room. */
+export const thirdDesk = agentAt("a7", "r3", 0);
+export const thirdBack = agentAt("a8", "r3", BACK_SEAT_BASE);
+/** One agent per place: a desk and a back room of two rooms and of a tucked
+ *  room, and the lobby. A second agent at the same place adds clicks, not
+ *  cases. */
+export const WALK_AGENTS = [
+  scout,
+  builder,
+  faraway,
+  backbencher,
+  receptionist,
+  thirdDesk,
+  thirdBack,
+];
+
+/** The walk's office, booted with the sidebar open. */
+export async function bootWalk(): Promise<View> {
+  setRooms(ALL_ROOMS);
+  setAgents(WALK_AGENTS);
+  setSelfUser({ tucked: ["r3"] });
+  const view = await boot();
+  expect(sidebar(view)).not.toBeNull();
+  return view;
+}
+
+/** A button's identity: its data-sidebar-* attributes. Every sidebar button
+ *  carries one, so the walk can tell entries apart. data-sidebar-muted is a
+ *  look, not an identity: a pinned agent's row in its room is muted, and it
+ *  opens the same chat as its Pinned row. */
+export function entryKey(button: Element): string {
+  return button
+    .getAttributeNames()
+    .filter(
+      (name) =>
+        name.startsWith("data-sidebar-") && name !== "data-sidebar-muted",
+    )
+    .sort()
+    .map((name) => `${name}=${button.getAttribute(name)}`)
+    .join(" ");
+}
+
+const COLLAPSE = "data-sidebar-collapse=";
+
+/** A button in an agent row: the row, its settings and its pin. */
+export const inAgentRow = (button: Element) =>
+  button.closest(".chat-sidebar-agent") !== null;
+
+/** Click each sidebar button that `pick` accepts once, and assert after each
+ *  click that the sidebar is still open. Before that, open each closed section
+ *  that `pick` does not accept (and assert the same), so its buttons show.
+ *  Returns the keys of every button it clicked. */
+export async function walkSidebar(
+  view: View,
+  pick: (button: Element) => boolean,
+): Promise<Set<string>> {
+  const visited = new Set<string>();
+  for (let step = 0; step < 200; step++) {
+    const buttons = [
+      ...sidebar(view)!.querySelectorAll<HTMLButtonElement>("button"),
+    ];
+    // Every button names itself.
+    expect(buttons.filter((b) => entryKey(b) === "").length).toBe(0);
+    const fresh = buttons.filter(
+      (b) => !visited.has(entryKey(b)) && entryKey(b) !== COLLAPSE,
+    );
+    const picked = fresh.filter(pick);
+    // A closed section the walk does not pick first, then a closed section or
+    // a plain entry it picks; an open header it picks (whose click would close
+    // it and hide entries not walked yet) last.
+    const next =
+      fresh.find(
+        (b) => !pick(b) && b.getAttribute("aria-expanded") === "false",
+      ) ??
+      picked.find((b) => b.getAttribute("aria-expanded") !== "true") ??
+      picked[0];
+    if (next === undefined) return visited;
+    const key = entryKey(next);
+    visited.add(key);
+    await click(next);
+    expect({ key, sidebar: sidebar(view) !== null }).toEqual({
+      key,
+      sidebar: true,
+    });
+  }
+  throw new Error("the sidebar walk did not end in 200 clicks");
+}
