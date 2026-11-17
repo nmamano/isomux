@@ -73,6 +73,7 @@ import {
   dialogSaveBtn,
   disabledLook,
 } from "./dialog-styles.ts";
+import { getStorageLayout, setStorageLayout } from "../device-settings.ts";
 
 // The category's words, by wire id. Own-property lookup like every other key
 // table (shared/i18n/translate.ts keyFrom), so an id that is not a category
@@ -500,47 +501,47 @@ function UsageBlock({
   const size = (bytes: number) => sizeText(language, t, bytes);
   const age = (ts: number) => ageText(language, t, ts);
   if (error) return <ErrorLine>{error}</ErrorLine>;
-  if (!usage)
-    return (
-      <p
-        style={{
-          fontSize: 16,
-          fontWeight: 600,
-          color: "var(--text-secondary)",
-          marginTop: 28,
-        }}
-      >
-        {t("settings.storage.measuring")}
-      </p>
-    );
 
-  const byId = new Map(usage.categories.map((c) => [c.id, c] as const));
+  // While it measures, the table is drawn with every category and no numbers,
+  // so the blocks below it stay where they are (task 3755fad4).
+  const byId = new Map(
+    (usage?.categories ?? []).map((c) => [c.id, c] as const),
+  );
   const outsideBytes = OUT_OF_ROOT_ORDER.reduce(
     (sum, id) => sum + (byId.get(id)?.bytes ?? 0),
     0,
   );
-  const total = usage.stateRootBytes + outsideBytes;
+  const total = (usage?.stateRootBytes ?? 0) + outsideBytes;
+  const row = (id: StorageCategoryId) => (
+    <CategoryRow key={id} cat={byId.get(id)} id={id} held={!usage} />
+  );
 
   return (
-    <>
+    <div aria-busy={!usage || undefined}>
       <SectionLabel>{t("settings.storage.onDisk")}</SectionLabel>
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
-        {outsideBytes > 0
-          ? rich("settings.storage.totalSplit", {
-              total: size(total),
-              state: size(usage.stateRootBytes),
-              outside: size(outsideBytes),
-              strong: inStrong,
-            })
-          : rich("settings.storage.totalAllState", {
-              total: size(total),
-              strong: inStrong,
-            })}{" "}
-        <span style={{ color: "var(--text-ghost)" }}>
-          {t("settings.storage.measured", {
-            when: age(usage.measuredAt),
-          })}
-        </span>
+        {!usage ? (
+          t("settings.storage.measuring")
+        ) : (
+          <>
+            {outsideBytes > 0
+              ? rich("settings.storage.totalSplit", {
+                  total: size(total),
+                  state: size(usage.stateRootBytes),
+                  outside: size(outsideBytes),
+                  strong: inStrong,
+                })
+              : rich("settings.storage.totalAllState", {
+                  total: size(total),
+                  strong: inStrong,
+                })}{" "}
+            <span style={{ color: "var(--text-ghost)" }}>
+              {t("settings.storage.measured", {
+                when: age(usage.measuredAt),
+              })}
+            </span>
+          </>
+        )}
       </p>
       <table
         style={{
@@ -551,15 +552,13 @@ function UsageBlock({
         }}
       >
         <tbody>
-          {IN_ROOT_ORDER.map((id) => (
-            <CategoryRow key={id} cat={byId.get(id)} id={id} />
-          ))}
+          {IN_ROOT_ORDER.map(row)}
           <tr>
             <td style={{ ...cell, fontWeight: 700 }}>
               {t("settings.storage.totalOfficeState")}
             </td>
             <td style={{ ...cellRight, fontWeight: 700 }}>
-              {size(usage.stateRootBytes)}
+              {usage ? size(usage.stateRootBytes) : BLANK}
             </td>
             <td style={cellRight} />
           </tr>
@@ -582,9 +581,7 @@ function UsageBlock({
               {t("settings.storage.outsideOfficeState")}
             </td>
           </tr>
-          {OUT_OF_ROOT_ORDER.map((id) => (
-            <CategoryRow key={id} cat={byId.get(id)} id={id} />
-          ))}
+          {OUT_OF_ROOT_ORDER.map(row)}
         </tbody>
       </table>
       <p
@@ -592,19 +589,30 @@ function UsageBlock({
       >
         {t("settings.storage.outsideNote")}
       </p>
-    </>
+    </div>
   );
 }
 
 function CategoryRow({
   cat,
   id,
+  held = false,
 }: {
   cat: StorageCategoryWire | undefined;
   id: StorageCategoryId;
+  // Still measuring: the row with its name and no numbers.
+  held?: boolean;
 }) {
   const { t, language } = useI18n();
   const size = (bytes: number) => sizeText(language, t, bytes);
+  if (held)
+    return (
+      <tr>
+        <td style={cell}>{categoryLabel(t, id)}</td>
+        <td style={cellRight}>{BLANK}</td>
+        <td style={cellRight}>{BLANK}</td>
+      </tr>
+    );
   // A category the measurement didn't return at all can only mean the contract
   // changed underneath this file; skip it rather than paint a phantom zero.
   if (!cat) return null;
@@ -634,17 +642,32 @@ function BackupBlock({
   // Where the backups were before the last save moved the folder. They stay
   // there, so the panel says where, or the space would vanish from view.
   const [oldBackupsDir, setOldBackupsDir] = useState<string | null>(null);
-  if (backup === null) return null;
+  // While the status loads: the usual shape (two lines and the button), with
+  // nothing to act on (task 3755fad4).
+  if (backup === null)
+    return (
+      <div aria-busy="true">
+        <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
+        <p style={backupText}>{t("common.loading")}</p>
+        <p style={{ ...backupText, marginTop: 4 }}>{BLANK}</p>
+        <button
+          disabled
+          style={{ ...dialogCancelBtn, marginTop: 14, width: "100%" }}
+        >
+          {t("settings.storage.changeBackupSettings")}
+        </button>
+      </div>
+    );
   if (backup === "unavailable") {
     return (
-      <>
+      <div>
         <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
         <p style={backupText}>{t("settings.storage.backupUnavailable")}</p>
-      </>
+      </div>
     );
   }
   return (
-    <>
+    <div>
       <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
       <p style={backupText}>
         {backup.lastRunAt === null ? (
@@ -702,7 +725,7 @@ function BackupBlock({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -836,9 +859,16 @@ function RetentionBlock() {
   const [deleteDays, setDeleteDays] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Until the settings answer, the form is drawn disabled, with the last-run
+  // line this device saw last (task 3755fad4).
+  const [held] = useState(getStorageLayout);
 
   const show = useCallback((r: LogRetentionWire) => {
     setRetention(r);
+    // The running line takes the last-run line's place.
+    setStorageLayout({
+      lastRun: r.running || (r.lastRunAt !== null && r.lastRun !== null),
+    });
     setCompressDays(String(r.compressAfterDays));
     setDeleteOff(r.deleteAfterDays === null);
     setDeleteDays(r.deleteAfterDays === null ? "" : String(r.deleteAfterDays));
@@ -850,15 +880,16 @@ function RetentionBlock() {
       .catch(() => setRetention("unavailable"));
   }, [show]);
 
-  if (retention === null) return null;
   if (retention === "unavailable") {
     return (
-      <>
+      <div>
         <SectionLabel>{t("settings.storage.autoSection")}</SectionLabel>
         <p style={backupText}>{t("settings.storage.autoUnavailable")}</p>
-      </>
+      </div>
     );
   }
+  const loading = retention === null;
+  const busy = saving || loading;
 
   const valid =
     validRetentionDays(compressDays) &&
@@ -915,10 +946,12 @@ function RetentionBlock() {
   );
 
   return (
-    <>
+    <div aria-busy={loading || undefined}>
       <SectionLabel>{t("settings.storage.autoSection")}</SectionLabel>
       <p style={backupText}>{t("settings.storage.autoHint")}</p>
-      {retention.running ? (
+      {loading ? (
+        held.lastRun && <p style={{ ...backupText, marginTop: 4 }}>{BLANK}</p>
+      ) : retention.running ? (
         <p style={{ ...backupText, marginTop: 4 }}>
           {t("settings.storage.autoRunning")}
         </p>
@@ -937,7 +970,7 @@ function RetentionBlock() {
           </p>
         )
       )}
-      {!retention.running && retention.lastError && (
+      {!loading && !retention.running && retention.lastError && (
         <p
           data-testid="retention-error"
           style={{ ...backupText, marginTop: 4, color: "var(--red-text)" }}
@@ -951,7 +984,7 @@ function RetentionBlock() {
           "retention-compress-days",
           compressDays,
           setCompressDays,
-          saving,
+          busy,
         )}
         {daysWord}
       </div>
@@ -961,7 +994,7 @@ function RetentionBlock() {
           "retention-delete-days",
           deleteDays,
           setDeleteDays,
-          saving || deleteOff,
+          busy || deleteOff,
         )}
         {daysWord}
         <label
@@ -977,7 +1010,7 @@ function RetentionBlock() {
             data-testid="retention-delete-off"
             type="checkbox"
             checked={deleteOff}
-            disabled={saving}
+            disabled={busy}
             onChange={(e) => setDeleteOff(e.target.checked)}
           />
           {t("settings.storage.autoDeleteOff")}
@@ -986,15 +1019,17 @@ function RetentionBlock() {
       <p
         style={{ fontSize: 11, color: "var(--text-ghost)", margin: "5px 0 0" }}
       >
-        {t("settings.storage.autoDeleteHint", {
-          count: retention.keepPerAgent,
-        })}
+        {loading
+          ? BLANK
+          : t("settings.storage.autoDeleteHint", {
+              count: retention.keepPerAgent,
+            })}
       </p>
       {error && <ErrorLine>{error}</ErrorLine>}
       <button
         data-testid="retention-save"
         onClick={() => void save()}
-        disabled={!valid || saving}
+        disabled={!valid || busy}
         style={{
           ...dialogCancelBtn,
           marginTop: 14,
@@ -1003,7 +1038,7 @@ function RetentionBlock() {
       >
         {saving ? t("common.saving") : t("common.save")}
       </button>
-    </>
+    </div>
   );
 }
 
@@ -1370,6 +1405,9 @@ function ErrorLine({ children }: { children: React.ReactNode }) {
     </p>
   );
 }
+
+// Keeps a held line or cell at its height: an empty element collapses.
+const BLANK = "\u00a0";
 
 // The backup summary is read on a phone to decide whether to change it, so it
 // stays at the 12 px body size and is never faded.

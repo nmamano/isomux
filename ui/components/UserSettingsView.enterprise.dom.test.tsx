@@ -6,6 +6,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import type { EnterpriseViewRes } from "../../shared/contract-shapes.ts";
 
 setUpDomTestFile();
 
@@ -19,18 +20,25 @@ const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 const { t } = translatorFor("en");
 
-// The answer to GET /api/office/enterprise; null rejects it. Anything else
-// unlisted rejects too, which every pane that loads here catches.
-let enterprise: { available: boolean } | null = null;
+// The answer to GET /api/office/enterprise; null rejects it, "pending" never
+// answers. Anything else unlisted rejects too, which every pane that loads
+// here catches.
+let enterprise:
+  (Partial<EnterpriseViewRes> & { available: boolean }) | "pending" | null =
+  null;
 setApiShim(async (method, path) => {
-  if (path === "/api/office/enterprise" && enterprise)
+  if (path === "/api/office/enterprise") {
+    const answer = enterprise;
+    if (answer === "pending") return new Promise(() => {});
+    if (answer === null) throw new Error("the setting cannot be read");
     return {
-      ...enterprise,
       enabled: false,
       locked: false,
       connected: null,
       problem: null,
+      ...answer,
     };
+  }
   if (path === "/api/removed-members") return { members: [] };
   if (path === "/api/office/settings")
     return { name: "", prompt: "", version: "1" };
@@ -161,5 +169,68 @@ describe("the Enterprise row", () => {
     const member = await mount({}, "member");
     expect(row(member, t("settings.sidebar.usage"))).not.toBeNull();
     expect(enterpriseTexts(member)).toHaveLength(0);
+  });
+});
+
+// The UI rule that a view keeps its layout while it loads (task 3755fad4):
+// the row must not be inserted, and every row under it pushed down, when the
+// setting answers. The device remembers the last answer; before the first
+// one, an office has the box (only Hosted does not).
+describe("the Enterprise row before the setting answers", () => {
+  it("shows on a device that never read the setting", async () => {
+    enterprise = "pending";
+    const view = await mount();
+    expect(row(view, t("settings.sidebar.updates"))).not.toBeNull();
+    expect(enterpriseRow(view)).not.toBeNull();
+  });
+
+  it("stays away on a device that last read a Hosted answer", async () => {
+    enterprise = { available: false };
+    const first = await mount();
+    expect(enterpriseRow(first)).toBeNull();
+    first.unmount();
+
+    enterprise = "pending";
+    const again = await mount();
+    expect(row(again, t("settings.sidebar.updates"))).not.toBeNull();
+    expect(enterpriseRow(again)).toBeNull();
+  });
+
+  it("keeps the last answer when a read fails", async () => {
+    enterprise = { available: false };
+    (await mount()).unmount();
+
+    // A failed read shows the row, for the retry, but is no answer.
+    enterprise = null;
+    const failed = await mount();
+    expect(enterpriseRow(failed)).not.toBeNull();
+    failed.unmount();
+
+    enterprise = "pending";
+    const again = await mount();
+    expect(row(again, t("settings.sidebar.updates"))).not.toBeNull();
+    expect(enterpriseRow(again)).toBeNull();
+  });
+
+  it("the sidebar's read is enough for the pane to hold its form", async () => {
+    // Settings opens on another pane: only the sidebar reads the setting.
+    enterprise = { available: true, enabled: true, locked: true };
+    const first = await mount();
+    expect(enterpriseBox(first)).toBeNull();
+    first.unmount();
+
+    enterprise = "pending";
+    const view = await mount({
+      initialTarget: { kind: "section", section: "enterprise" },
+    });
+    const box = enterpriseBox(view) as HTMLInputElement | null;
+    expect(box).not.toBeNull();
+    expect(box!.checked).toBe(true);
+    expect(box!.disabled).toBe(true);
+    const secret = view.container.ownerDocument.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    expect(secret).not.toBeNull();
+    expect(secret!.disabled).toBe(true);
   });
 });

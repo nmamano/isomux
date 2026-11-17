@@ -13,6 +13,11 @@ import type {
   UsageReportWire,
 } from "../../shared/contract-shapes.ts";
 import { noTranslate } from "../no-translate.ts";
+import { useAppState } from "../store.tsx";
+import { getUsageLayout, setUsageLayout } from "../device-settings.ts";
+
+// Keeps a held cell at its height: an empty element collapses.
+const BLANK = "\u00a0";
 
 // Not components, so the language arrives as an argument (ruling 18). k and M
 // are magnitude symbols and stay as they are (ruling 11); the number in front
@@ -55,12 +60,32 @@ function dollars(language: SupportedLanguageCode, n: number): string {
 // footer: the sidebar is the way out.
 export function UsagePane() {
   const { t } = useI18n();
+  const { agents, rooms, sessionContext } = useAppState();
   const [usage, setUsage] = useState<UsageReportWire | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Until the report answers, the tables are drawn with blank rows, as many
+  // as this device saw last, or as the reader sees in the office on a first
+  // visit (task 3755fad4).
+  const [held] = useState(() =>
+    getUsageLayout({
+      agents: agents.length,
+      rooms: rooms.length,
+      schedules: 0,
+    }),
+  );
+  // The server scopes the report for everyone but an owner.
+  const scoped = usage ? usage.scoped : sessionContext?.role !== "owner";
 
   useEffect(() => {
     apiFetch<UsageReportWire>("GET", "/api/usage")
-      .then(setUsage)
+      .then((report) => {
+        setUsageLayout({
+          agents: report.agents.length,
+          rooms: report.rooms.length,
+          schedules: report.cronjobs?.length ?? 0,
+        });
+        setUsage(report);
+      })
       .catch((e: unknown) =>
         setError(
           e instanceof ApiError ? e.message : t("settings.usage.loadFailed"),
@@ -70,8 +95,19 @@ export function UsagePane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const blankRows = (n: number, prefix: string): UsageRow[] =>
+    Array.from({ length: n }, (_, i) => ({
+      key: `${prefix}${i}`,
+      // The first row says the report is loading; an empty table would read
+      // as no usage.
+      label: i === 0 ? t("common.loading") : BLANK,
+      loading: i === 0,
+      session: null,
+      lifetime: null,
+    }));
+
   return (
-    <div style={{ marginTop: 24 }}>
+    <div style={{ marginTop: 24 }} aria-busy={(!usage && !error) || undefined}>
       <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
         {t("settings.usage.title")}
       </h3>
@@ -84,65 +120,70 @@ export function UsagePane() {
       >
         {t("settings.usage.intro")}
       </p>
-      {usage?.scoped && (
+      {scoped && (
         <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
           {t("settings.usage.scoped")}
         </p>
       )}
       {error ? (
         <p style={{ color: "var(--red-text)", fontSize: 11 }}>{error}</p>
-      ) : !usage ? (
-        <p
-          style={{
-            fontSize: 16,
-            fontWeight: 600,
-            color: "var(--text-secondary)",
-            marginTop: 28,
-          }}
-        >
-          {t("common.loading")}
-        </p>
       ) : (
         <>
           <UsageTable
             title={t("settings.usage.agents")}
             firstHeader={t("common.agent")}
-            rows={usage.agents.map((row) => ({
-              key: row.id,
-              label: row.name,
-              detail: row.roomName,
-              session: row.session,
-              lifetime: row.lifetime,
-              identityData: true,
-            }))}
+            rows={
+              !usage
+                ? blankRows(held.agents, "agent")
+                : usage.agents.map((row) => ({
+                    key: row.id,
+                    label: row.name,
+                    detail: row.roomName,
+                    session: row.session,
+                    lifetime: row.lifetime,
+                    identityData: true,
+                  }))
+            }
           />
           <UsageTable
             title={t("settings.usage.rooms")}
             note={t("settings.usage.roomsNote")}
             firstHeader={t("settings.usage.roomColumn")}
-            rows={usage.rooms.map((row) => ({
-              key: row.id,
-              label: row.name,
-              detail: row.deleted ? t("settings.usage.deleted") : undefined,
-              session: row.session,
-              lifetime: row.lifetime,
-              identityData: true,
-            }))}
+            rows={
+              !usage
+                ? blankRows(held.rooms, "room")
+                : usage.rooms.map((row) => ({
+                    key: row.id,
+                    label: row.name,
+                    detail: row.deleted
+                      ? t("settings.usage.deleted")
+                      : undefined,
+                    session: row.session,
+                    lifetime: row.lifetime,
+                    identityData: true,
+                  }))
+            }
           />
-          {usage.cronjobs && usage.cronjobs.length > 0 && (
+          {(usage ? (usage.cronjobs?.length ?? 0) : held.schedules) > 0 && (
             <LifetimeTable
               title={t("settings.usage.schedules")}
-              rows={usage.cronjobs.map((row) => ({
-                key: row.id,
-                label: row.name,
-                detail: row.deleted ? t("settings.usage.deleted") : undefined,
-                lifetime: row.lifetime,
-              }))}
+              rows={
+                !usage
+                  ? blankRows(held.schedules, "schedule")
+                  : (usage.cronjobs ?? []).map((row) => ({
+                      key: row.id,
+                      label: row.name,
+                      detail: row.deleted
+                        ? t("settings.usage.deleted")
+                        : undefined,
+                      lifetime: row.lifetime,
+                    }))
+              }
             />
           )}
           <UsageTable
             title={
-              usage.scoped
+              scoped
                 ? t("settings.usage.total")
                 : t("settings.usage.officeTotal")
             }
@@ -151,8 +192,8 @@ export function UsagePane() {
               {
                 key: "total",
                 label: t("settings.usage.total"),
-                session: usage.total.session,
-                lifetime: usage.total.lifetime,
+                session: usage ? usage.total.session : null,
+                lifetime: usage ? usage.total.lifetime : null,
               },
             ]}
           />
@@ -166,8 +207,11 @@ type UsageRow = {
   key: string;
   label: string;
   detail?: string;
-  session: UsageBucketWire;
-  lifetime: UsageBucketWire;
+  // The loading cue in a held table, in place of a name.
+  loading?: boolean;
+  // null while the report loads: the cells are blank.
+  session: UsageBucketWire | null;
+  lifetime: UsageBucketWire | null;
   identityData?: boolean;
 };
 
@@ -207,8 +251,7 @@ function UsageTable({
                   {...(row.identityData ? noTranslate() : {})}
                   style={leftCell}
                 >
-                  <strong>{row.label}</strong>
-                  {row.detail && <span style={detailStyle}> {row.detail}</span>}
+                  <RowLabel row={row} />
                 </td>
                 <BucketCells bucket={row.session} />
                 <BucketCells bucket={row.lifetime} />
@@ -246,8 +289,7 @@ function LifetimeTable({
             {rows.map((row) => (
               <tr key={row.key}>
                 <td style={leftCell}>
-                  <strong>{row.label}</strong>
-                  {row.detail && <span style={detailStyle}> {row.detail}</span>}
+                  <RowLabel row={row} />
                 </td>
                 <BucketCells bucket={row.lifetime} />
               </tr>
@@ -259,8 +301,30 @@ function LifetimeTable({
   );
 }
 
-function BucketCells({ bucket }: { bucket: UsageBucketWire }) {
+function RowLabel({
+  row,
+}: {
+  row: Pick<UsageRow, "label" | "detail" | "loading">;
+}) {
+  if (row.loading) return <span style={detailStyle}>{row.label}</span>;
+  return (
+    <>
+      <strong>{row.label}</strong>
+      {row.detail && <span style={detailStyle}> {row.detail}</span>}
+    </>
+  );
+}
+
+function BucketCells({ bucket }: { bucket: UsageBucketWire | null }) {
   const { t, language } = useI18n();
+  if (!bucket)
+    return (
+      <>
+        <td style={cell}>{BLANK}</td>
+        <td style={cell}>{BLANK}</td>
+        <td style={cell}>{BLANK}</td>
+      </>
+    );
   return (
     <>
       <td style={cell}>{inputCount(language, bucket, t)}</td>

@@ -594,6 +594,88 @@ export function setExternalAccessLayout(layout: ExternalAccessLayout): void {
   setHeldLayout(KEY_EXTERNAL_ACCESS_LAYOUT, layout);
 }
 
+// Settings → Office → Enterprise: whether the office has the Enterprise box
+// (the sidebar row), and which parts of the pane it showed.
+export type EnterpriseLayout = {
+  available: boolean;
+  enabled: boolean;
+  connected: boolean;
+  locked: boolean;
+  problem: boolean;
+};
+
+const KEY_ENTERPRISE_LAYOUT = "isomux-enterprise-layout";
+
+export function getEnterpriseLayout(): EnterpriseLayout {
+  return getHeldLayout(
+    KEY_ENTERPRISE_LAYOUT,
+    ({ available, enabled, connected, locked, problem }) =>
+      typeof available === "boolean" &&
+      typeof enabled === "boolean" &&
+      typeof connected === "boolean" &&
+      typeof locked === "boolean" &&
+      typeof problem === "boolean"
+        ? { available, enabled, connected, locked, problem }
+        : null,
+    // Every office but a Hosted one has the box.
+    {
+      available: true,
+      enabled: false,
+      connected: false,
+      locked: false,
+      problem: false,
+    },
+  );
+}
+
+export function setEnterpriseLayout(layout: EnterpriseLayout): void {
+  setHeldLayout(KEY_ENTERPRISE_LAYOUT, layout);
+}
+
+// Settings → Usage: how many rows each table had.
+export type UsageLayout = { agents: number; rooms: number; schedules: number };
+
+const KEY_USAGE_LAYOUT = "isomux-usage-layout";
+
+// A sanity bound only: the counts are exact, so a lower cap would bring the
+// growth back.
+const isRowCount = (n: unknown): n is number =>
+  typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 1000;
+
+// `fallback` is what the reader sees of the office, for a first visit.
+export function getUsageLayout(fallback: UsageLayout): UsageLayout {
+  return getHeldLayout(
+    KEY_USAGE_LAYOUT,
+    ({ agents, rooms, schedules }) =>
+      isRowCount(agents) && isRowCount(rooms) && isRowCount(schedules)
+        ? { agents, rooms, schedules }
+        : null,
+    fallback,
+  );
+}
+
+export function setUsageLayout(layout: UsageLayout): void {
+  setHeldLayout(KEY_USAGE_LAYOUT, layout);
+}
+
+// Settings → Storage: whether the automatic cleanup showed its last-run line.
+export type StorageLayout = { lastRun: boolean };
+
+const KEY_STORAGE_LAYOUT = "isomux-storage-layout";
+
+export function getStorageLayout(): StorageLayout {
+  return getHeldLayout(
+    KEY_STORAGE_LAYOUT,
+    ({ lastRun }) => (typeof lastRun === "boolean" ? { lastRun } : null),
+    // The cleanup runs on its own, so most offices have a last run.
+    { lastRun: true },
+  );
+}
+
+export function setStorageLayout(layout: StorageLayout): void {
+  setHeldLayout(KEY_STORAGE_LAYOUT, layout);
+}
+
 // Integrations → Pager: whether a webhook was saved (its row is taller than
 // the "not set" line).
 const KEY_PAGER_LAYOUT = "isomux-pager-layout";

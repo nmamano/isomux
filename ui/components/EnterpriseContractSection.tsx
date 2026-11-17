@@ -13,6 +13,11 @@ import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { sectionHeader } from "./access-shared.tsx";
 import { ENTERPRISE_HELP_EMAIL } from "../send-failure.ts";
+import {
+  getEnterpriseLayout,
+  setEnterpriseLayout,
+  type EnterpriseLayout,
+} from "../device-settings.ts";
 
 const DETAILS_URL = "https://isomux.com/enterprise";
 
@@ -31,19 +36,32 @@ const ERROR_KEYS = {
   enterprise_rate_limited: "settings.office.enterprise.errorRateLimited",
 } as const satisfies Record<string, MessageKey>;
 
+// What this device keeps of an answer, so Settings draws the same row and
+// the same pane while the next read waits (task 3755fad4).
+function layoutOf(view: EnterpriseViewRes): EnterpriseLayout {
+  return {
+    available: view.available,
+    enabled: view.enabled,
+    connected: view.connected !== null,
+    locked: view.locked,
+    problem: view.problem !== null,
+  };
+}
+
 // Whether Settings shows the Enterprise group: for an owner, where the box is
-// available (never on Hosted). A failed read shows it, so the section's retry
-// is reachable.
+// available (never on Hosted). Until the read answers, it shows what this
+// device saw last. A failed read shows it, so the section's retry is
+// reachable.
 export function useEnterpriseAvailable(isOwner: boolean): boolean {
-  const [available, setAvailable] = useState(false);
+  const [available, setAvailable] = useState(
+    () => getEnterpriseLayout().available,
+  );
   useEffect(() => {
-    if (!isOwner) {
-      setAvailable(false);
-      return;
-    }
+    if (!isOwner) return;
     let cancelled = false;
     apiFetch<EnterpriseViewRes>("GET", "/api/office/enterprise").then(
       (view) => {
+        setEnterpriseLayout(layoutOf(view));
         if (!cancelled) setAvailable(view.available);
       },
       () => {
@@ -54,7 +72,7 @@ export function useEnterpriseAvailable(isOwner: boolean): boolean {
       cancelled = true;
     };
   }, [isOwner]);
-  return available;
+  return isOwner && available;
 }
 
 export function EnterprisePane() {
@@ -70,6 +88,9 @@ export function EnterprisePane() {
 export function EnterpriseContractSection() {
   const { t, tn, rich } = useI18n();
   const [view, setView] = useState<EnterpriseViewRes | null>(null);
+  // Until the first read answers, the section draws the layout this device
+  // saw last, every control disabled.
+  const [held] = useState(getEnterpriseLayout);
   // A failed read shows an alert with a retry: inside the lock, an empty
   // section would leave the owner with no way out.
   const [loadFailed, setLoadFailed] = useState(false);
@@ -114,6 +135,10 @@ export function EnterpriseContractSection() {
       cancelled = true;
     };
   }, [loads]);
+
+  useEffect(() => {
+    if (view) setEnterpriseLayout(layoutOf(view));
+  }, [view]);
 
   const messageOf = (err: unknown) => {
     if (!(err instanceof ApiError)) return String(err);
@@ -176,17 +201,21 @@ export function EnterpriseContractSection() {
         </button>
       </div>
     );
-  if (!view?.available) return null;
-  const connected = view.connected;
-  const alert = error ?? (view.problem ? t(PROBLEM_KEYS[view.problem]) : null);
+  const loading = view === null;
+  const shape = view ? layoutOf(view) : held;
+  if (!shape.available) return null;
+  const connected = view?.connected ?? null;
+  const alert = view
+    ? (error ?? (view.problem ? t(PROBLEM_KEYS[view.problem]) : null))
+    : null;
 
   return (
-    <div style={{ marginTop: 14 }}>
+    <div style={{ marginTop: 14 }} aria-busy={loading || undefined}>
       <label style={labelStyle}>
         <input
           type="checkbox"
-          checked={view.enabled}
-          disabled={busy}
+          checked={shape.enabled}
+          disabled={busy || loading}
           onChange={(event) => void setEnabled(event.target.checked)}
         />
         {t("settings.office.enterprise.label")}
@@ -206,40 +235,44 @@ export function EnterpriseContractSection() {
         })}
       </p>
 
-      {view.enabled && (
+      {shape.enabled && (
         <div style={{ marginTop: 10, paddingLeft: 22 }}>
-          {view.locked && (
+          {shape.locked && (
             <p style={{ ...lineStyle, color: "var(--text-primary)" }}>
               {t("settings.office.enterprise.locked")}
             </p>
           )}
-          {connected && (
+          {shape.connected && (
             <div style={{ marginBottom: 8 }}>
               <p style={{ ...lineStyle, fontWeight: 600 }}>
                 {t("settings.office.enterprise.connected")}
               </p>
               <Row label={t("settings.office.enterprise.kind")}>
-                {connected.kind === "negotiated"
-                  ? t("settings.office.enterprise.kindNegotiated")
-                  : t("settings.office.enterprise.kindStandard")}
+                {!connected
+                  ? BLANK
+                  : connected.kind === "negotiated"
+                    ? t("settings.office.enterprise.kindNegotiated")
+                    : t("settings.office.enterprise.kindStandard")}
               </Row>
               <Row label={t("settings.office.enterprise.account")}>
-                {connected.company}
+                {connected ? connected.company : BLANK}
               </Row>
               <Row label={t("settings.office.enterprise.seats")}>
-                {checking
-                  ? t("settings.office.enterprise.checking")
-                  : tn(
-                      "settings.office.enterprise.seatsUsed",
-                      connected.offices,
-                      { inUse: connected.inUse, seats: connected.seats },
-                    )}
+                {!connected
+                  ? BLANK
+                  : checking
+                    ? t("settings.office.enterprise.checking")
+                    : tn(
+                        "settings.office.enterprise.seatsUsed",
+                        connected.offices,
+                        { inUse: connected.inUse, seats: connected.seats },
+                      )}
               </Row>
             </div>
           )}
           <form onSubmit={(event) => void submit(event)}>
             <label style={{ ...hintStyle, display: "block", marginTop: 0 }}>
-              {connected
+              {shape.connected
                 ? t("settings.office.enterprise.newSecret")
                 : t("settings.office.enterprise.secret")}
             </label>
@@ -248,31 +281,35 @@ export function EnterpriseContractSection() {
                 type="password"
                 autoComplete="off"
                 value={secret}
+                disabled={loading}
                 onChange={(event) => setSecret(event.target.value)}
                 style={{ ...dialogInput, flex: 1, minWidth: 0 }}
               />
               <button
                 type="submit"
-                disabled={busy || !secret.trim()}
+                disabled={busy || loading || !secret.trim()}
                 style={dialogSaveBtn}
               >
                 {busy && !connected
                   ? t("settings.office.enterprise.connecting")
-                  : connected
+                  : shape.connected
                     ? t("settings.office.enterprise.replace")
                     : t("settings.office.enterprise.connect")}
               </button>
             </div>
-            {!connected && (
+            {!shape.connected && (
               <p style={hintStyle}>
                 {t("settings.office.enterprise.secretHint")}
               </p>
             )}
           </form>
-          {alert && (
+          {alert ? (
             <p role="alert" style={alertStyle}>
               {alert}
             </p>
+          ) : (
+            // The held problem line: no alert role, nothing to announce.
+            loading && shape.problem && <p style={alertStyle}>{BLANK}</p>
           )}
           <p style={{ ...hintStyle, marginTop: 8 }}>
             {t("settings.office.enterprise.help", {
@@ -284,6 +321,9 @@ export function EnterpriseContractSection() {
     </div>
   );
 }
+
+// Keeps a held line at its height: an empty element collapses.
+const BLANK = "\u00a0";
 
 function Row({
   label,

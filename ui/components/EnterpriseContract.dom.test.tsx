@@ -1,8 +1,13 @@
 // The Enterprise Contract box in Settings -> Office -> Enterprise (tasks
 // 8b80e61f, f1304a60 and ce8878c8). The box and the secret live here only: the office stays usable
 // while it is locked, and the server refuses messages to agents instead.
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import {
+  blockShape,
+  deferred,
+  heldControls,
+} from "../test-support/held-shape.ts";
 import type { EnterpriseViewRes } from "../../shared/contract-shapes.ts";
 
 setUpDomTestFile();
@@ -43,6 +48,7 @@ const VIEW_CONNECTED: EnterpriseViewRes = {
   connected: { ...ANSWER, checkedAt: 1_700_000_000_000 },
 };
 
+beforeEach(() => window.localStorage.clear());
 afterEach(() => {
   cleanup();
   setApiShim(null);
@@ -236,4 +242,80 @@ describe("Settings -> Office -> Enterprise", () => {
     expect(body().queryByRole("checkbox")).toBeNull();
     expect(view.container.textContent).toBe("");
   });
+});
+
+// The UI rule that a view keeps its layout while it loads (task 3755fad4):
+// until the setting answers, the section draws the layout this device saw last,
+// every control disabled, so nothing moves when the answer arrives.
+describe("Settings -> Office -> Enterprise while the setting loads", () => {
+  // GET waits for `answer`; check answers with the same view.
+  function serveLater() {
+    const read = deferred<EnterpriseViewRes>();
+    serve(VIEW_OFF, (call) => {
+      if (call.method === "GET") return read.promise;
+      if (call.path === "/api/office/enterprise/check") return read.promise;
+      return undefined;
+    });
+    return read;
+  }
+  const busy = (root: Element) => root.querySelector('[aria-busy="true"]');
+
+  it("draws the box, disabled, on a device that never read the setting", async () => {
+    const read = serveLater();
+    const { view } = mount(<EnterpriseContractSection />, "owner");
+    await settle();
+    expect(busy(view.container)).not.toBeNull();
+    const box = body().getByRole("checkbox") as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(box.checked).toBe(false);
+    const held = blockShape(view.container);
+
+    await act(async () => {
+      read.resolve(VIEW_OFF);
+    });
+    await settle();
+    expect(busy(view.container)).toBeNull();
+    expect((body().getByRole("checkbox") as HTMLInputElement).disabled).toBe(
+      false,
+    );
+    expect(blockShape(view.container)).toBe(held);
+  });
+
+  const SHAPES: [string, EnterpriseViewRes][] = [
+    ["off", VIEW_OFF],
+    ["on and locked", VIEW_LOCKED],
+    ["locked with a problem", { ...VIEW_LOCKED, problem: "not_signed" }],
+    ["connected", VIEW_CONNECTED],
+    ["connected with a problem", { ...VIEW_CONNECTED, problem: "bad_secret" }],
+  ];
+  for (const [name, shown] of SHAPES) {
+    it(`holds the layout it showed last (${name}) until the answer arrives`, async () => {
+      // A first visit shows the answer, and the device keeps its layout.
+      serve(shown);
+      mount(<EnterpriseContractSection />, "owner");
+      await settle();
+      cleanup();
+
+      const read = serveLater();
+      const { view } = mount(<EnterpriseContractSection />, "owner");
+      await settle();
+      expect(busy(view.container)).not.toBeNull();
+      const controls = heldControls(view.container);
+      expect(controls.length).toBeGreaterThan(0);
+      expect(
+        controls.filter((el) => !(el as HTMLInputElement).disabled),
+      ).toHaveLength(0);
+      // Nothing from the last answer is shown as current, and no empty alert.
+      expect(view.container.textContent).not.toContain(ANSWER.company);
+      expect(body().queryByRole("alert")).toBeNull();
+      const held = blockShape(view.container);
+
+      await act(async () => {
+        read.resolve(shown);
+      });
+      await settle();
+      expect(busy(view.container)).toBeNull();
+      expect(blockShape(view.container)).toBe(held);
+    });
+  }
 });
