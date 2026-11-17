@@ -144,20 +144,31 @@ function namePid(root: string): number {
 }
 
 // A run folder made by a process that has exited: the real producer, so the
-// owner record is whatever createTestTempRoot writes. By default its sentinel
-// port is free, as when the run is gone.
-function deadRoot(base: string, sentinelPort = freePort()): string {
+// owner record is whatever createTestTempRoot writes. By default the process
+// holds its own sentinel, as a run does, and the sentinel dies with it. The
+// record then names that socket, and a later socket on the same port does
+// not make the run read as alive (task 44f159af). With a port, the record
+// names whatever socket holds that port.
+function deadRoot(base: string, sentinelPort?: number): string {
+  const port = sentinelPort ?? "sentinel.port";
   const r = spawnSync(
     process.execPath,
     [
       "-e",
       `import { createTestTempRoot } from ${JSON.stringify(MODULE)};` +
-        `console.log(createTestTempRoot(${JSON.stringify(base)}, ${sentinelPort}));`,
+        `const sentinel = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });` +
+        `console.log(createTestTempRoot(${JSON.stringify(base)}, ${port}));` +
+        `sentinel.stop(true);`,
     ],
     { cwd: base, encoding: "utf8" },
   );
   expect(r.status, r.stderr).toBe(0);
-  return r.stdout.trim();
+  const root = r.stdout.trim();
+  // Without the socket file the sweep falls back to a probe of the port,
+  // which any later socket can take.
+  if (linux && sentinelPort === undefined)
+    expect(existsSync(join(root, "socket")), root).toBe(true);
+  return root;
 }
 
 // A process that is not our child (its shell exits), with the given
@@ -320,7 +331,7 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
     const other = liveChild();
     // The producer's record, moved to the live pid: a pid from another
     // namespace, or one a new process took over.
-    function rootOf(sentinelPort: number, suffix: string): string {
+    function rootOf(sentinelPort: number | undefined, suffix: string): string {
       const made = deadRoot(base, sentinelPort);
       const root = join(base, `isomux-run-${other}-${suffix}`);
       renameSync(made, root);
@@ -331,7 +342,7 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
       );
       return root;
     }
-    const gone = rootOf(freePort(), "free01");
+    const gone = rootOf(undefined, "free01");
     // Control in the same sweep: the same pid with its port held.
     const held = rootOf(heldPort().port, "held01");
     const result = sweepStaleTestTempRoots(base);
@@ -454,10 +465,7 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
 });
 
 describe.skipIf(!linux)("sweepStaleTestTempRoots: which processes", () => {
-  // Quarantined (task 44f159af): in the pre-push CI of 2026-11-17 the sweep
-  // removed nothing (line "expect(result.removed).toEqual([dead])"), on a
-  // commit that passed full CI 20 minutes before.
-  it.skip("stops the processes that hold a path in a dead run's folder, and only those", async () => {
+  it("stops the processes that hold a path in a dead run's folder, and only those", async () => {
     const base = scratchDir();
     const dead = deadRoot(base);
     mkdirSync(join(dead, "work"));
