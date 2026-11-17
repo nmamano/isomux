@@ -1,6 +1,7 @@
 // The record of which members run their agents as their own OS user
 // (internal-docs/member-os-user-design.md). STATE_ROOT/member-os-users.json,
-// { <userId>: { name, uid, moving? } }, owned by this module and never by users.json:
+// { <userId>: { name, uid, moving?, movedIn?, adopted?, rootCapable? } },
+// owned by this module and never by users.json:
 // an entry survives a removed member and a users.json that fails to parse, so
 // no failure there moves an isolated member's agents to the office user.
 //
@@ -11,6 +12,7 @@
 import { readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
+import { OS_USER_NAME_PATTERN } from "../shared/contract-shapes.ts";
 
 export const MEMBER_OS_USERS_FILE = "member-os-users.json";
 
@@ -19,6 +21,16 @@ export interface MemberOsUser {
   name: string;
   // Its uid: a safe integer above 0.
   uid: number;
+}
+
+// Task e15a82e7: how the root command got the OS user. adopted: a person's
+// existing account (enable --existing-user), never made or deleted by the
+// command. rootCapable: an adopted user that can become root; the connect
+// then skips the privileged-group check, and the page says the member is not
+// separated from the office. rootCapable never stands without adopted.
+export interface MemberOsUserOrigin {
+  adopted?: true;
+  rootCapable?: true;
 }
 
 export type MemberOsUserState =
@@ -30,12 +42,12 @@ export type MemberOsUserState =
   // movedIn (task 78733adf, slice 5c-2): she came with an office move and
   // her home waits in <state>/move-members/<userId>/home until the enable
   // command places it; `home` is her home on the old machine.
-  | {
+  | ({
       kind: "isolated";
       osUser: MemberOsUser;
       unfinished?: true;
       movedIn?: { home: string };
-    }
+    } & MemberOsUserOrigin)
   // A malformed entry, or a file that does not parse: the not-ready host.
   | { kind: "broken"; reason: string };
 
@@ -43,7 +55,7 @@ export function memberOsUsersPath(): string {
   return join(STATE_ROOT, MEMBER_OS_USERS_FILE);
 }
 
-export const OS_USER_NAME_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
+export { OS_USER_NAME_PATTERN };
 const NAME = OS_USER_NAME_PATTERN;
 
 function validOsUser(value: unknown): value is MemberOsUser {
@@ -124,7 +136,21 @@ function stateIn(
       ? { unfinished: true as const }
       : {}),
     ...movedInOf(entry),
+    ...originOf(entry),
   };
+}
+
+// Task e15a82e7: `adopted` and `rootCapable` of an entry. rootCapable never
+// stands without adopted, whatever the file holds.
+function originOf(entry: unknown): MemberOsUserOrigin {
+  const { adopted, rootCapable } = entry as {
+    adopted?: unknown;
+    rootCapable?: unknown;
+  };
+  if (adopted !== true) return {};
+  return rootCapable === true
+    ? { adopted: true, rootCapable: true }
+    : { adopted: true };
 }
 
 // Slice 5c-2: `movedIn: {home}` of an entry, when it is one.
@@ -229,7 +255,10 @@ export function recordMemberOsUser(
   userId: string,
   osUser: MemberOsUser,
   // Slice 5c-2: kept until her moved home is placed.
-  opts: { moving?: boolean; movedIn?: { home: string } } = {},
+  opts: {
+    moving?: boolean;
+    movedIn?: { home: string };
+  } & MemberOsUserOrigin = {},
 ): void {
   if (!userId) throw new Error("a member OS user needs a user id");
   if (!validOsUser(osUser))
@@ -241,6 +270,8 @@ export function recordMemberOsUser(
     uid: osUser.uid,
     ...(opts.moving ? { moving: true } : {}),
     ...(opts.movedIn ? { movedIn: { home: opts.movedIn.home } } : {}),
+    ...(opts.adopted ? { adopted: true } : {}),
+    ...(opts.adopted && opts.rootCapable ? { rootCapable: true } : {}),
   };
   writeEntries(entries);
 }
@@ -356,7 +387,8 @@ export function memberOsUsersForMove(
 // (task 78733adf, slice 5c-1), from `stateRoot` now, with no cache. A
 // malformed entry has no OS user (the check blocks it); `moving` is an
 // enable that did not finish; `movedIn` a member who came with a move and
-// waits for the enable command on this machine (slice 5c-2).
+// waits for the enable command on this machine (slice 5c-2); `adopted` a
+// member who runs as a person's existing OS user (task e15a82e7).
 export function memberOsUserRecordsForMove(
   stateRoot: string,
   nameOf: (userId: string) => string | null,
@@ -369,6 +401,7 @@ export function memberOsUserRecordsForMove(
         osUser: MemberOsUser | null;
         unfinished: boolean;
         movedIn: boolean;
+        adopted: boolean;
       }[];
     } {
   const loaded = readRecord(join(stateRoot, MEMBER_OS_USERS_FILE));
@@ -385,6 +418,7 @@ export function memberOsUserRecordsForMove(
           : null,
         unfinished: raw.moving === true,
         movedIn: raw.movedIn !== undefined && raw.movedIn !== false,
+        adopted: originOf(entry ?? {}).adopted === true,
       };
     }),
   };

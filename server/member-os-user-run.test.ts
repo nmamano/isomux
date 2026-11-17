@@ -519,3 +519,85 @@ describe("the end of a run", () => {
     expect(attemptOf(BO)?.status).toBe("running");
   });
 });
+
+// Task e15a82e7: the owner picks the OS user. Run puts --user <name> (a new
+// user) or --existing-user <name> (a person's existing user) after the id.
+// The name is checked against the root command's pattern, which the root
+// command checks again; it is the only text from the request in the line.
+describe("the OS user the owner picks", () => {
+  const refusal = (
+    r: Awaited<ReturnType<ReturnType<typeof createMemberOsUserRun>["run"]>>,
+  ) => (r.ok ? "started" : `${r.status} ${r.code}`);
+
+  it("puts --user or --existing-user and the name after the id", async () => {
+    const run = createMemberOsUserRun(deps());
+    for (const [extra, tail] of [
+      [{ osUser: "isomux-mia2" }, ["--user", "isomux-mia2"]],
+      [{ osUser: "isomux-mia2", existing: false }, ["--user", "isomux-mia2"]],
+      [{ osUser: "bob", existing: true }, ["--existing-user", "bob"]],
+      [{}, []],
+    ] as const) {
+      expect(
+        refusal(
+          await run.run(MIA, {
+            action: "enable",
+            password: PASSWORD,
+            ...extra,
+          }),
+        ),
+      ).toBe("started");
+      expect(starts.at(-1)!.opts.command.split(" ")).toEqual([
+        MEMBER_USER_COMMAND_PATH,
+        "enable",
+        MIA.id,
+        ...tail,
+      ]);
+      starts.at(-1)!.end({});
+      await flush();
+    }
+  });
+
+  it("refuses a name off the pattern, existing without a name, a field of the wrong type and either field on disable, and none starts sudo", async () => {
+    const run = createMemberOsUserRun(deps());
+    const bad: Record<string, unknown>[] = [
+      { osUser: "Bob" },
+      { osUser: "bob smith" },
+      { osUser: "-x" },
+      { osUser: "--existing-user" },
+      { osUser: "../x" },
+      { osUser: "bob;id" },
+      { osUser: "x".repeat(33) },
+      { osUser: "" },
+      { osUser: 7 },
+      { osUser: "bob\n" },
+      { existing: true },
+      { osUser: "bob", existing: "yes" },
+      { action: "disable", osUser: "bob" },
+      { action: "disable", existing: true },
+      { action: "disable", osUser: "bob", existing: true },
+    ];
+    for (const extra of bad)
+      expect({
+        extra,
+        r: refusal(
+          await run.run(MIA, {
+            action: "enable",
+            password: PASSWORD,
+            ...extra,
+          }),
+        ),
+      }).toEqual({ extra, r: expect.stringMatching(/^400 /) });
+    expect(starts).toEqual([]);
+    // The enabling condition: the same member's run starts with a good name.
+    expect(
+      refusal(
+        await run.run(MIA, {
+          action: "enable",
+          password: PASSWORD,
+          osUser: "bob",
+          existing: true,
+        }),
+      ),
+    ).toBe("started");
+  });
+});

@@ -297,6 +297,11 @@ export interface MemberCheckInput {
   // checked): the connect walks the tree once per member identity, in a child
   // process (memberCodeTreeChecks).
   walkCode?: boolean;
+  // Task e15a82e7: the member runs as a person's existing OS user that can
+  // become root (the record says adopted and rootCapable). Only the
+  // privileged-group check goes: root reads the office's files whatever the
+  // group, and the owner's page says so.
+  rootCapable?: boolean;
 }
 
 const SEARCH = 1;
@@ -321,9 +326,9 @@ export function memberTrustedChecks(input: MemberCheckInput): CheckFailure[] {
       "server-group-private",
       `the member's OS user is in the office user's group ${shared[0]}`,
     );
-  const privileged = groups.filter((gid) =>
-    input.privilegedGroups.includes(gid),
-  );
+  const privileged = input.rootCapable
+    ? []
+    : groups.filter((gid) => input.privilegedGroups.includes(gid));
   if (privileged.length > 0)
     fail(
       "member-privileged-group",
@@ -725,6 +730,7 @@ async function connectNow(userId: string): Promise<boolean> {
       officeGroups: process.getgroups?.() ?? [process.getgid!()],
       member: identity,
       privilegedGroups: privilegedGroupIds(),
+      ...(state.adopted && state.rootCapable ? { rootCapable: true } : {}),
       officeHome: homedir(),
       stateRoot: STATE_ROOT,
       codeRoot: realpathSync(CODE_ROOT),

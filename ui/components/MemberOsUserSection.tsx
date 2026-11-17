@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ApiError, apiFetch } from "../api.ts";
-import type {
-  MemberOsUserWire,
-  MemberTokenViewRes,
-  MemberUserUnsupported,
+import {
+  OS_USER_NAME_PATTERN,
+  type MemberOsUserRunReq,
+  type MemberOsUserWire,
+  type MemberTokenViewRes,
+  type MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
@@ -14,6 +16,10 @@ import { useI18n } from "../i18n.tsx";
 // own OS user on or off with one root command, shown here to copy. Where the
 // command cannot run, the OS user shows in a disabled field with the reason;
 // nothing renders when the read fails or the answer has no support field.
+//
+// While off, a server that sends newUserName (task e15a82e7) gets a picker:
+// the office's user (no command), an existing user from its list or typed by
+// name, or a new user. The enable command and Run carry the pick.
 //
 // The page reads the state again every 3 s while it can still change: while
 // the command runs, and after a Copy until the state changes. It stops on
@@ -38,6 +44,12 @@ export function MemberOsUserSection({
   const pollStart = useRef<number | null>(null);
   // The last Run's refusal, shown under the commands.
   const [runError, setRunError] = useState<string | null>(null);
+  // The owner's pick while off: "office", "existing:<name>", "new" or
+  // "other"; and the names typed for a new and for another existing user
+  // (null: the new user's default name).
+  const [pick, setPick] = useState("office");
+  const [newName, setNewName] = useState<string | null>(null);
+  const [otherName, setOtherName] = useState("");
   const route = `/api/users/${encodeURIComponent(username)}/os-user`;
 
   // Run (4c-iii): the server runs the command as root with the password;
@@ -45,14 +57,21 @@ export function MemberOsUserSection({
   const runCommand = async (
     action: "enable" | "disable",
     password: string | null,
+    target: OsUserTarget | null,
   ): Promise<boolean> => {
     setRunError(null);
+    const body: MemberOsUserRunReq = {
+      action,
+      ...(password === null ? {} : { password }),
+      ...(target
+        ? {
+            osUser: target.osUser,
+            ...(target.existing ? { existing: true } : {}),
+          }
+        : {}),
+    };
     try {
-      await apiFetch(
-        "POST",
-        `${route}/run`,
-        password === null ? { action } : { action, password },
-      );
+      await apiFetch("POST", `${route}/run`, body);
     } catch (err) {
       setRunError(runErrorLine(err, t));
       return false;
@@ -160,60 +179,80 @@ export function MemberOsUserSection({
   // finishes when it runs again, so both. Came with an office move: the
   // enable places her files; the disable deletes them. Otherwise: turn it
   // off.
+  const picking =
+    view.state === "off" &&
+    view.commands !== null &&
+    view.newUserName !== undefined;
+  const newUserName = newName ?? view.newUserName ?? "";
+  const target = picking
+    ? pickTarget(pick, { newName: newUserName, otherName })
+    : null;
   const commands: {
     hint: string;
     line: string;
     action: "enable" | "disable";
     noRun?: boolean;
+    target?: OsUserTarget;
   }[] =
     view.commands === null
       ? []
-      : view.state === "off"
-        ? [
-            {
-              hint: t("settings.osUser.enableHint"),
-              line: view.commands.enable,
-              action: "enable",
-            },
-          ]
-        : view.state === "not_ready" && view.movedIn
+      : picking
+        ? target
           ? [
               {
-                hint: t("settings.osUser.movedInEnableHint"),
+                hint: t("settings.osUser.enableHint"),
+                line: `${view.commands.enable} ${target.existing ? "--existing-user" : "--user"} ${target.osUser}`,
+                action: "enable",
+                target,
+              },
+            ]
+          : []
+        : view.state === "off"
+          ? [
+              {
+                hint: t("settings.osUser.enableHint"),
                 line: view.commands.enable,
                 action: "enable",
               },
-              {
-                hint: t("settings.osUser.movedInDisableHint"),
-                line: view.commands.disable,
-                action: "disable",
-                // Run sends a plain disable, which the office refuses for
-                // a member who came with a move: copy only.
-                noRun: true,
-              },
             ]
-          : view.state === "not_ready"
+          : view.state === "not_ready" && view.movedIn
             ? [
                 {
-                  hint: view.unfinished
-                    ? t("settings.osUser.finishHint")
-                    : t("settings.osUser.rerunHint"),
+                  hint: t("settings.osUser.movedInEnableHint"),
                   line: view.commands.enable,
                   action: "enable",
                 },
                 {
-                  hint: t("settings.osUser.disableHint"),
+                  hint: t("settings.osUser.movedInDisableHint"),
                   line: view.commands.disable,
                   action: "disable",
+                  // Run sends a plain disable, which the office refuses for
+                  // a member who came with a move: copy only.
+                  noRun: true,
                 },
               ]
-            : [
-                {
-                  hint: t("settings.osUser.disableHint"),
-                  line: view.commands.disable,
-                  action: "disable",
-                },
-              ];
+            : view.state === "not_ready"
+              ? [
+                  {
+                    hint: view.unfinished
+                      ? t("settings.osUser.finishHint")
+                      : t("settings.osUser.rerunHint"),
+                    line: view.commands.enable,
+                    action: "enable",
+                  },
+                  {
+                    hint: t("settings.osUser.disableHint"),
+                    line: view.commands.disable,
+                    action: "disable",
+                  },
+                ]
+              : [
+                  {
+                    hint: t("settings.osUser.disableHint"),
+                    line: view.commands.disable,
+                    action: "disable",
+                  },
+                ];
 
   return (
     <div data-testid="member-os-user">
@@ -223,10 +262,97 @@ export function MemberOsUserSection({
         data-testid="member-os-user-state"
         data-state={view.state}
         data-moved-in={view.movedIn ? "true" : undefined}
+        data-adopted={view.adopted ? "true" : undefined}
         style={{ fontSize: 13, margin: "6px 0", color: "var(--text-primary)" }}
       >
         {stateLine(view, t)}
       </p>
+      {view.adopted && view.state !== "off" && (
+        <p style={hintStyle}>{t("settings.osUser.adopted")}</p>
+      )}
+      {view.rootCapable && view.state !== "off" && (
+        <p
+          data-testid="member-os-user-root-capable"
+          role="note"
+          style={{ fontSize: 12, margin: "4px 0", color: "var(--red-text)" }}
+        >
+          {t("settings.osUser.rootCapable", { name: view.osUser?.name ?? "" })}
+        </p>
+      )}
+      {picking && (
+        <div style={{ marginTop: 8 }}>
+          <label style={hintStyle}>
+            {t("settings.osUser.pick")}
+            <select
+              data-testid="member-os-user-pick"
+              value={pick}
+              onChange={(event) => setPick(event.target.value)}
+              style={{
+                ...dialogInput,
+                display: "block",
+                maxWidth: 340,
+                marginTop: 4,
+              }}
+            >
+              <option value="office">
+                {view.officeOsUser
+                  ? t("settings.osUser.pickOffice", {
+                      name: view.officeOsUser,
+                    })
+                  : t("settings.osUser.pickOfficeUnnamed")}
+              </option>
+              {view.candidates?.map((candidate) => (
+                <option
+                  key={candidate.name}
+                  value={`${EXISTING}${candidate.name}`}
+                >
+                  {candidate.name}
+                </option>
+              ))}
+              <option value="new">{t("settings.osUser.pickNew")}</option>
+              {view.candidates && (
+                <option value="other">{t("settings.osUser.pickOther")}</option>
+              )}
+            </select>
+          </label>
+          {pick === "new" && (
+            <input
+              data-testid="member-os-user-new-name"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={t("settings.osUser.newName")}
+              placeholder={t("settings.osUser.newName")}
+              value={newUserName}
+              onChange={(event) => setNewName(event.target.value)}
+              style={{
+                ...dialogInput,
+                display: "block",
+                maxWidth: 340,
+                marginTop: 6,
+              }}
+            />
+          )}
+          {pick === "other" && (
+            <input
+              data-testid="member-os-user-existing-name"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={t("settings.osUser.existingName")}
+              placeholder={t("settings.osUser.existingName")}
+              value={otherName}
+              onChange={(event) => setOtherName(event.target.value)}
+              style={{
+                ...dialogInput,
+                display: "block",
+                maxWidth: 340,
+                marginTop: 6,
+              }}
+            />
+          )}
+        </div>
+      )}
       {view.attempt && (
         <p
           data-testid="member-os-user-attempt"
@@ -251,8 +377,8 @@ export function MemberOsUserSection({
           {t("settings.osUser.waiting")}
         </p>
       )}
-      {commands.map(({ hint, line: command, action, noRun }) => (
-        <div key={command}>
+      {commands.map(({ hint, line: command, action, noRun, target }) => (
+        <div key={action}>
           <p style={{ ...hintStyle, marginTop: 8 }}>{hint}</p>
           <div
             style={{
@@ -288,7 +414,7 @@ export function MemberOsUserSection({
             <RunControl
               withPassword={view.run === "password"}
               blocked={running}
-              onRun={(password) => runCommand(action, password)}
+              onRun={(password) => runCommand(action, password, target ?? null)}
             />
           )}
         </div>
@@ -408,6 +534,29 @@ function runErrorLine(err: unknown, t: T): string {
       // gets the sudo card's, as SudoAskCard does.
       return t("cards.sudoRequest.runFailed");
   }
+}
+
+// The OS user that Run and the command name for the pick.
+interface OsUserTarget {
+  osUser: string;
+  existing: boolean;
+}
+
+const EXISTING = "existing:";
+
+// The pick's target, or null: the office's user, or a name that the root
+// command does not take.
+function pickTarget(
+  pick: string,
+  names: { newName: string; otherName: string },
+): OsUserTarget | null {
+  const named = (osUser: string, existing: boolean) =>
+    OS_USER_NAME_PATTERN.test(osUser) ? { osUser, existing } : null;
+  if (pick.startsWith(EXISTING))
+    return named(pick.slice(EXISTING.length), true);
+  if (pick === "new") return named(names.newName, false);
+  if (pick === "other") return named(names.otherName, true);
+  return null;
 }
 
 const UNSUPPORTED_KEY = {

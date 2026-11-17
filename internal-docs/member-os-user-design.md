@@ -121,6 +121,18 @@ The command waits up to 3 hours for go-on and disable, more than the server's lo
 
 If the server stops during a move, the record stays and the office copy stays. go-on writes the record with `moving: true` before it moves the files and clears it once the pins are written, so a stop in between leaves the mark: the member stays not ready (their host starts nothing, and their apps and connect listeners wait) through any number of restarts, and the page says so. A rerun of enable finishes it; a go-on that fails puts the mark back as it was. Each connect also logs that an earlier move did not finish while the office holds a file that a move would take (also stale office copies after a stop during step 6, which the member no longer needs). For a member who already has their own OS user, the plan reads only the office's roots, never a path in their home.
 
+### 2.2a `isomux-member-user enable <member> --existing-user <osuser>`
+
+Task e15a82e7 (Nil, 2026-11-17): a team's people already have Linux accounts, with their files, keys and dotfiles. While off, the owner's page picks the office's user (no command), a new user (`--user`, the name field starts at `isomux-<slug>`), an existing user from `candidates`, or another existing user typed by name (directory users that `getent passwd` does not list). The command line and Run carry the pick; the server checks the name against the root command's pattern, and the root command checks it again.
+
+`candidates` (`memberUserCandidates`, on the installer's install while off): `getent passwd` in a child process with a 5 s limit (an error gives none), the users with a name of the pattern, a uid in `UID_MIN`..`UID_MAX` of `/etc/login.defs` (defaults 1000..60000), a login shell, not the office's user, not a member's and without a `.made` mark; sorted, at most 500. The root command applies the same rule.
+
+Root refuses before any change: no user, uid 0, the office's user or uid, a uid out of the range, a nologin or false shell, a `.made` mark, an `.adopted` mark of another member, a member that already runs as another user, a home that fails the office move's home rule (`moveMemberHomeRefusal`), and a `<home>/.isomux-agent` that is not a 0700 folder of the user. Then it adds only Isomux's parts: a root-owned `<user>.adopted` mark first (the member id, and whether the user lingered before), the linger, the share, the env file and the unit. No `useradd`, no `chmod` of the home, and an undo removes only those parts, never ends the user's processes, and puts the linger back as it was. A rerun of enable, with or without the flag, finishes an adopt that go-on did not finish.
+
+go-on gets `adopted: true`, and `rootCapable: true` for a user in a privileged group or with a sudo rule; both go to the record on every call, and the server refuses `rootCapable` without `adopted`. Only with both does the connect skip the privileged-group check (every other trusted check stays), and the page warns that the member's agents can read the office's files. A user that the command makes is still refused when it can become root.
+
+`disable` of an adopted user stops the unit, puts the linger back, and removes the share, the env file and the mark. It never ends the user's processes, removes their crontab or `at` jobs, locks or deletes the user: processes that the member's agents started outside the unit can still run. `--delete-user` is refused. An office move blocks an adopted member (`adopted`): it would carry the person's whole home.
+
 ### 2.3 `isomux-member-user disable <member> [--delete-user] [--keep-files] [--delete-moved-home]`
 
 1. The server moves the member's agent files back (`server/member-move-out.ts`). It refuses when another go-on or disable for the member runs, and when their runner is not connected (then the owner starts it, or runs `disable --keep-files`, which leaves the files in the member's home and only stops using their host):
@@ -137,7 +149,7 @@ If the server stops during a move, the record stays and the office copy stays. g
 
 The OS user and its home stay, locked, unless `--delete-user`. Files the member's agents made outside their agent space keep their owner.
 
-A removed member: the office deletes their agent files through the runner (logged when the runner is not connected), and the list of removed members shows the `disable --delete-user` command until the OS user is gone.
+A member with their own OS user cannot be removed: the office refuses (`member_os_user`) until disable runs. After it, a user that the command made stays locked until `disable --delete-user`; an existing user that `--existing-user` took stays as it was, and `--delete-user` refuses it. A user with no mark of the command for the member (a lost mark) gets only the unit stopped and the share and env file removed.
 
 ### 2.4 A change of manager
 

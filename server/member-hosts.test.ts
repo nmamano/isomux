@@ -1005,6 +1005,64 @@ describe("connectMemberHost", () => {
   });
 });
 
+// Task e15a82e7: the connect asks the trusted checks to take a privileged
+// group only for a record that says adopted AND rootCapable.
+describe("the connect's checks for an existing OS user", () => {
+  const NAME = "isomux-alice";
+  let inputs: MemberCheckInput[];
+  beforeEach(() => {
+    inputs = [];
+    setMemberHostDeps({
+      readPeerUid: () => UID,
+      lookupUser: () => ({ uid: UID, gid: 4242, groups: [4242] }),
+      checks: (input: MemberCheckInput) => {
+        inputs.push(input);
+        return [];
+      },
+      ...TEST_RUNTIME_DEPS,
+      retryMs: 60_000,
+    });
+    startMemberRunner(memberRunnerSocketPath(NAME));
+  });
+  const flag = () =>
+    inputs.map((i) => (i as { rootCapable?: unknown }).rootCapable === true);
+
+  it("passes rootCapable for an adopted, root-capable user only", async () => {
+    recordMemberOsUser(
+      "u-alice",
+      { name: NAME, uid: UID },
+      { adopted: true, rootCapable: true },
+    );
+    expect(await connectMemberHost("u-alice")).toBe(true);
+    expect(flag()).toEqual([true]);
+  });
+
+  for (const [label, origin] of [
+    ["a user the command made", {}],
+    ["an adopted user that cannot become root", { adopted: true }],
+  ] as const)
+    it(`does not pass rootCapable for ${label}`, async () => {
+      recordMemberOsUser("u-alice", { name: NAME, uid: UID }, origin);
+      expect(await connectMemberHost("u-alice")).toBe(true);
+      expect(flag()).toEqual([false]);
+    });
+
+  it("does not pass rootCapable for an entry that says rootCapable without adopted", async () => {
+    writeFileSync(
+      memberOsUsersPath(),
+      JSON.stringify({
+        "u-alice": { name: NAME, uid: UID, rootCapable: true },
+      }),
+    );
+    reloadMemberOsUsers();
+    await connectMemberHost("u-alice");
+    // Either the entry is broken (no checks run) or the flag is off.
+    expect(flag().filter(Boolean)).toEqual([]);
+    if (inputs.length === 0)
+      expect(hostFor("u-alice")).not.toBeInstanceOf(RunnerAgentHost);
+  });
+});
+
 describe("memberTrustedChecks", () => {
   const OFFICE = 900;
   const MEMBER = { uid: 2001, gid: 2001, groups: [2001] };
@@ -1085,6 +1143,42 @@ describe("memberTrustedChecks", () => {
         0,
       );
     }
+  });
+
+  // Task e15a82e7: an adopted user that can become root (Nil, 2026-11-17:
+  // accept it and warn on the page). Only the privileged-group check goes;
+  // every other check stays.
+  it("with rootCapable, takes a privileged group and still refuses root, the office uid, a shared group and search on the office home", () => {
+    const { input } = clean();
+    const capable = { ...input, rootCapable: true } as MemberCheckInput;
+    const privileged = { ...MEMBER, groups: [2001, 27] };
+    // The enabling condition: without the flag, the group is refused.
+    expect(
+      memberTrustedChecks({ ...input, member: privileged }).length,
+    ).toBeGreaterThan(0);
+    expect(memberTrustedChecks({ ...capable, member: privileged })).toEqual([]);
+    for (const member of [
+      { ...privileged, uid: 0 },
+      { ...privileged, uid: OFFICE },
+      { ...privileged, groups: [2001, 27, 1500] },
+      { ...privileged, gid: OFFICE, groups: [OFFICE, 27] },
+    ])
+      expect([
+        member,
+        memberTrustedChecks({ ...capable, member }).length > 0,
+      ]).toEqual([member, true]);
+    const c = clean();
+    c.facts.set("/home/office", DIR(0o701, OFFICE, OFFICE));
+    expect(
+      named(
+        memberTrustedChecks({
+          ...c.input,
+          rootCapable: true,
+          member: privileged,
+        } as MemberCheckInput),
+        "/home/office",
+      ),
+    ).toBe(true);
   });
 
   it("refuses search on the office home by other bits, by group and by a named ACL entry", () => {

@@ -605,6 +605,17 @@ Coses que pots fer per ell:
     "Massa contrasenyes incorrectes. Torna-ho a provar d'aquí a {minutes} min.",
   "settings.osUser.runInProgress":
     "L'ordre d'aquest membre s'està executant. Torna-ho a provar quan acabi.",
+  "settings.osUser.pick": "Executa els seus agents com a",
+  "settings.osUser.pickOffice": "{name} (l'usuari del sistema de l'oficina)",
+  "settings.osUser.pickOfficeUnnamed": "L'usuari del sistema de l'oficina",
+  "settings.osUser.pickNew": "Usuari nou…",
+  "settings.osUser.pickOther": "Un altre usuari existent…",
+  "settings.osUser.newName": "Nom de l'usuari nou",
+  "settings.osUser.existingName": "Nom de l'usuari existent",
+  "settings.osUser.adopted":
+    "En desactivar-ho, aquest compte existent es manté i només s'elimina el que ha afegit Isomux.",
+  "settings.osUser.rootCapable":
+    "{name} pot esdevenir root, de manera que els seus agents poden llegir els fitxers i els secrets de l'oficina.",
   "settings.osUser.unsupported.notLinux":
     "No es pot canviar: l'oficina no s'executa a Linux.",
   "settings.osUser.unsupported.kubernetes":
@@ -3730,6 +3741,8 @@ Coses que pots fer per ell:
     "A l'oficina antiga, els seus fitxers s'estan traslladant. Torna a comprovar quan acabi.",
   "officeMove.in.members.old.movedIn":
     "Van arribar a l'oficina antiga amb un trasllat anterior, i l'ordre d'activació encara no s'hi ha executat.",
+  "officeMove.in.members.old.adopted":
+    "A l'oficina antiga, s'executen com un usuari del sistema existent, que no es pot traslladar. Desactiva-hi primer el seu usuari del sistema.",
   "officeMove.in.members.old.badHome":
     "A l'oficina antiga, la seva carpeta personal no es pot traslladar.",
   "officeMove.in.members.old.runnerDown":

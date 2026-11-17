@@ -19,6 +19,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -32,6 +33,9 @@ const OS_USER = "isomux-alice";
 const UNIT = `isomux-member-runner@${OS_USER}.service`;
 
 let root: string;
+// The user the id, sudo and getent shims answer for (OS_USER, or the
+// existing user of the task e15a82e7 cases).
+let shimOsUser = OS_USER;
 
 // One shim per external command. Each logs "name argv..." to $T/log, and
 // fails when $T/fail/<name> exists (its content, when there is one, must
@@ -39,6 +43,10 @@ let root: string;
 const SHIMS: Record<string, string> = {
   id: `
 if [[ $# == 1 && $1 == -u ]]; then [[ -e $T/not-root ]] && echo 1000 || echo 0; exit 0; fi
+# Task e15a82e7: a user with a passwd line in $T/passwd/<name>.
+if [[ ($1 == -u || $1 == -g) && -n \${2:-} && -e $T/passwd/$2 ]]; then
+  [[ $1 == -u ]] && cut -d: -f3 "$T/passwd/$2" || cut -d: -f4 "$T/passwd/$2"; exit 0
+fi
 case "$1 $2" in
   "-u office") echo 1000 ;;
   "-u $OS_USER") [[ -e $T/users/$OS_USER ]] && echo 2001 || exit 1 ;;
@@ -48,6 +56,8 @@ case "$1 $2" in
 esac`,
   getent: `
 [[ $1 == passwd ]] || exit 2
+# Task e15a82e7: a user with a passwd line in $T/passwd/<name>.
+[[ -e $T/passwd/$2 ]] && { cat "$T/passwd/$2"; exit 0; }
 [[ -e $T/users/$2 ]] || exit 2
 echo "$2:x:2001:3001::$T/home/$2:/bin/bash"`,
   useradd: `
@@ -65,7 +75,21 @@ mkdir -p "$1" && chmod "$mode" "$1"`,
   stat: `
 # The share root is root's (a test user cannot make that).
 path=\${@: -1}
-if [[ $path == "$SHARE_ROOT" ]]; then printf '0 %s\\n' "$(command -p stat -c %a "$path")"; else command -p stat "$@"; fi`,
+# Task e15a82e7: $T/stat-owner lines "<path> <uid>" fake the owner (%u) of
+# a path (a test user cannot chown).
+owner=
+[[ -e $T/stat-owner ]] && owner=$(awk -v p="\${path%/}" '$1 == p {print $2}' "$T/stat-owner")
+if [[ $path == "$SHARE_ROOT" ]]; then printf '0 %s\\n' "$(command -p stat -c %a "$path")"
+elif [[ -n $owner ]]; then
+  args=("$@")
+  for i in "\${!args[@]}"; do
+    case \${args[i]} in
+      -c|--format|--printf) args[i+1]=\${args[i+1]//%u/$owner} ;;
+      -c*|--format=*|--printf=*) args[i]=\${args[i]//%u/$owner} ;;
+    esac
+  done
+  command -p stat "\${args[@]}"
+else command -p stat "$@"; fi`,
   loginctl: `:`,
   systemctl: `:`,
   pkill: `:`,
@@ -124,6 +148,7 @@ function fail(name: string, match = ""): void {
 }
 
 beforeEach(() => {
+  shimOsUser = OS_USER;
   root = mkdtempSync(join(tmpdir(), "member-user-cmd-"));
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -185,7 +210,7 @@ function run(...args: string[]) {
     env: {
       PATH: `${root}/bin:/usr/bin:/bin`,
       T: root,
-      OS_USER,
+      OS_USER: shimOsUser,
       SHARE_ROOT: `${root}/share`,
       ISOMUX_MEMBER_USER_CONF: join(root, "update.conf"),
       ISOMUX_MEMBER_USER_SHARE_ROOT: join(root, "share"),
@@ -194,6 +219,10 @@ function run(...args: string[]) {
       ISOMUX_MEMBER_USER_HELPER: "/helper",
       // Slice 5c-2: useradd's defaults, where its home base is read.
       ISOMUX_MEMBER_USER_USERADD_DEFAULTS: join(root, "useradd-defaults"),
+      // Task e15a82e7: the uid range of login users, and the linger marks
+      // (a file per user that lingers).
+      ISOMUX_MEMBER_USER_LOGIN_DEFS: join(root, "login.defs"),
+      ISOMUX_MEMBER_USER_LINGER_DIR: join(root, "linger"),
     },
   });
   return { code: result.status, stderr: result.stderr, stdout: result.stdout };
@@ -1193,4 +1222,514 @@ install_member_user_command
     ).toBe(text());
   });
   const text = () => readFileSync(UNIT_FILE, "utf8");
+});
+
+// Task e15a82e7: enable --existing-user runs the member's agents as a
+// person's existing OS user. Root adds only Isomux's parts (the share, the
+// env file, the linger, the unit and a root-owned .adopted mark). It never
+// makes, changes, locks or deletes the user or its home, and never ends the
+// user's processes: they include the person's own sessions. disable removes
+// only Isomux's parts, and puts the linger back as it was before the enable.
+describe("an existing OS user", () => {
+  const PERSON = "alice";
+  const PERSON_UID = 2002;
+  const PERSON_UNIT = `isomux-member-runner@${PERSON}.service`;
+  const home = () => join(root, "people", PERSON);
+  const mark = () => etc(`${PERSON}.adopted`);
+  const personShare = () => join(root, "share", PERSON);
+
+  function passwd(name: string, line: string): void {
+    mkdirSync(join(root, "passwd"), { recursive: true });
+    writeFileSync(join(root, "passwd", name), `${line}\n`);
+  }
+  // One line per path: a second call for a path replaces its line.
+  function owner(path: string, uid: number): void {
+    const file = join(root, "stat-owner");
+    const old = existsSync(file) ? readFileSync(file, "utf8") : "";
+    const kept = old
+      .split("\n")
+      .filter((l) => l && !l.startsWith(`${path} `))
+      .map((l) => `${l}\n`)
+      .join("");
+    writeFileSync(file, `${kept}${path} ${uid}\n`);
+  }
+  // The person: a passwd line, a home of their own (0750, with a file of
+  // theirs in it). Each field can be changed for one case.
+  function person(
+    over: { uid?: number; home?: string; shell?: string } = {},
+  ): void {
+    const uid = over.uid ?? PERSON_UID;
+    passwd(
+      PERSON,
+      `${PERSON}:x:${uid}:${uid}:Alice:${over.home ?? home()}:${over.shell ?? "/bin/bash"}`,
+    );
+    owner(home(), uid);
+    owner(join(home(), ".isomux-agent"), uid);
+  }
+  function lingers(): void {
+    mkdirSync(join(root, "linger"), { recursive: true });
+    writeFileSync(join(root, "linger", PERSON), "");
+  }
+  function memberInfo(osUser: { name: string; uid: number } | null): void {
+    answer("info", 200, {
+      ok: true,
+      userId: USER_ID,
+      role: "member",
+      slug: "alice",
+      osUser,
+      ...(osUser ? { state: "isolated" } : { state: "none" }),
+    });
+  }
+  // Forget the calls of an earlier run.
+  function fresh(): void {
+    rmSync(join(root, "log"), { force: true });
+    for (const verb of ["info", "prepare", "go-on", "disable"])
+      rmSync(join(root, `sent-${verb}`), { force: true });
+  }
+  const adopt = (...extra: string[]) =>
+    run("enable", "Alice", "--existing-user", PERSON, ...extra);
+
+  beforeEach(() => {
+    shimOsUser = PERSON;
+    mkdirSync(home(), { recursive: true });
+    chmodSync(home(), 0o750);
+    writeFileSync(join(home(), "notes.txt"), "the person's own file\n");
+    mkdirSync(join(root, "office-home"));
+    passwd("office", `office:x:1000:1000::${root}/office-home:/bin/bash`);
+    person();
+  });
+
+  // The person's account and home are as they were.
+  function expectPersonUntouched(): void {
+    for (const change of ["useradd", "userdel", "usermod", "pkill"])
+      expect([change, called(change)]).toEqual([change, false]);
+    expect(called("loginctl terminate-user")).toBe(false);
+    expect(called("crontab -r")).toBe(false);
+    expect(existsSync(join(root, "passwd", PERSON))).toBe(true);
+    expect(statSync(home()).mode & 0o777).toBe(0o750);
+    expect(readFileSync(join(home(), "notes.txt"), "utf8")).toBe(
+      "the person's own file\n",
+    );
+  }
+  // None of Isomux's parts are left.
+  function expectNoIsomuxParts(): void {
+    expect(existsSync(personShare())).toBe(false);
+    expect(existsSync(etc(`${PERSON}.env`))).toBe(false);
+    expect(existsSync(mark())).toBe(false);
+    expect(existsSync(etc(`${PERSON}.made`))).toBe(false);
+  }
+  const goOnAt = () =>
+    log().findIndex(
+      (l) => l.startsWith("curl ") && l.endsWith("/member-user/go-on"),
+    );
+
+  it("adds the share, the mark, the linger and the unit, has the office prepare, and tells go-on the user is adopted", () => {
+    const result = adopt();
+    expect(result.code).toBe(0);
+    expectPersonUntouched();
+    expect(readFileSync(mark(), "utf8").split("\n")[0]).toBe(USER_ID);
+    expect(statSync(mark()).mode & 0o777).toBe(0o600);
+    expect(existsSync(etc(`${PERSON}.made`))).toBe(false);
+    expect(statSync(personShare()).mode & 0o7777).toBe(0o2750);
+    expect(readFileSync(etc(`${PERSON}.env`), "utf8")).toBe(
+      "ISOMUX_OFFICE_UID=1000\n",
+    );
+    expect(log()).toContain(`loginctl enable-linger ${PERSON}`);
+    expect(log()).toContain(`systemctl enable --now ${PERSON_UNIT}`);
+    expect(sent("prepare")).toEqual({
+      member: USER_ID,
+      osUser: PERSON,
+      uid: PERSON_UID,
+    });
+    expect(sent("go-on")).toEqual({
+      member: USER_ID,
+      osUser: PERSON,
+      uid: PERSON_UID,
+      adopted: true,
+    });
+    // The root check runs before go-on, after the unit.
+    expect(at("sudo -n -l -U")).toBeGreaterThan(at("systemctl enable --now"));
+    expect(at("sudo -n -l -U")).toBeLessThan(goOnAt());
+  });
+
+  it("reads the uid range of login users from login.defs", () => {
+    writeFileSync(
+      join(root, "login.defs"),
+      "# a comment\nUID_MIN\t\t\t  500\nUID_MAX\t\t\t60000\n",
+    );
+    person({ uid: 600 });
+    expect(adopt().code).toBe(0);
+    expect(sent("go-on")?.uid).toBe(600);
+  });
+
+  it("takes an agent space that an earlier enable left: a 0700 folder of the user", () => {
+    mkdirSync(join(home(), ".isomux-agent"), { mode: 0o700 });
+    chmodSync(join(home(), ".isomux-agent"), 0o700);
+    expect(adopt().code).toBe(0);
+  });
+
+  it("does not take --user and --existing-user together", () => {
+    const result = run(
+      "enable",
+      "Alice",
+      "--user",
+      "isomux-x",
+      "--existing-user",
+      PERSON,
+    );
+    expect(result.code).toBe(2);
+    expect(log().filter((l) => l.startsWith("curl")).length).toBe(0);
+  });
+
+  // Each case changes one property of the person, the member or the box.
+  const refusals: [string, () => void, string?][] = [
+    ["the user does not exist", () => {}, "carol"],
+    ["the name is not a user name", () => {}, "alice/../x"],
+    ["the uid is 0", () => person({ uid: 0 })],
+    ["the uid is the office's", () => person({ uid: 1000 })],
+    [
+      "the user is the office's user",
+      () => owner(join(root, "office-home"), 1000),
+      "office",
+    ],
+    ["the uid is below the login range", () => person({ uid: 999 })],
+    ["the uid is above the login range", () => person({ uid: 60001 })],
+    [
+      "login.defs puts the uid below the login range",
+      () => writeFileSync(join(root, "login.defs"), "UID_MIN 3000\n"),
+    ],
+    ["the shell is nologin", () => person({ shell: "/usr/sbin/nologin" })],
+    ["the shell is false", () => person({ shell: "/bin/false" })],
+    [
+      "this command made the user for another member",
+      () => writeFileSync(etc(`${PERSON}.made`), "u-another\n"),
+    ],
+    [
+      "this command made the user for this member",
+      () => writeFileSync(etc(`${PERSON}.made`), `${USER_ID}\n`),
+    ],
+    [
+      "another member's enable adopted the user",
+      () => writeFileSync(mark(), "u-another\nlinger=0\n"),
+    ],
+    [
+      "another uid owns the home",
+      () => {
+        writeFileSync(join(root, "stat-owner"), "");
+        owner(home(), 2999);
+      },
+    ],
+    [
+      "the home is a link",
+      () => {
+        const link = join(root, "people", "link");
+        symlinkSync(home(), link);
+        person({ home: link });
+        owner(link, PERSON_UID);
+      },
+    ],
+    [
+      "the home does not exist",
+      () => person({ home: join(root, "people", "gone") }),
+    ],
+    ["the home is /", () => person({ home: "/" })],
+    [
+      "the home is not normalised",
+      () => {
+        // The same folder, owned by the user: only the path's form differs.
+        const odd = `${root}/people/../people/${PERSON}`;
+        person({ home: odd });
+        owner(odd, PERSON_UID);
+      },
+    ],
+    [
+      "the home is in the office's state root",
+      () => {
+        const inState = join(root, "state", PERSON);
+        mkdirSync(inState);
+        person({ home: inState });
+        owner(inState, PERSON_UID);
+      },
+    ],
+    [
+      "the home is the office's home",
+      () => {
+        person({ home: join(root, "office-home") });
+        owner(join(root, "office-home"), PERSON_UID);
+      },
+    ],
+    [
+      "the home holds the office's home",
+      () => {
+        const officeHome = join(home(), "office");
+        mkdirSync(officeHome);
+        passwd("office", `office:x:1000:1000::${officeHome}:/bin/bash`);
+      },
+    ],
+    [
+      "the agent space is open to others",
+      () => mkdirSync(join(home(), ".isomux-agent"), { mode: 0o755 }),
+    ],
+    [
+      "the agent space is a link",
+      () => {
+        mkdirSync(join(root, "elsewhere"), { mode: 0o700 });
+        symlinkSync(join(root, "elsewhere"), join(home(), ".isomux-agent"));
+      },
+    ],
+    [
+      "another uid owns the agent space",
+      () => {
+        mkdirSync(join(home(), ".isomux-agent"), { mode: 0o700 });
+        writeFileSync(join(root, "stat-owner"), "");
+        owner(home(), PERSON_UID);
+        owner(join(home(), ".isomux-agent"), 2999);
+      },
+    ],
+    [
+      "the member already runs as another OS user",
+      () => memberInfo({ name: "isomux-old", uid: 2999 }),
+    ],
+    [
+      "the member is an owner",
+      () =>
+        answer("info", 200, {
+          ok: true,
+          userId: USER_ID,
+          role: "owner",
+          slug: "alice",
+          osUser: null,
+        }),
+    ],
+    [
+      "the install is the container's",
+      () => {
+        writeFileSync(
+          join(root, "update.conf"),
+          `SERVICE_USER=office\nSTATE_ROOT=${root}/state\nSERVICE_KIND=system\nDEPLOYMENT_KIND=inside-container\n`,
+        );
+        rmSync(join(root, "systemd"), { recursive: true });
+      },
+    ],
+  ];
+  for (const [name, setup, user] of refusals)
+    it(`refuses before any change when ${name}`, () => {
+      setup();
+      const result = run("enable", "Alice", "--existing-user", user ?? PERSON);
+      expect(result.code).not.toBe(0);
+      expect(result.stderr.length).toBeGreaterThan(0);
+      for (const change of [
+        "useradd",
+        "userdel",
+        "usermod",
+        "groupadd",
+        "install -d",
+        "loginctl",
+        "systemctl",
+        "pkill",
+        "python3",
+      ])
+        expect([change, called(change)]).toEqual([change, false]);
+      expect(sent("prepare")).toBeNull();
+      expect(sent("go-on")).toBeNull();
+      expect(existsSync(personShare())).toBe(false);
+      expect(existsSync(etc(`${PERSON}.env`))).toBe(false);
+      expect(statSync(home()).mode & 0o777).toBe(0o750);
+    });
+
+  // A failure after the first change: Isomux's parts go, the person's
+  // account, home and processes stay, and the linger is as it was.
+  const failures: [string, () => void][] = [
+    [
+      "the office refuses prepare",
+      () =>
+        answer("prepare", 500, {
+          ok: false,
+          error: "prepare_failed",
+          message: "disk full",
+        }),
+    ],
+    ["the unit does not start", () => fail("systemctl", "enable")],
+    [
+      "the office does not take the OS user",
+      () =>
+        answer("go-on", 200, {
+          ok: false,
+          ready: false,
+          reason: "the runner did not connect",
+        }),
+    ],
+  ];
+  for (const [name, setup] of failures)
+    for (const lingered of [false, true])
+      it(`undoes only its own parts when ${name}, with the linger ${lingered ? "on" : "off"} before`, () => {
+        setup();
+        if (lingered) lingers();
+        const result = adopt();
+        expect(result.code).toBe(1);
+        expectPersonUntouched();
+        expectNoIsomuxParts();
+        if (called("systemctl enable"))
+          expect(log()).toContain(`systemctl disable --now ${PERSON_UNIT}`);
+        // The linger was enabled before each of these failures.
+        expect(log()).toContain(`loginctl enable-linger ${PERSON}`);
+        expect(log().includes(`loginctl disable-linger ${PERSON}`)).toBe(
+          !lingered,
+        );
+      });
+
+  // Nil, 2026-11-17: a person's user that can become root is accepted, and
+  // the page warns. go-on hears rootCapable; a user the command makes is
+  // still refused (the enable cases above).
+  const rootWays: [string, () => void][] = [
+    [
+      "in a privileged group",
+      () => writeFileSync(join(root, "groups"), `${PERSON} sudo\n`),
+    ],
+    [
+      "with a sudo rule",
+      () => {
+        // A logging shim, as the others are.
+        writeFileSync(
+          join(root, "bin", "sudo"),
+          `#!/usr/bin/env bash\nprintf '%s' sudo >> "$T/log"; printf ' %q' "$@" >> "$T/log"; echo >> "$T/log"\necho "User may run the following commands: (ALL) ALL"\n`,
+        );
+        chmodSync(join(root, "bin", "sudo"), 0o755);
+      },
+    ],
+  ];
+  for (const [name, setup] of rootWays)
+    it(`takes a user that can become root (${name}) and tells go-on`, () => {
+      setup();
+      const result = adopt();
+      expect(result.code).toBe(0);
+      expectPersonUntouched();
+      expect(sent("go-on")).toEqual({
+        member: USER_ID,
+        osUser: PERSON,
+        uid: PERSON_UID,
+        adopted: true,
+        rootCapable: true,
+      });
+      // The root check still ran, before go-on.
+      expect(at("sudo -n -l -U")).toBeGreaterThan(-1);
+      expect(at("sudo -n -l -U")).toBeLessThan(goOnAt());
+    });
+
+  describe("disable", () => {
+    // A finished adopt, then the office's record of it.
+    function adopted(lingered: boolean): void {
+      if (lingered) lingers();
+      expect(adopt().code).toBe(0);
+      expect(existsSync(mark())).toBe(true);
+      memberInfo({ name: PERSON, uid: PERSON_UID });
+      fresh();
+    }
+
+    for (const lingered of [false, true])
+      it(`removes only Isomux's parts and puts the linger back ${lingered ? "on" : "off"}`, () => {
+        adopted(lingered);
+        const result = run("disable", "Alice");
+        expect(result.code).toBe(0);
+        expect(sent("disable")).toEqual({ member: USER_ID });
+        expect(log()).toContain(`systemctl disable --now ${PERSON_UNIT}`);
+        expectPersonUntouched();
+        expectNoIsomuxParts();
+        expect(called("atrm")).toBe(false);
+        expect(log().includes(`loginctl disable-linger ${PERSON}`)).toBe(
+          !lingered,
+        );
+      });
+
+    // The mark is the only thing on the box that says the user is a
+    // person's own. When it is gone (a wiped /etc/isomux, a restore), disable
+    // must still never end, lock or delete the user: only a user with this
+    // member's .made mark gets those steps.
+    it("never ends, locks or deletes the user when the mark is gone", () => {
+      adopted(false);
+      rmSync(mark());
+      const result = run("disable", "Alice");
+      expect(sent("disable")).toEqual({ member: USER_ID });
+      expect(log()).toContain(`systemctl disable --now ${PERSON_UNIT}`);
+      expect(result.code).toBe(0);
+      expectPersonUntouched();
+      expect(called("atrm")).toBe(false);
+      expect(existsSync(personShare())).toBe(false);
+      expect(existsSync(etc(`${PERSON}.env`))).toBe(false);
+    });
+
+    it("refuses --delete-user before any change", () => {
+      adopted(false);
+      const result = run("disable", "Alice", "--delete-user");
+      expect(result.code).toBe(1);
+      expect(result.stderr.length).toBeGreaterThan(0);
+      expect(sent("disable")).toBeNull();
+      for (const change of ["systemctl", "loginctl", "userdel", "usermod"])
+        expect([change, called(change)]).toEqual([change, false]);
+      expectPersonUntouched();
+      expect(existsSync(personShare())).toBe(true);
+      expect(existsSync(mark())).toBe(true);
+    });
+  });
+
+  describe("an adopt that go-on did not finish", () => {
+    function cut(): void {
+      rmSync(join(root, "answers", "go-on"));
+      expect(adopt().code).toBe(1);
+      expect(sent("go-on")).not.toBeNull();
+      // Kept for the rerun: the office may hold the record.
+      expect(existsSync(mark())).toBe(true);
+      expect(existsSync(personShare())).toBe(true);
+      expect(called("systemctl disable")).toBe(false);
+      expect(called("loginctl disable-linger")).toBe(false);
+      expectPersonUntouched();
+      answer("go-on", 200, { ok: true, ready: true });
+      memberInfo({ name: PERSON, uid: PERSON_UID });
+      fresh();
+    }
+
+    for (const extra of [[], ["--existing-user", PERSON]])
+      it(`finishes on a rerun of enable${extra.length ? " --existing-user" : ""}, and tells go-on the user is adopted`, () => {
+        cut();
+        const result = run("enable", "Alice", ...extra);
+        expect(result.code).toBe(0);
+        expectPersonUntouched();
+        const body = { member: USER_ID, osUser: PERSON, uid: PERSON_UID };
+        expect(sent("prepare")).toEqual(body);
+        expect(sent("go-on")).toEqual({ ...body, adopted: true });
+        for (const step of [
+          `systemctl enable --now ${PERSON_UNIT}`,
+          "sudo -n -l -U",
+        ])
+          expect([step, at(step) >= 0 && at(step) < goOnAt()]).toEqual([
+            step,
+            true,
+          ]);
+      });
+
+    it("finishes the rerun of a user that can become root, and tells go-on so", () => {
+      cut();
+      writeFileSync(join(root, "groups"), `${PERSON} sudo\n`);
+      const result = run("enable", "Alice");
+      expect(result.code).toBe(0);
+      expect(sent("go-on")).toEqual({
+        member: USER_ID,
+        osUser: PERSON,
+        uid: PERSON_UID,
+        adopted: true,
+        rootCapable: true,
+      });
+    });
+
+    it("refuses a rerun before any change when the mark names another member", () => {
+      cut();
+      writeFileSync(mark(), "u-another\nlinger=0\n");
+      const result = run("enable", "Alice");
+      expect(result.code).toBe(1);
+      for (const change of ["loginctl", "systemctl", "install -d"])
+        expect([change, called(change)]).toEqual([change, false]);
+      expect(sent("prepare")).toBeNull();
+      expect(sent("go-on")).toBeNull();
+    });
+  });
 });

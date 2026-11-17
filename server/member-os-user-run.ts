@@ -5,7 +5,10 @@
 // sudo, and never on Hosted; elsewhere the page shows the command to copy.
 //
 // The command is the root command's fixed path, the verb and the member id
-// (checked against its pattern): nothing a member typed reaches it.
+// (checked against its pattern): nothing a member typed reaches it. Task
+// e15a82e7: the owner's pick of the OS user adds --user <name> or
+// --existing-user <name>, the name checked against the root command's
+// pattern (which the root command checks again).
 
 import type { MemberOsUserWire } from "../shared/contract-shapes.ts";
 import type { UserRecord } from "../shared/types.ts";
@@ -16,6 +19,7 @@ import {
   clearMemberUserAttempt,
   type MemberUserSupport,
 } from "./member-os-user-view.ts";
+import { OS_USER_NAME_PATTERN } from "./member-os-users.ts";
 import {
   INVALID_SUDO_PASSWORD,
   isSudoPassword,
@@ -142,6 +146,30 @@ const refuse = (
   ...(detail ? { detail } : {}),
 });
 
+// The tail of the command for the owner's pick: "" (the default user),
+// " --user <name>" (a new user) or " --existing-user <name>". Enable only.
+function osUserPick(
+  body: Record<string, unknown>,
+  action: "enable" | "disable",
+): { ok: true; tail: string } | { ok: false; refusal: MemberOsUserRunResult } {
+  const { osUser, existing } = body;
+  const bad = (message: string) => ({
+    ok: false as const,
+    refusal: refuse(400, "invalid_os_user", message),
+  });
+  if (osUser === undefined && existing === undefined)
+    return { ok: true, tail: "" };
+  if (action !== "enable") return bad("osUser and existing are for enable");
+  if (existing !== undefined && typeof existing !== "boolean")
+    return bad("existing is true or false");
+  if (typeof osUser !== "string" || !OS_USER_NAME_PATTERN.test(osUser))
+    return bad("osUser is not a user name");
+  return {
+    ok: true,
+    tail: ` ${existing ? "--existing-user" : "--user"} ${osUser}`,
+  };
+}
+
 export function createMemberOsUserRun(
   deps: MemberOsUserRunDeps,
 ): MemberOsUserRun {
@@ -192,6 +220,8 @@ export function createMemberOsUserRun(
           : undefined;
       if (action !== "enable" && action !== "disable")
         return refuse(400, "invalid_action", 'action: "enable" or "disable"');
+      const pick = osUserPick(body as Record<string, unknown>, action);
+      if (!pick.ok) return pick.refusal;
       if (user.role === "owner")
         return refuse(
           409,
@@ -231,7 +261,7 @@ export function createMemberOsUserRun(
         let start: SudoStart;
         try {
           start = await deps.start({
-            command: `${MEMBER_USER_COMMAND_PATH} ${action} ${id}`,
+            command: `${MEMBER_USER_COMMAND_PATH} ${action} ${id}${pick.tail}`,
             cwd: "/",
             // Where sudo needs none, no typed text goes to its stdin.
             password: how === "password" ? (typed as string) : "",

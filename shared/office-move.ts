@@ -142,6 +142,9 @@ export type MoveMemberBlock =
   | "unfinished"
   | "busy"
   | "moved_in"
+  // Task e15a82e7: her OS user is a person's existing account; the move
+  // would carry that person's whole home.
+  | "adopted"
   | "bad_home"
   | "runner_down"
   | "wrong_runner"

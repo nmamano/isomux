@@ -21,6 +21,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -61,6 +62,10 @@ import {
   type MoveBatchItem,
 } from "./office-move-pull.ts";
 import type { AgentUnit } from "./office-move-units.ts";
+import {
+  MEMBER_OS_USERS_FILE,
+  memberOsUserRecordsForMove,
+} from "./member-os-users.ts";
 
 let dir = "";
 const servers: Server[] = [];
@@ -364,6 +369,56 @@ describe("D1, D2, C2, C5, C6: checkMoveMembers and the lock's refusal", () => {
       if ("broken" in c) throw new Error("broken");
       expect(c.members.map((m) => m.block)).toEqual(["old_runtime"]);
       expect(c.ready).toEqual([]);
+    }
+  });
+
+  // Task e15a82e7: a member who runs as a person's existing OS user. Her
+  // home is that person's whole home, so it never moves: the block says to
+  // turn her OS user off first, and her runner is never asked.
+  it("an adopted member is blocked as adopted, before her runner is asked; the record file carries it", async () => {
+    const adopted = {
+      adopted: true,
+    } as unknown as Partial<MoveMemberRecord>;
+    const bed = checkBed([
+      record("u-mia", "Mia", "isomux-mia", adopted),
+      record("u-sam", "Sam", "isomux-sam"),
+    ]);
+    const check = await checkMoveMembers(bed.deps);
+    if ("broken" in check) throw new Error("broken");
+    expect(check.members.map((m) => [m.userId, m.block])).toEqual([
+      ["u-mia", "adopted"],
+      ["u-sam", null],
+    ]);
+    expect(check.ready.map((m) => m.userId)).toEqual(["u-sam"]);
+    expect(bed.infoCalls).toEqual(["isomux-sam"]);
+    const refusal = moveMembersLockRefusal(check);
+    if (!refusal || "broken" in refusal) throw new Error("no refusal");
+    expect(refusal.names).toEqual(["Mia"]);
+
+    // From the record file, as the office reads it at the preflight.
+    const stateRoot = mkdtempSync(join(tmpdir(), "move-adopted-"));
+    try {
+      writeFileSync(
+        join(stateRoot, MEMBER_OS_USERS_FILE),
+        JSON.stringify({
+          "u-mia": { name: "isomux-mia", uid: 60001, adopted: true },
+          "u-sam": { name: "isomux-sam", uid: 60002 },
+        }),
+      );
+      const fromFile = await checkMoveMembers({
+        ...bed.deps,
+        records: () =>
+          memberOsUserRecordsForMove(stateRoot, (id) =>
+            id === "u-mia" ? "Mia" : "Sam",
+          ),
+      });
+      if ("broken" in fromFile) throw new Error("broken");
+      expect(fromFile.members.map((m) => [m.userId, m.block])).toEqual([
+        ["u-mia", "adopted"],
+        ["u-sam", null],
+      ]);
+    } finally {
+      rmSync(stateRoot, { recursive: true, force: true });
     }
   });
 

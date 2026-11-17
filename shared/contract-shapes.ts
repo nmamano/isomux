@@ -110,6 +110,16 @@ export interface MemberOsUserWire {
   // while their own OS user is off. Absent from an older server, and where
   // the server's uid has no passwd entry.
   officeOsUser?: string;
+  // Task e15a82e7. The existing OS users the owner can pick for this member:
+  // only on the installer's install, while the state is off.
+  candidates?: { name: string; uid: number }[];
+  // The name a new OS user gets unless the owner types another.
+  newUserName?: string;
+  // Their OS user is a person's existing account (enable --existing-user).
+  adopted?: true;
+  // That account can become root: the member is not separated from the
+  // office.
+  rootCapable?: true;
 }
 
 // POST /api/users/:username/os-user/run: the owner's Run (202 at the start).
@@ -117,7 +127,14 @@ export interface MemberOsUserRunReq {
   action: "enable" | "disable";
   // Only where run is "password".
   password?: string;
+  // Task e15a82e7, enable only: the OS user to make (--user), or with
+  // existing the existing one to take (--existing-user).
+  osUser?: string;
+  existing?: boolean;
 }
+// An OS user name that the root command takes (deploy/isomux-member-user.sh
+// NAME_RE): the server checks osUser against it, and the page a typed name.
+export const OS_USER_NAME_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
 export interface MemberOsUserRunRes {
   action: "enable" | "disable";
 }

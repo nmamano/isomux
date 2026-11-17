@@ -2,7 +2,7 @@
 // (internal-docs/member-os-user-design.md, sections 2.2 and 2.3):
 //   POST /admin/member-user/info     {member}
 //   POST /admin/member-user/prepare  {member, osUser, uid}
-//   POST /admin/member-user/go-on    {member, osUser, uid}
+//   POST /admin/member-user/go-on    {member, osUser, uid, adopted?, rootCapable?}
 //   POST /admin/member-user/disable  {member, keepFiles?, deleteMovedHome?}
 // Only a peer with uid 0 reaches them (server/admin-socket.ts). Where the
 // root command cannot run (memberUserSupport), each answers 409
@@ -43,6 +43,7 @@ import {
   memberOsUserState,
   OS_USER_NAME_PATTERN,
   recordMemberOsUser,
+  type MemberOsUserOrigin,
 } from "./member-os-users.ts";
 import {
   installMemberRuntime,
@@ -62,10 +63,13 @@ import type { MemberUserUnsupported } from "../shared/contract-shapes.ts";
 import {
   clearMemberUserAttempt,
   MEMBER_USER_COMMAND_PATH,
+  memberSlug,
   memberUserSupport,
   noteMemberUserAttempt,
   type MemberUserSupport,
 } from "./member-os-user-view.ts";
+
+export { memberSlug };
 
 type UserRecord = NonNullable<ReturnType<typeof getUserById>>;
 
@@ -269,18 +273,6 @@ function findMember(value: unknown): UserRecord | undefined {
   return getUserById(value) ?? getUserByName(value.trim());
 }
 
-// The default OS user name's suffix: the name in lowercase letters, digits
-// and dashes, so that isomux-<slug> fits the 32 characters of a user name.
-export function memberSlug(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 25)
-    .replace(/-+$/, "");
-  return slug || "member";
-}
-
 // The OS user named in the request, checked against the user database: the
 // uid and gid come from there, never from the request.
 function osUserOf(
@@ -322,6 +314,37 @@ function osUserOf(
       ),
     };
   return { ok: true, name, ...identity };
+}
+
+// Task e15a82e7: go-on's `adopted` and `rootCapable`, written to the record
+// on every call (a rerun clears what it does not send). rootCapable without
+// adopted is refused: a user the command made never becomes root.
+export function goOnOrigin(
+  body: Record<string, unknown>,
+):
+  { ok: true; origin: MemberOsUserOrigin } | { ok: false; response: Response } {
+  const { adopted, rootCapable } = body;
+  for (const [field, value] of [
+    ["adopted", adopted],
+    ["rootCapable", rootCapable],
+  ] as const)
+    if (value !== undefined && value !== true)
+      return {
+        ok: false,
+        response: refusal(400, "bad_origin", `${field} is true or absent`),
+      };
+  if (rootCapable && !adopted)
+    return {
+      ok: false,
+      response: refusal(400, "bad_origin", "rootCapable needs adopted"),
+    };
+  return {
+    ok: true,
+    origin: {
+      ...(adopted ? { adopted: true as const } : {}),
+      ...(rootCapable ? { rootCapable: true as const } : {}),
+    },
+  };
 }
 
 function ownerRefusal(user: UserRecord): Response | null {
@@ -504,6 +527,10 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
     }
   }
 
+  // Task e15a82e7: checked before anything is written or connected.
+  const origin = goOnOrigin(request);
+  if (!origin.ok) return origin.response;
+
   // Slice 5c-2 (D2): the place job of a moved-in member runs, or ended and
   // its outcome waits for this go-on.
   const job = placeJobs.get(user.id);
@@ -574,6 +601,13 @@ async function handleVerb(pathname: string, body: unknown): Promise<Response> {
       osUser,
       state.kind === "none",
       state.kind === "isolated" && !!state.unfinished,
+      origin.origin,
+      state.kind === "isolated"
+        ? {
+            ...(state.adopted ? { adopted: true as const } : {}),
+            ...(state.rootCapable ? { rootCapable: true as const } : {}),
+          }
+        : {},
     );
   } finally {
     goingOn.delete(user.id);
@@ -899,6 +933,10 @@ async function goOn(
   made: boolean,
   // The record said a move did not finish: a re-run that fails keeps it so.
   unfinished: boolean,
+  // Task e15a82e7: what this call writes to the record, and what a re-run
+  // that fails writes back.
+  origin: MemberOsUserOrigin,
+  oldOrigin: MemberOsUserOrigin,
 ): Promise<Response> {
   try {
     await deps.holdMember(userId);
@@ -932,7 +970,7 @@ async function goOn(
   recordMemberOsUser(
     userId,
     { name: osUser.name, uid: osUser.uid },
-    { moving: true },
+    { moving: true, ...origin },
   );
   forgetMemberCodeVerdicts(osUser.uid);
   let staged: StagedMove | null = null;
@@ -953,7 +991,7 @@ async function goOn(
         recordMemberOsUser(
           userId,
           { name: osUser.name, uid: osUser.uid },
-          { moving: unfinished },
+          { moving: unfinished, ...oldOrigin },
         );
     } catch (error) {
       console.error(
@@ -1008,7 +1046,7 @@ async function goOn(
   // with the same bytes as placed).
   let marked = false;
   try {
-    recordMemberOsUser(userId, { name: osUser.name, uid: osUser.uid });
+    recordMemberOsUser(userId, { name: osUser.name, uid: osUser.uid }, origin);
   } catch (error) {
     marked = true;
     console.error(

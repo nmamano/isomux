@@ -1505,3 +1505,92 @@ describe("go-on of a member who came with an office move", () => {
     expect(answer.body).toMatchObject({ ok: true, ready: true });
   });
 });
+
+// Task e15a82e7: go-on of a person's existing OS user. The root command
+// sends adopted (and rootCapable, for a user that can become root); go-on
+// writes both to the record on every call, so a rerun clears what it does
+// not send, and refuses rootCapable without adopted (a user the command made
+// never becomes root) and any value but true, before any write or connect.
+describe("go-on of an existing OS user", () => {
+  const goOnWith = (memberRef: string, extra: Record<string, unknown>) =>
+    call("go-on", {
+      member: memberRef,
+      osUser: "isomux-alice",
+      uid: MEMBER_UID,
+      ...extra,
+    });
+  const origin = (userId: string) => {
+    const state = memberOsUserState(userId) as {
+      adopted?: unknown;
+      rootCapable?: unknown;
+    };
+    return { adopted: state.adopted, rootCapable: state.rootCapable };
+  };
+
+  it("records adopted, and rootCapable with it, through a reload; a made user's go-on records neither", async () => {
+    const alice = member("Alice");
+    const bob = member("Bob");
+    deps();
+    expect((await goOn(bob, "isomux-alice")).body.ready).toBe(true);
+    expect(origin(bob)).toEqual({ adopted: undefined, rootCapable: undefined });
+    deps();
+    // Bob's record would take the user: drop it.
+    rmSync(memberOsUsersPath(), { force: true });
+    reloadMemberOsUsers();
+    expect((await goOnWith(alice, { adopted: true })).body.ready).toBe(true);
+    reloadMemberOsUsers();
+    expect(origin(alice)).toEqual({ adopted: true, rootCapable: undefined });
+    expect(
+      (await goOnWith(alice, { adopted: true, rootCapable: true })).body.ready,
+    ).toBe(true);
+    reloadMemberOsUsers();
+    expect(origin(alice)).toEqual({ adopted: true, rootCapable: true });
+  });
+
+  it("writes both on every call: a rerun that sends less clears the rest", async () => {
+    const alice = member("Alice");
+    deps();
+    await goOnWith(alice, { adopted: true, rootCapable: true });
+    expect(origin(alice)).toEqual({ adopted: true, rootCapable: true });
+    // The user lost sudo: the rerun sends adopted only.
+    expect((await goOnWith(alice, { adopted: true })).body.ready).toBe(true);
+    expect(origin(alice)).toEqual({ adopted: true, rootCapable: undefined });
+    expect((await goOn(alice)).body.ready).toBe(true);
+    expect(origin(alice)).toEqual({
+      adopted: undefined,
+      rootCapable: undefined,
+    });
+  });
+
+  for (const [label, extra] of [
+    ["rootCapable without adopted", { rootCapable: true }],
+    ["rootCapable with adopted false", { adopted: false, rootCapable: true }],
+    ["adopted that is not true", { adopted: "yes" }],
+    ["rootCapable that is not true", { adopted: true, rootCapable: 1 }],
+  ] as const)
+    it(`refuses ${label} before any write or connect`, async () => {
+      const alice = member("Alice");
+      deps();
+      const answer = await goOnWith(alice, extra);
+      expect([label, answer.status >= 400 && answer.status < 500]).toEqual([
+        label,
+        true,
+      ]);
+      expect(answer.body.ready).not.toBe(true);
+      expect(memberOsUserState(alice).kind).toBe("none");
+      expect(connects).toEqual([]);
+      // The enabling condition: the same go-on without the bad field goes on.
+      expect((await goOn(alice)).body.ready).toBe(true);
+    });
+
+  it("refuses rootCapable without adopted on the rerun of a recorded member, and keeps the record as it was", async () => {
+    const alice = member("Alice");
+    deps();
+    await goOnWith(alice, { adopted: true });
+    connects.length = 0;
+    const answer = await goOnWith(alice, { rootCapable: true });
+    expect(answer.status >= 400 && answer.status < 500).toBe(true);
+    expect(origin(alice)).toEqual({ adopted: true, rootCapable: undefined });
+    expect(connects).toEqual([]);
+  });
+});

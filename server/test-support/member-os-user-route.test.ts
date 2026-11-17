@@ -20,7 +20,7 @@ import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { MEMBER_USER_COMMAND_PATH } from "../member-os-user-view.ts";
-import { setMemberUserAdminDeps } from "../member-user-admin.ts";
+import { memberSlug, setMemberUserAdminDeps } from "../member-user-admin.ts";
 import type { MemberOsUserWire } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
@@ -133,9 +133,19 @@ describe("GET /api/users/:username/os-user", () => {
     expect(view.state).toBe("off");
     expect(view.run).toBeNull();
     // officeOsUser is the office's OS user, not the member's (task 83ebaa3c).
+    // newUserName is the default new user's name, from the member's slug
+    // (task e15a82e7): letters, digits and dashes only.
     expect(Object.keys(view).sort()).toEqual(
-      ["commands", "support", "run", "state", "officeOsUser"].sort(),
+      [
+        "commands",
+        "support",
+        "run",
+        "state",
+        "officeOsUser",
+        "newUserName",
+      ].sort(),
     );
+    expect(view.newUserName).toBe(`isomux-${memberSlug("Mia")}`);
     expect(view.officeOsUser).toBe(userInfo().username);
     expect(view.commands?.enable.endsWith(`enable ${o.ids.mia}`)).toBe(true);
     // An owner never gets an OS user: no command.

@@ -26,7 +26,10 @@ import {
   MEMBER_USER_COMMAND_PATH,
   memberUserSupport,
   type MemberUserSupportInput,
+  MEMBER_USER_CANDIDATES_MAX,
   memberOsUserView,
+  memberUserCandidates,
+  type MemberUserCandidatesInput,
   memberUserCommands,
   type MemberUserSupport,
   noteMemberUserAttempt,
@@ -48,6 +51,7 @@ import {
   resetMemberHosts,
 } from "./member-hosts.ts";
 import { createMember, deleteUserById } from "./users.ts";
+import { memberSlug } from "./member-user-admin.ts";
 import type { UpdateConfRead } from "./update-conf.ts";
 import {
   isolateMember,
@@ -538,5 +542,210 @@ describe("the attempt", () => {
     noteMemberUserAttempt("ffffffff", "enable", "failed", "other", NOW);
     expect(attemptAt(NOW)).toBeUndefined();
     resetMemberUserAttempts();
+  });
+});
+
+// Task e15a82e7: the existing OS users an owner can pick for a member, and
+// what the page needs to pick one. The properties:
+// - a candidate is a login user: a passwd entry with a name of the root
+//   command's pattern, a uid in UID_MIN..UID_MAX of login.defs (defaults
+//   1000..60000, both ends in), a login shell; never the office's user, a
+//   user a member runs as or a user the root command made; each name once,
+//   sorted by name, at most MEMBER_USER_CANDIDATES_MAX;
+// - the view carries the candidates only while off, on the installer's
+//   install; the new user's default name while off; adopted and rootCapable
+//   from the record.
+describe("the candidates", () => {
+  const line = (name: string, uid: number, shell = "/bin/bash") =>
+    `${name}:x:${uid}:${uid}:${name}:/home/${name}:${shell}`;
+  const input = (
+    lines: string[],
+    over: Partial<MemberUserCandidatesInput> = {},
+  ): MemberUserCandidatesInput => ({
+    passwd: lines.join("\n") + "\n",
+    loginDefs: "",
+    officeOsUser: "isomux",
+    taken: [],
+    made: [],
+    ...over,
+  });
+  const names = (i: MemberUserCandidatesInput) =>
+    memberUserCandidates(i).map((c) => c.name);
+
+  it("are login users with their uid, sorted by name", () => {
+    expect(
+      memberUserCandidates(
+        input([line("carol", 1500, "/bin/zsh"), line("bob", 1001)]),
+      ),
+    ).toEqual([
+      { name: "bob", uid: 1001 },
+      { name: "carol", uid: 1500 },
+    ]);
+  });
+
+  it("leave out system users, users out of the uid range and users with no login shell, and keep both ends of the range", () => {
+    const lines = [
+      line("root", 0),
+      line("daemon", 1, "/usr/sbin/nologin"),
+      line("svc", 999),
+      line("low", 1000),
+      line("high", 60000),
+      line("over", 60001),
+      line("nobody", 65534, "/usr/sbin/nologin"),
+      line("nolog1", 1100, "/usr/sbin/nologin"),
+      line("nolog2", 1101, "/sbin/nologin"),
+      line("false1", 1102, "/bin/false"),
+      line("false2", 1103, "/usr/bin/false"),
+      line("dana", 1200),
+    ];
+    expect(names(input(lines))).toEqual(["dana", "high", "low"]);
+  });
+
+  it("take the uid range from login.defs, its comments and spacing aside, and the defaults for a value that does not parse", () => {
+    const lines = [line("a1", 600), line("a2", 1500), line("a3", 2500)];
+    expect(
+      names(
+        input(lines, {
+          loginDefs:
+            "# UID_MIN 3000\nUID_MIN\t\t\t 500\n  UID_MAX   2000\nSYS_UID_MAX 499\n",
+        }),
+      ),
+    ).toEqual(["a1", "a2"]);
+    expect(
+      names(input(lines, { loginDefs: "UID_MIN lots\nUID_MAX -5\n" })),
+    ).toEqual(["a2", "a3"]);
+  });
+
+  it("leave out the office's user, a user a member runs as and a user the root command made", () => {
+    const lines = [
+      line("isomux", 1001),
+      line("isomux-mia", 1002),
+      line("isomux-old", 1003),
+      line("erin", 1004),
+    ];
+    expect(
+      names(input(lines, { taken: ["isomux-mia"], made: ["isomux-old"] })),
+    ).toEqual(["erin"]);
+    // The office's user is left out by name, whatever its uid.
+    expect(names(input(lines, { officeOsUser: null }))).toContain("isomux");
+  });
+
+  it("leave out a name a root command line cannot hold, and a line that does not parse", () => {
+    const lines = [
+      line("Upper", 1001),
+      line("dot.name", 1002),
+      line("-dash", 1003),
+      line("x".repeat(33), 1004),
+      "bad:x:notanumber:1:::/bin/bash",
+      "short:x:1005",
+      "",
+      line("fine", 1006),
+    ];
+    expect(names(input(lines))).toEqual(["fine"]);
+  });
+
+  it("name each user once (a local and a directory entry)", () => {
+    expect(
+      memberUserCandidates(input([line("gus", 1001), line("gus", 1001)])),
+    ).toEqual([{ name: "gus", uid: 1001 }]);
+  });
+
+  it(`are at most MEMBER_USER_CANDIDATES_MAX, the first ones by name`, () => {
+    const lines = Array.from(
+      { length: MEMBER_USER_CANDIDATES_MAX + 20 },
+      (_, n) => line(`u${String(n).padStart(4, "0")}`, 1001 + n),
+    ).reverse();
+    const got = names(input(lines));
+    expect(got.length).toBe(MEMBER_USER_CANDIDATES_MAX);
+    expect(got[0]).toBe("u0000");
+    expect(got.at(-1)).toBe(
+      `u${String(MEMBER_USER_CANDIDATES_MAX - 1).padStart(4, "0")}`,
+    );
+  });
+});
+
+describe("the view's fields for an existing OS user", () => {
+  const CANDIDATES = [
+    { name: "bob", uid: 1001 },
+    { name: "carol", uid: 1500 },
+  ];
+  // The view of a member named "Mia Lopez", with the candidates the route
+  // read (a variable: the stub's opts type may not name them yet).
+  const viewOf = (
+    support: MemberUserSupport,
+    candidates: { name: string; uid: number }[] | null = CANDIDATES,
+  ) => {
+    const user = { id: ID, role: "member" as const, name: "Mia Lopez" };
+    const opts = { support, now: NOW, candidates };
+    return memberOsUserView(user, opts);
+  };
+
+  it("carries the candidates only while off on the installer's install, and the new user's default name while off", () => {
+    expect(viewOf(INSTALLER)).toMatchObject({
+      state: "off",
+      candidates: CANDIDATES,
+      newUserName: `isomux-${memberSlug("Mia Lopez")}`,
+    });
+    // An empty list is a list (an LDAP box lists no directory users).
+    expect(viewOf(INSTALLER, []).candidates).toEqual([]);
+    // No list read: none on the wire.
+    expect(viewOf(INSTALLER, null).candidates).toBeUndefined();
+    for (const support of [
+      CONTAINER,
+      { ok: true, shape: "docker" } as MemberUserSupport,
+    ]) {
+      const v = viewOf(support);
+      expect([support, v.candidates, v.newUserName]).toEqual([
+        support,
+        undefined,
+        `isomux-${memberSlug("Mia Lopez")}`,
+      ]);
+    }
+    const unsupported = viewOf(UNSUPPORTED);
+    expect([unsupported.candidates, unsupported.newUserName]).toEqual([
+      undefined,
+      undefined,
+    ]);
+    recordMemberOsUser(ID, { name: "isomux-mia", uid: 2001 });
+    const on = viewOf(INSTALLER);
+    expect([on.state, on.candidates, on.newUserName]).toEqual([
+      "not_ready",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("says adopted and rootCapable as the record does, also after a reload, and neither for a made user", () => {
+    recordMemberOsUser(ID, { name: "isomux-mia", uid: 2001 });
+    const made = viewOf(INSTALLER);
+    expect([made.adopted, made.rootCapable]).toEqual([undefined, undefined]);
+    recordMemberOsUser(ID, { name: "bob", uid: 1001 }, { adopted: true });
+    reloadMemberOsUsers();
+    const adopted = viewOf(INSTALLER);
+    expect([
+      adopted.osUser?.name,
+      adopted.adopted,
+      adopted.rootCapable,
+    ]).toEqual(["bob", true, undefined]);
+    recordMemberOsUser(
+      ID,
+      { name: "bob", uid: 1001 },
+      { adopted: true, rootCapable: true },
+    );
+    reloadMemberOsUsers();
+    const capable = viewOf(INSTALLER);
+    expect([capable.adopted, capable.rootCapable]).toEqual([true, true]);
+  });
+
+  it("never says rootCapable without adopted, whatever the file holds", () => {
+    writeFileSync(
+      memberOsUsersPath(),
+      JSON.stringify({ [ID]: { name: "bob", uid: 1001, rootCapable: true } }),
+    );
+    reloadMemberOsUsers();
+    const v = viewOf(INSTALLER);
+    // The enabling condition: the entry was read (as a user, or as broken).
+    expect(v.state).not.toBe("off");
+    expect(v.rootCapable).toBeUndefined();
   });
 });

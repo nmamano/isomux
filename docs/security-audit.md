@@ -82,6 +82,7 @@ What stays open:
 - A service of the office's user on the loopback address without its own sign-in is reachable from any OS user on the machine. The office's own services check a token or a password.
 - With the Claude token for members with their own OS user set, their agents can read that token.
 - Their agents can see the process lists of other users.
+- An owner can give them an existing account that can become root (sudo). Then none of this section holds for them, and the page says so.
 
 ---
 

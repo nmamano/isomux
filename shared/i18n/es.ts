@@ -605,6 +605,17 @@ Cosas que puedes hacer por él:
     "Demasiadas contraseñas incorrectas. Vuelve a intentarlo en {minutes} min.",
   "settings.osUser.runInProgress":
     "El comando de este miembro está en ejecución. Vuelve a intentarlo cuando termine.",
+  "settings.osUser.pick": "Ejecutar sus agentes como",
+  "settings.osUser.pickOffice": "{name} (el usuario del sistema de la oficina)",
+  "settings.osUser.pickOfficeUnnamed": "El usuario del sistema de la oficina",
+  "settings.osUser.pickNew": "Usuario nuevo…",
+  "settings.osUser.pickOther": "Otro usuario existente…",
+  "settings.osUser.newName": "Nombre del usuario nuevo",
+  "settings.osUser.existingName": "Nombre del usuario existente",
+  "settings.osUser.adopted":
+    "Al desactivarlo, esta cuenta existente se mantiene y solo se elimina lo que añadió Isomux.",
+  "settings.osUser.rootCapable":
+    "{name} puede convertirse en root, así que sus agentes pueden leer los archivos y los secretos de la oficina.",
   "settings.osUser.unsupported.notLinux":
     "No se puede cambiar: la oficina no se ejecuta en Linux.",
   "settings.osUser.unsupported.kubernetes":
@@ -3725,6 +3736,8 @@ Cosas que puedes hacer por él:
     "En la oficina antigua, sus archivos se están trasladando. Vuelve a comprobar cuando termine.",
   "officeMove.in.members.old.movedIn":
     "Llegaron a la oficina antigua con un traslado anterior, y el comando de activación aún no se ha ejecutado allí.",
+  "officeMove.in.members.old.adopted":
+    "En la oficina antigua, se ejecutan como un usuario del sistema existente, que no se puede trasladar. Desactiva allí primero su usuario del sistema.",
   "officeMove.in.members.old.badHome":
     "En la oficina antigua, su carpeta personal no se puede trasladar.",
   "officeMove.in.members.old.runnerDown":

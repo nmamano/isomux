@@ -109,6 +109,9 @@ export interface MoveMemberRecord {
   unfinished: boolean;
   /** She came with a move; the enable command has not run here (5c-2). */
   movedIn: boolean;
+  /** Task e15a82e7: she runs as a person's existing OS user (enable
+   *  --existing-user); a move would carry that person's whole home. */
+  adopted?: boolean;
 }
 
 export interface MoveMembersDeps {
@@ -240,6 +243,10 @@ export async function checkMoveMembers(
     }
     if (rec.movedIn) {
       block("moved_in");
+      continue;
+    }
+    if (rec.adopted) {
+      block("adopted");
       continue;
     }
     const pw = deps.passwd(os.name);

@@ -558,6 +558,17 @@ export const zh: Catalog = {
   "settings.osUser.containerName": "请把 CONTAINER 换成办公室容器的名称。",
   "settings.osUser.runLocked": "密码错误次数过多。请在 {minutes} 分钟后重试。",
   "settings.osUser.runInProgress": "此成员的命令正在运行。请在它结束后重试。",
+  "settings.osUser.pick": "以此身份运行其代理",
+  "settings.osUser.pickOffice": "{name}（办公室的系统用户）",
+  "settings.osUser.pickOfficeUnnamed": "办公室的系统用户",
+  "settings.osUser.pickNew": "新系统用户…",
+  "settings.osUser.pickOther": "其他已有系统用户…",
+  "settings.osUser.newName": "新系统用户名",
+  "settings.osUser.existingName": "已有系统用户名",
+  "settings.osUser.adopted":
+    "关闭后会保留这个已有账户，只移除 Isomux 添加的内容。",
+  "settings.osUser.rootCapable":
+    "{name} 可以成为 root，因此其代理可以读取办公室的文件和机密。",
   "settings.osUser.unsupported.notLinux": "无法更改：办公室不在 Linux 上运行。",
   "settings.osUser.unsupported.kubernetes":
     "无法更改：在 Kubernetes 上，办公室的 pod 不能以 root 身份运行命令。",
@@ -3333,6 +3344,8 @@ export const zh: Catalog = {
     "在旧办公室，他们的文件正在迁移。结束后请重新检查。",
   "officeMove.in.members.old.movedIn":
     "他们是随之前的一次迁移来到旧办公室的，那里还没有运行开启命令。",
+  "officeMove.in.members.old.adopted":
+    "在旧办公室，他们以一个已有的系统用户运行，该用户无法迁移。请先在那里关闭其系统用户。",
   "officeMove.in.members.old.badHome": "在旧办公室，他们的主文件夹无法迁移。",
   "officeMove.in.members.old.runnerDown": "在旧办公室，其系统用户没有响应。",
   "officeMove.in.members.old.wrongRunner":

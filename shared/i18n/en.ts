@@ -610,6 +610,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Too many wrong passwords. Try again in {minutes} min.",
   "settings.osUser.runInProgress":
     "The command for this member is running. Try again when it ends.",
+  "settings.osUser.pick": "Run their agents as",
+  "settings.osUser.pickOffice": "{name} (the office's OS user)",
+  "settings.osUser.pickOfficeUnnamed": "The office's OS user",
+  "settings.osUser.pickNew": "New user…",
+  "settings.osUser.pickOther": "Other existing user…",
+  "settings.osUser.newName": "New user name",
+  "settings.osUser.existingName": "Existing user name",
+  "settings.osUser.adopted":
+    "Turning it off keeps this existing account and removes only what Isomux added.",
+  "settings.osUser.rootCapable":
+    "{name} can become root, so their agents can read the office's files and secrets.",
   "settings.osUser.unsupported.notLinux":
     "Cannot be changed: the office does not run on Linux.",
   "settings.osUser.unsupported.kubernetes":
@@ -3617,6 +3628,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "On the old office, their files are moving. Check again when that ends.",
   "officeMove.in.members.old.movedIn":
     "They came to the old office with an earlier move, and the turn-on command has not run there yet.",
+  "officeMove.in.members.old.adopted":
+    "On the old office, they run as an existing OS user, which cannot move. Turn their OS user off there first.",
   "officeMove.in.members.old.badHome":
     "On the old office, their home folder cannot move.",
   "officeMove.in.members.old.runnerDown":

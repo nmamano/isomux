@@ -622,3 +622,164 @@ it("a member who came with an office move: her own state and hints, the enable a
   expect(moved.hints[1]).not.toBe(plain.hints[1]);
   for (const h of moved.hints) expect(h).not.toBe("");
 });
+
+// Task e15a82e7: the owner picks the member's OS user. While off, a server
+// that sends newUserName gets a picker (member-os-user-pick): the office's
+// user (the current one, picked at first, no command), each candidate
+// ("existing:<name>"), a new user ("new", a name field that starts with
+// newUserName) and, where candidates come (the installer's install), another
+// existing user by name ("other"). The command line and Run carry the pick;
+// a name off the pattern gives no command and no Run. On: an adopted user
+// says so, and a root-capable one shows the warning.
+const pickOf = (m: Awaited<ReturnType<typeof mount>>) =>
+  m.q("member-os-user-pick") as HTMLSelectElement | null;
+const optionValues = (m: Awaited<ReturnType<typeof mount>>) =>
+  [...(pickOf(m)?.options ?? [])].map((o) => o.value);
+const commandLines = (m: Awaited<ReturnType<typeof mount>>) =>
+  [
+    ...m.rendered.container.querySelectorAll<HTMLElement>(
+      '[data-testid="member-os-user-command"]',
+    ),
+  ].map((el) => el.textContent);
+const pick = async (m: Awaited<ReturnType<typeof mount>>, value: string) => {
+  await act(async () => {
+    fireEvent.change(pickOf(m)!, { target: { value } });
+  });
+  await settle();
+};
+const picker = (over: Partial<MemberOsUserWire> = {}) =>
+  view({
+    officeOsUser: "svc-office",
+    newUserName: "isomux-mia",
+    candidates: [
+      { name: "bob", uid: 1001 },
+      { name: "carol", uid: 1500 },
+    ],
+    run: "no_password",
+    ...over,
+  });
+
+it("picks the office's user first, with no command, then lists each candidate, a new user and another existing user", async () => {
+  answers = [picker()];
+  const m = await mount();
+  expect(pickOf(m)?.value).toBe("office");
+  expect(optionValues(m)).toEqual([
+    "office",
+    "existing:bob",
+    "existing:carol",
+    "new",
+    "other",
+  ]);
+  // The office's user is named in its option.
+  expect(pickOf(m)?.options[0].textContent).toContain("svc-office");
+  expect(commandLines(m)).toEqual([]);
+  expect(runButtons(m).length).toBe(0);
+});
+
+it("a candidate gives the enable command with --existing-user, and Run sends it", async () => {
+  answers = [picker()];
+  const m = await mount();
+  await pick(m, "existing:carol");
+  expect(commandLines(m)).toEqual([`${COMMANDS.enable} --existing-user carol`]);
+  await click(runButtons(m)[0]);
+  expect(posts).toEqual([
+    { action: "enable", osUser: "carol", existing: true },
+  ]);
+});
+
+it("a new user starts with the default name, follows the field, and gives no command or Run for a name off the pattern", async () => {
+  answers = [picker()];
+  const m = await mount();
+  await pick(m, "new");
+  const field = m.q("member-os-user-new-name") as HTMLInputElement;
+  expect(field.value).toBe("isomux-mia");
+  expect(commandLines(m)).toEqual([`${COMMANDS.enable} --user isomux-mia`]);
+  await typeInto(field, "isomux-mia2");
+  expect(commandLines(m)).toEqual([`${COMMANDS.enable} --user isomux-mia2`]);
+  await click(runButtons(m)[0]);
+  expect(posts).toHaveLength(1);
+  const sentBody = posts[0] as Record<string, unknown>;
+  expect([
+    sentBody.action,
+    sentBody.osUser,
+    sentBody.existing === true,
+  ]).toEqual(["enable", "isomux-mia2", false]);
+  for (const bad of ["Mia Lopez", "mia;id", "-x", ""]) {
+    await typeInto(m.q("member-os-user-new-name") as HTMLInputElement, bad);
+    expect({ bad, lines: commandLines(m) }).toEqual({ bad, lines: [] });
+    expect({
+      bad,
+      runs: runButtons(m).filter((b) => !b.disabled).length,
+    }).toEqual({ bad, runs: 0 });
+  }
+});
+
+it("another existing user is typed by name: --existing-user with that name, nothing while the field is empty", async () => {
+  answers = [picker({ candidates: [] })];
+  const m = await mount();
+  // An empty list still offers another existing user (an LDAP box).
+  expect(optionValues(m)).toEqual(["office", "new", "other"]);
+  await pick(m, "other");
+  const field = m.q("member-os-user-existing-name") as HTMLInputElement;
+  expect(field.value).toBe("");
+  expect(commandLines(m)).toEqual([]);
+  await typeInto(field, "dana");
+  expect(commandLines(m)).toEqual([`${COMMANDS.enable} --existing-user dana`]);
+  await click(runButtons(m)[0]);
+  expect(posts).toEqual([{ action: "enable", osUser: "dana", existing: true }]);
+});
+
+it("offers no existing user where no candidates come (a container), only a new one", async () => {
+  answers = [picker({ candidates: undefined })];
+  const m = await mount();
+  expect(optionValues(m)).toEqual(["office", "new"]);
+  await pick(m, "new");
+  expect(commandLines(m)).toEqual([`${COMMANDS.enable} --user isomux-mia`]);
+});
+
+it("Copy copies the command with the pick", async () => {
+  answers = [picker()];
+  const m = await mount();
+  await pick(m, "existing:bob");
+  // The Copy button beside the command line.
+  const copy = m
+    .q("member-os-user-command")
+    ?.parentElement?.querySelector<HTMLButtonElement>("button");
+  expect(copy ? copy.tagName : null).toBe("BUTTON");
+  await click(copy!);
+  expect(copied).toEqual([`${COMMANDS.enable} --existing-user bob`]);
+});
+
+it("on: says an adopted user is the person's own, and warns only for a root-capable one", async () => {
+  const osUser = { name: "bob", uid: 1001 };
+  const stateOf = async (over: Partial<MemberOsUserWire>) => {
+    answers = [view({ state: "on", osUser, ...over })];
+    const m = await mount();
+    const out = {
+      adopted: m.q("member-os-user-state")?.dataset.adopted ?? null,
+      warning: m.q("member-os-user-root-capable") !== null,
+      lines: commandLines(m),
+      picker: pickOf(m) !== null,
+    };
+    m.rendered.unmount();
+    return out;
+  };
+  expect(await stateOf({})).toEqual({
+    adopted: null,
+    warning: false,
+    lines: [COMMANDS.disable],
+    picker: false,
+  });
+  expect(await stateOf({ adopted: true })).toEqual({
+    adopted: "true",
+    warning: false,
+    lines: [COMMANDS.disable],
+    picker: false,
+  });
+  expect(await stateOf({ adopted: true, rootCapable: true })).toEqual({
+    adopted: "true",
+    warning: true,
+    lines: [COMMANDS.disable],
+    picker: false,
+  });
+});

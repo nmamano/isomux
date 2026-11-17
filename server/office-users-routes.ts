@@ -3,8 +3,11 @@
 // removed members (list, restore, purge). Moved out of buildExecutorDeps in
 // server/isomux-office.ts, which registers them and keeps their
 // userDeleteNotSelfOwner and userDeleteNotLastOwner preconditions.
-import { hasMemberOsUser } from "./member-os-users.ts";
-import { memberOsUserView } from "./member-os-user-view.ts";
+import { hasMemberOsUser, memberOsUserState } from "./member-os-users.ts";
+import {
+  memberOsUserView,
+  readMemberUserCandidates,
+} from "./member-os-user-view.ts";
 import type { MemberOsUserRun } from "./member-os-user-run.ts";
 import { memberUsersSupport } from "./member-user-admin.ts";
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
@@ -399,11 +402,19 @@ export function createUsersRoutes(
       const user = getUser(username);
       if (!user) return null;
       const run = await memberOsUserRun.mode();
+      const support = memberUsersSupport();
+      // Task e15a82e7: the existing users to pick, only where the page shows
+      // them (memberOsUserView).
+      const candidates =
+        user.role !== "owner" &&
+        support.ok &&
+        support.shape === "installer" &&
+        memberOsUserState(user.id).kind === "none"
+          ? await readMemberUserCandidates()
+          : null;
       // The member may be gone during the probe.
       const now = getUserById(user.id);
-      return now
-        ? memberOsUserView(now, { support: memberUsersSupport(), run })
-        : null;
+      return now ? memberOsUserView(now, { support, run, candidates }) : null;
     },
     runMemberOsUser: async (username, body) => {
       const user = getUser(username);
