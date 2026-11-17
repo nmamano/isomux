@@ -17,7 +17,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
-import { getAppFilter, setAppFilter } from "../device-settings.ts";
+import {
+  getAppFilter,
+  getAppsLayout,
+  setAppFilter,
+  setAppsLayout,
+} from "../device-settings.ts";
 import {
   appRoomId,
   effectiveRoomFilter,
@@ -354,6 +359,22 @@ function RestartIcon({ size }: { size: number }) {
 
 const THUMB_RADIUS = 8;
 
+// Keeps a held line at its height: an empty element collapses.
+const BLANK = "\u00a0";
+
+// The thumbnail's box. A held row draws it empty, so it keeps the row's
+// height while the list loads (task 29594d38).
+function thumbBox(isMobile: boolean): React.CSSProperties {
+  return {
+    flexShrink: 0,
+    width: isMobile ? 112 : 160,
+    aspectRatio: "16 / 10",
+    borderRadius: THUMB_RADIUS,
+    border: "1px solid var(--border-light)",
+    background: "var(--bg-code, var(--bg-base))",
+  };
+}
+
 /**
  * The app's picture, and the main way to act on the app: a running app's
  * thumbnail opens it, a stopped one's starts it. The corner badge says so on
@@ -382,20 +403,15 @@ function AppThumbnail({
   const version = app.thumbnailUpdatedAt;
   const src = version === failedVersion ? null : appThumbnailSrc(app);
   const running = appSection(app) === "running";
-  const width = isMobile ? 112 : 160;
   const frame: React.CSSProperties = {
+    ...thumbBox(isMobile),
     position: "relative",
     display: "block",
-    flexShrink: 0,
-    width,
-    aspectRatio: "16 / 10",
     padding: 0,
     // The thumbnail of a running app is a link; its letter fallback is not
     // link text.
     textDecoration: "none",
-    borderRadius: THUMB_RADIUS,
     border: `1px solid ${hover && !disabled ? "var(--accent)" : "var(--border-light)"}`,
-    background: "var(--bg-code, var(--bg-base))",
     overflow: "hidden",
     cursor: running || (verb && !disabled) ? "pointer" : "default",
     transition: "transform 0.12s, box-shadow 0.12s, border-color 0.12s",
@@ -1081,6 +1097,31 @@ export function AppsView({
   };
   for (const app of shown) bySection[appSection(app)].push(app);
 
+  // Until the list answers, the page holds the layout it showed when it last
+  // loaded on this device (task 29594d38). A failed first load keeps the
+  // held shape; the error line says why it stays blank.
+  const [held] = useState(getAppsLayout);
+  const holding = !appsLoaded;
+  const loadingText = error ? BLANK : t("common.loading");
+  const filtersShown = appsLoaded ? sorted.length > 0 : held.filters;
+  const counts = {
+    running: bySection.running.length,
+    stopped: bySection.stopped.length,
+    archived: bySection.archived.length,
+  };
+  useEffect(() => {
+    if (!appsLoaded) return;
+    setAppsLayout({ filters: filtersShown, ...counts });
+    // counts is rebuilt each render; its numbers are the dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    appsLoaded,
+    filtersShown,
+    counts.running,
+    counts.stopped,
+    counts.archived,
+  ]);
+
   function renderRow(app: AppListWire) {
     const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
     const linkHref = appLinkHref(
@@ -1290,16 +1331,64 @@ export function AppsView({
     );
   }
 
+  // A blank row with the lines every row has, so a held section is as tall as
+  // the loaded one. The first held row says the list loads.
+  const firstHeldSection: AppSection = held.running > 0 ? "running" : "stopped";
+  function renderHeldRow(first: boolean, key: string) {
+    const line = (fontSize: number, text: string = BLANK) => (
+      <div style={{ fontSize, color: "var(--text-muted)" }}>{text}</div>
+    );
+    return (
+      <div
+        key={key}
+        data-app-held-row=""
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isMobile ? 12 : 14,
+          padding: "12px 0",
+          borderBottom: "1px solid var(--border-subtle)",
+          minWidth: 0,
+        }}
+      >
+        <div style={thumbBox(isMobile)} />
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          {line(14, first ? loadingText : BLANK)}
+          {line(12)}
+          {line(11)}
+        </div>
+      </div>
+    );
+  }
+
+  // A section with its rows; while the list loads, with `count` held rows.
   function renderSection(section: AppSection) {
     const list = bySection[section];
-    if (list.length === 0) return null;
+    const count = holding ? held[section] : list.length;
+    if (count === 0) return null;
     const collapsible = section === "archived";
-    const open = !collapsible || archivedOpen;
+    // Archived opens collapsed, so while held it is a closed header only.
+    const open = !collapsible || (archivedOpen && !holding);
     const label = (
       <>
         {t(SECTION_LABELS[section])}
-        <span style={{ fontWeight: 400, color: "var(--text-hint)" }}>
-          {list.length}
+        {/* One digit's room from the start, so a held count does not grow. */}
+        <span
+          style={{
+            fontWeight: 400,
+            color: "var(--text-hint)",
+            minWidth: "1ch",
+          }}
+        >
+          {holding ? BLANK : count}
         </span>
         {collapsible && <ChevronIcon open={open} />}
       </>
@@ -1311,8 +1400,12 @@ export function AppsView({
             <button
               type="button"
               aria-expanded={open}
+              disabled={holding}
               onClick={() => setArchivedOpen(!open)}
-              style={{ ...sectionLabelStyle, cursor: "pointer" }}
+              style={{
+                ...sectionLabelStyle,
+                cursor: holding ? "default" : "pointer",
+              }}
             >
               {label}
             </button>
@@ -1330,7 +1423,14 @@ export function AppsView({
               columnGap: 36,
             }}
           >
-            {list.map(renderRow)}
+            {holding
+              ? Array.from({ length: count }, (_, i) =>
+                  renderHeldRow(
+                    section === firstHeldSection && i === 0,
+                    `held${i}`,
+                  ),
+                )
+              : list.map(renderRow)}
           </div>
         )}
       </section>
@@ -1383,15 +1483,18 @@ export function AppsView({
           ←
         </button>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{t("common.apps")}</div>
+        {/* Room for the count from the start, so it does not grow in. */}
         <div
           style={{
             marginLeft: "auto",
+            minWidth: "7ch",
+            textAlign: "right",
             fontSize: 11,
             color: "var(--text-muted)",
           }}
         >
           {!appsLoaded
-            ? ""
+            ? BLANK
             : shown.length < sorted.length
               ? `${shown.length}/${sorted.length}`
               : `${sorted.length}`}
@@ -1428,7 +1531,8 @@ export function AppsView({
         </div>
       )}
 
-      {appsLoaded && sorted.length > 0 && (
+      {/* While the list loads, the controls show disabled and dimmed. */}
+      {filtersShown && (
         <div
           data-app-filters=""
           style={{
@@ -1448,12 +1552,14 @@ export function AppsView({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
-                cursor: "pointer",
+                cursor: holding ? "default" : "pointer",
+                opacity: holding ? 0.5 : undefined,
               }}
             >
               <input
                 type="checkbox"
                 data-app-filter="onlyMine"
+                disabled={holding}
                 checked={onlyMine}
                 onChange={(e) => {
                   const on = e.currentTarget.checked;
@@ -1469,18 +1575,34 @@ export function AppsView({
             value={roomFilter}
             rooms={roomOptions}
             onChange={setChosenRoomFilter}
+            disabled={holding}
           />
         </div>
       )}
 
       <div
+        aria-busy={(holding && !error) || undefined}
         style={{
           flex: 1,
           overflowY: "auto",
           padding: isMobile ? "0 12px 12px" : "0 20px 20px",
         }}
       >
-        {!appsLoaded ? null : sorted.length === 0 ? (
+        {holding && held.running + held.stopped + held.archived === 0 ? (
+          <div
+            style={{
+              color: "var(--text-muted)",
+              fontSize: 13,
+              padding: "24px 4px",
+            }}
+          >
+            {loadingText}
+          </div>
+        ) : holding ? (
+          <div style={{ maxWidth: 1240 }}>
+            {(["running", "stopped", "archived"] as const).map(renderSection)}
+          </div>
+        ) : sorted.length === 0 ? (
           <div
             style={{
               color: "var(--text-muted)",

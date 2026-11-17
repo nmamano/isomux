@@ -61,6 +61,9 @@ const {
   getWebhooksLayout,
   setWebhooksLayout,
   WEBHOOKS_HELD_ROWS_MAX,
+  getAppsLayout,
+  setAppsLayout,
+  APPS_HELD_ROWS_MAX,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -617,5 +620,59 @@ describe("webhooks held layout", () => {
   ])("reads the stored value %s as one row", (raw) => {
     store.set("isomux-webhooks-layout", raw);
     expect(getWebhooksLayout()).toEqual({ rows: 1 });
+  });
+});
+
+// What the Apps page holds while its list loads (task 29594d38).
+describe("apps held layout", () => {
+  beforeEach(() => store.delete("isomux-apps-layout"));
+  const fallback = { filters: true, running: 1, stopped: 0, archived: 0 };
+
+  it("keeps each count, at most the cap, and holds the bar and one row before a first save", () => {
+    expect(getAppsLayout()).toEqual(fallback);
+    const none = { filters: false, running: 0, stopped: 0, archived: 0 };
+    setAppsLayout(none);
+    expect(getAppsLayout()).toEqual(none);
+    const some = { filters: true, running: 4, stopped: 2, archived: 7 };
+    setAppsLayout(some);
+    expect(getAppsLayout()).toEqual(some);
+    const over = APPS_HELD_ROWS_MAX + 5;
+    for (const section of ["running", "stopped", "archived"] as const) {
+      setAppsLayout({ ...none, filters: true, [section]: over });
+      expect(getAppsLayout()).toEqual({
+        ...none,
+        filters: true,
+        [section]: APPS_HELD_ROWS_MAX,
+      });
+    }
+  });
+
+  const ok = { filters: false, running: 2, stopped: 3, archived: 4 };
+  it.each([
+    "junk",
+    "[]",
+    "{}",
+    JSON.stringify({ ...ok, filters: "true" }),
+    JSON.stringify({ running: 2, stopped: 3, archived: 4 }),
+    ...(["running", "stopped", "archived"] as const).flatMap((k) => [
+      JSON.stringify({ ...ok, [k]: -1 }),
+      JSON.stringify({ ...ok, [k]: 1.5 }),
+      JSON.stringify({ ...ok, [k]: "2" }),
+      JSON.stringify({ ...ok, [k]: APPS_HELD_ROWS_MAX + 1 }),
+      JSON.stringify({
+        filters: false,
+        ...Object.fromEntries(
+          Object.entries(ok).filter(([key]) => key !== k && key !== "filters"),
+        ),
+      }),
+    ]),
+  ])("reads the stored value %s as the fallback", (raw) => {
+    store.set("isomux-apps-layout", raw);
+    expect(getAppsLayout()).toEqual(fallback);
+  });
+
+  it("reads a valid stored value as stored", () => {
+    store.set("isomux-apps-layout", JSON.stringify(ok));
+    expect(getAppsLayout()).toEqual(ok);
   });
 });

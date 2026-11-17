@@ -729,6 +729,50 @@ export function setWebhooksLayout(layout: WebhooksLayout): void {
   });
 }
 
+// The Apps page: whether the filter bar showed, and how many rows each
+// section showed after the filters (at most APPS_HELD_ROWS_MAX each).
+export const APPS_HELD_ROWS_MAX = 20;
+
+export type AppsLayout = {
+  filters: boolean;
+  running: number;
+  stopped: number;
+  archived: number;
+};
+
+const KEY_APPS_LAYOUT = "isomux-apps-layout";
+
+const isAppsRowCount = (n: unknown): n is number =>
+  typeof n === "number" &&
+  Number.isInteger(n) &&
+  n >= 0 &&
+  n <= APPS_HELD_ROWS_MAX;
+
+export function getAppsLayout(): AppsLayout {
+  return getHeldLayout(
+    KEY_APPS_LAYOUT,
+    ({ filters, running, stopped, archived }) =>
+      typeof filters === "boolean" &&
+      isAppsRowCount(running) &&
+      isAppsRowCount(stopped) &&
+      isAppsRowCount(archived)
+        ? { filters, running, stopped, archived }
+        : null,
+    // The fuller layout: the filter bar and one running app.
+    { filters: true, running: 1, stopped: 0, archived: 0 },
+  );
+}
+
+export function setAppsLayout(layout: AppsLayout): void {
+  const cap = (n: number) => Math.min(n, APPS_HELD_ROWS_MAX);
+  setHeldLayout(KEY_APPS_LAYOUT, {
+    filters: layout.filters,
+    running: cap(layout.running),
+    stopped: cap(layout.stopped),
+    archived: cap(layout.archived),
+  });
+}
+
 // Integrations → Pager: whether a webhook was saved (its row is taller than
 // the "not set" line).
 const KEY_PAGER_LAYOUT = "isomux-pager-layout";

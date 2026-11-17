@@ -8,10 +8,13 @@ export function RoomFilterSelect({
   value,
   rooms,
   onChange,
+  disabled,
 }: {
   value: string;
   rooms: readonly { id: string; name: string }[];
   onChange: (value: string) => void;
+  // Shown dimmed, as while the list it filters loads.
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -19,6 +22,7 @@ export function RoomFilterSelect({
       data-room-filter=""
       value={value}
       onChange={(e) => onChange(e.currentTarget.value)}
+      disabled={disabled}
       title={t("roomFilter.title")}
       style={{
         padding: "4px 6px",
@@ -29,6 +33,7 @@ export function RoomFilterSelect({
         fontSize: 11,
         outline: "none",
         maxWidth: 160,
+        opacity: disabled ? 0.5 : undefined,
       }}
     >
       <option value={ROOM_FILTER_ALL}>{t("roomFilter.all")}</option>
