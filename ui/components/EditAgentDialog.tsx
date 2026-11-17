@@ -95,6 +95,7 @@ import {
 } from "../../shared/agent-access.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { noTranslate } from "../no-translate.ts";
+import { groupKilledAgentsByRoom } from "../agent-groups.ts";
 import {
   AGENT_TEMPLATES,
   blankRestoreValues,
@@ -2765,37 +2766,59 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                 {t("dialogs.agent.group.restore")}
               </h4>
               <label style={labelStyle}>{t("dialogs.agent.revive")}</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {killedAgents.map((killedAgent) => {
-                  const isThisReviving = reviving === killedAgent.id;
-                  return (
-                    <button
-                      key={killedAgent.id}
+              {/* Grouped by room (AGENTS.md "UI rules"): one row per room,
+                  its name first, as the task assignee chips do. */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {groupKilledAgentsByRoom(killedAgents, rooms).map((group) => (
+                  <div
+                    key={group.roomId}
+                    data-revive-group={group.roomId}
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span
                       {...noTranslate()}
-                      type="button"
-                      disabled={reviving !== null}
-                      title={
-                        killedAgent.topic
-                          ? `${killedAgent.lastRoomName} - ${killedAgent.topic}`
-                          : killedAgent.lastRoomName
-                      }
-                      onClick={() => handleRevive(killedAgent)}
                       style={{
-                        background: "var(--bg-surface)",
-                        border: `1.5px solid ${ENGINE_ACCENT[killedAgent.agentType]}`,
-                        borderRadius: 999,
-                        padding: "5px 10px",
-                        fontSize: 12,
-                        color: "var(--text-primary)",
-                        cursor: "pointer",
+                        fontSize: 11,
+                        color: "var(--text-hint)",
+                        fontFamily: "var(--font-ui)",
+                        marginRight: 2,
                       }}
                     >
-                      {isThisReviving
-                        ? t("dialogs.agent.reviving")
-                        : killedAgent.name}
-                    </button>
-                  );
-                })}
+                      {group.roomName}
+                    </span>
+                    {group.agents.map((killedAgent) => {
+                      const isThisReviving = reviving === killedAgent.id;
+                      return (
+                        <button
+                          key={killedAgent.id}
+                          {...noTranslate()}
+                          type="button"
+                          disabled={reviving !== null}
+                          title={killedAgent.topic ?? undefined}
+                          onClick={() => handleRevive(killedAgent)}
+                          style={{
+                            background: "var(--bg-surface)",
+                            border: `1.5px solid ${ENGINE_ACCENT[killedAgent.agentType]}`,
+                            borderRadius: 999,
+                            padding: "5px 10px",
+                            fontSize: 12,
+                            color: "var(--text-primary)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isThisReviving
+                            ? t("dialogs.agent.reviving")
+                            : killedAgent.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
               {reviveError && (
                 <p
