@@ -145,7 +145,6 @@ import {
   type SettingsItemEscape,
   type SettingsItemView,
 } from "./SettingsItemPage.tsx";
-import { MemorySizeCount } from "./MemorySizeCount.tsx";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -1618,7 +1617,7 @@ function UserEditPanel({
   children,
 }: UserEditPanelProps) {
   const { rooms, allRooms, sessionContext, agents, users } = useAppState();
-  const { t, rich } = useI18n();
+  const { t } = useI18n();
   // Owner-only fields: role and allowedRooms. The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
   // but we also hide the editor here so members don't see disabled
@@ -2576,30 +2575,18 @@ function UserEditPanel({
             <label style={subLabelStyle}>
               {t("common.memory")}{" "}
               <span style={hintStyle}>
-                {rich("settings.profile.memoryHint", {
-                  size: (
-                    <MemorySizeCount
-                      size={mem.size}
-                      cap={mem.cap}
-                      loaded={mem.loaded}
-                    />
-                  ),
-                  cap: mem.cap,
+                {t("settings.profile.memoryHint", {
+                  size: mem.loaded ? mem.size : "…",
+                  cap: mem.cap ?? "…",
                 })}
               </span>
             </label>
             <ExpandableTextarea
               title={t("settings.profile.memoryTitle", { user: user.name })}
               hint={t("common.memoryEditorHint")}
-              status={rich("common.memorySize", {
-                size: (
-                  <MemorySizeCount
-                    size={mem.size}
-                    cap={mem.cap}
-                    loaded={mem.loaded}
-                  />
-                ),
-                cap: mem.cap,
+              status={t("common.memorySize", {
+                size: mem.loaded ? mem.size : "…",
+                cap: mem.cap ?? "…",
               })}
               value={mem.memory}
               onChange={mem.setMemory}

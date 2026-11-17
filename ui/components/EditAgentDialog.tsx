@@ -129,7 +129,6 @@ import {
 import { isFullUserView } from "../user-merge.ts";
 import type { UserRecord } from "../../shared/types.ts";
 import { PHONE_TOP } from "../safe-area.ts";
-import { MemorySizeCount } from "./MemorySizeCount.tsx";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -415,7 +414,7 @@ function AgentSettingsEditor(
 
 function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
   const i18n = useI18n();
-  const { t, rich } = i18n;
+  const { t } = i18n;
   const { onClose, page } = props;
   const isSpawn = !props.agent;
   const spawnProps = props.agent === undefined ? props : null;
@@ -1877,15 +1876,9 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
 
       <ExpandableTextarea
         title={t("dialogs.agent.memoryTitle")}
-        status={rich("common.memorySize", {
-          size: (
-            <MemorySizeCount
-              size={mem.size}
-              cap={mem.cap}
-              loaded={mem.loaded}
-            />
-          ),
-          cap: mem.cap,
+        status={t("common.memorySize", {
+          size: mem.size,
+          cap: mem.cap ?? "…",
         })}
         value={mem.memory}
         onChange={mem.setMemory}
@@ -1900,15 +1893,9 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         recordingPrivate={`agent:${agent?.id ?? "new"}:memory`}
       />
       <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
-        {rich("dialogs.agent.memoryHint", {
-          size: (
-            <MemorySizeCount
-              size={mem.size}
-              cap={mem.cap}
-              loaded={mem.loaded}
-            />
-          ),
-          cap: mem.cap,
+        {t("dialogs.agent.memoryHint", {
+          size: mem.size,
+          cap: mem.cap ?? "…",
         })}
       </p>
     </div>

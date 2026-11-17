@@ -15,7 +15,6 @@ import { ProcessIsolationSwitch } from "./ProcessIsolationSwitch.tsx";
 import { useI18n } from "../i18n.tsx";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
-import { MemorySizeCount } from "./MemorySizeCount.tsx";
 
 type ValidationStatus = { kind: "idle" } | { kind: "error"; message: string };
 
@@ -28,7 +27,7 @@ export function OfficePane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { office, sessionContext } = useAppState();
-  const { t, rich } = useI18n();
+  const { t } = useI18n();
   // Members can open this modal but can't edit it. Read-only state grays
   // inputs and hides the Save button; the server also rejects the save from
   // non-owner sessions (office.setSettings is gated by the officeOwner guard).
@@ -379,30 +378,18 @@ export function OfficePane({
               >
                 {t("common.memory")}{" "}
                 <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                  {rich("settings.office.memoryHint", {
-                    size: (
-                      <MemorySizeCount
-                        size={mem.size}
-                        cap={mem.cap}
-                        loaded={mem.loaded}
-                      />
-                    ),
-                    cap: mem.cap,
+                  {t("settings.office.memoryHint", {
+                    size: mem.loaded ? mem.size : "…",
+                    cap: mem.cap ?? "…",
                   })}
                 </span>
               </label>
               <ExpandableTextarea
                 title={t("settings.office.memoryTitle")}
                 hint={t("common.memoryEditorHint")}
-                status={rich("common.memorySize", {
-                  size: (
-                    <MemorySizeCount
-                      size={mem.size}
-                      cap={mem.cap}
-                      loaded={mem.loaded}
-                    />
-                  ),
-                  cap: mem.cap,
+                status={t("common.memorySize", {
+                  size: mem.loaded ? mem.size : "…",
+                  cap: mem.cap ?? "…",
                 })}
                 value={mem.memory}
                 onChange={mem.setMemory}
