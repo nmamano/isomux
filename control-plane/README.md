@@ -2495,7 +2495,9 @@ webhook path out of the storefront's module graph.
   `AUTH_RESEND_KEY` is set (the sign-in page shows the form only when
   `/api/auth/providers` lists `email-link`). `POST /api/signin/email` mails a
   link through Resend (`lib/signin-mail.server.ts`) after an origin check, a
-  per-IP limit and a per-address limit. The link carries a signed token in its
+  per-IP limit and a per-address limit. Each send Resend accepts logs one line
+  with Resend's message id and the recipient's domain only (support runbook,
+  "A sign-in link never came"). The link carries a signed token in its
   FRAGMENT, valid 15 minutes and spent once; the used-token record lives in the
   process's memory, like the rate limits (`lib/signin-link.server.ts`). The link
   page signs in only on a click, because mail scanners open links first. The

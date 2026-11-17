@@ -249,6 +249,28 @@ the action is unavailable, stop and report that constraint. Do not collect
 card data or improvise an API write.
 
 
+## A sign-in link never came
+
+The storefront logs one line for each sign-in, email change or email changed
+notice mail that Resend accepts, with Resend's message id and only the
+recipient's domain. Read the storefront journal on the Hosted VPS (as root or a
+member of `systemd-journal`):
+
+```
+journalctl -t isomux-hosted-web --since '<date> <time>' --no-pager | grep 'sign-in mail:'
+```
+
+The host journal keeps about 7 days (control-plane README, retention), so an
+older request has no line. Find the time of the request and the user's domain:
+
+- `Resend accepted ... mail <id> to @<domain>`: Resend took the mail. Look up
+  the id in the Resend dashboard for its delivery status (the VPS keys can only
+  send).
+- `Resend answered <status>` or another error line: the send failed, and the
+  form showed the user an error.
+- No line at that time: the request did not reach the send. An origin refusal,
+  a rate limit and a bad address also show the user an error in the form.
+
 ## An office answers on the box but not on the internet
 
 The symptom the customer reports is that their office URL stopped loading.

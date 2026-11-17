@@ -247,3 +247,185 @@ describe("a send that fails", () => {
     expect(logged.join("\n")).not.toContain(KEY);
   });
 });
+
+describe("the log line for an accepted send", () => {
+  // Support answers "the link never came" from this line: it proves the send
+  // reached Resend, and its id is the one to look up there. The line carries
+  // the recipient's domain only, never the address or the link.
+  const ID = "49a3999c-0ce1-4ea6-ab68-afcd6dc2e794";
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  function captureStreams(): void {
+    stdout.length = 0;
+    stderr.length = 0;
+    const join = (args: unknown[]) => args.map(String).join(" ");
+    console.log = (...args: unknown[]) => void stdout.push(join(args));
+    console.info = (...args: unknown[]) => void stdout.push(join(args));
+    console.warn = (...args: unknown[]) => void stderr.push(join(args));
+    console.error = (...args: unknown[]) => void stderr.push(join(args));
+  }
+  const originalInfo = console.info;
+  afterEach(() => {
+    console.info = originalInfo;
+  });
+
+  const senders = {
+    signIn: (to: string, fetch: typeof globalThis.fetch) =>
+      sendSignInMail(
+        { to, link: LINK, language: "en" },
+        { apiKey: KEY, fetch },
+      ),
+    change: (to: string, fetch: typeof globalThis.fetch) =>
+      sendEmailChangeMail(
+        {
+          to,
+          link: "https://hosted.example.com/account/email#token=ghi.jkl",
+          language: "en",
+        },
+        { apiKey: KEY, fetch },
+      ),
+    notice: (to: string, fetch: typeof globalThis.fetch) =>
+      sendEmailChangedNotice(
+        { to, newEmail: "fresh.addr@newdomain.test", language: "en" },
+        { apiKey: KEY, fetch },
+      ),
+  };
+
+  test("one line with the Resend id and the domain, and not the address or the link", async () => {
+    captureStreams();
+    const { fetch } = recorder(() => Response.json({ id: ID }));
+    const result = await senders.signIn("customer.name@gmail.com", fetch);
+    expect(result).toEqual({ ok: true });
+    expect(stderr).toEqual([]);
+    expect(stdout).toHaveLength(1);
+    const [line] = stdout;
+    expect(line).toContain(ID);
+    expect(line).toContain("@gmail.com");
+    expect(line).not.toContain("customer.name");
+    expect(line).not.toContain("abc.def");
+    expect(line).not.toContain("token");
+    expect(line).not.toContain(KEY);
+  });
+
+  test("each of the three mails logs its own kind", async () => {
+    captureStreams();
+    const { fetch } = recorder(() => Response.json({ id: ID }));
+    for (const send of Object.values(senders)) {
+      expect(await send("customer.name@gmail.com", fetch)).toEqual({
+        ok: true,
+      });
+    }
+    expect(stderr).toEqual([]);
+    // Same id and same domain for all three: only the kind can tell them apart.
+    expect(stdout).toHaveLength(3);
+    expect(new Set(stdout).size).toBe(3);
+    for (const line of stdout) {
+      expect(line).toContain(ID);
+      expect(line).toContain("@gmail.com");
+      expect(line).not.toContain("customer.name");
+      expect(line).not.toContain("ghi.jkl");
+      expect(line).not.toContain("abc.def");
+      // The notice names the new address in its body, never in the log.
+      expect(line).not.toContain("fresh.addr");
+      expect(line).not.toContain("newdomain");
+    }
+  });
+
+  test("the domain is logged in lower case", async () => {
+    captureStreams();
+    const { fetch } = recorder(() => Response.json({ id: ID }));
+    await senders.signIn("Someone@Example.COM", fetch);
+    expect(stdout).toHaveLength(1);
+    expect(stdout[0]).toContain("@example.com");
+    expect(stdout[0].toLowerCase()).not.toContain("someone");
+  });
+
+  test("a local part with an @ sign: the domain is what follows the last @", async () => {
+    captureStreams();
+    const { fetch } = recorder(() => Response.json({ id: ID }));
+    await senders.signIn('"customer@name"@gmail.com', fetch);
+    expect(stdout).toHaveLength(1);
+    expect(stdout[0]).toContain(ID);
+    expect(stdout[0]).toContain("@gmail.com");
+    expect(stdout[0]).not.toContain("customer");
+  });
+
+  // A 2xx means Resend took the mail. A body the sender cannot use must not
+  // turn that into a failure (the route would answer 502 and the customer
+  // would ask again), and its content must not reach the log.
+  test.each<[string, () => Response]>([
+    ["no id", () => Response.json({})],
+    ["a non-string id", () => Response.json({ id: { nested: "INJECTED" } })],
+    [
+      "an id that writes a second line",
+      () =>
+        Response.json({
+          id: `${ID}\nsign-in mail: Resend accepted sign-in mail INJECTED to @forged.test`,
+        }),
+    ],
+    ["an id with spaces", () => Response.json({ id: "INJECTED id here" })],
+    ["an id that is too long", () => Response.json({ id: "I".repeat(101) })],
+    ["a body that is not JSON", () => new Response("INJECTED <html>")],
+    ["an empty body", () => new Response(null, { status: 200 })],
+  ])("%s: still ok, one line, none of the body", async (_name, answer) => {
+    captureStreams();
+    const { fetch } = recorder(answer);
+    const result = await senders.signIn("customer.name@gmail.com", fetch);
+    expect(result).toEqual({ ok: true });
+    expect(stderr).toEqual([]);
+    expect(stdout).toHaveLength(1);
+    const [line] = stdout;
+    // The enabling condition: the line is the accepted line, with its domain.
+    expect(line).toContain("@gmail.com");
+    expect(line).not.toContain("\n");
+    expect(line).not.toContain("INJECTED");
+    expect(line).not.toContain("forged");
+    expect(line).not.toContain("I".repeat(101));
+    expect(line).not.toContain("html");
+  });
+
+  test("a recipient domain that writes a second line is not logged", async () => {
+    captureStreams();
+    const { fetch } = recorder(() => Response.json({ id: ID }));
+    const result = await senders.signIn(
+      "customer.name@gmail.com\nsign-in mail: Resend accepted sign-in mail FORGED to forged.test",
+      fetch,
+    );
+    expect(result).toEqual({ ok: true });
+    expect(stdout).toHaveLength(1);
+    const [line] = stdout;
+    // The enabling condition: the line is written, with the real id.
+    expect(line).toContain(ID);
+    expect(line).not.toContain("\n");
+    expect(line.toLowerCase()).not.toContain("forged");
+  });
+
+  test("a recipient domain with a space or a markup character is not logged", async () => {
+    captureStreams();
+    const { fetch } = recorder(() => Response.json({ id: ID }));
+    await senders.signIn("customer.name@gmail.com INJECTED<b>", fetch);
+    expect(stdout).toHaveLength(1);
+    expect(stdout[0]).toContain(ID);
+    expect(stdout[0].toLowerCase()).not.toContain("injected");
+  });
+
+  test.each<[string, () => Response]>([
+    ["a refusal", () => Response.json({ id: ID }, { status: 422 })],
+    ["a server error", () => Response.json({ id: ID }, { status: 500 })],
+    [
+      "an unreachable Resend",
+      () => {
+        throw new TypeError("fetch failed");
+      },
+    ],
+  ])("%s: no accepted line", async (_name, answer) => {
+    for (const send of Object.values(senders)) {
+      captureStreams();
+      const { fetch } = recorder(answer);
+      expect((await send("customer.name@gmail.com", fetch)).ok).toBe(false);
+      // The enabling condition: the failure is logged, on the error stream.
+      expect(stderr).toHaveLength(1);
+      expect(stdout).toEqual([]);
+    }
+  });
+});
