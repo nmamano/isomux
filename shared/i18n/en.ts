@@ -563,10 +563,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.members.onlineSessions.other": "online · {count} sessions",
   "settings.members.lastSeen": "last seen {when}",
   "settings.members.newMember": "New member",
-  "settings.osUser.title": "Own OS user",
+  "settings.osUser.title": "OS user",
   "settings.osUser.hint":
-    "Their agents run as a separate OS user on the office's machine, so they cannot read the office's files or secrets.",
+    "Their agents can run as their own OS user on the office's machine, so they cannot read the office's files or secrets.",
   "settings.osUser.off": "Off: their agents run as the office's OS user.",
+  "settings.osUser.offAs":
+    "Off: their agents run as {name}, the office's OS user.",
   "settings.osUser.on": "On: their agents run as {name}.",
   "settings.osUser.moving": "Moving their files for {name}…",
   "settings.osUser.notReady":
@@ -609,14 +611,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.runInProgress":
     "The command for this member is running. Try again when it ends.",
   "settings.osUser.unsupported.notLinux":
-    "Not available: the office must run on Linux.",
+    "Cannot be changed: the office does not run on Linux.",
   "settings.osUser.unsupported.kubernetes":
-    "Not available on Kubernetes: the office's pod cannot run commands as root.",
-  "settings.osUser.unsupported.render": "Not available on Render.",
+    "Cannot be changed: on Kubernetes, the office's pod cannot run commands as root.",
+  "settings.osUser.unsupported.render":
+    "Cannot be changed: the office runs on Render.",
   "settings.osUser.unsupported.noSystemInstall":
-    "Not available: the office was not set up with the Isomux installer.",
+    "Cannot be changed: the office was not set up with the Isomux installer.",
   "settings.osUser.unsupported.noCommand":
-    "Not available until the office is updated.",
+    "Cannot be changed until the office is updated.",
   "settings.members.create": "Create member",
   "settings.members.neverSignedIn": "never signed in",
   "settings.members.signInLink.create": "Create sign-in link for {name}",
@@ -3543,7 +3546,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.in.confirm.restartUnknown":
     "The old office did not say how its service restarts, so it cannot lock. Update the old office, then check again.",
   "officeMove.in.confirm.memberOsUsers":
-    "Members with their own OS user: {names}. The old office's Isomux version cannot move their files, so it cannot lock. Update the old office, or turn it off there for each of them in Settings → Members → the member → Own OS user, then check again.",
+    "Members with their own OS user: {names}. The old office's Isomux version cannot move their files, so it cannot lock. Update the old office, or turn it off there for each of them in Settings → Members → the member → OS user, then check again.",
   "officeMove.in.confirm.memberOsUsersBroken":
     "The old office cannot read which members have their own OS user, so it cannot lock.",
   "officeMove.in.confirm.hostRefs":
@@ -3648,9 +3651,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "officeMove.report.members":
     "Members whose files moved. Their agents wait until you run their command:",
   "officeMove.report.memberSettings":
-    "See Settings → Members → the member → Own OS user.",
+    "See Settings → Members → the member → OS user.",
   "officeMove.report.membersSettings":
-    "Settings → Members → the member → Own OS user shows the same command.",
+    "Settings → Members → the member → OS user shows the same command.",
   "officeMove.in.acceptMissing": "Finish without these files",
   "officeMove.in.finishWarning":
     "Finish replaces this office with the copy and restarts it. The old office then shows that it moved.",

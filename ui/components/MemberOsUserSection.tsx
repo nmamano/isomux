@@ -9,11 +9,11 @@ import { CopyButton } from "./CopyButton.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 
-// Settings > Members > a member > Own OS user (server/member-os-user-view.ts,
-// internal-docs/member-os-user-design.md 2.1): an office owner turns it on or
-// off with one root command, shown here to copy. Where the command cannot
-// run, only the reason shows; nothing renders when the read fails or the
-// answer has no support field.
+// Settings > Members > a member > OS user (server/member-os-user-view.ts,
+// internal-docs/member-os-user-design.md 2.1): an office owner turns their
+// own OS user on or off with one root command, shown here to copy. Where the
+// command cannot run, the OS user shows in a disabled field with the reason;
+// nothing renders when the read fails or the answer has no support field.
 //
 // The page reads the state again every 3 s while it can still change: while
 // the command runs, and after a Copy until the state changes. It stops on
@@ -114,24 +114,47 @@ export function MemberOsUserSection({
   // No support: a server older than this page (a UI build is live before
   // the restart that brings its server).
   if (!view?.support) return null;
-  if (!view.support.ok)
+  if (!view.support.ok) {
+    // Their own OS user, or the office's while off. A broken record names
+    // no user, so nothing shows. No hint: it describes a change this office cannot make.
+    const name =
+      view.osUser?.name ??
+      (view.state === "off" ? view.officeOsUser : undefined);
     return (
       <div data-testid="member-os-user">
         <h5 style={headingStyle}>{t("settings.osUser.title")}</h5>
-        <p style={hintStyle}>{t("settings.osUser.hint")}</p>
+        {name && (
+          <input
+            data-testid="member-os-user-name"
+            type="text"
+            readOnly
+            disabled
+            value={name}
+            aria-label={t("settings.osUser.title")}
+            style={{
+              ...dialogInput,
+              display: "block",
+              maxWidth: 340,
+              marginTop: 8,
+              opacity: 0.6,
+              cursor: "not-allowed",
+            }}
+          />
+        )}
         <p
           data-testid="member-os-user-unsupported"
           data-reason={view.support.reason}
           style={{
-            fontSize: 13,
+            fontSize: 12,
             margin: "6px 0",
-            color: "var(--text-primary)",
+            color: "var(--text-muted)",
           }}
         >
           {t(UNSUPPORTED_KEY[view.support.reason])}
         </p>
       </div>
     );
+  }
 
   // Off: turn it on. Not ready: an enable that the office's restart cut
   // finishes when it runs again, so both. Came with an office move: the
@@ -411,7 +434,9 @@ function stateLine(view: MemberOsUserWire, t: T): string {
   const name = view.osUser?.name ?? "";
   switch (view.state) {
     case "off":
-      return t("settings.osUser.off");
+      return view.officeOsUser
+        ? t("settings.osUser.offAs", { name: view.officeOsUser })
+        : t("settings.osUser.off");
     case "on":
       return t("settings.osUser.on", { name });
     case "moving":

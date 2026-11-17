@@ -556,11 +556,13 @@ Cosas que puedes hacer por él:
   "settings.members.onlineSessions.other": "en línea · {count} sesiones",
   "settings.members.lastSeen": "visto por última vez {when}",
   "settings.members.newMember": "Nuevo miembro",
-  "settings.osUser.title": "Usuario del sistema propio",
+  "settings.osUser.title": "Usuario del sistema",
   "settings.osUser.hint":
-    "Sus agentes se ejecutan como un usuario del sistema aparte en la máquina de la oficina, así que no pueden leer los archivos ni los secretos de la oficina.",
+    "Sus agentes pueden ejecutarse como su propio usuario del sistema en la máquina de la oficina, así que no pueden leer los archivos ni los secretos de la oficina.",
   "settings.osUser.off":
     "Desactivado: sus agentes se ejecutan como el usuario del sistema de la oficina.",
+  "settings.osUser.offAs":
+    "Desactivado: sus agentes se ejecutan como {name}, el usuario del sistema de la oficina.",
   "settings.osUser.on": "Activado: sus agentes se ejecutan como {name}.",
   "settings.osUser.moving": "Moviendo sus archivos para {name}…",
   "settings.osUser.notReady":
@@ -604,14 +606,15 @@ Cosas que puedes hacer por él:
   "settings.osUser.runInProgress":
     "El comando de este miembro está en ejecución. Vuelve a intentarlo cuando termine.",
   "settings.osUser.unsupported.notLinux":
-    "No disponible: la oficina debe ejecutarse en Linux.",
+    "No se puede cambiar: la oficina no se ejecuta en Linux.",
   "settings.osUser.unsupported.kubernetes":
-    "No disponible en Kubernetes: el pod de la oficina no puede ejecutar comandos como root.",
-  "settings.osUser.unsupported.render": "No disponible en Render.",
+    "No se puede cambiar: en Kubernetes, el pod de la oficina no puede ejecutar comandos como root.",
+  "settings.osUser.unsupported.render":
+    "No se puede cambiar: la oficina se ejecuta en Render.",
   "settings.osUser.unsupported.noSystemInstall":
-    "No disponible: la oficina no se instaló con el instalador de Isomux.",
+    "No se puede cambiar: la oficina no se instaló con el instalador de Isomux.",
   "settings.osUser.unsupported.noCommand":
-    "No disponible hasta que se actualice la oficina.",
+    "No se puede cambiar hasta que se actualice la oficina.",
   "settings.members.create": "Crear miembro",
   "settings.members.neverSignedIn": "nunca ha iniciado sesión",
   "settings.members.signInLink.create":
@@ -3647,7 +3650,7 @@ Cosas que puedes hacer por él:
   "officeMove.in.confirm.restartUnknown":
     "La oficina antigua no dijo cómo se reinicia su servicio, así que no puede bloquearse. Actualiza la oficina antigua y vuelve a comprobar.",
   "officeMove.in.confirm.memberOsUsers":
-    "Miembros con usuario del sistema propio: {names}. La versión de Isomux de la oficina antigua no puede trasladar sus archivos, así que no puede bloquearse. Actualiza la oficina antigua, o desactívalo allí para cada uno en Ajustes → Miembros → el miembro → Usuario del sistema propio, y vuelve a comprobar.",
+    "Miembros con usuario del sistema propio: {names}. La versión de Isomux de la oficina antigua no puede trasladar sus archivos, así que no puede bloquearse. Actualiza la oficina antigua, o desactívalo allí para cada uno en Ajustes → Miembros → el miembro → Usuario del sistema, y vuelve a comprobar.",
   "officeMove.in.confirm.memberOsUsersBroken":
     "La oficina antigua no puede leer qué miembros tienen usuario del sistema propio, así que no puede bloquearse.",
   "officeMove.in.confirm.hostRefs":
@@ -3756,9 +3759,9 @@ Cosas que puedes hacer por él:
   "officeMove.report.members":
     "Miembros cuyos archivos se trasladaron. Sus agentes esperan hasta que ejecutes su comando:",
   "officeMove.report.memberSettings":
-    "Consulta Ajustes → Miembros → el miembro → Usuario del sistema propio.",
+    "Consulta Ajustes → Miembros → el miembro → Usuario del sistema.",
   "officeMove.report.membersSettings":
-    "Ajustes → Miembros → el miembro → Usuario del sistema propio muestra el mismo comando.",
+    "Ajustes → Miembros → el miembro → Usuario del sistema muestra el mismo comando.",
   "officeMove.in.acceptMissing": "Terminar sin estos archivos",
   "officeMove.in.finishWarning":
     "Terminar sustituye esta oficina por la copia y la reinicia. Luego la oficina antigua muestra que se trasladó.",

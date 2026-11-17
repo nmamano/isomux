@@ -522,10 +522,11 @@ export const zh: Catalog = {
   "settings.members.onlineSessions.other": "在线 · {count} 个会话",
   "settings.members.lastSeen": "上次在线：{when}",
   "settings.members.newMember": "新成员",
-  "settings.osUser.title": "专属系统用户",
+  "settings.osUser.title": "系统用户",
   "settings.osUser.hint":
-    "其代理以办公室机器上的单独系统用户运行，因此无法读取办公室的文件或密钥。",
+    "其代理可以以办公室机器上的专属系统用户运行，因此无法读取办公室的文件或密钥。",
   "settings.osUser.off": "关闭：其代理以办公室的系统用户运行。",
+  "settings.osUser.offAs": "关闭：其代理以办公室的系统用户 {name} 运行。",
   "settings.osUser.on": "开启：其代理以 {name} 运行。",
   "settings.osUser.moving": "正在为 {name} 移动其文件…",
   "settings.osUser.notReady":
@@ -557,13 +558,13 @@ export const zh: Catalog = {
   "settings.osUser.containerName": "请把 CONTAINER 换成办公室容器的名称。",
   "settings.osUser.runLocked": "密码错误次数过多。请在 {minutes} 分钟后重试。",
   "settings.osUser.runInProgress": "此成员的命令正在运行。请在它结束后重试。",
-  "settings.osUser.unsupported.notLinux": "不可用：办公室必须在 Linux 上运行。",
+  "settings.osUser.unsupported.notLinux": "无法更改：办公室不在 Linux 上运行。",
   "settings.osUser.unsupported.kubernetes":
-    "在 Kubernetes 上不可用：办公室的 pod 不能以 root 身份运行命令。",
-  "settings.osUser.unsupported.render": "在 Render 上不可用。",
+    "无法更改：在 Kubernetes 上，办公室的 pod 不能以 root 身份运行命令。",
+  "settings.osUser.unsupported.render": "无法更改：办公室在 Render 上运行。",
   "settings.osUser.unsupported.noSystemInstall":
-    "不可用：办公室不是用 Isomux 安装程序安装的。",
-  "settings.osUser.unsupported.noCommand": "在办公室更新之前不可用。",
+    "无法更改：办公室不是用 Isomux 安装程序安装的。",
+  "settings.osUser.unsupported.noCommand": "在办公室更新之前无法更改。",
   "settings.members.create": "创建成员",
   "settings.members.neverSignedIn": "从未登录",
   "settings.members.signInLink.create": "为 {name} 创建登录链接",
@@ -3271,7 +3272,7 @@ export const zh: Catalog = {
   "officeMove.in.confirm.restartUnknown":
     "旧办公室没有说明其服务如何重启，因此无法锁定。请更新旧办公室，然后重新检查。",
   "officeMove.in.confirm.memberOsUsers":
-    "拥有专属系统用户的成员：{names}。旧办公室的 Isomux 版本无法迁移他们的文件，因此无法锁定。请更新旧办公室，或在那里的“设置 → 成员 → 该成员 → 专属系统用户”中为每人关闭，然后重新检查。",
+    "拥有专属系统用户的成员：{names}。旧办公室的 Isomux 版本无法迁移他们的文件，因此无法锁定。请更新旧办公室，或在那里的“设置 → 成员 → 该成员 → 系统用户”中为每人关闭，然后重新检查。",
   "officeMove.in.confirm.memberOsUsersBroken":
     "旧办公室无法读取哪些成员拥有专属系统用户，因此无法锁定。",
   "officeMove.in.confirm.hostRefs":
@@ -3358,9 +3359,9 @@ export const zh: Catalog = {
   "officeMove.report.members":
     "文件已迁移的成员。他们的代理会等到你运行其命令：",
   "officeMove.report.memberSettings":
-    "请查看“设置 → 成员 → 该成员 → 专属系统用户”。",
+    "请查看“设置 → 成员 → 该成员 → 系统用户”。",
   "officeMove.report.membersSettings":
-    "“设置 → 成员 → 该成员 → 专属系统用户”中有同样的命令。",
+    "“设置 → 成员 → 该成员 → 系统用户”中有同样的命令。",
   "officeMove.in.acceptMissing": "不含这些文件，直接完成",
   "officeMove.in.finishWarning":
     "完成后，副本将替换此办公室并重启。之后旧办公室会显示它已迁移。",

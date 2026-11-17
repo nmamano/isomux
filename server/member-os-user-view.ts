@@ -5,7 +5,7 @@
 // nothing a member typed (their name) reaches a line an owner runs as root.
 
 import { existsSync } from "node:fs";
-import { hostname as osHostname } from "node:os";
+import { hostname as osHostname, userInfo } from "node:os";
 
 import type {
   MemberOsUserAttemptWire,
@@ -169,10 +169,14 @@ export function memberOsUserView(
     // How the page can run the command itself (member-os-user-run.ts).
     run?: MemberOsUserWire["run"];
     now?: number;
+    // The office's OS user; omitted: the server's own. null: unknown.
+    officeOsUser?: string | null;
   },
 ): MemberOsUserWire {
   const now = opts.now ?? Date.now();
   const { support } = opts;
+  const officeOsUser =
+    opts.officeOsUser === undefined ? serverOsUser() : opts.officeOsUser;
   const record = memberOsUserState(user.id);
   const attempt = attemptWire(attempts.get(user.id), now);
   // Slice 5c-3: a member who came with an office move is not ready until the
@@ -201,6 +205,7 @@ export function memberOsUserView(
       : {}),
     run: commands ? (opts.run ?? null) : null,
     ...(attempt ? { attempt } : {}),
+    ...(officeOsUser ? { officeOsUser } : {}),
   };
   if (record.kind === "none") return { state: "off", ...common };
   if (record.kind === "broken")
@@ -223,4 +228,15 @@ export function memberOsUserView(
       : {}),
     ...common,
   };
+}
+
+// The OS user this server runs as. userInfo() throws where the uid has no
+// passwd entry (a pod with an arbitrary uid); the name is then unknown.
+// The throw path has no test: it is this one call.
+function serverOsUser(): string | null {
+  try {
+    return userInfo().username;
+  } catch {
+    return null;
+  }
 }

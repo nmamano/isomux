@@ -13,9 +13,12 @@
 //   record that says the files move keeps the member not ready (unfinished),
 //   connected or not, and their host starts nothing;
 // - the attempt reads running, failed (with its message) or stopped (an
-//   enable that prepared and never went on), and an owner gets no command.
+//   enable that prepared and never went on), and an owner gets no command;
+// - the office's OS user (task 83ebaa3c) comes with every state and every
+//   support, is the server's own by default, and is left out when unknown.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
+import { userInfo } from "node:os";
 
 import {
   clearMemberUserAttempt,
@@ -430,6 +433,60 @@ describe("the state", () => {
       iso?.dispose();
       deleteUserById(made.user.id);
     }
+  });
+
+  it("carries the office's OS user in every state and support, the server's own by default, and none when unknown", () => {
+    const states: string[] = [];
+    // Each state the records give without a runner, then the check.
+    const check = () => {
+      for (const support of [INSTALLER, UNSUPPORTED]) {
+        const given = memberOsUserView(
+          { id: ID, role: "member" },
+          { support, now: NOW, officeOsUser: "svc-office" },
+        );
+        states.push(given.state);
+        expect({
+          state: given.state,
+          support: support.ok,
+          officeOsUser: given.officeOsUser,
+        }).toEqual({
+          state: given.state,
+          support: support.ok,
+          officeOsUser: "svc-office",
+        });
+        const unknown = memberOsUserView(
+          { id: ID, role: "member" },
+          { support, now: NOW, officeOsUser: null },
+        );
+        // The enabling condition: the same state with null.
+        expect(unknown.state).toBe(given.state);
+        expect({
+          state: unknown.state,
+          has: "officeOsUser" in unknown,
+        }).toEqual({ state: given.state, has: false });
+        expect(
+          memberOsUserView({ id: ID, role: "member" }, { support, now: NOW })
+            .officeOsUser,
+        ).toBe(userInfo().username);
+      }
+    };
+    check();
+    writeFileSync(memberOsUsersPath(), "{ not json");
+    reloadMemberOsUsers();
+    check();
+    rmSync(memberOsUsersPath(), { force: true });
+    reloadMemberOsUsers();
+    recordMemberOsUser(ID, { name: "isomux-alice", uid: 2001 });
+    check();
+    markMemberMoving(ID);
+    check();
+    clearMemberMoving(ID);
+    expect([...new Set(states)]).toEqual([
+      "off",
+      "broken",
+      "not_ready",
+      "moving",
+    ]);
   });
 
   it("gives an owner no command, and passes the gate through", () => {

@@ -106,6 +106,10 @@ export interface MemberOsUserWire {
   // has not placed their files here (task 78733adf, slice 5c-3). Their
   // commands.disable then carries --delete-moved-home.
   movedIn?: true;
+  // The OS user the office's server runs as: the member's agents run as it
+  // while their own OS user is off. Absent from an older server, and where
+  // the server's uid has no passwd entry.
+  officeOsUser?: string;
 }
 
 // POST /api/users/:username/os-user/run: the owner's Run (202 at the start).

@@ -13,6 +13,7 @@
 // set (the installer's container), so the commands are set on any box.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { userInfo } from "node:os";
 
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintApiToken } from "../api-tokens.ts";
@@ -131,9 +132,11 @@ describe("GET /api/users/:username/os-user", () => {
     expect(view.support).toEqual({ ok: true });
     expect(view.state).toBe("off");
     expect(view.run).toBeNull();
+    // officeOsUser is the office's OS user, not the member's (task 83ebaa3c).
     expect(Object.keys(view).sort()).toEqual(
-      ["commands", "support", "run", "state"].sort(),
+      ["commands", "support", "run", "state", "officeOsUser"].sort(),
     );
+    expect(view.officeOsUser).toBe(userInfo().username);
     expect(view.commands?.enable.endsWith(`enable ${o.ids.mia}`)).toBe(true);
     // An owner never gets an OS user: no command.
     const ownerView = await get(o.srv, o.ownerName, o.callers.ownerSession);

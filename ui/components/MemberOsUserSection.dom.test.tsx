@@ -1,8 +1,11 @@
-// Settings > Members > a member > Own OS user (task b94dfd25 4c-i). The
+// Settings > Members > a member > OS user (task b94dfd25 4c-i). The
 // properties:
 // - where the root command cannot run, only the reason shows (one line per
 //   reason, no command); nothing renders when the read fails or the answer
 //   has no support field (an older server);
+// - there, a disabled field shows the OS user the member's agents run as:
+//   their own, else the office's while off; none when broken or unknown
+//   (task 83ebaa3c); the off line names the office's OS user when known;
 // - not ready after a move that a stop cut says so, with its own hint over
 //   the enable command; a command with the container placeholder adds the
 //   hint to name the container;
@@ -163,6 +166,78 @@ it("shows only the reason where the command cannot run, and nothing when the rea
   answers = [old as MemberOsUserWire];
   const older = await mount();
   expect(older.q("member-os-user")).toBeNull();
+});
+
+it("shows the OS user the member's agents run as in a disabled field where it cannot change", async () => {
+  const unsupported = {
+    ok: false as const,
+    reason: "no_system_install" as const,
+  };
+  const cases: {
+    over: Partial<MemberOsUserWire>;
+    name: string | null;
+  }[] = [
+    { over: { state: "off", officeOsUser: "svc-office" }, name: "svc-office" },
+    {
+      over: {
+        state: "on",
+        osUser: { name: "isomux-mia", uid: 2001 },
+        officeOsUser: "svc-office",
+      },
+      name: "isomux-mia",
+    },
+    {
+      over: {
+        state: "not_ready",
+        osUser: { name: "isomux-mia", uid: 2001 },
+      },
+      name: "isomux-mia",
+    },
+    // A damaged record says nothing about which user runs them.
+    {
+      over: { state: "broken", reason: "bad json", officeOsUser: "svc-office" },
+      name: null,
+    },
+    // An older server, or a uid with no passwd entry.
+    { over: { state: "off" }, name: null },
+  ];
+  for (const { over, name } of cases) {
+    answers = [view({ ...over, support: unsupported, commands: null })];
+    const m = await mount();
+    // The enabling condition: the unsupported branch rendered.
+    expect(m.q("member-os-user-unsupported")?.dataset.reason).toBe(
+      "no_system_install",
+    );
+    const field = m.q("member-os-user-name") as HTMLInputElement | null;
+    expect({
+      state: over.state,
+      tag: field?.tagName ?? null,
+      value: field?.value ?? null,
+      disabled: field?.disabled ?? null,
+      label: field ? !!field.getAttribute("aria-label") : null,
+    }).toEqual({
+      state: over.state,
+      tag: name === null ? null : "INPUT",
+      value: name,
+      disabled: name === null ? null : true,
+      label: name === null ? null : true,
+    });
+    m.rendered.unmount();
+  }
+});
+
+it("names the office's OS user in the off line when the server sends it", async () => {
+  answers = [view({ officeOsUser: "svc-office" })];
+  const named = await mount();
+  expect(named.q("member-os-user-state")?.dataset.state).toBe("off");
+  expect(named.q("member-os-user-state")?.textContent).toContain("svc-office");
+  named.rendered.unmount();
+  // Without it, the off line still shows, with no placeholder left.
+  answers = [view()];
+  const plain = await mount();
+  const line = plain.q("member-os-user-state")?.textContent ?? "";
+  expect(plain.q("member-os-user-state")?.dataset.state).toBe("off");
+  expect(line).toBe(t("settings.osUser.off"));
 });
 
 it("shows the enable command while off, and the disable command with the failed attempt's message otherwise", async () => {

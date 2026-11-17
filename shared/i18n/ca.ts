@@ -556,11 +556,13 @@ Coses que pots fer per ell:
   "settings.members.onlineSessions.other": "en línia · {count} sessions",
   "settings.members.lastSeen": "vist per última vegada {when}",
   "settings.members.newMember": "Membre nou",
-  "settings.osUser.title": "Usuari del sistema propi",
+  "settings.osUser.title": "Usuari del sistema",
   "settings.osUser.hint":
-    "Els seus agents s'executen com un usuari del sistema a part a la màquina de l'oficina, així que no poden llegir els fitxers ni els secrets de l'oficina.",
+    "Els seus agents es poden executar com el seu propi usuari del sistema a la màquina de l'oficina, així que no poden llegir els fitxers ni els secrets de l'oficina.",
   "settings.osUser.off":
     "Desactivat: els seus agents s'executen com l'usuari del sistema de l'oficina.",
+  "settings.osUser.offAs":
+    "Desactivat: els seus agents s'executen com {name}, l'usuari del sistema de l'oficina.",
   "settings.osUser.on": "Activat: els seus agents s'executen com {name}.",
   "settings.osUser.moving": "Movent els seus fitxers per a {name}…",
   "settings.osUser.notReady":
@@ -604,14 +606,15 @@ Coses que pots fer per ell:
   "settings.osUser.runInProgress":
     "L'ordre d'aquest membre s'està executant. Torna-ho a provar quan acabi.",
   "settings.osUser.unsupported.notLinux":
-    "No disponible: l'oficina s'ha d'executar a Linux.",
+    "No es pot canviar: l'oficina no s'executa a Linux.",
   "settings.osUser.unsupported.kubernetes":
-    "No disponible a Kubernetes: el pod de l'oficina no pot executar ordres com a root.",
-  "settings.osUser.unsupported.render": "No disponible a Render.",
+    "No es pot canviar: a Kubernetes, el pod de l'oficina no pot executar ordres com a root.",
+  "settings.osUser.unsupported.render":
+    "No es pot canviar: l'oficina s'executa a Render.",
   "settings.osUser.unsupported.noSystemInstall":
-    "No disponible: l'oficina no es va instal·lar amb l'instal·lador d'Isomux.",
+    "No es pot canviar: l'oficina no es va instal·lar amb l'instal·lador d'Isomux.",
   "settings.osUser.unsupported.noCommand":
-    "No disponible fins que s'actualitzi l'oficina.",
+    "No es pot canviar fins que s'actualitzi l'oficina.",
   "settings.members.create": "Crea el membre",
   "settings.members.neverSignedIn": "no ha iniciat mai la sessió",
   "settings.members.signInLink.create":
@@ -3652,7 +3655,7 @@ Coses que pots fer per ell:
   "officeMove.in.confirm.restartUnknown":
     "L'oficina antiga no va dir com es reinicia el seu servei, així que no es pot bloquejar. Actualitza l'oficina antiga i torna a comprovar.",
   "officeMove.in.confirm.memberOsUsers":
-    "Membres amb usuari del sistema propi: {names}. La versió d'Isomux de l'oficina antiga no pot traslladar els seus fitxers, així que no es pot bloquejar. Actualitza l'oficina antiga, o desactiva'l allà per a cadascun a Configuració → Membres → el membre → Usuari del sistema propi, i torna a comprovar.",
+    "Membres amb usuari del sistema propi: {names}. La versió d'Isomux de l'oficina antiga no pot traslladar els seus fitxers, així que no es pot bloquejar. Actualitza l'oficina antiga, o desactiva'l allà per a cadascun a Configuració → Membres → el membre → Usuari del sistema, i torna a comprovar.",
   "officeMove.in.confirm.memberOsUsersBroken":
     "L'oficina antiga no pot llegir quins membres tenen usuari del sistema propi, així que no es pot bloquejar.",
   "officeMove.in.confirm.hostRefs":
@@ -3761,9 +3764,9 @@ Coses que pots fer per ell:
   "officeMove.report.members":
     "Membres els fitxers dels quals s'han traslladat. Els seus agents esperen fins que executis la seva ordre:",
   "officeMove.report.memberSettings":
-    "Consulta Configuració → Membres → el membre → Usuari del sistema propi.",
+    "Consulta Configuració → Membres → el membre → Usuari del sistema.",
   "officeMove.report.membersSettings":
-    "Configuració → Membres → el membre → Usuari del sistema propi mostra la mateixa ordre.",
+    "Configuració → Membres → el membre → Usuari del sistema mostra la mateixa ordre.",
   "officeMove.in.acceptMissing": "Acabar sense aquests fitxers",
   "officeMove.in.finishWarning":
     "Acabar substitueix aquesta oficina per la còpia i la reinicia. Després l'oficina antiga mostra que s'ha traslladat.",
