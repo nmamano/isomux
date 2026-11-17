@@ -13,14 +13,18 @@
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import {
   hasLiveTimeParam,
+  logEntrySegments,
   logEntryText,
   localizeLogParts,
   msg,
   msgN,
   renderLogText,
+  logTextFields,
   type LogPart,
+  type LogSegment,
 } from "./log-message.ts";
-import { translatorFor } from "./translate.ts";
+import { CATALOGS, pluralFormKeyFor, translatorFor } from "./translate.ts";
+import type { SupportedLanguageCode } from "../languages.ts";
 import { formatBytes, formatDecimal, formatNumber } from "./number.ts";
 import { formatDateTime, timeSince, timeUntilFine } from "./time.ts";
 
@@ -659,5 +663,350 @@ describe("logEntryText: the line a reader sees", () => {
     expect(
       logEntryText(es, { content, message: [notFound(), { key: "nope" }] }),
     ).toBe(content);
+  });
+});
+
+// A system line keeps its values apart from its words (task aaf43a3f), so the
+// chat shows a name or a path unlike the sentence around it and never shows
+// raw backticks. Agents keep reading the stored content, backticks and all:
+// joining the segments with each code span back in backticks gives exactly
+// the text logEntryText gives.
+describe("logEntrySegments: the line a reader sees, values kept apart", () => {
+  const zh = translatorFor("zh");
+  // The agreed design's prose placeholders: a sentence or a product name,
+  // not a value.
+  const PROSE = new Set([
+    "error",
+    "message",
+    "reason",
+    "summary",
+    "provider",
+    "engine",
+  ]);
+
+  const rewrap = (segments: LogSegment[]) =>
+    segments
+      .map((s) => (s.kind === "code" ? "`" + s.text + "`" : s.text))
+      .join("");
+  // The non-text spans, for comparing what a reader sees as values.
+  const marked = (segments: LogSegment[]) =>
+    segments
+      .filter((s) => s.kind !== "text")
+      .map((s) => ({ kind: s.kind, text: s.text }));
+  const entryOf = (message: LogPart[]) => ({
+    ...logTextFields(message),
+    message: logTextFields(message).message,
+  });
+  const segmentsOf = (
+    tr: typeof en,
+    entry: { content: string; message?: unknown },
+  ) => {
+    const segments = logEntrySegments(tr, entry);
+    // Every reader gets the same text as before, and no raw backtick sits in
+    // a value or code span.
+    expect(rewrap(segments)).toBe(logEntryText(tr, entry));
+    for (const s of segments)
+      if (s.kind !== "text") expect(s.text).not.toContain("`");
+    return segments;
+  };
+
+  it("a backtick span in the catalog is one code segment, backticks dropped", () => {
+    const segments = segmentsOf(en, entryOf([notFound()]));
+    expect(marked(segments)).toEqual([{ kind: "code", text: PATH }]);
+    expect(segments.map((s) => s.text).join("")).not.toContain("`");
+  });
+
+  it("a name or a path outside backticks is a value segment", () => {
+    const ready = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.agentReady", {
+          name: "Ada",
+          cwd: "/home/ada/proj",
+          mode: "bypassPermissions",
+        }),
+      ]),
+    );
+    expect(marked(ready)).toEqual([
+      { kind: "value", text: "Ada" },
+      { kind: "value", text: "/home/ada/proj" },
+      { kind: "value", text: "bypassPermissions" },
+    ]);
+    const manager = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.managerChanged", { actor: "Nil", member: "Ada" }),
+      ]),
+    );
+    expect(marked(manager)).toEqual([
+      { kind: "value", text: "Nil" },
+      { kind: "value", text: "Ada" },
+    ]);
+  });
+
+  it("a prose placeholder stays text, but a backtick pair inside it is code", () => {
+    const plain = segmentsOf(
+      en,
+      entryOf([msg("systemEntries.streamError", { error: "socket hang up" })]),
+    );
+    expect(marked(plain)).toEqual([]);
+    const withCode = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.streamError", {
+          error: "run `git init` first",
+        }),
+      ]),
+    );
+    expect(marked(withCode)).toEqual([{ kind: "code", text: "git init" }]);
+  });
+
+  it("a value param that carries backtick pairs gives one code segment per pair", () => {
+    // memberFolderUnreachable's writer wraps each command in backticks
+    // (server/member-folder-hint.ts).
+    const segments = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.memberFolderUnreachable", {
+          user: "ada",
+          path: "/home/ada/proj",
+          commands:
+            "`chmod o+x /home/ada` `setfacl -m u:ada:rx /home/ada/proj`",
+        }),
+      ]),
+    );
+    expect(marked(segments)).toEqual([
+      { kind: "value", text: "ada" },
+      { kind: "value", text: "/home/ada/proj" },
+      { kind: "code", text: "chmod o+x /home/ada" },
+      { kind: "code", text: "setfacl -m u:ada:rx /home/ada/proj" },
+    ]);
+  });
+
+  it("numbers, sizes and other worded kinds stay text", () => {
+    const exited = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.askRun.exited", { code: 2, command: "make" }),
+      ]),
+    );
+    expect(marked(exited)).toEqual([{ kind: "value", text: "make" }]);
+    const big = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.fileTooLargeToDisplay", {
+          path: PATH,
+          size: { bytes: 12_345_678 },
+          limit: { number: 5 },
+        }),
+      ]),
+    );
+    expect(marked(big)).toEqual([{ kind: "code", text: PATH }]);
+  });
+
+  it("a nested message keeps its own words as text and its values apart", () => {
+    const segments = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.settingsNotice.change", {
+          setting: msg("common.field.model"),
+          from: "opus",
+          to: "sonnet",
+        }),
+        "\n",
+        msg("systemEntries.alreadyUsing", {
+          label: msg("systemEntries.managerChanged", {
+            actor: "Nil",
+            member: "Ada",
+          }),
+        }),
+      ]),
+    );
+    expect(marked(segments)).toEqual([
+      { kind: "value", text: "opus" },
+      { kind: "value", text: "sonnet" },
+      { kind: "value", text: "Nil" },
+      { kind: "value", text: "Ada" },
+    ]);
+    // The field label is words, not a value.
+    expect(
+      segments.some(
+        (s) => s.kind === "text" && s.text.includes(en.t("common.field.model")),
+      ),
+    ).toBe(true);
+  });
+
+  it("a part list keeps its strings as words, a backtick pair in them as code", () => {
+    const segments = segmentsOf(
+      en,
+      entryOf([
+        msg("systemEntries.alreadyUsing", {
+          label: {
+            parts: [
+              "plain words and `npm test`, then ",
+              msg("systemEntries.managerChanged", {
+                actor: "Nil",
+                member: "Ada",
+              }),
+            ],
+          },
+        }),
+      ]),
+    );
+    expect(marked(segments)).toEqual([
+      { kind: "code", text: "npm test" },
+      { kind: "value", text: "Nil" },
+      { kind: "value", text: "Ada" },
+    ]);
+  });
+
+  it("a translated catalog keeps the same values apart, in the reader's words", () => {
+    const ready = entryOf([
+      msg("systemEntries.agentReady", {
+        name: "Ada",
+        cwd: "/home/ada/proj",
+        mode: "plan",
+      }),
+    ]);
+    const english = segmentsOf(en, ready);
+    for (const tr of [es, zh]) {
+      const segments = segmentsOf(tr, ready);
+      differs(rewrap(segments), rewrap(english));
+      expect(
+        [...marked(segments)].sort((a, b) => a.text.localeCompare(b.text)),
+      ).toEqual(
+        [...marked(english)].sort((a, b) => a.text.localeCompare(b.text)),
+      );
+      expect(marked(segmentsOf(tr, entryOf([notFound()])))).toEqual([
+        { kind: "code", text: PATH },
+      ]);
+    }
+  });
+
+  it("with no message, backtick pairs on one line in the content are code", () => {
+    const pair = segmentsOf(en, { content: "Cannot open `a b` now." });
+    expect(marked(pair)).toEqual([{ kind: "code", text: "a b" }]);
+    const lone = segmentsOf(en, { content: "One ` alone, and `` empty." });
+    expect(marked(lone)).toEqual([]);
+    const across = segmentsOf(en, { content: "x `a\nb` y" });
+    expect(marked(across)).toEqual([]);
+    // A message no reader can word falls back to the content, split the same.
+    const broken = segmentsOf(en, {
+      content: "File `x.txt` gone",
+      message: [{ key: "systemEntries.noSuchKey" }],
+    });
+    expect(marked(broken)).toEqual([{ kind: "code", text: "x.txt" }]);
+    const badParam = segmentsOf(en, {
+      content: "Stored `y`",
+      message: [
+        {
+          key: "systemEntries.pathRefusal.notFound",
+          params: { path: PATH, extra: { nope: 1 } },
+        },
+      ],
+    });
+    expect(marked(badParam)).toEqual([{ kind: "code", text: "y" }]);
+  });
+
+  // Every system line in every language, with a string value per
+  // placeholder: the text is the plain template fill (independent of the
+  // walk under test), a value outside backticks is a value segment unless its
+  // name is prose, and a value inside backticks sits in a code segment.
+  it("every systemEntries line keeps its text and splits its values", () => {
+    const PAIR = /`[^`\n]+`/g;
+    const PH = /\{(\w+)\}/g;
+    const english = CATALOGS.en as Record<string, string>;
+    const value = (name: string) => `v-${name}`;
+    let checked = 0;
+    for (const language of Object.keys(CATALOGS) as SupportedLanguageCode[]) {
+      const tr = translatorFor(language);
+      const catalog = CATALOGS[language] as Record<string, string>;
+      const cases: {
+        message: Record<string, unknown>;
+        template: string;
+        count?: number;
+      }[] = [];
+      for (const key of Object.keys(english)) {
+        if (!key.startsWith("systemEntries.")) continue;
+        const pluralBase = key.endsWith(".one") ? key.slice(0, -4) : null;
+        if (pluralBase && Object.hasOwn(english, `${pluralBase}.other`)) {
+          for (const count of [1, 5]) {
+            const formKey = pluralFormKeyFor(language, pluralBase, count);
+            const template = catalog[formKey] ?? english[formKey];
+            const names = [
+              ...new Set(
+                [...english[`${pluralBase}.other`].matchAll(PH)].map(
+                  (m) => m[1],
+                ),
+              ),
+            ].filter((n) => n !== "count");
+            cases.push({
+              message: {
+                key: pluralBase,
+                count,
+                ...(names.length
+                  ? {
+                      params: Object.fromEntries(
+                        names.map((n) => [n, value(n)]),
+                      ),
+                    }
+                  : {}),
+              },
+              template: template.replaceAll("{count}", String(count)),
+              count,
+            });
+          }
+          continue;
+        }
+        if (
+          /\.(other|few|many|two|zero)$/.test(key) &&
+          Object.hasOwn(english, key.replace(/\.\w+$/, ".one"))
+        )
+          continue;
+        const template = catalog[key] ?? english[key];
+        const names = [
+          ...new Set([...english[key].matchAll(PH)].map((m) => m[1])),
+        ];
+        cases.push({
+          message: {
+            key,
+            ...(names.length
+              ? { params: Object.fromEntries(names.map((n) => [n, value(n)])) }
+              : {}),
+          },
+          template,
+        });
+      }
+      for (const { message, template } of cases) {
+        const filled = template.replace(PH, (whole, n: string) =>
+          n === "count" ? whole : value(n),
+        );
+        const entry = { content: "stored", message: [message] };
+        expect(localizeLogParts(tr, [message])).toBe(filled);
+        const segments = logEntrySegments(tr, entry);
+        expect(rewrap(segments)).toBe(filled);
+        const codeText = segments
+          .filter((s) => s.kind === "code")
+          .map((s) => s.text)
+          .join("\u0000");
+        const values = segments
+          .filter((s) => s.kind === "value")
+          .map((s) => s.text);
+        const insidePairs = new Set(
+          [...template.matchAll(PAIR)].flatMap((m) =>
+            [...m[0].matchAll(PH)].map((p) => p[1]),
+          ),
+        );
+        const outside = [...template.replace(PAIR, "").matchAll(PH)]
+          .map((m) => m[1])
+          .filter((n) => n !== "count");
+        for (const n of insidePairs) expect(codeText).toContain(value(n));
+        const wantValues = outside.filter((n) => !PROSE.has(n)).map(value);
+        expect([...values].sort()).toEqual([...wantValues].sort());
+        checked++;
+      }
+    }
+    // Every language and the many system lines were walked.
+    expect(checked).toBeGreaterThan(4 * 250);
   });
 });

@@ -20,6 +20,7 @@ import { isApiTokenDevice } from "../../shared/identity.ts";
 import { isNoUpdateReply } from "../../shared/no-update.ts";
 import { messagingAppName } from "../../shared/messaging.ts";
 import { Markdown } from "./Markdown.tsx";
+import { SystemMessage } from "./SystemMessage.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
@@ -1011,7 +1012,11 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (deniedRun) {
         return (
           <div>
-            <SystemMessage content={display} isMobile={isMobile} />
+            <SystemMessage
+              content={display}
+              message={entry.message}
+              isMobile={isMobile}
+            />
             <div
               style={{
                 margin: "0 0 8px",
@@ -1057,7 +1062,14 @@ export const LogEntryCard = memo(function LogEntryCard({
       // A notice from isomux (metadata.notice names it, e.g. "settings"):
       // a system message whatever its line count.
       if (typeof entry.metadata?.notice === "string") {
-        return <SystemMessage content={display} isMobile={isMobile} notice />;
+        return (
+          <SystemMessage
+            content={display}
+            message={entry.message}
+            isMobile={isMobile}
+            notice
+          />
+        );
       }
       // Subprocess stderr surfaced by a backend adapter (Codex prefixes it
       // "[codex stderr]"). Multiline SystemMessage renders through Markdown
@@ -1070,7 +1082,13 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (findings) {
         return <ReviewFindingsCard findings={findings} isMobile={isMobile} />;
       }
-      return <SystemMessage content={display} isMobile={isMobile} />;
+      return (
+        <SystemMessage
+          content={display}
+          message={entry.message}
+          isMobile={isMobile}
+        />
+      );
     }
     case "diff": {
       if (!entry.diff)
@@ -2573,34 +2591,6 @@ function StderrBlock({
 
 // A multi-line entry is command output (/help, /context) and renders as
 // Markdown; a `notice` keeps the one-line style and its line breaks.
-function SystemMessage({
-  content,
-  isMobile,
-  notice,
-}: {
-  content: string;
-  isMobile?: boolean;
-  notice?: boolean;
-}) {
-  const isMultiline = !notice && content.includes("\n");
-  return (
-    <div
-      style={{
-        margin: "8px 0",
-        padding: "6px 0",
-        textAlign: isMultiline ? "left" : "center",
-        color: isMultiline ? "var(--text-dim)" : "var(--text-ghost)",
-        fontSize: isMultiline ? (isMobile ? 15 : 13) : isMobile ? 13 : 11,
-        fontFamily: isMultiline ? "'JetBrains Mono',monospace" : undefined,
-        fontStyle: isMultiline ? "normal" : "italic",
-        ...(!isMultiline && { whiteSpace: "pre-wrap" }),
-      }}
-    >
-      {isMultiline ? <Markdown content={content} /> : content}
-    </div>
-  );
-}
-
 // One-line background-task lifecycle breadcrumb (metadata.taskEvent on a
 // system entry). Same unobtrusive centered style as single-line SystemMessage,
 // plus a CSS status dot - a plain <span>, deliberately not a Unicode glyph

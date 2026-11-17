@@ -200,16 +200,67 @@ function wordParts(
   parts: unknown,
   strict: boolean,
 ): string | null {
-  if (!Array.isArray(parts)) return strict ? null : "";
-  let out = "";
+  const segments = segmentParts(tr, parts, strict);
+  return segments === null ? null : joinSegments(segments);
+}
+
+// Placeholders whose string is a sentence or a product name, not a value:
+// they read as plain words, not as Data.
+const PROSE_PLACEHOLDERS: ReadonlySet<string> = new Set([
+  "error",
+  "message",
+  "reason",
+  "summary",
+  "provider",
+  "engine",
+]);
+
+// A single-backtick pair on one line, as Markdown writes inline code: a
+// backtick next to another one (``) opens or closes no span.
+const CODE_SPAN = /(?<!`)`([^`\n]+)`(?!`)/g;
+
+type Segments = LogSegment[];
+
+function text(value: string): Segments {
+  return value === "" ? [] : [{ text: value, kind: "text" }];
+}
+
+function joinSegments(segments: Segments): string {
+  return segments
+    .map((s) => (s.kind === "code" ? `\`${s.text}\`` : s.text))
+    .join("");
+}
+
+/** `value` with each backtick pair as a code segment and the rest as `rest`. */
+function splitCode(value: string, rest: LogSegment["kind"]): Segments {
+  const out: Segments = [];
+  let last = 0;
+  for (const m of value.matchAll(CODE_SPAN)) {
+    if (m.index > last)
+      out.push({ text: value.slice(last, m.index), kind: rest });
+    out.push({ text: m[1], kind: "code" });
+    last = m.index + m[0].length;
+  }
+  if (last < value.length) out.push({ text: value.slice(last), kind: rest });
+  return out;
+}
+
+function segmentParts(
+  tr: Translator,
+  parts: unknown,
+  strict: boolean,
+  depth = 0,
+): Segments | null {
+  if (!Array.isArray(parts)) return strict ? null : [];
+  const out: Segments = [];
   for (const part of parts as unknown[]) {
     if (typeof part === "string") {
-      out += part;
+      out.push(...splitCode(part, "text"));
       continue;
     }
-    const worded = wordMessage(tr, part, 0, strict);
+    const worded = wordMessage(tr, part, depth, strict);
     if (worded === null) return null;
-    out += worded;
+    out.push(...worded);
   }
   return out;
 }
@@ -228,18 +279,18 @@ function wordMessage(
   message: unknown,
   depth: number,
   strict: boolean,
-): string | null {
-  const fail = (fallback: string) => (strict ? null : fallback);
+): Segments | null {
+  const fail = (fallback: string) => (strict ? null : text(fallback));
   if (depth > MAX_DEPTH || !isRecord(message)) return fail("");
   const { key, params, count } = message;
   if (typeof key !== "string") return fail("");
-  const values: Record<string, string> = {};
+  const values: Record<string, Segments> = {};
   let template: string | undefined;
   if (count !== undefined) {
     if (typeof count !== "number" || !Number.isFinite(count)) return fail(key);
     if (!isPluralBase(key)) return fail(key);
     template = catalogText(tr, pluralFormKeyFor(tr.language, key, count));
-    values.count = String(count);
+    values.count = text(String(count));
   } else if (Object.hasOwn(EN, key)) {
     template = catalogText(tr, key);
   }
@@ -247,29 +298,54 @@ function wordMessage(
   if (params !== undefined) {
     if (!isRecord(params)) return fail(template);
     for (const [name, value] of Object.entries(params)) {
-      const worded = wordParam(tr, value, depth, strict);
+      const worded = wordParam(tr, name, value, depth, strict);
       if (worded === null) return null;
       values[name] = worded;
     }
   }
   let missing = false;
-  const text = template.replace(PLACEHOLDER, (whole, name: string) => {
-    if (Object.hasOwn(values, name)) return values[name];
-    missing = true;
-    return whole;
-  });
-  return missing && strict ? null : text;
+  const fill = (piece: string): Segments => {
+    const out: Segments = [];
+    let last = 0;
+    for (const m of piece.matchAll(PLACEHOLDER)) {
+      if (m.index > last) out.push(...text(piece.slice(last, m.index)));
+      if (Object.hasOwn(values, m[1])) out.push(...values[m[1]]);
+      else {
+        missing = true;
+        out.push(...text(m[0]));
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < piece.length) out.push(...text(piece.slice(last)));
+    return out;
+  };
+  // A backtick pair in the text is one code span, its values inside it.
+  const out: Segments = [];
+  for (const span of splitCode(template, "text")) {
+    if (span.kind === "code")
+      out.push({ text: joinSegments(fill(span.text)), kind: "code" });
+    else out.push(...fill(span.text));
+  }
+  return missing && strict ? null : out;
 }
 
 function wordParam(
   tr: Translator,
+  name: string,
   value: unknown,
   depth: number,
   strict: boolean,
-): string | null {
-  const fail = (fallback: string) => (strict ? null : fallback);
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
+): Segments | null {
+  const fail = (fallback: string) => (strict ? null : text(fallback));
+  if (typeof value === "string") {
+    const split = splitCode(value, "text");
+    if (split.some((s) => s.kind === "code")) return split;
+    if (value === "") return [];
+    return [
+      { text: value, kind: PROSE_PLACEHOLDERS.has(name) ? "text" : "value" },
+    ];
+  }
+  if (typeof value === "number") return text(String(value));
   if (!isRecord(value)) return fail("");
   const lang = tr.language;
   if ("key" in value) return wordMessage(tr, value, depth + 1, strict);
@@ -277,7 +353,7 @@ function wordParam(
     const { number, digits } = value;
     if (typeof number !== "number" || !Number.isFinite(number))
       return fail(String(number));
-    if (digits === undefined) return formatNumber(lang, number);
+    if (digits === undefined) return text(formatNumber(lang, number));
     if (
       typeof digits !== "number" ||
       !Number.isInteger(digits) ||
@@ -285,11 +361,14 @@ function wordParam(
       digits > 20
     )
       return fail(String(number));
-    return formatDecimal(lang, number, digits);
+    return text(formatDecimal(lang, number, digits));
   }
   if ("bytes" in value) {
     const bytes = typeof value.bytes === "number" ? value.bytes : NaN;
-    return formatBytes(lang, bytes) ?? fail(String(value.bytes));
+    const worded = formatBytes(lang, bytes);
+    return worded === null || worded === undefined
+      ? fail(String(value.bytes))
+      : text(worded);
   }
   if ("time" in value) {
     const { time, shape } = value;
@@ -299,7 +378,7 @@ function wordParam(
       !isDateShape(shape)
     )
       return fail(String(time));
-    return formatDateTime(lang, time, shape);
+    return text(formatDateTime(lang, time, shape));
   }
   if ("duration" in value) {
     const { duration } = value;
@@ -307,7 +386,7 @@ function wordParam(
       return fail("");
     const now = Date.now();
     const span = timeUntilFine(lang, now + duration, now);
-    return span.kind === "formatted" ? span.text : fail("");
+    return span.kind === "formatted" ? text(span.text) : fail("");
   }
   if ("elapsed" in value) {
     const { elapsed } = value;
@@ -315,38 +394,32 @@ function wordParam(
       return fail("");
     const now = Date.now();
     const since = timeSince(lang, now - elapsed, now);
-    return since.kind === "formatted" ? since.text : tr.t("common.justNow");
+    return text(
+      since.kind === "formatted" ? since.text : tr.t("common.justNow"),
+    );
   }
   if ("relative" in value) {
     const { relative } = value;
     if (typeof relative !== "number" || !Number.isFinite(relative))
       return fail("");
     const now = Date.now();
-    if (Math.abs(relative - now) < 60_000) return tr.t("common.justNow");
+    if (Math.abs(relative - now) < 60_000) return text(tr.t("common.justNow"));
     const span =
       relative > now
         ? timeUntilFine(lang, relative, now)
         : timeSince(lang, relative, now);
-    return span.kind === "formatted" ? span.text : tr.t("common.justNow");
+    return text(span.kind === "formatted" ? span.text : tr.t("common.justNow"));
   }
   if ("lower" in value) {
     if (!isRecord(value.lower)) return fail("");
     const worded = wordMessage(tr, value.lower, depth + 1, strict);
-    return worded === null ? null : worded.toLocaleLowerCase(lang);
+    return worded === null
+      ? null
+      : worded.map((s) => ({ ...s, text: s.text.toLocaleLowerCase(lang) }));
   }
   if ("parts" in value) {
     if (!Array.isArray(value.parts)) return fail("");
-    let out = "";
-    for (const part of value.parts as unknown[]) {
-      if (typeof part === "string") {
-        out += part;
-        continue;
-      }
-      const worded = wordMessage(tr, part, depth + 1, strict);
-      if (worded === null) return null;
-      out += worded;
-    }
-    return out;
+    return segmentParts(tr, value.parts, strict, depth + 1);
   }
   return fail("");
 }
@@ -486,4 +559,29 @@ export function logParam(text: LogText): LogParam {
   const parts = text as readonly LogPart[];
   if (parts.length === 1) return parts[0];
   return { parts: [...parts] };
+}
+
+/**
+ * One span of a line a reader sees: plain words, a value from the writer
+ * (a name, a path), or a span the text put in backticks.
+ */
+export interface LogSegment {
+  text: string;
+  kind: "text" | "value" | "code";
+}
+
+/**
+ * The line a reader sees for an entry (logEntryText), with its values and
+ * backtick spans kept apart, so a view can show them unlike the words around
+ * them. A code segment's text has no backticks.
+ */
+export function logEntrySegments(
+  tr: Translator,
+  entry: { content: string; message?: unknown },
+): LogSegment[] {
+  if (entry.message !== undefined) {
+    const segments = segmentParts(tr, entry.message, true);
+    if (segments !== null) return segments;
+  }
+  return splitCode(entry.content, "text");
 }
