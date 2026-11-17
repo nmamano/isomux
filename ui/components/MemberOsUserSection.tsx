@@ -254,10 +254,18 @@ export function MemberOsUserSection({
                   },
                 ];
 
+  // A root-capable account can read the office's files: its warning
+  // replaces the hint that says it cannot.
+  const rootWarning = view.rootCapable === true && view.state !== "off";
+
   return (
     <div data-testid="member-os-user">
       <h5 style={headingStyle}>{t("settings.osUser.title")}</h5>
-      <p style={hintStyle}>{t("settings.osUser.hint")}</p>
+      {!rootWarning && (
+        <p data-testid="member-os-user-hint" style={hintStyle}>
+          {t("settings.osUser.hint")}
+        </p>
+      )}
       <p
         data-testid="member-os-user-state"
         data-state={view.state}
@@ -270,7 +278,7 @@ export function MemberOsUserSection({
       {view.adopted && view.state !== "off" && (
         <p style={hintStyle}>{t("settings.osUser.adopted")}</p>
       )}
-      {view.rootCapable && view.state !== "off" && (
+      {rootWarning && (
         <p
           data-testid="member-os-user-root-capable"
           role="note"

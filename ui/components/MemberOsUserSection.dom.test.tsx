@@ -750,14 +750,19 @@ it("Copy copies the command with the pick", async () => {
   expect(copied).toEqual([`${COMMANDS.enable} --existing-user bob`]);
 });
 
+// Task 04b00bcd: the section hint says their agents cannot read the
+// office's files; a root-capable account can, so the hint goes where the
+// root-capable warning shows (in every state that carries rootCapable).
 it("on: says an adopted user is the person's own, and warns only for a root-capable one", async () => {
   const osUser = { name: "bob", uid: 1001 };
   const stateOf = async (over: Partial<MemberOsUserWire>) => {
     answers = [view({ state: "on", osUser, ...over })];
     const m = await mount();
+    expect(m.q("member-os-user-state")?.dataset.state).toBe(over.state ?? "on");
     const out = {
       adopted: m.q("member-os-user-state")?.dataset.adopted ?? null,
       warning: m.q("member-os-user-root-capable") !== null,
+      hint: m.q("member-os-user-hint") !== null,
       lines: commandLines(m),
       picker: pickOf(m) !== null,
     };
@@ -767,19 +772,36 @@ it("on: says an adopted user is the person's own, and warns only for a root-capa
   expect(await stateOf({})).toEqual({
     adopted: null,
     warning: false,
+    hint: true,
     lines: [COMMANDS.disable],
     picker: false,
   });
   expect(await stateOf({ adopted: true })).toEqual({
     adopted: "true",
     warning: false,
+    hint: true,
     lines: [COMMANDS.disable],
     picker: false,
   });
   expect(await stateOf({ adopted: true, rootCapable: true })).toEqual({
     adopted: "true",
     warning: true,
+    hint: false,
     lines: [COMMANDS.disable],
     picker: false,
+  });
+  // Not only "on": a root-capable account that is not ready yet gets the
+  // warning, so not the hint; a plain one that is not ready keeps the hint.
+  const notReady = async (over: Partial<MemberOsUserWire>) => {
+    const { warning, hint } = await stateOf({ state: "not_ready", ...over });
+    return { warning, hint };
+  };
+  expect(await notReady({ adopted: true, rootCapable: true })).toEqual({
+    warning: true,
+    hint: false,
+  });
+  expect(await notReady({ adopted: true })).toEqual({
+    warning: false,
+    hint: true,
   });
 });
