@@ -40,14 +40,22 @@ import { useI18n } from "../i18n.tsx";
 // showed last on this device. The status lines have their own route, read per
 // provider once the settings say the cap is on: a provider read can take
 // seconds, and each line shows that it loads until its own answer comes.
+//
+// `readOnly`: a member on the Integrations page, who cannot read the
+// settings. The card keeps its place with the switches unknown and every
+// control disabled, and reads nothing.
 export function MemberUsageCard({
   style,
+  readOnly = false,
 }: {
   // The Integrations page lays the card flat inside its own card.
   style?: CSSProperties;
+  readOnly?: boolean;
 } = {}) {
   const { t, language } = useI18n();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!readOnly);
+  // Neither on nor off: while the settings load, and for good when readOnly.
+  const unknown = loading || readOnly;
   const [settings, setSettings] = useState<OfficeSettingsRes | null>(null);
   const [usageCap, setUsageCap] = useState(false);
   const [usageShare, setUsageShare] = useState(DEFAULT_MEMBER_SHARE);
@@ -106,6 +114,7 @@ export function MemberUsageCard({
   }
 
   useEffect(() => {
+    if (readOnly) return;
     let cancelled = false;
     // A counter, not a node: the cleanup wants its value at unmount.
     const reads = statusRead;
@@ -123,9 +132,11 @@ export function MemberUsageCard({
       cancelled = true;
       reads.current++;
     };
+    // readOnly is the viewer's role, which does not change while the card shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!loading && (!settings || settings.memberUsageCap === undefined))
+  if (!unknown && (!settings || settings.memberUsageCap === undefined))
     return null;
 
   const baselineCap = settings?.memberUsageCap ?? false;
@@ -219,9 +230,9 @@ export function MemberUsageCard({
           type="checkbox"
           // Unknown until the settings arrive: never a real "off".
           ref={(box) => {
-            if (box) box.indeterminate = loading;
+            if (box) box.indeterminate = unknown;
           }}
-          disabled={loading}
+          disabled={unknown}
           checked={usageCap}
           onChange={(e) => setUsageCap(e.target.checked)}
         />
@@ -278,16 +289,16 @@ export function MemberUsageCard({
           );
         })}
       {/* A new block after the Pace lines, above the Save row that writes it. */}
-      {(loading || fallbackKnown) && (
+      {(unknown || fallbackKnown) && (
         <div data-provider-fallback style={{ marginTop: 12 }}>
           <label style={switchLabelStyle}>
             <input
               type="checkbox"
               // Unknown until the settings arrive: never a real "off".
               ref={(box) => {
-                if (box) box.indeterminate = loading;
+                if (box) box.indeterminate = unknown;
               }}
-              disabled={loading}
+              disabled={unknown}
               checked={fallback}
               onChange={(e) => setFallback(e.target.checked)}
             />
@@ -322,7 +333,7 @@ export function MemberUsageCard({
             setError(null);
           }}
           style={dialogCancelBtn}
-          disabled={loading || saving || !dirty}
+          disabled={unknown || saving || !dirty}
         >
           {t("common.cancel")}
         </button>
@@ -331,7 +342,7 @@ export function MemberUsageCard({
           style={{
             ...dialogSaveBtn,
           }}
-          disabled={loading || saving}
+          disabled={unknown || saving}
         >
           {saving
             ? t("common.saving")

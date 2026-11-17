@@ -5,6 +5,7 @@
 
 import { cloneElement, Fragment } from "react";
 import { DoorIcon } from "./NavIcons.tsx";
+import { ownDisabledLook } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 
 // One sidebar entry: it moves the detail pane to `target`. The row holds the
@@ -24,7 +25,8 @@ export type SidebarRow<T> = {
   // A row that starts a new thing (Settings > You > New device): drawn as the
   // New member row, a + in a glyph's box before the muted label.
   add?: true;
-  // The row takes no click (an add row while its action runs).
+  // The row takes no click (an add row while its action runs, a part the
+  // viewer may not open). It keeps its place and dims its text.
   disabled?: boolean;
   // A failure to show under the row, in red.
   error?: string | null;
@@ -104,6 +106,8 @@ export function SidebarGroupRows<T>({
             <Fragment key={row.key}>
               <button
                 {...rowAttrs?.(row)}
+                // A disabled row dims its text; a box would not fit a list.
+                {...(row.disabled ? ownDisabledLook : {})}
                 onClick={() => onSelect(row.target)}
                 disabled={row.disabled}
                 aria-current={row.selected ? "true" : undefined}
@@ -122,9 +126,13 @@ export function SidebarGroupRows<T>({
                       : "8px 14px 8px 22px",
                   fontSize: 13,
                   fontWeight: row.add ? undefined : 600,
-                  color: row.add ? "var(--text-muted)" : "var(--text-primary)",
+                  color: row.disabled
+                    ? "var(--text-hint)"
+                    : row.add
+                      ? "var(--text-muted)"
+                      : "var(--text-primary)",
                   border: "none",
-                  cursor: row.disabled ? "default" : "pointer",
+                  cursor: row.disabled ? "not-allowed" : "pointer",
                   background: row.selected ? "var(--bg-hover)" : "transparent",
                   borderLeft: row.selected
                     ? "2px solid var(--accent)"

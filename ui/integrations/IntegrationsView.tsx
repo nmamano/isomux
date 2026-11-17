@@ -68,6 +68,7 @@ import {
   type SidebarGroup,
 } from "../components/SidebarGroups.tsx";
 import { SidebarPage } from "../components/SidebarPage.tsx";
+import { disabledFieldLook } from "../components/dialog-styles.ts";
 import {
   INTEGRATIONS_TABS,
   type IntegrationsTab,
@@ -157,14 +158,16 @@ function IntegrationsPage({
   // a tab outside the member's pack not at all; a remembered or requested one
   // the viewer lacks falls back like an unknown tab.
   const selfUser = useSelfUser();
-  const tabs = INTEGRATIONS_TABS.filter((id) => {
+  // The list draws GitHub issues for a member too, disabled, so the rows
+  // keep their place; `tabs` holds only what the viewer may open.
+  const listed = INTEGRATIONS_TABS.filter((id) => {
     const area = TAB_AREA[id];
     return (
       (sessionContext || !SELF_TABS.includes(id)) &&
-      (role === "owner" || id !== "github") &&
       (area === null || canUse(selfUser, area, "read"))
     );
   });
+  const tabs = listed.filter((id) => role === "owner" || id !== "github");
   const canEnvironment = canUse(selfUser, "environment", "read");
   // Refresh runs the account check, a change on environment.
   const environmentWrite = canUse(selfUser, "environment", "write");
@@ -404,11 +407,12 @@ function IntegrationsPage({
   // One unlabelled group: the page title already names it.
   const group: SidebarGroup<IntegrationsTab> = {
     id: "integrations",
-    rows: tabs.map((id) => ({
+    rows: listed.map((id) => ({
       key: id,
       label: t(TAB_LABEL[id]),
       selected: id === tab,
       target: id,
+      disabled: !tabs.includes(id),
     })),
   };
   const intro = TAB_INTRO[tab];
@@ -545,10 +549,10 @@ function IntegrationsPage({
                     : t("integrations.officeWhoMember")
                 }
                 action={
-                  tab === "providers" && environmentWrite ? (
+                  tab === "providers" ? (
                     <Btn
                       small
-                      disabled={accounts.refreshing}
+                      disabled={!environmentWrite || accounts.refreshing}
                       onClick={accounts.refresh}
                       data-providers-refresh
                     >
@@ -676,11 +680,14 @@ function PersonalCard({
 }) {
   const { t, rich } = useI18n();
   const other = target.kind === "member";
+  // A member gets it disabled on You, with the same options, so the card
+  // head keeps its size.
   const picker =
-    onPick && role === "owner" && others.length > 0 ? (
+    onPick && others.length > 0 ? (
       <select
         data-integrations-picker
         aria-label={t("integrations.picker")}
+        disabled={role !== "owner"}
         value={other ? target.username : ""}
         onChange={(e) => onPick(e.target.value || null)}
         style={{
@@ -690,6 +697,7 @@ function PersonalCard({
           fontSize: 12,
           fontWeight: 500,
           color: "var(--text-primary)",
+          ...(role === "owner" ? null : disabledFieldLook),
         }}
       >
         <option value="">{t("common.you")}</option>

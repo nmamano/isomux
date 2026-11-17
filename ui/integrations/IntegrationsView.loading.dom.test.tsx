@@ -241,8 +241,9 @@ describe("the held sign-in rows", () => {
     }).toEqual({ checking: 4, hidden: 0, held: run.loaded });
   });
 
-  // The office card of a viewer who cannot change it draws no sign-in or
-  // sign-out control: its held space has the same shape.
+  // The office card of a viewer who cannot change it draws its sign-in and
+  // sign-out controls disabled (task 3d517a07): its held space has the same
+  // shape.
   for (const office of ["signOut", "signIn"] as const)
     it(`a member who cannot change the office sign-ins: held office rows match, office ${office === "signOut" ? "signed in" : "not signed in"}`, async () => {
       fake = new IntegrationsFake({ username: "Stephen", owner: false }, [

@@ -436,7 +436,8 @@ function MemberOpenCodeRow({
 }
 
 // A row with the card's own key controls: Add or Replace opens a credential
-// field, Remove a confirm. Shown to whoever may edit the card's variables.
+// field, Remove a confirm. Disabled for a viewer who may not edit the card's
+// variables.
 function KeyRow({
   target,
   role,
@@ -473,13 +474,14 @@ function KeyRow({
     notifyManagedEnvSaved();
   };
   // Drawn, disabled, while the row waits for its answer: the actions line
-  // is there before the answer (on a phone it is a line of its own).
+  // is there before the answer (on a phone it is a line of its own). A
+  // viewer who may not change the key gets them disabled in their place.
   const actions =
-    editable && mode === "idle" ? (
+    mode === "idle" ? (
       <>
         <Btn
           small
-          disabled={!ready}
+          disabled={!editable || !ready}
           onClick={() => setMode("edit")}
           data-opencode-key-edit
         >
@@ -493,6 +495,7 @@ function KeyRow({
           <Btn
             small
             kind="danger"
+            disabled={!editable}
             onClick={() => setMode("remove")}
             data-opencode-key-remove
           >

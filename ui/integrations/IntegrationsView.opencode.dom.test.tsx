@@ -372,16 +372,19 @@ describe("the key, in place", () => {
     expect(gets()).toBeGreaterThan(before);
   });
 
-  it("gives a member no key control on the office card, and one on their own", async () => {
+  it("gives a member no usable key control on the office card, and one on their own", async () => {
     serve({ username: "Stephen", owner: false });
     officeKey();
     const view = await open(MEMBER);
     const office = section(view, "office");
     // The office card reached its key state.
     expect(row(office, "paid").getAttribute("data-opencode-key")).toBe("set");
-    expect(edit(office)).toBeNull();
-    expect(remove(office)).toBeNull();
-    expect(edit(section(view, "personal"))).not.toBeNull();
+    // They keep their place, disabled (task 3d517a07).
+    const disabled = (el: Element | null) =>
+      (el as HTMLButtonElement | null)?.disabled;
+    expect(disabled(edit(office))).toBe(true);
+    expect(disabled(remove(office))).toBe(true);
+    expect(disabled(edit(section(view, "personal")))).toBe(false);
   });
 });
 

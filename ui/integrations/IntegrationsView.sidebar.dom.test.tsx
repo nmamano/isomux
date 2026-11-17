@@ -96,6 +96,7 @@ describe("the sidebar", () => {
 describe("without a session", () => {
   it("has no Pager, API tokens or WhatsApp row, and asks for none", async () => {
     const view = await open(noSession);
+    // GitHub issues is an owner's: drawn disabled (task 3d517a07).
     expect(rows(view)).toEqual([
       "providers",
       "mcp",
@@ -103,7 +104,13 @@ describe("without a session", () => {
       "variables",
       "voice",
       "browser",
+      "github",
     ]);
+    expect(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-integrations-tab="github"]',
+      )?.disabled,
+    ).toBe(true);
     expect(
       fake.requests("GET", /pager-settings|api-tokens|whatsapp/),
     ).toHaveLength(0);

@@ -174,8 +174,8 @@ export function ProvidersSection({
             : null
         }
       />
-      {target.kind === "office" && role === "owner" && (
-        <MemberUsageCard style={flatCard} />
+      {target.kind === "office" && (
+        <MemberUsageCard style={flatCard} readOnly={role !== "owner"} />
       )}
     </>
   );

@@ -1007,15 +1007,14 @@ const providerRows = (
 };
 
 // The row a sign-in card draws under an account it knows: null while a
-// sign-in runs (its controls, not a row to hold). `canAct`: the viewer may
-// change this sign-in.
+// sign-in runs (its controls, not a row to hold). A viewer who may not change
+// the sign-in gets the same row, disabled.
 export function drawnProviderRow(
   account: ProviderAccountWire,
-  canAct: boolean,
 ): ProviderRow | null {
   if (account.login || account.loginQueue) return null;
   if (account.accountStatus === "connected") return "signOut";
-  return canAct && account.canBrowserLogin ? "signIn" : "none";
+  return account.canBrowserLogin ? "signIn" : "none";
 }
 
 // A first visit holds an office that is signed in and a viewer who is not.

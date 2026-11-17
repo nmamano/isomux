@@ -622,10 +622,9 @@ export function seedDemoHeldLayouts(): void {
       demoOfficeSwitches.memberUsageShare !== undefined,
     status: 0,
   });
-  // The demo's member is an owner: they may change every sign-in.
   const layout = getProviderLayout();
   for (const account of demoProviderAccounts()) {
-    const row = drawnProviderRow(account, true);
+    const row = drawnProviderRow(account);
     if (row) layout[account.scope][account.provider] = row;
   }
   setProviderLayout(layout);

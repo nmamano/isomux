@@ -111,15 +111,24 @@ describe("a member's view of the office", () => {
     ["mcp", "data-mcp-server-name", "linear"],
     ["variables", "data-env-entry", "TZ"],
   ] as const)
-    it(`${tabId}: names and notes, no control and no value`, async () => {
+    // The owner's controls stay in place, disabled (task 3d517a07).
+    it(`${tabId}: names and notes, no usable control and no value`, async () => {
       const view = await open(MEMBER);
       await tab(view, tabId);
       const office = card(view, "office");
       const item = office.querySelector(`[${row}="${name}"]`);
       expect(item).not.toBeNull();
       expect(office.querySelector("[data-connection-note]")).not.toBeNull();
-      expect(office.querySelectorAll("button")).toHaveLength(0);
-      expect(office.querySelector("[data-integrations-add]")).toBeNull();
+      const buttons = [...office.querySelectorAll("button")];
+      expect(buttons.length).toBeGreaterThan(1);
+      expect(buttons.filter((b) => !b.disabled).length).toBe(0);
+      expect(
+        office.querySelector<HTMLButtonElement>("[data-integrations-add]")
+          ?.disabled,
+      ).toBe(true);
+      expect(item!.querySelectorAll("button").length).toBeGreaterThan(0);
+      expect(office.textContent).not.toContain("office-value");
+      expect(office.textContent).not.toContain("UTC");
       expect(office.textContent).toContain(t("integrations.officeWhoMember"));
     });
 
@@ -138,10 +147,16 @@ describe("a member's view of the office", () => {
     expect(fake.requests("GET", "/api/office/env")).toHaveLength(0);
     expect(fake.requests("GET", /\/value$/)).toHaveLength(0);
     expect(fake.requests("GET", /^\/api\/users\/Ricky\//)).toHaveLength(0);
+    // The owner-only controls draw disabled, with nothing read for them.
+    expect(fake.requests("GET", "/api/office/settings")).toHaveLength(0);
     expect(
-      view.container.querySelector("[data-integrations-picker]"),
-    ).toBeNull();
-    expect(view.container.querySelector("[data-member-usage-card]")).toBeNull();
+      view.container.querySelector<HTMLSelectElement>(
+        "[data-integrations-picker]",
+      )?.disabled,
+    ).toBe(true);
+    expect(
+      view.container.querySelector("[data-member-usage-card]"),
+    ).not.toBeNull();
   });
 
   it("still edits their own items", async () => {

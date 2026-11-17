@@ -60,14 +60,22 @@ export function useConnectionTest(path: string) {
 export function TestButton({
   test,
   run,
+  disabled = false,
 }: {
   test: TestState;
   run: () => void;
+  // The viewer may not run it: drawn in its place, disabled.
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const running = test.state === "running";
   return (
-    <Btn small disabled={running} onClick={run} data-connection-test>
+    <Btn
+      small
+      disabled={disabled || running}
+      onClick={run}
+      data-connection-test
+    >
       {running
         ? t("settings.connections.test.running")
         : t("settings.connections.test.button")}

@@ -406,9 +406,7 @@ export function McpSection({
       ) : rows === null ? (
         <ListLoading
           text={t("common.loading")}
-          addLabel={
-            editable && !summary ? t("settings.mcpServers.add") : undefined
-          }
+          addLabel={t("settings.mcpServers.add")}
         />
       ) : rows.length === 0 ? (
         <Empty>{t("integrations.mcp.empty")}</Empty>
@@ -459,11 +457,10 @@ export function McpSection({
             style={{ fontSize: 12, margin: "6px 0 10px" }}
           />
         )}
-      {editable &&
-        !summary &&
-        rows !== null &&
+      {/* A viewer who may not add one gets the row disabled, in its place. */}
+      {rows !== null &&
         !loadError &&
-        (mode.kind === "add" ? (
+        (editable && !summary && mode.kind === "add" ? (
           <McpEditor
             target={target}
             path={path}
@@ -479,6 +476,7 @@ export function McpSection({
           mode.kind === "idle" && (
             <AddRow
               label={t("settings.mcpServers.add")}
+              disabled={!editable || summary}
               onClick={() => {
                 setError(null);
                 setMode({ kind: "add" });
@@ -586,24 +584,32 @@ function McpItem({
         ) : undefined
       }
       status={status && <Pill tone={status.tone}>{t(status.key)}</Pill>}
+      // A viewer who may not change the server gets the actions disabled.
       actions={
-        editable && mode.kind === "idle" ? (
+        mode.kind === "idle" ? (
           <>
             {needsSignIn ? (
               <Btn
                 small
                 kind="primary"
-                disabled={busy}
+                disabled={!editable || busy}
                 onClick={onSignIn}
                 data-mcp-sign-in
               >
                 {t("settings.mcpServers.signIn")}
               </Btn>
             ) : (
-              !problem && <TestButton test={test} run={() => void run()} />
+              !problem && (
+                <TestButton
+                  test={test}
+                  run={() => void run()}
+                  disabled={!editable}
+                />
+              )
             )}
             <Btn
               small
+              disabled={!editable}
               onClick={() => setMode({ kind: "edit", name: row.name })}
               data-mcp-edit
             >
@@ -612,6 +618,7 @@ function McpItem({
             <Btn
               small
               kind="danger"
+              disabled={!editable}
               onClick={() => setMode({ kind: "remove", name: row.name })}
               data-mcp-remove
             >

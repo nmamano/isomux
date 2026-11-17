@@ -76,10 +76,16 @@ function memberWith(areas?: Areas) {
   return stateFor("Stephen", "u2", "member", users);
 }
 
+// The tabs the viewer can open. A member also sees GitHub issues, disabled
+// (task 3d517a07): that is the role, not the pack.
 function tabsShown(view: View): string[] {
-  return [...view.container.querySelectorAll("[data-integrations-tab]")].map(
-    (row) => row.getAttribute("data-integrations-tab")!,
-  );
+  return [
+    ...view.container.querySelectorAll<HTMLButtonElement>(
+      "[data-integrations-tab]",
+    ),
+  ]
+    .filter((row) => !row.disabled)
+    .map((row) => row.getAttribute("data-integrations-tab")!);
 }
 
 // The routes on the environment area that the page or its tabs read.
@@ -201,11 +207,16 @@ describe("a pack without one area", () => {
 });
 
 describe("no pack", () => {
-  it("a member without a pack sees every tab but GitHub", async () => {
+  it("a member without a pack opens every tab but GitHub, which stays in its place", async () => {
     const view = await open(memberWith());
     expect(tabsShown(view)).toEqual(
       INTEGRATIONS_TABS.filter((id) => id !== "github"),
     );
+    expect(
+      [...view.container.querySelectorAll("[data-integrations-tab]")].map(
+        (row) => row.getAttribute("data-integrations-tab"),
+      ),
+    ).toEqual([...INTEGRATIONS_TABS]);
   });
 
   it("an owner sees every tab", async () => {
@@ -232,6 +243,20 @@ describe("a pack that gives an area at read only", () => {
       (selector) => view.container.querySelector(selector) !== null,
     );
   }
+  // The selectors with at least one control a click would run.
+  function usable(view: View, selectors: readonly string[]): string[] {
+    return selectors.filter((selector) =>
+      [...view.container.querySelectorAll<HTMLButtonElement>(selector)].some(
+        (el) => !el.disabled,
+      ),
+    );
+  }
+  // Markers a sign-in control carries only while it can be used.
+  const LIVE = [
+    "[data-start-provider-login]",
+    "[data-provider-sign-out]",
+    "[data-sign-in-test]",
+  ];
 
   // Opens `id` at both levels, with `over` on the store state; `check` runs
   // on each view.
@@ -325,7 +350,7 @@ describe("a pack that gives an area at read only", () => {
       ['[data-sign-in-scope="personal"]', "[data-provider-account-state]"],
     ],
   ] as const)(
-    "the %s tab at environment read has no write control",
+    "the %s tab at environment read has no usable write control",
     async (id, seed, writes, reads) => {
       const over: Record<string, unknown> = seed() ?? {};
       await bothLevels(
@@ -333,8 +358,14 @@ describe("a pack that gives an area at read only", () => {
         id,
         (view, level) => {
           expect(present(view, reads)).toEqual([...reads]);
-          expect(present(view, writes)).toEqual(
+          expect(usable(view, writes)).toEqual(
             level === "write" ? [...writes] : [],
+          );
+          // At read they keep their place, disabled (task 3d517a07).
+          expect(present(view, writes)).toEqual(
+            level === "write"
+              ? [...writes]
+              : writes.filter((w) => !LIVE.includes(w)),
           );
         },
         over,

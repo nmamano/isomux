@@ -485,7 +485,9 @@ function ProviderScopeConnection({
       : null;
 
   // `live` false: the held space of the row, with nothing to act on.
-  const signInRow = (live: boolean) => (
+  // `locked`: the viewer may not sign in here; the page draws the row
+  // disabled, so it keeps its place.
+  const signInRow = (live: boolean, locked = false) => (
     <div
       style={{
         margin: "12px 0",
@@ -496,14 +498,14 @@ function ProviderScopeConnection({
       }}
     >
       <button
-        data-start-provider-login={live ? "" : undefined}
+        data-start-provider-login={live && !locked ? "" : undefined}
         style={{ ...dialogSaveBtn, flexShrink: 0 }}
         onClick={
-          live
+          live && !locked
             ? () => void connect(provider === "codex" ? "device" : "browser")
             : undefined
         }
-        disabled={pending}
+        disabled={locked || pending}
       >
         {running === "signIn"
           ? t("settings.signIn.signingIn")
@@ -522,13 +524,13 @@ function ProviderScopeConnection({
   // The row this card draws under its status once it knows the account,
   // remembered on this device so the next load holds its space; null while
   // a sign-in runs. A member's card, which their owner opens, holds the Sign
-  // in row and remembers nothing.
+  // in row and remembers nothing. The page draws the row whether or not the
+  // viewer may act (disabled when not), so the layout is the same for both.
   const canAct = !readOnly && environmentWrite;
-  const drawnRow = account ? drawnProviderRow(account, canAct) : null;
-  const [remembered] = useState<ProviderRow>(() =>
+  const drawnRow = account ? drawnProviderRow(account) : null;
+  const [heldRow] = useState<ProviderRow>(() =>
     member ? "signIn" : getProviderLayout()[scope][provider],
   );
-  const heldRow = remembered === "signIn" && !canAct ? "none" : remembered;
   useEffect(() => {
     if (!pageLook || member || drawnRow === null) return;
     const layout = getProviderLayout();
@@ -539,20 +541,23 @@ function ProviderScopeConnection({
     });
   }, [pageLook, member, drawnRow, scope, provider]);
 
-  // The row under a signed-in status: Sign out (for whoever may change the
-  // sign-in) and Test. `live` false: its held space, with nothing to act on.
+  // The row under a signed-in status: Sign out and Test. A viewer who may
+  // not change the sign-in gets them disabled on the page, and no Sign out
+  // elsewhere. `live` false: its held space, with nothing to act on.
   const connectedRow = (live: boolean) => (
     <div style={connectedRowStyle}>
-      {readOnly || !environmentWrite ? null : !live || !confirmingSignOut ? (
+      {!canAct && !pageLook ? null : !live || !canAct || !confirmingSignOut ? (
         <button
-          data-provider-sign-out={live ? "" : undefined}
+          data-provider-sign-out={live && canAct ? "" : undefined}
           style={{
             ...filledSecondaryBtn,
             color: "var(--red-text)",
             flexShrink: 0,
           }}
-          onClick={live ? () => setConfirmingSignOut(true) : undefined}
-          disabled={pending}
+          onClick={
+            live && canAct ? () => setConfirmingSignOut(true) : undefined
+          }
+          disabled={!canAct || pending}
         >
           {t("common.signOut")}
         </button>
@@ -586,12 +591,12 @@ function ProviderScopeConnection({
           </button>
         </div>
       )}
-      {pageLook && (!live || !confirmingSignOut) && environmentWrite && (
+      {pageLook && (!live || !canAct || !confirmingSignOut) && (
         <button
           style={{ ...filledSecondaryBtn, flexShrink: 0 }}
-          disabled={live && test.state === "running"}
-          onClick={live ? () => void runTest() : undefined}
-          data-sign-in-test={live ? "" : undefined}
+          disabled={!environmentWrite || (live && test.state === "running")}
+          onClick={live && environmentWrite ? () => void runTest() : undefined}
+          data-sign-in-test={live && environmentWrite ? "" : undefined}
         >
           {live && test.state === "running"
             ? t("settings.connections.test.running")
@@ -710,17 +715,26 @@ function ProviderScopeConnection({
         </div>
       )}
 
-      {readOnly || !environmentWrite ? (
-        // The Integrations page already says only owners change it, and an
-        // owner's sign-in in progress shows its own status.
-        readOnly &&
-        !pageLook &&
-        !connected &&
-        !account?.loginQueue &&
-        account?.loginStatus !== "waiting_external" && (
-          <p data-ask-office-owner style={{ ...hint, margin: "12px 0 0" }}>
-            {t("settings.signIn.askOfficeOwner")}
-          </p>
+      {!canAct ? (
+        // The Integrations page already says only owners change it, and
+        // draws the Sign in row disabled in its place. An owner's sign-in in
+        // progress shows its own status.
+        pageLook ? (
+          !login &&
+          !account?.loginQueue &&
+          account?.loginStatus !== "waiting_external" &&
+          account?.canBrowserLogin &&
+          account.accountStatus !== "connected" &&
+          signInRow(true, true)
+        ) : (
+          readOnly &&
+          !connected &&
+          !account?.loginQueue &&
+          account?.loginStatus !== "waiting_external" && (
+            <p data-ask-office-owner style={{ ...hint, margin: "12px 0 0" }}>
+              {t("settings.signIn.askOfficeOwner")}
+            </p>
+          )
         )
       ) : login ? (
         <div data-own-login-controls style={{ margin: "12px 0" }}>

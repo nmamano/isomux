@@ -46,7 +46,14 @@ import {
 } from "./kit.tsx";
 import { Confirm } from "./SecretsSection.tsx";
 import { useAlive } from "./use-alive.ts";
-import { basePath, canEdit, isGone, type Role, type Target } from "./target.ts";
+import {
+  basePath,
+  canEdit,
+  isGone,
+  summaryOnly,
+  type Role,
+  type Target,
+} from "./target.ts";
 import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
 
@@ -187,7 +194,7 @@ export function VariablesSection({
       ) : variables === null ? (
         <ListLoading
           text={t("settings.env.loadingVariables")}
-          addLabel={editable ? t("settings.env.add") : undefined}
+          addLabel={t("settings.env.add")}
         />
       ) : variables.length === 0 ? (
         <Empty>{t("integrations.variables.empty")}</Empty>
@@ -201,6 +208,7 @@ export function VariablesSection({
               .filter((n) => n !== variable.name)}
             target={target}
             editable={editable && ready}
+            masked={summaryOnly(target, role)}
             mode={mode}
             setMode={setMode}
             write={write}
@@ -208,9 +216,9 @@ export function VariablesSection({
           />
         ))
       )}
-      {editable &&
-        ready &&
-        (mode.kind === "add" ? (
+      {/* A viewer who may not add one gets the row disabled, in its place. */}
+      {ready &&
+        (editable && mode.kind === "add" ? (
           <VariableEditor
             heading={whoseHeading("integrations.variables.addHeading", target)}
             taken={variables.map((v) => v.name)}
@@ -224,6 +232,7 @@ export function VariablesSection({
           idle && (
             <AddRow
               label={t("settings.env.add")}
+              disabled={!editable}
               onClick={() => setMode({ kind: "add" })}
             />
           )
@@ -237,6 +246,7 @@ function VariableItem({
   others,
   target,
   editable,
+  masked,
   mode,
   setMode,
   write,
@@ -246,6 +256,9 @@ function VariableItem({
   others: string[];
   target: Target;
   editable: boolean;
+  // A member's row of an office variable: the value line stays, masked,
+  // with Show disabled.
+  masked: boolean;
   mode: Mode;
   setMode: (mode: Mode) => void;
   write: (
@@ -264,21 +277,22 @@ function VariableItem({
   // Without the value (an owner on a member's variables), a change replaces
   // it: the field starts empty and is never filled from anywhere, and the
   // name stays (a rename would need the value).
-  const replaceOnly = variable.value === null;
+  const replaceOnly = variable.value === null && !masked;
   return (
     <ItemRow
       data-env-entry={variable.name}
       title={<span style={mono}>{variable.name}</span>}
       detail={
-        variable.value !== null ? (
+        variable.value !== null || masked ? (
           <span
             style={{ display: "inline-flex", gap: 8, alignItems: "center" }}
           >
             <code data-env-value style={{ ...mono, fontSize: 11.5 }}>
-              {shown ? variable.value : "••••••••"}
+              {shown && variable.value !== null ? variable.value : "••••••••"}
             </code>
             <Btn
               kind="link"
+              disabled={variable.value === null}
               onClick={() => setShown(!shown)}
               data-env-show
               style={{ fontSize: 11.5 }}
@@ -288,11 +302,13 @@ function VariableItem({
           </span>
         ) : undefined
       }
+      // A viewer who may not change it gets the actions disabled.
       actions={
-        editable && mode.kind === "idle" ? (
+        mode.kind === "idle" ? (
           <>
             <Btn
               small
+              disabled={!editable}
               onClick={() => setMode({ kind: "edit", name: variable.name })}
               data-env-edit
             >
@@ -301,6 +317,7 @@ function VariableItem({
             <Btn
               small
               kind="danger"
+              disabled={!editable}
               onClick={() => setMode({ kind: "remove", name: variable.name })}
               data-env-remove
             >

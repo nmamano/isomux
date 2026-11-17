@@ -136,17 +136,24 @@ async function pickRoom(view: View, roomId: string) {
   await act(async () => {});
 }
 
-it("an owner has a GitHub tab; a member has none, and a remembered or requested one falls back without asking for a link", async () => {
+it("an owner has a GitHub tab; a member sees it disabled, and a remembered or requested one falls back without asking for a link", async () => {
   const owner = await open(withRooms(OWNER));
   expect(rows(owner)).toContain("github");
   // The viewer's own tabs stay last.
   expect(rows(owner).slice(-3)).toEqual(["pager", "api-tokens", "messaging"]);
+  const ownerRows = rows(owner);
   owner.unmount();
 
   install(false);
   window.localStorage.setItem(TAB_KEY, "github");
   const remembered = await open(withRooms(MEMBER));
-  expect(rows(remembered)).not.toContain("github");
+  // The row keeps its place in the list (task 3d517a07).
+  expect(rows(remembered)).toEqual(ownerRows);
+  expect(
+    remembered.container.querySelector<HTMLButtonElement>(
+      '[data-integrations-tab="github"]',
+    )?.disabled,
+  ).toBe(true);
   expect(selectedTab(remembered)).toBe("providers");
   remembered.unmount();
 

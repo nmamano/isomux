@@ -671,6 +671,12 @@ it("leaves a member only the status and Test of an office sign-in", () => {
     askOwner: false,
   });
   expect(half(member, "office").textContent).toContain("ana@example.com");
+  // Sign out keeps its place beside Test, disabled (task 3d517a07).
+  expect(
+    [...half(member, "office").querySelectorAll("button")].filter(
+      (b) => b.disabled,
+    ).length,
+  ).toBe(1);
   expect(controls(half(member, "personal"))).toEqual({
     signIn: false,
     signOut: true,
@@ -688,9 +694,9 @@ it("leaves a member only the status and Test of an office sign-in", () => {
 
 // A member whose permission pack gives environment at read only (task
 // 119d0b47): every sign-in route is environment write, so neither scope has a
-// control. The chat card's line about an office owner keeps the office rule:
+// usable control. The chat card's line about an office owner keeps the office rule:
 // an owner cannot sign in a member's personal account.
-it("leaves a member at environment read the status of each sign-in and no control", async () => {
+it("leaves a member at environment read the status of each sign-in and no usable control", async () => {
   const { StateCtx } = await import("../store.tsx");
   const { selfUserRecord, stateWithSelfUser } =
     await import("../test-support/language-fixture.tsx");
@@ -747,11 +753,15 @@ it("leaves a member at environment read the status of each sign-in and no contro
       signIn: !!root.querySelector("[data-start-provider-login]"),
       signOut: !!root.querySelector("[data-provider-sign-out]"),
       test: !!root.querySelector("[data-sign-in-test]"),
+      // The page draws what the viewer cannot use, disabled, in its place
+      // (task 3d517a07); the chat card leaves it out.
+      disabled: [...root.querySelectorAll("button")].filter((b) => b.disabled)
+        .length,
       askOwner: !!root.querySelector("[data-ask-office-owner]"),
       status: !!root.querySelector("[data-provider-account-state]"),
     };
   };
-  const none = { signIn: false, signOut: false, test: false };
+  const none = { signIn: false, signOut: false, test: false, disabled: 0 };
 
   // The chat card, signed out: at write the member signs in their own.
   const view = render(card("write", "not_connected", false));
@@ -773,11 +783,37 @@ it("leaves a member at environment read the status of each sign-in and no contro
     status: true,
   });
 
-  // The Integrations page, signed in: Test and Sign out at write only.
+  // The Integrations page, signed out: Sign in at write on their own only;
+  // the office's, and both at read, draw disabled.
+  view.rerender(card("write", "not_connected", true));
+  expect(controls(view, "office")).toEqual({
+    ...none,
+    disabled: 1,
+    askOwner: false,
+    status: true,
+  });
+  expect(controls(view, "personal")).toEqual({
+    ...none,
+    signIn: true,
+    askOwner: false,
+    status: true,
+  });
+  view.rerender(card("read", "not_connected", true));
+  for (const scope of ["office", "personal"] as const)
+    expect(controls(view, scope)).toEqual({
+      ...none,
+      disabled: 1,
+      askOwner: false,
+      status: true,
+    });
+
+  // Signed in: Test and Sign out at write; Sign out of the office's, and
+  // both at read, draw disabled.
   view.rerender(card("write", "connected", true));
   expect(controls(view, "office")).toEqual({
     ...none,
     test: true,
+    disabled: 1,
     askOwner: false,
     status: true,
   });
@@ -792,6 +828,7 @@ it("leaves a member at environment read the status of each sign-in and no contro
   for (const scope of ["office", "personal"] as const)
     expect(controls(view, scope)).toEqual({
       ...none,
+      disabled: 2,
       askOwner: false,
       status: true,
     });

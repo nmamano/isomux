@@ -239,9 +239,7 @@ export function SecretsSection({
       ) : secrets === null ? (
         <ListLoading
           text={t("common.loading")}
-          addLabel={
-            editable && !summary ? t("integrations.secrets.add") : undefined
-          }
+          addLabel={t("integrations.secrets.add")}
         />
       ) : secrets.length === 0 ? (
         <Empty>{t("integrations.secrets.empty")}</Empty>
@@ -267,11 +265,10 @@ export function SecretsSection({
           />
         ))
       )}
-      {editable &&
-        !summary &&
-        secrets !== null &&
+      {/* A viewer who may not add one gets the row disabled, in its place. */}
+      {secrets !== null &&
         !loadError &&
-        (mode.kind === "add" ? (
+        (editable && mode.kind === "add" ? (
           <AddSecret
             path={path}
             target={target}
@@ -285,6 +282,7 @@ export function SecretsSection({
           mode.kind === "idle" && (
             <AddRow
               label={t("integrations.secrets.add")}
+              disabled={!editable}
               onClick={() => setMode({ kind: "add" })}
             />
           )
@@ -414,18 +412,24 @@ function SecretItem({
           </Pill>
         )
       }
+      // A viewer who may not change the secret gets the actions disabled.
       actions={
-        editable && mode.kind === "idle" ? (
+        mode.kind === "idle" ? (
           <>
             {!needsValue &&
               secret.form &&
               (secret.exchange ||
                 hasSecretTest({ form: secret.form, hosts: secret.hosts })) && (
-                <TestButton test={test} run={() => void run()} />
+                <TestButton
+                  test={test}
+                  run={() => void run()}
+                  disabled={!editable}
+                />
               )}
             <Btn
               small
               kind={needsValue ? "primary" : undefined}
+              disabled={!editable}
               onClick={() => open("replace")}
               data-secret-replace
             >
@@ -433,12 +437,18 @@ function SecretItem({
                 ? t("integrations.secrets.setValue")
                 : t("settings.secrets.rotate")}
             </Btn>
-            <Btn small onClick={() => open("edit")} data-secret-edit>
+            <Btn
+              small
+              disabled={!editable}
+              onClick={() => open("edit")}
+              data-secret-edit
+            >
               {t("common.edit")}
             </Btn>
             <Btn
               small
               kind="danger"
+              disabled={!editable}
               onClick={() => open("remove")}
               data-secret-remove
             >
@@ -462,7 +472,11 @@ function SecretItem({
           {t("integrations.secrets.needsValueHint")}
         </div>
       )}
-      {showable && !needsValue && <SecretValue path={path} />}
+      {/* A member's row of an office secret keeps the masked line, with
+          Show disabled. */}
+      {(showable || summary) && !needsValue && (
+        <SecretValue path={path} locked={!showable} />
+      )}
       <TestResult test={test} />
       {here && mode.kind === "replace" && (
         <ReplaceValue
@@ -523,7 +537,7 @@ function SecretItem({
 // The masked value with Show. The value lives in this state only: Hide drops
 // it, and so does the row unmounting (a picker switch, a tab change, leaving
 // the page). A failed read says so in fixed words, never with the answer.
-function SecretValue({ path }: { path: string }) {
+function SecretValue({ path, locked }: { path: string; locked: boolean }) {
   const { t } = useI18n();
   const alive = useAlive();
   const [value, setValue] = useState<string | null>(null);
@@ -585,7 +599,7 @@ function SecretValue({ path }: { path: string }) {
       </code>
       <Btn
         kind="link"
-        disabled={loading}
+        disabled={locked || loading}
         onClick={value === null ? () => void show() : hide}
         data-secret-show
       >
