@@ -32,6 +32,8 @@ import {
   secondaryFill,
 } from "../components/dialog-styles.ts";
 import { useConfirmStep } from "../hooks/useConfirmStep.ts";
+import { getOfficeShape } from "../device-settings.ts";
+import { OFFICE_SHAPE_DEFAULT } from "../office-shape.ts";
 
 // Per-tab mini ghosts sit on the tab like stickers (Nil, task 90f655b0):
 // centered on the pill's bottom edge, over the bottom of the room name and
@@ -156,6 +158,7 @@ function TotalOnlineChip({ count }: { count: number }) {
         lineHeight: 1,
       }}
       title={label}
+      data-online-chip=""
     >
       <span
         aria-hidden
@@ -170,6 +173,98 @@ function TotalOnlineChip({ count }: { count: number }) {
       />
       {label}
     </span>
+  );
+}
+
+// While the office state loads (task ea29a8e2), the bar draws the tabs and
+// the chips this device last drew, as dim bars of their widths: the "+"
+// sits where it will stay. Nothing in them to click.
+const placeholderBar = (width: string): React.CSSProperties => ({
+  width,
+  height: 8,
+  borderRadius: 4,
+  background: "var(--bg-code)",
+});
+
+function TabPlaceholder({ width }: { width: number }) {
+  return (
+    <div
+      data-room-tab-placeholder=""
+      aria-hidden="true"
+      style={{
+        width: `${width}px`,
+        height: 24,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "0 14px",
+        boxSizing: "border-box",
+      }}
+    >
+      <span style={placeholderBar("100%")} />
+    </div>
+  );
+}
+
+// TotalOnlineChip's box: the dot and a bar for the words.
+function OnlineChipPlaceholder({ width }: { width: number }) {
+  return (
+    <span
+      data-online-placeholder=""
+      aria-hidden="true"
+      style={{
+        width: `${width}px`,
+        height: 11,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        marginLeft: "auto",
+        paddingLeft: 12,
+        boxSizing: "border-box",
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: "var(--bg-code)",
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ ...placeholderBar("auto"), flex: 1 }} />
+    </span>
+  );
+}
+
+// TuckedRoomsChip's box.
+function TuckedChipPlaceholder({ width }: { width: number }) {
+  return (
+    <div
+      data-tucked-placeholder=""
+      aria-hidden="true"
+      style={{
+        width: `${width}px`,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 8px 0 4px",
+        boxSizing: "border-box",
+      }}
+    >
+      <span
+        style={{
+          ...placeholderBar("100%"),
+          height: 24,
+          borderRadius: 6,
+          border: "1px solid var(--border)",
+          background: "transparent",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
   );
 }
 
@@ -193,9 +288,15 @@ export function RoomTabBar({
     sessionContext,
     isMobile,
     lobbyOpen,
+    hasReceivedInitialState,
   } = useAppState();
   const { t } = useI18n();
   const createsRooms = useCreatesRooms();
+  // The placeholders' shape, read once per load.
+  const [loadingShape] = useState(
+    () => getOfficeShape() ?? OFFICE_SHAPE_DEFAULT,
+  );
+  const loading = !hasReceivedInitialState;
   const mobileLobby = isMobile && lobbyOpen;
   const selfConnectionId = sessionContext?.connectionId ?? null;
   // The room list the doors and swipes read too. A drop or a tuck shows at
@@ -459,6 +560,7 @@ export function RoomTabBar({
     // The tucked-rooms chip sits after the scroll box, so it stays at the
     // right end and the edge hints never cover it.
     <div
+      data-room-tab-bar=""
       style={{
         position: "relative",
         display: "flex",
@@ -558,6 +660,10 @@ export function RoomTabBar({
                 {t("common.lobby")}
               </button>
             </div>
+            {loading &&
+              loadingShape.tabs.map((width, i) => (
+                <TabPlaceholder key={i} width={width} />
+              ))}
             {tabRooms.map((room, i) => {
               // The active tucked room's tab: shown while it is open, never
               // dragged (its place in the order is in the chip).
@@ -816,7 +922,13 @@ export function RoomTabBar({
           (counts distinct userIds across the WHOLE office, including
           off-scene sessions). Per-tab clusters above answer "who is
           in this room". */}
-            <TotalOnlineChip count={totalOnlineUsers} />
+            {loading ? (
+              loadingShape.online > 0 && (
+                <OnlineChipPlaceholder width={loadingShape.online} />
+              )
+            ) : (
+              <TotalOnlineChip count={totalOnlineUsers} />
+            )}
           </div>
         </div>
 
@@ -833,6 +945,9 @@ export function RoomTabBar({
           />
         )}
       </div>
+      {loading && loadingShape.tucked > 0 && (
+        <TuckedChipPlaceholder width={loadingShape.tucked} />
+      )}
       <TuckedRoomsChip
         tuckedRooms={tuckedRooms}
         activeRoomId={activeTucked?.id ?? null}

@@ -2,13 +2,18 @@
 // its data is held, then after it arrives, and reports what jumped. AGENTS.md
 // "UI rules": a view keeps its layout while it loads.
 //
-//   bash scripts/loading-check.sh <out-dir> [--phone] [--light] [--root <css>]
-//        [--name <name>] [-- <selector to click>...]
+//   bash scripts/loading-check.sh <out-dir> [--phone] [--light] [--warm]
+//        [--root <css>] [--name <name>] [-- <selector to click>...]
 //
 // With no selectors, the demo is held from boot (the office state and every
 // fetch): for the office, the sidebar, the lobby. With selectors, they are
 // clicked in order with nothing held, and the hold starts just before the
 // last click, the one that opens the view under test.
+//
+// With --warm, the demo first loads once with nothing held and then leaves
+// the page, so the shapes the views store on this device for their
+// placeholders (the sidebar's, the office's) are there for the checked load.
+// Without it, the check is a first visit: only the default shapes can draw.
 //
 // Writes <out-dir>/loading-<name>.png (Loading and Loaded, labelled, a red
 // box on each jump) and <out-dir>/report-<name>.txt. Exit 0: nothing jumped;
@@ -42,7 +47,7 @@ const die = (message) => {
 
 function usage() {
   fail(
-    "usage: loading-check.sh <out-dir under /tmp> [--phone] [--light] [--root <css>] [--name <name>] [--playwright <index.mjs>] [-- <selector>...]",
+    "usage: loading-check.sh <out-dir under /tmp> [--phone] [--light] [--warm] [--root <css>] [--name <name>] [--playwright <index.mjs>] [-- <selector>...]",
   );
 }
 
@@ -53,6 +58,7 @@ const opts = dash === -1 ? argv : argv.slice(0, dash);
 const clicks = dash === -1 ? [] : argv.slice(dash + 1);
 let outArg = null;
 let phone = false;
+let warm = false;
 let theme = "dark";
 let rootSel = "body";
 let name = "view";
@@ -61,6 +67,7 @@ for (let i = 0; i < opts.length; i++) {
   const a = opts[i];
   if (a === "--phone") phone = true;
   else if (a === "--light") theme = "light";
+  else if (a === "--warm") warm = true;
   else if (a === "--root") rootSel = opts[++i] ?? usage();
   else if (a === "--name") name = opts[++i] ?? usage();
   else if (a === "--playwright") playwrightPath = resolve(opts[++i] ?? usage());
@@ -197,15 +204,23 @@ try {
     hasTouch: phone,
     isMobile: phone,
   });
-  if (clicks.length === 0) {
-    await context.addInitScript(() => {
-      window.__isomuxDemoHoldAtBoot = true;
-    });
-  }
   await context.addInitScript((mode) => {
     localStorage.setItem("isomux-theme", mode);
   }, theme);
+  if (warm) {
+    // A visit before: loaded, then left, which stores the shapes.
+    const before = await context.newPage();
+    await before.goto(url, { waitUntil: "load" });
+    await before.evaluate(quiet, ["body", 500, 10000]);
+    await before.goto("about:blank");
+    await before.close();
+  }
   const page = await context.newPage();
+  if (clicks.length === 0) {
+    await page.addInitScript(() => {
+      window.__isomuxDemoHoldAtBoot = true;
+    });
+  }
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.goto(url, { waitUntil: "load" });

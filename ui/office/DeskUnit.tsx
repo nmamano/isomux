@@ -278,6 +278,7 @@ export function DeskUnit({
           between nametags themselves when two desks' chips overlap. */}
       <div
         data-turn-anchor={`${pxLeft + 90},${pxTop + 116}`}
+        data-desk-tag={agent.desk}
         style={{
           position: "absolute",
           top: pxTop + (agent.topic ? -58 : -48),

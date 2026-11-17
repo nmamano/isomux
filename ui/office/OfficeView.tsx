@@ -45,6 +45,10 @@ import {
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
+import { DeskPlaceholder } from "./DeskPlaceholder.tsx";
+import { useOfficeShapeWriter } from "./office-shape-writer.ts";
+import { getOfficeShape } from "../device-settings.ts";
+import { OFFICE_SHAPE_DEFAULT } from "../office-shape.ts";
 import { GhostBody, GhostTag } from "./Ghost.tsx";
 import {
   useGhostTransitions,
@@ -112,7 +116,12 @@ import { useCan, useCreatesRooms } from "../hooks/useCan.ts";
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
 
+// A wall door while the office state loads: a name bar, no control.
+const LOADING_DOOR = { label: "", loading: true };
+
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
+// With no handlers (the office state is loading), it holds its place and
+// takes no pointer (task ea29a8e2).
 function DoorDropZone({
   side,
   onDrop,
@@ -120,10 +129,14 @@ function DoorDropZone({
   onClick,
 }: {
   side: "left" | "right";
-  onDrop: (deskIndex: number) => boolean;
-  onDragOverChange: (over: boolean) => void;
-  onClick: () => void;
-}) {
+} & (
+  | {
+      onDrop: (deskIndex: number) => boolean;
+      onDragOverChange: (over: boolean) => void;
+      onClick: () => void;
+    }
+  | { onDrop?: never; onDragOverChange?: never; onClick?: never }
+)) {
   const [reject, setReject] = useState(false);
   // Pixel positions within the 950×700 scene container, derived from the SVG door transforms
   const style: React.CSSProperties =
@@ -144,6 +157,14 @@ function DoorDropZone({
           height: 155,
           zIndex: 200,
         };
+  if (!onClick || !onDrop || !onDragOverChange)
+    return (
+      <div
+        data-no-pan
+        data-door-drop={side}
+        style={{ ...style, pointerEvents: "none" }}
+      />
+    );
   return (
     <div
       data-no-pan
@@ -395,6 +416,19 @@ export function OfficeView({
   );
   const showBackRoom =
     !!backRoomOpen && !lobbyOpen && !!currentRoomId && currentHasBackRoom;
+  // Until the office state arrives, the room scene draws what does not
+  // depend on it, and placeholders of the desks this device last drew
+  // (task ea29a8e2); nothing in it acts. Written back on a page hide.
+  const loading = !hasReceivedInitialState;
+  const [loadingDesks] = useState(
+    () => (getOfficeShape() ?? OFFICE_SHAPE_DEFAULT).desks,
+  );
+  const rootEl = useRef<HTMLDivElement | null>(null);
+  useOfficeShapeWriter(rootEl, {
+    ready: hasReceivedInitialState,
+    // The front room's desks are in view: not the lobby, not the back room.
+    desksInView: !lobbyOpen && !showBackRoom,
+  });
   // The trap door and the ladder move between the floors; other ways to the
   // back room and out of it switch with no animation.
   const floorEl = useRef<HTMLDivElement | null>(null);
@@ -593,6 +627,7 @@ export function OfficeView({
 
   return (
     <div
+      ref={rootEl}
       style={{
         height: isMobile
           ? "calc(100dvh - var(--banner-h, 0px))"
@@ -937,54 +972,69 @@ export function OfficeView({
                     {decorateScene && <GroundShadows />}
                     <WallDoors
                       leftDoor={
-                        currentRoomIndex > 0
-                          ? {
-                              label:
-                                tabs[currentRoomIndex - 1]?.name ??
-                                t("common.roomFallback", {
-                                  number: currentRoomIndex,
-                                }),
-                              onClick: () =>
-                                doorGo("left", tabs[currentRoomIndex - 1].id),
-                              dragOver: leftDoorDragOver,
-                              reject: leftDoorReject,
-                              passCount: leftDoorUses,
-                            }
-                          : currentRoomIndex === 0
+                        // While loading, both doors are drawn with no name
+                        // and no control: the rooms beside are not known.
+                        loading
+                          ? LOADING_DOOR
+                          : currentRoomIndex > 0
                             ? {
-                                label: t("common.lobby"),
-                                passCount: leftDoorUses,
-                                onClick: () =>
-                                  dispatch({
-                                    type: "set_lobby_open",
-                                    open: true,
+                                label:
+                                  tabs[currentRoomIndex - 1]?.name ??
+                                  t("common.roomFallback", {
+                                    number: currentRoomIndex,
                                   }),
+                                onClick: () =>
+                                  doorGo("left", tabs[currentRoomIndex - 1].id),
+                                dragOver: leftDoorDragOver,
+                                reject: leftDoorReject,
+                                passCount: leftDoorUses,
                               }
-                            : null
+                            : currentRoomIndex === 0
+                              ? {
+                                  label: t("common.lobby"),
+                                  passCount: leftDoorUses,
+                                  onClick: () =>
+                                    dispatch({
+                                      type: "set_lobby_open",
+                                      open: true,
+                                    }),
+                                }
+                              : null
                       }
                       rightDoor={
-                        currentRoomIndex >= 0 &&
-                        currentRoomIndex < tabs.length - 1
-                          ? {
-                              label:
-                                tabs[currentRoomIndex + 1]?.name ??
-                                t("common.roomFallback", {
-                                  number: currentRoomIndex + 2,
-                                }),
-                              onClick: () =>
-                                doorGo("right", tabs[currentRoomIndex + 1].id),
-                              dragOver: rightDoorDragOver,
-                              reject: rightDoorReject,
-                              passCount: rightDoorUses,
-                            }
-                          : currentRoomIndex === tabs.length - 1
-                            ? newRoomDoor
-                            : null
+                        loading
+                          ? LOADING_DOOR
+                          : currentRoomIndex >= 0 &&
+                              currentRoomIndex < tabs.length - 1
+                            ? {
+                                label:
+                                  tabs[currentRoomIndex + 1]?.name ??
+                                  t("common.roomFallback", {
+                                    number: currentRoomIndex + 2,
+                                  }),
+                                onClick: () =>
+                                  doorGo(
+                                    "right",
+                                    tabs[currentRoomIndex + 1].id,
+                                  ),
+                                dragOver: rightDoorDragOver,
+                                reject: rightDoorReject,
+                                passCount: rightDoorUses,
+                              }
+                            : currentRoomIndex === tabs.length - 1
+                              ? newRoomDoor
+                              : null
                       }
                     />
                     <RoomProps />
                     {decorateScene && <Seasonal items={seasonalItems} />}
-                    {currentRoomIndex > 0 && (
+                    {loading && (
+                      <>
+                        <DoorDropZone side="left" />
+                        <DoorDropZone side="right" />
+                      </>
+                    )}
+                    {!loading && currentRoomIndex > 0 && (
                       <DoorDropZone
                         side="left"
                         // viewport.wrapClick is a stable callback that wraps a click
@@ -1016,7 +1066,8 @@ export function OfficeView({
                         }}
                       />
                     )}
-                    {currentRoomIndex >= 0 &&
+                    {!loading &&
+                      currentRoomIndex >= 0 &&
                       currentRoomIndex < tabs.length - 1 && (
                         <DoorDropZone
                           side="right"
@@ -1050,9 +1101,11 @@ export function OfficeView({
                           }}
                         />
                       )}
-                    {/* Every room but the lobby. */}
-                    {currentHasBackRoom && (
+                    {/* Every room but the lobby; while loading, drawn with
+                        nothing to open. */}
+                    {(loading || currentHasBackRoom) && (
                       <TrapDoor
+                        loading={loading}
                         attention={backAttention}
                         backFull={backAgents.length >= BACK_ROOM_SEATS}
                         onOpen={() => floorGo("down", onOpenBackRoom)}
@@ -1068,6 +1121,14 @@ export function OfficeView({
                     )}
                     {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
                     {Array.from({ length: DESK_COUNT }, (_, i) => {
+                      if (loading) {
+                        const desk = loadingDesks.find((d) => d.desk === i);
+                        return desk ? (
+                          <DeskPlaceholder key={`loading-${i}`} desk={desk} />
+                        ) : (
+                          <EmptySlot key={`empty-${i}`} deskIndex={i} />
+                        );
+                      }
                       const agent = roomAgents.find((a) => a.desk === i);
                       if (agent) {
                         return (

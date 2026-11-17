@@ -9,7 +9,9 @@ export function EmptySlot({
   onSwap,
 }: {
   deskIndex: number;
-  onClick: () => void;
+  // Absent: the office state is loading, and the slot is drawn with no
+  // control (task ea29a8e2): a click would spawn into a room not known yet.
+  onClick?: () => void;
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
 }) {
   const { t } = useI18n();
@@ -20,24 +22,26 @@ export function EmptySlot({
 
   return (
     <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-      }}
-      onDragEnter={() => setDragOver(true)}
-      onDragLeave={(e) => {
-        // dragleave fires when the pointer crosses onto the clickable hit-area
-        // child; only clear when actually leaving the slot, or the highlight
-        // dies while a release would still move the agent.
-        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-        setDragOver(false);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
-        if (!isNaN(src) && src !== deskIndex) onSwap?.(src, deskIndex);
-      }}
+      {...(onClick && {
+        onDragOver: (e: React.DragEvent) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        },
+        onDragEnter: () => setDragOver(true),
+        onDragLeave: (e: React.DragEvent) => {
+          // dragleave fires when the pointer crosses onto the clickable hit-area
+          // child; only clear when actually leaving the slot, or the highlight
+          // dies while a release would still move the agent.
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          setDragOver(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          e.preventDefault();
+          setDragOver(false);
+          const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
+          if (!isNaN(src) && src !== deskIndex) onSwap?.(src, deskIndex);
+        },
+      })}
       data-turn-anchor={`${pxLeft + 90},${pxTop + 116}`}
       style={{
         position: "absolute",
@@ -61,10 +65,16 @@ export function EmptySlot({
           d="M40 126 L90 101 L140 126 L90 151 Z"
           fill="transparent"
           stroke="none"
-          style={{ pointerEvents: "fill", cursor: "pointer" }}
-          onClick={onClick}
-          onMouseEnter={() => setHov(true)}
-          onMouseLeave={() => setHov(false)}
+          style={
+            onClick
+              ? { pointerEvents: "fill", cursor: "pointer" }
+              : { pointerEvents: "none" }
+          }
+          {...(onClick && {
+            onClick,
+            onMouseEnter: () => setHov(true),
+            onMouseLeave: () => setHov(false),
+          })}
         />
         {/* Visible dashed outline */}
         <path

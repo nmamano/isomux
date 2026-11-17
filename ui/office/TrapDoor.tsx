@@ -52,20 +52,25 @@ export function TrapDoor({
   backFull,
   onOpen,
   onDropDesk,
+  loading = false,
 }: {
   attention: BackRoomAttention;
   backFull: boolean;
   onOpen: () => void;
   /** Moves the dragged desk's agent to the back room. */
   onDropDesk: (desk: number) => void;
+  /** The office state is loading: drawn with the lamp off, no open, no
+   *  drop (task ea29a8e2). */
+  loading?: boolean;
 }) {
   const { t, tn } = useI18n();
-  const dragging = useDeskDrag();
+  const dragging = useDeskDrag() && !loading;
   const [over, setOver] = useState(false);
   if (!dragging && over) setOver(false);
-  const lit = attention.working > 0;
-  const lamp =
-    attention.error > 0
+  const lit = !loading && attention.working > 0;
+  const lamp = loading
+    ? "off"
+    : attention.error > 0
       ? "error"
       : attention.asking > 0
         ? "asking"
@@ -81,29 +86,35 @@ export function TrapDoor({
       <div
         data-no-pan
         data-trap-door
-        role="button"
-        tabIndex={0}
-        aria-label={tn("office.backRoom.tooltip", attention.agents)}
-        title={tn("office.backRoom.tooltip", attention.agents)}
-        onClick={onOpen}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onOpen();
-          }
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = backFull ? "none" : "move";
-        }}
-        onDragEnter={() => setOver(true)}
-        onDragLeave={() => setOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setOver(false);
-          const desk = parseInt(e.dataTransfer.getData("text/plain"), 10);
-          if (!isNaN(desk) && !backFull) onDropDesk(desk);
-        }}
+        // Loading: the hatch holds its place, with nothing to open or drop
+        // on (the room it leads to is not known yet).
+        {...(loading
+          ? { "aria-hidden": true }
+          : {
+              role: "button",
+              tabIndex: 0,
+              "aria-label": tn("office.backRoom.tooltip", attention.agents),
+              title: tn("office.backRoom.tooltip", attention.agents),
+              onClick: onOpen,
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpen();
+                }
+              },
+              onDragOver: (e: React.DragEvent) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = backFull ? "none" : "move";
+              },
+              onDragEnter: () => setOver(true),
+              onDragLeave: () => setOver(false),
+              onDrop: (e: React.DragEvent) => {
+                e.preventDefault();
+                setOver(false);
+                const desk = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                if (!isNaN(desk) && !backFull) onDropDesk(desk);
+              },
+            })}
         style={{
           position: "absolute",
           left,
@@ -112,7 +123,7 @@ export function TrapDoor({
           height: TRAP_DOOR_HIT.h,
           // On the floor: above the floor drawing, below every desk unit.
           zIndex: 5,
-          cursor: "pointer",
+          cursor: loading ? "default" : "pointer",
         }}
       >
         <svg

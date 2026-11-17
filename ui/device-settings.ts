@@ -20,6 +20,7 @@ import {
   type ChatSidebarSections,
   type ChatSidebarShape,
 } from "./chat-sidebar.ts";
+import { parseOfficeShape, type OfficeShape } from "./office-shape.ts";
 import {
   FILTER_PRIORITIES,
   type PriorityFilterValue,
@@ -123,6 +124,26 @@ export function getChatSidebarShape(): ChatSidebarShape | null {
 export function setChatSidebarShape(shape: ChatSidebarShape): void {
   try {
     localStorage.setItem(KEY_CHAT_SIDEBAR_SHAPE, JSON.stringify(shape));
+  } catch {}
+}
+
+// The office's tab bar and room scene as last drawn on this device (task
+// ea29a8e2), for their placeholders while the office state loads.
+const KEY_OFFICE_SHAPE = "isomux-office-shape";
+
+// Null when nothing is stored or the stored value is not a sane shape.
+export function getOfficeShape(): OfficeShape | null {
+  try {
+    return parseOfficeShape(
+      JSON.parse(localStorage.getItem(KEY_OFFICE_SHAPE) ?? "null"),
+    );
+  } catch {}
+  return null;
+}
+
+export function setOfficeShape(shape: OfficeShape): void {
+  try {
+    localStorage.setItem(KEY_OFFICE_SHAPE, JSON.stringify(shape));
   } catch {}
 }
 
