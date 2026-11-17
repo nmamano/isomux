@@ -1405,7 +1405,7 @@ Cosas que puedes hacer por él:
   "integrations.memberToken.title":
     "Token de Claude para los miembros con su propio usuario del sistema",
   "integrations.memberToken.hint":
-    "Cuando su propia sesión llega a su límite de uso, sus agentes siguen con este token. Créalo con `claude setup-token`, con la sesión de la cuenta de Claude de la oficina.",
+    "Cuando su propia sesión llega a su límite de uso, sus agentes siguen con este token. Créalo con <code>claude setup-token</code>, con la sesión de la cuenta de Claude de la oficina.",
   "integrations.memberToken.token": "Token",
   "integrations.memberToken.tokenHint":
     "Dura un año. Sus agentes pueden leerlo.",

@@ -1378,7 +1378,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.memberToken.title":
     "Claude token for members with their own OS user",
   "integrations.memberToken.hint":
-    "When their own sign-in reaches its usage limit, their agents continue on this token. Make it with `claude setup-token`, signed in as the office's Claude account.",
+    "When their own sign-in reaches its usage limit, their agents continue on this token. Make it with <code>claude setup-token</code>, signed in as the office's Claude account.",
   "integrations.memberToken.token": "Token",
   "integrations.memberToken.tokenHint":
     "It lasts one year. Their agents can read it.",

@@ -4,8 +4,17 @@ import type {
   MemberTokenViewRes,
 } from "../../shared/contract-shapes.ts";
 import { apiFetch, ApiError } from "../api.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { useI18n } from "../i18n.tsx";
-import { Btn, Field, FormButtons, errorText, hintText, input } from "./kit.tsx";
+import {
+  Btn,
+  Data,
+  Field,
+  FormButtons,
+  errorText,
+  hintText,
+  input,
+} from "./kit.tsx";
 import { useAlive } from "./use-alive.ts";
 
 const ROUTE = "/api/office/claude-member-token";
@@ -17,8 +26,10 @@ const today = () => new Date().toISOString().slice(0, 10);
 // continue on it when the fallback to the office sign-in applies. Shows only
 // while such a member exists or a token is set. The token is never read back.
 export function MemberTokenCard({ style }: { style?: CSSProperties }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const alive = useAlive();
+  // A removed token cannot come back: Remove asks "Confirm?" first.
+  const removeStep = useConfirmStep();
   const [view, setView] = useState<MemberTokenViewRes | null>(null);
   const [editing, setEditing] = useState(false);
   const [token, setToken] = useState("");
@@ -70,7 +81,9 @@ export function MemberTokenCard({ style }: { style?: CSSProperties }) {
         {t("integrations.memberToken.title")}
       </h3>
       <p style={{ ...hintText, margin: "6px 0 0" }}>
-        {t("integrations.memberToken.hint")}
+        {rich("integrations.memberToken.hint", {
+          code: (chunk) => <Data>{chunk}</Data>,
+        })}
       </p>
       {view.set && !editing && view.expiresAt !== null && (
         <div
@@ -93,10 +106,17 @@ export function MemberTokenCard({ style }: { style?: CSSProperties }) {
           <Btn
             small
             kind="danger"
-            onClick={() => void run("DELETE")}
+            onClick={() =>
+              removeStep.confirm("remove", () => void run("DELETE"))
+            }
+            confirmProps={removeStep.bind("remove")}
             disabled={busy}
           >
-            {t("integrations.memberToken.remove")}
+            {t(
+              removeStep.armed === "remove"
+                ? "common.confirmQuestion"
+                : "integrations.memberToken.remove",
+            )}
           </Btn>
         </div>
       )}

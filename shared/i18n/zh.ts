@@ -1249,7 +1249,7 @@ export const zh: Catalog = {
   "integrations.tabs.providers": "模型提供商",
   "integrations.memberToken.title": "拥有独立系统用户的成员所用的 Claude 令牌",
   "integrations.memberToken.hint":
-    "当他们自己的登录达到使用上限时，他们的智能体会继续使用此令牌。登录办公室的 Claude 账户后，用 `claude setup-token` 生成。",
+    "当他们自己的登录达到使用上限时，他们的智能体会继续使用此令牌。登录办公室的 Claude 账户后，用 <code>claude setup-token</code> 生成。",
   "integrations.memberToken.token": "令牌",
   "integrations.memberToken.tokenHint": "有效期一年。他们的智能体可以读取它。",
   "integrations.memberToken.madeOn": "生成日期",
