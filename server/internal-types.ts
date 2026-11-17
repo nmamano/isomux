@@ -120,6 +120,9 @@ export interface TurnFlags {
   // An isolated member's folder was checked after this turn failed
   // (member-folder-hint.ts): once per turn.
   folderChecked: boolean;
+  // A usage limit stopped this turn (usage_limit_stop, any engine, with or
+  // without a reset time). A failed turn's recovery skips it.
+  limitStopped: boolean;
 }
 
 export function freshTurnFlags(): TurnFlags {
@@ -129,6 +132,7 @@ export function freshTurnFlags(): TurnFlags {
     limitStopFallback: false,
     freeLimitNotice: false,
     folderChecked: false,
+    limitStopped: false,
   };
 }
 
@@ -490,6 +494,10 @@ export interface ManagedAgent {
   // recovery of an errored backend. Later messages join the same durable
   // queue instead of starting a second resume against the same transcript.
   autoResumeInProgress: boolean;
+  // A turn that ended in error started the recovery of its queue
+  // (recoverQueueAfterFailedTurn). Once per failure streak: a completed turn
+  // or an incoming message that claims the recovery clears it.
+  failedTurnRecoveryUsed: boolean;
   // The queue's flush state (server/queue-flush.ts): the running flush and the
   // holds. requestFlush is the only way to start a flush. Only a flush's own
   // finally clears its run - the queue watchdog recovers a wedged flush by

@@ -238,8 +238,8 @@ Probed on 2026-11-17 (codex 0.166.0 app-server, fake Responses endpoint, scratch
   at 300 s. The longest silence on our thread while a silent 700 s command ran was 300.1 s. 0.166.0 has no blocking
   shell tool: with `features.unified_exec` off, the model still gets `exec_command`, and a `shell` call answers
   "unsupported call: shell".
-- An ordinary failed turn leaves the agent in `error`, and a released steer waits in the queue until a new message
-  arrives.
+- An ordinary failed turn leaves the agent in `error`, and a released steer waited in the queue until a new message
+  arrived. Since task 394d8430 the failed turn's end starts that recovery itself (queue-reliability-design.md).
 
 So `CodexSession` has a no-answer watchdog: when its turn stays silent on our thread for `CODEX_TURN_SILENCE_MS`
 (10 min), it sends `turn/interrupt` and ends the turn as failed with `providerNoAnswer`. It waits instead while

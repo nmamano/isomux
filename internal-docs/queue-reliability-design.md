@@ -246,7 +246,8 @@ conversation found". Two parts close that:
   line, in one store write (`requeueUnsavedDelivery`); with no session id, a
   record with no id goes back the same way. Boot restore does the same from
   the stored record. An errored agent whose session is dropped starts a fresh
-  session on the next message or `/handoff` instead of refusing it; a
+  session on the next message, `/handoff` or failed turn's recovery (task
+  394d8430) instead of refusing it; a
   continue (limit resume, restart wake, office sign-in continue) sent to it
   is not queued, since its conversation is gone.
 - While no process runs and the record holds messages (`resendWaits`), a
@@ -256,6 +257,30 @@ conversation found". Two parts close that:
 Known limits: a process killed after the send was accepted but before Claude
 created the file leaves no file, which reads as durable, so its resume still
 fails. Skill runs and message edits pass no resend, so they are not recorded.
+
+## Task 394d8430 - a failed turn's queue waits for a new message
+
+`error` is not a queue-idle state, and only an incoming message started the
+recovery of an errored agent. So a message queued during a turn that then
+failed, or a steer the engine accepted and released, waited until somebody
+sent another message.
+
+Now `updateState` notes a turn that ended in error: the move into `error`
+from a live turn (busy, or parked on a prompt with `pendingTurn` still open;
+the backend `error` event enters `error` before it rejects the deferred).
+`recoverQueueAfterFailedTurn` runs `RESTART_WAKE_CLEAR_DELAY_MS` later on the
+restart-wake clock, so a server stop that killed the engine shows first, and
+starts the recovery an incoming message starts (`resumeIdOrDrop` +
+`claimAutoResume`). It does nothing when the agent left `error`, a recovery,
+abort or swap runs, the queue is held or empty, the server stops, or a usage
+limit stopped the turn (`turnFlags.limitStopped`, set by every
+`usage_limit_stop`: the limit resume, when on, delivers at the reset).
+
+Once per failure streak (`failedTurnRecoveryUsed`): a send the engine never
+took, or a dropped session's requeue, leaves the queue as long as it was, so
+"each failure uses one delivery" does not bound it. A completed turn or an
+incoming message that claims the recovery clears the flag. A second failure
+in a row leaves the agent in `error` with its queue, as before.
 
 ## Task 314ee9fb - out-of-band swap strands a pre-send-cancelled flush
 

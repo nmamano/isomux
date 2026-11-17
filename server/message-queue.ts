@@ -1015,8 +1015,11 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       console.log(
         `[resume] agent ${agentId}: its conversation is gone; the continue is not sent to a fresh session`,
       );
-      if (managed.messageQueue.length > 0)
+      if (managed.messageQueue.length > 0) {
+        // A new message starts a new failure streak.
+        managed.failedTurnRecoveryUsed = false;
         claimAutoResume(agentId, managed, null);
+      }
       return { ok: true, queued: false };
     }
 
@@ -1095,6 +1098,8 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     // `error` until replaceSession completes, so a second send in the same
     // tick only joins the queue.
     if (state === "error") {
+      // A new message starts a new failure streak.
+      managed.failedTurnRecoveryUsed = false;
       claimAutoResume(agentId, managed, autoResumeSessionId);
       return {
         ok: true,

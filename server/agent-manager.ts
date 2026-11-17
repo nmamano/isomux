@@ -2757,6 +2757,11 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.lastErrorText = null;
     }
     const prev = managed.info.state;
+    // A turn was live: busy, or parked on a prompt with its deferred open.
+    const turnWasLive =
+      prev === "thinking" ||
+      prev === "tool_executing" ||
+      managed.sessionManager.pendingTurn !== null;
     // The failure record (AgentInfo.failure): set on entering error, cleared
     // at a real turn start, else the same object and no write.
     const current = managed.info.failure ?? null;
@@ -2801,6 +2806,63 @@ export function createAgentManager(deps: ManagerDeps) {
     // edits.
     if (state !== prev && isQueueIdleState(state))
       requestFlush(agentId, "state-transition");
+
+    // A turn ended in error: what queued during it waits for no new message.
+    if (state === "error" && prev !== "error" && turnWasLive)
+      scheduleFailedTurnRecovery(agentId, managed);
+  }
+
+  // The recovery of a queue that a failed turn left (task 394d8430). It
+  // waits RESTART_WAKE_CLEAR_DELAY_MS, as a death line does, so a server
+  // stop that killed the engine shows first (the restart wake owns the queue
+  // then), and the turn owner's catch has settled. Then it starts what an
+  // incoming message starts: once per failure streak, since a send the
+  // engine never took, or a dropped session's requeue, leaves the queue as
+  // long as it was.
+  const failedTurnRecoveryTimers = new Map<string, unknown>();
+  function scheduleFailedTurnRecovery(
+    agentId: string,
+    managed: ManagedAgent,
+  ): void {
+    if (managerStopped || failedTurnRecoveryTimers.has(agentId)) return;
+    const timer = deathClock.setTimeout(() => {
+      failedTurnRecoveryTimers.delete(agentId);
+      // A timer callback: a throw here would end the server.
+      try {
+        recoverQueueAfterFailedTurn(agentId, managed);
+      } catch (err) {
+        console.error(
+          `Agent ${agentId}: the recovery after a failed turn failed:`,
+          errMessage(err),
+        );
+      }
+    }, RESTART_WAKE_CLEAR_DELAY_MS);
+    failedTurnRecoveryTimers.set(agentId, timer);
+  }
+
+  function recoverQueueAfterFailedTurn(
+    agentId: string,
+    managed: ManagedAgent,
+  ): void {
+    if (managerStopped || isServerStopping()) return;
+    if (agents.get(agentId) !== managed || managed.info.state !== "error")
+      return;
+    // An incoming message claimed it already; an abort or a swap owns it.
+    if (managed.autoResumeInProgress) return;
+    if (managed.sessionManager.aborting || managed.sessionManager.swapping)
+      return;
+    // A hold's release owns the delivery.
+    if (queueHeld(managed)) return;
+    // A usage limit stopped the turn: the limit resume, when on, delivers
+    // the queue at the reset, and a retry now only meets the same limit.
+    if (managed.turnFlags.limitStopped) return;
+    if (managed.failedTurnRecoveryUsed) return;
+    if (unclaimedQueue(managed).length === 0) return;
+    managed.failedTurnRecoveryUsed = true;
+    console.log(
+      `[resume] agent ${agentId}: a turn ended in error with ${managed.messageQueue.length} queued; recovering to deliver them`,
+    );
+    claimAutoResume(agentId, managed, resumeIdOrDrop(agentId, managed));
   }
 
   // A caller's turn failed after its backend sent auth_needed: the event
@@ -3762,6 +3824,11 @@ export function createAgentManager(deps: ManagerDeps) {
         // error, so the continue's flush starts at the idle transition.
         const fallbackContinues =
           agents.get(agentId)?.turnFlags.limitStopFallback === true;
+        {
+          // A completed turn ends a failure streak (recoverQueueAfterFailedTurn).
+          const m = agents.get(agentId);
+          if (m && ev.status === "completed") m.failedTurnRecoveryUsed = false;
+        }
         // The engine ended the turn, so it saved what it accepted, unless
         // it had no conversation to save it in: then the drop in the turn
         // owner's catch sends it again (ownedTurnFailure).
@@ -4075,6 +4142,9 @@ export function createAgentManager(deps: ManagerDeps) {
         // Read at the turn's end (turn_completed above).
         const managed = agents.get(agentId);
         if (!managed) break;
+        // Any limit stop, with or without a reset time, on every engine: a
+        // failed turn's recovery would only meet the same limit.
+        managed.turnFlags.limitStopped = true;
         if (ev.freeLimit) {
           managed.openCodeFreeLimitAt = limitResumeClock.now();
           openCodeFreeLimit.record();
@@ -4181,6 +4251,10 @@ export function createAgentManager(deps: ManagerDeps) {
           writeUnlessServerStop(agentId, raw, () =>
             addLogEntry(agentId, "system", hints),
           );
+        // A non-auth failure enters error while the turn's deferred is still
+        // open, so updateState sees a turn that was live even when it was
+        // parked on a prompt (waiting_for_response).
+        if (!isAuthError) updateState(agentId, "error");
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
         const turn = managed?.sessionManager.pendingTurn;
         if (managed) managed.sessionManager.clearLiveTurn(managed);
@@ -4203,8 +4277,8 @@ export function createAgentManager(deps: ManagerDeps) {
         // surfaceBackendNotConfigured already does (e.g. on the rare bundled-
         // codex-binary-doesn't-resolve case) and avoids the red-desk indicator
         // that would imply something crashed. Non-auth errors still flip to
-        // error so the desk surfaces the real failure.
-        updateState(agentId, isAuthError ? "waiting_for_response" : "error");
+        // error so the desk surfaces the real failure (above).
+        if (isAuthError) updateState(agentId, "waiting_for_response");
         break;
       }
       case "approval_request": {
@@ -6012,6 +6086,7 @@ export function createAgentManager(deps: ManagerDeps) {
       lastWrittenEntryId: null,
       messageQueue: [],
       autoResumeInProgress: false,
+      failedTurnRecoveryUsed: false,
       flush: newFlushState(),
       freeModelResend: null,
       freeModelRetryTurn: false,
@@ -10475,6 +10550,9 @@ export function createAgentManager(deps: ManagerDeps) {
     for (const { timer } of heldDeathLines.values())
       deathClock.clearTimeout(timer);
     heldDeathLines.clear();
+    for (const timer of failedTurnRecoveryTimers.values())
+      deathClock.clearTimeout(timer);
+    failedTurnRecoveryTimers.clear();
   }
 
   function resolveEditorPathForAgent(

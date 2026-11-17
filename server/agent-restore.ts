@@ -502,6 +502,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       lastWrittenEntryId: null,
       messageQueue: [],
       autoResumeInProgress: false,
+      failedTurnRecoveryUsed: false,
       flush: newFlushState(),
       freeModelResend: null,
       freeModelRetryTurn: false,

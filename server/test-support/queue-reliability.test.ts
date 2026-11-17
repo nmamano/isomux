@@ -258,67 +258,103 @@ function parkingBackend(extra?: {
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 L1)", () => {
-  it("mid-turn clean stream end fails the turn and releases the dead session; no replacement turn races the dying caller, and the queued item delivers after human recovery", async () => {
-    // Review-pinned (final code review, blockers 2 + 3): the stream-end
-    // backstop must NOT synchronously flip state when a pendingTurn existed -
-    // that would fire the queue trigger and could start a replacement turn
-    // before the rejected caller's catch runs (which would then stamp
-    // state=error over the live replacement). And the recovery wake must
-    // PRESERVE the caller's claimed busy state - flipping to
-    // waiting_for_response with a durable queue present used to race a queue
-    // flush into the revive turn's pre-send window (bogus "Superseded by a
-    // new turn." flush error, two concurrent sends). The queued item stays
-    // durable until the recovery, and delivers exactly once.
-    server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const a = await spawnAgent(server, "Receiver", room.id, "codex");
-    const sender = await spawnAgent(server, "Sender", room.id);
-    const sock = await server.connectWs(owner.rawSessionId);
+  // The stream ends cleanly, mid-turn, with no error event - the case that
+  // used to strand `await turn` forever and keep a dead session pointer.
+  // The engine never saved the kickoff turn (the session is "missing"), so
+  // the recovery starts a fresh session and sends the kickoff again at the
+  // head of the queue.
+  async function streamEndMidTurn(srv: TestServer) {
+    const owner = await srv.seedOwner("Morgan");
+    const room = srv.agentManager.getRooms()[0];
+    const a = await spawnAgent(srv, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(srv, "Sender", room.id);
+    const sock = await srv.connectWs(owner.rawSessionId);
     await sock.waitFor("full_state");
 
-    await sendHuman(server, owner.rawSessionId, a.id, "kickoff");
-    const s1 = server.fakeBackend.sessionForAgent(a.id)!;
+    await sendHuman(srv, owner.rawSessionId, a.id, "kickoff");
+    const s1 = srv.fakeBackend.sessionForAgent(a.id)!;
     await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
-    await postAgentMessage(server, a.id, sender.id, "queued-later");
-    await waitUntil(() => queueOf(server!, a.id).length === 1, 3000, "q=1");
+    await postAgentMessage(srv, a.id, sender.id, "queued-later");
+    await waitUntil(() => queueOf(srv, a.id).length === 1, 3000, "q=1");
 
-    // The stream ends cleanly, mid-turn, with no error event - the case that
-    // used to strand `await turn` forever and keep a dead session pointer.
     s1.endStream();
-    await waitUntil(
-      () => stateOf(server!, a.id) === "error",
-      3000,
-      "error state",
-    );
-    // The turn failed loudly, and the dead session pointer was released
-    // (dormant tracks session === null).
+    await waitUntil(() => stateOf(srv, a.id) === "error", 3000, "error state");
+    // The dead session pointer was released (dormant tracks session ===
+    // null), and nothing was delivered: no replacement turn raced the dying
+    // caller. Read at once: the failed turn's recovery waits
+    // RESTART_WAKE_CLEAR_DELAY_MS.
+    expect(agentOf(srv, a.id).dormant).toBe(true);
+    expect(deliveryCount(srv, a.id, "queued-later")).toBe(0);
+    expect(queueOf(srv, a.id).length).toBe(1);
+    expect(queueFile(srv)[a.id]?.queue?.length).toBe(1); // still durable
     const errors = () =>
       logEntriesFor(sock, a.id).filter((e) => e.kind === "error");
-    await waitUntil(() => errors().length > 0, 3000, "stream-end error");
-    expect(agentOf(server, a.id).dormant).toBe(true);
-    await sleep(150);
-    // One line, in the shared death wording: the owning caller's catch does
-    // not add the raw rejection text as a second error.
-    // That line is the one every backend death uses, carrying the raw text.
-    expect(errors()).toHaveLength(1);
-    expect(errors()[0].content).toBe(
+    return { owner, a, s1, errors };
+  }
+
+  // One line, in the shared death wording, carrying the raw text: the
+  // owning caller's catch does not add the rejection as a second error, and
+  // no superseded or flush error follows anywhere in the flow.
+  function expectOnlyTheDeathLine(errors: LogEntry[]) {
+    expect(errors).toHaveLength(1);
+    expect(errors[0].content).toBe(
       translatorForLanguage("en").t(
         "systemEntries.backendFailure.stoppedDuringTurn",
       ),
     );
-    expect(typeof errors()[0].metadata?.backendFailureRaw).toBe("string");
-    // Not delivered anywhere - no replacement turn raced the dying caller.
-    expect(deliveryCount(server, a.id, "queued-later")).toBe(0);
-    expect(queueOf(server, a.id).length).toBe(1);
-    expect(queueFile(server)[a.id]?.queue?.length).toBe(1); // still durable
+    expect(typeof errors[0].metadata?.backendFailureRaw).toBe("string");
+  }
 
-    // Human recovery. The engine never saved the kickoff turn (the session
-    // is "missing"), so the wake starts a fresh session and sends the
-    // kickoff again at the head of the queue. The revive waits behind it and
-    // behind the item already queued (task b94dfd25 2b-ii): the fresh
-    // session's first send carries all three, in the order they came, and
-    // no second turn starts beside it.
+  it("mid-turn clean stream end fails the turn and releases the dead session; no replacement turn races the dying caller, and the queue delivers with no new message", async () => {
+    // Review-pinned (final code review, blockers 2 + 3): the stream-end
+    // backstop must NOT synchronously flip state when a pendingTurn existed -
+    // that would fire the queue trigger and could start a replacement turn
+    // before the rejected caller's catch runs (which would then stamp
+    // state=error over the live replacement). The queued item stays durable
+    // until the recovery, and delivers exactly once. Since task 394d8430 the
+    // failed turn starts that recovery itself.
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const { a, s1, errors } = await streamEndMidTurn(server);
+
+    await waitUntil(
+      () => sessionsFor(server!, a.id).length === 2,
+      3000,
+      "recovered with no new message",
+    );
+    const s2 = server.fakeBackend.sessionForAgent(a.id)!;
+    expect(s2).not.toBe(s1);
+    await waitUntil(() => s2.sent.length === 1, 3000, "first send");
+    // The fresh session's first send carries the kickoff, then the queued
+    // item, and no second turn starts beside it.
+    const first = s2.sent[0].text;
+    expect(first.indexOf("kickoff")).toBeGreaterThanOrEqual(0);
+    expect(first.indexOf("kickoff")).toBeLessThan(
+      first.indexOf("queued-later"),
+    );
+    await sleep(150);
+    expect(s2.sent).toHaveLength(1);
+
+    s2.completeTurn();
+    await waitUntil(() => queueOf(server!, a.id).length === 0, 3000, "drained");
+    await sleep(150);
+    // Each delivered once: s1 had the kickoff, s2 has it again.
+    expect(deliveryCount(server, a.id, "kickoff")).toBe(2);
+    expect(deliveryCount(server, a.id, "queued-later")).toBe(1);
+    expect(sessionsFor(server, a.id)).toHaveLength(2);
+    expectOnlyTheDeathLine(errors());
+  });
+
+  it("mid-turn clean stream end: a member message inside the recovery's wait recovers once, behind what already waited", async () => {
+    // The recovery wake must PRESERVE the caller's claimed busy state -
+    // flipping to waiting_for_response with a durable queue present used to
+    // race a queue flush into the revive turn's pre-send window (bogus
+    // "Superseded by a new turn." flush error, two concurrent sends). The
+    // revive waits behind the resent kickoff and the item already queued
+    // (task b94dfd25 2b-ii). The failed turn's own recovery, due a second
+    // after the stream end, finds the agent recovered and adds nothing.
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const { owner, a, s1, errors } = await streamEndMidTurn(server);
+
     await sendHuman(server, owner.rawSessionId, a.id, "revive");
     await waitUntil(
       () => deliveryCount(server!, a.id, "revive") === 1,
@@ -334,21 +370,19 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
       first.indexOf("queued-later"),
     );
     expect(first.indexOf("queued-later")).toBeLessThan(first.indexOf("revive"));
-    // Nothing else is sent while that turn runs.
+    // Past the failed turn's recovery: nothing else is sent, no other session.
+    await waitUntil(() => errors().length === 1, 3000, "stream-end error");
     await sleep(150);
     expect(s2.sent).toHaveLength(1);
+    expect(sessionsFor(server, a.id)).toHaveLength(2);
 
     s2.completeTurn();
     await waitUntil(() => queueOf(server!, a.id).length === 0, 3000, "drained");
     await sleep(150);
-    // Each delivered once: s1 had the kickoff, s2 has it again.
     expect(deliveryCount(server, a.id, "kickoff")).toBe(2);
     expect(deliveryCount(server, a.id, "queued-later")).toBe(1);
     expect(deliveryCount(server, a.id, "revive")).toBe(1);
-
-    // No superseded/flush-error fallout anywhere in the flow: the stream end
-    // is still the only error.
-    expect(errors()).toHaveLength(1);
+    expectOnlyTheDeathLine(errors());
   });
 
   it("a queued message still delivers promptly when the interrupted turn's send throws (the lost-wakeup interaction)", async () => {
