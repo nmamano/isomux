@@ -89,7 +89,9 @@ test("probe", async () => {
     return files;
   }
 
-  it.each<
+  // Quarantined (task 78a55448): in desktop CI on 2026-11-17 the probe child
+  // spun at full CPU, ignored SIGKILL and held the CI scope open.
+  it.skip.each<
     [string, { root: () => string; extraEnv: () => Record<string, string> }]
   >([
     [
