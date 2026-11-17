@@ -76,7 +76,10 @@ import {
   resetCodexSandboxProbeForTests,
 } from "./sandbox-probe.ts";
 import { CODEX_REFUSAL_PREFIX, SAFETY_WARNING } from "./safety-hook.ts";
-import { removeStateDir } from "../../test-support/temp-state.ts";
+import {
+  removeStateDir,
+  resetStateRoot,
+} from "../../test-support/temp-state.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 import { CODEX_EMPTY_CWD_ROOT } from "./access.ts";
 import type { AgentFs } from "../../agent-host.ts";
@@ -7352,3 +7355,7 @@ describe("CodexSession refused cards", () => {
     expect(seen.at(-1)).toMatchObject({ status: "failed" });
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

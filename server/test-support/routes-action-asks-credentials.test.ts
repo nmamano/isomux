@@ -7,7 +7,8 @@
 // agent reads, not in what the server stores. The ask closes when the state
 // reaches the value, by the card or by hand on the page.
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -1195,3 +1196,7 @@ describe("credential asks from /mcp", () => {
     }
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

@@ -75,3 +75,10 @@ export function blockAtomicFileReplacement(target: string): void {
   mkdirSync(target);
   writeFileSync(join(target, "keep"), "x");
 }
+
+// Empty a test state root: remove it (guarded) and make it again. The
+// preload drops the caches that load from it after the test.
+export function resetStateRoot(root: string): void {
+  removeStateDir(root);
+  mkdirSync(root, { recursive: true });
+}

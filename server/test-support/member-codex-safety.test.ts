@@ -9,7 +9,15 @@
 // The preflight's reach (artifact, share, hook bytes, runtime reinstall,
 // runner entries) is replaced through setMemberHookDeps; the member and
 // their host are the recording fixture. No hook artifact is built here.
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
 import type {
   HookCallback,
   HookJSONOutput,
@@ -400,3 +408,7 @@ describe("a member's Claude tools", () => {
     expect(await denied({}, command)).toBe(false);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

@@ -10,7 +10,9 @@
 //
 // The supervisor is the harness FAKE. Zero LLM.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
+import { STATE_ROOT } from "../config.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { createMember, getUserByName, updateUserById } from "../users.ts";
@@ -469,3 +471,7 @@ describe("app owner reach: integrations as an agent, never as a human", () => {
     expect(await byMorgan.text()).toContain("APPSEKRIT");
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

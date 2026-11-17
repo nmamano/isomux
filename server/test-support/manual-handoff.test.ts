@@ -5,16 +5,22 @@
 // A member's message starts each work turn and parks it until the test
 // completes it; the fake session answers a brief prompt as the test says.
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync } from "fs";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
-import { removeStateDir } from "./temp-state.ts";
+import { resetStateRoot } from "./temp-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
-import { createMember, getUserByName } from "../users.ts";
+import { createMember } from "../users.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
   handoffBriefPrompt,
@@ -37,10 +43,7 @@ import type {
   RoomWire,
 } from "../../shared/types.ts";
 
-beforeEach(() => {
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-});
+beforeEach(() => resetStateRoot(STATE_ROOT));
 
 const activeFakes: FakeBackend[] = [];
 afterEach(() => {
@@ -695,10 +698,7 @@ describe("/handoff failures: no switch, and the conversation continues", () => {
 });
 
 describe("/handoff: whose turn the brief turn is", () => {
-  // The user store outlives the state dir reset in a multi-file run.
   function memberId(name: string): string {
-    const known = getUserByName(name);
-    if (known) return known.id;
     const created = createMember(name, { role: "member" });
     if (!created.ok) throw new Error(created.error);
     return created.user.id;
@@ -737,3 +737,7 @@ describe("/handoff: whose turn the brief turn is", () => {
     expect(during).toEqual([morgan]);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

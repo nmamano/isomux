@@ -39,7 +39,7 @@ import {
   type MemberCheckInput,
 } from "./member-hosts.ts";
 import { STATE_ROOT } from "./config.ts";
-import { removeStateDir } from "./test-support/temp-state.ts";
+import { resetStateRoot } from "./test-support/temp-state.ts";
 import {
   MEMBER_OS_UID_TIES_FILE,
   memberOsUidTies,
@@ -54,12 +54,7 @@ import {
   type AgentHost,
 } from "./agent-host.ts";
 import { memberSharePath } from "./member-runtime.ts";
-import {
-  _testResetUsers,
-  createMember,
-  deleteUserById,
-  getUserByName,
-} from "./users.ts";
+import { createMember, deleteUserById, getUserByName } from "./users.ts";
 import {
   memberOsUserView,
   memberUserSupport,
@@ -148,9 +143,7 @@ beforeEach(() => {
   // An empty office: an earlier file in the same bun process can leave a
   // member with this file's names, and office files (a provider home) that
   // make go-on plan a move.
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-  _testResetUsers();
+  resetStateRoot(STATE_ROOT);
   reloadMemberOsUsers();
 });
 

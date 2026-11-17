@@ -4,7 +4,8 @@
 // (StartServerOpts.adminSocket), so each case runs through the same wiring as
 // production. The peer uid is injected; the server's own uid is refused.
 
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -608,3 +609,7 @@ describe("POST /admin/revoke", () => {
     expect("error" in peekInvite(link.rawToken)).toBe(false);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

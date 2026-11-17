@@ -4,7 +4,9 @@
 // releases a seat after a removal, and checks in. The service here is a real
 // HTTP server on a free port, so the office's real request path (headers,
 // redirects, timeout, body) is under test.
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
+import { STATE_ROOT } from "../config.ts";
 import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -1024,3 +1026,7 @@ describe("Hosted", () => {
     expect(svc.calls).toHaveLength(calls);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

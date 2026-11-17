@@ -10,6 +10,8 @@
 // red here (the office host refuses a tagged env, a member host an untagged
 // one, and the recording stand-ins here record where each call went).
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
+import { STATE_ROOT } from "../config.ts";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -528,3 +530,7 @@ describe("a schedule of an isolated member", () => {
     }
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

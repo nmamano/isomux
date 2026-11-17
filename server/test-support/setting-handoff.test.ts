@@ -15,18 +15,25 @@
 // Every agent here has its automatic-handoff switch OFF: a settings handoff
 // does not depend on it.
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import { randomUUID } from "crypto";
 import { mkdirSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
-import { removeStateDir } from "./temp-state.ts";
+import { resetStateRoot } from "./temp-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { claudeFileMentions } from "./claude-file-mentions.ts";
-import { createMember, getUserByName } from "../users.ts";
+import { createMember } from "../users.ts";
 import {
   AUTO_HANDOFF_FRESH_NOTICE,
   settingHandoffBriefPrompt,
@@ -53,10 +60,7 @@ import {
 import { WEEK_MS } from "../office-usage.ts";
 import type { AgentInfo, LogEntry, RoomWire } from "../../shared/types.ts";
 
-beforeEach(() => {
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-});
+beforeEach(() => resetStateRoot(STATE_ROOT));
 
 const activeFakes: FakeBackend[] = [];
 afterEach(() => {
@@ -337,10 +341,7 @@ function expectInOrder(text: string, needles: string[]) {
   expect([...at].sort((x, y) => x - y)).toEqual(at);
 }
 
-// The user store outlives the state dir reset in a multi-file run.
 function memberId(name: string): string {
-  const known = getUserByName(name);
-  if (known) return known.id;
   const created = createMember(name, { role: "member" });
   if (!created.ok) throw new Error(created.error);
   return created.user.id;
@@ -1307,3 +1308,7 @@ describe("a brief turn that fails: the member's line names the cause", () => {
     );
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

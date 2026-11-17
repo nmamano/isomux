@@ -9,7 +9,8 @@
 // - a start whose host holds no token that matches gets a new one first;
 // - at her runner's connect, her app the lock stopped starts, and her app
 //   her pack does not allow stops.
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMember, updateUserById } from "../users.ts";
@@ -258,3 +259,7 @@ describe("at her runner's connect", () => {
     ).toEqual(["stop:alice-pack"]);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

@@ -6,11 +6,22 @@
 // The crossing turn only arms the mode: its reply stays on screen, and the
 // next message to arrive starts the brief turn (Nil, 2026-10-15).
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
-import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
+import {
+  blockAtomicFileReplacement,
+  removeStateDir,
+  resetStateRoot,
+} from "./temp-state.ts";
 import { createAgentManager, type LimitResumeClock } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
@@ -44,10 +55,7 @@ import type {
   UserRole,
 } from "../../shared/types.ts";
 
-beforeEach(() => {
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-});
+beforeEach(() => resetStateRoot(STATE_ROOT));
 
 const activeFakes: FakeBackend[] = [];
 afterEach(() => {
@@ -176,9 +184,7 @@ function makeHarness(
   return { mgr, fake, logs, measure, brief };
 }
 
-// The user store outlives the state dir reset in a multi-file run, so a
-// name another file seeds can come back with another role: use names only
-// this file uses.
+// A test can name the same member twice (the spawn's manager and a sender).
 function userIdFor(name: string, role: UserRole): string {
   const existing = getUserByName(name);
   if (existing) {
@@ -1951,3 +1957,7 @@ describe("automatic handoff: whose turn the brief turn is", () => {
     expect(during).toEqual([]);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

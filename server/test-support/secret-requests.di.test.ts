@@ -5,7 +5,8 @@
 // the chat and the same line to the agent as an office notice, never a
 // message from the member (task 9019f2f8). FakeBackend only.
 
-import { afterEach, expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -48,11 +49,8 @@ for (const name of [
 const VALUE = "ghp_FAKEdiaskFAKEdiaskFAKEdiaskFAKEdiask0";
 const KEY = Buffer.alloc(32, 9);
 
-// Real members, so the turn's member ids and the usage cap resolve them. The
-// user store outlives the state dir reset in a multi-file run.
+// Real members, so the turn's member ids and the usage cap resolve them.
 function memberId(name: string, role: "owner" | "member"): string {
-  const known = getUserByName(name);
-  if (known) return known.id;
   const created = createMember(name, { role });
   if (!created.ok) throw new Error(created.error);
   return created.user.id;
@@ -488,3 +486,7 @@ it("an outcome during a turn waits as a notice, on disk too, and goes out as the
   );
   expect(memberMessages(w)).toBe(before);
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

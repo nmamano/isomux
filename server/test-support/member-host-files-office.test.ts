@@ -4,7 +4,9 @@
 // the recording stand-in of member-host-fixture.ts, whose file calls are
 // recorded here; the office reads with its own fs, which records nothing, so
 // a surface that reads as the office leaves no call of the path.
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
+import { STATE_ROOT } from "../config.ts";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -311,3 +313,7 @@ describe("an isolated member's agent names a file", () => {
     }
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

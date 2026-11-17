@@ -29,6 +29,7 @@ import {
   _testClearAgentManagerStops,
   _testStopAgentManagers,
 } from "../agent-manager-stops.ts";
+import { _testResetStateCaches } from "../state-cache-resets.ts";
 
 // Next builds its request store once, at load, from globalThis.AsyncLocalStorage,
 // and falls back to a fake whose exit() throws. A Next server sets the global
@@ -228,9 +229,15 @@ recordStartGlobals();
 // (task 7a54c6a3). These hooks wrap every file's own: a manager made at a
 // file's top level or in beforeAll is cleared here, not stopped, so the tests
 // that share it keep it.
+// The caches that load from STATE_ROOT (the users store) are dropped before
+// and after each test, so a member that a test or an earlier file wiped from
+// disk is gone for the next one (task 3a93528c). The reset after the stops: a
+// stopping manager may still read them.
 beforeEach(() => {
   _testClearAgentManagerStops();
+  _testResetStateCaches();
 });
 afterEach(() => {
   _testStopAgentManagers();
+  _testResetStateCaches();
 });

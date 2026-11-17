@@ -3,7 +3,16 @@
 // office's CA bundle, so each CA variable that the secret env sets names
 // the copy in their share. The proxy address stays. An office env is as it
 // was.
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
+import { STATE_ROOT } from "../config.ts";
 import {
   buildEnvForUserId,
   setSecretEnvironmentProvider,
@@ -73,3 +82,7 @@ describe("the secret env of an isolated member's agents", () => {
     expect(env.HTTPS_PROXY).toBe(PROXY);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

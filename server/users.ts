@@ -41,6 +41,7 @@ import {
   type MemberPack,
 } from "../shared/pack-fit.ts";
 import { isRemovedMemberName } from "./removed-members.ts";
+import { registerStateCacheReset } from "./state-cache-resets.ts";
 import { normalizeRoomViewLists } from "../shared/room-view-level.ts";
 import {
   defaultGhostColorForUserId,
@@ -59,12 +60,15 @@ let users: Record<string, UserRecord> = {};
 let loaded = false;
 
 // Test-only: drop the in-memory user cache so the next access reloads from the
-// (freshly wiped) STATE_ROOT. The in-process harness calls this between boots;
-// mirrors auth._testResetState. Not a production path.
+// (maybe wiped) STATE_ROOT. The test preload runs it before and after each test
+// (state-cache-resets.ts) and the in-process harness at each boot. Every change
+// is persisted, so between tests it drops only what disk no longer has. Not a
+// production path.
 export function _testResetUsers(): void {
   users = {};
   loaded = false;
 }
+registerStateCacheReset(_testResetUsers);
 
 function normalizeRole(value: unknown): UserRole {
   return value === "owner" ? "owner" : "member";

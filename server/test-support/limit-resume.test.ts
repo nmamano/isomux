@@ -6,7 +6,14 @@
 // server/backends/claude.session.test.ts and
 // server/backends/codex/adapter.test.ts.
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
@@ -15,7 +22,7 @@ import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
-import { removeStateDir } from "./temp-state.ts";
+import { resetStateRoot } from "./temp-state.ts";
 import { createAgentManager, type LimitResumeClock } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
@@ -24,7 +31,7 @@ import {
   loadLimitResume,
   saveLimitResume,
 } from "../persistence.ts";
-import { createMember, getUserByName } from "../users.ts";
+import { createMember } from "../users.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import {
   LIMIT_RESUME_BOOT_DELAY_MS,
@@ -40,10 +47,7 @@ import {
   type RoomWire,
 } from "../../shared/types.ts";
 
-beforeEach(() => {
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-});
+beforeEach(() => resetStateRoot(STATE_ROOT));
 
 const activeFakes: FakeBackend[] = [];
 afterEach(() => {
@@ -392,11 +396,7 @@ describe("the usage-limit notice", () => {
 // a restart the resume has none.
 describe("resume after a usage limit: whose turn it is", () => {
   it("the resumed turn keeps the members of the turn the limit stopped", async () => {
-    // The user store outlives the state dir reset in a multi-file run, so an
-    // earlier file may have made Morgan already.
     const morganId = (() => {
-      const known = getUserByName("Morgan");
-      if (known) return known.id;
       const created = createMember("Morgan", { role: "owner" });
       if (!created.ok) throw new Error(created.error);
       return created.user.id;
@@ -843,3 +843,7 @@ describe("resume after a usage limit: restart", () => {
     expect(persistedAt("blank")).toBeUndefined();
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

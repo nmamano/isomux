@@ -33,7 +33,7 @@ import {
   saveLimitResume,
 } from "../persistence.ts";
 import { personalProviderHome } from "../provider-homes.ts";
-import { createMember, deleteUserById, getUserByName } from "../users.ts";
+import { createMember, getUserByName } from "../users.ts";
 import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import {
   createMemberUsageCap,
@@ -59,7 +59,7 @@ import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
-import { removeStateDir } from "./temp-state.ts";
+import { resetStateRoot } from "./temp-state.ts";
 import { isolateMember } from "./member-host-fixture.ts";
 import {
   createMemberTokenStore,
@@ -95,15 +95,12 @@ const OTHER = {
   roomName: "room-a",
 };
 
-// The user store outlives the state dir reset in a multi-file run, so an
-// earlier file may have made Alice already.
-let madeAlice: string | null = null;
+// A test reads Alice in beforeEach and again in afterEach.
 function aliceId(): string {
   const known = getUserByName("Alice");
   if (known) return known.id;
   const created = createMember("Alice", { role: "member" });
   if (!created.ok) throw new Error(created.error);
-  madeAlice = created.user.id;
   return created.user.id;
 }
 
@@ -112,8 +109,7 @@ const personal = { claude: true, codex: true };
 let restorePersonal: ReturnType<typeof setPersonalProviderActiveProvider>;
 
 beforeEach(() => {
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
+  resetStateRoot(STATE_ROOT);
   personal.claude = true;
   personal.codex = true;
   const alice = aliceId();
@@ -134,12 +130,7 @@ afterEach(() => {
 
 // Later files in the same bun process: no Alice of ours and none of her
 // files (a member with office files makes go-on plan a move).
-afterAll(() => {
-  if (madeAlice) deleteUserById(madeAlice);
-  madeAlice = null;
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-});
+afterAll(() => resetStateRoot(STATE_ROOT));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(pred: () => boolean, label: string): Promise<void> {

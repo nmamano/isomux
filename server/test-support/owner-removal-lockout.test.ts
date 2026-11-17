@@ -5,7 +5,9 @@
 // Only a browser session holds user:self and user:admin, so the actor of a
 // demote or delete is always a signed-in user: a delete strands the office
 // only when the actor's own sign-out lands at the same time.
-import { afterEach, expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
+import { resetStateRoot } from "./temp-state.ts";
+import { STATE_ROOT } from "../config.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { createMember, getUserByName } from "../users.ts";
@@ -196,3 +198,7 @@ it("an owner's sign-out while their delete of the only other signed-in owner is 
   expect(getUserByName("Bella")?.role).toBe("owner");
   expect(validateSession(bella)?.role).toBe("owner");
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));

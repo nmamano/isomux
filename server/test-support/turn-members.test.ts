@@ -7,11 +7,18 @@
 // Seam: the DI manager (createAgentManager + FakeBackend), the
 // edit-interrupted.test.ts idiom. Zero LLM calls.
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
-import { removeStateDir } from "./temp-state.ts";
+import { resetStateRoot } from "./temp-state.ts";
 import { loadLog } from "../persistence.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -21,7 +28,7 @@ import {
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { createMember, getUserByName } from "../users.ts";
+import { createMember } from "../users.ts";
 
 const PARENT_SID = "fake-session-1";
 const FORK_SID = "forked-1";
@@ -32,10 +39,7 @@ const OTHER = {
   roomName: "room-a",
 };
 
-beforeEach(() => {
-  removeStateDir(STATE_ROOT);
-  mkdirSync(STATE_ROOT, { recursive: true });
-});
+beforeEach(() => resetStateRoot(STATE_ROOT));
 
 const activeFakes: FakeBackend[] = [];
 afterEach(() => {
@@ -54,11 +58,7 @@ async function waitUntil(pred: () => boolean, label: string): Promise<void> {
   }
 }
 
-// The user store outlives the state dir reset in a multi-file run, so an
-// earlier file may have made Morgan already.
 function morganId(): string {
-  const known = getUserByName("Morgan");
-  if (known) return known.id;
   const created = createMember("Morgan", { role: "owner" });
   if (!created.ok) throw new Error(created.error);
   return created.user.id;
@@ -152,3 +152,7 @@ describe("turnMemberIds: a member's skill and edit", () => {
     ).toEqual([id]);
   });
 });
+
+// Later files in the same bun process: none of this file's members or their
+// files on disk (task 3a93528c).
+afterAll(() => resetStateRoot(STATE_ROOT));
