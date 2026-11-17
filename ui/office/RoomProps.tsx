@@ -572,9 +572,12 @@ export const PET_SPOT = { x: 120, y: 460 } as const;
 export function PetCorner({
   pet,
   onClick,
+  defs = true,
 }: {
   pet: RoomPet | null;
   onClick?: (x: number, y: number) => void;
+  /** False where the surface already holds one PetDefs for many pets. */
+  defs?: boolean;
 }) {
   const shown = drawnPet(pet);
   const drawing = PETS[shown.species];
@@ -594,7 +597,7 @@ export function PetCorner({
       onClick={onClick ? (e) => onClick(e.clientX, e.clientY) : undefined}
       style={onClick ? { pointerEvents: "auto", cursor: "pointer" } : undefined}
     >
-      <PetDefs />
+      {defs && <PetDefs />}
       {/* Shadow the bed drops on the floor */}
       <ellipse
         cx="2"

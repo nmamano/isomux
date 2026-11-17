@@ -22,6 +22,7 @@ import {
   PET_PALETTES,
   PET_SPECIES,
   type PetSpecies,
+  type RoomPet,
 } from "../../shared/pets.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import type { RoomWire } from "../../shared/types.ts";
@@ -35,7 +36,7 @@ import {
 import { HospitalProps } from "../office/skins/hospital/props.tsx";
 import { NeonSign, RoomNamePlate, WindowPlant } from "../office/Floor.tsx";
 import { BlossomJar, CornerPlant, PlantDefs } from "../office/plants.tsx";
-import { PetCorner, drawnPet } from "../office/RoomProps.tsx";
+import { PetCorner, PetDefs, drawnPet } from "../office/RoomProps.tsx";
 import { FLOOR_CLIP } from "../office/grid.ts";
 import { pickDecor, pickPet, pickPreset, type RoomLook } from "../room-look.ts";
 
@@ -100,6 +101,69 @@ function RoomBase() {
   );
 }
 
+// The pieces several tiles draw, each drawn once in the picker's own hidden
+// svg and pointed at with <use>. An id's content depends only on the id and
+// the theme, so two pickers mounted at once hold identical copies.
+const SHARED = {
+  base: "room-decor-base",
+  windowPlant: "room-decor-window-plant",
+  blossom: "room-decor-blossom",
+  floorPlant: "room-decor-floor-plant",
+  ward: "room-decor-ward",
+} as const;
+
+/** The id of the shared drawing of a pet, by the pair the scene draws. */
+function petId(pet: RoomPet | null): string {
+  const shown = drawnPet(pet);
+  return `room-decor-pet-${shown.species}-${shown.coat}`;
+}
+
+function Shared({ id }: { id: string }) {
+  return <use href={`#${id}`} />;
+}
+
+/** The gradients, the blurs and the shared drawings, once for every tile.
+ *  Sized to nothing rather than display:none, which stops Chrome and Firefox
+ *  painting the gradients and filters it holds. */
+function SharedDefs({ pets }: { pets: RoomPet[] }) {
+  const ids = new Map(pets.map((pet) => [petId(pet), drawnPet(pet)]));
+  return (
+    <svg
+      aria-hidden="true"
+      width="0"
+      height="0"
+      style={{ position: "absolute" }}
+    >
+      <defs>
+        <PlantDefs />
+      </defs>
+      <PetDefs />
+      <defs>
+        <g id={SHARED.base}>
+          <RoomBase />
+        </g>
+        <g id={SHARED.windowPlant}>
+          <WindowPlant />
+        </g>
+        <g id={SHARED.blossom} transform="translate(-236 92.6)">
+          <BlossomJar />
+        </g>
+        <g id={SHARED.floorPlant} transform="translate(-245, 212) scale(1.5)">
+          <CornerPlant />
+        </g>
+        <g id={SHARED.ward}>
+          <HospitalProps />
+        </g>
+        {[...ids].map(([id, pet]) => (
+          <g key={id} id={id}>
+            <PetCorner pet={pet} defs={false} />
+          </g>
+        ))}
+      </defs>
+    </svg>
+  );
+}
+
 function Thumb({
   box,
   walls,
@@ -120,10 +184,7 @@ function Thumb({
       viewBox={box.join(" ")}
       style={sceneVarsFor(walls, theme)}
     >
-      <defs>
-        <PlantDefs />
-      </defs>
-      <RoomBase />
+      <Shared id={SHARED.base} />
       {children}
     </svg>
   );
@@ -172,31 +233,17 @@ function SlotDrawing<S extends Exclude<RoomDecorSlot, "pet">>({
         />
       );
     case "sill":
-      if (value === "trailing") return <WindowPlant />;
-      if (value === "blossom") {
-        return (
-          <g transform="translate(-236 92.6)">
-            <BlossomJar />
-          </g>
-        );
-      }
+      if (value === "trailing") return <Shared id={SHARED.windowPlant} />;
+      if (value === "blossom") return <Shared id={SHARED.blossom} />;
       return null;
     case "floorPlant":
-      return value === "plant" ? <FloorPlantAt /> : null;
+      return value === "plant" ? <Shared id={SHARED.floorPlant} /> : null;
     case "ward":
-      return value === "beds" ? <HospitalProps /> : null;
+      return value === "beds" ? <Shared id={SHARED.ward} /> : null;
     default:
       // walls: the palette is the drawing, set on the tile's svg.
       return null;
   }
-}
-
-function FloorPlantAt() {
-  return (
-    <g transform="translate(-245, 212) scale(1.5)">
-      <CornerPlant />
-    </g>
-  );
 }
 
 /** The whole room in a decor, smaller than life: what a preset tile shows. */
@@ -213,9 +260,13 @@ function RoomDrawing({
       {decor.wallArt === "neon" && <NeonSign color={TILE_NEON} />}
       {decor.wallArt === "name" && <RoomNamePlate name={roomName} />}
       <SlotDrawing slot="sill" value={decor.sill} roomName={roomName} />
-      {decor.ward === "beds" && <HospitalProps />}
-      {decor.floorPlant === "plant" && <FloorPlantAt />}
-      {decor.pet === "shown" && <PetCorner pet={null} />}
+      <SlotDrawing slot="ward" value={decor.ward} roomName={roomName} />
+      <SlotDrawing
+        slot="floorPlant"
+        value={decor.floorPlant}
+        roomName={roomName}
+      />
+      {decor.pet === "shown" && <Shared id={petId(null)} />}
     </>
   );
 }
@@ -348,7 +399,7 @@ function TileRow({
   );
 }
 
-// Memoized: the tiles are a few thousand SVG nodes, and the pane re-renders on
+// Memoized: the tiles are about 1500 SVG nodes, and the pane re-renders on
 // every keystroke and checkbox elsewhere in it.
 export const RoomDecorPicker = memo(function RoomDecorPicker({
   room,
@@ -371,8 +422,22 @@ export const RoomDecorPicker = memo(function RoomDecorPicker({
     ? SELECTABLE_ROOM_SKIN_IDS
     : [...SELECTABLE_ROOM_SKIN_IDS, look.skin];
 
+  // Every pet a tile draws: each species in its first coat, the staged
+  // species in each coat, and the room's own pet in a preset that shows it.
+  const sharedPets: RoomPet[] = [
+    ...PET_SPECIES.map((species) => ({ species, coat: 0 })),
+    ...(decor.pet === "shown"
+      ? PET_PALETTES[pet.species].map((_, coat) => ({
+          species: pet.species,
+          coat,
+        }))
+      : []),
+    drawnPet(null),
+  ];
+
   return (
     <div data-room-decor>
+      <SharedDefs pets={sharedPets} />
       <TileRow
         row="preset"
         wide
@@ -445,7 +510,7 @@ export const RoomDecorPicker = memo(function RoomDecorPicker({
               ),
             picture: (
               <Thumb box={PET_BOX} walls={decor.walls} size={TILE}>
-                <PetCorner pet={{ species, coat: 0 }} />
+                <Shared id={petId({ species, coat: 0 })} />
               </Thumb>
             ),
           })),
@@ -465,7 +530,7 @@ export const RoomDecorPicker = memo(function RoomDecorPicker({
                 onChange(pickPet(look, { species: pet.species, coat })),
               picture: (
                 <Thumb box={PET_BOX} walls={decor.walls} size={TILE}>
-                  <PetCorner pet={{ species: pet.species, coat }} />
+                  <Shared id={petId({ species: pet.species, coat })} />
                 </Thumb>
               ),
             };
