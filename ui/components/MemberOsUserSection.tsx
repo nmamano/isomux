@@ -13,6 +13,7 @@ import {
   type MemberUserUnsupported,
 } from "../../shared/contract-shapes.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { Data } from "../integrations/kit.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -48,7 +49,8 @@ export function MemberOsUserSection({
   headingStyle: CSSProperties;
   hintStyle: CSSProperties;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [view, setView] = useState<MemberOsUserWire | null>(null);
   // Set at a Copy: the state then, until the page sees another.
   const [waitingFrom, setWaitingFrom] = useState<string | null>(null);
@@ -196,8 +198,9 @@ export function MemberOsUserSection({
   const target = picking
     ? pickTarget(pick, { newName: newUserName, otherName })
     : null;
+  const disableHint = disableHintFor(view, i18n);
   const commands: {
-    hint: string;
+    hint: ReactNode;
     line: string;
     action: "enable" | "disable";
     noRun?: boolean;
@@ -250,14 +253,14 @@ export function MemberOsUserSection({
                     action: "enable",
                   },
                   {
-                    hint: t("settings.osUser.disableHint"),
+                    hint: disableHint,
                     line: view.commands.disable,
                     action: "disable",
                   },
                 ]
               : [
                   {
-                    hint: t("settings.osUser.disableHint"),
+                    hint: disableHint,
                     line: view.commands.disable,
                     action: "disable",
                   },
@@ -309,7 +312,7 @@ export function MemberOsUserSection({
             color: "var(--text-primary)",
           }}
         >
-          {stateLine(view, t)}
+          {stateLine(view, i18n)}
         </p>
       )}
       {failed && <FailureRow attempt={failed} />}
@@ -319,7 +322,9 @@ export function MemberOsUserSection({
           role="note"
           style={{ fontSize: 12, margin: "4px 0", color: "var(--red-text)" }}
         >
-          {t("settings.osUser.rootCapable", { name: view.osUser?.name ?? "" })}
+          {i18n.rich("settings.osUser.rootCapable", {
+            name: <Data>{view.osUser?.name ?? ""}</Data>,
+          })}
         </p>
       )}
       {picking && !running && (
@@ -398,12 +403,19 @@ export function MemberOsUserSection({
       )}
       {commands.map(({ hint, line: command, action, noRun, target }) => (
         <div key={action}>
-          <p style={{ ...hintStyle, marginTop: 8 }}>{hint}</p>
-          {action === "disable" && view.adopted && (
-            <p data-testid="member-os-user-adopted" style={hintStyle}>
-              {t("settings.osUser.adopted")}
-            </p>
-          )}
+          <p
+            data-testid={
+              action === "disable" ? "member-os-user-disable-hint" : undefined
+            }
+            data-adopted={
+              action === "disable" && view.adopted && !view.movedIn
+                ? "true"
+                : undefined
+            }
+            style={{ ...hintStyle, marginTop: 8 }}
+          >
+            {hint}
+          </p>
           <div
             style={{
               display: "flex",
@@ -581,27 +593,53 @@ function stateKey(view: MemberOsUserWire): string {
   ]);
 }
 
-type T = ReturnType<typeof useI18n>["t"];
+type I18n = ReturnType<typeof useI18n>;
+type T = I18n["t"];
 
-function stateLine(view: MemberOsUserWire, t: T): string {
-  const name = view.osUser?.name ?? "";
+// The OS user names in a line show as values, not as body text.
+function stateLine(view: MemberOsUserWire, { t, rich }: I18n): ReactNode {
+  const name = <Data>{view.osUser?.name ?? ""}</Data>;
   switch (view.state) {
     case "off":
       return view.officeOsUser
-        ? t("settings.osUser.offAs", { name: view.officeOsUser })
+        ? rich("settings.osUser.offAs", {
+            name: <Data>{view.officeOsUser}</Data>,
+          })
         : t("settings.osUser.off");
     case "on":
-      return t("settings.osUser.on", { name });
+      return rich("settings.osUser.on", { name });
     case "moving":
       return t("settings.osUser.moving");
     case "not_ready":
       if (view.movedIn) return t("settings.osUser.movedIn");
       return view.unfinished
-        ? t("settings.osUser.unfinished", { name })
-        : t("settings.osUser.notReady", { name });
+        ? rich("settings.osUser.unfinished", { name })
+        : rich("settings.osUser.notReady", { name });
     case "broken":
       return t("settings.osUser.broken", { reason: view.reason ?? "" });
   }
+}
+
+// The line above a disable command, for a member who did not come with an
+// office move: what it does. An adopted account stays as it was; a user the
+// command made is locked. The record does not tell a made user from one
+// whose mark was lost (disable leaves that account as it was), so a lost mark
+// also gets the made line.
+function disableHintFor(view: MemberOsUserWire, { rich }: I18n): ReactNode {
+  const name = <Data>{view.osUser?.name ?? ""}</Data>;
+  if (!view.officeOsUser)
+    return rich(
+      view.adopted
+        ? "settings.osUser.disableHintAdoptedOfficeUnnamed"
+        : "settings.osUser.disableHintOfficeUnnamed",
+      { name },
+    );
+  return rich(
+    view.adopted
+      ? "settings.osUser.disableHintAdopted"
+      : "settings.osUser.disableHint",
+    { name, office: <Data>{view.officeOsUser}</Data> },
+  );
 }
 
 // A status row: a dot (pulsing while it runs) and the line.

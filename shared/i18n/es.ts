@@ -576,7 +576,13 @@ Cosas que puedes hacer por él:
   "settings.osUser.enableHint":
     "Para activarlo, ejecuta esto en la máquina de la oficina:",
   "settings.osUser.disableHint":
-    "Para desactivarlo, ejecuta esto en la máquina de la oficina:",
+    "Para volver a ejecutar sus agentes como {office}, devolver los chats y los inicios de sesión de sus agentes y bloquear {name}, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.disableHintOfficeUnnamed":
+    "Para volver a ejecutar sus agentes como el usuario del sistema de la oficina, devolver los chats y los inicios de sesión de sus agentes y bloquear {name}, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.disableHintAdopted":
+    "Para volver a ejecutar sus agentes como {office}, devolver los chats y los inicios de sesión de sus agentes y dejar {name} como estaba, ejecuta esto en la máquina de la oficina:",
+  "settings.osUser.disableHintAdoptedOfficeUnnamed":
+    "Para volver a ejecutar sus agentes como el usuario del sistema de la oficina, devolver los chats y los inicios de sesión de sus agentes y dejar {name} como estaba, ejecuta esto en la máquina de la oficina:",
   "settings.osUser.rerunHint":
     "Si sigue sin estar listo, ejecuta de nuevo el comando para activarlo:",
   "settings.osUser.turningOn": "Activando…",
@@ -625,8 +631,6 @@ Cosas que puedes hacer por él:
   "settings.osUser.pickOther": "Otro usuario existente…",
   "settings.osUser.newName": "Nombre del usuario nuevo",
   "settings.osUser.existingName": "Nombre del usuario existente",
-  "settings.osUser.adopted":
-    "Al desactivarlo, esta cuenta existente se mantiene y solo se elimina lo que añadió Isomux.",
   "settings.osUser.rootCapable":
     "{name} puede convertirse en root, así que sus agentes pueden leer los archivos y los secretos de la oficina.",
   "settings.osUser.unsupported.notLinux":

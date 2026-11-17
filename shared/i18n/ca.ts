@@ -576,7 +576,13 @@ Coses que pots fer per ell:
   "settings.osUser.enableHint":
     "Per activar-lo, executa això a la màquina de l'oficina:",
   "settings.osUser.disableHint":
-    "Per desactivar-lo, executa això a la màquina de l'oficina:",
+    "Per tornar a executar els seus agents com {office}, retornar els xats i els inicis de sessió dels seus agents i bloquejar {name}, executa això a la màquina de l'oficina:",
+  "settings.osUser.disableHintOfficeUnnamed":
+    "Per tornar a executar els seus agents com l'usuari del sistema de l'oficina, retornar els xats i els inicis de sessió dels seus agents i bloquejar {name}, executa això a la màquina de l'oficina:",
+  "settings.osUser.disableHintAdopted":
+    "Per tornar a executar els seus agents com {office}, retornar els xats i els inicis de sessió dels seus agents i deixar {name} com estava, executa això a la màquina de l'oficina:",
+  "settings.osUser.disableHintAdoptedOfficeUnnamed":
+    "Per tornar a executar els seus agents com l'usuari del sistema de l'oficina, retornar els xats i els inicis de sessió dels seus agents i deixar {name} com estava, executa això a la màquina de l'oficina:",
   "settings.osUser.rerunHint":
     "Si continua sense estar a punt, torna a executar l'ordre per activar-lo:",
   "settings.osUser.turningOn": "Activant…",
@@ -625,8 +631,6 @@ Coses que pots fer per ell:
   "settings.osUser.pickOther": "Un altre usuari existent…",
   "settings.osUser.newName": "Nom de l'usuari nou",
   "settings.osUser.existingName": "Nom de l'usuari existent",
-  "settings.osUser.adopted":
-    "En desactivar-ho, aquest compte existent es manté i només s'elimina el que ha afegit Isomux.",
   "settings.osUser.rootCapable":
     "{name} pot esdevenir root, de manera que els seus agents poden llegir els fitxers i els secrets de l'oficina.",
   "settings.osUser.unsupported.notLinux":

@@ -22,7 +22,10 @@
 //   first reason's check family instead of that raw reason, with every raw
 //   reason folded in a closed <details>, even a single one; a reason that
 //   names no known check keeps the raw headline;
-// - an adopted user's hint sits in each disable command's block;
+// - each line that names an OS user (state lines, the root-capable warning,
+//   the disable hint) shows each name as a value, not body text; one hint
+//   sits in each disable command's block, marked for an adopted user only
+//   (task dac873da);
 // - the page reads again every OS_USER_POLL_MS only while the state can
 //   change (an attempt running, or after a Copy until the state changes), and
 //   stops on a final state, on unmount and at OS_USER_POLL_CAP_MS;
@@ -825,7 +828,7 @@ const transitionLeaks = (m: Awaited<ReturnType<typeof mount>>) => ({
   passwords: passwordFields(m).length,
   commandHint: m.q("member-os-user-command-hint") !== null,
   picker: pickOf(m) !== null,
-  adopted: all(m, "member-os-user-adopted").length,
+  disableHints: all(m, "member-os-user-disable-hint").length,
 });
 const NO_LEAKS = {
   state: false,
@@ -835,7 +838,7 @@ const NO_LEAKS = {
   passwords: 0,
   commandHint: false,
   picker: false,
-  adopted: 0,
+  disableHints: 0,
 };
 
 it("while a command runs or the files move, shows one running row alone: no state line, command, Copy, Run, hint or picker", async () => {
@@ -926,58 +929,245 @@ it("keeps the root-capable warning while the command runs", async () => {
   expect(m.q("member-os-user-root-capable")).not.toBeNull();
 });
 
-it("an adopted user's hint sits in each disable command's block, and nowhere without one", async () => {
+// Task dac873da: a name in a line is a value, not body text. Each line that
+// names an OS user puts each name in one value element (the kit's Data,
+// [data-integrations-data]) and no name in the text around it.
+const valuesIn = (el: HTMLElement | null) => {
+  if (!el) return null;
+  const values = [
+    ...el.querySelectorAll<HTMLElement>("[data-integrations-data]"),
+  ].map((v) => v.textContent ?? "");
+  const copy = el.cloneNode(true) as HTMLElement;
+  for (const v of copy.querySelectorAll("[data-integrations-data]")) v.remove();
+  return { values: values.sort(), rest: copy.textContent ?? "" };
+};
+
+it("each line that names an OS user shows each name as a value", async () => {
+  const mia = { name: "isomux-mia", uid: 2001 };
   const bob = { name: "bob", uid: 1001 };
-  // The command lines in the smallest block around each hint.
+  const NAMES = ["isomux-mia", "svc-office", "bob"];
+  const cases: {
+    name: string;
+    over: Partial<MemberOsUserWire>;
+    line: string;
+    values: string[];
+  }[] = [
+    {
+      name: "off",
+      over: { state: "off", officeOsUser: "svc-office" },
+      line: "member-os-user-state",
+      values: ["svc-office"],
+    },
+    {
+      name: "on",
+      over: { state: "on", osUser: mia },
+      line: "member-os-user-state",
+      values: ["isomux-mia"],
+    },
+    {
+      name: "not ready",
+      over: { state: "not_ready", osUser: mia },
+      line: "member-os-user-state",
+      values: ["isomux-mia"],
+    },
+    {
+      name: "unfinished",
+      over: { state: "not_ready", osUser: mia, unfinished: true },
+      line: "member-os-user-state",
+      values: ["isomux-mia"],
+    },
+    {
+      name: "root-capable",
+      over: { state: "on", osUser: bob, adopted: true, rootCapable: true },
+      line: "member-os-user-root-capable",
+      values: ["bob"],
+    },
+    // The disable hint names the office's OS user they go back to and
+    // their own OS user.
+    {
+      name: "disable, made",
+      over: { state: "on", osUser: mia, officeOsUser: "svc-office" },
+      line: "member-os-user-disable-hint",
+      values: ["isomux-mia", "svc-office"],
+    },
+    {
+      name: "disable, adopted",
+      over: {
+        state: "on",
+        osUser: bob,
+        adopted: true,
+        officeOsUser: "svc-office",
+      },
+      line: "member-os-user-disable-hint",
+      values: ["bob", "svc-office"],
+    },
+    // The office's OS user unknown: only their own is a value.
+    {
+      name: "disable, made, office unnamed",
+      over: { state: "on", osUser: mia },
+      line: "member-os-user-disable-hint",
+      values: ["isomux-mia"],
+    },
+    {
+      name: "disable, adopted, office unnamed",
+      over: { state: "on", osUser: bob, adopted: true },
+      line: "member-os-user-disable-hint",
+      values: ["bob"],
+    },
+  ];
+  for (const { name, over, line, values } of cases) {
+    answers = [view(over)];
+    const m = await mount();
+    const got = valuesIn(m.q(line));
+    expect({ name, values: got?.values ?? null }).toEqual({ name, values });
+    expect({
+      name,
+      bareNames: NAMES.filter((n) => got?.rest.includes(n)),
+      placeholder: /[{}]/.test(got?.rest ?? ""),
+    }).toEqual({ name, bareNames: [], placeholder: false });
+    m.rendered.unmount();
+  }
+});
+
+// One hint above each disable command, in that command's block. It says
+// what turning off does, which differs for an adopted user (the account
+// stays as it was) and for a member who came with a move; the hint is
+// marked data-adopted for an adopted user only. The old separate adopted
+// note is gone.
+it("shows one disable hint in each disable command's block, marked for an adopted user only", async () => {
+  const mia = { name: "isomux-mia", uid: 2001 };
+  // The command lines in the smallest block around each hint, and its mark.
   const hintBlocks = (m: Awaited<ReturnType<typeof mount>>) =>
-    all(m, "member-os-user-adopted").map((hint) => {
+    all(m, "member-os-user-disable-hint").map((hint) => {
       let el: HTMLElement | null = hint.parentElement;
       while (el && !el.querySelector('[data-testid="member-os-user-command"]'))
         el = el.parentElement;
-      return [
-        ...(el?.querySelectorAll<HTMLElement>(
-          '[data-testid="member-os-user-command"]',
-        ) ?? []),
-      ].map((c) => c.textContent);
+      return {
+        commands: [
+          ...(el?.querySelectorAll<HTMLElement>(
+            '[data-testid="member-os-user-command"]',
+          ) ?? []),
+        ].map((c) => c.textContent),
+        adopted: hint.dataset.adopted ?? null,
+      };
     });
   const DISABLE_MOVED = `${COMMANDS.disable} --delete-moved-home`;
   const cases: {
     name: string;
     over: Partial<MemberOsUserWire>;
+    lines: string[];
     blocks: string[][];
   }[] = [
-    { name: "on", over: { state: "on" }, blocks: [[COMMANDS.disable]] },
+    {
+      name: "on",
+      over: { state: "on" },
+      lines: [COMMANDS.disable],
+      blocks: [[COMMANDS.disable]],
+    },
     // Enable and disable both show: the hint goes with disable only.
     {
       name: "not ready",
       over: { state: "not_ready" },
+      lines: [COMMANDS.enable, COMMANDS.disable],
       blocks: [[COMMANDS.disable]],
     },
-    // The copy-only disable of a member who came with a move.
     {
-      name: "moved in",
-      over: {
-        state: "not_ready",
-        movedIn: true,
-        commands: { enable: COMMANDS.enable, disable: DISABLE_MOVED },
-      },
-      blocks: [[DISABLE_MOVED]],
+      name: "unfinished",
+      over: { state: "not_ready", unfinished: true },
+      lines: [COMMANDS.enable, COMMANDS.disable],
+      blocks: [[COMMANDS.disable]],
+    },
+    // Off: the enable command only, so no disable hint.
+    {
+      name: "off",
+      over: { state: "off" },
+      lines: [COMMANDS.enable],
+      blocks: [],
     },
     // No disable command, no hint.
-    { name: "no commands", over: { state: "on", commands: null }, blocks: [] },
+    {
+      name: "no commands",
+      over: { state: "on", commands: null },
+      lines: [],
+      blocks: [],
+    },
   ];
-  for (const { name, over, blocks } of cases) {
+  const hintText: Record<string, string> = {};
+  for (const adopted of [false, true]) {
+    for (const { name, over, lines, blocks } of cases) {
+      // Off has no adopted user.
+      if (adopted && name === "off") continue;
+      answers = [
+        view({
+          osUser: mia,
+          run: "no_password",
+          ...(adopted ? { adopted: true as const } : {}),
+          ...over,
+        }),
+      ];
+      const m = await mount();
+      const label = `${name}${adopted ? ", adopted" : ""}`;
+      // The enabling condition: the commands of the state rendered.
+      expect({ label, lines: commandLines(m) }).toEqual({ label, lines });
+      expect({
+        label,
+        blocks: hintBlocks(m),
+        oldNote: all(m, "member-os-user-adopted").length,
+      }).toEqual({
+        label,
+        blocks: blocks.map((commands) => ({
+          commands,
+          adopted: adopted ? "true" : null,
+        })),
+        oldNote: 0,
+      });
+      if (name === "on")
+        hintText[label] = m.q("member-os-user-disable-hint")?.textContent ?? "";
+      m.rendered.unmount();
+    }
+  }
+  // Turning off an adopted user does not do what it does to a made one,
+  // with the office's OS user unnamed (above) and named (below).
+  expect(hintText["on"]).not.toBe("");
+  expect(hintText["on, adopted"]).not.toBe("");
+  expect(hintText["on, adopted"]).not.toBe(hintText["on"]);
+  const namedHint = async (adopted: boolean) => {
     answers = [
-      view({ osUser: bob, adopted: true, run: "no_password", ...over }),
+      view({
+        state: "on",
+        osUser: mia,
+        officeOsUser: "svc-office",
+        ...(adopted ? { adopted: true as const } : {}),
+      }),
     ];
     const m = await mount();
-    expect({
-      name,
-      adopted: m.q("member-os-user-state")?.dataset.adopted,
-    }).toEqual({ name, adopted: "true" });
-    expect({ name, blocks: hintBlocks(m) }).toEqual({ name, blocks });
+    const text = m.q("member-os-user-disable-hint")?.textContent ?? "";
     m.rendered.unmount();
-  }
+    return text;
+  };
+  const namedMade = await namedHint(false);
+  expect(namedMade).toContain("svc-office");
+  expect(await namedHint(true)).not.toBe(namedMade);
+
+  // A member who came with a move: her own disable command gets a hint
+  // too, unmarked (an adopted member cannot come with a move:
+  // server/office-move-members.ts refuses to move one).
+  answers = [
+    view({
+      state: "not_ready",
+      osUser: mia,
+      movedIn: true,
+      commands: { enable: COMMANDS.enable, disable: DISABLE_MOVED },
+    }),
+  ];
+  const moved = await mount();
+  expect(commandLines(moved)).toEqual([COMMANDS.enable, DISABLE_MOVED]);
+  expect(hintBlocks(moved)).toEqual([
+    { commands: [DISABLE_MOVED], adopted: null },
+  ]);
+  expect(moved.q("member-os-user-disable-hint")?.textContent).not.toBe(
+    hintText["on"],
+  );
 });
 
 // The failure row: the row's own text, without the folded details.

@@ -536,7 +536,14 @@ export const zh: Catalog = {
   "settings.osUser.broken": "其系统用户记录已损坏：{reason}",
   "settings.osUser.waiting": "正在等待命令…",
   "settings.osUser.enableHint": "要开启，请在办公室的机器上运行：",
-  "settings.osUser.disableHint": "要关闭，请在办公室的机器上运行：",
+  "settings.osUser.disableHint":
+    "要让其代理重新以 {office} 运行、把其代理的对话和登录信息移回并锁定 {name}，请在办公室的机器上运行：",
+  "settings.osUser.disableHintOfficeUnnamed":
+    "要让其代理重新以办公室的系统用户运行、把其代理的对话和登录信息移回并锁定 {name}，请在办公室的机器上运行：",
+  "settings.osUser.disableHintAdopted":
+    "要让其代理重新以 {office} 运行、把其代理的对话和登录信息移回并让 {name} 保持原样，请在办公室的机器上运行：",
+  "settings.osUser.disableHintAdoptedOfficeUnnamed":
+    "要让其代理重新以办公室的系统用户运行、把其代理的对话和登录信息移回并让 {name} 保持原样，请在办公室的机器上运行：",
   "settings.osUser.rerunHint": "如果仍未就绪，请再次运行开启命令：",
   "settings.osUser.turningOn": "正在开启…",
   "settings.osUser.turningOff": "正在关闭…",
@@ -572,8 +579,6 @@ export const zh: Catalog = {
   "settings.osUser.pickOther": "其他已有系统用户…",
   "settings.osUser.newName": "新系统用户名",
   "settings.osUser.existingName": "已有系统用户名",
-  "settings.osUser.adopted":
-    "关闭后会保留这个已有账户，只移除 Isomux 添加的内容。",
   "settings.osUser.rootCapable":
     "{name} 可以成为 root，因此其代理可以读取办公室的文件和机密。",
   "settings.osUser.unsupported.notLinux": "无法更改：办公室不在 Linux 上运行。",

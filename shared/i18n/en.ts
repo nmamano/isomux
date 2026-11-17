@@ -580,7 +580,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.enableHint":
     "To turn it on, run this on the office's machine:",
   "settings.osUser.disableHint":
-    "To turn it off, run this on the office's machine:",
+    "To run their agents as {office} again, move their agent chats and sign-ins back and lock {name}, run this on the office's machine:",
+  "settings.osUser.disableHintOfficeUnnamed":
+    "To run their agents as the office's OS user again, move their agent chats and sign-ins back and lock {name}, run this on the office's machine:",
+  "settings.osUser.disableHintAdopted":
+    "To run their agents as {office} again, move their agent chats and sign-ins back and leave {name} as it was, run this on the office's machine:",
+  "settings.osUser.disableHintAdoptedOfficeUnnamed":
+    "To run their agents as the office's OS user again, move their agent chats and sign-ins back and leave {name} as it was, run this on the office's machine:",
   "settings.osUser.rerunHint":
     "If it stays not ready, run the turn-on command again:",
   "settings.osUser.turningOn": "Turning on…",
@@ -628,8 +634,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.osUser.pickOther": "Other existing user…",
   "settings.osUser.newName": "New user name",
   "settings.osUser.existingName": "Existing user name",
-  "settings.osUser.adopted":
-    "Turning it off keeps this existing account and removes only what Isomux added.",
   "settings.osUser.rootCapable":
     "{name} can become root, so their agents can read the office's files and secrets.",
   "settings.osUser.unsupported.notLinux":
