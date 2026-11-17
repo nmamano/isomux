@@ -24,6 +24,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { layoutChanges, unstableIds } from "./loading-check-diff.ts";
+import { rootShown, snapshot } from "./loading-check-snapshot.ts";
 
 const repo = resolve(dirname(new URL(import.meta.url).pathname), "..");
 
@@ -134,62 +135,6 @@ const server = Bun.serve({
 });
 const url = `http://127.0.0.1:${server.port}/demo/`;
 
-// In the page: every visible element under the root, each with an id that
-// stays on the element across snapshots, and the root's id (null when the
-// root has no box). An svg is one box (its parts animate). An element at
-// opacity 0 hides its subtree (opacity does not inherit, so its children read
-// as visible); visibility: hidden does not, since a child can set visible.
-function snapshot(sel) {
-  const root = document.querySelector(sel);
-  if (!root) return null;
-  const w = window;
-  w.__lcNext ??= 1;
-  const boxes = [];
-  const label = (el) => {
-    let s = el.tagName.toLowerCase();
-    if (el.id) s += `#${el.id}`;
-    const data = [...el.attributes].find((a) => a.name.startsWith("data-"));
-    if (data)
-      s += data.value
-        ? `[${data.name}="${data.value.slice(0, 30)}"]`
-        : `[${data.name}]`;
-    else if (typeof el.className === "string" && el.className.trim())
-      s += `.${el.className.trim().split(/\s+/)[0]}`;
-    const text = (el.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (text) s += ` "${text.slice(0, 40)}${text.length > 40 ? "..." : ""}"`;
-    return s;
-  };
-  const walk = (el, parent) => {
-    const r = el.getBoundingClientRect();
-    const cs = getComputedStyle(el);
-    let id = parent;
-    if (cs.display === "none" || Number(cs.opacity) === 0) return;
-    if (r.width > 0 && r.height > 0 && cs.visibility !== "hidden") {
-      el.__lcId ??= w.__lcNext++;
-      id = el.__lcId;
-      boxes.push({
-        id,
-        parent,
-        label: label(el),
-        x: r.x,
-        y: r.y,
-        w: r.width,
-        h: r.height,
-      });
-    }
-    if (el.tagName.toLowerCase() === "svg") return;
-    for (const c of el.children) walk(c, id);
-  };
-  walk(root, null);
-  return {
-    rootId:
-      root.__lcId !== undefined && boxes[0]?.id === root.__lcId
-        ? root.__lcId
-        : null,
-    boxes,
-  };
-}
-
 // In the page: resolves when nothing under the root changed for quietMs,
 // rejects after capMs.
 function quiet([sel, quietMs, capMs]) {
@@ -281,9 +226,24 @@ try {
   }
 
   // Held.
-  await page
-    .waitForSelector(rootSel, { timeout: 10000 })
-    .catch(() => die(`no element matches --root ${rootSel} while held`));
+  // The root may have no box (the body at phone width), but must be shown.
+  const shown = await page
+    .waitForFunction(rootShown, rootSel, { timeout: 10000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  if (!shown) {
+    const matches = await page.evaluate(
+      (sel) => document.querySelector(sel) !== null,
+      rootSel,
+    );
+    die(
+      matches
+        ? `--root ${rootSel} is hidden while held: pick an outer --root`
+        : `no element matches --root ${rootSel} while held`,
+    );
+  }
   await sleep(800);
   await page.evaluate(still, 3000);
   const heldSnap = await page.evaluate(snapshot, rootSel);
@@ -302,10 +262,10 @@ try {
   const loaded2Snap = await page.evaluate(snapshot, rootSel);
   if (!heldSnap || !loadedSnap || !loaded2Snap)
     die(`--root ${rootSel} left the page`);
-  // Every comparison hangs off the root: a root with no box while held, or
-  // one replaced at release, would read as a clean run.
+  // Every comparison hangs off the root, recorded even with no box: a root
+  // hidden while held, or one replaced at release, would read as a clean run.
   if (heldSnap.rootId === null)
-    die(`--root ${rootSel} has no box while held: pick an outer --root`);
+    die(`--root ${rootSel} is hidden while held: pick an outer --root`);
   if (
     loadedSnap.rootId !== heldSnap.rootId ||
     loaded2Snap.rootId !== heldSnap.rootId
