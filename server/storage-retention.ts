@@ -13,9 +13,10 @@
 
 import { join } from "path";
 import { readFileSync } from "fs";
-import type {
-  LogRetentionReq,
-  LogRetentionRunWire,
+import {
+  LOG_RETENTION_DAYS_RANGE,
+  type LogRetentionReq,
+  type LogRetentionRunWire,
 } from "../shared/contract-shapes.ts";
 import { STATE_ROOT } from "./config.ts";
 import type { StorageOps } from "./office-storage-routes.ts";
@@ -41,8 +42,6 @@ export const DEFAULT_LOG_RETENTION: LogRetentionSettings = {
   compressAfterDays: 7,
   deleteAfterDays: null,
 };
-
-export const LOG_RETENTION_DAYS_RANGE = { min: 1, max: 3650 } as const;
 
 // keepPerAgent of the automatic transcripts prune.
 export const RETENTION_KEEP_PER_AGENT = 2;

@@ -59,7 +59,10 @@ describe("Settings report panes", () => {
           expect(node.style.maxHeight, heading).not.toMatch(/vh/);
         }
         if (isMobile) {
-          const section = region.lastElementChild as HTMLElement;
+          // A section that saves keeps its fields in the form body, above
+          // its footer (SettingsFormLayout); the others are the last child.
+          const section = (region.querySelector("[data-settings-form-body]") ??
+            region.lastElementChild) as HTMLElement;
           expect(section.style.paddingBottom).toBe("24px");
           expect(section.getAttribute("style")).toContain("24px");
           const back = view

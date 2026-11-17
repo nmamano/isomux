@@ -1008,7 +1008,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.backupFolder": "Folder",
   "settings.storage.backupFolderHint": "Leave it empty for the default folder.",
   "settings.storage.backupFolderFromEnv": "ISOMUX_BACKUP_DIR sets the folder.",
-  "settings.storage.changeBackupSettings": "Change backup settings",
   "settings.storage.backupSaveFailed": "Could not save the backup settings.",
   "settings.storage.days": "days",
   "settings.storage.autoSection": "Automatic cleanup",

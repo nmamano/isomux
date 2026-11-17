@@ -2475,6 +2475,10 @@ export interface BackupSettingsReq {
   dir?: string | null;
 }
 
+// The whole-number ranges PUT /api/backup/settings accepts.
+export const BACKUP_INTERVAL_HOURS_RANGE = { min: 1, max: 720 } as const;
+export const BACKUP_RETENTION_RANGE = { min: 1, max: 100 } as const;
+
 export interface BackupSettingsRes extends BackupStatusWire {
   // Set when the save moved the folder: the earlier backups stay here.
   oldBackupsDir: string | null;
@@ -2551,6 +2555,9 @@ export interface LogRetentionReq {
   compressAfterDays?: number;
   deleteAfterDays?: number | null;
 }
+
+// The whole-number range PUT /api/storage/retention accepts for both ages.
+export const LOG_RETENTION_DAYS_RANGE = { min: 1, max: 3650 } as const;
 
 // Office app wrapper readiness. A null chat hides all target metadata.
 export interface AppWidgetStatus {

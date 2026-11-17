@@ -1261,6 +1261,8 @@ export function UserSettingsView({
       <DevicePane closeRef={detailCloseRef} />
     ) : selection.section === "recording" ? (
       <RecordingPane closeRef={detailCloseRef} />
+    ) : selection.section === "storage" && isOwner ? (
+      <StoragePane closeRef={detailCloseRef} />
     ) : null;
 
   const sectionDetail = (
@@ -1272,8 +1274,7 @@ export function UserSettingsView({
           style={{
             ...settingsSectionBox(isMobile),
             paddingTop:
-              isMobile &&
-              (selection.section === "storage" || selection.section === "usage")
+              isMobile && selection.section === "usage"
                 ? `max(16px, ${PHONE_TOP})`
                 : undefined,
           }}
@@ -1292,8 +1293,6 @@ export function UserSettingsView({
             <UsagePane />
           ) : selection.section === "audit" && isOwner ? (
             <AuditPane />
-          ) : selection.section === "storage" && isOwner ? (
-            <StoragePane closeRef={detailCloseRef} />
           ) : selection.section === "move" && isOwner ? (
             <OfficeMovePane />
           ) : selection.section === "updates" ? (

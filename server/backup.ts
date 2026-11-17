@@ -55,6 +55,10 @@ import {
   utimesSync,
   writeFileSync,
 } from "fs";
+import {
+  BACKUP_INTERVAL_HOURS_RANGE,
+  BACKUP_RETENTION_RANGE,
+} from "../shared/contract-shapes.ts";
 import { errMessage } from "../shared/errors.ts";
 import { OFFICE_DATABASE } from "./audit-store.ts";
 import { pacer } from "./backup-pacer.ts";
@@ -139,9 +143,6 @@ export const DEFAULT_BACKUP_SETTINGS: BackupSettings = {
   retention: RETENTION,
   dir: null,
 };
-
-export const BACKUP_INTERVAL_HOURS_RANGE = { min: 1, max: 720 } as const;
-export const BACKUP_RETENTION_RANGE = { min: 1, max: 100 } as const;
 
 export type BackupDirSource = "env" | "setting" | "default";
 

@@ -1,13 +1,12 @@
 // The automatic cleanup block of Settings > Housekeeping > Storage (task
-// 3f8db20b): the two ages from GET /api/storage/retention, a Save that sends
-// PUT with the delete age as a number or null (Off), and the last run with
-// its error.
+// 3f8db20b): the two ages from GET /api/storage/retention, the page footer's
+// Save (task f34cd766) that sends PUT with the delete age as a number or null
+// (Off), and the last run with its error.
 //
 // The controls are found by data-testid (copy is not asserted):
 //   retention-compress-days  number input
 //   retention-delete-off     checkbox, checked = automatic deletes off
 //   retention-delete-days    number input, disabled while deletes are off
-//   retention-save           button
 //   retention-last-run       shown only when the cleanup ran
 //   retention-error          shown only when the last run recorded an error
 //
@@ -28,6 +27,8 @@ const { StoragePane } = await import("./components/StoragePane.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { footerButtons } =
+  await import("./test-support/save-footer-contract.ts");
 
 const FRESH: LogRetentionWire = {
   compressAfterDays: 7,
@@ -95,7 +96,8 @@ async function mount(start: LogRetentionWire) {
       body.getByTestId("retention-compress-days") as HTMLInputElement,
     off: () => body.getByTestId("retention-delete-off") as HTMLInputElement,
     days: () => body.getByTestId("retention-delete-days") as HTMLInputElement,
-    save: () => body.getByTestId("retention-save") as HTMLButtonElement,
+    // The footer's Save (ui/test-support/save-footer-contract.ts).
+    save: () => footerButtons(document.body).save,
     query: (id: string) => body.queryByTestId(id),
   };
 }

@@ -38,10 +38,10 @@ import { formatBytes, formatNumber } from "../../shared/i18n/number.ts";
 import { formatDateTime, timeSince } from "../../shared/i18n/time.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
-import {
-  UnsavedChangesPrompt,
-  useUnsavedChangesPrompt,
-} from "./UnsavedChangesPrompt.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
+import { useAppState } from "../store.tsx";
+import { PHONE_TOP } from "../safe-area.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   IN_ROOT_ORDER,
@@ -58,6 +58,11 @@ import type {
   PruneTarget,
   StoragePruneRes,
 } from "../../shared/contract-shapes.ts";
+import {
+  BACKUP_INTERVAL_HOURS_RANGE,
+  BACKUP_RETENTION_RANGE,
+  LOG_RETENTION_DAYS_RANGE,
+} from "../../shared/contract-shapes.ts";
 import type {
   BackupSettingsReq,
   BackupSettingsRes,
@@ -67,12 +72,7 @@ import type {
   LogRetentionReq,
   LogRetentionWire,
 } from "../../shared/contract-shapes.ts";
-import {
-  dialogInput,
-  dialogCancelBtn,
-  dialogSaveBtn,
-  disabledLook,
-} from "./dialog-styles.ts";
+import { dialogInput, dialogCancelBtn, disabledLook } from "./dialog-styles.ts";
 import { getStorageLayout, setStorageLayout } from "../device-settings.ts";
 
 // The category's words, by wire id. Own-property lookup like every other key
@@ -182,13 +182,31 @@ export function StoragePane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { t } = useI18n();
+  const { isMobile } = useAppState();
   const [usage, setUsage] = useState<StorageUsageWire | null>(null);
   // null = still loading, "unavailable" = the probe failed. Both are distinct
   // from a backup that has never run, which is a real answer.
   const [backup, setBackup] = useState<BackupStatusWire | "unavailable" | null>(
     null,
   );
+  const [retention, setRetention] = useState<
+    LogRetentionWire | "unavailable" | null
+  >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // The two settings blocks save through the one footer. A block's form is
+  // its edits over what the server last answered (null = no edit), so a save
+  // or Cancel only clears the edits.
+  const [backupEdit, setBackupEdit] = useState<BackupForm | null>(null);
+  const [retentionEdit, setRetentionEdit] = useState<RetentionForm | null>(
+    null,
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Where the backups were before the last save moved the folder. They stay
+  // there, so the panel says where, or the space would vanish from view.
+  const [oldBackupsDir, setOldBackupsDir] = useState<string | null>(null);
 
   const [target, setTarget] = useState<PruneTarget>("transcripts");
   const [olderThanDays, setOlderThanDays] = useState(
@@ -219,6 +237,14 @@ export function StoragePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const showRetention = useCallback((r: LogRetentionWire) => {
+    setRetention(r);
+    // The running line takes the last-run line's place.
+    setStorageLayout({
+      lastRun: r.running || (r.lastRunAt !== null && r.lastRun !== null),
+    });
+  }, []);
+
   useEffect(() => {
     loadUsage();
     // A failed backup probe must not take the whole panel down - pruning does
@@ -228,7 +254,80 @@ export function StoragePane({
     apiFetch<BackupStatusWire>("GET", "/api/backup/status")
       .then((b) => setBackup(b))
       .catch(() => setBackup("unavailable"));
-  }, [loadUsage]);
+    apiFetch<LogRetentionWire>("GET", "/api/storage/retention")
+      .then(showRetention)
+      .catch(() => setRetention("unavailable"));
+  }, [loadUsage, showRetention]);
+
+  const backupLoaded = backup !== null && backup !== "unavailable";
+  const retentionLoaded = retention !== null && retention !== "unavailable";
+  const backupForm = backupLoaded ? (backupEdit ?? backupFormOf(backup)) : null;
+  const retentionForm = retentionLoaded
+    ? (retentionEdit ?? retentionFormOf(retention))
+    : null;
+  const backupBody =
+    backupLoaded && backupForm ? backupRequest(backupForm, backup) : null;
+  const backupDirty = backupBody !== null && Object.keys(backupBody).length > 0;
+  const retentionDirty =
+    retentionLoaded &&
+    retentionForm !== null &&
+    retentionChanged(retentionForm, retention);
+  const dirty = backupDirty || retentionDirty;
+  const canSave =
+    (!backupDirty || backupValid(backupForm!)) &&
+    (!retentionDirty || retentionValid(retentionForm));
+
+  function editBackup(next: BackupForm) {
+    setBackupEdit(next);
+    setSaveError(null);
+  }
+  function editRetention(next: RetentionForm) {
+    setRetentionEdit(next);
+    setSaveError(null);
+  }
+  function cancelEdits() {
+    setBackupEdit(null);
+    setRetentionEdit(null);
+    setSaveError(null);
+  }
+
+  // Each block that changed sends its own request; a block whose request
+  // fails keeps its edits and its error, and the other block's save stands.
+  async function save() {
+    if (!dirty || !canSave) return;
+    setSaving(true);
+    setSaveError(null);
+    const errors: string[] = [];
+    const fail = (e: unknown, fallback: string) =>
+      errors.push(e instanceof ApiError ? e.message : fallback);
+    await Promise.all([
+      backupDirty &&
+        apiFetch<BackupSettingsRes>("PUT", "/api/backup/settings", backupBody)
+          .then(({ oldBackupsDir: left, ...status }) => {
+            if (left) setOldBackupsDir(left);
+            setBackup(status);
+            setBackupEdit(null);
+            setSaved(true);
+          })
+          .catch((e: unknown) =>
+            fail(e, t("settings.storage.backupSaveFailed")),
+          ),
+      retentionDirty &&
+        apiFetch<LogRetentionWire>(
+          "PUT",
+          "/api/storage/retention",
+          retentionRequest(retentionForm),
+        )
+          .then((r) => {
+            showRetention(r);
+            setRetentionEdit(null);
+            setSaved(true);
+          })
+          .catch((e: unknown) => fail(e, t("settings.storage.autoSaveFailed"))),
+    ]);
+    setSaveError(errors.length > 0 ? errors.join(" ") : null);
+    setSaving(false);
+  }
 
   // Any change to what would be deleted invalidates the preview. Without this
   // you could preview a 90-day prune, retype it to 2 days, and press a delete
@@ -330,163 +429,215 @@ export function StoragePane({
   // reasonably believe they had stopped it, while also throwing away the only
   // receipt they will ever get.
   const deleting = phase.kind === "applying";
-  // The request cannot be canceled after apply starts. Route attempts to leave
-  // through the app prompt, while keeping the delete-specific explanation.
-  const leavePrompt = useUnsavedChangesPrompt(deleting, {
-    closeRef,
-    resumeWhenClean: false,
+  // One leave prompt, in the footer, for unsaved edits and for a running
+  // delete. The request cannot be canceled after apply starts, so an exit
+  // asked during a delete gets the delete's text, and is dropped when the
+  // delete ends instead of going through then. Which case an exit is gets
+  // decided when it is asked: by the end of the delete, `deleting` is false.
+  const [askedDuringDelete, setAskedDuringDelete] = useState(false);
+  const promptCloseRef = useRef<((after?: () => void) => void) | null>(null);
+  const leavePrompt = useUnsavedChangesPrompt(dirty || deleting, {
+    closeRef: promptCloseRef,
+    onDiscard: cancelEdits,
+    resumeWhenClean: !askedDuringDelete,
+  });
+  useEffect(() => {
+    if (!closeRef) return;
+    closeRef.current = (after) => {
+      setAskedDuringDelete(deleting);
+      promptCloseRef.current?.(after);
+    };
+    return () => {
+      closeRef.current = null;
+    };
   });
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <h3
-        style={{
-          fontSize: 17,
-          fontWeight: 700,
-          margin: 0,
-          color: "var(--text-primary)",
-        }}
-      >
-        {t("settings.storage.title")}
-      </h3>
-
-      <UsageBlock usage={usage} error={loadError} />
-      <BackupBlock backup={backup} onSaved={setBackup} />
-      <RetentionBlock />
-      <CompressBlock onCompressed={loadUsage} />
-
-      {leavePrompt.open && (
-        <UnsavedChangesPrompt
-          message={t("settings.storage.leaveConfirm")}
-          confirmLabel={t("settings.storage.leave")}
-          onDiscard={leavePrompt.discard}
-          onCancel={leavePrompt.cancel}
+    <SettingsFormLayout
+      footer={
+        <SettingsSaveFooter
+          error={saveError}
+          prompt={{
+            open: leavePrompt.open,
+            discard: leavePrompt.discard,
+            cancel: leavePrompt.cancel,
+            ...(deleting
+              ? {
+                  message: t("settings.storage.leaveConfirm"),
+                  confirmLabel: t("settings.storage.leave"),
+                }
+              : null),
+          }}
+          dirty={dirty}
+          saving={saving}
+          saved={saved}
+          canSave={canSave}
+          onCancel={cancelEdits}
+          onSave={() => void save()}
         />
-      )}
-
-      <SectionLabel>{t("settings.storage.deleteSection")}</SectionLabel>
+      }
+    >
       <div
         style={{
-          border: "1px solid rgba(255,107,107,0.45)",
-          background: "rgba(255,107,107,0.08)",
-          borderRadius: 8,
-          padding: "10px 12px",
-          fontSize: 11,
-          lineHeight: 1.5,
-          color: "var(--text-secondary)",
+          marginTop: 24,
+          // The top inset the Settings section box gave this pane on a phone.
+          paddingTop: isMobile ? `max(16px, ${PHONE_TOP})` : undefined,
         }}
       >
-        <strong style={{ color: "var(--red-text)" }}>
-          {t("settings.storage.deleteWarningLead")}
-        </strong>{" "}
-        {t("settings.storage.deleteWarningBody")}
-      </div>
-
-      <FieldLabel>{t("settings.storage.whatToDelete")}</FieldLabel>
-      <div style={{ display: "flex", gap: 8 }}>
-        {TARGETS.map((choice) => (
-          <button
-            key={choice}
-            onClick={() => editForm(() => setTarget(choice))}
-            disabled={busy}
-            style={{
-              ...dialogCancelBtn,
-              flex: 1,
-              borderColor:
-                target === choice ? "var(--accent)" : "var(--border)",
-              color: busy
-                ? "var(--text-hint)"
-                : target === choice
-                  ? "var(--text-primary)"
-                  : "var(--text-dim)",
-              background: target === choice ? "var(--bg-input)" : "transparent",
-              cursor: "pointer",
-            }}
-          >
-            {categoryLabel(t, choice)}
-          </button>
-        ))}
-      </div>
-
-      <FieldLabel>{t("settings.storage.olderThan")}</FieldLabel>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <input
-          type="number"
-          min={1}
-          value={olderThanDays}
-          disabled={busy}
-          onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
+        <h3
           style={{
-            ...dialogInput,
-            width: 90,
-            ...(busy ? { color: "var(--text-hint)" } : null),
+            fontSize: 17,
+            fontWeight: 700,
+            margin: 0,
+            color: "var(--text-primary)",
           }}
+        >
+          {t("settings.storage.title")}
+        </h3>
+
+        <UsageBlock usage={usage} error={loadError} />
+        <BackupBlock
+          backup={backup}
+          form={backupForm}
+          onEdit={editBackup}
+          saving={saving}
+          oldBackupsDir={oldBackupsDir}
         />
-        <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-          {t("settings.storage.daysHint")}
-        </span>
-      </div>
+        <RetentionBlock
+          retention={retention}
+          form={retentionForm}
+          onEdit={editRetention}
+          saving={saving}
+        />
+        <CompressBlock onCompressed={loadUsage} />
 
-      {target === "transcripts" && (
-        <>
-          <FieldLabel>{t("settings.storage.keepPerAgent")}</FieldLabel>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input
-              type="number"
-              min={0}
-              value={keepPerAgent}
+        <SectionLabel>{t("settings.storage.deleteSection")}</SectionLabel>
+        <div
+          style={{
+            border: "1px solid rgba(255,107,107,0.45)",
+            background: "rgba(255,107,107,0.08)",
+            borderRadius: 8,
+            padding: "10px 12px",
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: "var(--text-secondary)",
+          }}
+        >
+          <strong style={{ color: "var(--red-text)" }}>
+            {t("settings.storage.deleteWarningLead")}
+          </strong>{" "}
+          {t("settings.storage.deleteWarningBody")}
+        </div>
+
+        <FieldLabel>{t("settings.storage.whatToDelete")}</FieldLabel>
+        <div style={{ display: "flex", gap: 8 }}>
+          {TARGETS.map((choice) => (
+            <button
+              key={choice}
+              onClick={() => editForm(() => setTarget(choice))}
               disabled={busy}
-              onChange={(e) => editForm(() => setKeepPerAgent(e.target.value))}
               style={{
-                ...dialogInput,
-                width: 90,
-                ...(busy ? { color: "var(--text-hint)" } : null),
+                ...dialogCancelBtn,
+                flex: 1,
+                borderColor:
+                  target === choice ? "var(--accent)" : "var(--border)",
+                color: busy
+                  ? "var(--text-hint)"
+                  : target === choice
+                    ? "var(--text-primary)"
+                    : "var(--text-dim)",
+                background:
+                  target === choice ? "var(--bg-input)" : "transparent",
+                cursor: "pointer",
               }}
-            />
-            <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-              {t("settings.storage.keepHint")}
-            </span>
-          </div>
-        </>
-      )}
+            >
+              {categoryLabel(t, choice)}
+            </button>
+          ))}
+        </div>
 
-      {/* Stays available after a delete too: the receipt below is replaced by
+        <FieldLabel>{t("settings.storage.olderThan")}</FieldLabel>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="number"
+            min={1}
+            value={olderThanDays}
+            disabled={busy}
+            onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
+            style={{
+              ...dialogInput,
+              width: 90,
+              ...(busy ? { color: "var(--text-hint)" } : null),
+            }}
+          />
+          <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+            {t("settings.storage.daysHint")}
+          </span>
+        </div>
+
+        {target === "transcripts" && (
+          <>
+            <FieldLabel>{t("settings.storage.keepPerAgent")}</FieldLabel>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="number"
+                min={0}
+                value={keepPerAgent}
+                disabled={busy}
+                onChange={(e) =>
+                  editForm(() => setKeepPerAgent(e.target.value))
+                }
+                style={{
+                  ...dialogInput,
+                  width: 90,
+                  ...(busy ? { color: "var(--text-hint)" } : null),
+                }}
+              />
+              <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+                {t("settings.storage.keepHint")}
+              </span>
+            </div>
+          </>
+        )}
+
+        {/* Stays available after a delete too: the receipt below is replaced by
               a fresh preview when one is run, so a second pass never reads as a
               continuation of the finished one. */}
-      <button
-        onClick={() => void runPreview()}
-        disabled={!formValid || busy}
-        style={{
-          ...dialogCancelBtn,
-          marginTop: 14,
-          width: "100%",
-        }}
-      >
-        {phase.kind === "previewing"
-          ? t("common.checking")
-          : t("settings.storage.preview")}
-      </button>
-
-      {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
-
-      {plan && (
-        <PlanBlock
-          plan={plan}
-          queueUnreadable={queueUnreadable}
-          phase={phase}
-          confirmText={confirmText}
-          onConfirmText={setConfirmText}
-          onAskConfirm={() => setPhase({ kind: "confirming", plan })}
-          onCancelConfirm={() => {
-            setPhase({ kind: "previewed", plan });
-            setConfirmText("");
+        <button
+          onClick={() => void runPreview()}
+          disabled={!formValid || busy}
+          style={{
+            ...dialogCancelBtn,
+            marginTop: 14,
+            width: "100%",
           }}
-          onApply={() => void runApply(plan)}
-        />
-      )}
+        >
+          {phase.kind === "previewing"
+            ? t("common.checking")
+            : t("settings.storage.preview")}
+        </button>
 
-      {phase.kind === "done" && <ResultBlock result={phase.result} />}
-    </div>
+        {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
+
+        {plan && (
+          <PlanBlock
+            plan={plan}
+            queueUnreadable={queueUnreadable}
+            phase={phase}
+            confirmText={confirmText}
+            onConfirmText={setConfirmText}
+            onAskConfirm={() => setPhase({ kind: "confirming", plan })}
+            onCancelConfirm={() => {
+              setPhase({ kind: "previewed", plan });
+              setConfirmText("");
+            }}
+            onApply={() => void runApply(plan)}
+          />
+        )}
+
+        {phase.kind === "done" && <ResultBlock result={phase.result} />}
+      </div>
+    </SettingsFormLayout>
   );
 }
 
@@ -636,35 +787,115 @@ function CategoryRow({
   );
 }
 
+// The backup fields and the cleanup ages as typed, and the values the server
+// answered as the same strings, so an edit typed back to the saved value is no
+// edit.
+interface BackupForm {
+  hours: string;
+  copies: string;
+  dir: string;
+}
+
+interface RetentionForm {
+  compressDays: string;
+  deleteOff: boolean;
+  deleteDays: string;
+}
+
+function backupFormOf(backup: BackupStatusWire): BackupForm {
+  return {
+    hours: String(backup.intervalHours),
+    copies: String(backup.retention),
+    dir: backup.destDir,
+  };
+}
+
+function retentionFormOf(r: LogRetentionWire): RetentionForm {
+  return {
+    compressDays: String(r.compressAfterDays),
+    deleteOff: r.deleteAfterDays === null,
+    deleteDays: r.deleteAfterDays === null ? "" : String(r.deleteAfterDays),
+  };
+}
+
+// Only the fields the owner changed are sent, so an untouched folder never
+// turns the default into a fixed path. Empty = nothing changed.
+function backupRequest(
+  form: BackupForm,
+  backup: BackupStatusWire,
+): BackupSettingsReq {
+  const body: BackupSettingsReq = {};
+  if (form.hours !== String(backup.intervalHours))
+    body.intervalHours = Number(form.hours);
+  if (form.copies !== String(backup.retention))
+    body.retention = Number(form.copies);
+  if (!backup.destDirFromEnv && form.dir.trim() !== backup.destDir)
+    body.dir = form.dir.trim() === "" ? null : form.dir.trim();
+  return body;
+}
+
+function wholeIn(
+  text: string,
+  range: { readonly min: number; readonly max: number },
+): boolean {
+  const n = Number(text);
+  return (
+    text.trim() !== "" &&
+    Number.isInteger(n) &&
+    n >= range.min &&
+    n <= range.max
+  );
+}
+
+function backupValid(form: BackupForm): boolean {
+  return (
+    wholeIn(form.hours, BACKUP_INTERVAL_HOURS_RANGE) &&
+    wholeIn(form.copies, BACKUP_RETENTION_RANGE)
+  );
+}
+
+function retentionValid(form: RetentionForm): boolean {
+  return (
+    wholeIn(form.compressDays, LOG_RETENTION_DAYS_RANGE) &&
+    (form.deleteOff || wholeIn(form.deleteDays, LOG_RETENTION_DAYS_RANGE))
+  );
+}
+
+function retentionChanged(form: RetentionForm, r: LogRetentionWire): boolean {
+  const was = retentionFormOf(r);
+  return (
+    form.compressDays !== was.compressDays ||
+    form.deleteOff !== was.deleteOff ||
+    (!form.deleteOff && form.deleteDays !== was.deleteDays)
+  );
+}
+
+// Save sends both ages, the delete age as null while Off is checked.
+function retentionRequest(form: RetentionForm): LogRetentionReq {
+  return {
+    compressAfterDays: Number(form.compressDays),
+    deleteAfterDays: form.deleteOff ? null : Number(form.deleteDays),
+  };
+}
+
+// The backup summary and its three fields: how often, how many copies, which
+// folder. While the status loads, the same shape with nothing to act on (task
+// 3755fad4).
 function BackupBlock({
   backup,
-  onSaved,
+  form,
+  onEdit,
+  saving,
+  oldBackupsDir,
 }: {
   backup: BackupStatusWire | "unavailable" | null;
-  onSaved: (status: BackupStatusWire) => void;
+  form: BackupForm | null;
+  onEdit: (next: BackupForm) => void;
+  saving: boolean;
+  oldBackupsDir: string | null;
 }) {
   const { t, tn, rich, language } = useI18n();
   const age = (ts: number) => ageText(language, t, ts);
-  const [editing, setEditing] = useState(false);
-  // Where the backups were before the last save moved the folder. They stay
-  // there, so the panel says where, or the space would vanish from view.
-  const [oldBackupsDir, setOldBackupsDir] = useState<string | null>(null);
-  // While the status loads: the usual shape (two lines and the button), with
-  // nothing to act on (task 3755fad4).
-  if (backup === null)
-    return (
-      <div aria-busy="true">
-        <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
-        <p style={backupText}>{t("common.loading")}</p>
-        <p style={{ ...backupText, marginTop: 4 }}>{BLANK}</p>
-        <button
-          disabled
-          style={{ ...dialogCancelBtn, marginTop: 14, width: "100%" }}
-        >
-          {t("settings.storage.changeBackupSettings")}
-        </button>
-      </div>
-    );
   if (backup === "unavailable") {
     return (
       <div>
@@ -673,44 +904,65 @@ function BackupBlock({
       </div>
     );
   }
+  const loaded = backup !== null && form !== null;
+  const disabled = !loaded || saving;
+  const fromEnv = loaded && backup.destDirFromEnv;
+  const numberInput = (
+    testId: string,
+    value: string,
+    field: "hours" | "copies",
+    range: { readonly min: number; readonly max: number },
+  ) => (
+    <input
+      data-testid={testId}
+      type="number"
+      min={range.min}
+      max={range.max}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => form && onEdit({ ...form, [field]: e.target.value })}
+      style={{ ...dialogInput, width: 90, ...(disabled ? disabledLook : null) }}
+    />
+  );
   return (
-    <div>
+    <div aria-busy={!loaded || undefined}>
       <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
-      <p style={backupText}>
-        {backup.lastRunAt === null ? (
-          t("settings.storage.noBackupYet")
-        ) : backup.ok ? (
-          t("settings.storage.lastBackupOk", {
-            when: age(backup.lastRunAt),
-          })
-        ) : (
-          <span style={{ color: "var(--red-text)" }}>
-            {backup.error
-              ? t("settings.storage.lastBackupFailedWith", {
-                  when: age(backup.lastRunAt),
-                  error: backup.error,
-                })
-              : t("settings.storage.lastBackupFailed", {
-                  when: age(backup.lastRunAt),
-                })}
-          </span>
-        )}
-      </p>
-      <p style={{ ...backupText, marginTop: 4 }}>
-        {rich("settings.storage.backupKeeping", {
-          retention: backup.retention,
-          destDir: backup.destDir,
-          code: inCode,
-        })}{" "}
-        {tn("settings.storage.backupEvery", backup.intervalHours)}
-      </p>
-      {!editing && (
-        <button
-          onClick={() => setEditing(true)}
-          style={{ ...dialogCancelBtn, marginTop: 14, width: "100%" }}
-        >
-          {t("settings.storage.changeBackupSettings")}
-        </button>
+      {!loaded ? (
+        <>
+          <p style={backupText}>{t("common.loading")}</p>
+          <p style={{ ...backupText, marginTop: 4 }}>{BLANK}</p>
+        </>
+      ) : (
+        <>
+          <p style={backupText}>
+            {backup.lastRunAt === null ? (
+              t("settings.storage.noBackupYet")
+            ) : backup.ok ? (
+              t("settings.storage.lastBackupOk", {
+                when: age(backup.lastRunAt),
+              })
+            ) : (
+              <span style={{ color: "var(--red-text)" }}>
+                {backup.error
+                  ? t("settings.storage.lastBackupFailedWith", {
+                      when: age(backup.lastRunAt),
+                      error: backup.error,
+                    })
+                  : t("settings.storage.lastBackupFailed", {
+                      when: age(backup.lastRunAt),
+                    })}
+              </span>
+            )}
+          </p>
+          <p style={{ ...backupText, marginTop: 4 }}>
+            {rich("settings.storage.backupKeeping", {
+              retention: backup.retention,
+              destDir: backup.destDir,
+              code: inCode,
+            })}{" "}
+            {tn("settings.storage.backupEvery", backup.intervalHours)}
+          </p>
+        </>
       )}
       {oldBackupsDir && (
         <p style={{ ...backupText, marginTop: 6 }}>
@@ -720,172 +972,67 @@ function BackupBlock({
           })}
         </p>
       )}
-      {editing && (
-        <BackupSettingsForm
-          backup={backup}
-          onCancel={() => setEditing(false)}
-          onSaved={(res) => {
-            const { oldBackupsDir: left, ...status } = res;
-            if (left) setOldBackupsDir(left);
-            onSaved(status);
-            setEditing(false);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// How often, how many copies, which folder. Only the fields the owner changed
-// are sent, so an untouched folder never turns the default into a fixed path.
-function BackupSettingsForm({
-  backup,
-  onCancel,
-  onSaved,
-}: {
-  backup: BackupStatusWire;
-  onCancel: () => void;
-  onSaved: (res: BackupSettingsRes) => void;
-}) {
-  const { t } = useI18n();
-  const [hours, setHours] = useState(String(backup.intervalHours));
-  const [copies, setCopies] = useState(String(backup.retention));
-  const [dir, setDir] = useState(backup.destDir);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save() {
-    const body: BackupSettingsReq = {};
-    if (hours !== String(backup.intervalHours))
-      body.intervalHours = Number(hours);
-    if (copies !== String(backup.retention)) body.retention = Number(copies);
-    if (!backup.destDirFromEnv && dir.trim() !== backup.destDir)
-      body.dir = dir.trim() === "" ? null : dir.trim();
-    setSaving(true);
-    setError(null);
-    try {
-      onSaved(
-        await apiFetch<BackupSettingsRes>("PUT", "/api/backup/settings", body),
-      );
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? e.message
-          : t("settings.storage.backupSaveFailed"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const numberInput = (
-    value: string,
-    onChange: (v: string) => void,
-    max: number,
-  ) => (
-    <input
-      type="number"
-      min={1}
-      max={max}
-      value={value}
-      disabled={saving}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ ...dialogInput, width: 90 }}
-    />
-  );
-
-  return (
-    <div>
       <FieldLabel>{t("settings.storage.backupInterval")}</FieldLabel>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {numberInput(hours, setHours, 720)}
+        {numberInput(
+          "backup-interval-hours",
+          form?.hours ?? "",
+          "hours",
+          BACKUP_INTERVAL_HOURS_RANGE,
+        )}
         <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
           {t("settings.storage.backupHours")}
         </span>
       </div>
       <FieldLabel>{t("settings.storage.backupCopies")}</FieldLabel>
-      {numberInput(copies, setCopies, 100)}
+      {numberInput(
+        "backup-copies",
+        form?.copies ?? "",
+        "copies",
+        BACKUP_RETENTION_RANGE,
+      )}
       <FieldLabel>{t("settings.storage.backupFolder")}</FieldLabel>
       <input
-        value={dir}
-        disabled={saving || backup.destDirFromEnv}
-        onChange={(e) => setDir(e.target.value)}
+        data-testid="backup-folder"
+        value={form?.dir ?? ""}
+        disabled={disabled || fromEnv}
+        onChange={(e) => form && onEdit({ ...form, dir: e.target.value })}
         style={{
           ...dialogInput,
           fontFamily: "'JetBrains Mono',monospace",
-          ...(backup.destDirFromEnv ? { color: "var(--text-hint)" } : null),
+          ...(disabled || fromEnv ? disabledLook : null),
         }}
       />
       <p
         style={{ fontSize: 11, color: "var(--text-ghost)", margin: "5px 0 0" }}
       >
-        {backup.destDirFromEnv
-          ? t("settings.storage.backupFolderFromEnv")
-          : t("settings.storage.backupFolderHint")}
+        {!loaded
+          ? BLANK
+          : fromEnv
+            ? t("settings.storage.backupFolderFromEnv")
+            : t("settings.storage.backupFolderHint")}
       </p>
-      {error && <ErrorLine>{error}</ErrorLine>}
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button
-          onClick={() => void save()}
-          disabled={saving}
-          style={dialogSaveBtn}
-        >
-          {saving ? t("common.saving") : t("common.save")}
-        </button>
-        <button onClick={onCancel} disabled={saving} style={dialogCancelBtn}>
-          {t("common.cancel")}
-        </button>
-      </div>
     </div>
   );
 }
 
-// The server's range for both ages (server/storage-retention.ts).
-const RETENTION_DAYS_MAX = 3650;
-
-function validRetentionDays(text: string): boolean {
-  const n = Number(text);
-  return (
-    text.trim() !== "" &&
-    Number.isInteger(n) &&
-    n >= 1 &&
-    n <= RETENTION_DAYS_MAX
-  );
-}
-
-// The daily automatic cleanup: its two ages and its last run. Save sends both
-// ages, the delete age as null while Off is checked.
-function RetentionBlock() {
+// The daily automatic cleanup: its two ages and its last run.
+function RetentionBlock({
+  retention,
+  form,
+  onEdit,
+  saving,
+}: {
+  retention: LogRetentionWire | "unavailable" | null;
+  form: RetentionForm | null;
+  onEdit: (next: RetentionForm) => void;
+  saving: boolean;
+}) {
   const { t, language } = useI18n();
   const size = (bytes: number) => sizeText(language, t, bytes);
-  const [retention, setRetention] = useState<
-    LogRetentionWire | "unavailable" | null
-  >(null);
-  const [compressDays, setCompressDays] = useState("");
-  const [deleteOff, setDeleteOff] = useState(true);
-  const [deleteDays, setDeleteDays] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // Until the settings answer, the form is drawn disabled, with the last-run
   // line this device saw last (task 3755fad4).
   const [held] = useState(getStorageLayout);
-
-  const show = useCallback((r: LogRetentionWire) => {
-    setRetention(r);
-    // The running line takes the last-run line's place.
-    setStorageLayout({
-      lastRun: r.running || (r.lastRunAt !== null && r.lastRun !== null),
-    });
-    setCompressDays(String(r.compressAfterDays));
-    setDeleteOff(r.deleteAfterDays === null);
-    setDeleteDays(r.deleteAfterDays === null ? "" : String(r.deleteAfterDays));
-  }, []);
-
-  useEffect(() => {
-    apiFetch<LogRetentionWire>("GET", "/api/storage/retention")
-      .then(show)
-      .catch(() => setRetention("unavailable"));
-  }, [show]);
 
   if (retention === "unavailable") {
     return (
@@ -895,35 +1042,9 @@ function RetentionBlock() {
       </div>
     );
   }
-  const loading = retention === null;
+  const loading = retention === null || form === null;
   const busy = saving || loading;
-
-  const valid =
-    validRetentionDays(compressDays) &&
-    (deleteOff || validRetentionDays(deleteDays));
-
-  async function save() {
-    if (!valid) return;
-    const body: LogRetentionReq = {
-      compressAfterDays: Number(compressDays),
-      deleteAfterDays: deleteOff ? null : Number(deleteDays),
-    };
-    setSaving(true);
-    setError(null);
-    try {
-      show(
-        await apiFetch<LogRetentionWire>("PUT", "/api/storage/retention", body),
-      );
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? e.message
-          : t("settings.storage.autoSaveFailed"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
+  const deleteOff = form?.deleteOff ?? true;
 
   const daysInput = (
     testId: string,
@@ -934,8 +1055,8 @@ function RetentionBlock() {
     <input
       data-testid={testId}
       type="number"
-      min={1}
-      max={RETENTION_DAYS_MAX}
+      min={LOG_RETENTION_DAYS_RANGE.min}
+      max={LOG_RETENTION_DAYS_RANGE.max}
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
@@ -989,8 +1110,8 @@ function RetentionBlock() {
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {daysInput(
           "retention-compress-days",
-          compressDays,
-          setCompressDays,
+          form?.compressDays ?? "",
+          (v) => form && onEdit({ ...form, compressDays: v }),
           busy,
         )}
         {daysWord}
@@ -999,8 +1120,8 @@ function RetentionBlock() {
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {daysInput(
           "retention-delete-days",
-          deleteDays,
-          setDeleteDays,
+          form?.deleteDays ?? "",
+          (v) => form && onEdit({ ...form, deleteDays: v }),
           busy || deleteOff,
         )}
         {daysWord}
@@ -1018,7 +1139,9 @@ function RetentionBlock() {
             type="checkbox"
             checked={deleteOff}
             disabled={busy}
-            onChange={(e) => setDeleteOff(e.target.checked)}
+            onChange={(e) =>
+              form && onEdit({ ...form, deleteOff: e.target.checked })
+            }
           />
           {t("settings.storage.autoDeleteOff")}
         </label>
@@ -1032,19 +1155,6 @@ function RetentionBlock() {
               count: retention.keepPerAgent,
             })}
       </p>
-      {error && <ErrorLine>{error}</ErrorLine>}
-      <button
-        data-testid="retention-save"
-        onClick={() => void save()}
-        disabled={!valid || busy}
-        style={{
-          ...dialogCancelBtn,
-          marginTop: 14,
-          width: "100%",
-        }}
-      >
-        {saving ? t("common.saving") : t("common.save")}
-      </button>
     </div>
   );
 }

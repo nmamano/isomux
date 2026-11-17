@@ -206,7 +206,15 @@ export function SettingsSaveFooter({
   saveLabel,
 }: {
   error: ReactNode;
-  prompt?: { open: boolean; discard: () => void; cancel: () => void };
+  // `message` and `confirmLabel` replace the prompt's default text and its
+  // Discard label (Storage while a delete runs).
+  prompt?: {
+    open: boolean;
+    discard: () => void;
+    cancel: () => void;
+    message?: ReactNode;
+    confirmLabel?: ReactNode;
+  };
   // The form differs from what is saved.
   dirty: boolean;
   saving: boolean;
@@ -252,6 +260,8 @@ export function SettingsSaveFooter({
           <UnsavedChangesPrompt
             onDiscard={prompt.discard}
             onCancel={prompt.cancel}
+            message={prompt.message}
+            confirmLabel={prompt.confirmLabel}
           />
         </div>
       )}

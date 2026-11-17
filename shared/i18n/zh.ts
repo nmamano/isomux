@@ -916,7 +916,6 @@ export const zh: Catalog = {
   "settings.storage.backupFolder": "文件夹",
   "settings.storage.backupFolderHint": "留空则使用默认文件夹。",
   "settings.storage.backupFolderFromEnv": "文件夹由 ISOMUX_BACKUP_DIR 设定。",
-  "settings.storage.changeBackupSettings": "更改备份设置",
   "settings.storage.backupSaveFailed": "无法保存备份设置。",
   "settings.storage.days": "天",
   "settings.storage.autoSection": "自动清理",
