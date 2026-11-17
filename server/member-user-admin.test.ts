@@ -39,6 +39,7 @@ import {
   type MemberCheckInput,
 } from "./member-hosts.ts";
 import { STATE_ROOT } from "./config.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
 import {
   MEMBER_OS_UID_TIES_FILE,
   memberOsUidTies,
@@ -53,7 +54,12 @@ import {
   type AgentHost,
 } from "./agent-host.ts";
 import { memberSharePath } from "./member-runtime.ts";
-import { createMember, deleteUserById, getUserByName } from "./users.ts";
+import {
+  _testResetUsers,
+  createMember,
+  deleteUserById,
+  getUserByName,
+} from "./users.ts";
 import {
   memberOsUserView,
   memberUserSupport,
@@ -139,10 +145,12 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "member-user-admin-"));
   prepared = [];
   connects = [];
-  rmSync(memberOsUsersPath(), { force: true });
-  // A tie outlives its entry: clear it, or a uid an earlier test recorded
-  // stays tied.
-  rmSync(join(STATE_ROOT, MEMBER_OS_UID_TIES_FILE), { force: true });
+  // An empty office: an earlier file in the same bun process can leave a
+  // member with this file's names, and office files (a provider home) that
+  // make go-on plan a move.
+  removeStateDir(STATE_ROOT);
+  mkdirSync(STATE_ROOT, { recursive: true });
+  _testResetUsers();
   reloadMemberOsUsers();
 });
 

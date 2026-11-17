@@ -9,7 +9,15 @@
 // rules are in server/provider-fallback.test.ts and the file move in
 // server/session-account-move.test.ts.
 
-import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  spyOn,
+} from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "../config.ts";
@@ -25,7 +33,7 @@ import {
   saveLimitResume,
 } from "../persistence.ts";
 import { personalProviderHome } from "../provider-homes.ts";
-import { createMember, getUserByName } from "../users.ts";
+import { createMember, deleteUserById, getUserByName } from "../users.ts";
 import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import {
   createMemberUsageCap,
@@ -89,11 +97,13 @@ const OTHER = {
 
 // The user store outlives the state dir reset in a multi-file run, so an
 // earlier file may have made Alice already.
+let madeAlice: string | null = null;
 function aliceId(): string {
   const known = getUserByName("Alice");
   if (known) return known.id;
   const created = createMember("Alice", { role: "member" });
   if (!created.ok) throw new Error(created.error);
+  madeAlice = created.user.id;
   return created.user.id;
 }
 
@@ -120,6 +130,15 @@ afterEach(() => {
   setMemberUsageCapForTests(null);
   removeManagedUserEnv(aliceId());
   clearTestManagedOfficeEnv();
+});
+
+// Later files in the same bun process: no Alice of ours and none of her
+// files (a member with office files makes go-on plan a move).
+afterAll(() => {
+  if (madeAlice) deleteUserById(madeAlice);
+  madeAlice = null;
+  removeStateDir(STATE_ROOT);
+  mkdirSync(STATE_ROOT, { recursive: true });
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
