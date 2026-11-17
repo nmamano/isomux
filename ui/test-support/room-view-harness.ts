@@ -12,6 +12,7 @@ import { LanguageProvider } from "../i18n.tsx";
 import { selfUserRecord, stateWithSelfUser } from "./language-fixture.tsx";
 import { setApiShim } from "../api.ts";
 import type { RoomWire, UserRecord } from "../../shared/types.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 type Action = Parameters<typeof reducer>[1];
 
@@ -185,9 +186,12 @@ const saveButton = (view: View): HTMLButtonElement | undefined => {
   const buttons = view.container.querySelectorAll("button");
   return buttons[buttons.length - 1];
 };
-// The save has run to its end: Save is disabled while one is in flight, and
-// a hide that landed takes the whole pane, Save included.
-export const saveIdle = (view: View) => !saveButton(view)?.disabled;
+// The save has run to its end: Save reads Saving while one is in flight (it
+// is also off on a clean form, so its disabled state does not tell), and a
+// hide that landed takes the whole pane, Save included.
+const SAVING = translatorFor("en").t("common.saving");
+export const saveIdle = (view: View) =>
+  saveButton(view)?.textContent !== SAVING;
 // Click Save and leave it running, for a test that holds a response.
 export async function startSave(view: View) {
   await act(async () => fireEvent.click(saveButton(view)!));

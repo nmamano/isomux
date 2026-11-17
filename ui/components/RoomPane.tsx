@@ -596,27 +596,20 @@ export function RoomPane({
       <SettingsSaveFooter
         error={error}
         prompt={discardPrompt}
-        cancel={{
-          onClick: () => {
-            setName(baselineName);
-            setPrompt(baselinePrompt);
-            setCwd(baselineCwd);
-            setLook(baselineLook);
-            setView(viewBase);
-            mem.reset();
-            setError(null);
-          },
-          disabled: saving || !dirty,
+        dirty={dirty}
+        saving={saving}
+        saved={savedAt !== null}
+        canSave={!!name.trim() && settingsVersion != null}
+        onCancel={() => {
+          setName(baselineName);
+          setPrompt(baselinePrompt);
+          setCwd(baselineCwd);
+          setLook(baselineLook);
+          setView(viewBase);
+          mem.reset();
+          setError(null);
         }}
-        save={{
-          onClick: handleSave,
-          disabled: saving || !name.trim() || settingsVersion == null,
-          label: saving
-            ? t("common.saving")
-            : savedAt && !dirty
-              ? t("common.saved")
-              : t("common.save"),
-        }}
+        onSave={handleSave}
       />
     ),
     prompt: discardPrompt,

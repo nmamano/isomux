@@ -361,11 +361,14 @@ type EditAgentDialogProps = {
 );
 
 // The Agent settings page's state that outlives the form: the open section,
-// and a revert, which mounts the form again from the saved agent.
+// a revert, which mounts the form again from the saved agent, and whether a
+// save succeeded since the page opened (a revert keeps it).
 type PageState = {
   section: AgentSettingsSection | null;
   onSection: (section: AgentSettingsSection | null) => void;
   onRevert: () => void;
+  saved: boolean;
+  onSaved: () => void;
 };
 
 // The section a page opens on when Settings names none (Nil, 2026-11-16).
@@ -390,6 +393,7 @@ function AgentSettingsEditor(
     DEFAULT_AGENT_SECTION,
   );
   const [formKey, setFormKey] = useState(0);
+  const [saved, setSaved] = useState(false);
   return (
     <AgentForm
       key={formKey}
@@ -398,6 +402,8 @@ function AgentSettingsEditor(
         section,
         onSection: props.onPart,
         onRevert: () => setFormKey((key) => key + 1),
+        saved,
+        onSaved: () => setSaved(true),
       }}
     />
   );
@@ -843,10 +849,6 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
     onLeave: onClose,
     ...(props.closeRef ? { closeRef: props.closeRef } : {}),
   });
-  // When the last save went through, while nothing changed since: Save says
-  // Saved.
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-
   // "Discard unsaved changes?" confirmation, same inline-strip convention as
   // the user settings page. `after` runs once the close is committed, so a
   // dismissal that also does something (Move to Room) can chain onto it.
@@ -1414,7 +1416,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             return;
           }
           baselineRef.current = savedSnapshot;
-          setSavedAt(Date.now());
+          page?.onSaved();
         })
         .catch(showError)
         .finally(() => setSaving(false));
@@ -2494,18 +2496,14 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             )
           }
           prompt={leavePrompt}
+          dirty={dirty}
+          saving={saving}
+          saved={page.saved}
+          canSave={openCodeModelReady && !engineChoiceBlocked}
           // Cancel throws the edits away and stays, as on the room pane;
           // the header's close leaves.
-          cancel={{ onClick: page.onRevert, disabled: saving || !dirty }}
-          save={{
-            onClick: handleSave,
-            disabled: saving || !openCodeModelReady || engineChoiceBlocked,
-            label: saving
-              ? t("common.saving")
-              : savedAt !== null && !dirty
-                ? t("common.saved")
-                : t("common.save"),
-          }}
+          onCancel={page.onRevert}
+          onSave={handleSave}
         />
       ),
       prompt: leavePrompt,

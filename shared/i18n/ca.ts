@@ -495,7 +495,6 @@ Coses que pots fer per ell:
   "preferences.showAgentMessages": "Mostra els missatges entre agents",
   "preferences.showAgentMessagesHint":
     'Missatges que els agents s\'envien entre ells. Si està desactivat, cada sèrie es mostra com una línia, per exemple "2 missatges entre agents", que pots obrir.',
-  "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
   "recording.intro":
@@ -1145,8 +1144,6 @@ Coses que pots fer per ell:
   "settings.externalAccess.publicUrl": "URL pública",
   "settings.externalAccess.urlHint":
     "Patró: {pattern} (l'adreça que obriràs des del portàtil o el mòbil). Desar no canvia per si sol la interfície on escolta el servidor - reinicia Isomux per aplicar-ho.",
-  "settings.externalAccess.discardPrompt":
-    "Vols descartar els canvis d'accés extern sense desar?",
   "settings.externalAccess.updateFailed":
     "No s'ha pogut actualitzar la configuració",
   "settings.externalAccess.restartNote":

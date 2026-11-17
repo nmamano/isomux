@@ -501,7 +501,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preferences.showAgentMessages": "Show agent messages",
   "preferences.showAgentMessagesHint":
     'Messages that agents send to each other. When off, each run of them shows as one line, such as "2 agent messages", that you can open.',
-  "preferences.saved": "Saved.",
   "preferences.saveFailed": "Could not save",
 
   "recording.intro":
@@ -1127,8 +1126,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.externalAccess.publicUrl": "Public URL",
   "settings.externalAccess.urlHint":
     "Pattern: {pattern} (the address you'll open from your laptop / phone). Saving doesn't change the running server's bind on its own - restart Isomux to apply.",
-  "settings.externalAccess.discardPrompt":
-    "Discard unsaved external-access changes?",
   "settings.externalAccess.updateFailed": "Failed to update settings",
   "settings.externalAccess.restartNote":
     "Saved. Restart Isomux for the new bind to take effect. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",

@@ -26,13 +26,18 @@ import {
 import {
   dialogHint,
   dialogInput,
-  dialogSaveBtn,
   disabledLook,
   filledSecondaryBtn,
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
 
-export function RecordingPane() {
+export function RecordingPane({
+  closeRef,
+}: {
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+}) {
   const { t } = useI18n();
   const on = useRecording();
   const options = useRecordingOptions();
@@ -53,13 +58,16 @@ export function RecordingPane() {
   // An empty row the member is still filling in is not a problem yet.
   const filled = rows.filter((r) => r.word.trim() || r.standIn.trim());
   const problem = recordingWordsProblem(filled);
-  const canSave = dirty && problem === null && !saving;
 
   const edit = (next: RecordingWord[]) => {
     setEdited(next);
-    setSaved(false);
     setError(null);
   };
+
+  const discardPrompt = useUnsavedChangesPrompt(dirty, {
+    closeRef,
+    onDiscard: () => setEdited(null),
+  });
 
   function save() {
     setSaving(true);
@@ -83,147 +91,139 @@ export function RecordingPane() {
   }
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("settings.sidebar.recording")}</h4>
-      <p style={{ ...hint, marginTop: 4 }}>{t("recording.intro")}</p>
+    <SettingsFormLayout
+      footer={
+        <SettingsSaveFooter
+          // A problem is shown only for a list the member edited.
+          error={problem !== null && dirty ? problemText(t, problem) : error}
+          prompt={discardPrompt}
+          dirty={dirty}
+          saving={saving}
+          saved={saved}
+          canSave={problem === null}
+          onCancel={() => {
+            setEdited(null);
+            setError(null);
+          }}
+          onSave={save}
+        />
+      }
+    >
+      <div style={{ marginTop: 24 }}>
+        <h4 style={sectionHeader}>{t("settings.sidebar.recording")}</h4>
+        <p style={{ ...hint, marginTop: 4 }}>{t("recording.intro")}</p>
 
-      <div style={cardStyle}>
-        <label style={checkLabel}>
-          <input
-            type="checkbox"
-            checked={on}
-            onChange={(e) => setRecording(e.target.checked)}
-          />
-          {t("recording.switch")}
-        </label>
-        <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-          {t("recording.switchHint")}
-        </p>
-        {(
-          [
-            ["members", "recording.hideMembers", "recording.hideMembersHint"],
-            ["paths", "recording.hidePaths", "recording.hidePathsHint"],
-          ] as const
-        ).map(([key, label, optionHint]) => (
-          <div key={key} style={{ marginTop: 12 }}>
-            <label style={checkLabel}>
-              <input
-                type="checkbox"
-                checked={options[key]}
-                onChange={(e) =>
-                  setRecordingOptions({ [key]: e.target.checked })
-                }
-              />
-              {t(label)}
-            </label>
-            <p style={{ ...dialogHint, margin: "6px 0 0" }}>{t(optionHint)}</p>
-          </div>
-        ))}
-      </div>
-
-      <h4 style={{ ...sectionHeader, marginTop: 20 }}>
-        {t("recording.words")}
-      </h4>
-      <p style={{ ...hint, marginTop: 4 }}>{t("recording.wordsHint")}</p>
-      <div style={cardStyle}>
-        {/* Until the member's record arrives, the rows show the default
-            list, dimmed and disabled, so the pane keeps its layout. */}
-        <div style={loading ? disabledLook : undefined}>
-          {rows.map((row, i) => (
-            <div
-              key={i}
-              data-recording-word-row
-              style={{
-                display: "flex",
-                gap: 6,
-                alignItems: "center",
-                marginBottom: 6,
-                flexWrap: "wrap",
-              }}
-            >
-              <input
-                aria-label={t("recording.word")}
-                placeholder={t("recording.word")}
-                value={row.word}
-                disabled={loading}
-                maxLength={MAX_RECORDING_WORD_CHARS}
-                onChange={(e) =>
-                  edit(
-                    rows.map((r, k) =>
-                      k === i ? { ...r, word: e.target.value } : r,
-                    ),
-                  )
-                }
-                style={{ ...dialogInput, flex: "1 1 140px", minWidth: 0 }}
-              />
-              <span aria-hidden style={{ color: "var(--text-muted)" }}>
-                →
-              </span>
-              <input
-                aria-label={t("recording.standIn")}
-                placeholder={t("recording.standIn")}
-                value={row.standIn}
-                disabled={loading}
-                maxLength={MAX_RECORDING_WORD_CHARS}
-                onChange={(e) =>
-                  edit(
-                    rows.map((r, k) =>
-                      k === i ? { ...r, standIn: e.target.value } : r,
-                    ),
-                  )
-                }
-                style={{ ...dialogInput, flex: "1 1 140px", minWidth: 0 }}
-              />
-              <button
-                disabled={loading}
-                onClick={() => edit(rows.filter((_, k) => k !== i))}
-                style={filledSecondaryBtn}
-              >
-                {t("recording.remove")}
-              </button>
+        <div style={cardStyle}>
+          <label style={checkLabel}>
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={(e) => setRecording(e.target.checked)}
+            />
+            {t("recording.switch")}
+          </label>
+          <p style={{ ...dialogHint, margin: "6px 0 0" }}>
+            {t("recording.switchHint")}
+          </p>
+          {(
+            [
+              ["members", "recording.hideMembers", "recording.hideMembersHint"],
+              ["paths", "recording.hidePaths", "recording.hidePathsHint"],
+            ] as const
+          ).map(([key, label, optionHint]) => (
+            <div key={key} style={{ marginTop: 12 }}>
+              <label style={checkLabel}>
+                <input
+                  type="checkbox"
+                  checked={options[key]}
+                  onChange={(e) =>
+                    setRecordingOptions({ [key]: e.target.checked })
+                  }
+                />
+                {t(label)}
+              </label>
+              <p style={{ ...dialogHint, margin: "6px 0 0" }}>
+                {t(optionHint)}
+              </p>
             </div>
           ))}
-          <button
-            onClick={() => edit([...rows, { word: "", standIn: "" }])}
-            disabled={loading || rows.length >= MAX_RECORDING_WORDS}
-            style={{
-              ...filledSecondaryBtn,
-            }}
-          >
-            {t("recording.add")}
-          </button>
+        </div>
+
+        <h4 style={{ ...sectionHeader, marginTop: 20 }}>
+          {t("recording.words")}
+        </h4>
+        <p style={{ ...hint, marginTop: 4 }}>{t("recording.wordsHint")}</p>
+        <div style={cardStyle}>
+          {/* Until the member's record arrives, the rows show the default
+            list, dimmed and disabled, so the pane keeps its layout. */}
+          <div style={loading ? disabledLook : undefined}>
+            {rows.map((row, i) => (
+              <div
+                key={i}
+                data-recording-word-row
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "center",
+                  marginBottom: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                <input
+                  aria-label={t("recording.word")}
+                  placeholder={t("recording.word")}
+                  value={row.word}
+                  disabled={loading}
+                  maxLength={MAX_RECORDING_WORD_CHARS}
+                  onChange={(e) =>
+                    edit(
+                      rows.map((r, k) =>
+                        k === i ? { ...r, word: e.target.value } : r,
+                      ),
+                    )
+                  }
+                  style={{ ...dialogInput, flex: "1 1 140px", minWidth: 0 }}
+                />
+                <span aria-hidden style={{ color: "var(--text-muted)" }}>
+                  →
+                </span>
+                <input
+                  aria-label={t("recording.standIn")}
+                  placeholder={t("recording.standIn")}
+                  value={row.standIn}
+                  disabled={loading}
+                  maxLength={MAX_RECORDING_WORD_CHARS}
+                  onChange={(e) =>
+                    edit(
+                      rows.map((r, k) =>
+                        k === i ? { ...r, standIn: e.target.value } : r,
+                      ),
+                    )
+                  }
+                  style={{ ...dialogInput, flex: "1 1 140px", minWidth: 0 }}
+                />
+                <button
+                  disabled={loading}
+                  onClick={() => edit(rows.filter((_, k) => k !== i))}
+                  style={filledSecondaryBtn}
+                >
+                  {t("recording.remove")}
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => edit([...rows, { word: "", standIn: "" }])}
+              disabled={loading || rows.length >= MAX_RECORDING_WORDS}
+              style={{
+                ...filledSecondaryBtn,
+              }}
+            >
+              {t("recording.add")}
+            </button>
+          </div>
         </div>
       </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          marginTop: 14,
-          flexWrap: "wrap",
-        }}
-      >
-        <button onClick={save} disabled={!canSave} style={dialogSaveBtn}>
-          {saving ? t("common.saving") : t("common.save")}
-        </button>
-        {problem !== null && dirty && (
-          <span role="alert" style={{ fontSize: 11, color: "var(--red-text)" }}>
-            {problemText(t, problem)}
-          </span>
-        )}
-        {saved && !dirty && (
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            {t("preferences.saved")}
-          </span>
-        )}
-        {error && (
-          <span style={{ fontSize: 11, color: "var(--red-text)" }}>
-            {error}
-          </span>
-        )}
-      </div>
-    </div>
+    </SettingsFormLayout>
   );
 }
 

@@ -13,17 +13,13 @@
 // brittle, and the toggle is rare enough that "save then restart" is the
 // right trade.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
 import { useI18n } from "../i18n.tsx";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
-import {
-  dialogInput,
-  dialogSaveBtn,
-  secondaryBorder,
-  secondaryFill,
-} from "./dialog-styles.ts";
+import { dialogInput } from "./dialog-styles.ts";
+import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
 import {
   MintedUrlBox,
   sectionHeader,
@@ -49,12 +45,26 @@ export function ExternalAccessPane({
   // UserSettingsView's UserEditPanel.
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
+  return <ExternalAccessSection closeRef={closeRef} />;
+}
+
+// The section's heading over its card, laid out with its footer (none on
+// Hosted, where the access is managed).
+function AccessLayout({
+  footer,
+  children,
+}: {
+  footer: React.ReactNode;
+  children: React.ReactNode;
+}) {
   const { t } = useI18n();
   return (
-    <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("settings.sidebar.access")}</h4>
-      <ExternalAccessSection closeRef={closeRef} />
-    </div>
+    <SettingsFormLayout footer={footer}>
+      <div style={{ marginTop: 24 }}>
+        <h4 style={sectionHeader}>{t("settings.sidebar.access")}</h4>
+        {children}
+      </div>
+    </SettingsFormLayout>
   );
 }
 
@@ -156,15 +166,6 @@ function ExternalAccessSection({
       setUrlInput(savedSnapshot.urlInput);
     },
   });
-  // The prompt sits mid-pane (no sticky footer here) - scroll it into view
-  // when it opens, so a header-back/ESC while scrolled elsewhere doesn't
-  // look like a dead click.
-  const discardPromptRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (discardPrompt.open)
-      discardPromptRef.current?.scrollIntoView({ block: "nearest" });
-  }, [discardPrompt.open]);
-
   // Tab-close guard while dirty: in-app navigation already routes through
   // the discard prompt, but closing/reloading the tab was the one silent
   // loss path. No deps - the
@@ -180,13 +181,19 @@ function ExternalAccessSection({
 
   if (loaded ? hosted : held.hosted) {
     return (
-      <div style={cardStyle} aria-busy={!loaded}>
-        <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
-        <p>
-          {loaded ? urlInput : <span style={hint}>{t("common.loading")}</span>}
-        </p>
-        <p style={hint}>{t("settings.externalAccess.managed")}</p>
-      </div>
+      <AccessLayout footer={null}>
+        <div style={cardStyle} aria-busy={!loaded}>
+          <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
+          <p>
+            {loaded ? (
+              urlInput
+            ) : (
+              <span style={hint}>{t("common.loading")}</span>
+            )}
+          </p>
+          <p style={hint}>{t("settings.externalAccess.managed")}</p>
+        </div>
+      </AccessLayout>
     );
   }
 
@@ -202,132 +209,79 @@ function ExternalAccessSection({
     </p>
   );
   return (
-    <div style={cardStyle} aria-busy={!loaded}>
-      <p style={hint}>{t("settings.externalAccess.intro")}</p>
-      <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
-        {t("settings.externalAccess.title")}
-      </h5>
-      {reachLine}
-      <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
-        <input
-          type="checkbox"
-          // Unknown until the settings arrive: never a real "off".
-          ref={(box) => {
-            if (box) box.indeterminate = !loaded;
+    <AccessLayout
+      footer={
+        <SettingsSaveFooter
+          error={error}
+          prompt={discardPrompt}
+          dirty={loaded && dirty}
+          saving={pending}
+          saved={savedHere}
+          canSave={loaded}
+          onCancel={() => {
+            setEnabled(savedSnapshot.enabled);
+            setUrlInput(savedSnapshot.urlInput);
+            setError(null);
           }}
-          disabled={!loaded}
-          checked={enabled}
-          onChange={(e) => setEnabled(e.target.checked)}
+          onSave={submit}
         />
-        <span>{t("settings.externalAccess.enable")}</span>
-      </label>
-      {showUrl && (
-        <>
-          <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
+      }
+    >
+      <div style={cardStyle} aria-busy={!loaded}>
+        <p style={hint}>{t("settings.externalAccess.intro")}</p>
+        <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
+          {t("settings.externalAccess.title")}
+        </h5>
+        {reachLine}
+        <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
           <input
-            value={urlInput}
+            type="checkbox"
+            // Unknown until the settings arrive: never a real "off".
+            ref={(box) => {
+              if (box) box.indeterminate = !loaded;
+            }}
             disabled={!loaded}
-            onChange={(e) => setUrlInput(e.target.value)}
-            placeholder={loaded ? "https://office.example.com" : undefined}
-            style={dialogInput}
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
           />
-          <p style={hint}>
-            {t("settings.externalAccess.urlHint", { pattern: ORIGIN_PATTERN })}
-          </p>
-        </>
-      )}
-      {error && (
-        <p
-          style={{ fontSize: 11, color: "var(--red-text)", margin: "6px 0 0" }}
-        >
-          {error}
-        </p>
-      )}
-      {discardPrompt.open && (
-        <div
-          ref={discardPromptRef}
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            marginTop: 10,
-            padding: "8px 10px",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            background: "var(--bg-base)",
-          }}
-        >
-          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
-            {t("settings.externalAccess.discardPrompt")}
-          </span>
-          <button
-            onClick={discardPrompt.discard}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: "1px solid var(--red)",
-              background: "var(--red-text)",
-              color: "var(--bg-base)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {t("common.discard")}
-          </button>
-          <button
-            onClick={discardPrompt.cancel}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: secondaryBorder,
-              background: secondaryFill,
-              color: "var(--text-primary)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {t("common.cancel")}
-          </button>
-        </div>
-      )}
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}
-      >
-        <button
-          onClick={submit}
-          disabled={!loaded || pending || !dirty}
-          style={{
-            ...dialogSaveBtn,
-          }}
-        >
-          {pending
-            ? t("common.saving")
-            : savedHere && !dirty
-              ? t("common.saved")
-              : t("common.save")}
-        </button>
-        {!loaded && <span style={hint}>{t("common.loading")}</span>}
+          <span>{t("settings.externalAccess.enable")}</span>
+        </label>
+        {showUrl && (
+          <>
+            <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
+            <input
+              value={urlInput}
+              disabled={!loaded}
+              onChange={(e) => setUrlInput(e.target.value)}
+              placeholder={loaded ? "https://office.example.com" : undefined}
+              style={dialogInput}
+            />
+            <p style={hint}>
+              {t("settings.externalAccess.urlHint", {
+                pattern: ORIGIN_PATTERN,
+              })}
+            </p>
+          </>
+        )}
+        {restartRequired && (
+          <div style={restartBoxStyle}>
+            <p style={{ ...hint, marginTop: 0 }}>
+              {rich("settings.externalAccess.restartNote", {
+                code: (chunk) => <code>{chunk}</code>,
+              })}
+            </p>
+            {signInUrl && (
+              <>
+                <p style={{ ...hint, marginTop: 10 }}>
+                  {t("settings.externalAccess.signInAfterRestart")}
+                </p>
+                <MintedUrlBox url={signInUrl} forSelf />
+              </>
+            )}
+          </div>
+        )}
       </div>
-      {restartRequired && (
-        <div style={restartBoxStyle}>
-          <p style={{ ...hint, marginTop: 0 }}>
-            {rich("settings.externalAccess.restartNote", {
-              code: (chunk) => <code>{chunk}</code>,
-            })}
-          </p>
-          {signInUrl && (
-            <>
-              <p style={{ ...hint, marginTop: 10 }}>
-                {t("settings.externalAccess.signInAfterRestart")}
-              </p>
-              <MintedUrlBox url={signInUrl} forSelf />
-            </>
-          )}
-        </div>
-      )}
-    </div>
+    </AccessLayout>
   );
 }
 

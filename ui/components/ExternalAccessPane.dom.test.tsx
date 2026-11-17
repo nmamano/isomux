@@ -98,10 +98,10 @@ it("shows the form it last loaded on this device while the settings load, with n
   expect(box.indeterminate).toBe(true);
   expect(box.disabled).toBe(true);
   expect((view.getByRole("textbox") as HTMLInputElement).disabled).toBe(true);
+  // Save shows in the footer, off, while the settings load.
   expect(
-    view.container.querySelector<HTMLButtonElement>(
-      '[aria-busy="true"] button',
-    )!.disabled,
+    view.container.querySelector<HTMLButtonElement>("[data-settings-save]")!
+      .disabled,
   ).toBe(true);
   await act(async () => resolve(answers));
   box = view.getByRole("checkbox") as HTMLInputElement;
@@ -139,8 +139,9 @@ for (const order of ["save first", "leave first"] as const) {
     const closeRef: {
       current: ((after?: () => void) => void) | null;
     } = { current: null };
+    // The footer's discard prompt (the one every Settings part uses).
     const prompt = (view: ReturnType<typeof render>) =>
-      view.queryByText(t("settings.externalAccess.discardPrompt")) !== null;
+      view.queryByRole("button", { name: t("common.discard") }) !== null;
 
     for (const outcome of ["saved", "failed"] as const) {
       const left: string[] = [];
@@ -224,58 +225,33 @@ it("on a loopback address, a device that never loaded the pane holds the form wi
   view.unmount();
 });
 
-// One look per kind of control (AGENTS.md "UI rules"), as in the Office pane:
-// the button says it saved only right after this pane's own save. A clean
-// form that just loaded offers Save, disabled, the label it held while it
-// loaded.
-it("labels the button Saved only after its own save, and Save, disabled, on a clean load", async () => {
-  setApiShim(async (method) => {
-    if (method === "GET")
-      return {
-        hosted: false,
-        externalAccess: true,
-        publicOrigin: "https://office.example",
-        boundLoopback: false,
-      };
-    return { signInUrl: null, restartRequired: false };
-  });
+// While the settings load, Save shows the label it has after the load, off,
+// so the footer does not change its words when they arrive. The rest of the
+// footer's cycle is in ui/settings-save-footer.office.dom.test.tsx.
+it("holds Save, off, with its loaded label while the settings load", async () => {
+  let resolve!: (value: unknown) => void;
+  setApiShim(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
   const view = render(onLanguage(null, <ExternalAccessPane />));
-  // The pane's only button, with no prompt or restart box open.
-  const button = () => {
-    const buttons = view.getAllByRole("button") as HTMLButtonElement[];
-    expect(buttons.length).toBe(1);
-    return buttons[0]!;
-  };
-  const heldLabel = button().textContent;
-  await act(async () => {});
+  const save = () =>
+    view.container.querySelector<HTMLButtonElement>("[data-settings-save]")!;
+  const held = { label: save().textContent, disabled: save().disabled };
+  await act(async () =>
+    resolve({
+      hosted: false,
+      externalAccess: true,
+      publicOrigin: "https://office.example",
+      boundLoopback: false,
+    }),
+  );
   expect(view.queryByRole("textbox")).not.toBeNull();
-  expect({ label: button().textContent, disabled: button().disabled }).toEqual({
-    label: heldLabel,
-    disabled: true,
-  });
-  expect(heldLabel).toBe(t("common.save"));
-
-  await act(async () => {
-    fireEvent.change(view.getByRole("textbox"), {
-      target: { value: "https://new.example" },
-    });
-  });
-  expect(button().disabled).toBe(false);
-  await act(async () => {
-    fireEvent.click(button());
-  });
-  await act(async () => {});
-  expect({ label: button().textContent, disabled: button().disabled }).toEqual({
-    label: t("common.saved"),
-    disabled: true,
-  });
-
-  // An edit after the save offers Save again.
-  await act(async () => {
-    fireEvent.change(view.getByRole("textbox"), {
-      target: { value: "https://other.example" },
-    });
-  });
-  expect(button().textContent).toBe(t("common.save"));
+  expect({ label: save().textContent, disabled: save().disabled }).toEqual(
+    held,
+  );
+  expect(held).toEqual({ label: t("common.save"), disabled: true });
   view.unmount();
 });

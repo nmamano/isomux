@@ -63,6 +63,14 @@ describe("room settings memory scopes", () => {
         ),
       );
       expect(general + ownFields()).toBe(type === "office" ? 4 : 2);
+      // Save is off until an edit (task f0d50877): change the instructions.
+      await act(async () =>
+        fireEvent.change(
+          // The room's instructions come first; the memory follows.
+          view.container.querySelector("textarea")!,
+          { target: { value: "Be brief." } },
+        ),
+      );
       await act(async () =>
         fireEvent.click(view.getByRole("button", { name: "Save" })),
       );

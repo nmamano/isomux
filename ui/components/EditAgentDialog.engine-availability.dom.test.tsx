@@ -224,8 +224,16 @@ describe("Agent settings page", () => {
           "default",
           "bypassPermissions",
         ]);
-        if (unavailable === NO_OPENCODE)
+        // An engine the office cannot run does not block saving an edit
+        // (Save is off until one, task f0d50877).
+        if (unavailable === NO_OPENCODE) {
+          expect(modes.value).toBe("bypassPermissions");
+          await act(async () => {
+            fireEvent.change(modes, { target: { value: "default" } });
+          });
+          expect(modes.value).toBe("default");
           expect(saveButton(view.container).disabled).toBe(false);
+        }
       } finally {
         view.unmount();
       }

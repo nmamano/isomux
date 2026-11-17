@@ -27,7 +27,7 @@ const LANGUAGE = translationsFor("preferences.language");
 const INTRO = translationsFor("preferences.intro");
 const LANGUAGE_HINT = translationsFor("preferences.languageHint");
 const SAVING = translationsFor("common.saving");
-const SAVED = translationsFor("preferences.saved");
+const SAVED = translationsFor("common.saved");
 const SAVE_FAILED = translationsFor("preferences.saveFailed");
 const pane = (language: "ca" | "es" | null) =>
   onLanguage(language, createElement(PreferencesPane));
@@ -94,8 +94,9 @@ describe("the preferences pane", () => {
 
     await act(async () => finishSave());
     await settle();
+    // The footer's Save now reads Saved.
     expect(view.queryByText(SAVED.ca)).not.toBeNull();
-    expect(view.queryByText(SAVE.ca)).not.toBeNull();
+    expect(view.queryByText(SAVE.ca)).toBeNull();
   });
 
   it("reports a failed save in Catalan", async () => {

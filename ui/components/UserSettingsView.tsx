@@ -139,6 +139,7 @@ import {
 } from "./EditAgentDialog.tsx";
 import {
   SettingsItemPage,
+  settingsSectionBox,
   SettingsPartBody,
   SettingsSaveFooter,
   type SettingsItemEscape,
@@ -1242,30 +1243,42 @@ export function UserSettingsView({
     );
   }
 
+  // A section that saves lays itself out (SettingsFormLayout): its fields in
+  // the section's padded column and its footer across the pane. Owner-only
+  // sections render null for members (unreachable via the sidebar, which only
+  // offers "devices" to them). A pane that holds unsaved form state registers
+  // into detailCloseRef, so navigating away routes through its own discard
+  // prompt.
+  const formPane =
+    selection?.kind !== "section" ? null : selection.section === "access" &&
+      isOwner ? (
+      <ExternalAccessPane closeRef={detailCloseRef} />
+    ) : selection.section === "prefs" && sessionContext ? (
+      <PreferencesPane closeRef={detailCloseRef} />
+    ) : selection.section === "office" ? (
+      <OfficePane closeRef={detailCloseRef} />
+    ) : selection.section === "deviceLabel" ? (
+      <DevicePane closeRef={detailCloseRef} />
+    ) : selection.section === "recording" ? (
+      <RecordingPane closeRef={detailCloseRef} />
+    ) : null;
+
   const sectionDetail = (
     <>
-      {selection?.kind === "section" ? (
+      {formPane ? (
+        formPane
+      ) : selection?.kind === "section" ? (
         <div
           style={{
-            padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+            ...settingsSectionBox(isMobile),
             paddingTop:
               isMobile &&
               (selection.section === "storage" || selection.section === "usage")
                 ? `max(16px, ${PHONE_TOP})`
                 : undefined,
-            maxWidth: 720,
-            width: "100%",
-            boxSizing: "border-box",
           }}
         >
-          {/* Owner-only sections render null for members (unreachable
-                    via the sidebar, which only offers "devices" to them). The
-                    External access card holds unsaved form state; it registers
-                    into detailCloseRef so navigating away routes through its
-                    own discard prompt. */}
-          {selection.section === "access" && isOwner ? (
-            <ExternalAccessPane closeRef={detailCloseRef} />
-          ) : selection.section === "invites" && isOwner ? (
+          {selection.section === "invites" && isOwner ? (
             <InvitesPane />
           ) : selection.section === "sessions" && isOwner ? (
             <SessionsPane />
@@ -1273,10 +1286,6 @@ export function UserSettingsView({
             <MyDevicesPane />
           ) : selection.section === "newDevice" && sessionContext ? (
             <NewDevicePane />
-          ) : selection.section === "prefs" && sessionContext ? (
-            <PreferencesPane />
-          ) : selection.section === "office" ? (
-            <OfficePane closeRef={detailCloseRef} />
           ) : selection.section === "enterprise" && isOwner ? (
             <EnterprisePane />
           ) : selection.section === "usage" ? (
@@ -1289,12 +1298,8 @@ export function UserSettingsView({
             <OfficeMovePane />
           ) : selection.section === "updates" ? (
             <UpdatePane onClose={() => leaveEdit(() => onClose())} />
-          ) : selection.section === "deviceLabel" ? (
-            <DevicePane closeRef={detailCloseRef} />
           ) : selection.section === "theme" ? (
             <ThemePane />
-          ) : selection.section === "recording" ? (
-            <RecordingPane />
           ) : null}
         </div>
       ) : selection?.kind === "removedMembers" && isOwner ? (
@@ -1809,6 +1814,9 @@ function UserEditPanel({
     user.avatarVariant,
   );
   const [saving, setSaving] = useState(false);
+  // A save succeeded since the page opened: the footer reads Saved while the
+  // form equals what was saved.
+  const [savedHere, setSavedHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Holds the server's lockout-prevention reason if delete_user is refused.
@@ -2149,6 +2157,7 @@ function UserEditPanel({
       setName(trimmed);
       setMemberPrompt(memberPrompt.trim());
       setAvatarColor(normalizedColor);
+      setSavedHere(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "version_conflict") {
         // Read the current text for comparison; keep the member's draft intact.
@@ -2204,10 +2213,7 @@ function UserEditPanel({
     }
   }
 
-  // Drives the dirty-aware Save button (save-flow friction pass, task
-  // 4733fa30): disabled + "Saved" when the form matches the record, so "did
-  // I save?" is answerable at a glance - the convention the External access
-  // card already follows.
+  // Drives the footer's Cancel and Save (SettingsSaveFooter).
   const dirty = isDirty();
   // The parts with an unsaved edit, from the same field table a refused
   // save opens its part by (ui/settings-parts.ts).
@@ -2645,20 +2651,15 @@ function UserEditPanel({
       <SettingsSaveFooter
         error={error}
         prompt={discardPrompt}
+        dirty={dirty}
+        saving={saving}
+        saved={savedHere}
+        canSave={!!name.trim()}
         // Cancel throws the edits away and stays, as on the room and agent
         // parts; the back row and the header's close leave.
-        cancel={{ onClick: revert, disabled: saving || !dirty }}
-        save={{
-          onClick: () => void handleSave(),
-          disabled: saving || !dirty || !name.trim(),
-          label: saving
-            ? t("common.saving")
-            : creating
-              ? t("settings.members.create")
-              : dirty
-                ? t("common.save")
-                : t("common.saved"),
-        }}
+        onCancel={revert}
+        onSave={() => void handleSave()}
+        saveLabel={creating ? t("settings.members.create") : undefined}
       />
     ),
     prompt: discardPrompt,

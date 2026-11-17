@@ -8,19 +8,13 @@ import type {
   OfficeSettingsReq,
   OfficeSettingsRes,
 } from "../../shared/contract-shapes.ts";
-import {
-  dialogInput,
-  dialogCancelBtn,
-  dialogSaveBtn,
-} from "./dialog-styles.ts";
+import { dialogInput } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { OfficeSettingSwitch } from "./OfficeSettingSwitch.tsx";
 import { ProcessIsolationSwitch } from "./ProcessIsolationSwitch.tsx";
 import { useI18n } from "../i18n.tsx";
-import {
-  UnsavedChangesPrompt,
-  useUnsavedChangesPrompt,
-} from "./UnsavedChangesPrompt.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
 
 type ValidationStatus = { kind: "idle" } | { kind: "error"; message: string };
 
@@ -126,6 +120,7 @@ export function OfficePane({
     // rest stays dirty.
     if (settingsVersion == null || instructionsVersion == null) return;
     setSaving(true);
+    setStatus({ kind: "idle" });
     // The name write moves the settings version and answers no body, so the
     // version is re-read after it lands - also when a later step fails, or the
     // next Save would blame a phantom concurrent writer. Its own try/catch,
@@ -236,251 +231,224 @@ export function OfficePane({
   });
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <div>
-        <h3
-          style={{
-            fontSize: 17,
-            fontWeight: 700,
-            margin: 0,
-            color: "var(--text-primary)",
-          }}
-        >
-          {t("settings.office.title")}
-        </h3>
-        <p
-          style={{
-            fontSize: 11,
-            color: "var(--text-ghost)",
-            margin: "6px 0 0",
-            lineHeight: 1.4,
-          }}
-        >
-          {t("settings.office.intro")}
-        </p>
-        {readOnly && (
+    <SettingsFormLayout
+      footer={
+        // A member reads the office settings and saves nothing.
+        !readOnly && (
+          <SettingsSaveFooter
+            error={status.kind === "error" ? status.message : null}
+            prompt={discardPrompt}
+            dirty={dirty}
+            saving={saving}
+            saved={savedAt !== null}
+            canSave={settingsLoaded}
+            onCancel={() => {
+              setName(baselineName);
+              setText(baselinePrompt);
+              mem.reset();
+              setStatus({ kind: "idle" });
+            }}
+            onSave={() => void handleSave()}
+          />
+        )
+      }
+    >
+      <div style={{ marginTop: 24 }}>
+        <div>
+          <h3
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              margin: 0,
+              color: "var(--text-primary)",
+            }}
+          >
+            {t("settings.office.title")}
+          </h3>
           <p
             style={{
               fontSize: 11,
               color: "var(--text-ghost)",
-              margin: "8px 0 0",
-              padding: "8px 10px",
-              background: "var(--bg-input)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: 6,
+              margin: "6px 0 0",
               lineHeight: 1.4,
             }}
           >
-            {t("settings.office.viewOnly")}
+            {t("settings.office.intro")}
           </p>
-        )}
-
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 18,
-            marginBottom: 5,
-          }}
-        >
-          {t("settings.office.name")}{" "}
-          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            {t("settings.office.nameHint")}
-          </span>
-        </label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t("settings.office.namePlaceholder")}
-          maxLength={60}
-          readOnly={readOnly || !settingsLoaded}
-          style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
-        />
-
-        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
-          {t("common.instructionsAndMemory")}
-        </h4>
-
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 14,
-            marginBottom: 5,
-          }}
-        >
-          {t("common.instructions")}{" "}
-          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            {t("settings.office.rulesHint")}
-          </span>
-        </label>
-        <ExpandableTextarea
-          textareaRef={textareaRef}
-          title={t("settings.office.rulesTitle")}
-          hint={t("settings.office.rulesExpandedHint")}
-          value={text}
-          onChange={setText}
-          placeholder={t("settings.office.rulesPlaceholder")}
-          rows={8}
-          readOnly={readOnly || !settingsLoaded}
-          style={{
-            ...(readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle),
-            resize: "vertical",
-          }}
-          recordingPrivate="office:instructions"
-        />
-        <p
-          style={{
-            fontSize: 10,
-            color: "var(--text-ghost)",
-            margin: "3px 0 0",
-          }}
-        >
-          {t("common.restartOrNewConversation")}
-        </p>
-
-        {!readOnly && (
-          <>
-            <label
+          {readOnly && (
+            <p
               style={{
-                display: "block",
                 fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                marginTop: 14,
-                marginBottom: 5,
+                color: "var(--text-ghost)",
+                margin: "8px 0 0",
+                padding: "8px 10px",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 6,
+                lineHeight: 1.4,
               }}
             >
-              {t("common.memory")}{" "}
-              <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                {t("settings.office.memoryHint", {
+              {t("settings.office.viewOnly")}
+            </p>
+          )}
+
+          <label
+            style={{
+              display: "block",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              marginTop: 18,
+              marginBottom: 5,
+            }}
+          >
+            {t("settings.office.name")}{" "}
+            <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+              {t("settings.office.nameHint")}
+            </span>
+          </label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("settings.office.namePlaceholder")}
+            maxLength={60}
+            readOnly={readOnly || !settingsLoaded}
+            style={
+              readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle
+            }
+          />
+
+          <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
+            {t("common.instructionsAndMemory")}
+          </h4>
+
+          <label
+            style={{
+              display: "block",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              marginTop: 14,
+              marginBottom: 5,
+            }}
+          >
+            {t("common.instructions")}{" "}
+            <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+              {t("settings.office.rulesHint")}
+            </span>
+          </label>
+          <ExpandableTextarea
+            textareaRef={textareaRef}
+            title={t("settings.office.rulesTitle")}
+            hint={t("settings.office.rulesExpandedHint")}
+            value={text}
+            onChange={setText}
+            placeholder={t("settings.office.rulesPlaceholder")}
+            rows={8}
+            readOnly={readOnly || !settingsLoaded}
+            style={{
+              ...(readOnly || !settingsLoaded
+                ? readOnlyInputStyle
+                : inputStyle),
+              resize: "vertical",
+            }}
+            recordingPrivate="office:instructions"
+          />
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--text-ghost)",
+              margin: "3px 0 0",
+            }}
+          >
+            {t("common.restartOrNewConversation")}
+          </p>
+
+          {!readOnly && (
+            <>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  marginTop: 14,
+                  marginBottom: 5,
+                }}
+              >
+                {t("common.memory")}{" "}
+                <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+                  {t("settings.office.memoryHint", {
+                    size: mem.loaded ? mem.size : "…",
+                    cap: mem.cap ?? "…",
+                  })}
+                </span>
+              </label>
+              <ExpandableTextarea
+                title={t("settings.office.memoryTitle")}
+                hint={t("common.memoryEditorHint")}
+                status={t("common.memorySize", {
                   size: mem.loaded ? mem.size : "…",
                   cap: mem.cap ?? "…",
                 })}
-              </span>
-            </label>
-            <ExpandableTextarea
-              title={t("settings.office.memoryTitle")}
-              hint={t("common.memoryEditorHint")}
-              status={t("common.memorySize", {
-                size: mem.loaded ? mem.size : "…",
-                cap: mem.cap ?? "…",
-              })}
-              value={mem.memory}
-              onChange={mem.setMemory}
-              placeholder={
-                mem.loaded
-                  ? t("settings.office.memoryPlaceholder")
-                  : t("common.loadingMemory")
-              }
-              recordingPrivate="office:memory"
-              rows={6}
-              readOnly={!mem.loaded}
-              style={{
-                ...(mem.loaded ? inputStyle : readOnlyInputStyle),
-                resize: "vertical",
-              }}
-            />
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              {t("common.memoryEditorHint")}
-            </p>
-          </>
-        )}
+                value={mem.memory}
+                onChange={mem.setMemory}
+                placeholder={
+                  mem.loaded
+                    ? t("settings.office.memoryPlaceholder")
+                    : t("common.loadingMemory")
+                }
+                recordingPrivate="office:memory"
+                rows={6}
+                readOnly={!mem.loaded}
+                style={{
+                  ...(mem.loaded ? inputStyle : readOnlyInputStyle),
+                  resize: "vertical",
+                }}
+              />
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                  margin: "3px 0 0",
+                }}
+              >
+                {t("common.memoryEditorHint")}
+              </p>
+            </>
+          )}
 
-        {!readOnly && (
-          <>
-            <ProcessIsolationSwitch
-              settings={switches}
-              version={settingsVersion}
-              onSaved={onSwitchSaved}
-              onConflict={onSwitchConflict}
-            />
-            <OfficeSettingSwitch
-              field="claudeIsomuxLabel"
-              checked={switches ? switches.claudeIsomuxLabel : null}
-              version={settingsVersion}
-              label={t("settings.office.claudeIsomuxLabel")}
-              hint={t("settings.office.claudeIsomuxLabelHint")}
-              onSaved={onSwitchSaved}
-              onConflict={onSwitchConflict}
-            />
-            <OfficeSettingSwitch
-              field="limitResume"
-              checked={switches ? switches.limitResume : null}
-              version={settingsVersion}
-              label={t("settings.office.limitResume")}
-              hint={t("settings.office.limitResumeHint")}
-              onSaved={onSwitchSaved}
-              onConflict={onSwitchConflict}
-            />
-          </>
-        )}
-
-        {discardPrompt.open && (
-          <UnsavedChangesPrompt
-            onDiscard={discardPrompt.discard}
-            onCancel={discardPrompt.cancel}
-          />
-        )}
-
-        <ValidationLine status={status} />
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
-            marginTop: 20,
-          }}
-        >
           {!readOnly && (
             <>
-              <button
-                onClick={() => {
-                  setName(baselineName);
-                  setText(baselinePrompt);
-                  mem.reset();
-                  setStatus({ kind: "idle" });
-                }}
-                style={cancelBtnStyle}
-                disabled={saving || !dirty}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                onClick={() => void handleSave()}
-                style={saveBtnStyle}
-                disabled={saving || !settingsLoaded}
-              >
-                {saving
-                  ? t("common.saving")
-                  : savedAt && !dirty
-                    ? t("common.saved")
-                    : t("common.save")}
-              </button>
+              <ProcessIsolationSwitch
+                settings={switches}
+                version={settingsVersion}
+                onSaved={onSwitchSaved}
+                onConflict={onSwitchConflict}
+              />
+              <OfficeSettingSwitch
+                field="claudeIsomuxLabel"
+                checked={switches ? switches.claudeIsomuxLabel : null}
+                version={settingsVersion}
+                label={t("settings.office.claudeIsomuxLabel")}
+                hint={t("settings.office.claudeIsomuxLabelHint")}
+                onSaved={onSwitchSaved}
+                onConflict={onSwitchConflict}
+              />
+              <OfficeSettingSwitch
+                field="limitResume"
+                checked={switches ? switches.limitResume : null}
+                version={settingsVersion}
+                label={t("settings.office.limitResume")}
+                hint={t("settings.office.limitResumeHint")}
+                onSaved={onSwitchSaved}
+                onConflict={onSwitchConflict}
+              />
             </>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function ValidationLine({ status }: { status: ValidationStatus }) {
-  if (status.kind === "idle") return null;
-  return (
-    <p style={{ fontSize: 10, color: "var(--red-text)", margin: "4px 0 0" }}>
-      {status.message}
-    </p>
+    </SettingsFormLayout>
   );
 }
 
@@ -493,5 +461,3 @@ const readOnlyInputStyle: React.CSSProperties = {
   background: "var(--bg-input)",
   cursor: "default",
 };
-const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
-const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

@@ -469,7 +469,6 @@ export const zh: Catalog = {
   "preferences.showAgentMessages": "显示智能体之间的消息",
   "preferences.showAgentMessagesHint":
     "智能体之间互相发送的消息。关闭后，每一串这样的消息显示为一行（例如“2 条智能体消息”），可以展开查看。",
-  "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
 
   "recording.intro":
@@ -1018,7 +1017,6 @@ export const zh: Catalog = {
   "settings.externalAccess.publicUrl": "公共 URL",
   "settings.externalAccess.urlHint":
     "格式：{pattern}（在笔记本电脑或手机上打开的地址）。保存本身不会更改当前运行的服务器的绑定地址，请重启 Isomux 以应用更改。",
-  "settings.externalAccess.discardPrompt": "放弃未保存的外部访问更改？",
   "settings.externalAccess.updateFailed": "更新设置失败",
   "settings.externalAccess.restartNote":
     "已保存。请重启 Isomux 使新绑定生效。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",

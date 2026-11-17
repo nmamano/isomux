@@ -23,10 +23,16 @@ import {
   resolvePreferenceForm,
   type PreferenceEdits,
 } from "../preference-form.ts";
-import { dialogHint, dialogSaveBtn } from "./dialog-styles.ts";
+import { dialogHint } from "./dialog-styles.ts";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { SettingsFormLayout, SettingsSaveFooter } from "./SettingsItemPage.tsx";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 
-export function PreferencesPane() {
+export function PreferencesPane({
+  closeRef,
+}: {
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+}) {
   const self = useSelfUser();
   const { t } = useI18n();
   const languageId = useId();
@@ -39,6 +45,7 @@ export function PreferencesPane() {
   const [edits, setEdits] = useState<PreferenceEdits>(NO_EDITS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A save succeeded since the pane opened.
   const [saved, setSaved] = useState(false);
 
   const { language, showToolCalls, showAgentMessages, canSave, request } =
@@ -48,10 +55,16 @@ export function PreferencesPane() {
       edits,
     );
 
+  // Only the member's own edits ask before leaving: a browser language the
+  // server does not hold yet keeps Save on but is not theirs to lose.
+  const discardPrompt = useUnsavedChangesPrompt(canSave && edits !== NO_EDITS, {
+    closeRef,
+    onDiscard: () => setEdits(NO_EDITS),
+  });
+
   function save() {
     setSaving(true);
     setError(null);
-    setSaved(false);
     apiFetch<void>("PATCH", "/api/me/preferences", request)
       .then(() => {
         // Drop the local edits: the record is authoritative from here, and the
@@ -67,103 +80,90 @@ export function PreferencesPane() {
       .finally(() => setSaving(false));
   }
 
+  const footer = (
+    <SettingsSaveFooter
+      error={error}
+      prompt={discardPrompt}
+      dirty={canSave}
+      saving={saving}
+      saved={saved}
+      onCancel={() => {
+        setEdits(NO_EDITS);
+        setError(null);
+      }}
+      onSave={save}
+    />
+  );
+
   if (!self) {
     return (
-      <div style={{ marginTop: 24 }}>
-        <h4 style={sectionHeader}>{t("settings.sidebar.languageAndChat")}</h4>
-        <p style={hint}>{t("common.loading")}</p>
-      </div>
+      <SettingsFormLayout footer={footer}>
+        <div style={{ marginTop: 24 }}>
+          <h4 style={sectionHeader}>{t("settings.sidebar.languageAndChat")}</h4>
+          <p style={hint}>{t("common.loading")}</p>
+        </div>
+      </SettingsFormLayout>
     );
   }
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("settings.sidebar.languageAndChat")}</h4>
-      <p style={{ ...hint, marginTop: 4 }}>{t("preferences.intro")}</p>
+    <SettingsFormLayout footer={footer}>
+      <div style={{ marginTop: 24 }}>
+        <h4 style={sectionHeader}>{t("settings.sidebar.languageAndChat")}</h4>
+        <p style={{ ...hint, marginTop: 4 }}>{t("preferences.intro")}</p>
 
-      <div style={cardStyle}>
-        {/* The heading names the pane, which holds more than the language,
-            so the select has its own visible label. */}
-        <label
-          htmlFor={languageId}
-          style={{ display: "block", fontSize: 13, marginBottom: 6 }}
-        >
-          {t("preferences.language")}
-        </label>
-        <select
-          id={languageId}
-          value={language}
-          onChange={(e) => {
-            setEdits((prev) => ({
-              ...prev,
-              language: e.target.value as SupportedLanguageCode,
-            }));
-            setSaved(false);
-          }}
-          style={selectStyle}
-        >
-          {SUPPORTED_LANGUAGES.map((l) => (
-            <option key={l.code} value={l.code}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-        <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-          {t("preferences.languageHint")}
-        </p>
-      </div>
+        <div style={cardStyle}>
+          {/* The heading names the pane, which holds more than the language,
+              so the select has its own visible label. */}
+          <label
+            htmlFor={languageId}
+            style={{ display: "block", fontSize: 13, marginBottom: 6 }}
+          >
+            {t("preferences.language")}
+          </label>
+          <select
+            id={languageId}
+            value={language}
+            onChange={(e) =>
+              setEdits((prev) => ({
+                ...prev,
+                language: e.target.value as SupportedLanguageCode,
+              }))
+            }
+            style={selectStyle}
+          >
+            {SUPPORTED_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          <p style={{ ...dialogHint, margin: "6px 0 0" }}>
+            {t("preferences.languageHint")}
+          </p>
+        </div>
 
-      <div style={cardStyle}>
-        <ChatChoiceBox
-          choice="showToolCalls"
-          checked={showToolCalls}
-          onChange={(checked) => {
-            setEdits((prev) => ({ ...prev, showToolCalls: checked }));
-            setSaved(false);
-          }}
-        />
-      </div>
+        <div style={cardStyle}>
+          <ChatChoiceBox
+            choice="showToolCalls"
+            checked={showToolCalls}
+            onChange={(checked) =>
+              setEdits((prev) => ({ ...prev, showToolCalls: checked }))
+            }
+          />
+        </div>
 
-      <div style={cardStyle}>
-        <ChatChoiceBox
-          choice="showAgentMessages"
-          checked={showAgentMessages}
-          onChange={(checked) => {
-            setEdits((prev) => ({ ...prev, showAgentMessages: checked }));
-            setSaved(false);
-          }}
-        />
+        <div style={cardStyle}>
+          <ChatChoiceBox
+            choice="showAgentMessages"
+            checked={showAgentMessages}
+            onChange={(checked) =>
+              setEdits((prev) => ({ ...prev, showAgentMessages: checked }))
+            }
+          />
+        </div>
       </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          marginTop: 14,
-        }}
-      >
-        <button
-          onClick={save}
-          disabled={saving || !canSave}
-          style={{
-            ...dialogSaveBtn,
-          }}
-        >
-          {saving ? t("common.saving") : t("common.save")}
-        </button>
-        {saved && !canSave && (
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            {t("preferences.saved")}
-          </span>
-        )}
-        {error && (
-          <span style={{ fontSize: 11, color: "var(--red-text)" }}>
-            {error}
-          </span>
-        )}
-      </div>
-    </div>
+    </SettingsFormLayout>
   );
 }
 

@@ -78,12 +78,13 @@ export function resolvePreferenceForm(
 ): PreferenceForm {
   const shownLanguage = displayLanguage(record, navigatorLanguage);
   const language = edits.language ?? shownLanguage;
-  // Save stays available while the language has never been chosen, even though
-  // the picker already SHOWS the browser's language: that value is not on the
-  // server yet, and the server-side value is what agents read. Without this,
+  // Save stays available while the picker SHOWS a browser language the server
+  // does not hold yet (the app seeds it at boot; this covers the window before
+  // the seed lands): the server-side value is what agents read. Without this,
   // someone on a Spanish browser would see "Español" selected with Save greyed
-  // out and no way to commit it.
-  const neverChosen = record !== null && record.language === null;
+  // out and no way to commit it. An English browser has nothing to commit: a
+  // null record already behaves as English.
+  const neverChosen = languageSeed(record, navigatorLanguage) !== null;
   const storedTools = record?.showToolCalls === true;
   const showToolCalls = edits.showToolCalls ?? storedTools;
   const toolsChanged = record !== null && showToolCalls !== storedTools;

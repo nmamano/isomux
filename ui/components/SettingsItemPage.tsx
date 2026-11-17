@@ -6,7 +6,12 @@
 // as a SettingsItemView; UserSettingsView wraps every one of them here, so
 // the three items share one layout and one Escape owner.
 
-import { useEffect, type MutableRefObject, type ReactNode } from "react";
+import {
+  useEffect,
+  type CSSProperties,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { SidebarGroupRows, type SidebarRow } from "./SidebarGroups.tsx";
@@ -180,23 +185,44 @@ export function SettingsItemPage<P extends string>({
   );
 }
 
-/** The sticky footer of an item: the refused save's reason, the discard
- *  prompt, Cancel and Save. Save writes every part. */
+/** The sticky footer of a Settings part that saves (an item's parts, and the
+ *  sections laid out by SettingsFormLayout): the refused save's reason, the
+ *  discard prompt, Cancel and Save. It derives its states from the form, so
+ *  every part acts the same:
+ *  - Cancel: enabled while the form holds unsaved edits.
+ *  - Save: enabled while the form holds unsaved edits and `canSave`.
+ *  - The Save label: Saving while a save runs; Saved when a save succeeded
+ *    since the part opened and the form equals what was saved; else Save
+ *    (`saveLabel` replaces the plain Save, as Create on New member). */
 export function SettingsSaveFooter({
   error,
   prompt,
-  cancel,
-  save,
+  dirty,
+  saving,
+  saved,
+  canSave = true,
+  onCancel,
+  onSave,
+  saveLabel,
 }: {
   error: ReactNode;
-  prompt: { open: boolean; discard: () => void; cancel: () => void };
-  cancel: { onClick: () => void; disabled: boolean };
-  save: { onClick: () => void; disabled: boolean; label: string };
+  prompt?: { open: boolean; discard: () => void; cancel: () => void };
+  // The form differs from what is saved.
+  dirty: boolean;
+  saving: boolean;
+  // A save succeeded since the part opened.
+  saved: boolean;
+  // The blockers that keep Save disabled (a field missing, data not loaded).
+  canSave?: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+  saveLabel?: string;
 }) {
   const { isMobile } = useAppState();
   const { t } = useI18n();
   return (
     <div
+      data-settings-footer=""
       style={{
         position: "sticky",
         bottom: 0,
@@ -221,7 +247,7 @@ export function SettingsSaveFooter({
           {error}
         </p>
       )}
-      {prompt.open && (
+      {prompt?.open && (
         <div style={{ marginBottom: 10 }}>
           <UnsavedChangesPrompt
             onDiscard={prompt.discard}
@@ -231,21 +257,56 @@ export function SettingsSaveFooter({
       )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
         <button
-          onClick={cancel.onClick}
+          onClick={onCancel}
           style={dialogCancelBtn}
-          disabled={cancel.disabled}
+          disabled={saving || !dirty}
         >
           {t("common.cancel")}
         </button>
         <button
           data-settings-save=""
-          onClick={save.onClick}
+          onClick={onSave}
           style={dialogSaveBtn}
-          disabled={save.disabled}
+          disabled={saving || !dirty || !canSave}
         >
-          {save.label}
+          {saving
+            ? t("common.saving")
+            : saved && !dirty
+              ? t("common.saved")
+              : (saveLabel ?? t("common.save"))}
         </button>
       </div>
     </div>
   );
+}
+
+/** A Settings section that saves: its fields in the section's padded box
+ *  (data-settings-form-body), and its SettingsSaveFooter under it across the
+ *  whole pane, as on an item's parts. */
+export function SettingsFormLayout({
+  children,
+  footer,
+}: {
+  children: ReactNode;
+  footer: ReactNode;
+}) {
+  const { isMobile } = useAppState();
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div data-settings-form-body="" style={settingsSectionBox(isMobile)}>
+        {children}
+      </div>
+      {footer}
+    </div>
+  );
+}
+
+/** The padded column a Settings section's content sits in. */
+export function settingsSectionBox(isMobile: boolean): CSSProperties {
+  return {
+    padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+    maxWidth: 720,
+    width: "100%",
+    boxSizing: "border-box",
+  };
 }

@@ -198,12 +198,11 @@ describe("Your view column", () => {
       view.rerender(page({ tucked: ["r1"], notifRooms: [], pushRooms: [] }));
     });
     expect(levelOf(view, "r1")).toBe("tucked");
-    // The form stays clean: no edit to save.
-    expect(view.queryByRole("button", { name: en["common.save"] })).toBeNull();
-    const saved = view.getByRole("button", {
-      name: en["common.saved"],
+    // The form stays clean: no edit to save, so Save is off.
+    const save = view.getByRole("button", {
+      name: en["common.save"],
     }) as HTMLButtonElement;
-    expect(saved.disabled).toBe(true);
+    expect(save.disabled).toBe(true);
     view.unmount();
   });
 

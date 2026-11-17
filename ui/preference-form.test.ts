@@ -49,8 +49,10 @@ describe("resolvePreferenceForm - untouched form", () => {
     expect(resolvePreferenceForm(record({}), "es-ES", NO_EDITS).canSave).toBe(
       true,
     );
+    // An English browser has nothing to commit: a record with no language
+    // already acts as English (task f0d50877).
     expect(resolvePreferenceForm(record({}), "en-US", NO_EDITS).canSave).toBe(
-      true,
+      false,
     );
   });
 

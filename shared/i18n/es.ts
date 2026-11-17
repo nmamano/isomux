@@ -495,7 +495,6 @@ Cosas que puedes hacer por él:
   "preferences.showAgentMessages": "Mostrar los mensajes entre agentes",
   "preferences.showAgentMessagesHint":
     'Mensajes que los agentes se envían entre sí. Si está desactivado, cada serie se muestra como una línea, por ejemplo "2 mensajes entre agentes", que puedes abrir.',
-  "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
   "recording.intro":
@@ -1149,8 +1148,6 @@ Cosas que puedes hacer por él:
   "settings.externalAccess.publicUrl": "URL pública",
   "settings.externalAccess.urlHint":
     "Patrón: {pattern} (la dirección que abrirás desde el portátil o el móvil). Guardar no cambia por sí solo la interfaz donde escucha el servidor - reinicia Isomux para aplicarlo.",
-  "settings.externalAccess.discardPrompt":
-    "¿Descartar los cambios de acceso externo sin guardar?",
   "settings.externalAccess.updateFailed":
     "No se han podido actualizar los ajustes",
   "settings.externalAccess.restartNote":
