@@ -14,19 +14,26 @@ import {
   type View,
 } from "./chat-sidebar-fixture.tsx";
 
-/** The agent settings page's agent id, or null when no page shows. */
+/** The agent Settings is drilled into (task 1f79f2e3), or null when no
+ *  agent shows. */
 export const pageAgent = (view: View) =>
   view.baseElement
-    .querySelector("[data-agent-settings-page]")
-    ?.getAttribute("data-agent-settings-page") ?? null;
+    .querySelector('[data-settings-item^="agent:"]')
+    ?.getAttribute("data-settings-item")
+    ?.slice("agent:".length) ?? null;
 export const currentSection = (view: View) =>
   view.baseElement
-    .querySelector('button[data-agent-settings-section][aria-current="true"]')
-    ?.getAttribute("data-agent-settings-section") ?? null;
+    .querySelector('button[data-settings-part][aria-current="true"]')
+    ?.getAttribute("data-settings-part") ?? null;
 export const nameInput = (view: View) =>
   view.baseElement.querySelector<HTMLInputElement>(
-    "[data-agent-settings-page] .agent-identity-section input",
+    '[data-settings-item^="agent:"] .agent-identity-section input',
   );
+/** The office nav's Settings row is the current page. */
+export const navSettingsLit = (view: View) =>
+  view.container
+    .querySelector('nav[data-chat-sidebar] [data-sidebar-nav="settings"]')
+    ?.getAttribute("aria-current") === "page";
 export const settingsOpen = (view: View) =>
   view.baseElement.querySelector('[data-testid="settings-content"]') !== null;
 export const tasksOpen = (view: View) =>
@@ -60,9 +67,7 @@ export const settingsButton = (view: View, agentId: string) =>
 /** Clicks a section's row on the page; the row shows as the current one. */
 export async function openSection(view: View, section: string): Promise<void> {
   await click(
-    view.baseElement.querySelector(
-      `button[data-agent-settings-section="${section}"]`,
-    ),
+    view.baseElement.querySelector(`button[data-settings-part="${section}"]`),
   );
   expect(currentSection(view)).toBe(section);
 }

@@ -8,12 +8,7 @@ import type {
   InstructionsReq,
   InstructionsRes,
 } from "../../shared/contract-shapes.ts";
-import {
-  dialogInput,
-  dialogCancelBtn,
-  filledDangerBtn,
-  dialogSaveBtn,
-} from "./dialog-styles.ts";
+import { dialogInput, filledDangerBtn } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
@@ -36,13 +31,24 @@ import {
   RoomViewLevelLegend,
 } from "./RoomViewLevelControl.tsx";
 import { PushThisDevice } from "./PushDevicesBlock.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import {
-  UnsavedChangesPrompt,
-  useUnsavedChangesPrompt,
-} from "./UnsavedChangesPrompt.tsx";
+  SettingsSaveFooter,
+  type SettingsItemView,
+} from "./SettingsItemPage.tsx";
+import {
+  ROOM_FIELD_PART,
+  dirtyParts,
+  resolvePart,
+  roomParts,
+  type RoomField,
+  type RoomPart,
+} from "../settings-parts.ts";
 
-// One room's settings, as a pane. Mounted keyed by roomId, so switching rooms
-// in the sidebar remounts it and no field can carry across.
+// One room's settings, as parts (task 1f79f2e3): Settings draws them with
+// SettingsItemPage. Mounted keyed by roomId, so switching rooms in the
+// sidebar remounts it and no field can carry across; moving between the
+// room's parts keeps it mounted, so an edit stays until the one Save.
 //
 // `onDeleted` exists because deleting an empty room removes its own sidebar
 // row: the page has to move the selection somewhere that still exists.
@@ -50,12 +56,20 @@ export function RoomPane({
   roomId,
   onDeleted,
   closeRef,
+  part,
+  onPart,
+  children,
 }: {
   roomId: string;
   onDeleted: () => void;
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+  // The open part: absent, the first part on a desktop and the part list on
+  // a phone; null, the part list.
+  part: RoomPart | null | undefined;
+  onPart: (part: RoomPart | null) => void;
+  children: (view: SettingsItemView<RoomPart>) => React.ReactNode;
 }) {
-  const { agents, rooms, users, sessionContext } = useAppState();
+  const { agents, rooms, users, sessionContext, isMobile } = useAppState();
   const { t } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried on the wire:
@@ -188,8 +202,17 @@ export function RoomPane({
       instructions: prompt.trim() ? prompt : null,
       version: settingsVersion,
     };
+    // The field the write in flight carries, for the part a refusal opens.
+    let writing: RoomField | null = null;
     void (async () => {
       try {
+        writing = renameBody
+          ? renameBody.name !== undefined
+            ? "name"
+            : renameBody.cwd !== undefined
+              ? "cwd"
+              : "look"
+          : null;
         // Before the instructions PUT, which spends the version token: a
         // failure here must leave that token unspent, or the retry the reader
         // is being asked to make would come back as a version conflict.
@@ -202,6 +225,7 @@ export function RoomPane({
         // from it too, not just the baseline: the server normalizes an
         // all-whitespace text to null, so without this the field keeps the
         // whitespace and the pane is dirty the instant a save succeeds.
+        writing = "prompt";
         const saved = await apiFetch<InstructionsRes>(
           "PUT",
           `/api/rooms/${roomId}/instructions`,
@@ -219,11 +243,17 @@ export function RoomPane({
         const m = await mem.save();
         if (!m.ok) {
           setError(m.message);
+          onPart(ROOM_FIELD_PART.memory);
           return;
         }
+        writing = "view";
         const viewError = await saveView();
-        if (viewError) setError(viewError);
+        if (viewError) {
+          setError(viewError);
+          onPart(ROOM_FIELD_PART.view);
+        }
       } catch (e) {
+        if (writing !== null) onPart(ROOM_FIELD_PART[writing]);
         if (e instanceof ApiError && e.code === "version_conflict") {
           setError(t("settings.room.conflict"));
         } else {
@@ -337,19 +367,48 @@ export function RoomPane({
 
   if (!room) return null;
 
-  return (
-    <div style={{ marginTop: 24 }}>
-      <div>
-        <h3
-          style={{
-            fontSize: 17,
-            fontWeight: 700,
-            margin: 0,
-            color: "var(--text-primary)",
-          }}
-        >
-          {t("settings.room.title", { room: room.name })}
-        </h3>
+  // The parts, and which of them hold an unsaved edit: one field table
+  // (ui/settings-parts.ts) for the dots and for the part a refused save
+  // opens.
+  const dirtyFields: RoomField[] = [];
+  if (settingsLoaded && name.trim() !== baselineName) dirtyFields.push("name");
+  if (settingsLoaded && cwd.trim() !== baselineCwd.trim())
+    dirtyFields.push("cwd");
+  if (settingsLoaded && prompt !== baselinePrompt) dirtyFields.push("prompt");
+  if (settingsLoaded && roomLookBody(look, baselineLook) !== null)
+    dirtyFields.push("look");
+  if (mem.dirty) dirtyFields.push("memory");
+  if (viewDirty) dirtyFields.push("view");
+  const dirtySet = dirtyParts(ROOM_FIELD_PART, dirtyFields);
+  const labels: Record<RoomPart, string> = {
+    general: t("settings.part.general"),
+    instructions: t("common.instructionsAndMemory"),
+    appearance: t("dialogs.agent.appearance"),
+    view: t("settings.room.yourView"),
+  };
+  const ids = roomParts({ lobby: room.type === "lobby", hasView: !!view });
+  const open = resolvePart(part, ids, isMobile);
+
+  const fieldLabel: React.CSSProperties = {
+    display: "block",
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+    marginTop: 14,
+    marginBottom: 5,
+  };
+  const note: React.CSSProperties = {
+    fontSize: 10,
+    color: "var(--text-ghost)",
+    margin: "3px 0 0",
+  };
+
+  const bodies: Record<RoomPart, React.ReactNode> = {
+    general: (
+      <>
+        <h4 className="agent-settings-group-title">
+          {t("settings.part.general")}
+        </h4>
         <p
           style={{
             fontSize: 11,
@@ -363,16 +422,7 @@ export function RoomPane({
 
         {room.type !== "lobby" && (
           <>
-            <label
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                marginTop: 18,
-                marginBottom: 5,
-              }}
-            >
+            <label style={{ ...fieldLabel, marginTop: 18 }}>
               {t("common.name")}
             </label>
             <input
@@ -384,16 +434,7 @@ export function RoomPane({
           </>
         )}
 
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 14,
-            marginBottom: 5,
-          }}
-        >
+        <label style={fieldLabel}>
           {t("common.field.workingDirectory")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
             {t("settings.room.cwdHint")}
@@ -409,20 +450,41 @@ export function RoomPane({
           style={inputStyle}
         />
 
-        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
+        {/* The item's destructive action, at the end of its first part. */}
+        {canDeleteRoom && (
+          <div style={{ marginTop: 24 }}>
+            <button
+              {...deleteStep.bind("delete")}
+              onClick={() =>
+                deleteStep.confirm("delete", () => {
+                  // Fire-and-forget + optimistic close, parity with the old WS
+                  // close_room (the room_closed broadcast removes the tab).
+                  apiFetch<void>("DELETE", `/api/rooms/${roomId}`).catch(
+                    () => {},
+                  );
+                  onDeleted();
+                })
+              }
+              style={deleteBtnStyle}
+              disabled={saving}
+            >
+              {t(
+                deleteStep.armed
+                  ? "common.confirmQuestion"
+                  : "settings.room.deleteEmpty",
+              )}
+            </button>
+          </div>
+        )}
+      </>
+    ),
+    instructions: (
+      <>
+        <h4 className="agent-settings-group-title">
           {t("common.instructionsAndMemory")}
         </h4>
 
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 14,
-            marginBottom: 5,
-          }}
-        >
+        <label style={fieldLabel}>
           {t("settings.room.prompt")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
             {t("settings.room.promptHint")}
@@ -440,28 +502,11 @@ export function RoomPane({
           style={{ ...inputStyle, resize: "vertical" }}
           recordingPrivate={`room:${roomId}:instructions`}
         />
-        <p
-          style={{
-            fontSize: 10,
-            color: "var(--text-ghost)",
-            margin: "3px 0 0",
-          }}
-        >
-          {t("settings.room.promptNote")}
-        </p>
+        <p style={note}>{t("settings.room.promptNote")}</p>
 
         {hasRoomMemory && (
           <>
-            <label
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                marginTop: 14,
-                marginBottom: 5,
-              }}
-            >
+            <label style={fieldLabel}>
               {t("common.memory")}{" "}
               <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
                 {t("settings.room.memoryHint", {
@@ -489,162 +534,90 @@ export function RoomPane({
               readOnly={!mem.loaded}
               style={{ ...inputStyle, resize: "vertical" }}
             />
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              {t("common.memoryEditorHint")}
-            </p>
+            <p style={note}>{t("common.memoryEditorHint")}</p>
           </>
         )}
-
-        {room.type !== "lobby" && (
-          <>
-            <h4
-              className="agent-settings-group-title"
-              style={{ marginTop: 24 }}
-            >
-              {t("dialogs.agent.appearance")}
-            </h4>
-            <RoomDecorPicker
-              room={room}
-              rooms={rooms}
-              look={look}
-              onChange={setLook}
-            />
-          </>
-        )}
-
-        {view && (
-          <>
-            <h4
-              className="agent-settings-group-title"
-              style={{ marginTop: 24 }}
-            >
-              {t("settings.room.yourView")}
-            </h4>
-            <div style={{ display: "flex", marginTop: 10 }}>
-              <RoomViewLevelControl
-                level={view}
-                onChange={setView}
-                roomName={room.name}
-              />
-            </div>
-            <RoomViewLevelLegend
-              style={{ marginTop: 10 }}
-              push={
-                view === "push" && self ? (
-                  <PushThisDevice username={self.name} />
-                ) : undefined
-              }
-            />
-          </>
-        )}
-
-        {error && (
-          <p
-            style={{
-              fontSize: 10,
-              color: "var(--red-text)",
-              margin: "6px 0 0",
-            }}
-          >
-            {error}
-          </p>
-        )}
-
-        {discardPrompt.open && (
-          <UnsavedChangesPrompt
-            onDiscard={discardPrompt.discard}
-            onCancel={discardPrompt.cancel}
+      </>
+    ),
+    appearance: (
+      <>
+        <h4 className="agent-settings-group-title">
+          {t("dialogs.agent.appearance")}
+        </h4>
+        <RoomDecorPicker
+          room={room}
+          rooms={rooms}
+          look={look}
+          onChange={setLook}
+        />
+      </>
+    ),
+    view: view && (
+      <>
+        <h4 className="agent-settings-group-title">
+          {t("settings.room.yourView")}
+        </h4>
+        <div style={{ display: "flex", marginTop: 10 }}>
+          <RoomViewLevelControl
+            level={view}
+            onChange={setView}
+            roomName={room.name}
           />
-        )}
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: canDeleteRoom ? "space-between" : "flex-end",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 20,
-          }}
-        >
-          {canDeleteRoom && (
-            <button
-              {...deleteStep.bind("delete")}
-              onClick={() =>
-                deleteStep.confirm("delete", () => {
-                  // Fire-and-forget + optimistic close, parity with the old WS
-                  // close_room (the room_closed broadcast removes the tab).
-                  apiFetch<void>("DELETE", `/api/rooms/${roomId}`).catch(
-                    () => {},
-                  );
-                  onDeleted();
-                })
-              }
-              style={deleteBtnStyle}
-              disabled={saving}
-            >
-              {t(
-                deleteStep.armed
-                  ? "common.confirmQuestion"
-                  : "settings.room.deleteEmpty",
-              )}
-            </button>
-          )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => {
-                setName(baselineName);
-                setPrompt(baselinePrompt);
-                setLook(baselineLook);
-                setView(viewBase);
-                mem.reset();
-                setError(null);
-              }}
-              style={cancelBtnStyle}
-              disabled={saving || !dirty}
-            >
-              {t("common.cancel")}
-            </button>
-            {(() => {
-              const disabled =
-                saving || !name.trim() || settingsVersion == null;
-              return (
-                <button
-                  onClick={handleSave}
-                  disabled={disabled}
-                  style={{
-                    ...saveBtnStyle,
-                  }}
-                >
-                  {saving
-                    ? t("common.saving")
-                    : savedAt && !dirty
-                      ? t("common.saved")
-                      : t("common.save")}
-                </button>
-              );
-            })()}
-          </div>
         </div>
-      </div>
-    </div>
-  );
+        <RoomViewLevelLegend
+          style={{ marginTop: 10 }}
+          push={
+            view === "push" && self ? (
+              <PushThisDevice username={self.name} />
+            ) : undefined
+          }
+        />
+      </>
+    ),
+  };
+
+  return children({
+    parts: ids.map((id) => ({
+      id,
+      label: labels[id],
+      dirty: dirtySet.has(id),
+    })),
+    part: open,
+    subtitle: <span {...noTranslate()}>{room.name}</span>,
+    body: open === null ? null : bodies[open],
+    footer: (
+      <SettingsSaveFooter
+        error={error}
+        prompt={discardPrompt}
+        cancel={{
+          onClick: () => {
+            setName(baselineName);
+            setPrompt(baselinePrompt);
+            setCwd(baselineCwd);
+            setLook(baselineLook);
+            setView(viewBase);
+            mem.reset();
+            setError(null);
+          },
+          disabled: saving || !dirty,
+        }}
+        save={{
+          onClick: handleSave,
+          disabled: saving || !name.trim() || settingsVersion == null,
+          label: saving
+            ? t("common.saving")
+            : savedAt && !dirty
+              ? t("common.saved")
+              : t("common.save"),
+        }}
+      />
+    ),
+    prompt: discardPrompt,
+    busy: saving,
+  });
 }
 
 const inputStyle: React.CSSProperties = dialogInput;
-const cancelBtnStyle: React.CSSProperties = {
-  ...dialogCancelBtn,
-  fontFamily: "var(--font-ui)",
-};
-const saveBtnStyle: React.CSSProperties = {
-  ...dialogSaveBtn,
-  fontFamily: "var(--font-ui)",
-};
 const deleteBtnStyle: React.CSSProperties = {
   ...filledDangerBtn,
   fontFamily: "var(--font-ui)",

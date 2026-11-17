@@ -20,6 +20,8 @@ const { onLanguage, selfUserRecord } =
   await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { en } = await import("../shared/i18n/en.ts");
+const { openPart } = await import("./test-support/settings-item.tsx");
+type MemberPart = import("./settings-parts.ts").MemberPart;
 
 const calls: { method: string; path: string; body: unknown }[] = [];
 beforeEach(() => {
@@ -102,13 +104,20 @@ for (const [BOX, key] of CHOICES) {
     role: "member" as const,
   };
 
-  function settings(state: Record<string, unknown>, initialUserId?: string) {
+  // On a member's part (task 1f79f2e3): Chat unless the test names one.
+  function settings(
+    state: Record<string, unknown>,
+    memberId?: string,
+    part: MemberPart = "chat",
+  ) {
     return onLanguage(
       "en",
       createElement(UserSettingsView, {
         onSwitchUser: () => {},
         onClose: () => {},
-        initialUserId,
+        ...(memberId
+          ? { initialTarget: { kind: "user" as const, id: memberId, part } }
+          : {}),
       }),
       state,
     );
@@ -118,7 +127,11 @@ for (const [BOX, key] of CHOICES) {
     const view = render(settings({ users: users(self, pia) }, "u2"));
     await act(async () => {});
     const detail = view.getByTestId("settings-content");
-    expect(detail.querySelector("h4")?.textContent).toBe("Pia");
+    expect(
+      view.container
+        .querySelector("[data-settings-item]")
+        ?.getAttribute("data-settings-item"),
+    ).toBe("user:u2");
     expect(box(detail).checked).toBe(false);
     await act(async () => {
       fireEvent.click(box(detail));
@@ -139,7 +152,9 @@ for (const [BOX, key] of CHOICES) {
     view.unmount();
 
     // A save that leaves the choice alone does not send it.
-    const again = render(settings({ users: users(self, pia) }, "u2"));
+    const again = render(
+      settings({ users: users(self, pia) }, "u2", "profile"),
+    );
     await act(async () => {});
     const page = again.getByTestId("settings-content");
     const name = page.querySelector("input")!;
@@ -156,11 +171,19 @@ for (const [BOX, key] of CHOICES) {
   });
 
   it(`${key}, an owner's own page has no checkbox: their own Settings pane holds it`, async () => {
-    const view = render(settings({ users: users(self, pia) }, "u1"));
+    const view = render(settings({ users: users(self, pia) }, "u1", "profile"));
     await act(async () => {});
-    const detail = view.getByTestId("settings-content");
-    expect(detail.querySelector("h4")?.textContent).toBe("Tester");
-    expect(detail.querySelectorAll(BOX).length).toBe(0);
+    // Your own rows, each part of them: no Chat part and no box.
+    const ids = [
+      ...view.container.querySelectorAll("button[data-settings-part]"),
+    ].map((b) => b.getAttribute("data-settings-part")!);
+    expect(ids).toEqual(["profile", "access", "rooms", "instructions"]);
+    for (const id of ids) {
+      await act(async () => {
+        await openPart(view.container, id);
+      });
+      expect(view.container.querySelectorAll(BOX).length).toBe(0);
+    }
     view.unmount();
   });
 
@@ -179,6 +202,9 @@ for (const [BOX, key] of CHOICES) {
     const detail = view.getByTestId("settings-content");
     fireEvent.change(detail.querySelector("input")!, {
       target: { value: "Pia" },
+    });
+    await act(async () => {
+      await openPart(view.container, "chat");
     });
     expect(box(detail).checked).toBe(false);
     await act(async () => {

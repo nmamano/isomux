@@ -5,6 +5,7 @@ setUpDomTestFile();
 const { act, render, fireEvent, waitFor } =
   await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
+const { settingsAt } = await import("../test-support/settings-item.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { DEFAULT_AGENT_CAPABILITIES } = await import("../../shared/types.ts");
@@ -70,6 +71,9 @@ describe("agent form prompt preview", () => {
         // The Codex form lists its engine's models.
         if (method === "POST" && path.startsWith("/api/backends/"))
           return { models: [] };
+        // The Settings page around the agent's form reads its own panes'
+        // data (task 1f79f2e3): reads, not writes, and they fail here.
+        if (method === "GET") throw new Error(`Not this test's read: ${path}`);
         writes.push({ method, path, body });
         if (path === "/api/agents/system-prompt-preview")
           return { prompt: "Assembled draft" };
@@ -78,20 +82,21 @@ describe("agent form prompt preview", () => {
       const view = render(
         onLanguage(
           "en",
-          <EditAgentDialog
-            onClose={() => {}}
-            {...(mode === "edit"
-              ? { agent, initialSection: "instructions" as const }
-              : {
-                  deskIndex: 0,
-                  roomId: room.id,
-                  defaultCwd: "~",
-                  spawnAgentType:
-                    mode === "spawn-codex"
-                      ? ("codex" as const)
-                      : ("claude" as const),
-                })}
-          />,
+          mode === "edit" ? (
+            settingsAt({
+              kind: "agent",
+              agentId: agent.id,
+              part: "instructions",
+            })
+          ) : (
+            <EditAgentDialog
+              onClose={() => {}}
+              deskIndex={0}
+              roomId={room.id}
+              defaultCwd="~"
+              spawnAgentType={mode === "spawn-codex" ? "codex" : "claude"}
+            />
+          ),
           {
             rooms: [room],
             agents: mode === "edit" ? [agent] : [],
@@ -301,17 +306,21 @@ describe("agent form instructions fields", () => {
       const view = render(
         onLanguage(
           "en",
-          <EditAgentDialog
-            onClose={() => {}}
-            {...(mode === "edit"
-              ? { agent, initialSection: "instructions" as const }
-              : {
-                  deskIndex: 0,
-                  roomId: room.id,
-                  defaultCwd: "~",
-                  spawnAgentType: "claude" as const,
-                })}
-          />,
+          mode === "edit" ? (
+            settingsAt({
+              kind: "agent",
+              agentId: agent.id,
+              part: "instructions",
+            })
+          ) : (
+            <EditAgentDialog
+              onClose={() => {}}
+              deskIndex={0}
+              roomId={room.id}
+              defaultCwd="~"
+              spawnAgentType="claude"
+            />
+          ),
           {
             rooms: [room],
             agents: mode === "edit" ? [agent] : [],
@@ -336,7 +345,7 @@ describe("agent form instructions fields", () => {
       // The page's Save, or the spawn dialog's last button (Spawn).
       await act(async () => {
         fireEvent.click(
-          view.container.querySelector("[data-agent-settings-save]") ??
+          view.container.querySelector("[data-settings-save]") ??
             [...view.container.querySelectorAll("button")].at(-1)!,
         );
       });

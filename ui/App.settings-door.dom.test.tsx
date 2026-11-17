@@ -2,8 +2,9 @@
 // 2026-11-14: "if the settings page is already open, clicking the settings
 // icon on a member doesn't move to that member's settings page"). The desktop
 // sidebar's member and room settings buttons stay clickable beside the open
-// page. Each click shows that member or room, wherever the page stood (on
-// You, on another member, on Theme), and opens the group that holds it. An
+// page. Each click drills Settings into that member or room (task
+// 1f79f2e3), wherever the page stood (on You, on another member, on Theme);
+// its back row shows the list with the group that holds it open. An
 // unsaved edit is asked about first: Cancel keeps the page and the edit,
 // Discard goes on to the member. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
@@ -60,14 +61,19 @@ async function bootOwner(): Promise<View> {
 const settingsPage = (view: View) =>
   view.baseElement.querySelector('[data-testid="settings-content"]');
 
-/** Where the Settings page stands: the rows its own list marks as current
- *  (a member row by its name), the heading of the member editor if one
- *  shows, and which of the Members and Rooms groups are open. */
+/** Where the Settings page stands: the item it is drilled into (task
+ *  1f79f2e3) and its open part, the rows its own list marks as current (a
+ *  member row by its name), and which of the Members and Rooms groups are
+ *  open (none shows while an item is drilled in). */
 function where(view: View) {
   const current = [
     ...view.baseElement.querySelectorAll('[aria-current="true"]'),
   ]
-    .filter((el) => el.closest("nav[data-chat-sidebar]") === null)
+    .filter(
+      (el) =>
+        el.closest("nav[data-chat-sidebar]") === null &&
+        !el.hasAttribute("data-settings-part"),
+    )
     .map((el) =>
       (
         el.querySelector('[translate="no"]')?.textContent ??
@@ -80,11 +86,15 @@ function where(view: View) {
       .querySelector(`[data-sidebar-group-toggle="${id}"]`)
       ?.getAttribute("aria-expanded") ?? null;
   return {
+    item:
+      view.baseElement
+        .querySelector("[data-settings-item]")
+        ?.getAttribute("data-settings-item") ?? null,
+    part:
+      view.baseElement
+        .querySelector('button[data-settings-part][aria-current="true"]')
+        ?.getAttribute("data-settings-part") ?? null,
     current,
-    editing:
-      settingsPage(view)
-        ?.querySelector('h4[translate="no"]')
-        ?.textContent?.trim() ?? null,
     members: group("members"),
     rooms: group("rooms"),
   };
@@ -103,19 +113,22 @@ const roomGear = (view: View, roomId: string) =>
 async function openSettingsOnYou(view: View): Promise<void> {
   await click(navRow(view, "settings"));
   expect(settingsPage(view)).not.toBeNull();
+  // Your own Profile row: one of your parts, not a drill-in.
   expect(where(view)).toEqual({
-    current: [en["settings.sidebar.profile"]],
-    editing: "member",
+    item: null,
+    part: "profile",
+    current: [],
     members: "false",
     rooms: "false",
   });
 }
 
 const BEA = {
-  current: ["Bea"],
-  editing: "Bea",
-  members: "true",
-  rooms: "false",
+  item: "user:u3",
+  part: "profile",
+  current: [],
+  members: null,
+  rooms: null,
 };
 
 it("a member's settings button over Settings open on You, then on another member, shows each member in the opened Members group", async () => {
@@ -127,9 +140,14 @@ it("a member's settings button over Settings open on You, then on another member
   expect(where(view)).toEqual(BEA);
 
   await click(memberGear(view, "u2"));
+  expect(where(view)).toEqual({ ...BEA, item: "user:u2" });
+
+  // Back to the Settings list, with the Members group the door opened.
+  await click(view.baseElement.querySelector("button[data-settings-back]"));
   expect(where(view)).toEqual({
-    current: ["Ann"],
-    editing: "Ann",
+    item: null,
+    part: null,
+    current: [],
     members: "true",
     rooms: "false",
   });
@@ -147,18 +165,20 @@ it("a room's settings button over Settings open on Theme shows that room, in the
   );
   await click(theme ?? null);
   expect(where(view)).toEqual({
+    item: null,
+    part: null,
     current: [en["common.theme"]],
-    editing: null,
     members: "false",
     rooms: "false",
   });
 
   await click(roomGear(view, "r2"));
   expect(where(view)).toEqual({
-    current: ["Second room"],
-    editing: null,
-    members: "false",
-    rooms: "true",
+    item: "room:r2",
+    part: "general",
+    current: [],
+    members: null,
+    rooms: null,
   });
 
   // A member's button next: the member, not the room. Each door is a new
@@ -190,13 +210,15 @@ it("a member's settings button over an unsaved edit asks first: Cancel keeps the
 
   await click(memberGear(view, "u3"));
   expect(prompt()).not.toBeNull();
-  expect(where(view).editing).toBe("member");
+  expect(where(view).part).toBe("profile");
+  expect(where(view).item).toBeNull();
 
   await click(promptButton(en["common.cancel"]));
   expect(prompt()).toBeNull();
   expect(where(view)).toEqual({
-    current: [en["settings.sidebar.profile"]],
-    editing: "member",
+    item: null,
+    part: "profile",
+    current: [],
     members: "false",
     rooms: "false",
   });

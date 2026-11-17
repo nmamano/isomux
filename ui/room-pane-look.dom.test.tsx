@@ -7,7 +7,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { RoomPane } = await import("./components/RoomPane.tsx");
+const { RoomPaneHost } = await import("./test-support/settings-item.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -30,7 +30,11 @@ function mount(room: RoomWire) {
   return render(
     onLanguage(
       null,
-      createElement(RoomPane, { roomId: room.id, onDeleted() {} }),
+      createElement(RoomPaneHost, {
+        part: "appearance",
+        roomId: room.id,
+        onDeleted() {},
+      }),
       { rooms: [room] },
     ),
   );

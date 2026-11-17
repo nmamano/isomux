@@ -66,7 +66,9 @@ const page = (over: Over, store: StoreRooms = {}, initialUserId?: string) =>
     createElement(UserSettingsView, {
       onSwitchUser: () => {},
       onClose: () => {},
-      initialUserId,
+      // The Rooms table is on the member's Rooms part (task 1f79f2e3); the
+      // page is your own unless a member is named.
+      initialTarget: { kind: "user", id: initialUserId ?? "u1", part: "rooms" },
     }),
     {
       rooms,

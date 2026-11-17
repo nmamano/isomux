@@ -5,7 +5,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { RoomPane } = await import("./components/RoomPane.tsx");
+const { RoomPaneHost } = await import("./test-support/settings-item.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
@@ -33,7 +33,8 @@ it("Delete empty room arms on the first click and sends nothing; the second dele
   const view = render(
     onLanguage(
       "en",
-      createElement(RoomPane, {
+      createElement(RoomPaneHost, {
+        part: "general",
         roomId: room.id,
         onDeleted() {
           deletedCalls++;

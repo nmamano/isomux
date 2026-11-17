@@ -1,0 +1,251 @@
+// A listed item's settings inside Settings (task 1f79f2e3; the agent's page
+// before it, task 59538509): a member, a room or an agent lists its parts in
+// the list column, under a back row to the Settings list, and the pane shows
+// the open part over the item's one footer. Each editor (UserEditPanel,
+// RoomPane, EditAgentDialog) hands its parts, body and footer to its parent
+// as a SettingsItemView; UserSettingsView wraps every one of them here, so
+// the three items share one layout and one Escape owner.
+
+import { useEffect, type MutableRefObject, type ReactNode } from "react";
+import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
+import { SidebarGroupRows, type SidebarRow } from "./SidebarGroups.tsx";
+import { SidebarPage } from "./SidebarPage.tsx";
+import { UnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
+import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
+
+/** What an item's editor hands its parent. */
+export interface SettingsItemView<P extends string = string> {
+  // The parts the viewer gets, in order; `dirty` marks a part that holds an
+  // unsaved edit (ui/settings-parts.ts).
+  parts: { id: P; label: string; dirty: boolean }[];
+  // The open part; null shows the part list (a phone).
+  part: P | null;
+  // Beside the page title: the item's name (and the agent's place).
+  subtitle: ReactNode;
+  // The open part's fields.
+  body: ReactNode;
+  // The item's one footer (SettingsSaveFooter): Save writes every part.
+  footer: ReactNode;
+  // The item's discard prompt.
+  prompt: { open: boolean; discard: () => void; cancel: () => void };
+  // A save is in flight: Escape does not leave.
+  busy: boolean;
+}
+
+/** What the page's Escape needs of the open item, kept fresh by the page. */
+export interface SettingsItemEscape {
+  prompt: { open: boolean; cancel: () => void };
+  part: string | null;
+  busy: boolean;
+  onPart: (part: null) => void;
+}
+
+/** The open part's body, marked with its part. */
+export function SettingsPartBody({
+  part,
+  children,
+}: {
+  part: string;
+  children: ReactNode;
+}) {
+  return <div data-settings-part-body={part}>{children}</div>;
+}
+
+/** The part rows of an item, as sidebar rows. */
+export function partRows<P extends string>(
+  view: SettingsItemView<P>,
+): SidebarRow<P>[] {
+  return view.parts.map((p) => ({
+    key: p.id,
+    label: p.label,
+    selected: p.id === view.part,
+    target: p.id,
+    dirty: p.dirty,
+  }));
+}
+
+/** The data attributes of a part row. */
+export function partRowAttrs<P extends string>(
+  row: SidebarRow<P>,
+): Record<string, string> {
+  return {
+    "data-settings-part": row.target,
+    ...(row.dirty ? { "data-settings-part-dirty": "" } : {}),
+  };
+}
+
+export function SettingsItemPage<P extends string>({
+  item,
+  backLabel,
+  view,
+  onPart,
+  onBackToSettings,
+  onClose,
+  escapeRef,
+}: {
+  // data-settings-item: "<kind>:<id>", or "newMember".
+  item: string;
+  // The phone back row from a part to the part list: the item's name.
+  backLabel: string;
+  view: SettingsItemView<P>;
+  onPart: (part: P | null) => void;
+  // The back row to the Settings list; the parent routes it through the
+  // item's discard prompt.
+  onBackToSettings: () => void;
+  onClose: () => void;
+  escapeRef: MutableRefObject<SettingsItemEscape | null>;
+}) {
+  const { isMobile } = useAppState();
+  const { t } = useI18n();
+  const title = t("common.settings");
+  // No deps: the page's Escape reads the latest state.
+  useEffect(() => {
+    escapeRef.current = {
+      prompt: view.prompt,
+      part: view.part,
+      busy: view.busy,
+      onPart: () => onPart(null),
+    };
+    return () => {
+      escapeRef.current = null;
+    };
+  });
+  const shown = view.part !== null;
+  return (
+    <SidebarPage
+      rootAttrs={{ "data-settings-item": item }}
+      detailAttrs={{ "data-testid": "settings-content" }}
+      title={title}
+      subtitle={view.subtitle}
+      onClose={onClose}
+      listShown={!shown}
+      onBackToList={() => onPart(null)}
+      backLabel={backLabel}
+      listLabel={title}
+      list={
+        <>
+          <button
+            data-settings-back=""
+            onClick={onBackToSettings}
+            style={{
+              alignSelf: "flex-start",
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              fontSize: 13,
+              cursor: "pointer",
+              padding: "0 14px 10px",
+            }}
+          >
+            &larr; {t("common.settings")}
+          </button>
+          <SidebarGroupRows
+            group={{ id: "item", rows: partRows(view) }}
+            first
+            onSelect={onPart}
+            rowAttrs={partRowAttrs}
+          />
+          {/* A phone showing the list has no footer: an exit that waits on
+              the discard prompt shows it here. */}
+          {!shown && view.prompt.open && (
+            <div style={{ padding: "0 16px" }}>
+              <UnsavedChangesPrompt
+                onDiscard={view.prompt.discard}
+                onCancel={view.prompt.cancel}
+              />
+            </div>
+          )}
+        </>
+      }
+    >
+      {shown && (
+        <>
+          <div
+            className="agent-settings-page-body"
+            style={{
+              flex: 1,
+              maxWidth: 900,
+              width: "100%",
+              boxSizing: "border-box",
+              padding: isMobile ? "14px 16px 24px" : "20px 24px 24px",
+            }}
+          >
+            <SettingsPartBody part={view.part!}>{view.body}</SettingsPartBody>
+          </div>
+          {view.footer}
+        </>
+      )}
+    </SidebarPage>
+  );
+}
+
+/** The sticky footer of an item: the refused save's reason, the discard
+ *  prompt, Cancel and Save. Save writes every part. */
+export function SettingsSaveFooter({
+  error,
+  prompt,
+  cancel,
+  save,
+}: {
+  error: ReactNode;
+  prompt: { open: boolean; discard: () => void; cancel: () => void };
+  cancel: { onClick: () => void; disabled: boolean };
+  save: { onClick: () => void; disabled: boolean; label: string };
+}) {
+  const { isMobile } = useAppState();
+  const { t } = useI18n();
+  return (
+    <div
+      style={{
+        position: "sticky",
+        bottom: 0,
+        marginTop: "auto",
+        padding: isMobile
+          ? "12px 16px max(12px, env(safe-area-inset-bottom))"
+          : "12px 24px",
+        borderTop: "1px solid var(--border)",
+        background: "var(--bg-base)",
+      }}
+    >
+      {error && (
+        <p
+          role="alert"
+          style={{
+            fontSize: 12,
+            color: "var(--red-text)",
+            margin: "0 0 10px",
+            lineHeight: 1.4,
+          }}
+        >
+          {error}
+        </p>
+      )}
+      {prompt.open && (
+        <div style={{ marginBottom: 10 }}>
+          <UnsavedChangesPrompt
+            onDiscard={prompt.discard}
+            onCancel={prompt.cancel}
+          />
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button
+          onClick={cancel.onClick}
+          style={dialogCancelBtn}
+          disabled={cancel.disabled}
+        >
+          {t("common.cancel")}
+        </button>
+        <button
+          data-settings-save=""
+          onClick={save.onClick}
+          style={dialogSaveBtn}
+          disabled={save.disabled}
+        >
+          {save.label}
+        </button>
+      </div>
+    </div>
+  );
+}

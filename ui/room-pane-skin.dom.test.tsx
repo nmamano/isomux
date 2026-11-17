@@ -3,7 +3,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { RoomPane } = await import("./components/RoomPane.tsx");
+const { RoomPaneHost } = await import("./test-support/settings-item.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -24,7 +24,11 @@ function mount(room: RoomWire) {
   return render(
     onLanguage(
       null,
-      createElement(RoomPane, { roomId: room.id, onDeleted() {} }),
+      createElement(RoomPaneHost, {
+        part: "appearance",
+        roomId: room.id,
+        onDeleted() {},
+      }),
       { rooms: [room] },
     ),
   );
@@ -97,13 +101,22 @@ it("draws every tile, sends nothing untouched, and saves a preset with the name"
   await save(view);
   expect(patches()).toHaveLength(0);
 
+  // The name is on General (task 1f79f2e3); the edit stays across parts.
+  const openPart = (part: string) =>
+    act(async () =>
+      fireEvent.click(
+        view.container.querySelector(`button[data-settings-part="${part}"]`)!,
+      ),
+    );
+  await openPart("general");
   await act(async () =>
     // The name input has no label association of its own (it predates this
-    // pane's labelled controls), so it is queried as the pane's one text input.
+    // pane's labelled controls), so it is queried as General's first input.
     fireEvent.change(view.container.querySelector("input")!, {
       target: { value: "Ward B" },
     }),
   );
+  await openPart("appearance");
   await pick(view, "preset", "office");
   expect(cancelDisabled(view)).toBe(false);
   // The staged preset draws its own values at once.

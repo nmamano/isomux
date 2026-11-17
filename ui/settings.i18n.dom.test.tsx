@@ -210,11 +210,11 @@ describe("the settings page", () => {
     expect(view.queryByText(CA.signOut)).not.toBeNull();
     expect(view.queryByText(STORAGE.en)).toBeNull();
 
-    // Desktop opens on the signed-in user's editor, on the Profile row; the
-    // Members group stays collapsed, so the editor heading alone names them.
+    // Desktop opens on the signed-in user's editor, on the Profile row. The
+    // Members group stays collapsed, so no "(you)" shows: the editor has no
+    // heading of its own since task 1f79f2e3.
     expect(view.queryByText(CA.identity)).not.toBeNull();
     expect(row(view, CA.profile).getAttribute("aria-current")).toBe("true");
-    expect(view.queryAllByText(CA.self).length).toBe(1);
 
     // Its inline discard prompt, in Catalan, holds the navigation until
     // Discard is pressed.
@@ -269,7 +269,13 @@ describe("the settings page", () => {
     fireEvent.click(
       view.container.querySelector('[data-sidebar-group-toggle="rooms"]')!,
     );
-    open(view, ROOM.name);
+    // The room drills the list column into its parts (task 1f79f2e3).
+    fireEvent.click(row(view, ROOM.name));
+    expect(
+      view.container
+        .querySelector("[data-settings-item]")
+        ?.getAttribute("data-settings-item"),
+    ).toBe(`room:${ROOM.id}`);
     expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
     const caParagraphs = paragraphs(view);
 
@@ -277,11 +283,15 @@ describe("the settings page", () => {
     view.rerender(page("es"));
     expect(view.queryByText(SETTINGS.es)).not.toBeNull();
     expect(view.queryByText(SETTINGS.ca)).toBeNull();
+    expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
+    expect(paragraphs(view)).not.toEqual(caParagraphs);
+    // Back to the Settings list, in Spanish, for the next pane.
+    fireEvent.click(
+      view.container.querySelector("button[data-settings-back]")!,
+    );
     expect(
       view.queryByText(translationsFor("settings.sidebar.usage").es),
     ).not.toBeNull();
-    expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
-    expect(paragraphs(view)).not.toEqual(caParagraphs);
     open(view, STORAGE.es);
     await settle();
     expect(heading(view, STORAGE_TITLE.es, "H3")).toBe(true);

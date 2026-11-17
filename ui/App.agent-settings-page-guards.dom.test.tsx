@@ -40,7 +40,7 @@ const {
 
 setUpChatSidebarTests();
 
-it("the page keys do nothing while the page shows; a sidebar page row asks about an unsaved edit, then leaves to that page", async () => {
+it("the page keys do nothing while Settings shows the agent; a sidebar page row asks about an unsaved edit, then leaves to that page", async () => {
   const view = await boot();
   await openFirstDesk(view);
   await click(headerName(view));
@@ -52,7 +52,8 @@ it("the page keys do nothing while the page shows; a sidebar page row asks about
       tasks: false,
     });
   }
-  expect(settingsOpen(view)).toBe(false);
+  // The agent's page is Settings drilled into it (task 1f79f2e3).
+  expect(settingsOpen(view)).toBe(true);
 
   await openSection(view, "profile");
   await typeName(view, "Unsaved");
@@ -69,7 +70,7 @@ it("the page keys do nothing while the page shows; a sidebar page row asks about
   });
 });
 
-it("the page over Tasks: Close returns to Tasks, and Back from Tasks drops the page with it", async () => {
+it("the page over Tasks: Close returns to Tasks, and Back returns to Tasks too", async () => {
   const view = await boot();
   await openFirstDesk(view);
   await click(navRow(view, "tasks"));
@@ -92,13 +93,15 @@ it("the page over Tasks: Close returns to Tasks, and Back from Tasks drops the p
     window.history.back();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+  // Settings is a page on the stack above Tasks (task 1f79f2e3): Back pops
+  // it, as Close does.
   expect({ page: pageAgent(view), tasks: tasksOpen(view) }).toEqual({
     page: null,
-    tasks: false,
+    tasks: true,
   });
 });
 
-it("Settings with an unsaved room edit: an agent's settings button asks Settings first, and opens the page only on Discard", async () => {
+it("Settings with an unsaved room edit: an agent's settings button asks first, and drills Settings into the agent only on Discard", async () => {
   setRole("owner");
   setSelfUser({ role: "owner" });
   const view = await boot();
@@ -130,7 +133,7 @@ it("Settings with an unsaved room edit: an agent's settings button asks Settings
   }).toEqual({ settings: true, page: null, prompt: true });
   await discard(view);
   expect({ settings: settingsOpen(view), page: pageAgent(view) }).toEqual({
-    settings: false,
+    settings: true,
     page: scout.id,
   });
 });

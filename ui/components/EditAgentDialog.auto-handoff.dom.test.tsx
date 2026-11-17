@@ -21,7 +21,7 @@ const field = (container: HTMLElement) =>
 // The page's Save, or the spawn dialog's last button (Spawn).
 async function save(container: HTMLElement) {
   fireEvent.click(
-    container.querySelector("[data-agent-settings-save]") ??
+    container.querySelector("[data-settings-save]") ??
       [...container.querySelectorAll("button")].at(-1)!,
   );
   await settle();

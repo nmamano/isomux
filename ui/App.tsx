@@ -192,13 +192,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     y: number;
     agent: AgentInfo;
   } | null>(null);
-  // The Agent settings page (task 59538509): the agent, the section a door
-  // named, and the view it opened over (agentPageView below).
-  const [agentPage, setAgentPage] = useState<{
-    agentId: string;
-    section?: AgentSettingsSection;
-    over: string;
-  } | null>(null);
   // The desktop chat sidebar (task c61316be): open or collapsed, as this
   // device last chose, else by the window's width.
   const [sidebarOpen, setSidebarOpenState] = useState(() =>
@@ -538,31 +531,6 @@ export function App({ routing = true }: { routing?: boolean }) {
   const focusedInBack = !!focusedAgent && isBackSeat(focusedAgent.desk);
   if (focusedInBack && !backRoomOpen) setBackRoomOpen(true);
 
-  // The Agent settings page shows in the place of the view it opened over,
-  // and only while that view is the one under it: whatever changes the view
-  // (Back, a chat, the office, an ask link) drops the page with it. An agent
-  // that is gone drops it too.
-  const agentPageView = [
-    page ?? "",
-    focusedAgentId ?? "",
-    openHumanChat ? humanChatId(openHumanChat) : "",
-    backRoomOpen ? "back" : "front",
-    currentRoomId ?? "",
-  ].join("|");
-  const agentPageAgent = agentPage
-    ? (agents.find((a) => a.id === agentPage.agentId) ?? null)
-    : null;
-  if (
-    agentPage &&
-    (agentPage.over !== agentPageView || agentPageAgent === null)
-  )
-    setAgentPage(null);
-  const agentPageShown = agentPage !== null && agentPageAgent !== null;
-  // Opens an agent's settings over the view that shows now. The doors that
-  // can leave a page with unsaved edits go through leaveThen first.
-  const openAgentSettings = (agentId: string, section?: AgentSettingsSection) =>
-    setAgentPage({ agentId, section, over: agentPageView });
-
   // Keep the browser tab title in sync with what's open - the focused agent,
   // else the current room, else the office name - so tabs on different agents
   // or rooms are distinguishable. The server renders the office name into
@@ -699,6 +667,18 @@ export function App({ routing = true }: { routing?: boolean }) {
       changePages({ type: "open", page: "settings" });
     },
     [changePages],
+  );
+  // An agent's doors open Settings drilled into the agent (task 1f79f2e3),
+  // on the section a door names. The doors that can leave a page with
+  // unsaved edits go through leaveThen first.
+  const openAgentSettings = useCallback(
+    (agentId: string, section?: AgentSettingsSection) =>
+      openSettings({
+        kind: "agent",
+        agentId,
+        ...(section ? { part: section } : {}),
+      }),
+    [openSettings],
   );
 
   const openIntegrations = useCallback(
@@ -977,6 +957,14 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
 
   // Keyboard shortcuts: Escape → office, 1-8 → jump to agent at desk
+  // A menu or a dialog is open over the page: Escape and the view keys are
+  // theirs, not Settings'.
+  const settingsCovered =
+    page === "settings" &&
+    (ctxMenu !== null ||
+      sidebarSpawn !== null ||
+      spawnPickerDesk !== null ||
+      spawnBackOpen);
   useEffect(() => {
     function isInputTarget(target: EventTarget | null) {
       const tag = (target as HTMLElement)?.tagName;
@@ -1007,7 +995,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     // does nothing.
     function handleKeyUp(e: KeyboardEvent) {
       if (!loneShift.keyup(e.key)) return;
-      if (agentPageShown) return;
       const backRoomKey = backRoomShortcut(
         {
           key: e.key,
@@ -1022,12 +1009,9 @@ export function App({ routing = true }: { routing?: boolean }) {
       if (backRoomKey === "close") goHome();
     }
     function handleKey(e: KeyboardEvent) {
-      // The Agent settings page holds a form over the view: no view key
-      // may change the view under it (its own Escape goes through its
-      // discard prompt, or to a menu or dialog over it). Leaving it must
-      // pass its guard, as on Settings.
-      if (agentPageShown) {
-        // Over the page, Escape closes the menu over it.
+      // A menu or a dialog over Settings holds the keys; Escape closes the
+      // menu (a dialog takes its own), never the page under it.
+      if (settingsCovered) {
         if (e.key === "Escape") setCtxMenu(null);
         return;
       }
@@ -1186,7 +1170,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     openSettings,
     lobbyOpen,
     backRoomOpen,
-    agentPageShown,
+    settingsCovered,
     page,
     loneShift,
   ]);
@@ -1328,32 +1312,16 @@ export function App({ routing = true }: { routing?: boolean }) {
   // pin buttons and the desk menu, so a pin from either builds on the other.
   const pins = useSidebarPins();
 
-  // The pages and the chat, as before the sidebar. The Agent settings page
-  // takes the place of the view it opened over.
+  // The pages and the chat, as before the sidebar.
   const content =
-    agentPage && agentPageAgent ? (
-      <EditAgentDialog
-        // One form per agent: another agent's page starts from its own.
-        key={agentPageAgent.id}
-        // The live record, so a change the server sends while the page is
-        // open (limitedClaudeFamilies after a variables save) reaches it.
-        agent={agentPageAgent}
-        initialSection={agentPage.section}
-        covered={
-          ctxMenu !== null ||
-          sidebarSpawn !== null ||
-          spawnPickerDesk !== null ||
-          spawnBackOpen
-        }
-        onClose={() => setAgentPage(null)}
-      />
-    ) : page === "settings" ? (
+    page === "settings" ? (
       <UserSettingsView
         key={settingsDoor}
         initialUserId={editingUserId}
         initialTarget={settingsTarget}
         onSwitchUser={(name) => setUsername(name)}
         onClose={closePage}
+        covered={settingsCovered}
       />
     ) : page === "tasks" ? (
       <TaskView

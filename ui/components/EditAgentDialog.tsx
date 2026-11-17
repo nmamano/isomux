@@ -1,6 +1,12 @@
 import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import {
   AUTO_HANDOFF_DEFAULT_TOKENS,
   AUTO_HANDOFF_TOKENS_MAX,
@@ -67,7 +73,16 @@ import {
 } from "./dialog-styles.ts";
 import { SystemPromptButton } from "./SystemPromptButton.tsx";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
-import { AgentSettingsPage } from "./AgentSettingsPage.tsx";
+import {
+  SettingsSaveFooter,
+  type SettingsItemView,
+} from "./SettingsItemPage.tsx";
+import {
+  AGENT_FIELD_PART,
+  dirtyParts,
+  resolvePart,
+  type AgentField,
+} from "../settings-parts.ts";
 import { AccessSlider } from "./AccessSlider.tsx";
 import {
   agentAccessOf,
@@ -234,10 +249,22 @@ export function agentFormDirty(
   baseline: AgentFormSnapshot,
   memoryDirty: boolean,
 ): boolean {
-  if (memoryDirty) return true;
+  return agentDirtyFields(current, baseline, memoryDirty).length > 0;
+}
+
+// The fields whose edits closing would throw away, by the rules of
+// agentFormDirty: the parts' unsaved-edits dots read them through
+// AGENT_FIELD_PART (ui/settings-parts.ts).
+export function agentDirtyFields(
+  current: AgentFormSnapshot,
+  baseline: AgentFormSnapshot,
+  memoryDirty: boolean,
+): AgentField[] {
+  const fields: AgentField[] = [];
+  if (memoryDirty) fields.push("memory");
   const trimmed = ["name", "cwd", "customInstructions"] as const;
   for (const k of trimmed) {
-    if (current[k].trim() !== baseline[k].trim()) return true;
+    if (current[k].trim() !== baseline[k].trim()) fields.push(k);
   }
   const exact = [
     "outfit",
@@ -252,15 +279,15 @@ export function agentFormDirty(
     "autoHandoff",
   ] as const;
   for (const k of exact) {
-    if (current[k] !== baseline[k]) return true;
+    if (current[k] !== baseline[k]) fields.push(k);
   }
   // The threshold field shows only while the switch is on.
   if (
     current.autoHandoff &&
     current.autoHandoffTokens !== baseline.autoHandoffTokens
   )
-    return true;
-  return false;
+    fields.push("autoHandoffTokens");
+  return fields;
 }
 
 // The threshold field in thousands of tokens, as tokens: null unless it is a
@@ -289,11 +316,17 @@ type EditAgentDialogProps = {
 } & (
   | {
       agent: AgentInfo;
-      // The section the Agent settings page opens on. Absent: Model and
-      // behavior on a desktop, the section list on a phone.
-      initialSection?: AgentSettingsSection;
-      // A menu or a dialog is open over the page: Escape is theirs.
-      covered?: boolean;
+      // The open section under Settings (task 1f79f2e3). Absent: Model and
+      // behavior on a desktop, the section list on a phone; null: the list.
+      part: AgentSettingsSection | null | undefined;
+      onPart: (part: AgentSettingsSection | null) => void;
+      // Settings routes every way out of the agent through this form's
+      // discard prompt.
+      closeRef: MutableRefObject<((after?: () => void) => void) | null>;
+      // Leaves Settings (Move to Room does, as the page did before).
+      onClosePage: () => void;
+      // Settings draws the item page around the form's parts.
+      children: (view: SettingsItemView<AgentSettingsSection>) => ReactNode;
       deskIndex?: undefined;
       roomId?: undefined;
       defaultCwd?: undefined;
@@ -301,8 +334,11 @@ type EditAgentDialogProps = {
     }
   | {
       agent?: undefined;
-      initialSection?: undefined;
-      covered?: undefined;
+      part?: undefined;
+      onPart?: undefined;
+      closeRef?: undefined;
+      onClosePage?: undefined;
+      children?: undefined;
       // A front desk, or null for a back room seat (the back screen's
       // "+ New agent").
       deskIndex: number | null;
@@ -320,6 +356,9 @@ type PageState = {
   onRevert: () => void;
 };
 
+// The section a page opens on when Settings names none (Nil, 2026-11-16).
+const DEFAULT_AGENT_SECTION: AgentSettingsSection = "engine";
+
 // An agent's settings open as a full page; a new agent's form is a dialog
 // (task 59538509).
 export function EditAgentDialog(props: EditAgentDialogProps) {
@@ -332,8 +371,11 @@ function AgentSettingsEditor(
 ) {
   const { isMobile } = useAppState();
   // A phone opens on the section list unless the door named a section.
-  const [section, setSection] = useState<AgentSettingsSection | null>(
-    props.initialSection ?? (isMobile ? null : "engine"),
+  const section = resolvePart(
+    props.part,
+    AGENT_SETTINGS_SECTIONS,
+    isMobile,
+    DEFAULT_AGENT_SECTION,
   );
   const [formKey, setFormKey] = useState(0);
   return (
@@ -342,7 +384,7 @@ function AgentSettingsEditor(
       {...props}
       page={{
         section,
-        onSection: setSection,
+        onSection: props.onPart,
         onRevert: () => setFormKey((key) => key + 1),
       }}
     />
@@ -787,6 +829,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
   // runs after it, also when a save makes the form clean first.
   const leavePrompt = useUnsavedChangesPrompt(!isSpawn && dirty, {
     onLeave: onClose,
+    ...(props.closeRef ? { closeRef: props.closeRef } : {}),
   });
   // When the last save went through, while nothing changed since: Save says
   // Saved.
@@ -879,16 +922,9 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
       // An expanded textarea overlay collapses on Escape instead of closing
       // this dialog; our capture listener runs first, so stand down for it.
       if (isExpandedEditorOpen()) return;
-      if (page && props.covered) return;
+      // Under Settings, Escape is the page's (UserSettingsView).
+      if (page) return;
       e.stopPropagation();
-      if (page) {
-        // The page: the prompt first, then a phone's section goes back to
-        // the list, then the page closes to the view under it.
-        if (leavePrompt.open) leavePrompt.cancel();
-        else if (isMobile && page.section !== null) page.onSection(null);
-        else if (!saving) requestClose();
-        return;
-      }
       if (templateListOpen) {
         closeTemplateList();
         return;
@@ -1194,8 +1230,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             : null;
       setSaveError({ message: msg, field });
       // On the page the field may be in another section: open it.
-      if (page && field !== null)
-        page.onSection(field === "name" ? "profile" : "access");
+      if (page && field !== null) page.onSection(AGENT_FIELD_PART[field]);
     };
 
     if (isSpawn) {
@@ -1734,6 +1769,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         targetRoomId,
         ...(desk !== undefined && { desk }),
       } satisfies MoveAgentReq).catch(() => {});
+      props.onClosePage?.();
     });
   const moveButtonStyle = (
     disabled: boolean,
@@ -2346,69 +2382,91 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
               ? t("dialogs.agent.backRoom")
               : t("dialogs.agent.desk", { desk: agent!.desk + 1 })
           }`;
-    return (
-      <AgentSettingsPage
-        agentId={agent!.id}
-        title={t("dialogs.agent.titleEdit")}
-        subtitle={
-          <>
-            <span {...noTranslate()}>{agent!.name}</span> &middot; {place}
-          </>
-        }
-        sections={[
-          {
-            id: "profile",
-            label: t("settings.sidebar.profile"),
-            body: (
-              <>
-                {/* The other sections open on their title; Name has none of
-                    its own. */}
-                <h4 className="agent-settings-group-title">
-                  {t("settings.sidebar.profile")}
-                </h4>
-                {identitySection}
-                {appearanceSection}
-              </>
-            ),
-          },
-          {
-            id: "engine",
-            label: t("dialogs.agent.group.engine"),
-            body: engineSection,
-          },
-          {
-            id: "instructions",
-            label: t("common.instructionsAndMemory"),
-            body: instructionsSection,
-          },
-          {
-            id: "access",
-            label: t("dialogs.agent.group.access"),
-            body: accessSection,
-          },
-        ]}
-        section={page.section}
-        onSection={page.onSection}
-        onClose={() => requestClose()}
-        guard={(after) => leavePrompt.request(after)}
-        saveError={
-          saveError && (
-            <>
-              {saveError.message}
-              {saveError.field === "cwd" &&
-                ` ${t("dialogs.agent.chooseAnotherFolder")}`}
-            </>
-          )
-        }
-        leavePrompt={leavePrompt}
-        dirty={dirty}
-        saving={saving}
-        saved={savedAt !== null}
-        saveBlocked={!openCodeModelReady || engineChoiceBlocked}
-        onRevert={page.onRevert}
-        onSave={handleSave}
-      />
+    // The parts with an unsaved edit, from the same field table a refused
+    // save opens its part by.
+    const dirtySections = dirtyParts(
+      AGENT_FIELD_PART,
+      // eslint-disable-next-line react-hooks/refs
+      agentDirtyFields(formSnapshot, baselineRef.current, mem.dirty),
     );
+    const sections: {
+      id: AgentSettingsSection;
+      label: string;
+      body: ReactNode;
+    }[] = [
+      {
+        id: "profile",
+        label: t("settings.sidebar.profile"),
+        body: (
+          <>
+            {/* The other sections open on their title; Name has none of
+                its own. */}
+            <h4 className="agent-settings-group-title">
+              {t("settings.sidebar.profile")}
+            </h4>
+            {identitySection}
+            {appearanceSection}
+          </>
+        ),
+      },
+      {
+        id: "engine",
+        label: t("dialogs.agent.group.engine"),
+        body: engineSection,
+      },
+      {
+        id: "instructions",
+        label: t("common.instructionsAndMemory"),
+        body: instructionsSection,
+      },
+      {
+        id: "access",
+        label: t("dialogs.agent.group.access"),
+        body: accessSection,
+      },
+    ];
+    return props.children!({
+      parts: sections.map((s) => ({
+        id: s.id,
+        label: s.label,
+        dirty: dirtySections.has(s.id),
+      })),
+      part: page.section,
+      body: sections.find((s) => s.id === page.section)?.body ?? null,
+      subtitle: (
+        <>
+          <span {...noTranslate()}>{agent!.name}</span> &middot; {place}
+        </>
+      ),
+      footer: (
+        <SettingsSaveFooter
+          error={
+            saveError && (
+              <>
+                {saveError.message}
+                {saveError.field === "cwd" &&
+                  ` ${t("dialogs.agent.chooseAnotherFolder")}`}
+              </>
+            )
+          }
+          prompt={leavePrompt}
+          // Cancel throws the edits away and stays, as on the room pane;
+          // the header's close leaves.
+          cancel={{ onClick: page.onRevert, disabled: saving || !dirty }}
+          save={{
+            onClick: handleSave,
+            disabled: saving || !openCodeModelReady || engineChoiceBlocked,
+            label: saving
+              ? t("common.saving")
+              : savedAt !== null && !dirty
+                ? t("common.saved")
+                : t("common.save"),
+          }}
+        />
+      ),
+      prompt: leavePrompt,
+      busy: saving,
+    });
   }
 
   return (

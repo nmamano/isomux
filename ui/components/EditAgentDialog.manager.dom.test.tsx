@@ -8,7 +8,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
+const { settingsAt } = await import("../test-support/settings-item.tsx");
 const { setApiShim } = await import("../api.ts");
 const { onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
@@ -45,11 +45,7 @@ function renderAs(
   return render(
     onLanguage(
       "en",
-      <EditAgentDialog
-        onClose={onClose}
-        agent={agent}
-        initialSection="access"
-      />,
+      settingsAt({ kind: "agent", agentId: agent.id, part: "access" }, onClose),
       {
         rooms: [room],
         agents: [agent],
@@ -106,7 +102,7 @@ function pressEscape() {
 }
 
 async function save(container: HTMLElement) {
-  fireEvent.click(container.querySelector("[data-agent-settings-save]")!);
+  fireEvent.click(container.querySelector("[data-settings-save]")!);
   await settle();
   await settle();
 }

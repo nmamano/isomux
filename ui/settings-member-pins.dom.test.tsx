@@ -18,6 +18,7 @@ const { onLanguage, selfUserRecord } =
   await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { en } = await import("../shared/i18n/en.ts");
+const { openPart } = await import("./test-support/settings-item.tsx");
 import {
   LOBBY_ROOM_ID,
   type AgentInfo,
@@ -93,7 +94,8 @@ function settings(pia: UserRecord) {
     createElement(UserSettingsView, {
       onSwitchUser: () => {},
       onClose: () => {},
-      initialUserId: pia.id,
+      // The Pinned list is on the member's Rooms part (task 1f79f2e3).
+      initialTarget: { kind: "user", id: pia.id, part: "rooms" },
     }),
     {
       users: new Map([self, pia, olaf].map((u) => [u.name.toLowerCase(), u])),
@@ -141,6 +143,31 @@ const saveButton = (root: HTMLElement) =>
     name: new RegExp(`^(${en["common.save"]}|${en["common.saved"]})$`),
   }) as HTMLButtonElement;
 
+/** The parts listed, after visiting each: whether `selector` showed in it. */
+async function inEachPart(
+  view: ReturnType<typeof render>,
+  selector: string,
+): Promise<Record<string, boolean>> {
+  const seen: Record<string, boolean> = {};
+  const ids = [
+    ...view.container.querySelectorAll("button[data-settings-part]"),
+  ].map((b) => b.getAttribute("data-settings-part")!);
+  for (const id of ids) {
+    await act(async () => {
+      await openPart(view.container, id);
+    });
+    seen[id] = view.container.querySelector(selector) !== null;
+  }
+  return seen;
+}
+/** The name field, on Profile (task 1f79f2e3). */
+async function nameField(view: ReturnType<typeof render>) {
+  await act(async () => {
+    await openPart(view.container, "profile");
+  });
+  return view.getByTestId("settings-content").querySelector("input")!;
+}
+
 async function click(el: HTMLElement) {
   await act(async () => {
     fireEvent.click(el);
@@ -157,7 +184,11 @@ it("shows the member's list in order and offers, grouped by room, the agents in 
   const view = render(settings(pia));
   await act(async () => {});
   const detail = view.getByTestId("settings-content");
-  expect(detail.querySelector("h4")?.textContent).toBe("Pia");
+  expect(
+    view.container
+      .querySelector("[data-settings-item]")
+      ?.getAttribute("data-settings-item"),
+  ).toBe("user:u2");
 
   expect(rowKeys(detail)).toEqual(["a1", "member:u3"]);
   expect(row(detail, "a1").textContent).toContain("Agent a1");
@@ -209,10 +240,10 @@ it("pin, move and remove stay a draft; Save sends the whole list once, to the na
   expect(pinWrites().length).toBe(0);
   // With a rename in the same save, the list goes to the name before the
   // rename, and before the rename PATCH moves the route.
-  fireEvent.change(detail.querySelector("input")!, {
+  fireEvent.change(await nameField(view), {
     target: { value: "Pia Two" },
   });
-  await click(saveButton(detail));
+  await click(saveButton(view.getByTestId("settings-content")));
   expect(pinWrites()).toEqual([
     {
       method: "PUT",
@@ -241,9 +272,9 @@ it("a list edited back to the record is not dirty; a save that leaves the list a
   expect(saveButton(detail).disabled).toBe(true);
 
   // A name change only: no list write.
-  const name = detail.querySelector("input")!;
+  const name = await nameField(view);
   fireEvent.change(name, { target: { value: "Pia Two" } });
-  await click(saveButton(detail));
+  await click(saveButton(view.getByTestId("settings-content")));
   expect(writes().length).toBeGreaterThan(0);
   expect(pinWrites().length).toBe(0);
   view.unmount();
@@ -313,7 +344,7 @@ it("no Pinned section on the owner's own page or in the New member form", async 
       createElement(UserSettingsView, {
         onSwitchUser: () => {},
         onClose: () => {},
-        initialUserId: "u1",
+        initialTarget: { kind: "user", id: "u1" },
       }),
       {
         users: new Map([self, pia].map((u) => [u.name.toLowerCase(), u])),
@@ -323,9 +354,13 @@ it("no Pinned section on the owner's own page or in the New member form", async 
     ),
   );
   await act(async () => {});
-  const ownPage = own.getByTestId("settings-content");
-  expect(ownPage.querySelector("h4")?.textContent).toBe("Tester");
-  expect(ownPage.querySelectorAll("[data-member-pins]").length).toBe(0);
+  // The condition: your own rows, in every part of them.
+  expect(await inEachPart(own, "[data-member-pins]")).toEqual({
+    profile: false,
+    access: false,
+    rooms: false,
+    instructions: false,
+  });
   own.unmount();
 
   const fresh = render(
@@ -349,6 +384,12 @@ it("no Pinned section on the owner's own page or in the New member form", async 
   const form = fresh.getByTestId("settings-content");
   // The condition: this is the New member form.
   within(form).getByRole("button", { name: en["settings.members.create"] });
-  expect(form.querySelectorAll("[data-member-pins]").length).toBe(0);
+  expect(await inEachPart(fresh, "[data-member-pins]")).toEqual({
+    profile: false,
+    access: false,
+    rooms: false,
+    instructions: false,
+    chat: false,
+  });
   fresh.unmount();
 });

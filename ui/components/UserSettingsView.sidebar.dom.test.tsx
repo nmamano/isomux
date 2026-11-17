@@ -145,6 +145,20 @@ async function clickToggle(view: View, group: "rooms" | "members") {
   });
 }
 
+// A room, another member and New member drill the list column into their
+// parts (task 1f79f2e3); the back row returns to the list.
+const item = (view: View) =>
+  view.container
+    .querySelector("[data-settings-item]")
+    ?.getAttribute("data-settings-item") ?? null;
+async function back(view: View) {
+  const el = view.container.querySelector("button[data-settings-back]");
+  if (!el) throw new Error("no back row");
+  await act(async () => {
+    fireEvent.click(el);
+  });
+}
+
 const before = (a: Element, b: Element) =>
   (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
@@ -240,8 +254,11 @@ describe("Rooms and Members", () => {
     const view = await mount({
       initialTarget: { kind: "room", roomId: ROOM.id },
     });
+    expect(item(view)).toBe(`room:${ROOM.id}`);
+    // Back on the list, the group that holds the room is open.
+    await back(view);
     expect(expanded(view, "rooms")).toBe("true");
-    expect(roomRow(view)!.getAttribute("aria-current")).toBe("true");
+    expect(roomRow(view)).not.toBeNull();
     expect(expanded(view, "members")).toBe("false");
     // Never a dead header: the click closes the group the selection opened.
     await clickToggle(view, "rooms");
@@ -260,8 +277,10 @@ describe("Rooms and Members", () => {
 
   it("open Members for another member's editor", async () => {
     const other = await mount({ initialUserId: MEMBER.id });
+    expect(item(other)).toBe(`user:${MEMBER.id}`);
+    await back(other);
     expect(expanded(other, "members")).toBe("true");
-    expect(memberRow(other)!.getAttribute("aria-current")).toBe("true");
+    expect(memberRow(other)).not.toBeNull();
     expect(expanded(other, "rooms")).toBe("false");
   });
 });
@@ -307,12 +326,14 @@ describe("New member", () => {
 
   it("keeps Members collapsed when selected", async () => {
     const view = await mount({ initialTarget: { kind: "newMember" } });
+    expect(item(view)).toBe("newMember");
+    await back(view);
     expect(expanded(view, "members")).toBe("false");
     expect(memberRow(view)).toBeNull();
-    expect(newMemberRow(view)!.getAttribute("aria-current")).toBe("true");
+    expect(newMemberRow(view)).not.toBeNull();
   });
 
-  it("stays in place on a click, and the member it creates opens Members", async () => {
+  it("a click drills into the new member, and the member it creates opens Members", async () => {
     const view = await mount();
     expect(expanded(view, "members")).toBe("false");
     expect(newMemberRow(view)).not.toBeNull();
@@ -320,9 +341,7 @@ describe("New member", () => {
     await act(async () => {
       fireEvent.click(newMemberRow(view)!);
     });
-    expect(newMemberRow(view)!.getAttribute("aria-current")).toBe("true");
-    expect(expanded(view, "members")).toBe("false");
-    expect(memberRow(view)).toBeNull();
+    expect(item(view)).toBe("newMember");
 
     const detail = view.getByTestId("settings-content");
     fireEvent.change(detail.querySelector("input")!, {
@@ -335,9 +354,11 @@ describe("New member", () => {
         }),
       );
     });
-    // The new member's row is selected and in view.
+    // The new member shows, and its row is in view on the list.
+    expect(item(view)).toBe(`user:${MEMBER.id}`);
+    await back(view);
     expect(expanded(view, "members")).toBe("true");
-    expect(memberRow(view)!.getAttribute("aria-current")).toBe("true");
+    expect(memberRow(view)).not.toBeNull();
   });
 });
 

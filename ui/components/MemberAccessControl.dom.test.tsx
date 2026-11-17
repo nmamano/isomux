@@ -23,6 +23,7 @@ const { act, fireEvent, render, within } =
   await import("@testing-library/react");
 const { createElement } = await import("react");
 const { UserSettingsView } = await import("./UserSettingsView.tsx");
+const { openPart } = await import("../test-support/settings-item.tsx");
 const { onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
@@ -93,7 +94,8 @@ async function settle() {
   });
 }
 
-// The settings page on `target`'s editor, viewed by the owner Tester.
+// The settings page on `target`'s Access part (task 1f79f2e3), viewed by the
+// owner Tester.
 async function open(target: UserRecord): Promise<View> {
   const users = new Map([[SELF.name.toLowerCase(), SELF]]);
   users.set(target.name.toLowerCase(), target);
@@ -101,7 +103,7 @@ async function open(target: UserRecord): Promise<View> {
     onLanguage(
       "en",
       createElement(UserSettingsView, {
-        initialUserId: target.id,
+        initialTarget: { kind: "user", id: target.id, part: "access" },
         onClose: () => {},
         onSwitchUser: () => {},
       }),
@@ -439,14 +441,21 @@ describe("a new member", () => {
     await click(
       view.getByRole("button", { name: t("settings.members.newMember") }),
     );
-    const detail = view.getByTestId("settings-content");
+    // It opens on Profile, with the name; the level is on Access (task
+    // 1f79f2e3).
+    fireEvent.change(
+      view.getByTestId("settings-content").querySelector("input")!,
+      {
+        target: { value: "Pia" },
+      },
+    );
+    await act(async () => {
+      await openPart(view.container, "access");
+    });
     expect(lit(view)).toBe("full");
     await click(step(view, "workWithAgents"));
-    fireEvent.change(detail.querySelector("input")!, {
-      target: { value: "Pia" },
-    });
     await click(
-      within(detail).getByRole("button", {
+      within(view.getByTestId("settings-content")).getByRole("button", {
         name: t("settings.members.create"),
       }),
     );

@@ -8,6 +8,7 @@ import {
   EditAgentDialog,
   type AgentSettingsSection,
 } from "../components/EditAgentDialog.tsx";
+import { settingsAt } from "./settings-item.tsx";
 import { ApiError, setApiShim } from "../api.ts";
 import { onLanguage, selfUserRecord } from "./language-fixture.tsx";
 import {
@@ -106,8 +107,9 @@ const users = new Map(
   ].map((u) => [u.name.toLowerCase(), u]),
 );
 
-// On the Agent settings page's Access section unless a test names another
-// (task 59538509); openSection (claude-limits-fixture) opens one more.
+// Settings drilled into the agent (task 1f79f2e3), on its Access section
+// unless a test names another; openSection (claude-limits-fixture) opens one
+// more.
 export function renderEdit(
   agent: AgentInfo,
   onClose: () => void = () => {},
@@ -117,11 +119,7 @@ export function renderEdit(
   return render(
     onLanguage(
       "en",
-      <EditAgentDialog
-        onClose={onClose}
-        agent={agent}
-        initialSection={section}
-      />,
+      settingsAt({ kind: "agent", agentId: agent.id, part: section }, onClose),
       {
         rooms: [room],
         agents: [agent],
@@ -210,7 +208,7 @@ export async function change(select: HTMLElement, value: string) {
 // The page's Save, or the spawn dialog's last button (Spawn).
 export async function save(container: HTMLElement) {
   const button =
-    container.querySelector("[data-agent-settings-save]") ??
+    container.querySelector("[data-settings-save]") ??
     [...container.querySelectorAll("button")].at(-1)!;
   await act(async () => {
     fireEvent.click(button);

@@ -64,13 +64,9 @@ import {
   type SidebarRow as SharedSidebarRow,
 } from "./SidebarGroups.tsx";
 import {
-  dialogCancelBtn,
   dialogHint,
   dialogInput,
   dialogLabel,
-  dialogSaveBtn,
-  secondaryBorder,
-  secondaryFill,
   filledDangerBtn,
 } from "./dialog-styles.ts";
 import { DevicePane } from "./DevicePane.tsx";
@@ -125,6 +121,26 @@ import type { MemberLevel } from "../member-access.ts";
 import { samePack } from "../../shared/pack-fit.ts";
 import type { MemberPack } from "../../shared/pack-fit.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import {
+  MEMBER_FIELD_PART,
+  dirtyParts,
+  memberParts,
+  resolvePart,
+  type MemberField,
+  type MemberPart,
+  type RoomPart,
+} from "../settings-parts.ts";
+import {
+  EditAgentDialog,
+  type AgentSettingsSection,
+} from "./EditAgentDialog.tsx";
+import {
+  SettingsItemPage,
+  SettingsPartBody,
+  SettingsSaveFooter,
+  type SettingsItemEscape,
+  type SettingsItemView,
+} from "./SettingsItemPage.tsx";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -164,25 +180,78 @@ type SidebarGroup = SharedSidebarGroup<Selection>;
 // Structural equality over the three arms. Re-selecting the row you are
 // already on must be a no-op, or it would run the unsaved-changes prompt
 // against a pane you never left.
-function sameSelection(a: Selection, b: Selection): boolean {
+function sameItem(a: Selection, b: Selection): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "section" && b.kind === "section")
     return a.section === b.section;
   if (a.kind === "user" && b.kind === "user") return a.id === b.id;
   if (a.kind === "room" && b.kind === "room") return a.roomId === b.roomId;
+  if (a.kind === "agent" && b.kind === "agent") return a.agentId === b.agentId;
   return a.kind === "newMember" || a.kind === "removedMembers";
 }
 
+// A listed item: its selection names a part.
+function hasParts(selection: Selection): boolean {
+  return (
+    selection.kind === "user" ||
+    selection.kind === "room" ||
+    selection.kind === "agent" ||
+    selection.kind === "newMember"
+  );
+}
+
+// The open part of an item selection, if it names one.
+function partOf(selection: Selection): string | null | undefined {
+  return "part" in selection ? selection.part : undefined;
+}
+
+// A listed item (a member, a room, an agent) also names its open part
+// (ui/settings-parts.ts). Absent: the first part on a desktop, the item's
+// part list on a phone; null: the part list.
 export type Selection =
-  | { kind: "user"; id: string }
+  | { kind: "user"; id: string; part?: MemberPart | null }
   | { kind: "section"; section: SettingsSection }
   // Rooms are not a fixed set, so a room cannot be a section name. It carries
   // its id instead, which is also how the room-tab double-click points here.
-  | { kind: "room"; roomId: string }
+  | { kind: "room"; roomId: string; part?: RoomPart | null }
+  // An agent's settings (task 1f79f2e3): its doors open Settings on it.
+  | { kind: "agent"; agentId: string; part?: AgentSettingsSection | null }
   // An owner creating a member: the member editor with no record behind it.
-  | { kind: "newMember" }
+  | { kind: "newMember"; part?: MemberPart | null }
   // The members removed in the last 30 days (task 321e7b8e), owners only.
   | { kind: "removedMembers" };
+
+// A member part's label, in the list column and on your own You rows.
+function memberPartLabel(t: UiTranslator["t"], part: MemberPart): string {
+  switch (part) {
+    case "profile":
+      return t("settings.sidebar.profile");
+    case "access":
+      return t("settings.memberAccess.title");
+    case "osUser":
+      return t("settings.osUser.title");
+    case "signIn":
+      return t("settings.part.signIn");
+    case "rooms":
+      return t("common.rooms");
+    case "instructions":
+      return t("common.instructionsAndMemory");
+    case "chat":
+      return t("settings.profile.chat");
+  }
+}
+
+// The data attributes of your own part rows in the You group while one of
+// them is open: they are then the open item's part rows. The group's other
+// rows get none.
+function selfRowAttrs(row: SidebarRow): Record<string, string> {
+  const part = row.target.kind === "user" ? row.target.part : null;
+  if (!part || !row.partOfOpenItem) return {};
+  return {
+    "data-settings-part": part,
+    ...(row.dirty ? { "data-settings-part-dirty": "" } : {}),
+  };
+}
 
 // The groups whose header opens and closes them: the two whose rows come
 // from live data and can run long.
@@ -210,6 +279,7 @@ export function UserSettingsView({
   onSwitchUser,
   onClose,
   initialTarget,
+  covered = false,
 }: {
   // Live-avatars: when set, the page opens with this user's editor selected
   // (used by ghost click → settings shortcut). Read once on mount; updates to
@@ -224,10 +294,13 @@ export function UserSettingsView({
   initialTarget?: Selection | null;
   onSwitchUser: (name: string | null) => void;
   onClose: () => void;
+  // A menu or a dialog is open over the page: Escape is theirs.
+  covered?: boolean;
 }) {
   const {
     users,
     rooms,
+    agents,
     isMobile,
     sessionContext,
     onlineUserIds,
@@ -358,6 +431,9 @@ export function UserSettingsView({
   // dirty-check, so we surface the "Discard unsaved changes?" prompt
   // instead of silently dropping in-progress edits.
   const detailCloseRef = useRef<((after?: () => void) => void) | null>(null);
+  // The drilled item's state that Escape needs, kept fresh by
+  // SettingsItemPage.
+  const itemEscapeRef = useRef<SettingsItemEscape | null>(null);
   function leaveEdit(after?: () => void) {
     if (selection !== null && detailCloseRef.current) {
       detailCloseRef.current(after);
@@ -373,9 +449,19 @@ export function UserSettingsView({
     // Any explicit choice consumes the pending hydration default (above) so
     // a late-arriving roster can't override it.
     defaultAppliedRef.current = true;
-    const same = selection !== null && sameSelection(selection, next);
-    if (same) return;
+    if (selection !== null && sameItem(selection, next)) {
+      // Another part of the open item: the form stays, nothing to leave.
+      if (partOf(next) !== partOf(selection)) show(next);
+      return;
+    }
     leaveEdit(() => show(next));
+  }
+  // A part row of the open item.
+  function selectPart(part: string | null) {
+    defaultAppliedRef.current = true;
+    setSelection((cur) =>
+      cur && hasParts(cur) ? ({ ...cur, part } as Selection) : cur,
+    );
   }
 
   // Mobile back-to-list. An explicit "show me the list" also consumes the
@@ -406,7 +492,21 @@ export function UserSettingsView({
       if (isExpandedEditorOpen()) return;
       // An armed confirm step takes Escape to end itself.
       if (isConfirmArmed()) return;
+      // A menu or a dialog over the page takes it.
+      if (covered) return;
       e.stopPropagation();
+      // A drilled item: its prompt first, then a phone's part goes back to
+      // the part list. No way out while it saves.
+      const item = itemEscapeRef.current;
+      if (item?.prompt.open) {
+        item.prompt.cancel();
+        return;
+      }
+      if (item?.busy) return;
+      if (isMobile && item && item.part !== null) {
+        item.onPart(null);
+        return;
+      }
       if (isMobile && selection) {
         backToList();
       } else {
@@ -417,6 +517,10 @@ export function UserSettingsView({
     return () => window.removeEventListener("keydown", handleKey, true);
   });
 
+  const selectedAgent =
+    selection?.kind === "agent"
+      ? (agents.find((a) => a.id === selection.agentId) ?? null)
+      : null;
   const selectedUser =
     selection?.kind === "user"
       ? ([...users.values()].find((u) => u.id === selection.id) ?? null)
@@ -448,118 +552,141 @@ export function UserSettingsView({
   });
 
   const selfUserId = sessionContext?.userId ?? null;
-  const sidebarGroups: SidebarGroup[] = accountAvailable
-    ? [
-        {
-          id: "office",
-          label: t("settings.sidebar.office"),
-          icon: BuildingIcon,
-          rows: [
-            sectionRow("office", t("settings.sidebar.office")),
-            ...(isOwner
-              ? [
-                  sectionRow("access", t("settings.sidebar.access")),
-                  sectionRow("invites", t("settings.sidebar.invites")),
-                ]
-              : []),
-            // The Enterprise Contract box, owners only and never on Hosted.
-            ...(isOwner && enterpriseAvailable
-              ? [sectionRow("enterprise", t("settings.sidebar.enterprise"))]
-              : []),
-            sectionRow("updates", t("settings.sidebar.updates")),
-          ],
-        },
-        {
-          id: "you",
-          label: t("common.you"),
-          icon: UserIcon,
-          rows: [
-            // Your own profile used to be reachable only by finding yourself
-            // in the roster. It is the same editor; this row just gives it the
-            // door it should always have had.
-            ...(selfUserId
-              ? [
-                  {
-                    key: "profile",
-                    label: t("settings.sidebar.profile"),
-                    selected:
-                      selection?.kind === "user" && selection.id === selfUserId,
-                    target: { kind: "user" as const, id: selfUserId },
-                  },
-                ]
-              : []),
-            sectionRow("prefs", t("settings.sidebar.languageAndChat")),
-            sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
-          ],
-        },
-        {
-          id: "device",
-          label: t("common.device"),
-          icon: DeviceIcon,
-          rows: [
-            sectionRow("deviceLabel", t("settings.sidebar.deviceLabel")),
-            sectionRow("theme", t("common.theme")),
-            sectionRow("recording", t("settings.sidebar.recording")),
-          ],
-        },
-        {
-          id: "rooms",
-          label: t("common.rooms"),
-          // Dynamic: one row per room the viewer can see, so the rows carry a
-          // glyph and read as a list of live things - like the roster below,
-          // and unlike the fixed rows above.
-          dynamic: true,
-          rows: rooms.map((room) => ({
-            key: `room:${room.id}`,
-            label: room.name,
-            selected:
-              selection?.kind === "room" && selection.roomId === room.id,
-            target: { kind: "room" as const, roomId: room.id },
-          })),
-        },
-        {
-          id: "members",
-          label: t("settings.sidebar.members"),
-          rows: [],
-          roster: true,
-        },
-        // Mostly read-only panes a member rarely needs, out of the way at
-        // the end (Nil, 2026-10-23).
-        {
-          id: "housekeeping",
-          label: t("settings.sidebar.housekeeping"),
-          rows: [
-            ...(isOwner
-              ? [
-                  sectionRow("sessions", t("settings.sidebar.sessions")),
-                  sectionRow("audit", t("audit.title")),
-                ]
-              : []),
-            sectionRow("usage", t("settings.sidebar.usage")),
-            // Storage is owner-only, matching the server: prune is gated on
-            // officeOwner and the usage read strips paths for anyone else.
-            // Moving the office (task 78733adf) is an owner action, on Hosted
-            // too.
-            ...(isOwner
-              ? [
-                  sectionRow("storage", t("settings.sidebar.storage")),
-                  sectionRow("move", t("settings.sidebar.move")),
-                ]
-              : []),
-          ],
-        },
-      ]
-    : [];
-
-  // The roster splits the sidebar in two. Slicing on it keeps group ORDER in
-  // sidebarGroups alone, so adding or moving a group never means editing the
-  // JSX below.
-  const rosterIndex = sidebarGroups.findIndex((group) => group.roster);
-  const groupsBeforeRoster =
-    rosterIndex === -1 ? [] : sidebarGroups.slice(0, rosterIndex);
-  const groupsAfterRoster =
-    rosterIndex === -1 ? [] : sidebarGroups.slice(rosterIndex + 1);
-  const rosterGroup = rosterIndex === -1 ? null : sidebarGroups[rosterIndex];
+  const selfRecord =
+    [...users.values()].find((u) => u.id === selfUserId) ?? null;
+  // Your own record, when you may edit it (yourself, a full record).
+  const selfEditable =
+    selfRecord && isFullUserView(selfRecord) && canEdit(selfRecord)
+      ? selfRecord
+      : null;
+  const selfOpen =
+    selfEditable !== null &&
+    selection?.kind === "user" &&
+    selection.id === selfEditable.id;
+  // Your own form's parts with their dots, handed up by the form while one
+  // of your rows is open (SelfPartsReport).
+  const [selfReport, setSelfReport] = useState<SelfParts | null>(null);
+  // Your own member parts, as rows of the You group (task 1f79f2e3): from
+  // your open form (its dots), else from your saved record.
+  const selfRows = (): SidebarRow[] => {
+    if (!selfUserId) return [];
+    const reported = selfOpen ? selfReport : null;
+    const parts =
+      reported?.parts ??
+      (selfRecord && isFullUserView(selfRecord)
+        ? memberParts({
+            viewerIsOwner: isOwner,
+            isMe: true,
+            creating: false,
+            targetIsOwner: selfRecord.role === "owner",
+          })
+        : (["profile"] as MemberPart[])
+      ).map((id) => ({ id, label: memberPartLabel(t, id), dirty: false }));
+    return parts.map((p) => ({
+      key: `self:${p.id}`,
+      label: p.label,
+      selected:
+        selfOpen &&
+        (reported?.part ??
+          ((selection?.kind === "user" && selection.part) || "profile")) ===
+          p.id,
+      target: { kind: "user" as const, id: selfUserId, part: p.id },
+      dirty: p.dirty,
+      partOfOpenItem: selfOpen,
+    }));
+  };
+  const buildGroups = (): SidebarGroup[] =>
+    accountAvailable
+      ? [
+          {
+            id: "office",
+            label: t("settings.sidebar.office"),
+            icon: BuildingIcon,
+            rows: [
+              sectionRow("office", t("settings.sidebar.office")),
+              ...(isOwner
+                ? [
+                    sectionRow("access", t("settings.sidebar.access")),
+                    sectionRow("invites", t("settings.sidebar.invites")),
+                  ]
+                : []),
+              // The Enterprise Contract box, owners only and never on Hosted.
+              ...(isOwner && enterpriseAvailable
+                ? [sectionRow("enterprise", t("settings.sidebar.enterprise"))]
+                : []),
+              sectionRow("updates", t("settings.sidebar.updates")),
+            ],
+          },
+          {
+            id: "you",
+            label: t("common.you"),
+            icon: UserIcon,
+            rows: [
+              // Your own member parts: the same editor as another member's,
+              // as flat rows here, so one path leads to your own settings.
+              ...selfRows(),
+              sectionRow("prefs", t("settings.sidebar.languageAndChat")),
+              sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
+            ],
+          },
+          {
+            id: "device",
+            label: t("common.device"),
+            icon: DeviceIcon,
+            rows: [
+              sectionRow("deviceLabel", t("settings.sidebar.deviceLabel")),
+              sectionRow("theme", t("common.theme")),
+              sectionRow("recording", t("settings.sidebar.recording")),
+            ],
+          },
+          {
+            id: "rooms",
+            label: t("common.rooms"),
+            // Dynamic: one row per room the viewer can see, so the rows carry a
+            // glyph and read as a list of live things - like the roster below,
+            // and unlike the fixed rows above.
+            dynamic: true,
+            rows: rooms.map((room) => ({
+              key: `room:${room.id}`,
+              label: room.name,
+              selected:
+                selection?.kind === "room" && selection.roomId === room.id,
+              target: { kind: "room" as const, roomId: room.id },
+            })),
+          },
+          {
+            id: "members",
+            label: t("settings.sidebar.members"),
+            rows: [],
+            roster: true,
+          },
+          // Mostly read-only panes a member rarely needs, out of the way at
+          // the end (Nil, 2026-10-23).
+          {
+            id: "housekeeping",
+            label: t("settings.sidebar.housekeeping"),
+            rows: [
+              ...(isOwner
+                ? [
+                    sectionRow("sessions", t("settings.sidebar.sessions")),
+                    sectionRow("audit", t("audit.title")),
+                  ]
+                : []),
+              sectionRow("usage", t("settings.sidebar.usage")),
+              // Storage is owner-only, matching the server: prune is gated on
+              // officeOwner and the usage read strips paths for anyone else.
+              // Moving the office (task 78733adf) is an owner action, on Hosted
+              // too.
+              ...(isOwner
+                ? [
+                    sectionRow("storage", t("settings.sidebar.storage")),
+                    sectionRow("move", t("settings.sidebar.move")),
+                  ]
+                : []),
+            ],
+          },
+        ]
+      : [];
 
   async function signOut() {
     setLogoutBlockedReason(null);
@@ -583,7 +710,323 @@ export function UserSettingsView({
       ? { collapsed: !openGroups.has(id), onToggle: () => toggleGroup(id) }
       : {};
 
-  return (
+  // The Settings list column.
+  const renderList = () => {
+    // The roster splits the sidebar in two. Slicing on it keeps group ORDER
+    // in buildGroups alone, so adding or moving a group never means editing
+    // the JSX below.
+    const sidebarGroups = buildGroups();
+    const rosterIndex = sidebarGroups.findIndex((group) => group.roster);
+    const groupsBeforeRoster =
+      rosterIndex === -1 ? [] : sidebarGroups.slice(0, rosterIndex);
+    const groupsAfterRoster =
+      rosterIndex === -1 ? [] : sidebarGroups.slice(rosterIndex + 1);
+    const rosterGroup = rosterIndex === -1 ? null : sidebarGroups[rosterIndex];
+    return (
+      <>
+        {/* Groups render in the order of sidebarGroups. The roster group
+              is rendered in place rather than as rows, so the ordering
+              lives in that one array and not here. */}
+        {groupsBeforeRoster.map((group, i) => (
+          <SidebarGroupRows
+            key={group.id}
+            group={group}
+            first={i === 0}
+            // select runs on a click, never during render.
+            // eslint-disable-next-line react-hooks/refs
+            onSelect={(target) => select(target)}
+            rowAttrs={selfRowAttrs}
+            {...collapsible(group.id)}
+          />
+        ))}
+
+        <SidebarGroupHeader
+          groupId="members"
+          label={rosterGroup?.label ?? t("settings.sidebar.members")}
+          first={groupsBeforeRoster.length === 0}
+          {...collapsible("members")}
+        />
+        {openGroups.has("members") && (
+          <>
+            {userList.map((u) => {
+              const isMe = sessionContext?.userId === u.id;
+              // Your own row lights You > Profile instead.
+              const selected =
+                !isMe && selection?.kind === "user" && selection.id === u.id;
+              const editable = canEdit(u);
+              const online = onlineSet.has(u.id);
+              // Session count / last-seen are OWNER-only signals (task
+              // 8e882cd4); non-owner viewers get just the online dot and a
+              // bare "online". The server already scopes /api/sessions to the
+              // caller, but the design keeps even a member's own session
+              // stats off the roster for consistency.
+              const summary = summarizeRoster(
+                online,
+                isOwner ? (sessionStats.get(u.id) ?? null) : null,
+                isOwner && u.pendingSignIn === true,
+                i18n,
+              );
+              // Editable rows are real <button>s (keyboard-focusable, with
+              // aria-current marking the selection); rows the session can't
+              // edit render as plain non-interactive divs.
+              const Row = editable ? "button" : "div";
+              return (
+                <Row
+                  key={u.id}
+                  onClick={
+                    editable
+                      ? () =>
+                          // Yourself: You > Profile, the one path to your
+                          // own settings.
+                          select(
+                            isMe
+                              ? { kind: "user", id: u.id, part: "profile" }
+                              : { kind: "user", id: u.id },
+                          )
+                      : undefined
+                  }
+                  aria-current={selected ? "true" : undefined}
+                  title={editable ? undefined : t("settings.members.editHint")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    textAlign: "left",
+                    font: "inherit",
+                    padding: "8px 14px",
+                    border: "none",
+                    cursor: editable ? "pointer" : "default",
+                    background: selected ? "var(--bg-hover)" : "transparent",
+                    borderLeft: selected
+                      ? "2px solid var(--accent)"
+                      : "2px solid transparent",
+                    color: editable ? "inherit" : "var(--text-hint)",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <GhostGraphic
+                      variant={u.avatarVariant}
+                      color={u.avatarColor}
+                      size={22}
+                    />
+                    {online && (
+                      <span
+                        style={onlineDotStyle}
+                        title={t("settings.members.onlineNow")}
+                      />
+                    )}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: editable
+                          ? "var(--text-primary)"
+                          : "var(--text-hint)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        minWidth: 0,
+                      }}
+                    >
+                      <span
+                        {...noTranslate()}
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {u.name}
+                      </span>
+                      {isMe && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 400,
+                            color: "var(--text-muted)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {t("settings.you")}
+                        </span>
+                      )}
+                      <RoleBadge role={u.role} />
+                    </div>
+                    {summary && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: "var(--text-muted)",
+                          fontFamily: "var(--font-ui)",
+                          marginTop: 2,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {summary}
+                      </div>
+                    )}
+                  </div>
+                </Row>
+              );
+            })}
+          </>
+        )}
+        {/* Outside the open check: it stays under a collapsed list. */}
+        {isOwner && (
+          <button
+            onClick={() => select({ kind: "newMember" })}
+            aria-current={selection?.kind === "newMember" ? "true" : undefined}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              textAlign: "left",
+              font: "inherit",
+              fontSize: 13,
+              color: "var(--text-muted)",
+              padding: "8px 14px",
+              border: "none",
+              cursor: "pointer",
+              background:
+                selection?.kind === "newMember"
+                  ? "var(--bg-hover)"
+                  : "transparent",
+              borderLeft:
+                selection?.kind === "newMember"
+                  ? "2px solid var(--accent)"
+                  : "2px solid transparent",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{ width: 22, textAlign: "center", fontSize: 16 }}
+            >
+              +
+            </span>
+            {t("settings.members.newMember")}
+          </button>
+        )}
+        {isOwner && removedMembers.length > 0 && (
+          <button
+            onClick={() => select({ kind: "removedMembers" })}
+            aria-current={
+              selection?.kind === "removedMembers" ? "true" : undefined
+            }
+            data-removed-members-row=""
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              textAlign: "left",
+              font: "inherit",
+              fontSize: 13,
+              color: "var(--text-muted)",
+              padding: "8px 14px",
+              border: "none",
+              cursor: "pointer",
+              background:
+                selection?.kind === "removedMembers"
+                  ? "var(--bg-hover)"
+                  : "transparent",
+              borderLeft:
+                selection?.kind === "removedMembers"
+                  ? "2px solid var(--accent)"
+                  : "2px solid transparent",
+            }}
+          >
+            <span aria-hidden="true" style={{ width: 22 }} />
+            {t("settings.removedMembers.row", {
+              count: removedMembers.length,
+            })}
+          </button>
+        )}
+
+        {groupsAfterRoster.map((group) => (
+          <SidebarGroupRows
+            key={group.id}
+            group={group}
+            first={false}
+            onSelect={(target) => select(target)}
+            rowAttrs={selfRowAttrs}
+            {...collapsible(group.id)}
+          />
+        ))}
+
+        <div style={{ flex: 1 }} />
+
+        <p
+          style={{
+            fontSize: 10,
+            color: "var(--text-muted)",
+            margin: "16px 14px 10px",
+            lineHeight: 1.4,
+          }}
+        >
+          {t("settings.profilesNote")}
+        </p>
+
+        {sessionContext && (
+          <div style={{ padding: "0 14px" }}>
+            <button
+              {...signOutStep.bind("signOut")}
+              onClick={() =>
+                signOutStep.confirm("signOut", () => void signOut())
+              }
+              style={{
+                padding: "8px 14px",
+                borderRadius: 6,
+                border: filledDangerBtn.border,
+                background: filledDangerBtn.background,
+                color: filledDangerBtn.color,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              title={t("settings.signOutHint")}
+            >
+              {t(
+                signOutStep.armed ? "common.confirmQuestion" : "common.signOut",
+              )}
+            </button>
+            {logoutBlockedReason && (
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  padding: "8px 12px",
+                  border: "1px solid #ff6b6b",
+                  borderRadius: 6,
+                  background: "rgba(255,107,107,0.08)",
+                  fontSize: 11,
+                  color: "var(--red-text)",
+                }}
+              >
+                {logoutBlockedReason}
+              </p>
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  // The page with the Settings list in its list column.
+  const listPage = (
+    list: React.ReactNode,
+    detail: React.ReactNode,
+  ): React.ReactElement => (
     <SidebarPage
       title={t("common.settings")}
       onClose={() => leaveEdit(() => onClose())}
@@ -592,299 +1035,144 @@ export function UserSettingsView({
       backLabel={t("common.settings")}
       listLabel={t("common.settings")}
       detailAttrs={{ "data-testid": "settings-content" }}
-      list={
-        <>
-          {/* Groups render in the order of sidebarGroups. The roster group
-                is rendered in place rather than as rows, so the ordering
-                lives in that one array and not here. */}
-          {groupsBeforeRoster.map((group, i) => (
-            <SidebarGroupRows
-              key={group.id}
-              group={group}
-              first={i === 0}
-              onSelect={(target) => select(target)}
-              {...collapsible(group.id)}
-            />
-          ))}
-
-          <SidebarGroupHeader
-            groupId="members"
-            label={rosterGroup?.label ?? t("settings.sidebar.members")}
-            first={groupsBeforeRoster.length === 0}
-            {...collapsible("members")}
-          />
-          {openGroups.has("members") && (
-            <>
-              {userList.map((u) => {
-                const isMe = sessionContext?.userId === u.id;
-                const selected =
-                  selection?.kind === "user" && selection.id === u.id;
-                const editable = canEdit(u);
-                const online = onlineSet.has(u.id);
-                // Session count / last-seen are OWNER-only signals (task
-                // 8e882cd4); non-owner viewers get just the online dot and a
-                // bare "online". The server already scopes /api/sessions to the
-                // caller, but the design keeps even a member's own session
-                // stats off the roster for consistency.
-                const summary = summarizeRoster(
-                  online,
-                  isOwner ? (sessionStats.get(u.id) ?? null) : null,
-                  isOwner && u.pendingSignIn === true,
-                  i18n,
-                );
-                // Editable rows are real <button>s (keyboard-focusable, with
-                // aria-current marking the selection); rows the session can't
-                // edit render as plain non-interactive divs.
-                const Row = editable ? "button" : "div";
-                return (
-                  <Row
-                    key={u.id}
-                    onClick={
-                      editable
-                        ? () => select({ kind: "user", id: u.id })
-                        : undefined
-                    }
-                    aria-current={selected ? "true" : undefined}
-                    title={
-                      editable ? undefined : t("settings.members.editHint")
-                    }
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      width: "100%",
-                      textAlign: "left",
-                      font: "inherit",
-                      padding: "8px 14px",
-                      border: "none",
-                      cursor: editable ? "pointer" : "default",
-                      background: selected ? "var(--bg-hover)" : "transparent",
-                      borderLeft: selected
-                        ? "2px solid var(--accent)"
-                        : "2px solid transparent",
-                      color: editable ? "inherit" : "var(--text-hint)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: "relative",
-                        display: "flex",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <GhostGraphic
-                        variant={u.avatarVariant}
-                        color={u.avatarColor}
-                        size={22}
-                      />
-                      {online && (
-                        <span
-                          style={onlineDotStyle}
-                          title={t("settings.members.onlineNow")}
-                        />
-                      )}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: editable
-                            ? "var(--text-primary)"
-                            : "var(--text-hint)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          minWidth: 0,
-                        }}
-                      >
-                        <span
-                          {...noTranslate()}
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {u.name}
-                        </span>
-                        {isMe && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 400,
-                              color: "var(--text-muted)",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {t("settings.you")}
-                          </span>
-                        )}
-                        <RoleBadge role={u.role} />
-                      </div>
-                      {summary && (
-                        <div
-                          style={{
-                            fontSize: 10,
-                            color: "var(--text-muted)",
-                            fontFamily: "var(--font-ui)",
-                            marginTop: 2,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {summary}
-                        </div>
-                      )}
-                    </div>
-                  </Row>
-                );
-              })}
-            </>
-          )}
-          {/* Outside the open check: it stays under a collapsed list. */}
-          {isOwner && (
-            <button
-              onClick={() => select({ kind: "newMember" })}
-              aria-current={
-                selection?.kind === "newMember" ? "true" : undefined
-              }
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                textAlign: "left",
-                font: "inherit",
-                fontSize: 13,
-                color: "var(--text-muted)",
-                padding: "8px 14px",
-                border: "none",
-                cursor: "pointer",
-                background:
-                  selection?.kind === "newMember"
-                    ? "var(--bg-hover)"
-                    : "transparent",
-                borderLeft:
-                  selection?.kind === "newMember"
-                    ? "2px solid var(--accent)"
-                    : "2px solid transparent",
-              }}
-            >
-              <span
-                aria-hidden="true"
-                style={{ width: 22, textAlign: "center", fontSize: 16 }}
-              >
-                +
-              </span>
-              {t("settings.members.newMember")}
-            </button>
-          )}
-          {isOwner && removedMembers.length > 0 && (
-            <button
-              onClick={() => select({ kind: "removedMembers" })}
-              aria-current={
-                selection?.kind === "removedMembers" ? "true" : undefined
-              }
-              data-removed-members-row=""
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                textAlign: "left",
-                font: "inherit",
-                fontSize: 13,
-                color: "var(--text-muted)",
-                padding: "8px 14px",
-                border: "none",
-                cursor: "pointer",
-                background:
-                  selection?.kind === "removedMembers"
-                    ? "var(--bg-hover)"
-                    : "transparent",
-                borderLeft:
-                  selection?.kind === "removedMembers"
-                    ? "2px solid var(--accent)"
-                    : "2px solid transparent",
-              }}
-            >
-              <span aria-hidden="true" style={{ width: 22 }} />
-              {t("settings.removedMembers.row", {
-                count: removedMembers.length,
-              })}
-            </button>
-          )}
-
-          {groupsAfterRoster.map((group) => (
-            <SidebarGroupRows
-              key={group.id}
-              group={group}
-              first={false}
-              onSelect={(target) => select(target)}
-              {...collapsible(group.id)}
-            />
-          ))}
-
-          <div style={{ flex: 1 }} />
-
-          <p
-            style={{
-              fontSize: 10,
-              color: "var(--text-muted)",
-              margin: "16px 14px 10px",
-              lineHeight: 1.4,
-            }}
-          >
-            {t("settings.profilesNote")}
-          </p>
-
-          {sessionContext && (
-            <div style={{ padding: "0 14px" }}>
-              <button
-                {...signOutStep.bind("signOut")}
-                onClick={() =>
-                  signOutStep.confirm("signOut", () => void signOut())
-                }
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 6,
-                  border: filledDangerBtn.border,
-                  background: filledDangerBtn.background,
-                  color: filledDangerBtn.color,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-                title={t("settings.signOutHint")}
-              >
-                {t(
-                  signOutStep.armed
-                    ? "common.confirmQuestion"
-                    : "common.signOut",
-                )}
-              </button>
-              {logoutBlockedReason && (
-                <p
-                  style={{
-                    margin: "8px 0 0",
-                    padding: "8px 12px",
-                    border: "1px solid #ff6b6b",
-                    borderRadius: 6,
-                    background: "rgba(255,107,107,0.08)",
-                    fontSize: 11,
-                    color: "var(--red-text)",
-                  }}
-                >
-                  {logoutBlockedReason}
-                </p>
-              )}
-            </div>
-          )}
-        </>
-      }
+      list={list}
     >
+      {detail}
+    </SidebarPage>
+  );
+
+  // A listed item drilled in (task 1f79f2e3): its parts replace the list
+  // column, under a back row to the Settings list.
+  const itemPage = <P extends string>(
+    item: string,
+    backLabel: string,
+    view: SettingsItemView<P>,
+  ) => (
+    <SettingsItemPage
+      item={item}
+      backLabel={backLabel}
+      view={view}
+      onPart={selectPart}
+      onBackToSettings={() => {
+        defaultAppliedRef.current = true;
+        leaveEdit(() => setSelection(null));
+      }}
+      onClose={() => leaveEdit(() => onClose())}
+      escapeRef={itemEscapeRef}
+    />
+  );
+
+  if (selection?.kind === "agent") {
+    // An agent that is gone leaves the Settings list.
+    if (!selectedAgent) {
+      setSelection(null);
+      return null;
+    }
+    return (
+      <EditAgentDialog
+        // One form per agent: another agent's page starts from its own.
+        key={selectedAgent.id}
+        // The live record, so a change the server sends while the page is
+        // open (limitedClaudeFamilies after a variables save) reaches it.
+        agent={selectedAgent}
+        part={selection.part}
+        onPart={selectPart}
+        closeRef={detailCloseRef}
+        onClose={() => setSelection(null)}
+        onClosePage={onClose}
+      >
+        {(view) =>
+          itemPage(`agent:${selectedAgent.id}`, selectedAgent.name, view)
+        }
+      </EditAgentDialog>
+    );
+  }
+
+  if (selection?.kind === "room") {
+    const room = rooms.find((r) => r.id === selection.roomId);
+    return (
+      <RoomPane
+        key={selection.roomId}
+        roomId={selection.roomId}
+        part={selection.part}
+        onPart={selectPart}
+        closeRef={detailCloseRef}
+        onDeleted={() => setSelection(null)}
+      >
+        {(view) => itemPage(`room:${selection.roomId}`, room?.name ?? "", view)}
+      </RoomPane>
+    );
+  }
+
+  if (selection?.kind === "newMember" && isOwner) {
+    return (
+      <UserEditPanel
+        key="newMember"
+        user={newMemberDraft}
+        creating
+        isMobile={isMobile}
+        part={selection.part}
+        onPart={selectPart}
+        closeRef={detailCloseRef}
+        onClose={() => setSelection(null)}
+        // Create keeps the part it was pressed on.
+        onCreated={(id) => show({ kind: "user", id, part: selection.part })}
+      >
+        {(view) => itemPage("newMember", t("settings.members.newMember"), view)}
+      </UserEditPanel>
+    );
+  }
+
+  // The record's way out of a rename or a delete of the member this device
+  // is signed in as.
+  const onRenamedFor = (edited: UserView) => (newName: string) => {
+    // Selection is id-keyed, so a rename never dangles it.
+    // If the edited user is the current device's user and they
+    // renamed (case-changing too), keep localStorage in sync so
+    // the next claim_user doesn't fork a new empty record.
+    const localKey = getUsername()?.toLowerCase();
+    if (localKey && localKey === edited.name.toLowerCase()) {
+      saveLocalUsername(newName);
+      onSwitchUser(newName);
+    }
+  };
+  const onDeletedFor = (edited: UserView) => () => {
+    // If the deleted user is the current device's user, clear
+    // localStorage so the picker auto-opens on the next render.
+    const localKey = getUsername()?.toLowerCase();
+    if (localKey && localKey === edited.name.toLowerCase()) {
+      saveLocalUsername("");
+      if (typeof localStorage !== "undefined")
+        localStorage.removeItem("isomux-username");
+      onSwitchUser(null);
+    }
+    setSelection(null);
+  };
+
+  if (
+    selectedUser &&
+    isFullUserView(selectedUser) &&
+    selectedUser.id !== selfUserId
+  ) {
+    return (
+      <UserEditPanel
+        key={selectedUser.id}
+        user={selectedUser}
+        isMobile={isMobile}
+        part={selection?.kind === "user" ? selection.part : undefined}
+        onPart={selectPart}
+        closeRef={detailCloseRef}
+        onClose={() => setSelection(null)}
+        onRenamed={onRenamedFor(selectedUser)}
+        onDeleted={onDeletedFor(selectedUser)}
+      >
+        {(view) => itemPage(`user:${selectedUser.id}`, selectedUser.name, view)}
+      </UserEditPanel>
+    );
+  }
+
+  const sectionDetail = (
+    <>
       {selection?.kind === "section" ? (
         <div
           style={{
@@ -936,22 +1224,6 @@ export function UserSettingsView({
             <RecordingPane />
           ) : null}
         </div>
-      ) : selection?.kind === "room" ? (
-        <div
-          style={{
-            padding: isMobile ? "0 16px 24px" : "0 24px 24px",
-            maxWidth: 720,
-            width: "100%",
-            boxSizing: "border-box",
-          }}
-        >
-          <RoomPane
-            key={selection.roomId}
-            roomId={selection.roomId}
-            closeRef={detailCloseRef}
-            onDeleted={() => setSelection(null)}
-          />
-        </div>
       ) : selection?.kind === "removedMembers" && isOwner ? (
         <div
           style={{
@@ -963,47 +1235,6 @@ export function UserSettingsView({
         >
           <RemovedMembersPane onRestored={(id) => show({ kind: "user", id })} />
         </div>
-      ) : selection?.kind === "newMember" && isOwner ? (
-        <UserEditPanel
-          key="newMember"
-          user={newMemberDraft}
-          creating
-          isMobile={isMobile}
-          closeRef={detailCloseRef}
-          onClose={() => setSelection(null)}
-          onCreated={(id) => show({ kind: "user", id })}
-        />
-      ) : selectedUser && isFullUserView(selectedUser) ? (
-        <UserEditPanel
-          key={selectedUser.id}
-          user={selectedUser}
-          isMobile={isMobile}
-          closeRef={detailCloseRef}
-          onClose={() => setSelection(null)}
-          onRenamed={(newName) => {
-            // Selection is id-keyed, so a rename never dangles it.
-            // If the edited user is the current device's user and they
-            // renamed (case-changing too), keep localStorage in sync so
-            // the next claim_user doesn't fork a new empty record.
-            const localKey = getUsername()?.toLowerCase();
-            if (localKey && localKey === selectedUser.name.toLowerCase()) {
-              saveLocalUsername(newName);
-              onSwitchUser(newName);
-            }
-          }}
-          onDeleted={() => {
-            // If the deleted user is the current device's user, clear
-            // localStorage so the picker auto-opens on the next render.
-            const localKey = getUsername()?.toLowerCase();
-            if (localKey && localKey === selectedUser.name.toLowerCase()) {
-              saveLocalUsername("");
-              if (typeof localStorage !== "undefined")
-                localStorage.removeItem("isomux-username");
-              onSwitchUser(null);
-            }
-            setSelection(null);
-          }}
-        />
       ) : (
         <div
           style={{
@@ -1018,8 +1249,83 @@ export function UserSettingsView({
           {t("settings.selectHint")}
         </div>
       )}
-    </SidebarPage>
+    </>
   );
+
+  // The Settings list page is one element for every state that is not a
+  // drill-in, so the list column never mounts again under an open pane.
+  // Your own member form lives in the pane while one of your rows is open,
+  // and hands its parts and their dots up to the list (SelfPartsReport).
+  return listPage(
+    renderList(),
+    selfEditable && selfOpen ? (
+      <UserEditPanel
+        key={selfEditable.id}
+        user={selfEditable}
+        isMobile={isMobile}
+        // Your own rows always name a part: they are not a drill-in.
+        part={(selection?.kind === "user" && selection.part) || "profile"}
+        onPart={selectPart}
+        closeRef={detailCloseRef}
+        onClose={() => setSelection(null)}
+        onRenamed={onRenamedFor(selfEditable)}
+        onDeleted={onDeletedFor(selfEditable)}
+      >
+        {(view) => (
+          <>
+            <SelfPartsReport
+              parts={view.parts}
+              part={view.part}
+              onReport={setSelfReport}
+            />
+            {view.part !== null && (
+              <>
+                <div
+                  style={{
+                    flex: 1,
+                    padding: isMobile ? "14px 16px 24px" : "20px 24px 24px",
+                    maxWidth: 720,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <SettingsPartBody part={view.part}>
+                    {view.body}
+                  </SettingsPartBody>
+                </div>
+                {view.footer}
+              </>
+            )}
+          </>
+        )}
+      </UserEditPanel>
+    ) : (
+      sectionDetail
+    ),
+  );
+}
+
+// Your own form's part rows: the parts, their labels and dots, and the open
+// one.
+type SelfParts = {
+  parts: { id: MemberPart; label: string; dirty: boolean }[];
+  part: MemberPart | null;
+};
+
+// Hands your own form's part rows up to the Settings list, which draws them
+// as rows of the You group: the list is the form's parent's, not the
+// form's. Reports only a change, and nothing once the form is gone.
+function SelfPartsReport({
+  parts,
+  part,
+  onReport,
+}: SelfParts & { onReport: (report: SelfParts | null) => void }) {
+  const signature = JSON.stringify({ parts, part });
+  useEffect(() => {
+    onReport(JSON.parse(signature) as SelfParts);
+  }, [signature, onReport]);
+  useEffect(() => () => onReport(null), [onReport]);
+  return null;
 }
 
 function newMemberRecord(): UserRecord {
@@ -1189,16 +1495,7 @@ function MemberApiTokens({ username }: { username: string }) {
   );
 }
 
-function UserEditPanel({
-  user,
-  creating = false,
-  isMobile,
-  onClose,
-  onRenamed,
-  onDeleted,
-  onCreated,
-  closeRef,
-}: {
+type UserEditPanelProps = {
   user: UserRecord;
   // Create mode: `user` is a blank draft, Save creates the member
   // (POST /api/users) and hands the new id to onCreated. Sections that need a
@@ -1216,7 +1513,32 @@ function UserEditPanel({
   // the close is committed - used by the parent to chain "discard then select
   // Y" / "discard then close the page". Same pattern as TaskView's closeRef.
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
-}) {
+  // The open part (task 1f79f2e3): absent, the first part on a desktop and
+  // the part list on a phone; null, the part list.
+  part: MemberPart | null | undefined;
+  onPart: (part: MemberPart | null) => void;
+  // Settings draws the member's parts: drilled in for another member, as
+  // You rows for yourself.
+  children: (view: SettingsItemView<MemberPart>) => React.ReactNode;
+};
+
+// A member's settings, as parts. One form across every part: moving between
+// them keeps it mounted, and the one Save writes every part. Cancel and
+// Discard set every field back to the saved record, in place, so the
+// Settings list it draws for yourself does not mount again.
+function UserEditPanel({
+  user,
+  creating = false,
+  isMobile,
+  onClose,
+  onRenamed,
+  onDeleted,
+  onCreated,
+  closeRef,
+  part,
+  onPart,
+  children,
+}: UserEditPanelProps) {
   const { rooms, allRooms, sessionContext, agents, users } = useAppState();
   const { t } = useI18n();
   // Owner-only fields: role and allowedRooms. The server rejects
@@ -1487,35 +1809,75 @@ function UserEditPanel({
     setNotifSetting(notifSetting.filter((id) => newAllowed.includes(id)));
   }
 
-  function isDirty(): boolean {
+  // The fields that hold an unsaved edit. The parts' dots read them through
+  // MEMBER_FIELD_PART (ui/settings-parts.ts).
+  function dirtyFields(): MemberField[] {
+    const fields: MemberField[] = [];
+    if (isOwner && officeOwner !== targetIsOwner) fields.push("role");
     // Name is trim-saved (see handleSave), so compare trimmed to avoid
     // false-positive dirtiness on trailing whitespace the user can't see.
-    if (isOwner && officeOwner !== targetIsOwner) return true;
-    if (name.trim() !== user.name) return true;
-    if ((memberPrompt.trim() || null) !== (promptBaseline || null)) return true;
-    if (mem.dirty) return true;
-    if (avatarColor !== user.avatarColor) return true;
-    if (avatarVariant !== user.avatarVariant) return true;
-    if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
+    if (name.trim() !== user.name) fields.push("name");
+    if ((memberPrompt.trim() || null) !== (promptBaseline || null))
+      fields.push("prompt");
+    if (mem.dirty) fields.push("memory");
+    if (
+      avatarColor !== user.avatarColor ||
+      avatarVariant !== user.avatarVariant
+    )
+      fields.push("avatar");
     // A drafted owner has no room grants and no pack.
     if (!officeOwner && !sameRoomSet(allowedSetting, user.allowedRooms))
-      return true;
+      fields.push("allowedRooms");
     if (isOwner && !officeOwner && !samePack(packSetting, user.pack))
-      return true;
-    if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
-    if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
-    if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
-    if (!creating && chatChanged) return true;
-    if (pinsChanged) return true;
-    return false;
+      fields.push("pack");
+    if (
+      !sameRoomSet(notifSetting, user.notifRooms) ||
+      (isMe &&
+        (!sameRoomSet(hiddenSetting, user.hidden) ||
+          !sameRoomSet(tuckedSetting, userTucked) ||
+          !sameRoomSet(pushSetting, userPush)))
+    )
+      fields.push("roomView");
+    if (!creating && showToolCallsChanged) fields.push("showToolCalls");
+    if (!creating && showAgentMessagesChanged) fields.push("showAgentMessages");
+    if (pinsChanged) fields.push("pins");
+    return fields;
+  }
+  function isDirty(): boolean {
+    return dirtyFields().length > 0;
   }
 
   // Parent-driven close path (closeRef) and the panel's own Cancel. A clean
   // form runs onClose + after at once; a dirty one shows the "Discard unsaved
   // changes?" prompt and stashes `after` - e.g. "select user Y" or "close the
   // page" - for Discard, or for a save that finishes while the prompt is open.
+  // Every field back to the saved record.
+  function revert() {
+    setOfficeOwner(targetIsOwner);
+    setName(user.name);
+    setNotifSetting(user.notifRooms);
+    setAllowedSetting(user.allowedRooms);
+    setPackSetting(user.pack ?? null);
+    setShowToolCalls(user.showToolCalls === true);
+    setShowAgentMessages(user.showAgentMessages === true);
+    setStartedFrom(null);
+    setHiddenSetting(user.hidden);
+    setTuckedSetting(userTucked);
+    setPinsSetting(userPins);
+    setPushSetting(userPush);
+    setMemberPrompt(promptBaseline);
+    setPromptConflict(null);
+    mem.reset();
+    setAvatarColor(user.avatarColor);
+    setAvatarVariant(user.avatarVariant);
+    setError(null);
+    setConfirmDelete(false);
+    setDeleteBlockedReason(null);
+  }
+
   const discardPrompt = useUnsavedChangesPrompt(isDirty(), {
     closeRef,
+    onDiscard: revert,
     onLeave: onClose,
   });
 
@@ -1554,6 +1916,12 @@ function UserEditPanel({
       renamed ||
       normalizedColor !== user.avatarColor ||
       avatarVariant !== user.avatarVariant;
+    // The field the write in flight carries: a refusal opens its part.
+    let writing: MemberField | null = null;
+    const refuse = (message: string, field: MemberField | null) => {
+      setError(message);
+      if (field !== null) onPart(MEMBER_FIELD_PART[field]);
+    };
     try {
       // The update_user split is sequenced to preserve the WS atomicity
       // guarantees and dodge the rename->404. (1) Owner access change FIRST,
@@ -1575,6 +1943,7 @@ function UserEditPanel({
       ) {
         // Owners are rule-based (no materialized grants), so an owner target
         // never writes allowedRooms - only a member's access is editable here.
+        writing = packChanged ? "pack" : "allowedRooms";
         await apiFetch(
           "PUT",
           `/api/users/${encodeURIComponent(origName)}/access`,
@@ -1587,6 +1956,7 @@ function UserEditPanel({
       // (1b) The instructions, against the original name, before a rename can
       // move the route. The answer carries the stored text and its version.
       if (promptChanged) {
+        writing = "prompt";
         const body: InstructionsReq = {
           instructions: memberPrompt.trim() || null,
           version: promptVersion,
@@ -1603,6 +1973,7 @@ function UserEditPanel({
       // (1c) The member's chat choices that changed, against the original
       // name.
       if (chatChanged) {
+        writing = showToolCallsChanged ? "showToolCalls" : "showAgentMessages";
         await apiFetch(
           "PATCH",
           `/api/users/${encodeURIComponent(origName)}/chat`,
@@ -1614,6 +1985,7 @@ function UserEditPanel({
       }
       // (1d) The member's Pinned list, against the original name.
       if (pinsChanged) {
+        writing = "pins";
         const body: PinnedReq = { pinned: pinsSetting };
         await apiFetch(
           "PUT",
@@ -1623,6 +1995,7 @@ function UserEditPanel({
       }
       // (2) Record fields (name/avatar), against the original name.
       if (recordChanged) {
+        writing = renamed ? "name" : roleChanged ? "role" : "avatar";
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
           role: roleChanged ? (officeOwner ? "owner" : "member") : undefined,
           name: renamed ? trimmed : undefined,
@@ -1642,10 +2015,11 @@ function UserEditPanel({
       if (memoryChanged) {
         const m = await mem.save();
         if (!m.ok) {
-          setError(m.message);
+          refuse(m.message, "memory");
           return;
         }
       }
+      writing = "roomView";
       // (3) View prefs are SELF-only: the fields render only for isMe. Shown
       // FIRST: the server clamps notifRooms to the effective
       // shown set on every shown write, so re-showing a room and enabling its
@@ -1667,7 +2041,7 @@ function UserEditPanel({
             )
           ).rooms;
         } catch {
-          setError(t("settings.profile.roomListFailed"));
+          refuse(t("settings.profile.roomListFailed"), "roomView");
           return;
         }
         await apiFetch("PUT", "/api/me/view/shown", {
@@ -1713,13 +2087,14 @@ function UserEditPanel({
           setPromptBaseline(current.instructions ?? "");
           setPromptVersion(current.version);
           setPromptConflict(current);
-          setError(t("settings.profile.promptConflict"));
+          refuse(t("settings.profile.promptConflict"), "prompt");
         } catch {
-          setError(err.message);
+          refuse(err.message, "prompt");
         }
       } else {
-        setError(
+        refuse(
           err instanceof ApiError ? err.message : t("common.saveFailed"),
+          writing,
         );
       }
     } finally {
@@ -1750,72 +2125,31 @@ function UserEditPanel({
       onCreated?.(r.user.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t("common.saveFailed"));
+      if (err instanceof ApiError && err.code === "name_taken")
+        onPart(MEMBER_FIELD_PART.name);
       setSaving(false);
     }
   }
-
-  const contentPad = isMobile ? "0 16px" : "0 24px";
 
   // Drives the dirty-aware Save button (save-flow friction pass, task
   // 4733fa30): disabled + "Saved" when the form matches the record, so "did
   // I save?" is answerable at a glance - the convention the External access
   // card already follows.
   const dirty = isDirty();
+  // The parts with an unsaved edit, from the same field table a refused
+  // save opens its part by (ui/settings-parts.ts).
+  const dirtySet = dirtyParts(MEMBER_FIELD_PART, dirtyFields());
+  const ids = memberParts({
+    viewerIsOwner: isOwner,
+    isMe,
+    creating,
+    targetIsOwner: officeOwner,
+  });
+  const open = resolvePart(part, ids, isMobile);
 
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-      }}
-    >
-      <div
-        style={{
-          padding: contentPad,
-          maxWidth: 720,
-          width: "100%",
-          boxSizing: "border-box",
-        }}
-      >
-        {/* Detail heading: who is being edited. */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            margin: "18px 0 2px",
-          }}
-        >
-          <GhostGraphic
-            variant={creating ? avatarVariant : user.avatarVariant}
-            color={creating ? avatarColor : user.avatarColor}
-            size={26}
-          />
-          <h4
-            {...(creating ? {} : noTranslate())}
-            style={{
-              fontSize: 15,
-              fontWeight: 700,
-              margin: 0,
-              color: "var(--text-primary)",
-            }}
-          >
-            {creating ? t("settings.members.newMember") : user.name}
-          </h4>
-          {!creating && <RoleBadge role={user.role} />}
-          {isMe && (
-            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              {t("settings.you")}
-            </span>
-          )}
-        </div>
-
-        {isOwner && !creating && !isMe && (
-          <PendingMemberSignInLink user={user} />
-        )}
-
+  const bodies: Record<MemberPart, React.ReactNode> = {
+    profile: (
+      <>
         <h5 style={sectionTitleStyle}>{t("settings.profile.identity")}</h5>
         <label style={subLabelStyle}>{t("settings.profile.displayName")}</label>
         <input
@@ -1825,6 +2159,75 @@ function UserEditPanel({
           style={{ ...inputStyle, maxWidth: 340 }}
         />
 
+        {/* Aesthetics last: looks are secondary to the
+            settings that change behavior. */}
+        <h5 style={sectionTitleStyle}>{t("settings.profile.appearance")}</h5>
+        <label style={subLabelStyle}>
+          {t("common.avatar")}{" "}
+          <span style={hintStyle}>{t("settings.profile.avatarHint")}</span>
+        </label>
+        <AvatarPicker
+          color={avatarColor}
+          variant={avatarVariant}
+          onColorChange={setAvatarColor}
+          onVariantChange={setAvatarVariant}
+        />
+
+        {/* The item's destructive action, at the end of its first part. */}
+        {!creating && (
+          <div style={{ marginTop: 24 }}>
+            {confirmDelete && (
+              <p
+                data-delete-member-note=""
+                style={{
+                  margin: "0 0 8px",
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("settings.profile.deleteNote")}
+              </p>
+            )}
+            {deleteBlockedReason && (
+              <p
+                style={{
+                  margin: "0 0 8px",
+                  padding: "8px 12px",
+                  border: "1px solid #ff6b6b",
+                  borderRadius: 6,
+                  background: "rgba(255,107,107,0.08)",
+                  fontSize: 11,
+                  color: "var(--red-text)",
+                }}
+              >
+                {deleteBlockedReason}
+              </p>
+            )}
+            <button
+              onClick={handleDelete}
+              onBlur={() => setConfirmDelete(false)}
+              disabled={saving}
+              style={{
+                padding: "7px 14px",
+                borderRadius: 6,
+                border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
+                background: confirmDelete ? "var(--red-text)" : "transparent",
+                color: confirmDelete ? "var(--bg-base)" : "var(--red-text)",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              title={t("settings.profile.deleteHint")}
+            >
+              {confirmDelete ? t("common.confirmQuestion") : t("common.delete")}
+            </button>
+          </div>
+        )}
+      </>
+    ),
+    access: (
+      <>
         {isOwner && (
           <MemberAccessControl
             owner={officeOwner}
@@ -1840,7 +2243,10 @@ function UserEditPanel({
             disabled={saving}
           />
         )}
-
+      </>
+    ),
+    osUser: (
+      <>
         {isOwner && !creating && !targetIsOwner && (
           <MemberOsUserSection
             username={user.name}
@@ -1848,7 +2254,20 @@ function UserEditPanel({
             hintStyle={sectionHintStyle}
           />
         )}
-
+      </>
+    ),
+    signIn: (
+      <>
+        {isOwner && !creating && !isMe && (
+          <PendingMemberSignInLink user={user} />
+        )}
+        {isOwner && !isMe && !creating && (
+          <MemberApiTokens key={`tokens:${user.name}`} username={user.name} />
+        )}
+      </>
+    ),
+    rooms: (
+      <>
         {/* Rooms: ONE table for the per-room settings - Access, and within
             it one view level per room (Hidden < Tucked < Shown <
             Sound < Push). Access is owner-managed on member targets; the
@@ -2022,7 +2441,10 @@ function UserEditPanel({
             headingStyle={sectionTitleStyle}
           />
         )}
-
+      </>
+    ),
+    instructions: (
+      <>
         <h5 style={sectionTitleStyle}>{t("common.instructionsAndMemory")}</h5>
 
         <label style={subLabelStyle}>
@@ -2102,7 +2524,10 @@ function UserEditPanel({
             />
           </>
         )}
-
+      </>
+    ),
+    chat: (
+      <>
         {editsShowToolCalls && (
           <>
             <h5 style={sectionTitleStyle}>{t("settings.profile.chat")}</h5>
@@ -2120,195 +2545,46 @@ function UserEditPanel({
             </div>
           </>
         )}
+      </>
+    ),
+  };
 
-        {isOwner && !isMe && !creating && (
-          <MemberApiTokens key={`tokens:${user.name}`} username={user.name} />
-        )}
-
-        {/* Aesthetics last: looks are secondary to the
-            settings that change behavior. */}
-        <h5 style={sectionTitleStyle}>{t("settings.profile.appearance")}</h5>
-        <label style={subLabelStyle}>
-          {t("common.avatar")}{" "}
-          <span style={hintStyle}>{t("settings.profile.avatarHint")}</span>
-        </label>
-        <AvatarPicker
-          color={avatarColor}
-          variant={avatarVariant}
-          onColorChange={setAvatarColor}
-          onVariantChange={setAvatarVariant}
-        />
-      </div>
-
-      {/* Sticky action footer: always visible however long the form is. The
-          inline error / blocked-reason / discard surfaces live here too, so
-          they can't appear off-screen when triggered from the footer. */}
-      <div
-        style={{
-          position: "sticky",
-          bottom: 0,
-          marginTop: "auto",
-          background: "var(--bg-base)",
-          borderTop: "1px solid var(--border-subtle)",
-          padding: isMobile
-            ? "10px 16px calc(10px + env(safe-area-inset-bottom, 0px))"
-            : "10px 24px",
+  return children({
+    parts: ids.map((id) => ({
+      id,
+      label: memberPartLabel(t, id),
+      dirty: dirtySet.has(id),
+    })),
+    part: open,
+    subtitle: creating ? (
+      t("settings.members.newMember")
+    ) : (
+      <span {...noTranslate()}>{user.name}</span>
+    ),
+    body: open === null ? null : bodies[open],
+    footer: (
+      <SettingsSaveFooter
+        error={error}
+        prompt={discardPrompt}
+        // Cancel throws the edits away and stays, as on the room and agent
+        // parts; the back row and the header's close leave.
+        cancel={{ onClick: revert, disabled: saving || !dirty }}
+        save={{
+          onClick: () => void handleSave(),
+          disabled: saving || !dirty || !name.trim(),
+          label: saving
+            ? t("common.saving")
+            : creating
+              ? t("settings.members.create")
+              : dirty
+                ? t("common.save")
+                : t("common.saved"),
         }}
-      >
-        <div style={{ maxWidth: 720 - 48 }}>
-          {error && (
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--red-text)",
-                margin: "0 0 8px",
-              }}
-            >
-              {error}
-            </p>
-          )}
-
-          {confirmDelete && !creating && (
-            <p
-              data-delete-member-note=""
-              style={{
-                margin: "0 0 8px",
-                fontSize: 11,
-                color: "var(--text-muted)",
-                lineHeight: 1.4,
-              }}
-            >
-              {t("settings.profile.deleteNote")}
-            </p>
-          )}
-
-          {deleteBlockedReason && (
-            <p
-              style={{
-                margin: "0 0 8px",
-                padding: "8px 12px",
-                border: "1px solid #ff6b6b",
-                borderRadius: 6,
-                background: "rgba(255,107,107,0.08)",
-                fontSize: 11,
-                color: "var(--red-text)",
-              }}
-            >
-              {deleteBlockedReason}
-            </p>
-          )}
-
-          {discardPrompt.open && (
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                marginBottom: 8,
-                padding: "8px 10px",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                background: "var(--bg-input)",
-              }}
-            >
-              <span
-                style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
-              >
-                {t("common.discardPrompt")}
-              </span>
-              <button
-                onClick={discardPrompt.discard}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  border: "1px solid var(--red)",
-                  background: "var(--red-text)",
-                  color: "var(--bg-base)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {t("common.discard")}
-              </button>
-              <button
-                onClick={discardPrompt.cancel}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  border: secondaryBorder,
-                  background: secondaryFill,
-                  color: "var(--text-primary)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          )}
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
-            }}
-          >
-            {creating ? (
-              <span />
-            ) : (
-              <button
-                onClick={handleDelete}
-                onBlur={() => setConfirmDelete(false)}
-                disabled={saving}
-                style={{
-                  padding: "7px 14px",
-                  borderRadius: 6,
-                  border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                  background: confirmDelete ? "var(--red-text)" : "transparent",
-                  color: confirmDelete ? "var(--bg-base)" : "var(--red-text)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-                title={t("settings.profile.deleteHint")}
-              >
-                {confirmDelete
-                  ? t("common.confirmQuestion")
-                  : t("common.delete")}
-              </button>
-            )}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => discardPrompt.request()}
-                style={cancelBtnStyle}
-                disabled={saving}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                onClick={() => void handleSave()}
-                disabled={saving || !dirty || !name.trim()}
-                style={{
-                  ...saveBtnStyle,
-                }}
-              >
-                {saving
-                  ? t("common.saving")
-                  : creating
-                    ? t("settings.members.create")
-                    : dirty
-                      ? t("common.save")
-                      : t("common.saved")}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+      />
+    ),
+    prompt: discardPrompt,
+    busy: saving,
+  });
 }
 
 // Live-avatars: picker for the user's ghost color + variant. 8 variant
@@ -2480,5 +2756,3 @@ const sectionHintStyle: React.CSSProperties = {
 const subLabelStyle: React.CSSProperties = { ...dialogLabel, marginTop: 12 };
 const hintStyle: React.CSSProperties = dialogHint;
 const inputStyle: React.CSSProperties = dialogInput;
-const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
-const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

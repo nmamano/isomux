@@ -9,6 +9,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
+const { settingsAt } = await import("../test-support/settings-item.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const {
@@ -115,7 +116,7 @@ function engineCard(container: HTMLElement, engine: string): HTMLButtonElement {
 
 // The Agent settings page's Save, or the spawn dialog's last button (Spawn).
 const saveButton = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>("[data-agent-settings-save]") ??
+  container.querySelector<HTMLButtonElement>("[data-settings-save]") ??
   [...container.querySelectorAll("button")].at(-1)!;
 
 function engineOption(
@@ -169,11 +170,10 @@ describe("Agent settings page", () => {
     const view = render(
       onLanguage(
         "en",
-        <EditAgentDialog
-          onClose={() => {}}
-          agent={agent}
-          initialSection="engine"
-        />,
+        settingsAt(
+          { kind: "agent", agentId: agent.id, part: "engine" },
+          () => {},
+        ),
         stateWith(NO_OPENCODE, [agent]),
       ),
     );
@@ -199,11 +199,10 @@ describe("Agent settings page", () => {
       const view = render(
         onLanguage(
           "en",
-          <EditAgentDialog
-            onClose={() => {}}
-            agent={agent}
-            initialSection="engine"
-          />,
+          settingsAt(
+            { kind: "agent", agentId: agent.id, part: "engine" },
+            () => {},
+          ),
           stateWith(unavailable, [agent]),
         ),
       );
@@ -274,11 +273,10 @@ describe("Codex defaults", () => {
     const view = render(
       onLanguage(
         "en",
-        <EditAgentDialog
-          onClose={() => {}}
-          agent={agent}
-          initialSection="engine"
-        />,
+        settingsAt(
+          { kind: "agent", agentId: agent.id, part: "engine" },
+          () => {},
+        ),
         stateWith({}, [agent]),
       ),
     );
@@ -377,11 +375,10 @@ describe("Claude defaults", () => {
       const view = render(
         onLanguage(
           "en",
-          <EditAgentDialog
-            onClose={() => {}}
-            agent={agent}
-            initialSection="engine"
-          />,
+          settingsAt(
+            { kind: "agent", agentId: agent.id, part: "engine" },
+            () => {},
+          ),
           stateWith({}, [agent]),
         ),
       );

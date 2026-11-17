@@ -6,7 +6,7 @@
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { createElement, useEffect, useReducer } from "react";
-import { RoomPane } from "../components/RoomPane.tsx";
+import { RoomPaneHost } from "./settings-item.tsx";
 import { StateCtx, reducer, type AppState } from "../store.tsx";
 import { LanguageProvider } from "../i18n.tsx";
 import { selfUserRecord, stateWithSelfUser } from "./language-fixture.tsx";
@@ -146,7 +146,8 @@ function Harness({
     createElement(
       LanguageProvider,
       null,
-      createElement(RoomPane, { roomId, onDeleted }),
+      // On the Your view part (task 1f79f2e3), where the level control is.
+      createElement(RoomPaneHost, { roomId, onDeleted, part: "view" }),
     ),
   );
 }

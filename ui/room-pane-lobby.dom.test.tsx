@@ -3,7 +3,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { RoomPane } = await import("./components/RoomPane.tsx");
+const { RoomPaneHost } = await import("./test-support/settings-item.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -33,7 +33,11 @@ describe("room settings memory scopes", () => {
       const view = render(
         onLanguage(
           null,
-          createElement(RoomPane, { roomId: type, onDeleted() {} }),
+          createElement(RoomPaneHost, {
+            part: "general",
+            roomId: type,
+            onDeleted() {},
+          }),
           { rooms: [room] },
         ),
       );
@@ -44,10 +48,21 @@ describe("room settings memory scopes", () => {
       // The working folder field is in both (task e871e36f). An owner's
       // office pane also has the GitHub link's fields (task 7fc83592), which
       // save on their own.
-      const ownFields = view
-        .queryAllByRole("textbox")
-        .filter((box) => !box.closest("[data-github-link]"));
-      expect(ownFields.length).toBe(type === "office" ? 4 : 2);
+      const ownFields = () =>
+        view
+          .queryAllByRole("textbox")
+          .filter((box) => !box.closest("[data-github-link]")).length;
+      // The fields are split over General and Instructions and memory (task
+      // 1f79f2e3).
+      const general = ownFields();
+      await act(async () =>
+        fireEvent.click(
+          view.container.querySelector(
+            'button[data-settings-part="instructions"]',
+          )!,
+        ),
+      );
+      expect(general + ownFields()).toBe(type === "office" ? 4 : 2);
       await act(async () =>
         fireEvent.click(view.getByRole("button", { name: "Save" })),
       );

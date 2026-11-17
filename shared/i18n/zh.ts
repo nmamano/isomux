@@ -511,6 +511,9 @@ export const zh: Catalog = {
   "settings.sidebar.move": "迁移办公室",
   "settings.sidebar.enterprise": "企业",
   "settings.sidebar.profile": "个人资料",
+  "settings.part.signIn": "登录",
+  "settings.part.general": "常规",
+  "settings.part.unsaved": "未保存的更改",
   "settings.sidebar.apiTokens": "API 令牌",
   "settings.sidebar.signInLinks": "登录链接",
   "settings.sidebar.deviceLabel": "设备标签",
@@ -723,7 +726,6 @@ export const zh: Catalog = {
   "settings.office.memberUsageFailed":
     "{provider}：无法读取每周用量。成员不受限制。",
   "settings.office.memberUsageLoading": "{provider}：正在读取每周用量…",
-  "settings.room.title": "{room} · 设置",
   "settings.room.intro": "墙上的通风口、s 键和双击房间标签页都可打开此页面。",
   "settings.room.namePlaceholder": "房间名称",
   "settings.room.cwdHint": "此房间的新智能体从这里开始工作。",

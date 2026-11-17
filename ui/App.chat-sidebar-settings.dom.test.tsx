@@ -67,11 +67,12 @@ async function openRoom(view: View, roomId: string): Promise<void> {
     await click(roomHeader(view, roomId));
   expect(roomHeader(view, roomId)?.getAttribute("aria-expanded")).toBe("true");
 }
-/** The agent settings page's agent id, or null when no page shows. */
+/** The agent Settings is drilled into (task 1f79f2e3), or null. */
 const pageAgent = (view: View) =>
   view.baseElement
-    .querySelector("[data-agent-settings-page]")
-    ?.getAttribute("data-agent-settings-page") ?? null;
+    .querySelector('[data-settings-item^="agent:"]')
+    ?.getAttribute("data-settings-item")
+    ?.slice("agent:".length) ?? null;
 const officeGear = (view: View) =>
   inSidebar(view, "button[data-sidebar-office-settings]");
 /** The rows Settings' own list marks as selected (not the sidebar's). */
@@ -119,8 +120,16 @@ it("a room header's settings button, before the plus, opens Settings on that roo
   expect(
     view.baseElement.querySelector('[data-testid="settings-content"]'),
   ).not.toBeNull();
-  // Settings' own list marks the room it opened on.
-  expect(settingsSelection(view)).toEqual(["Second room"]);
+  // Settings drills into the room it opened on, on its first part (task
+  // 1f79f2e3).
+  expect({
+    item: view.baseElement
+      .querySelector("[data-settings-item]")
+      ?.getAttribute("data-settings-item"),
+    part: view.baseElement
+      .querySelector('button[data-settings-part][aria-current="true"]')
+      ?.getAttribute("data-settings-part"),
+  }).toEqual({ item: "room:r2", part: "general" });
 });
 
 it("an owner's Office row has a settings button beside it, shown on a touch screen while the office is in view; it leaves an unsaved page only on discard and opens Settings on the office section", async () => {

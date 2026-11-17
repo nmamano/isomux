@@ -8,7 +8,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
+const { settingsAt } = await import("../test-support/settings-item.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { claudeAgent, openSection, room, settle, viewer } =
@@ -45,11 +45,10 @@ function dialog(agent: ReturnType<typeof claudeAgent>, agents: unknown[]) {
   const view = render(
     onLanguage(
       "en",
-      <EditAgentDialog
-        onClose={() => {}}
-        agent={agent}
-        initialSection="access"
-      />,
+      settingsAt(
+        { kind: "agent", agentId: agent.id, part: "access" },
+        () => {},
+      ),
       {
         rooms: [room, frontFull, allFull, backFull],
         agents: [agent, ...agents] as never,
@@ -136,7 +135,7 @@ describe("Move to room buttons", () => {
       desk: firstFreeBackSeat([])!,
     };
     const view = render(
-      onLanguage("en", <EditAgentDialog onClose={() => {}} agent={agent} />, {
+      onLanguage("en", settingsAt({ kind: "agent", agentId: agent.id }), {
         rooms: [room],
         agents: [agent],
         hasReceivedInitialState: true,
@@ -184,11 +183,10 @@ describe("a move that races a save", () => {
         const view = render(
           onLanguage(
             "en",
-            <EditAgentDialog
-              onClose={() => closed++}
-              agent={agent}
-              initialSection="instructions"
-            />,
+            settingsAt(
+              { kind: "agent", agentId: agent.id, part: "instructions" },
+              () => closed++,
+            ),
             {
               rooms: [room, backFull],
               agents: [agent],
@@ -210,7 +208,7 @@ describe("a move that races a save", () => {
           const save = async () => {
             await act(async () => {
               fireEvent.click(
-                view.container.querySelector("[data-agent-settings-save]")!,
+                view.container.querySelector("[data-settings-save]")!,
               );
             });
           };

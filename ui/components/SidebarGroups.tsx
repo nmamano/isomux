@@ -5,6 +5,7 @@
 
 import { cloneElement } from "react";
 import { DoorIcon } from "./NavIcons.tsx";
+import { useI18n } from "../i18n.tsx";
 
 // One sidebar entry: it moves the detail pane to `target`. The row holds the
 // target as DATA rather than a closure over select(), because select() routes
@@ -14,6 +15,12 @@ export type SidebarRow<T> = {
   label: string;
   selected: boolean;
   target: T;
+  // The row's part holds an unsaved edit (task 1f79f2e3): a dot after the
+  // label.
+  dirty?: boolean;
+  // The row is a part of the item open in the pane (your own member parts
+  // in Settings > You).
+  partOfOpenItem?: boolean;
 };
 
 // A group of sidebar entries. The Members group carries no rows: it renders
@@ -57,6 +64,7 @@ export function SidebarGroupRows<T>({
   // Extra attributes for each row's button, such as a data-* marker.
   rowAttrs?: (row: SidebarRow<T>) => Record<string, string>;
 }) {
+  const { t } = useI18n();
   if (group.rows.length === 0) return null;
   const dynamic = !!group.dynamic;
   return (
@@ -124,6 +132,23 @@ export function SidebarGroupRows<T>({
               </span>
             ) : (
               row.label
+            )}
+            {row.dirty && (
+              <span
+                role="img"
+                aria-label={t("settings.part.unsaved")}
+                title={t("settings.part.unsaved")}
+                style={{
+                  display: "inline-block",
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--accent)",
+                  marginLeft: 8,
+                  verticalAlign: "middle",
+                  flexShrink: 0,
+                }}
+              />
             )}
           </button>
         ))}

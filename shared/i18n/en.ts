@@ -551,6 +551,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.move": "Move office",
   "settings.sidebar.enterprise": "Enterprise",
   "settings.sidebar.profile": "Profile",
+  "settings.part.signIn": "Sign-in",
+  "settings.part.general": "General",
+  "settings.part.unsaved": "Unsaved changes",
   "settings.sidebar.apiTokens": "API tokens",
   "settings.sidebar.signInLinks": "Sign-in links",
   "settings.sidebar.deviceLabel": "Device label",
@@ -789,7 +792,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "{provider}: weekly usage could not be read. Members are not capped.",
   "settings.office.memberUsageLoading": "{provider}: reading weekly usage…",
 
-  "settings.room.title": "{room} · Settings",
   "settings.room.intro":
     "The vent on the wall, the s key and a double-click on the room tab open this page.",
   "settings.room.namePlaceholder": "Room name",

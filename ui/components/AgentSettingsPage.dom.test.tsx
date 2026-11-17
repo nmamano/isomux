@@ -1,7 +1,10 @@
 // An agent's settings as a full page (task 59538509; Nil, 2026-11-14: "full
-// page would be the most standard"). The page has the layout of Settings: the
-// agent's sections in a list on the left (Profile, Engine, Instructions and
-// memory, Access), the selected section on the right. It is one form: an edit
+// page would be the most standard"), drilled in under Settings since task
+// 1f79f2e3 (Nil, 2026-11-17: "Drill-in: a room, member or agent lists its
+// parts in the sidebar"): the header reads Settings with the agent beside it,
+// the agent's sections (Profile, Engine, Instructions and memory, Access) are
+// part rows under a back row to the Settings list, the selected one on the
+// right. A part with an unsaved edit shows a dot. It works with no account. It is one form: an edit
 // stays when the member moves to another section, and the one Save writes
 // every section. Save keeps the page open, as the Settings panes do. A save
 // the server refuses for a field opens that field's section. On a phone the
@@ -9,11 +12,14 @@
 // (ui/components/EditAgentDialog.spawn-*.dom.test.tsx). The doors in App are
 // in ui/App.agent-settings-page.dom.test.tsx.
 //
-// DOM contract: the page root carries data-agent-settings-page (the agent
-// id); a section row is button[data-agent-settings-section="<id>"], the
-// shown one aria-current="true"; Save is [data-agent-settings-save]; the
-// header close is [data-page-close]; the phone back row is
-// [data-page-back-to-list]. A section's fields keep their classes:
+// DOM contract (shared with rooms and members,
+// UserSettingsView.drill-in.dom.test.tsx): the page root carries
+// data-settings-item="agent:<id>"; a section row is
+// button[data-settings-part="<id>"], the shown one aria-current="true", one
+// with an unsaved edit data-settings-part-dirty; the back row to the Settings
+// list is button[data-settings-back]; Save is [data-settings-save]; the
+// header close is [data-page-close]; the phone back row from a section to
+// the list is [data-page-back-to-list]. A section's fields keep their classes:
 // .agent-identity-section and .agent-appearance-section (Profile),
 // .agent-engine-section, .agent-instructions-section, .agent-access-section.
 
@@ -22,7 +28,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
+const { UserSettingsView } = await import("./UserSettingsView.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { agentAt, cleanup, pick, route, settle, shim, user, viewer } =
@@ -51,23 +57,28 @@ function renderPage(
     initialSection?: Section;
     phone?: boolean;
     onClose?: () => void;
+    noAccount?: boolean;
   } = {},
 ) {
   const agent = opts.agent ?? agentAt("standard");
   return render(
     onLanguage(
       "en",
-      <EditAgentDialog
-        agent={agent}
+      <UserSettingsView
+        onSwitchUser={() => {}}
         onClose={opts.onClose ?? (() => {})}
-        initialSection={opts.initialSection}
+        initialTarget={{
+          kind: "agent",
+          agentId: agent.id,
+          ...(opts.initialSection ? { part: opts.initialSection } : {}),
+        }}
       />,
       {
         rooms: [room],
         agents: [agent],
         users,
         hasReceivedInitialState: true,
-        sessionContext: viewer([]),
+        sessionContext: opts.noAccount ? null : viewer([]),
         isMobile: opts.phone === true,
       },
     ),
@@ -76,23 +87,32 @@ function renderPage(
 type View = ReturnType<typeof renderPage>;
 
 const page = (view: View) =>
-  view.container.querySelector("[data-agent-settings-page]");
+  view.container.querySelector('[data-settings-item^="agent:"]');
 const row = (view: View, section: Section) =>
   view.container.querySelector<HTMLButtonElement>(
-    `button[data-agent-settings-section="${section}"]`,
+    `button[data-settings-part="${section}"]`,
   );
 /** The section rows, in order. */
 const rows = (view: View) =>
-  [
-    ...view.container.querySelectorAll("button[data-agent-settings-section]"),
-  ].map((el) => el.getAttribute("data-agent-settings-section"));
+  [...view.container.querySelectorAll("button[data-settings-part]")].map((el) =>
+    el.getAttribute("data-settings-part"),
+  );
 /** The rows marked as the one shown. */
 const currentRows = (view: View) =>
   [
     ...view.container.querySelectorAll(
-      'button[data-agent-settings-section][aria-current="true"]',
+      'button[data-settings-part][aria-current="true"]',
     ),
-  ].map((el) => el.getAttribute("data-agent-settings-section"));
+  ].map((el) => el.getAttribute("data-settings-part"));
+/** The rows that show the unsaved-edits dot. */
+const dirtyRows = (view: View) =>
+  [
+    ...view.container.querySelectorAll(
+      "button[data-settings-part][data-settings-part-dirty]",
+    ),
+  ].map((el) => el.getAttribute("data-settings-part"));
+const settingsBack = (view: View) =>
+  view.container.querySelector<HTMLButtonElement>("button[data-settings-back]");
 /** The sections whose fields are in the page, in sidebar order. */
 const shownSections = (view: View) =>
   (Object.keys(SECTION_CLASSES) as Section[]).filter((section) =>
@@ -134,29 +154,38 @@ async function typeName(view: View, value: string) {
   });
 }
 async function save(view: View) {
-  await click(view.container.querySelector("[data-agent-settings-save]"));
+  await click(view.container.querySelector("[data-settings-save]"));
   await settle();
   await settle();
 }
 
 describe("the agent settings page on a desktop", () => {
-  it("lists the four sections in order, opens on Engine, and a row shows only its section", async () => {
+  it("is Settings with the agent beside the title; lists the four sections in order under the back row, opens on Engine, and a row shows only its section", async () => {
     shim();
     const view = renderPage();
     try {
       await settle();
       expect({
-        page: page(view)?.getAttribute("data-agent-settings-page") ?? null,
+        page: page(view)?.getAttribute("data-settings-item") ?? null,
         rows: rows(view),
         current: currentRows(view),
         shown: shownSections(view),
         back: backRow(view) !== null,
+        settingsBack: settingsBack(view) !== null,
+        title: view.container.querySelector("h1")?.textContent ?? null,
+        subtitleNamesAgent:
+          view.container
+            .querySelector("h1")
+            ?.nextElementSibling?.textContent?.includes("Saved name") ?? false,
       }).toEqual({
-        page: "a1",
+        page: "agent:a1",
         rows: ["profile", "engine", "instructions", "access"],
         current: ["engine"],
         shown: ["engine"],
         back: false,
+        settingsBack: true,
+        title: en["common.settings"],
+        subtitleNamesAgent: true,
       });
       const seen: Record<string, unknown> = {};
       for (const section of [
@@ -247,6 +276,65 @@ describe("the agent settings page on a desktop", () => {
       // The prompt's first button discards.
       await click(text!.parentElement!.querySelector("button"));
       expect(closed).toBe(1);
+    } finally {
+      cleanup(view);
+    }
+  });
+  it("a section with an unsaved edit shows a dot, and only it; Save clears it", async () => {
+    shim();
+    const view = renderPage();
+    try {
+      await settle();
+      expect(dirtyRows(view)).toEqual([]);
+      await open(view, "profile");
+      await typeName(view, "Renamed");
+      await open(view, "access");
+      expect(dirtyRows(view)).toEqual(["profile"]);
+      // Typed back to the saved name: nothing to save, no dot.
+      await open(view, "profile");
+      await typeName(view, "Saved name");
+      expect(dirtyRows(view)).toEqual([]);
+      await typeName(view, "Renamed");
+      await save(view);
+      expect(dirtyRows(view)).toEqual([]);
+    } finally {
+      cleanup(view);
+    }
+  });
+
+  it("the back row leads to the Settings list, which holds no agent, and the page stays open", async () => {
+    shim();
+    let closed = 0;
+    const view = renderPage({ onClose: () => closed++ });
+    try {
+      await settle();
+      await click(settingsBack(view));
+      expect({
+        closed,
+        page: page(view) !== null,
+        rows: rows(view).length,
+        settings:
+          view.container.querySelector("[data-sidebar-group-toggle]") !== null,
+      }).toEqual({ closed: 0, page: false, rows: 0, settings: true });
+    } finally {
+      cleanup(view);
+    }
+  });
+
+  it("works with no account: the sections list and Engine shows", async () => {
+    shim();
+    const view = renderPage({ noAccount: true });
+    try {
+      await settle();
+      expect({
+        page: page(view)?.getAttribute("data-settings-item") ?? null,
+        rows: rows(view),
+        shown: shownSections(view),
+      }).toEqual({
+        page: "agent:a1",
+        rows: ["profile", "engine", "instructions", "access"],
+        shown: ["engine"],
+      });
     } finally {
       cleanup(view);
     }
@@ -344,12 +432,23 @@ describe("the agent settings page on a phone", () => {
       }).toEqual({ rows: 4, shown: [], back: false });
       await click(row(view, "profile"));
       expect(nameInput(view)?.value).toBe("Renamed");
+      // The third level up: the sections list's back row to Settings, which
+      // asks first about the edit.
+      await click(backRow(view));
+      await click(settingsBack(view));
+      expect({
+        prompt: discardPrompt(view) !== null,
+        page: page(view) !== null,
+      }).toEqual({
+        prompt: true,
+        page: true,
+      });
     } finally {
       cleanup(view);
     }
   });
 
-  it("an unsaved edit and the list showing: Close and Escape show the discard prompt, and Discard leaves", async () => {
+  it("an unsaved edit and the list showing: Close shows the discard prompt and Escape takes it down; Escape then leaves for the Settings list through the prompt, and Discard lands there", async () => {
     shim();
     let closed = 0;
     const view = renderPage({ phone: true, onClose: () => closed++ });
@@ -364,25 +463,38 @@ describe("the agent settings page on a phone", () => {
         closed: 0,
         prompt: true,
       });
-      // Escape takes the prompt down; a second one asks again.
-      await act(async () => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
-      });
+      const escape = () =>
+        act(async () => {
+          window.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          );
+        });
+      // Escape takes the prompt down.
+      await escape();
       expect(discardPrompt(view)).toBeNull();
-      await act(async () => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
-      });
+      // On the list, Escape does what the back row there does (task
+      // 1f79f2e3): it leaves for the Settings list, asking first.
+      await escape();
       const text = discardPrompt(view);
-      expect({ closed, prompt: text !== null }).toEqual({
+      expect({
+        closed,
+        prompt: text !== null,
+        page: page(view) !== null,
+      }).toEqual({
         closed: 0,
         prompt: true,
+        page: true,
       });
       await click(text!.parentElement!.querySelector("button"));
-      expect(closed).toBe(1);
+      expect({
+        closed,
+        page: page(view) !== null,
+        rows: rows(view).length,
+      }).toEqual({
+        closed: 0,
+        page: false,
+        rows: 0,
+      });
     } finally {
       cleanup(view);
     }

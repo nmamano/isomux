@@ -544,6 +544,9 @@ Cosas que puedes hacer por él:
   "settings.sidebar.move": "Trasladar la oficina",
   "settings.sidebar.enterprise": "Enterprise",
   "settings.sidebar.profile": "Perfil",
+  "settings.part.signIn": "Inicio de sesión",
+  "settings.part.general": "General",
+  "settings.part.unsaved": "Cambios sin guardar",
   "settings.sidebar.apiTokens": "Tokens de API",
   "settings.sidebar.signInLinks": "Enlaces de inicio de sesión",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositivo",
@@ -789,7 +792,6 @@ Cosas que puedes hacer por él:
     "{provider}: no se pudo leer el uso semanal. Los miembros no tienen tope.",
   "settings.office.memberUsageLoading": "{provider}: leyendo el uso semanal…",
 
-  "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
     "La rejilla de la pared, la tecla s y un doble clic en la pestaña de la sala abren esta página.",
   "settings.room.namePlaceholder": "Nombre de la sala",

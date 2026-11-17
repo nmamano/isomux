@@ -3,11 +3,9 @@
 // Imports the dialog and store, so a test loads it with `await import(...)`
 // after setUpDomTestFile(), never statically.
 import { act, fireEvent, render } from "@testing-library/react";
-import {
-  EditAgentDialog,
-  type AgentSettingsSection,
-} from "../components/EditAgentDialog.tsx";
+import type { AgentSettingsSection } from "../components/EditAgentDialog.tsx";
 import { onLanguage } from "./language-fixture.tsx";
+import { settingsAt } from "./settings-item.tsx";
 import { setApiShim } from "../api.ts";
 import {
   DEFAULT_AGENT_CAPABILITIES,
@@ -119,9 +117,9 @@ export function hasEffort(container: HTMLElement): boolean {
   );
 }
 
-// The Agent settings page shows one section at a time (task 59538509): a
-// test renders it on the section it reads, and opens another with
-// openSection.
+// Settings drilled into the agent shows one section at a time (tasks
+// 59538509, 1f79f2e3): a test renders it on the section it reads, and opens
+// another with openSection.
 export function renderEdit(
   agent: AgentInfo,
   viewerLimited: string[],
@@ -130,11 +128,7 @@ export function renderEdit(
   const element = (current: AgentInfo) =>
     onLanguage(
       "en",
-      <EditAgentDialog
-        onClose={() => {}}
-        agent={current}
-        initialSection={section}
-      />,
+      settingsAt({ kind: "agent", agentId: current.id, part: section }),
       {
         rooms: [room],
         agents: [current],
@@ -152,7 +146,7 @@ export async function openSection(
   section: AgentSettingsSection,
 ): Promise<void> {
   const row = container.querySelector<HTMLButtonElement>(
-    `button[data-agent-settings-section="${section}"]`,
+    `button[data-settings-part="${section}"]`,
   );
   if (!row) throw new Error(`no section row ${section}`);
   await act(async () => {
@@ -167,7 +161,7 @@ export async function renameAndSave(container: HTMLElement): Promise<void> {
     ".agent-identity-section input",
   ) as HTMLInputElement;
   fireEvent.change(name, { target: { value: "Renamed" } });
-  fireEvent.click(container.querySelector("[data-agent-settings-save]")!);
+  fireEvent.click(container.querySelector("[data-settings-save]")!);
   await settle();
   await settle();
 }

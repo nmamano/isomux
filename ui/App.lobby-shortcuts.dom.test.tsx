@@ -26,9 +26,11 @@ beforeEach(() => {
 
 const ROOM = "Isomux";
 
-for (const [where, lobbyOpen, rowLabel] of [
-  ["the lobby", true, en["settings.sidebar.office"]],
-  ["a room", false, ROOM],
+// From a room, Settings drills into the room on its first part (task
+// 1f79f2e3); from the lobby it opens the office row.
+for (const [where, lobbyOpen, rowLabel, item] of [
+  ["the lobby", true, en["settings.sidebar.office"], null],
+  ["a room", false, en["settings.part.general"], "room:r1"],
 ] as const) {
   it(`s opens Settings on the ${lobbyOpen ? "office" : "room"} row from ${where}`, async () => {
     const view = render(
@@ -53,5 +55,10 @@ for (const [where, lobbyOpen, rowLabel] of [
       ...view.container.querySelectorAll('button[aria-current="true"]'),
     ].map((b) => b.textContent);
     expect(current).toEqual([rowLabel]);
+    expect(
+      view.container
+        .querySelector("[data-settings-item]")
+        ?.getAttribute("data-settings-item") ?? null,
+    ).toBe(item);
   });
 }

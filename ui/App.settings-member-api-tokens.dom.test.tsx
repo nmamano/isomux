@@ -16,6 +16,7 @@ const { App } = await import("./App.tsx");
 const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { openPart } = await import("./test-support/settings-item.tsx");
 
 function token(id: string, name: string) {
   return {
@@ -115,6 +116,12 @@ async function openProfile(state: typeof initialState, name: string) {
   await clickRow(view, name);
   return view;
 }
+/** Another member's tokens are on their Sign-in part (task 1f79f2e3). */
+async function openSignIn(view: View) {
+  await act(async () => {
+    await openPart(view.container, "signIn");
+  });
+}
 
 const cardIds = (view: View) =>
   [...view.container.querySelectorAll("[data-api-token]")].map((el) =>
@@ -126,6 +133,7 @@ const adminRequests = () =>
 describe("API tokens on a member's profile", () => {
   it("lets an owner revoke one of the member's tokens", async () => {
     const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Beth");
+    await openSignIn(view);
     expect(cardIds(view)).toEqual(["b1", "b2"]);
     expect(adminRequests()).toEqual(["GET /api/users/Beth/api-tokens"]);
 
@@ -145,10 +153,17 @@ describe("API tokens on a member's profile", () => {
 
   it("shows the next member's tokens after a switch, never the previous ones", async () => {
     const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Beth");
+    await openSignIn(view);
     expect(cardIds(view)).toEqual(["b1", "b2"]);
     let release!: () => void;
     carlGate = new Promise<void>((resolve) => (release = resolve));
+    await act(async () => {
+      fireEvent.click(
+        view.container.querySelector("button[data-settings-back]")!,
+      );
+    });
     await clickRow(view, "Carl");
+    await openSignIn(view);
     // Carl's answer is still out: Beth's tokens must already be gone.
     expect(cardIds(view)).toEqual([]);
     await act(async () => {

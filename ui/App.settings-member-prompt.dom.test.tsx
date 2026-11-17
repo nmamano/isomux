@@ -8,6 +8,7 @@ const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim, ApiError } = await import("./api.ts");
 const { createElement } = await import("react");
 const { versionOf } = await import("../shared/blob-version.ts");
+const { openPart } = await import("./test-support/settings-item.tsx");
 afterAll(() => setApiShim(null));
 
 it("keeps the draft after conflict, reads the current prompt, and retries with its version", async () => {
@@ -66,6 +67,11 @@ it("keeps the draft after conflict, reads the current prompt, and retries with i
   const view = render(
     createElement(StateCtx.Provider, { value: state }, createElement(App, {})),
   );
+  // Settings opens on You > Profile; the text is on Instructions and memory
+  // (task 1f79f2e3).
+  await act(async () => {
+    await openPart(view.container, "instructions");
+  });
   await act(async () => {
     fireEvent.change(view.getByDisplayValue("original"), {
       target: { value: "my draft" },

@@ -19,7 +19,7 @@ const { IntegrationsFake, secret } =
 const { notifyConnectionsChanged } = await import("../connections-events.ts");
 const { MEMBER, OWNER, open, selectedTab } =
   await import("../test-support/integrations-page-fixture.ts");
-const { RoomPane } = await import("../components/RoomPane.tsx");
+const { RoomPaneHost } = await import("../test-support/settings-item.tsx");
 const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
 const { LOBBY_ROOM } = await import("../../shared/types.ts");
@@ -384,7 +384,7 @@ it("Room settings no longer carry the link, for an owner", async () => {
   const view = render(
     onLanguage(
       null,
-      createElement(RoomPane, { roomId: "r1", onDeleted() {} }),
+      createElement(RoomPaneHost, { roomId: "r1", onDeleted() {} }),
       {
         rooms: [room("r1", "Alpha")],
         sessionContext: { ...base.sessionContext!, role: "owner" },
@@ -394,7 +394,19 @@ it("Room settings no longer carry the link, for an owner", async () => {
   await act(async () => {});
   // The pane itself loaded.
   expect(fake.calls.some((c) => c.path.endsWith("/instructions"))).toBe(true);
-  expect(view.container.querySelector("[data-github-link]")).toBeNull();
+  // In none of its parts (task 1f79f2e3).
+  const partIds = [
+    ...view.container.querySelectorAll("button[data-settings-part]"),
+  ].map((b) => b.getAttribute("data-settings-part"));
+  expect(partIds.length).toBeGreaterThan(1);
+  for (const id of partIds) {
+    await act(async () =>
+      fireEvent.click(
+        view.container.querySelector(`button[data-settings-part="${id}"]`)!,
+      ),
+    );
+    expect(view.container.querySelector("[data-github-link]")).toBeNull();
+  }
   expect(linkCalls()).toEqual([]);
   view.unmount();
 });

@@ -544,6 +544,9 @@ Coses que pots fer per ell:
   "settings.sidebar.move": "Traslladar l'oficina",
   "settings.sidebar.enterprise": "Enterprise",
   "settings.sidebar.profile": "Perfil",
+  "settings.part.signIn": "Inici de sessió",
+  "settings.part.general": "General",
+  "settings.part.unsaved": "Canvis sense desar",
   "settings.sidebar.apiTokens": "Tokens d'API",
   "settings.sidebar.signInLinks": "Enllaços d'inici de sessió",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositiu",
@@ -787,7 +790,6 @@ Coses que pots fer per ell:
     "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres no tenen topall.",
   "settings.office.memberUsageLoading": "{provider}: llegint l'ús setmanal…",
 
-  "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
     "La reixeta de la paret, la tecla s i un doble clic a la pestanya de la sala obren aquesta pàgina.",
   "settings.room.namePlaceholder": "Nom de la sala",

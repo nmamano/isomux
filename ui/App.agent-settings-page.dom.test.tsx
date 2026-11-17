@@ -33,6 +33,8 @@ const {
   discard,
   headerName,
   nameInput,
+  navSettingsLit,
+  settingsOpen,
   openRoom,
   openSection,
   pageAgent,
@@ -44,7 +46,7 @@ const {
 
 setUpChatSidebarTests();
 
-it("the chat header's name opens the page in the chat's place with the sidebar kept; Close returns to the same chat", async () => {
+it("the chat header's name opens Settings drilled into the agent in the chat's place, the nav lights Settings, the sidebar stays; Close returns to the same chat", async () => {
   const view = await boot();
   await openFirstDesk(view);
   await click(headerName(view));
@@ -54,19 +56,29 @@ it("the chat header's name opens the page in the chat's place with the sidebar k
     dialog:
       view.baseElement.querySelector(".edit-agent-dialog-desktop") !== null,
     section: currentSection(view),
+    // The page is Settings drilled into the agent (task 1f79f2e3).
+    settings: settingsOpen(view),
+    nav: navSettingsLit(view),
   }).toEqual({
     page: scout.id,
     chat: false,
     sidebar: true,
     dialog: false,
     section: "engine",
+    settings: true,
+    nav: true,
   });
   await click(view.baseElement.querySelector("[data-page-close]"));
-  expect({ ...shows(view), rows: currentRows(view) }).toEqual({
+  expect({
+    ...shows(view),
+    rows: currentRows(view),
+    settings: settingsOpen(view),
+  }).toEqual({
     page: null,
     chat: true,
     sidebar: true,
     rows: [scout.id],
+    settings: false,
   });
 });
 
@@ -152,8 +164,8 @@ it("on a phone the page fills the screen with the section list first; Close retu
   await openFirstDesk(view);
   await click(headerName(view));
   const sections = [
-    ...view.baseElement.querySelectorAll("button[data-agent-settings-section]"),
-  ].map((el) => el.getAttribute("data-agent-settings-section"));
+    ...view.baseElement.querySelectorAll("button[data-settings-part]"),
+  ].map((el) => el.getAttribute("data-settings-part"));
   expect({
     page: pageAgent(view),
     chat: chatOpen(view),

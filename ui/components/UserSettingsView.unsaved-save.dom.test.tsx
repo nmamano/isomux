@@ -57,6 +57,9 @@ async function mount(): Promise<View> {
       createElement(UserSettingsView, {
         onSwitchUser: () => {},
         onClose: () => {},
+        // Your instructions are on You > Instructions and memory (task
+        // 1f79f2e3).
+        initialTarget: { kind: "user", id: SELF.id, part: "instructions" },
       }),
       { rooms: [], hasReceivedInitialState: true },
     ),
@@ -76,7 +79,11 @@ function row(view: View, label: string): HTMLElement {
 }
 const current = (view: View, label: string) =>
   row(view, label).getAttribute("aria-current") === "true";
-const PROFILE = t("settings.sidebar.profile");
+/** Your Instructions and memory row is the open one. */
+const onInstructions = (view: View) =>
+  view.container
+    .querySelector('button[data-settings-part="instructions"]')
+    ?.getAttribute("aria-current") === "true";
 const LANGUAGE = t("settings.sidebar.languageAndChat");
 
 const prompt = (view: View) =>
@@ -110,13 +117,13 @@ describe("the profile's discard prompt during a save", () => {
   for (const [name, steps] of ORDERS) {
     it(`${name}: goes away and opens the picked page when the save lands`, async () => {
       const view = await mount();
-      expect(current(view, PROFILE)).toBe(true);
+      expect(onInstructions(view)).toBe(true);
       await editInstructions(view);
       for (const step of steps) await step(view);
       // The save is in flight and the form is still dirty.
       expect(held).toHaveLength(1);
       expect(prompt(view)).toBe(true);
-      expect(current(view, PROFILE)).toBe(true);
+      expect(onInstructions(view)).toBe(true);
 
       await act(async () =>
         held[0]!.resolve({ instructions: "Answer in one line.", version: "2" }),
@@ -140,7 +147,7 @@ describe("the profile's discard prompt during a save", () => {
       await settle();
       expect(view.queryByText("disk full")).not.toBeNull();
       expect(prompt(view)).toBe(true);
-      expect(current(view, PROFILE)).toBe(true);
+      expect(onInstructions(view)).toBe(true);
       expect(current(view, LANGUAGE)).toBe(false);
 
       // The prompt still carries the member's exit.

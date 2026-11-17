@@ -14,6 +14,7 @@ const { onLanguage, selfUserRecord } =
   await import("./test-support/language-fixture.tsx");
 const { setApiShim, ApiError } = await import("./api.ts");
 const { en } = await import("../shared/i18n/en.ts");
+const { openPart } = await import("./test-support/settings-item.tsx");
 
 const calls: { method: string; path: string; body: unknown }[] = [];
 function reply(method: string, path: string): unknown {
@@ -31,13 +32,23 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
-function settings(over = {}, initialUserId?: string) {
+// With a member's id: that member's Sign-in part, where the sign-in link is
+// (task 1f79f2e3).
+function settings(over = {}, memberId?: string) {
   return onLanguage(
     "en",
     createElement(UserSettingsView, {
       onSwitchUser: () => {},
       onClose: () => {},
-      initialUserId,
+      ...(memberId
+        ? {
+            initialTarget: {
+              kind: "user" as const,
+              id: memberId,
+              part: "signIn" as const,
+            },
+          }
+        : {}),
     }),
     over,
   );
@@ -91,8 +102,12 @@ it("creates a member from the editor with only record fields, then leaves create
   ).toBeNull();
   expect(calls.some((c) => c.path.startsWith("/api/memory"))).toBe(false);
 
+  // The name on Profile, the instructions on their part (task 1f79f2e3).
   const name = detail.querySelector("input")!;
   fireEvent.change(name, { target: { value: "  Pia " } });
+  await act(async () => {
+    await openPart(view.container, "instructions");
+  });
   fireEvent.change(detail.querySelector("textarea")!, {
     target: { value: "Explain each step." },
   });
@@ -133,6 +148,9 @@ it("creates a member from the editor with only record fields, then leaves create
       invitesLoaded: true,
     }),
   );
+  await act(async () => {
+    await openPart(view.container, "signIn");
+  });
   expect(signInLink(view)?.querySelector(CREATE) != null).toBe(true);
 });
 
@@ -182,10 +200,14 @@ function signInLink(view: { container: HTMLElement }) {
   );
 }
 
-// Pia's page is mounted: the heading carries her name.
-function onPiaPage(view: { getByTestId: (id: string) => HTMLElement }) {
-  const heading = view.getByTestId("settings-content").querySelector("h4");
-  return heading?.textContent === "Pia";
+// Settings is drilled into Pia, on her Sign-in part.
+function onPiaPage(view: { container: HTMLElement }) {
+  return (
+    view.container
+      .querySelector("[data-settings-item]")
+      ?.getAttribute("data-settings-item") === "user:u2" &&
+    view.container.querySelector('[data-settings-part-body="signIn"]') !== null
+  );
 }
 
 // "enabled", "disabled" (the invites list is still loading: the page keeps
