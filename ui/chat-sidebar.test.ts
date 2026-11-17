@@ -385,9 +385,12 @@ describe("moveRoom", () => {
 
 // The stored shape of the sidebar's lists, for their placeholders while they
 // load (task 4dcad6bf; since task f66e07e3 the page rows draw at load and
-// only the lists have a shape). The DOM side is in
-// ui/App.chat-sidebar-skeleton.dom.test.tsx.
+// only the lists have a shape), and of its head (task 73b5c130: the office
+// name, working count and Inbox badge widths). The DOM side is in
+// ui/App.chat-sidebar-skeleton.dom.test.tsx and
+// ui/App.chat-sidebar-head.dom.test.tsx.
 describe("parseChatSidebarShape", () => {
+  const head = { name: 117, working: 64, inbox: 22 };
   const lists = {
     H: 120,
     items: [
@@ -403,13 +406,22 @@ describe("parseChatSidebarShape", () => {
 
   it("keeps a sane shape as it is, up to the item and px caps", () => {
     expect(
-      parseChatSidebarShape(JSON.parse(JSON.stringify({ lists }))),
-    ).toEqual({ lists });
-    // An empty block is a shape too: a list with nothing in it.
-    const empty = { lists: { H: 0, items: [] } };
+      parseChatSidebarShape(JSON.parse(JSON.stringify({ lists, head }))),
+    ).toEqual({ lists, head });
+    // An empty block is a shape too: a list with nothing in it; a head with
+    // nothing drawn is too.
+    const empty = {
+      lists: { H: 0, items: [] },
+      head: { name: 0, working: 0, inbox: 0 },
+    };
     expect(parseChatSidebarShape(empty)).toEqual(empty);
     const atCaps = {
       lists: block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS, CHAT_SIDEBAR_SHAPE_MAX_PX),
+      head: {
+        name: CHAT_SIDEBAR_SHAPE_MAX_PX,
+        working: CHAT_SIDEBAR_SHAPE_MAX_PX,
+        inbox: CHAT_SIDEBAR_SHAPE_MAX_PX,
+      },
     };
     expect(parseChatSidebarShape(atCaps)).toEqual(atCaps as ChatSidebarShape);
     // The default is a sane shape.
@@ -426,10 +438,23 @@ describe("parseChatSidebarShape", () => {
         { kind: "divider", top: 67, h: 1 },
       ],
     };
-    expect(parseChatSidebarShape({ top, lists })).toEqual({ lists });
+    const head = CHAT_SIDEBAR_SHAPE_DEFAULT.head;
+    expect(parseChatSidebarShape({ top, lists })).toEqual({ lists, head });
     expect(
       parseChatSidebarShape({ top: { H: -1, items: "x" }, lists }),
-    ).toEqual({ lists });
+    ).toEqual({ lists, head });
+  });
+
+  it("reads a value stored before task 73b5c130 (no head) with its lists and the default head", () => {
+    expect(parseChatSidebarShape({ lists })).toEqual({
+      lists,
+      head: CHAT_SIDEBAR_SHAPE_DEFAULT.head,
+    });
+    // The default head has no working count and no Inbox badge: a device
+    // with no stored head draws no placeholder for them.
+    expect(CHAT_SIDEBAR_SHAPE_DEFAULT.head.working).toBe(0);
+    expect(CHAT_SIDEBAR_SHAPE_DEFAULT.head.inbox).toBe(0);
+    expect(CHAT_SIDEBAR_SHAPE_DEFAULT.head.name).toBeGreaterThan(0);
   });
 
   it("reads anything else as none, without throwing", () => {
@@ -437,6 +462,9 @@ describe("parseChatSidebarShape", () => {
     const withLists = (l: unknown) => ({ lists: l });
     const withItem = (over: Record<string, unknown>) =>
       withLists({ ...lists, items: [{ ...item, ...over }] });
+    const withHead = (h: unknown) => ({ lists, head: h });
+    const withHeadPart = (over: Record<string, unknown>) =>
+      withHead({ ...head, ...over });
     const bad: [string, unknown][] = [
       ["null", null],
       ["a string", "shape"],
@@ -462,6 +490,20 @@ describe("parseChatSidebarShape", () => {
       ["h infinite", withItem({ h: Infinity })],
       ["an item that is null", withLists({ ...lists, items: [null] })],
       ["one item too many", withLists(block(CHAT_SIDEBAR_SHAPE_MAX_ITEMS + 1))],
+      ["a head that is null", withHead(null)],
+      ["a head that is a string", withHead("head")],
+      ["a head that is a list", withHead([117, 64, 22])],
+      ["a head with no name", withHeadPart({ name: undefined })],
+      ["a head with no working", withHeadPart({ working: undefined })],
+      ["a head with no inbox", withHeadPart({ inbox: undefined })],
+      ["a head name as a string", withHeadPart({ name: "117" })],
+      ["a negative working", withHeadPart({ working: -1 })],
+      [
+        "an inbox over the cap",
+        withHeadPart({ inbox: CHAT_SIDEBAR_SHAPE_MAX_PX + 1 }),
+      ],
+      ["a NaN name", withHeadPart({ name: NaN })],
+      ["an infinite working", withHeadPart({ working: Infinity })],
     ];
     for (const [why, raw] of bad)
       expect(parseChatSidebarShape(raw), why).toBeNull();

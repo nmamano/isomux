@@ -3,7 +3,9 @@
 // module, so the rules are tested without Chrome.
 
 /**
- * One visible element in one snapshot. x, y, w, h are page coordinates.
+ * One visible element in one snapshot. x, y, w, h are viewport coordinates
+ * (getBoundingClientRect, no scroll offset): layoutChanges' viewport option
+ * needs them.
  * id names the same DOM element in every snapshot; parent is the id of its
  * nearest recorded ancestor, or null.
  */
@@ -19,7 +21,8 @@ export type Box = {
 
 /**
  * One jump. moved: its place relative to its parent changed. resized: its
- * size changed (it may also have moved; dx, dy say so). appeared: it is new,
+ * size changed (it may also have moved; dx, dy say so); with a viewport,
+ * only when its part in view changed. appeared: it is new,
  * its parent was there while held, and no removed element held its place.
  * dx and dy are relative to the parent; for appeared all four are 0.
  */
@@ -41,6 +44,34 @@ function differs(a: Box, b: Box, tolerancePx: number): boolean {
     Math.abs(a.y - b.y) > tolerancePx ||
     Math.abs(a.w - b.w) > tolerancePx ||
     Math.abs(a.h - b.h) > tolerancePx
+  );
+}
+
+/** The part of a box inside the viewport, or null when none is. */
+function inView(
+  b: Box,
+  view: { w: number; h: number },
+): { x0: number; y0: number; x1: number; y1: number } | null {
+  const x0 = Math.max(b.x, 0);
+  const y0 = Math.max(b.y, 0);
+  const x1 = Math.min(b.x + b.w, view.w);
+  const y1 = Math.min(b.y + b.h, view.h);
+  return x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : null;
+}
+
+/** The two boxes' parts inside the viewport are the same, past nothing but
+ *  the tolerance: a size change there happens out of sight. */
+function sameInView(
+  a: Box,
+  b: Box,
+  view: { w: number; h: number },
+  tolerancePx: number,
+): boolean {
+  const p = inView(a, view);
+  const q = inView(b, view);
+  if (!p || !q) return p === q;
+  return (["x0", "y0", "x1", "y1"] as const).every(
+    (k) => Math.abs(p[k] - q[k]) <= tolerancePx,
   );
 }
 
@@ -79,13 +110,21 @@ function overlap(a: Box, b: Box): number {
  * parent is not reported, and a child that moves inside its parent is, even
  * when the parent also moved or changed size (centred content in a panel
  * that grows reads as its own line). A root, or an element whose parent is
- * ignored, is measured in page coordinates. An element whose parent is
- * ignored cannot be reported as appeared: it has no held parent.
+ * ignored, is measured in viewport coordinates. An element whose parent is
+ * ignored cannot be reported as appeared: it has no held parent. With a
+ * viewport, a size change whose part in view stays the same (a list that
+ * grows below the fold) is not reported; if it also moved, it is a move.
  */
 export function layoutChanges(
   held: Box[],
   loaded: Box[],
-  opts: { tolerancePx?: number; ignore?: ReadonlySet<number> } = {},
+  opts: {
+    tolerancePx?: number;
+    ignore?: ReadonlySet<number>;
+    // The viewport (task 73b5c130): a resize is a jump only when the box's
+    // part inside it changes.
+    viewport?: { w: number; h: number };
+  } = {},
 ): Change[] {
   const tolerancePx = opts.tolerancePx ?? 1;
   const ignore = opts.ignore ?? new Set<number>();
@@ -123,12 +162,10 @@ export function layoutChanges(
       const dw = a.w - b.w;
       const dh = a.h - b.h;
       const past = (d: number) => Math.abs(d) > tolerancePx;
-      const kind =
-        past(dw) || past(dh)
-          ? "resized"
-          : past(dx) || past(dy)
-            ? "moved"
-            : null;
+      const resized =
+        (past(dw) || past(dh)) &&
+        !(opts.viewport && sameInView(a, b, opts.viewport, tolerancePx));
+      const kind = resized ? "resized" : past(dx) || past(dy) ? "moved" : null;
       if (kind) {
         changes.push({
           kind,

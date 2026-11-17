@@ -41,6 +41,7 @@ import {
   CHAT_SIDEBAR_PAGES,
   CHAT_SIDEBAR_SECTIONS_DEFAULT,
   CHAT_SIDEBAR_SHAPE_DEFAULT,
+  CHAT_SIDEBAR_SHAPE_FIRST_VISIT,
   CHAT_SIDEBAR_SHAPE_MAX_ITEMS,
   CHAT_SIDEBAR_SHAPE_MAX_PX,
   moveRoom,
@@ -284,6 +285,7 @@ function NavRow({
   label,
   current = false,
   badge = 0,
+  badgeHold = null,
   onClick,
   attr,
 }: {
@@ -291,6 +293,9 @@ function NavRow({
   label: string;
   current?: boolean;
   badge?: number;
+  // While the badge's data loads (task 73b5c130): the width the badge last
+  // drew, as a dim placeholder in its place (none for 0); null when loaded.
+  badgeHold?: number | null;
   onClick: () => void;
   attr: string;
 }) {
@@ -306,7 +311,21 @@ function NavRow({
     >
       <span style={{ color: "var(--text-dim)", flexShrink: 0 }}>{icon}</span>
       <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
-      <Badge n={badge} tone="red" />
+      {badgeHold === null ? (
+        <Badge n={badge} tone="red" />
+      ) : badgeHold > 0 ? (
+        <span
+          data-sidebar-skeleton="badge"
+          aria-hidden="true"
+          style={{
+            width: `${badgeHold}px`,
+            height: 16,
+            borderRadius: 8,
+            background: "var(--bg-code)",
+            flexShrink: 0,
+          }}
+        />
+      ) : null}
     </button>
   );
 }
@@ -895,17 +914,26 @@ function SkeletonItem({
 }
 
 // The lists' placeholders: their rows' shapes, dimmed, at the places they
-// had on this device's last load, in a box of the block's height; nothing to
-// click.
-function SidebarSkeleton({ shape }: { shape: ChatSidebarShapeBlock }) {
+// had on this device's last load, in a box at least the block's height;
+// nothing to click. On a first visit (`fill`, task 73b5c130), rows run past
+// any screen, clipped to the space the sidebar has, so the loaded rows
+// replace them in place.
+function SidebarSkeleton({
+  shape,
+  fill,
+}: {
+  shape: ChatSidebarShapeBlock;
+  fill: boolean;
+}) {
   return (
     <div
       data-sidebar-skeleton="lists"
       aria-hidden="true"
       style={{
         position: "relative",
-        height: `${shape.H}px`,
-        flexShrink: 0,
+        minHeight: fill ? 0 : `${shape.H}px`,
+        flex: "1 0 auto",
+        overflow: fill ? "hidden" : undefined,
         pointerEvents: "none",
       }}
     >
@@ -920,8 +948,9 @@ const shapePx = (n: number) =>
   Math.min(CHAT_SIDEBAR_SHAPE_MAX_PX, Math.max(0, Math.round(n)));
 
 // A drawn block's shape: each sidebar row not inside another, and the
-// divider, in order, with its place in the block. Null when the block takes
-// no space (a hidden sidebar): its stored shape stays.
+// divider, in order, with its place in the block, and H the last one's
+// bottom (the block also fills the space below, task 73b5c130). Null when
+// the block takes no space (a hidden sidebar): its stored shape stays.
 function measureBlock(el: HTMLElement): ChatSidebarShapeBlock | null {
   const base = el.getBoundingClientRect();
   if (base.height <= 0) return null;
@@ -944,8 +973,15 @@ function measureBlock(el: HTMLElement): ChatSidebarShapeBlock | null {
         h: shapePx(rect.height),
       };
     });
-  return { H: shapePx(base.height), items };
+  const H = items.reduce((max, i) => Math.max(max, i.top + i.h), 0);
+  return { H, items };
 }
+
+// The drawn width of the element under `root`, 0 when none is drawn.
+const drawnWidth = (root: Element, selector: string) => {
+  const el = root.querySelector(selector);
+  return el ? shapePx(el.getBoundingClientRect().width) : 0;
+};
 
 export function ChatSidebar({
   openAgentId,
@@ -981,6 +1017,7 @@ export function ChatSidebar({
     lobbyOpen: lobbyInView,
     sessionContext,
     hasReceivedInitialState,
+    asksLoaded,
   } = useAppState();
   const memberRows = useMemberChatRows();
   const amOwner = sessionContext?.role === "owner";
@@ -1044,18 +1081,39 @@ export function ChatSidebar({
   // The lists' placeholder shape, as this device last drew them (task
   // 4dcad6bf). The drawn shape is stored when the page hides: the state a
   // refresh replaces. Lists still loading keep their stored shape.
-  const [shape] = useState<ChatSidebarShape>(
-    () => getChatSidebarShape() ?? CHAT_SIDEBAR_SHAPE_DEFAULT,
-  );
+  // The head's office name, working count and Inbox badge (task 73b5c130)
+  // are stored with them, as drawn widths. A first visit (nothing stored)
+  // fills the lists' space with placeholder rows.
+  const [stored] = useState(getChatSidebarShape);
+  const shape = stored ?? CHAT_SIDEBAR_SHAPE_DEFAULT;
+  // The Inbox badge counts the asks, read after full_state: it holds until
+  // that read lands or fails.
+  const badgeHeld = !hasReceivedInitialState || !asksLoaded;
+  const asksIn = useRef(asksLoaded);
+  useEffect(() => {
+    asksIn.current = asksLoaded;
+  });
+  const navRef = useRef<HTMLElement>(null);
   const listsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const store = () => {
       const el = listsRef.current;
-      if (!el || el.querySelector("[data-sidebar-skeleton]")) return;
+      const nav = navRef.current;
+      if (!el || !nav || el.querySelector("[data-sidebar-skeleton]")) return;
       const lists = measureBlock(el);
       if (!lists) return;
-      const next: ChatSidebarShape = { lists };
       const before = getChatSidebarShape();
+      const next: ChatSidebarShape = {
+        lists,
+        head: {
+          name: drawnWidth(nav, "[data-sidebar-office-name]"),
+          working: drawnWidth(nav, "[data-sidebar-working]"),
+          // Until the asks are read, no badge says nothing: keep the last.
+          inbox: asksIn.current
+            ? drawnWidth(nav, '[data-sidebar-nav="asks"] [data-sidebar-badge]')
+            : (before ?? CHAT_SIDEBAR_SHAPE_DEFAULT).head.inbox,
+        },
+      };
       if (JSON.stringify(next) !== JSON.stringify(before))
         setChatSidebarShape(next);
     };
@@ -1422,6 +1480,7 @@ export function ChatSidebar({
 
   return (
     <nav
+      ref={navRef}
       data-chat-sidebar=""
       data-sidebar-closing={closing ? "" : undefined}
       inert={closing || undefined}
@@ -1452,20 +1511,48 @@ export function ChatSidebar({
           flexShrink: 0,
         }}
       >
-        <span
-          {...noTranslate()}
-          style={{
-            fontWeight: 700,
-            fontSize: 14,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            minWidth: 0,
-          }}
-        >
-          {office.name ?? ""}
-        </span>
-        {working > 0 && (
+        {/* Until full_state, the name and the working count hold the widths
+            they last drew (task 73b5c130). */}
+        {!hasReceivedInitialState ? (
+          <>
+            {shape.head.name > 0 && (
+              <span
+                data-sidebar-skeleton="name"
+                aria-hidden="true"
+                style={{
+                  ...skeletonBar(`${shape.head.name}px`, 10),
+                  flexShrink: 0,
+                }}
+              />
+            )}
+            {shape.head.working > 0 && (
+              <span
+                data-sidebar-skeleton="working"
+                aria-hidden="true"
+                style={{
+                  ...skeletonBar(`${shape.head.working}px`, 8),
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </>
+        ) : (
+          <span
+            {...noTranslate()}
+            data-sidebar-office-name=""
+            style={{
+              fontWeight: 700,
+              fontSize: 14,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+          >
+            {office.name ?? ""}
+          </span>
+        )}
+        {hasReceivedInitialState && working > 0 && (
           <span
             data-sidebar-working=""
             style={{
@@ -1528,6 +1615,7 @@ export function ChatSidebar({
             icon={InboxIcon}
             label={t("nav.inbox")}
             badge={inbox.newAsks}
+            badgeHold={badgeHeld ? shape.head.inbox : null}
             current={page === "asks"}
             onClick={() => onOpenPage("asks")}
           />
@@ -1616,7 +1704,13 @@ export function ChatSidebar({
             record come before it on the same socket. Drawn earlier, Members
             would show first and then move down (task 3010302f). Until
             then, placeholders hold their place. */}
-        <div ref={listsRef} data-sidebar-block="lists" style={blockStyle}>
+        {/* The block fills the space below it in both states (task
+            73b5c130), so its placeholders and its rows take the same box. */}
+        <div
+          ref={listsRef}
+          data-sidebar-block="lists"
+          style={{ ...blockStyle, flexGrow: 1 }}
+        >
           {hasReceivedInitialState ? (
             <>
               {listSection(
@@ -1717,7 +1811,10 @@ export function ChatSidebar({
               )}
             </>
           ) : (
-            <SidebarSkeleton shape={shape.lists} />
+            <SidebarSkeleton
+              shape={stored ? stored.lists : CHAT_SIDEBAR_SHAPE_FIRST_VISIT}
+              fill={!stored}
+            />
           )}
         </div>
       </div>

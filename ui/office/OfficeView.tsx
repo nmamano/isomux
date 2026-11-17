@@ -67,7 +67,11 @@ import type {
   SwapDesksReq,
 } from "../../shared/contract-shapes.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
-import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
+import {
+  BarCountsHold,
+  MobileHeader,
+  getRoomCounts,
+} from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
   TasksIcon,
@@ -294,6 +298,7 @@ export function OfficeView({
     asks,
     answeredAsks,
     hasReceivedInitialState,
+    asksLoaded,
   } = useAppState();
   const askCountByAgent = useMemo(
     () => askCounts(openAsks(asks, answeredAsks)),
@@ -420,12 +425,16 @@ export function OfficeView({
   // depend on it, and placeholders of the desks this device last drew
   // (task ea29a8e2); nothing in it acts. Written back on a page hide.
   const loading = !hasReceivedInitialState;
-  const [loadingDesks] = useState(
-    () => (getOfficeShape() ?? OFFICE_SHAPE_DEFAULT).desks,
-  );
+  const [heldShape] = useState(() => getOfficeShape() ?? OFFICE_SHAPE_DEFAULT);
+  const loadingDesks = heldShape.desks;
+  // The bar's counts wait for full_state; the phone menu's dot also for the
+  // asks (task 73b5c130).
+  const countsHold = loading ? heldShape.counts : null;
+  const dotHold = loading || !asksLoaded ? heldShape.dot : null;
   const rootEl = useRef<HTMLDivElement | null>(null);
   useOfficeShapeWriter(rootEl, {
     ready: hasReceivedInitialState,
+    asksLoaded,
     // The front room's desks are in view: not the lobby, not the back room.
     desksInView: !lobbyOpen && !showBackRoom,
   });
@@ -645,6 +654,8 @@ export function OfficeView({
       {embed ? null : isMobile ? (
         <MobileHeader
           counts={counts}
+          countsHold={countsHold}
+          dotHold={dotHold}
           actions={officeActions}
           updateAvailable={updateAvailable}
           onOpenUpdate={onOpenUpdate}
@@ -691,53 +702,57 @@ export function OfficeView({
                 <SidebarUnreadDot />
               </button>
             )}
-            <div style={{ display: "flex", gap: 12 }}>
-              {(
-                [
-                  {
-                    k: "working",
-                    // The sidebar's header counts the whole office's.
-                    n: sidebarOpen ? 0 : counts.working,
-                    c: "var(--green-text)",
-                    l: "office.status.working",
-                  },
-                  {
-                    k: "error",
-                    n: counts.error,
-                    c: "var(--red-text)",
-                    l: "office.status.error",
-                  },
-                ] as const
-              )
-                .filter((s) => s.n > 0)
-                .map((s) => (
-                  <div
-                    key={s.k}
-                    data-bar-count={s.k}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 5,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: s.c,
-                      fontFamily: "var(--font-ui)",
-                      letterSpacing: "0.02em",
-                    }}
-                  >
-                    <span
+            {countsHold !== null && countsHold > 0 ? (
+              <BarCountsHold width={countsHold} />
+            ) : (
+              <div data-bar-counts="" style={{ display: "flex", gap: 12 }}>
+                {(
+                  [
+                    {
+                      k: "working",
+                      // The sidebar's header counts the whole office's.
+                      n: sidebarOpen ? 0 : counts.working,
+                      c: "var(--green-text)",
+                      l: "office.status.working",
+                    },
+                    {
+                      k: "error",
+                      n: counts.error,
+                      c: "var(--red-text)",
+                      l: "office.status.error",
+                    },
+                  ] as const
+                )
+                  .filter((s) => s.n > 0)
+                  .map((s) => (
+                    <div
+                      key={s.k}
+                      data-bar-count={s.k}
                       style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        background: s.c,
-                        boxShadow: `0 0 6px ${s.c}`,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: s.c,
+                        fontFamily: "var(--font-ui)",
+                        letterSpacing: "0.02em",
                       }}
-                    />
-                    {s.n} {t(s.l)}
-                  </div>
-                ))}
-            </div>
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: s.c,
+                          boxShadow: `0 0 6px ${s.c}`,
+                        }}
+                      />
+                      {s.n} {t(s.l)}
+                    </div>
+                  ))}
+              </div>
+            )}
             {updateAvailable && (
               <span
                 onClick={onOpenUpdate}

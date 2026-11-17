@@ -183,6 +183,27 @@ let asks: AskEntry[] = [];
 export function setAsks(next: AskEntry[]): void {
   asks = next;
 }
+// A gate on GET /api/asks (task 73b5c130): while one is held, the read waits
+// for release(), and with release(true) it fails. Reset before each test.
+let asksGate: { wait: Promise<void>; failed: boolean } | null = null;
+export function holdAsks(): { release: (fail?: boolean) => Promise<void> } {
+  let open!: () => void;
+  const gate = {
+    wait: new Promise<void>((resolve) => {
+      open = resolve;
+    }),
+    failed: false,
+  };
+  asksGate = gate;
+  return {
+    release: (fail = false) =>
+      act(async () => {
+        gate.failed = fail;
+        open();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }),
+  };
+}
 export const ask = (id: string, agentId: string): AskEntry => ({
   id,
   agentId,
@@ -305,7 +326,14 @@ export function setUpChatSidebarTests(): void {
       return {};
     }
     if (path === "/api/member-chats") return { chats: memberDms ?? [] };
-    if (path === "/api/asks") return asks;
+    if (path === "/api/asks") {
+      const gate = asksGate;
+      if (gate) {
+        await gate.wait;
+        if (gate.failed) throw new Error("offline");
+      }
+      return asks;
+    }
     if (path === "/api/asks/others") return [];
     if (path.startsWith("/api/members-chat"))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
@@ -362,6 +390,7 @@ export function setUpChatSidebarTests(): void {
     rooms = ROOMS;
     role = "member";
     asks = [];
+    asksGate = null;
     selfUser = null;
     spawns.length = 0;
     members = [];

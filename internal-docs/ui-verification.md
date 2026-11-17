@@ -37,7 +37,9 @@ An endless animation that only moves its element (a bob, a shake) is paused
 at its start before each snapshot.
 
 The report names each element that moved or changed size relative to its
-parent, and each new element in space no removed placeholder held. Elements
+parent (a size change outside the window, such as a list that grows below
+the fold, is left out), and each new element in space no removed
+placeholder held. Elements
 that still change after load (timers, animations) are left out. It writes
 `loading-<name>.png` (Loading and Loaded, a red box on each jump) for the
 sign-off packet. Exit 0: no jump; 1: jumps; 2: the check failed. A view whose

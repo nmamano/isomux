@@ -13,12 +13,13 @@ const width = (el: Element | null) =>
   el ? shapePx(el.getBoundingClientRect().width) : 0;
 
 /** The office's shape as drawn under `root`. A part not drawn keeps its
- *  value from `prev`: the tab bar (absent in an embed), and the desks
- *  unless the front room is in view. */
+ *  value from `prev`: the tab bar (absent in an embed), the desks unless
+ *  the front room is in view, and the menu's dot until the asks are read. */
 export function measureOfficeShape(
   root: HTMLElement,
   prev: OfficeShape,
   desksInView: boolean,
+  asksLoaded: boolean,
 ): OfficeShape {
   const bar = root.querySelector("[data-room-tab-bar]");
   const barPart = bar
@@ -45,7 +46,13 @@ export function measureOfficeShape(
         };
       })
     : prev.desks;
-  return { ...barPart, desks };
+  // The bar's counts row and the phone menu's dot (task 73b5c130). Until the
+  // asks are read, no dot says nothing: the stored one stays.
+  const counts = width(root.querySelector("[data-bar-counts]"));
+  const dot = asksLoaded
+    ? root.querySelector("[data-nav-dot]") !== null
+    : prev.dot;
+  return { ...barPart, desks, counts, dot };
 }
 
 /** Stores the office's shape when the page hides (task ea29a8e2), for the
@@ -53,7 +60,7 @@ export function measureOfficeShape(
  *  until then the view draws placeholders, never the office. */
 export function useOfficeShapeWriter(
   root: RefObject<HTMLElement | null>,
-  now: { ready: boolean; desksInView: boolean },
+  now: { ready: boolean; asksLoaded: boolean; desksInView: boolean },
 ): void {
   const latest = useRef(now);
   useEffect(() => {
@@ -68,6 +75,7 @@ export function useOfficeShapeWriter(
         el,
         before ?? OFFICE_SHAPE_DEFAULT,
         latest.current.desksInView,
+        latest.current.asksLoaded,
       );
       if (JSON.stringify(next) !== JSON.stringify(before)) setOfficeShape(next);
     };

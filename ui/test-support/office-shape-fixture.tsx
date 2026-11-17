@@ -179,6 +179,9 @@ export const SHAPE: OfficeShape = {
     { desk: 0, w: 80, h: 22 },
     { desk: 3, w: 60, h: 30 },
   ],
+  // The desktop office bar with the sidebar open: no counts row, no menu.
+  counts: 0,
+  dot: false,
 };
 
 /** happy-dom lays nothing out: every rect is 0. Give an element a size. */

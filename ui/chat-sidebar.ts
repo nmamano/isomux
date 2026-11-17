@@ -285,10 +285,19 @@ export type ChatSidebarShapeBlock = {
   H: number;
   items: ChatSidebarShapeItem[];
 };
+// The sidebar head's parts that wait for the office state (task 73b5c130),
+// as drawn widths in px: the office name (as cut), the working count and the
+// Inbox badge; 0 when not drawn. Widths only: no text.
+export type ChatSidebarShapeHead = {
+  name: number;
+  working: number;
+  inbox: number;
+};
 export type ChatSidebarShape = {
   // Pinned, Recent, Members, the rooms, Lobby and Tucked rooms. The page
   // rows above them draw at once (task f66e07e3).
   lists: ChatSidebarShapeBlock;
+  head: ChatSidebarShapeHead;
 };
 
 /** The most items a stored block may hold: a corrupt cache draws no more. */
@@ -319,23 +328,42 @@ function shapeBlock(
   return { H: Math.max(0, top - 1), items };
 }
 
+// Pinned, Recent, Members (chat + one member), a room with two agents,
+// Lobby with its receptionist.
+const DEFAULT_KINDS: ChatSidebarShapeItem["kind"][] = [
+  "header",
+  "header",
+  "header",
+  "nav",
+  "row",
+  "header",
+  "row",
+  "row",
+  "header",
+  "row",
+];
+
 /** The shape drawn on a device with no stored one. */
 export const CHAT_SIDEBAR_SHAPE_DEFAULT: ChatSidebarShape = {
-  // Pinned, Recent, Members (chat + one member), a room with two agents,
-  // Lobby with its receptionist.
-  lists: shapeBlock([
-    "header",
-    "header",
-    "header",
-    "nav",
-    "row",
-    "header",
-    "row",
-    "row",
-    "header",
-    "row",
-  ]),
+  lists: shapeBlock(DEFAULT_KINDS),
+  head: { name: 90, working: 0, inbox: 0 },
 };
+
+/** How far the first visit's placeholder rows run, in px: past any screen. */
+const FIRST_VISIT_PX = 3000;
+
+/** The lists' placeholders on a first visit (task 73b5c130): the default
+ *  rows, then rooms of two agents until past any screen. The sidebar clips
+ *  them to the space it has. */
+export const CHAT_SIDEBAR_SHAPE_FIRST_VISIT: ChatSidebarShapeBlock = (() => {
+  const kinds = [...DEFAULT_KINDS];
+  let block = shapeBlock(kinds);
+  while (block.H < FIRST_VISIT_PX) {
+    kinds.push("header", "row", "row");
+    block = shapeBlock(kinds);
+  }
+  return block;
+})();
 
 /**
  * A page row the member's permissions show or hide (task f66e07e3): until
@@ -360,11 +388,27 @@ export function parseChatSidebarPages(raw: unknown): ChatSidebarPage[] | null {
 }
 
 /** A stored shape, or null when it is not a valid, sane ChatSidebarShape.
- *  A value stored before task f66e07e3 also has `top`, which is ignored. */
+ *  A value stored before task f66e07e3 also has `top`, which is ignored;
+ *  one stored before task 73b5c130 has no `head` and takes the default. */
 export function parseChatSidebarShape(raw: unknown): ChatSidebarShape | null {
   if (!isRecord(raw)) return null;
   const lists = parseShapeBlock(raw.lists);
-  return lists ? { lists } : null;
+  if (!lists) return null;
+  // A value stored before task 73b5c130 has no head: it takes the default.
+  if (raw.head === undefined)
+    return { lists, head: CHAT_SIDEBAR_SHAPE_DEFAULT.head };
+  const head = raw.head;
+  if (
+    !isRecord(head) ||
+    !isShapePx(head.name) ||
+    !isShapePx(head.working) ||
+    !isShapePx(head.inbox)
+  )
+    return null;
+  return {
+    lists,
+    head: { name: head.name, working: head.working, inbox: head.inbox },
+  };
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>

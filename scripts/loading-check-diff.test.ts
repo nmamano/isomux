@@ -6,6 +6,9 @@
 // - appeared: new, parent present while held, area > 0, and the removed held
 //   origins cover less than half of it (a placeholder swap is not reported).
 // - removed elements are not reported; ignored ids count nowhere.
+// - with a viewport (task 73b5c130), a resize is reported only when the
+//   box's part inside the viewport changes; moves and appearances are as
+//   without one.
 import { describe, expect, it } from "bun:test";
 import {
   layoutChanges,
@@ -233,6 +236,71 @@ describe("layoutChanges: ignore", () => {
         }),
       ),
     ).toStrictEqual([["appeared", "el3"]]);
+  });
+});
+
+describe("layoutChanges: viewport", () => {
+  // An 800 x 600 viewport. The sidebar's lists block starts in view at y 400
+  // and runs past the bottom (task 73b5c130: on a first visit the loaded
+  // lists outgrow the placeholders below the fold).
+  const VIEWPORT = { viewport: { w: 800, h: 600 } };
+  const PANE = box(2, 1, 0, 0, 240, 600);
+
+  it("does not report a resize wholly past the viewport's edge, which it reported without a viewport", () => {
+    const held = [ROOT, PANE, box(3, 2, 0, 400, 240, 300)];
+    const loaded = [ROOT, PANE, box(3, 2, 0, 400, 240, 328)];
+    // The rule's input: without the option, the same snapshots report it.
+    expect(summary(layoutChanges(held, loaded))).toStrictEqual([
+      ["resized", "el3"],
+    ]);
+    expect(layoutChanges(held, loaded, VIEWPORT)).toStrictEqual([]);
+    // Past the right edge: the same.
+    const wideHeld = [ROOT, PANE, box(3, 2, 700, 10, 200, 20)];
+    const wideLoaded = [ROOT, PANE, box(3, 2, 700, 10, 260, 20)];
+    expect(summary(layoutChanges(wideHeld, wideLoaded))).toStrictEqual([
+      ["resized", "el3"],
+    ]);
+    expect(layoutChanges(wideHeld, wideLoaded, VIEWPORT)).toStrictEqual([]);
+    // Wholly below the fold: nothing of it is in view before or after.
+    const below = [ROOT, PANE, box(3, 2, 0, 650, 240, 40)];
+    const belowGrown = [ROOT, PANE, box(3, 2, 0, 650, 240, 90)];
+    expect(layoutChanges(below, belowGrown, VIEWPORT)).toStrictEqual([]);
+  });
+
+  it("still reports a resize whose part in view changes, with the full deltas", () => {
+    // Grows from 150 to 300 px at y 400: in view it goes from 150 to 200.
+    const held = [ROOT, PANE, box(3, 2, 0, 400, 240, 150)];
+    const loaded = [ROOT, PANE, box(3, 2, 0, 400, 240, 300)];
+    const changes = layoutChanges(held, loaded, VIEWPORT);
+    expect(summary(changes)).toStrictEqual([["resized", "el3"]]);
+    expect([changes[0].dw, changes[0].dh]).toStrictEqual([0, 150]);
+    // Shrinks inside the view: reported.
+    const shrunk = [ROOT, PANE, box(3, 2, 0, 400, 240, 100)];
+    expect(summary(layoutChanges(held, shrunk, VIEWPORT))).toStrictEqual([
+      ["resized", "el3"],
+    ]);
+    // Past the edge before and after, but its top in view moved: the part
+    // in view changes.
+    const tall = [ROOT, PANE, box(3, 2, 0, 400, 240, 300)];
+    const tallLower = [ROOT, PANE, box(3, 2, 0, 450, 240, 400)];
+    expect(summary(layoutChanges(tall, tallLower, VIEWPORT))).toStrictEqual([
+      ["resized", "el3"],
+    ]);
+    // The tolerance applies to the part in view: 1 px in view is still.
+    const edge = [ROOT, PANE, box(3, 2, 0, 400, 240, 199)];
+    expect(layoutChanges(edge, loaded, VIEWPORT)).toStrictEqual([]);
+  });
+
+  it("leaves moves and appearances below the fold as they are without a viewport", () => {
+    const held = [ROOT, PANE, box(3, 2, 0, 650, 240, 40)];
+    const moved = [ROOT, PANE, box(3, 2, 0, 700, 240, 40)];
+    expect(summary(layoutChanges(held, moved, VIEWPORT))).toStrictEqual([
+      ["moved", "el3"],
+    ]);
+    const appeared = [ROOT, PANE, box(4, 2, 0, 700, 240, 40)];
+    expect(
+      summary(layoutChanges([ROOT, PANE], appeared, VIEWPORT)),
+    ).toStrictEqual([["appeared", "el4"]]);
   });
 });
 

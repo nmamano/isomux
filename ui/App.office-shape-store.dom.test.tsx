@@ -87,6 +87,10 @@ it("stores the drawn shape on pagehide or a hidden tab, only once the state is i
       { desk: 0, w: 84, h: 22 },
       { desk: 1, w: 70, h: 34 },
     ],
+    // The sidebar is open and nothing is in error: the bar draws no count;
+    // a desktop has no menu trigger.
+    counts: 0,
+    dot: false,
   };
   expect(sortDesks(stored())).toEqual(measured);
 

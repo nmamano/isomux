@@ -205,15 +205,19 @@ async function still(capMs) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The page's viewport. The snapshot's boxes are in its coordinates
+// (getBoundingClientRect), and a size change wholly out of it is no jump.
+const viewport = phone
+  ? { width: 390, height: 844 }
+  : { width: 1280, height: 800 };
+
 let exitCode = 2;
 const browser = await chromium
   .launch({ channel: "chrome", headless: true })
   .catch((err) => fail(`cannot start Chrome: ${err}`));
 try {
   const context = await browser.newContext({
-    viewport: phone
-      ? { width: 390, height: 844 }
-      : { width: 1280, height: 800 },
+    viewport,
     deviceScaleFactor: 1,
     hasTouch: phone,
     isMobile: phone,
@@ -310,7 +314,10 @@ try {
   const loaded2 = loaded2Snap.boxes;
 
   const unstable = unstableIds(loaded, loaded2);
-  const changes = layoutChanges(held, loaded, { ignore: unstable });
+  const changes = layoutChanges(held, loaded, {
+    ignore: unstable,
+    viewport: { w: viewport.width, h: viewport.height },
+  });
   const r = (n) => Math.round(n);
   // Siblings pushed by the same amount (same parent, same dx, dy, dw, dh)
   // read as one line and one red box around them all.

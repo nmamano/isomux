@@ -1,8 +1,10 @@
 // The stored office shape's parse (task ea29a8e2): a value read back from
 // localStorage is trusted only when it is a sane OfficeShape, else the
 // placeholders draw the default. Strict, like parseChatSidebarShape: junk
-// anywhere gives null, never a partly kept shape. The drawing and the writer
-// are in ui/App.office-shape.dom.test.tsx.
+// anywhere gives null, never a partly kept shape. The one exception: a shape
+// stored before task 73b5c130 has no counts and no dot, and reads as 0 and
+// false. The drawing and the writer are in ui/App.office-shape.dom.test.tsx
+// and ui/App.office-shape-counts.dom.test.tsx.
 
 import { describe, expect, it } from "bun:test";
 import {
@@ -22,6 +24,8 @@ const good: OfficeShape = {
     { desk: 0, w: 80, h: 22 },
     { desk: DESK_COUNT - 1, w: 60.25, h: 30 },
   ],
+  counts: 57,
+  dot: true,
 };
 
 // The good shape with one field replaced.
@@ -49,11 +53,32 @@ describe("parseOfficeShape", () => {
         w: OFFICE_SHAPE_MAX_PX,
         h: 0,
       })),
+      counts: OFFICE_SHAPE_MAX_PX,
+      dot: false,
     };
     expect(parseOfficeShape(edges)).toEqual(edges);
     // No tabs and no desks is a shape (an office with no room tab).
-    const empty = { tabs: [], online: 0, tucked: 0, desks: [] };
+    const empty = {
+      tabs: [],
+      online: 0,
+      tucked: 0,
+      desks: [],
+      counts: 0,
+      dot: false,
+    };
     expect(parseOfficeShape(empty)).toEqual(empty);
+  });
+
+  it("reads a shape stored before task 73b5c130 (no counts, no dot) as no counts row and no dot", () => {
+    const { counts: _c, dot: _d, ...old } = good;
+    expect(parseOfficeShape(old)).toEqual({ ...good, counts: 0, dot: false });
+    // Each one alone is read the same way; the other keeps its value.
+    const { counts: _c2, ...noCounts } = good;
+    expect(parseOfficeShape(noCounts)).toEqual({ ...good, counts: 0 });
+    const { dot: _d2, ...noDot } = good;
+    expect(parseOfficeShape(noDot)).toEqual({ ...good, dot: false });
+    expect(OFFICE_SHAPE_DEFAULT.counts).toBe(0);
+    expect(OFFICE_SHAPE_DEFAULT.dot).toBe(false);
   });
 
   it("drops fields it does not know", () => {
@@ -112,6 +137,14 @@ describe("parseOfficeShape", () => {
       ],
       ["a NaN tag width", withDesk({ desk: 2, w: Number.NaN, h: 1 })],
       ["the same desk twice", withDesk({ desk: 0, w: 5, h: 5 })],
+      ["counts as a string", withField("counts", "57")],
+      ["counts null", withField("counts", null)],
+      ["a negative counts", withField("counts", -1)],
+      ["counts over the cap", withField("counts", OFFICE_SHAPE_MAX_PX + 1)],
+      ["a NaN counts", withField("counts", Number.NaN)],
+      ["dot as a string", withField("dot", "true")],
+      ["dot as a number", withField("dot", 1)],
+      ["dot null", withField("dot", null)],
     ];
     for (const [name, raw] of cases) {
       expect(parseOfficeShape(raw), name).toBeNull();

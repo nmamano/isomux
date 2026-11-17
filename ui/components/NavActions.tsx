@@ -141,12 +141,16 @@ function CountPill({ count }: { count: number }) {
 export function NavActions({
   actions,
   viewport,
+  dotHold = null,
 }: {
   actions: NavAction[];
   viewport: "mobile" | "desktop";
+  // The phone menu's dot while its badges load (task 73b5c130): whether it
+  // was last drawn, as a dim dot in its place; null once they are in.
+  dotHold?: boolean | null;
 }) {
   if (viewport === "desktop") return <DesktopActions actions={actions} />;
-  return <MobileActions actions={actions} />;
+  return <MobileActions actions={actions} dotHold={dotHold} />;
 }
 
 function DesktopActions({ actions }: { actions: NavAction[] }) {
@@ -341,7 +345,23 @@ function DesktopMenuAction({
   );
 }
 
-function MobileActions({ actions }: { actions: NavAction[] }) {
+const dotStyle = (background: string): React.CSSProperties => ({
+  position: "absolute",
+  top: -3,
+  right: -3,
+  width: 8,
+  height: 8,
+  borderRadius: "50%",
+  background,
+});
+
+function MobileActions({
+  actions,
+  dotHold,
+}: {
+  actions: NavAction[];
+  dotHold: boolean | null;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   // The action whose choices show under its row. Collapsed on every open.
@@ -408,21 +428,22 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
         }}
       >
         &#8943;
-        {badged && (
-          <span
-            className="nav-action-badge-dot"
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              top: -3,
-              right: -3,
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: "var(--red)",
-            }}
-          />
-        )}
+        {dotHold === null
+          ? badged && (
+              <span
+                className="nav-action-badge-dot"
+                data-nav-dot=""
+                aria-hidden="true"
+                style={dotStyle("var(--red)")}
+              />
+            )
+          : dotHold && (
+              <span
+                data-nav-dot-skeleton=""
+                aria-hidden="true"
+                style={dotStyle("var(--bg-code)")}
+              />
+            )}
       </button>
       {open && pos && (
         <Portal>

@@ -19,14 +19,40 @@ export function getRoomCounts(roomAgents: AgentInfo[]): RoomCounts {
   };
 }
 
+/** The office bar's counts row while the office state loads (task
+ *  73b5c130): a dim bar of the width it last drew. */
+export function BarCountsHold({ width }: { width: number }) {
+  return (
+    <span
+      data-bar-counts-skeleton=""
+      aria-hidden="true"
+      style={{
+        width: `${width}px`,
+        height: 8,
+        borderRadius: 4,
+        background: "var(--bg-code)",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
 export function MobileHeader({
   counts,
+  countsHold = null,
+  dotHold = null,
   actions,
   updateAvailable,
   onOpenUpdate,
   onShowSidebar,
 }: {
   counts: RoomCounts;
+  // While the office loads (task 73b5c130): the counts row's last width,
+  // drawn as a placeholder when > 0; null once the counts are in.
+  countsHold?: number | null;
+  // While the menu's badges load: whether its dot was last drawn; null once
+  // they are in.
+  dotHold?: boolean | null;
   actions: NavAction[];
   updateAvailable?: boolean;
   onOpenUpdate?: () => void;
@@ -77,49 +103,53 @@ export function MobileHeader({
             <SidebarUnreadDot />
           </button>
         )}
-        <div style={{ display: "flex", gap: 8 }}>
-          {(
-            [
-              {
-                n: counts.working,
-                c: "var(--green-text)",
-                label: "office.status.working",
-              },
-              {
-                n: counts.error,
-                c: "var(--red-text)",
-                label: "office.status.errShort",
-              },
-            ] as const
-          )
-            .filter((s) => s.n > 0)
-            .map((s) => (
-              <div
-                key={s.label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 3,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: s.c,
-                  fontFamily: "var(--font-ui)",
-                  letterSpacing: "0.02em",
-                }}
-              >
-                <span
+        {countsHold !== null && countsHold > 0 ? (
+          <BarCountsHold width={countsHold} />
+        ) : (
+          <div data-bar-counts="" style={{ display: "flex", gap: 8 }}>
+            {(
+              [
+                {
+                  n: counts.working,
+                  c: "var(--green-text)",
+                  label: "office.status.working",
+                },
+                {
+                  n: counts.error,
+                  c: "var(--red-text)",
+                  label: "office.status.errShort",
+                },
+              ] as const
+            )
+              .filter((s) => s.n > 0)
+              .map((s) => (
+                <div
+                  key={s.label}
                   style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: s.c,
-                    boxShadow: `0 0 6px ${s.c}`,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: s.c,
+                    fontFamily: "var(--font-ui)",
+                    letterSpacing: "0.02em",
                   }}
-                />
-                {s.n} {t(s.label)}
-              </div>
-            ))}
-        </div>
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: s.c,
+                      boxShadow: `0 0 6px ${s.c}`,
+                    }}
+                  />
+                  {s.n} {t(s.label)}
+                </div>
+              ))}
+          </div>
+        )}
         {updateAvailable && (
           <span
             onClick={onOpenUpdate}
@@ -148,7 +178,7 @@ export function MobileHeader({
         )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <NavActions actions={actions} viewport="mobile" />
+        <NavActions actions={actions} viewport="mobile" dotHold={dotHold} />
       </div>
     </div>
   );

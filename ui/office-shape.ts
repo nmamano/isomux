@@ -2,8 +2,9 @@ import { DESK_COUNT } from "../shared/desks.ts";
 
 // The office's shape as last drawn on this device (task ea29a8e2): the
 // room tabs, the online chip, the tucked chip and the occupied desks of
-// the room in view. Until the office state arrives, the tab bar and the
-// room scene draw dim placeholders of it, so nothing moves at load.
+// the room in view, and the bar's counts row and the phone menu's dot (task
+// 73b5c130). Until the office state arrives, the tab bar, the room scene
+// and the bar draw dim placeholders of it, so nothing moves at load.
 // Geometry only: no names, so the next member on this browser sees
 // nothing of the last one's office.
 
@@ -24,6 +25,11 @@ export type OfficeShape = {
   tucked: number;
   // The occupied desks of the front room in view.
   desks: OfficeShapeDesk[];
+  // The bar's working and error counts row's width; 0 when none was drawn
+  // (task 73b5c130).
+  counts: number;
+  // The phone menu's trigger drew its badge dot (task 73b5c130).
+  dot: boolean;
 };
 
 /** The most tabs a stored shape may hold: a corrupt cache draws no more. */
@@ -37,13 +43,20 @@ export const OFFICE_SHAPE_DEFAULT: OfficeShape = {
   online: 110,
   tucked: 0,
   desks: [],
+  counts: 0,
+  dot: false,
 };
 
 /** A stored shape, or null when it is not a valid, sane OfficeShape. Junk
- *  anywhere gives null, never a partly kept shape; unknown keys drop. */
+ *  anywhere gives null, never a partly kept shape; unknown keys drop. A
+ *  shape stored before task 73b5c130 reads as no counts row and no dot. */
 export function parseOfficeShape(raw: unknown): OfficeShape | null {
   if (!isRecord(raw)) return null;
   const { tabs, online, tucked, desks } = raw;
+  // A shape stored before task 73b5c130 has no counts and no dot.
+  const counts = raw.counts === undefined ? 0 : raw.counts;
+  const dot = raw.dot === undefined ? false : raw.dot;
+  if (!isShapePx(counts) || typeof dot !== "boolean") return null;
   if (!Array.isArray(tabs) || tabs.length > OFFICE_SHAPE_MAX_TABS) return null;
   if (!tabs.every(isShapePx) || !isShapePx(online) || !isShapePx(tucked))
     return null;
@@ -65,7 +78,7 @@ export function parseOfficeShape(raw: unknown): OfficeShape | null {
     seen.add(d.desk);
     kept.push({ desk: d.desk, w: d.w, h: d.h });
   }
-  return { tabs: [...tabs], online, tucked, desks: kept };
+  return { tabs: [...tabs], online, tucked, desks: kept, counts, dot };
 }
 
 /** A measured px value as stored: whole, inside the caps. */

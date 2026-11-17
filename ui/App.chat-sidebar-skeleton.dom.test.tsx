@@ -99,10 +99,15 @@ const skeletonKinds = (view: View) =>
     el.getAttribute("data-sidebar-skeleton-item"),
   );
 const kinds = (b: ChatSidebarShapeBlock) => b.items.map((i) => i.kind);
+// The first-visit placeholders' leading rows: the default shape's. The room
+// groups that fill the rest are checked in the first-visit test.
+const defaultKinds = (view: View) =>
+  skeletonKinds(view).slice(0, CHAT_SIDEBAR_SHAPE_DEFAULT.lists.items.length);
 
-// The lists' placeholders as drawn: the block's height and each item's place.
+// The lists' placeholders as drawn: the block's height (held as a height or
+// a min-height) and each item's place.
 const drawn = (view: View) => ({
-  H: skeleton(view)?.style.height,
+  H: skeleton(view)?.style.minHeight || skeleton(view)?.style.height,
   items: skeletonItems(view).map((el) => [
     el.getAttribute("data-sidebar-skeleton-item"),
     el.style.top,
@@ -236,12 +241,14 @@ const shapeKind = (el: Element): ChatSidebarShapeItem["kind"] =>
         : "row";
 
 // Places the ready lists' wrapper at `at` and its rows one under the other,
-// `pitch` px apart, in a block `H` px high. Returns the shape that layout has.
+// `pitch` px apart. The block fills the sidebar (task 73b5c130), so it runs
+// `fill` px past its last row. Returns the shape that layout has: its H is
+// the last row's bottom, not the block's filled height.
 function layOutLists(
   view: View,
   at: number,
   pitch: number,
-  H: number,
+  fill: number,
 ): ChatSidebarShapeBlock {
   const el = wrapper(view, "lists");
   expect(el).not.toBeNull();
@@ -251,7 +258,9 @@ function layOutLists(
     place(row, at + i * pitch + 3, pitch - 1);
     return { kind: shapeKind(row), top: i * pitch + 3, h: pitch - 1 };
   });
-  place(el!, at, H);
+  const last = items[items.length - 1];
+  const H = last.top + last.h;
+  place(el!, at, H + fill);
   return { H, items };
 }
 
@@ -278,7 +287,7 @@ it("draws the page rows from the first paint, before any frame; only the lists h
   ).toBe(0);
   // The lists: the default placeholders, hidden from assistive tech, with
   // nothing a member could click, under the page rows.
-  expect(skeletonKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
+  expect(defaultKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
   const el = skeleton(view)!;
   expect(el.getAttribute("aria-hidden")).toBe("true");
   expect(el.querySelectorAll("button, a, input, [tabindex]").length).toBe(0);
@@ -301,7 +310,7 @@ it("draws the page rows from the first paint, before any frame; only the lists h
   await frame(selfFrame({ pinnedAgents: [faraway.id] }));
   await frame(usersList);
   expect(pageRows(view)).toEqual(ALL_ROWS);
-  expect(skeletonKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
+  expect(defaultKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
   expect(count(view, "[data-sidebar-members]")).toBe(0);
 
   // full_state: no placeholder left, the lists in their block.
@@ -315,6 +324,51 @@ it("draws the page rows from the first paint, before any frame; only the lists h
   ).not.toBeNull();
   expect(lists.querySelector('[data-sidebar-room="r1"]')).not.toBeNull();
   expect(lists.querySelector("[data-sidebar-members]")).not.toBeNull();
+});
+
+it("on a first visit, draws the default rows and then room groups down past any screen, clipped; a stored shape draws only its own rows", async () => {
+  // Nothing stored (task 73b5c130): the default rows first, then a room
+  // header with two rows, again and again, so the placeholders reach the
+  // bottom of the sidebar and the loaded rows replace them in place.
+  const view = await mount();
+  const got = skeletonKinds(view);
+  const first = kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists);
+  expect(got.slice(0, first.length)).toEqual(first);
+  const rest = got.slice(first.length);
+  expect(rest.length).toBeGreaterThan(0);
+  expect(rest.length % 3).toBe(0);
+  for (let i = 0; i < rest.length; i += 3)
+    expect(rest.slice(i, i + 3), `group at ${i}`).toEqual([
+      "header",
+      "row",
+      "row",
+    ]);
+  // Down past a tall screen (a 1440p monitor turned upright: 2560 px), one
+  // under the other.
+  const items = skeletonItems(view);
+  const tops = items.map((el) => parseFloat(el.style.top));
+  for (let i = 1; i < tops.length; i++)
+    expect(tops[i], `item ${i}`).toBeGreaterThan(tops[i - 1]);
+  const last = items[items.length - 1];
+  expect(
+    parseFloat(last.style.top) + parseFloat(last.style.height),
+  ).toBeGreaterThanOrEqual(2560);
+  // Clipped to the space the sidebar has: the placeholders never make the
+  // sidebar scroll.
+  expect(skeleton(view)!.style.overflow).toBe("hidden");
+  view.unmount();
+
+  // A stored shape: its rows and nothing more.
+  const lists: ChatSidebarShapeBlock = {
+    H: 65,
+    items: [
+      { kind: "header", top: 0, h: 26 },
+      { kind: "row", top: 27, h: 38 },
+    ],
+  };
+  window.localStorage.setItem(SHAPE_KEY, JSON.stringify({ lists }));
+  const next = await mount();
+  expect(drawn(next)).toEqual(expected(lists));
 });
 
 it("before the member's own record, draws the gated page rows this device stored; the record's permissions then win", async () => {
@@ -422,7 +476,7 @@ it("reads a broken or oversized stored shape as the default, without an error", 
     window.localStorage.setItem(SHAPE_KEY, raw);
     const view = await mount();
     await frame(sessionContext);
-    expect(skeletonKinds(view), raw.slice(0, 20)).toEqual(
+    expect(defaultKinds(view), raw.slice(0, 20)).toEqual(
       kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists),
     );
     expect(pageRows(view), raw.slice(0, 20)).toEqual(ALL_ROWS);
@@ -438,7 +492,7 @@ it("stores the drawn lists shape when the page hides, and the next load holds th
   await frame(fullState);
   expect(count(view, "[data-sidebar-skeleton]")).toBe(0);
 
-  const lists = layOutLists(view, 200, 40, 640);
+  const lists = layOutLists(view, 200, 40, 180);
   expect(storedLists()).toBeNull();
   await hidePage();
   expect(storedLists()).toEqual(lists);
@@ -497,7 +551,7 @@ it("when the tab hides, stores the lists only once they are ready and take space
     await visibilityChange();
     expect(storedLists()).toEqual(earlier);
 
-    const lists = layOutLists(view, 300, 36, 500);
+    const lists = layOutLists(view, 300, 36, 120);
     // Shown again: nothing to store.
     state = "visible";
     await visibilityChange();

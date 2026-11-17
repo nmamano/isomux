@@ -215,6 +215,7 @@ describe("chat sidebar shape", () => {
   beforeEach(() => store.clear());
   const shape = {
     lists: { H: 26, items: [{ kind: "header" as const, top: 0, h: 26 }] },
+    head: { name: 90, working: 40, inbox: 18 },
   };
 
   it("reads back what it saved, and none when nothing is saved", () => {

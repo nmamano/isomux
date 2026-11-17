@@ -359,6 +359,10 @@ export interface AppState {
   // The last GET /api/asks failed and no load has landed since: the Asks
   // tab shows a notice with Try again instead of "No open asks".
   asksLoadFailed: boolean;
+  // The first GET /api/asks has landed (asks_loaded or asks_load_failed);
+  // never false again, also on a reconnect. Until then the Inbox badge and
+  // the phone menu's dot hold placeholders (task 73b5c130).
+  asksLoaded: boolean;
   // Other members' open asks, for an office owner to read and answer on the
   // Asks tab. useOthersAsksSync reads GET /api/asks/others on every
   // hydrationEpoch; others_ask_upserted and others_ask_removed keep it live.
@@ -1925,6 +1929,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         asks: action.entries,
         asksLoadFailed: false,
+        asksLoaded: true,
         askDrafts: keepOpenAsks(
           state.askDrafts,
           action.entries,
@@ -1991,7 +1996,9 @@ export function reducer(state: AppState, action: Action): AppState {
     // The flag stays set until a load lands, so a retry in flight does not
     // show "No open asks".
     case "asks_load_failed":
-      return state.asksLoadFailed ? state : { ...state, asksLoadFailed: true };
+      return state.asksLoadFailed && state.asksLoaded
+        ? state
+        : { ...state, asksLoadFailed: true, asksLoaded: true };
     case "others_asks_load_failed":
       return state.othersAsksLoadFailed
         ? state
@@ -2483,6 +2490,7 @@ export const initialState: AppState = {
   asksRevision: 0,
   asksFetchSeq: 0,
   asksLoadFailed: false,
+  asksLoaded: false,
   othersAsks: [],
   othersAsksRevision: 0,
   othersAsksFetchSeq: 0,
