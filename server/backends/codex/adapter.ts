@@ -1152,6 +1152,8 @@ export interface CodexSessionInitOpts {
   scheduleRetry?: (delayMs: number, run: () => void) => () => void;
   // Deterministic timer seam for the turn watchdog (CODEX_TURN_ERROR_WATCHDOG_MS).
   scheduleTurnWatchdog?: (delayMs: number, run: () => void) => () => void;
+  // Deterministic timer seam for the no-answer watchdog (CODEX_TURN_SILENCE_MS).
+  scheduleSilenceWatchdog?: (delayMs: number, run: () => void) => () => void;
   // Deterministic timer seam for the background-terminal poll
   // (CODEX_BACKGROUND_POLL_MS).
   scheduleBackgroundPoll?: (delayMs: number, run: () => void) => () => void;
@@ -1168,6 +1170,24 @@ export const CODEX_BACKGROUND_POLL_MS = 30_000;
 // How long a turn may stay silent after a terminal error notification before
 // the session ends it as failed itself.
 export const CODEX_TURN_ERROR_WATCHDOG_MS = 60_000;
+// How long a running turn may stay silent on our thread before the session
+// ends it as a provider that never answered (task 95802f3b). Codex itself
+// never times out a model request that gets no answer: the turn stays open
+// with no event, and a steer it accepted waits with it. Its longest healthy
+// silence is a command poll: codex 0.166.0 caps an exec_command wait at 30 s
+// and an empty write_stdin poll at 300 s, then asks the model again, so an
+// open command does not hold the turn. 0.166.0 has no blocking shell tool:
+// with features.unified_exec off, the model still gets exec_command, and a
+// "shell" call answers "unsupported call: shell".
+export const CODEX_TURN_SILENCE_MS = 10 * 60_000;
+// Open items that wait on a tool codex does not bound itself, so a silent
+// turn waits on that tool, not on the provider.
+const SILENCE_HOLDING_ITEM_TYPES = new Set([
+  "mcpToolCall",
+  "dynamicToolCall",
+  "collabAgentToolCall",
+  "sleep",
+]);
 const CODEX_TURN_WATCHDOG_FALLBACK =
   "Codex sent an error and then stopped responding.";
 
@@ -1272,6 +1292,14 @@ export class CodexSession implements BackendSession {
   // This attempt's last terminal error notification, for the turn watchdog.
   private terminalErrorThisAttempt: TurnErrorLike | null = null;
   private cancelTurnWatchdog: (() => void) | null = null;
+  // The no-answer watchdog (CODEX_TURN_SILENCE_MS): armed while a turn is
+  // starting or running, and re-armed by traffic on our thread.
+  private cancelSilenceWatchdog: (() => void) | null = null;
+  // Ids of the open items that hold the no-answer watchdog.
+  private readonly silenceHoldingItems = new Set<string>();
+  // The member's abort sent turn/interrupt for the running turn: the
+  // no-answer watchdog waits for that turn's end.
+  private abortInFlight = false;
   // The turn the watchdog ended. Its own turn/completed can still arrive,
   // even after the next turn started, and is dropped. A known id is kept
   // until that completion; an unknown id (null) drops the first completion
@@ -1977,10 +2005,88 @@ export class CodexSession implements BackendSession {
     });
   }
 
-  // The one writer of this.turn: a backoff it replaces stops its timer.
+  // The one writer of this.turn: a backoff it replaces stops its timer. It
+  // also owns the no-answer watchdog: armed when a turn starts, cleared when
+  // the turn ends or waits in backoff.
   private setTurn(next: CodexTurn): void {
     if (this.turn.kind === "backoff" && this.turn !== next) this.turn.cancel();
+    const wasLive =
+      this.turn.kind === "starting" || this.turn.kind === "running";
     this.turn = next;
+    if (next.kind === "starting" || next.kind === "running") {
+      if (!wasLive) this.armSilenceWatchdog();
+    } else {
+      this.clearSilenceWatchdog();
+      this.silenceHoldingItems.clear();
+      this.abortInFlight = false;
+    }
+  }
+
+  private armSilenceWatchdog(): void {
+    this.cancelSilenceWatchdog?.();
+    const schedule =
+      this.opts.scheduleSilenceWatchdog ??
+      ((delayMs: number, run: () => void) => {
+        const timer = setTimeout(run, delayMs);
+        timer.unref?.();
+        return () => clearTimeout(timer);
+      });
+    this.cancelSilenceWatchdog = schedule(CODEX_TURN_SILENCE_MS, () => {
+      this.cancelSilenceWatchdog = null;
+      this.fireSilenceWatchdog();
+    });
+  }
+
+  private clearSilenceWatchdog(): void {
+    this.cancelSilenceWatchdog?.();
+    this.cancelSilenceWatchdog = null;
+  }
+
+  // Nothing on our thread for CODEX_TURN_SILENCE_MS: unless the turn waits
+  // on something other than the provider, end it as failed, as the error
+  // watchdog does, so the queue is delivered.
+  private fireSilenceWatchdog(): void {
+    if (this.closed) return;
+    if (
+      this.turn.kind === "starting" ||
+      this.pendingApprovals.size > 0 ||
+      this.silenceHoldingItems.size > 0 ||
+      this.abortInFlight
+    ) {
+      this.armSilenceWatchdog();
+      return;
+    }
+    if (this.turn.kind !== "running") return;
+    const turnId = this.activeTurnId;
+    this.abandonedTurn = { id: turnId };
+    if (this.threadId && turnId) {
+      this.client
+        .request("turn/interrupt", { threadId: this.threadId, turnId })
+        .catch(() => {});
+    }
+    this.activeTurnId = null;
+    this.settleTurn(
+      "failed",
+      null,
+      undefined,
+      msg("systemEntries.backendFailure.providerNoAnswer", {
+        minutes: CODEX_TURN_SILENCE_MS / 60_000,
+      }),
+    );
+  }
+
+  // Tracks the open items that hold the no-answer watchdog.
+  private noteSilenceHoldingItem(item: unknown, started: boolean): void {
+    const it = item as { type?: unknown; id?: unknown } | null;
+    if (
+      typeof it?.type !== "string" ||
+      typeof it.id !== "string" ||
+      !SILENCE_HOLDING_ITEM_TYPES.has(it.type)
+    )
+      return;
+    if (started && this.turn.kind !== "idle")
+      this.silenceHoldingItems.add(it.id);
+    else this.silenceHoldingItems.delete(it.id);
   }
 
   // A turn_completed is owed to the orchestrator: codex accepted a turn of
@@ -2262,6 +2368,7 @@ export class CodexSession implements BackendSession {
       // or no send happened yet).
       return;
     }
+    this.abortInFlight = true;
     try {
       await this.client.request("turn/interrupt", {
         threadId: this.threadId,
@@ -2337,6 +2444,7 @@ export class CodexSession implements BackendSession {
     if (this.closed) return;
     this.closed = true;
     this.clearTurnWatchdog();
+    this.clearSilenceWatchdog();
     this.cancelBackgroundPoll?.();
     this.cancelBackgroundPoll = null;
     this.finishCapacityBackoff(
@@ -2733,11 +2841,12 @@ export class CodexSession implements BackendSession {
   }
 
   // Ends the turn: one turn_completed for codex's turn/completed and for the
-  // turn watchdog alike.
+  // turn watchdogs alike. `noAnswer` is the no-answer watchdog's line.
   private settleTurn(
     rawStatus: "completed" | "interrupted" | "failed",
     turnError: TurnErrorLike | null | undefined,
     fallbackError?: string,
+    noAnswer?: LogMessage,
   ): void {
     const rawError = turnError?.message ?? undefined;
     const capacityError = this.capacityErrorThisAttempt;
@@ -2795,9 +2904,12 @@ export class CodexSession implements BackendSession {
       {
         kind: "turn_completed",
         status,
-        error: capacityError ?? error,
-        ...(capacityError ? { causedByProviderCapacity: true } : {}),
-        ...(refusal !== null && !capacityError
+        error: noAnswer ?? capacityError ?? error,
+        ...(noAnswer ? { providerNoAnswer: true as const } : {}),
+        ...(capacityError && !noAnswer
+          ? { causedByProviderCapacity: true }
+          : {}),
+        ...(refusal !== null && !capacityError && !noAnswer
           ? { providerRefusal: true }
           : {}),
       },
@@ -2885,6 +2997,13 @@ export class CodexSession implements BackendSession {
       eventThreadId === this.threadId
     )
       this.armTurnWatchdog();
+    // Any traffic on our thread is an answer: the no-answer window restarts.
+    if (
+      this.cancelSilenceWatchdog &&
+      this.threadId &&
+      eventThreadId === this.threadId
+    )
+      this.armSilenceWatchdog();
 
     switch (n.method) {
       case "turn/started": {
@@ -3044,6 +3163,7 @@ export class CodexSession implements BackendSession {
         // Everything else waits for item/completed.
         const item = params?.item;
         this.noteSteerRecorded(item);
+        this.noteSilenceHoldingItem(item, true);
         if (
           item &&
           this.translateStartedItem(item) &&
@@ -3056,6 +3176,7 @@ export class CodexSession implements BackendSession {
         const item = params?.item;
         if (item) {
           this.noteSteerRecorded(item);
+          this.noteSilenceHoldingItem(item, false);
           if (this.turn.kind !== "idle") this.shownItemsThisAttempt += 1;
           this.translateCompletedItem(item);
           if (

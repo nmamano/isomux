@@ -224,6 +224,28 @@ first (4 of 4).
 **Edit and fork.** On Codex the steer is a backend user message inside a turn. Its text starts with the note and
 the sender prefix, so it never matches a member's text, and `editMessage` already excludes `tool_boundary` entries.
 
+**A provider that never answers (task 95802f3b).** Codex records an accepted steer only at its next model request.
+Probed on 2026-11-17 (codex 0.166.0 app-server, fake Responses endpoint, scratch `CODEX_HOME`):
+- A model request that gets no answer (no headers) is never timed out: the turn stays open with no event (420 s
+  probe), and a steer sent then is accepted and never recorded. A stream that starts and then stalls is different:
+  codex drops it at the steer and asks again, and the steer is recorded at once.
+- A long command does not cut this short: codex caps an `exec_command` wait at 30 s and an empty `write_stdin` poll
+  at 300 s. The longest silence on our thread while a silent 700 s command ran was 300.1 s. 0.166.0 has no blocking
+  shell tool: with `features.unified_exec` off, the model still gets `exec_command`, and a `shell` call answers
+  "unsupported call: shell".
+- An ordinary failed turn leaves the agent in `error`, and a released steer waits in the queue until a new message
+  arrives.
+
+So `CodexSession` has a no-answer watchdog: when its turn stays silent on our thread for `CODEX_TURN_SILENCE_MS`
+(10 min), it sends `turn/interrupt` and ends the turn as failed with `providerNoAnswer`. It waits instead while
+`turn/start` is in flight, an approval is open, an item codex does not bound is open (`mcpToolCall`,
+`dynamicToolCall`, `collabAgentToolCall`, `sleep`) or the member's abort is in flight; an open command does not
+hold it. The orchestrator treats `providerNoAnswer` like provider capacity: it logs the line, the agent goes to
+`waiting_for_response` (not `error`), and the flush delivers the queue, the released steer included. A Codex steer
+therefore reaches the model at its next request (at most about 5 minutes while a command runs), or, when the
+provider never answers, as the next turn about 10 minutes after the last sign of life. The next turn's input starts
+with codex's own `<turn_aborted>` note, which says the user interrupted the turn on purpose.
+
 ### 3.5 OpenCode: agent steers go in through the session's own inbox (2.2.5 pin, 2026-11-11)
 
 The OpenCode backend declares the same `toolBoundaryDelivery` capability, so the enqueue branch of §3.1 and the
@@ -272,7 +294,7 @@ note and the sender prefix, and `editMessage` already excludes `tool_boundary` e
 
 | Surface | Before | After |
 |---|---|---|
-| Ack `steered:true` | turn aborted | Claude receiver: delivered at its next batch boundary, or as its next turn if the turn ends first or the queue holds a member/skill/handoff item. Codex receiver (since 85706f13): delivered at its next step (after the running tool or reply, or at the next poll of a long command, which keeps running), or as its next turn if codex refuses it or drops it. OpenCode receiver (since the 2.2.5 pin, §3.5): as Codex - delivered at the run's next step boundary, or as its next turn if the run ended first or OpenCode refused the admit. Shape unchanged. |
+| Ack `steered:true` | turn aborted | Claude receiver: delivered at its next batch boundary, or as its next turn if the turn ends first or the queue holds a member/skill/handoff item. Codex receiver (since 85706f13): delivered at its next step (after the running tool or reply, or at the next poll of a long command, which keeps running), or as its next turn if codex refuses it or drops it, or after the no-answer watchdog ends a turn the provider never answers (§3.4). OpenCode receiver (since the 2.2.5 pin, §3.5): as Codex - delivered at the run's next step boundary, or as its next turn if the run ended first or OpenCode refused the admit. Shape unchanged. |
 | Ack `queued:false` on a steer | "does not wait for the current turn" | Claude, Codex or OpenCode receiver: can wait for the rest of the turn (long tool call, no further boundary, ineligible batch) |
 | Rate limit (3/min/receiver) | counts steers that interrupted | unchanged meaning: boundary steers interrupt nothing, so they are neither counted nor refused |
 | Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | Claude: steer waits for it. Codex: the command keeps running and the steer can go in at its next poll. OpenCode: the tool runs to its end and the steer goes in at the step boundary after it |

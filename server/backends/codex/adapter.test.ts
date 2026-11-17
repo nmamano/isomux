@@ -44,6 +44,7 @@ import {
   CODEX_BACKGROUND_POLL_MS,
   CODEX_LIMIT_RESET_READ_MS,
   CODEX_TURN_ERROR_WATCHDOG_MS,
+  CODEX_TURN_SILENCE_MS,
   CodexSession,
   codexBackend,
   mergeRateLimitSnapshots,
@@ -4843,6 +4844,344 @@ describe("CodexSession turn watchdog", () => {
     expect(done.status).toBe("failed");
     // The sign-in card explains the failure: no second line for it.
     expect(done.error).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No-answer watchdog (task 95802f3b). A model request that the provider never
+// answers leaves codex silent with no timeout of its own: no error, no retry,
+// no turn/completed. When our thread stays silent for CODEX_TURN_SILENCE_MS
+// while nothing the turn legitimately waits on is open, the session stops the
+// turn and ends it as failed with providerNoAnswer, so the orchestrator keeps
+// the session usable and delivers what is queued.
+// ---------------------------------------------------------------------------
+describe("CodexSession no-answer watchdog", () => {
+  const NO_ANSWER = msg("systemEntries.backendFailure.providerNoAnswer", {
+    minutes: CODEX_TURN_SILENCE_MS / 60_000,
+  });
+  async function silent(overrides: Partial<CodexSessionInitOpts> = {}) {
+    const silence = retryClock("silence");
+    const ctx = await bootstrapped(undefined, {
+      ...overrides,
+      scheduleSilenceWatchdog: (delayMs, run) =>
+        silence.scheduleRetry(delayMs, run),
+    });
+    return { ...ctx, silence };
+  }
+  const armed = (clock: ReturnType<typeof retryClock>) =>
+    clock.pending.filter((t) => !t.cancelled);
+  function turnStarted(fake: FakeCodexTransport, id = "turn-1"): void {
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id },
+    });
+  }
+  function itemStarted(
+    fake: FakeCodexTransport,
+    item: Record<string, unknown>,
+  ): void {
+    fake.fireNotification("item/started", {
+      item,
+      threadId: FIXTURE_THREAD_ID,
+    });
+  }
+  // Nothing else was queued: the next event is the next thing Codex sends.
+  async function expectNothingQueued(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<void> {
+    fake.fireStderr("marker");
+    expect(expectKind(await nextEvent(it, "marker"), "system_text").text).toBe(
+      "[codex stderr] marker",
+    );
+  }
+  // Skip whatever the last notification showed (a card, or nothing).
+  async function drainTo(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+    tag: string,
+  ): Promise<void> {
+    fake.fireStderr(tag);
+    for (let i = 0; i < 10; i++) {
+      const ev = await nextEvent(it, tag);
+      if (ev.kind === "system_text" && ev.text === `[codex stderr] ${tag}`)
+        return;
+    }
+    throw new Error(`no ${tag} marker`);
+  }
+  // The fire held the turn: a new timer of the full window, no interrupt and
+  // no event.
+  async function expectHeld(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+    silence: ReturnType<typeof retryClock>,
+  ): Promise<void> {
+    expect(armed(silence).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_SILENCE_MS,
+    ]);
+    expect(fake.interruptCount()).toBe(0);
+    await expectNothingQueued(fake, it);
+  }
+  async function expectNoAnswerEnd(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<void> {
+    const done = expectKind(
+      await nextEvent(it, "no-answer end"),
+      "turn_completed",
+    );
+    expect(done.status).toBe("failed");
+    expect(done.providerNoAnswer).toBe(true);
+    expect(done.error).toEqual(NO_ANSWER);
+    expect(done.causedByProviderCapacity).toBeFalsy();
+    expect(
+      fake.requests
+        .filter((r) => r.method === "turn/interrupt")
+        .map((r) => r.params),
+    ).toEqual([{ threadId: FIXTURE_THREAD_ID, turnId: "turn-1" }]);
+  }
+
+  it("stops a turn that stays silent, once, and drops the stopped turn's late completion", async () => {
+    const { session, fake, it, silence } = await silent();
+    await session.send("go");
+    turnStarted(fake);
+    expect(armed(silence).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_SILENCE_MS,
+    ]);
+    await silence.runNext();
+    await expectNoAnswerEnd(fake, it);
+    // The turn is over: nothing is armed for it any more.
+    expect(armed(silence)).toHaveLength(0);
+
+    // The stopped turn's own completion lands after the next turn started:
+    // it must not end the new turn.
+    await session.send("again");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "interrupted" },
+    });
+    turnStarted(fake, "turn-2");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-2", status: "completed" },
+    });
+    const next = expectKind(await nextEvent(it, "next turn"), "turn_completed");
+    expect(next.status).toBe("completed");
+    expect(next.providerNoAnswer).toBeUndefined();
+  });
+
+  it("only traffic on our own thread keeps the turn alive", async () => {
+    const { session, fake, it, silence } = await silent();
+    await session.send("go");
+    turnStarted(fake);
+    const first = armed(silence)[0];
+
+    fireItem(
+      fake,
+      { type: "agentMessage", id: "a-1", text: "working" },
+      FIXTURE_THREAD_ID,
+    );
+    expectKind(await nextEvent(it, "our activity"), "assistant_text");
+    expect(first.cancelled).toBe(true);
+    expect(armed(silence).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_SILENCE_MS,
+    ]);
+    const second = armed(silence)[0];
+
+    // A threadless push and a foreign thread's traffic say nothing about
+    // our turn.
+    fake.fireNotification("warning", { message: "heads up" });
+    expectKind(await nextEvent(it, "threadless notice"), "system_text");
+    fake.fireNotification("turn/started", {
+      threadId: "thread-other",
+      turn: { id: "turn-other" },
+    });
+    expect(second.cancelled).toBe(false);
+    expect(armed(silence)).toHaveLength(1);
+
+    await silence.runNext();
+    await expectNoAnswerEnd(fake, it);
+  });
+
+  it("a turn that ends in time leaves nothing armed, and the next turn arms again", async () => {
+    const { session, fake, it, silence } = await silent();
+    await session.send("go");
+    turnStarted(fake);
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "completed" },
+    });
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+    expect(armed(silence)).toHaveLength(0);
+
+    await session.send("next");
+    expect(armed(silence)).toHaveLength(1);
+  });
+
+  // Items codex does not bound itself: the turn waits on a tool, not on the
+  // provider.
+  const holding: Record<string, unknown>[] = [
+    {
+      type: "mcpToolCall",
+      id: "hold-1",
+      server: "srv",
+      tool: "slow",
+      status: "inProgress",
+      arguments: {},
+    },
+    {
+      type: "dynamicToolCall",
+      id: "hold-1",
+      namespace: null,
+      tool: "slow",
+      arguments: {},
+      status: "inProgress",
+      contentItems: null,
+      success: null,
+    },
+    {
+      type: "collabAgentToolCall",
+      id: "hold-1",
+      tool: "wait",
+      status: "inProgress",
+      senderThreadId: FIXTURE_THREAD_ID,
+      receiverThreadIds: [],
+      prompt: null,
+      agentsStates: {},
+    },
+    { type: "sleep", id: "hold-1", durationMs: 900_000 },
+  ];
+  for (const item of holding) {
+    it(`an open ${item.type as string} holds the turn until it completes`, async () => {
+      const { session, fake, it, silence } = await silent();
+      await session.send("go");
+      turnStarted(fake);
+      itemStarted(fake, item);
+      // Drain whatever card the start shows.
+      await drainTo(fake, it, "drain");
+      await silence.runNext();
+      await expectHeld(fake, it, silence);
+      await silence.runNext();
+      await expectHeld(fake, it, silence);
+
+      fake.fireNotification("item/completed", {
+        item: { ...item, status: "completed" },
+        threadId: FIXTURE_THREAD_ID,
+      });
+      // The completion is traffic: drain what it shows, then stay silent.
+      await drainTo(fake, it, "drain2");
+      await silence.runNext();
+      await expectNoAnswerEnd(fake, it);
+    });
+  }
+
+  it("an open command does not hold the turn: codex goes back to the model while it runs", async () => {
+    const { session, fake, it, silence } = await silent();
+    await session.send("go");
+    turnStarted(fake);
+    itemStarted(fake, {
+      type: "commandExecution",
+      id: "cmd-1",
+      command: "sleep 3600",
+      cwd: "/work",
+      processId: "42",
+      status: "inProgress",
+      aggregatedOutput: null,
+      exitCode: null,
+    });
+    expectKind(await nextEvent(it, "command card"), "tool_call");
+    await silence.runNext();
+    // Stopped, not held.
+    expect(fake.interruptCount()).toBe(1);
+    await expectNoAnswerEnd(fake, it);
+  });
+
+  it("an open approval holds the turn until it is answered", async () => {
+    const { session, fake, it, silence } = await silent();
+    await session.send("go");
+    turnStarted(fake);
+    const answer = fireExecApproval(fake, "na-appr", "ls", null);
+    ignoreUnanswered(answer);
+    expectKind(await nextEvent(it, "approval"), "approval_request");
+    await silence.runNext();
+    await expectHeld(fake, it, silence);
+
+    await session.approve("na-appr", { kind: "deny" });
+    await answer;
+    await silence.runNext();
+    await expectNoAnswerEnd(fake, it);
+  });
+
+  it("holds while turn/start is in flight", async () => {
+    const { session, fake, it, silence } = await silent();
+    fake.holdTurnStart = true;
+    const sent = session.send("go");
+    for (let i = 0; i < 100 && !fake.turnStartPending; i++)
+      await Promise.resolve();
+    expect(fake.turnStartPending).toBe(true);
+    expect(armed(silence)).toHaveLength(1);
+    await silence.runNext();
+    await expectHeld(fake, it, silence);
+
+    fake.releaseTurnStart();
+    await sent;
+    turnStarted(fake);
+    await silence.runNext();
+    await expectNoAnswerEnd(fake, it);
+  });
+
+  it("holds while the member's abort is in flight", async () => {
+    const { session, fake, it, silence } = await silent();
+    await session.send("go");
+    turnStarted(fake);
+    await session.abort();
+    expect(fake.interruptCount()).toBe(1);
+    await silence.runNext();
+    expect(armed(silence)).toHaveLength(1);
+    // Only the member's interrupt: the watchdog sent none of its own.
+    expect(fake.interruptCount()).toBe(1);
+    await expectNothingQueued(fake, it);
+
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "interrupted" },
+    });
+    const done = expectKind(await nextEvent(it, "abort end"), "turn_completed");
+    expect(done.status).toBe("interrupted");
+    expect(done.providerNoAnswer).toBeUndefined();
+    expect(armed(silence)).toHaveLength(0);
+  });
+
+  it("is off during capacity backoff and on again for the retry turn", async () => {
+    const retries = retryClock();
+    const { session, fake, it, silence } = await silent({
+      scheduleRetry: (delayMs, run) => retries.scheduleRetry(delayMs, run),
+    });
+    await session.send("go");
+    turnStarted(fake);
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "failed" },
+    });
+    expectKind(
+      await nextEvent(it, "capacity retry"),
+      "provider_capacity_retry",
+    );
+    expect(armed(silence)).toHaveLength(0);
+
+    await retries.runNext();
+    expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(
+      2,
+    );
+    expect(armed(silence).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_SILENCE_MS,
+    ]);
   });
 });
 

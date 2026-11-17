@@ -274,6 +274,7 @@ import {
   StoredSessionNotFoundError,
   BackendSignedOutError,
   ProviderCapacityError,
+  ProviderNoAnswerError,
   AuthNeededError,
   SessionSwappedError,
   SwappedBeforeSendError,
@@ -3850,6 +3851,10 @@ export function createAgentManager(deps: ManagerDeps) {
         if (ev.status === "completed")
           flushPendingFreshRecoveryNotice(agentId, managed);
         const isProviderCapacity = ev.causedByProviderCapacity === true;
+        // The provider never answered and the backend stopped the turn: as
+        // for capacity, the session stays usable and the queue goes next.
+        const isProviderNoAnswer =
+          ev.providerNoAnswer === true && ev.error !== undefined;
         if (ev.status !== "completed") {
           // Hot-abort path (Codex): the natural turn_completed with
           // status="interrupted" arrives after a member-initiated turn/interrupt.
@@ -3872,6 +3877,10 @@ export function createAgentManager(deps: ManagerDeps) {
               msg("systemEntries.backendFailure.providerCapacity"),
               { backendFailureRaw: raw },
             );
+            updateState(agentId, "waiting_for_response");
+          } else if (isProviderNoAnswer) {
+            flushPendingFreshRecoveryNotice(agentId, managed);
+            addLogEntry(agentId, "error", ev.error!);
             updateState(agentId, "waiting_for_response");
           } else if (!isHotAbortClean) {
             // status="failed" while aborting usually means the codex subprocess
@@ -3997,6 +4006,10 @@ export function createAgentManager(deps: ManagerDeps) {
                   ? "Codex provider capacity"
                   : renderLogText(english, ev.error),
               ),
+            );
+          else if (isProviderNoAnswer)
+            turn.reject(
+              new ProviderNoAnswerError(renderLogText(english, ev.error!)),
             );
           else if (sessionGone && ev.sessionNotFound)
             turn.reject(

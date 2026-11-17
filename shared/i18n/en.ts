@@ -4185,6 +4185,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The agent backend stopped because the Isomux server was shutting down or restarting (exit code {code}). The conversation is saved and can be resumed.",
   "systemEntries.backendFailure.signal":
     "The agent backend was stopped by signal {signal} (exit code {code}). The conversation is saved and can be resumed.",
+  "systemEntries.backendFailure.providerNoAnswer":
+    "Codex showed no activity for {minutes} minutes, so Isomux stopped the turn. Send a message to continue.",
   "systemEntries.backendFailure.providerCapacity":
     "The model provider is at capacity. That is on the provider's side, not this account's subscription or rate limits. Retry in a minute or pick another model. The conversation is saved and can be resumed.",
   "systemEntries.providerCapacityRetry":

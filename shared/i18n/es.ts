@@ -4283,6 +4283,8 @@ Cosas que puedes hacer por él:
     "El backend del agente se detuvo porque el servidor de Isomux se estaba apagando o reiniciando (código de salida {code}). La conversación está guardada y se puede retomar.",
   "systemEntries.backendFailure.signal":
     "El backend del agente se detuvo con la señal {signal} (código de salida {code}). La conversación está guardada y se puede retomar.",
+  "systemEntries.backendFailure.providerNoAnswer":
+    "Codex no mostró actividad durante {minutes} minutos, así que Isomux detuvo el turno. Envía un mensaje para continuar.",
   "systemEntries.backendFailure.providerCapacity":
     "El proveedor del modelo está saturado. Es un problema del lado del proveedor, no de la suscripción ni de los límites de uso de esta cuenta. Reintenta en un minuto o elige otro modelo. La conversación está guardada y se puede retomar.",
   "systemEntries.providerCapacityRetry":

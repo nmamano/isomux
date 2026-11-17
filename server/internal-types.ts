@@ -720,6 +720,16 @@ export class ProviderCapacityError extends Error {
   }
 }
 
+/** A Codex turn stopped because the provider sent no answer
+ * (CODEX_TURN_SILENCE_MS). A subclass, so every capacity check treats it the
+ * same: the session stays usable and the queue is delivered next. */
+export class ProviderNoAnswerError extends ProviderCapacityError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderNoAnswerError";
+  }
+}
+
 // True while the agent is part-way through a two-step pending flow (the
 // previous turn ended asking for a permission decision / resume pick / model
 // pick / effort pick). The next user message gets interpreted as the pick, so

@@ -31,6 +31,7 @@ import {
   createAgentManager,
 } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
+import { msg } from "../../shared/i18n/log-message.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   clearTestManagedOfficeEnv,
@@ -113,9 +114,18 @@ function fakeBackend(cfg: FakeBackendConfig = {}): FakeBackend {
 
 function makeManager(fake: FakeBackend) {
   const logs: LogEntry[] = [];
+  // Every state an agent entered, in order.
+  const states: { agentId: string; state: string }[] = [];
   const sink: EventHandler = (e) => {
-    const ev = e as { type?: string; entry?: LogEntry };
+    const ev = e as {
+      type?: string;
+      entry?: LogEntry;
+      agentId?: string;
+      changes?: { state?: string };
+    };
     if (ev.type === "log_entry" && ev.entry) logs.push(ev.entry);
+    if (ev.type === "agent_updated" && ev.agentId && ev.changes?.state)
+      states.push({ agentId: ev.agentId, state: ev.changes.state });
   };
   const mgr = createAgentManager({
     resolveBackend: () => fake,
@@ -125,7 +135,7 @@ function makeManager(fake: FakeBackend) {
   });
   mgr.configureAgentTurnDeps();
   activeFakes.push(fake);
-  return { mgr, logs };
+  return { mgr, logs, states };
 }
 
 type Manager = ReturnType<typeof makeManager>["mgr"];
@@ -530,6 +540,53 @@ describe("steer at a push session (Codex turn/steer)", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].metadata?.delivery).toBeUndefined();
     expect(sentCount(fake, info.id, "urgent")).toBe(1);
+  });
+
+  // Task 95802f3b: the engine stopped a turn the provider never answered.
+  // The session is healthy, so the steer the stopped turn never recorded is
+  // sent once by the flush, and the agent never enters error.
+  it("a turn stopped for no provider answer: the pending steer is sent once by the flush, and the agent never enters error", async () => {
+    const fake = pushBackend();
+    const { mgr, logs, states } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    expect(steer(mgr, info.id, "urgent")).toMatchObject({ steered: true });
+    const call = await steerCall(session, 1);
+    call.resolve(true);
+    await sleep(20);
+
+    const mark = states.length;
+    const errorsBefore = logs.filter((e) => e.kind === "error").length;
+    const line = msg("systemEntries.backendFailure.providerNoAnswer", {
+      minutes: 10,
+    });
+    session.push({
+      kind: "turn_completed",
+      status: "failed",
+      error: line,
+      providerNoAnswer: true,
+    });
+    await waitUntil(
+      () =>
+        sentCount(fake, info.id, "urgent") > 0 ||
+        stateOf(mgr, info.id) === "error",
+      2000,
+      "flushed or failed",
+    );
+    await sleep(100);
+    const mine = states
+      .slice(mark)
+      .filter((s) => s.agentId === info.id)
+      .map((s) => s.state);
+    expect(mine).toContain("waiting_for_response");
+    expect(mine).not.toContain("error");
+    expect(mgr.getAgent(info.id)?.failure ?? null).toBeNull();
+    expect(sentCount(fake, info.id, "urgent")).toBe(1);
+    // One line, the engine's own: no second line from the turn's caller.
+    const errors = logs.filter((e) => e.kind === "error").slice(errorsBefore);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toEqual([line]);
   });
 
   it("an answer that comes after the turn ended touches nothing, not even a later steer", async () => {
