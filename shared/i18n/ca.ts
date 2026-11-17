@@ -543,7 +543,6 @@ Coses que pots fer per ell:
   "settings.sidebar.updates": "Actualitzacions",
   "settings.sidebar.move": "Traslladar l'oficina",
   "settings.sidebar.enterprise": "Enterprise",
-  "settings.sidebar.profile": "Perfil",
   "settings.part.signIn": "Inici de sessió",
   "settings.part.general": "General",
   "settings.part.unsaved": "Canvis sense desar",

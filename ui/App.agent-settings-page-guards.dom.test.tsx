@@ -55,7 +55,7 @@ it("the page keys do nothing while Settings shows the agent; a sidebar page row 
   // The agent's page is Settings drilled into it (task 1f79f2e3).
   expect(settingsOpen(view)).toBe(true);
 
-  await openSection(view, "profile");
+  await openSection(view, "general");
   await typeName(view, "Unsaved");
   await click(navRow(view, "tasks"));
   expect({

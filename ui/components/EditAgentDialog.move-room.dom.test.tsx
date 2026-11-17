@@ -2,7 +2,7 @@
 // each room offers its front and its back room, each disabled only when that
 // area is full. No button shows an agent count. Every room but the lobby has
 // a back room, with no field for it (task e2fb9fa0). They are on the Agent
-// settings page's Access section (task 59538509).
+// settings page's General part (tasks 59538509, 03ffafc1).
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -46,7 +46,7 @@ function dialog(agent: ReturnType<typeof claudeAgent>, agents: unknown[]) {
     onLanguage(
       "en",
       settingsAt(
-        { kind: "agent", agentId: agent.id, part: "access" },
+        { kind: "agent", agentId: agent.id, part: "general" },
         () => {},
       ),
       {
@@ -212,9 +212,9 @@ describe("a move that races a save", () => {
               );
             });
           };
-          // The move buttons are on Access.
+          // The move buttons are on General.
           const move = async () => {
-            await openSection(view.container, "access");
+            await openSection(view.container, "general");
             await act(async () => {
               fireEvent.click(view.getByRole("button", { name: "Back Full" }));
             });

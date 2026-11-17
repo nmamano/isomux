@@ -23,6 +23,7 @@ const {
   save,
   settle,
   shim,
+  stopRadio,
   user,
   viewer,
 } = await import("../test-support/access-slider-fixture.tsx");
@@ -133,19 +134,26 @@ describe("a refused save", () => {
     };
     const calls = shim(opts);
     const scrolls = watchScrolls();
-    const view = renderEdit(agentAt("standard"), () => closed++);
+    const view = renderEdit(
+      agentAt("standard"),
+      () => closed++,
+      undefined,
+      "general",
+    );
     try {
       await settle();
-      const cwd = cwdInput(view.container);
       // The enabling condition: nothing is marked before the save.
       expect({
-        invalid: invalid(cwd),
+        invalid: invalid(cwdInput(view.container)),
         alerts: refusalAlerts(view.container).length,
       }).toEqual({ invalid: false, alerts: 0 });
+      await openSection(view.container, "access");
       await pick(view.container, "web");
       const save1 = saveButton(view.container);
       save1.focus();
       await save(view.container);
+      // The refusal opens General, where the folder is.
+      const cwd = cwdInput(view.container);
       const [alert] = refusalAlerts(view.container);
       expect({
         invalid: invalid(cwd),
@@ -239,19 +247,20 @@ describe("a refused save", () => {
       await settle();
       await pick(view.container, "folder");
       await save(view.container);
-      const cwd = cwdInput(view.container);
+      const slider = stopRadio(view.container, "folder");
       const [alert] = refusalAlerts(view.container);
       const onAccess = {
-        ...shown(view.container, cwd),
+        ...shown(view.container, slider),
         text: alert?.textContent?.trim(),
-        cwd: invalid(cwd),
       };
-      // The name is on Profile; the refusal stays next to Save there.
-      await openSection(view.container, "profile");
+      // The name and the folder are on General; the refusal stays next to
+      // Save there.
+      await openSection(view.container, "general");
       expect({
         ...onAccess,
+        cwd: invalid(cwdInput(view.container)),
         name: invalid(nameInput(view.container)),
-        alertsOnProfile: refusalAlerts(view.container).length,
+        alertsOnGeneral: refusalAlerts(view.container).length,
       }).toEqual({
         alerts: 1,
         times: 1,
@@ -259,7 +268,7 @@ describe("a refused save", () => {
         text: REFUSAL,
         cwd: false,
         name: false,
-        alertsOnProfile: 1,
+        alertsOnGeneral: 1,
       });
     } finally {
       cleanup(view);
@@ -273,7 +282,7 @@ describe("a refused save", () => {
       agentAt("standard"),
       undefined,
       undefined,
-      "profile",
+      "general",
     );
     try {
       await settle();
@@ -297,8 +306,8 @@ describe("a refused save", () => {
         name: invalid(name),
         alerts: refusalAlerts(view.container).length,
       }).toEqual({ name: false, alerts: 0 });
-      // Only the name was marked: not the working directory.
-      await openSection(view.container, "access");
+      // Only the name was marked: not the working directory, on the same
+      // part.
       expect(invalid(cwdInput(view.container))).toBe(false);
     } finally {
       scrolls.restore();

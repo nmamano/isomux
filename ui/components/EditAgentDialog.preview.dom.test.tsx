@@ -131,7 +131,7 @@ describe("agent form prompt preview", () => {
             { target: { value: "" } },
           );
       });
-      if (mode === "edit") await openSection(view.container, "profile");
+      if (mode === "edit") await openSection(view.container, "general");
       await act(async () => {
         fireEvent.change(
           view.container.querySelector(".agent-identity-section input")!,

@@ -104,7 +104,7 @@ const CA = {
   updates: translationsFor("settings.sidebar.updates").ca,
   you: translationsFor("common.you").ca,
   self: translationsFor("settings.you").ca,
-  profile: translationsFor("settings.sidebar.profile").ca,
+  general: translationsFor("settings.part.general").ca,
   language: translationsFor("settings.sidebar.languageAndChat").ca,
   housekeeping: translationsFor("settings.sidebar.housekeeping").ca,
   signInLinks: translationsFor("settings.sidebar.signInLinks").ca,
@@ -196,7 +196,7 @@ describe("the settings page", () => {
       STORAGE.ca,
       CA.updates,
       CA.you,
-      CA.profile,
+      CA.general,
       CA.language,
       CA.housekeeping,
       CA.signInLinks,
@@ -214,7 +214,7 @@ describe("the settings page", () => {
     // Members group stays collapsed, so no "(you)" shows: the editor has no
     // heading of its own since task 1f79f2e3.
     expect(view.queryByText(CA.identity)).not.toBeNull();
-    expect(row(view, CA.profile).getAttribute("aria-current")).toBe("true");
+    expect(row(view, CA.general).getAttribute("aria-current")).toBe("true");
 
     // Its inline discard prompt, in Catalan, holds the navigation until
     // Discard is pressed.

@@ -215,9 +215,9 @@ describe("the groups", () => {
 describe("Rooms and Members", () => {
   it("start collapsed on a new device, even on your own profile", async () => {
     const view = await mount();
-    // Desktop opens on your own profile, which is the You > Profile row.
+    // Desktop opens on your own profile, which is the You > General row.
     expect(
-      row(view, t("settings.sidebar.profile"))!.getAttribute("aria-current"),
+      row(view, t("settings.part.general"))!.getAttribute("aria-current"),
     ).toBe("true");
     expect(expanded(view, "rooms")).toBe("false");
     expect(expanded(view, "members")).toBe("false");

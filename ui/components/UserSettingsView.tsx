@@ -224,8 +224,8 @@ export type Selection =
 // A member part's label, in the list column and on your own You rows.
 function memberPartLabel(t: UiTranslator["t"], part: MemberPart): string {
   switch (part) {
-    case "profile":
-      return t("settings.sidebar.profile");
+    case "general":
+      return t("settings.part.general");
     case "access":
       return t("settings.memberAccess.title");
     case "osUser":
@@ -258,7 +258,7 @@ function selfRowAttrs(row: SidebarRow): Record<string, string> {
 const COLLAPSIBLE_GROUPS = new Set(["rooms", "members"]);
 
 // The collapsible group that holds a selection, if it is closed in `open`,
-// added to a copy of it. Your own profile is the You > Profile row, and the
+// added to a copy of it. Your own profile is the You > General row, and the
 // New member row shows in a closed Members group, so they open nothing.
 function withGroupOf(
   open: Set<string>,
@@ -580,7 +580,7 @@ export function UserSettingsView({
             creating: false,
             targetIsOwner: selfRecord.role === "owner",
           })
-        : (["profile"] as MemberPart[])
+        : (["general"] as MemberPart[])
       ).map((id) => ({ id, label: memberPartLabel(t, id), dirty: false }));
     return parts.map((p) => ({
       key: `self:${p.id}`,
@@ -588,7 +588,7 @@ export function UserSettingsView({
       selected:
         selfOpen &&
         (reported?.part ??
-          ((selection?.kind === "user" && selection.part) || "profile")) ===
+          ((selection?.kind === "user" && selection.part) || "general")) ===
           p.id,
       target: { kind: "user" as const, id: selfUserId, part: p.id },
       dirty: p.dirty,
@@ -750,7 +750,7 @@ export function UserSettingsView({
           <>
             {userList.map((u) => {
               const isMe = sessionContext?.userId === u.id;
-              // Your own row lights You > Profile instead.
+              // Your own row lights You > General instead.
               const selected =
                 !isMe && selection?.kind === "user" && selection.id === u.id;
               const editable = canEdit(u);
@@ -776,11 +776,11 @@ export function UserSettingsView({
                   onClick={
                     editable
                       ? () =>
-                          // Yourself: You > Profile, the one path to your
+                          // Yourself: You > General, the one path to your
                           // own settings.
                           select(
                             isMe
-                              ? { kind: "user", id: u.id, part: "profile" }
+                              ? { kind: "user", id: u.id, part: "general" }
                               : { kind: "user", id: u.id },
                           )
                       : undefined
@@ -1264,7 +1264,7 @@ export function UserSettingsView({
         user={selfEditable}
         isMobile={isMobile}
         // Your own rows always name a part: they are not a drill-in.
-        part={(selection?.kind === "user" && selection.part) || "profile"}
+        part={(selection?.kind === "user" && selection.part) || "general"}
         onPart={selectPart}
         closeRef={detailCloseRef}
         onClose={() => setSelection(null)}
@@ -2148,7 +2148,7 @@ function UserEditPanel({
   const open = resolvePart(part, ids, isMobile);
 
   const bodies: Record<MemberPart, React.ReactNode> = {
-    profile: (
+    general: (
       <>
         <h5 style={sectionTitleStyle}>{t("settings.profile.identity")}</h5>
         <label style={subLabelStyle}>{t("settings.profile.displayName")}</label>

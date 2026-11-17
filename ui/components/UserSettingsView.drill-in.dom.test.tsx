@@ -56,16 +56,16 @@ describe("a member, drilled in from Members", () => {
     }).toEqual({
       item: "user:u2",
       parts: [
-        "profile",
+        "general",
         "access",
-        "osUser",
-        "signIn",
         "rooms",
         "instructions",
+        "osUser",
+        "signIn",
         "chat",
       ],
-      current: ["profile"],
-      bodies: ["profile"],
+      current: ["general"],
+      bodies: ["general"],
       back: true,
       officeRow: false,
     });
@@ -81,7 +81,7 @@ describe("a member, drilled in from Members", () => {
   it("puts each section in its part", async () => {
     const view = await mount({ initialUserId: STEPHEN.id });
     const seen: Record<string, boolean> = {};
-    seen.nameInProfile = inputWith(body(view, "profile"), "Stephen") !== null;
+    seen.nameInGeneral = inputWith(body(view, "general"), "Stephen") !== null;
     await openPart(view, "access");
     seen.accessInAccess =
       body(view, "access")?.querySelector("[data-member-access]") !== null;
@@ -104,7 +104,7 @@ describe("a member, drilled in from Members", () => {
       (body(view, "chat")?.querySelectorAll('input[type="checkbox"]').length ??
         0) === 2;
     expect(seen).toEqual({
-      nameInProfile: true,
+      nameInGeneral: true,
       accessInAccess: true,
       osUserInOsUser: true,
       tokensInSignIn: true,
@@ -118,13 +118,13 @@ describe("a member, drilled in from Members", () => {
   it("keeps edits across parts and dots only their parts; the one Save, from a third part, writes both and clears the dots", async () => {
     const view = await mount({ initialUserId: STEPHEN.id });
     expect(dirty(view)).toEqual([]);
-    await type(inputWith(body(view, "profile"), "Stephen"), "Steve");
+    await type(inputWith(body(view, "general"), "Stephen"), "Steve");
     await openPart(view, "instructions");
     await type(textarea(body(view, "instructions")), "Be brief.");
     await openPart(view, "rooms");
-    expect(dirty(view)).toEqual(["profile", "instructions"]);
-    await openPart(view, "profile");
-    expect(inputWith(body(view, "profile"), "Steve")).not.toBeNull();
+    expect(dirty(view)).toEqual(["general", "instructions"]);
+    await openPart(view, "general");
+    expect(inputWith(body(view, "general"), "Steve")).not.toBeNull();
     await openPart(view, "chat");
     await save(view);
     expect(
@@ -149,7 +149,7 @@ describe("a member, drilled in from Members", () => {
 
   it("an unsaved edit: the back row asks first, Cancel keeps the member, Discard goes to the Settings list", async () => {
     const view = await mount({ initialUserId: STEPHEN.id });
-    await type(inputWith(body(view, "profile"), "Stephen"), "Steve");
+    await type(inputWith(body(view, "general"), "Stephen"), "Steve");
     await openPart(view, "rooms");
     await click(backRow(view));
     const box = discardPrompt(view);
@@ -172,18 +172,18 @@ describe("a member, drilled in from Members", () => {
     view.unmount();
   });
 
-  it("a taken name, saved from Instructions and memory, opens Profile; a stale instructions version, saved from Profile, opens Instructions and memory", async () => {
+  it("a taken name, saved from Instructions and memory, opens General; a stale instructions version, saved from General, opens Instructions and memory", async () => {
     setRefuse({
       route: "PATCH /api/users/Stephen",
       error: new ApiError(409, "name_taken", "fixture: taken"),
     });
     const view = await mount({ initialUserId: STEPHEN.id });
-    await type(inputWith(body(view, "profile"), "Stephen"), "Tester");
+    await type(inputWith(body(view, "general"), "Stephen"), "Tester");
     await openPart(view, "instructions");
     await save(view);
     expect({ item: item(view), current: current(view) }).toEqual({
       item: "user:u2",
-      current: ["profile"],
+      current: ["general"],
     });
     view.unmount();
 
@@ -194,7 +194,7 @@ describe("a member, drilled in from Members", () => {
     const second = await mount({ initialUserId: STEPHEN.id });
     await openPart(second, "instructions");
     await type(textarea(body(second, "instructions")), "Be brief.");
-    await openPart(second, "profile");
+    await openPart(second, "general");
     await save(second);
     expect(current(second)).toEqual(["instructions"]);
     second.unmount();
@@ -219,10 +219,10 @@ describe("New member", () => {
     const view = await mount({ initialTarget: { kind: "newMember" } });
     expect({ item: item(view), parts: parts(view) }).toEqual({
       item: "newMember",
-      parts: ["profile", "access", "rooms", "instructions", "chat"],
+      parts: ["general", "access", "rooms", "instructions", "chat"],
     });
     await type(
-      body(view, "profile")?.querySelector("input") ?? null,
+      body(view, "general")?.querySelector("input") ?? null,
       "Newcomer",
     );
     await openPart(view, "instructions");

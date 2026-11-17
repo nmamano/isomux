@@ -17,6 +17,7 @@ const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
 const { openPart } = await import("./test-support/settings-item.tsx");
+const { en } = await import("../shared/i18n/en.ts");
 
 function token(id: string, name: string) {
   return {
@@ -178,9 +179,10 @@ describe("API tokens on a member's profile", () => {
   });
 
   it("asks for nothing on an owner's own profile or a member's own profile", async () => {
+    // Your own General row (task 03ffafc1), by its catalog label.
     const owner = await openProfile(
       signedInAs("Ricky", "u1", "owner"),
-      "Profile",
+      en["settings.part.general"],
     );
     expect(owner.container.querySelectorAll("h5").length).toBeGreaterThan(0);
     owner.unmount();

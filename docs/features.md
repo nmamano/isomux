@@ -54,7 +54,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Agent managers** - an office owner can give an agent another manager in its settings.
 - **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
 - **Restore a removed member** - a removed member stays in Removed members for 30 days, and an owner can restore them with their agents.
-- **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
+- **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `General`.
 
 ## Multi-device
 

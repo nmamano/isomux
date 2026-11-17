@@ -113,7 +113,7 @@ it("an update to the agent while the page shows keeps the page and the member's 
   const view = await boot();
   await openFirstDesk(view);
   await click(headerName(view));
-  await openSection(view, "profile");
+  await openSection(view, "general");
   await typeName(view, "Renamed");
   await act(async () => {
     shimEmit({
@@ -133,11 +133,11 @@ it("another agent's settings button: a clean page moves to that agent's own form
   await openFirstDesk(view);
   await openRoom(view, "r1");
   await click(settingsButton(view, scout.id));
-  await openSection(view, "profile");
+  await openSection(view, "general");
   expect(nameInput(view)?.value).toBe(scout.name);
 
   await click(settingsButton(view, ranger.id));
-  await openSection(view, "profile");
+  await openSection(view, "general");
   expect({ page: pageAgent(view), name: nameInput(view)?.value }).toEqual({
     page: ranger.id,
     name: ranger.name,
@@ -152,7 +152,7 @@ it("another agent's settings button: a clean page moves to that agent's own form
   }).toEqual({ page: ranger.id, name: "Unsaved", prompt: true });
   await discard(view);
   expect(prompt(view)).toBeNull();
-  await openSection(view, "profile");
+  await openSection(view, "general");
   expect({ page: pageAgent(view), name: nameInput(view)?.value }).toEqual({
     page: scout.id,
     name: scout.name,
@@ -174,7 +174,7 @@ it("on a phone the page fills the screen with the section list first; Close retu
   }).toEqual({
     page: scout.id,
     chat: false,
-    sections: ["profile", "engine", "instructions", "access"],
+    sections: ["general", "access", "instructions", "engine"],
     current: null,
   });
   await click(view.baseElement.querySelector("[data-page-close]"));

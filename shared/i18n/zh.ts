@@ -510,7 +510,6 @@ export const zh: Catalog = {
   "settings.sidebar.updates": "更新",
   "settings.sidebar.move": "迁移办公室",
   "settings.sidebar.enterprise": "企业",
-  "settings.sidebar.profile": "个人资料",
   "settings.part.signIn": "登录",
   "settings.part.general": "常规",
   "settings.part.unsaved": "未保存的更改",

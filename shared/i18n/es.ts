@@ -543,7 +543,6 @@ Cosas que puedes hacer por él:
   "settings.sidebar.updates": "Actualizaciones",
   "settings.sidebar.move": "Trasladar la oficina",
   "settings.sidebar.enterprise": "Enterprise",
-  "settings.sidebar.profile": "Perfil",
   "settings.part.signIn": "Inicio de sesión",
   "settings.part.general": "General",
   "settings.part.unsaved": "Cambios sin guardar",

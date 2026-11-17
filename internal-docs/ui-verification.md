@@ -24,8 +24,8 @@ files before committing.
 The demo drives the REAL EditAgentDialog: click a desk sprite (the nameplate
 is NOT clickable) to open the log view, then the agent's name in the header
 opens Settings drilled into the agent. It shows one part at a time: click
-`button[data-settings-part="<id>"]` (profile, engine, instructions,
-access), then find a field inside its section class (`.agent-engine-section`
+`button[data-settings-part="<id>"]` (general, access, instructions,
+engine), then find a field inside its section class (`.agent-engine-section`
 and so on) rather than by DOM order. A room and a member drill in the same
 way; the open part's fields are in `[data-settings-part-body="<id>"]`. A new agent's form is still a dialog
 (click an empty desk). Layout is viewport-dependent - fix the viewport before

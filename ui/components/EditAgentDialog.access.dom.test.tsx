@@ -98,7 +98,7 @@ describe("the access slider saves", () => {
 
   it("a rename at an unchanged stop as the PATCH alone", async () => {
     const calls = shim();
-    const view = renderEdit(agentAt("folder"), undefined, undefined, "profile");
+    const view = renderEdit(agentAt("folder"), undefined, undefined, "general");
     try {
       await settle();
       await change(
@@ -116,7 +116,12 @@ describe("the access slider saves", () => {
 describe("the save order", () => {
   it("below Standard: the PATCH first, so the folder rules see the new folder", async () => {
     const calls = shim();
-    const view = renderEdit(agentAt("standard"));
+    const view = renderEdit(
+      agentAt("standard"),
+      undefined,
+      undefined,
+      "general",
+    );
     try {
       await settle();
       await change(
@@ -125,6 +130,7 @@ describe("the save order", () => {
         )!,
         "/srv/triage",
       );
+      await openSection(view.container, "access");
       await pick(view.container, "folder");
       await save(view.container);
       expect(calls.map(route)).toEqual(["PATCH :id", "PUT :id/access"]);
@@ -165,7 +171,7 @@ describe("the save order", () => {
       const view = renderEdit(agentAt("standard"));
       try {
         await settle();
-        await openSection(view.container, "profile");
+        await openSection(view.container, "general");
         await change(
           view.container.querySelector(".agent-identity-section input")!,
           "Renamed",

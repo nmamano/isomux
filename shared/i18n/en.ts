@@ -550,7 +550,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.updates": "Updates",
   "settings.sidebar.move": "Move office",
   "settings.sidebar.enterprise": "Enterprise",
-  "settings.sidebar.profile": "Profile",
   "settings.part.signIn": "Sign-in",
   "settings.part.general": "General",
   "settings.part.unsaved": "Unsaved changes",

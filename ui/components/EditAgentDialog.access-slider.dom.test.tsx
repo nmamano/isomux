@@ -315,6 +315,8 @@ describe("the folder hint", () => {
       try {
         await settle();
         expect(stopChecked(view.container, stop)).toBe(true);
+        // The stop is on Access, the folder on General.
+        await openSection(view.container, "general");
         seen[stop] = folderHint(view.container);
       } finally {
         cleanup(view);
@@ -330,13 +332,18 @@ describe("the folder hint", () => {
     const view = renderEdit(agentAt("folder"));
     try {
       await settle();
-      const seen: Array<[string, string]> = [
-        ["folder", folderHint(view.container)],
-      ];
+      // The stop is on Access, the folder on General.
+      const hintNow = async () => {
+        await openSection(view.container, "general");
+        const hint = folderHint(view.container);
+        await openSection(view.container, "access");
+        return hint;
+      };
+      const seen: Array<[string, string]> = [["folder", await hintNow()]];
       for (const stop of ["standard", "web", "privileged", "chat"] as const) {
         await pick(view.container, stop);
         expect(stopChecked(view.container, stop)).toBe(true);
-        seen.push([stop, folderHint(view.container)]);
+        seen.push([stop, await hintNow()]);
       }
       expect(seen).toEqual(
         (["folder", "standard", "web", "privileged", "chat"] as const).map(

@@ -5,7 +5,8 @@
 // after setUpDomTestFile(), never statically.
 //
 // DOM contract: a part row is button[data-settings-part="<part>"], the open
-// one aria-current="true"; Save is [data-settings-save].
+// one aria-current="true", one with an unsaved edit data-settings-part-dirty;
+// Save is [data-settings-save].
 import { act, fireEvent } from "@testing-library/react";
 import { createElement, useState, type ReactElement } from "react";
 import {
@@ -76,6 +77,7 @@ export function RoomPaneHost({
               key={p.id}
               data-settings-part={p.id}
               aria-current={p.id === view.part ? "true" : undefined}
+              data-settings-part-dirty={p.dirty ? "" : undefined}
               onClick={() => setPart(p.id)}
             >
               {p.label}

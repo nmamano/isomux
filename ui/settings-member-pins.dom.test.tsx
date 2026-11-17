@@ -160,10 +160,10 @@ async function inEachPart(
   }
   return seen;
 }
-/** The name field, on Profile (task 1f79f2e3). */
+/** The name field, on General (tasks 1f79f2e3, 03ffafc1). */
 async function nameField(view: ReturnType<typeof render>) {
   await act(async () => {
-    await openPart(view.container, "profile");
+    await openPart(view.container, "general");
   });
   return view.getByTestId("settings-content").querySelector("input")!;
 }
@@ -356,7 +356,7 @@ it("no Pinned section on the owner's own page or in the New member form", async 
   await act(async () => {});
   // The condition: your own rows, in every part of them.
   expect(await inEachPart(own, "[data-member-pins]")).toEqual({
-    profile: false,
+    general: false,
     access: false,
     rooms: false,
     instructions: false,
@@ -385,7 +385,7 @@ it("no Pinned section on the owner's own page or in the New member form", async 
   // The condition: this is the New member form.
   within(form).getByRole("button", { name: en["settings.members.create"] });
   expect(await inEachPart(fresh, "[data-member-pins]")).toEqual({
-    profile: false,
+    general: false,
     access: false,
     rooms: false,
     instructions: false,

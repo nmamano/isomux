@@ -31,7 +31,7 @@ function mount(room: RoomWire) {
     onLanguage(
       null,
       createElement(RoomPaneHost, {
-        part: "appearance",
+        part: "general",
         roomId: room.id,
         onDeleted() {},
       }),

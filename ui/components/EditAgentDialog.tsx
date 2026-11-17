@@ -104,6 +104,16 @@ import {
 } from "../agent-templates.ts";
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 import {
+  templateAvatarStyle,
+  templateCardDescriptionStyle,
+  templateCardStyle,
+  templateCardTextStyle,
+  templateCardTitleStyle,
+  templatePopoverStyle,
+  templateSheetBackdropStyle,
+  templateSheetStyle,
+} from "./agent-template-styles.ts";
+import {
   defaultBackendModel,
   fetchBackendModels,
   openCodeModelSelectionReady,
@@ -302,12 +312,14 @@ function parseAutoHandoffThousands(text: string): number | null {
     : null;
 }
 
-// The sections of the Agent settings page (task 59538509), in sidebar order.
+// The sections of the Agent settings page (task 59538509), in sidebar order:
+// General, Access, Instructions and memory, then the agent's own part (Nil,
+// 2026-11-17).
 export const AGENT_SETTINGS_SECTIONS = [
-  "profile",
-  "engine",
-  "instructions",
+  "general",
   "access",
+  "instructions",
+  "engine",
 ] as const;
 export type AgentSettingsSection = (typeof AGENT_SETTINGS_SECTIONS)[number];
 
@@ -2136,210 +2148,227 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
       />
     </section>
   );
+  // Where the agent works: its folder and its room. The page shows them in
+  // General (room, then folder); the spawn dialog in Access and location.
+  const directoryField = (
+    <div className="agent-directory-field">
+      {" "}
+      <label style={labelStyle}>{t("common.field.workingDirectory")}</label>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          {...noTranslate()}
+          ref={cwdInputRef}
+          value={cwd}
+          readOnly={setsNoFolder}
+          onChange={(e) => {
+            setCwd(e.target.value);
+            clearCwdErrors();
+          }}
+          aria-invalid={cwdMarked || undefined}
+          style={
+            cwdMarked ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle
+          }
+        />
+        {recentCwds.length > 0 && !setsNoFolder && (
+          <button
+            type="button"
+            aria-expanded={showRecentCwds}
+            aria-controls="recent-cwd-suggestions"
+            onClick={() => setShowRecentCwds((shown) => !shown)}
+            style={{ ...dialogCancelBtn, padding: "7px 10px" }}
+          >
+            {t("dialogs.agent.recent")}
+          </button>
+        )}
+      </div>
+      {setsNoFolder && (
+        <p style={{ ...dialogHint, margin: "4px 0 0" }}>
+          {t("dialogs.agent.roomFolderOnly")}
+        </p>
+      )}
+      {cwdError && (
+        <p
+          style={{
+            fontSize: 12,
+            color: "var(--red-text)",
+            margin: "4px 0 0",
+          }}
+        >
+          {cwdError}
+        </p>
+      )}
+      {showRecentCwds && recentCwds.length > 0 && (
+        <div
+          id="recent-cwd-suggestions"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 4,
+            marginTop: 6,
+          }}
+        >
+          {recentCwds.map((c) => (
+            <button
+              key={c}
+              {...noTranslate()}
+              onClick={() => {
+                setCwd(c);
+                setShowRecentCwds(false);
+                clearCwdErrors();
+              }}
+              style={chipStyle}
+            >
+              {shortenCwd(c)}
+            </button>
+          ))}
+        </div>
+      )}
+      {!setsNoFolder && (
+        <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+          {t(
+            belowStandard(access)
+              ? "dialogs.agent.cwdHint"
+              : "dialogs.agent.cwdHintWithShell",
+          )}
+        </p>
+      )}
+      {!isSpawn && (
+        <p
+          style={{
+            ...dialogHint,
+            color: "var(--text-ghost)",
+            margin: "3px 0 0",
+          }}
+        >
+          {t("common.nextConversation")}
+        </p>
+      )}
+    </div>
+  );
+  const roomField = (
+    <div className="agent-room-field">
+      <label style={labelStyle}>{t("common.rooms")}</label>
+      <p style={dialogHint}>
+        {isSpawn
+          ? rooms.find((room) => room.id === props.roomId)?.name
+          : agentRoomName}
+      </p>
+      {moveToRoomBlock}
+    </div>
+  );
+  // Who controls the agent and what it may do.
+  const accessFields = (
+    <>
+      <div className="agent-manager-field">
+        <label style={{ ...labelStyle, marginTop: 12 }}>
+          {t("dialogs.agent.manager")}
+        </label>
+        {canChangeManager ? (
+          <select
+            value={managerUserId}
+            onChange={(e) => setManagerUserId(e.target.value)}
+            style={{
+              ...inputStyle,
+              appearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            {/* No manager, or one who is no longer a member: shown
+                  as chosen until the owner picks a member. */}
+            {!managerChoices.some((u) => u.id === agent!.userId) && (
+              <option value={agent!.userId ?? ""}>
+                {agent!.manager ?? t("dialogs.agent.managerUnowned")}
+              </option>
+            )}
+            {managerChoices.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div
+            title={isSpawn ? undefined : t("dialogs.agent.managerTitle")}
+            style={{
+              ...inputStyle,
+              display: "flex",
+              alignItems: "center",
+              color: "var(--text-muted)",
+              fontFamily: "var(--font-ui)",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              fontWeight: 600,
+              cursor: "not-allowed",
+              background: "var(--bg-elevated)",
+            }}
+          >
+            {isSpawn
+              ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
+              : (agent!.manager ??
+                agent!.userId ??
+                t("dialogs.agent.managerUnowned"))}
+          </div>
+        )}
+        <p
+          style={{
+            ...dialogHint,
+            margin: "3px 0 0",
+          }}
+        >
+          {t("dialogs.agent.managerHint")}
+          {managerChanged && ` ${t("dialogs.agent.managerRestart")}`}
+          {managerLacksRoom &&
+            ` ${t("dialogs.agent.managerNoRoomAccess", {
+              name: chosenManager.name,
+            })}`}
+        </p>
+      </div>
+
+      {/* The access slider: Chat, Office, Folder, Web, Standard,
+      Privileged. Set through the dedicated user-gated route, so a
+      change on a running agent re-mints its token and restarts its
+      session, like a model change. Shown only to a user who may set
+      it (owner, or the agent's manager - see canTogglePrivilege). */}
+      {canTogglePrivilege && (
+        <AccessSlider
+          access={access}
+          onAccess={setAccess}
+          agentType={targetEngine}
+          model={modelFamily}
+          {...(ceiling ? { ceiling } : {})}
+          {...(roomHasNoFolder ? { noFolder: true } : {})}
+          note={
+            !isSpawn && accessChanged
+              ? t("dialogs.agent.privilegedRestart")
+              : undefined
+          }
+        />
+      )}
+    </>
+  );
   const accessSection = (
     <section className="agent-settings-group agent-access-section">
       <h4 className="agent-settings-group-title">
         {t("dialogs.agent.group.access")}
       </h4>
-
       <div className="agent-settings-fields">
-        <div className="agent-directory-field">
-          {" "}
-          <label style={labelStyle}>{t("common.field.workingDirectory")}</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input
-              {...noTranslate()}
-              ref={cwdInputRef}
-              value={cwd}
-              readOnly={setsNoFolder}
-              onChange={(e) => {
-                setCwd(e.target.value);
-                clearCwdErrors();
-              }}
-              aria-invalid={cwdMarked || undefined}
-              style={
-                cwdMarked
-                  ? { ...inputStyle, borderColor: "#ff6b6b" }
-                  : inputStyle
-              }
-            />
-            {recentCwds.length > 0 && !setsNoFolder && (
-              <button
-                type="button"
-                aria-expanded={showRecentCwds}
-                aria-controls="recent-cwd-suggestions"
-                onClick={() => setShowRecentCwds((shown) => !shown)}
-                style={{ ...dialogCancelBtn, padding: "7px 10px" }}
-              >
-                {t("dialogs.agent.recent")}
-              </button>
-            )}
-          </div>
-          {setsNoFolder && (
-            <p style={{ ...dialogHint, margin: "4px 0 0" }}>
-              {t("dialogs.agent.roomFolderOnly")}
-            </p>
-          )}
-          {cwdError && (
-            <p
-              style={{
-                fontSize: 12,
-                color: "var(--red-text)",
-                margin: "4px 0 0",
-              }}
-            >
-              {cwdError}
-            </p>
-          )}
-          {showRecentCwds && recentCwds.length > 0 && (
-            <div
-              id="recent-cwd-suggestions"
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 4,
-                marginTop: 6,
-              }}
-            >
-              {recentCwds.map((c) => (
-                <button
-                  key={c}
-                  {...noTranslate()}
-                  onClick={() => {
-                    setCwd(c);
-                    setShowRecentCwds(false);
-                    clearCwdErrors();
-                  }}
-                  style={chipStyle}
-                >
-                  {shortenCwd(c)}
-                </button>
-              ))}
-            </div>
-          )}
-          {!setsNoFolder && (
-            <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-              {t(
-                belowStandard(access)
-                  ? "dialogs.agent.cwdHint"
-                  : "dialogs.agent.cwdHintWithShell",
-              )}
-            </p>
-          )}
-          {!isSpawn && (
-            <p
-              style={{
-                ...dialogHint,
-                color: "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              {t("common.nextConversation")}
-            </p>
-          )}
-        </div>
-        <div className="agent-room-field">
-          <label style={labelStyle}>{t("common.rooms")}</label>
-          <p style={dialogHint}>
-            {isSpawn
-              ? rooms.find((room) => room.id === props.roomId)?.name
-              : agentRoomName}
-          </p>
-          {moveToRoomBlock}
-        </div>
-        <div className="agent-manager-field">
-          <label style={{ ...labelStyle, marginTop: 12 }}>
-            {t("dialogs.agent.manager")}
-          </label>
-          {canChangeManager ? (
-            <select
-              value={managerUserId}
-              onChange={(e) => setManagerUserId(e.target.value)}
-              style={{
-                ...inputStyle,
-                appearance: "none",
-                cursor: "pointer",
-              }}
-            >
-              {/* No manager, or one who is no longer a member: shown
-                  as chosen until the owner picks a member. */}
-              {!managerChoices.some((u) => u.id === agent!.userId) && (
-                <option value={agent!.userId ?? ""}>
-                  {agent!.manager ?? t("dialogs.agent.managerUnowned")}
-                </option>
-              )}
-              {managerChoices.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div
-              title={isSpawn ? undefined : t("dialogs.agent.managerTitle")}
-              style={{
-                ...inputStyle,
-                display: "flex",
-                alignItems: "center",
-                color: "var(--text-muted)",
-                fontFamily: "var(--font-ui)",
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-                fontWeight: 600,
-                cursor: "not-allowed",
-                background: "var(--bg-elevated)",
-              }}
-            >
-              {isSpawn
-                ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
-                : (agent!.manager ??
-                  agent!.userId ??
-                  t("dialogs.agent.managerUnowned"))}
-            </div>
-          )}
-          <p
-            style={{
-              ...dialogHint,
-              margin: "3px 0 0",
-            }}
-          >
-            {t("dialogs.agent.managerHint")}
-            {managerChanged && ` ${t("dialogs.agent.managerRestart")}`}
-            {managerLacksRoom &&
-              ` ${t("dialogs.agent.managerNoRoomAccess", {
-                name: chosenManager.name,
-              })}`}
-          </p>
-        </div>
-
-        {/* The access slider: Chat, Office, Folder, Web, Standard,
-      Privileged. Set through the dedicated user-gated route, so a
-      change on a running agent re-mints its token and restarts its
-      session, like a model change. Shown only to a user who may set
-      it (owner, or the agent's manager - see canTogglePrivilege). */}
-        {canTogglePrivilege && (
-          <AccessSlider
-            access={access}
-            onAccess={setAccess}
-            agentType={targetEngine}
-            model={modelFamily}
-            {...(ceiling ? { ceiling } : {})}
-            {...(roomHasNoFolder ? { noFolder: true } : {})}
-            note={
-              !isSpawn && accessChanged
-                ? t("dialogs.agent.privilegedRestart")
-                : undefined
-            }
-          />
-        )}
+        {directoryField}
+        {roomField}
+        {accessFields}
       </div>
     </section>
   );
-  const appearanceSection = (
+  // The look: a group with its own title in the spawn dialog, a field with
+  // a label in the page's General part.
+  const appearanceSection = (asField: boolean) => (
     <section className="agent-settings-group agent-appearance-section">
-      <h4 className="agent-settings-group-title">
-        {t("dialogs.agent.appearance")}
-      </h4>
+      {asField ? (
+        <label style={labelStyle}>{t("dialogs.agent.appearance")}</label>
+      ) : (
+        <h4 className="agent-settings-group-title">
+          {t("dialogs.agent.appearance")}
+        </h4>
+      )}
       <div
         style={{
           display: "flex",
@@ -2395,24 +2424,37 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
       body: ReactNode;
     }[] = [
       {
-        id: "profile",
-        label: t("settings.sidebar.profile"),
+        id: "general",
+        label: t("settings.part.general"),
         body: (
           <>
-            {/* The other sections open on their title; Name has none of
-                its own. */}
+            {/* The fields of General have no group title of their own:
+                one title over name, look, room and folder. */}
             <h4 className="agent-settings-group-title">
-              {t("settings.sidebar.profile")}
+              {t("settings.part.general")}
             </h4>
             {identitySection}
-            {appearanceSection}
+            {appearanceSection(true)}
+            <section className="agent-settings-group">
+              <div className="agent-settings-fields">
+                {roomField}
+                {directoryField}
+              </div>
+            </section>
           </>
         ),
       },
       {
-        id: "engine",
-        label: t("dialogs.agent.group.engine"),
-        body: engineSection,
+        id: "access",
+        label: t("settings.sidebar.access"),
+        body: (
+          <section className="agent-settings-group agent-access-section">
+            <h4 className="agent-settings-group-title">
+              {t("settings.sidebar.access")}
+            </h4>
+            <div className="agent-settings-fields">{accessFields}</div>
+          </section>
+        ),
       },
       {
         id: "instructions",
@@ -2420,9 +2462,9 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         body: instructionsSection,
       },
       {
-        id: "access",
-        label: t("dialogs.agent.group.access"),
-        body: accessSection,
+        id: "engine",
+        label: t("dialogs.agent.group.engine"),
+        body: engineSection,
       },
     ];
     return props.children!({
@@ -2707,7 +2749,7 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
             {engineSection}
             {instructionsSection}
             {accessSection}
-            {appearanceSection}
+            {appearanceSection(false)}
           </div>
 
           {killedAgents.length > 0 && (
@@ -2873,108 +2915,6 @@ const inputStyle: React.CSSProperties = dialogInput;
 const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
 const chipStyle: React.CSSProperties = dialogChip;
 const saveBtnStyle: React.CSSProperties = dialogSaveBtn;
-
-function templateCardStyle(
-  selected: boolean,
-  group?: AgentTemplate["group"],
-): React.CSSProperties {
-  const groupColor = group ? TEMPLATE_GROUP_COLORS[group] : null;
-  return {
-    minHeight: group ? 78 : 46,
-    padding: "8px 9px",
-    borderRadius: 7,
-    border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-    background: selected
-      ? "var(--accent-muted, rgba(88,166,255,0.15))"
-      : groupColor
-        ? `color-mix(in srgb, ${groupColor} 8%, var(--bg-input))`
-        : "var(--bg-input)",
-    color: "var(--text-primary)",
-    textAlign: "left",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    boxShadow: groupColor ? `inset 3px 0 0 ${groupColor}` : undefined,
-  };
-}
-
-const TEMPLATE_GROUP_COLORS: Record<AgentTemplate["group"], string> = {
-  // Keep chip tints independent from theme variables and selection colors.
-  build: "#4A90D9",
-  work: "#50b86c",
-  life: "#e85d75",
-  places: "#d4a843",
-};
-
-// Desktop: the list drops under the row and scrolls on its own.
-const templatePopoverStyle: React.CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 4px)",
-  left: 0,
-  right: 0,
-  zIndex: 20,
-  maxHeight: "min(440px, 60vh)",
-  overflowY: "auto",
-  overscrollBehavior: "contain",
-  padding: 10,
-  borderRadius: 10,
-  border: "1px solid var(--border-light)",
-  background: "var(--bg-overlay-solid)",
-  boxShadow: "0 12px 32px var(--shadow-heavy)",
-};
-
-// Mobile: the list is a sheet from the bottom of the screen.
-const templateSheetBackdropStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 20,
-  background: "rgba(0,0,0,0.45)",
-};
-
-const templateSheetStyle: React.CSSProperties = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  zIndex: 21,
-  maxHeight: "80dvh",
-  overflowY: "auto",
-  overscrollBehavior: "contain",
-  padding: "14px 14px max(14px, env(safe-area-inset-bottom))",
-  borderRadius: "14px 14px 0 0",
-  borderTop: "1px solid var(--border-light)",
-  background: "var(--bg-overlay-solid)",
-  boxShadow: "0 -12px 32px var(--shadow-heavy)",
-};
-
-const templateAvatarStyle: React.CSSProperties = {
-  width: 34,
-  height: 46,
-  flex: "0 0 34px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
-
-const templateCardTextStyle: React.CSSProperties = {
-  minWidth: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: 3,
-};
-
-const templateCardTitleStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 650,
-  lineHeight: 1.2,
-};
-
-const templateCardDescriptionStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--text-dim)",
-  lineHeight: 1.3,
-};
 
 const randomBtnStyle: React.CSSProperties = {
   padding: "6px 14px",

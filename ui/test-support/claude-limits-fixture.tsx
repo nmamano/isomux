@@ -156,7 +156,7 @@ export async function openSection(
 
 /** Renames the agent on Profile and saves; the page stays on Profile. */
 export async function renameAndSave(container: HTMLElement): Promise<void> {
-  await openSection(container, "profile");
+  await openSection(container, "general");
   const name = container.querySelector(
     ".agent-identity-section input",
   ) as HTMLInputElement;

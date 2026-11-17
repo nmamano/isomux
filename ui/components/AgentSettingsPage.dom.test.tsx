@@ -2,7 +2,8 @@
 // page would be the most standard"), drilled in under Settings since task
 // 1f79f2e3 (Nil, 2026-11-17: "Drill-in: a room, member or agent lists its
 // parts in the sidebar"): the header reads Settings with the agent beside it,
-// the agent's sections (Profile, Engine, Instructions and memory, Access) are
+// the agent's sections (General, Access, Instructions and memory, Model and
+// behavior; one rule for every type, Nil 2026-11-17, task 03ffafc1) are
 // part rows under a back row to the Settings list, the selected one on the
 // right. A part with an unsaved edit shows a dot. It works with no account. It is one form: an edit
 // stays when the member moves to another section, and the one Save writes
@@ -19,9 +20,12 @@
 // with an unsaved edit data-settings-part-dirty; the back row to the Settings
 // list is button[data-settings-back]; Save is [data-settings-save]; the
 // header close is [data-page-close]; the phone back row from a section to
-// the list is [data-page-back-to-list]. A section's fields keep their classes:
-// .agent-identity-section and .agent-appearance-section (Profile),
-// .agent-engine-section, .agent-instructions-section, .agent-access-section.
+// the list is [data-page-back-to-list]; the open part's body is
+// [data-settings-part-body="<id>"]. A section's fields keep their classes:
+// .agent-identity-section, .agent-appearance-section, .agent-room-field and
+// .agent-directory-field (General), .agent-manager-field and
+// .agent-access-field (Access), .agent-instructions-section,
+// .agent-engine-section.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -38,12 +42,20 @@ const { room } = await import("../test-support/claude-limits-fixture.tsx");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type Section = import("./EditAgentDialog.tsx").AgentSettingsSection;
 
-const SECTION_CLASSES: Record<Section, string[]> = {
-  profile: ["agent-identity-section", "agent-appearance-section"],
-  engine: ["agent-engine-section"],
+// Each part's fields, in the order the part shows them: General is name,
+// look, room, folder (Nil, 2026-11-17).
+const PART_FIELDS: Record<Section, string[]> = {
+  general: [
+    "agent-identity-section",
+    "agent-appearance-section",
+    "agent-room-field",
+    "agent-directory-field",
+  ],
+  access: ["agent-manager-field", "agent-access-field"],
   instructions: ["agent-instructions-section"],
-  access: ["agent-access-section"],
+  engine: ["agent-engine-section"],
 };
+const ALL_FIELDS = Object.values(PART_FIELDS).flat();
 
 const users = new Map(
   [user("owner", "Owner", "owner"), user("member", "Member", "member")].map(
@@ -115,11 +127,23 @@ const settingsBack = (view: View) =>
   view.container.querySelector<HTMLButtonElement>("button[data-settings-back]");
 /** The sections whose fields are in the page, in sidebar order. */
 const shownSections = (view: View) =>
-  (Object.keys(SECTION_CLASSES) as Section[]).filter((section) =>
-    SECTION_CLASSES[section].some(
+  (Object.keys(PART_FIELDS) as Section[]).filter((section) =>
+    PART_FIELDS[section].some(
       (cls) => view.container.querySelector(`.${cls}`) !== null,
     ),
   );
+/** The fields in the page, in document order. */
+const fieldsShown = (view: View) =>
+  [
+    ...view.container.querySelectorAll(
+      ALL_FIELDS.map((cls) => `.${cls}`).join(", "),
+    ),
+  ].map((el) => ALL_FIELDS.find((cls) => el.classList.contains(cls)));
+/** The headings in the open part's body. */
+const bodyHeadings = (view: View) =>
+  view.container.querySelectorAll(
+    "[data-settings-part-body] h4, [data-settings-part-body] h5",
+  ).length;
 const backRow = (view: View) =>
   view.container.querySelector<HTMLButtonElement>("[data-page-back-to-list]");
 const nameInput = (view: View) =>
@@ -160,7 +184,7 @@ async function save(view: View) {
 }
 
 describe("the agent settings page on a desktop", () => {
-  it("is Settings with the agent beside the title; lists the four sections in order under the back row, opens on Engine, and a row shows only its section", async () => {
+  it("is Settings with the agent beside the title; lists the four sections in order under the back row, opens on Engine, and a row shows only its section's fields, in order, under the section's one heading", async () => {
     shim();
     const view = renderPage();
     try {
@@ -179,7 +203,7 @@ describe("the agent settings page on a desktop", () => {
             ?.nextElementSibling?.textContent?.includes("Saved name") ?? false,
       }).toEqual({
         page: "agent:a1",
-        rows: ["profile", "engine", "instructions", "access"],
+        rows: ["general", "access", "instructions", "engine"],
         current: ["engine"],
         shown: ["engine"],
         back: false,
@@ -192,19 +216,39 @@ describe("the agent settings page on a desktop", () => {
         "access",
         "engine",
         "instructions",
-        "profile",
+        "general",
       ] as const) {
         await click(row(view, section));
         seen[section] = {
           current: currentRows(view),
-          shown: shownSections(view),
+          fields: fieldsShown(view),
+          headings: bodyHeadings(view),
         };
       }
+      // One heading per part, its title: in General the look is a field
+      // like the name and the folder, not a heading over the fields after
+      // it.
       expect(seen).toEqual({
-        access: { current: ["access"], shown: ["access"] },
-        engine: { current: ["engine"], shown: ["engine"] },
-        instructions: { current: ["instructions"], shown: ["instructions"] },
-        profile: { current: ["profile"], shown: ["profile"] },
+        access: {
+          current: ["access"],
+          fields: PART_FIELDS.access,
+          headings: 1,
+        },
+        engine: {
+          current: ["engine"],
+          fields: PART_FIELDS.engine,
+          headings: 1,
+        },
+        instructions: {
+          current: ["instructions"],
+          fields: PART_FIELDS.instructions,
+          headings: 1,
+        },
+        general: {
+          current: ["general"],
+          fields: PART_FIELDS.general,
+          headings: 1,
+        },
       });
     } finally {
       cleanup(view);
@@ -213,13 +257,13 @@ describe("the agent settings page on a desktop", () => {
 
   it("opens on the section it is asked for", async () => {
     shim();
-    const view = renderPage({ initialSection: "profile" });
+    const view = renderPage({ initialSection: "general" });
     try {
       await settle();
       expect({
         current: currentRows(view),
         shown: shownSections(view),
-      }).toEqual({ current: ["profile"], shown: ["profile"] });
+      }).toEqual({ current: ["general"], shown: ["general"] });
     } finally {
       cleanup(view);
     }
@@ -231,11 +275,11 @@ describe("the agent settings page on a desktop", () => {
     const view = renderPage({ onClose: () => closed++ });
     try {
       await settle();
-      await open(view, "profile");
+      await open(view, "general");
       await typeName(view, "Renamed");
       await open(view, "engine");
       await open(view, "access");
-      await open(view, "profile");
+      await open(view, "general");
       expect(nameInput(view)?.value).toBe("Renamed");
       // Saved from another section than the edit's.
       await open(view, "instructions");
@@ -246,7 +290,7 @@ describe("the agent settings page on a desktop", () => {
         page: page(view) !== null,
         names: patches.map((c) => (c.body as { name?: string }).name),
       }).toEqual({ closed: 0, page: true, names: ["Renamed"] });
-      await open(view, "profile");
+      await open(view, "general");
       expect(nameInput(view)?.value).toBe("Renamed");
       await click(view.container.querySelector("[data-page-close]"));
       expect({ closed, prompt: discardPrompt(view) !== null }).toEqual({
@@ -264,7 +308,7 @@ describe("the agent settings page on a desktop", () => {
     const view = renderPage({ onClose: () => closed++ });
     try {
       await settle();
-      await open(view, "profile");
+      await open(view, "general");
       await typeName(view, "Renamed");
       await open(view, "engine");
       await click(view.container.querySelector("[data-page-close]"));
@@ -286,12 +330,12 @@ describe("the agent settings page on a desktop", () => {
     try {
       await settle();
       expect(dirtyRows(view)).toEqual([]);
-      await open(view, "profile");
+      await open(view, "general");
       await typeName(view, "Renamed");
       await open(view, "access");
-      expect(dirtyRows(view)).toEqual(["profile"]);
+      expect(dirtyRows(view)).toEqual(["general"]);
       // Typed back to the saved name: nothing to save, no dot.
-      await open(view, "profile");
+      await open(view, "general");
       await typeName(view, "Saved name");
       expect(dirtyRows(view)).toEqual([]);
       await typeName(view, "Renamed");
@@ -332,7 +376,7 @@ describe("the agent settings page on a desktop", () => {
         shown: shownSections(view),
       }).toEqual({
         page: "agent:a1",
-        rows: ["profile", "engine", "instructions", "access"],
+        rows: ["general", "access", "instructions", "engine"],
         shown: ["engine"],
       });
     } finally {
@@ -342,13 +386,13 @@ describe("the agent settings page on a desktop", () => {
 });
 
 describe("a save the server refuses for a field", () => {
-  it("a taken name, saved from another section: the page opens Profile and marks the name, and stays open", async () => {
+  it("a taken name, saved from another section: the page opens General and marks the name, and stays open", async () => {
     shim({ refuse: { route: "PATCH :id", code: "name_taken" } });
     let closed = 0;
     const view = renderPage({ onClose: () => closed++ });
     try {
       await settle();
-      await open(view, "profile");
+      await open(view, "general");
       await typeName(view, "Taken");
       await open(view, "access");
       await save(view);
@@ -359,8 +403,8 @@ describe("a save the server refuses for a field", () => {
         invalid: nameInput(view)?.getAttribute("aria-invalid") ?? null,
       }).toEqual({
         closed: 0,
-        current: ["profile"],
-        shown: ["profile"],
+        current: ["general"],
+        shown: ["general"],
         invalid: "true",
       });
     } finally {
@@ -368,7 +412,7 @@ describe("a save the server refuses for a field", () => {
     }
   });
 
-  it("a refused folder, saved from another section: the page opens Access and marks the working directory", async () => {
+  it("a refused folder, saved from another section: the page opens General, where the folder is, and marks the working directory", async () => {
     shim({ refuse: { route: "PUT :id/access", code: "folder_not_allowed" } });
     let closed = 0;
     const view = renderPage({
@@ -377,8 +421,11 @@ describe("a save the server refuses for a field", () => {
     });
     try {
       await settle();
+      // The enabling condition: the access level is on Access, the folder
+      // is not.
+      expect(cwdInput(view)).toBeNull();
       await pick(view.container, "web");
-      await open(view, "profile");
+      await open(view, "engine");
       expect(cwdInput(view)).toBeNull();
       await save(view);
       expect({
@@ -388,8 +435,8 @@ describe("a save the server refuses for a field", () => {
         invalid: cwdInput(view)?.getAttribute("aria-invalid") ?? null,
       }).toEqual({
         closed: 0,
-        current: ["access"],
-        shown: ["access"],
+        current: ["general"],
+        shown: ["general"],
         invalid: "true",
       });
     } finally {
@@ -412,17 +459,17 @@ describe("the agent settings page on a phone", () => {
         back: backRow(view) !== null,
       }).toEqual({
         page: true,
-        rows: ["profile", "engine", "instructions", "access"],
+        rows: ["general", "access", "instructions", "engine"],
         current: [],
         shown: [],
         back: false,
       });
-      await click(row(view, "profile"));
+      await click(row(view, "general"));
       expect({
         rows: rows(view).length,
         shown: shownSections(view),
         back: backRow(view) !== null,
-      }).toEqual({ rows: 0, shown: ["profile"], back: true });
+      }).toEqual({ rows: 0, shown: ["general"], back: true });
       await typeName(view, "Renamed");
       await click(backRow(view));
       expect({
@@ -430,7 +477,7 @@ describe("the agent settings page on a phone", () => {
         shown: shownSections(view),
         back: backRow(view) !== null,
       }).toEqual({ rows: 4, shown: [], back: false });
-      await click(row(view, "profile"));
+      await click(row(view, "general"));
       expect(nameInput(view)?.value).toBe("Renamed");
       // The third level up: the sections list's back row to Settings, which
       // asks first about the edit.
@@ -454,7 +501,7 @@ describe("the agent settings page on a phone", () => {
     const view = renderPage({ phone: true, onClose: () => closed++ });
     try {
       await settle();
-      await click(row(view, "profile"));
+      await click(row(view, "general"));
       await typeName(view, "Renamed");
       await click(backRow(view));
       expect(rows(view).length).toBe(4);

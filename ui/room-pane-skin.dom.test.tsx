@@ -25,7 +25,7 @@ function mount(room: RoomWire) {
     onLanguage(
       null,
       createElement(RoomPaneHost, {
-        part: "appearance",
+        part: "general",
         roomId: room.id,
         onDeleted() {},
       }),
@@ -101,14 +101,17 @@ it("draws every tile, sends nothing untouched, and saves a preset with the name"
   await save(view);
   expect(patches()).toHaveLength(0);
 
-  // The name is on General (task 1f79f2e3); the edit stays across parts.
-  const openPart = (part: string) =>
-    act(async () =>
-      fireEvent.click(
-        view.container.querySelector(`button[data-settings-part="${part}"]`)!,
+  // The look is on General with the name (task 03ffafc1): its edit dots
+  // General, and nothing else.
+  const dirtyParts = () =>
+    [
+      ...view.container.querySelectorAll(
+        "button[data-settings-part][data-settings-part-dirty]",
       ),
-    );
-  await openPart("general");
+    ].map((el) => el.getAttribute("data-settings-part"));
+  expect(dirtyParts()).toEqual([]);
+  await pick(view, "preset", "office");
+  expect(dirtyParts()).toEqual(["general"]);
   await act(async () =>
     // The name input has no label association of its own (it predates this
     // pane's labelled controls), so it is queried as General's first input.
@@ -116,8 +119,6 @@ it("draws every tile, sends nothing untouched, and saves a preset with the name"
       target: { value: "Ward B" },
     }),
   );
-  await openPart("appearance");
-  await pick(view, "preset", "office");
   expect(cancelDisabled(view)).toBe(false);
   // The staged preset draws its own values at once.
   expect(tile(view, "wallArt", "neon").getAttribute("aria-pressed")).toBe(

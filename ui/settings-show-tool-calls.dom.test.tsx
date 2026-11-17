@@ -153,7 +153,7 @@ for (const [BOX, key] of CHOICES) {
 
     // A save that leaves the choice alone does not send it.
     const again = render(
-      settings({ users: users(self, pia) }, "u2", "profile"),
+      settings({ users: users(self, pia) }, "u2", "general"),
     );
     await act(async () => {});
     const page = again.getByTestId("settings-content");
@@ -171,13 +171,13 @@ for (const [BOX, key] of CHOICES) {
   });
 
   it(`${key}, an owner's own page has no checkbox: their own Settings pane holds it`, async () => {
-    const view = render(settings({ users: users(self, pia) }, "u1", "profile"));
+    const view = render(settings({ users: users(self, pia) }, "u1", "general"));
     await act(async () => {});
     // Your own rows, each part of them: no Chat part and no box.
     const ids = [
       ...view.container.querySelectorAll("button[data-settings-part]"),
     ].map((b) => b.getAttribute("data-settings-part")!);
-    expect(ids).toEqual(["profile", "access", "rooms", "instructions"]);
+    expect(ids).toEqual(["general", "access", "rooms", "instructions"]);
     for (const id of ids) {
       await act(async () => {
         await openPart(view.container, id);

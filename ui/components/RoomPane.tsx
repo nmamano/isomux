@@ -383,10 +383,9 @@ export function RoomPane({
   const labels: Record<RoomPart, string> = {
     general: t("settings.part.general"),
     instructions: t("common.instructionsAndMemory"),
-    appearance: t("dialogs.agent.appearance"),
     view: t("settings.room.yourView"),
   };
-  const ids = roomParts({ lobby: room.type === "lobby", hasView: !!view });
+  const ids = roomParts({ hasView: !!view });
   const open = resolvePart(part, ids, isMobile);
 
   const fieldLabel: React.CSSProperties = {
@@ -430,6 +429,15 @@ export function RoomPane({
               onChange={(e) => setName(e.target.value)}
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
+            />
+            {/* The look: a field of General, not a part of its own (Nil,
+                2026-11-17: name, look, folder). */}
+            <label style={fieldLabel}>{t("dialogs.agent.appearance")}</label>
+            <RoomDecorPicker
+              room={room}
+              rooms={rooms}
+              look={look}
+              onChange={setLook}
             />
           </>
         )}
@@ -537,19 +545,6 @@ export function RoomPane({
             <p style={note}>{t("common.memoryEditorHint")}</p>
           </>
         )}
-      </>
-    ),
-    appearance: (
-      <>
-        <h4 className="agent-settings-group-title">
-          {t("dialogs.agent.appearance")}
-        </h4>
-        <RoomDecorPicker
-          room={room}
-          rooms={rooms}
-          look={look}
-          onChange={setLook}
-        />
       </>
     ),
     view: view && (

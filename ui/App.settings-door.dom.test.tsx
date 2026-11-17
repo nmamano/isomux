@@ -113,10 +113,10 @@ const roomGear = (view: View, roomId: string) =>
 async function openSettingsOnYou(view: View): Promise<void> {
   await click(navRow(view, "settings"));
   expect(settingsPage(view)).not.toBeNull();
-  // Your own Profile row: one of your parts, not a drill-in.
+  // Your own General row: one of your parts, not a drill-in.
   expect(where(view)).toEqual({
     item: null,
-    part: "profile",
+    part: "general",
     current: [],
     members: "false",
     rooms: "false",
@@ -125,7 +125,7 @@ async function openSettingsOnYou(view: View): Promise<void> {
 
 const BEA = {
   item: "user:u3",
-  part: "profile",
+  part: "general",
   current: [],
   members: null,
   rooms: null,
@@ -210,14 +210,14 @@ it("a member's settings button over an unsaved edit asks first: Cancel keeps the
 
   await click(memberGear(view, "u3"));
   expect(prompt()).not.toBeNull();
-  expect(where(view).part).toBe("profile");
+  expect(where(view).part).toBe("general");
   expect(where(view).item).toBeNull();
 
   await click(promptButton(en["common.cancel"]));
   expect(prompt()).toBeNull();
   expect(where(view)).toEqual({
     item: null,
-    part: "profile",
+    part: "general",
     current: [],
     members: "false",
     rooms: "false",

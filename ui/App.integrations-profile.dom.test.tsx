@@ -83,7 +83,14 @@ async function openProfile(state: typeof initialState, name: string) {
 // The owner sees every profile pane a member does and more, so the two owner
 // views cover the member's own.
 for (const [who, viewer, id, role, rowName] of [
-  ["an owner's own profile", "Ricky", "u1", "owner", "Profile"],
+  // Your own General row (task 03ffafc1), by its catalog label.
+  [
+    "an owner's own profile",
+    "Ricky",
+    "u1",
+    "owner",
+    t("settings.part.general"),
+  ],
   ["a member's profile under an owner", "Ricky", "u1", "owner", "Beth"],
 ] as const)
   it(`gives ${who} no Integrations section, and asks for no names`, async () => {

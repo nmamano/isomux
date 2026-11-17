@@ -30,7 +30,7 @@ async function save(container: HTMLElement) {
 
 // An edit of another field: the name, on Profile. Back on Engine after.
 async function rename(container: HTMLElement) {
-  await openSection(container, "profile");
+  await openSection(container, "general");
   const name = container.querySelector<HTMLInputElement>(
     ".agent-identity-section input",
   );

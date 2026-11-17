@@ -1,5 +1,5 @@
 // Settings drill-in (task 1f79f2e3), part two: your own member parts are flat
-// rows of the You group, and Members > yourself selects You > Profile; a room
+// rows of the You group, and Members > yourself selects You > General; a room
 // drills in like a member; a phone goes Settings list > item parts > part.
 // Members are in UserSettingsView.drill-in.dom.test.tsx; the setup and the DOM
 // contract in ui/test-support/drill-in-fixture.tsx.
@@ -64,7 +64,7 @@ describe("yourself", () => {
           0,
     }).toEqual({
       item: null,
-      parts: ["profile", "access", "rooms", "instructions"],
+      parts: ["general", "access", "rooms", "instructions"],
       current: ["rooms"],
       bodies: ["rooms"],
       back: false,
@@ -80,11 +80,11 @@ describe("yourself", () => {
       {},
       "member",
     );
-    expect(parts(view)).toEqual(["profile", "rooms", "instructions"]);
+    expect(parts(view)).toEqual(["general", "rooms", "instructions"]);
     view.unmount();
   });
 
-  it("Members > yourself selects You > Profile", async () => {
+  it("Members > yourself selects You > General", async () => {
     const view = await mount({
       initialTarget: { kind: "section", section: "theme" },
     });
@@ -102,25 +102,25 @@ describe("yourself", () => {
       item: item(view),
       current: current(view),
       bodies: bodies(view),
-    }).toEqual({ item: null, current: ["profile"], bodies: ["profile"] });
+    }).toEqual({ item: null, current: ["general"], bodies: ["general"] });
     view.unmount();
   });
 
   it("an edit moves with you between your rows with its dot; Language and chat asks first", async () => {
     const view = await mount({ initialTarget: { kind: "user", id: "u1" } });
-    await type(inputWith(body(view, "profile"), "Tester"), "Testy");
+    await type(inputWith(body(view, "general"), "Tester"), "Testy");
     await openPart(view, "instructions");
     expect({
       dirty: dirty(view),
       prompt: discardPrompt(view) !== null,
-    }).toEqual({ dirty: ["profile"], prompt: false });
-    await openPart(view, "profile");
-    expect(inputWith(body(view, "profile"), "Testy")).not.toBeNull();
+    }).toEqual({ dirty: ["general"], prompt: false });
+    await openPart(view, "general");
+    expect(inputWith(body(view, "general"), "Testy")).not.toBeNull();
     await click(listRow(view, en["settings.sidebar.languageAndChat"]));
     expect({
       prompt: discardPrompt(view) !== null,
       current: current(view),
-    }).toEqual({ prompt: true, current: ["profile"] });
+    }).toEqual({ prompt: true, current: ["general"] });
     view.unmount();
   });
   it("a change to your own record keeps the pane that shows and its unsaved edit", async () => {
@@ -141,37 +141,52 @@ describe("yourself", () => {
     // The same while one of your own rows shows: its edit stays too.
     view.unmount();
     const own = await mount({ initialTarget: { kind: "user", id: "u1" } });
-    await type(inputWith(body(own, "profile"), "Tester"), "Testy");
+    await type(inputWith(body(own, "general"), "Tester"), "Testy");
     own.rerender(
       page({ initialTarget: { kind: "user", id: "u1" } }, {}, "owner", {
         order: [ROOM.id],
       }),
     );
     await settle();
-    expect(inputWith(body(own, "profile"), "Testy")).not.toBeNull();
+    expect(inputWith(body(own, "general"), "Testy")).not.toBeNull();
     own.unmount();
   });
 });
 
 describe("a room, drilled in from Rooms", () => {
-  it("lists General, Instructions and memory, Appearance, Your view, each with its fields; the lobby has no Appearance", async () => {
+  it("lists General, Instructions and memory, Your view, each with its fields; General is name, look, folder, then Delete; the lobby has the same parts", async () => {
     const view = await mount({
       initialTarget: { kind: "room", roomId: ROOM.id },
     });
+    const general = body(view, "general");
+    // General's fields in page order, each by what it is.
+    const fields = [
+      ...(general?.querySelectorAll("input, [data-room-decor], button") ?? []),
+    ]
+      .map((el) =>
+        el.closest("[data-room-decor]")
+          ? "look"
+          : el.getAttribute("data-room-setting") === "cwd"
+            ? "folder"
+            : el.tagName === "INPUT"
+              ? "name"
+              : el.textContent === en["settings.room.deleteEmpty"]
+                ? "delete"
+                : null,
+      )
+      .filter((f, i, all) => f !== null && f !== all[i - 1]);
     const seen: Record<string, unknown> = {
       item: item(view),
       parts: parts(view),
       current: current(view),
       back: backRow(view) !== null,
-      cwdInGeneral:
-        body(view, "general")?.querySelector('[data-room-setting="cwd"]') !==
-        null,
+      fields,
+      // One heading, the part's title: the look is a field like the
+      // others, not a heading over the folder after it.
+      headings: general?.querySelectorAll("h4, h5").length,
     };
     await openPart(view, "instructions");
     seen.promptInInstructions = textarea(body(view, "instructions")) !== null;
-    await openPart(view, "appearance");
-    seen.decorInAppearance =
-      body(view, "appearance")?.querySelector("[data-room-decor]") !== null;
     await openPart(view, "view");
     seen.levelInView =
       body(view, "view")?.querySelector(
@@ -179,12 +194,12 @@ describe("a room, drilled in from Rooms", () => {
       ) !== null;
     expect(seen).toEqual({
       item: "room:r1",
-      parts: ["general", "instructions", "appearance", "view"],
+      parts: ["general", "instructions", "view"],
       current: ["general"],
       back: true,
-      cwdInGeneral: true,
+      fields: ["name", "look", "folder", "delete"],
+      headings: 1,
       promptInInstructions: true,
-      decorInAppearance: true,
       levelInView: true,
     });
     view.unmount();
@@ -196,7 +211,7 @@ describe("a room, drilled in from Rooms", () => {
     lobby.unmount();
   });
 
-  it("a refused folder, saved from Appearance, opens General; the edit's dot stays", async () => {
+  it("a refused folder, saved from Instructions and memory, opens General; the edit's dot stays", async () => {
     setRefuse({
       route: `PATCH /api/rooms/${ROOM.id}`,
       error: new ApiError(422, "invalid_request", "fixture: bad folder"),
@@ -208,7 +223,7 @@ describe("a room, drilled in from Rooms", () => {
       body(view, "general")?.querySelector('[data-room-setting="cwd"]') ?? null,
       "/nowhere",
     );
-    await openPart(view, "appearance");
+    await openPart(view, "instructions");
     expect(dirty(view)).toEqual(["general"]);
     await save(view);
     expect({ current: current(view), dirty: dirty(view) }).toEqual({

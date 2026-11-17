@@ -187,7 +187,7 @@ describe("the agent settings page's manager field", () => {
     const view = renderAs("owner");
     try {
       await settle();
-      await openSection(view.container, "profile");
+      await openSection(view.container, "general");
       const name = view.container.querySelector(
         ".agent-identity-section input",
       ) as HTMLInputElement;

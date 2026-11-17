@@ -18,12 +18,12 @@ import type { AgentSettingsSection } from "./components/EditAgentDialog.tsx";
 import type { AgentFormSnapshot } from "./components/EditAgentDialog.tsx";
 
 export type MemberPart =
-  | "profile"
+  | "general"
   | "access"
-  | "osUser"
-  | "signIn"
   | "rooms"
   | "instructions"
+  | "osUser"
+  | "signIn"
   | "chat";
 
 // The member form's fields, as the save writes them.
@@ -41,8 +41,8 @@ export type MemberField =
   | "showAgentMessages";
 
 export const MEMBER_FIELD_PART: Record<MemberField, MemberPart> = {
-  name: "profile",
-  avatar: "profile",
+  name: "general",
+  avatar: "general",
   role: "access",
   pack: "access",
   allowedRooms: "rooms",
@@ -64,37 +64,36 @@ export function memberParts(v: {
   targetIsOwner: boolean;
 }): MemberPart[] {
   const { viewerIsOwner, isMe, creating, targetIsOwner } = v;
-  const parts: MemberPart[] = ["profile"];
+  const parts: MemberPart[] = ["general"];
   if (viewerIsOwner) parts.push("access");
-  if (viewerIsOwner && !creating && !targetIsOwner) parts.push("osUser");
-  if (viewerIsOwner && !isMe && !creating) parts.push("signIn");
   // The rooms table (a member's access, or your own view) or another
   // member's Pinned list.
   const rooms = viewerIsOwner ? !targetIsOwner || isMe || !creating : isMe;
   if (rooms) parts.push("rooms");
   parts.push("instructions");
+  if (viewerIsOwner && !creating && !targetIsOwner) parts.push("osUser");
+  if (viewerIsOwner && !isMe && !creating) parts.push("signIn");
   if (viewerIsOwner && !isMe) parts.push("chat");
   return parts;
 }
 
-export type RoomPart = "general" | "instructions" | "appearance" | "view";
+export type RoomPart = "general" | "instructions" | "view";
 
 export type RoomField = "name" | "cwd" | "look" | "view" | "prompt" | "memory";
 
 export const ROOM_FIELD_PART: Record<RoomField, RoomPart> = {
   name: "general",
   cwd: "general",
+  look: "general",
   prompt: "instructions",
   memory: "instructions",
-  look: "appearance",
   view: "view",
 };
 
-// The parts of a room: the lobby has no look, and a viewer without a view
-// row (no full record yet) has no Your view.
-export function roomParts(v: { lobby: boolean; hasView: boolean }): RoomPart[] {
+// The parts of a room: a viewer without a view row (no full record yet) has
+// no Your view. The lobby's General has no name and no look.
+export function roomParts(v: { hasView: boolean }): RoomPart[] {
   const parts: RoomPart[] = ["general", "instructions"];
-  if (!v.lobby) parts.push("appearance");
   if (v.hasView) parts.push("view");
   return parts;
 }
@@ -103,8 +102,9 @@ export function roomParts(v: { lobby: boolean; hasView: boolean }): RoomPart[] {
 export type AgentField = keyof AgentFormSnapshot | "memory";
 
 export const AGENT_FIELD_PART: Record<AgentField, AgentSettingsSection> = {
-  name: "profile",
-  outfit: "profile",
+  name: "general",
+  outfit: "general",
+  cwd: "general",
   targetEngine: "engine",
   modelFamily: "engine",
   effort: "engine",
@@ -114,7 +114,6 @@ export const AGENT_FIELD_PART: Record<AgentField, AgentSettingsSection> = {
   autoHandoffTokens: "engine",
   customInstructions: "instructions",
   memory: "instructions",
-  cwd: "access",
   manager: "access",
   access: "access",
   privileged: "access",
