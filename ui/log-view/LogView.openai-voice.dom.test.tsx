@@ -135,7 +135,12 @@ it("keeps a clip whose upload failed, and Retry sends the same bytes", async () 
   view.unmount();
 });
 
-it("Discard drops the kept clip; the next recording is a new one", async () => {
+// Discard cannot be undone (AGENTS.md "UI rules", task d38f611f): the first
+// click arms it and keeps the clip; the second drops it. Each failure shows a
+// Discard that is not armed yet, even when the last one was armed and its
+// button went away with no blur (here Retry, as a fireEvent click moves no
+// focus).
+it("Discard asks first, then drops the kept clip; the next recording is a new one", async () => {
   installBrowser({ speechRecognition: true });
   const view = render(page("openai"));
   const mic = micButton(view.container)!;
@@ -145,14 +150,38 @@ it("Discard drops the kept clip; the next recording is a new one", async () => {
   fireEvent.click(mic);
   await settle();
 
-  const discard = view
-    .getByRole("alert")
-    .querySelector('[data-voice-action="discard"]');
-  expect(discard).not.toBeNull();
-  fireEvent.click(discard!);
+  const action = (name: string) =>
+    view
+      .getByRole("alert")
+      .querySelector<HTMLButtonElement>(`[data-voice-action="${name}"]`)!;
+  expect(action("discard")).not.toBeNull();
+  expect(action("discard").hasAttribute("data-confirm-armed")).toBe(false);
+  const idle = action("discard").textContent;
+
+  fireEvent.click(action("discard"));
+  await settle();
+  // Armed: the clip is still kept, and Retry still sends it.
+  expect(view.queryByRole("alert") !== null).toBe(true);
+  expect(action("discard").hasAttribute("data-confirm-armed")).toBe(true);
+  expect(action("discard").textContent).not.toBe(idle);
+  voice.replies.push(failure(502, "voice_provider_failed", { status: 500 }));
+  fireEvent.click(action("retry"));
+  await settle();
+  expect(voice.uploads).toHaveLength(2);
+  expect(await bytesOf(voice.uploads[1].audio)).toEqual(
+    await bytesOf(voice.uploads[0].audio),
+  );
+  // The new failure's Discard starts over.
+  expect(action("discard").hasAttribute("data-confirm-armed")).toBe(false);
+  expect(action("discard").textContent).toBe(idle);
+
+  fireEvent.click(action("discard"));
+  await settle();
+  expect(view.queryByRole("alert")).not.toBeNull();
+  fireEvent.click(action("discard"));
   await settle();
   expect(view.queryByRole("alert")).toBeNull();
-  expect(voice.uploads).toHaveLength(1);
+  expect(voice.uploads).toHaveLength(2);
 
   voice.replies.push(ok("fresh"));
   fireEvent.click(micButton(view.container)!);
@@ -160,8 +189,8 @@ it("Discard drops the kept clip; the next recording is a new one", async () => {
   fireEvent.click(micButton(view.container)!);
   await settle();
   expect(FakeRecorder.instances).toHaveLength(2);
-  expect(voice.uploads).toHaveLength(2);
-  expect(await bytesOf(voice.uploads[1].audio)).toEqual([
+  expect(voice.uploads).toHaveLength(3);
+  expect(await bytesOf(voice.uploads[2].audio)).toEqual([
     ...FakeRecorder.instances[1].bytes,
   ]);
   view.unmount();

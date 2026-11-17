@@ -38,20 +38,45 @@ it("Edit moves the text back into the composer after the newer draft and drops t
   view.unmount();
 });
 
-it("Discard drops the attempt without sending it", async () => {
+// Discard cannot be undone (AGENTS.md "UI rules", task d38f611f): the first
+// click arms it, and only the second drops the attempt. One row is armed at a
+// time.
+it("Discard asks first: one click arms that row only, the second drops the attempt without sending it", async () => {
   fx.answer = async () => {
     throw new TypeError("Failed to fetch");
   };
   const view = mount();
   await type(view.container, "throwaway");
   await send(view.container);
-  await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
+  await type(view.container, "keeper");
+  await send(view.container);
+  await waitFor(() => expect(rows(view.container, "failed").length).toBe(2));
+  const discardOf = (row: HTMLElement) =>
+    row.querySelector<HTMLButtonElement>('[data-outbox-action="discard"]')!;
+  const armed = () =>
+    [
+      ...view.container.querySelectorAll<HTMLElement>(
+        "[data-outbox-attempt] [data-confirm-armed]",
+      ),
+    ].map((el) => el.dataset.outboxAction);
+
+  const [first] = rows(view.container, "failed");
+  const idle = discardOf(first).textContent;
+  await act(async () => {
+    fireEvent.click(discardOf(first));
+  });
+  expect(rows(view.container, "failed").length).toBe(2);
+  expect(armed()).toEqual(["discard"]);
+  expect(first.querySelector("[data-confirm-armed]")).not.toBeNull();
+  expect(discardOf(first).textContent).not.toBe(idle);
 
   await act(async () => {
-    fireEvent.click(rowButton(rows(view.container, "failed")[0], "Discard"));
+    fireEvent.click(discardOf(first));
   });
-  expect(rows(view.container).length).toBe(0);
-  expect(fx.posts.length).toBe(1);
+  expect(rows(view.container, "failed").length).toBe(1);
+  expect(rows(view.container, "failed")[0].textContent).toContain("keeper");
+  expect(armed()).toEqual([]);
+  expect(fx.posts.length).toBe(2);
   view.unmount();
 });
 

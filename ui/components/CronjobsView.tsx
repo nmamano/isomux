@@ -39,6 +39,7 @@ import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
 
 // The two ways to start work, then the history of both (Nil, 2026-10-06).
 type Tab = "cronjobs" | "webhooks" | "runs";
@@ -298,6 +299,8 @@ export function CronjobsView({
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (openRun) {
+          // An armed confirm step in the run view ends on its own Escape.
+          if (isConfirmArmed()) return;
           e.stopPropagation();
           setOpenRun(null);
           return;

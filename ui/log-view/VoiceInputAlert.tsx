@@ -10,6 +10,12 @@ import { VOICE_MAX_RECORDING_MS } from "../../shared/voice.ts";
 import type { RecordedDictation } from "../hooks/useRecordedDictation.ts";
 import { VoiceVariablesLink } from "../components/VoiceVariablesLink.tsx";
 import { useCan } from "../hooks/useCan.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
+import {
+  armedConfirmLook,
+  secondaryBorder,
+  secondaryFill,
+} from "../components/dialog-styles.ts";
 
 const MESSAGE: Record<
   Exclude<
@@ -26,14 +32,28 @@ const MESSAGE: Record<
   micDenied: "logView.voice.blocked",
 };
 
+// Retry and Discard look like the outbox's Resend and Discard.
 const actionStyle = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "inherit",
+  padding: "0 8px",
+  borderRadius: 4,
   font: "inherit",
-  textDecoration: "underline",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
   cursor: "pointer",
+} as const;
+
+const retryStyle = {
+  ...actionStyle,
+  border: "1px solid var(--accent)",
+  background: "var(--accent-bg)",
+  color: "var(--accent-text)",
+} as const;
+
+const discardStyle = {
+  ...actionStyle,
+  border: secondaryBorder,
+  background: secondaryFill,
+  color: "var(--text-muted)",
 } as const;
 
 export function VoiceInputAlert({
@@ -137,21 +157,34 @@ function ErrorLine({
           type="button"
           data-voice-action="retry"
           onClick={() => dictation.retry()}
-          style={actionStyle}
+          style={retryStyle}
         >
           {i18n.t("voice.retry")}
         </button>
       )}
-      {failedUpload && hasClip && (
-        <button
-          type="button"
-          data-voice-action="discard"
-          onClick={() => dictation.discard()}
-          style={actionStyle}
-        >
-          {i18n.t("common.discard")}
-        </button>
-      )}
+      {failedUpload && hasClip && <DiscardButton dictation={dictation} />}
     </div>
+  );
+}
+
+// Discard has no Undo, so it asks first. It mounts only while the clip is
+// kept, so the armed state ends with the button.
+function DiscardButton({ dictation }: { dictation: RecordedDictation }) {
+  const i18n = useI18n();
+  const step = useConfirmStep();
+  const armed = step.armed === "discard";
+  return (
+    <button
+      type="button"
+      data-voice-action="discard"
+      {...step.bind("discard")}
+      onClick={() => step.confirm("discard", () => dictation.discard())}
+      style={{
+        ...discardStyle,
+        ...(armed ? armedConfirmLook : null),
+      }}
+    >
+      {i18n.t(armed ? "common.confirmQuestion" : "common.discard")}
+    </button>
   );
 }

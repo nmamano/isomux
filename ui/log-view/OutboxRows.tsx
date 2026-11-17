@@ -10,7 +10,12 @@ import {
   useOutbox,
   type OutboxAttempt,
 } from "./outbox.ts";
-import { secondaryBorder, secondaryFill } from "../components/dialog-styles.ts";
+import {
+  armedConfirmLook,
+  secondaryBorder,
+  secondaryFill,
+} from "../components/dialog-styles.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 
 export function OutboxRows({
   agentId,
@@ -23,6 +28,8 @@ export function OutboxRows({
 }) {
   const i18n = useI18n();
   const attempts = useOutbox(agentId);
+  // Discard has no Undo, so it asks first. One row is armed at a time.
+  const discardStep = useConfirmStep();
   if (attempts.length === 0) return null;
 
   const reason = (attempt: OutboxAttempt): string | null => {
@@ -157,10 +164,24 @@ export function OutboxRows({
                 </button>
                 <button
                   data-outbox-action="discard"
-                  style={button(true)}
-                  onClick={() => discardAttempt(attempt.id)}
+                  {...discardStep.bind(attempt.id)}
+                  style={{
+                    ...button(true),
+                    ...(discardStep.armed === attempt.id
+                      ? armedConfirmLook
+                      : null),
+                  }}
+                  onClick={() =>
+                    discardStep.confirm(attempt.id, () =>
+                      discardAttempt(attempt.id),
+                    )
+                  }
                 >
-                  {i18n.t("common.discard")}
+                  {i18n.t(
+                    discardStep.armed === attempt.id
+                      ? "common.confirmQuestion"
+                      : "common.discard",
+                  )}
                 </button>
               </div>
             )}

@@ -29,6 +29,7 @@ import {
 import { isTouchPrimary } from "../touch-primary.ts";
 import { CommandRunDetails } from "./CommandRunDetails.tsx";
 import { PHONE_TOP } from "../safe-area.ts";
+import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -225,10 +226,11 @@ export function CronjobRunView({
     );
 
   // ESC closes the view, unless the user is editing a message - then ESC
-  // cancels the edit (handled inside EditableUserMessage).
+  // cancels the edit (handled inside EditableUserMessage) - or an armed
+  // confirm step has the focus - then ESC ends that confirm.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !editingLogEntryId) {
+      if (e.key === "Escape" && !editingLogEntryId && !isConfirmArmed()) {
         e.stopPropagation();
         onClose();
       }
