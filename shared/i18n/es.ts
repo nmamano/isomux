@@ -389,8 +389,6 @@ Cosas que puedes hacer por él:
     "El ascensor está lleno. Quita una planta primero.",
   "membersChat.authorApi": "{name} · token de API",
   "membersChat.authorApiDevice": '{name} · token de API "{device}"',
-  "membersChat.deleteAgain": "Haz clic de nuevo para eliminar",
-  "membersChat.sure": "¿seguro?",
   "membersChat.loadFailed": "No se pudo cargar el chat",
   "membersChat.olderFailed": "No se pudieron cargar mensajes anteriores",
   "membersChat.uploadFailed": "error al subir",

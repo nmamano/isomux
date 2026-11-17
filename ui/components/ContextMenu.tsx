@@ -398,7 +398,7 @@ export function MenuItem({
         if (!disabled)
           e.currentTarget.style.background = danger
             ? "rgba(232,93,117,0.08)"
-            : "rgba(255,255,255,0.04)";
+            : "var(--bg-hover)";
       }}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       style={{

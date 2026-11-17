@@ -370,8 +370,6 @@ export const zh: Catalog = {
   "lobby.elevator.error.full": "电梯已满。请先移除一个楼层。",
   "membersChat.authorApi": "{name} · API 令牌",
   "membersChat.authorApiDevice": "{name} · API 令牌「{device}」",
-  "membersChat.deleteAgain": "再次点击以删除",
-  "membersChat.sure": "确定？",
   "membersChat.loadFailed": "无法加载聊天",
   "membersChat.olderFailed": "无法加载较早的消息",
   "membersChat.uploadFailed": "上传失败",

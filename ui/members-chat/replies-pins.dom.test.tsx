@@ -11,6 +11,15 @@ const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const en = translatorFor("en");
 afterAll(() => setApiShim(null));
 
+// The Reply row of the nth message's actions menu.
+function replyRow(container: HTMLElement, n: number): HTMLElement {
+  const row = container.querySelectorAll<HTMLElement>(
+    '[data-members-chat-action="reply"]',
+  )[n];
+  if (!row) throw new Error(`no reply row ${n}`);
+  return row;
+}
+
 const original = {
   id: "202609-00000001",
   kind: "user" as const,
@@ -65,7 +74,7 @@ it("quotes plain snapshot text, jumps to a loaded target, sends only its id and 
   expect(scrolled).toBe(true);
   expect(document.activeElement === anchor).toBe(true);
   fireEvent.click(view.getAllByLabelText(en.t("membersChat.actions"))[0]);
-  fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[0]);
+  fireEvent.click(replyRow(view.container, 0));
   const composer = view.getByPlaceholderText(en.t("membersChat.placeholder"));
   expect(document.activeElement === composer).toBe(true);
   expect(
@@ -95,7 +104,7 @@ it("quotes plain snapshot text, jumps to a loaded target, sends only its id and 
   ).toBe(true);
   // Anchor first: a quote shows its Cancel reply control.
   fireEvent.click(view.getAllByLabelText(en.t("membersChat.actions"))[0]);
-  fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[0]);
+  fireEvent.click(replyRow(view.container, 0));
   expect(view.queryByLabelText(en.t("membersChat.cancelReply")) !== null).toBe(
     true,
   );
@@ -113,7 +122,7 @@ it("retains a draft and its quote after a deleted target, with the reply-missing
   });
   const view = render(replyPanel());
   fireEvent.click(view.container.querySelector("summary")!);
-  fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[0]);
+  fireEvent.click(replyRow(view.container, 0));
   const composer = view.getByRole("textbox");
   fireEvent.change(composer, { target: { value: "still here" } });
   await act(async () => fireEvent.keyDown(composer, { key: "Enter" }));
@@ -165,7 +174,7 @@ async function heldSend(
   try {
     const view = render(replyPanel());
     fireEvent.click(view.getAllByLabelText(en.t("membersChat.actions"))[0]);
-    fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[0]);
+    fireEvent.click(replyRow(view.container, 0));
     const composer = view.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: before.text } });
     await attach(view, "sent.txt");
@@ -225,7 +234,7 @@ it("keeps text typed, files attached and a reply picked while a send runs", asyn
       fireEvent.change(composer, { target: { value: "hello\nagain" } });
       await attach(view, "later.txt");
       fireEvent.click(view.getAllByLabelText(en.t("membersChat.actions"))[1]);
-      fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[1]);
+      fireEvent.click(replyRow(view.container, 1));
     },
     { text: "hello" },
   );

@@ -389,8 +389,6 @@ Coses que pots fer per ell:
   "lobby.elevator.error.full": "L'ascensor és ple. Treu primer una planta.",
   "membersChat.authorApi": "{name} · token d'API",
   "membersChat.authorApiDevice": '{name} · token d\'API "{device}"',
-  "membersChat.deleteAgain": "Fes clic de nou per eliminar",
-  "membersChat.sure": "segur?",
   "membersChat.loadFailed": "No s'ha pogut carregar el xat",
   "membersChat.olderFailed": "No s'han pogut carregar missatges anteriors",
   "membersChat.uploadFailed": "error en pujar",

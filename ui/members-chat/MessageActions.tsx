@@ -43,9 +43,15 @@ export function MessageActions({
           listStyle: "none",
           cursor: "pointer",
           color: "var(--text-ghost)",
-          padding: 2,
+          // The box and border of the copy button beside it (CopyButton).
+          width: 24,
+          height: 24,
+          boxSizing: "border-box",
           display: "flex",
-          borderRadius: 4,
+          alignItems: "center",
+          justifyContent: "center",
+          border: "1px solid var(--border-medium)",
+          borderRadius: 6,
           background: secondaryFill,
         }}
       >
@@ -67,16 +73,15 @@ export function MessageActions({
           right: 0,
           top: "100%",
           zIndex: 5,
-          minWidth: 120,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
-          gap: 8,
-          padding: 10,
-          border: "1px solid var(--border)",
-          borderRadius: 6,
-          background: "var(--bg-surface-solid)",
-          boxShadow: "0 4px 16px #0002",
+          // Drawn like the agent and app ⋯ menus, whose rows (MenuItem) it
+          // holds.
+          minWidth: 140,
+          padding: 5,
+          border: "1px solid var(--border-light)",
+          borderRadius: 12,
+          background: "var(--bg-overlay)",
+          backdropFilter: "blur(16px)",
+          boxShadow: "0 12px 40px var(--shadow-heavy)",
         }}
       >
         {children(close)}

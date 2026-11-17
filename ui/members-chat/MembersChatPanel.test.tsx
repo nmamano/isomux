@@ -242,14 +242,16 @@ describe("MembersChatPanel markup", () => {
     const asMember = render({}, "u-nil", "member");
     // A person, their API token and their privileged agents are one identity
     // here: Nil owns the first two posts, Pau owns the agent's.
-    expect(asMember.match(/title="Edit"/g)?.length).toBe(2);
-    expect(asMember.match(/title="Delete"/g)?.length).toBe(2);
+    expect(asMember.match(/data-members-chat-action="edit"/g)?.length).toBe(2);
+    expect(asMember.match(/data-members-chat-action="delete"/g)?.length).toBe(
+      2,
+    );
     const asOwner = render({}, "u-nil", "owner");
-    expect(asOwner.match(/title="Edit"/g)?.length).toBe(2);
-    expect(asOwner.match(/title="Delete"/g)?.length).toBe(3);
+    expect(asOwner.match(/data-members-chat-action="edit"/g)?.length).toBe(2);
+    expect(asOwner.match(/data-members-chat-action="delete"/g)?.length).toBe(3);
     const asPau = render({}, "u-pau", "member");
-    expect(asPau.match(/title="Edit"/g)?.length).toBe(1);
-    expect(asPau.match(/title="Delete"/g)?.length).toBe(1);
+    expect(asPau.match(/data-members-chat-action="edit"/g)?.length).toBe(1);
+    expect(asPau.match(/data-members-chat-action="delete"/g)?.length).toBe(1);
   });
 
   it("shows the empty state once loaded with nothing, and nothing before load", () => {

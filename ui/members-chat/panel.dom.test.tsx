@@ -21,7 +21,9 @@ it("closes an outside menu, closes Edit, and closes confirmed Delete even when i
     attachments: [],
     timestamp: n,
   }));
-  setApiShim(async () => {
+  const deletes: string[] = [];
+  setApiShim(async (method, path) => {
+    if (method === "DELETE") deletes.push(path);
     throw new ApiError(500, "failed", "");
   });
   const view = render(
@@ -45,21 +47,45 @@ it("closes an outside menu, closes Edit, and closes confirmed Delete even when i
   fireEvent.click(view.getByRole("textbox"));
   expect(menus[1].open).toBe(false);
   fireEvent.click(summaries[0]);
-  fireEvent.click(view.getAllByTitle(en.t("common.edit"))[0]);
+  fireEvent.click(action(view.container, "edit"));
   expect(view.container.querySelector("details[open]") === null).toBe(true);
   fireEvent.click(view.getByRole("button", { name: en.t("common.cancel") }));
   const summary = view.getAllByLabelText(en.t("membersChat.actions"))[0];
+  const menu = summary.closest("details")!;
   fireEvent.click(summary);
-  fireEvent.click(view.getAllByTitle(en.t("common.delete"))[0]);
-  expect(summary.closest("details")!.open).toBe(true);
-  await act(async () =>
-    fireEvent.click(view.getByTitle(en.t("membersChat.deleteAgain"))),
-  );
-  expect(summary.closest("details")!.open).toBe(false);
+  // The first click arms Delete: the menu stays open and nothing is sent.
+  await act(async () => fireEvent.click(action(view.container, "delete")));
+  expect(menu.open).toBe(true);
+  expect(armed(view.container)).toBe(true);
+  expect(deletes).toEqual([]);
+  // Escape ends the confirm step, not the menu.
+  fireEvent.keyDown(action(view.container, "delete"), { key: "Escape" });
+  expect(armed(view.container)).toBe(false);
+  expect(menu.open).toBe(true);
+  // Armed again, the second click deletes and closes the menu.
+  await act(async () => fireEvent.click(action(view.container, "delete")));
+  expect(armed(view.container)).toBe(true);
+  await act(async () => fireEvent.click(action(view.container, "delete")));
+  expect(menu.open).toBe(false);
+  expect(deletes.length).toBe(1);
+  expect(deletes[0]).toContain(messages[0].id);
   expect(view.getByRole("alert").textContent).toContain(
     en.t("membersChat.deleteFailed"),
   );
 });
+
+// The row of the first message's actions menu that carries this action.
+function action(container: HTMLElement, name: string): HTMLElement {
+  const row = container.querySelector<HTMLElement>(
+    `[data-members-chat-action="${name}"]`,
+  );
+  if (!row) throw new Error(`no ${name} row`);
+  return row;
+}
+
+function armed(container: HTMLElement): boolean {
+  return action(container, "delete").hasAttribute("data-confirm-armed");
+}
 
 it("groups only adjacent messages from the same author, kind and device within five minutes, keeping each time", () => {
   const base = {

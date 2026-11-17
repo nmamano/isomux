@@ -396,8 +396,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "lobby.elevator.error.full": "The elevator is full. Remove a floor first.",
   "membersChat.authorApi": "{name} · API token",
   "membersChat.authorApiDevice": '{name} · API token "{device}"',
-  "membersChat.deleteAgain": "Click again to delete",
-  "membersChat.sure": "sure?",
   "membersChat.loadFailed": "Could not load the chat",
   "membersChat.olderFailed": "Could not load older",
   "membersChat.uploadFailed": "upload failed",

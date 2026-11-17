@@ -39,6 +39,8 @@ import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { PinnedMessageStrip } from "./PinnedMessageStrip.tsx";
 import { MessageActions } from "./MessageActions.tsx";
+import { MenuItem } from "../components/ContextMenu.tsx";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { ReplyQuote } from "./ReplyQuote.tsx";
 import { InlineMarkdown } from "./InlineMarkdown.tsx";
 import { ThumbsUpReaction } from "./ThumbsUpReaction.tsx";
@@ -61,7 +63,6 @@ import {
   composerToolBtn,
   secondaryBorder,
   secondaryFill,
-  tintedFill,
 } from "../components/dialog-styles.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 
@@ -137,85 +138,6 @@ interface Staged {
   filename?: string;
   uploading: boolean;
   error?: ChatError;
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-    </svg>
-  );
-}
-
-// Two clicks to delete: the first turns the icon into a "sure?" that expires
-// on its own, so a stray click never removes a line and no dialog interrupts.
-// A row in a message's actions menu (Reply, Pin, Edit): filled, as every
-// button is.
-const menuItemStyle = {
-  border: "none",
-  borderRadius: 4,
-  background: secondaryFill,
-  color: "var(--text-primary)",
-  textAlign: "left",
-  font: "inherit",
-  fontSize: 12,
-  cursor: "pointer",
-  padding: "4px 6px",
-} as const;
-
-function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
-  const { t } = useI18n();
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 4000);
-    return () => clearTimeout(t);
-  }, [armed]);
-  return (
-    <button
-      onClick={() => {
-        if (armed) onConfirm();
-        else setArmed(true);
-      }}
-      title={armed ? t("membersChat.deleteAgain") : t("common.delete")}
-      style={{
-        background: armed ? tintedFill("var(--red)") : secondaryFill,
-        border: "none",
-        cursor: "pointer",
-        color: armed ? "var(--red-text)" : "var(--text-ghost)",
-        padding: "2px 6px",
-        borderRadius: 4,
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        fontFamily: "var(--font-ui)",
-        fontWeight: 600,
-        transition: "color 0.15s",
-      }}
-      onMouseEnter={(e) => {
-        if (!armed) e.currentTarget.style.color = "var(--accent-text)";
-      }}
-      onMouseLeave={(e) => {
-        if (!armed) e.currentTarget.style.color = "var(--text-ghost)";
-      }}
-    >
-      <TrashIcon />
-      <span>{armed ? t("membersChat.sure") : t("common.delete")}</span>
-    </button>
-  );
 }
 
 function continuesMembersChatAuthor(
@@ -352,6 +274,8 @@ export function MembersChatPanel({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [draggingOver, setDraggingOver] = useState(false);
   const [sending, setSending] = useState(false);
+  // Delete has no Undo: the first click arms the row and keeps the menu open.
+  const deleteStep = useConfirmStep();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -985,53 +909,55 @@ export function MembersChatPanel({
                   <MessageActions>
                     {(close) => (
                       <>
-                        <button
-                          type="button"
-                          style={menuItemStyle}
-                          title={t("membersChat.reply")}
+                        <MenuItem
+                          label={t("membersChat.reply")}
+                          attrs={{ "data-members-chat-action": "reply" }}
                           onClick={() => {
                             close();
                             setReplyingTo(m);
                             textareaRef.current?.focus();
                           }}
-                        >
-                          {t("membersChat.reply")}
-                        </button>
+                        />
                         {chatApi.setPinned && (
-                          <button
-                            type="button"
-                            style={menuItemStyle}
-                            onClick={() => {
-                              close();
-                              setPinned(m.id, m.pinnedAt === undefined);
-                            }}
-                          >
-                            {t(
+                          <MenuItem
+                            label={t(
                               m.pinnedAt === undefined
                                 ? "membersChat.pin"
                                 : "membersChat.unpin",
                             )}
-                          </button>
+                            attrs={{ "data-members-chat-action": "pin" }}
+                            onClick={() => {
+                              close();
+                              setPinned(m.id, m.pinnedAt === undefined);
+                            }}
+                          />
                         )}
                         {mine && (
-                          <button
-                            type="button"
-                            style={menuItemStyle}
-                            title={t("common.edit")}
+                          <MenuItem
+                            label={t("common.edit")}
+                            attrs={{ "data-members-chat-action": "edit" }}
                             onClick={() => {
                               close();
                               setEditingId(m.id);
                             }}
-                          >
-                            {t("common.edit")}
-                          </button>
+                          />
                         )}
                         {canDelete && (
-                          <DeleteControl
-                            onConfirm={() => {
-                              close();
-                              remove(m.id);
-                            }}
+                          <MenuItem
+                            label={t(
+                              deleteStep.armed === m.id
+                                ? "common.confirmQuestion"
+                                : "common.delete",
+                            )}
+                            danger
+                            attrs={{ "data-members-chat-action": "delete" }}
+                            confirmProps={deleteStep.bind(m.id)}
+                            onClick={() =>
+                              deleteStep.confirm(m.id, () => {
+                                close();
+                                remove(m.id);
+                              })
+                            }
                           />
                         )}
                       </>

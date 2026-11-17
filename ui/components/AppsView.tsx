@@ -751,8 +751,7 @@ function AppActionsMenu({
                     rel="noopener noreferrer"
                     onClick={() => setAt(null)}
                     onMouseEnter={(e) =>
-                      (e.currentTarget.style.background =
-                        "rgba(255,255,255,0.04)")
+                      (e.currentTarget.style.background = "var(--bg-hover)")
                     }
                     onMouseLeave={(e) =>
                       (e.currentTarget.style.background = "transparent")
