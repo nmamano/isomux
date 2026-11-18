@@ -3,7 +3,8 @@
 // (t, s, a, i) do nothing while it shows, opening it from a page with unsaved
 // edits asks that page first, Back drops it with the view under it, and
 // Escape with a menu or a dialog over it closes only that. The doors are in
-// ui/App.agent-settings-page.dom.test.tsx; the setup in
+// ui/App.agent-settings-page.dom.test.tsx and
+// ui/App.agent-settings-page-form.dom.test.tsx; the setup in
 // ui/test-support/agent-settings-page-fixture.ts.
 
 import { expect, it } from "bun:test";

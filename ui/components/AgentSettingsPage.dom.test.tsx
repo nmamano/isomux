@@ -11,7 +11,8 @@
 // the server refuses for a field opens that field's section. On a phone the
 // list shows first and a back row returns to it. Spawn keeps the dialog
 // (ui/components/EditAgentDialog.spawn-*.dom.test.tsx). The doors in App are
-// in ui/App.agent-settings-page.dom.test.tsx.
+// in ui/App.agent-settings-page.dom.test.tsx and
+// ui/App.agent-settings-page-form.dom.test.tsx.
 //
 // DOM contract (shared with rooms and members,
 // UserSettingsView.drill-in.dom.test.tsx): the page root carries

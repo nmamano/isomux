@@ -1,5 +1,6 @@
 // Shared by the App tests of the Agent settings page (task 59538509):
-// ui/App.agent-settings-page.dom.test.tsx and
+// ui/App.agent-settings-page.dom.test.tsx,
+// ui/App.agent-settings-page-form.dom.test.tsx and
 // ui/App.agent-settings-page-guards.dom.test.tsx. Built on
 // ui/test-support/chat-sidebar-fixture.tsx; a test loads it with
 // `await import(...)` after setUpDomTestFile(), never statically.
