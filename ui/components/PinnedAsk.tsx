@@ -3,6 +3,8 @@
 // AskCard; any other ask (closed, or open for another member) is read from
 // GET /api/asks/:askId and drawn read-only, a closed one with how it closed.
 // A secret request never shows an answer, whatever the record holds.
+// While the card's answer waits in its Undo time, the frame's close is hidden
+// and keeps its place: the Undo line's × is the one ×.
 
 import { useContext, useEffect, useState, type ReactNode } from "react";
 import { apiFetch } from "../api.ts";
@@ -214,6 +216,8 @@ export function PinnedAsk({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const { answeredAsks } = useAppState();
+  const held = entry !== undefined && answeredAsks.get(id) === "undo";
   const [read, setRead] = useState<ReadState>(null);
   const needsRead = entry === undefined && !inStore;
   useEffect(() => {
@@ -253,6 +257,7 @@ export function PinnedAsk({
             fontSize: isMobile ? 18 : 16,
             lineHeight: 1,
             cursor: "pointer",
+            visibility: held ? "hidden" : undefined,
           }}
         >
           ×
