@@ -65,7 +65,7 @@ import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { groupAgentsByRoom } from "../agent-groups.ts";
 import { PHONE_TOP } from "../safe-area.ts";
-import { PageNavButton } from "./PageNavButton.tsx";
+import { PageCloseButton } from "../page-close.tsx";
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
@@ -1396,11 +1396,7 @@ export function TaskView({
               minWidth: 0,
             }}
           >
-            <PageNavButton
-              label={t("common.close")}
-              onClick={onClose}
-              data-page-close=""
-            />
+            <PageCloseButton onClick={onClose} data-page-close="" />
             <span
               style={{
                 fontSize: 15,

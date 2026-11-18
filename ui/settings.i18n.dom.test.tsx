@@ -141,7 +141,11 @@ function row(view: View, label: string): HTMLElement {
   const button = view
     .getAllByText(label)
     .map((el) => el.closest("button"))
-    .find((el): el is HTMLButtonElement => el !== null);
+    // Not the header's Close, which names the office under the page.
+    .find(
+      (el): el is HTMLButtonElement =>
+        el !== null && !el.hasAttribute("data-page-close"),
+    );
   if (!button) throw new Error(`no sidebar row reads ${label}`);
   return button;
 }

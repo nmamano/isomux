@@ -64,6 +64,13 @@ const pinnedAsk = (view: View) =>
     .querySelector("[data-asks-pinned]")
     ?.getAttribute("data-asks-pinned") ?? null;
 
+const { en } = await import("../shared/i18n/en.ts");
+
+// The words on the top page's Close; the arrow is an svg.
+const closeText = (view: View) =>
+  view.baseElement.querySelector("[data-page-close]")?.textContent?.trim() ??
+  null;
+
 async function press(key: string) {
   await act(async () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -88,11 +95,14 @@ it("opens the Inbox over Skills from an ask chip, and Escape uncovers Skills, th
   expect(skillsOpen(view)).toBe(false);
   expect(pinnedAsk(view)).toBe(ASK_ID);
   expect(window.location.pathname).toBe("/inbox/asks");
+  // Close names the page it uncovers, then the office (task 930a1385).
+  expect(closeText(view)).toBe(en["common.skills"]);
 
   await press("Escape");
   expect(inboxOpen(view)).toBe(false);
   expect(skillsOpen(view)).toBe(true);
   expect(window.location.pathname).toBe("/skills");
+  expect(closeText(view)).toBe(en["sidebar.office"]);
 
   await press("Escape");
   expect(skillsOpen(view)).toBe(false);
@@ -110,6 +120,8 @@ it("keeps the Inbox's pinned ask under Tasks, and drops it when the Inbox closes
   await press("t");
   expect(view.container.querySelector("[data-tasks-page]")).not.toBeNull();
   expect(inboxOpen(view)).toBe(false);
+  // The Inbox's own header name, not the "Asks" of its tab link.
+  expect(closeText(view)).toBe(en["nav.inbox"]);
 
   await press("Escape");
   expect(inboxOpen(view)).toBe(true);

@@ -118,6 +118,11 @@ import {
   type HumanChatKey,
 } from "./human-chat.ts";
 import { HumanChatView } from "./members-chat/HumanChatView.tsx";
+import {
+  PageCloseLabelContext,
+  pageCloseTarget,
+  usePageCloseLabelFor,
+} from "./page-close.tsx";
 
 /**
  * The page a history entry names, `null` for an entry that means the office,
@@ -901,10 +906,15 @@ export function App({ routing = true }: { routing?: boolean }) {
   // and d6c09d1c): the page under the top one when two are stacked, else the
   // chat. Gate on the resolved agent, not the id, so a chat whose agent
   // disappeared while a page was open closes to the office instead of a stale
-  // focus.
-  const somethingUnderPage =
-    page !== null &&
-    (pageBelow !== null || !!focusedAgent || openHumanChat !== null);
+  // focus. Close names this target (task 930a1385), so the label, Close and
+  // Back read one decision.
+  const agentName = focusedAgent?.name ?? null;
+  const closeTarget = useMemo(
+    () => pageCloseTarget({ pageBelow, humanChat: openHumanChat, agentName }),
+    [pageBelow, openHumanChat, agentName],
+  );
+  const closeLabel = usePageCloseLabelFor(closeTarget);
+  const somethingUnderPage = page !== null && closeTarget.kind !== "office";
 
   // Drop only the page on top; the state that belongs to it goes with it.
   // Focus and the history entry stay: we stay deep, so the sync effect
@@ -1315,7 +1325,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   const pins = useSidebarPins();
 
   // The pages and the chat, as before the sidebar.
-  const content =
+  const view =
     page === "settings" ? (
       <UserSettingsView
         key={settingsDoor}
@@ -1427,6 +1437,11 @@ export function App({ routing = true }: { routing?: boolean }) {
         onOpenMembersChat={() => openHumanChatView(MEMBERS_CHAT)}
       />
     );
+  const content = (
+    <PageCloseLabelContext.Provider value={closeLabel}>
+      {view}
+    </PageCloseLabelContext.Provider>
+  );
 
   // A sidebar row that leaves the page on top asks the page first, so its
   // unsaved edits go through its own discard prompt.

@@ -61,6 +61,7 @@ import { SidebarUnreadDot } from "./SidebarUnreadDot.tsx";
 import { useDmPeer } from "./member-rows.ts";
 import {
   composerToolBtn,
+  PAGE_NAV_HEIGHT,
   secondaryBorder,
   secondaryFill,
 } from "../components/dialog-styles.ts";
@@ -556,10 +557,11 @@ export function MembersChatPanel({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 5,
-        // A phone's touch target, as tall as Back beside it.
-        minWidth: isMobile ? 44 : undefined,
-        minHeight: isMobile ? 44 : undefined,
+        // A square as tall as Back beside it, so the header stays thin on a
+        // phone too.
+        width: PAGE_NAV_HEIGHT,
+        height: PAGE_NAV_HEIGHT,
+        padding: 0,
         borderRadius: 6,
         border: "1px solid var(--border-subtle)",
         background: "var(--btn-surface)",
@@ -656,6 +658,10 @@ export function MembersChatPanel({
           ) : (
             <span
               style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
                 fontSize: 11,
                 fontWeight: 700,
                 letterSpacing: "0.05em",
@@ -700,6 +706,9 @@ export function MembersChatPanel({
             <span
               data-online-count
               style={{
+                // On one line with the title: the title ellipsizes first.
+                whiteSpace: "nowrap",
+                flexShrink: 0,
                 fontSize: 11,
                 color: "var(--text-ghost)",
                 marginLeft: "auto",

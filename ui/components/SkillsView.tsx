@@ -65,6 +65,7 @@ import {
   type SkillsLayout,
 } from "../device-settings.ts";
 import { PageNavButton } from "./PageNavButton.tsx";
+import { PageCloseButton } from "../page-close.tsx";
 
 // CodeMirror loads with the first skill opened for editing, not with the
 // office.
@@ -1367,11 +1368,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           zIndex: 500,
         }}
       >
-        <PageNavButton
-          label={t("common.close")}
-          onClick={() => guarded(onClose)}
-          data-page-close=""
-        />
+        <PageCloseButton onClick={() => guarded(onClose)} data-page-close="" />
         <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
           {t("common.skills")}
         </h1>

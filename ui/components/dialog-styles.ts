@@ -77,17 +77,21 @@ export const dialogCancelBtn = filledSecondaryBtn;
 
 // The control that leaves a page (PageNavButton): Close in a page header, a
 // phone's back-to-list row. The secondary fill, sized for a 44 px header.
+const PAGE_NAV_PAD_Y = 4;
+const PAGE_NAV_LINE = 16;
+/** PageNavButton's height (border-box): a header button beside it takes it. */
+export const PAGE_NAV_HEIGHT = PAGE_NAV_LINE + 2 * PAGE_NAV_PAD_Y + 2;
 export const pageNavBtn: Readonly<CSSProperties> = Object.freeze({
   display: "inline-flex",
   alignItems: "center",
   gap: 5,
-  padding: "4px 10px",
+  padding: `${PAGE_NAV_PAD_Y}px 10px`,
   borderRadius: 6,
   border: secondaryBorder,
   background: secondaryFill,
   color: "var(--text-secondary)",
   fontSize: 12,
-  lineHeight: "16px",
+  lineHeight: `${PAGE_NAV_LINE}px`,
   whiteSpace: "nowrap",
   flexShrink: 0,
   cursor: "pointer",

@@ -5,18 +5,36 @@
 
 import type { ReactNode } from "react";
 import { pageNavBtn } from "./dialog-styles.ts";
+import { noTranslate as keepForm } from "../no-translate.ts";
 
 type DataAttrs = { [attr: `data-${string}`]: string };
 
 export function PageNavButton({
   label,
   onClick,
+  noTranslate = false,
   ...attrs
-}: { label: ReactNode; onClick: () => void } & DataAttrs): React.ReactElement {
+}: {
+  label: ReactNode;
+  onClick: () => void;
+  // The label is a name (an agent, a member) that browser translation keeps.
+  noTranslate?: boolean;
+} & DataAttrs): React.ReactElement {
   return (
     <button type="button" onClick={onClick} style={pageNavBtn} {...attrs}>
       <BackArrow />
-      {label}
+      {/* A long name or a long translation ends in an ellipsis rather than
+          pushing the page title off a phone's header. */}
+      <span
+        {...(noTranslate ? keepForm() : {})}
+        style={{
+          maxWidth: "12em",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {label}
+      </span>
     </button>
   );
 }

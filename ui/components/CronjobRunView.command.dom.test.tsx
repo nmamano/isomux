@@ -16,6 +16,7 @@ const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 type CronjobRun = import("../../shared/types.ts").CronjobRun;
 type CronjobListWire = import("../../shared/types.ts").CronjobListWire;
 
@@ -111,6 +112,11 @@ it("a loud run shows the exit code and the output, and has no composer", async (
   expect(c.querySelector("textarea") === null).toBe(true);
   // The agent it messaged is a value in its line (task 419dcb70).
   expectValueAsData(c, "Pat");
+  // Its Close goes back to the Automations list in the same page, and says
+  // so; it does not take the page's own Close label (task 930a1385).
+  expect(c.querySelector("[data-cronjob-run-close]")?.textContent?.trim()).toBe(
+    en["common.automations"],
+  );
   view.unmount();
 });
 

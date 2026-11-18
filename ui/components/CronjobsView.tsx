@@ -42,7 +42,7 @@ import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { PHONE_TOP } from "../safe-area.ts";
 import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
-import { PageNavButton } from "./PageNavButton.tsx";
+import { PageCloseButton } from "../page-close.tsx";
 
 // The two ways to start work, then the history of both (Nil, 2026-10-06).
 type Tab = "cronjobs" | "webhooks" | "runs";
@@ -371,11 +371,7 @@ export function CronjobsView({
             paddingBlock: isMobile ? 6 : undefined,
           }}
         >
-          <PageNavButton
-            label={t("common.close")}
-            onClick={onClose}
-            data-page-close=""
-          />
+          <PageCloseButton onClick={onClose} data-page-close="" />
           <div
             style={{
               display: "flex",

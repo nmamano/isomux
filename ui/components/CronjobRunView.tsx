@@ -427,7 +427,8 @@ export function CronjobRunView({
         }}
       >
         <PageNavButton
-          label={t("common.close")}
+          // Back to the Automations list, under the run on the same page.
+          label={t("common.automations")}
           onClick={onClose}
           data-page-close=""
           data-cronjob-run-close=""

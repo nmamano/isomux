@@ -4,7 +4,8 @@
 // each render is most of a file's DOM budget. The path table is in
 // ui/routes.test.ts; the rest of App's history wiring is in
 // ui/App.history.dom.test.tsx, and the cold-load half in
-// ui/App.deeplink.dom.test.tsx.
+// ui/App.deeplink.dom.test.tsx. Each page's Close names the office here;
+// over a chat it names the agent (ui/test-support/over-chat-fixture.ts).
 
 import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -17,6 +18,7 @@ const { setApiShim } = await import("./api.ts");
 const { pathForPage } = await import("./routes.ts");
 const { en } = await import("../shared/i18n/en.ts");
 const { createElement } = await import("react");
+const { closeLabel } = await import("./test-support/over-chat-fixture.ts");
 type Page = import("./routes.ts").Page;
 
 // The pages fetch when they mount; without the shim happy-dom opens real
@@ -66,6 +68,11 @@ it("opens each page from its office door at its own path, in one pushed entry, a
         view.getByTitle(title).click();
       });
       expect([page, shown(marker)]).toEqual([page, true]);
+      // Over the office, Close names the office (task 930a1385).
+      expect([page, closeLabel(view)]).toEqual([
+        page,
+        { text: en["sidebar.office"], noTranslate: false },
+      ]);
       expect(window.location.pathname).toBe(pathForPage(page));
       expect(pushState.mock.calls).toEqual([
         [{ isomux: true, page }, "", pathForPage(page)],

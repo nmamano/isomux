@@ -207,11 +207,14 @@ export const phoneBack = (view: View) =>
   view.baseElement.querySelector<HTMLButtonElement>("[data-page-back-to-list]");
 export const saveButton = (view: View) =>
   view.baseElement.querySelector<HTMLButtonElement>("[data-settings-save]");
-/** A Settings list row by its catalog label (not a part row). */
+/** A Settings list row by its catalog label (not a part row, and not the
+ *  header's Close, which names the office under the page). */
 export const listRow = (view: View, label: string) =>
   [...view.baseElement.querySelectorAll("button")].find(
     (b) =>
-      !b.hasAttribute("data-settings-part") && b.textContent?.trim() === label,
+      !b.hasAttribute("data-settings-part") &&
+      !b.hasAttribute("data-page-close") &&
+      b.textContent?.trim() === label,
   ) ?? null;
 export const discardPrompt = (view: View) =>
   [...view.baseElement.querySelectorAll("span")].find(

@@ -14,13 +14,16 @@ const { createElement } = await import("react");
 const {
   Harness,
   chatShowing,
+  closeLabel,
   closesInPlace,
   expectBackToOffice,
   expectChatEntry,
   goBack,
   press,
   setUpOverChat,
+  WITH_CHAT,
 } = await import("./test-support/over-chat-fixture.ts");
+const { en } = await import("../shared/i18n/en.ts");
 type View = import("./test-support/over-chat-fixture.ts").View;
 
 setUpOverChat();
@@ -56,10 +59,18 @@ async function expectChatThenOffice(view: View): Promise<void> {
 }
 
 describe("Settings over Tasks over a chat", () => {
-  it("Escape closes Settings, then Tasks", async () => {
+  it("Escape closes Settings, then Tasks, and each Close names what it uncovers", async () => {
     const view = await settingsOverTasks();
+    expect(closeLabel(view)).toEqual({
+      text: en["common.tasks"],
+      noTranslate: false,
+    });
     await closesInPlace(() => press("Escape"));
     expectTasks(view);
+    expect(closeLabel(view)).toEqual({
+      text: (WITH_CHAT.agents[0] as { name: string }).name,
+      noTranslate: true,
+    });
     await closesInPlace(() => press("Escape"));
     await expectChatThenOffice(view);
   });

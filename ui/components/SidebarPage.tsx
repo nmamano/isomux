@@ -6,9 +6,9 @@
 
 import type { ReactNode } from "react";
 import { useAppState } from "../store.tsx";
-import { useI18n } from "../i18n.tsx";
 import { PHONE_TOP } from "../safe-area.ts";
 import { PageNavButton } from "./PageNavButton.tsx";
+import { PageCloseButton } from "../page-close.tsx";
 
 export function SidebarPage({
   title,
@@ -45,7 +45,6 @@ export function SidebarPage({
   backAttrs?: { [attr: `data-${string}`]: string };
 }) {
   const { isMobile } = useAppState();
-  const { t } = useI18n();
   const showList = !isMobile || listShown;
   const showDetail = !isMobile || !listShown;
   return (
@@ -79,15 +78,11 @@ export function SidebarPage({
           zIndex: 500,
         }}
       >
-        {/* Closes the page, back to what it was opened over. It says Close
-            on every device, as Nil asked (task d10f0dbd): on a phone the
-            entry has its own back row to the list, so a bare arrow or "Back"
-            here would read as one more "back to the list". */}
-        <PageNavButton
-          label={t("common.close")}
-          onClick={onClose}
-          data-page-close=""
-        />
+        {/* Closes the page, back to what it was opened over, and names that
+            screen (task 930a1385). Not a bare arrow or "Back" (task
+            d10f0dbd): on a phone the entry has its own back row to the list,
+            and those would read as one more "back to the list". */}
+        <PageCloseButton onClick={onClose} data-page-close="" />
         <h1
           style={{
             fontSize: 15,

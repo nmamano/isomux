@@ -7,7 +7,7 @@ import { useI18n } from "../i18n.tsx";
 import { useInboxCounts } from "../inbox.ts";
 import { CHAT_PANEL_RIGHT, CHAT_PANEL_WIDTH } from "../AppWidgetPage.tsx";
 import { PHONE_TOP } from "../safe-area.ts";
-import { PageNavButton } from "./PageNavButton.tsx";
+import { PageCloseButton } from "../page-close.tsx";
 
 export function InboxView({
   onClose,
@@ -62,11 +62,7 @@ export function InboxView({
           zIndex: 500,
         }}
       >
-        <PageNavButton
-          label={t("common.close")}
-          onClick={onClose}
-          data-page-close=""
-        />
+        <PageCloseButton onClick={onClose} data-page-close="" />
         <span
           style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
         >

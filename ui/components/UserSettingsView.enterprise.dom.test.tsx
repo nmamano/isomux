@@ -96,7 +96,11 @@ function row(view: View, label: string): HTMLElement | null {
       .queryAllByText(label)
       .filter((el) => !el.closest('[aria-hidden="true"]'))
       .map((el) => el.closest("button"))
-      .find((el): el is HTMLButtonElement => el !== null) ?? null
+      // Not the header's Close, which names the office under the page.
+      .find(
+        (el): el is HTMLButtonElement =>
+          el !== null && !el.hasAttribute("data-page-close"),
+      ) ?? null
   );
 }
 

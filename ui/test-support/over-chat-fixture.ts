@@ -154,6 +154,24 @@ export async function clickClose(view: View): Promise<void> {
   await act(async () => close!.click());
 }
 
+/** The words on the top page's Close (task 930a1385): the name of the screen
+ *  it uncovers, and whether that name is kept from browser translation (an
+ *  agent's or a member's name is; a page's or the office's is not). The arrow
+ *  is an svg, so the button's text is the label alone. */
+export function closeLabel(view: View): { text: string; noTranslate: boolean } {
+  const close =
+    view.baseElement.querySelector<HTMLElement>("[data-page-close]");
+  expect(close).not.toBeNull();
+  const kept = close!.matches('[translate="no"]')
+    ? close!
+    : close!.querySelector<HTMLElement>('[translate="no"]');
+  return {
+    text: close!.textContent!.trim(),
+    noTranslate:
+      kept !== null && kept.textContent!.trim() === close!.textContent!.trim(),
+  };
+}
+
 export function describeOverChat({
   key,
   marker,
@@ -194,8 +212,12 @@ export function describeOverChat({
       await expectChatThenOffice(view);
     });
 
-    it("Close returns to the chat, and Back from it to the office", async () => {
+    it("Close names the agent, returns to the chat, and Back from it to the office", async () => {
       const view = await openFromChat();
+      expect(closeLabel(view)).toEqual({
+        text: AGENT.name,
+        noTranslate: true,
+      });
       await closesInPlace(() => clickClose(view));
       await expectChatThenOffice(view);
     });
