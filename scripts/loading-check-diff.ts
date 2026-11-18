@@ -17,6 +17,11 @@ export type Box = {
   y: number;
   w: number;
   h: number;
+  /**
+   * Plain inline text: display inline, with a direct non-blank text node and
+   * no background, border or shadow. Absent means false.
+   */
+  plainText?: boolean;
 };
 
 /**
@@ -114,6 +119,12 @@ function overlap(a: Box, b: Box): number {
  * ignored cannot be reported as appeared: it has no held parent. With a
  * viewport, a size change whose part in view stays the same (a list that
  * grows below the fold) is not reported; if it also moved, it is a move.
+ *
+ * A plain inline text (Box.plainText in both snapshots) that only gets wider
+ * (dx, dy, dh within the tolerance) is not a jump: its end grows and moves
+ * nothing. It is still reported when a change it can cause is: a kept change
+ * on a sibling, an ancestor or a descendant. Two such texts do not keep each
+ * other. A text that shrinks or wraps stays a jump.
  */
 export function layoutChanges(
   held: Box[],
@@ -198,5 +209,45 @@ export function layoutChanges(
       after: a,
     });
   }
-  return changes;
+  return dropTextGrowth(changes, after, tolerancePx);
+}
+
+/** The changes without plain texts that only grow at their end and cause nothing. */
+function dropTextGrowth(
+  changes: Change[],
+  after: Map<number, Box>,
+  tolerancePx: number,
+): Change[] {
+  const past = (d: number) => Math.abs(d) > tolerancePx;
+  const grows = (c: Change) =>
+    c.kind === "resized" &&
+    c.before?.plainText === true &&
+    c.after.plainText === true &&
+    c.dw > tolerancePx &&
+    !past(c.dx) &&
+    !past(c.dy) &&
+    !past(c.dh);
+  const kept = changes.filter((c) => !grows(c));
+  if (kept.length === changes.length) return changes;
+  // The ids above id in the loaded snapshot, up to a missing (ignored) parent.
+  const ancestors = (id: number) => {
+    const out = new Set<number>();
+    let p = after.get(id)?.parent ?? null;
+    while (p !== null && after.has(p) && !out.has(p)) {
+      out.add(p);
+      p = after.get(p)!.parent;
+    }
+    return out;
+  };
+  const near = (c: Change) => {
+    const id = c.after.id;
+    const up = ancestors(id);
+    return kept.some(
+      (k) =>
+        k.after.parent === c.after.parent ||
+        up.has(k.after.id) ||
+        ancestors(k.after.id).has(id),
+    );
+  };
+  return changes.filter((c) => !grows(c) || near(c));
 }

@@ -205,6 +205,158 @@ describe("layoutChanges: appeared", () => {
   });
 });
 
+describe("layoutChanges: plain text that only grows at its end", () => {
+  // Task f8e77177. A plain inline text (Box.plainText) whose only change is
+  // that it gets wider (|dx|, |dy|, |dh| within the tolerance) is not a
+  // jump, unless a change it can cause is reported: a kept change on its
+  // sibling, an ancestor or a descendant. Candidates do not keep each other.
+  // Fixture: the memory label (2, a block) holds the hint (3, plain text);
+  // the editor (4) is under the root, beside the label.
+  const text = (
+    id: number,
+    parent: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): Box => ({ ...box(id, parent, x, y, w, h), plainText: true });
+  const LABEL = box(2, 1, 0, 0, 800, 20);
+  const EDITOR = box(4, 1, 0, 30, 800, 100);
+  const HINT = text(3, 2, 40, 2, 200, 16);
+  const held = [ROOT, LABEL, HINT, EDITOR];
+  const loaded = (hint: Partial<Box>, ...rest: Box[]) => [
+    ROOT,
+    LABEL,
+    { ...HINT, ...hint },
+    EDITOR,
+    ...rest,
+  ];
+
+  it("drops it when it only gets wider, also with sub-tolerance drift", () => {
+    expect(layoutChanges(held, loaded({ w: 217 }))).toStrictEqual([]);
+    expect(
+      layoutChanges(held, loaded({ w: 217, x: 40.5, y: 2.5, h: 16.5 })),
+    ).toStrictEqual([]);
+  });
+
+  it("keeps it when either snapshot does not mark it plain text", () => {
+    for (const [before, after] of [
+      [false, true],
+      [true, false],
+      [undefined, undefined],
+    ] as const) {
+      const h = { ...HINT, plainText: before };
+      const changes = layoutChanges(
+        [ROOT, LABEL, h, EDITOR],
+        loaded({ w: 217, plainText: after }),
+      );
+      expect(summary(changes)).toStrictEqual([["resized", "el3"]]);
+    }
+  });
+
+  it("keeps it when it shrinks, wraps, or moves", () => {
+    const cases: [Partial<Box>, number[]][] = [
+      [{ w: 190 }, [0, 0, -10, 0]], // shrinks
+      [{ w: 217, h: 32 }, [0, 0, 17, 16]], // wraps to a second line
+      [{ w: 217, x: 44 }, [4, 0, 17, 0]], // moves right
+      [{ w: 217, y: 6 }, [0, 4, 17, 0]], // moves down
+    ];
+    for (const [hint, delta] of cases) {
+      const changes = layoutChanges(held, loaded(hint));
+      expect(summary(changes)).toStrictEqual([["resized", "el3"]]);
+      const c = changes[0]!;
+      expect([c.dx, c.dy, c.dw, c.dh]).toStrictEqual(delta);
+    }
+  });
+
+  it("keeps it when its growth can cause a reported change near it", () => {
+    // A sibling after it on the line moves right.
+    const after = box(5, 2, 240, 2, 30, 16);
+    expect(
+      summary(
+        layoutChanges(
+          [...held, after],
+          loaded({ w: 217 }, { ...after, x: 257 }),
+        ),
+      ),
+    ).toStrictEqual([
+      ["resized", "el3"],
+      ["moved", "el5"],
+    ]);
+
+    // Its parent (a shrink-wrapped pill, not plain text) gets wider.
+    const pill = box(2, 1, 0, 0, 260, 20);
+    expect(
+      summary(
+        layoutChanges(
+          [ROOT, pill, HINT, EDITOR],
+          [ROOT, { ...pill, w: 277 }, { ...HINT, w: 217 }, EDITOR],
+        ),
+      ),
+    ).toStrictEqual([
+      ["resized", "el2"],
+      ["resized", "el3"],
+    ]);
+
+    // Its grandparent gets wider: the chain is walked past the parent.
+    const inner = box(6, 2, 0, 0, 800, 20);
+    const deep = { ...HINT, parent: 6 };
+    expect(
+      summary(
+        layoutChanges(
+          [ROOT, pill, inner, deep, EDITOR],
+          [ROOT, { ...pill, w: 277 }, inner, { ...deep, w: 217 }, EDITOR],
+        ),
+      ),
+    ).toStrictEqual([
+      ["resized", "el2"],
+      ["resized", "el3"],
+    ]);
+
+    // A child after the grown text moves inside it.
+    const child = box(7, 3, 200, 2, 30, 16);
+    expect(
+      summary(
+        layoutChanges(
+          [...held, child],
+          loaded({ w: 217 }, { ...child, x: 217 }),
+        ),
+      ),
+    ).toStrictEqual([
+      ["resized", "el3"],
+      ["moved", "el7"],
+    ]);
+  });
+
+  it("drops it when the only other change is elsewhere", () => {
+    // The editor (a sibling of the label, not of the hint) moves down.
+    const changes = layoutChanges(held, [
+      ROOT,
+      LABEL,
+      { ...HINT, w: 217 },
+      { ...EDITOR, y: 60 },
+    ]);
+    expect(summary(changes)).toStrictEqual([["moved", "el4"]]);
+  });
+
+  it("does not let two plain texts that only grow keep each other", () => {
+    // Nested: <span>a <span>count</span></span>, both get wider.
+    const outer = text(5, 2, 40, 2, 200, 16);
+    const inner = text(6, 5, 120, 2, 40, 16);
+    expect(
+      layoutChanges(
+        [ROOT, LABEL, outer, inner],
+        [ROOT, LABEL, { ...outer, w: 217 }, { ...inner, w: 57 }],
+      ),
+    ).toStrictEqual([]);
+    // Siblings on two lines of one block, both get wider.
+    const line2 = text(8, 2, 0, 20, 100, 16);
+    expect(
+      layoutChanges([...held, line2], loaded({ w: 217 }, { ...line2, w: 117 })),
+    ).toStrictEqual([]);
+  });
+});
+
 describe("layoutChanges: ignore", () => {
   it("leaves an ignored id out of every kind of change", () => {
     const heldSnap = [ROOT, box(2, 1, 0, 0, 100, 50), box(3, 1, 0, 60, 50, 50)];

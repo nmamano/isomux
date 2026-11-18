@@ -43,7 +43,7 @@ Claude Code, Codex and OpenCode agents are all first class. A change to a surfac
 Nil's rules for every UI change. A diff that breaks one does not pass review or sign-off.
 
 - Every button has a background. A button is never bare text or an outline only. "Buttons without background should not be a thing anywhere in isomux."
-- A view keeps its layout while it loads. What does not depend on the data (headings, page buttons) draws at once; the data part draws its real controls, disabled and dimmed, or placeholders of the same shape, until the data arrives. Never an empty box or a panel that grows. Check it with `scripts/loading-check.sh` (`internal-docs/ui-verification.md`).
+- A view keeps its layout while it loads. What does not depend on the data (headings, page buttons) draws at once; the data part draws its real controls, disabled and dimmed, or placeholders of the same shape, until the data arrives. Never an empty box or a panel that grows. A text that only grows at its end and moves nothing is not a jump. Check it with `scripts/loading-check.sh` (`internal-docs/ui-verification.md`).
 - The product name is Isomux, capitalized, in every string a person reads. Lowercase only where it is a literal (a command, a path, a package, a unit or domain name: brew upgrade isomux, systemctl --user restart isomux, isomux.com).
 - An agent selector groups agents by room.
 - A value inside a sentence (a name, an email, a path, a host, a variable name) looks unlike the words around it: the `Data` component (`ui/components/Data.tsx`), through `rich()`.

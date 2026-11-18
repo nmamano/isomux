@@ -26,8 +26,9 @@ function box(
   rect: Rect,
   attrs: Record<string, string> = {},
   style = "",
+  tag = "div",
 ): HTMLElement {
-  const el = document.createElement("div");
+  const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   el.setAttribute("style", `opacity: 1; ${style}`);
   const [x, y, width, height] = rect;
@@ -159,5 +160,97 @@ describe("snapshot", () => {
     expect(changes.map((c) => [c.kind, c.label])).toEqual([
       ["appeared", 'div[data-lc="tabs"]'],
     ]);
+  });
+});
+
+describe("snapshot: plainText", () => {
+  // Task f8e77177: plainText is true for display inline, a direct non-blank
+  // text node, a background colour at alpha 0, no background image, all four
+  // border widths 0 and no box shadow. happy-dom computes "" for a property
+  // the style does not set, so each fixture first sets Chrome's computed
+  // values for a plain span (CHROME_SPAN), then the one property under test.
+  // The real-browser check is the loading-check run on the office view.
+  const CHROME_SPAN =
+    "display: inline; background-color: rgba(0, 0, 0, 0); " +
+    "background-image: none; border-width: 0px; box-shadow: none";
+
+  /** The plainText the snapshot records for el (a fixture under the root). */
+  function plainTextOf(el: Element): boolean | undefined {
+    el.setAttribute("data-lc", "probe");
+    const snap = snapshot("#lc-root")!;
+    const hits = snap.boxes.filter((b) =>
+      b.label.startsWith(`${el.tagName.toLowerCase()}[data-lc="probe"]`),
+    );
+    expect(hits.length).toBe(1);
+    return hits[0]!.plainText;
+  }
+
+  /** A span with text under a fresh root, with CHROME_SPAN then style. */
+  function span(style: string, text = "(35 / 5000)"): HTMLElement {
+    document.body.innerHTML = "";
+    const root = makeRoot([0, 0, 800, 600]);
+    const label = box(root, [0, 0, 800, 20]);
+    const el = box(
+      label,
+      [40, 2, 200, 16],
+      {},
+      `${CHROME_SPAN}; ${style}`,
+      "span",
+    );
+    el.textContent = text;
+    return el;
+  }
+
+  it("is true for a plain inline span, also with a transparent colour other than black", () => {
+    expect(plainTextOf(span(""))).toBe(true);
+    expect(plainTextOf(span("background-color: rgba(255, 255, 255, 0)"))).toBe(
+      true,
+    );
+  });
+
+  it("is false when the span is drawn as a pill or badge", () => {
+    const styles = [
+      "background-color: rgb(255, 255, 255)",
+      "background-color: rgba(0, 0, 0, 0.5)",
+      "background-image: linear-gradient(red, blue)",
+      "border-top-width: 1px",
+      "border-right-width: 1px",
+      "border-bottom-width: 1px",
+      "border-left-width: 1px",
+      "box-shadow: 0 0 0 1px red",
+    ];
+    for (const style of styles) {
+      expect([style, plainTextOf(span(style)) ?? false]).toEqual([
+        style,
+        false,
+      ]);
+    }
+  });
+
+  it("is false for a box that is not inline", () => {
+    for (const display of ["inline-block", "block", "inline-flex"]) {
+      expect([
+        display,
+        plainTextOf(span(`display: ${display}`)) ?? false,
+      ]).toEqual([display, false]);
+    }
+  });
+
+  it("is false without a direct non-blank text node", () => {
+    // Only blank text.
+    expect(plainTextOf(span("", "  \n "))).not.toBe(true);
+    // The text is in a child element, not in the span.
+    const s = span("", "");
+    const b = document.createElement("b");
+    b.textContent = "35";
+    s.appendChild(b);
+    expect(plainTextOf(s)).not.toBe(true);
+    // An inline svg: no border or background, and no text of its own.
+    const host = span("", "");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("style", `opacity: 1; ${CHROME_SPAN}`);
+    svg.getBoundingClientRect = host.getBoundingClientRect;
+    host.replaceWith(svg);
+    expect(plainTextOf(svg)).not.toBe(true);
   });
 });

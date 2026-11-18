@@ -39,7 +39,9 @@ at its start before each snapshot.
 The report names each element that moved or changed size relative to its
 parent (a size change outside the window, such as a list that grows below
 the fold, is left out), and each new element in space no removed
-placeholder held. Elements
+placeholder held. Plain inline text (no background, border or shadow) that
+only gets wider at its end is not reported, unless a sibling, parent or
+child of it also changed. Elements
 that still change after load (timers, animations) are left out. It writes
 `loading-<name>.png` (Loading and Loaded, a red box on each jump) for the
 sign-off packet. Exit 0: no jump; 1: jumps; 2: the check failed. A view whose

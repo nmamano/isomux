@@ -53,6 +53,36 @@ export function snapshot(sel: string): Snapshot | null {
     if (text) s += ` "${text.slice(0, 40)}${text.length > 40 ? "..." : ""}"`;
     return s;
   };
+  // Plain inline text: display inline, a direct non-blank text node, and no
+  // background, border or shadow (a pill or badge is not plain). An unset
+  // property ("") counts as none.
+  const plainText = (el: Element, cs: CSSStyleDeclaration) => {
+    if (cs.display !== "inline") return false;
+    const text = [...el.childNodes].some(
+      (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim(),
+    );
+    if (!text) return false;
+    const bg = cs.backgroundColor.trim();
+    const m = /^rgba?\(([^)]*)\)$/.exec(bg);
+    const parts = m ? m[1]!.split(/[\s,/]+/).filter(Boolean) : [];
+    const alpha =
+      bg === "" || bg === "transparent"
+        ? 0
+        : !m
+          ? 1
+          : parts.length > 3
+            ? parseFloat(parts[3]!) * (parts[3]!.endsWith("%") ? 0.01 : 1)
+            : 1;
+    if (!(alpha === 0)) return false;
+    const none = (v: string) => v === "" || v === "none";
+    if (!none(cs.backgroundImage) || !none(cs.boxShadow)) return false;
+    return [
+      cs.borderTopWidth,
+      cs.borderRightWidth,
+      cs.borderBottomWidth,
+      cs.borderLeftWidth,
+    ].every((v) => !(parseFloat(v) > 0));
+  };
   const walk = (el: Tagged, parent: number | null) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
@@ -72,6 +102,7 @@ export function snapshot(sel: string): Snapshot | null {
         y: r.y,
         w: r.width,
         h: r.height,
+        plainText: plainText(el, cs),
       });
     }
     if (el.tagName.toLowerCase() === "svg") return;
