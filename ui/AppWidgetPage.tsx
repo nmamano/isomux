@@ -21,6 +21,7 @@ import {
 import { AGENT_LINK_PREFIX } from "../shared/office-links.ts";
 import { ApiError, apiFetch } from "./api.ts";
 import { isEnterpriseLocked, sendFailureText } from "./send-failure.ts";
+import { sendFailureNode } from "./send-failure-node.tsx";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CSS } from "./styles.ts";
@@ -1628,7 +1629,9 @@ export function WidgetChat({
               {!connected
                 ? t("app.reconnecting")
                 : failed
-                  ? (failedText ?? t("logView.outbox.notSent"))
+                  ? failedText
+                    ? sendFailureNode(failedText)
+                    : t("logView.outbox.notSent")
                   : ""}
             </span>
             <button

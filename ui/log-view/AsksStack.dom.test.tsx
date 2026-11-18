@@ -20,7 +20,9 @@ const { OfficeLinkOpener } = await import("../office-link.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
 const { composerMaxHeight } = await import("../composer-height.ts");
 const { askExcerpt } = await import("./ask-about.ts");
-const { sendFailureText } = await import("../send-failure.ts");
+const { sendFailureText, ENTERPRISE_HELP_EMAIL } =
+  await import("../send-failure.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type OfficeLink = import("../../shared/office-links.ts").OfficeLink;
@@ -363,6 +365,8 @@ it("keeps the card with the Enterprise Contract lock in the member's words", asy
   const alert = card.querySelector("[role=alert]")?.textContent ?? "";
   expect(alert).toContain(sendFailureText(translatorFor("en").t, err));
   expect(alert).not.toContain(serverText);
+  // The help email is a value in the alert (task 419dcb70).
+  expectValueAsData(card.querySelector("[role=alert]")!, ENTERPRISE_HELP_EMAIL);
   view.unmount();
 });
 

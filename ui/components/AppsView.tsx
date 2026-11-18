@@ -47,6 +47,7 @@ import {
 } from "../app-install.ts";
 import { readSafariEnv } from "../safari-link.ts";
 import { BrowserInstall } from "./BrowserInstall.tsx";
+import { Data } from "./Data.tsx";
 import {
   filledSecondaryBtn,
   secondaryBorder,
@@ -905,7 +906,7 @@ export function AppsView({
     currentRoomId,
     lobbyOpen,
   } = useAppState();
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const dispatch = useDispatch();
   const features = useFeatures();
   const [error, setError] = useState<PageError | null>(null);
@@ -1722,9 +1723,9 @@ export function AppsView({
             }}
           >
             <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-              {t("apps.confirmDelete", {
-                name: confirmDelete.name,
-                path: retiredDirOf(confirmDelete.dataDir),
+              {rich("apps.confirmDelete", {
+                name: <Data>{confirmDelete.name}</Data>,
+                path: <Data>{retiredDirOf(confirmDelete.dataDir)}</Data>,
               })}
             </div>
             <div
@@ -1784,7 +1785,9 @@ export function AppsView({
             }}
           >
             <BrowserInstall
-              text={t("apps.installInBrowser", { appName: installSheet.name })}
+              text={rich("apps.installInBrowser", {
+                appName: <Data>{installSheet.name}</Data>,
+              })}
               href={installSheet.href}
               safari={readSafariEnv()}
             />

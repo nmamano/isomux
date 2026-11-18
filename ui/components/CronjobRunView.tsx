@@ -4,6 +4,8 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { sendFailureText } from "../send-failure.ts";
+import { sendFailureNode } from "../send-failure-node.tsx";
+import { Data } from "./Data.tsx";
 import {
   cronjobRunStreamId,
   type CronjobRun,
@@ -616,7 +618,9 @@ export function CronjobRunView({
                   color: "var(--text-ghost)",
                 }}
               >
-                {t("schedules.messageTo", { agent: sentToName })}
+                {i18n.rich("schedules.messageTo", {
+                  agent: <Data>{sentToName}</Data>,
+                })}
               </div>
             ) : isCommandRun ? (
               <div
@@ -627,8 +631,8 @@ export function CronjobRunView({
                   color: "var(--text-ghost)",
                 }}
               >
-                {t("schedules.commandFolder", {
-                  cwd: shortenCwd(run.cwdSnapshot),
+                {i18n.rich("schedules.commandFolder", {
+                  cwd: <Data>{shortenCwd(run.cwdSnapshot)}</Data>,
                 })}
               </div>
             ) : (
@@ -778,7 +782,10 @@ export function CronjobRunView({
                 fontWeight: 600,
               }}
             >
-              ⚠ {t("logView.editFailedBanner", { error: editError })}
+              ⚠{" "}
+              {i18n.rich("logView.editFailedBanner", {
+                error: sendFailureNode(editError),
+              })}
             </div>
           )}
           {saveError && (

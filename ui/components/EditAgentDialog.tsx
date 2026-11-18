@@ -129,6 +129,7 @@ import {
 import { isFullUserView } from "../user-merge.ts";
 import type { UserRecord } from "../../shared/types.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import { Data } from "./Data.tsx";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -2242,10 +2243,14 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
         >
           {t("dialogs.agent.managerHint")}
           {managerChanged && ` ${t("dialogs.agent.managerRestart")}`}
-          {managerLacksRoom &&
-            ` ${t("dialogs.agent.managerNoRoomAccess", {
-              name: chosenManager.name,
-            })}`}
+          {managerLacksRoom && (
+            <>
+              {" "}
+              {i18n.rich("dialogs.agent.managerNoRoomAccess", {
+                name: <Data>{chosenManager.name}</Data>,
+              })}
+            </>
+          )}
         </p>
       </div>
 

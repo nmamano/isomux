@@ -1,4 +1,4 @@
-import { language, t } from "./i18n";
+import { language, setRich, t } from "./i18n";
 import type { ExtensionPlainKey } from "./i18n";
 import {
   fields,
@@ -261,16 +261,23 @@ function render(next: typeof state) {
       !!holder ||
       state.state !== "connected" ||
       !state.currentTab?.eligible;
-  element("tab-state").textContent = holder
-    ? t("browser.otherOffice", { office: host(holder) })
-    : current
+  const tabState = element("tab-state");
+  if (holder)
+    setRich(tabState, "browser.otherOffice", { office: host(holder) });
+  else if (
+    current?.scope.kind === "opened" &&
+    current.agent &&
+    current.phase !== "offering" &&
+    current.phase !== "revoking"
+  )
+    setRich(tabState, "browser.assigned", { name: current.agent.name });
+  else
+    tabState.textContent = current
       ? current.phase === "offering"
         ? t("browser.offering")
         : current.phase === "revoking"
           ? t("browser.revoking")
-          : current.scope.kind === "opened" && current.agent
-            ? t("browser.assigned", { name: current.agent.name })
-            : t("browser.tabShared")
+          : t("browser.tabShared")
       : state.state === "connected" && !state.currentTab?.eligible
         ? t("browser.tabIneligible")
         : "";
@@ -452,7 +459,11 @@ let sharePick: { office: string; agentId: string } | undefined =
 let shareRows = "";
 let sharing = false;
 // The last share's ending, shown until the next share.
-let shareNote = "";
+type ShareNote =
+  | { key: "browser.shareSent" | "browser.shareWaits"; name: string }
+  | { key: "browser.shareUnanswered" | "browser.shareFailed" }
+  | null;
+let shareNote: ShareNote = null;
 // An http(s) page; the office checks the rest of the URL.
 const shareUrl = /^https?:\/\//i.test(invocationTab?.url ?? "")
   ? invocationTab?.url
@@ -490,14 +501,18 @@ function renderShare() {
       : "";
   sharePicker.value = picked;
   shareButton.disabled = !picked || sharing || !shareUrl;
-  shareStatus.textContent = shareUrl ? shareNote : t("browser.shareIneligible");
+  if (!shareUrl) shareStatus.textContent = t("browser.shareIneligible");
+  else if (!shareNote) shareStatus.textContent = "";
+  else if ("name" in shareNote)
+    setRich(shareStatus, shareNote.key, { name: shareNote.name });
+  else setRich(shareStatus, shareNote.key);
 }
 sharePicker.addEventListener("change", () => {
   sharePick = { office: state.office, agentId: sharePicker.value };
   void Promise.resolve()
     .then(() => chrome.storage.local.set({ shareAgent: sharePick }))
     .catch(() => {});
-  shareNote = "";
+  shareNote = null;
   render(state);
 });
 // The selected text of the popup's tab, main frame only; "" on a page that
@@ -518,7 +533,7 @@ shareButton.addEventListener("click", () => {
   const agent = state.shareAgents?.find((a) => a.id === sharePicker.value);
   if (sharing || !agent || !shareUrl) return;
   sharing = true;
-  shareNote = "";
+  shareNote = null;
   render(state);
   void (async () => {
     let result: string | undefined;
@@ -541,12 +556,12 @@ shareButton.addEventListener("click", () => {
     sharing = false;
     shareNote =
       result === "sent"
-        ? t("browser.shareSent", { name: agent.name })
+        ? { key: "browser.shareSent", name: agent.name }
         : result === "unanswered"
-          ? t("browser.shareUnanswered")
+          ? { key: "browser.shareUnanswered" }
           : result === "awaits_member_answer"
-            ? t("browser.shareWaits", { name: agent.name })
-            : t("browser.shareFailed");
+            ? { key: "browser.shareWaits", name: agent.name }
+            : { key: "browser.shareFailed" };
     render(state);
   })();
 });

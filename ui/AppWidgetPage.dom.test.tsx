@@ -119,6 +119,33 @@ it("keeps a failed draft and retry id across remount, and separates a changed ta
   view.unmount();
 });
 
+// Task 419dcb70: a send the Enterprise Contract lock refuses names the help
+// email in the status line, as a value.
+it("shows the Enterprise Contract lock with the help email as a value", async () => {
+  sessionStorage.clear();
+  const { ApiError } = await import("./api.ts");
+  const { ENTERPRISE_HELP_EMAIL } = await import("./send-failure.ts");
+  const { expectValueAsData } = await import("./test-support/data-value.ts");
+  setApiShim(async () => {
+    throw new ApiError(409, "enterprise_secret_needed", "server text");
+  });
+  const view = render(<WidgetChat {...props} />);
+  await act(async () => {
+    fireEvent.change(view.getByRole("textbox"), {
+      target: { value: "hello" },
+    });
+  });
+  await act(async () => {
+    fireEvent.submit(view.container.querySelector("form")!);
+  });
+  expectValueAsData(
+    view.container.querySelector(".app-widget-status")!,
+    ENTERPRISE_HELP_EMAIL,
+  );
+  view.unmount();
+  sessionStorage.clear();
+});
+
 it("does not send while the reply connection is offline", async () => {
   sessionStorage.clear();
   let sends = 0;

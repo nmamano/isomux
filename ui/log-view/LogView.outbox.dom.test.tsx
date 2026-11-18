@@ -8,7 +8,9 @@ setUpDomTestFile();
 
 const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const { ApiError } = await import("../api.ts");
-const { sendFailureText } = await import("../send-failure.ts");
+const { sendFailureText, ENTERPRISE_HELP_EMAIL } =
+  await import("../send-failure.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const {
   outboxFixture: fx,
@@ -97,6 +99,8 @@ it("shows the Enterprise Contract lock in the member's words", async () => {
   const text = rows(view.container, "failed")[0].textContent ?? "";
   expect(text).toContain(sendFailureText(translatorFor("en").t, err));
   expect(text).not.toContain(serverText);
+  // The help email is a value in the reason (task 419dcb70).
+  expectValueAsData(rows(view.container, "failed")[0], ENTERPRISE_HELP_EMAIL);
   view.unmount();
 });
 

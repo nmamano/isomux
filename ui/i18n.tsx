@@ -42,7 +42,9 @@ import {
   CATALOGS,
   lookupIn,
   pluralFormKeyFor,
+  templateParts,
   translatorFor,
+  type TemplatePiece,
   type EnglishText,
   type MessageKey,
   type Placeholders,
@@ -100,22 +102,15 @@ export interface UiTranslator extends Translator {
 
 type RichParts = Record<string, ReactNode | Wrap>;
 
-// One tag pair (never nested: the body stops at the first matching close) or
-// one placeholder.
-const RICH_TOKEN = /<(\w+)>([\s\S]*?)<\/\1>|\{(\w+)\}/g;
-
-function fillPlaceholders(text: string, parts: RichParts): ReactNode[] {
-  const out: ReactNode[] = [];
-  let last = 0;
-  for (const m of text.matchAll(/\{(\w+)\}/g)) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    const value = parts[m[1]];
+function fillPieces(pieces: TemplatePiece[], parts: RichParts): ReactNode[] {
+  return pieces.map((piece) => {
+    if (typeof piece === "string") return piece;
+    const value = parts[piece.name];
     // A placeholder with no value stays as written, like interpolate().
-    out.push(typeof value === "function" || value === undefined ? m[0] : value);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
+    return typeof value === "function" || value === undefined
+      ? `{${piece.name}}`
+      : value;
+  });
 }
 
 function keyed(nodes: ReactNode[]): ReactNode {
@@ -134,19 +129,15 @@ function keyed(nodes: ReactNode[]): ReactNode {
  */
 export function renderRich(template: string, parts: RichParts): ReactNode {
   const out: ReactNode[] = [];
-  let last = 0;
-  for (const m of template.matchAll(RICH_TOKEN)) {
-    if (m.index > last) out.push(template.slice(last, m.index));
-    if (m[1] !== undefined) {
-      const wrap = parts[m[1]];
-      const inner = keyed(fillPlaceholders(m[2], parts));
-      out.push(typeof wrap === "function" ? wrap(inner) : inner);
+  for (const part of templateParts(template)) {
+    if (typeof part === "string" || "name" in part) {
+      out.push(...fillPieces([part], parts));
     } else {
-      out.push(...fillPlaceholders(m[0], parts));
+      const wrap = parts[part.tag];
+      const inner = keyed(fillPieces(part.inner, parts));
+      out.push(typeof wrap === "function" ? wrap(inner) : inner);
     }
-    last = m.index + m[0].length;
   }
-  if (last < template.length) out.push(template.slice(last));
   return keyed(out);
 }
 

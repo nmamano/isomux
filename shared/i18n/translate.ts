@@ -123,6 +123,47 @@ function interpolate(template: string, params?: Params): string {
   );
 }
 
+/** A run of text, or a `{name}` placeholder. */
+export type TemplatePiece = string | { name: string };
+
+/** One part of a rich template: a piece, or a `<tag>…</tag>` pair. */
+export type TemplatePart =
+  TemplatePiece | { tag: string; inner: TemplatePiece[] };
+
+// One tag pair (never nested: the body stops at the first matching close) or
+// one placeholder.
+const RICH_TOKEN = /<(\w+)>([\s\S]*?)<\/\1>|\{(\w+)\}/g;
+
+function pieces(text: string): TemplatePiece[] {
+  const out: TemplatePiece[] = [];
+  let last = 0;
+  for (const m of text.matchAll(PLACEHOLDER)) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push({ name: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/**
+ * The one reader of rich templates (ui/i18n.tsx renderRich, the extension's
+ * setRich): text, `{name}` placeholders and one-level `<tag>…</tag>` pairs,
+ * in order.
+ */
+export function templateParts(template: string): TemplatePart[] {
+  const out: TemplatePart[] = [];
+  let last = 0;
+  for (const m of template.matchAll(RICH_TOKEN)) {
+    if (m.index > last) out.push(template.slice(last, m.index));
+    if (m[1] !== undefined) out.push({ tag: m[1], inner: pieces(m[2]) });
+    else out.push({ name: m[3] });
+    last = m.index + m[0].length;
+  }
+  if (last < template.length) out.push(template.slice(last));
+  return out;
+}
+
 /**
  * Engine: the text for `key` in `catalog`, else in `fallback` (English), else
  * the key itself, interpolated. The types make a missing key impossible for

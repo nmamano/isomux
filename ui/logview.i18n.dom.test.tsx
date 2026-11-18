@@ -36,6 +36,7 @@ const { EditorPanel } = await import("./log-view/EditorPanel.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { expectValueAsData } = await import("./test-support/data-value.ts");
 
 type View = ReturnType<typeof render>;
 type Language = "ca" | "es" | null;
@@ -509,6 +510,23 @@ describe("the attachment echo", () => {
 
     view.rerender(attachmentEcho(null));
     shows(view, ANCHOR.viewedImages.en);
+  });
+
+  // Task 419dcb70: one file is named, and its name is a value.
+  it("names one file as a value", () => {
+    const one = { ...ECHO_RESULT, attachments: [ECHO_RESULT.attachments![0]] };
+    const view = render(
+      onLanguage(
+        "en",
+        createElement(LogEntryCard, {
+          entry: one,
+          turnEntries: [ECHO_CALL, one],
+        }),
+        { hasReceivedInitialState: true },
+      ),
+    );
+    expectValueAsData(view.container, "a.png");
+    view.unmount();
   });
 });
 

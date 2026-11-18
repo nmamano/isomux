@@ -13,6 +13,7 @@ import {
   armedConfirmLook,
 } from "./dialog-styles";
 import { guessBrowserName } from "../browser-name";
+import { Data, dataList } from "./Data";
 import { homeScreenDownload } from "../home-screen-download";
 
 // Chrome refuses to open chrome:// pages from a web page link or
@@ -173,7 +174,7 @@ export function BrowserPane() {
         {rich("browser.extensions", {
           address: (
             <>
-              <code>{EXTENSIONS_PAGE}</code>{" "}
+              <Data>{EXTENSIONS_PAGE}</Data>{" "}
               <button
                 data-testid="browser-extensions-copy"
                 style={filledSecondaryBtn}
@@ -211,15 +212,15 @@ export function BrowserPane() {
             >
               {outdatedStore.length > 0 && (
                 <p style={{ margin: 0 }}>
-                  {t("browser.outdatedStore", {
-                    names: outdatedStore.map((b) => b.name).join(", "),
+                  {rich("browser.outdatedStore", {
+                    names: dataList(outdatedStore.map((b) => b.name)),
                   })}
                 </p>
               )}
               {outdated.length > 0 && (
                 <p style={{ margin: outdatedStore.length > 0 ? "8px 0 0" : 0 }}>
-                  {t("browser.outdated", {
-                    names: outdated.map((b) => b.name).join(", "),
+                  {rich("browser.outdated", {
+                    names: dataList(outdated.map((b) => b.name)),
                   })}
                 </p>
               )}

@@ -4,6 +4,7 @@
 
 import { useI18n } from "../i18n.tsx";
 import { sendFailureText } from "../send-failure.ts";
+import { sendFailureNode } from "../send-failure-node.tsx";
 import {
   discardAttempt,
   resendAttempt,
@@ -145,7 +146,7 @@ export function OutboxRows({
                       color: "var(--red-text)",
                     }}
                   >
-                    {why}
+                    {sendFailureNode(why)}
                   </span>
                 )}
                 <button

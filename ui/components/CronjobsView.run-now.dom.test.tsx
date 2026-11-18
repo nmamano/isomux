@@ -9,7 +9,9 @@ const { act, render } = await import("@testing-library/react");
 const { CronjobsView } = await import("./CronjobsView.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { DispatchCtx } = await import("../store.tsx");
-const { sendFailureText } = await import("../send-failure.ts");
+const { sendFailureText, ENTERPRISE_HELP_EMAIL } =
+  await import("../send-failure.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
@@ -84,6 +86,11 @@ it("shows the lock instead of a started flash, and a Run the server takes clears
   expect(runs).toHaveLength(1);
   expect(alert()).toBe(sendFailureText(t, locked));
   expect(alert()).not.toBe(SERVER_TEXT);
+  // The help email is a value in the line (task 419dcb70).
+  expectValueAsData(
+    view.container.querySelector("[role=alert]")!,
+    ENTERPRISE_HELP_EMAIL,
+  );
   expect(flashing()).toBe(false);
 
   refuse = false;
@@ -94,5 +101,44 @@ it("shows the lock instead of a started flash, and a Run the server takes clears
   expect(runs).toHaveLength(2);
   expect(alert()).toBeNull();
   expect(flashing()).toBe(true);
+  view.unmount();
+});
+
+// Task 419dcb70: the agent a job messages, or runs its command for, is a value
+// in the row's target line; an agent no longer in the office shows its id.
+it("shows each job's target agent as a value", async () => {
+  const base = stateWithSelfUser("en");
+  const target = (id: string, agentId: string, over: object = {}) =>
+    ({
+      ...job,
+      id,
+      target: { agentId },
+      ...over,
+    }) as unknown as CronjobListWire;
+  const view = render(
+    <DispatchCtx.Provider value={() => {}}>
+      {onLanguage("en", <CronjobsView onClose={() => {}} />, {
+        cronjobsLoaded: true,
+        cronjobRunsLoaded: true,
+        hydrationEpoch: 1,
+        sessionContext: { ...base.sessionContext!, role: "owner" },
+        agents: [{ ...base.agents[0], id: "agent-pat", name: "Pat" }],
+        cronjobs: [
+          target("job00002", "agent-pat", { command: "./check.sh" }),
+          target("job00003", "agent-gone"),
+        ],
+        cronjobRunsByJob: new Map(),
+      })}
+    </DispatchCtx.Provider>,
+  );
+  await act(async () => {});
+  const line = (agentId: string) =>
+    view.container.querySelector(`[data-cronjob-target="${agentId}"]`)!;
+  // Precondition: both rows drew their target line.
+  expect(view.container.querySelectorAll("[data-cronjob-target]").length).toBe(
+    2,
+  );
+  expectValueAsData(line("agent-pat"), "Pat");
+  expectValueAsData(line("agent-gone"), "agent-gone");
   view.unmount();
 });

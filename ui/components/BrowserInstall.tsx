@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useI18n } from "../i18n.tsx";
 import { safariHref, type SafariEnv } from "../safari-link.ts";
 import { dialogSaveBtn, filledSecondaryBtn } from "./dialog-styles.ts";
@@ -23,7 +23,7 @@ export function BrowserInstall({
   href,
   safari,
 }: {
-  text: string;
+  text: ReactNode;
   // The app's page with the install hash: the browser opens its steps.
   href: string;
   safari: SafariEnv;

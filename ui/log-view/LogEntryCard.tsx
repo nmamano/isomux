@@ -74,6 +74,7 @@ import {
 } from "../../shared/review-findings.ts";
 import { secondaryBorder, secondaryFill } from "../components/dialog-styles.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
+import { Data } from "../components/Data.tsx";
 
 function EditIcon() {
   return (
@@ -2326,7 +2327,7 @@ function ToolResult({
   turnEntries?: LogEntry[];
   isMobile?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const [open, setOpen] = useState(false);
   const [echoOpen, setEchoOpen] = useState(false);
   const content = entry.content;
@@ -2391,8 +2392,8 @@ function ToolResult({
         {/* Two whole frames, one per branch: a named file, or a count of
             images. Never a sentence joined around the data. */}
         {entry.attachments.length === 1
-          ? t("cards.fileView.viewedFile", {
-              file: entry.attachments[0].originalName,
+          ? rich("cards.fileView.viewedFile", {
+              file: <Data>{entry.attachments[0].originalName}</Data>,
             })
           : t("cards.fileView.viewedImages", {
               count: entry.attachments.length,

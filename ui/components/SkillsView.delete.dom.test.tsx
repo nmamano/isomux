@@ -8,6 +8,7 @@ const { ApiError, setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { EditorView } = await import("@codemirror/view");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 type Entry = import("../../shared/contract-shapes.ts").SkillCatalogEntry;
 const path = "/home/member/.claude/skills/mine/SKILL.md";
 const mine: Entry = {
@@ -47,6 +48,7 @@ beforeEach(() => {
       name: "plugin",
       path: "/plugin/SKILL.md",
       source: "plugin",
+      plugin: "acme-tools",
       editable: false,
     },
   ];
@@ -198,5 +200,27 @@ it("leaves a newer selection open when a delete answer lands", async () => {
     translatorFor("en").t("skills.delete.command"),
   );
   await click("[data-skill-delete-cancel]");
+  view.unmount();
+});
+
+// Task 419dcb70: a plugin's name and the new skill's path are values in their
+// sentences, apart from the words around them.
+it("shows the plugin's name and the new skill's path as values", async () => {
+  const view = await mount();
+  await click('[data-skill-row="plugin"]');
+  const detail = await waitFor(() => {
+    const el = view.container.querySelector<HTMLElement>(
+      '[data-skill-detail="plugin"] [data-skill-head]',
+    );
+    if (!el) throw new Error("no plugin detail");
+    return el;
+  });
+  expectValueAsData(detail, "acme-tools");
+
+  await click("[data-skill-new]");
+  const dialog = document.querySelector<HTMLElement>("[data-skill-create]")!;
+  const line = expectValueAsData(dialog, "~/.claude/skills/…/SKILL.md");
+  // The words read in the page's font; only the path is monospace.
+  expect(line.style.fontFamily).not.toContain("Mono");
   view.unmount();
 });

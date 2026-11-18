@@ -15,6 +15,7 @@ const { AppsView } = await import("./AppsView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { INSTALL_HASH } = await import("../app-install.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 const { asDevice, IPHONE_HOME_SCREEN } =
   await import("../test-support/ios-home-screen.ts");
 type AppListWire = import("../../shared/types.ts").AppListWire;
@@ -177,7 +178,8 @@ it("shows the install steps in place in the iPhone Home Screen office, without o
     );
     expect(sheet).not.toBeNull();
     expect(sheet!.getAttribute("role")).toBe("dialog");
-    expect(sheet!.textContent).toContain("short");
+    // The app's name is a value in the sentence (task 419dcb70).
+    expectValueAsData(sheet!, "short");
     expect(
       within(sheet!)
         .getByRole("link", { name: en["appWidget.openInSafari"] })

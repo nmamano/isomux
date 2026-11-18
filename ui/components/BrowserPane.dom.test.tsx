@@ -6,6 +6,8 @@ const { BrowserPane } = await import("./BrowserPane");
 const { setApiShim } = await import("../api");
 const { onLanguage } = await import("../test-support/language-fixture");
 const { translatorFor } = await import("../../shared/i18n/translate");
+const { dataTexts, expectValueAsData, textOutsideData } =
+  await import("../test-support/data-value");
 afterAll(() => setApiShim(null));
 
 test("Chrome pairing adds named browsers; each one unpairs through its own self route", async () => {
@@ -175,12 +177,14 @@ test("the extensions step copies the Chrome address it names", async () => {
     await act(async () => {});
     const button = view.getByTestId("browser-extensions-copy");
     const step = button.closest("li")!;
-    const address = step.querySelector("code")!.textContent;
-    expect(address.startsWith("chrome://")).toBe(true);
     const before = button.textContent;
     await act(async () => fireEvent.click(button));
-    expect(copied).toEqual([address]);
+    expect(copied).toHaveLength(1);
+    const [address] = copied;
+    expect(address.startsWith("chrome://")).toBe(true);
     expect(button.textContent).not.toBe(before);
+    // The step names the address it copies, as a value (task 419dcb70).
+    expectValueAsData(step, address);
     view.unmount();
   } finally {
     if (original) Object.defineProperty(navigator, "clipboard", original);
@@ -249,6 +253,46 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
   expect(current.getAllByTestId("browser-row")).toHaveLength(2);
   expect(current.queryByTestId("browser-update")).toBeNull();
   current.unmount();
+});
+
+// Task 419dcb70: each out-of-date browser's name is a value of its own in
+// the notice; the list between them stays words.
+test("the update notice shows each out-of-date browser's name as a value", async () => {
+  const browser = (id: string, name: string, store: boolean) => ({
+    id,
+    name,
+    pairedAt: 0,
+    online: true,
+    package: null,
+    outdated: true,
+    reloadable: false,
+    agentTabs: null,
+    store,
+  });
+  setApiShim(async () => ({
+    paired: true,
+    online: true,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.4.5",
+    browsers: [
+      browser("desk", "Desk", false),
+      browser("home", "Home", true),
+      browser("lab", "Lab PC", false),
+      browser("kiosk", "Kiosk", true),
+    ],
+  }));
+  const view = render(<BrowserPane />);
+  await act(async () => {});
+  const notice = view.getByTestId("browser-update");
+  for (const names of [
+    ["Desk", "Lab PC"],
+    ["Home", "Kiosk"],
+  ]) {
+    const line = expectValueAsData(notice, names[0]);
+    expect(dataTexts(line)).toEqual(names);
+    expect(textOutsideData(line)).toContain(",");
+  }
+  view.unmount();
 });
 
 // Task f8d05b49: on the iPhone Home Screen office a download link opened the

@@ -683,6 +683,8 @@ async function openPopup(
   await popupScript.runInNewContext({
     document,
     window,
+    // A real popup global; host() reads an office origin with it.
+    URL,
     navigator: { language: "en" },
     Date,
     chrome: {
@@ -1141,6 +1143,48 @@ test("the popup offers Unmute tab only on a tab this extension muted; it unmutes
   }
 });
 
+// Task 419dcb70: a value inside a popup sentence (an agent's name, an
+// office's host) sits in a span.data of its own, as text, with words of the
+// sentence around it.
+function expectValues(line: HTMLElement, values: string[]) {
+  const spans = [...line.querySelectorAll<HTMLElement>("span.data")];
+  expect(spans.map((span) => span.textContent)).toEqual(values);
+  const words = line.cloneNode(true) as HTMLElement;
+  for (const span of words.querySelectorAll("span.data")) span.remove();
+  expect(words.textContent.trim().length).toBeGreaterThan(0);
+  for (const value of values) expect(words.textContent).not.toContain(value);
+}
+
+test("Use this tab names the agent a tab was opened for as a value, and a name with markup stays text", async () => {
+  const name = "<b>Helper</b>";
+  const p = await openPopup({
+    ...connected,
+    assignments: [
+      {
+        scope: { kind: "opened", agentId: "a", via: "all" },
+        id: "t1",
+        agent: { id: "a", name },
+        tabId: 7,
+        current: true,
+        phase: "on",
+        durationMinutes: 0,
+        expiresAt: null,
+      },
+    ],
+  });
+  try {
+    // Precondition: the line names the agent.
+    expect(p.tabState.textContent).toContain(name);
+    expectValues(p.tabState, [name]);
+    expect(p.tabState.querySelector("b")).toBeNull();
+    // A poll draws the line again: it replaces the sentence, never adds to it.
+    await p.poll();
+    expectValues(p.tabState, [name]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
 // Share page with agent (task 68da3968): a picker of the agents the member
 // reaches, grouped by room, that keeps the last pick per office, and a Share
 // button that sends the popup's page.
@@ -1248,6 +1292,8 @@ test("Share sends the popup's page, its selected text and the pick, waits while 
       await settleDom();
       expect(ui.button.disabled).toBe(false);
       statuses.push(ui.status.textContent.trim());
+      // Sent and waits name the agent as a value (task 419dcb70).
+      expectValues(ui.status, result === "unanswered" ? [] : ["Ann"]);
     }
     expect(p.sent("share")).toHaveLength(3);
     // The selection is read from the popup's tab, main frame only.
@@ -1388,6 +1434,8 @@ test("on a tab another office holds, Use this tab is off and locked and names th
   try {
     expect([p.toggle.checked, p.toggle.disabled]).toEqual([false, true]);
     expect(p.tabState.textContent).toContain("two.example");
+    // The office is a value in the sentence (task 419dcb70).
+    expectValues(p.tabState, ["two.example"]);
     p.toggle.click();
     await settleDom();
     expect(p.sent("offer")).toEqual([]);

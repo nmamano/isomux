@@ -9,6 +9,7 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
+import { Data } from "../components/Data.tsx";
 
 export function BackRoomStrip({
   agent,
@@ -21,7 +22,7 @@ export function BackRoomStrip({
   rooms: RoomWire[];
   onOpenAgent: (agentId: string) => void;
 }) {
-  const { t } = useI18n();
+  const { rich } = useI18n();
   if (!isBackSeat(agent.desk)) return null;
   const front = agents
     .filter((a) => a.roomId === agent.roomId && !isBackSeat(a.desk))
@@ -44,7 +45,9 @@ export function BackRoomStrip({
         flexShrink: 0,
       }}
     >
-      <span {...noTranslate()}>{t("logView.backRoomStrip", { room })}</span>
+      <span {...noTranslate()}>
+        {rich("logView.backRoomStrip", { room: <Data>{room}</Data> })}
+      </span>
       {front.map((a) => {
         const ms = styleForModel(a.modelFamily);
         return (

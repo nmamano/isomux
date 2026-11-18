@@ -11,6 +11,8 @@ const { AppsView } = await import("./AppsView.tsx");
 const { StoreProvider } = await import("../store.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim } = await import("../ws.ts");
+const { en } = await import("../../shared/i18n/en.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 type AppListWire = import("../../shared/types.ts").AppListWire;
 type AppState = import("../../shared/types.ts").AppState;
 
@@ -248,5 +250,23 @@ it("disables the menu verbs while a request is out, then shows a failure and ena
   expect(view.container.textContent).toContain(failure);
   await openMenu("habits");
   expect(menuItem("restart")!.getAttribute("aria-disabled")).toBeNull();
+  view.unmount();
+});
+
+// Task 419dcb70: the delete confirmation shows the app's name and the folder
+// its data moves to as values, apart from the words around them.
+it("Delete in the menu asks first, with the app's name and the data folder as values", async () => {
+  list = [app("habits", "stopped")];
+  const { view, openMenu, menuItem } = await mount();
+  await openMenu("habits");
+  await act(async () => menuItem("delete")!.click());
+  expect(calls).toEqual([]);
+  const confirm = [...view.container.querySelectorAll("button")].find(
+    (b) => b.textContent === en["apps.delete"] && !b.closest("[data-app-menu]"),
+  );
+  expect(confirm === undefined ? "no confirm" : "confirm").toBe("confirm");
+  const dialog = confirm!.parentElement!.parentElement!;
+  const line = expectValueAsData(dialog, "habits");
+  expect(expectValueAsData(dialog, "/fixture/data/.retired")).toBe(line);
   view.unmount();
 });

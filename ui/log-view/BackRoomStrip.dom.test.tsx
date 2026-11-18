@@ -10,6 +10,7 @@ const { cleanup, fireEvent, render } = await import("@testing-library/react");
 const { BackRoomStrip } = await import("./BackRoomStrip.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { deskOfBackSeat } = await import("../../shared/desks.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 
 afterEach(cleanup);
 
@@ -51,6 +52,8 @@ describe("BackRoomStrip", () => {
     const { strip, opened } = show(worker, [worker, pm, lead, elsewhere]);
     const chips = [...strip()!.querySelectorAll("button")];
     expect(chips.map((c) => c.textContent)).toEqual(["Lead", "PM"]);
+    // The room's name is a value in the sentence (task 419dcb70).
+    expectValueAsData(strip()!, "Lab");
     fireEvent.click(chips[1]);
     expect(opened).toEqual(["PM"]);
   });

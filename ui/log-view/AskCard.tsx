@@ -72,6 +72,7 @@ import {
 import { createPortal } from "react-dom";
 import { apiFetch, ApiError } from "../api.ts";
 import { sendFailureText } from "../send-failure.ts";
+import { sendFailureNode } from "../send-failure-node.tsx";
 import { useAsksClosedHere } from "../ask-closed.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -1511,7 +1512,7 @@ function ReplyAskCard({
             fontSize: isMobile ? 12 : 11,
           }}
         >
-          {t("asks.answerFailed", { error: failure })}
+          {rich("asks.answerFailed", { error: sendFailureNode(failure) })}
         </div>
       )}
     </div>

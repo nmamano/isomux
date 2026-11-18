@@ -7,6 +7,7 @@ import { runSucceeded } from "../../shared/runnable-command.ts";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n } from "../i18n.tsx";
 import { AskRunResult } from "./AskRunResult.tsx";
+import { sendFailureNode } from "../send-failure-node.tsx";
 
 const runLabel = (shown: boolean) =>
   ({
@@ -157,7 +158,7 @@ export function TerminalCommandCard({
             color: "var(--red-text)",
           }}
         >
-          {runError}
+          {sendFailureNode(runError)}
         </div>
       )}
     </div>

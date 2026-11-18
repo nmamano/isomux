@@ -47,6 +47,7 @@ import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { sendFailureText } from "../send-failure.ts";
+import { sendFailureNode } from "../send-failure-node.tsx";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import type { AgentSettingsSection } from "../components/EditAgentDialog.tsx";
 import { isTopicSource } from "../../shared/session-label.ts";
@@ -2975,7 +2976,9 @@ export function LogView({
               >
                 <span>⚠</span>
                 <span>
-                  {i18n.t("logView.editFailedBanner", { error: editError })}
+                  {i18n.rich("logView.editFailedBanner", {
+                    error: sendFailureNode(editError),
+                  })}
                 </span>
               </div>
             )}

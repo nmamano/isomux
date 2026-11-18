@@ -15,6 +15,7 @@ const { onLanguage, selfUserRecord } =
 const { claudeAgent, openSection, room, settle, viewer } =
   await import("../test-support/claude-limits-fixture.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 const EN = translatorFor("en");
 
 type Role = "owner" | "member";
@@ -228,6 +229,11 @@ describe("the agent settings page's manager field", () => {
       });
       await settle();
       expect(hintText(view.container)).toContain("Other");
+      // The name is a value in the hint (task 419dcb70).
+      const hint = [...field(view.container).querySelectorAll("p")].find((p) =>
+        (p.textContent ?? "").includes("Other"),
+      )!;
+      expectValueAsData(hint, "Other");
     } finally {
       view.unmount();
       setApiShim(null);

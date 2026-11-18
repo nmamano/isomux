@@ -57,6 +57,7 @@ import {
 } from "./skills-page.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import { Data } from "./Data.tsx";
 import {
   getSkillsLayout,
   setSkillsLayout,
@@ -278,7 +279,7 @@ function heldHeight(el: Element | null | undefined): number {
 
 export function SkillsView({ onClose }: { onClose: () => void }) {
   const { isMobile, hydrationEpoch } = useAppState();
-  const { t, tn } = useI18n();
+  const { t, tn, rich } = useI18n();
   const [catalog, setCatalog] = useState<SkillCatalogRes | null>(null);
   const canWriteSkills = useCan("skills", "write");
   const [loadError, setLoadError] = useState<PageError | null>(null);
@@ -935,7 +936,9 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
       entry.source === "isomux"
         ? t("skills.readOnly.isomux")
         : entry.source === "plugin"
-          ? t("skills.readOnly.plugin", { plugin: entry.plugin ?? "" })
+          ? rich("skills.readOnly.plugin", {
+              plugin: <Data>{entry.plugin ?? ""}</Data>,
+            })
           : null;
     return (
       <div ref={detailRef} data-skill-detail={entry.name} style={detailStyle}>
@@ -1127,7 +1130,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               }}
             >
               <LockIcon />
-              {readOnlyNote}
+              <span>{readOnlyNote}</span>
             </div>
           )}
         </div>
@@ -1813,7 +1816,7 @@ function NewSkillDialog({
   onClose: () => void;
   onCreated: (created: { name: string; file: SkillFileRes }) => void;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const { isMobile } = useAppState();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -2007,15 +2010,16 @@ function NewSkillDialog({
             style={{
               fontSize: 11,
               color: "var(--text-muted)",
-              fontFamily: "'JetBrains Mono',monospace",
               overflowWrap: "anywhere",
             }}
           >
-            {breakAfterSlashes(
-              t("skills.create.where", {
-                path: `${dir}/${name || "…"}/SKILL.md`,
-              }),
-            )}
+            {rich("skills.create.where", {
+              path: (
+                <Data>
+                  {breakAfterSlashes(`${dir}/${name || "…"}/SKILL.md`)}
+                </Data>
+              ),
+            })}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {t("skills.create.allAgents")}

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { sendFailureText } from "../send-failure.ts";
+import { sendFailureNode } from "../send-failure-node.tsx";
+import { Data } from "./Data.tsx";
 import type { CronUpdateReq } from "../../shared/contract-shapes.ts";
 import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
@@ -617,7 +619,7 @@ function CronjobsTable({
   // Rejects when the run did not start.
   onRunNow: (c: CronjobListWire) => Promise<void>;
 }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const { agents } = useAppState();
   // Brief visual ack after clicking Run. Cleared after 1.8s so subsequent
   // clicks always re-flash. The persistent in-flight badge (below) is the
@@ -681,7 +683,7 @@ function CronjobsTable({
             color: "var(--red-text)",
           }}
         >
-          {runError}
+          {sendFailureNode(runError)}
         </p>
       )}
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -795,14 +797,17 @@ function CronjobsTable({
                         style={{ fontSize: 10, color: "var(--text-muted)" }}
                         data-cronjob-target={c.target.agentId}
                       >
-                        {t(
+                        {rich(
                           c.command !== undefined
                             ? "schedules.runsCommand"
                             : "schedules.messagesAgent",
                           {
-                            agent:
-                              agents.find((a) => a.id === c.target?.agentId)
-                                ?.name ?? c.target.agentId,
+                            agent: (
+                              <Data>
+                                {agents.find((a) => a.id === c.target?.agentId)
+                                  ?.name ?? c.target.agentId}
+                              </Data>
+                            ),
                           },
                         )}
                       </div>

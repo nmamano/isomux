@@ -15,6 +15,7 @@ const { CronjobRunView } = await import("./CronjobRunView.tsx");
 const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
+const { expectValueAsData } = await import("../test-support/data-value.ts");
 type CronjobRun = import("../../shared/types.ts").CronjobRun;
 type CronjobListWire = import("../../shared/types.ts").CronjobListWire;
 
@@ -108,6 +109,8 @@ it("a loud run shows the exit code and the output, and has no composer", async (
   expect(c.querySelector("[data-command-output]")?.textContent).toBe(OUTPUT);
   expect(c.querySelector("[data-command-exit]")?.textContent).toMatch(/\b3\b/);
   expect(c.querySelector("textarea") === null).toBe(true);
+  // The agent it messaged is a value in its line (task 419dcb70).
+  expectValueAsData(c, "Pat");
   view.unmount();
 });
 
@@ -117,5 +120,7 @@ it("a quiet run shows how it ended, no output block, and has no composer", async
   expect(c.querySelector("[data-command-exit]") !== null).toBe(true);
   expect(c.querySelector("[data-command-output]") === null).toBe(true);
   expect(c.querySelector("textarea") === null).toBe(true);
+  // The folder it ran in is a value in its line (task 419dcb70).
+  expectValueAsData(c, "/srv/repo");
   view.unmount();
 });
