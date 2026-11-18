@@ -104,7 +104,7 @@ it("keeps the open ask count on the phone menu's Inbox row after the Asks view s
     expect(headerCount(view)).toBe(1);
 
     await act(async () =>
-      fireEvent.click(view.getByRole("button", { name: "←" })),
+      fireEvent.click(view.container.querySelector("[data-page-close]")!),
     );
     expect(inboxOpen(view)).toBe(false);
     // Shown on the Asks view: nothing new, and one ask still waits.

@@ -63,6 +63,7 @@ import {
   SKILLS_LAYOUT_FALLBACK,
   type SkillsLayout,
 } from "../device-settings.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 // CodeMirror loads with the first skill opened for editing, not with the
 // office.
@@ -943,20 +944,13 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           style={{ display: "flex", flexDirection: "column", gap: 14 }}
         >
           {isMobile && (
-            <button
-              onClick={() => guarded(closeEntry)}
-              style={{
-                alignSelf: "flex-start",
-                background: "none",
-                border: "none",
-                color: "var(--accent-text)",
-                fontSize: 13,
-                padding: "2px 0",
-                cursor: "pointer",
-              }}
-            >
-              ← {t("skills.backToList")}
-            </button>
+            <div>
+              <PageNavButton
+                label={t("skills.backToList")}
+                onClick={() => guarded(closeEntry)}
+                data-skill-back-to-list=""
+              />
+            </div>
           )}
           <div
             style={{
@@ -1370,21 +1364,11 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           zIndex: 500,
         }}
       >
-        <button
+        <PageNavButton
+          label={t("common.close")}
           onClick={() => guarded(onClose)}
           data-page-close=""
-          aria-label={t("common.back")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-          }}
-        >
-          &larr;
-        </button>
+        />
         <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
           {t("common.skills")}
         </h1>

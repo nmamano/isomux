@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { PHONE_TOP } from "../safe-area.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 export function SidebarPage({
   title,
@@ -41,7 +42,7 @@ export function SidebarPage({
   // Data attributes the page's tests and styles find it by.
   rootAttrs?: Record<string, string>;
   detailAttrs?: Record<string, string>;
-  backAttrs?: Record<string, string>;
+  backAttrs?: { [attr: `data-${string}`]: string };
 }) {
   const { isMobile } = useAppState();
   const { t } = useI18n();
@@ -60,8 +61,7 @@ export function SidebarPage({
         color: "var(--text-primary)",
       }}
     >
-      {/* Header - same bar as the Tasks/Cronjobs pages, apart from the
-          labelled close control (see below). minHeight (not height) so the
+      {/* Header - same bar as the Tasks/Cronjobs pages. minHeight (not height) so the
           phone top padding (PHONE_TOP) extends the bar below the status bar
           instead of being squashed into the 44px box. */}
       <div
@@ -83,23 +83,11 @@ export function SidebarPage({
             on every device, as Nil asked (task d10f0dbd): on a phone the
             entry has its own back row to the list, so a bare arrow or "Back"
             here would read as one more "back to the list". */}
-        <button
+        <PageNavButton
+          label={t("common.close")}
           onClick={onClose}
           data-page-close=""
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            // A labelled control carries its own width; at the 18px of a
-            // bare arrow the words would outweigh the page title beside them.
-            fontSize: 13,
-            cursor: "pointer",
-            padding: "2px 8px",
-            whiteSpace: "nowrap",
-          }}
-        >
-          &larr; {t("common.close")}
-        </button>
+        />
         <h1
           style={{
             fontSize: 15,
@@ -163,22 +151,14 @@ export function SidebarPage({
             }}
           >
             {isMobile && (
-              <button
-                onClick={onBackToList}
-                data-page-back-to-list=""
-                {...backAttrs}
-                style={{
-                  alignSelf: "flex-start",
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  cursor: "pointer",
-                  padding: "10px 16px 4px",
-                }}
-              >
-                &larr; {backLabel}
-              </button>
+              <div style={{ padding: "10px 16px 4px" }}>
+                <PageNavButton
+                  label={backLabel}
+                  onClick={onBackToList}
+                  data-page-back-to-list=""
+                  {...backAttrs}
+                />
+              </div>
             )}
             {children}
           </div>

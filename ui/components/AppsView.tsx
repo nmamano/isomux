@@ -55,6 +55,7 @@ import {
   ownDisabledLook,
 } from "./dialog-styles.ts";
 import { PHONE_TOP } from "../safe-area.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -1466,21 +1467,11 @@ export function AppsView({
           zIndex: 500,
         }}
       >
-        <button
+        <PageNavButton
+          label={t("common.close")}
           onClick={onClose}
           data-page-close=""
-          aria-label={t("common.back")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-          }}
-        >
-          ←
-        </button>
+        />
         <div style={{ fontSize: 13, fontWeight: 600 }}>{t("common.apps")}</div>
         {/* Room for the count from the start, so it does not grow in. */}
         <div

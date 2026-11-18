@@ -66,7 +66,7 @@ it("opens the Asks view with no ask open, and closes to what was under the Inbox
   expect(window.location.pathname).toBe("/inbox/asks");
   expect(selectedTab(view)).toBe("asks");
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   expect(window.location.pathname).toBe("/");
   expect(inboxOpen(view)).toBe(false);
@@ -162,7 +162,9 @@ it("opens the Asks view with no pin for an old page link the office does not kno
 const badgeOf = (view: View) =>
   inboxButton(view)!.querySelector(".nav-action-badge")?.textContent ?? null;
 const closeInbox = (view: View) =>
-  act(async () => fireEvent.click(view.getByRole("button", { name: "←" })));
+  act(async () =>
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
+  );
 const emitSelf = (inboxSeen: string[]) =>
   act(async () =>
     shimEmit({

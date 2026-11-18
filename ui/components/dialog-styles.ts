@@ -75,6 +75,24 @@ export const filledSecondaryBtn: Readonly<CSSProperties> = Object.freeze({
 
 export const dialogCancelBtn = filledSecondaryBtn;
 
+// The control that leaves a page (PageNavButton): Close in a page header, a
+// phone's back-to-list row. The secondary fill, sized for a 44 px header.
+export const pageNavBtn: Readonly<CSSProperties> = Object.freeze({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  padding: "4px 10px",
+  borderRadius: 6,
+  border: secondaryBorder,
+  background: secondaryFill,
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  lineHeight: "16px",
+  whiteSpace: "nowrap",
+  flexShrink: 0,
+  cursor: "pointer",
+});
+
 // A small icon button on a chat composer's 20 px input line (Attach files):
 // a filled 24 px box whose negative margin keeps the line's height.
 export const composerToolBtn: Readonly<CSSProperties> = Object.freeze({

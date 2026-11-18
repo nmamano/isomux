@@ -159,7 +159,7 @@ it("closes the panel when its agent leaves, keeps it closed when the agent comes
   await clickName(view, "a1");
   expect(chatPanel(view)).not.toBeNull();
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   expect(inboxOpen(view)).toBe(false);
   await act(async () => fireEvent.click(inboxButton(view)!));

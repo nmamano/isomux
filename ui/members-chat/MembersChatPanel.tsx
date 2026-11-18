@@ -65,6 +65,7 @@ import {
   secondaryFill,
 } from "../components/dialog-styles.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
+import { PageNavButton } from "../components/PageNavButton.tsx";
 
 // The char counter appears once a draft is this close to the cap.
 const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
@@ -611,22 +612,11 @@ export function MembersChatPanel({
       >
         {!isMobile && showSidebarButton}
         {onClose && (
-          <button
-            type="button"
-            data-human-chat-back=""
+          <PageNavButton
+            label={t("common.back")}
             onClick={onClose}
-            style={{
-              minHeight: isMobile ? 44 : 28,
-              padding: "0 12px",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              background: "var(--bg-code)",
-              color: "var(--text-primary)",
-              cursor: "pointer",
-            }}
-          >
-            {t("common.back")}
-          </button>
+            data-human-chat-back=""
+          />
         )}
         {isMobile && showSidebarButton}
         {switcher ??

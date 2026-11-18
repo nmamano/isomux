@@ -185,7 +185,7 @@ describe("the settings page", () => {
     const view = render(page("ca"));
 
     // The shell: header and every sidebar label of an owner.
-    expect(view.queryByText(SETTINGS.ca)).not.toBeNull();
+    expect(view.queryByRole("heading", { name: SETTINGS.ca })).not.toBeNull();
     for (const label of [
       CA.office,
       CA.access,
@@ -284,8 +284,8 @@ describe("the settings page", () => {
 
     // Spanish: the shell and the open pane follow, and a fresh pane reads it.
     view.rerender(page("es"));
-    expect(view.queryByText(SETTINGS.es)).not.toBeNull();
-    expect(view.queryByText(SETTINGS.ca)).toBeNull();
+    expect(view.queryByRole("heading", { name: SETTINGS.es })).not.toBeNull();
+    expect(view.queryByRole("heading", { name: SETTINGS.ca })).toBeNull();
     expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
     expect(paragraphs(view)).not.toEqual(caParagraphs);
     // Back to the Settings list, in Spanish, for the next pane.
@@ -301,8 +301,8 @@ describe("the settings page", () => {
 
     // English for one who never chose.
     view.rerender(page(null));
-    expect(view.queryByText(SETTINGS.en)).not.toBeNull();
-    expect(view.queryByText(SETTINGS.es)).toBeNull();
+    expect(view.queryByRole("heading", { name: SETTINGS.en })).not.toBeNull();
+    expect(view.queryByRole("heading", { name: SETTINGS.es })).toBeNull();
     expect(heading(view, STORAGE_TITLE.en, "H3")).toBe(true);
     await settle();
   });

@@ -79,7 +79,7 @@ describe("a link straight to a page", () => {
     const view = mountAt("/tasks");
     const before = window.history.length;
     await act(async () => {
-      view.getByText("←").click();
+      view.container.querySelector<HTMLElement>("[data-page-close]")!.click();
     });
 
     expect(taskPageOpen(view)).toBe(false);
@@ -105,7 +105,7 @@ describe("an entry this app did not push", () => {
     expect(taskPageOpen(view)).toBe(true);
 
     await act(async () => {
-      view.getByText("←").click();
+      view.container.querySelector<HTMLElement>("[data-page-close]")!.click();
     });
     // Marking the popped entry as ours would make Close call back() from the
     // bottom of the stack, which does nothing and strands the reader.

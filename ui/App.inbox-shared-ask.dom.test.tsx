@@ -102,7 +102,7 @@ it("an Inbox answer in its Undo time to an ask another member answered first: th
   expect(notices(view)).toEqual(["pat"]);
   // Leaving the Inbox sends every held answer; this one is gone.
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   expect(posts).toEqual([]);
 });

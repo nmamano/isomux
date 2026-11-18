@@ -18,6 +18,7 @@ import { SidebarGroupRows, type SidebarRow } from "./SidebarGroups.tsx";
 import { SidebarPage } from "./SidebarPage.tsx";
 import { UnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 /** What an item's editor hands its parent. */
 export interface SettingsItemView<P extends string = string> {
@@ -130,21 +131,13 @@ export function SettingsItemPage<P extends string>({
       listLabel={title}
       list={
         <>
-          <button
-            data-settings-back=""
-            onClick={onBackToSettings}
-            style={{
-              alignSelf: "flex-start",
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 13,
-              cursor: "pointer",
-              padding: "0 14px 10px",
-            }}
-          >
-            &larr; {t("common.settings")}
-          </button>
+          <div style={{ padding: "0 14px 10px" }}>
+            <PageNavButton
+              label={t("common.settings")}
+              onClick={onBackToSettings}
+              data-settings-back=""
+            />
+          </div>
           <SidebarGroupRows
             group={{ id: "item", rows: partRows(view) }}
             first

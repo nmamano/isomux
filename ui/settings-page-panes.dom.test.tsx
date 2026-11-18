@@ -65,10 +65,8 @@ describe("Settings report panes", () => {
             region.lastElementChild) as HTMLElement;
           expect(section.style.paddingBottom).toBe("24px");
           expect(section.getAttribute("style")).toContain("24px");
-          const back = view
-            .getAllByRole("button")
-            .find((el) => el.textContent?.trim() === "← Settings");
-          expect(back).toBeDefined();
+          const back = view.container.querySelector("[data-page-back-to-list]");
+          expect(back).not.toBeNull();
           fireEvent.click(back!);
         }
       }

@@ -45,6 +45,7 @@ import {
   ruleEvents,
   webhookNeedsAttention,
 } from "../webhook-helpers.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 const MONO = "'JetBrains Mono',monospace";
 
@@ -223,14 +224,11 @@ export function WebhooksView({
           padding: isMobile ? "10px 12px 40px" : "16px 24px 48px",
         }}
       >
-        <button
-          type="button"
+        <PageNavButton
+          label={t("webhooks.back")}
           onClick={onCloseHook}
           data-webhook-back=""
-          style={linkBtn}
-        >
-          <BackArrow /> {t("webhooks.back")}
-        </button>
+        />
         {hook ? (
           <WebhookDetail
             key={hook.id}
@@ -1413,25 +1411,6 @@ function EnabledDot({ enabled }: { enabled: boolean }) {
         boxShadow: enabled ? "0 0 6px var(--green)" : "none",
       }}
     />
-  );
-}
-
-function BackArrow() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="1em"
-      height="1em"
-      viewBox="0 0 12 12"
-      style={{ display: "inline-block", verticalAlign: "-0.1em" }}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M10.5 6 H1.5 M5 2.5 L1.5 6 L5 9.5" />
-    </svg>
   );
 }
 

@@ -71,7 +71,7 @@ it("shows the Inbox's unseen count in the tab title and on the app icon, not the
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(inboxOpen(view)).toBe(true);
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   await act(async () => {});
   expect(inboxOpen(view)).toBe(false);

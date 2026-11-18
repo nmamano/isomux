@@ -100,7 +100,7 @@ it("Dismiss closes an office page", async () => {
   await act(async () => fireEvent.click(dismiss!));
   // The Inbox holds an answer for its Undo time; leaving the Inbox sends it.
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   await act(async () => {});
   expect(posts).toEqual(["/api/asks/q1/dismiss"]);

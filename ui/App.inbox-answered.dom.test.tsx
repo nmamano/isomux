@@ -97,7 +97,7 @@ it("leaves the tab count at once, comes back on Undo, and leaves the entry's cou
   // stays out of every count while the POST is in flight.
   await reply(view, "q1");
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   expect(posts).toEqual(["/api/asks/q1/reply"]);
   expect(titleCount(view)).toBe(1);

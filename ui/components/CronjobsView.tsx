@@ -40,6 +40,7 @@ import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 import { useCan } from "../hooks/useCan.ts";
 import { PHONE_TOP } from "../safe-area.ts";
 import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 // The two ways to start work, then the history of both (Nil, 2026-10-06).
 type Tab = "cronjobs" | "webhooks" | "runs";
@@ -357,20 +358,22 @@ export function CronjobsView({
           zIndex: 500,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
+        {/* On a phone the room filter wraps to a second line rather than
+            being cut. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexWrap: isMobile ? "wrap" : undefined,
+            gap: 6,
+            paddingBlock: isMobile ? 6 : undefined,
+          }}
+        >
+          <PageNavButton
+            label={t("common.close")}
             onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: "2px 8px",
-            }}
-          >
-            ←
-          </button>
+            data-page-close=""
+          />
           <div
             style={{
               display: "flex",

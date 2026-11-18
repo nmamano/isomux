@@ -66,7 +66,7 @@ it("opens the Inbox from an agent's chat on the Asks view, and the close returns
 
   // The close leaves the Inbox for the chat it was opened from.
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
+    fireEvent.click(view.container.querySelector("[data-page-close]")!),
   );
   expectScoutChat(view);
 });

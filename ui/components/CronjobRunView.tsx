@@ -30,6 +30,7 @@ import { isTouchPrimary } from "../touch-primary.ts";
 import { CommandRunDetails } from "./CommandRunDetails.tsx";
 import { PHONE_TOP } from "../safe-area.ts";
 import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
+import { PageNavButton } from "./PageNavButton.tsx";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -414,6 +415,7 @@ export function CronjobRunView({
         style={{
           display: "flex",
           alignItems: "center",
+          gap: 10,
           padding: isMobile ? "0 8px" : "0 20px",
           paddingTop: isMobile ? PHONE_TOP : undefined,
           minHeight: 48,
@@ -422,20 +424,12 @@ export function CronjobRunView({
           flexShrink: 0,
         }}
       >
-        <button
+        <PageNavButton
+          label={t("common.close")}
           onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-            flexShrink: 0,
-          }}
-        >
-          ←
-        </button>
+          data-page-close=""
+          data-cronjob-run-close=""
+        />
         {run ? (
           isMobile ? (
             <div

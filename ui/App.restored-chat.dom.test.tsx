@@ -142,7 +142,7 @@ describe("a cold link over a restored chat", () => {
     // Close the page: it sits over a chat, so this drops the page and lands on
     // the chat - and the entry, which we never pushed, stays unpushed.
     await act(async () => {
-      view.getByText("←").click();
+      view.container.querySelector<HTMLElement>("[data-page-close]")!.click();
     });
     expect(taskPageOpen(view)).toBe(false);
     expect(view.getByText("Tester")).toBeDefined();
