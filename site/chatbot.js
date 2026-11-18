@@ -142,10 +142,18 @@
   const container = document.getElementById("chat-widget");
 
   function formatText(text) {
-    // Extract code first so other transforms don't mangle its contents.
-    // Restore at the end with HTML-escaped bodies.
+    // The answer is model output: escape all of it, and link only http(s)
+    // URLs. Code and finished links wait in \x00 placeholders, so no later
+    // step reaches into them; a URL never takes in a placeholder, and a NUL
+    // in the answer is removed so it cannot read as one.
     const blocks = [];
     const inlines = [];
+    const links = [];
+    const emph = (s) =>
+      s
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    text = text.replace(/\x00/g, "");
     text = text.replace(
       /```[^\n`]*\n?([\s\S]*?)```/g,
       (_, code) => `\x00B${blocks.push(code) - 1}\x00`,
@@ -154,17 +162,21 @@
       /`([^`\n]+)`/g,
       (_, code) => `\x00I${inlines.push(code) - 1}\x00`,
     );
-    text = text
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-      .replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener">$1</a>',
-      )
-      .replace(
-        /(^|[^"'>])(https?:\/\/[^\s<)]+)/g,
-        '$1<a href="$2" target="_blank" rel="noopener">$2</a>',
-      );
+    text = escHtml(text).replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)\x00]+)\)/g,
+      (_, label, url) =>
+        `\x00L${
+          links.push(
+            `<a href="${url}" target="_blank" rel="noopener">${emph(label)}</a>`,
+          ) - 1
+        }\x00`,
+    );
+    // A bare URL stops at an escaped quote or angle bracket.
+    text = emph(text).replace(
+      /(^|[^"'>])(https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<)\x00])+)/g,
+      '$1<a href="$2" target="_blank" rel="noopener">$2</a>',
+    );
+    text = text.replace(/\x00L(\d+)\x00/g, (_, i) => links[+i]);
     text = text.replace(
       /\x00B(\d+)\x00/g,
       (_, i) => `<pre><code>${esc(blocks[+i].replace(/\n$/, ""))}</code></pre>`,
@@ -227,6 +239,16 @@
     const d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
+  }
+
+  // Safe in text and in a quoted attribute.
+  function escHtml(s) {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   // Cut to the per-message cap, never between the halves of a surrogate pair.

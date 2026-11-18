@@ -275,3 +275,172 @@ describe("the chat widget's request size", () => {
     ]);
   });
 });
+
+// The widget renders the model's answer as markdown into innerHTML. An answer
+// is untrusted (a prompt can make the model echo any text), so it must never
+// add an element or attribute of its own, nor a link that is not http(s).
+
+/** Load the widget, send one question and render `answer` as the reply. */
+async function renderAnswer(answer: string): Promise<HTMLElement> {
+  document.body.innerHTML = '<div id="chat-widget"></div>';
+  let fetched = false;
+  globalThis.fetch = (async () => {
+    const body = sse({ text: answer });
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(body));
+          controller.close();
+          fetched = true;
+        },
+      }),
+    );
+  }) as unknown as typeof fetch;
+  new Function(CHATBOT)();
+  const w = window as ChatWindow;
+  w.__chatOpen();
+  w.__chatSend("question");
+  for (let tick = 0; tick < 50; tick++)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(fetched).toBe(true);
+  const bots = document.querySelectorAll<HTMLElement>(".chat-msg-bot");
+  expect(bots.length).toBe(1);
+  return bots[0];
+}
+
+/** Every element under `root`, with its tag and attribute names. */
+function shape(root: HTMLElement): string[] {
+  return [...root.querySelectorAll("*")].map(
+    (el) =>
+      `${el.tagName.toLowerCase()}[${[...el.attributes].map((a) => a.name).join(",")}]`,
+  );
+}
+
+const LINK = "a[href,target,rel]";
+
+describe("the chat widget's answer formatting", () => {
+  it("shows HTML in an answer as text, not as elements", async () => {
+    const answer =
+      'Hi <img src=x onerror="alert(1)"> and <script>alert(2)</script> <b onclick=x>b</b>';
+    const msg = await renderAnswer(answer);
+    expect(shape(msg)).toEqual([]);
+    expect(msg.textContent).toBe(answer);
+  });
+
+  it("links only http and https URLs", async () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "data:text/html,x",
+      "vbscript:x",
+      "//evil.example/x",
+    ]) {
+      const answer = `[click](${url})`;
+      const msg = await renderAnswer(answer);
+      expect(shape(msg)).toEqual([]);
+      expect(msg.textContent).toBe(answer);
+    }
+    const msg = await renderAnswer("[a](http://a.example/)");
+    expect(shape(msg)).toEqual([LINK]);
+    expect(msg.querySelector("a")!.getAttribute("href")).toBe(
+      "http://a.example/",
+    );
+  });
+
+  it("does not let a link URL or text add an attribute or element", async () => {
+    const msg = await renderAnswer(
+      `[x](https://a.example/"onmouseover="alert(1)) [y'](https://b.example/'x) [<i>z</i>](https://c.example/<b>)`,
+    );
+    expect(shape(msg)).toEqual([LINK, LINK, LINK]);
+    const links = [...msg.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      'https://a.example/"onmouseover="alert(1',
+      "https://b.example/'x",
+      "https://c.example/<b>",
+    ]);
+    expect(links.map((a) => a.textContent)).toEqual(["x", "y'", "<i>z</i>"]);
+    // A URL inside a link's URL is not linked again inside the href.
+    const nested = "https://a.example/?u=https://b.example/x/onmouseover=a=1//";
+    const inner = await renderAnswer(`[t](${nested})`);
+    expect(shape(inner)).toEqual([LINK]);
+    expect(inner.querySelector("a")!.getAttribute("href")).toBe(nested);
+    // Inline code right after a URL stays out of the href, as code.
+    for (const answer of [
+      'https://a.example`"x=1`',
+      '[t](https://a.example`"x=1`)',
+    ]) {
+      const code = await renderAnswer(answer);
+      expect(shape(code)).toEqual([LINK, "code[]"]);
+      expect(code.querySelector("a")!.getAttribute("href")).toBe(
+        "https://a.example",
+      );
+      expect(code.querySelector("code")!.textContent).toBe('"x=1');
+    }
+  });
+
+  it("keeps a quote or bracket after a bare URL out of the link", async () => {
+    const msg = await renderAnswer(
+      `see "https://a.example/x" and 'https://b.example/y' or <https://c.example/z>`,
+    );
+    const links = [...msg.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "https://a.example/x",
+      "https://b.example/y",
+      "https://c.example/z",
+    ]);
+    expect(links.map((a) => a.textContent)).toEqual([
+      "https://a.example/x",
+      "https://b.example/y",
+      "https://c.example/z",
+    ]);
+    expect(msg.textContent).toBe(
+      `see "https://a.example/x" and 'https://b.example/y' or <https://c.example/z>`,
+    );
+  });
+
+  it("still renders links, bold, italic and code", async () => {
+    const msg = await renderAnswer(
+      [
+        "[docs](https://a.example/?x=1&y=2) and https://b.example/p?q=1&r=2",
+        "**bold** and *it*, `a<b>&c`",
+        "```ts",
+        "const x = '<b>' && 1;",
+        "```",
+      ].join("\n"),
+    );
+    expect(shape(msg)).toEqual([
+      LINK,
+      LINK,
+      "strong[]",
+      "em[]",
+      "code[]",
+      "pre[]",
+      "code[]",
+    ]);
+    const links = [...msg.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "https://a.example/?x=1&y=2",
+      "https://b.example/p?q=1&r=2",
+    ]);
+    expect(links.map((a) => a.textContent)).toEqual([
+      "docs",
+      "https://b.example/p?q=1&r=2",
+    ]);
+    expect(
+      links.every((a) => a.target === "_blank" && a.rel === "noopener"),
+    ).toBe(true);
+    expect(msg.querySelector("strong")!.textContent).toBe("bold");
+    expect(msg.querySelector("em")!.textContent).toBe("it");
+    expect(msg.querySelector(":scope > code")!.textContent).toBe("a<b>&c");
+    expect(msg.querySelector("pre code")!.textContent).toBe(
+      "const x = '<b>' && 1;",
+    );
+  });
+
+  it("renders an answer that contains the code placeholder marker", async () => {
+    const answer = "odd \u0000B9\u0000 and \u0000I3\u0000 text";
+    const msg = await renderAnswer(answer);
+    expect(shape(msg)).toEqual([]);
+    expect(msg.textContent).toBe(answer.replaceAll("\u0000", ""));
+  });
+});
