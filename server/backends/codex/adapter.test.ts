@@ -1018,6 +1018,36 @@ describe("CodexSession sandbox in a container", () => {
 // read refuses the start. The live proof of the tools the model then sees is
 // server/backends/codex-access.live.test.ts.
 // ---------------------------------------------------------------------------
+// Every feature the thread below Standard turns off (codex/access.ts).
+const FEATURES_OFF = Object.fromEntries(
+  [
+    "shell_tool",
+    "unified_exec",
+    "view_image",
+    "goals",
+    "multi_agent",
+    "multi_agent_v2",
+    "sleep_tool",
+    "apps",
+    "plugins",
+    "remote_plugin",
+    "browser_use",
+    "browser_use_external",
+    "computer_use",
+    "in_app_browser",
+    "image_generation",
+    "tool_suggest",
+    "skill_search",
+    "skill_mcp_dependency_install",
+    "memories",
+    "request_permissions_tool",
+    "code_mode",
+    "code_mode_only",
+    "standalone_web_search",
+    "agent_message_board_mcp",
+  ].map((key) => [key, false]),
+);
+
 describe("Codex below Standard", () => {
   const READ_ONLY_NO_NETWORK = { type: "readOnly", networkAccess: false };
   const OFFICE_MCP = {
@@ -1028,36 +1058,11 @@ describe("Codex below Standard", () => {
   const USER_SKILL = "/home/m/.codex/skills/planted/SKILL.md";
   const SYSTEM_SKILL = "/home/m/.codex/skills/.system/imagegen/SKILL.md";
   const BASE = {
-    features: Object.fromEntries(
-      [
-        "shell_tool",
-        "unified_exec",
-        "view_image",
-        "goals",
-        "multi_agent",
-        "multi_agent_v2",
-        "sleep_tool",
-        "apps",
-        "plugins",
-        "remote_plugin",
-        "browser_use",
-        "browser_use_external",
-        "computer_use",
-        "in_app_browser",
-        "image_generation",
-        "tool_suggest",
-        "skill_search",
-        "skill_mcp_dependency_install",
-        "memories",
-        "request_permissions_tool",
-        "code_mode",
-        "code_mode_only",
-        "standalone_web_search",
-      ].map((key) => [key, false]),
-    ),
+    features: FEATURES_OFF,
     web_search: "disabled",
     project_doc_max_bytes: 0,
     memories: { use_memories: false, generate_memories: false },
+    agents: { enabled: false },
   };
 
   const made: string[] = [];
@@ -1926,10 +1931,8 @@ describe("Codex one-shot prompt", () => {
       });
       // No server is added, the office one included.
       expect(Object.keys(config.mcp_servers as object)).toEqual(["planted"]);
-      expect(
-        Object.values(config.features as object).every((v) => v === false),
-      ).toBe(true);
-      expect(Object.keys(config.features as object)).toHaveLength(23);
+      expect(config.features).toEqual(FEATURES_OFF);
+      expect(config.agents).toEqual({ enabled: false });
       expect(
         (f.requests[3].params as Record<string, unknown>).sandboxPolicy,
       ).toEqual({ type: "readOnly", networkAccess: false });
@@ -6286,6 +6289,8 @@ describe("CodexSession provider refusals", () => {
       "misalignmentPolicyViolation",
       // Codex 0.165+ sends a provider 404 for the model as its own kind.
       "modelNotFound",
+      // Codex 0.169+: a provider's inference hook denied the request.
+      "inferenceHookDenied",
       { httpConnectionFailed: { httpStatusCode: 400 } },
       FORBIDDEN,
       { httpConnectionFailed: { httpStatusCode: 499 } },

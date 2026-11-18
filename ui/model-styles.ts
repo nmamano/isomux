@@ -26,6 +26,18 @@ export interface ModelStyle {
   deskProp?: DeskProp;
 }
 
+// The GPT Sol and Astra lines: each model of a line takes its line's style.
+const SOL_STYLE: ModelStyle = {
+  border: "rgba(80,220,150,0.95)",
+  bg: "rgba(41,203,122,0.40)",
+  deskProp: "book",
+};
+const ASTRA_STYLE: ModelStyle = {
+  border: "rgba(60,230,190,0.95)",
+  bg: "rgba(26,201,159,0.40)",
+  deskProp: "book",
+};
+
 // Explicit entries for every known model. Colors are seeded verbatim from the
 // former MODEL_TINT tables (previously duplicated in DeskUnit.tsx and
 // LogView.tsx). Every bg holds --text-primary at 4.5:1 or more over the floor
@@ -33,7 +45,7 @@ export interface ModelStyle {
 // hue) to get there.
 //
 // Desk props encode capability TIER, not identity: frontier
-// models get the book (opus, fable, gpt-6-astra, gpt-5.6-sol), small/fast
+// models get the book (opus, fable, the GPT Astra and Sol models), small/fast
 // models get the
 // crayons (haiku, gpt-5.6-luna), mid models get a bare desk.
 // At-a-glance encoding: color hue ~ provider/family, desk prop ~ tier.
@@ -55,16 +67,11 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
     deskProp: "crayons",
   },
   "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(88,212,137,0.36)" },
-  "gpt-5.6-sol": {
-    border: "rgba(80,220,150,0.95)",
-    bg: "rgba(41,203,122,0.40)",
-    deskProp: "book",
-  },
-  "gpt-6-astra": {
-    border: "rgba(60,230,190,0.95)",
-    bg: "rgba(26,201,159,0.40)",
-    deskProp: "book",
-  },
+  "gpt-5.6-sol": SOL_STYLE,
+  "gpt-6-astra": ASTRA_STYLE,
+  "gpt-6.1-sol": SOL_STYLE,
+  "gpt-6.2-sol": SOL_STYLE,
+  "gpt-6.2-astra": ASTRA_STYLE,
   "gpt-5.6-terra": {
     border: "rgba(80,200,140,0.80)",
     bg: "rgba(80,200,140,0.30)",

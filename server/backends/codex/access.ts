@@ -7,7 +7,7 @@
 // (server/folder-files.ts) and the safety hook confined to the folder
 // (confine-env.ts); web adds Codex's hosted web search. Measured on codex
 // 0.164.0 with gpt-5.5 (tasks e77304b1, 25015e41), again on 0.166.0 (task
-// 19d0dead); another version or model
+// 19d0dead) and 0.170.0 (task 5d6e04da); another version or model
 // runs these stops only after a new probe
 // (server/backends/codex-access.live.test.ts).
 
@@ -25,11 +25,14 @@ import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 
 // The Codex version the probe ran on. getCodexPinnedVersion() must equal it.
-export const CODEX_BELOW_STANDARD_PROVEN_VERSION = "0.166.0";
+export const CODEX_BELOW_STANDARD_PROVEN_VERSION = "0.170.0";
 
-// Every feature of Codex 0.166.0 that adds a tool, a tool source or a way
-// out. The ones from apps on add a tool only under a ChatGPT sign-in, which
-// the live test cannot see, so they are named here.
+// Every feature of Codex 0.170.0 that adds a tool, a tool source or a way
+// out. The ones from apps on add a tool only under a ChatGPT sign-in, and
+// agent_message_board_mcp only under a host, which the live test cannot see,
+// so they are named here. Codex 0.168 marks multi_agent deprecated, but on
+// 0.170.0 features.multi_agent=false is still what hides the subagent tools:
+// agents.enabled=false alone does not beat a member's multi_agent=true.
 const FEATURES_OFF = [
   "shell_tool",
   "unified_exec",
@@ -54,6 +57,7 @@ const FEATURES_OFF = [
   "code_mode",
   "code_mode_only",
   "standalone_web_search",
+  "agent_message_board_mcp",
 ];
 
 // The thread config keys Isomux sets below standard. Each one is set
@@ -61,7 +65,8 @@ const FEATURES_OFF = [
 // key. skills.include_instructions hides the skill list on every turn, a
 // skill added after the start included. No sandbox key: at chat and office
 // the thread is read-only, and codexStopThreadConfig adds the
-// workspace-write keys at folder and web.
+// workspace-write keys at folder and web. agents.enabled is Codex's own
+// subagent switch since 0.168, set next to features.multi_agent.
 export const CODEX_BELOW_STANDARD_CONFIG: Readonly<Record<string, unknown>> = {
   ...Object.fromEntries(FEATURES_OFF.map((key) => [`features.${key}`, false])),
   web_search: "disabled",
@@ -69,6 +74,7 @@ export const CODEX_BELOW_STANDARD_CONFIG: Readonly<Record<string, unknown>> = {
   "skills.include_instructions": false,
   "memories.use_memories": false,
   "memories.generate_memories": false,
+  "agents.enabled": false,
 };
 
 // Whether this server's Codex may run `access`: at a stop below standard,

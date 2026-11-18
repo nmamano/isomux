@@ -7,6 +7,14 @@ import type { ThreadSourceKind } from "./ThreadSourceKind";
 
 export type ThreadSearchParams = {
 /**
+ * Include persistent threads attached to a parent in search results.
+ */
+includeAttachedThreads?: boolean,
+/**
+ * Show local history visible to the current ChatGPT account. Defaults to false.
+ */
+currentAccountOnly?: boolean,
+/**
  * Opaque pagination cursor returned by a previous call.
  */
 cursor?: string | null,

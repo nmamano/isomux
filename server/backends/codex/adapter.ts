@@ -219,6 +219,9 @@ const CODEX_REFUSAL_KINDS = new Set([
   // Codex 0.165 stops retrying and keeps the provider's words (0.164 sent
   // the 4xx as an HTTP variant, a refusal by the rule below).
   "modelNotFound",
+  // Codex 0.169: a provider's workspace inference hook denied the request.
+  // Codex does not retry it and keeps the provider's words.
+  "inferenceHookDenied",
   "cyberPolicy",
   // Codex 0.160 (codex-rs/protocol/src/error.rs); not in the generated
   // CodexErrorInfo yet.
@@ -3510,6 +3513,10 @@ export class CodexSession implements BackendSession {
     if (subagent && !SUBAGENT_VISIBLE_ITEMS.has(item?.type as string)) return;
     switch (item?.type) {
       case "agentMessage": {
+        // Codex 0.170 adds `moderation` (show, hide or block) from the
+        // provider's ChatGPT moderation metadata, for how ChatGPT presents a
+        // recovered answer. Codex's own TUI ignores it and shows the text, and
+        // Isomux does the same.
         const text = item.text as string | undefined;
         if (text) this.enqueue({ kind: "assistant_text", text });
         break;

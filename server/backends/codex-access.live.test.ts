@@ -260,6 +260,7 @@ beforeAll(async () => {
     "memories",
     "request_permissions_tool",
     "standalone_web_search",
+    "agent_message_board_mcp",
   ];
   writeFileSync(
     join(home, "config.toml"),
@@ -281,6 +282,9 @@ beforeAll(async () => {
       "generate_memories = true",
       "[sandbox_workspace_write]",
       "network_access = true",
+      // Codex's subagent switch since 0.168, next to features.multi_agent.
+      "[agents]",
+      "enabled = true",
       "[features]",
       ...features.map((key) => `${key} = true`),
       "[mcp_servers.planted-stdio]",
@@ -620,6 +624,8 @@ describe.skipIf(!LIVE)(`Codex ${MODEL} below Standard (live)`, () => {
     // Codex may send a side request first: look at every request.
     const tools = [...new Set(run.requests.flatMap(toolsOf))];
     expect(tools.length).toBeGreaterThan(2);
+    // The planted subagent switches reach Codex.
+    expect(tools).toContain("collaboration__spawn_agent");
     const text = JSON.stringify(run.requests);
     expect(text).toContain(SKILL);
     expect(text).toContain(PROJECT_DOC);

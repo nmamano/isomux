@@ -40,7 +40,7 @@ import { STATE_ROOT } from "../config.ts";
 import { listAgentSessions } from "../persistence.ts";
 import { getUserByName } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
-import { MODEL_FAMILIES } from "../../shared/types.ts";
+import { CODEX_MODELS, MODEL_FAMILIES } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -215,7 +215,8 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(claude!.modelFamily).toBe("opus");
     expect(claude!.permissionMode).toBe("bypassPermissions");
     expect(codex!.agentType).toBe("codex");
-    expect(codex!.modelFamily).toBe("gpt-6.1-sol");
+    // Discovery fails in the harness, so the static default applies.
+    expect(codex!.modelFamily).toBe(CODEX_MODELS[0].value);
     expect(codex!.permissionMode).toBe("never");
     expect(codex!.codexSandbox).toBe("danger-full-access");
     expect(opencode!.agentType).toBe("opencode");
@@ -252,7 +253,11 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
         listCodexModels: async ({ userId }) => {
           calls.push(userId);
           return [
-            { id: "gpt-6.1-sol", label: "Static", supportedEfforts: [] },
+            {
+              id: CODEX_MODELS[0].value,
+              label: "Static",
+              supportedEfforts: [],
+            },
             {
               id: "gpt-login-default",
               label: "Login default",

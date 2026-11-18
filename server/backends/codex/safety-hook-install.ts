@@ -50,7 +50,7 @@ export const MEMBER_HOOK_REFUSAL =
   "Codex not started: Isomux could not set up its safety check for this agent. Tell the office owner.";
 const HOOK_REFUSAL =
   "Codex not started: the installed safety hook differs from this checkout's source, and only the office server installs it.";
-export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.166.0";
+export const CODEX_HOOK_TRUST_HASH_PROVEN_VERSION = "0.170.0";
 
 export interface CodexSafetyHookIdentity {
   sourcePath: string;
