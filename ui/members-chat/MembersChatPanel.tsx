@@ -170,7 +170,8 @@ export function MembersChatPanel({
   // Which chat: Members chat (the default) or a 1:1 chat.
   chat?: HumanChatKey;
   style?: React.CSSProperties;
-  // The header's Back.
+  // The header's Back. It returns to the office (App's goHome), and its
+  // label names the office, as page Close does over the office.
   onClose?: () => void;
   // The collapsed desktop sidebar's open button, or the phone's drawer
   // button.
@@ -615,7 +616,7 @@ export function MembersChatPanel({
         {!isMobile && showSidebarButton}
         {onClose && (
           <PageNavButton
-            label={t("common.back")}
+            label={t("sidebar.office")}
             onClick={onClose}
             data-human-chat-back=""
           />

@@ -3457,7 +3457,6 @@ Coses que pots fer per ell:
     "Les execucions omeses no tenen cap sessió per reprendre.",
   "schedules.noSession":
     "Aquesta execució no es pot reprendre (no es va establir cap sessió).",
-  "common.back": "Enrere",
   "apps.openApp": "Obre l'app",
   "apps.openOnNetwork": "Obre en aquesta xarxa",
   "apps.empty": "Encara no hi ha apps.",

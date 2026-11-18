@@ -3084,7 +3084,6 @@ export const zh: Catalog = {
   "schedules.waitToFollowUp": "正在运行，请等待完成后再发送后续消息。",
   "schedules.skippedNoSession": "已跳过的运行没有可继续的会话。",
   "schedules.noSession": "无法继续本次运行（未建立会话）。",
-  "common.back": "返回",
   "apps.openApp": "打开应用",
   "apps.openOnNetwork": "在此网络上打开",
   "apps.empty": "还没有应用。",

@@ -62,6 +62,8 @@ const humanChat = (view: View) =>
   view.container
     .querySelector("[data-human-chat]")
     ?.getAttribute("data-human-chat") ?? null;
+const backLabel = (view: View) =>
+  view.container.querySelector("[data-human-chat-back]")?.textContent ?? null;
 const switcherOptions = (view: View) =>
   [...view.baseElement.querySelectorAll("[data-chat-switcher-option]")].map(
     (o) => o.getAttribute("data-chat-switcher-option"),
@@ -110,7 +112,7 @@ it("on a phone, the lobby's chat button counts Members chat and every 1:1 chat",
   ).toBe(en.tn("membersChat.unreadCount", 3));
 });
 
-it("on a phone, the chat button opens Members chat full screen, the title switches to a 1:1 chat, and Back returns to the lobby", async () => {
+it("on a phone, the chat button opens Members chat full screen, the title switches to a 1:1 chat, and Back names the office and returns to the lobby", async () => {
   seedOffice();
   const view = await phone();
   expect(fab(view)).not.toBeNull();
@@ -121,6 +123,8 @@ it("on a phone, the chat button opens Members chat full screen, the title switch
   // Full screen: no dialog over the lobby.
   expect(view.baseElement.querySelector('[role="dialog"]')).toBeNull();
   expect(fab(view)).toBeNull();
+  // Back names the screen it goes back to, as a page's Close does.
+  expect(backLabel(view)).toBe(en.t("sidebar.office"));
 
   await click(view.container.querySelector("[data-chat-switcher]"));
   expect(switcherOptions(view)).toEqual(["members", "u3", "u4"]);
@@ -133,6 +137,7 @@ it("on a phone, the chat button opens Members chat full screen, the title switch
       (r) => r.method === "GET" && r.path.startsWith("/api/users/u3/chat"),
     ).length,
   ).toBe(1);
+  expect(backLabel(view)).toBe(en.t("sidebar.office"));
 
   await click(view.container.querySelector("[data-human-chat-back]"));
   expect(humanChat(view)).toBeNull();

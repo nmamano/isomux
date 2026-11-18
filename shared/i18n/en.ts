@@ -3351,7 +3351,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "schedules.skippedNoSession": "Skipped runs have no session to resume.",
   "schedules.noSession":
     "This run can't be resumed (no session was established).",
-  "common.back": "Back",
   "apps.openApp": "Open app",
   "apps.openOnNetwork": "Open on this network",
   "apps.empty": "No apps yet.",

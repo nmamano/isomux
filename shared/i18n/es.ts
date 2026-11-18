@@ -3451,7 +3451,6 @@ Cosas que puedes hacer por él:
     "Las ejecuciones omitidas no tienen ninguna sesión que reanudar.",
   "schedules.noSession":
     "Esta ejecución no se puede reanudar (no se estableció ninguna sesión).",
-  "common.back": "Atrás",
   "apps.openApp": "Abrir la app",
   "apps.openOnNetwork": "Abrir en esta red",
   "apps.empty": "Aún no hay apps.",
