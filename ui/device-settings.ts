@@ -11,9 +11,14 @@ import type {
   NotifRoomsSetting,
   ProviderAccountWire,
 } from "../shared/types.ts";
-import type { SkillEngine, SkillSource } from "../shared/contract-shapes.ts";
+import type {
+  EnterpriseViewRes,
+  SkillEngine,
+  SkillSource,
+} from "../shared/contract-shapes.ts";
 import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import { isLoopbackUrl } from "./webhook-helpers.ts";
+import { isHostedOrigin } from "../shared/public-origin.ts";
 import {
   clampSidebarWidth,
   parseChatSidebarPages,
@@ -549,6 +554,14 @@ export function setSettingsGroupOpen(id: string, open: boolean): void {
   } catch {}
 }
 
+// Whether this page is on a Hosted office's address. False outside a browser
+// page (a render to a string), as on a self-hosted office.
+function onHostedOrigin(): boolean {
+  return (
+    typeof window !== "undefined" && isHostedOrigin(window.location.origin)
+  );
+}
+
 // What a pane showed when it last loaded on this device. While it loads
 // again, it holds that layout, so it keeps its height when the answer arrives
 // (task 0eab60fd). Before a pane's first load on a device it holds the layout
@@ -612,9 +625,13 @@ export function getExternalAccessLayout(): ExternalAccessLayout {
       typeof hosted === "boolean" && typeof enabled === "boolean"
         ? { hosted, enabled }
         : null,
-    // A first visit: a page served from outside this machine reached the
-    // office from outside, so its external access is on.
-    { hosted: false, enabled: !isLoopbackUrl(window.location.origin) },
+    // A first visit: a page on an isomux.app address is a Hosted office's,
+    // and a page served from outside this machine reached the office from
+    // outside, so its external access is on.
+    {
+      hosted: onHostedOrigin(),
+      enabled: !isLoopbackUrl(window.location.origin),
+    },
   );
 }
 
@@ -634,6 +651,18 @@ export type EnterpriseLayout = {
 
 const KEY_ENTERPRISE_LAYOUT = "isomux-enterprise-layout";
 
+// What this device keeps of an answer, so Settings draws the same row and
+// the same pane while the next read waits (task 3755fad4).
+export function enterpriseLayoutOf(view: EnterpriseViewRes): EnterpriseLayout {
+  return {
+    available: view.available,
+    enabled: view.enabled,
+    connected: view.connected !== null,
+    locked: view.locked,
+    problem: view.problem !== null,
+  };
+}
+
 export function getEnterpriseLayout(): EnterpriseLayout {
   return getHeldLayout(
     KEY_ENTERPRISE_LAYOUT,
@@ -645,9 +674,10 @@ export function getEnterpriseLayout(): EnterpriseLayout {
       typeof problem === "boolean"
         ? { available, enabled, connected, locked, problem }
         : null,
-    // Every office but a Hosted one has the box.
+    // A first visit: every office but a Hosted one has the box, and a page on
+    // an isomux.app address is a Hosted office's.
     {
-      available: true,
+      available: !onHostedOrigin(),
       enabled: false,
       connected: false,
       locked: false,

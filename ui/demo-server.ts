@@ -67,6 +67,8 @@ import type {
   WebhookCreateReq,
   WebhookDryRunReq,
   WebhookUpdateReq,
+  AccessSettings,
+  EnterpriseViewRes,
 } from "../shared/contract-shapes.ts";
 import { DEFAULT_VOICE_NAME } from "../shared/voice.ts";
 import type {
@@ -130,8 +132,11 @@ import { nextVariableNotes } from "../shared/connection-notes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 import {
   drawnProviderRow,
+  enterpriseLayoutOf,
   getProviderLayout,
   setDiscordLayout,
+  setEnterpriseLayout,
+  setExternalAccessLayout,
   setMemberUsageLayout,
   setPagerLayout,
   setProviderLayout,
@@ -603,10 +608,33 @@ export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
 // The demo's member (demo-entry signs in as them), an owner.
 export const DEMO_USERNAME = "Ricky";
 
-// Writes, for each Integrations card whose held layout the demo's own data
-// decides, the layout that data gives, so a demo visitor's first visit holds
-// the shape the answers bring. demo-entry calls it at each boot.
+// The demo binds loopback-only and has no external-access policy to read.
+const demoOfficeAccess: AccessSettings = {
+  externalAccess: false,
+  publicOrigin: null,
+  hosted: false,
+  boundLoopback: true,
+};
+
+// The demo office has no Enterprise Contract section (as on Hosted).
+const demoEnterpriseView: EnterpriseViewRes = {
+  available: false,
+  enabled: false,
+  locked: false,
+  connected: null,
+  problem: null,
+};
+
+// Writes, for each Integrations card and Settings view whose held layout the
+// demo's own data decides, the layout that data gives, so a demo visitor's
+// first visit holds the shape the answers bring. demo-entry calls it at each
+// boot.
 export function seedDemoHeldLayouts(): void {
+  setEnterpriseLayout(enterpriseLayoutOf(demoEnterpriseView));
+  setExternalAccessLayout({
+    hosted: demoOfficeAccess.hosted,
+    enabled: demoOfficeAccess.externalAccess,
+  });
   setDiscordLayout({
     bots: demoDiscordBots.length,
     rows: demoDiscordBots.length ? demoDiscordRoutes.length : 0,
@@ -3301,13 +3329,7 @@ export async function demoApi(
       shimEmit({ type: "session_expired" });
       return undefined;
     case "GET /api/office/access":
-      // The demo binds loopback-only and has no external-access policy to read.
-      return {
-        externalAccess: false,
-        publicOrigin: null,
-        hosted: false,
-        boundLoopback: true,
-      };
+      return demoOfficeAccess;
     case "PUT /api/office/access":
       // No-op in the demo (no bind/origin policy to persist).
       return { signInUrl: null, restartRequired: false };
@@ -3415,16 +3437,9 @@ export async function demoApi(
         "demo",
         "The demo office cannot move. Install Isomux to move an office.",
       );
-    // office.enterprise.get - the demo office has no Enterprise Contract
-    // section (as on Hosted).
+    // office.enterprise.get
     case "GET /api/office/enterprise":
-      return {
-        available: false,
-        enabled: false,
-        locked: false,
-        connected: null,
-        problem: null,
-      };
+      return demoEnterpriseView;
     case "GET /api/office/env":
       return {
         mode: "managed",

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { isHostedAccess, readInstallKind } from "./install-kind.ts";
+import { isHostedOrigin } from "../shared/public-origin.ts";
 
 let dir: string | null = null;
 
@@ -37,6 +38,17 @@ describe("access install kind", () => {
     expect(isHostedAccess("self-hosted", "https://ACME.ISOMUX.APP")).toBe(true);
     expect(isHostedAccess("self-hosted", "https://isomux.app")).toBe(true);
   });
+  // The browser's first-visit guess (ui/device-settings.ts) reads the page
+  // origin with the same rule.
+  it("reads a page origin as hosted by the same rule", () => {
+    for (const origin of [
+      "https://acme.isomux.app",
+      "https://ACME.ISOMUX.APP",
+      "https://isomux.app",
+      "https://acme.isomux.app:8443",
+    ])
+      expect(isHostedOrigin(origin)).toBe(true);
+  });
   it("leaves other origins self-hosted, including lookalikes", () => {
     for (const origin of [
       null,
@@ -48,6 +60,7 @@ describe("access install kind", () => {
       "https://custom.example/isomux.app",
     ]) {
       expect(isHostedAccess("self-hosted", origin)).toBe(false);
+      expect(isHostedOrigin(origin)).toBe(false);
     }
   });
 });

@@ -14,9 +14,9 @@ import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { sectionHeader } from "./access-shared.tsx";
 import { ENTERPRISE_HELP_EMAIL } from "../send-failure.ts";
 import {
+  enterpriseLayoutOf,
   getEnterpriseLayout,
   setEnterpriseLayout,
-  type EnterpriseLayout,
 } from "../device-settings.ts";
 
 const DETAILS_URL = "https://isomux.com/enterprise";
@@ -36,18 +36,6 @@ const ERROR_KEYS = {
   enterprise_rate_limited: "settings.office.enterprise.errorRateLimited",
 } as const satisfies Record<string, MessageKey>;
 
-// What this device keeps of an answer, so Settings draws the same row and
-// the same pane while the next read waits (task 3755fad4).
-function layoutOf(view: EnterpriseViewRes): EnterpriseLayout {
-  return {
-    available: view.available,
-    enabled: view.enabled,
-    connected: view.connected !== null,
-    locked: view.locked,
-    problem: view.problem !== null,
-  };
-}
-
 // Whether Settings shows the Enterprise group: for an owner, where the box is
 // available (never on Hosted). Until the read answers, it shows what this
 // device saw last. A failed read shows it, so the section's retry is
@@ -61,7 +49,7 @@ export function useEnterpriseAvailable(isOwner: boolean): boolean {
     let cancelled = false;
     apiFetch<EnterpriseViewRes>("GET", "/api/office/enterprise").then(
       (view) => {
-        setEnterpriseLayout(layoutOf(view));
+        setEnterpriseLayout(enterpriseLayoutOf(view));
         if (!cancelled) setAvailable(view.available);
       },
       () => {
@@ -137,7 +125,7 @@ export function EnterpriseContractSection() {
   }, [loads]);
 
   useEffect(() => {
-    if (view) setEnterpriseLayout(layoutOf(view));
+    if (view) setEnterpriseLayout(enterpriseLayoutOf(view));
   }, [view]);
 
   const messageOf = (err: unknown) => {
@@ -202,7 +190,7 @@ export function EnterpriseContractSection() {
       </div>
     );
   const loading = view === null;
-  const shape = view ? layoutOf(view) : held;
+  const shape = view ? enterpriseLayoutOf(view) : held;
   if (!shape.available) return null;
   const connected = view?.connected ?? null;
   const alert = view

@@ -48,3 +48,16 @@ export function normalizePublicOrigin(
   const portPart = parsed.port ? `:${parsed.port}` : "";
   return `${parsed.protocol}//${host}${portPart}`;
 }
+
+// Whether `origin` is a Hosted Isomux address: https, on isomux.app or one of
+// its subdomains. The server reads it from the configured origin, and a page
+// from its own address.
+export function isHostedOrigin(origin: string | null): boolean {
+  const normalized = normalizePublicOrigin(origin);
+  if (!normalized) return false;
+  const { protocol, hostname } = new URL(normalized);
+  return (
+    protocol === "https:" &&
+    (hostname === "isomux.app" || hostname.endsWith(".isomux.app"))
+  );
+}

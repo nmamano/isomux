@@ -70,6 +70,10 @@ const {
   SKILLS_LAYOUT_FALLBACK,
   getProviderLayout,
   setProviderLayout,
+  getEnterpriseLayout,
+  setEnterpriseLayout,
+  getExternalAccessLayout,
+  setExternalAccessLayout,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -854,4 +858,62 @@ describe("skills held layout", () => {
       expect(getSkillsLayout()).toEqual(SKILLS_LAYOUT_FALLBACK);
     },
   );
+});
+
+// Settings on a device's first visit (task a25b1c0a): the Enterprise row and
+// the Access card hold what the office will answer, read from the page
+// origin. A Hosted office (https on isomux.app) has no Enterprise box and a
+// managed Access card; any other office has the box and the switch.
+describe("settings held layouts on a first visit", () => {
+  const realWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const at = (origin: string) =>
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { location: { origin } },
+    });
+  beforeEach(() => {
+    store.delete("isomux-enterprise-layout");
+    store.delete("isomux-external-access-layout");
+  });
+  afterAll(() => {
+    if (realWindow) Object.defineProperty(globalThis, "window", realWindow);
+    // @ts-expect-error - removing the stub we installed
+    else delete globalThis.window;
+  });
+
+  it("holds no Enterprise row and the managed Access card on a Hosted office", () => {
+    at("https://acme.isomux.app");
+    expect(getEnterpriseLayout().available).toBe(false);
+    expect(getExternalAccessLayout()).toEqual({ hosted: true, enabled: true });
+  });
+
+  it("holds the Enterprise row and the switch on a self-hosted office", () => {
+    at("https://office.example");
+    expect(getEnterpriseLayout().available).toBe(true);
+    expect(getExternalAccessLayout()).toEqual({ hosted: false, enabled: true });
+    at("http://localhost:4000");
+    expect(getEnterpriseLayout().available).toBe(true);
+    expect(getExternalAccessLayout()).toEqual({
+      hosted: false,
+      enabled: false,
+    });
+  });
+
+  it("holds what this device stored over the origin's guess", () => {
+    at("https://acme.isomux.app");
+    const enterprise = {
+      available: true,
+      enabled: true,
+      connected: true,
+      locked: false,
+      problem: false,
+    };
+    setEnterpriseLayout(enterprise);
+    setExternalAccessLayout({ hosted: false, enabled: false });
+    expect(getEnterpriseLayout()).toEqual(enterprise);
+    expect(getExternalAccessLayout()).toEqual({
+      hosted: false,
+      enabled: false,
+    });
+  });
 });
