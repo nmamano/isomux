@@ -142,6 +142,67 @@ describe("interactive model selection validation", () => {
   });
 });
 
+// A model of another engine must name the engine to switch to, so a caller
+// that sent a Codex agent "opus" learns to send agentType with it instead of
+// concluding the engine cannot change (task 45a9040b). The hint is read as
+// the protocol value after agentType, not as copy.
+describe("model of another engine points to agentType", () => {
+  const ENGINE_HINT = /\bagentType\b[^"]*"(claude|codex|opencode)"/;
+  const hintedEngine = (message: string | null): string | null => {
+    if (message === null) throw new Error("expected a rejection");
+    return ENGINE_HINT.exec(message)?.[1] ?? null;
+  };
+
+  it("names the engine a rejected value belongs to, through every entry", () => {
+    const cases: [string, string | null, string | null, string | null][] = [
+      // [target engine, modelFamily, model, engine the hint names]
+      ["codex", "opus", null, "claude"],
+      ["codex", "Opus-4", null, "claude"],
+      ["codex", "claude-fable-5-1", null, "claude"],
+      ["codex", "fable-5", null, "claude"],
+      ["codex", null, "claude-opus-4-5", "claude"],
+      ["opencode", "opus", null, "claude"],
+      ["opencode", "claude-opus-4-5", null, "claude"],
+      ["claude", "gpt-5.5", null, "codex"],
+      ["claude", "anthropic/claude-opus-4-5", null, "opencode"],
+      // An unknown Claude-shaped family is no other engine's model.
+      ["claude", "claude-opus-4-5", null, null],
+      ["claude", null, "gpt-5.5", "codex"],
+      ["claude", null, "openai/gpt-5", "opencode"],
+    ];
+    // One compare over every row, so a red run lists each wrong row.
+    const got = cases.map(([engine, family, model]) => [
+      engine,
+      family,
+      model,
+      hintedEngine(
+        resolveInteractiveModelSelection(
+          engine as "claude" | "codex" | "opencode",
+          family ?? undefined,
+          model ?? undefined,
+        ).error,
+      ),
+    ]);
+    expect(got).toStrictEqual(cases);
+  });
+
+  it("an unmapped Claude model ID points to modelFamily, not to another engine", () => {
+    const { error } = resolveInteractiveModelSelection(
+      "claude",
+      undefined,
+      "claude-fable-5",
+    );
+    expect(hintedEngine(error)).toBeNull();
+    expect(error).toContain("modelFamily");
+  });
+
+  it("accepts each engine's own values as before", () => {
+    expect(modelFamilyMismatchError("claude", "opus")).toBeNull();
+    expect(modelFamilyMismatchError("codex", "gpt-5.5")).toBeNull();
+    expect(modelFamilyMismatchError("opencode", "openai/gpt-5")).toBeNull();
+  });
+});
+
 describe("OpenCode effort validation", () => {
   it("preserves an enum effort and rejects provider-specific names", () => {
     expect(validateEffort("opencode", "provider/model", "low")).toBe("low");

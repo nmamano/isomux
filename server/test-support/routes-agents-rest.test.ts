@@ -1260,6 +1260,88 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(after?.agentType).toBe("codex");
     expect(after?.modelFamily).toBe("gpt-5.5");
   });
+
+  // Task 45a9040b: an engine switch with no model is checked like a spawn.
+  // OpenCode has no default model, so the switch is refused instead of
+  // leaving an OpenCode agent with an empty model that fails at its first turn.
+  it("PATCH claude->opencode with no model -> 422 invalid_model_family, agent untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0); // claude agent
+    const before = srv.agentManager.getAgent(x.id)?.modelFamily;
+    expect(srv.agentManager.getAgent(x.id)?.agentType).toBe("claude");
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "opencode" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("claude");
+    expect(after?.modelFamily).toBe(before);
+  });
+
+  it("PATCH codex->claude with no model -> 200 on a Claude default family", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await srv.agentManager.spawn(
+      "Codexy",
+      srv.workDir,
+      "on-request",
+      0,
+      undefined,
+      r1,
+      undefined,
+      "gpt-5.5",
+      undefined,
+      undefined,
+      "codex",
+    );
+    if (!x) throw new Error("codex spawn failed");
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "claude" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("claude");
+    expect(Object.keys(FAMILY_TO_MODEL)).toContain(after?.modelFamily ?? "");
+  });
+
+  // agentType equal to the current engine is no switch: an OpenCode agent's
+  // edit that repeats its engine and sends no model must still land.
+  it("PATCH an opencode agent with its own agentType and no model -> 200, model kept", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const spawned = await req(srv, "POST", "/api/agents", {
+      body: {
+        name: "Oc",
+        cwd: srv.workDir,
+        roomId,
+        desk: 0,
+        agentType: "opencode",
+        modelFamily: "provider/model",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(spawned.status).toBe(201);
+    const id = (spawned.body as { agent: { id: string } }).agent.id;
+    const res = await req(srv, "PATCH", `/api/agents/${id}`, {
+      body: { agentType: "opencode", name: "Renamed" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(id);
+    expect(after?.name).toBe("Renamed");
+    expect(after?.agentType).toBe("opencode");
+    expect(after?.modelFamily).toBe("provider/model");
+  });
 });
 
 describe("agents.revive REST (Phase 3d slice 7b)", () => {

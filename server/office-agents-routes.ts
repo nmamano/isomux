@@ -484,9 +484,19 @@ export function createAgentsRoutes(
       // modelFamily against the agentType the edit will LAND on - the new
       // engine when this edit switches it, else the agent's current one - so
       // a mismatch is an explicit 422 instead of editAgent's silent
-      // coerce-to-default (kept there as boot/restore canonicalization).
+      // coerce-to-default (kept there as boot/restore canonicalization). An
+      // engine switch with no model is checked too: OpenCode has no default.
       let resolvedModelFamily = changes.modelFamily;
-      if (changes.modelFamily !== undefined || changes.model !== undefined) {
+      const switchesEngine =
+        (changes.agentType === "claude" ||
+          changes.agentType === "codex" ||
+          changes.agentType === "opencode") &&
+        changes.agentType !== agentManager.getAgent(agentId)?.agentType;
+      if (
+        changes.modelFamily !== undefined ||
+        changes.model !== undefined ||
+        switchesEngine
+      ) {
         const current = agentManager.getAgent(agentId);
         if (!current) {
           return {

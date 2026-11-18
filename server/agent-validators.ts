@@ -110,32 +110,48 @@ export function modelFamilyMismatchError(
       return "The OpenCode tracer model is not available for production agents. Select a connected model.";
     }
     if (!raw.includes("/")) {
-      return `"${raw}" is not an OpenCode provider/model ID (expected provider/model).`;
+      return withEngineHint(
+        `"${raw}" is not an OpenCode provider/model ID (expected provider/model).`,
+        raw,
+      );
     }
     return null;
   }
   if (raw === undefined || raw === "") return null;
   if (agentType === "codex") {
-    if (isClaudeFamily(raw)) {
-      return `"${raw}" is not a Codex model.`;
-    }
-    // Case-insensitive so obvious foreign values such as "Opus-4" cannot
-    // evade the check. Reject claude-* and <Claude family>-*; accept every
-    // other non-empty value because the Codex model/list is auth-dependent.
-    const lower = raw.toLowerCase();
-    const claudeShaped =
-      lower.startsWith("claude-") ||
-      MODEL_FAMILIES.some(
-        ({ family }) => lower === family || lower.startsWith(`${family}-`),
-      );
-    if (claudeShaped) {
-      return `"${raw}" is not a Codex model.`;
-    }
-    return null;
+    // Reject only Claude-shaped values; accept every other non-empty value
+    // because the Codex model/list is auth-dependent.
+    return isClaudeShaped(raw)
+      ? withEngineHint(`"${raw}" is not a Codex model.`, raw)
+      : null;
   }
   if (isClaudeFamily(raw)) return null;
   const families = MODEL_FAMILIES.map((m) => m.family).join(", ");
-  return `"${raw}" is not a Claude model family (valid: ${families}). For a Codex model, set agentType to "codex".`;
+  const message = `"${raw}" is not a Claude model family (valid: ${families}).`;
+  return isClaudeShaped(raw) ? message : withEngineHint(message, raw);
+}
+
+// Case-insensitive so obvious foreign values such as "Opus-4" cannot evade the
+// Codex check: claude-* and <Claude family>-*.
+function isClaudeShaped(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  return (
+    lower.startsWith("claude-") ||
+    MODEL_FAMILIES.some(
+      ({ family }) => lower === family || lower.startsWith(`${family}-`),
+    )
+  );
+}
+
+// A model of another engine names the engine switch, so the error leads the
+// caller to it: PATCH, spawn and cron all take agentType with the model.
+function withEngineHint(message: string, raw: string): string {
+  const [label, engine] = isClaudeShaped(raw)
+    ? ["a Claude", "claude"]
+    : raw.includes("/")
+      ? ["an OpenCode", "opencode"]
+      : ["a Codex", "codex"];
+  return `${message} For ${label} model, set agentType to "${engine}".`;
 }
 
 // Interactive spawn/edit validation for the stored family plus the optional
@@ -156,7 +172,9 @@ export function resolveInteractiveModelSelection(
       if (resolvedFamily === undefined) {
         return {
           modelFamily: undefined,
-          error: `"${model}" is not a mapped Claude model. Pass modelFamily instead (valid: ${MODEL_FAMILIES.map(({ family }) => family).join(", ")}).`,
+          error: isClaudeShaped(model)
+            ? `"${model}" is not a mapped Claude model. Pass modelFamily instead (valid: ${MODEL_FAMILIES.map(({ family }) => family).join(", ")}).`
+            : withEngineHint(`"${model}" is not a Claude model.`, model),
         };
       }
     } else {
