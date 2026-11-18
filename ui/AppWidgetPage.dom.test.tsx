@@ -125,7 +125,7 @@ it("shows the Enterprise Contract lock with the help email as a value", async ()
   sessionStorage.clear();
   const { ApiError } = await import("./api.ts");
   const { ENTERPRISE_HELP_EMAIL } = await import("./send-failure.ts");
-  const { expectValueAsData } = await import("./test-support/data-value.ts");
+  const { expectValueAsData } = await import("./test-support/data-values.ts");
   setApiShim(async () => {
     throw new ApiError(409, "enterprise_secret_needed", "server text");
   });

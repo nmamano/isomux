@@ -36,7 +36,7 @@ const { EditorPanel } = await import("./log-view/EditorPanel.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
-const { expectValueAsData } = await import("./test-support/data-value.ts");
+const { expectValueAsData } = await import("./test-support/data-values.ts");
 
 type View = ReturnType<typeof render>;
 type Language = "ca" | "es" | null;

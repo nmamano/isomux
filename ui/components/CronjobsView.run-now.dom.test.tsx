@@ -11,7 +11,7 @@ const { setApiShim, ApiError } = await import("../api.ts");
 const { DispatchCtx } = await import("../store.tsx");
 const { sendFailureText, ENTERPRISE_HELP_EMAIL } =
   await import("../send-failure.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");

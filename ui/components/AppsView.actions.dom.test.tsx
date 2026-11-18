@@ -12,7 +12,7 @@ const { StoreProvider } = await import("../store.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim } = await import("../ws.ts");
 const { en } = await import("../../shared/i18n/en.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 type AppListWire = import("../../shared/types.ts").AppListWire;
 type AppState = import("../../shared/types.ts").AppState;
 

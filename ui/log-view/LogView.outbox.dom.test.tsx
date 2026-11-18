@@ -10,7 +10,7 @@ const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const { ApiError } = await import("../api.ts");
 const { sendFailureText, ENTERPRISE_HELP_EMAIL } =
   await import("../send-failure.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const {
   outboxFixture: fx,

@@ -15,7 +15,7 @@ const { AppsView } = await import("./AppsView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { INSTALL_HASH } = await import("../app-install.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 const { asDevice, IPHONE_HOME_SCREEN } =
   await import("../test-support/ios-home-screen.ts");
 type AppListWire = import("../../shared/types.ts").AppListWire;

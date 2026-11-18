@@ -15,7 +15,7 @@ const { onLanguage, selfUserRecord } =
 const { claudeAgent, openSection, room, settle, viewer } =
   await import("../test-support/claude-limits-fixture.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 const EN = translatorFor("en");
 
 type Role = "owner" | "member";

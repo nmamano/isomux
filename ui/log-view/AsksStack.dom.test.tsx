@@ -22,7 +22,7 @@ const { composerMaxHeight } = await import("../composer-height.ts");
 const { askExcerpt } = await import("./ask-about.ts");
 const { sendFailureText, ENTERPRISE_HELP_EMAIL } =
   await import("../send-failure.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type OfficeLink = import("../../shared/office-links.ts").OfficeLink;

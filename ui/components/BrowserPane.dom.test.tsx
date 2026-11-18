@@ -6,8 +6,8 @@ const { BrowserPane } = await import("./BrowserPane");
 const { setApiShim } = await import("../api");
 const { onLanguage } = await import("../test-support/language-fixture");
 const { translatorFor } = await import("../../shared/i18n/translate");
-const { dataTexts, expectValueAsData, textOutsideData } =
-  await import("../test-support/data-value");
+const { dataChips, expectValueAsData, textOutsideData } =
+  await import("../test-support/data-values.ts");
 afterAll(() => setApiShim(null));
 
 test("Chrome pairing adds named browsers; each one unpairs through its own self route", async () => {
@@ -289,7 +289,7 @@ test("the update notice shows each out-of-date browser's name as a value", async
     ["Home", "Kiosk"],
   ]) {
     const line = expectValueAsData(notice, names[0]);
-    expect(dataTexts(line)).toEqual(names);
+    expect(dataChips(line)).toEqual(names);
     expect(textOutsideData(line)).toContain(",");
   }
   view.unmount();

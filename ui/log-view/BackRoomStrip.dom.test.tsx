@@ -10,7 +10,7 @@ const { cleanup, fireEvent, render } = await import("@testing-library/react");
 const { BackRoomStrip } = await import("./BackRoomStrip.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { deskOfBackSeat } = await import("../../shared/desks.ts");
-const { expectValueAsData } = await import("../test-support/data-value.ts");
+const { expectValueAsData } = await import("../test-support/data-values.ts");
 
 afterEach(cleanup);
 
