@@ -22,7 +22,7 @@ import {
   rmSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 import { createHash } from "crypto";
 import {
   EMBEDDED,
@@ -881,6 +881,137 @@ for (const [label, source] of [
   });
 }
 
+/**
+ * The lines of `systemd-analyze verify <file>` stderr that count against the
+ * unit at `file`. Task 82039760.
+ */
+function unitComplaints(stderr: string, file: string): string[] {
+  const ownName = basename(file);
+  const otherUnit = (line: string): boolean => {
+    const path = /^(\/[^:]*?)(?::\d+)?: /.exec(line);
+    if (path) return path[1] !== file;
+    const name =
+      /^([A-Za-z0-9:_.\\@-]+\.(?:service|socket|device|mount|automount|swap|target|path|timer|slice|scope)): /.exec(
+        line,
+      );
+    return name !== null && name[1] !== ownName;
+  };
+  return stderr
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((l) => !otherUnit(l))
+    .filter(
+      (l) =>
+        !/\b(User|Group)\b.*isomux.*(not found|does not exist)/i.test(l) &&
+        !/Command .*bun is not executable: No such file or directory/i.test(l),
+    );
+}
+
+// Task 82039760: a newer systemd on the GitHub runner writes notes about the
+// runner's own units during `verify`. Those lines say nothing about our unit;
+// every other line still counts, so a defect with no unit prefix fails closed.
+describe("unitComplaints", () => {
+  const file = "/tmp/isomux-unit-Ab3xQz/isomux.service";
+  const cases: [string, string, boolean][] = [
+    // [label, stderr line, counts against our unit]
+    [
+      "a host unit's note, by path and line",
+      "/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored",
+      false,
+    ],
+    [
+      "a host slice's note",
+      "/usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored",
+      false,
+    ],
+    [
+      "a host unit's note, by path only",
+      "/etc/systemd/system/walinuxagent.service: Unit configuration has fatal error, unit will not be started.",
+      false,
+    ],
+    [
+      "the box's installed unit with the same name",
+      "/etc/systemd/system/isomux.service:12: Unknown key name 'Foo' in section 'Service', ignoring.",
+      false,
+    ],
+    [
+      "a drop-in of the box's installed unit",
+      "/etc/systemd/system/isomux.service.d/20-memory.conf:3: Unknown key name 'Foo' in section 'Service', ignoring.",
+      false,
+    ],
+    [
+      "a host unit's note, by unit name",
+      "walinuxagent.service: Command /usr/bin/python3 is not executable: No such file or directory",
+      false,
+    ],
+    [
+      "a template instance with an escaped name",
+      "systemd-fsck@dev-disk-by\\x2duuid-1a2b.service: Unit configuration has fatal error, unit will not be started.",
+      false,
+    ],
+    [
+      "our file, by path and line",
+      `${file}:8: Unknown key name 'FooBar' in section 'Service', ignoring.`,
+      true,
+    ],
+    [
+      "our file, by path only",
+      `${file}: Unit configuration has fatal error, unit will not be started.`,
+      true,
+    ],
+    [
+      "our unit, by name",
+      "isomux.service: Service has more than one ExecStart= setting, which is only allowed for Type=oneshot services. Refusing.",
+      true,
+    ],
+    [
+      "a line with no unit",
+      "Failed to prepare filename isomux: Invalid argument",
+      true,
+    ],
+    [
+      "a line with a prefix that is no unit",
+      "Warning: the unit file changed on disk.",
+      true,
+    ],
+    // The two environment diagnostics the live test tolerates by name.
+    [
+      "the missing bun binary",
+      "isomux.service: Command /usr/local/bin/bun is not executable: No such file or directory",
+      false,
+    ],
+    [
+      "the missing service account",
+      `${file}:9: Failed to resolve User=isomux: User isomux not found`,
+      false,
+    ],
+  ];
+
+  for (const [label, line, counts] of cases) {
+    it(`${counts ? "counts" : "drops"} ${label}`, () => {
+      expect(unitComplaints(`${line}\n`, file)).toEqual(counts ? [line] : []);
+    });
+  }
+
+  it("keeps our lines when they are mixed with host notes", () => {
+    const own = `${file}:8: Unknown key name 'FooBar' in section 'Service', ignoring.`;
+    const stderr =
+      "/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored\n" +
+      `${own}\n\n` +
+      "walinuxagent.service: Command /usr/bin/python3 is not executable: No such file or directory\n" +
+      "Failed to prepare filename isomux: Invalid argument\n";
+    expect(unitComplaints(stderr, file)).toEqual([
+      own,
+      "Failed to prepare filename isomux: Invalid argument",
+    ]);
+  });
+
+  it("finds nothing in empty stderr", () => {
+    expect(unitComplaints("", file)).toEqual([]);
+  });
+});
+
 // The unit heredoc is UNQUOTED, because it expands $SERVICE_USER, $SERVICE_HOME
 // and $INSTALL_DIR. That also means everything else inside it is expanded - and
 // on 2026-08-03 two comment lines arrived carrying backticks. Bash ran them:
@@ -1019,9 +1150,10 @@ describe("install.sh: the systemd unit renders cleanly", () => {
   // Two diagnostics are environment-only and are tolerated by name, because
   // they describe THIS machine rather than the unit: the isomux service account
   // does not exist on a dev box, and neither does the bun binary the unit
-  // execs. Both are facts about where the test runs. Every other complaint
-  // fails the test, and the tolerated ones are matched narrowly enough that a
-  // real defect cannot hide behind them.
+  // execs. Both are facts about where the test runs. Lines systemd attributes
+  // to another unit (a host unit's path or name) do not count either. Every
+  // other complaint fails the test, and the tolerated ones are matched
+  // narrowly enough that a real defect cannot hide behind them.
   it("passes systemd-analyze verify, where available", () => {
     const probe = Bun.spawnSync(["bash", "-c", "command -v systemd-analyze"]);
     if (probe.exitCode !== 0) return;
@@ -1032,18 +1164,7 @@ describe("install.sh: the systemd unit renders cleanly", () => {
     const stderr = new TextDecoder().decode(proc.stderr);
     rmSync(dir, { recursive: true, force: true });
 
-    const complaints = stderr
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .filter(
-        (l) =>
-          !/\b(User|Group)\b.*isomux.*(not found|does not exist)/i.test(l) &&
-          !/Command .*bun is not executable: No such file or directory/i.test(
-            l,
-          ),
-      );
-    expect(complaints).toEqual([]);
+    expect(unitComplaints(stderr, file)).toEqual([]);
     if (stderr === "") expect(proc.exitCode).toBe(0);
   });
 });
