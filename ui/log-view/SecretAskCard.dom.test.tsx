@@ -238,11 +238,7 @@ it("a refusal keeps the field and names the reason; a closed request takes the c
   await act(async () => {
     fireEvent.click(saveButton(view));
   });
-  expect(
-    [
-      ...view.getByRole("alert").querySelectorAll("[data-integrations-data]"),
-    ].map((d) => d.textContent),
-  ).toEqual(["api.openai.com"]);
+  expect(dataChips(view.getByRole("alert"))).toEqual(["api.openai.com"]);
 
   answer = async () => {
     throw new ApiError(404, "not_found", "Not found");

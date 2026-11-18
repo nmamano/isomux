@@ -328,11 +328,7 @@ it("names the secret in the way of a refused MCP sign-in as data", async () => {
     ),
   );
   const alert = card("0000bb04").querySelector('[role="alert"]')!;
-  expect(
-    [...alert.querySelectorAll("[data-integrations-data]")].map(
-      (d) => d.textContent,
-    ),
-  ).toEqual([oauthSecretNames("mail").refreshToken]);
+  expect(dataChips(alert)).toEqual([oauthSecretNames("mail").refreshToken]);
   view.unmount();
 });
 

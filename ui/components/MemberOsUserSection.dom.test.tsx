@@ -36,6 +36,7 @@
 //   tries are left, and a lock says so.
 import { afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips, textOutsideData } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -934,12 +935,7 @@ it("keeps the root-capable warning while the command runs", async () => {
 // [data-integrations-data]) and no name in the text around it.
 const valuesIn = (el: HTMLElement | null) => {
   if (!el) return null;
-  const values = [
-    ...el.querySelectorAll<HTMLElement>("[data-integrations-data]"),
-  ].map((v) => v.textContent ?? "");
-  const copy = el.cloneNode(true) as HTMLElement;
-  for (const v of copy.querySelectorAll("[data-integrations-data]")) v.remove();
-  return { values: values.sort(), rest: copy.textContent ?? "" };
+  return { values: dataChips(el).sort(), rest: textOutsideData(el) };
 };
 
 it("each line that names an OS user shows each name as a value", async () => {

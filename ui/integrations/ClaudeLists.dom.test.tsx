@@ -4,6 +4,7 @@
 
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -55,9 +56,7 @@ it("lists each connector with its own status pill, and Pending explains itself",
     t("integrations.connectors.title", { account: "morgan@example.com" }),
   );
   // The account is data, in its own element.
-  expect(block.querySelector("[data-integrations-data]")!.textContent).toBe(
-    "morgan@example.com",
-  );
+  expect(dataChips(block)).toEqual(["morgan@example.com"]);
   const item = (name: string) =>
     block.querySelector(`[data-claude-connector="${name}"]`)!;
   expect(block.querySelectorAll("li")).toHaveLength(3);
@@ -166,13 +165,9 @@ it("lists the MCP servers set in Claude's files on the card where they apply", a
   const row = (name: string) =>
     office.container.querySelector(`[data-engine-mcp="${name}"]`)!;
   // The folder is data, in its own element.
-  expect(
-    row("repo").querySelector("[data-integrations-data]")?.textContent,
-  ).toBe("/home/ann/app/.mcp.json");
+  expect(dataChips(row("repo"))).toEqual(["/home/ann/app/.mcp.json"]);
   expect(row("repo").textContent).toContain(t("integrations.status.pending"));
-  expect(
-    row("office-local").querySelector("[data-integrations-data]")?.textContent,
-  ).toBe("/srv/site");
+  expect(dataChips(row("office-local"))).toEqual(["/srv/site"]);
   // A count shows with Connected only.
   expect(row("office-local").querySelector("[data-claude-tools]")).toBeNull();
   office.unmount();

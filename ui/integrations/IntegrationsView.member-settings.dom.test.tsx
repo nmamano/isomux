@@ -10,6 +10,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -235,10 +236,7 @@ describe("changed for you", () => {
     const view = await open(MEMBER);
     const dataPerLine = () =>
       [...personal(view).querySelectorAll("[data-integration-change]")].map(
-        (line) =>
-          [...line.querySelectorAll("[data-integrations-data]")]
-            .map((d) => d.textContent)
-            .sort(),
+        (line) => dataChips(line).sort(),
       );
     await tab(view, "variables");
     expect(dataPerLine()).toEqual([

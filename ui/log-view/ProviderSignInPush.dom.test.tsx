@@ -1,5 +1,6 @@
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
 
 setUpDomTestFile();
@@ -140,10 +141,10 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
   });
   // The account shows as Data in the connected line (task ea76bd44).
   expect(
-    view.container.querySelector(
-      '[data-provider-account-state="connected"] [data-integrations-data]',
-    )?.textContent,
-  ).toBe("probe@example.test");
+    dataChips(
+      view.container.querySelector('[data-provider-account-state="connected"]'),
+    ),
+  ).toEqual(["probe@example.test"]);
   expect(signIn()).toHaveLength(0);
   // A refreshed connected account has idle login status. The auth-error card
   // must still expose the existing clear action.

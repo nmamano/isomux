@@ -5,6 +5,7 @@
 // never silence (Nil, 2026-10-21: the speech API shuts down 2027-01-06).
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -412,9 +413,7 @@ it("the key line links to Variables with environment read, and names an owner wi
       environment: environment ?? "no pack",
       text: line,
       // The variable's name is Data (AGENTS.md "UI rules", task ea76bd44).
-      data: [...span.querySelectorAll("[data-integrations-data]")].map(
-        (d) => d.textContent,
-      ),
+      data: dataChips(span),
       link: alert.querySelector('a[href="/integrations/variables"]') !== null,
       useBrowser:
         alert.querySelector('[data-voice-action="use-browser"]') !== null,

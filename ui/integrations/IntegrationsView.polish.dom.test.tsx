@@ -4,6 +4,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -66,9 +67,7 @@ it("says on the Secrets tab that model keys go in Variables, with a way there", 
   const view = await open();
   await tab(view, "secrets");
   const note = view.container.querySelector("[data-secrets-model-keys]")!;
-  expect(note.querySelector("[data-integrations-data]")!.textContent).toBe(
-    "ANTHROPIC_API_KEY",
-  );
+  expect(dataChips(note)).toEqual(["ANTHROPIC_API_KEY"]);
   await click(note.querySelector("[data-go-variables]"));
   expect(selected(view)).toBe("variables");
 });
@@ -95,9 +94,7 @@ describe("a Test on each sign-in", () => {
     await click(office.querySelector("[data-sign-in-test]"));
     const result = office.querySelector('[data-sign-in-test-result="works"]')!;
     expect(result.textContent).toContain(t("settings.connections.test.works"));
-    expect(result.querySelector("[data-integrations-data]")!.textContent).toBe(
-      "morgan@example.com",
-    );
+    expect(dataChips(result)).toEqual(["morgan@example.com"]);
     // What Works means for a Claude sign-in, behind its (?).
     await click(result.querySelector("[data-help-tip]"));
     expect(result.querySelector('[role="note"]')!.textContent).toBe(

@@ -1,5 +1,6 @@
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -92,11 +93,6 @@ function renderMessage(
   );
 }
 
-const dataTexts = (view: ReturnType<typeof render>) =>
-  [...view.container.querySelectorAll("[data-integrations-data]")].map(
-    (el) => el.textContent,
-  );
-
 const PATH = "/srv/data/report.txt";
 
 it("shows a backtick path of a one-line system line as a value, with no backticks", () => {
@@ -106,7 +102,7 @@ it("shows a backtick path of a one-line system line as a value, with no backtick
   const englishBox = english.container.firstElementChild as HTMLElement;
   // The one-line look is kept.
   expect(englishBox.style.textAlign).toBe("center");
-  expect(dataTexts(english)).toEqual([PATH]);
+  expect(dataChips(english.container)).toEqual([PATH]);
   expect(englishBox.textContent).not.toContain("`");
   const englishText = englishBox.textContent;
   english.unmount();
@@ -118,7 +114,7 @@ it("shows a backtick path of a one-line system line as a value, with no backtick
   );
   const spanishBox = spanish.container.firstElementChild as HTMLElement;
   expect(spanishBox.textContent).not.toBe(englishText);
-  expect(dataTexts(spanish)).toEqual([PATH]);
+  expect(dataChips(spanish.container)).toEqual([PATH]);
   expect(spanishBox.textContent).not.toContain("`");
   spanish.unmount();
 });
@@ -127,13 +123,13 @@ it("shows the names in a one-line system line as values", () => {
   const view = renderMessage([
     msg("systemEntries.managerChanged", { actor: "Nil", member: "Ada" }),
   ]);
-  expect(dataTexts(view)).toEqual(["Nil", "Ada"]);
+  expect(dataChips(view.container)).toEqual(["Nil", "Ada"]);
   view.unmount();
 });
 
 it("shows backtick spans of a one-line line with no message as values", () => {
   const view = renderSystem("Cannot open `notes.md` now.");
-  expect(dataTexts(view)).toEqual(["notes.md"]);
+  expect(dataChips(view.container)).toEqual(["notes.md"]);
   expect(view.container.textContent).not.toContain("`");
   view.unmount();
 });
@@ -153,7 +149,7 @@ it("shows the values of a multi-line notice apart, line breaks kept", () => {
   );
   const box = view.container.firstElementChild as HTMLElement;
   expect(box.style.whiteSpace).toBe("pre-wrap");
-  expect(dataTexts(view)).toEqual(["Ada", "opus", "sonnet"]);
+  expect(dataChips(view.container)).toEqual(["Ada", "opus", "sonnet"]);
   expect(box.textContent?.split("\n").length).toBe(2);
   view.unmount();
 });

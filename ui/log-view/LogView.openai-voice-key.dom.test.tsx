@@ -5,6 +5,7 @@
 // LogView.openai-voice.dom.test.tsx to keep each file under the DOM time cap.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -31,11 +32,6 @@ setUpOpenAIVoice();
 function variablesLink(alert: HTMLElement): Element | null {
   return alert.querySelector('a[href="/integrations/variables"]');
 }
-
-const dataIn = (el: Element) =>
-  [...el.querySelectorAll("[data-integrations-data]")].map(
-    (d) => d.textContent,
-  );
 
 function keptClipActions(container: HTMLElement): number {
   return container.querySelectorAll("[data-voice-action]").length;
@@ -123,7 +119,7 @@ it("a key saved as a secret is reported at the press with its name", async () =>
       keySource,
       named: alert.textContent.includes("OPENAI_API_KEY"),
       // The name is Data (AGENTS.md "UI rules", task ea76bd44).
-      data: dataIn(alert),
+      data: dataChips(alert),
       link: variablesLink(alert) !== null,
       recording: FakeRecorder.instances.some((r) => r.state === "recording"),
     }).toEqual({
@@ -322,7 +318,7 @@ it("the key line links to Variables with environment read, and names an owner wi
     const row = {
       environment: environment ?? "no pack",
       text: bare.textContent.trim(),
-      data: dataIn(alert),
+      data: dataChips(alert),
       link: variablesLink(alert) !== null,
     };
     view.unmount();

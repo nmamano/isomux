@@ -10,6 +10,7 @@
 
 import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -142,12 +143,10 @@ it("offers the owner the member's own sign-ins, and runs a start on the member's
   // ea76bd44).
   expect(providerCard(view, "claude")!.textContent).toContain("Stephen");
   expect(
-    [
-      ...providerCard(view, "claude")!.querySelectorAll(
-        "[data-integrations-data]",
-      ),
-    ].filter((d) => d.textContent === "Stephen").length,
-  ).toBe(2);
+    dataChips(providerCard(view, "claude")).filter((v) =>
+      v.endsWith("Stephen"),
+    ),
+  ).toEqual(["Stephen", "Stephen"]);
 
   await click(
     providerCard(view, "claude")!.querySelector("[data-start-provider-login]"),
@@ -346,10 +345,8 @@ it("lists an owner's sign-out on the member's own Model providers tab, with who 
   // (AGENTS.md "UI rules", task ea76bd44).
   expect(
     [
-      ...card(view, "personal").querySelectorAll(
-        "[data-integration-change] [data-integrations-data]",
-      ),
-    ].map((d) => d.textContent),
+      ...card(view, "personal").querySelectorAll("[data-integration-change]"),
+    ].flatMap((line) => dataChips(line)),
   ).toEqual(["Ricky"]);
   // On its own tab only.
   await tab(view, "variables");

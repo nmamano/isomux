@@ -7,7 +7,7 @@
 // the pinned read-only ask.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
-import { dataChips } from "../test-support/data-values.ts";
+import { dataChips, textOutsideData } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -125,12 +125,8 @@ async function mountStack(entries: AskEntry[], agentId = "a1") {
 }
 
 // The text of a line outside its chips: the words around the values.
-const words = (line: Element | null | undefined) => {
-  const copy = line?.cloneNode(true) as Element | undefined;
-  for (const chip of copy?.querySelectorAll("[data-integrations-data]") ?? [])
-    chip.remove();
-  return copy?.textContent ?? "";
-};
+const words = (line: Element | null | undefined) =>
+  line ? textOutsideData(line) : "";
 
 it("the header lines name the app, the member and the room as data", async () => {
   const { view, card } = await mountStack([

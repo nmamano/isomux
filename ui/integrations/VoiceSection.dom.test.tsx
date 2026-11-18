@@ -3,6 +3,7 @@
 // names the source only, never a value.
 import { beforeEach, afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
@@ -209,10 +210,7 @@ it("links to Variables with environment read, and sends a member without environ
 // the variable's name and the member's name, on the member's own card and on
 // another member's. Sorted, so a translation may move them.
 it("shows the variable and the member named in the key and where lines as data", async () => {
-  const dataIn = (el: Element) =>
-    [...el.querySelectorAll("[data-integrations-data]")]
-      .map((d) => d.textContent)
-      .sort();
+  const dataIn = (el: Element) => dataChips(el).sort();
   const linesFor = async (
     source: string | null,
     options: { member?: boolean; environment?: "read" } = {},
@@ -248,10 +246,7 @@ it("shows the variable and the member named in the key and where lines as data",
     const section = view.container.querySelector("[data-integrations-card]")!;
     const key = section.querySelector("[data-key-source]")!;
     // The card's other lines (the "where" line): its Data outside the key line.
-    const rest = [...section.querySelectorAll("[data-integrations-data]")]
-      .filter((d) => !key.contains(d))
-      .map((d) => d.textContent)
-      .sort();
+    const rest = dataChips(section, { except: "[data-key-source]" }).sort();
     const row = { source: source ?? "none", key: dataIn(key), rest };
     view.unmount();
     return row;

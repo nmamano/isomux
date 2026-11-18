@@ -19,10 +19,16 @@ function chipText(el: Element): string {
 }
 
 /** The values a sentence shows as data: the text of each Data element under
- *  `root`, in order. */
-export function dataChips(root: ParentNode | null | undefined): string[] {
+ *  `root`, in order. `except` leaves out Data elements inside an element
+ *  that matches it. */
+export function dataChips(
+  root: ParentNode | null | undefined,
+  { except }: { except?: string } = {},
+): string[] {
   if (!root) return ["(no root)"];
-  return [...root.querySelectorAll(DATA)].map(chipText);
+  return [...root.querySelectorAll(DATA)]
+    .filter((el) => !except || !el.parentElement?.closest(except))
+    .map(chipText);
 }
 /** The line's words with each Data element taken out. */
 export function textOutsideData(line: Element): string {

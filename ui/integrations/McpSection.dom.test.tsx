@@ -6,6 +6,7 @@
 
 import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 import { expectMasked } from "../test-support/masked.ts";
 
 setUpDomTestFile();
@@ -243,11 +244,6 @@ it("explains a refused sign-in redirect by its code", async () => {
   );
 });
 
-const dataIn = (el: Element) =>
-  [...el.querySelectorAll("[data-integrations-data]")].map(
-    (d) => d.textContent,
-  );
-
 // AGENTS.md "UI rules" (task ea76bd44): the secret a sign-in would make,
 // named in its refusal, is Data.
 it("names the secret in the way of a sign-in as data", async () => {
@@ -267,7 +263,7 @@ it("names the secret in the way of a sign-in as data", async () => {
   const view = await mount();
   await click(view.container.querySelector("[data-mcp-edit]"));
   await click(view.container.querySelector("[data-mcp-sign-in-again]"));
-  expect(dataIn(view.getByRole("alert"))).toEqual([
+  expect(dataChips(view.getByRole("alert"))).toEqual([
     oauthSecretNames("mail").refreshToken,
   ]);
 });
@@ -277,7 +273,7 @@ it("names the secret in the returned sign-in's notice as data", async () => {
   const view = render(
     createElement(SignInNotice, { code: "secret_exists", server: "mail" }),
   );
-  expect(dataIn(view.getByRole("alert"))).toEqual([
+  expect(dataChips(view.getByRole("alert"))).toEqual([
     oauthSecretNames("mail").refreshToken,
   ]);
 });
@@ -297,7 +293,7 @@ it("names the host a saved secret does not list as data", async () => {
   await type(view, "[data-mcp-url]", "https://docs.example.com/mcp");
   await click(view.container.querySelector('[data-choice="none"]'));
   await click(view.container.querySelector("[data-panel-save]"));
-  expect(dataIn(view.getByRole("alert"))).toEqual(["docs.example.com"]);
+  expect(dataChips(view.getByRole("alert"))).toEqual(["docs.example.com"]);
 });
 
 it("shows why a server is left out, and a Test only when it can run", async () => {

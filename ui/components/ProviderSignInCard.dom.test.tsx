@@ -1,5 +1,6 @@
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-values.ts";
 import type { ProviderAccountWire } from "../../shared/types.ts";
 
 setUpDomTestFile();
@@ -13,10 +14,6 @@ const { setShim, shimEmit } = await import("../ws.ts");
 const { useProviderAccounts } =
   await import("../integrations/ProvidersSection.tsx");
 const t = translatorFor("en").t;
-const dataIn = (el: Element) =>
-  [...el.querySelectorAll("[data-integrations-data]")].map(
-    (d) => d.textContent,
-  );
 // No server: the store's connect() fires no message; pushes go by shimEmit.
 setShim(
   () => {},
@@ -77,7 +74,7 @@ it("shows a shared login queue to members and reserves its cancel control for ow
   expect(queue.textContent).toContain("4");
   // The holder's name is Data; the product and the count are words
   // (AGENTS.md "UI rules", task ea76bd44).
-  expect(dataIn(queue)).toEqual(["Ana"]);
+  expect(dataChips(queue)).toEqual(["Ana"]);
   expect(view.container.querySelector("[data-cancel-shared-login]")).toBeNull();
   expect(view.container.querySelector("[data-own-login-controls]")).toBeNull();
   expect(
@@ -138,7 +135,7 @@ it("composes a provider-aware queue explanation from structured 409 data", async
   expect(alert.textContent).toContain("Claude");
   expect(alert.textContent).toContain("4");
   expect(alert.textContent).not.toContain("Codex");
-  expect(dataIn(alert)).toEqual(["Ana"]);
+  expect(dataChips(alert)).toEqual(["Ana"]);
 });
 
 // The other form of the queue sentence, under a minute.
@@ -167,7 +164,7 @@ it("names the holder of a sign-in started under a minute ago as data", () => {
       provider: "Claude",
     }),
   );
-  expect(dataIn(queue)).toEqual(["Ana"]);
+  expect(dataChips(queue)).toEqual(["Ana"]);
   view.unmount();
 });
 
@@ -474,7 +471,7 @@ for (const late of [false, true]) {
     // The chat card gives the account the Data look the Integrations page
     // gives it: one sentence, one look (AGENTS.md "UI rules", task ea76bd44).
     expect(
-      dataIn(
+      dataChips(
         view.container.querySelector(
           '[data-provider-account-state="connected"]',
         )!,
