@@ -4,7 +4,7 @@
 import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { expectMasked } from "../test-support/masked.ts";
-import { dataChips } from "../test-support/data-chips.ts";
+import { dataChips } from "../test-support/data-values.ts";
 import { expectPortalLink } from "../test-support/discord-portal.ts";
 
 setUpDomTestFile();

@@ -11,7 +11,7 @@
 // data-ask-action-place-picked; a move is data-ask-action-dc-moves.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
-import { dataChips } from "../test-support/data-chips.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 

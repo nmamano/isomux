@@ -6,7 +6,7 @@
 // ui/App.ask-mcp-sign-in.dom.test.tsx.
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
-import { dataChips } from "../test-support/data-chips.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 

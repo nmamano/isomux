@@ -5,7 +5,7 @@
 // same AskCard is the Inbox's.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
-import { dataChips } from "../test-support/data-chips.ts";
+import { dataChips } from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 

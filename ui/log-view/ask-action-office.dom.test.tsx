@@ -7,8 +7,11 @@
 // DOM time cap.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
-import { asData, sentenceValues } from "../test-support/data-values.ts";
-import { dataChips } from "../test-support/data-chips.ts";
+import {
+  asData,
+  dataChips,
+  sentenceValues,
+} from "../test-support/data-values.ts";
 
 setUpDomTestFile();
 
