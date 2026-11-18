@@ -37,10 +37,11 @@
 // ([data-asks-list]); at either end the browser's order goes on.
 //
 // With `undoMs` (the Inbox), an answer is held that long first: the card turns
-// into a line with what was chosen and Undo, which brings the card back with
-// the draft. While held and while sent, the ask is answered in the store
-// (answeredAsks), so the counts, the desk dots and the chat's ask stack leave
-// it out at once; once sent, the Inbox drops the line too. Inside an
+// into a line with what was chosen, Undo, which brings the card back with
+// the draft, and a ×, which sends the answer at once. While held and while
+// sent, the ask is answered in the store (answeredAsks), so the counts, the
+// desk dots and the chat's ask stack leave it out at once; once sent, the
+// Inbox drops the line too. Inside an
 // AskUndoHost (the Inbox's list) the line is a toast in the host, over the
 // list, and the card leaves the list at once: what the member reads next does
 // not move when the line goes (task 02274529). When the card's place starts
@@ -117,6 +118,7 @@ import { citeModeHere } from "./cite-mode.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 import { filledSecondaryBtn } from "../components/dialog-styles.ts";
+import { NoticeCloseButton } from "../components/NoticeCloseButton.tsx";
 import { useComposerVoice } from "../hooks/useComposerVoice.ts";
 import { MicIcon } from "../components/MicIcon.tsx";
 import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
@@ -921,6 +923,13 @@ function ReplyAskCard({
         >
           {t("asks.undo")}
         </button>
+        <NoticeCloseButton
+          type="button"
+          data-ask-send-now=""
+          aria-label={t("asks.sendNow")}
+          title={t("asks.sendNow")}
+          onClick={() => flushRef.current(false)}
+        />
       </div>
     );
     if (!undoHost) return line;

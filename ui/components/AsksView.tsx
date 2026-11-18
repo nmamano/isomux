@@ -300,7 +300,7 @@ export function askGroups(
 }
 
 // How long an answer waits before it is sent, so the member can undo it.
-export const ASK_UNDO_MS = 5000;
+export const ASK_UNDO_MS = 12500;
 
 export function AsksView({
   onFocusAgent,

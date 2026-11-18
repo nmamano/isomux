@@ -2312,6 +2312,7 @@ Coses que pots fer per ell:
   "asks.filedAsTaskPending": "Convertida en tasca",
   "asks.filedAsTaskPendingNote": "Convertida en tasca: {note}",
   "asks.undo": "Desfés",
+  "asks.sendNow": "Envia ara",
   "asks.page.ringing": "Avisant",
   "asks.page.acked": "Confirmat",
   "asks.page.ackedBy": "Confirmat per {name}",

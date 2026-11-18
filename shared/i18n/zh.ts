@@ -2033,6 +2033,7 @@ export const zh: Catalog = {
   "asks.filedAsTaskPending": "已转为任务",
   "asks.filedAsTaskPendingNote": "已转为任务：{note}",
   "asks.undo": "撤销",
+  "asks.sendNow": "立即发送",
   "asks.page.ringing": "正在呼叫",
   "asks.page.acked": "已确认",
   "asks.page.ackedBy": "{name} 已确认",

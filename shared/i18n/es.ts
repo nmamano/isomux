@@ -2307,6 +2307,7 @@ Cosas que puedes hacer por él:
   "asks.filedAsTaskPending": "Convertida en tarea",
   "asks.filedAsTaskPendingNote": "Convertida en tarea: {note}",
   "asks.undo": "Deshacer",
+  "asks.sendNow": "Enviar ahora",
   "asks.page.ringing": "Avisando",
   "asks.page.acked": "Confirmado",
   "asks.page.ackedBy": "Confirmado por {name}",

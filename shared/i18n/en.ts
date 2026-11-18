@@ -2253,6 +2253,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.filedAsTaskPending": "Filed as task",
   "asks.filedAsTaskPendingNote": "Filed as task: {note}",
   "asks.undo": "Undo",
+  "asks.sendNow": "Send now",
   "asks.page.ringing": "Paging",
   "asks.page.acked": "Acked",
   "asks.page.ackedBy": "Acked by {name}",

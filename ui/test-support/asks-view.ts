@@ -37,10 +37,12 @@ export const ranked = (
 // `place` seeds any other slice: the rooms and agents, or for an office
 // owner the session and other members' asks. `filterAgentId` is a one-shot
 // request to show one agent's asks, held and cleared as App holds it.
+// `focusAskId` pins that ask above the list (PinnedAsk).
 export function mount(
   asks: AskEntry[],
   place: Partial<AppState> = {},
   filterAgentId: string | null = null,
+  focusAskId: string | null = null,
 ) {
   const seeded: AppState = {
     ...initialState,
@@ -95,6 +97,7 @@ export function mount(
           onFocusAgent: (id: string) => focused.push(id),
           filterAgentId: request,
           onFilterAgentHandled,
+          focusAskId,
         }),
       ),
     );

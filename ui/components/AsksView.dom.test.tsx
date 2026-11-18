@@ -32,6 +32,7 @@ const { setAsksFilter } = await import("../device-settings.ts");
 const { useInboxCounts } = await import("../inbox.ts");
 const { resetInboxSeenForTests } = await import("../inbox-seen.ts");
 const { selfUserRecord } = await import("../test-support/language-fixture.tsx");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const {
   ask,
   ranked,
@@ -519,6 +520,84 @@ for (const [kind, text] of [
     expect(posts).toEqual([`/api/asks/held/${kind}`]);
   });
 }
+
+// The line's × sends the held answer at once (task aa8a9ddb): the POST and
+// body the end of the Undo time sends, once, and the line goes, so no Undo is
+// left. Its name says it sends: on a line that can read Dismissed, the shared
+// Dismiss name would hide that.
+for (const [kind, text] of [
+  ["reply", "Ship it on Monday"],
+  ["dismiss", "Not this week"],
+  ["file-task", "Do it after the release"],
+] as const) {
+  it(`sends a held ${kind} at once from the line's ×, and only once`, async () => {
+    jest.useFakeTimers();
+    // The POST is held open: the line goes when the ask turns sending, not
+    // when the server answers.
+    let settle!: () => void;
+    answer = () =>
+      new Promise<undefined>((resolve) => {
+        settle = () => resolve(undefined);
+      });
+    const { view } = mount([ask("now", "a1", 30), ask("next", "a2", 20)]);
+    const host = view.container.querySelector("[data-asks-undo-host]")!;
+    await answerAsk(view, "now", kind, text);
+    expect(pendingOf(view, "now")).toBe(kind);
+    const send = host.querySelector<HTMLButtonElement>(
+      '[data-ask="now"] [data-ask-send-now]',
+    );
+    expect(send?.tagName).toBe("BUTTON");
+    const name = send!.getAttribute("aria-label");
+    expect(name ?? "").not.toBe("");
+    expect(send!.title).toBe(name!);
+    expect(name).not.toBe(translatorFor("en").t("common.dismiss"));
+    expect(name).not.toBe(undoOf(view, "now").textContent);
+    await advance(1);
+    expect(posts).toEqual([]);
+    await act(async () => fireEvent.click(send!));
+    await act(async () => {});
+    expect(posts).toEqual([`/api/asks/now/${kind}`]);
+    expect(bodies).toEqual([{ text }]);
+    expect(cardEl(view, "now")).toBeNull();
+    expect(host.childElementCount).toBe(0);
+    expect(pageOrder(view)).toEqual(["a2:next"]);
+    await act(async () => settle());
+    // Neither the end of the Undo time nor leaving the Inbox sends it again.
+    await advance(ASK_UNDO_MS * 2);
+    expect(posts).toHaveLength(1);
+    await act(async () => view.unmount());
+    expect(posts).toHaveLength(1);
+  });
+}
+
+// The pinned ask draws its line in place, not in the list's toast host: its
+// × sends the same way.
+it("sends a held answer at once from the × on the pinned ask's line, and only once", async () => {
+  jest.useFakeTimers();
+  const { view } = mount(
+    [ask("pin", "a1", 30), ask("next", "a2", 20)],
+    {},
+    null,
+    "pin",
+  );
+  const pinned = view.container.querySelector("[data-asks-pinned]")!;
+  expect(pageOrder(view)).toEqual(["a2:next"]);
+  await answerAsk(view, "pin", "reply", "From the pin");
+  const line = pinned.querySelector<HTMLElement>('[data-ask="pin"]');
+  expect(line?.dataset.askPending).toBe("reply");
+  const send = line!.querySelector<HTMLButtonElement>("[data-ask-send-now]");
+  expect(send?.tagName).toBe("BUTTON");
+  await act(async () => fireEvent.click(send!));
+  await act(async () => {});
+  expect(posts).toEqual(["/api/asks/pin/reply"]);
+  expect(bodies).toEqual([{ text: "From the pin" }]);
+  expect(view.container.querySelector("[data-ask-pending]")).toBeNull();
+  expect(view.container.querySelector("[data-ask-undo]")).toBeNull();
+  await advance(ASK_UNDO_MS * 2);
+  expect(posts).toHaveLength(1);
+  await act(async () => view.unmount());
+  expect(posts).toHaveLength(1);
+});
 
 // At the end of the Undo time the line goes straight to nothing: the card is
 // never drawn again while the answer is in flight (task ab332fb2). The POST
