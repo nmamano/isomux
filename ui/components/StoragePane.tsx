@@ -893,7 +893,7 @@ function BackupBlock({
   saving: boolean;
   oldBackupsDir: string | null;
 }) {
-  const { t, tn, rich, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const age = (ts: number) => ageText(language, t, ts);
   if (backup === "unavailable") {
     return (
@@ -926,43 +926,28 @@ function BackupBlock({
   return (
     <div aria-busy={!loaded || undefined}>
       <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
-      {!loaded ? (
-        <>
-          <p style={backupText}>{t("common.loading")}</p>
-          <p style={{ ...backupText, marginTop: 4 }}>{BLANK}</p>
-        </>
-      ) : (
-        <>
-          <p style={backupText}>
-            {backup.lastRunAt === null ? (
-              t("settings.storage.noBackupYet")
-            ) : backup.ok ? (
-              t("settings.storage.lastBackupOk", {
-                when: age(backup.lastRunAt),
-              })
-            ) : (
-              <span style={{ color: "var(--red-text)" }}>
-                {backup.error
-                  ? t("settings.storage.lastBackupFailedWith", {
-                      when: age(backup.lastRunAt),
-                      error: backup.error,
-                    })
-                  : t("settings.storage.lastBackupFailed", {
-                      when: age(backup.lastRunAt),
-                    })}
-              </span>
-            )}
-          </p>
-          <p style={{ ...backupText, marginTop: 4 }}>
-            {rich("settings.storage.backupKeeping", {
-              retention: backup.retention,
-              destDir: backup.destDir,
-              code: inData,
-            })}{" "}
-            {tn("settings.storage.backupEvery", backup.intervalHours)}
-          </p>
-        </>
-      )}
+      <p style={backupText}>
+        {!loaded ? (
+          t("common.loading")
+        ) : backup.lastRunAt === null ? (
+          t("settings.storage.noBackupYet")
+        ) : backup.ok ? (
+          t("settings.storage.lastBackupOk", {
+            when: age(backup.lastRunAt),
+          })
+        ) : (
+          <span style={{ color: "var(--red-text)" }}>
+            {backup.error
+              ? t("settings.storage.lastBackupFailedWith", {
+                  when: age(backup.lastRunAt),
+                  error: backup.error,
+                })
+              : t("settings.storage.lastBackupFailed", {
+                  when: age(backup.lastRunAt),
+                })}
+          </span>
+        )}
+      </p>
       {oldBackupsDir && (
         <p style={{ ...backupText, marginTop: 6 }}>
           {rich("settings.storage.oldBackupsStay", {

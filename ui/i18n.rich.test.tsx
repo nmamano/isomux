@@ -84,12 +84,12 @@ describe("uiTranslatorFor", () => {
   it("renders a catalog entry with its tags in the language", () => {
     const en = uiTranslatorFor("en");
     const ca = uiTranslatorFor("ca");
-    const parts = { retention: 7, destDir: "/b", code };
-    expect(html(en.rich("settings.storage.backupKeeping", parts))).toBe(
-      "<p>Keeping 7 in <code>/b</code>.</p>",
+    const parts = { dir: "/b", code };
+    expect(html(en.rich("settings.storage.oldBackupsStay", parts))).toBe(
+      "<p>Earlier backups stay in <code>/b</code>.</p>",
     );
-    expect(html(ca.rich("settings.storage.backupKeeping", parts))).toBe(
-      "<p>Es conserven 7 a <code>/b</code>.</p>",
+    expect(html(ca.rich("settings.storage.oldBackupsStay", parts))).toBe(
+      "<p>Les còpies anteriors es queden a <code>/b</code>.</p>",
     );
   });
 
@@ -156,11 +156,10 @@ describe("richN", () => {
 it("renders Chinese rich text while preserving code and interpolated paths", () => {
   expect(
     html(
-      uiTranslatorFor("zh").rich("settings.storage.backupKeeping", {
-        retention: "3",
-        destDir: "/var/backups",
+      uiTranslatorFor("zh").rich("settings.storage.oldBackupsStay", {
+        dir: "/var/backups",
         code,
       }),
     ),
-  ).toBe("<p>在 <code>/var/backups</code> 中保留 3。</p>");
+  ).toBe("<p>之前的备份仍在 <code>/var/backups</code> 中。</p>");
 });

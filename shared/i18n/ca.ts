@@ -1014,8 +1014,6 @@ Coses que pots fer per ell:
     "Última còpia de seguretat {when} FALLIDA.",
   "settings.storage.lastBackupFailedWith":
     "Última còpia de seguretat {when} FALLIDA: {error}",
-  "settings.storage.backupEvery.one": "Una de nova cada {count} hora.",
-  "settings.storage.backupEvery.other": "Una de nova cada {count} hores.",
   "settings.storage.oldBackupsStay":
     "Les còpies anteriors es queden a <code>{dir}</code>.",
   "settings.storage.backupInterval": "Còpia cada",
@@ -1058,8 +1056,6 @@ Coses que pots fer per ell:
   "settings.storage.compressRefused.one": "{count} s'ha deixat com estava.",
   "settings.storage.compressRefused.other": "{count} s'han deixat com estaven.",
   "settings.storage.compressFailed": "La sol·licitud de compressió ha fallat.",
-  "settings.storage.backupKeeping":
-    "Es conserven {retention} a <code>{destDir}</code>.",
   "settings.storage.planCount":
     "S'esborrarien {count} {target}, alliberant {size}.",
   "settings.storage.planEmpty":

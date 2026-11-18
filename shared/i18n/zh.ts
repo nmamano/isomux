@@ -907,8 +907,6 @@ export const zh: Catalog = {
   "settings.storage.lastBackupFailed": "上次备份时间为 {when}，已失败。",
   "settings.storage.lastBackupFailedWith":
     "上次备份时间为 {when}，已失败：{error}",
-  "settings.storage.backupEvery.one": "每 {count} 小时备份一次。",
-  "settings.storage.backupEvery.other": "每 {count} 小时备份一次。",
   "settings.storage.oldBackupsStay": "之前的备份仍在 <code>{dir}</code> 中。",
   "settings.storage.backupInterval": "备份间隔",
   "settings.storage.backupHours": "小时",
@@ -943,8 +941,6 @@ export const zh: Catalog = {
   "settings.storage.compressRefused.one": "{count} 个保持原样。",
   "settings.storage.compressRefused.other": "{count} 个保持原样。",
   "settings.storage.compressFailed": "压缩请求失败。",
-  "settings.storage.backupKeeping":
-    "在 <code>{destDir}</code> 中保留 {retention}。",
   "settings.storage.planCount": "将删除 {count} 个{target}，释放 {size}。",
   "settings.storage.planEmpty":
     "没有符合条件的内容。没有存在足够长时间的{target}可供删除。",

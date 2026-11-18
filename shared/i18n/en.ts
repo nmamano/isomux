@@ -998,8 +998,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.lastBackupOk": "Last backup {when}, successful.",
   "settings.storage.lastBackupFailed": "Last backup {when} FAILED.",
   "settings.storage.lastBackupFailedWith": "Last backup {when} FAILED: {error}",
-  "settings.storage.backupEvery.one": "A new one every {count} hour.",
-  "settings.storage.backupEvery.other": "A new one every {count} hours.",
   "settings.storage.oldBackupsStay":
     "Earlier backups stay in <code>{dir}</code>.",
   "settings.storage.backupInterval": "Back up every",
@@ -1038,8 +1036,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.compressRefused.one": "{count} was left as it was.",
   "settings.storage.compressRefused.other": "{count} were left as they were.",
   "settings.storage.compressFailed": "The compress request failed.",
-  "settings.storage.backupKeeping":
-    "Keeping {retention} in <code>{destDir}</code>.",
   "settings.storage.planCount":
     "{count} {target} would be deleted, freeing {size}.",
   "settings.storage.planEmpty":

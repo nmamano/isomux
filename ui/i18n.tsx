@@ -18,7 +18,7 @@
 //
 // rich() is the rich-text helper of ruling 16: a sentence with an inline code
 // span, link or emphasis is ONE catalog entry, with the wrapped span written
-// as a named tag pair ("Keeping {retention} in <code>{destDir}</code>.") and
+// as a named tag pair ("Earlier backups stay in <code>{dir}</code>.") and
 // the values as the usual {placeholders}. Tags are one level deep and never
 // nested; catalog.test.ts holds every language to the English tag multiset.
 // The caller supplies a wrap function per tag and a node per placeholder, and
