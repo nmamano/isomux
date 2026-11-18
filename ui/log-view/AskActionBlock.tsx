@@ -1002,7 +1002,9 @@ export function AskActionBlock({
       lines: [
         s.userId !== memberUserId && member && (
           <div key="owner" style={{ fontSize: small }}>
-            {t("asks.action.sessionOwner", { member: member.name })}
+            {rich("asks.action.sessionOwner", {
+              member: <Data>{member.name}</Data>,
+            })}
           </div>
         ),
         name !== s.sessionPrefix && (
@@ -1097,7 +1099,9 @@ export function AskActionBlock({
       lines: [
         owner && (
           <div key="owner" style={{ fontSize: small }}>
-            {t("asks.action.tokenOwner", { member: owner.name })}
+            {rich("asks.action.tokenOwner", {
+              member: <Data>{owner.name}</Data>,
+            })}
           </div>
         ),
         token && (
@@ -1435,7 +1439,9 @@ export function AskActionBlock({
     if (manager)
       lines.push(
         <div key="manager" data-ask-action-wa-manager="" style={muted}>
-          {t("asks.action.whatsappManager", { member: manager.name })}
+          {rich("asks.action.whatsappManager", {
+            member: <Data>{manager.name}</Data>,
+          })}
         </div>,
       );
     if (target && !belowStandard(agentAccessOf(target)))
@@ -1451,15 +1457,17 @@ export function AskActionBlock({
     if (!waMember)
       lines.push(
         <div key="other" data-ask-action-wa-other="" style={muted}>
-          {t("asks.action.whatsappOtherMember", {
-            member: member?.name ?? "",
+          {rich("asks.action.whatsappOtherMember", {
+            member: member ? <Data>{member.name}</Data> : "",
           })}
         </div>,
       );
     else if (waChats !== null && waCandidates.length === 0)
       lines.push(
         <div key="none" data-ask-action-wa-none="" style={muted}>
-          {t("asks.action.whatsappNoMatch", { name: s.chatName })}
+          {rich("asks.action.whatsappNoMatch", {
+            name: <Data>{s.chatName}</Data>,
+          })}
         </div>,
       );
     else if (waCandidates.length > 1)
@@ -1498,7 +1506,9 @@ export function AskActionBlock({
     if (row && row.agentId !== s.agentId)
       lines.push(
         <div key="moves" data-ask-action-wa-moves="" style={muted}>
-          {t("asks.action.whatsappMoves", { agent: agentName(row.agentId) })}
+          {rich("asks.action.whatsappMoves", {
+            agent: <Data>{agentName(row.agentId)}</Data>,
+          })}
         </div>,
       );
     return {
@@ -1630,7 +1640,9 @@ export function AskActionBlock({
     if (manager)
       lines.push(
         <div key="manager" data-ask-action-dc-manager="" style={muted}>
-          {t("asks.action.discordManager", { member: manager.name })}
+          {rich("asks.action.discordManager", {
+            member: <Data>{manager.name}</Data>,
+          })}
         </div>,
       );
     if (target && !belowStandard(agentAccessOf(target)))
@@ -1646,15 +1658,17 @@ export function AskActionBlock({
     if (!dcMember)
       lines.push(
         <div key="other" data-ask-action-dc-other="" style={muted}>
-          {t("asks.action.discordOtherMember", {
-            member: member?.name ?? "",
+          {rich("asks.action.discordOtherMember", {
+            member: member ? <Data>{member.name}</Data> : "",
           })}
         </div>,
       );
     else if (dcBots !== null && dcPlaces.length === 0)
       lines.push(
         <div key="none" data-ask-action-dc-none="" style={muted}>
-          {t("asks.action.discordNoMatch", { name: s.placeName })}
+          {rich("asks.action.discordNoMatch", {
+            name: <Data>{s.placeName}</Data>,
+          })}
         </div>,
       );
     else if (dcPlaces.length > 1)
@@ -1692,7 +1706,9 @@ export function AskActionBlock({
     if (route && route.agentId !== s.agentId)
       lines.push(
         <div key="moves" data-ask-action-dc-moves="" style={muted}>
-          {t("asks.action.discordMoves", { agent: agentName(route.agentId) })}
+          {rich("asks.action.discordMoves", {
+            agent: <Data>{agentName(route.agentId)}</Data>,
+          })}
         </div>,
       );
     return {

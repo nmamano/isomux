@@ -8,6 +8,7 @@
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { asData, sentenceValues } from "../test-support/data-values.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 
 setUpDomTestFile();
 
@@ -372,6 +373,45 @@ it("a restore or purge card names the removed member; one no longer in Removed m
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(posts).toEqual(["/api/asks/del00004/action"]);
+  view.unmount();
+});
+
+// Task 7075171e: the names in a restore card's sentences are data, the
+// dates plain. Something passed to the heir, so each restore has its agents
+// line: moved back, or kept by the heir.
+it("a restore card shows who removed the member and the heir as data", async () => {
+  const [entry] = REMOVED.members;
+  read = (path) =>
+    path === "/api/removed-members"
+      ? {
+          members: [
+            {
+              ...entry,
+              heirId: "u2",
+              heirName: "Casey",
+              passed: { agents: 1, schedules: 0, webhooks: 0 },
+            },
+          ],
+        }
+      : undefined;
+  const { view, block } = await mount([
+    memberAsk("res00001", {
+      kind: "member-restore",
+      userId: "u4",
+      agents: true,
+    }),
+    memberAsk("res00002", {
+      kind: "member-restore",
+      userId: "u4",
+      agents: false,
+    }),
+  ]);
+  await waitFor(() =>
+    expect(block("res00002")!.textContent).toContain("Casey"),
+  );
+  expect(block("res00001")!.textContent).toContain("Casey");
+  for (const id of ["res00001", "res00002"])
+    expect(dataChips(block(id))).toEqual(["Morgan", "Casey"]);
   view.unmount();
 });
 

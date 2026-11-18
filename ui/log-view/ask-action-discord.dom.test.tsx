@@ -11,6 +11,7 @@
 // data-ask-action-place-picked; a move is data-ask-action-dc-moves.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 
 setUpDomTestFile();
 
@@ -36,6 +37,17 @@ const agent = (id: string, name: string, userId: string) =>
 const ASKER = agent("a1", "Asker", "u1");
 const PM = agent("a2", "Project Lead", "u2");
 const HELPER = agent("a3", "Inbox Helper", "u1");
+const MEMBERS = [
+  { id: "u1", name: "Morgan" },
+  { id: "u2", name: "Casey" },
+  { id: "u3", name: "Riley" },
+].map((m) => ({
+  ...m,
+  role: "member",
+  avatarColor: "#336699",
+  avatarVariant: "classic",
+  createdAt: NOW,
+})) as never[];
 
 setShim(() => {});
 afterAll(() => {
@@ -137,6 +149,9 @@ function Seed({
     });
     for (const a of [ASKER, PM, HELPER])
       dispatch({ type: "agent_added", agent: a });
+    // Members by name: the card names the target agent's manager and the
+    // ask's member.
+    dispatch({ type: "users_list", users: MEMBERS });
     dispatch({ type: "asks_loaded", entries, revision: 0 });
   }, [dispatch, entries]);
   return <>{children}</>;
@@ -387,4 +402,46 @@ it("no matching place: no choice and no Apply that runs", async () => {
     await tick();
   }
   expect(posts.length).toBe(0);
+});
+
+// Task 7075171e: the card's sentences show the names in them as data
+// (AGENTS.md "UI rules"), one chip per value, the words around it plain.
+it("the moves, manager, other-member and no-match lines show their names as data", async () => {
+  bots = [bot(BOT, "Morgan's bot")];
+  guilds = { [BOT]: [AKIDO] };
+  routes = [
+    {
+      id: "d_1",
+      botId: BOT,
+      guildId: GUILD,
+      scope: "channel",
+      targetId: LEGAL,
+      name: "Legal",
+      agentId: "a3",
+      trigger: "mention",
+      replyMode: "ask",
+      createdAt: 1,
+    },
+  ];
+  const line = (m: Awaited<ReturnType<typeof mount>>, kind: string) =>
+    m.block()?.querySelector(`[data-ask-action-dc-${kind}]`);
+  const moved = await mount(step({ placeName: "legal" }));
+  await waitFor(() => expect(line(moved, "moves")).toBeTruthy());
+  // The target agent (Project Lead) is Casey's; the route's agent is Inbox
+  // Helper.
+  expect(dataChips(line(moved, "moves"))).toEqual(["Inbox Helper"]);
+  expect(dataChips(line(moved, "manager"))).toEqual(["Casey"]);
+  moved.view.unmount();
+
+  // Riley's ask, seen by Morgan.
+  const other = await mount(step(), "u3");
+  await waitFor(() => expect(line(other, "other")).toBeTruthy());
+  expect(dataChips(line(other, "other"))).toEqual(["Riley"]);
+  other.view.unmount();
+
+  const none = await mount(step({ placeName: "book club" }));
+  await readAll([BOT]);
+  await waitFor(() => expect(line(none, "none")).toBeTruthy());
+  expect(dataChips(line(none, "none"))).toEqual(["book club"]);
+  none.view.unmount();
 });

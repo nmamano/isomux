@@ -5,6 +5,7 @@
 import type { CSSProperties } from "react";
 import type { AskPageWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "../components/Data.tsx";
 
 // An SVG, not a glyph: Safari draws a bell glyph through the emoji font.
 function Bell({ size }: { size: number }) {
@@ -43,12 +44,12 @@ export function AskPageLine({
   fontSize: number;
   buttonStyle: CSSProperties;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const ringing = page.state === "ringing";
   const label = ringing
     ? t("asks.page.ringing")
     : page.ackedBy
-      ? t("asks.page.ackedBy", { name: page.ackedBy })
+      ? rich("asks.page.ackedBy", { name: <Data>{page.ackedBy}</Data> })
       : t("asks.page.acked");
   return (
     <div

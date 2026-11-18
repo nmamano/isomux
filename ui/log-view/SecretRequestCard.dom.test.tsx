@@ -3,6 +3,7 @@
 // form, whoever views it.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 setUpDomTestFile();
 const { render } = await import("@testing-library/react");
 const { SecretRequestCard, SecretRequestOutcomes } =
@@ -103,5 +104,15 @@ it("draws colour markup in the reason", () => {
     bold: span?.querySelector("strong")?.textContent,
     raw: /:purple\[|\*\*/.test(view.container.textContent ?? ""),
   }).toEqual({ color: "purple", bold: "Quick action", raw: false });
+  view.unmount();
+});
+
+// Task 7075171e: the header the value goes in is data.
+it("names the header the value goes in as data", () => {
+  const view = card(new Map(), {
+    ...PAYLOAD,
+    form: { kind: "header", header: "X-Api-Key" } as never,
+  });
+  expect(dataChips(view.container)).toContain("X-Api-Key");
   view.unmount();
 });

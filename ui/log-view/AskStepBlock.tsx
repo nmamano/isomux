@@ -11,6 +11,7 @@
 import { useContext, useEffect, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { Data } from "../components/Data.tsx";
 import { useAppState } from "../store.tsx";
 import { OfficeLinkOpener } from "../office-link.tsx";
 import { officeLinkFor } from "../../shared/office-links.ts";
@@ -145,14 +146,14 @@ export function AskStepBlock({
 
 // A step only the ask's member can do.
 function OthersStep({ name }: { name: string | null }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   return (
     <p
       data-ask-step-others=""
       style={{ margin: 0, color: "var(--text-muted)" }}
     >
       {name
-        ? t("asks.step.others", { member: name })
+        ? rich("asks.step.others", { member: <Data>{name}</Data> })
         : t("asks.step.othersUnknown")}
     </p>
   );

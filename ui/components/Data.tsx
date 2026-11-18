@@ -3,6 +3,7 @@
 // rules"): one style for all of it. Put it in a sentence through rich().
 
 import type { CSSProperties, ReactNode } from "react";
+import { noTranslate } from "../no-translate.ts";
 
 const dataStyle: CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
@@ -15,10 +16,11 @@ const dataStyle: CSSProperties = {
   overflowWrap: "anywhere",
 };
 
-// Service-authored and member-authored text: rendered as text only.
+// Service-authored and member-authored text: rendered as text only, and
+// page translation leaves it alone.
 export function Data({ children }: { children: ReactNode }) {
   return (
-    <span data-integrations-data="" style={dataStyle}>
+    <span data-integrations-data="" style={dataStyle} {...noTranslate()}>
       {children}
     </span>
   );

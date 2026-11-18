@@ -6,6 +6,7 @@
 // ui/App.ask-mcp-sign-in.dom.test.tsx.
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 
 setUpDomTestFile();
 
@@ -403,6 +404,10 @@ it("draws no control on another member's ask for a step on that member's own acc
     expect(card(id).querySelector('[data-testid="browser-pair"]')).toBeNull();
     expect(card(id).querySelector('[data-testid="browser-name"]')).toBeNull();
     expect(card(id).querySelector("[data-ask-office-link]")).toBeNull();
+    // The step names its member as data (task 7075171e).
+    expect(dataChips(card(id).querySelector("[data-ask-step-others]"))).toEqual(
+      ["Casey"],
+    );
   }
   // Nothing read the viewer's own browser for Casey's pairing.
   expect(reads).not.toContain("/api/me/browser");

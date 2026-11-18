@@ -23,6 +23,7 @@ import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { Data } from "../components/Data.tsx";
 
 // The card's title, which the collapsed stack shows too.
 export function sudoAskTitle(t: UiTranslator["t"]): string {
@@ -48,7 +49,7 @@ export function SudoAskCard({
   onFocusAgent?: (agentId: string) => void;
   onChatAgent?: (agentId: string) => void;
 }) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
   const { agents, users } = useAppState();
   const [password, setPassword] = useState("");
@@ -157,12 +158,12 @@ export function SudoAskCard({
       </div>
       <p style={hintStyle}>
         {manager
-          ? t("cards.sudoRequest.byAgentOf", {
-              agent: agent?.name ?? entry.agentId,
-              manager,
+          ? rich("cards.sudoRequest.byAgentOf", {
+              agent: <Data>{agent?.name ?? entry.agentId}</Data>,
+              manager: <Data>{manager}</Data>,
             })
-          : t("cards.sudoRequest.byAgent", {
-              agent: agent?.name ?? entry.agentId,
+          : rich("cards.sudoRequest.byAgent", {
+              agent: <Data>{agent?.name ?? entry.agentId}</Data>,
             })}
       </p>
       {/* The whole command, never cut: what the member reads is what runs. */}

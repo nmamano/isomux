@@ -5,6 +5,7 @@
 // those under the DOM time cap.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 
 setUpDomTestFile();
 
@@ -185,6 +186,8 @@ it("a session-revoke card names the session by its device, else its user agent, 
     prefix: text("ses00001").includes("7Tqn6nKy"),
     whose: text("ses00001").includes("Casey"),
   }).toEqual({ prefix: true, whose: true });
+  // Whose it is names the member as data (task 7075171e).
+  expect(dataChips(block("ses00001"))).toEqual(["Casey"]);
   expect(text("ses00002")).toContain("Laptop");
   expect(text("ses00003")).toContain("de05uI--");
   expect(

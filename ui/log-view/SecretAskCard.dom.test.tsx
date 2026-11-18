@@ -4,6 +4,7 @@
 import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { expectMasked } from "../test-support/masked.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 import { expectPortalLink } from "../test-support/discord-portal.ts";
 
 setUpDomTestFile();
@@ -876,4 +877,48 @@ it("a proposed token exchange names its token host and the web address parameter
     card(plain)?.querySelector("[data-secret-request-exchange]"),
   ).toBeNull();
   plain.unmount();
+});
+
+// Task 7075171e: the values in the card's hint sentences are data - the app,
+// the header or web address parameter the value goes in, and the token
+// host - one chip each.
+it("the hint sentences show the app, the header or parameter, and the token host as data", async () => {
+  for (const scope of ["personal", "office"] as const) {
+    const app = await mount(false, {
+      ...APP_ASK,
+      secret: { ...(APP_ASK.secret as SecretValueRequest), scope },
+    });
+    expect(dataChips(card(app))).toContain("game-video");
+    app.unmount();
+  }
+  const header = await mount(false, {
+    ...SECRET_ASK,
+    secret: {
+      ...(SECRET_ASK.secret as SecretValueRequest),
+      form: { kind: "header", header: "X-Api-Key" },
+    },
+  });
+  expect(dataChips(card(header))).toContain("X-Api-Key");
+  header.unmount();
+  const exchange = await mount(false, {
+    ...SECRET_ASK,
+    secret: {
+      ...(SECRET_ASK.secret as SecretValueRequest),
+      hosts: ["qyapi.example.com", "auth.example.com"],
+      form: { kind: "query", param: "access_token" },
+      exchange: {
+        url: "https://auth.example.com/cgi-bin/gettoken",
+        body: { kind: "oauth", clientAuth: "body" },
+        id: "fake-corp-id",
+        params: {},
+        tokenField: "access_token",
+        expiryField: "expires_in",
+      },
+    },
+  });
+  expect(dataChips(card(exchange))).toContain("access_token");
+  expect(
+    dataChips(card(exchange)?.querySelector("[data-secret-request-exchange]")),
+  ).toEqual(["auth.example.com"]);
+  exchange.unmount();
 });

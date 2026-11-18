@@ -5,6 +5,7 @@
 // same AskCard is the Inbox's.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { dataChips } from "../test-support/data-chips.ts";
 
 setUpDomTestFile();
 
@@ -1118,6 +1119,8 @@ it("an api-token-revoke card names the token and its owner, for the member's own
     expect(block("cred0008")!.textContent).toContain("caseys-laptop"),
   );
   expect(block("cred0008")!.textContent).toContain("Casey");
+  // The owner's name is data (task 7075171e).
+  expect(dataChips(block("cred0008"))).toEqual(["Casey"]);
   await waitFor(() =>
     expect(block("cred0007")!.textContent).toContain("morgans-ci"),
   );

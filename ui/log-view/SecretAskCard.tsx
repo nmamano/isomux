@@ -269,9 +269,13 @@ export function SecretAskCard({
 
   const form =
     secret.form.kind === "header"
-      ? t("settings.secrets.formHeaderNamed", { header: secret.form.header })
+      ? rich("settings.secrets.formHeaderNamed", {
+          header: <Data>{secret.form.header}</Data>,
+        })
       : secret.form.kind === "query"
-        ? t("settings.secrets.formQueryNamed", { param: secret.form.param })
+        ? rich("settings.secrets.formQueryNamed", {
+            param: <Data>{secret.form.param}</Data>,
+          })
         : t("settings.secrets.formAuthorization");
   // A proposed token exchange: its address's host must stay in the hosts, so
   // the vouch below covers it.
@@ -469,8 +473,10 @@ export function SecretAskCard({
           {app ? (
             <p style={hintStyle}>
               {secret.scope === "office"
-                ? t("cards.secretRequest.appOffice", { app })
-                : t("cards.secretRequest.app", { app })}
+                ? rich("cards.secretRequest.appOffice", {
+                    app: <Data>{app}</Data>,
+                  })
+                : rich("cards.secretRequest.app", { app: <Data>{app}</Data> })}
             </p>
           ) : (
             <>
@@ -482,7 +488,9 @@ export function SecretAskCard({
                 {tokenHost && (
                   <span data-secret-request-exchange="">
                     {" "}
-                    {t("cards.secretRequest.exchange", { host: tokenHost })}
+                    {rich("cards.secretRequest.exchange", {
+                      host: <Data>{tokenHost}</Data>,
+                    })}
                   </span>
                 )}
               </p>

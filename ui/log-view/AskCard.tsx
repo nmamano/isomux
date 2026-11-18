@@ -60,6 +60,7 @@
 
 import {
   createContext,
+  Fragment,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -90,6 +91,7 @@ import type {
 import { AskPrompt } from "./AskPrompt.tsx";
 import { unplacedAskFiles } from "./ask-prompt-diff.ts";
 import { noTranslate } from "../no-translate.ts";
+import { Data } from "../components/Data.tsx";
 import { RecommendedStar } from "./recommended-star.tsx";
 import { SudoAskCard } from "./SudoAskCard.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
@@ -485,12 +487,18 @@ function ReplyAskCard({
   // An outside page opens in a new tab and needs no office opener.
   const outside = !stepView && outsideLinkFor(entry.link) !== null;
   // Who else a shared ask is for (task 9461c464): the other members by name,
-  // or the agent's room. Another member's ask names them all.
-  const names = (list: string[]) => (
-    <span {...noTranslate()}>
-      {new Intl.ListFormat(language, { type: "conjunction" }).format(list)}
-    </span>
-  );
+  // or the agent's room. Another member's ask names them all. Each name is
+  // its own data chip; the list words between them stay translatable text.
+  const names = (list: string[]) =>
+    new Intl.ListFormat(language, { type: "conjunction" })
+      .formatToParts(list)
+      .map((part, i) =>
+        part.type === "element" ? (
+          <Data key={i}>{part.value}</Data>
+        ) : (
+          <Fragment key={i}>{part.value}</Fragment>
+        ),
+      );
   const viewer = sessionContext?.username?.toLowerCase();
   const otherMembers = (entry.members ?? []).filter(
     (name) => name.toLowerCase() !== viewer,
@@ -505,7 +513,7 @@ function ReplyAskCard({
     : entry.room
       ? askRoom
         ? rich("asks.forRoom", {
-            room: <span {...noTranslate()}>{askRoom.name}</span>,
+            room: <Data>{askRoom.name}</Data>,
           })
         : null
       : otherMembers.length > 0
@@ -1073,7 +1081,7 @@ function ReplyAskCard({
               overflowWrap: "break-word",
             }}
           >
-            {t("asks.fromApp", { app: entry.app.name })}
+            {rich("asks.fromApp", { app: <Data>{entry.app.name}</Data> })}
           </div>
         )}
         {entry.member && (
@@ -1091,7 +1099,7 @@ function ReplyAskCard({
                 (entry.members?.length ?? 0) > 1 ? (
                   names(entry.members ?? [])
                 ) : (
-                  <span {...noTranslate()}>{entry.member}</span>
+                  <Data>{entry.member}</Data>
                 ),
             })}
           </div>

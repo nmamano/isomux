@@ -13,7 +13,7 @@ import { MintedSecretBox, MintedUrlBox } from "../components/access-shared.tsx";
 import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
 import { formatNumber } from "../../shared/i18n/number.ts";
 import { AskRunResult } from "./AskRunResult.tsx";
-import { noTranslate } from "../no-translate.ts";
+import { Data } from "../components/Data.tsx";
 
 export function AskResultCard({
   askId,
@@ -46,7 +46,9 @@ export function AskResultCard({
         return (
           <>
             <div style={{ fontWeight: 600 }}>
-              {t("asks.result.apiToken", { name: result.target })}
+              {rich("asks.result.apiToken", {
+                name: <Data>{result.target}</Data>,
+              })}
             </div>
             <MintedSecretBox
               value={result.value}
@@ -85,7 +87,7 @@ export function AskResultCard({
         return (
           <div data-ask-closed-by={result.by}>
             {rich("asks.result.answeredFirst", {
-              member: <span {...noTranslate()}>{result.by}</span>,
+              member: <Data>{result.by}</Data>,
             })}
           </div>
         );

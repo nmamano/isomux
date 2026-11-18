@@ -8,6 +8,7 @@ import { useContext, useEffect, useState, type ReactNode } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { Data } from "./Data.tsx";
 import { useAppState } from "../store.tsx";
 import { AskCard } from "../log-view/AskCard.tsx";
 import { AskPrompt } from "../log-view/AskPrompt.tsx";
@@ -50,7 +51,9 @@ function outcomeText(
         : rich("asks.filedAsTask", { task: taskChip(taskId ?? "") });
     case "withdrawn":
       return ask.closed.app
-        ? rich("asks.closedWithdrawnApp", { app: words(ask.closed.app) })
+        ? rich("asks.closedWithdrawnApp", {
+            app: <Data>{ask.closed.app}</Data>,
+          })
         : t("asks.closedWithdrawn");
     case "done":
       return t("asks.closedDone");
@@ -123,7 +126,7 @@ function ReadOnlyAsk({ ask, isMobile }: { ask: ReadAsk; isMobile: boolean }) {
       {ask.member && (
         <div style={small}>
           {rich("asks.forMember", {
-            member: <span {...noTranslate()}>{ask.member}</span>,
+            member: <Data>{ask.member}</Data>,
           })}
         </div>
       )}
@@ -178,7 +181,7 @@ function ReadOnlyAsk({ ask, isMobile }: { ask: ReadAsk; isMobile: boolean }) {
       {closed?.closed.by && (
         <div style={small}>
           {rich("asks.answeredBy", {
-            member: <span {...noTranslate()}>{closed.closed.by}</span>,
+            member: <Data>{closed.closed.by}</Data>,
           })}
         </div>
       )}

@@ -4,6 +4,7 @@ import type { SecretRequestPayload } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { Data } from "../components/Data.tsx";
 
 // The outcome of each settled secret request in the transcript, keyed by
 // request id. ChatTranscript reads it from the system entries that close a
@@ -26,12 +27,14 @@ export function SecretRequestCard({
 }: {
   payload: SecretRequestPayload;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const outcome =
     useContext(SecretRequestOutcomes).get(payload.requestId) ?? "closed";
   const form =
     payload.form.kind === "header"
-      ? t("settings.secrets.formHeaderNamed", { header: payload.form.header })
+      ? rich("settings.secrets.formHeaderNamed", {
+          header: <Data>{payload.form.header}</Data>,
+        })
       : t("settings.secrets.formAuthorization");
 
   return (
