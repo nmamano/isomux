@@ -2,7 +2,8 @@
 // the reply field holds sends it, held for Undo like a Reply; a tap on any
 // other option fills the field. A one-option ask starts with its option in
 // the field, so one tap sends it, and so does the recommended option. The
-// chat's stack, which sends at once, is in ui/log-view/AsksStack.dom.test.tsx.
+// chat's stack, which sends at once, is in
+// ui/log-view/AsksStack.reply.dom.test.tsx.
 // A separate file because each DOM file has a wall-time budget.
 import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";

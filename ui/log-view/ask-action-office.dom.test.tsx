@@ -3,8 +3,8 @@
 // compress. One rule picks the clicks for every kind: the card has no Undo,
 // so a destructive Apply asks again before it runs (a prune after its
 // preview); the others run on the first click. The other kinds'
-// cards are in ask-action.dom.test.tsx; this file keeps that one under the
-// DOM time cap.
+// cards are in the other ui/log-view/ask-action*.dom.test.tsx files; this
+// file keeps those under the DOM time cap.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import {

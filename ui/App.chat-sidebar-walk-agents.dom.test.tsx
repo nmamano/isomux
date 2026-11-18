@@ -2,8 +2,9 @@
 // "the general principle is that clicking something on the side bar does not
 // close the sidebar"). This file walks every button inside an agent row,
 // whatever it is, so a row button added later is walked too;
-// ui/App.chat-sidebar-walk.dom.test.tsx walks the buttons outside one. The
-// walk is in ui/test-support/chat-sidebar-fixture.tsx.
+// ui/App.chat-sidebar-walk-nav.dom.test.tsx walks the page rows and
+// ui/App.chat-sidebar-walk.dom.test.tsx every other button. The walk is in
+// ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";

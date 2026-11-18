@@ -5,7 +5,7 @@
 // (Nil, 2026-11-04: on half a screen, clicking into an agent left the chat
 // input unfocused). The app widget's composer has its own owner test, in
 // ui/AppWidgetPage.dom.test.tsx. A member's chat opened from the sidebar has
-// its own case in ui/App.human-chat-view.dom.test.tsx.
+// its own case in ui/App.human-chat-compose.dom.test.tsx.
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 

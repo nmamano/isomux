@@ -3,7 +3,8 @@
 // 2026-11-16), as the doors about the model do. Each agent gets its own form,
 // and an update to the agent keeps the member's edit. Where the page shows
 // and what Close returns to are in ui/App.agent-settings-page.dom.test.tsx;
-// the guards in ui/App.agent-settings-page-guards.dom.test.tsx; the setup in
+// the guards in ui/App.agent-settings-page-guards.dom.test.tsx and
+// ui/App.agent-settings-page-escape.dom.test.tsx; the setup in
 // ui/test-support/agent-settings-page-fixture.ts.
 
 import { expect, it } from "bun:test";

@@ -3,9 +3,10 @@
 // chat first, like a chat app (task b2889127; Nil, 2026-11-12: "Do members
 // reorder based on most recent chat, like a chat app? I think they should"),
 // then the members with no chat by name. A read or a sign-in never moves a
-// row. A row opens its chat full
-// screen in the main pane, in place of an agent chat; an owner's settings button opens
-// Settings on that member. The setup is in
+// row. An owner's settings button opens Settings on that member, and the
+// Members chat row opens that chat full screen from a page over a chat.
+// ui/App.human-chat-open.dom.test.tsx holds what a row opens: its chat full
+// screen in the main pane, in place of an agent chat. The setup is in
 // ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
@@ -16,20 +17,13 @@ setUpDomTestFile();
 const { act } = await import("@testing-library/react");
 const { shimEmit } = await import("./ws.ts");
 const {
-  LOAD_ENTRY,
-  activeRoom,
-  agentRow,
   boot,
   chatOpen,
   click,
-  currentRows,
-  goBack,
   memberWire,
   navRow,
   openFirstDesk,
   press,
-  requests,
-  roomHeader,
   setMemberDms,
   setMembers,
   setOnline,
@@ -82,10 +76,6 @@ const humanChat = (view: View) =>
   view.container
     .querySelector("[data-human-chat]")
     ?.getAttribute("data-human-chat") ?? null;
-const pageRequests = (peerId: string) =>
-  requests.filter(
-    (r) => r.method === "GET" && r.path.startsWith(`/api/users/${peerId}/chat`),
-  ).length;
 
 it("lists Members chat, then each other member: newest chat first (sent or received), then the name; unread and online never move a row", async () => {
   seedOffice();
@@ -215,60 +205,6 @@ it("an owner gets a settings button on each live member's row, which opens Setti
   expect(humanChat(view)).toBeNull();
 });
 
-it("a member row opens the 1:1 chat full screen, marks its row, fetches its page only then, and Back returns to the office", async () => {
-  seedOffice();
-  const view = await boot();
-  expect(pageRequests("u3")).toBe(0);
-  expect(humanChat(view)).toBeNull();
-  const lobby = () =>
-    view.container.querySelector("[data-lobby-tab]")?.outerHTML ?? null;
-  const before = { room: activeRoom(view), lobby: lobby() };
-
-  await click(memberRow(view, "u3"));
-  expect({
-    chat: humanChat(view),
-    agentChat: chatOpen(view),
-    current: memberRow(view, "u3")?.getAttribute("aria-current"),
-  }).toEqual({ chat: "u3", agentChat: false, current: "page" });
-  expect(pageRequests("u3")).toBe(1);
-  // A deep entry over the load entry, as an agent chat makes.
-  expect(window.history.state).toMatchObject({ isomux: true });
-  expect(
-    memberRowIds(view).filter(
-      (id) => memberRow(view, id!)!.getAttribute("aria-current") === "page",
-    ),
-  ).toEqual(["u3"]);
-
-  await goBack();
-  expect({
-    chat: humanChat(view),
-    room: activeRoom(view),
-    lobby: lobby(),
-    entry: window.history.state,
-  }).toEqual({ chat: null, ...before, entry: LOAD_ENTRY });
-});
-
-it("an agent chat and a human chat replace each other", async () => {
-  seedOffice();
-  const view = await boot();
-  await openFirstDesk(view);
-  await click(memberRow(view, "u5"));
-  expect({ chat: humanChat(view), agentChat: chatOpen(view) }).toEqual({
-    chat: "u5",
-    agentChat: false,
-  });
-
-  if (roomHeader(view, "r1")?.getAttribute("aria-expanded") !== "true")
-    await click(roomHeader(view, "r1"));
-  await click(agentRow(view, "a1"));
-  expect({
-    chat: humanChat(view),
-    agentChat: chatOpen(view),
-    agents: currentRows(view),
-    member: memberRow(view, "u5")?.getAttribute("aria-current") ?? null,
-  }).toEqual({ chat: null, agentChat: true, agents: ["a1"], member: null });
-});
-
 it("Members chat, from a page over a chat, opens Members chat full screen with no page or agent chat left", async () => {
   const view = await boot();
   await openFirstDesk(view);
@@ -285,17 +221,6 @@ it("Members chat, from a page over a chat, opens Members chat full screen with n
     tasks: false,
     current: "page",
   });
-});
-
-it("a load at /chats/<id> or /chats/members opens that chat", async () => {
-  seedOffice();
-  const first = await boot(undefined, "/chats/u4");
-  expect(humanChat(first)).toBe("u4");
-  expect(memberRow(first, "u4")?.getAttribute("aria-current")).toBe("page");
-  first.unmount();
-
-  const second = await boot(undefined, "/chats/members");
-  expect(humanChat(second)).toBe("members");
 });
 
 it("the collapsed sidebar's open button shows a dot while a human chat has unread", async () => {

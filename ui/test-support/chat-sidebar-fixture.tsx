@@ -595,11 +595,12 @@ export async function openBackAgent(
 }
 
 // The walk of every sidebar button (task c61316be: no entry hides the
-// sidebar), in two files because the 5 s cap is per file (task ecc302ca):
-// ui/App.chat-sidebar-walk.dom.test.tsx walks the buttons outside an agent
-// row, ui/App.chat-sidebar-walk-agents.dom.test.tsx the buttons inside one.
-// The two picks are complements, so a button added later is walked by one of
-// them. A picked button that shows only after a click of the other pick is
+// sidebar), in three files because the 5 s cap is per file (tasks ecc302ca,
+// 1c38eae6): ui/App.chat-sidebar-walk-nav.dom.test.tsx walks the page rows
+// (isNavRow), ui/App.chat-sidebar-walk-agents.dom.test.tsx the buttons inside
+// an agent row (inAgentRow), and ui/App.chat-sidebar-walk.dom.test.tsx every
+// other button. The three picks cover every button, so a button added later
+// is walked by one of them. A picked button that shows only after a click of another pick is
 // not walked; each file's expected list holds today's buttons.
 
 /** A third room the member tucked, with one agent at a desk and one in its
@@ -650,6 +651,10 @@ const COLLAPSE = "data-sidebar-collapse=";
 /** A button in an agent row: the row, its settings and its pin. */
 export const inAgentRow = (button: Element) =>
   button.closest(".chat-sidebar-agent") !== null;
+
+/** A page row of the sidebar: Office, Members chat and the pages. */
+export const isNavRow = (button: Element) =>
+  button.hasAttribute("data-sidebar-nav");
 
 /** Click each sidebar button that `pick` accepts once, and assert after each
  *  click that the sidebar is still open. Before that, open each closed section

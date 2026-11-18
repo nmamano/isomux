@@ -5,7 +5,7 @@
 // agent's desk dot and the agent's ask stack above the chat.
 // Undo brings it back everywhere, and so does a send that fails, with the
 // error on the card. Through the real App and store; the Undo line itself and
-// its timer are in ui/components/AsksView.dom.test.tsx.
+// its timer are in ui/components/AsksView.held.dom.test.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";

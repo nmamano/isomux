@@ -1,8 +1,8 @@
 // Action asks (task 43b67f3a): the card of one session of a member revoked.
 // It reads the session from the sessions the office keeps live, loaded by the
-// card when no page has yet. The other kinds' cards are in
-// ask-action.dom.test.tsx and ask-action-office.dom.test.tsx; this file keeps
-// those under the DOM time cap.
+// card when no page has yet. The other kinds' cards are in the other
+// ui/log-view/ask-action*.dom.test.tsx files; this file keeps those under the
+// DOM time cap.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { dataChips } from "../test-support/data-values.ts";

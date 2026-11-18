@@ -242,7 +242,8 @@ export async function switchPanel(
 }
 
 // --- Recent then complete (task 9ebe887d slice 3) ---------------------------
-// Shared by ui/App.chat-recent.dom.test.tsx and
+// Shared by ui/App.chat-recent.dom.test.tsx,
+// ui/App.chat-recent-reload.dom.test.tsx and
 // ui/App.chat-recent-actions.dom.test.tsx. The row above a chat that is not
 // whole is [data-chat-rest], its value the level ("recent" with a button,
 // "loadingRest" without one); a whole chat has none.

@@ -511,7 +511,8 @@ describe("parseChatSidebarShape", () => {
 });
 
 // The page rows a permission pack can hide, as this device last drew them
-// (task f66e07e3). The DOM side is in ui/App.chat-sidebar-skeleton.dom.test.tsx.
+// (task f66e07e3). The DOM side is in
+// ui/App.chat-sidebar-skeleton-pages.dom.test.tsx.
 describe("parseChatSidebarPages", () => {
   it("keeps the known page rows, and an empty list as empty", () => {
     const all: ChatSidebarPage[] = ["apps", "tasks", "cronjobs", "skills"];

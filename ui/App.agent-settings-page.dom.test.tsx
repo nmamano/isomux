@@ -4,7 +4,8 @@
 // phone the page fills the screen. Which section and whose form the page
 // shows are in ui/App.agent-settings-page-form.dom.test.tsx; the guards
 // (unsaved edits, the page keys, Back, Escape over a menu) in
-// ui/App.agent-settings-page-guards.dom.test.tsx; the page itself in
+// ui/App.agent-settings-page-guards.dom.test.tsx and
+// ui/App.agent-settings-page-escape.dom.test.tsx; the page itself in
 // ui/components/AgentSettingsPage.dom.test.tsx; the setup in
 // ui/test-support/agent-settings-page-fixture.ts.
 

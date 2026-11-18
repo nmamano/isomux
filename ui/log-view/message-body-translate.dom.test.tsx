@@ -2,7 +2,7 @@
 // chrome around it, in the reader's language, stays translatable (task
 // bb040257). The queued message, the ask card and the document language are
 // asserted with their own surfaces: ui/logview.i18n.dom.test.tsx,
-// ui/log-view/AsksStack.dom.test.tsx and ui/i18n.dom.test.tsx.
+// ui/log-view/AsksStack.reply.dom.test.tsx and ui/i18n.dom.test.tsx.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 

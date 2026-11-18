@@ -6,8 +6,11 @@
 // page (task 59538509). The room menu is gone (drag reorders and tucks rooms),
 // so a right-click on a room header is the browser's own. Only rooms, agents,
 // members and the Office row have a settings button; the Office row's opens
-// Settings on the office section, for owners only (task 4bf1571c). The setup
-// is in ui/test-support/chat-sidebar-fixture.tsx.
+// Settings on the office section, for owners only (task 4bf1571c). This file
+// holds the room header and the Office row;
+// ui/App.chat-sidebar-settings-rows.dom.test.tsx the agent and member rows and
+// which rows have a button. The setup is in
+// ui/test-support/chat-sidebar-fixture.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -17,21 +20,13 @@ setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
 const { en } = await import("../shared/i18n/en.ts");
 const {
-  ALL_ROOMS,
   boot,
   click,
-  currentRows,
-  faraway,
-  memberWire,
   navRow,
   openFirstDesk,
   press,
-  ranger,
   roomHeader,
-  scout,
-  setMembers,
   setRole,
-  setRooms,
   setSelfUser,
   setUpChatSidebarTests,
 } = await import("./test-support/chat-sidebar-fixture.tsx");
@@ -62,17 +57,6 @@ function nextAction(button: Element | null): string | null {
     .find((n) => n === "data-sidebar-new-agent" || n === "data-sidebar-pin");
   return name ? `${name}=${next.getAttribute(name)}` : null;
 }
-async function openRoom(view: View, roomId: string): Promise<void> {
-  if (roomHeader(view, roomId)?.getAttribute("aria-expanded") !== "true")
-    await click(roomHeader(view, roomId));
-  expect(roomHeader(view, roomId)?.getAttribute("aria-expanded")).toBe("true");
-}
-/** The agent Settings is drilled into (task 1f79f2e3), or null. */
-const pageAgent = (view: View) =>
-  view.baseElement
-    .querySelector('[data-settings-item^="agent:"]')
-    ?.getAttribute("data-settings-item")
-    ?.slice("agent:".length) ?? null;
 const officeGear = (view: View) =>
   inSidebar(view, "button[data-sidebar-office-settings]");
 /** The rows Settings' own list marks as selected (not the sidebar's). */
@@ -185,129 +169,4 @@ it("a member who is not an owner has the Office row with no settings button", as
   const view = await boot();
   expect(navRow(view, "office")).not.toBeNull();
   expect(settingsIds(view, "office").length).toBe(0);
-});
-
-it("only rooms, agents, members and the Office row have a settings button: not the Lobby, a back room, Members, Pinned, Recent or Tucked rooms", async () => {
-  setRole("owner");
-  setRooms(ALL_ROOMS);
-  setSelfUser({
-    role: "owner",
-    tucked: ["r3"],
-    pinnedAgents: [faraway.id, "member:u2"],
-    recentAgents: [ranger.id],
-  });
-  setMembers([memberWire("u2", "Ann")]);
-  const view = await boot();
-  // Every section open, so every header and row is drawn.
-  const more = inSidebar(view, "button[data-sidebar-more-rooms]");
-  if (more?.getAttribute("aria-expanded") !== "true") await click(more);
-  for (const id of ["r1", "r2", "r3"]) await openRoom(view, id);
-  for (const id of ["r1", "r2"]) {
-    const back = inSidebar(view, `button[data-sidebar-back-room="${id}"]`);
-    if (back?.getAttribute("aria-expanded") !== "true") await click(back);
-  }
-
-  expect(settingsIds(view, "room").sort()).toEqual(["r1", "r2", "r3"]);
-  // Each drawn agent row has one; Faraway and Ranger have two rows each (in
-  // Pinned or Recent, and in their room).
-  const agentRows = [
-    ...view.container.querySelectorAll(
-      "nav[data-chat-sidebar] button[data-sidebar-agent]",
-    ),
-  ].map((el) => el.getAttribute("data-sidebar-agent"));
-  expect(agentRows.length).toBeGreaterThan(4);
-  expect(settingsIds(view, "agent").sort()).toEqual(agentRows.sort());
-  // Ann in Pinned and in Members.
-  expect(settingsIds(view, "member")).toEqual(["u2", "u2"]);
-  expect(settingsIds(view, "office")).toEqual([""]);
-
-  // No other sidebar button names settings, except the Settings page entry.
-  const others = [
-    ...view.container.querySelectorAll("nav[data-chat-sidebar] button"),
-  ]
-    .flatMap((el) =>
-      el
-        .getAttributeNames()
-        .filter((n) => n.startsWith("data-sidebar-"))
-        .map((n) => `${n}=${el.getAttribute(n)}`),
-    )
-    .filter(
-      (attr) =>
-        attr.includes("settings") &&
-        !/^data-sidebar-(room|agent|member|office)-settings=/.test(attr) &&
-        attr !== "data-sidebar-nav=settings",
-    );
-  expect(others).toEqual([]);
-});
-
-it("an agent row's settings button, before its pin, opens the agent's settings page in one click, in a room, Pinned and Recent", async () => {
-  setSelfUser({ pinnedAgents: [faraway.id], recentAgents: [ranger.id] });
-  const view = await boot();
-  await openRoom(view, "r1");
-  const cases = [
-    { where: "r1", agent: scout, scope: "" },
-    {
-      where: "pinned",
-      agent: faraway,
-      scope: '[data-sidebar-section-agents="pinned"] ',
-    },
-    {
-      where: "recent",
-      agent: ranger,
-      scope: '[data-sidebar-section-agents="recent"] ',
-    },
-  ];
-  const seen: Record<string, unknown> = {};
-  for (const { where, agent, scope } of cases) {
-    const button = inSidebar(
-      view,
-      `${scope}button[data-sidebar-agent-settings="${agent.id}"]`,
-    );
-    expect({ where, found: button !== null }).toEqual({ where, found: true });
-    const order = nextAction(button);
-    await click(button);
-    // The page, on this agent; its chat does not open.
-    seen[where] = { order, page: pageAgent(view), chat: currentRows(view) };
-    await act(async () =>
-      fireEvent.keyDown(document.body, { key: "Escape", bubbles: true }),
-    );
-    expect(pageAgent(view)).toBeNull();
-  }
-  expect(seen).toEqual({
-    r1: {
-      order: `data-sidebar-pin=${scout.id}`,
-      page: scout.id,
-      chat: [],
-    },
-    pinned: {
-      order: `data-sidebar-pin=${faraway.id}`,
-      page: faraway.id,
-      chat: [],
-    },
-    recent: {
-      order: `data-sidebar-pin=${ranger.id}`,
-      page: ranger.id,
-      chat: [],
-    },
-  });
-});
-
-it("a member row's settings button comes before its pin, in Members and in Pinned", async () => {
-  setRole("owner");
-  setSelfUser({ role: "owner", pinnedAgents: ["member:u2"] });
-  setMembers([memberWire("u2", "Ann"), memberWire("u3", "Bea")]);
-  const view = await boot();
-  const orders = [
-    ...view.container.querySelectorAll(
-      "nav[data-chat-sidebar] button[data-sidebar-member-settings]",
-    ),
-  ].map(
-    (el) =>
-      `${el.getAttribute("data-sidebar-member-settings")}:${nextAction(el)}`,
-  );
-  expect(orders.sort()).toEqual([
-    "u2:data-sidebar-pin=member:u2",
-    "u2:data-sidebar-pin=member:u2",
-    "u3:data-sidebar-pin=member:u3",
-  ]);
 });

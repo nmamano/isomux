@@ -8,8 +8,9 @@
 // look like that while loading."). The rows a permission pack hides draw, until
 // the member's own record arrives, as this device last drew them. Until the
 // lists are ready, placeholders hold their place in the shape they last had
-// on this device, stored when the page hides. The parse checks are in
-// ui/chat-sidebar.test.ts.
+// on this device, stored when the page hides. This file holds the lists;
+// ui/App.chat-sidebar-skeleton-pages.dom.test.tsx the page rows. The parse
+// checks are in ui/chat-sidebar.test.ts.
 //
 // This file sends each frame itself, in the server's order, as
 // ui/App.chat-sidebar-refresh.dom.test.tsx does.
@@ -35,7 +36,6 @@ const {
   builder,
   faraway,
   memberWire,
-  navRow,
   ranger,
   receptionist,
   scout,
@@ -50,8 +50,6 @@ setUpChatSidebarTests();
 
 // The device keys: a stored value from an earlier load must keep reading.
 const SHAPE_KEY = "isomux-chat-sidebar-shape";
-const PAGES_KEY = "isomux-chat-sidebar-pages";
-
 // The page rows of the top block, in order, and the ones a pack can hide.
 const ALL_ROWS = [
   "apps",
@@ -63,10 +61,6 @@ const ALL_ROWS = [
   "settings",
   "office",
 ];
-const GATED = ["apps", "tasks", "cronjobs", "skills"];
-const rowsWith = (gated: string[]) =>
-  ALL_ROWS.filter((row) => !GATED.includes(row) || gated.includes(row));
-
 const ROOMS = [
   { id: "r1", name: "First room", prompt: null, canCloseWhenEmpty: true },
   { id: "r2", name: "Second room", prompt: null, canCloseWhenEmpty: true },
@@ -124,12 +118,6 @@ const storedLists = (): unknown => {
   const raw = storedRaw(SHAPE_KEY);
   return raw === null ? null : (JSON.parse(raw) as { lists?: unknown }).lists;
 };
-// The stored page rows as a set (sorted), or null when none is stored.
-const storedPages = (): string[] | null => {
-  const raw = storedRaw(PAGES_KEY);
-  return raw === null ? null : [...(JSON.parse(raw) as string[])].sort();
-};
-
 // Load the office at "/" with the socket open and no frame sent yet.
 async function mount(): Promise<View> {
   window.history.replaceState(LOAD_ENTRY, "", "/");
@@ -184,13 +172,6 @@ const packSelf = selfFrame({
   pinnedAgents: [faraway.id],
   recentAgents: [ranger.id],
   pack: { areas: { agentManagement: "read" }, agentCeiling: "web" },
-});
-// A pack with Tasks and webhooks (Automations): two of the gated rows.
-const tasksHooksSelf = selfFrame({
-  pack: {
-    areas: { agentManagement: "read", tasks: "read", webhooks: "read" },
-    agentCeiling: "web",
-  },
 });
 const usersList = {
   type: "users_list",
@@ -269,63 +250,6 @@ const hidePage = () =>
     window.dispatchEvent(new Event("pagehide"));
   });
 
-it("draws the page rows from the first paint, before any frame; only the lists hold placeholders until full_state", async () => {
-  const view = await mount();
-
-  // Before any frame, on a device with nothing stored: every page row, the
-  // Office row and the divider, real and in their order; no placeholder in
-  // the top block.
-  expect(pageRows(view)).toEqual(ALL_ROWS);
-  expect(count(view, '[data-sidebar-block="top"] [data-sidebar-divider]')).toBe(
-    1,
-  );
-  expect(
-    count(view, '[data-sidebar-block="top"] [data-sidebar-skeleton]'),
-  ).toBe(0);
-  expect(
-    count(view, '[data-sidebar-block="top"] [data-sidebar-skeleton-item]'),
-  ).toBe(0);
-  // The lists: the default placeholders, hidden from assistive tech, with
-  // nothing a member could click, under the page rows.
-  expect(defaultKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
-  const el = skeleton(view)!;
-  expect(el.getAttribute("aria-hidden")).toBe("true");
-  expect(el.querySelectorAll("button, a, input, [tabindex]").length).toBe(0);
-  const follows = (a: Element, b: Element) =>
-    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-  expect(follows(wrapper(view, "top")!, wrapper(view, "lists")!)).toBe(true);
-  expect(count(view, "[data-sidebar-section]")).toBe(0);
-  expect(count(view, "[data-sidebar-room]")).toBe(0);
-  expect(count(view, "[data-sidebar-members]")).toBe(0);
-
-  // A page row works before any data: Tasks opens its page.
-  await act(async () => {
-    navRow(view, "tasks")!.click();
-  });
-  expect(navRow(view, "tasks")!.getAttribute("aria-current")).toBe("page");
-
-  // The member's own record (no pack): the same rows; the lists still wait.
-  await frame(sessionContext);
-  expect(pageRows(view)).toEqual(ALL_ROWS);
-  await frame(selfFrame({ pinnedAgents: [faraway.id] }));
-  await frame(usersList);
-  expect(pageRows(view)).toEqual(ALL_ROWS);
-  expect(defaultKinds(view)).toEqual(kinds(CHAT_SIDEBAR_SHAPE_DEFAULT.lists));
-  expect(count(view, "[data-sidebar-members]")).toBe(0);
-
-  // full_state: no placeholder left, the lists in their block.
-  await frame(fullState);
-  expect(count(view, "[data-sidebar-skeleton]")).toBe(0);
-  expect(count(view, "[data-sidebar-skeleton-item]")).toBe(0);
-  expect(pageRows(view)).toEqual(ALL_ROWS);
-  const lists = wrapper(view, "lists")!;
-  expect(
-    lists.querySelector('button[data-sidebar-section="pinned"]'),
-  ).not.toBeNull();
-  expect(lists.querySelector('[data-sidebar-room="r1"]')).not.toBeNull();
-  expect(lists.querySelector("[data-sidebar-members]")).not.toBeNull();
-});
-
 it("on a first visit, draws the default rows and then room groups down past any screen, clipped; a stored shape draws only its own rows", async () => {
   // Nothing stored (task 73b5c130): the default rows first, then a room
   // header with two rows, again and again, so the placeholders reach the
@@ -369,69 +293,6 @@ it("on a first visit, draws the default rows and then room groups down past any 
   window.localStorage.setItem(SHAPE_KEY, JSON.stringify({ lists }));
   const next = await mount();
   expect(drawn(next)).toEqual(expected(lists));
-});
-
-it("before the member's own record, draws the gated page rows this device stored; the record's permissions then win", async () => {
-  // A pack holder's set from an earlier load: only Tasks.
-  window.localStorage.setItem(PAGES_KEY, JSON.stringify(["tasks"]));
-  let view = await mount();
-  expect(pageRows(view)).toEqual(rowsWith(["tasks"]));
-  // Frames before the record, and a page hide, keep the stored set as it is.
-  await frame(sessionContext);
-  await frame(usersList);
-  await frame(fullState);
-  await hidePage();
-  expect(pageRows(view)).toEqual(rowsWith(["tasks"]));
-  expect(storedRaw(PAGES_KEY)).toBe(JSON.stringify(["tasks"]));
-  // The record's pack gives Tasks and webhooks: Automations joins.
-  await frame(tasksHooksSelf);
-  expect(pageRows(view)).toEqual(rowsWith(["tasks", "cronjobs"]));
-  view.unmount();
-
-  // The same stored set, then a record with no pack: every row.
-  window.localStorage.setItem(PAGES_KEY, JSON.stringify(["tasks"]));
-  view = await mount();
-  expect(pageRows(view)).toEqual(rowsWith(["tasks"]));
-  await frame(sessionContext);
-  await frame(selfFrame({}));
-  expect(pageRows(view)).toEqual(ALL_ROWS);
-  view.unmount();
-
-  // A stored empty set (a pack with none of them) is not "nothing stored".
-  window.localStorage.setItem(PAGES_KEY, JSON.stringify([]));
-  view = await mount();
-  expect(pageRows(view)).toEqual(rowsWith([]));
-});
-
-it("stores the gated page rows when the member's own record sets them, without a page hide, and nothing before it", async () => {
-  const view = await mount();
-  await frame(sessionContext);
-  await frame(usersList);
-  // No record yet: a page hide stores no page set.
-  await hidePage();
-  expect(storedRaw(PAGES_KEY)).toBeNull();
-
-  // A pack with none of the gated areas: the empty set, stored at once.
-  await frame(packSelf);
-  expect(pageRows(view)).toEqual(rowsWith([]));
-  expect(storedPages()).toEqual([]);
-
-  // A pack change that arrives live is stored at once too.
-  await frame(tasksHooksSelf);
-  expect(storedPages()).toEqual(["cronjobs", "tasks"]);
-  await frame(selfFrame({}));
-  expect(storedPages()).toEqual([...GATED].sort());
-  await frame(tasksHooksSelf);
-  expect(storedPages()).toEqual(["cronjobs", "tasks"]);
-  view.unmount();
-
-  // The next load draws that set before the record, so nothing moves when
-  // the same record arrives.
-  const next = await mount();
-  expect(pageRows(next)).toEqual(rowsWith(["tasks", "cronjobs"]));
-  await frame(sessionContext);
-  await frame(tasksHooksSelf);
-  expect(pageRows(next)).toEqual(rowsWith(["tasks", "cronjobs"]));
 });
 
 it("reads a value stored before this change (with a top block) for its lists, and draws the page rows for real", async () => {
