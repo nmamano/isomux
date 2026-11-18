@@ -162,7 +162,7 @@ export function pluginInstallPaths(
   );
 }
 
-// A plugin folder whose skills the Sk menu lists and skill lookup reads.
+// A plugin folder whose skills the Skill menu lists and skill lookup reads.
 export interface PluginDir {
   name: string;
   // name@marketplace

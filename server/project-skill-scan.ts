@@ -36,7 +36,7 @@ export interface ProjectSkillMeta {
 
 // The project folders an engine reads by itself in its working folder, in
 // menu priority order (Codex also reads .agents/skills up to the repository
-// root; the menu reads the working folder only). The Sk menu lists only
+// root; the menu reads the working folder only). The Skill menu lists only
 // these, so a project skill in another engine's folder is not offered to an
 // agent whose tool cannot load it.
 export function projectSkillFolders(

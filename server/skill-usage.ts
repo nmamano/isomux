@@ -1,11 +1,11 @@
 // Per-user skill/command-use counters. Server-side so counts
 // follow the user across devices (localStorage would not sync). A "use" is one
 // skill OR built-in command invocation dispatched through the slash-command
-// resolver (typed `/name` or picked from the Sk menu - both arrive as the same
+// resolver (typed `/name` or picked from the Skill menu - both arrive as the same
 // slash message), counted under the invoking USER's id at the dispatch site in
 // command-handlers.ts. The menu ranks across skills and commands, so both
 // count. Agent- or system-originated invocations resolve no user record and
-// are not counted. Read-only consumer: the Sk popover surfaces the most-used
+// are not counted. Read-only consumer: the Skill popover surfaces the most-used
 // entries first (GET /api/skill-usage).
 //
 // Persistence: STATE_ROOT/skill-usage.json, { [userId]: { [skillName]: count } }.

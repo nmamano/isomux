@@ -1,6 +1,6 @@
 // The skills page's model: every skill an agent in the office can run, per
 // engine, with the file it comes from. Built on the same located discovery the
-// Sk menu and the slash-command resolver use (skills.ts), so the page lists
+// Skill menu and the slash-command resolver use (skills.ts), so the page lists
 // what the code really resolves, in the same order.
 //
 // One engine's list is the union of its contexts. A context is one agent

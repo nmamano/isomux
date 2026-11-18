@@ -99,7 +99,7 @@ it("closes on Escape and lets Enter send an unmatched slash draft", () => {
   expect(onClose).toHaveBeenCalled();
 });
 
-it("keeps keyboard selection in the Sk button filter path", () => {
+it("keeps keyboard selection in the Skill button filter path", () => {
   const onPick = mock(() => {});
   const view = render(
     <SkillsPopover

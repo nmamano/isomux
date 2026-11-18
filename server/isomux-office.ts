@@ -4851,7 +4851,7 @@ function buildExecutorDeps(
     }),
   );
 
-  // The caller's own per-skill use counters drive the Sk-menu sort. Read-only;
+  // The caller's own per-skill use counters drive the Skill-menu sort. Read-only;
   // increments live at the slash-command dispatch site in command-handlers.ts.
   register(
     skillUsageHandlers({

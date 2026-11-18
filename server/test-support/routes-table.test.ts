@@ -2034,7 +2034,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "memory.read": { caps: ["memory:read"], emits: [] },
   "memory.append": { caps: ["memory:write"], emits: [] },
   "memory.replace": { caps: ["memory:write"], emits: [] },
-  // Skill usage (per-user Sk-menu sort counts; task f1769b1a). office:read
+  // Skill usage (per-user Skill-menu sort counts; task f1769b1a). office:read
   // keeps plain agent tokens out; counts are identity-keyed, so no resource
   // guard beyond authenticated.
   "skills.usageCounts": { caps: ["office:read"], emits: [] },

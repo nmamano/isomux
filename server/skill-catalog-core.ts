@@ -108,7 +108,7 @@ export function engineCatalog(
     return byName;
   });
 
-  // A built-in alias hides its canonical entry, as in the Sk menu.
+  // A built-in alias hides its canonical entry, as in the Skill menu.
   const aliased = new Set(
     bundled.filter((s) => s.aliasFor).map((s) => s.aliasFor as string),
   );

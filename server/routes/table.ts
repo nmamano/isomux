@@ -4107,7 +4107,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // The CALLER's own skill-use counters order the skill menu. They are keyed off
   // the token/cookie userId, never a param - one user cannot read another's
   // counts through this route.
-  // office:read keeps plain agent tokens out (they lack it); the Sk popover is
+  // office:read keeps plain agent tokens out (they lack it); the Skill popover is
   // the intended consumer.
   defineRoute<void, SkillUsageCountsRes>({
     opId: "skills.usageCounts",

@@ -121,7 +121,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Spawn dialog**: pick model, permission mode, thinking effort, and working directory (with recent-CWD suggestions) when creating an agent.
 - Start with a blank-canvas agent or choose from 13 templates like Side Project Builder, Money Planner, and Health Navigator, in your language.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
-- **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
+- **Skills browser** - the "Skill" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/`, `~/.codex/skills/` and `~/.agents/skills/`, and project skills.
 - **Skills page** - shared skills appear once in All agents; engine tabs show the differences. The read-only Commands tab lists office commands and their aliases with the same descriptions as /help. Open a preview or the full SKILL.md, edit or delete user and project skills, or create new ones for all agents.
 

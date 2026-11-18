@@ -1,6 +1,6 @@
 // skills.* handlers over injected deps: reads and saves reach only the
 // caller's catalog paths, read-only skills refuse a save, a stale save is a
-// 409 that writes nothing, and a successful write refreshes the Sk menus.
+// 409 that writes nothing, and a successful write refreshes the Skill menus.
 
 import { describe, expect, it } from "bun:test";
 import { skillsHandlers, type SkillsDeps } from "./skills.ts";

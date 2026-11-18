@@ -334,7 +334,7 @@ interface HandlerDeps {
   setTopic: (agentId: string, topic: string) => void;
   // Labels the conversation again, as the header's refresh button does.
   regenerateTopic: (agentId: string) => void;
-  // The agent's Sk menu, discovered again now and sent to clients.
+  // The agent's Skill menu, discovered again now and sent to clients.
   refreshSkillMenu: (agentId: string) => void;
   // What an isolated member's runner reads for the agent's user, plugin and
   // synced skills (agent-skills.ts); null for any other agent.
@@ -1683,7 +1683,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     };
 
-    // Count the dispatched use under the invoking user - Sk-menu ranking
+    // Count the dispatched use under the invoking user - Skill-menu ranking
     // rides these counts. COMMANDS and skills both count (the
     // menu ranks across both), under the name as typed/picked; only actual
     // dispatches count (unknown/unsupported echoes don't), and senders with

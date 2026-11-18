@@ -42,7 +42,7 @@ export type CommandConfig = {
   aliasFor?: string;
   /**
    * True for commands whose bare `/name` (no argument) is ALREADY a complete,
-   * useful invocation: clicking them in the "Sk" popover EXECUTES the command
+   * useful invocation: clicking them in the "Skill" popover EXECUTES the command
    * immediately instead of copying `/name ` into the composer. This covers
    * direct actions (/clear, /context), interactive pickers whose no-arg
    * behavior IS the intended action (/model, /effort, /resume open the picker),
@@ -57,7 +57,7 @@ export type CommandConfig = {
    */
   autoRun?: boolean;
   /** The engines that run this command. Absent: every engine. Autocomplete,
-   *  /help and the Sk menu show it only to agents on these engines, and an
+   *  /help and the Skill menu show it only to agents on these engines, and an
    *  agent on another engine refuses it. */
   engines?: AgentBackendType[];
   /**

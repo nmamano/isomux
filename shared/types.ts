@@ -2999,7 +2999,7 @@ export type ServerMessage =
         name: string;
         description?: string;
         aliasFor?: string;
-        // No-arg commands EXECUTE on click in the "Sk" popover instead of
+        // No-arg commands EXECUTE on click in the "Skill" popover instead of
         // copying `/name ` into the composer (see SkillsPopover).
         autoRun?: boolean;
       }[];

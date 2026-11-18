@@ -370,7 +370,7 @@ describe("effective Claude home skill agreement", () => {
   });
 });
 
-// The plugins whose skills the Sk menu lists and skill lookup runs (task
+// The plugins whose skills the Skill menu lists and skill lookup runs (task
 // 66645144). Without a live Claude process the disk decides:
 // installed_plugins.json, minus what the settings files do not enable. A live
 // process's own list replaces the disk read. Menu and lookup always agree.

@@ -3177,9 +3177,8 @@ export function LogView({
                   // A plain-text face on purpose: decorative Unicode glyphs
                   // get hijacked by iOS Safari's emoji renderer (see
                   // StatusShape), and plain text needs no such
-                  // gating. The face is a catalog value because it abbreviates
-                  // a word - "Sk" for Skills, "Ha" for Habilitats and
-                  // Habilidades - and its own tooltip is already translated.
+                  // gating. The face is a translated word ("Skill"), and the
+                  // button grows to fit it (minWidth, not width).
                   <button
                     data-skills-toggle
                     onClick={() => setSkillsOpen((o) => !o)}
@@ -3195,6 +3194,7 @@ export function LogView({
                       fontSize: 12,
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono',monospace",
+                      whiteSpace: "nowrap",
                       transition: "color 0.15s, background 0.15s",
                     }}
                     title={i18n.t("logView.skills.title")}

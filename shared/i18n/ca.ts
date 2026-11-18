@@ -2985,7 +2985,7 @@ Coses que pots fer per ell:
   "logView.cite.label": "Cita",
   "logView.cite.hint": "Cita el text seleccionat al missatge",
   "logView.skills.title": "Habilitats i ordres",
-  "logView.skills.buttonLabel": "Ha",
+  "logView.skills.buttonLabel": "Habilitat",
   "logView.uploadFailed": "Error en pujar ({status})",
   "logView.skills.filter": "Filtra habilitats i ordres...",
   "logView.skills.noMatch": "No hi ha habilitats ni ordres que coincideixin",

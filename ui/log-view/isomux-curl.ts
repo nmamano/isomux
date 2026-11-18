@@ -1027,7 +1027,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/discord/routes", "apiCall.messaging.discordRoutesCreate"],
   ["PATCH", "/api/discord/routes/*", "apiCall.messaging.discordRoutesUpdate"],
   ["DELETE", "/api/discord/routes/*", "apiCall.messaging.discordRoutesDelete"],
-  // Per-user Sk-menu counters (reachable by privileged agent tokens).
+  // Per-user Skill-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "apiCall.skillUsage.read"],
   // The Skills page routes (server/agent-reference/skills.md).
   ["GET", "/api/skills", "apiCall.skills.list"],

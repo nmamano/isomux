@@ -1,6 +1,6 @@
 // Task 30dd196e: an OpenCode agent gets the office's skills on both paths.
 // Its own skill tool loads them from the member's skill folder the session
-// names (the Sk menu's user skills and the bundled skills), and a skill a
+// names (the Skill menu's user skills and the bundled skills), and a skill a
 // member runs as /<name> reaches it with its office calls in the form an
 // OpenCode agent can run: no ISOMUX_AGENT_TOKEN, the authority socket and the
 // turn header instead.

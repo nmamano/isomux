@@ -1,4 +1,4 @@
-// The "Sk" popover executes no-arg commands on click (autoRun) instead of
+// The "Skill" popover executes no-arg commands on click (autoRun) instead of
 // copying `/name ` into the composer. autoRun is a property of the command
 // (does a bare `/name` do something useful?), owned by the registry and
 // surfaced on the slash_commands wire via autocompleteCommands(). This pins the

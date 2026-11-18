@@ -1,5 +1,5 @@
 // Task b1d7ef93: the member skill folder. One folder per member, engine and
-// provider root holds the skills of the member's Sk menu that the engine does
+// provider root holds the skills of the member's Skill menu that the engine does
 // not read by itself, so the engine's own skill tool lists what the menu
 // lists. These cases pin the builder, the folder path, the native folders it
 // leaves out, the removal paths and the one-time cleanup of the links the old

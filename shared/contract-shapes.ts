@@ -1947,7 +1947,7 @@ export interface TaskClaimReq {
 }
 
 // skills.usageCounts response: the CALLING user's per-skill use counters
-// (skill name -> count; skills never used are absent). Drives the Sk-menu
+// (skill name -> count; skills never used are absent). Drives the Skill-menu
 // sort order.
 export interface SkillUsageCountsRes {
   counts: Record<string, number>;

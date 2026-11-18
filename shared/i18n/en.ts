@@ -2891,7 +2891,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.cite.label": "Cite",
   "logView.cite.hint": "Cite selected text in input",
   "logView.skills.title": "Skills & commands",
-  "logView.skills.buttonLabel": "Sk",
+  "logView.skills.buttonLabel": "Skill",
   "logView.uploadFailed": "Upload failed ({status})",
   "logView.skills.filter": "Filter skills & commands...",
   "logView.skills.noMatch": "No matching skills or commands",

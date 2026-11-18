@@ -10,7 +10,7 @@ import { isTouchPrimary } from "../touch-primary.ts";
 // rendering the returned groups.
 export type { CommandEntry } from "./skills-grouping.ts";
 
-// Popover listing the agent's available skills, opened from the "Sk" button
+// Popover listing the agent's available skills, opened from the "Skill" button
 // in the composer. Renders inside the composer's position:relative container
 // and anchors above it (same approach as the slash-command autocomplete).
 // Clicking an entry hands its name (and its autoRun flag) to the parent: for a
@@ -64,7 +64,7 @@ export function SkillsPopover({
 
   // Outside-click / Escape dismissal. Capture phase so a preventDefault
   // somewhere below can't swallow the dismiss (same defensive pattern as
-  // ContextMenu). Events on the "Sk" toggle button are excluded - its own
+  // ContextMenu). Events on the "Skill" toggle button are excluded - its own
   // onClick toggles the popover, and closing here first would make that
   // click reopen it immediately.
   useEffect(() => {

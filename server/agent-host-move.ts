@@ -98,7 +98,7 @@ export interface AgentHostMoveWiring {
   // The chat line of a failed move, with its reason (the request may have
   // been cut, so the chat tells it too).
   systemLine: (agentId: string, text: string) => void;
-  // The agent's Sk menu and skill folder, for its new host.
+  // The agent's Skill menu and skill folder, for its new host.
   refreshSkills?: (agentId: string) => void;
 }
 

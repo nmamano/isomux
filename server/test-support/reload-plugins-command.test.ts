@@ -1,4 +1,4 @@
-// /reload-plugins (tasks a93c05af, 66645144) and the plugin skills in the Sk
+// /reload-plugins (tasks a93c05af, 66645144) and the plugin skills in the Skill
 // menu. OpenCode reloads its plugins and config per server, with the
 // environment key of the agent's member. A live Claude session reloads its
 // plugins in place; the plugin list the Claude process reports (at init and at
@@ -215,7 +215,7 @@ async function agentOn(engine: AgentBackendType, userId: string) {
   );
   if (!info) throw new Error("spawn failed");
   const id = info.id;
-  // Every Sk menu sent for this agent, as its sorted plugin entries.
+  // Every Skill menu sent for this agent, as its sorted plugin entries.
   const menus = () =>
     events.flatMap((event) =>
       event.type === "slash_commands" && event.agentId === id
@@ -228,7 +228,7 @@ async function agentOn(engine: AgentBackendType, userId: string) {
         : [],
     );
   const lastMenu = () => menus().at(-1);
-  // Every entry of the last Sk menu.
+  // Every entry of the last Skill menu.
   const lastSkills = () => {
     const event = events.findLast(
       (e) => e.type === "slash_commands" && e.agentId === id,
@@ -443,7 +443,7 @@ describe("/reload-plugins on a live Claude session", () => {
   });
 });
 
-describe("the Sk menu when the Claude process goes", () => {
+describe("the Skill menu when the Claude process goes", () => {
   it("a session that ended leaves the next rebuild to the disk and the synced folder", async () => {
     const home = claudeHome();
     syncSkills(home.cfg, ["docx", "pdf"]);
@@ -563,7 +563,7 @@ it("is offered in autocomplete on every engine", () => {
   expect(offered("codex")).toBe(true);
 });
 
-describe("account-synced skills in the Sk menu", () => {
+describe("account-synced skills in the Skill menu", () => {
   // The names the tests look for among the menu's other entries.
   const SYNCED = [
     "docx",

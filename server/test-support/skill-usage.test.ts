@@ -4,7 +4,7 @@
 //
 // What this freezes:
 //   - A user-invoked bundled skill AND a built-in command each increment that
-//     USER's counter under the invoked name (the Sk menu ranks across both);
+//     USER's counter under the invoked name (the Skill menu ranks across both);
 //     counts are per-user (another user still reads {}).
 //   - The route serves only the CALLER's own counts (identity-keyed, no param).
 //   - The store module: copies out (no aliasing into the live store) and
@@ -109,7 +109,7 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
       );
     }
 
-    // Built-in COMMANDS count too - the Sk menu ranks across skills and
+    // Built-in COMMANDS count too - the Skill menu ranks across skills and
     // commands (/help dispatches immediately, no turn to await).
     await srv.agentManager.sendMessage(agent.id, "/help", "Morgan");
 

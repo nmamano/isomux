@@ -2983,7 +2983,7 @@ Cosas que puedes hacer por él:
   "logView.cite.label": "Citar",
   "logView.cite.hint": "Citar el texto seleccionado en el mensaje",
   "logView.skills.title": "Habilidades y comandos",
-  "logView.skills.buttonLabel": "Ha",
+  "logView.skills.buttonLabel": "Habilidad",
   "logView.uploadFailed": "Error al subir ({status})",
   "logView.skills.filter": "Filtrar habilidades y comandos...",
   "logView.skills.noMatch": "No hay habilidades ni comandos que coincidan",

@@ -1,4 +1,4 @@
-// Unit tests for the Sk popover's pure grouping/ranking transform
+// Unit tests for the Skill popover's pure grouping/ranking transform
 // (skills-grouping.ts, task f1769b1a). Pins the policy Reviewer2 asked to
 // freeze: cross-kind top-N ordering, the MOST_USED_CAP with overflow staying
 // home, no duplicate entries, alias count absorption, and the zero-count

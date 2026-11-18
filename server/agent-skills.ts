@@ -1,4 +1,4 @@
-// The Sk menu and member skill folders of each agent, and the environment of
+// The Skill menu and member skill folders of each agent, and the environment of
 // the member's OpenCode server that skill folders and session starts read.
 // Moved out of createAgentManager (server/agent-manager.ts), which wires it.
 import { hostFor } from "./member-hosts.ts";
@@ -104,7 +104,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
 
   // The member skill folder of one engine and provider root
   // (server/member-skill-folder.ts), built or updated now: the skills of the
-  // Sk menu's user folders and the bundled skills that the engine does not
+  // Skill menu's user folders and the bundled skills that the engine does not
   // read by itself. Null in split mode (the box roots would be the server's
   // home, not the agent user's) and after a failure, which never blocks a
   // session start. `built` shares one build per folder across a refresh pass.
@@ -521,7 +521,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
   }
 
   // The agent's skills in priority order, deduplicated by name (highest
-  // priority wins). The Sk menu lists these.
+  // priority wins). The Skill menu lists these.
   function discoverSkillsFor(managed: ManagedAgent): SkillInfo[] {
     if (memberFolderHost(managed.info.userId))
       return discoverMemberSkillsFor(managed);
@@ -641,7 +641,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     void reload();
   }
 
-  // The agent's Sk menu, discovered again now and sent to clients, and its
+  // The agent's Skill menu, discovered again now and sent to clients, and its
   // member skill folder brought up to date. `built` shares one folder build
   // across a refresh of many agents.
   function refreshSkillMenu(
@@ -655,7 +655,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     refreshMemberSkills(agentId);
   }
 
-  // The agent's Sk menu, discovered again now and sent to clients.
+  // The agent's Skill menu, discovered again now and sent to clients.
   function applySkillMenu(agentId: string): void {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -674,7 +674,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     });
   }
 
-  // A skill created, saved or deleted on the skills page reaches every agent's Sk menu
+  // A skill created, saved or deleted on the skills page reaches every agent's Skill menu
   // now instead of at the agent's next session start.
   function refreshSkillMenus(): void {
     const built = new Map<string, string | null>();

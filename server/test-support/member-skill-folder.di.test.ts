@@ -1,4 +1,4 @@
-// Task b1d7ef93: an agent's own skill tool loads the skills its Sk menu
+// Task b1d7ef93: an agent's own skill tool loads the skills its Skill menu
 // lists, on Claude, Codex and OpenCode alike. A session start builds the
 // member's skill folder for the engine and the provider root the agent runs
 // on, and hands it to the engine: Claude as an additional directory, Codex as
@@ -184,7 +184,7 @@ function setup(
       ? readFileSync(command, "utf8")
       : readFileSync(join(path, ".claude", "skills", name, "SKILL.md"), "utf8");
   };
-  // The Sk menu once the session's init has been read.
+  // The Skill menu once the session's init has been read.
   const menu = async (agentId: string) => {
     const deadline = Date.now() + 2_000;
     const read = () => mgr.getAgentCommands(agentId).skills;
@@ -428,7 +428,7 @@ describe("member skill folder at a session start", () => {
   });
 });
 
-describe("Sk menu and /name per engine", () => {
+describe("Skill menu and /name per engine", () => {
   it("list each engine's own project folders, ~/.agents/skills on every engine and plugin and account-synced skills on Claude only, and /name runs only what the menu lists", async () => {
     const E = "0d1e0008";
     const h = setup("menu", [E]);

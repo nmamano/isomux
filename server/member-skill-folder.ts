@@ -18,7 +18,7 @@ export {
 } from "./skill-folder-build.ts";
 
 // One skill folder per member, engine and provider root: the skills of the
-// member's Sk menu that the engine does not read by itself, so the engine's
+// member's Skill menu that the engine does not read by itself, so the engine's
 // own skill tool lists what the menu lists. No member's skill reaches another
 // member's agent, and isomux writes nothing into a provider home. Agents of
 // one member on different provider roots (a personal home, the office

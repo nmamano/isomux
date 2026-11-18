@@ -1,4 +1,4 @@
-// Pure grouping/ranking transform for the Sk popover. Kept
+// Pure grouping/ranking transform for the Skill popover. Kept
 // free of React so the ranking policy is unit-testable:
 //
 //   - A single cross-group "Most used" region surfaces at the very top: the

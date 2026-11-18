@@ -50,7 +50,7 @@ export interface SkillsDeps {
     newSkillDir: string,
     input: { name: unknown; description: unknown; instructions?: unknown },
   ): CreateSkillResult;
-  // Re-read every agent's skills so the Sk menus show the change now.
+  // Re-read every agent's skills so the Skill menus show the change now.
   refreshMenus(): void;
   // An isolated caller's own skills page (member-skill-catalog.ts): their
   // runner's catalog, and their files through their host. Null for every
