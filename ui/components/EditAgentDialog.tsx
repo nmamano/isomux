@@ -2724,7 +2724,9 @@ function AgentForm(props: EditAgentDialogProps & { page?: PageState }) {
                           title={killedAgent.topic ?? undefined}
                           onClick={() => handleRevive(killedAgent)}
                           style={{
-                            background: "var(--bg-surface)",
+                            // A tint of the engine color, so the chip shows
+                            // against the dialog's own surface.
+                            background: `color-mix(in srgb, ${ENGINE_ACCENT[killedAgent.agentType]} 22%, transparent)`,
                             border: `1.5px solid ${ENGINE_ACCENT[killedAgent.agentType]}`,
                             borderRadius: 999,
                             padding: "5px 10px",
