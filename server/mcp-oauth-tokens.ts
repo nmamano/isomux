@@ -56,6 +56,38 @@ export function oauthTokenExpiry(
   return tokens.get(oauthTokenKey(scope, name, url))?.expiresAt;
 }
 
+// Every live access token, for the secret proxy's snapshot (secret-proxy/
+// runtime.ts, task 387a038c): a session's header carries a placeholder, and
+// the proxy swaps in the token that is current at the request.
+export function listOAuthAccessTokens(
+  now: number = Date.now(),
+): { scope: SecretScope; name: string; url: string; accessToken: string }[] {
+  const out: {
+    scope: SecretScope;
+    name: string;
+    url: string;
+    accessToken: string;
+  }[] = [];
+  for (const [key, cached] of tokens) {
+    if (cached.expiresAt !== null && cached.expiresAt <= now) continue;
+    // The key is `${scopeKey}\n${name}\n${url}`: a name has no line break
+    // (the field rules), and a normalized URL has none either.
+    const first = key.indexOf("\n");
+    const second = key.indexOf("\n", first + 1);
+    const scopeKey = key.slice(0, first);
+    out.push({
+      scope:
+        scopeKey === "office"
+          ? { kind: "office" }
+          : { kind: "user", userId: scopeKey.slice("user:".length) },
+      name: key.slice(first + 1, second),
+      url: key.slice(second + 1),
+      accessToken: cached.accessToken,
+    });
+  }
+  return out;
+}
+
 export function setOAuthAccessToken(
   scope: SecretScope,
   name: string,

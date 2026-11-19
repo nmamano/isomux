@@ -14,7 +14,7 @@ import {
   type SecretStore,
   type ValuedSecret,
 } from "../secret-store.ts";
-import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
+import { OAUTH_SECRET_NAME, mcpServerHost } from "../../shared/mcp-servers.ts";
 import type { ExchangeSpec } from "../../shared/secret-hosts.ts";
 import { placeholderFor, proxyClientToken, scopeId } from "./placeholders.ts";
 import {
@@ -60,6 +60,15 @@ export interface SecretsRuntimeDeps {
   // The secrets that OAuth MCP registrations own in a scope (integrations
   // A2b), or null when the registrations cannot be read.
   oauthOwned?: (scope: SecretScope) => readonly string[] | null;
+  // The live access tokens of OAuth MCP registrations (mcp-oauth-tokens.ts,
+  // task 387a038c): snapshot entries whose placeholders a live session's
+  // header carries, so a renewal needs no restart and no new session.
+  oauthAccess?: () => {
+    scope: SecretScope;
+    name: string;
+    url: string;
+    accessToken: string;
+  }[];
   // Tests only: another child entry, its environment, and roots that stand
   // in for the system roots.
   childEntry?: string;
@@ -142,6 +151,44 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     if (owned === null) return (name) => OAUTH_SECRET_NAME.test(name);
     const names = new Set(owned);
     return (name) => names.has(name);
+  }
+
+  // The access token itself is in memory only, no secret of the store - but
+  // a live session's header must still survive a renewal (task 387a038c):
+  // the snapshot carries each token as an entry of its own, which the proxy
+  // swaps in at the request. Its placeholder has a fixed generation and a
+  // fixed shape, and its HMAC input names a NUL no member secret can carry,
+  // so it is stable across renewals and restarts and collides with nothing.
+  // The entries join no signature and no environment: a renewal restarts no
+  // agent and moves no revision.
+  function oauthPlaceholder(scope: SecretScope, name: string): string {
+    return placeholderFor(
+      ensureMaterial().placeholderKey,
+      scope,
+      `${name}\u0000access`,
+      0,
+      "",
+    );
+  }
+
+  function oauthEntries(): ProxySecret[] {
+    if (!deps.oauthAccess) return [];
+    const entries: ProxySecret[] = [];
+    for (const token of deps.oauthAccess()) {
+      const host = mcpServerHost(token.url);
+      if (!host) continue;
+      entries.push({
+        scope: scopeId(token.scope),
+        ownerId: token.scope.kind === "user" ? token.scope.userId : null,
+        // The registration's name, as the audit of a use and a 403 read it.
+        name: token.name,
+        value: token.accessToken,
+        hosts: [host],
+        form: { kind: "authorization" },
+        placeholder: oauthPlaceholder(token.scope, token.name),
+      });
+    }
+    return entries;
   }
 
   // Waits for the first listen, at most `startWaitMs`. A child that never
@@ -232,7 +279,10 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
   function snapshot(): ProxySnapshot {
     const current = ensureMaterial();
     return {
-      secrets: readAll().flatMap((entry) => entry.secrets),
+      secrets: [
+        ...readAll().flatMap((entry) => entry.secrets),
+        ...oauthEntries(),
+      ],
       caCertPem: current.ca.certPem,
       caKeyPem: current.ca.keyPem,
       rootsPem: systemRoots ?? "",
@@ -444,6 +494,36 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
             secret.value,
           )
         : null;
+    },
+
+    // The placeholder of an OAuth registration's access token, for its MCP
+    // header, or null while no proxy listens (the header carries the token
+    // itself then, which a renewal leaves stale) or no token is cached for
+    // that registration's current URL.
+    oauthPlaceholderOf(
+      scope: SecretScope,
+      name: string,
+      url: string,
+    ): string | null {
+      if (!enabled || !material || port() === null) return null;
+      const wanted = scopeId(scope);
+      const found = deps
+        .oauthAccess?.()
+        .some(
+          (token) =>
+            token.name === name &&
+            token.url === url &&
+            scopeId(token.scope) === wanted,
+        );
+      return found ? oauthPlaceholder(scope, name) : null;
+    },
+
+    // An access token appeared, renewed or went: push the snapshot, so the
+    // child's swaps follow. No signature recompute - a renewal restarts no
+    // agent and changes no environment.
+    oauthTokensChanged(): void {
+      if (!enabled || !supervisor) return;
+      supervisor.push();
     },
 
     async stop(): Promise<void> {

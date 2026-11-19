@@ -385,10 +385,12 @@ import { createStepAsks, type StepAsks } from "./step-asks.ts";
 import { createInProcessDispatch, officeStepRuns } from "./office-step-runs.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
+import { listOAuthAccessTokens } from "./mcp-oauth-tokens.ts";
 import { createMcpServerStore } from "./mcp-server-store.ts";
 import {
   createMcpServerSources,
   mcpServerRows,
+  setMcpOAuthPlaceholderProvider,
   setMcpPlaceholderProvider,
 } from "./mcp-servers.ts";
 import {
@@ -855,6 +857,9 @@ const secretsRuntime = createSecretsRuntime({
       return null;
     }
   },
+  // The live access tokens of the OAuth registrations, so a live session's
+  // placeholder header survives their renewal (task 387a038c).
+  oauthAccess: () => listOAuthAccessTokens(),
   memberUids: memberOsUidTies,
   onBundle: () => void writeMemberCaBundles(),
 });
@@ -926,6 +931,9 @@ const isLiveAppGrant = (grant: AppGrant): boolean =>
   appRegistry.get(grant.name)?.createdAt === grant.createdAt;
 setMcpPlaceholderProvider((scope, name) =>
   secretsRuntime.placeholderOf(scope, name),
+);
+setMcpOAuthPlaceholderProvider((scope, name, url) =>
+  secretsRuntime.oauthPlaceholderOf(scope, name, url),
 );
 // Step asks (task c71cb60f): made with the routes. Every hook that may have
 // done a step calls stepsChanged.
@@ -5432,6 +5440,9 @@ function buildExecutorDeps(
     secrets: mcpSources.secrets,
     fetch: connectionTestFetch,
     redirectUri: () => `${buildPublicOrigin().origin}/api/mcp-oauth/callback`,
+    // A renewal pushes the proxy's snapshot, so the placeholder a live
+    // session carries resolves to the new token (task 387a038c).
+    onTokensChanged: () => secretsRuntime.oauthTokensChanged(),
   });
   register(
     mcpServersHandlers({

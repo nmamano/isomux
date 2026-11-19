@@ -8,7 +8,10 @@
 // A header carries the secret's placeholder, never its value (secrets B2):
 // the secret proxy swaps it for the value on the way to the server's host,
 // which the secret lists. With no proxy listening, a server with a secret is
-// left out.
+// left out. An OAuth server's access token travels as a placeholder of its
+// own, which the proxy resolves to the token at the request, so a live
+// session survives a renewal (task 387a038c); with no proxy listening, its
+// header carries the token itself.
 //
 // Resolution fails closed and quiet: an unreadable file, a missing secret or
 // a secret that no longer lists the host leaves servers out with a fixed log
@@ -123,6 +126,24 @@ export function setMcpPlaceholderProvider(
   return previous;
 }
 
+// The placeholder for an OAuth registration's access token (task 387a038c),
+// from the secrets runtime: the proxy swaps it for the token that is current
+// at the request, so a live session survives a renewal. Null: no proxy
+// listens or no token is cached, and the header carries the token itself.
+let oauthPlaceholderOf: (
+  scope: SecretScope,
+  name: string,
+  url: string,
+) => string | null = () => null;
+
+export function setMcpOAuthPlaceholderProvider(
+  fn: typeof oauthPlaceholderOf,
+): typeof oauthPlaceholderOf {
+  const previous = oauthPlaceholderOf;
+  oauthPlaceholderOf = fn;
+  return previous;
+}
+
 type CredentialProblem = McpServerProblem | "unreadable";
 
 // A signed-in server with no token yet, before the refresh after a restart:
@@ -197,16 +218,22 @@ function headersFor(
 ):
   | { ok: true; headers: Record<string, string> }
   | { ok: false; problem: CredentialProblem | "no_proxy" } {
-  // An OAuth server's access token is not a secret of the store, so the
-  // proxy has no placeholder for it: the header carries the token itself.
+  // An OAuth server's access token is in memory only, no secret of the
+  // store: the header carries the token's proxy placeholder, which resolves
+  // to the token that is current at the request, so a live session survives
+  // a renewal (task 387a038c). With no proxy listening, it carries the token
+  // itself, which a renewal leaves stale.
   if (server.oauth) {
     const token = mcpServerSecret(sources, scope, server);
     if (!token.ok) return token;
+    if (!token.secret) return { ok: true, headers: {} };
+    const placeholder = oauthPlaceholderOf(scope, server.name, server.url);
     return {
       ok: true,
-      headers: token.secret
-        ? credentialHeader(token.secret.form, token.secret.value)
-        : {},
+      headers: credentialHeader(
+        token.secret.form,
+        placeholder ?? token.secret.value,
+      ),
     };
   }
   const credential = credentialFor(sources, scope, server);

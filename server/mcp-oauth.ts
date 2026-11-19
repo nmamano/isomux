@@ -47,6 +47,10 @@ export interface McpOAuthDeps {
   redirectUri: () => string;
   now?: () => number;
   timeoutMs?: number;
+  // After any change to the in-memory access tokens (a sign-in, a refresh,
+  // a drop): the secrets runtime pushes its proxy snapshot, so a live
+  // session's placeholder resolves to the current token (task 387a038c).
+  onTokensChanged?: () => void;
 }
 
 export type McpOAuthReason =
@@ -607,6 +611,7 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
     const urlChanged = before !== null && before.url !== change.server.url;
     if (checked?.ok || urlChanged) {
       dropOAuthTokens(scope, name);
+      deps.onTokensChanged?.();
       dropPending(scope, name);
     }
     if (pastedSecret) {
@@ -639,6 +644,7 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
     removeOwnedSecrets(scope, before?.oauth.ownedSecrets ?? []);
     if (!deps.servers.remove(scope, name)) return false;
     dropOAuthTokens(scope, name);
+    deps.onTokensChanged?.();
     dropPending(scope, name);
     return true;
   }
@@ -852,6 +858,7 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
         accessToken: token.accessToken,
         expiresAt: token.expiresAt,
       });
+      deps.onTokensChanged?.();
     });
     return result.ok
       ? { ok: true, scope: flow.scope, name: flow.name, ...ask }
@@ -884,6 +891,7 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
       }
       if (!refreshToken) {
         markOAuthSignInNeeded(scope, server.name);
+        deps.onTokensChanged?.();
         return;
       }
       const result = await withTimeout(async (signal) => {
@@ -914,11 +922,13 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
           accessToken: token.accessToken,
           expiresAt: token.expiresAt,
         });
+        deps.onTokensChanged?.();
       });
       if (!result.ok) {
-        if (result.reason === "token_refused")
+        if (result.reason === "token_refused") {
           markOAuthSignInNeeded(scope, server.name);
-        else
+          deps.onTokensChanged?.();
+        } else
           console.warn(
             `[mcp] ${server.name}: the access token refresh failed (${result.reason}); it is tried again`,
           );

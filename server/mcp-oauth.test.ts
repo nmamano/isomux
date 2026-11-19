@@ -18,7 +18,12 @@ import {
 import { createMcpOAuth } from "./mcp-oauth.ts";
 import { oauthSecretNames } from "../shared/mcp-servers.ts";
 import { SECRET_MIN_VALUE_LENGTH } from "../shared/secret-hosts.ts";
-import { resetOAuthTokens } from "./mcp-oauth-tokens.ts";
+import {
+  listOAuthAccessTokens,
+  resetOAuthTokens,
+  setOAuthAccessToken,
+} from "./mcp-oauth-tokens.ts";
+import { setMcpOAuthPlaceholderProvider } from "./mcp-servers.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import type { RouteHandlerContext } from "./routes/executor.ts";
 import {
@@ -58,14 +63,18 @@ afterEach(() => {
 function setup(options: StubOptions = {}) {
   const rig = stubRig(options);
   const sources = createMcpServerSources(root);
+  // Every access-token change the flow announces (task 387a038c): the
+  // office wires this to the proxy's snapshot push.
+  const tokenChanges: number[] = [];
   const oauth = createMcpOAuth({
     servers: sources.servers,
     secrets: sources.secrets,
     fetch: rig.fetch,
     redirectUri: () => REDIRECT,
     now: () => clock,
+    onTokensChanged: () => tokenChanges.push(tokenChanges.length + 1),
   });
-  return { rig, sources, oauth };
+  return { rig, sources, oauth, tokenChanges };
 }
 
 function register(
@@ -365,6 +374,100 @@ describe("the refresh", () => {
     );
     expect(row.problem).toBe("sign_in_again");
     expect(logs.join("\n")).not.toContain(LEAK);
+  });
+});
+
+describe("the token a live session carries (task 387a038c)", () => {
+  it("announces every access-token change, so the proxy's snapshot follows", async () => {
+    const context = setup();
+    register(context.oauth);
+    expect(context.tokenChanges).toEqual([]);
+    await signIn(context);
+    expect(context.tokenChanges).toEqual([1]);
+    clock += 3600_000 - 60_000;
+    await context.oauth.refreshDue();
+    expect(context.tokenChanges).toEqual([1, 2]);
+    context.rig.refuseRefresh = true;
+    clock += 3600_000;
+    await context.oauth.refreshDue();
+    expect(context.tokenChanges).toEqual([1, 2, 3]);
+    expect(context.oauth.remove(member, "mail")).toBe(true);
+    expect(context.tokenChanges).toEqual([1, 2, 3, 4]);
+  });
+
+  it("gives every engine a fixed placeholder while a proxy listens, and the token itself while none does", async () => {
+    const context = setup();
+    register(context.oauth);
+    await signIn(context);
+    // No proxy: the header carries the token, as before this placeholder.
+    expect(mcpServersForUserId(context.sources, "u1")[0].headers).toEqual({
+      Authorization: `Bearer ${context.rig.access()}`,
+    });
+    const restore = setMcpOAuthPlaceholderProvider((scope, name, url) =>
+      scope.kind === "user" &&
+      scope.userId === "u1" &&
+      name === "mail" &&
+      url === MCP_URL
+        ? `${LEAK}placeholder-0001`
+        : null,
+    );
+    try {
+      const header = { Authorization: `Bearer ${LEAK}placeholder-0001` };
+      expect(mcpServersForUserId(context.sources, "u1")[0].headers).toEqual(
+        header,
+      );
+      const shapes = engineShapes(context.sources);
+      // Claude, Codex and OpenCode each carry the placeholder, and none
+      // carries the token - their config files never hold it either.
+      expect(shapes.split(`Bearer ${LEAK}placeholder-0001`).length - 1).toBe(3);
+      expect(shapes).not.toContain(context.rig.access());
+      // The renewal rotates the cached token; the header a live session
+      // holds stays the same placeholder.
+      const before = context.rig.access();
+      clock += 3600_000 - 60_000;
+      await context.oauth.refreshDue();
+      expect(context.rig.access()).not.toBe(before);
+      expect(mcpServersForUserId(context.sources, "u1")[0].headers).toEqual(
+        header,
+      );
+      expect(logs.join("\n")).not.toContain(LEAK);
+    } finally {
+      setMcpOAuthPlaceholderProvider(restore);
+    }
+  });
+
+  it("lists the live tokens with their scope, name and URL; an expired one is not live", () => {
+    const at = Date.now();
+    setOAuthAccessToken(
+      { kind: "office" },
+      "harness",
+      "https://mcp.harness.example/mcp",
+      { accessToken: `${LEAK}office-token`, expiresAt: at + 60_000 },
+    );
+    setOAuthAccessToken({ kind: "user", userId: "u9" }, "mail", MCP_URL, {
+      accessToken: `${LEAK}member-token`,
+      expiresAt: null,
+    });
+    setOAuthAccessToken(
+      { kind: "user", userId: "u9" },
+      "gone",
+      "https://gone.example.test/mcp",
+      { accessToken: `${LEAK}gone-token`, expiresAt: at - 1 },
+    );
+    expect(listOAuthAccessTokens(at)).toEqual([
+      {
+        scope: { kind: "office" },
+        name: "harness",
+        url: "https://mcp.harness.example/mcp",
+        accessToken: `${LEAK}office-token`,
+      },
+      {
+        scope: { kind: "user", userId: "u9" },
+        name: "mail",
+        url: MCP_URL,
+        accessToken: `${LEAK}member-token`,
+      },
+    ]);
   });
 });
 

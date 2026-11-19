@@ -33,10 +33,15 @@ import {
 } from "../user-env.ts";
 import {
   connectThrough,
+  exchange,
   proxyBasic,
   startCompanyProxy,
   startEchoStub,
+  startHttpsStub,
+  tlsThrough,
 } from "../test-support/secret-proxy-stubs.ts";
+import { ByteReader } from "./http1.ts";
+import type { CertificateAuthority } from "./x509.ts";
 import { STATE_PATH_VARIABLES } from "../safety-policy.ts";
 import { saveProxyPort, secretMaterialPaths } from "./material.ts";
 import {
@@ -1032,5 +1037,125 @@ describe("member OS users", () => {
     expect(runtime.caBundle()).toBe(onDisk);
     expect(bundles[0]).toContain("-----BEGIN CERTIFICATE-----");
     expect(bundles[0]).not.toContain("PRIVATE KEY");
+  });
+});
+
+// Task 387a038c: an OAuth MCP access token is in memory only, but a live
+// session's header must survive its renewal: the session holds a fixed
+// placeholder, the proxy's snapshot holds the current token, and a renewal
+// pushes a new snapshot to the child. No agent restarts and no environment
+// moves, as for the rotation of a stored secret's value.
+describe("an OAuth MCP access token", () => {
+  const MCP_HOST = "mcp.example-stub.test";
+  const MCP_URL = `https://${MCP_HOST}/mcp`;
+  const TOKEN_1 = "fake-oauth-access-live-0001";
+  const TOKEN_2 = "fake-oauth-access-live-0002";
+
+  test("the proxy swaps the fixed placeholder for the current token, across a renewal, restarting no agent", async () => {
+    const stub = await startHttpsStub([MCP_HOST]);
+    let tokens = [
+      { scope: AT_ALICE, name: "mail", url: MCP_URL, accessToken: TOKEN_1 },
+    ];
+    try {
+      await runtime.stop();
+      runtime = makeRuntime({
+        oauthAccess: () => tokens,
+        childEnv: {
+          PATH: process.env.PATH ?? "",
+          ISOMUX_TEST_PROXY_SEAMS: JSON.stringify({
+            standIns: { [`${MCP_HOST}:443`]: stub.port },
+            upstreamRoots: stub.ca.certPem,
+          }),
+        },
+      });
+      // Before the proxy runs there is no placeholder: the header would
+      // carry the token itself.
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toBeNull();
+      await runtime.enable();
+      add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+      await runtime.changed();
+
+      const placeholder = runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL);
+      expect(placeholder).toMatch(/^[A-Za-z0-9]{40}$/);
+      // Fixed: the same registration always gets the same placeholder, and
+      // another URL or registration gets none.
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toBe(
+        placeholder,
+      );
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "other", MCP_URL)).toBeNull();
+      expect(
+        runtime.oauthPlaceholderOf(
+          AT_ALICE,
+          "mail",
+          "https://x.example-stub.test/mcp",
+        ),
+      ).toBeNull();
+      expect(runtime.oauthPlaceholderOf(AT_BOB, "mail", MCP_URL)).toBeNull();
+
+      // The agent's request path: through the proxy to the listed host with
+      // the header a session baked in at its start.
+      const password = new URL(buildEnvForUserId(ALICE)!.HTTPS_PROXY!).password;
+      const ca = { certPem: runtime.caBundle()! } as CertificateAuthority;
+      const call = async () => {
+        const socket = await tlsThrough(
+          runtime.proxyPort!,
+          MCP_HOST,
+          ca,
+          MCP_HOST,
+          [proxyBasic(password)],
+        );
+        const reader = new ByteReader(socket);
+        const response = await exchange(
+          socket,
+          reader,
+          `GET /headers HTTP/1.1\r\nHost: ${MCP_HOST}\r\nAuthorization: Bearer ${placeholder}\r\nConnection: close\r\n\r\n`,
+        );
+        socket.destroy();
+        expect(response?.status).toBe(200);
+        const seen = stub.seen.at(-1)!;
+        return {
+          hostSaw:
+            seen.headers.find(
+              ([n]) => n.toLowerCase() === "authorization",
+            )?.[1] ?? "",
+          body: response?.body ?? "",
+        };
+      };
+
+      const first = await call();
+      expect(first.hostSaw).toBe(`Bearer ${TOKEN_1}`);
+      // The token never comes back to the agent: the host's echo is scrubbed.
+      expect(first.body).not.toContain(TOKEN_1);
+
+      // The renewal: a new token under the same placeholder, one push, and
+      // the same baked-in header resolves to the new token.
+      changes = [];
+      const revision = environmentSourceRevisionForUserId(ALICE);
+      const key = environmentSourceKeyForUserId(ALICE);
+      tokens = [{ ...tokens[0], accessToken: TOKEN_2 }];
+      expect(runtime.oauthPlaceholderOf(AT_ALICE, "mail", MCP_URL)).toBe(
+        placeholder,
+      );
+      runtime.oauthTokensChanged();
+      // The child applies the pushed snapshot asynchronously.
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const { hostSaw, body } = await call();
+        if (hostSaw === `Bearer ${TOKEN_2}`) {
+          expect(body).not.toContain(TOKEN_2);
+          break;
+        }
+        expect(hostSaw).toBe(`Bearer ${TOKEN_1}`);
+        if (Date.now() > deadline)
+          throw new Error("the child never applied the renewed snapshot");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // A renewal restarts no agent and moves no environment.
+      expect(changes).toEqual([]);
+      expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
+      expect(environmentSourceKeyForUserId(ALICE)).toBe(key);
+    } finally {
+      await stub.close();
+    }
   });
 });
